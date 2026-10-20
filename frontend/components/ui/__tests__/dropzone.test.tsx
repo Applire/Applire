@@ -1,12 +1,17 @@
 // Copyright (C) 2026 Tobias Rosenbaum
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 
 import de from "@/messages/de.json";
 import en from "@/messages/en.json";
 
-import { CV_UPLOAD_ACCEPT } from "../dropzone";
+import { CV_UPLOAD_ACCEPT, Dropzone } from "../dropzone";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string) => key,
+}));
 
 /**
  * Frontend collector #604 — "the upload dropzone advertises 'PDF, DOCX, DOC'
@@ -71,5 +76,56 @@ describe("CV upload accept list (#604)", () => {
     for (const token of ["PDF", "DOCX", "TXT", "MD", "ZIP"]) {
       expect(formats, `${token} not advertised`).toContain(token);
     }
+  });
+});
+
+
+describe("Dropzone on an instance that cannot read images (#789 L12)", () => {
+  it("offers images by default", () => {
+    render(<Dropzone onDrop={() => {}} />);
+    expect(screen.getByTestId("file-input").getAttribute("accept")).toContain(".jpg");
+    expect(screen.getByText("formatHint")).toBeInTheDocument();
+  });
+
+  it("drops images from the picker and swaps the hint when imageImport is false", () => {
+    render(<Dropzone onDrop={() => {}} accept={CV_UPLOAD_ACCEPT} imageImport={false} />);
+    const accept = screen.getByTestId("file-input").getAttribute("accept") ?? "";
+    for (const ext of [".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp"]) {
+      expect(accept.split(",")).not.toContain(ext);
+    }
+    expect(accept.split(",")).toContain(".pdf");
+    expect(screen.getByText("formatHintNoImage")).toBeInTheDocument();
+    expect(screen.queryByText("formatHint")).toBeNull();
+  });
+
+  it.each([
+    ["de", de],
+    ["en", en],
+  ])("the %s no-image hint names the document formats and the size, not images", (_l, catalog) => {
+    const hint = (
+      catalog as { dropzone: { formatHintNoImage: string } }
+    ).dropzone.formatHintNoImage.toUpperCase();
+    for (const token of ["PDF", "DOCX", "TXT", "MD", "10 MB"]) expect(hint).toContain(token);
+    expect(hint).not.toMatch(/JPG|PNG|BILD|IMAGE/);
+  });
+
+  it.each([
+    ["de", de],
+    ["en", en],
+  ])("the %s profile-import no-image blurb does the same", (_l, catalog) => {
+    const p = catalog as { profileImport: { formatsNoImage: string; formats: string } };
+    const text = p.profileImport.formatsNoImage.toUpperCase();
+    for (const token of ["PDF", "DOCX", "TXT", "MD", "ZIP", "10 MB"]) expect(text).toContain(token);
+    expect(text).not.toMatch(/JPG|PNG|BILD|IMAGE/);
+  });
+
+  it.each([
+    ["de", de],
+    ["en", en],
+  ])("the %s upload errors name the size limit and the missing OCR", (_l, catalog) => {
+    const proc = (catalog as { processing: { uploadTooLarge: string; uploadNoOcr: string } })
+      .processing;
+    expect(proc.uploadTooLarge).toContain("10 MB");
+    expect(proc.uploadNoOcr.length).toBeGreaterThan(20);
   });
 });

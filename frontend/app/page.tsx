@@ -34,6 +34,7 @@ import { AppSidebar } from "@/components/shell/AppSidebar";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { ShellUserProvider } from "@/components/shell/ShellUserContext";
 import { loginPathFor, useCurrentUser } from "@/lib/auth";
+import { useImportCapabilities } from "@/lib/import-capabilities";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -57,6 +58,9 @@ export default function Home() {
   // US330 (ADR-091): the first screen is for a signed-in person too.
   const { status: authStatus, authState } = useCurrentUser();
   const authReady = authStatus === "authenticated" || authStatus === "error";
+
+  // #789 L12 — only ask once signed in (this screen renders before the auth check settles).
+  const { imageImport } = useImportCapabilities(authReady);
 
   const hasFiles = files.length > 0;
   const canSubmit = hasFiles && !showOverlay;
@@ -170,6 +174,7 @@ export default function Home() {
                 data-testid="upload-area"
                 onDrop={(fileList) => addFiles(fileList)}
                 accept={CV_UPLOAD_ACCEPT}
+                imageImport={imageImport}
                 multiple
                 disabled={showOverlay}
               />

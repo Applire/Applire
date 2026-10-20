@@ -70,6 +70,8 @@
     "retry": "Erneut versuchen",
     "retrying": "Wird erneut versucht…",
     "uploadFailed": "Wir konnten diese Datei nicht lesen. Bitte versuche es erneut.",
+    "uploadTooLarge": "Diese Datei ist größer als 10 MB und konnte deshalb nicht gelesen werden. Bitte lade eine kleinere Datei hoch.",
+    "uploadNoOcr": "Diese Instanz kann keine Bilder oder eingescannten Dokumente lesen (keine Texterkennung eingerichtet). Bitte lade stattdessen ein PDF mit Text, eine DOCX- oder eine Textdatei hoch.",
     "stillWorking": "Arbeitet noch — das kann einen Moment dauern…",
     "stillWorkingElapsed": "Arbeitet noch — {seconds}s vergangen. Große Lebensläufe können einige Minuten dauern…",
     "genericError": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
@@ -1183,7 +1185,8 @@
     "dragDropHeading": "Lebensläufe hier ablegen",
     "clickToBrowse": "Datei auswählen",
     "orPrefix": "oder",
-    "formatHint": "PDF, DOCX, DOC, TXT, MD oder Bild (JPG/PNG) — bis 10 MB je Datei"
+    "formatHint": "PDF, DOCX, DOC, TXT, MD oder Bild (JPG/PNG) — bis 10 MB je Datei",
+    "formatHintNoImage": "PDF, DOCX, DOC, TXT oder MD — bis 10 MB je Datei"
   },
   "progressWidget": {
     "done": "fertig"
@@ -1263,9 +1266,11 @@
   "profileImport": {
     "title": "Profil aktualisieren",
     "subtitle": "Lebenslauf als PDF, DOCX, TXT, MD oder Bild — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
+    "subtitleNoImage": "Lebenslauf als PDF, DOCX, TXT oder MD — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "dropTitle": "Datei hier ablegen",
     "browse": "Datei auswählen",
     "formats": "PDF · DOCX · TXT · MD · Bild · ZIP (LinkedIn) bis 10 MB",
+    "formatsNoImage": "PDF · DOCX · TXT · MD · ZIP (LinkedIn) bis 10 MB",
     "linkedinCardTitle": "LinkedIn-Datenexport hochladen",
     "linkedinCardDesc": "Vollständiges Archiv (ZIP) aus den LinkedIn-Datenschutzeinstellungen — enthält strukturierte Profildaten für präzisere Extraktion.",
     "progressTitle": "Profil wird aktualisiert",
@@ -1600,6 +1605,8 @@
     "bodyDivergenceNoName": "Dieses Dokument enthält keinen Namen, und keiner seiner Arbeitgeber steht in deinem Profil unter „{accountName}“. Ist es deins – möchtest du es trotzdem übernehmen?",
     "bodyDivergenceNoNameNoAccount": "Dieses Dokument enthält keinen Namen, und keiner seiner Arbeitgeber steht in deinem Profil. Ist es deins – möchtest du es trotzdem übernehmen?",
     "bodyNotCv": "In diesem Dokument konnten wir keinen Lebenslauf erkennen. Möchtest du es trotzdem in dein Profil übernehmen?",
+    "titleReviewNotRun": "Dieser Import wurde nicht geprüft",
+    "bodyReviewNotRun": "Wir haben dein Dokument gelesen, aber die automatische Prüfung der übernommenen Daten konnte nicht laufen, deshalb wurde noch nichts in dein Profil übernommen. Übernimm es und sieh dir die importierten Einträge danach durch – oder verwirf es und versuche es erneut.",
     "mergeAnyway": "Trotzdem übernehmen",
     "discard": "Verwerfen",
     "cancel": "Abbrechen",

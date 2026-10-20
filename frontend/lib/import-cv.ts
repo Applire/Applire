@@ -63,7 +63,7 @@ export interface CVUploadResult {
   name_mismatch?: boolean;
   looks_like_cv?: boolean;
   undated_positions?: number;
-  gate?: "none" | "not_a_cv" | "name_divergence";
+  gate?: "none" | "not_a_cv" | "name_divergence" | "review_not_run";
   account_name?: string | null;
   cv_name?: string | null;
   staged_id?: string | null;
@@ -82,6 +82,20 @@ export class CVImportError extends Error {
     super(errorCode ?? "import_failed");
     this.name = "CVImportError";
   }
+}
+
+/**
+ * The `processing` catalog key that names an import failure to the user — never the
+ * raw backend text. `ocr_unavailable`: an image/scan on an instance without a runnable
+ * OCR backend (#789 L12). `file_too_large`: over the 10 MB cap (#789 L13).
+ */
+export function importErrorMessageKey(
+  code: string | null,
+): "uploadTooLarge" | "uploadNoOcr" | "uploadTryAgain" | "uploadFailed" {
+  if (code === "file_too_large") return "uploadTooLarge";
+  if (code === "ocr_unavailable") return "uploadNoOcr";
+  if (code === "llm_truncated" || code === "llm_timeout") return "uploadTryAgain";
+  return "uploadFailed";
 }
 
 interface StartOptions {
@@ -144,6 +158,9 @@ export async function startCvImport(file: File, opts: StartOptions = {}): Promis
     body: form,
     signal: opts.signal,
   });
+  // 413: the REST size cap (backend `file_too_large`) or the reverse proxy's own body
+  // limit — either way the file is too big, and the message should say so (#789 L13).
+  if (startRes.status === 413) throw new CVImportError("file_too_large");
   if (!startRes.ok) throw new CVImportError("import_failed");
   const { import_id: importId } = (await startRes.json()) as { import_id: string };
   return importId;
