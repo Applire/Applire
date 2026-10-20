@@ -1185,3 +1185,36 @@ async def test_seam_del3_every_denial_owed_still_reaches_the_loop_source(db, v2)
     k = drafting["source"].index('"stated_limits": {')
     entry = drafting["source"][k:drafting["source"].index('"instruction"', k)]
     assert _DEL3_OWED in entry and _DEL3_OTHER in entry
+
+
+# ── Hazelnut build 2 — 786:L136: a standard identifier the vault never states ──
+
+_ISO_PROFILE_JSON = copy.deepcopy(_PROFILE_JSON)
+_ISO_PROFILE_JSON["work_experience"][0]["achievements"].append(
+    "Interne Kontrollen nach ISO 27001 aufgebaut."
+)
+
+
+def _iso_body(sentence: str) -> list[str]:
+    return [_ENGLISH_BODY[0], _ENGLISH_BODY[1], _ENGLISH_BODY[2] + " " + sentence, _ENGLISH_BODY[3]]
+
+
+def test_identifier_typo_is_a_letter_finding():
+    letter = _compose(_draft(_iso_body("I built the internal controls under ISO 2701.")), "v2")
+    found = [f for f in _findings(letter, profile_json=_ISO_PROFILE_JSON) if f.family == "identifier"]
+    assert len(found) == 1
+    assert "“ISO 2701”" in found[0].text and "“ISO 27001”" in found[0].text
+
+
+def test_identifier_as_recorded_is_no_letter_finding():
+    letter = _compose(_draft(_iso_body("I built the internal controls under ISO 27001.")), "v2")
+    assert not [f for f in _findings(letter, profile_json=_ISO_PROFILE_JSON) if f.family == "identifier"]
+
+
+def test_v2_checks_fn_carries_an_identifier_finding_as_blocking():
+    from applire.services.cover_letter import _v2_checks_fn
+
+    fn = _v2_checks_fn(lambda d: d, profile_json=_ISO_PROFILE_JSON, keyword_ledger=None,
+                       denied_concepts=None, language="en")
+    found = [f for f in fn(_draft(_iso_body("I built the controls under ISO 2701."))) if f.check == "letter.identifier"]
+    assert len(found) == 1 and found[0].blocking

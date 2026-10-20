@@ -365,6 +365,74 @@ class V2CheckContext:
     measured: tuple[str, int, int] | None = None
 
 
+def unmentioned_identifiers(texts: Sequence[str], profile_json: dict | None) -> tuple[list[str], list[str]]:
+    """786:L136 (Hazelnut build 2): the standard/regulation identifiers ("ISO 4501",
+    "DIN EN 9100", "21 CFR") ``texts`` name whose digits the vault never states —
+    and, as the remedy's candidates, the identifiers the vault DOES state.
+
+    A FACT (ADR-062 cl. 1: token presence). One implementation (ADR-066): the
+    Oracle's #701 predicate ``audit._unmentioned_identifiers`` over the Oracle's own
+    vault index, so a draft this check passes is a draft the Oracle will not grade
+    ``unbacked`` for an identifier, and vice versa. Measured before the check (H,
+    build 1): 3 writer typos of the vault's "ISO 45001" in 1,219 documents, one
+    delivered — the Oracle reported them, nothing prevented them."""
+    if not isinstance(profile_json, dict):
+        return [], []
+    from applire.services.oracle.audit import _identifier_label, _unmentioned_identifiers
+    from applire.services.oracle.matchers.figures import _identifier_spans
+    from applire.services.oracle.matchers.vault import build_vault_index
+
+    try:
+        index = build_vault_index(profile_json)
+    except Exception:  # noqa: BLE001 — a detector failure loses its finding only
+        logger.exception("identifier check: vault index failed; finding skipped")
+        return [], []
+    named: list[str] = []
+    for text in texts:
+        if not isinstance(text, str) or not text.strip():
+            continue
+        for label in _unmentioned_identifiers(text, index):
+            if label not in named:
+                named.append(label)
+    if not named:
+        return [], []
+    stated: list[str] = []
+    for unit in index.units:
+        t = unit.text or ""
+        for a, b in _identifier_spans(t):
+            label = _identifier_label(t, a, b)
+            if label not in stated:
+                stated.append(label)
+    return named, stated
+
+
+def identifier_finding_text(named: Sequence[str], stated: Sequence[str]) -> str:
+    """The remedy for :func:`unmentioned_identifiers` — the same words for CV and letter."""
+    candidates = (
+        f" The profile states: {_fmt(stated)}." if stated else " The profile states no identifier."
+    )
+    return (
+        f"Names {_fmt(named)} — a standard or regulation identifier the candidate's profile "
+        "never states (computed by code)." + candidates + " Write each identifier exactly as "
+        "the profile states it, or leave it out; never shorten, re-number or invent one."
+    )
+
+
+def _cv_texts(composed: "TailoredCVData") -> list[str]:
+    """Every model-written text of a composed CV (summary, skills, bullets, projects)."""
+    texts: list[str] = [composed.summary or ""]
+    texts.extend(x for x in composed.skills if isinstance(x, str))
+    for w in composed.work_history:
+        texts.extend(w.bullets)
+        for p in w.projects:
+            texts.append(p.name)
+            texts.extend(p.bullets)
+    for p in composed.projects:
+        texts.append(p.name)
+        texts.extend(p.bullets)
+    return texts
+
+
 def canonical(d: Any) -> str:
     return json.dumps(d, sort_keys=True, default=str, ensure_ascii=False)
 
@@ -464,6 +532,16 @@ def v2_checks(
                 "Return these profile fields, by id, written in the document language: "
                 + "; ".join(parts)
             ),
+        ))
+
+    # 3b. 786:L136: a standard/regulation identifier the vault never states (a typo
+    #     of the vault's own "ISO 45001", or an invented one) — blocking: writing the
+    #     identifier as the profile states it is always right.
+    named, stated = unmentioned_identifiers(_cv_texts(composed), ctx.profile_json)
+    if named:
+        findings.append(CheckFinding(
+            check="cv.identifier_not_in_profile",
+            text=identifier_finding_text(named, stated),
         ))
 
     # 4b. C5 (ruling W1-1 r1, #234): a claimable concept the vault evidences is absent

@@ -2676,6 +2676,18 @@ def _letter_v2_findings(
             out.append(LetterFinding("names", m.text()))
     except Exception:  # pragma: no cover - a check never breaks generation
         logger.warning("letter v2: name findings failed", exc_info=True)
+    # 786:L136: a standard/regulation identifier the vault never states — the CV's
+    # check, one implementation (cv_v2.unmentioned_identifiers), BLOCKING.
+    from applire.services.cv_v2 import identifier_finding_text, unmentioned_identifiers
+
+    body = letter_data.get("body") if isinstance(letter_data, dict) else None
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    named, stated = unmentioned_identifiers(
+        [p for p in paragraphs if isinstance(p, str)] if isinstance(paragraphs, list) else [],
+        profile_json,
+    )
+    if named:
+        out.append(LetterFinding("identifier", identifier_finding_text(named, stated)))
     return out
 
 

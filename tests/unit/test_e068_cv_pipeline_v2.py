@@ -1501,3 +1501,60 @@ def test_a_dropped_cefr_code_is_a_change_too():
     tailored, _ = _compose(prose, vault)
     assert tailored.languages[1].level == "Learning (A2, B1 exam planned)"
     assert "A2" in _by_check(_checks(prose, vault))["cv.level_code_changed"].text
+
+
+# =============================================================================
+# Hazelnut build 2 — 786:L136: a standard identifier the vault never states
+# =============================================================================
+
+
+def _iso_vault() -> dict:
+    vault = _vault()
+    vault["work_experience"][0]["responsibilities"].append(
+        "Führte das Arbeitsschutzmanagement nach ISO 45001 ein."
+    )
+    return vault
+
+
+def test_identifier_typo_of_the_vaults_standard_is_a_blocking_finding():
+    """The H corpus shape (build 1): the writer wrote "ISO 4501" for the vault's
+    "ISO 45001". The Oracle grades it unbacked; v2 now hands it to the corrector."""
+    prose = _prose()
+    prose["work"][0]["bullets"].append("Führte das Arbeitsschutzmanagement nach ISO-4501 ein.")
+    found = _by_check(_checks(prose, _iso_vault()))
+    f = found["cv.identifier_not_in_profile"]
+    assert f.blocking
+    assert "“ISO-4501”" in f.text and "“ISO 45001”" in f.text
+
+
+@pytest.mark.parametrize("bullet", [
+    "Führte das Arbeitsschutzmanagement nach ISO 45001 ein.",   # as the vault states it
+    "Führte das Arbeitsschutzmanagement nach ISO-45001 ein.",   # same digits, other separator
+    "Leitete die Fertigung mit zwölf Mitarbeitenden.",           # no identifier at all
+])
+def test_identifier_the_vault_states_is_no_finding(bullet):
+    prose = _prose()
+    prose["work"][0]["bullets"].append(bullet)
+    assert "cv.identifier_not_in_profile" not in _by_check(_checks(prose, _iso_vault()))
+
+
+def test_identifier_in_the_summary_and_skills_is_checked_too():
+    prose = _prose()
+    prose["summary"] += " Zertifiziert nach DIN EN 9100."
+    prose["skills"].append("ISO 13485")
+    f = _by_check(_checks(prose, _iso_vault()))["cv.identifier_not_in_profile"]
+    assert "EN 9100" in f.text and "ISO 13485" in f.text
+
+
+def test_v2_terminal_reads_the_identifier_check_on_the_shipped_draft():
+    """Seam: ``V2Terminal.delivered_findings`` (the ship-and-report half) evaluates
+    the same check on the shipped draft, so an exhausted loop still reports it."""
+    from applire.services.cv_v2 import V2Terminal
+
+    prose = _prose()
+    prose["work"][0]["bullets"].append("Zertifizierte die Linie nach ISO 4501.")
+    vault = _iso_vault()
+    term = V2Terminal(ctx=_ctx(profile_json=vault))
+    tailored, _notes = _compose(prose, vault)
+    found = [f.check for f in term.delivered_findings(prose, tailored.model_dump())]
+    assert "cv.identifier_not_in_profile" in found
