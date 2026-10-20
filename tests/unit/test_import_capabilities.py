@@ -123,18 +123,3 @@ async def test_capabilities_endpoint_reports_a_boolean_and_never_the_key(client,
     r = await client.get("/api/profile/import-capabilities")
     assert r.json() == {"image_import": True}
     assert SECRET not in r.text
-
-
-@pytest.mark.asyncio
-async def test_sync_upload_names_the_cause_when_ocr_is_unavailable(client):
-    with patch(
-        "applire.routers.profile.upload_cv",
-        new=AsyncMock(side_effect=OCRUnavailableError("MISTRAL_API_KEY is not set")),
-    ):
-        r = await client.post(
-            "/api/profile/upload", files={"file": ("scan.png", b"\x89PNG", "image/png")}
-        )
-    assert r.status_code == 422
-    detail = r.json()["detail"]
-    assert detail["error"] == "ocr_unavailable"
-    assert "MISTRAL_API_KEY" not in r.text  # the cause is named by code, not by env detail

@@ -124,6 +124,26 @@ def _looks_like_pdf(filename: str, content_type: str) -> bool:
     return filename.lower().endswith(".pdf") or content_type == "application/pdf"
 
 
+def _looks_like_json(filename: str, content_type: str) -> bool:
+    """A LinkedIn JSON export (ruling V-4 = A: the retired ``POST /import`` took it as
+    a ``linkedin_json`` form field; the async job takes it as a ``.json`` file with
+    ``?source=linkedin``)."""
+    return filename.lower().endswith(".json") or content_type == "application/json"
+
+
+async def _import_from_linkedin_json_bytes(file_bytes: bytes, db, provider, *, storage, filename, user_id):
+    """The JSON export's adapter: parse, then the existing ``import_from_linkedin``.
+    Invalid JSON raises ``JSONDecodeError`` → ``invalid_document``."""
+    from applire.services import profile as profile_service
+
+    parsed = json.loads(file_bytes.decode("utf-8"))
+    if not isinstance(parsed, dict):
+        raise ValueError("a LinkedIn JSON export must be an object")
+    return await profile_service.import_from_linkedin(
+        parsed, db, provider, storage=storage, filename=filename, user_id=user_id
+    )
+
+
 def _as_cv_upload_response(result: object) -> CVUploadResponse:
     """Adapt a LinkedIn door's return to the job's one result shape.
 
@@ -157,6 +177,7 @@ def _as_cv_upload_response(result: object) -> CVUploadResponse:
         not_applied=result.not_applied,
         not_applied_loss_count=result.not_applied_loss_count,
         matched=result.matched,
+        extraction_review=getattr(result, "extraction_review", None),  # 783:L41
     )
 
 
@@ -260,6 +281,8 @@ async def run_import_job_background(
         adapter: Callable | None = profile_service.import_from_linkedin_zip
     elif source == LINKEDIN_SOURCE and _looks_like_pdf(filename, content_type):
         adapter = profile_service.import_from_linkedin_pdf
+    elif source == LINKEDIN_SOURCE and _looks_like_json(filename, content_type):
+        adapter = _import_from_linkedin_json_bytes
     else:
         adapter = None
 

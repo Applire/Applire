@@ -3,7 +3,6 @@ Iteration 3 — Gap Analysis
 Done when: POST /api/job/{job_id}/gaps returns a gap report with a realistic
            match score and specific, actionable gaps.
 """
-import json
 from pathlib import Path
 
 import pytest
@@ -26,7 +25,7 @@ def _post_analyze(api: str) -> dict:
     return r.json()
 
 
-def _import_profile(api: str) -> dict:
+def _import_profile(api: str, import_job) -> dict:
     linkedin_json = {
         "firstName": "Max",
         "lastName": "Mustermann",
@@ -63,13 +62,7 @@ def _import_profile(api: str) -> dict:
             {"language": {"name": "English"}, "proficiency": "PROFESSIONAL_WORKING"},
         ],
     }
-    r = requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": json.dumps(linkedin_json)},
-        timeout=90,
-    )
-    assert r.status_code == 200, f"Profile import failed: {r.text}"
-    return r.json()
+    return import_job.linkedin_json(api, linkedin_json)
 
 
 def _post_gaps(api: str, job_id: str) -> requests.Response:
@@ -87,8 +80,8 @@ def job_id(api):
 
 
 @pytest.fixture(scope="module")
-def gap_body(api, job_id):
-    _import_profile(api)
+def gap_body(api, job_id, import_job):
+    _import_profile(api, import_job)
     r = _post_gaps(api, job_id)
     assert r.status_code == 200, f"Gap analysis failed: {r.text}"
     return r.json()
@@ -99,8 +92,8 @@ def gap_body(api, job_id):
 # ---------------------------------------------------------------------------
 
 
-def test_gaps_returns_200(api, job_id):
-    _import_profile(api)
+def test_gaps_returns_200(api, job_id, import_job):
+    _import_profile(api, import_job)
     r = _post_gaps(api, job_id)
     assert r.status_code == 200, r.text
 

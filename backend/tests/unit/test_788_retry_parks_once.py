@@ -53,6 +53,19 @@ from tests.support.owners import HARNESS_USER_ID
 from tests.support.posting_links import link_posting
 from tests.support.profile_factory import make_master_profile
 
+
+
+@pytest.fixture(autouse=True)
+def _act_as_the_harness_user():
+    """Every call here acts for the harness user, as a request does for its user
+    (ADR-092 cl. 8) — explicit, so a context another module left set cannot
+    leak in when the files run in one process."""
+    from applire.ownership import owner_context
+
+    with owner_context(HARNESS_USER_ID):
+        yield
+
+
 _QUESTION = "Is 'K8s admin' the same as your existing 'Kubernetes' skill?"
 _OPTIONS = ["merge", "add_separate"]
 

@@ -35,16 +35,9 @@ def job_id(api):
 
 
 @pytest.fixture(scope="module")
-def uploaded_profile(api):
-    """Upload the canonical CV and return the upload response."""
-    with open(CV_FILE, "rb") as f:
-        r = requests.post(
-            f"{api}/api/profile/upload",
-            files={"file": ("Profile.pdf", f, "application/pdf")},
-            timeout=60,
-        )
-    assert r.status_code == 200, f"CV upload failed: {r.text}"
-    return r.json()
+def uploaded_profile(api, import_job):
+    """Import the canonical CV through the async import job; return the ready result."""
+    return import_job.result(api, "Profile.pdf", CV_FILE.read_bytes(), "application/pdf")
 
 
 @pytest.fixture(scope="module")

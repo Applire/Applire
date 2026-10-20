@@ -7,7 +7,7 @@ Done when:
     no "Berufserfahrung"-only headings; "Experience" is present).
   - POST /api/cv/generate without a template field defaults to "classic_german"
     (regression: existing HTML still contains "Berufserfahrung").
-  - POST /api/profile/import with a LinkedIn export ZIP
+  - POST /api/profile/import-jobs with a LinkedIn export ZIP (async; poll the job)
     → GET /api/profile returns a populated MasterProfile (completeness > 0,
     work_history non-empty, contact.name non-empty).
 
@@ -122,14 +122,9 @@ def _post_analyze(api: str) -> dict:
     return r.json()
 
 
-def _import_profile_json(api: str) -> dict:
-    r = requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": json.dumps(_LINKEDIN)},
-        timeout=90,
-    )
-    assert r.status_code == 200, f"Profile import failed: {r.text}"
-    return r.json()
+def _import_profile_json(api: str, import_job) -> dict:
+    """Import the LinkedIn JSON fixture through the async import job (ready result)."""
+    return import_job.linkedin_json(api, _LINKEDIN)
 
 
 def _run_gap_analysis(api: str, job_id: str) -> None:
@@ -171,8 +166,8 @@ def job_id(api):
 
 
 @pytest.fixture(scope="module")
-def classic_cv(api, job_id):
-    _import_profile_json(api)
+def classic_cv(api, job_id, import_job):
+    _import_profile_json(api, import_job)
     _run_gap_analysis(api, job_id)
     r = _post_generate(api, job_id, template="classic_german")
     assert r.status_code == 201, f"Classic CV generation failed: {r.text}"
@@ -180,8 +175,8 @@ def classic_cv(api, job_id):
 
 
 @pytest.fixture(scope="module")
-def modern_cv(api, job_id):
-    _import_profile_json(api)
+def modern_cv(api, job_id, import_job):
+    _import_profile_json(api, import_job)
     _run_gap_analysis(api, job_id)
     r = _post_generate(api, job_id, template="modern_swiss")
     assert r.status_code == 201, f"Modern Swiss CV generation failed: {r.text}"
@@ -210,7 +205,7 @@ def modern_html(api, modern_cv):
 
 
 def test_modern_swiss_generate_returns_201(api, job_id):
-    _import_profile_json(api)
+    _import_profile_json(api, import_job)
     _run_gap_analysis(api, job_id)
     r = _post_generate(api, job_id, template="modern_swiss")
     assert r.status_code == 201, r.text
@@ -272,7 +267,7 @@ def test_modern_swiss_unknown_cv_returns_404(api):
 
 
 def test_classic_german_generate_returns_201(api, job_id):
-    _import_profile_json(api)
+    _import_profile_json(api, import_job)
     _run_gap_analysis(api, job_id)
     r = _post_generate(api, job_id, template="classic_german")
     assert r.status_code == 201, r.text
@@ -291,7 +286,7 @@ def test_classic_german_html_contains_kenntnisse(classic_html):
 
 def test_default_template_is_classic_german(api, job_id):
     """Omitting 'template' must default to classic_german (Berufserfahrung present)."""
-    _import_profile_json(api)
+    _import_profile_json(api, import_job)
     _run_gap_analysis(api, job_id)
     r = _post_generate(api, job_id)  # no template param
     assert r.status_code == 201, r.text
@@ -312,83 +307,53 @@ def test_invalid_template_value_returns_422(api, job_id):
 
 
 # ---------------------------------------------------------------------------
-# Tests: LinkedIn ZIP import — POST /api/profile/import
+# Tests: LinkedIn ZIP import — POST /api/profile/import-jobs (auto-detected ZIP)
 # ---------------------------------------------------------------------------
 
 
-def test_linkedin_zip_import_returns_200(api):
-    zip_bytes = _build_linkedin_zip()
-    r = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("linkedin_export.zip", zip_bytes, "application/zip")},
-        timeout=90,
-    )
-    assert r.status_code == 200, r.text
+def _import_zip(import_job, api: str) -> dict:
+    return import_job.result(api, "linkedin_export.zip", _build_linkedin_zip(), "application/zip")
 
 
-def test_linkedin_zip_import_returns_profile_response(api):
-    zip_bytes = _build_linkedin_zip()
-    r = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("linkedin_export.zip", zip_bytes, "application/zip")},
-        timeout=90,
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert isinstance(body.get("id"), str) and len(body["id"]) == 36
-    assert isinstance(body.get("completeness"), float)
-    assert body["completeness"] > 0
+def test_linkedin_zip_import_returns_200(api, import_job):
+    """The import job for a LinkedIn ZIP settles ``ready``."""
+    poll = import_job.run(api, "linkedin_export.zip", _build_linkedin_zip(), "application/zip")
+    assert poll.status_code == 200, poll.text
+    assert poll.json()["status"] == "ready", poll.text
 
 
-def test_linkedin_zip_profile_has_contact_name(api):
-    zip_bytes = _build_linkedin_zip()
-    r = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("linkedin_export.zip", zip_bytes, "application/zip")},
-        timeout=90,
-    )
-    assert r.status_code == 200, r.text
-    profile = r.json()["profile"]
+def test_linkedin_zip_import_returns_profile_response(api, import_job):
+    body = _import_zip(import_job, api)
+    assert isinstance(body.get("profile_id"), str) and len(body["profile_id"]) == 36
+    assert isinstance(body.get("completeness_score"), float)
+    assert body["completeness_score"] > 0
+
+
+def test_linkedin_zip_profile_has_contact_name(api, import_job):
+    _import_zip(import_job, api)
+    profile = requests.get(f"{api}/api/profile", timeout=10).json()["profile"]
     assert profile["personal_info"]["name"], "personal_info.name must be non-empty after ZIP import"
 
 
-def test_linkedin_zip_profile_has_work_history(api):
-    zip_bytes = _build_linkedin_zip()
-    r = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("linkedin_export.zip", zip_bytes, "application/zip")},
-        timeout=90,
-    )
-    assert r.status_code == 200, r.text
-    work = r.json()["profile"]["work_experience"]
+def test_linkedin_zip_profile_has_work_history(api, import_job):
+    _import_zip(import_job, api)
+    work = requests.get(f"{api}/api/profile", timeout=10).json()["profile"]["work_experience"]
     assert isinstance(work, list) and len(work) > 0, (
         "work_experience must be non-empty after LinkedIn ZIP import"
     )
 
 
-def test_linkedin_zip_profile_has_skills(api):
-    zip_bytes = _build_linkedin_zip()
-    r = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("linkedin_export.zip", zip_bytes, "application/zip")},
-        timeout=90,
-    )
-    assert r.status_code == 200, r.text
-    skills = r.json()["profile"]["skills"]
+def test_linkedin_zip_profile_has_skills(api, import_job):
+    _import_zip(import_job, api)
+    skills = requests.get(f"{api}/api/profile", timeout=10).json()["profile"]["skills"]
     assert isinstance(skills, list) and len(skills) > 0, (
         "skills must be non-empty after LinkedIn ZIP import"
     )
 
 
-def test_linkedin_zip_get_profile_after_import(api):
+def test_linkedin_zip_get_profile_after_import(api, import_job):
     """GET /api/profile after ZIP import must return the imported data."""
-    zip_bytes = _build_linkedin_zip()
-    r_import = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("linkedin_export.zip", zip_bytes, "application/zip")},
-        timeout=90,
-    )
-    assert r_import.status_code == 200, r_import.text
+    _import_zip(import_job, api)
 
     r_get = requests.get(f"{api}/api/profile", timeout=10)
     assert r_get.status_code == 200, r_get.text
@@ -396,18 +361,28 @@ def test_linkedin_zip_get_profile_after_import(api):
     assert body["profile"]["personal_info"]["name"], "GET /api/profile personal_info.name must be set"
 
 
-def test_linkedin_zip_invalid_file_returns_422(api):
-    """A non-ZIP file uploaded with a .zip name must return 422."""
+def test_linkedin_zip_invalid_file_fails_the_job(api, import_job):
+    """A non-ZIP file with a .zip name settles the import job as ``failed``."""
+    poll = import_job.run(api, "data.zip", b"this is not a zip", "application/zip")
+    body = poll.json()
+    assert body["status"] == "failed", body
+    assert body["error_code"], body
+
+
+@pytest.mark.parametrize("path", ["/api/profile/import", "/api/profile/upload"])
+def test_retired_sync_import_doors_answer_410(api, path):
+    """The sync doors were retired (V-4 = A): 410 Gone, pointing at the job door."""
     r = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("data.zip", b"this is not a zip", "application/zip")},
-        timeout=10,
+        f"{api}{path}",
+        files={"file": ("linkedin_export.zip", _build_linkedin_zip(), "application/zip")},
+        timeout=30,
     )
-    assert r.status_code == 422
+    assert r.status_code == 410
+    assert r.json()["use"] == "/api/profile/import-jobs"
 
 
 # ---------------------------------------------------------------------------
-# Tests: LinkedIn PDF import — POST /api/profile/import
+# Tests: LinkedIn PDF import — POST /api/profile/import-jobs?source=linkedin
 # ---------------------------------------------------------------------------
 
 
@@ -475,67 +450,46 @@ def _build_linkedin_pdf() -> bytes:
     return b"".join(parts)
 
 
-def test_linkedin_pdf_import_returns_200(api):
-    pdf_bytes = _build_linkedin_pdf()
-    r = requests.post(
-        f"{api}/api/profile/upload",
-        files={"file": ("linkedin_profile.pdf", pdf_bytes, "application/pdf")},
-        timeout=90,
+def _import_pdf(import_job, api: str, filename: str = "linkedin_profile.pdf") -> dict:
+    return import_job.result(
+        api, filename, _build_linkedin_pdf(), "application/pdf", source="linkedin"
     )
-    assert r.status_code == 200, r.text
 
 
-def test_linkedin_pdf_import_returns_profile_response(api):
-    pdf_bytes = _build_linkedin_pdf()
-    r = requests.post(
-        f"{api}/api/profile/upload",
-        files={"file": ("linkedin_profile.pdf", pdf_bytes, "application/pdf")},
-        timeout=90,
+def test_linkedin_pdf_import_returns_200(api, import_job):
+    poll = import_job.run(
+        api, "linkedin_profile.pdf", _build_linkedin_pdf(), "application/pdf", source="linkedin"
     )
-    assert r.status_code == 200, r.text
-    body = r.json()
+    assert poll.status_code == 200, poll.text
+    assert poll.json()["status"] == "ready", poll.text
+
+
+def test_linkedin_pdf_import_returns_profile_response(api, import_job):
+    body = _import_pdf(import_job, api)
     assert isinstance(body.get("profile_id"), str) and len(body["profile_id"]) == 36
     assert isinstance(body.get("completeness_score"), float)
     assert body["completeness_score"] > 0
 
 
-def test_linkedin_pdf_profile_has_work_history(api):
-    pdf_bytes = _build_linkedin_pdf()
-    r = requests.post(
-        f"{api}/api/profile/upload",
-        files={"file": ("linkedin_profile.pdf", pdf_bytes, "application/pdf")},
-        timeout=90,
-    )
-    assert r.status_code == 200, r.text
+def test_linkedin_pdf_profile_has_work_history(api, import_job):
+    _import_pdf(import_job, api)
     work = requests.get(f"{api}/api/profile", timeout=10).json()["profile"]["work_experience"]
     assert isinstance(work, list) and len(work) > 0, (
         "work_experience must be non-empty after LinkedIn PDF upload"
     )
 
 
-def test_linkedin_pdf_profile_has_contact_name(api):
-    pdf_bytes = _build_linkedin_pdf()
-    r = requests.post(
-        f"{api}/api/profile/upload",
-        files={"file": ("linkedin_profile.pdf", pdf_bytes, "application/pdf")},
-        timeout=90,
-    )
-    assert r.status_code == 200, r.text
+def test_linkedin_pdf_profile_has_contact_name(api, import_job):
+    _import_pdf(import_job, api)
     profile = requests.get(f"{api}/api/profile", timeout=10).json()["profile"]
     assert profile["personal_info"]["name"], (
         "personal_info.name must be non-empty after LinkedIn PDF upload"
     )
 
 
-def test_linkedin_pdf_get_profile_after_import(api):
+def test_linkedin_pdf_get_profile_after_import(api, import_job):
     """GET /api/profile after PDF upload must return the imported data."""
-    pdf_bytes = _build_linkedin_pdf()
-    r_import = requests.post(
-        f"{api}/api/profile/upload",
-        files={"file": ("linkedin_profile.pdf", pdf_bytes, "application/pdf")},
-        timeout=90,
-    )
-    assert r_import.status_code == 200, r_import.text
+    _import_pdf(import_job, api)
 
     r_get = requests.get(f"{api}/api/profile", timeout=10)
     assert r_get.status_code == 200, r_get.text
@@ -544,22 +498,17 @@ def test_linkedin_pdf_get_profile_after_import(api):
     )
 
 
-def test_linkedin_pdf_invalid_file_returns_422(api):
-    """Non-PDF bytes uploaded with a .pdf name must return 422."""
-    r = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("profile.pdf", b"this is not a pdf", "application/pdf")},
-        timeout=10,
+def test_linkedin_pdf_invalid_file_fails_the_job(api, import_job):
+    """Non-PDF bytes with a .pdf name settle the import job as ``failed``."""
+    poll = import_job.run(
+        api, "profile.pdf", b"this is not a pdf", "application/pdf", source="linkedin"
     )
-    assert r.status_code == 422
+    body = poll.json()
+    assert body["status"] == "failed", body
+    assert body["error_code"], body
 
 
-def test_linkedin_pdf_detection_by_content_type(api):
+def test_linkedin_pdf_detection_by_content_type(api, import_job):
     """PDF upload without .pdf extension but with application/pdf content-type must be accepted."""
-    pdf_bytes = _build_linkedin_pdf()
-    r = requests.post(
-        f"{api}/api/profile/upload",
-        files={"file": ("linkedin_export", pdf_bytes, "application/pdf")},
-        timeout=90,
-    )
-    assert r.status_code == 200, r.text
+    body = _import_pdf(import_job, api, filename="linkedin_export")
+    assert body.get("profile_id")

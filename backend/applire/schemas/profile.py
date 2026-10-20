@@ -1574,7 +1574,9 @@ ImportMergeStatus = Literal["applied", "partial"]
 
 
 class ProfileImportResponse(MasterProfileResponse):
-    """`POST /api/profile/import` (LinkedIn/XING/text) response — #615.
+    """LinkedIn/XING/text import read model — #615 (returned by the import service;
+    the async job maps it onto ``CVUploadResponse``; the sync ``POST /api/profile/import``
+    that served it is retired, ruling V-4 = A).
 
     A SEPARATE subclass, not a field added to :class:`MasterProfileResponse`
     itself: that class is also `GET /api/profile` (a plain read, no merge in
@@ -1641,7 +1643,8 @@ class ConflictSummary(BaseModel):
 
 
 class CVUploadResponse(BaseModel):
-    """Response for POST /api/profile/upload (ADR 014).
+    """Result of an import job (``GET /api/profile/import-jobs/{id}`` → ``result``;
+    the retired sync ``POST /api/profile/upload`` returned it directly) (ADR 014).
 
     Distinct from MasterProfileResponse — provides upload-specific feedback:
     transient DRAFT/COMPLETE status, GDPR expiry, and traceability back to

@@ -418,13 +418,13 @@ async def test_import_cv_tool_reports_a_hold_additively_and_without_names(
     assert summary["merged"] is True and summary["gated"] is False
 
 
-# ── 7. The LinkedIn/XING REST door's response, at the router tier ─────────────
+# ── 7. The retired synchronous REST doors (ruling V-4 = A) ──────────────────
 #
-# The third door answers TWO shapes now, so `response_model` is a union and the
-# serialisation of each branch is worth pinning: a union that silently coerces a
-# held import into the merged model would drop `staged_id` and the UI would
-# report a success. `ProfileImportView.tsx` posts here and branches on
-# `data.status === "GATED"`.
+# `POST /api/profile/upload` and `POST /api/profile/import` stay registered and
+# answer 410 Gone with a pointer to the async import job, which now carries the
+# LinkedIn export too (its GATED pass-through and merged mapping are pinned in
+# `tests/unit/test_import_jobs.py::test_zip_job_*`). A retired door must never
+# run an ingest: the service functions are patched to explode if reached.
 
 
 @pytest_asyncio.fixture
@@ -454,77 +454,24 @@ async def import_client():
 
 
 @pytest.mark.asyncio
-async def test_linkedin_import_route_serialises_a_hold_as_gated(import_client):
-    from datetime import datetime, timezone
-
-    from applire.schemas.profile import CVUploadResponse
-
-    staged = uuid.uuid4()
-    held = CVUploadResponse(
-        profile_id=None,
-        status="GATED",
-        completeness_score=0.0,
-        expires_at=datetime.now(timezone.utc),
-        looks_like_cv=True,
-        name_mismatch=True,
-        gate="name_divergence",
-        account_name="Marcus Schmidt",
-        cv_name="Anna Bauer",
-        staged_id=staged,
-    )
-    with patch(
-        "applire.routers.profile.import_from_linkedin_zip",
-        new=AsyncMock(return_value=held),
+@pytest.mark.parametrize(
+    "path, files",
+    [
+        ("/api/profile/upload", {"file": ("cv.pdf", b"%PDF-1.4", "application/pdf")}),
+        ("/api/profile/import", {"file": ("export.zip", b"PK fake", "application/zip")}),
+        ("/api/profile/import", None),
+    ],
+)
+async def test_a_retired_sync_door_answers_410_and_runs_no_ingest(import_client, path, files):
+    boom = AsyncMock(side_effect=AssertionError("a retired door ran an ingest"))
+    with patch("applire.services.profile.upload_cv", new=boom), patch(
+        "applire.services.profile.import_from_linkedin_zip", new=boom
     ):
-        resp = await import_client.post(
-            "/api/profile/import",
-            files={"file": ("export.zip", b"PK fake", "application/zip")},
+        resp = await import_client.post(path, files=files) if files else await import_client.post(
+            path, data={"linkedin_json": "{}"}
         )
-
-    assert resp.status_code == 200
+    assert resp.status_code == 410
     body = resp.json()
-    assert body["status"] == "GATED", f"the hold was coerced away: {body}"
-    assert body["gate"] == "name_divergence"
-    assert body["staged_id"] == str(staged)
-    assert body["account_name"] == "Marcus Schmidt"
-
-
-@pytest.mark.asyncio
-async def test_linkedin_import_route_still_serialises_a_merge(import_client):
-    from datetime import datetime, timezone
-
-    from applire.schemas.profile import (
-        MasterProfileData,
-        ProfileImportResponse,
-        ProfileStats,
-    )
-
-    profile = MasterProfileData.model_validate({"personal_info": {"name": "Marcus Schmidt"}})
-    merged = ProfileImportResponse(
-        id=uuid.uuid4(),
-        profile=profile,
-        completeness=0.42,
-        stats=ProfileStats(),
-        merge_conflicts=[],
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-        merge_status="applied",
-        not_applied=[],
-        completeness_score=0.42,
-    )
-    with patch(
-        "applire.routers.profile.import_from_linkedin_zip",
-        new=AsyncMock(return_value=merged),
-    ):
-        resp = await import_client.post(
-            "/api/profile/import",
-            files={"file": ("export.zip", b"PK fake", "application/zip")},
-        )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body.get("status") is None, "a merged import is not a gated one"
-    assert body["merge_status"] == "applied"
-    # The name the caller reads (ruling V-2) — and the one it always had.
-    assert body["completeness_score"] == 0.42
-    assert body["completeness"] == 0.42
+    assert body["error"] == "endpoint_retired"
+    assert body["use"] == "/api/profile/import-jobs"
+    boom.assert_not_called()
