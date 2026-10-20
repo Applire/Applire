@@ -56,6 +56,9 @@ _LOSS = {
     "no_write",
     "confirmation_held",
     "confirmation_unresolvable",
+    # ADR-063 amended 2026-10-20 (783:L7/L60) — an op's target named no
+    # entity, so its content was written nowhere: loss by the F-7 definition.
+    "target_unresolved",
 }
 _NOT_LOSS = {
     "no_op_carried_entry",

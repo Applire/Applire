@@ -915,6 +915,12 @@ class ImportNotApplied(BaseModel):
     #: makes the loss diagnosable from the receipt alone. All three are FACTS
     #: (ADR-062 clause 1): which option key was answered, how many entries carry
     #: the anchor's name, whether a slot was empty.
+    #: ``target_unresolved`` (ADR-063 amended 2026-10-20, 783:L7/L60): an
+    #: ``add_bullets`` or ``set_field`` op named a ``target`` handle no entity
+    #: carries (a mistyped or invented id), so its content was written nowhere.
+    #: ``section`` is ``None`` — the target is unknown — and ``label`` carries the
+    #: op type plus its first incoming text, truncated. A FACT: the handle
+    #: resolved to nothing.
     reason: Literal[
         "no_op_carried_entry",
         "op_rejected",
@@ -926,6 +932,7 @@ class ImportNotApplied(BaseModel):
         "confirmation_held",
         "confirmation_unresolvable",
         "confirmation_already_present",
+        "target_unresolved",
     ]
 
 
@@ -937,14 +944,17 @@ class ImportNotApplied(BaseModel):
 #: bug") read as `partial`, and `mcp/AGENT_GUIDE.md` then told the agent to
 #: report a false loss to the candidate.
 #:
-#: Only these five reasons are evidence that incoming content did NOT reach
+#: Only these six reasons are evidence that incoming content did NOT reach
 #: the vault: ``op_rejected`` (a raw op failed schema validation before it
 #: could carry anything), ``summary_populated`` (the incoming summary text
 #: was dropped rather than disputed), ``no_write`` (the candidate stated
 #: something and the turn produced no vault write at all),
 #: ``confirmation_held`` (the content is parked pending one more question —
-#: not yet written) and ``confirmation_unresolvable`` (the named entry is
-#: gone, or the slot it would fill was already taken by someone else).
+#: not yet written), ``confirmation_unresolvable`` (the named entry is
+#: gone, or the slot it would fill was already taken by someone else) and
+#: ``target_unresolved`` (ADR-063 amended 2026-10-20, 783:L7/L60: an
+#: ``add_bullets`` / ``set_field`` op named a handle no entity carries, so its
+#: content was not written anywhere).
 #:
 #: The other five reasons name entries that are NOT missing:
 #: ``no_op_carried_entry`` is the documented false-positive shape;
@@ -964,6 +974,7 @@ LOSS_REASONS: frozenset[str] = frozenset(
         "no_write",
         "confirmation_held",
         "confirmation_unresolvable",
+        "target_unresolved",
     }
 )
 

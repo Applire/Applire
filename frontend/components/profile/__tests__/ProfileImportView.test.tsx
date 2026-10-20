@@ -134,24 +134,60 @@ describe("ProfileImportView", () => {
     await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1));
   });
 
-  it("routes a ZIP file to /api/profile/import", async () => {
-    const importResponse = { completeness_score: 0.0 };
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(importResponse) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });
+  it("routes a ZIP file through the async import-jobs door, never the sync /api/profile/import (#789 L31)", async () => {
+    global.fetch = importJobsMock(READY({ completeness_score: 0.7, status: "COMPLETE" }));
 
     render(<ProfileImportView />);
 
-    const input = screen.getByTestId("main-file-input");
     const file = new File(["content"], "linkedin_export.zip", { type: "application/zip" });
-    fireEvent.change(input, { target: { files: [file] } });
+    fireEvent.change(screen.getByTestId("main-file-input"), { target: { files: [file] } });
 
-    await waitFor(() => {
-      const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const importCall = calls.find((c) => (c[0] as string).includes("/api/profile/import"));
-      expect(importCall).toBeDefined();
+    await waitFor(() => expect(screen.getByTestId("upload-success-strip")).toBeInTheDocument());
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit?][];
+    const post = calls.find(([u, init]) => u.includes("/api/profile/import-jobs") && init?.method === "POST");
+    expect(post).toBeDefined();
+    expect(post![0]).toContain("source=linkedin");
+    expect((post![1]!.body as FormData).get("file")).toBe(file);
+    // The synchronous door (300 s proxy cut) is no longer used by this view.
+    expect(calls.some(([u]) => /\/api\/profile\/import(\?|$)/.test(u))).toBe(false);
+  });
+
+  it("names the LinkedIn import step (not the CV-merge step) while the ZIP job polls (#789 L31)", async () => {
+    let polls = 0;
+    global.fetch = importJobsMock(() => {
+      polls += 1;
+      return { status: "processing", error_code: null, result: null };
     });
+
+    render(<ProfileImportView />);
+    fireEvent.change(screen.getByTestId("main-file-input"), {
+      target: { files: [new File(["c"], "export.zip", { type: "application/zip" })] },
+    });
+
+    await waitFor(() => expect(polls).toBeGreaterThan(0));
+    const progress = screen.getByTestId("import-progress");
+    expect(progress).toHaveTextContent("stepUploading");
+    expect(progress).toHaveTextContent("stepImporting");
+    expect(progress).not.toHaveTextContent("stepMerging");
+  });
+
+  it("opens the merge-gate dialog when the ZIP job resolves GATED (#789 L31)", async () => {
+    global.fetch = importJobsMock(
+      READY({
+        status: "GATED",
+        gate: "name_divergence",
+        staged_id: "st-1",
+        account_name: "Anna",
+        cv_name: "Berta",
+        completeness_score: 0,
+      }),
+    );
+    render(<ProfileImportView />);
+    fireEvent.change(screen.getByTestId("main-file-input"), {
+      target: { files: [new File(["c"], "export.zip", { type: "application/zip" })] },
+    });
+    await waitFor(() => expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument());
+    expect(screen.queryByTestId("upload-success-strip")).toBeNull();
   });
 
   it("shows success strip with completeness score after PDF upload", async () => {

@@ -615,8 +615,13 @@ def _testimony_texts(new_info: Any, source: str) -> tuple[str, str] | None:
     the answer only, the adjudicator sees the turn split
     (``render_interview_turn``), and the citation is verified against the
     answer alone. The agent door was already answer-only (B3) and is
-    unchanged. Denial matching and story figure grounding keep the whole-turn
-    corpus of :func:`_grounding_corpus` — out of this amendment's scope.
+    unchanged. ADR-061 amended 2026-10-20 (783:L97) moved the two leftovers
+    the 2026-10-18 amendment named — the denial floor's independent-affirmation
+    release and the story figure grounding — onto the same answer half
+    (``enforce_stance``). Only the employer-anchor guard
+    (``attribution.enforce_attribution``) keeps the whole-turn corpus of
+    :func:`_grounding_corpus`: it reads the one sentence that owns a bullet,
+    and a question sentence owns none.
     """
     if not isinstance(new_info, dict) or source not in ("interview", "agent_interview"):
         return None
@@ -910,7 +915,14 @@ async def _resolve_token(
     would otherwise say. Non-interview sources (``corpus is None``) are
     exempt from grounding entirely (unchanged #127 scope decision — CV import
     reconciles a whole staged extraction, where paraphrase is legitimate)."""
-    if denials and _is_denied(token, denials, corpus):
+    # ADR-061 amended 2026-10-20 (783:L97, the DEL-5 sibling): the denial
+    # floor's independent-affirmation release reads the ANSWER on the
+    # interview doors — a question that names the part ("Haben Sie mit CSS
+    # gearbeitet?") is Applire's text and may not release the candidate's
+    # containment denial ("Tailwind CSS"). Stricter corpus → claims less
+    # (ADR-062 cl. 5's sanctioned direction).
+    denial_corpus = _norm(testimony[0]) if testimony is not None else corpus
+    if denials and _is_denied(token, denials, denial_corpus):
         return "denied"
     if corpus is None:
         return "confirmed"
@@ -1031,7 +1043,11 @@ async def enforce_stance(
             if status != op.status:
                 op = op.model_copy(update={"status": status})
         elif isinstance(op, UpsertStory):
-            if not _story_keeps(op, denials, corpus, raw_turn):
+            # ADR-061 amended 2026-10-20 (783:L97): a story's figures are
+            # grounded in the candidate's ANSWER, never in a figure only the
+            # gap label or the question states.
+            story_corpus = _norm(testimony[0]) if testimony is not None else corpus
+            if not _story_keeps(op, denials, story_corpus, raw_turn):
                 continue
         elif isinstance(op, AddBullets):
             technologies = [t for t in op.technologies if await keep_token(t, "technology")]

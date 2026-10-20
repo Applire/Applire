@@ -85,6 +85,12 @@ export class CVImportError extends Error {
 }
 
 interface StartOptions {
+  /**
+   * Tells the backend this file is a LinkedIn profile export (#789 L31). A ZIP is a
+   * LinkedIn export by construction; a PDF is ambiguous (CV or LinkedIn print), so it
+   * only takes the LinkedIn adapter when this is set. Omitted = a CV.
+   */
+  source?: "linkedin";
   jobId?: string;
   apiBase?: string;
   signal?: AbortSignal;
@@ -128,7 +134,10 @@ export async function startCvImport(file: File, opts: StartOptions = {}): Promis
   const base = opts.apiBase ?? "";
   const form = new FormData();
   form.append("file", file);
-  const query = opts.jobId ? `?job_id=${encodeURIComponent(opts.jobId)}` : "";
+  const params = new URLSearchParams();
+  if (opts.jobId) params.set("job_id", opts.jobId);
+  if (opts.source) params.set("source", opts.source);
+  const query = params.size > 0 ? `?${params.toString()}` : "";
 
   const startRes = await fetch(`${base}/api/profile/import-jobs${query}`, {
     method: "POST",

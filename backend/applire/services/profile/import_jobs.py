@@ -30,23 +30,26 @@ import logging
 import uuid
 import weakref
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire import ownership
+from applire.constants import UPLOAD_TTL_DAYS
 from applire.redaction import scrub_secrets
 from applire.db.session import AsyncSessionLocal
 from applire.exceptions import (
     LLMRateLimitError,
+    OCRUnavailableError,
     LLMTimeoutError,
     LLMTruncatedError,
 )
 from applire.models.import_job import CVImportJob, CVImportStatus
 from applire.ocr import get_ocr_extractor
 from applire.providers import get_provider
+from applire.schemas.profile import ConflictSummary, CVUploadResponse
 from applire.storage import get_storage
 from applire.services.profile.owner import resolve_owner
 
@@ -87,6 +90,9 @@ def classify_import_error(exc: BaseException) -> str:
     """Map an import failure to a STABLE machine code (parity with
     cv.classify_generation_error / ADR-047 §4 honest-failure UX). The raw exception text
     stays internal; the API surfaces only this code, localized by the frontend."""
+    if isinstance(exc, OCRUnavailableError):
+        # #789 L12 — an image/scan on an instance whose OCR backend cannot run.
+        return "ocr_unavailable"
     if isinstance(exc, LLMTruncatedError):
         return "llm_truncated"
     if isinstance(exc, LLMTimeoutError):
@@ -97,6 +103,61 @@ def classify_import_error(exc: BaseException) -> str:
     if isinstance(exc, (json.JSONDecodeError, ValidationError, ValueError)):
         return "invalid_document"
     return "import_failed"
+
+
+#: The only ``source`` hint the import door understands (#789 L31). A ZIP is a LinkedIn
+#: export by construction; a PDF is ambiguous (a CV or a LinkedIn "Save to PDF" print),
+#: so it takes the LinkedIn adapter only when the caller says so.
+LINKEDIN_SOURCE = "linkedin"
+
+
+def _looks_like_zip(filename: str, content_type: str) -> bool:
+    """Same detection as ``routers/profile.py::_is_zip`` (filename or MIME)."""
+    return filename.lower().endswith(".zip") or content_type in (
+        "application/zip",
+        "application/x-zip-compressed",
+    )
+
+
+def _looks_like_pdf(filename: str, content_type: str) -> bool:
+    """Same detection as ``routers/profile.py::_is_pdf`` (filename or MIME)."""
+    return filename.lower().endswith(".pdf") or content_type == "application/pdf"
+
+
+def _as_cv_upload_response(result: object) -> CVUploadResponse:
+    """Adapt a LinkedIn door's return to the job's one result shape.
+
+    ``import_from_linkedin_zip`` / ``_pdf`` answer a held merge as the GATED
+    ``CVUploadResponse`` (passed through) but a merged one as a ``ProfileImportResponse``
+    (a profile read model: no ``status``, no ``expires_at``). The poll endpoint serves
+    ``CVUploadResponse`` only, so the merged shape is mapped the way ``upload_cv`` maps
+    its merge outcome: DRAFT below 0.5 completeness or with open conflicts, else
+    COMPLETE; the receipt fields (``merge_status``, ``not_applied``, ``matched``) carry
+    over unchanged. ``expires_at`` is the stored source file's retention horizon (the
+    ``UploadRecord`` default, ``UPLOAD_TTL_DAYS``).
+    """
+    if isinstance(result, CVUploadResponse):
+        return result
+    completeness = (
+        result.completeness_score if result.completeness_score is not None else result.completeness
+    )
+    open_conflicts = [c for c in result.merge_conflicts if not getattr(c, "resolved", False)]
+    return CVUploadResponse(
+        profile_id=result.id,
+        status="DRAFT" if (completeness < 0.5 or bool(open_conflicts)) else "COMPLETE",
+        completeness_score=completeness,
+        conflicts=[
+            ConflictSummary(
+                conflict_id=c.conflict_id, section=c.section, field=c.field, source=c.source
+            )
+            for c in open_conflicts
+        ],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=UPLOAD_TTL_DAYS),
+        merge_status=result.merge_status,
+        not_applied=result.not_applied,
+        not_applied_loss_count=result.not_applied_loss_count,
+        matched=result.matched,
+    )
 
 
 async def create_import_job(
@@ -171,10 +232,16 @@ async def run_import_job_background(
     content_type: str,
     job_id: uuid.UUID | None = None,
     user_id: uuid.UUID | None = None,
+    source: str | None = None,
     *,
     session_factory: Callable[[], AsyncSession] = AsyncSessionLocal,
 ) -> None:
     """Run the heavy CV import in the background and record the outcome on the job.
+
+    #789 L31 — the LinkedIn export is dispatched here, inside the one job model: a ZIP
+    always runs ``import_from_linkedin_zip``; a PDF runs ``import_from_linkedin_pdf``
+    only with ``source="linkedin"`` (otherwise it is a CV and runs ``upload_cv``). Same
+    per-user lock, same poll endpoint, same ``CVUploadResponse``-shaped result.
 
     Opens its own DB session (the request session is gone), marks the job ``processing``,
     delegates to the existing ``upload_cv`` service, then stores the CVUploadResponse and
@@ -186,7 +253,15 @@ async def run_import_job_background(
     status stays ``pending`` until it is actually picked up.
     """
     # Imported here to avoid a circular import (services.profile.__init__ imports this module).
-    from applire.services.profile import upload_cv
+    from applire.services import profile as profile_service
+
+    upload_cv = profile_service.upload_cv
+    if _looks_like_zip(filename, content_type):
+        adapter: Callable | None = profile_service.import_from_linkedin_zip
+    elif source == LINKEDIN_SOURCE and _looks_like_pdf(filename, content_type):
+        adapter = profile_service.import_from_linkedin_pdf
+    else:
+        adapter = None
 
     user_id = resolve_owner(user_id)
     with ownership.owner_context(user_id):
@@ -199,6 +274,7 @@ async def run_import_job_background(
                 job_id,
                 user_id,
                 upload_cv=upload_cv,
+                linkedin_adapter=adapter,
                 session_factory=session_factory,
             )
 
@@ -212,6 +288,7 @@ async def _process_import_job(
     user_id: uuid.UUID | None,
     *,
     upload_cv: Callable,
+    linkedin_adapter: Callable | None = None,
     session_factory: Callable[[], AsyncSession],
 ) -> None:
     """The actual import work — runs with the per-user lock held (see caller)."""
@@ -225,17 +302,29 @@ async def _process_import_job(
         await db.commit()
 
         try:
-            result = await upload_cv(
-                file_bytes=file_bytes,
-                filename=filename,
-                content_type=content_type,
-                db=db,
-                provider=get_provider(),
-                storage=get_storage(),
-                ocr_extractor=get_ocr_extractor(),
-                job_id=job_id,
-                user_id=user_id,
-            )
+            if linkedin_adapter is not None:
+                result = _as_cv_upload_response(
+                    await linkedin_adapter(
+                        file_bytes,
+                        db,
+                        get_provider(),
+                        storage=get_storage(),
+                        filename=filename,
+                        user_id=user_id,
+                    )
+                )
+            else:
+                result = await upload_cv(
+                    file_bytes=file_bytes,
+                    filename=filename,
+                    content_type=content_type,
+                    db=db,
+                    provider=get_provider(),
+                    storage=get_storage(),
+                    ocr_extractor=get_ocr_extractor(),
+                    job_id=job_id,
+                    user_id=user_id,
+                )
         except Exception as exc:  # noqa: BLE001 — background task is the last line of defence
             # Discard any failed transaction so the job-status write below succeeds, then
             # re-fetch the job (it may be expired after rollback).

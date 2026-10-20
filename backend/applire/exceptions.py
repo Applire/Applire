@@ -101,3 +101,14 @@ class LLMProviderError(LLMError):
         self.detail = detail
         status = f", HTTP {status_code}" if status_code is not None else ""
         super().__init__(f"{provider} call failed ({sdk_type}{status}).")
+
+
+class OCRUnavailableError(RuntimeError):
+    """The configured OCR backend cannot run on this instance (#789 L12).
+
+    ``OCR_BACKEND=mistral_vision`` (the default) needs ``MISTRAL_API_KEY``; ``tesseract``
+    needs its Python module and system binary. An image or scanned-PDF upload on an
+    instance without that raises this instead of an opaque provider/SDK failure, so every
+    door can answer with a stable ``ocr_unavailable`` code the frontend translates. The
+    message names the setting for the operator's log; it is never sent to the client.
+    """

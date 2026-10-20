@@ -957,6 +957,14 @@ def retention_forms(entry: dict[str, Any]) -> list[str]:
     return forms
 
 
+#: Founder ruling V-1 = B (Hazelnut build 2, 787:L11) — the marker a claimable
+#: ledger row carries in the writers' KEYWORD LEDGER block when no role bullet,
+#: achievement or signature story in the vault states it
+#: (``narrative_backed is False``, #260). Writers key their "name it, never
+#: narrate it" rule on this exact string.
+LISTED_ONLY_MARKER = "[listed only — no role bullet or story states it]"
+
+
 def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> str:
     """Render the Keyword Ledger as a prompt fragment shared by the CV and cover-letter
     generators (ADR-048 §8 / US200/US201).
@@ -1022,8 +1030,17 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
                 # writer's honesty.
                 phrase = entry.get("jd_phrase")
                 qualifier = f' — the posting asks for it as: "{phrase}"' if phrase else ""
+                # Founder ruling V-1 = B (787:L11): a claimable row no role
+                # bullet, achievement or story states (`narrative_backed` is
+                # False — #260's own predicate, never re-derived) is marked, so
+                # the writers can tell a NAMED skill from a NARRATED one. The
+                # marker is a fact; what a writer may do with it is the writer
+                # prompts' rule (D1). Absent key = pre-#260 row = no marker.
+                listed = (
+                    f" {LISTED_ONLY_MARKER}" if entry.get("narrative_backed", True) is False else ""
+                )
                 lines.append(
-                    f"  - {concept} [forms: {forms}]{qualifier} — evidence: {evidence}"
+                    f"  - {concept} [forms: {forms}]{listed}{qualifier} — evidence: {evidence}"
                 )
     else:
         lines.append("  (none)")
@@ -2549,6 +2566,17 @@ def reevaluate_gap_ledger_against_vault(
     # not only the rows this call moved: the vault may have gained the entry that
     # owns an already-claimable term since the row was written.
     ledger = annotate_evidence_owners(ledger, profile_json)
+    # Founder ruling V-1 = B (Hazelnut build 2, 787:L11): a bare skills-list
+    # entry still lifts the gap, but the lifted row must carry what backs it.
+    # `narrative_backed` (#260) was stamped when the row was BUILT, as a gap;
+    # the lift above never re-stamped it, so a row lifted by a bullet kept a
+    # stale False and a row lifted by a bare name kept whatever the build
+    # wrote. Re-stamped here against today's vault, the same final pass the
+    # builder and the gap-analysis merge run (ADR-066: one implementation).
+    # The writers read it as the "listed only" marker
+    # (`render_ledger_prompt_block`).
+    if profile_json is not None:
+        ledger = _annotate_narrative_backed(ledger, profile_json)
     return ledger, changed
 
 

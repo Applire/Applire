@@ -19,13 +19,13 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 import mimetypes
 
 from fastapi.responses import JSONResponse, Response
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,10 +35,16 @@ logger = logging.getLogger(__name__)
 _INTERNAL_ERROR_MESSAGE = "An unexpected error occurred. Please try again."
 
 from applire.auth.deps import require_user
+from applire.constants import MAX_CV_UPLOAD_BYTES
 from applire.models.user import User
 from applire.db.session import get_db
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError, LLMTruncatedError
-from applire.ocr import get_ocr_extractor
+from applire.exceptions import (
+    LLMRateLimitError,
+    LLMTimeoutError,
+    LLMTruncatedError,
+    OCRUnavailableError,
+)
+from applire.ocr import get_ocr_extractor, image_import_available
 from applire.ocr.base import CVImageExtractor
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
@@ -124,6 +130,13 @@ _TIMEOUT_USER_MESSAGE = (
 )
 
 
+# #789 L12 — an image or scanned PDF on an instance whose OCR backend cannot run.
+_OCR_UNAVAILABLE_USER_MESSAGE = (
+    "This instance can't read images or scanned documents (no OCR backend is configured). "
+    "Upload a text-based PDF, DOCX or plain-text file instead."
+)
+
+
 def _get_provider() -> LLMProvider:
     return get_provider()
 
@@ -134,6 +147,27 @@ def _get_storage() -> StorageProvider:
 
 def _get_ocr() -> CVImageExtractor:
     return get_ocr_extractor()
+
+
+async def _read_capped(file: UploadFile) -> bytes:
+    """Read an uploaded import file, refusing one over ``MAX_CV_UPLOAD_BYTES`` (#789 L13).
+
+    The upload surfaces promise "up to 10 MB"; this makes the promise true on every REST
+    import door (it used to hold only on the MCP door, and behind nginx's 20 M cap).
+    Reads one byte past the limit so an oversized body is detected without buffering it
+    whole, and answers 413 with a stable ``error`` code the frontend translates.
+    """
+    data = await file.read(MAX_CV_UPLOAD_BYTES + 1)
+    if len(data) > MAX_CV_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "error": "file_too_large",
+                "message": f"This file is larger than {MAX_CV_UPLOAD_BYTES // (1024 * 1024)} MB.",
+                "max_bytes": MAX_CV_UPLOAD_BYTES,
+            },
+        )
+    return data
 
 
 def _is_zip(file: UploadFile) -> bool:
@@ -184,7 +218,7 @@ async def upload_cv_endpoint(
     content_type = file.content_type or "application/octet-stream"
 
     try:
-        file_bytes = await file.read()
+        file_bytes = await _read_capped(file)
         return await upload_cv(
             file_bytes=file_bytes,
             filename=filename,
@@ -198,6 +232,14 @@ async def upload_cv_endpoint(
         )
     except HTTPException:
         raise
+    except OCRUnavailableError:
+        # #789 L12 — name the cause by a stable code; the operator-facing detail
+        # (which setting is missing) stays in the log, never in the response.
+        logger.warning("upload_cv: OCR backend unavailable; refusing this image/scan cleanly")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "ocr_unavailable", "message": _OCR_UNAVAILABLE_USER_MESSAGE},
+        )
     except LLMTimeoutError:
         logger.warning("profile import/upload: LLM timed out; failing this file cleanly")
         raise HTTPException(
@@ -263,6 +305,14 @@ async def start_cv_import_endpoint(
     job_id: uuid.UUID | None = Query(
         default=None, description="Accepted for API compatibility; no longer changes extraction (M5.1.3)"
     ),
+    source: Literal["linkedin"] | None = Query(
+        default=None,
+        description=(
+            "Set to ``linkedin`` to import a LinkedIn profile-PDF export through the "
+            "LinkedIn adapter instead of the CV one. A ZIP needs no hint: it is always "
+            "a LinkedIn export (#789 L31)."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
 ) -> CVImportJobResponse:
@@ -274,11 +324,16 @@ async def start_cv_import_endpoint(
     is ``ready`` (``result`` holds the CVUploadResponse) or ``failed``. This is the
     recommended door for every REST caller; the sync ``/upload`` remains only for
     compatibility and is cut by a proxy read timeout on a slow route (#674).
+
+    The LinkedIn export rides the same job (#789 L31): a ``.zip`` runs the LinkedIn ZIP
+    adapter, a PDF with ``?source=linkedin`` the LinkedIn PDF adapter; the result is the
+    same ``CVUploadResponse`` shape (including the GATED hold), so the poll and the
+    pre-merge gate are unchanged.
     """
     user = current_user
     filename = file.filename or "upload"
     content_type = file.content_type or "application/octet-stream"
-    file_bytes = await file.read()
+    file_bytes = await _read_capped(file)
 
     job = await create_import_job(db, filename=filename, user_id=user.id)
     background_tasks.add_task(
@@ -289,8 +344,29 @@ async def start_cv_import_endpoint(
         content_type,
         job_id,
         user.id,
+        source=source,
     )
     return CVImportJobResponse(import_id=job.id, status=CVImportStatus(job.status))
+
+
+class ImportCapabilitiesResponse(BaseModel):
+    """What this instance's import doors can read (#789 L12). One boolean per
+    capability; nothing about keys or configuration beyond that bit."""
+
+    image_import: bool
+
+
+@router.get(
+    "/import-capabilities",
+    response_model=ImportCapabilitiesResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_import_capabilities_endpoint(
+    current_user: User = Depends(require_user),
+) -> ImportCapabilitiesResponse:
+    """Whether image CVs can be read here (``OCR_BACKEND`` runnable). The upload
+    surfaces drop the image hint and accept-filter when this is false."""
+    return ImportCapabilitiesResponse(image_import=image_import_available())
 
 
 @router.get(
@@ -484,7 +560,7 @@ async def import_profile(
     user = current_user
     try:
         if file is not None:
-            file_bytes = await file.read()
+            file_bytes = await _read_capped(file)
             upload_name = file.filename or "linkedin-export"
             if _is_zip(file):
                 coro = import_from_linkedin_zip(

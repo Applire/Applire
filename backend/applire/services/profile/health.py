@@ -327,6 +327,12 @@ _NOT_APPLIED_REASON = {
         "the entry it named is no longer there, so it was not written"
     ),
     "confirmation_already_present": "that entry already said it",
+    # 783:L7/L60 (ADR-063 amended 2026-10-20) — an op named an entry the
+    # profile does not hold, so its content landed nowhere.
+    "target_unresolved": (
+        "it was aimed at an entry your profile does not hold, so it was not "
+        "written — add it to the right entry"
+    ),
 }
 
 
