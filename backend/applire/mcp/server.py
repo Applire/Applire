@@ -530,6 +530,12 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
         # sentence exactly as easily as in a requirement.
         "education_requirement",
         "scope_requirements[].quote", "leadership_emphasis.quote",
+        # 788:L2 (the MCP injection canary lane): the model's free-text reading
+        # of the posting's seniority is stored unconstrained (models/job.py
+        # `Text`, no closed set) — an obedient extraction put the canary there
+        # and it reached the agent unmarked. Pinned by
+        # tests/unit/test_mcp_injection_canary.py.
+        "seniority_level",
     ],
     "analyze_gaps": [
         "critical_gaps", "minor_gaps", "keyword_gaps", "category_a", "category_b",
