@@ -261,3 +261,14 @@ def test_the_generator_refuses_a_breaking_snapshot_without_the_flag(monkeypatch,
     assert gen.main(["--check"]) == 1
     assert gen.main(["--accept-breaking"]) == 0
     assert "A_VARIABLE_THAT_NO_LONGER_EXISTS" not in target.read_text(encoding="utf-8")
+
+
+def test_relaxing_a_required_parameter_to_optional_is_allowed(snapshot, live):
+    """A relaxation keeps every existing call valid (WP-A: run_interview.job_id
+    may become optional) — an addition to the freshness diff, never a break."""
+    new = _mutated(live)
+    new["mcp_tools"]["run_interview"]["job_id"]["required"] = False
+    new["mcp_tools"]["run_interview"]["job_id"]["types"] = ["null", "string"]
+    breaks, _ = gen.compare(snapshot, new)
+    assert breaks == []
+    assert new != snapshot  # the snapshot must still be regenerated
