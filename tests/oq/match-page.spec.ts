@@ -113,7 +113,8 @@ test.describe("/match page", () => {
     await firstCard.getByTestId("run-gap-analysis-btn").click();
 
     // Should navigate to home page with job_id query param
-    await expect(page).toHaveURL(new RegExp(`\\?job_id=${TEST_JOB_ID}`), { timeout: 5000 });
+    // 30 s: first compile of the home route under a cold `next dev` outlasts 5 s (#789 L52).
+    await expect(page).toHaveURL(new RegExp(`\\?job_id=${TEST_JOB_ID}`), { timeout: 30_000 });
   });
 
   test("shows empty state when API returns no jobs", async ({ page }) => {

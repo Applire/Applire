@@ -143,7 +143,8 @@ test.describe("Mobile dashboard + shell (390x844)", () => {
 
     // Tap a nav item — the drawer both navigates AND closes itself.
     await drawer.getByTestId("nav-item-profile").click();
-    await expect(page).toHaveURL(/\/profile$/, { timeout: 5000 });
+    // 30 s: first compile of /profile under a cold `next dev` outlasts 5 s (#789 L52).
+    await expect(page).toHaveURL(/\/profile$/, { timeout: 30_000 });
     await expect(drawer).toBeHidden({ timeout: 5000 });
   });
 });
