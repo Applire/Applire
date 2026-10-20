@@ -136,6 +136,8 @@ test.describe("Mobile Quick Tailor capture (390x844)", () => {
     // Success state: the widget's own call sequence (analyze -> create
     // application -> router.push the flow) landed the flow index page, which
     // advanced the state machine and routed on to the mocked next step.
-    await expect(page).toHaveURL(`/flow/${FLOW_ID}/import`, { timeout: 10000 });
+    // 30 s: two routes (flow index, then /import) first-compile under the CI stack's
+    // dev-target frontend; 10 s failed once and passed on retry in the CI-shape run (#789 L52).
+    await expect(page).toHaveURL(`/flow/${FLOW_ID}/import`, { timeout: 30_000 });
   });
 });
