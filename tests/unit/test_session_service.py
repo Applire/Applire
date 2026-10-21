@@ -1668,6 +1668,31 @@ class TestSendMessage:
         assert result.reason == "user_ended"
 
     @pytest.mark.asyncio
+    async def test_termination_signal_reports_the_profiles_completeness(self, sqlite_session):
+        """789:L47 / M3 — "Ich bin fertig" completes before the turn loads the
+        profile; the completion must still carry the profile's real
+        completeness, not the 0.0 the completion screen rendered as "0 %"."""
+        from applire.schemas.profile import MasterProfileData
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        expected = MasterProfileData.model_validate(profile.profile_json).calculate_completeness()
+        assert expected > 0.0  # the fixture must have the property the test claims
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        result = await send_message(session_record.id, "done", sqlite_session, _mock_provider())
+        assert result.reason == "user_ended"
+        assert result.completeness_score == pytest.approx(expected)
+
+    @pytest.mark.asyncio
     async def test_full_resolution_advances_to_next_gap(self, sqlite_session):
         """An answer that addresses the gap advances to the next gap (ADR-046)."""
         from applire.services.session import send_message

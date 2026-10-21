@@ -4203,6 +4203,13 @@ async def _complete_session(
     # best-effort contract as advance_flow_on_interview_complete/analyze_gaps
     # immediately below — mirrors their try/except, not new behaviour.
     completeness = 0.0
+    if profile_record is None and state.get("profile_id"):
+        # 789:L47 (M3) — the done-signal path completes before the turn loads
+        # the profile; without this read "Ich bin fertig" reported 0.0 ("0 %").
+        try:
+            profile_record = await _load_profile(state["profile_id"], db)
+        except Exception:
+            logger.warning("Profile load for completeness failed (session %s)", session_id)
     if profile_record is not None:
         try:
             profile_data = MasterProfileData.model_validate(profile_record.profile_json)
