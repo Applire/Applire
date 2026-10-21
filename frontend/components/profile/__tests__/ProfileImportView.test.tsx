@@ -674,6 +674,34 @@ describe("ProfileImportView", () => {
     expect(mockPush).toHaveBeenCalledWith("/profile#import-log");
   });
 
+  it("R3-2 = B: keeps the read-share note through the gate dialog's merge (re-probe N1)", async () => {
+    global.fetch = importJobsMock(
+      READY({
+        status: "GATED",
+        gate: "name_divergence",
+        account_name: "Stefan Brandt",
+        cv_name: "Lena Vogt",
+        staged_id: "staged-3",
+        completeness_score: 0,
+        source_truncated: { read_chars: 24870, total_chars: 133272 },
+      }),
+      (u) =>
+        u.includes("/resolve")
+          ? { ok: true, body: { action: "merge", profile_id: "p1", completeness_score: 0.96 } }
+          : null
+    );
+
+    render(<ProfileImportView />);
+    fireEvent.change(screen.getByTestId("main-file-input"), {
+      target: { files: [new File(["c"], "huge.txt", { type: "text/plain" })] },
+    });
+    await waitFor(() => expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("gate-merge-btn"));
+    await waitFor(() => expect(screen.getByTestId("upload-success-strip")).toBeInTheDocument());
+    expect(screen.getByTestId("upload-source-truncated-note")).toHaveTextContent("sourceTruncatedNote");
+  });
+
   it("closes the gate dialog and stays put after discarding", async () => {
     global.fetch = importJobsMock(
       READY({

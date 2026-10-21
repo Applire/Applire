@@ -68,6 +68,8 @@ interface GateInfo {
   stagedId: string;
   accountName?: string | null;
   cvName?: string | null;
+  /** R3-2 = B: the held job's read share, shown once the user merges it. */
+  readPercent?: number | null;
 }
 
 interface ProfileImportViewProps {
@@ -215,6 +217,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
           stagedId: data.staged_id as string,
           accountName: data.account_name,
           cvName: data.cv_name,
+          readPercent: sourceTruncatedPercent(data.source_truncated),
         });
         refreshHistory();
         return;
@@ -277,9 +280,15 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   }
 
   async function handleGateResolved(action: ResolveAction, _data: StagedResolveResult) {
+    const readPercent = gateInfo?.readPercent ?? null;
     setGateInfo(null);
     if (action === "merge") {
-      await proceedAfterUpdate(_data.completeness_score ?? null, _data.not_applied, _data.matched);
+      await proceedAfterUpdate(
+        _data.completeness_score ?? null,
+        _data.not_applied,
+        _data.matched,
+        readPercent,
+      );
     } else {
       refreshHistory();
     }
