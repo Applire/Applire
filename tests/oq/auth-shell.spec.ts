@@ -95,7 +95,9 @@ test.describe("signed out (US330)", () => {
     test.use({ authState: { setup_required: true } });
     test("a shell URL goes to /setup", async ({ page }) => {
       await page.goto("/dashboard");
-      await expect(page).toHaveURL(/\/setup$/);
+      // 30 s: the redirect chain (/dashboard -> /login -> /setup) first-compiles two routes
+      // under `next dev`; the 10 s default fails intermittently on a cold cache (#789 L52).
+      await expect(page).toHaveURL(/\/setup$/, { timeout: 30_000 });
       await expect(page.getByRole("heading", { name: "Set up Applire" })).toBeVisible();
     });
   });

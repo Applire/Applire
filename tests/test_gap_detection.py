@@ -8,7 +8,6 @@ Done when:
   - Category ordering: C items are higher priority than B items in the interview session
 """
 
-import json
 from pathlib import Path
 
 import pytest
@@ -70,14 +69,8 @@ def job_id(api):
 
 
 @pytest.fixture(scope="module")
-def profile_id(api):
-    r = requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": json.dumps(_DACH_PROFILE)},
-        timeout=90,
-    )
-    assert r.status_code == 200, f"Profile import failed: {r.text}"
-    return r.json()["id"]
+def profile_id(api, import_job):
+    return import_job.linkedin_json(api, _DACH_PROFILE)["profile_id"]
 
 
 @pytest.fixture(scope="module")

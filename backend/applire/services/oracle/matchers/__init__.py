@@ -19,6 +19,7 @@ from applire.services.oracle.matchers.vault import (
     build_vault_index,
     extend_vault_index,
     derive_tenure_ceiling_years,
+    holds_other_language,
     skills_near_duration,
 )
 from applire.services.oracle.matchers.grounding import (
@@ -39,6 +40,7 @@ __all__ = [
     "find_foreign_owner",
     "EvidenceUnit",
     "VaultIndex",
+    "holds_other_language",
     "build_vault_index",
     "extend_vault_index",
     "derive_tenure_ceiling_years",

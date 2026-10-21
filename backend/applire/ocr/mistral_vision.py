@@ -26,6 +26,7 @@ expose — that interface is intentionally minimal for text completion.
 
 import base64
 
+from applire.exceptions import OCRUnavailableError
 from applire.ocr.base import CVImageExtractor
 from applire.providers.llm.base import unclassified_provider_error
 
@@ -42,6 +43,12 @@ class MistralVisionExtractor(CVImageExtractor):
         self._api_key = api_key
 
     async def extract(self, image_bytes: bytes, mime_type: str) -> str:
+        if not (self._api_key or "").strip():
+            # #789 L12 — no key means no OCR: name the cause instead of letting the SDK
+            # fail with an opaque auth error the upload door can only call "failed".
+            raise OCRUnavailableError(
+                "OCR_BACKEND=mistral_vision needs MISTRAL_API_KEY (or set OCR_BACKEND=tesseract)."
+            )
         try:
             from mistralai import Mistral
         except ImportError as exc:

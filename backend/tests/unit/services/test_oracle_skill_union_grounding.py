@@ -249,3 +249,85 @@ async def test_unanchored_claim_still_grounds_via_union():
     )
     assert verdict.verdict == "grounded"
     assert verdict.checker == "grounding"
+
+
+# ── #790 line L7 (2026-10-20) — a short token is matched as a whole token ────
+#
+# Captured (Strawberry build-1 w4-e2e, the agent door's BYOI letter, synthetic
+# persona): "I am used to working with research IT teams." graded `grounded`
+# on the skills "scikit-learn" + "Leitung kleiner Entwicklerteams" — "it" was
+# present inside "scikit" — while the keyword check called "Research IT"
+# present_unsupported. Synthetic twin below.
+
+_L7_PROFILE = {
+    "personal_info": {"name": "Jan Probe"},
+    "work_experience": [
+        {
+            "id": "w1", "company": "Genlab GmbH", "role": "Research Software Engineer",
+            "start_date": "2015-01",
+            "responsibilities": ["Analyse-Pipelines für Genomdaten mit Nextflow entwickelt."],
+        }
+    ],
+    "skills": [{"name": "scikit-learn"}, {"name": "Leitung kleiner Entwicklerteams"}],
+}
+
+
+@pytest.mark.asyncio
+async def test_l7_short_token_inside_a_longer_word_grounds_nothing():
+    v = await verify_claim(Claim(text="I am used to working with research IT teams.", location="x"), _L7_PROFILE)
+    assert v.verdict != "grounded", v
+
+
+@pytest.mark.asyncio
+async def test_l7_a_short_token_the_vault_names_whole_still_counts():
+    profile = {**_L7_PROFILE, "skills": [*_L7_PROFILE["skills"], {"name": "IT-Service-Management"}]}
+    v = await verify_claim(Claim(text="Research IT teams and scikit-learn", location="x"), profile)
+    assert v.verdict == "grounded", v
+
+
+def test_l7_claim_token_presence_rule():
+    from applire.services.oracle.matchers.grounding import claim_token_present
+
+    assert claim_token_present("it", "scikit learn") is False
+    assert claim_token_present("it", "research it support") is True
+    assert claim_token_present("teams", "leitung kleiner entwicklerteams") is True  # substring kept
+
+
+# The one call site of ``claim_token_present`` — the skill union. "ki" sits
+# inside "kiosk"; the narrative coverage paths keep the substring reach.
+
+_SEAM_PROFILE = {
+    "personal_info": {"name": "Seam Probe"},
+    "work_experience": [
+        {"id": "w1", "company": "Fishhaus GmbH", "role": "Lead",
+         "start_date": "2018-01",
+         "responsibilities": ["Led the kiosk rollout across all stores."]},
+    ],
+    "skills": [{"name": "kiosk rollout"}, {"name": "store leadership"}],
+}
+
+
+def test_l7_seam_skill_union():
+    r = ground_via_skill_union("KI rollout", build_vault_index(_SEAM_PROFILE))
+    assert r is None or r.best_coverage < 1.0, r
+
+
+def test_l7_narrative_coverage_keeps_substring_reach():
+    from applire.services.oracle.matchers import ground_text_claim
+
+    r = ground_text_claim("Led KI rollout", build_vault_index(_SEAM_PROFILE))
+    assert r.best_coverage == 1.0, r  # pinned: unchanged by #790 line L7
+
+
+def test_l7_function_words_never_count_against_an_honest_enumeration():
+    profile = {
+        "personal_info": {"name": "Emma Probe"},
+        "work_experience": [],
+        "skills": [{"name": "HGB-Abschlüsse"}, {"name": "Kostenrechnung"}, {"name": "Budgetierung"},
+                   {"name": "Forecasts"}, {"name": "Konsolidierung"}],
+    }
+    r = ground_via_skill_union(
+        "Die Kostenrechnung für die Konsolidierung",
+        build_vault_index(profile),
+    )
+    assert r is not None and r.best_coverage >= GROUNDED_MIN_COVERAGE, r

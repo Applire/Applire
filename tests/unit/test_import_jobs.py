@@ -390,3 +390,277 @@ async def test_get_import_jobs_active_endpoint(factory, client):
     assert [i["import_id"] for i in items] == [str(j1.id)]
     assert items[0]["status"] == "pending"
     assert items[0]["filename"] == "a.pdf"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw, code",
+    [
+        ("Model google/gemini-3.5-flash hit the token budget (stop_reason='length')", "llm_truncated"),
+        ("OpenRouter call timed out after 120s", "llm_timeout"),
+    ],
+)
+async def test_the_poll_names_a_failure_by_code_never_by_raw_provider_text(factory, client, raw, code):
+    """Moved from the retired sync doors' router test (ruling V-4 = A): a reconcile
+    that hits the token budget or times out surfaces as a stable ``error_code``;
+    the raw provider sentence stays internal (ADR-047 §4)."""
+    async with factory() as db:
+        job = await create_import_job(db, filename="cv.pdf", user_id=UID)
+    exc = LLMTruncatedError(raw) if code == "llm_truncated" else LLMTimeoutError(raw)
+    with patch("applire.services.profile.import_jobs.get_provider"), patch(
+        "applire.services.profile.import_jobs.get_storage"
+    ), patch("applire.services.profile.import_jobs.get_ocr_extractor"), patch(
+        "applire.services.profile.upload_cv", new=AsyncMock(side_effect=exc)
+    ):
+        await run_import_job_background(
+            job.id, b"%PDF-1.4", "cv.pdf", "application/pdf", user_id=UID, session_factory=factory
+        )
+    r = await client.get(f"/api/profile/import-jobs/{job.id}")
+    assert r.status_code == 200
+    assert r.json()["status"] == "failed" and r.json()["error_code"] == code
+    assert raw not in r.text and "stop_reason" not in r.text and "120s" not in r.text
+
+
+# ---------------------------------------------------------------------------
+# #789 L31 — the LinkedIn ZIP / PDF export is an async import job too
+# ---------------------------------------------------------------------------
+
+
+def _linkedin_merged_response(completeness: float = 0.62):
+    """What ``import_from_linkedin_zip`` returns on a clean merge: a
+    ``ProfileImportResponse`` (NOT a ``CVUploadResponse`` — no status, no expires_at)."""
+    from applire.schemas.profile import MasterProfileData, ProfileImportResponse, ProfileStats
+
+    now = datetime.now(timezone.utc)
+    return ProfileImportResponse(
+        id=uuid.uuid4(),
+        profile=MasterProfileData.model_validate({"personal_info": {"name": "Anna Beispiel"}}),
+        completeness=completeness,
+        stats=ProfileStats(),
+        merge_conflicts=[],
+        created_at=now,
+        updated_at=now,
+        merge_status="applied",
+        not_applied=[],
+        completeness_score=completeness,
+    )
+
+
+def _linkedin_patches(zip_fn=None, pdf_fn=None, upload=None):
+    return (
+        patch("applire.services.profile.import_from_linkedin_zip", new=zip_fn or AsyncMock()),
+        patch("applire.services.profile.import_from_linkedin_pdf", new=pdf_fn or AsyncMock()),
+        patch("applire.services.profile.upload_cv", new=upload or AsyncMock()),
+        patch("applire.services.profile.import_jobs.get_provider"),
+        patch("applire.services.profile.import_jobs.get_storage"),
+        patch("applire.services.profile.import_jobs.get_ocr_extractor"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_zip_job_runs_the_linkedin_adapter_and_records_a_cv_upload_shaped_result(factory):
+    """L31: a ZIP is unambiguous — the job dispatches to ``import_from_linkedin_zip``
+    (not ``upload_cv``) and stores a CVUploadResponse-shaped result the poll endpoint
+    can serve, adapted from the ProfileImportResponse the sync door returns."""
+    async with factory() as db:
+        job = await create_import_job(db, filename="export.zip", user_id=UID)
+        jid = job.id
+    merged = _linkedin_merged_response(0.62)
+    zip_fn = AsyncMock(return_value=merged)
+    upload = AsyncMock()
+    ps = _linkedin_patches(zip_fn=zip_fn, upload=upload)
+    with ps[0], ps[1], ps[2], ps[3], ps[4], ps[5]:
+        await run_import_job_background(
+            jid, b"PK zip bytes", "export.zip", "application/zip",
+            user_id=UID, session_factory=factory,
+        )
+    upload.assert_not_awaited()
+    kwargs = zip_fn.call_args.kwargs
+    assert zip_fn.call_args.args[0] == b"PK zip bytes"
+    assert kwargs["filename"] == "export.zip"
+    assert kwargs["user_id"] == UID
+
+    async with factory() as db:
+        job = await get_import_job(db, jid, user_id=UID)
+    assert job.status == CVImportStatus.ready.value
+    # The stored result validates as the poll endpoint's CVUploadResponse.
+    stored = CVUploadResponse.model_validate(job.result)
+    assert stored.profile_id == merged.id
+    assert stored.status == "COMPLETE"
+    assert stored.completeness_score == pytest.approx(0.62)
+    assert stored.gate == "none"
+    assert stored.expires_at > datetime.now(timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_zip_job_low_completeness_is_draft(factory):
+    async with factory() as db:
+        job = await create_import_job(db, filename="export.zip", user_id=UID)
+        jid = job.id
+    ps = _linkedin_patches(zip_fn=AsyncMock(return_value=_linkedin_merged_response(0.2)))
+    with ps[0], ps[1], ps[2], ps[3], ps[4], ps[5]:
+        await run_import_job_background(
+            jid, b"z", "export.zip", "application/zip", user_id=UID, session_factory=factory,
+        )
+    async with factory() as db:
+        job = await get_import_job(db, jid, user_id=UID)
+    assert job.result["status"] == "DRAFT"
+
+
+@pytest.mark.asyncio
+async def test_zip_job_keeps_a_gated_result_as_is(factory):
+    """A held merge is already a GATED CVUploadResponse — passed through untouched."""
+    async with factory() as db:
+        job = await create_import_job(db, filename="export.zip", user_id=UID)
+        jid = job.id
+    staged = uuid.uuid4()
+    gated = CVUploadResponse(
+        status="GATED", completeness_score=0.0, gate="name_divergence", staged_id=staged,
+        expires_at=datetime(2026, 9, 1, tzinfo=timezone.utc), account_name="A", cv_name="B",
+    )
+    ps = _linkedin_patches(zip_fn=AsyncMock(return_value=gated))
+    with ps[0], ps[1], ps[2], ps[3], ps[4], ps[5]:
+        await run_import_job_background(
+            jid, b"z", "export.zip", "application/zip", user_id=UID, session_factory=factory,
+        )
+    async with factory() as db:
+        job = await get_import_job(db, jid, user_id=UID)
+    assert job.status == CVImportStatus.ready.value
+    assert job.result["status"] == "GATED"
+    assert job.result["staged_id"] == str(staged)
+
+
+@pytest.mark.asyncio
+async def test_pdf_job_needs_the_explicit_linkedin_source(factory):
+    """A PDF is ambiguous (a CV or a LinkedIn profile print): without ``source`` it is
+    a CV (``upload_cv``); with ``source="linkedin"`` it is the LinkedIn PDF adapter."""
+    async with factory() as db:
+        j1 = await create_import_job(db, filename="cv.pdf", user_id=UID)
+        j2 = await create_import_job(db, filename="Profile.pdf", user_id=UID)
+    pdf_fn = AsyncMock(return_value=_linkedin_merged_response())
+    upload = AsyncMock(return_value=_fake_response())
+    ps = _linkedin_patches(pdf_fn=pdf_fn, upload=upload)
+    with ps[0], ps[1], ps[2], ps[3], ps[4], ps[5]:
+        await run_import_job_background(
+            j1.id, b"%PDF", "cv.pdf", "application/pdf", user_id=UID, session_factory=factory,
+        )
+        pdf_fn.assert_not_awaited()
+        upload.assert_awaited_once()
+        await run_import_job_background(
+            j2.id, b"%PDF", "Profile.pdf", "application/pdf",
+            user_id=UID, source="linkedin", session_factory=factory,
+        )
+    pdf_fn.assert_awaited_once()
+    assert upload.await_count == 1
+    async with factory() as db:
+        assert (await get_import_job(db, j2.id, user_id=UID)).status == CVImportStatus.ready.value
+
+
+@pytest.mark.asyncio
+async def test_json_job_with_the_linkedin_source_runs_the_json_import(factory):
+    """Ruling V-4 = A: the retired ``POST /import`` took a LinkedIn JSON export as a
+    ``linkedin_json`` form field; the job takes it as a ``.json`` file with
+    ``source="linkedin"`` and hands the parsed object to ``import_from_linkedin``."""
+    async with factory() as db:
+        job = await create_import_job(db, filename="export.json", user_id=UID)
+        bad = await create_import_job(db, filename="broken.json", user_id=UID)
+    json_fn = AsyncMock(return_value=_linkedin_merged_response())
+    upload = AsyncMock(return_value=_fake_response())
+    ps = _linkedin_patches(upload=upload)
+    with ps[0], ps[1], ps[2], ps[3], ps[4], ps[5], patch(
+        "applire.services.profile.import_from_linkedin", new=json_fn
+    ):
+        await run_import_job_background(
+            job.id, b'{"profile": {"firstName": "Anna"}}', "export.json", "application/json",
+            user_id=UID, source="linkedin", session_factory=factory,
+        )
+        await run_import_job_background(
+            bad.id, b"{not json", "broken.json", "application/json",
+            user_id=UID, source="linkedin", session_factory=factory,
+        )
+    json_fn.assert_awaited_once()
+    assert json_fn.await_args.args[0] == {"profile": {"firstName": "Anna"}}
+    upload.assert_not_awaited()
+    async with factory() as db:
+        assert (await get_import_job(db, job.id, user_id=UID)).status == CVImportStatus.ready.value
+        failed = await get_import_job(db, bad.id, user_id=UID)
+    assert failed.status == CVImportStatus.failed.value
+    assert failed.error_code == "invalid_document"
+
+
+@pytest.mark.asyncio
+async def test_zip_job_takes_the_same_per_user_lock_as_a_cv_job(factory):
+    """One lock, one queue: a LinkedIn ZIP job and a CV job for the same user never
+    overlap (the merge is read-latest → write)."""
+    async with factory() as db:
+        j1 = await create_import_job(db, filename="export.zip", user_id=UID)
+        j2 = await create_import_job(db, filename="cv.pdf", user_id=UID)
+    events: list = []
+
+    async def slow_zip(zip_bytes, *a, **kw):
+        events.append(("start", "zip"))
+        await asyncio.sleep(0.05)
+        events.append(("end", "zip"))
+        return _linkedin_merged_response()
+
+    async def slow_cv(**kw):
+        events.append(("start", "cv"))
+        await asyncio.sleep(0.05)
+        events.append(("end", "cv"))
+        return _fake_response()
+
+    ps = _linkedin_patches(zip_fn=slow_zip, upload=slow_cv)
+    with ps[0], ps[1], ps[2], ps[3], ps[4], ps[5]:
+        await asyncio.gather(
+            run_import_job_background(
+                j1.id, b"z", "export.zip", "application/zip", user_id=UID, session_factory=factory
+            ),
+            run_import_job_background(
+                j2.id, b"c", "cv.pdf", "application/pdf", user_id=UID, session_factory=factory
+            ),
+        )
+    assert events == [("start", "zip"), ("end", "zip"), ("start", "cv"), ("end", "cv")]
+
+
+@pytest.mark.asyncio
+async def test_zip_job_failure_is_a_clean_failed_job(factory):
+    async with factory() as db:
+        job = await create_import_job(db, filename="export.zip", user_id=UID)
+        jid = job.id
+    ps = _linkedin_patches(zip_fn=AsyncMock(side_effect=ValueError("no profile data")))
+    with ps[0], ps[1], ps[2], ps[3], ps[4], ps[5]:
+        await run_import_job_background(
+            jid, b"z", "export.zip", "application/zip", user_id=UID, session_factory=factory,
+        )
+    async with factory() as db:
+        job = await get_import_job(db, jid, user_id=UID)
+    assert job.status == CVImportStatus.failed.value
+    assert job.error_code == "invalid_document"
+
+
+@pytest.mark.asyncio
+async def test_start_endpoint_forwards_the_linkedin_source(factory, client):
+    """POST /import-jobs?source=linkedin hands ``source`` to the background task; a bare
+    POST hands ``None`` (CV behaviour unchanged)."""
+    calls: list = []
+
+    async def fake_bg(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    with patch("applire.routers.profile.run_import_job_background", new=fake_bg):
+        r1 = await client.post(
+            "/api/profile/import-jobs?source=linkedin",
+            files={"file": ("Profile.pdf", b"%PDF", "application/pdf")},
+        )
+        r2 = await client.post(
+            "/api/profile/import-jobs",
+            files={"file": ("export.zip", b"PK", "application/zip")},
+        )
+        r3 = await client.post(
+            "/api/profile/import-jobs?source=bogus",
+            files={"file": ("cv.pdf", b"%PDF", "application/pdf")},
+        )
+    assert r1.status_code == 202 and r2.status_code == 202
+    assert r3.status_code == 422  # unknown source is refused, not silently a CV
+    assert calls[0][1].get("source") == "linkedin"
+    assert calls[1][1].get("source") is None

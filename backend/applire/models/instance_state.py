@@ -86,6 +86,12 @@ KEY_UPGRADE_RETIRED_PROFILES = "upgrade.retired_profiles"
 # (``settings.env_observed``). No secret, no personal data.
 KEY_SETTINGS_OBSERVED = "settings.observed"
 
+# ADR-087 amended 2026-10-20 (founder ruling R-2; 785:L126): ISO-8601 UTC time of
+# this installation's first start, written ONCE by the lifespan's fresh-install
+# branch (never on an upgrade). The ops layer's first-run grace reads it: a backup
+# or retention run that is not due yet is not "degraded". No secret, no personal data.
+KEY_INSTANCE_FIRST_STARTED_AT = "instance.first_started_at"
+
 #: Every key this table is allowed to carry. New key => new constant here.
 KNOWN_KEYS = frozenset(
     {
@@ -97,6 +103,7 @@ KNOWN_KEYS = frozenset(
         KEY_AUTH_CLAIM_NOTICE,
         KEY_UPGRADE_RETIRED_PROFILES,
         KEY_SETTINGS_OBSERVED,
+        KEY_INSTANCE_FIRST_STARTED_AT,
     }
 )
 

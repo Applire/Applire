@@ -196,8 +196,14 @@ services:
         required: false
     volumes:
       - applire_uploads:/app/data/uploads
+    # Wait for the MIGRATED backend, as `retention` does (Infra #605, 785:L46):
+    # `docker compose run mcp` against a backend that never finished its alembic
+    # upgrade would meet an empty or half-migrated schema. Consequence: `run`
+    # also starts the backend when it is not up, and waits for its healthcheck.
     depends_on:
       postgres:
+        condition: service_healthy
+      backend:
         condition: service_healthy
     command: python -m applire.mcp
     stdin_open: true

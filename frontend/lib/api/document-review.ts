@@ -33,7 +33,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
 export type ReviewDocumentKind = "cv" | "cover-letter";
 
 // #702: `kept` — *So lassen* on a cross-document item (`critic:` key).
-export type ReviewAction = "added" | "taken_out" | "edited" | "kept";
+export type ReviewAction = "added" | "taken_out" | "edited" | "kept" | "supported";
 
 /** ADR-090 cl. 6 — one decision on one finding of THIS generated document. */
 export interface ReviewDecision {
@@ -42,6 +42,8 @@ export interface ReviewDecision {
   action: ReviewAction;
   at: string;
   undo: { sections: Array<{ section_id: string; before: string }> } | null;
+  /** #797 (ruling D2-5): `supported` only — the profile lines that hold the wording. */
+  receipt?: Array<{ path: string; text: string }>;
 }
 
 /** ADR-090 cl. 6 — the persisted per-document review state. `null` = none yet. */
@@ -93,6 +95,11 @@ export interface AddEvidenceResponse extends ReviewRefresh {
   testimony: TestimonyOutcome;
 }
 
+export interface SupportedResponse extends ReviewRefresh {
+  /** The keyword check still lists the finding; the `supported` decision closes it anyway. */
+  still_listed: boolean;
+}
+
 export interface TakeOutResponse extends ReviewRefresh {
   changes: SectionChange[];
   still_listed: boolean;
@@ -122,6 +129,24 @@ async function post<T>(kind: ReviewDocumentKind, id: string, action: string, bod
 
 export function addEvidence(kind: ReviewDocumentKind, id: string, findingKey: string, text: string) {
   return post<AddEvidenceResponse>(kind, id, "add-evidence", { finding_key: findingKey, text });
+}
+
+/**
+ * #797 (ruling D2-5 = A, ADR-090 cl. 6 amended) — *Stimmt* on a finding the
+ * profile already holds: no testimony ask. Resolves `null` when the profile
+ * does NOT hold every wording (409 `not_in_profile`) — the caller then asks.
+ */
+export async function confirmSupported(
+  kind: ReviewDocumentKind,
+  id: string,
+  findingKey: string,
+): Promise<SupportedResponse | null> {
+  try {
+    return await post<SupportedResponse>(kind, id, "supported", { finding_key: findingKey });
+  } catch (e) {
+    if (e instanceof ReviewActionError && e.status === 409) return null;
+    throw e;
+  }
 }
 
 export function takeOut(kind: ReviewDocumentKind, id: string, findingKey: string) {

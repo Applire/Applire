@@ -109,6 +109,7 @@ from applire.services.oracle.matchers import (
     ground_text_claim,
     ground_via_role_union,
     ground_via_skill_union,
+    holds_other_language,
     match_figures,
     skills_near_duration,
 )
@@ -116,7 +117,11 @@ from applire.services.oracle.matchers.vault import (
     RESTATEMENT_MIN_SHARED,
     duration_window_tokens,
 )
-from applire.services.oracle.matchers.figures import _IDENTIFIER_PREFIX, _identifier_spans
+from applire.services.oracle.matchers.figures import (
+    _IDENTIFIER_PREFIX,
+    _identifier_spans,
+    identifier_matches,
+)
 from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE
 from applire.services.oracle.stance import classify_stance
 
@@ -129,6 +134,40 @@ _EXCERPT_CHARS = 160
 # the bare language code for anything else (out of DACH-native scope today,
 # but never a reason to raise).
 _LANGUAGE_LABELS = {"de": "German", "en": "English"}
+
+
+def _claimable_index(profile: Any) -> VaultIndex:
+    """The vault index every Oracle grading reads: :func:`build_vault_index`
+    over the CLAIMABLE vault (``exclude_unconfirmed``, ADR-061 cl. 3 + the
+    2026-08-08 amendment — an ``unconfirmed`` entry backs nothing, a
+    ``denied`` one was retracted). Before build-2 adversarial F-A (ruling R3-a,
+    R3-1 precedent ADR-061 cl. 3) the Oracle indexed the FULL profile, so a
+    skill chip backed only by such a row read ``grounded`` while the generator
+    (``cv.py``) and the ATS (``grounding_vault_index``) already read the
+    filtered vault. A typed profile is dumped first, so the filter sees the
+    same JSON every other reader filters. Evidence ``skills[i]`` paths index
+    the filtered list, exactly as the ATS index always has."""
+    from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+    raw = profile.model_dump(mode="json") if hasattr(profile, "model_dump") else profile
+    return build_vault_index(exclude_unconfirmed(raw) if isinstance(raw, dict) else raw)
+
+
+def _denial_covers(text: str, idx: VaultIndex) -> bool:
+    """Does one of the candidate's recorded denials cover ``text``? The ledger
+    floor's own predicate (``stance.denials_covering``) over the denials the
+    vault index carries — the same fact the ATS keyword check reads, so the
+    D2-1 "other language" softening never reaches a term the candidate denied
+    (build-2 adversarial F-D, ruling R3-a). Never raises."""
+    denials = list(getattr(idx, "denied_concepts", ()) or ())
+    if not denials:
+        return False
+    try:
+        from applire.services.profile.reconcile.stance import denials_covering
+
+        return bool(denials_covering(text, [], denials, getattr(idx, "denial_release_text", "") or ""))
+    except Exception:  # pragma: no cover — defensive: fall back to D2-1's verdict
+        return False
 
 
 def _evidence_refs(units: list[EvidenceUnit]) -> list[EvidenceRef]:
@@ -690,8 +729,30 @@ def _tenure_ceiling_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
     if ceiling is None:
         return None
     allowed = ceiling + _TENURE_TOLERANCE_YEARS
-    for tenure in extract_tenure_claims(text):
-        if tenure.years <= allowed:
+    for tenure in extract_tenure_claims(text, include_since=True):
+        if tenure.since_year is not None:
+            # #790 line L15: "seit 2004" states a START. Read it as the latest
+            # start the year allows (December) and flag only when it still lies
+            # more than the tolerance before every dated start in the vault.
+            earliest = index.earliest_dated_start
+            if earliest is None:
+                continue
+            claimed = tenure.since_year + 11 / 12
+            recorded = earliest.year + (earliest.month - 1) / 12
+            if recorded - claimed <= _TENURE_TOLERANCE_YEARS:
+                continue
+            return ClaimVerdict(
+                verdict="unbacked",
+                checker="numbers",
+                figures=[tenure.raw.strip()],
+                detail=(
+                    f'Claimed start "{tenure.raw.strip()}" lies before the earliest '
+                    f"dated span in the vault ({earliest:%m/%Y})."
+                ),
+            )
+        # #790 line L15: the lowest duration the claim commits to (a range's
+        # lower bound) — never a false accusation.
+        if tenure.floor <= allowed:
             continue
         return ClaimVerdict(
             verdict="unbacked",
@@ -819,9 +880,9 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
         # Escapes — the candidate's own words win, for THIS subject only
         # (adversarial finding 4a: a career total stated anywhere in the
         # vault is not a statement about SAP CO).
-        if index.stated_skill_tenures.get(best, -1.0) >= tenure.years:
+        if index.stated_skill_tenures.get(best, -1.0) >= tenure.floor:
             continue
-        if index.transcribed_skill_years.get(best, -1) >= tenure.years:
+        if index.transcribed_skill_years.get(best, -1) >= tenure.floor:
             continue
         # …or the claim RESTATES a sentence of the candidate's own that states
         # the same duration (same N, ≥ RESTATEMENT_MIN_SHARED content words in
@@ -836,7 +897,7 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
             for years, words in index.stated_tenure_windows
         ):
             continue
-        required = _required_span(text, raw, tenure.years)
+        required = _required_span(text, raw, tenure.floor)
         span, orgs = index.skill_spans[best]
         if span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required:
             continue
@@ -1346,8 +1407,8 @@ def _unmentioned_identifiers(text: str, index: VaultIndex) -> list[str]:
     (:func:`extract.named_in_denial_segment`). ADR-062: FACTS only. Returns
     the identifiers as written, in order, de-duplicated.
     """
-    spans = _identifier_spans(text or "")
-    if not spans:
+    matches = identifier_matches(text or "")
+    if not matches:
         return []
     mentioned: set[str] = set()
     for unit in list(index.units) + list(index.denial_units):
@@ -1356,11 +1417,14 @@ def _unmentioned_identifiers(text: str, index: VaultIndex) -> list[str]:
             mentioned.add(unit_text[a:b])
         mentioned.update(_BARE_NUMBER_RE.findall(unit_text))
     out: list[str] = []
-    for a, b in spans:
+    for (a, b), written in matches:
         digits = text[a:b]
         if digits in mentioned or named_in_denial_segment(text, digits):
             continue
-        label = _identifier_label(text, a, b)
+        # #790 line L16: a list continuation carries its chain's prefix
+        # ("ISO 45001" for the "45001" of "ISO 9001/45001"); CFR keeps the
+        # positional label.
+        label = written or _identifier_label(text, a, b)
         if label not in out:
             out.append(label)
     return out
@@ -1396,7 +1460,7 @@ async def verify_claim(
     """
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
-    idx = index or build_vault_index(profile)
+    idx = index or _claimable_index(profile)
     unmentioned = _unmentioned_identifiers(claim.text, idx)
     if not unmentioned:
         return await _verify_claim_unchecked(
@@ -1474,7 +1538,7 @@ async def _verify_claim_unchecked(
     """
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
-    idx = index or build_vault_index(profile)
+    idx = index or _claimable_index(profile)
     budget = budget or _EntailmentBudget()
     # #196: a stamped id the vault does not know (backfill heuristics, stale
     # data) disables the attribution matcher — fail open, never flag on it.
@@ -1567,7 +1631,28 @@ async def _verify_claim_unchecked(
         seam = _cross_language_candidate(
             claim.text, idx, document_language, skill_candidates, deny, judgement_sink
         )
-        return seam if seam is not None else deny
+        if seam is not None:
+            return seam
+        # #790 line L12 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20):
+        # seam A's trigger reads only the vault's DOMINANT language, so a
+        # same-language pair over a mixed-language vault ("Markenidentität" on
+        # a German CV, "own brand identity" in the vault) fell through to an
+        # absence-based accusation. A literal miss there is "not checked
+        # across languages": unverifiable, no model call.
+        # Build-2 adversarial F-D (ruling R3-a): a skill one of the candidate's
+        # own recorded denials covers is not that case — it stays unbacked,
+        # the same cover the keyword check reads (ADR-066, one rule per half).
+        if holds_other_language(idx, document_language) and not _denial_covers(claim.text, idx):
+            return ClaimVerdict(
+                verdict="unverifiable",
+                checker="grounding",
+                detail=(
+                    f'Skill "{claim.text}" has no literal match, and part of the '
+                    "vault is written in another language — not checked across "
+                    "languages, so this is left open rather than accused."
+                ),
+            )
+        return deny
 
     # ── 1a. tenure ceiling (deterministic red flag, #469) ───────────────────
     # Runs FIRST of the numeric passes, deliberately: every branch below can
@@ -1886,7 +1971,7 @@ async def audit_document(
     text: str | None = None,
     provider: Any | None = None,
     document_language: str | None = None,
-    entailment: bool = True,
+    entailment: bool = False,
     keyword_ledger: list[dict[str, Any]] | None = None,
 ) -> TruthfulnessReport:
     """Full-document audit → :class:`TruthfulnessReport` (ADR-052 §1).
@@ -1920,9 +2005,15 @@ async def audit_document(
     generation — that would reopen the "free of added latency/cost" half of
     the ADR-052 §4 guarantee ADR-068 never asked to amend, and did break
     several pre-existing tests whose mocked providers assert an exact call
-    count/sequence. The agent-door ``audit_document`` tool (the OTHER
-    caller) keeps ``entailment=True`` (the default) — entailment there was
-    always live and intentional.
+    count/sequence. **Default ``False`` since 2026-10-20 (founder rulings
+    D2-4/D2-4b, #790 line L5, ADR-068 cl. 7 parity):** the agent door was the
+    one caller that kept the arm on, and on captured door calls it graded
+    TRUE claims "inflated" (3 of 11 calls, 0 true catches) and flipped on
+    identical input at temperature 0 (2 of 8 replayed cases, n=5) — its top-3
+    evidence window can omit the claim's own deciding unit. Every production
+    caller now passes ``False`` explicitly; the default makes a new caller
+    grade like the self-audit unless it opts in. The arm itself is kept
+    (tests still exercise it with ``entailment=True``) — unused in production.
 
     ``keyword_ledger`` (blind Kaile probe, 2026-09-19) is the job's latest
     Keyword Ledger. Only its CLAIMABLE surface-form groups are read, and only
@@ -1967,7 +2058,7 @@ async def audit_document(
             )
             triage_exemptions, triage_unavailable = {}, len(claims)
 
-    index = build_vault_index(profile)
+    index = _claimable_index(profile)
     budget = _EntailmentBudget(limit=ORACLE_MAX_ENTAILMENT_CALLS if entailment else 0)
     # ADR-068 clause 6 — every claim that defers to the judgement layer lands
     # here; ``pending`` remembers, in the SAME order, which ``results`` slot

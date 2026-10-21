@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { use } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
@@ -181,7 +182,9 @@ interface CompletionData {
   reason: "gaps_resolved" | "user_ended" | "max_questions_reached";
   questions_asked: number;
   gaps_resolved: number;
-  completeness_score: number;
+  // null = the response carried no score: render no gauge rather than a
+  // made-up "0 %" (789:L47, M3).
+  completeness_score: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +262,7 @@ function CompletenessGauge({ score }: { score: number }) {
   const filled = circumference * (1 - displayed / 100);
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2" data-testid="completeness-gauge" data-pct={pct}>
       <svg width="128" height="128" viewBox="0 0 128 128">
         <circle cx="64" cy="64" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="10" />
         <circle
@@ -618,7 +621,7 @@ export default function InterviewPage({
           reason: data.reason ?? "gaps_resolved",
           questions_asked: data.questions_asked ?? questionsAsked,
           gaps_resolved: data.gaps_resolved ?? 0,
-          completeness_score: data.completeness_score ?? 0,
+          completeness_score: data.completeness_score ?? null,
         });
       } else {
         const nextQ = data.question ?? "";
@@ -796,9 +799,11 @@ export default function InterviewPage({
           </div>
 
           {/* Animated gauge */}
-          <div className="flex justify-center mb-8">
-            <CompletenessGauge score={completion.completeness_score} />
-          </div>
+          {completion.completeness_score !== null && (
+            <div className="flex justify-center mb-8">
+              <CompletenessGauge score={completion.completeness_score} />
+            </div>
+          )}
 
           {/* What we added from your answers — before generation (ADR-040, US148 / JF-M-5.2) */}
           <div className="mb-8" data-testid="interview-summary-section">
@@ -816,13 +821,13 @@ export default function InterviewPage({
             >
               {advancingToCV ? t("advancingToCV") : t("generateCV")}
             </Button>
-            <a
-              href="#"
+            <Link
+              href="/profile"
+              data-testid="view-profile-link"
               className="inline-flex items-center justify-center text-sm text-teal underline hover:no-underline px-4 py-2"
-              onClick={(e) => e.preventDefault()}
             >
               {t("viewProfile")}
-            </a>
+            </Link>
           </div>
         </Card>
       </div>

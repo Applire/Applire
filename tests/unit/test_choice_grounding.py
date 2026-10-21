@@ -21,6 +21,10 @@ An LLM-drafted chip may only ASSERT experience with a JD/cluster term when the
 profile actually evidences that term. A "denial"-level chip (the model's own
 tag, ADR-062 fix 2026-07-29 — see choice_grounding.py's module docstring) may
 name the term to deny it. The guarantee lives in code, not in the prompt.
+
+Founder ruling V-7 (2026-10-21): a Category C question offers no denial chip, so the
+denial-chip mechanics (pivot split, mirror check, employer guard) are exercised on
+Category B here; the C rule itself is pinned in backend/tests/unit/test_v7_no_denial_chip_on_c.py.
 """
 
 import pytest
@@ -70,7 +74,7 @@ class TestFilterUngroundedChoices:
 
     def test_denial_level_choice_may_name_the_unevidenced_term(self):
         text = "I haven't worked with Azure directly, but my AWS migration covered similar controls."
-        assert filter_ungrounded_choices([_denial(text)], CLUSTER, PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], CLUSTER, PROFILE, "B") == [text]
 
     def test_typographic_apostrophe_denial_choice_is_kept(self):
         # Blind agent probe 2026-07-11: real models emit "haven’t" (U+2019).
@@ -78,11 +82,11 @@ class TestFilterUngroundedChoices:
         # the affirmative-clause pipeline still folds typographic quotes
         # correctly on the split-off remainder.
         text = "I haven’t worked directly with Azure, but I’ve used Docker in CI/CD pipelines."
-        assert filter_ungrounded_choices([_denial(text)], CLUSTER, PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], CLUSTER, PROFILE, "B") == [text]
 
     def test_german_denial_choice_is_recognised(self):
         text = "Mit Azure habe ich bisher nicht direkt gearbeitet, aber meine AWS-Migration war vergleichbar."
-        assert filter_ungrounded_choices([_denial(text)], CLUSTER, PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], CLUSTER, PROFILE, "B") == [text]
 
     def test_mixed_list_keeps_grounded_and_denial_drops_invented(self):
         # Also exercises mixed bare-string / tagged-dict input in one list.
@@ -90,7 +94,7 @@ class TestFilterUngroundedChoices:
         text1 = "I qualified an Azure-hosted MES."
         text2 = "I haven't worked with Azure directly, but I know cloud validation from AWS."
         chips = [text0, text1, _denial(text2)]
-        out = filter_ungrounded_choices(chips, CLUSTER, PROFILE, "C")
+        out = filter_ungrounded_choices(chips, CLUSTER, PROFILE, "B")
         assert out == [text0, text2]
 
     def test_all_dropped_returns_none(self):
@@ -165,11 +169,11 @@ _REPORTED_DENIALS_DE = [
 class TestDenialLevelCoverage:
     @pytest.mark.parametrize("text", _REPORTED_DENIALS_EN)
     def test_reported_english_denial_survives_when_tagged(self, text):
-        assert filter_ungrounded_choices([_denial(text)], TOGAF_CLUSTER, EA_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], TOGAF_CLUSTER, EA_PROFILE, "B") == [text]
 
     @pytest.mark.parametrize("text", _REPORTED_DENIALS_DE)
     def test_reported_german_denial_survives_when_tagged(self, text):
-        assert filter_ungrounded_choices([_denial(text)], TOGAF_CLUSTER, EA_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], TOGAF_CLUSTER, EA_PROFILE, "B") == [text]
 
     def test_overclaiming_untagged_choice_for_the_same_absent_concept_still_dropped(self):
         # No level tag at all (unknown) — falls back to the pre-existing
@@ -187,7 +191,7 @@ class TestDenialLevelCoverage:
         denial_text = "I have no experience with TOGAF."
         overclaim_text = "I led our TOGAF adoption end to end."
         chips = [_denial(denial_text), {"text": overclaim_text, "level": "direct"}]
-        out = filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C")
+        out = filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "B")
         assert out == [denial_text]
 
 
@@ -218,7 +222,7 @@ class TestDenialTagNotTrustedBlindly:
         cluster = {"label": "Container Orchestration", "gaps": ["Kubernetes"], "jd_skills": ["Kubernetes"]}
         text = "At NordPharm, I deployed our services on Kubernetes clusters."
         with caplog.at_level("WARNING"):
-            out = filter_ungrounded_choices([_denial(text)], cluster, NORDPHARM_PROFILE, "C")
+            out = filter_ungrounded_choices([_denial(text)], cluster, NORDPHARM_PROFILE, "B")
         assert out is None
         assert "mislabelled" in caplog.text
 
@@ -227,7 +231,7 @@ class TestDenialTagNotTrustedBlindly:
         # backstop must not over-drop a truthful (if oddly-tagged) claim.
         cluster = {"label": "Container Orchestration", "gaps": ["Kubernetes"], "jd_skills": ["Kubernetes"]}
         text = "At Applire, I deployed our services on Kubernetes clusters."
-        assert filter_ungrounded_choices([_denial(text)], cluster, NORDPHARM_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], cluster, NORDPHARM_PROFILE, "B") == [text]
 
 
 # ── missing / unrecognised level — safe fallback ─────────────────────────────
@@ -367,7 +371,7 @@ class TestEmployerScopedAttributionGuard:
             "production at Applire."
         )
         cluster = {"label": "Container Orchestration", "gaps": ["Kubernetes"], "jd_skills": ["Kubernetes"]}
-        assert filter_ungrounded_choices([_denial(text)], cluster, NORDPHARM_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], cluster, NORDPHARM_PROFILE, "B") == [text]
 
     def test_employer_free_scaffold_chip_still_passes(self):
         # No employer named — today's cluster-term-only behaviour is unchanged.
@@ -454,7 +458,7 @@ class TestDenialClauseScoping:
             "I haven't used Tailwind CSS directly, but I've worked with React "
             "and Next.js to create responsive applications at TechCorp"
         )
-        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "B") == [text]
 
     def test_truthful_affirmative_clause_with_correct_employer_is_kept(self):
         # Over-drop discipline (#207 lesson): a truthful denial-clause
@@ -463,19 +467,19 @@ class TestDenialClauseScoping:
             "I haven't used Tailwind directly, but I've worked with React and "
             "Next.js at TechCorp."
         )
-        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "B") == [text]
 
     def test_pure_denial_with_no_pivot_keeps_full_exemption(self):
         text = "I haven't used Tailwind CSS directly."
-        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "B") == [text]
 
     def test_pure_denial_typographic_apostrophe_no_pivot_keeps_full_exemption(self):
         text = "I haven’t used Tailwind CSS directly."
-        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "B") == [text]
 
     def test_pure_denial_german_no_pivot_keeps_full_exemption(self):
         text = "Mit Tailwind CSS habe ich bisher nicht direkt gearbeitet."
-        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "B") == [text]
 
     def test_german_pivot_misattributed_affirmative_is_dropped(self):
         text = (
@@ -489,13 +493,13 @@ class TestDenialClauseScoping:
             "Mit Tailwind CSS habe ich bisher nicht direkt gearbeitet, aber ich "
             "habe React und Next.js bei TechCorp eingesetzt."
         )
-        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "B") == [text]
 
     def test_affirmative_naming_no_employer_with_evidenced_term_is_kept(self):
         # No employer named in the affirmative — today's whole-profile
         # cluster-term check still applies (unchanged).
         text = "I haven't used GraphQL directly, but I've built with Next.js."
-        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "B") == [text]
 
     def test_affirmative_first_ordering_misattribution_is_now_caught(self):
         # F2 (2026-07-29): `_split_denial_choice` always treats the clause
@@ -524,7 +528,7 @@ class TestDenialClauseScoping:
             "I've worked with React and Next.js to create responsive "
             "applications at TechCorp, but I haven't used Tailwind CSS directly"
         )
-        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "B") == [text]
 
     def test_german_affirmative_first_fabricated_employer_is_dropped(self):
         # German companion to test_affirmative_first_ordering_misattribution_is_now_caught.
@@ -611,7 +615,7 @@ class _LevelTaggedChoicesProvider(LLMProvider):
 @pytest.mark.asyncio
 async def test_mode_a_generator_returns_flat_string_list_for_tagged_choices():
     out = await question_generator_with_profile(
-        _mode_a_state(), PROFILE, _LevelTaggedChoicesProvider(), gap_category="C", lang="en"
+        _mode_a_state(), PROFILE, _LevelTaggedChoicesProvider(), gap_category="B", lang="en"
     )
     assert out["question"]
     # Every kept element is a bare str (no leaked {"text", "level"} dicts) —

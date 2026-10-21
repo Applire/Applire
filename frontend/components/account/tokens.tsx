@@ -32,7 +32,14 @@ export function origin(): string {
   return typeof window === "undefined" ? "" : window.location.origin;
 }
 
-/** README's `mcpServers` block + the token (ADR-091 cl. 17: `-e APPLIRE_AGENT_TOKEN` + env). */
+/**
+ * The `mcpServers` block + the token (ADR-091 cl. 17: `-e APPLIRE_AGENT_TOKEN` + env).
+ *
+ * Agent collector #788 line 41: the `exec … backend python -m applire.mcp` form,
+ * not `run --rm … mcp` — `run` needs the `mcp` service in the compose file, and a
+ * compose file without it (edge's, any trimmed one) fails; `exec` works on every
+ * install whose backend is running, which the agent needs anyway.
+ */
 export function agentSnippet(token: string): string {
   return [
     "{",
@@ -41,7 +48,7 @@ export function agentSnippet(token: string): string {
     '      "command": "docker",',
     '      "args": [',
     '        "compose", "-f", "/absolute/path/to/applire/docker-compose.yml",',
-    '        "run", "--rm", "-T", "-e", "APPLIRE_AGENT_TOKEN", "mcp"',
+    '        "exec", "-T", "-e", "APPLIRE_AGENT_TOKEN", "backend", "python", "-m", "applire.mcp"',
     "      ],",
     `      "env": { "APPLIRE_AGENT_TOKEN": "${token}" }`,
     "    }",

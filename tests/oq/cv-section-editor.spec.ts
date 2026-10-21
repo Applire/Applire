@@ -254,13 +254,15 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     // Save
     const saveBtn = page.locator('[data-testid="section-save"]');
     await expect(saveBtn).toBeEnabled({ timeout: 3_000 });
+    const patch = page.waitForRequest(
+      (r) => r.method() === "PATCH" && r.url().includes("/sections/introduction")
+    );
     await saveBtn.click();
+    expect((await patch).postDataJSON().save_to_profile).toBe(false);
 
-    // SaveScopePrompt should appear — choose "Just this CV"
-    await expect(page.locator('[data-testid="save-cv-only-btn"]')).toBeVisible({
-      timeout: 3_000,
-    });
-    await page.click('[data-testid="save-cv-only-btn"]');
+    // Founder ruling D2-2 = A (#783 L23): the introduction is document-only —
+    // no SaveScopePrompt, the save goes to this CV straight away.
+    await expect(page.locator('[data-testid="save-to-profile-btn"]')).toHaveCount(0);
 
     // CV iframe stays visible (refresh triggered by onSectionSave -> onHtmlRefresh)
     await expect(page.locator('[data-testid="cv-iframe"]')).toBeVisible({

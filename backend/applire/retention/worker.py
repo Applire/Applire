@@ -383,7 +383,7 @@ async def _tombstone_inactive_profiles(db: AsyncSession) -> int:
 
 
 async def _tombstone_inactive_users(db: AsyncSession) -> int:
-    """Soft-delete accounts INACTIVE for ≥ 24 months (D-4, ADR-092 cl. 12a).
+    """Retire accounts INACTIVE for ≥ 24 months (D-4, ADR-092 cl. 12a).
 
     Inactivity = ``coalesce(last_active_at, created_at)`` — the last sign-in /
     authenticated write, falling back to sign-up for an account that never
@@ -391,34 +391,52 @@ async def _tombstone_inactive_users(db: AsyncSession) -> int:
     have tombstoned every real account 24 months after it was created, however
     active. An **admin is never tombstoned** (last-admin protection, ADR-091
     cl. 7): an instance whose only admin went quiet must stay claimable by them.
+
+    The tombstone is the SAME scrub as an account deletion (ADR-091 cl. 25 as
+    amended 2026-10-20, ruling R-4; 785:L81): ``erasure.tombstone_identity``
+    clears the email, credentials, SSO binding and login timestamps, and the
+    account's sessions, tokens and open links are revoked. Before, this rule set
+    ``deleted_at`` only and kept all of them indefinitely. The owned data is not
+    erased here — profiles and applications run their own inactivity rules.
     """
+    from applire.auth.sessions import revoke_user_sessions
+    from applire.auth.tokens import revoke_all_for_user
+    from applire.services.admin.links import revoke_open_links
+    from applire.services.erasure import tombstone_identity
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=_INACTIVITY_TTL_DAYS)
     now = datetime.now(timezone.utc)
     try:
-        result = await db.execute(
-            update(User)
-            .where(
-                func.coalesce(User.last_active_at, User.created_at, type_=User.created_at.type)
-                < cutoff
-            )
-            .where(User.role != ROLE_ADMIN)
-            .where(User.deleted_at.is_(None))
-            # The unclaimed setup stub owns an upgraded vault and is what /setup
-            # converts into the admin; a tombstoned stub can never be claimed
-            # (claim_stub refuses deleted rows), so it is never retired here
-            # while it holds no credential (w4-fix-id, MD-39).
-            .where(
-                or_(
-                    User.id != STUB_USER_ID,
-                    User.password_hash.is_not(None),
-                    User.oidc_subject.is_not(None),
+        users = (
+            await db.execute(
+                select(User)
+                .where(
+                    func.coalesce(User.last_active_at, User.created_at, type_=User.created_at.type)
+                    < cutoff
+                )
+                .where(User.role != ROLE_ADMIN)
+                .where(User.deleted_at.is_(None))
+                # The unclaimed setup stub owns an upgraded vault and is what /setup
+                # converts into the admin; a tombstoned stub can never be claimed
+                # (claim_stub refuses deleted rows), so it is never retired here
+                # while it holds no credential (w4-fix-id, MD-39).
+                .where(
+                    or_(
+                        User.id != STUB_USER_ID,
+                        User.password_hash.is_not(None),
+                        User.oidc_subject.is_not(None),
+                    )
                 )
             )
-            .values(deleted_at=now)
-            .execution_options(synchronize_session=False)
-        )
+        ).scalars().all()
+        for user in users:
+            await revoke_user_sessions(db, user.id)
+            await revoke_all_for_user(db, user.id)
+            await revoke_open_links(db, user.id)
+            await db.refresh(user)  # revoke_all_for_user bumped link_epoch in SQL
+            tombstone_identity(user, now=now)
         await db.commit()
-        return result.rowcount  # type: ignore[return-value]
+        return len(users)
     except (ProgrammingError, OperationalError) as exc:
         logger.warning("_tombstone_inactive_users skipped: %s", exc)
         await db.rollback()
@@ -968,12 +986,18 @@ async def run() -> None:
     # The stdout line is unchanged and stays: every existing log-reading habit
     # keeps working. The row beside it is what the ops layer reads (ADR-086 cl. 5).
     print(json.dumps(report), flush=True)
+    failed = report.get("failed_rules") or []
+    error = f"rules failed: {', '.join(failed)}"[:500] if failed else None
     await record_run(
         report,
         duration_ms=int((time.monotonic() - started) * 1000),
-        ok=True,
-        error=None,
+        ok=not failed,
+        error=error,
     )
+    if failed:
+        # Every other rule ran; the run is still not a clean one — the ops probe
+        # reads "last run failed" and the process exits non-zero (785:L69).
+        raise RetentionRulesFailed(error)
 
 
 async def _sweep() -> dict:
@@ -1022,45 +1046,89 @@ async def _zero(_db: AsyncSession) -> int:
     return 0
 
 
+class RetentionRulesFailed(RuntimeError):
+    """One or more rules raised; every other rule still ran (785:L69)."""
+
+
+async def _isolated(name: str, fn, db: AsyncSession, failed: list[str], default=0):
+    """Run ONE rule so that its failure cannot skip the rules after it (785:L69).
+
+    Each rule already turns the lookup errors it anticipates (``ProgrammingError``
+    / ``OperationalError`` — an absent table) into "skipped, 0". Anything else
+    used to propagate out of the sweep and abort the run, so one rule's bug or one
+    FK violation (the W3 ``IntegrityError``, ADR-092 amendment 10) silently
+    suspended every later GDPR TTL until it was fixed. Here: roll back, log the
+    rule name and the exception TYPE (never a row value), count the default, and
+    go on. The run is then reported as failed (:func:`run`).
+    """
+    try:
+        return await fn(db)
+    except Exception as exc:  # noqa: BLE001 — isolation is the point
+        logger.error(
+            "retention rule %s failed (%s) — the sweep continues with the next rule",
+            name,
+            type(exc).__name__,
+        )
+        try:
+            await db.rollback()
+        except Exception:  # pragma: no cover - a broken session; the next rule reopens
+            pass
+        failed.append(name)
+        return default
+
+
 async def _sweep_unscoped() -> dict:
     on = _RUN_ENABLED.get()
+    failed: list[str] = []
     async with AsyncSessionLocal() as db:
-        uploads_deleted = await (_purge_uploads if on else _zero)(db)
-        sessions_deleted = await (_purge_sessions if on else _zero)(db)
+        async def rule(name, fn, default=0):
+            return await _isolated(name, fn, db, failed, default)
+
+        uploads_deleted = await rule("uploads", _purge_uploads if on else _zero)
+        sessions_deleted = await rule("interview_sessions", _purge_sessions if on else _zero)
         # Counted before the purges: the exempt rows are exactly the ones the
         # guarded DELETEs skip, so ordering doesn't change the number — but
         # counting first keeps the report honest if a later purge errors.
-        submitted_exempt = await _count_submitted_exempt(db)
-        cvs_deleted = await (_purge_cvs if on else _zero)(db)
-        profiles_tombstoned = await (_tombstone_inactive_profiles if on else _zero)(db)
-        users_tombstoned = await (_tombstone_inactive_users if on else _zero)(db)
-        applications_tombstoned = await _tombstone_inactive_applications(db, cancelled_only=not on)
+        submitted_exempt = await rule("submitted_exempt", _count_submitted_exempt)
+        cvs_deleted = await rule("generated_cvs", _purge_cvs if on else _zero)
+        profiles_tombstoned = await rule(
+            "master_profiles_inactivity", _tombstone_inactive_profiles if on else _zero
+        )
+        users_tombstoned = await rule("users_inactivity", _tombstone_inactive_users if on else _zero)
+        applications_tombstoned = await rule(
+            "applications_inactivity",
+            lambda d: _tombstone_inactive_applications(d, cancelled_only=not on),
+        )
         # After the tombstone sweep: an application tombstoned TODAY releases
         # its fact-pin quotes in the same run (ADR-077 clause 7).
-        fact_pins_released = await _release_fact_pins(db)
+        fact_pins_released = await rule("fact_pins", _release_fact_pins)
         # After the tombstone sweep so a cancelled application whose grace
         # window ended TODAY purges in the same run (US222).
         (
             cancelled_cvs_deleted,
             cancelled_cover_letters_deleted,
             cancelled_flows_tombstoned,
-        ) = await _purge_cancelled_documents(db)
-        stale_cv_jobs_failed = await _reap_stale_cv_jobs(db)
-        cover_letters_deleted = await (_purge_cover_letters if on else _zero)(db)
-        stale_cl_jobs_failed = await _reap_stale_cl_jobs(db)
-        import_jobs_deleted = await _purge_import_jobs(db)
-        gap_jobs_deleted = await _purge_gap_jobs(db)
+        ) = await rule("cancelled_documents", _purge_cancelled_documents, (0, 0, 0))
+        stale_cv_jobs_failed = await rule("stale_cv_jobs", _reap_stale_cv_jobs)
+        cover_letters_deleted = await rule(
+            "generated_cover_letters", _purge_cover_letters if on else _zero
+        )
+        stale_cl_jobs_failed = await rule("stale_cl_jobs", _reap_stale_cl_jobs)
+        import_jobs_deleted = await rule("cv_import_jobs", _purge_import_jobs)
+        gap_jobs_deleted = await rule("gap_analysis_jobs", _purge_gap_jobs)
         # After _purge_uploads so files whose rows were just TTL-purged are not
         # double-counted; anything its file pass failed to remove ages past the
         # grace period and is reclaimed here on a later run.
-        orphan_files_deleted = await _scan_orphan_files(db)
+        orphan_files_deleted = await rule("orphan_files", _scan_orphan_files)
         # ADR-086 clause 10 — a growth bound, not a PII clock.
-        llm_usage_deleted = await _purge_llm_usage(db)
+        llm_usage_deleted = await rule("llm_usage", _purge_llm_usage)
         # After every owned-row purge above: a posting whose last referencing
         # session/document went today is an orphan in the same run.
-        orphan_postings_deleted = await (_purge_orphan_postings if on else _zero)(db)
-        auth_housekeeping = await _purge_auth_housekeeping(db)
-        audit_events_deleted = await _purge_audit_events(db)
+        orphan_postings_deleted = await rule(
+            "orphan_postings", _purge_orphan_postings if on else _zero
+        )
+        auth_housekeeping = await rule("auth_housekeeping", _purge_auth_housekeeping, {})
+        audit_events_deleted = await rule("audit_events", _purge_audit_events)
 
     report = {
         "run_at": datetime.now(timezone.utc).isoformat(),
@@ -1085,5 +1153,7 @@ async def _sweep_unscoped() -> dict:
         "orphan_postings_deleted": orphan_postings_deleted,
         **auth_housekeeping,
         "audit_events_deleted": audit_events_deleted,
+        # 785:L69 — the rules that raised (each logged by name); empty on a clean run.
+        "failed_rules": failed,
     }
     return report

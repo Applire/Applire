@@ -123,19 +123,116 @@ def _find(needle: str, haystack_norm: str) -> int:
 _FOLD_MIN_STEM = 4
 
 
+#: #783 line L35 / #787 line L43 (2026-10-20) — closed suffix pairs of the
+#: final token, each a FACT about the token's own letters (ADR-062 cl. 1).
+#: Applied in both directions; the stem left in front of the suffix must keep
+#: ≥ ``_FOLD_MIN_STEM`` chars. Every pair produces a SUBSTRING needle, so the
+#: shorter side of a pair also reaches the inflected forms after it
+#: ("zertifizier" in "zertifizierte", "produzier" in "produzierten").
+#:
+#: * EN ``-y`` ↔ ``-ies`` ("methodology" ↔ "methodologies");
+#: * DE noun plurals ``-ung``/``-ion``/``-tät``/``-heit``/``-keit``/``-schaft``
+#:   + ``en`` ("Zertifizierung" ↔ "Zertifizierungen");
+#: * DE ``-ierung`` ↔ the verb stem ``-ier`` ("Zertifizierung" ↔ "zertifiziert",
+#:   "Optimierung" ↔ "optimieren") and ``-ktion`` ↔ ``-zier``
+#:   ("Produktion" ↔ "produziert", "Reduktion" ↔ "reduzieren").
+#: Deliberately absent: any bare "-e"/"-n"/"-er" fold — too short to be a fact
+#: about the word rather than a coincidence of letters. (The adjective
+#: declension fold below is anchored on an adjective-forming suffix and a
+#: minimum stem, and reaches non-final tokens only.)
+_FOLD_SUFFIX_PAIRS: tuple[tuple[str, str], ...] = (
+    ("y", "ies"),
+    ("ungen", "ung"),
+    ("ionen", "ion"),
+    ("täten", "tät"),
+    ("heiten", "heit"),
+    ("keiten", "keit"),
+    ("schaften", "schaft"),
+    ("ierungen", "ier"),
+    ("ierung", "ier"),
+    ("ktionen", "zier"),
+    ("ktion", "zier"),
+)
+
+
+def _suffix_pair_variants(last: str) -> list[str]:
+    """The final token's counterparts under ``_FOLD_SUFFIX_PAIRS`` (both ways)."""
+    out: list[str] = []
+    for a, b in _FOLD_SUFFIX_PAIRS:
+        for src, dst in ((a, b), (b, a)):
+            if last.endswith(src) and len(last) - len(src) >= _FOLD_MIN_STEM:
+                out.append(last[: -len(src)] + dst)
+    return out
+
+
+#: Bug #797 / build-2 adversarial F-C (ruling R3-b): a German ATTRIBUTIVE
+#: adjective declines by case and gender in front of its noun —
+#: "industrieller Mittelstand" / "im industriellen Mittelstand" — and the ending
+#: never changes what the phrase states. The fold reaches it for a NON-final
+#: token only (the final token keeps the pairs above), and only when the stem
+#: before the ending carries an adjective-forming suffix and has at least
+#: ``_ADJ_FOLD_MIN_STEM`` letters ("neuer"/"neuen" stays unfolded; "Quellen"
+#: is too short to be read as an adjective).
+_ADJ_DECLENSION_ENDINGS: tuple[str, ...] = ("en", "em", "er", "es", "e")
+_ADJ_STEM_SUFFIXES: tuple[str, ...] = (
+    "ell", "isch", "lich", "ig", "al", "iv", "ar", "bar", "haft", "los", "sam",
+)
+_ADJ_FOLD_MIN_STEM = 6
+#: At most this many declinable tokens are folded in one phrase (bounds the variants).
+_ADJ_FOLD_MAX_TOKENS = 2
+
+
+def _adjective_declensions(token: str) -> list[str]:
+    """The other declension forms of ``token`` when it is an inflected
+    adjective under the closed rule above; ``[]`` otherwise."""
+    for ending in _ADJ_DECLENSION_ENDINGS:
+        if not token.endswith(ending):
+            continue
+        stem = token[: -len(ending)]
+        if len(stem) >= _ADJ_FOLD_MIN_STEM and stem.isalpha() and stem.endswith(_ADJ_STEM_SUFFIXES):
+            return [stem + e for e in _ADJ_DECLENSION_ENDINGS if e != ending]
+        return []
+    return []
+
+
+def _with_adjective_declensions(phrase: str) -> list[str]:
+    """``phrase`` plus every combination of its non-final tokens' declension
+    forms (:func:`_adjective_declensions`), the phrase itself first."""
+    tokens = phrase.split(" ")
+    slots = [(i, _adjective_declensions(t)) for i, t in enumerate(tokens[:-1])]
+    slots = [(i, alts) for i, alts in slots if alts][:_ADJ_FOLD_MAX_TOKENS]
+    out = [tokens]
+    for i, alts in slots:
+        out = out + [t[:i] + [a] + t[i + 1:] for t in out for a in alts]
+    return [" ".join(t) for t in out]
+
+
 def _fold_variants(needle_norm: str) -> list[str]:
     """Deterministic singular/plural variants of a normalised phrase (final token only).
 
     US212 (#122, ADR-048 amended 2026-07-04): generosity lives in the matching
     layer — "Code reviews" must match a document that says "code review standards".
-    Purely morphological, guarded, no LLM.
+    Purely morphological, guarded, no LLM. #783 line L35 / #787 line L43: plus
+    the closed suffix pairs of ``_FOLD_SUFFIX_PAIRS`` (EN y↔ies, DE plurals and
+    noun↔verb-stem forms). Bug #797 / F-C: plus the declension endings of a
+    non-final German attributive adjective (:func:`_with_adjective_declensions`).
     """
     variants = [needle_norm]
-    last = needle_norm.rsplit(" ", 1)[-1]
+    head, _, last = needle_norm.rpartition(" ")
     if last.endswith("s") and len(last) - 1 >= _FOLD_MIN_STEM:
         variants.append(needle_norm[:-1])
     elif not last.endswith("s") and len(last) >= _FOLD_MIN_STEM and last[-1].isalpha():
         variants.append(needle_norm + "s")
+    prefix = head + " " if head else ""
+    for v in _suffix_pair_variants(last):
+        candidate = prefix + v
+        if candidate not in variants:
+            variants.append(candidate)
+    if head:
+        for v in list(variants):
+            for candidate in _with_adjective_declensions(v)[1:]:
+                if candidate not in variants:
+                    variants.append(candidate)
     return variants
 
 
@@ -1405,6 +1502,8 @@ def _keyword_coverage(
     vault_text_norm: str | None = None,
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
+    *,
+    document_language: str | None = None,
 ) -> ATSKeywordCoverage:
     seen: set[str] = set()
     unique: list[str] = []
@@ -1501,6 +1600,48 @@ def _keyword_coverage(
             k for k in present_unsupported
             if not _grounded_through_matched_forms(claim_matches[k], vault_index)
         ]
+    # Build-2 delivery F2 (SF-REVIEW.18): the recorded denials that cover a
+    # flagged term, read off the vault index every audit seam already builds
+    # (`grounding_vault_index`) — the ledger floor's own predicate, so the review
+    # never offers "add it to my profile" for what the candidate disclaimed.
+    present_unsupported_denials: dict[str, list[str]] = {}
+    denied_concepts = list(getattr(vault_index, "denied_concepts", ()) or ())
+    if denied_concepts and present_unsupported:
+        from applire.services.profile.reconcile.stance import denials_covering
+
+        release = getattr(vault_index, "denial_release_text", "") or ""
+        for k in present_unsupported:
+            forms = [m.get("form", "") if isinstance(m, dict) else getattr(m, "form", "")
+                     for m in claim_matches.get(k) or []]
+            covering = denials_covering(k, [f for f in forms if f], denied_concepts, release)
+            if covering:
+                present_unsupported_denials[k] = covering
+    # #790 line L10 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20): every
+    # test above is literal, so on a pair whose vault may state the evidence in
+    # ANOTHER language ("Stripe payouts" on an EN CV, "Stripe-Auszahlungen …" in
+    # a DE-first vault) "nothing in your profile backs this" is an
+    # absence-based accusation the instrument cannot make. Such a term leaves
+    # the group-1 population for a neutral "not checked across languages" row
+    # (``present_other_language``, rendered by ``_other_language_check``). The
+    # pair fact is the Oracle's own (``holds_other_language``, ADR-066: one
+    # predicate for both halves). No vault index or no document language →
+    # unchanged (fail open to today's behaviour).
+    # Build-2 adversarial F-D (founder ruling R3-a, ADR-068 amended): the
+    # other-language move below is about a term the vault may state in other
+    # WORDS. A term one of the candidate's own recorded denials covers is not
+    # that case — the candidate said they do not have it — so it never leaves
+    # the red population (the same cover the review card reads above).
+    present_other_language: list[str] = []
+    if vault_index is not None and present_unsupported:
+        from applire.services.oracle.matchers.vault import holds_other_language
+
+        if holds_other_language(vault_index, document_language):
+            present_other_language = [
+                k for k in present_unsupported if k not in present_unsupported_denials
+            ]
+            present_unsupported = [
+                k for k in present_unsupported if k in present_unsupported_denials
+            ]
     # F-8: a PRESENT keyword whose owning ledger row the candidate DENIED. The
     # ownership rule is `keyword_present`'s own (`_entry_norms`, ADR-048 §8/#122), so
     # the two can never disagree about which row a keyword belongs to; the fact read
@@ -1531,8 +1672,38 @@ def _keyword_coverage(
         claimable_concepts=claimable_concepts,
         keyword_liability_concepts=keyword_liability_concepts,
         present_unsupported_matches={k: claim_matches[k] for k in present_unsupported},
+        present_other_language=present_other_language,
         present_denied_matches={k: matches_by_kw[k] for k in present_denied},
+        present_unsupported_denials=present_unsupported_denials,
     )
+
+
+def _other_language_check(checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> None:
+    """#790 line L10 (D2-1 = A) — the neutral row for ``present_other_language``.
+
+    The copy claims only what the instrument knows (ruling R3-a): the check
+    compares wording and the vault holds text in another language, so
+    these terms were not checked — never that the profile states them.
+
+    ``not_applicable``: the keyword check did not run across languages for these
+    terms, so it neither passes nor fails them (ADR-079 cl. 4 bucket) and the
+    review surface shows them under "Weitere Hinweise", outside group 1's count.
+    Emitted only when there is something to say."""
+    terms = coverage.present_other_language
+    if not terms:
+        return
+    checks.append(ATSCheck(
+        id="keyword-other-language",
+        status="not_applicable",
+        details=(
+            "not checked across languages — your profile contains text in another "
+            "language and this check compares wording only; check these terms "
+            "yourself: "
+            + ", ".join(terms[:8]) + (f" (+{len(terms) - 8} more)" if len(terms) > 8 else "")
+        ),
+        details_key="keyword-other-language",
+        details_params={"count": len(terms), "terms": ", ".join(terms[:8])},
+    ))
 
 
 def _finish(document: Literal["cv", "cover_letter"], checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> ATSReport:
@@ -1926,7 +2097,12 @@ def _audit_cv_text(
     checks.append(_terminal_review_check(terminal_review, previous_report))
     checks.append(_narrative_evidence_check(tailored, ledger))
 
-    report = _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index, non_claim))
+    coverage = _keyword_coverage(
+        t, keywords, ledger, vault_text_norm, vault_index, non_claim,
+        document_language=document_language,
+    )
+    _other_language_check(checks, coverage)
+    report = _finish("cv", checks, coverage)
     if pin_entries is not None:
         report.pinned_facts = pin_entries
     return report
@@ -2211,10 +2387,12 @@ def _audit_letter_text(
     # nothing keeps the pre-amendment full-text decision exactly).
     if non_claim is not None:
         non_claim = non_claim.plus_employers(recipient.get("company")).with_employer_clause()
-    report = _finish(
-        "cover_letter", checks,
-        _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index, non_claim),
+    coverage = _keyword_coverage(
+        t, keywords, ledger, vault_text_norm, vault_index, non_claim,
+        document_language=document_language,
     )
+    _other_language_check(checks, coverage)
+    report = _finish("cover_letter", checks, coverage)
     if pin_entries is not None:
         report.pinned_facts = pin_entries
     return report

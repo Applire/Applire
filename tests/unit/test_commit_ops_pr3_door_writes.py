@@ -854,7 +854,8 @@ async def test_a_manual_skills_edit_cannot_confirm_a_denied_skill(durable_db):
 @pytest.mark.asyncio
 async def test_certification_dates_accept_the_pickers_shapes(durable_db):
     """JF-F-H2.3: the certification editor emits `YYYY-MM` / `YYYY`; the schema
-    coerces both to a date (year-only lands on 1 January — recorded shape)."""
+    keeps both at the precision sent (ADR-013 amended 2026-10-20, 783:L65 — a
+    year-only date used to land on 1 January)."""
     from applire.routers.profile import patch_section
 
     engine, factory = durable_db
@@ -867,8 +868,8 @@ async def test_certification_dates_accept_the_pickers_shapes(durable_db):
         await patch_section("certifications", _fake_request(payload), request_session, None, None)
 
     stored = {c["name"]: c for c in (await _read_back(engine, profile_id))["certifications"]}
-    assert stored["AWS SAA"]["date_obtained"] == "2021-06-01"
-    assert stored["AWS SAA"]["expiry_date"] == "2024-01-01"
+    assert stored["AWS SAA"]["date_obtained"] == "2021-06"
+    assert stored["AWS SAA"]["expiry_date"] == "2024"
     assert stored["Undated"]["date_obtained"] is None
     assert stored["Undated"]["expiry_date"] is None
 
@@ -1210,17 +1211,13 @@ async def test_professional_summary_blank_slot_through_the_agent_door_clears_to_
 
 
 @pytest.mark.asyncio
-async def test_section_editor_clearing_the_introduction_clears_the_summary_slot_not_blanks_it(
+async def test_section_editor_clearing_the_introduction_leaves_the_summary_slot(
     durable_db,
 ):
-    """The THIRD door this pure adapter transitively fixes, beyond the two
-    #595 names: `build_section_field_edit` maps a cleared CV "introduction"
-    textarea to `professional_summary.{lang}` with the raw (possibly "")
-    content (services/cv_section_editor.py) — no blank-content guard sits in
-    front of it, so this is reachable in production: clear the CV's summary
-    box and save to profile. `document_language` is pinned directly (E054
-    clause 3b — a generated CV always carries it), so the slot is deterministic
-    regardless of the fixture JD text's detected language."""
+    """Was: a cleared CV "introduction" saved to profile cleared
+    ``professional_summary.{lang}``. Founder ruling D2-2 = A (2026-10-20,
+    #783 L23): the introduction is document-only, so the candidate's summary
+    survives an edit — including an emptied box — on the durable path too."""
     from applire.services.cv_section_editor import patch_cv_section
 
     engine, factory = durable_db
@@ -1238,10 +1235,7 @@ async def test_section_editor_clearing_the_introduction_clears_the_summary_slot_
         await patch_cv_section(cv_id, "introduction", "", True, request_session)
 
     stored = await _read_back(engine, profile_id)
-    assert stored["professional_summary"]["de"] is None
-    changes = {c["field"]: c for c in _latest_changes(stored)}
-    assert changes["de"]["action"] == "removed"
-    assert changes["de"]["new_value"] is None
+    assert stored["professional_summary"]["de"] == "Deutsche Zusammenfassung."
 
 
 # ── #597 (ADR-063 amended 2026-08-28) — door-level translation of a reverted ──

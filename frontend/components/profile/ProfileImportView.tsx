@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CV_UPLOAD_ACCEPT } from "@/components/ui/dropzone";
+import { acceptWithoutImages, useImportCapabilities } from "@/lib/import-capabilities";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,8 @@ import {
   startCvImport,
   pollCvImport,
   CVImportError,
+  importErrorMessageKey,
+  sourceTruncatedPercent,
   type CVUploadResult,
   type ImportNotAppliedItem,
   type MatchReceiptItem,
@@ -44,7 +47,7 @@ import { analyzeGapsAsync } from "@/lib/gap-analysis";
 import { STEP_ROUTE } from "@/lib/flow-routing";
 
 // Open gate states still require the user to merge or discard; resolved_* are inert.
-const OPEN_GATES: ReadonlySet<string> = new Set(["not_a_cv", "name_divergence"]);
+const OPEN_GATES: ReadonlySet<string> = new Set(["not_a_cv", "name_divergence", "review_not_run"]);
 
 // Empty string default lets Next.js rewrites handle /api/* routing in all environments
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -65,6 +68,8 @@ interface GateInfo {
   stagedId: string;
   accountName?: string | null;
   cvName?: string | null;
+  /** R3-2 = B: the held job's read share, shown once the user merges it. */
+  readPercent?: number | null;
 }
 
 interface ProfileImportViewProps {
@@ -98,6 +103,9 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   const tg = useTranslations("mergeGate");
   const tproc = useTranslations("processing");
   const router = useRouter();
+  // #789 L12: an instance without a runnable OCR backend cannot read images — stop
+  // inviting them (picker + format line); a dropped image still fails with its cause.
+  const { imageImport } = useImportCapabilities();
 
   const [loading, setLoading] = useState(false);
   const [phase, setPhase] = useState<UploadPhase>("idle");
@@ -108,6 +116,8 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   const [uploadSuccess, setUploadSuccess] = useState(false);
   // #615 — the merge's own carried-predicate fact for the strip below.
   const [notApplied, setNotApplied] = useState<ImportNotAppliedItem[]>([]);
+  // R3-2 = B: the share of an over-long file the import read (null = all of it).
+  const [truncatedPercent, setTruncatedPercent] = useState<number | null>(null);
   // #717 — the merge's recognised pairs ("Schon in deinem Profil").
   const [matched, setMatched] = useState<MatchReceiptItem[]>([]);
   const [history, setHistory] = useState<UploadHistoryItem[]>([]);
@@ -156,22 +166,31 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     setUploadSuccess(false);
     setCompletenessScore(null);
     setNotApplied([]);
+    setTruncatedPercent(null);
     setMatched([]);
     setLoading(true);
     const isZip = file.name.toLowerCase().endsWith(".zip");
     try {
-      // The ZIP endpoint answers the same shape as the async CV import job.
+      // Both branches resolve to the async import job's CVUploadResponse.
       let data: CVUploadResult;
 
       if (isZip) {
-        // LinkedIn archive import stays synchronous (fast, no heavy LLM pass) —
-        // one honest "importing" phase with a heartbeat.
+        // #789 L31: the LinkedIn archive runs the same full ingest chain as a CV
+        // (#367), so it goes through the async import job too — the synchronous
+        // POST /api/profile/import is cut by the proxy's 300 s read timeout. Same
+        // start → poll as the CV branch; the poll phase keeps its own honest label
+        // ("Importing LinkedIn archive…").
+        setPhase("uploading");
+        const importId = await startCvImport(file, {
+          apiBase: API_BASE,
+          source: "linkedin",
+          signal: abortRef.current?.signal,
+        });
         setPhase("importing");
-        const form = new FormData();
-        form.append("file", file);
-        const res = await fetch(`${API_BASE}/api/profile/import`, { method: "POST", body: form });
-        if (!res.ok) throw new Error(await readApiError(res));
-        data = await res.json();
+        data = await pollCvImport(importId, {
+          apiBase: API_BASE,
+          signal: abortRef.current?.signal,
+        });
       } else {
         // #114 / US177 (and the E036 follow-up TODO): the CV path runs through the
         // async import job like the onboarding overlay — the POST returns fast (the
@@ -198,21 +217,23 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
           stagedId: data.staged_id as string,
           accountName: data.account_name,
           cvName: data.cv_name,
+          readPercent: sourceTruncatedPercent(data.source_truncated),
         });
         refreshHistory();
         return;
       }
 
-      await proceedAfterUpdate(data.completeness_score ?? null, data.not_applied, data.matched);
+      await proceedAfterUpdate(
+        data.completeness_score ?? null,
+        data.not_applied,
+        data.matched,
+        sourceTruncatedPercent(data.source_truncated),
+      );
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return; // unmounted
       if (e instanceof CVImportError) {
         // Stable machine code from the import job — localized, never raw text.
-        setError(
-          e.errorCode === "llm_truncated" || e.errorCode === "llm_timeout"
-            ? tproc("uploadTryAgain")
-            : tproc("uploadFailed")
-        );
+        setError(tproc(importErrorMessageKey(e.errorCode)));
       } else {
         setError(e instanceof Error ? e.message : t("uploadErrorGeneric"));
       }
@@ -227,9 +248,11 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     completeness: number | null,
     notAppliedItems?: ImportNotAppliedItem[],
     matchedItems?: MatchReceiptItem[],
+    readPercent: number | null = null,
   ) {
     setCompletenessScore(completeness);
     setNotApplied(notAppliedItems ?? []);
+    setTruncatedPercent(readPercent);
     setMatched(matchedItems ?? []);
     setUploadSuccess(true);
     refreshHistory();
@@ -257,9 +280,15 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   }
 
   async function handleGateResolved(action: ResolveAction, _data: StagedResolveResult) {
+    const readPercent = gateInfo?.readPercent ?? null;
     setGateInfo(null);
     if (action === "merge") {
-      await proceedAfterUpdate(_data.completeness_score ?? null, _data.not_applied, _data.matched);
+      await proceedAfterUpdate(
+        _data.completeness_score ?? null,
+        _data.not_applied,
+        _data.matched,
+        readPercent,
+      );
     } else {
       refreshHistory();
     }
@@ -344,7 +373,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
             ref={mainInputRef}
             data-testid="main-file-input"
             type="file"
-            accept={`${CV_UPLOAD_ACCEPT},.zip`}
+            accept={`${imageImport ? CV_UPLOAD_ACCEPT : acceptWithoutImages(CV_UPLOAD_ACCEPT)},.zip`}
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -390,7 +419,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
               {t("dropTitle")}
             </h3>
             <p className="text-sm text-on-surface-variant mb-5 leading-relaxed max-w-xs">
-              {t("subtitle")}
+              {t(imageImport ? "subtitle" : "subtitleNoImage")}
             </p>
             <button
               type="button"
@@ -401,7 +430,9 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
             >
               {t("browse")}
             </button>
-            <p className="text-[11px] text-outline-variant mt-3">{t("formats")}</p>
+            <p className="text-[11px] text-outline-variant mt-3">
+              {t(imageImport ? "formats" : "formatsNoImage")}
+            </p>
           </div>
 
           {/* LinkedIn secondary card */}
@@ -435,7 +466,10 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
               <ProgressWidget
                 steps={
                   phase === "importing"
-                    ? ([{ label: t("stepImporting"), status: "active" }] as ProgressStep[])
+                    ? ([
+                        { label: t("stepUploading"), status: "done" },
+                        { label: t("stepImporting"), status: "active" },
+                      ] as ProgressStep[])
                     : ([
                         {
                           label: t("stepUploading"),
@@ -520,6 +554,17 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
                     ? " " + tproc("notAppliedMore", { count: notApplied.length - 3 })
                     : ""),
               })}
+            </p>
+          )}
+
+          {/* R3-2 = B — an over-long file was read only in part; the rest never
+              reached the profile. */}
+          {uploadSuccess && !error && truncatedPercent !== null && (
+            <p
+              data-testid="upload-source-truncated-note"
+              className="mt-2 text-[12px] text-on-surface-variant"
+            >
+              {tproc("sourceTruncatedNote", { percent: truncatedPercent })}
             </p>
           )}
 

@@ -9,6 +9,9 @@ no new near-dupe implementation by construction.
 """
 from __future__ import annotations
 
+import functools
+import re
+
 from dataclasses import dataclass, field
 
 from applire.services.ats_audit import (
@@ -24,6 +27,28 @@ from applire.services.oracle.matchers.vault import EvidenceUnit, VaultIndex
 # A text claim counts as deterministically grounded when this fraction of its
 # content tokens is present in a single vault evidence unit.
 GROUNDED_MIN_COVERAGE = 0.6
+
+#: #790 line L7 (2026-10-20): in the SKILL-UNION fallback a claim token this
+#: short ("it", "ki", "qa") is matched as a WHOLE token — the union is asked
+#: "does the vault name this competence", the question the whole-token sibling
+#: was built for (ground_skill_claim). Under the substring predicate "IT" was
+#: present in "scikit-learn": "I am used to working with research IT teams"
+#: grounded on the skills "scikit-learn" + "Leitung kleiner Entwicklerteams"
+#: while the keyword check (correctly) called "Research IT" unsupported.
+#: Longer tokens keep the ADR-048 substring reach ("teams" in
+#: "Entwicklerteams"). Scoped to the union on purpose: applied to the four
+#: narrative coverage sites as well, the offline corpus (1,219 pairs) moved
+#: 143 claims grounded -> unverifiable and flipped 12 documents to
+#: unverifiable-dominated — short function tokens ("am", "st") carry genuine
+#: paraphrase coverage there today; that is a collector line, not this fix.
+_SHORT_TOKEN_MAX = 3
+
+
+def claim_token_present(token: str, text_norm: str) -> bool:
+    """Presence of one claim content token in a normalised evidence text."""
+    if len(token) <= _SHORT_TOKEN_MAX:
+        return surface_present_whole_token(token, text_norm)
+    return surface_present(token, text_norm)
 
 # #237 (run-4 residual): ``skill_tokens`` was built for SHORT SKILL NAMES — its
 # stopword list is deliberately minimal (bare conjunctions/articles), because
@@ -174,6 +199,18 @@ _UNION_SCAFFOLD_WORDS_RAW = (
     "implementiert", "implementierte",
     "gearbeitet", "arbeite", "arbeitete",
     "mit", "und", "sowie", "verwendet", "genutzt", "nutzung",
+    # #790 line L7 (2026-10-20): German articles/prepositions/conjunctions.
+    # Under the substring predicate they were free hits ("die" inside any
+    # word); once a short token must match whole (``claim_token_present``)
+    # they would instead count AGAINST an honest enumeration. They are
+    # function words, never content, so they leave the denominator — the
+    # same argument as ``_NARRATIVE_STOPWORDS``.
+    "der", "die", "das", "den", "dem", "des",
+    "ein", "eine", "einen", "einem", "einer", "eines",
+    "oder", "für", "fuer", "im", "in", "am", "an", "auf", "bei", "zu", "zum", "zur",
+    "von", "vom", "aus", "als", "nach", "über", "ueber", "ich", "er", "sie",
+    # EN articles/prepositions the scaffold list did not carry yet
+    "the", "a", "an", "of", "in", "on", "at", "to", "for", "with", "and", "or",
 )
 _UNION_SCAFFOLD_STOPWORDS = frozenset(skill_tokens(" ".join(_UNION_SCAFFOLD_WORDS_RAW)))
 
@@ -203,7 +240,7 @@ def ground_via_skill_union(text: str, index: VaultIndex) -> GroundingResult | No
     hits = 0
     for t in tokens:
         for unit in union_units:
-            if surface_present(t, unit.text_norm):
+            if claim_token_present(t, unit.text_norm):
                 hits += 1
                 if unit not in matched_units:
                     matched_units.append(unit)
@@ -374,6 +411,13 @@ def ground_skill_claim(
             for unit in index.units:
                 if unit.path == f"skills[{i}]":
                     return unit
+    # Bug #797, the vault-side twin: the vault spells the enumeration ("SAP
+    # PP/MM", "PP/MM-Praxis") and the document names one part ("SAP MM").
+    if "/" not in name:
+        for unit in index.units:
+            expanded = _expand_slash_enumerations(unit.text_norm)
+            if expanded is not None and surface_present_whole_token(name, expanded):
+                return unit
     for sibling in _ledger_sibling_forms(name, ledger_forms or []):
         for unit in index.units:
             if surface_present_whole_token(sibling, unit.text_norm):
@@ -383,4 +427,62 @@ def ground_skill_claim(
                 for unit in index.units:
                     if unit.path == f"skills[{i}]":
                         return unit
+    parts = slash_enumeration_parts(name)
+    if parts:
+        backing = [ground_skill_claim(part, index, ledger_forms) for part in parts]
+        if all(u is not None for u in backing):
+            return backing[0]
     return None
+
+
+_SLASH_ENUM_RE = re.compile(r"^(?P<head>(?:[^\s/]+\s+)*)(?P<first>[^\s/]+)(?P<rest>(?:/[^\s/]+)+)$")
+
+
+_SLASH_IN_TEXT_RE = re.compile(r"(?:(?P<head>[^\W\d_][\w.+#-]*)\s+)?(?P<first>\w[\w.+#-]*)(?P<rest>(?:/\w[\w.+#-]*)+)")
+
+
+@functools.lru_cache(maxsize=4096)
+def _expand_slash_enumerations(text_norm: str) -> str | None:
+    """The vault text with every slash enumeration also spelled out part by
+    part ("sap pp/mm" → "… sap pp sap mm"), or ``None`` when it carries none.
+    The word before the enumeration is distributed as its head, exactly as
+    :func:`slash_enumeration_parts` reads a claim; the original text is kept,
+    so this only ever ADDS a reading (it can only ground, never un-ground)."""
+    if "/" not in text_norm:
+        return None
+    extra: list[str] = []
+    for m in _SLASH_IN_TEXT_RE.finditer(text_norm):
+        tails = [m.group("first")] + [t for t in m.group("rest").split("/") if t]
+        if not 2 <= len(tails) <= 4:
+            continue
+        head = f"{m.group('head')} " if m.group("head") else ""
+        extra.append(" ; ".join(f"{head}{t}" for t in tails))
+    if not extra:
+        return None
+    return text_norm + " ; " + " ; ".join(extra)
+
+
+def slash_enumeration_parts(name: str) -> list[str] | None:
+    """Bug #797 (founder ruling UX-1, 2026-10-20): the parts of a slash
+    enumeration, or ``None`` when ``name`` is not one.
+
+    "SAP PP/MM" is the job's short spelling of two competences, "SAP PP" and
+    "SAP MM"; "PP/MM" of "PP" and "MM". A vault that names them separately never
+    contains the slash spelling, so the whole-token test missed and the review
+    told a candidate who holds both that "nothing in your profile backs" them.
+    Reading the enumeration is a fact about the term's own characters (ADR-062
+    cl. 1, the same shape as the identifier list continuation of #790 L16): the
+    words before the first part are the shared head and are distributed onto
+    every single-word part. The caller grounds EVERY part — one unbacked part
+    ("IFS/BRC" with only IFS in the vault) leaves the term unbacked. A term with
+    a space around the slash, an empty part, or more than four parts is not
+    read as an enumeration.
+    """
+    m = _SLASH_ENUM_RE.match((name or "").strip())
+    if not m:
+        return None
+    head = m.group("head")
+    tails = [m.group("first")] + [t for t in m.group("rest").split("/") if t]
+    if len(tails) < 2 or len(tails) > 4 or any(not re.search(r"\w", t) for t in tails):
+        return None
+    return [f"{head}{t}" for t in tails]

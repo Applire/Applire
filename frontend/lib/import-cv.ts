@@ -63,7 +63,7 @@ export interface CVUploadResult {
   name_mismatch?: boolean;
   looks_like_cv?: boolean;
   undated_positions?: number;
-  gate?: "none" | "not_a_cv" | "name_divergence";
+  gate?: "none" | "not_a_cv" | "name_divergence" | "review_not_run";
   account_name?: string | null;
   cv_name?: string | null;
   staged_id?: string | null;
@@ -73,7 +73,25 @@ export interface CVUploadResult {
   not_applied?: ImportNotAppliedItem[];
   /** #717 — the merge's recognised pairs (same receipt the history shows). */
   matched?: MatchReceiptItem[];
+  /** R3-2 = B — the source was longer than one import reads: only the first
+   * `read_chars` of `total_chars` characters were extracted. `null` when not. */
+  source_truncated?: SourceTruncation | null;
   [key: string]: unknown;
+}
+
+export interface SourceTruncation {
+  read_chars: number;
+  total_chars: number;
+}
+
+/**
+ * R3-2 = B: the share of an over-long source the import read, as a whole
+ * percent kept inside 1..99 (a cut file never reads as "0 %" or "100 %").
+ * `null` when nothing was cut or the fact is malformed.
+ */
+export function sourceTruncatedPercent(t: SourceTruncation | null | undefined): number | null {
+  if (!t || !(t.total_chars > 0) || !(t.read_chars >= 0)) return null;
+  return Math.min(99, Math.max(1, Math.round((t.read_chars / t.total_chars) * 100)));
 }
 
 /** Carries the backend's stable error_code so callers can localize the message. */
@@ -84,7 +102,27 @@ export class CVImportError extends Error {
   }
 }
 
+/**
+ * The `processing` catalog key that names an import failure to the user — never the
+ * raw backend text. `ocr_unavailable`: an image/scan on an instance without a runnable
+ * OCR backend (#789 L12). `file_too_large`: over the 10 MB cap (#789 L13).
+ */
+export function importErrorMessageKey(
+  code: string | null,
+): "uploadTooLarge" | "uploadNoOcr" | "uploadTryAgain" | "uploadFailed" {
+  if (code === "file_too_large") return "uploadTooLarge";
+  if (code === "ocr_unavailable") return "uploadNoOcr";
+  if (code === "llm_truncated" || code === "llm_timeout") return "uploadTryAgain";
+  return "uploadFailed";
+}
+
 interface StartOptions {
+  /**
+   * Tells the backend this file is a LinkedIn profile export (#789 L31). A ZIP is a
+   * LinkedIn export by construction; a PDF is ambiguous (CV or LinkedIn print), so it
+   * only takes the LinkedIn adapter when this is set. Omitted = a CV.
+   */
+  source?: "linkedin";
   jobId?: string;
   apiBase?: string;
   signal?: AbortSignal;
@@ -128,13 +166,19 @@ export async function startCvImport(file: File, opts: StartOptions = {}): Promis
   const base = opts.apiBase ?? "";
   const form = new FormData();
   form.append("file", file);
-  const query = opts.jobId ? `?job_id=${encodeURIComponent(opts.jobId)}` : "";
+  const params = new URLSearchParams();
+  if (opts.jobId) params.set("job_id", opts.jobId);
+  if (opts.source) params.set("source", opts.source);
+  const query = params.size > 0 ? `?${params.toString()}` : "";
 
   const startRes = await fetch(`${base}/api/profile/import-jobs${query}`, {
     method: "POST",
     body: form,
     signal: opts.signal,
   });
+  // 413: the REST size cap (backend `file_too_large`) or the reverse proxy's own body
+  // limit — either way the file is too big, and the message should say so (#789 L13).
+  if (startRes.status === 413) throw new CVImportError("file_too_large");
   if (!startRes.ok) throw new CVImportError("import_failed");
   const { import_id: importId } = (await startRes.json()) as { import_id: string };
   return importId;

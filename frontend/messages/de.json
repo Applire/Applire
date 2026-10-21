@@ -70,6 +70,8 @@
     "retry": "Erneut versuchen",
     "retrying": "Wird erneut versucht…",
     "uploadFailed": "Wir konnten diese Datei nicht lesen. Bitte versuche es erneut.",
+    "uploadTooLarge": "Diese Datei ist größer als 10 MB und konnte deshalb nicht gelesen werden. Bitte lade eine kleinere Datei hoch.",
+    "uploadNoOcr": "Diese Instanz kann keine Bilder oder eingescannten Dokumente lesen (keine Texterkennung eingerichtet). Bitte lade stattdessen ein PDF mit Text, eine DOCX- oder eine Textdatei hoch.",
     "stillWorking": "Arbeitet noch — das kann einen Moment dauern…",
     "stillWorkingElapsed": "Arbeitet noch — {seconds}s vergangen. Große Lebensläufe können einige Minuten dauern…",
     "genericError": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
@@ -83,6 +85,7 @@
     "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut.",
     "notAppliedNote": "{count, plural, one {1 Eintrag aus deinem Lebenslauf wurde nicht automatisch übernommen} other {# Einträge aus deinem Lebenslauf wurden nicht automatisch übernommen}}: {labels}",
     "notAppliedMore": "+{count} weitere",
+    "sourceTruncatedNote": "Nur die ersten ≈ {percent} % Deiner Datei wurden gelesen – prüfe, ob alle Stationen übernommen sind.",
     "jdLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab — du kannst den Text später einfügen",
     "jdLinkedinOffPaste": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge die Stellenbeschreibung unten ein, um fortzufahren."
   },
@@ -116,7 +119,9 @@
     "cancelDialogError": "Abbrechen fehlgeschlagen. Bitte versuche es erneut.",
     "cancelDialogKeep": "Weitermachen",
     "cancelDialogConfirm": "Bewerbung abbrechen",
-    "cancelDialogBusy": "Wird abgebrochen …"
+    "cancelDialogBusy": "Wird abgebrochen …",
+    "stepSkipped": "{label} – übersprungen",
+    "stepSkippedSr": " (übersprungen)"
   },
   "gaps": {
     "title": "Lückenanalyse",
@@ -284,14 +289,15 @@
       "dismiss": "Ausblenden",
       "dismissAria": "Diesen Hinweis ausblenden",
       "stillThere": "Du kannst das jederzeit auf deiner Profilseite erledigen.",
-      "more": "+{count, plural, one {# weitere Entscheidung} other {# weitere Entscheidungen}}"
+      "compact": "{count, plural, one {# Entscheidung offen} other {# Entscheidungen offen}}"
     },
     "inputsChangedTitle": "Dein Profil hat sich seit dieser Prüfung geändert.",
     "inputsChangedBody": "Die Lückenanalyse läuft nicht von selbst neu. Prüfe neu, damit Score und Lücken dein aktuelles Profil zeigen.",
     "recheckGaps": "Lücken neu prüfen",
     "recheckingGaps": "Wird geprüft …",
     "recheckLockedHint": "Beantworte zuerst die offene Frage, dann kannst du neu prüfen.",
-    "recheckFailed": "Die neue Prüfung hat nicht geklappt. Versuche es gleich noch einmal."
+    "recheckFailed": "Die neue Prüfung hat nicht geklappt. Versuche es gleich noch einmal.",
+    "generateWithoutInterviewCost": "Ohne Interview bleiben die offenen Punkte oben ungeklärt – die Fakten dazu sammelt erst das Interview."
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -1062,7 +1068,8 @@
       "confirmation_discarded": "du hast es verworfen",
       "confirmation_held": "es wartet auf eine weitere Frage — zu welcher deiner Positionen bei diesem Arbeitgeber es gehört",
       "confirmation_unresolvable": "der genannte Eintrag existiert nicht mehr, deshalb wurde nichts geschrieben",
-      "confirmation_already_present": "dieser Eintrag enthielt es bereits"
+      "confirmation_already_present": "dieser Eintrag enthielt es bereits",
+      "target_unresolved": "es war einem Eintrag zugeordnet, den dein Profil nicht enthält, deshalb wurde es nicht geschrieben — trag es beim richtigen Eintrag ein"
     },
     "notAppliedNoSection": "Ohne festen Abschnitt",
     "notAppliedGroupHeading": "{section} ({count})",
@@ -1182,7 +1189,8 @@
     "dragDropHeading": "Lebensläufe hier ablegen",
     "clickToBrowse": "Datei auswählen",
     "orPrefix": "oder",
-    "formatHint": "PDF, DOCX, DOC, TXT, MD oder Bild (JPG/PNG) — bis 10 MB je Datei"
+    "formatHint": "PDF, DOCX, DOC, TXT, MD oder Bild (JPG/PNG) — bis 10 MB je Datei",
+    "formatHintNoImage": "PDF, DOCX, DOC, TXT oder MD — bis 10 MB je Datei"
   },
   "progressWidget": {
     "done": "fertig"
@@ -1262,9 +1270,11 @@
   "profileImport": {
     "title": "Profil aktualisieren",
     "subtitle": "Lebenslauf als PDF, DOCX, TXT, MD oder Bild — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
+    "subtitleNoImage": "Lebenslauf als PDF, DOCX, TXT oder MD — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "dropTitle": "Datei hier ablegen",
     "browse": "Datei auswählen",
     "formats": "PDF · DOCX · TXT · MD · Bild · ZIP (LinkedIn) bis 10 MB",
+    "formatsNoImage": "PDF · DOCX · TXT · MD · ZIP (LinkedIn) bis 10 MB",
     "linkedinCardTitle": "LinkedIn-Datenexport hochladen",
     "linkedinCardDesc": "Vollständiges Archiv (ZIP) aus den LinkedIn-Datenschutzeinstellungen — enthält strukturierte Profildaten für präzisere Extraktion.",
     "progressTitle": "Profil wird aktualisiert",
@@ -1376,7 +1386,8 @@
       "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug",
       "terminal-review": "Abschlussprüfung des Dokuments",
       "narrative-evidence": "Belege im Werdegang statt nur als Skill",
-      "document-language": "Dokument durchgehend in einer Sprache"
+      "document-language": "Dokument durchgehend in einer Sprache",
+      "keyword-other-language": "Nicht sprachübergreifend geprüfte Begriffe"
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht deinem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
@@ -1388,6 +1399,7 @@
       "page-length-not-applicable": "Nicht anwendbar — dieses Dokument hat keine feste Seitenaufteilung, bis ein Textprogramm es umbricht",
       "document-language-not-applicable": "Nicht anwendbar — für dieses Dokument wurde keine Sprache angegeben",
       "document-language-mixed": "{count, plural, one {# Stelle ist} other {# Stellen sind}} nicht auf {language, select, de {Deutsch} en {Englisch} other {{language}}} geschrieben: {examples}",
+      "keyword-other-language": "Nicht sprachübergreifend geprüft — Dein Profil enthält Text in einer anderen Sprache, und diese Prüfung vergleicht nur den Wortlaut. Prüfe {count, plural, one {diesen Begriff} other {diese Begriffe}} selbst: {terms}",
       "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
     },
     "pinnedFacts": {
@@ -1599,6 +1611,8 @@
     "bodyDivergenceNoName": "Dieses Dokument enthält keinen Namen, und keiner seiner Arbeitgeber steht in deinem Profil unter „{accountName}“. Ist es deins – möchtest du es trotzdem übernehmen?",
     "bodyDivergenceNoNameNoAccount": "Dieses Dokument enthält keinen Namen, und keiner seiner Arbeitgeber steht in deinem Profil. Ist es deins – möchtest du es trotzdem übernehmen?",
     "bodyNotCv": "In diesem Dokument konnten wir keinen Lebenslauf erkennen. Möchtest du es trotzdem in dein Profil übernehmen?",
+    "titleReviewNotRun": "Dieser Import wurde nicht geprüft",
+    "bodyReviewNotRun": "Wir haben dein Dokument gelesen, aber die automatische Prüfung der übernommenen Daten konnte nicht laufen, deshalb wurde noch nichts in dein Profil übernommen. Übernimm es und sieh dir die importierten Einträge danach durch – oder verwirf es und versuche es erneut.",
     "mergeAnyway": "Trotzdem übernehmen",
     "discard": "Verwerfen",
     "cancel": "Abbrechen",
@@ -1654,6 +1668,7 @@
     "verdictFindings": "{count, plural, one {# Stelle im Dokument ist nicht durch Dein Profil gedeckt.} other {# Stellen im Dokument sind nicht durch Dein Profil gedeckt.}}",
     "verdictClear": "Jede Aussage im Dokument ist durch Dein Profil gedeckt.",
     "verdictClearWithOthers": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. {count, plural, =0 {Weiter unten stehen Befunde, die dem Versand nicht im Weg stehen.} one {Weiter unten steht # weiterer Befund — er steht dem Versand nicht im Weg.} other {Weiter unten stehen # weitere Befunde — sie stehen dem Versand nicht im Weg.}}",
+    "verdictClearUnchecked": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Nicht geprüft: {producers}{count, plural, =0 { — sieh Dir diesen Teil selbst an, bevor Du sendest.} one {. Weiter unten steht # weiterer Befund.} other {. Weiter unten stehen # weitere Befunde.}}",
     "verdictClearWithSendCheck": "Jede Aussage im Dokument ist durch Dein Profil gedeckt — aber {count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
     "verdictUnknown": "Ob jede Aussage gedeckt ist, wurde für dieses Dokument nicht geprüft.",
     "group1Title": "Im Dokument, aber nicht in Deinem Profil",
@@ -1683,6 +1698,8 @@
     "progressDecided": "{decided} von {total} entschieden",
     "cardPosition": "{index} VON {total}",
     "cardMatched": "Dein Dokument sagt „{wording}“ an {count, plural, one {# Stelle} other {# Stellen}}. Nichts in deinem Profil belegt das.",
+    "cardDenied": "Dazu hast Du selbst eine Einschränkung genannt: „{denials}“. Deshalb bietet Applire nicht an, es in Dein Profil aufzunehmen. Nimm es heraus oder bearbeite die Stelle.",
+    "cardMatchedJoin": "“, „",
     "actionShowWhere": "Zeig mir, wo",
     "actionAddToProfile": "Stimmt, in mein Profil aufnehmen",
     "actionTakeOut": "Nimm es für mich heraus",
@@ -1703,6 +1720,9 @@
     "statusAdded": "Ins Profil aufgenommen",
     "statusTakenOut": "Herausgenommen",
     "statusEdited": "Bearbeitet",
+    "statusSupported": "Steht in Deinem Profil",
+    "supportedReceipt": "Dein Profil sagt: „{lines}“.",
+    "supportedStillListed": "Die Wortprüfung findet es nicht wörtlich — Deine Bestätigung zählt.",
     "otherTitle": "Weitere Hinweise",
     "otherSub": "Nichts davon steht dem Versand im Weg.",
     "sendCheckTitle": "Vor dem Versand ansehen",
@@ -1921,7 +1941,7 @@
     "copied": "Kopiert",
     "done": "Fertig, ich habe ihn gespeichert",
     "agentSetupHint": "Trage ihn als APPLIRE_AGENT_TOKEN in die Konfiguration deines MCP-Clients ein, zum Beispiel:",
-    "agentSetupRestart": "Starte den Client danach neu. Ohne gültigen Token startet der Applire-Agent nicht.",
+    "agentSetupRestart": "Starte den Client danach neu. Der Agent läuft im Backend deiner Applire-Instanz, Applire muss also laufen. Ohne gültigen Token startet der Applire-Agent nicht.",
     "apiSetupHint": "Schicke ihn bei jedem Aufruf als Header mit, zum Beispiel:",
     "revokeAgentTitle": "Token „{name}“ widerrufen?",
     "revokeAgentBody": "Ein Agent mit diesem Token stoppt bei seinem nächsten Schritt. Links auf Dokumente, die er dir gegeben hat, funktionieren nicht mehr.",

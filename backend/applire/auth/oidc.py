@@ -342,8 +342,13 @@ async def begin(
         "code_challenge_method": "S256",
     }
     if intent == "reauth":
+        # `prompt=login` only (785:L148). `max_age=0` made Authelia 4.39.28 loop on
+        # its password prompt forever; `prompt=login` alone completes there and on
+        # authentik / Pocket ID. Freshness is enforced HERE, not by the IdP:
+        # `auth_time >= grant.started_at` (auth/reauth.py `verify_grant`), and a
+        # token without `auth_time` (OIDC Core requires it only when max_age is
+        # sent) fails closed — the person cannot confirm via SSO, never the reverse.
         params["prompt"] = "login"
-        params["max_age"] = "0"
     sep = "&" if urlsplit(disc.authorization_endpoint).query else "?"
     return disc.authorization_endpoint + sep + urlencode(params), flow
 

@@ -114,6 +114,10 @@ describe("TokensCard", () => {
     expect(dialog).toHaveTextContent("APPLIRE_AGENT_TOKEN");
     expect(dialog.textContent).toContain(`"APPLIRE_AGENT_TOKEN": "${SECRET_AGENT}"`);
     expect(dialog).toHaveTextContent("Restart the client afterwards.");
+    // #788 line 41: the snippet starts the agent inside the running backend —
+    // `run … mcp` failed on any compose file without the `mcp` service.
+    expect(dialog.textContent).toContain('"exec", "-T", "-e", "APPLIRE_AGENT_TOKEN", "backend", "python", "-m", "applire.mcp"');
+    expect(dialog.textContent).not.toContain('"run", "--rm"');
 
     await user.click(screen.getByTestId("tokens-shown-once-done"));
     expect(screen.queryByTestId("tokens-shown-once")).toBeNull();

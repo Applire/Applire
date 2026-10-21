@@ -3,7 +3,6 @@ Iteration 5 — CV Generation, Preview & Download
 Done when: POST /api/cv/generate → GET /api/cv/{id}/html returns a rendered
            Lebenslauf → GET /api/cv/{id}/pdf returns a valid PDF binary.
 """
-import json
 from pathlib import Path
 
 import pytest
@@ -85,14 +84,8 @@ def _post_analyze(api: str) -> dict:
     return r.json()
 
 
-def _import_profile(api: str) -> dict:
-    r = requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": json.dumps(_LINKEDIN)},
-        timeout=90,
-    )
-    assert r.status_code == 200, f"Profile import failed: {r.text}"
-    return r.json()
+def _import_profile(api: str, import_job) -> dict:
+    return import_job.linkedin_json(api, _LINKEDIN)
 
 
 def _run_gap_analysis(api: str, job_id: str) -> dict:
@@ -128,8 +121,8 @@ def job_id(api):
 
 
 @pytest.fixture(scope="module")
-def generate_body(api, job_id):
-    _import_profile(api)
+def generate_body(api, job_id, import_job):
+    _import_profile(api, import_job)
     _run_gap_analysis(api, job_id)
     r = _post_generate(api, job_id)
     assert r.status_code == 201, f"CV generation failed: {r.text}"
@@ -157,8 +150,8 @@ def pdf_response(api, generate_body):
 # ---------------------------------------------------------------------------
 
 
-def test_generate_returns_201(api, job_id):
-    _import_profile(api)
+def test_generate_returns_201(api, job_id, import_job):
+    _import_profile(api, import_job)
     _run_gap_analysis(api, job_id)
     r = _post_generate(api, job_id)
     assert r.status_code == 201, r.text

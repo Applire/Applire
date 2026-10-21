@@ -44,6 +44,7 @@ from applire.schemas.profile import (
     MasterProfileData,
     MatchReceipt,
     render_localized_confirmation,
+    ExtractionReview,
 )
 
 
@@ -987,6 +988,10 @@ class ApplyImportMerge(BaseModel):
     # #707 — the merge's `match_existing` receipts, riding the same path as
     # `not_applied` (only the intake computes them; empty for every other batch).
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the ingest's extraction
+    #: review outcome, riding the same path as ``reconciliation`` (only the
+    #: intake knows it) onto the committer's ``EnrichmentRecord``.
+    extraction_review: ExtractionReview | None = None
 
 
 # ── Discriminated unions, split by EMITTER ────────────────────────────────────

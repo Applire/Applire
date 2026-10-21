@@ -4,7 +4,6 @@ Done when: Start a session tied to a job with known gaps → receive a targeted 
            → answer it → see GET /api/profile updated with the new data
            → receive the next question → session completes.
 """
-import json
 from pathlib import Path
 
 import pytest
@@ -70,13 +69,8 @@ def _post_analyze(api: str) -> dict:
     return r.json()
 
 
-def _import_profile(api: str) -> None:
-    r = requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": json.dumps(_SLIM_LINKEDIN)},
-        timeout=90,
-    )
-    assert r.status_code == 200, f"Profile import failed: {r.text}"
+def _import_profile(api: str, import_job) -> None:
+    import_job.linkedin_json(api, _SLIM_LINKEDIN)
 
 
 def _run_gap_analysis(api: str, job_id: str) -> dict:
@@ -118,8 +112,8 @@ def job_id(api):
 
 
 @pytest.fixture(scope="module")
-def session_body(api, job_id):
-    _import_profile(api)
+def session_body(api, job_id, import_job):
+    _import_profile(api, import_job)
     _run_gap_analysis(api, job_id)
     r = _create_session(api, job_id)
     assert r.status_code == 201, f"Session creation failed: {r.text}"
@@ -140,8 +134,8 @@ def first_message_body(api, session_body):
 # ---------------------------------------------------------------------------
 
 
-def test_create_session_returns_201(api, job_id):
-    _import_profile(api)
+def test_create_session_returns_201(api, job_id, import_job):
+    _import_profile(api, import_job)
     _run_gap_analysis(api, job_id)
     r = _create_session(api, job_id)
     assert r.status_code == 201, r.text

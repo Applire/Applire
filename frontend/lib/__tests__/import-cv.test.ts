@@ -16,7 +16,14 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { uploadCvAsync, startCvImport, pollCvImport, CVImportError } from "@/lib/import-cv";
+import {
+  uploadCvAsync,
+  startCvImport,
+  pollCvImport,
+  CVImportError,
+  importErrorMessageKey,
+  sourceTruncatedPercent,
+} from "@/lib/import-cv";
 
 function res(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: () => Promise.resolve(body) } as Response;
@@ -54,6 +61,22 @@ describe("uploadCvAsync", () => {
     });
     await uploadCvAsync(new File(["x"], "cv.pdf"), { jobId: "job-9", pollMs: 1 });
     expect(postUrl).toContain("job_id=job-9");
+  });
+
+  it("forwards the LinkedIn source hint as a query param (#789 L31)", async () => {
+    let postUrl = "";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const u = typeof input === "string" ? input : input.toString();
+      if (u.includes("/import-jobs/")) return res({ status: "ready", result: { status: "DRAFT" } });
+      postUrl = u;
+      return res({ import_id: "imp-1", status: "pending" }, true, 202);
+    });
+    await uploadCvAsync(new File(["x"], "export.zip"), { source: "linkedin", jobId: "job-9", pollMs: 1 });
+    expect(postUrl).toContain("source=linkedin");
+    expect(postUrl).toContain("job_id=job-9");
+    postUrl = "";
+    await uploadCvAsync(new File(["x"], "cv.pdf"), { pollMs: 1 });
+    expect(postUrl).not.toContain("source=");
   });
 
   it("rejects with CVImportError carrying the error_code on a failed import", async () => {
@@ -149,5 +172,51 @@ describe("startCvImport / pollCvImport (split start-vs-poll)", () => {
       name: "CVImportError",
       errorCode: "llm_timeout",
     });
+  });
+});
+
+
+describe("size limit and OCR error codes (#789 L12/L13)", () => {
+  it("maps a 413 (the REST cap or nginx) to the file_too_large code", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      res({ detail: { error: "file_too_large", max_bytes: 10485760 } }, false, 413),
+    );
+    await expect(startCvImport(new File(["x"], "big.pdf"))).rejects.toMatchObject({
+      name: "CVImportError",
+      errorCode: "file_too_large",
+    });
+  });
+
+  it("still reports any other failed start as import_failed", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(res({}, false, 500));
+    await expect(startCvImport(new File(["x"], "cv.pdf"))).rejects.toMatchObject({
+      errorCode: "import_failed",
+    });
+  });
+
+  it.each([
+    ["file_too_large", "uploadTooLarge"],
+    ["ocr_unavailable", "uploadNoOcr"],
+    ["llm_truncated", "uploadTryAgain"],
+    ["llm_timeout", "uploadTryAgain"],
+    ["invalid_document", "uploadFailed"],
+    ["import_failed", "uploadFailed"],
+    [null, "uploadFailed"],
+  ])("importErrorMessageKey(%s) -> %s", (code, key) => {
+    expect(importErrorMessageKey(code)).toBe(key);
+  });
+});
+
+describe("sourceTruncatedPercent (R3-2 = B)", () => {
+  it("rounds the share that was read, never to 0 or 100", () => {
+    expect(sourceTruncatedPercent({ read_chars: 24870, total_chars: 133272 })).toBe(19);
+    expect(sourceTruncatedPercent({ read_chars: 1, total_chars: 100000 })).toBe(1);
+    expect(sourceTruncatedPercent({ read_chars: 99990, total_chars: 100000 })).toBe(99);
+  });
+
+  it("is null when nothing was cut or the fact is malformed", () => {
+    expect(sourceTruncatedPercent(null)).toBeNull();
+    expect(sourceTruncatedPercent(undefined)).toBeNull();
+    expect(sourceTruncatedPercent({ read_chars: 5, total_chars: 0 })).toBeNull();
   });
 });

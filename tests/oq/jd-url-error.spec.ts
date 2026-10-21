@@ -275,7 +275,8 @@ test.describe("Branch F — JD URL fetch failure", () => {
     await page.getByTestId("jd-recovery-cta").click();
 
     // In-app home actions now route to /dashboard (the logged-in home), not onboarding.
-    await expect(page).toHaveURL("/dashboard", { timeout: 5000 });
+    // 30 s: first compile of /dashboard under a cold `next dev` outlasts 5 s (#789 L52).
+    await expect(page).toHaveURL("/dashboard", { timeout: 30_000 });
   });
 
   test("dismiss button hides the banner", async ({ page }) => {

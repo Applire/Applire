@@ -497,10 +497,26 @@ assert SYSTEM_PROMPT.count(_V1_FACTS_PARAGRAPH) == 1, "v1 facts paragraph moved 
 assert SYSTEM_PROMPT.count(_V1_SCHEMA) == 1, "v1 response schema moved — re-derive V2_SYSTEM_PROMPT"
 assert SYSTEM_PROMPT.count(_V2_BUDGET_SENTENCE) == 1, "v1 rule 9 moved — re-derive V2_SYSTEM_PROMPT"
 
+#: Founder ruling V-1 = B (787:L11, Hazelnut build 2): the KEYWORD LEDGER marks a
+#: claimable row that no role bullet, achievement or story states with
+#: ``keyword_ledger.LISTED_ONLY_MARKER``. The marker is the fact; this is the rule
+#: (rule 2's "evidence lives in a work entry" clause, made visible). v2 only.
+_V2_RULE2_ANCHOR = "not only the skills list."
+V2_LISTED_ONLY_RULE = (
+    "A ledger row marked [listed only — no role bullet or story states it] has no such "
+    "evidence: the candidate lists the term, but nothing in the profile says what they did "
+    "with it. NAME it — in the skills list, or inside a list of tools or methods — and never "
+    "narrate it as a responsibility, an ownership or an outcome (\"verantwortete X\", "
+    "\"led X\", \"X reduced …\"), in a bullet or in the summary."
+)
+
+assert SYSTEM_PROMPT.count(_V2_RULE2_ANCHOR) == 1, "v1 rule 2 moved — re-anchor _V2_RULE2_ANCHOR"
+
 V2_SYSTEM_PROMPT = (
     SYSTEM_PROMPT.replace(_V1_FACTS_PARAGRAPH, _V2_FACTS_PARAGRAPH)
     .replace(_V1_SCHEMA, _V2_SCHEMA)
     .replace(_V2_BUDGET_SENTENCE, _V2_BUDGET_REPLACEMENT)
+    .replace(_V2_RULE2_ANCHOR, _V2_RULE2_ANCHOR + " " + V2_LISTED_ONLY_RULE)
 )
 
 #: #767 — the v2 writer's response as a JSON schema (``LLM_STRUCTURED_OUTPUT=auto``;
@@ -626,6 +642,10 @@ V2_REFINEMENT_ADDENDUM = """
   trims or re-adds content after you: a project you omit is not re-joined, and a bullet over
   a role's budget is yours to cut or merge. A CODE CHECKS finding in the feedback is a fact
   about the draft — fix it.
+- LISTED-ONLY TERMS (ruling V-1): a KEYWORD LEDGER row marked
+  [listed only — no role bullet or story states it] may be named in the skills list or a
+  list of tools, never written into a bullet or the summary as a responsibility, ownership
+  or outcome — also when a review asks for coverage of it.
 """
 
 

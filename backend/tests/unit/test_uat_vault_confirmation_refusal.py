@@ -740,22 +740,23 @@ def test_a_qualified_denial_DOES_refuse_the_claim_unless_the_vault_affirms_it():
     assert is_denied_concept("Kubernetes", _MODEL_DENIALS, "kubernetes") is False
 
 
-def test_a_qualified_denial_label_does_NOT_reach_the_jd_s_own_concept_label():
-    """The residue, recorded so it is not mistaken for coverage: the model denied
-    *"agile methodology experience"* and the JD's ledger concept is
-    *"agile methodologies"* — neither half matches, so that ledger row is not
-    floored by this denial at all. Same class as #731's "RAG methods" vs
-    "vector databases": a label-shape gap between what the candidate is recorded
-    as denying and what the JD analysis called the requirement. Collector line on
-    #675 (surface-form coverage at the JD-analysis seam), never a matcher
-    widening."""
+def test_a_qualified_denial_label_now_reaches_the_jd_s_plural_concept_label():
+    """Was the recorded residue: the model denied *"agile methodology
+    experience"* and the JD's ledger concept is *"agile methodologies"* — the
+    shared fold knew only a trailing ``s``, so the row was not floored. Since
+    #783 line L35 / #787 line L43 the fold carries the closed ``-y``/``-ies``
+    pair, so the plural label folds onto the denied compound and the REFUSE half
+    floors it (a fact about the word's own letters, ADR-062 cl. 1 — not a
+    matcher widening by meaning). The DECLARED-match half is unchanged: it is a
+    label-to-label comparison and the labels still differ. The "RAG methods" vs
+    "vector databases" class (#731) stays a label-shape gap."""
     from applire.services.profile.reconcile.stance import (
         declared_denial_matches,
         is_denied_concept,
     )
 
     assert declared_denial_matches("agile methodologies", _MODEL_DENIALS) == []
-    assert is_denied_concept("agile methodologies", _MODEL_DENIALS, None) is False
+    assert is_denied_concept("agile methodologies", _MODEL_DENIALS, None) is True
     # And the control: a denial that names the concept does reach it.
     assert declared_denial_matches("agile methodologies", ["agile methodologies"]) == [
         "agile methodologies"

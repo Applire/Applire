@@ -49,6 +49,7 @@ sys.path.insert(0, str(_REPO_ROOT / "backend"))
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 from applire.settings_registry import (  # noqa: E402
+    ESSENTIAL_KEYS,
     SECTION_ORDER,
     SettingEntry,
     all_settings,
@@ -70,7 +71,30 @@ HEADER = """\
 # when you leave them alone. Deleting an uncommented line falls back to the same
 # default — the examples here ARE the code defaults, except where a line says
 # otherwise.
+#
+# Stability (docs/versioning.md): within 1.x no variable in this file is renamed
+# or removed, and every new one has a default — EXCEPT the block at the very end,
+# "Internal — no stability promise", whose switches may change in any minor.
 """
+
+#: The Quick-start paragraph lists the essential tier (ADR-095 cl. 3) by name
+#: only — each variable keeps its single assignment line in its own section.
+def _quick_start() -> list[str]:
+    names = ", ".join(ESSENTIAL_KEYS)
+    out = ["#", "# Quick start — the essential settings (everything else has a working default):"]
+    out += [f"#   {w}" for w in textwrap.wrap(names, width=_WIDTH - 4)]
+    out += [
+        "# Set LLM_PROVIDER plus that provider's key and model; beyond localhost also",
+        "# APPLIRE_BASE_URL and a real POSTGRES_PASSWORD.",
+    ]
+    return out
+
+
+_INTERNAL_BLURB = (
+    "Internal — no stability promise (docs/versioning.md).\n"
+    "Development switches and tuning knobs: any 1.x minor may rename, re-mean or\n"
+    "remove them (named in the CHANGELOG upgrade notes). Leave them alone."
+)
 
 _SECTION_BLURB = {
     "Database": "Database",
@@ -140,22 +164,33 @@ def render_entry(entry: SettingEntry) -> list[str]:
     return lines
 
 
+def _block(lines: list[str], blurb: str, entries: list[SettingEntry], *, name_section: bool) -> None:
+    lines.append("")
+    lines.append("# " + "=" * 74)
+    for blurb_line in blurb.splitlines():
+        lines.append(f"# {blurb_line}")
+    lines.append("# " + "=" * 74)
+    for entry in entries:
+        lines.append("")
+        if name_section:
+            lines.append(f"# [{entry.section}]")
+        lines.extend(render_entry(entry))
+
+
 def render() -> str:
     lines: list[str] = HEADER.rstrip("\n").splitlines()
+    lines.extend(_quick_start())
+    shown = [e for e in all_settings() if e.in_env_example]
     for section in SECTION_ORDER:
-        entries = [
-            e for e in all_settings() if e.section == section and e.in_env_example
-        ]
-        if not entries:
-            continue
-        lines.append("")
-        lines.append("# " + "=" * 74)
-        for blurb_line in _SECTION_BLURB[section].splitlines():
-            lines.append(f"# {blurb_line}")
-        lines.append("# " + "=" * 74)
-        for entry in entries:
-            lines.append("")
-            lines.extend(render_entry(entry))
+        entries = [e for e in shown if e.section == section and e.tier != "internal"]
+        if entries:
+            _block(lines, _SECTION_BLURB[section], entries, name_section=False)
+    # ADR-095 cl. 3 / ADR-087 amended 2026-10-20: the internal tier in ONE final
+    # block, so "what carries no promise" is a place in the file, not a tag to
+    # search for. Each entry names the section it belongs to.
+    internal = [e for e in shown if e.tier == "internal"]
+    if internal:
+        _block(lines, _INTERNAL_BLURB, internal, name_section=True)
     return "\n".join(lines) + "\n"
 
 

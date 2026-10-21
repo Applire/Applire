@@ -235,6 +235,8 @@ Two ways to get the setting wrong without any message:
 
 ## 9. Disk and pruning
 
+**How much disk and RAM to plan.** Plan on about 8 GB of free disk and 2 GB of RAM (4 GB of RAM if several people share the instance). The four images take about 5.2 GB once pulled: the backend about 4 GB (it carries the Chromium that renders PDFs; the `retention` service reuses the same image), PostgreSQL about 0.6 GB, the frontend about 0.4 GB, nginx about 0.1 GB. An update pulls new images and leaves the old ones until you prune them (below). The running stack idles near 0.5 GB of RAM; every PDF render starts a headless Chromium on top of that. A local model with Ollama needs more of both.
+
 Three named volumes hold everything durable: `postgres_data`, `ollama_data` (only used with `docker compose --profile ollama up`), and `applire_uploads`.
 
 Container logs are already bounded — `docker-compose.yml` sets the `json-file` driver to `max-size: 10m`, `max-file: 3` for every service, so log growth alone won't fill your disk.
@@ -446,15 +448,16 @@ next to the figure.
 SETUP REQUIRED — open /setup on the address where you normally open Applire … and enter: <code> — or run: docker compose exec backend python -m applire.admin create-admin --email you@example.org. A new code is printed at every start until setup is done.
 ```
 
-```bash
-docker compose logs backend | grep "SETUP REQUIRED"
-```
-
-**Only the code from the latest start works.** Every start replaces the code, so after a few restarts the log holds several codes and only the last one is valid. The code is the six groups of four letters and digits after `enter:` (`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`; case and dashes do not matter). To print only the newest:
+To print only the code, as one line:
 
 ```bash
-docker compose logs backend | grep "SETUP REQUIRED" | tail -1
+docker compose logs backend | grep -o "enter: [A-Z2-7-]*" | tail -n 1
+# enter: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
 ```
+
+(`docker compose logs backend | grep "SETUP REQUIRED"` prints the whole block's long line instead.)
+
+**Only the code from the latest start works.** Every start replaces the code, so after a few restarts the log holds several codes and only the last one is valid, which is why the command ends in `tail -n 1`. The code is the six groups of four letters and digits after `enter:` (`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`; case and dashes do not matter).
 
 Open `/setup`, enter the code, your email and a password (12–256 characters, typed twice), and the instance is yours. Only a person with access to the server can read the code, which is the point: a stranger who finds the URL cannot claim your instance. On an **upgraded** install, the existing vault becomes the administrator's account — same data, now behind a login. The `create-admin` command does the same from the shell and refuses once the instance is claimed. It asks for the password twice, or reads it from standard input with `--password-stdin` (for scripts).
 
@@ -486,7 +489,7 @@ APPLIRE_BASE_URL=https://applire.example.org
 
 - **https only.** `OIDC_ISSUER` and every endpoint the provider's discovery document names must be `https` (only `localhost` may use `http`). The backend refuses to start with an unusable OIDC configuration: a missing client id or secret, or an unset `APPLIRE_BASE_URL`.
 - **Single sign-on binds to invited accounts.** A first-time identity is matched to a *pending, invited* account by email, and only when the provider reports that email as verified (`email_verified` is the boolean `true`). So the sequence is: an administrator invites the person by email; the person signs in with the provider instead of choosing a password. There is no automatic account creation. Existing accounts link single sign-on from Settings → Account. The account is identified afterwards by (issuer, subject), not by email.
-- **Destructive actions ask for a fresh sign-in.** A person without a password confirms self-deletion or an unlink by signing in again at the provider. This needs the provider to send an **`auth_time`** claim in the ID token. A provider that sends none makes that confirmation fail closed: **an SSO-only person cannot delete their own account, and an administrator deletes it for them** (Administration → People). Nothing else is affected.
+- **Destructive actions ask for a fresh sign-in.** A person without a password confirms self-deletion or an unlink by signing in again at the provider. Applire asks the provider for a fresh login (`prompt=login`) and checks the ID token's **`auth_time`** claim itself, so this needs the provider to send `auth_time`; authentik, Pocket ID and Authelia do (Authelia needs a `claims_policy` that puts `email` and `email_verified` into the ID token, since Applire reads claims from the ID token only, never from userinfo). A provider that sends none makes that confirmation fail closed: **an SSO-only person cannot delete their own account, and an administrator deletes it for them** (Administration → People). Nothing else is affected.
 - An account cannot unlink single sign-on while it has no password (it would lock the person out).
 
 ## 15. Outgoing mail (SMTP)
@@ -524,13 +527,16 @@ printf '%s' "$APPLIRE_AGENT_TOKEN" | grep -Eq '^apl_[a-z0-9]{8}_[A-Za-z0-9_-]{43
 
 A token you lost or truncated cannot be shown again: revoke it in the list and create a new one.
 
-A **script** needs no cookie jar:
+A **script** needs no cookie jar, only an **api** token:
 
 ```bash
-curl -H "Authorization: Bearer apl_…" http://localhost/api/profile
+curl -H "Authorization: Bearer apl_…" http://localhost/api/profile/exists
+# {"exists":false,"completeness_score":0.0}   (true and a score once a CV is imported)
 ```
 
-An **MCP client** configuration gains the token (the Docker form passes it through):
+`GET /api/profile` returns the whole profile and answers 404 ("No profile found") until the first CV is imported. Write it without a trailing slash: `/api/profile/` is redirected (307).
+
+An **MCP client** configuration gains the token. The agent runs inside your running backend container (the same command the token dialog shows):
 
 ```json
 {
@@ -539,7 +545,7 @@ An **MCP client** configuration gains the token (the Docker form passes it throu
       "command": "docker",
       "args": [
         "compose", "-f", "/absolute/path/to/applire/docker-compose.yml",
-        "run", "--rm", "-e", "APPLIRE_AGENT_TOKEN", "-T", "mcp"
+        "exec", "-T", "-e", "APPLIRE_AGENT_TOKEN", "backend", "python", "-m", "applire.mcp"
       ],
       "env": { "APPLIRE_AGENT_TOKEN": "apl_…" }
     }
@@ -547,12 +553,16 @@ An **MCP client** configuration gains the token (the Docker form passes it throu
 }
 ```
 
-The `mcp` service is part of the shipped `docker-compose.yml` under the profile `mcp`, and has been since the first public release. A compose file you wrote or trimmed yourself may lack it. Then copy the service from the release's file, or start the server inside your running backend container instead:
+With the stack stopped, `run --rm -T -e APPLIRE_AGENT_TOKEN mcp` starts a one-off container instead:
 
 ```json
 "args": ["compose", "-f", "/absolute/path/to/applire/docker-compose.yml",
-         "exec", "-T", "-e", "APPLIRE_AGENT_TOKEN", "backend", "python", "-m", "applire.mcp"]
+         "run", "--rm", "-e", "APPLIRE_AGENT_TOKEN", "-T", "mcp"]
 ```
+
+The `mcp` service is part of the shipped `docker-compose.yml` under the profile `mcp`, and has been since the first public release. A compose file that predates it, or one you wrote or trimmed yourself, may lack it. Then fetch the current file from the release assets (`curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml`; it replaces your file, so copy over any edits of your own) or copy just the `mcp` service from it.
+
+MCP clients that install servers from the official MCP Registry find Applire as `io.github.Applire/applire`. That entry starts the same image with `docker run` and joins your running instance: it asks for your instance's Docker network (`docker network ls`, usually `<folder>_default`), the path to its `.env`, its uploads volume (`docker volume ls`, usually `<folder>_applire_uploads`) and your agent token. It is not a separate Applire — without a running instance it has nothing to connect to.
 
 Either way, set `APPLIRE_BASE_URL` in `.env` to the address you open Applire on (Section 8), so the document links your agent receives open in your browser.
 

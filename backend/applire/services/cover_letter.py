@@ -74,6 +74,7 @@ from applire.prompts.review_cover_letter import (
     COVER_LETTER_REFINEMENT_PROMPT,
     REVIEW_SYSTEM_PROMPT,
     TERMINAL_REVIEW_SYSTEM_PROMPT,
+    letter_loop_prompts,
     build_retry_prompt,
     build_review_prompt,
     build_terminal_review_prompt,
@@ -1468,6 +1469,12 @@ async def _render_cover_letter_body(
                             "threading vault availability testimony into the prompt.",
                             cl_id,
                         )
+                # 784:L31: the letter has an availability input — the typed field or the
+                # threaded vault testimony. Without one, a v2 finding flags any sentence
+                # stating when the candidate could start.
+                availability_given = bool(
+                    str(pre_gen.get("availability") or "").strip() or availability_testimony
+                )
 
                 # STATED LIMITS: the candidate's persisted denial statements, verbatim, so the
                 # writer never contradicts one. Facts only — which claimable concept a given
@@ -2139,6 +2146,7 @@ async def _render_cover_letter_body(
                         keyword_ledger=keyword_ledger,
                         denied_concepts=denied_concepts,
                         language=detected_language,
+                        availability_given=availability_given,
                     )
                     if is_v2
                     else None
@@ -2148,9 +2156,9 @@ async def _render_cover_letter_body(
                     source=grounding_source,
                     draft=letter_data,
                     generator_prompt_fn=corrector_prompt_fn,
-                    generator_system=COVER_LETTER_REFINEMENT_PROMPT,
+                    generator_system=letter_loop_prompts(is_v2)[2],
                     reviewer_prompt_fn=reviewer_prompt_fn,
-                    reviewer_system=REVIEW_SYSTEM_PROMPT,
+                    reviewer_system=letter_loop_prompts(is_v2)[0],
                     provider=provider,
                     max_retries=LLM_REVIEW_MAX_RETRIES,
                     chain_id="cover_letter",
@@ -2282,6 +2290,7 @@ async def _render_cover_letter_body(
                     # final length floor — enforced inside, from ``pipeline``.
                     pipeline=pipeline,
                     v2_signal_fn=v2_signal_fn,
+                    availability_given=availability_given,
                 )
                 pin_floor_hits |= tr.pin_floor_hits
                 letter_data = tr.draft
@@ -2388,6 +2397,7 @@ async def _render_cover_letter_body(
                         pins=letter_pins,
                         pipeline=pipeline,
                         v2_signal_fn=v2_signal_fn,
+                        availability_given=availability_given,
                     )
                     pdf_bytes, measured = tr.pdf_bytes, tr.measured
                     # Fold, never replace — the report call at the TOP of this loop
@@ -2646,9 +2656,15 @@ def _letter_v2_findings(
     profile_json: dict,
     keyword_ledger: list | None,
     denied_concepts: list | None,
+    availability_given: bool = True,
 ) -> list[LetterFinding]:
     """Every v2 deterministic finding except the language one (which has its own
-    fact, block and ATS row in ``services/letter_v2``)."""
+    fact, block and ATS row in ``services/letter_v2``).
+
+    ``availability_given`` (784:L31): whether this letter has an availability input
+    (the typed ``availability`` or the vault's availability testimony). Without one,
+    a sentence stating when the candidate could start is a BLOCKING finding. The
+    default ``True`` keeps a caller that does not know silent."""
     from applire.services.letter_figure_guard import letter_figure_findings
     from applire.services.limit_grounding import ungrounded_limits
 
@@ -2676,6 +2692,24 @@ def _letter_v2_findings(
             out.append(LetterFinding("names", m.text()))
     except Exception:  # pragma: no cover - a check never breaks generation
         logger.warning("letter v2: name findings failed", exc_info=True)
+    # 786:L136: a standard/regulation identifier the vault never states — the CV's
+    # check, one implementation (cv_v2.unmentioned_identifiers), BLOCKING.
+    from applire.services.cv_v2 import identifier_finding_text, unmentioned_identifiers
+
+    body = letter_data.get("body") if isinstance(letter_data, dict) else None
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    named, stated = unmentioned_identifiers(
+        [p for p in paragraphs if isinstance(p, str)] if isinstance(paragraphs, list) else [],
+        profile_json,
+    )
+    if named:
+        out.append(LetterFinding("identifier", identifier_finding_text(named, stated)))
+    if not availability_given:
+        from applire.services.letter_v2 import availability_finding_text, availability_sentences
+
+        stated_availability = availability_sentences(letter_data)
+        if stated_availability:
+            out.append(LetterFinding("availability", availability_finding_text(stated_availability)))
     return out
 
 
@@ -2688,7 +2722,8 @@ def _letter_v2_findings(
 _V2_ADVISORY_FAMILIES = frozenset({"figure", "limit"})
 
 
-def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, language):
+def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, language,
+                  availability_given: bool = True):
     """ADR-094 clause L4 through W1's findings interface (``review_and_refine``'s
     ``checks_fn``): every v2 letter finding as a ``CheckFinding`` on the COMPOSED
     draft of the round. Language, salutation, sign-off and closing are BLOCKING
@@ -2723,6 +2758,7 @@ def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, 
         for f in _letter_v2_findings(
             composed, profile_json=profile_json,
             keyword_ledger=keyword_ledger, denied_concepts=denied_concepts,
+            availability_given=availability_given,
         ):
             if per_family.get(f.family, 0) >= _V2_FINDINGS_PER_FAMILY:
                 continue
@@ -2976,6 +3012,7 @@ async def _terminal_review_letter(
     denied_concepts: list | None = None,
     pipeline: str = "v1",
     v2_signal_fn=None,
+    availability_given: bool = True,
 ) -> LetterTerminalReviewResult:
     """ADR-076 clause 3 (#539; amended 2026-08-29 for the #547 residual): the
     letter's TERMINAL review — the verdict that closes over the COMPOSED
@@ -3148,7 +3185,7 @@ async def _terminal_review_letter(
         try:
             review = await provider.aparse_json(
                 prompt,
-                system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+                system=letter_loop_prompts(is_v2)[1],
                 temperature=0.1,
                 max_tokens=REVIEW_VERDICT_MAX_TOKENS,
             )
@@ -3279,6 +3316,7 @@ async def _terminal_review_letter(
                     profile_json=profile.profile_json if profile else {},
                     keyword_ledger=keyword_ledger,
                     denied_concepts=denied_concepts,
+                    availability_given=availability_given,
                 )
             )
             extra = tuple(post_condense_notes) + ((note,) if note else ())
@@ -3545,9 +3583,9 @@ async def _terminal_review_letter(
             source=grounding_source,
             draft=current,
             generator_prompt_fn=_terminal_corrector_prompt_fn,
-            generator_system=COVER_LETTER_REFINEMENT_PROMPT,
+            generator_system=letter_loop_prompts(is_v2)[2],
             reviewer_prompt_fn=_reviewer_prompt,
-            reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+            reviewer_system=letter_loop_prompts(is_v2)[1],
             provider=provider,
             max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
             chain_id="letter_terminal_review",
@@ -3763,9 +3801,9 @@ async def _terminal_review_letter(
                     source=grounding_source,
                     draft=current,
                     generator_prompt_fn=_terminal_corrector_prompt_fn,
-                    generator_system=COVER_LETTER_REFINEMENT_PROMPT,
+                    generator_system=letter_loop_prompts(is_v2)[2],
                     reviewer_prompt_fn=_reviewer_prompt,
-                    reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+                    reviewer_system=letter_loop_prompts(is_v2)[1],
                     provider=provider,
                     max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
                     chain_id="letter_terminal_review",

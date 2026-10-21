@@ -475,3 +475,63 @@ from tests.support.mcp_door import posting_access_granted  # noqa: E402,F401
 
 _marks = globals().get("pytestmark", [])
 pytestmark = [*(_marks if isinstance(_marks, list) else [_marks]), pytest.mark.usefixtures("posting_access_granted")]
+
+
+# ---------------------------------------------------------------------------
+# Agent collector #788 line 38 — one letter spelling must not refuse the other
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hyphen_spelling_of_the_letter_kind_is_accepted_and_canonicalised(seeded):
+    """788:L38: `schema://cover-letter` and `schema_version: "cover-letter/1"`
+    spell the letter with a hyphen, `document_kind` with an underscore — an agent
+    that copied the resource's spelling was refused. The hyphen form is an alias;
+    the result always reports the canonical `cover_letter`. Driven through
+    `mcp.call_tool` so the real input schema and the identity wrapper run."""
+    import json as _json
+
+    from applire.mcp.server import mcp
+    from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+
+    report = ATSReport(
+        document="cover_letter",
+        checks=[ATSCheck(id="contact-name", status="pass")],
+        keywords=ATSKeywordCoverage(present=["Python"], missing=[]),
+        passed=1,
+        failed=0,
+    )
+    with (
+        patch("applire.mcp.server.get_db", return_value=_db_cm(seeded["db"])),
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            new=AsyncMock(return_value=b"%PDF"),
+        ),
+        patch("applire.services.ats_audit.audit_cover_letter", return_value=report),
+    ):
+        out = await mcp.call_tool(
+            "render_document",
+            {
+                "document_kind": "cover-letter",
+                "content": dict(AGENT_LETTER_CONTENT),
+                "job_id": str(seeded["job_id"]),
+            },
+        )
+    blocks = out[0] if isinstance(out, tuple) else out
+    result = _json.loads(blocks[0].text)
+    assert result["document_kind"] == "cover_letter"
+    assert result["schema_version"] == "cover-letter/1"
+    assert result["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_kind_is_still_refused_and_the_error_names_the_alias():
+    """The alias widens exactly one spelling — `resume` is still invalid input."""
+    from applire.mcp.server import render_document
+
+    with pytest.raises(McpError) as exc_info:
+        await render_document(
+            document_kind="cover letter", content={"x": 1}, job_id=str(uuid.uuid4())
+        )
+    assert exc_info.value.error.code == -32602
+    assert "'cover-letter' is accepted as an alias" in exc_info.value.error.message

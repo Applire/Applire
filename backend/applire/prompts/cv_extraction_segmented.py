@@ -90,9 +90,12 @@ Return:
 }
 
 Rules:
-- COUNT CHECK: count the distinct employer positions in the source; output exactly that
-  many entries — no shell entries, no duplicates. Sub-roles/titles within one position go
-  in role_aliases, never as a new entry.
+- COUNT CHECK: count the distinct positions in the source — a title with its own date range
+  is one position, so two separately dated titles at one employer are two; output exactly that
+  many entries — no shell entries, no duplicates. Titles for the SAME position over the SAME
+  period go in role_aliases, never as a new entry. A PROMOTION IS NOT AN ALIAS (ADR-013 rule 1):
+  a progression stated under ONE date range ("Senior Designer → Art Director, 2014 – 2018") is
+  one entry whose "role" is the source's own wording, verbatim — never the senior title alone.
 - Every entry MUST have a non-empty company. Do not invent positions.
 - Praktikum/Werkstudent are work positions. Ausbildung is education — exclude it here.
 - TEAM_SIZE SEMANTICS (#562): `team_size` counts ONLY the people the candidate PERSONALLY

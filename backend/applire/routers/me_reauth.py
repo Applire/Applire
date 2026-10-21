@@ -4,7 +4,7 @@
 (ADR-091 cl. 23; MD-7; US323).
 
 Session only. Creates a 5-minute ``reauth_grants`` row bound to (user, this
-session, action, target) and answers with the IdP URL (``prompt=login&max_age=0``);
+session, action, target) and answers with the IdP URL (``prompt=login``; freshness is checked locally, 785:L148);
 the state cookie carries the grant id. Refused (403 ``forbidden``) when the target
 is not the person's own account or the account has no OIDC binding. 404 while
 ``OIDC_ISSUER`` is empty.

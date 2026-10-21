@@ -799,6 +799,12 @@ _GATE_COPY = {
             "Before we tailor your CV: a parked upload doesn't look like a CV. "
             "Add it to your profile anyway?"
         ),
+        # Founder ruling V-2 = C (783:L41) — the extraction review could not run.
+        "review_not_run": (
+            "Before we tailor your CV: we read a parked upload, but the automatic "
+            "check of what we took from it could not run, so nothing was added yet. "
+            "Add it to your profile anyway? Look over the imported entries afterwards."
+        ),
         "merge": "Yes — it's mine, add it",
         "discard": "No — discard it",
     },
@@ -811,6 +817,12 @@ _GATE_COPY = {
         "not_a_cv": (
             "Bevor wir deinen Lebenslauf anpassen: Ein zurückgestellter Upload "
             "sieht nicht wie ein Lebenslauf aus. Trotzdem zum Profil hinzufügen?"
+        ),
+        "review_not_run": (
+            "Bevor wir deinen Lebenslauf anpassen: Wir haben einen zurückgestellten "
+            "Upload gelesen, aber die automatische Prüfung der übernommenen Daten "
+            "konnte nicht laufen, deshalb wurde noch nichts hinzugefügt. Trotzdem "
+            "zum Profil hinzufügen? Sieh dir die Einträge danach durch."
         ),
         "merge": "Ja — er ist meiner, übernehmen",
         "discard": "Nein — verwerfen",

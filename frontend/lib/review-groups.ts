@@ -116,6 +116,12 @@ export interface ReviewItem {
    * card says the place could not be marked.
    */
   targets?: LocateTarget[] | null;
+  /**
+   * Group 1 term rows only — build-2 delivery F2 (SF-REVIEW.18): the candidate's
+   * own recorded denials that cover this term (`keywords.present_unsupported_denials`).
+   * Non-empty → the card shows them and offers no add-to-profile handle.
+   */
+  denials?: string[];
 }
 
 export interface ReviewGroup {
@@ -199,6 +205,7 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
   const { atsReport, truthReport } = inputs;
   const terms = atsReport?.keywords.present_unsupported ?? [];
   const matches = atsReport?.keywords.present_unsupported_matches;
+  const denialsByTerm = atsReport?.keywords.present_unsupported_denials;
   const claimable = claimableConceptSet(atsReport?.keywords.claimable_concepts);
   const claims = truthReport ? flaggedClaims(truthReport.claims ?? [], claimable) : [];
 
@@ -243,6 +250,10 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       detail: claim?.verdict.detail ?? null,
       location: claim?.claim.location ?? null,
       targets,
+      denials:
+        denialsByTerm && Object.prototype.hasOwnProperty.call(denialsByTerm, term)
+          ? denialsByTerm[term].filter((d) => typeof d === "string" && d.length > 0)
+          : [],
     });
   });
 
@@ -540,6 +551,14 @@ export type VerdictState =
    */
   | { kind: "clear_with_others"; others: number }
   /**
+   * #789 line L60 (ADR-081 cl. 9 at the headline): group 1 is clean, but at
+   * least one producer of the surface did not answer (`unchecked`, de-duplicated,
+   * in group order). The sentence names the blind check instead of claiming
+   * that "findings below do not stand in the way" — with `others = 0` there are
+   * none, and with `others > 0` the blind spot would be swallowed.
+   */
+  | { kind: "clear_unchecked"; others: number; unchecked: ReviewProducer[] }
+  /**
    * #759 — group 1 is clean, but a send-blocking check failed (`buildSendChecks`).
    * The sentence names it instead of calling the rest harmless.
    */
@@ -561,8 +580,10 @@ export function verdictState(
   // only a wholly-dead group — disqualifies an unqualified all-clear. A group
   // whose ATS half ran and whose critic half did not has a real count AND a
   // real blind spot, and the sentence must not swallow the blind spot.
-  const anyUnknownProducer = groups.some((g) => g.unknownProducers.length > 0);
-  if (others > 0 || anyUnknownProducer) return { kind: "clear_with_others", others };
+  const unchecked: ReviewProducer[] = [];
+  for (const g of groups) for (const p of g.unknownProducers) if (!unchecked.includes(p)) unchecked.push(p);
+  if (unchecked.length > 0) return { kind: "clear_unchecked", others, unchecked };
+  if (others > 0) return { kind: "clear_with_others", others };
   return { kind: "clear" };
 }
 
@@ -587,6 +608,15 @@ function keyFold(findingKey: string): string {
 }
 
 /**
+ * #797 (ruling D2-5): the number of OPEN group-1 rows — the tab badge and the
+ * save receipt count this, not the listed items, because a `supported`
+ * decision closes a finding the report still lists.
+ */
+export function openGroup1Count(items: ReviewItem[], state: ReviewState | null | undefined): number {
+  return buildGroup1Rows(items, state).filter((r) => r.status === "open").length;
+}
+
+/**
  * ADR-090 cl. 6 — every count is derived from the LIVE report. A finding the
  * report lists is open, whatever `review_state` says; a decision only LABELS a
  * finding the report no longer lists. A decision whose finding reappears is
@@ -607,9 +637,22 @@ export function buildGroup1Rows(items: ReviewItem[], state: ReviewState | null |
     if (listedFolds.has(fold)) return;
     decided.push({ findingKey: d.finding_key, label: d.label, status: d.action, item: null, decision: d });
   });
+  // #797 / ruling D2-5 = A (ADR-090 cl. 6 amended): `supported` is the ONE
+  // decision that closes a finding the live report still lists — the candidate
+  // confirmed it and every wording was found in their profile. The row keeps
+  // its report item, so the card can state the disagreement.
+  const closed = new Set<string>();
+  for (const it of items) {
+    const key = it.findingKey ?? it.key;
+    const d = latest.get(keyFold(key));
+    if (d?.action === "supported") {
+      closed.add(key);
+      decided.push({ findingKey: key, label: it.label, status: "supported", item: it, decision: d });
+    }
+  }
   decided.sort((a, b) => (a.decision!.at < b.decision!.at ? -1 : a.decision!.at > b.decision!.at ? 1 : 0));
 
-  const open: Group1Row[] = items.map((it) => {
+  const open: Group1Row[] = items.filter((it) => !closed.has(it.findingKey ?? it.key)).map((it) => {
     const key = it.findingKey ?? it.key;
     return { findingKey: key, label: it.label, status: "open", item: it, decision: latest.get(keyFold(key)) ?? null };
   });

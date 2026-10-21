@@ -117,7 +117,16 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
     onUnsavedChange(false);
   }
 
+  // Founder ruling D2-2 = A (#783 L23): an edited tailored introduction stays
+  // on this CV — the backend never merges it into the profile summary, so the
+  // editor never offers (or remembers) "save to profile" for it.
+  const offersProfileScope = section.section_id !== "introduction";
+
   function handleSaveClick() {
+    if (!offersProfileScope) {
+      void executeSave(false);
+      return;
+    }
     const remembered = sessionStorage.getItem(saveScopeStorageKey());
     if (remembered !== null) {
       void executeSave(remembered === "profile");
@@ -136,7 +145,9 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
     setSaveError(null);
     if (autoSave) {
       const remembered = sessionStorage.getItem(saveScopeStorageKey());
-      if (remembered !== null) {
+      if (!offersProfileScope) {
+        void executeSave(false, text);
+      } else if (remembered !== null) {
         void executeSave(remembered === "profile", text);
       } else {
         setShowScopePrompt(true);
@@ -149,7 +160,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
   async function saveWithDefaultScope(): Promise<boolean> {
     if (content === savedContent) return true;
     const remembered = sessionStorage.getItem(saveScopeStorageKey());
-    return executeSave(remembered === "profile");
+    return executeSave(offersProfileScope && remembered === "profile");
   }
 
   useImperativeHandle(ref, () => ({ injectSuggestion, saveWithDefaultScope }));

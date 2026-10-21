@@ -146,7 +146,7 @@ class TestDeclaredDeniedTermsExemption:
             "denied_terms": ["Investitionsverantwortung", "Führungsspanne ~120 MA"],
         }
         kept = filter_ungrounded_choices(
-            [PARTIAL_NO_EMPLOYER, denial], CLUSTER, PROFILE, "C"
+            [PARTIAL_NO_EMPLOYER, denial], CLUSTER, PROFILE, "B"
         )
         assert kept == [PARTIAL_NO_EMPLOYER["text"], denial["text"]]
 

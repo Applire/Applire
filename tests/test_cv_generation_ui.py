@@ -14,7 +14,6 @@ Done when:
 Run (requires Docker stack running):
     pytest tests/test_iter20_cv_generation_ui.py -v
 """
-import json
 import re
 import time
 from pathlib import Path
@@ -54,13 +53,8 @@ _LINKEDIN = {
 
 
 @pytest.fixture(scope="module", autouse=True)
-def ensure_profile(api):
-    r = requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": json.dumps(_LINKEDIN)},
-        timeout=90,
-    )
-    assert r.status_code == 200, f"Profile import failed: {r.text}"
+def ensure_profile(api, import_job):
+    import_job.linkedin_json(api, _LINKEDIN)
 
 
 @pytest.fixture(scope="module")

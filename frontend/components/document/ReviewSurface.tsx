@@ -52,6 +52,7 @@ import {
 } from "@/lib/review-groups";
 import {
   addEvidence,
+  confirmSupported,
   markWalked,
   refreshedReport,
   ReviewActionError,
@@ -113,6 +114,9 @@ const KIND_LABEL_KEY: Record<Exclude<ReviewItem["kind"], "signal">, string> = {
   advisory: "kindAdvisory",
 };
 
+/** Handle-grid columns by handle count (Tailwind needs the literal class names). */
+const GRID_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3" };
+
 const SEVERITY_DOT: Record<ReviewItem["severity"], string> = {
   critical: "bg-critical",
   warning: "bg-warning",
@@ -130,8 +134,9 @@ export function isStemOnly(targets: LocateTarget[] | null | undefined): boolean 
   return Boolean(targets && targets.length > 0 && targets.every((t) => t.stem === true));
 }
 
-const STATUS_KEY: Record<"added" | "taken_out" | "edited", string> = {
+const STATUS_KEY: Record<"added" | "taken_out" | "edited" | "supported", string> = {
   added: "statusAdded",
+  supported: "statusSupported",
   taken_out: "statusTakenOut",
   edited: "statusEdited",
 };
@@ -389,6 +394,31 @@ export function ReviewSurface({
     }
   };
 
+  /**
+   * #797 / ruling D2-5 = A: *Stimmt* first asks the server whether the profile
+   * already holds every wording. Yes → closed in one click, with the receipt
+   * (no "Wo hast du das gemacht?"). No (`null`) → the testimony ask opens.
+   */
+  const runConfirm = async (row: Group1Row) => {
+    if (!documentId || busy) return;
+    setBusy("add");
+    setError(null);
+    try {
+      const res = await confirmSupported(documentKind, documentId, row.findingKey);
+      if (res === null) {
+        setAddOpen(true);
+        return;
+      }
+      setCurrentKey(row.findingKey);
+      applyRefresh(res, false);
+      maybeWalked(res.review_state, openRows.length - 1);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const runAdd = async (row: Group1Row) => {
     if (!documentId || busy || !addText.trim()) return;
     setBusy("add");
@@ -489,6 +519,8 @@ export function ReviewSurface({
   // Adv-review finding 10: on the letter, a critic that did not answer leaves the
   // cross-read UNDECIDED — the all-clear may not call the rest harmless either.
   const crossReadUnknown = documentKind === "cover-letter" && crossRead.unknown;
+  const groupOneClear =
+    verdict.kind === "clear" || verdict.kind === "clear_with_others" || verdict.kind === "clear_unchecked";
   const tSignals = useTranslations("reviewSignals");
   const group1Blind = group1.unknownProducers.length > 0;
   const present = atsReport?.keywords.present.length ?? 0;
@@ -505,8 +537,10 @@ export function ReviewSurface({
       }
     }
     // The ICU message wraps `{wording}` in quotes; several distinct wordings
-    // are listed inside one pair, separated as quoted items.
-    return out.join("”, “");
+    // are listed inside one pair, separated as quoted items. #797: the
+    // separator is the CATALOG's quote convention (DE „a“, „b“ — EN “a”, “b”),
+    // never a hard-coded English pair inside a German sentence.
+    return out.join(t("cardMatchedJoin"));
   };
 
   const currentScan = scan && current && scan.findingKey === current.findingKey ? scan : null;
@@ -522,23 +556,29 @@ export function ReviewSurface({
         ? "flex w-full items-center gap-2.5 min-h-11 rounded-xl border border-outline-variant bg-surface-bright px-3 py-2 text-left text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
         : "flex flex-col items-center justify-center gap-1 min-h-[60px] rounded-xl border border-outline-variant bg-surface-bright px-1 py-1.5 text-center text-xs font-semibold leading-tight text-on-surface hover:bg-surface-container disabled:opacity-50";
     const canTakeOut = !isStemOnly(row.item?.targets);
+    // Build-2 delivery F2 (SF-REVIEW.18): never offer to write into the profile a
+    // term the candidate's own recorded denial covers — the card shows the denial.
+    const canAdd = !(row.item?.denials && row.item.denials.length > 0);
+    const columns = 1 + Number(canAdd) + Number(canTakeOut);
     const wrap =
-      variant === "stack" ? "flex flex-col gap-2" : `grid ${canTakeOut ? "grid-cols-3" : "grid-cols-2"} gap-1.5`;
+      variant === "stack" ? "flex flex-col gap-2" : `grid ${GRID_COLS[columns]} gap-1.5`;
     return (
       <div className={wrap} data-testid={`review-handles-${variant}`}>
+        {canAdd && (
         <button
           type="button"
           data-testid="review-action-add"
           disabled={busy !== null}
           onClick={() => {
             endPhoneLocate();
-            setAddOpen(true);
+            void runConfirm(row);
           }}
           className={base}
         >
           <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
           {t("actionAddToProfile")}
         </button>
+        )}
         {canTakeOut && (
         <button
           type="button"
@@ -644,6 +684,18 @@ export function ReviewSurface({
               {t(STATUS_KEY[row.status as keyof typeof STATUS_KEY])}
             </span>
           )}
+          {row.status === "supported" && row.decision?.receipt && row.decision.receipt.length > 0 && (
+            <span data-testid="review-card-receipt" className="text-[13px] leading-snug text-on-surface-variant">
+              {t("supportedReceipt", {
+                lines: row.decision.receipt.map((r) => r.text.replace(/[\s.;:,]+$/, "")).join(t("cardMatchedJoin")),
+              })}
+            </span>
+          )}
+          {row.status === "supported" && row.item && (
+            <span data-testid="review-card-still-listed" className="text-xs text-on-surface-variant">
+              {t("supportedStillListed")}
+            </span>
+          )}
 
           {!decided && currentScan && currentScan.total > 0 && (
             <span data-testid="review-card-matched" className="text-[13px] leading-snug text-on-surface-variant">
@@ -653,6 +705,11 @@ export function ReviewSurface({
           {notMarkable && (
             <span data-testid="review-locate-not-found" className="text-[13px] leading-snug text-on-surface-variant">
               {t("locateNotFound")}
+            </span>
+          )}
+          {!decided && row.item?.denials && row.item.denials.length > 0 && (
+            <span data-testid="review-card-denied" className="text-[13px] leading-snug text-on-surface">
+              {t("cardDenied", { denials: row.item.denials.join(t("cardMatchedJoin")) })}
             </span>
           )}
           {!decided && row.item?.detail && (
@@ -898,17 +955,20 @@ export function ReviewSurface({
           }`}
         >
           {verdict.kind === "findings" && t("verdictFindings", { count: verdict.count })}
-          {(verdict.kind === "clear" || verdict.kind === "clear_with_others") && openCrossRead > 0
-            ? tSignals("verdictClearCrossRead", { open: openCrossRead })
-            : null}
-          {(verdict.kind === "clear" || verdict.kind === "clear_with_others") && crossReadUnknown
-            ? tSignals("verdictClearCrossReadUnknown")
-            : null}
+          {groupOneClear && openCrossRead > 0 ? tSignals("verdictClearCrossRead", { open: openCrossRead }) : null}
+          {groupOneClear && crossReadUnknown ? tSignals("verdictClearCrossReadUnknown") : null}
           {verdict.kind === "clear" && openCrossRead === 0 && !crossReadUnknown && t("verdictClear")}
           {verdict.kind === "clear_with_others" &&
             openCrossRead === 0 &&
             !crossReadUnknown &&
             t("verdictClearWithOthers", { count: verdict.others })}
+          {verdict.kind === "clear_unchecked" &&
+            openCrossRead === 0 &&
+            !crossReadUnknown &&
+            t("verdictClearUnchecked", {
+              count: verdict.others,
+              producers: verdict.unchecked.map((p) => t(PRODUCER_LABEL_KEY[p])).join(", "),
+            })}
           {verdict.kind === "clear_with_send_checks" && t("verdictClearWithSendCheck", { count: verdict.count })}
           {verdict.kind === "unknown" && t("verdictUnknown")}
         </p>
@@ -997,7 +1057,7 @@ export function ReviewSurface({
                     <span
                       data-testid={`review-row-status-${r.status}`}
                       className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                        r.status === "added"
+                        r.status === "added" || r.status === "supported"
                           ? "bg-success-container text-success"
                           : "bg-surface-container text-on-surface-variant"
                       }`}

@@ -107,6 +107,9 @@ _ALLOWED_SUMMARY_KEYS = {
     "gated",
     "staged_id",
     "hold_reason",
+    # Build-2 adversarial F-F: how much of an over-long source was read
+    # (character counts only, no content).
+    "source_truncated",
 }
 
 
@@ -336,7 +339,13 @@ def test_kaile_agent_journey(agent):
     # synthetic not_applicable check at the unit tier
     # (tests/unit/test_mcp_render_document.py), which this Docker-gated tier
     # cannot construct without a real producer.
-    assert ats["report"]["not_applicable"] == 0
+    # Hazelnut build 2 (ruling D2-1) wired a real producer: a cross-language
+    # keyword miss is a `keyword-other-language` not_applicable row. The
+    # counter must reach the agent AND agree with the rows it counts, and
+    # only a known producer may emit one.
+    na_rows = [c for c in ats["report"]["checks"] if c["status"] == "not_applicable"]
+    assert ats["report"]["not_applicable"] == len(na_rows)
+    assert {c["id"] for c in na_rows} <= {"keyword-other-language", "page-length"}
     # ADR-058 amended 2026-09-26 (ruling A-1, Agent #676 F-12): the Oracle's
     # verdict summary rides the same envelope over the real stdio channel.
     # Shape only — the verdicts themselves depend on the mock provider's text.

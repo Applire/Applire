@@ -141,7 +141,9 @@ async def patch_user(
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: uuid.UUID,
-    admin: User = Depends(require_admin),
+    # Session only (ADR-091 amended 2026-10-20, R-3; 785:L78): erasure is
+    # irreversible, so a leaked admin `api` token must not be able to run it.
+    admin: User = Depends(require_admin_session),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     try:

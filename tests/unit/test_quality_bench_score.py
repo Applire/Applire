@@ -556,6 +556,41 @@ def test_judge_requires_env_and_fails_loudly(monkeypatch):
         judge_mod.JudgeClient()
 
 
+def test_judge_requesty_provider_uses_its_own_key_and_eu_router(monkeypatch):
+    # Hazelnut build 2 (B2-6): the judge runs on Requesty.
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-haiku-5-5")
+    monkeypatch.setenv("JUDGE_PROVIDER", "requesty")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
+    monkeypatch.delenv("REQUESTY_API_KEY", raising=False)
+    monkeypatch.delenv("REQUESTY_BASE_URL", raising=False)
+    with pytest.raises(judge_mod.JudgeError, match="REQUESTY_API_KEY"):
+        judge_mod.JudgeClient()
+    monkeypatch.setenv("REQUESTY_API_KEY", "rq-key")
+    c = judge_mod.JudgeClient()
+    assert c.provider == "requesty" and c.api_key == "rq-key"
+    assert c.base_url == "https://router.eu.requesty.ai/v1"
+    monkeypatch.setenv("REQUESTY_BASE_URL", "https://example.invalid/v1/")
+    assert judge_mod.JudgeClient().base_url == "https://example.invalid/v1"
+    monkeypatch.setenv("JUDGE_PROVIDER", "nope")
+    with pytest.raises(judge_mod.JudgeError, match="JUDGE_PROVIDER"):
+        judge_mod.JudgeClient()
+
+
+def test_judge_requesty_posts_to_the_requesty_endpoint(monkeypatch, tmp_path):
+    monkeypatch.delenv("REQUESTY_BASE_URL", raising=False)
+    seen = []
+
+    def handler(req: httpx.Request):
+        seen.append((str(req.url), req.headers.get("authorization")))
+        return _ok('{"issues": []}')
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    c = judge_mod.JudgeClient(model="anthropic/claude-haiku-5-5", api_key="rq", provider="requesty",
+                              cache_dir=tmp_path / "c", http=http, sleep=lambda s: None)
+    assert c.complete_json("s", "u", cls="S") == {"issues": []}
+    assert seen == [("https://router.eu.requesty.ai/v1/chat/completions", "Bearer rq")]
+
+
 def test_judge_cache_key_covers_model_system_and_user(tmp_path):
     calls = []
 

@@ -70,6 +70,8 @@
     "retry": "Retry",
     "retrying": "Retrying…",
     "uploadFailed": "We couldn't read this file. Please try again.",
+    "uploadTooLarge": "This file is larger than 10 MB, so we couldn't read it. Please upload a smaller file.",
+    "uploadNoOcr": "This instance can't read images or scanned documents (no text recognition is set up). Please upload a text-based PDF, a DOCX or a plain-text file instead.",
     "stillWorking": "Still working — this can take a minute…",
     "stillWorkingElapsed": "Still working — {seconds}s elapsed. Large CVs can take a few minutes…",
     "genericError": "Something went wrong. Please try again.",
@@ -83,6 +85,7 @@
     "uploadTryAgain": "We couldn't finish reading this CV in time — nothing was changed. Please try again.",
     "notAppliedNote": "{count, plural, one {1 entry from your CV did not merge automatically} other {# entries from your CV did not merge automatically}}: {labels}",
     "notAppliedMore": "+{count} more",
+    "sourceTruncatedNote": "Only the first ≈ {percent}% of your file was read — check that all your positions came through.",
     "jdLinkedinOff": "This instance does not fetch LinkedIn pages — you can paste the text later",
     "jdLinkedinOffPaste": "This instance does not fetch LinkedIn pages. Paste the job description below to continue."
   },
@@ -116,7 +119,9 @@
     "cancelDialogError": "Cancelling failed. Please try again.",
     "cancelDialogKeep": "Keep working",
     "cancelDialogConfirm": "Cancel application",
-    "cancelDialogBusy": "Cancelling…"
+    "cancelDialogBusy": "Cancelling…",
+    "stepSkipped": "{label} — skipped",
+    "stepSkippedSr": " (skipped)"
   },
   "gaps": {
     "title": "Gap Analysis",
@@ -284,14 +289,15 @@
       "dismiss": "Dismiss",
       "dismissAria": "Dismiss this note",
       "stillThere": "You can come back to this on your profile page any time.",
-      "more": "+{count, plural, one {# more decision} other {# more decisions}}"
+      "compact": "{count, plural, one {# decision open} other {# decisions open}}"
     },
     "inputsChangedTitle": "Your profile changed since this check.",
     "inputsChangedBody": "The gap analysis does not re-run by itself. Re-check so the score and gaps reflect your current profile.",
     "recheckGaps": "Re-check gaps",
     "recheckingGaps": "Checking …",
     "recheckLockedHint": "Finish the open question first, then you can re-check.",
-    "recheckFailed": "The re-check did not go through. Please try again in a moment."
+    "recheckFailed": "The re-check did not go through. Please try again in a moment.",
+    "generateWithoutInterviewCost": "Without the interview, the open points above stay unresolved — the interview is where those facts come from."
   },
   "interview": {
     "loading": "Starting interview…",
@@ -1062,7 +1068,8 @@
       "confirmation_discarded": "you chose to discard it",
       "confirmation_held": "it is waiting on one more question — which of your roles at that employer it belongs to",
       "confirmation_unresolvable": "the entry it named is no longer there, so it was not written",
-      "confirmation_already_present": "that entry already said it"
+      "confirmation_already_present": "that entry already said it",
+      "target_unresolved": "it was aimed at an entry your profile does not hold, so it was not written — add it to the right entry"
     },
     "notAppliedNoSection": "Not tied to a section",
     "notAppliedGroupHeading": "{section} ({count})",
@@ -1182,7 +1189,8 @@
     "dragDropHeading": "Drag & drop CVs here",
     "clickToBrowse": "click to browse",
     "orPrefix": "or",
-    "formatHint": "PDF, DOCX, DOC, TXT, MD or an image (JPG/PNG) — up to 10 MB each"
+    "formatHint": "PDF, DOCX, DOC, TXT, MD or an image (JPG/PNG) — up to 10 MB each",
+    "formatHintNoImage": "PDF, DOCX, DOC, TXT or MD — up to 10 MB each"
   },
   "progressWidget": {
     "done": "done"
@@ -1262,9 +1270,11 @@
   "profileImport": {
     "title": "Update Profile",
     "subtitle": "Upload your CV as PDF, DOCX, TXT, MD or an image — or a LinkedIn export as ZIP. The format is detected automatically.",
+    "subtitleNoImage": "Upload your CV as PDF, DOCX, TXT or MD — or a LinkedIn export as ZIP. The format is detected automatically.",
     "dropTitle": "Drop file here",
     "browse": "Choose file",
     "formats": "PDF · DOCX · TXT · MD · image · ZIP (LinkedIn) up to 10 MB",
+    "formatsNoImage": "PDF · DOCX · TXT · MD · ZIP (LinkedIn) up to 10 MB",
     "linkedinCardTitle": "Upload LinkedIn data export",
     "linkedinCardDesc": "Full archive (ZIP) from LinkedIn privacy settings — provides structured profile data for more accurate extraction.",
     "progressTitle": "Updating your profile",
@@ -1376,7 +1386,8 @@
       "skills-weak-vault-tie": "Skills with only a weak profile link",
       "terminal-review": "Final document review",
       "narrative-evidence": "Evidence in the work history, not only as a skill",
-      "document-language": "Document written in a single language"
+      "document-language": "Document written in a single language",
+      "keyword-other-language": "Terms not checked across languages"
     },
     "checkDetails": {
       "page-length-target": "{pages} pages — meets your chosen target of {target}; the {region} norm is {standard} pages",
@@ -1388,6 +1399,7 @@
       "page-length-not-applicable": "Not applicable — this document has no fixed pagination until a word processor lays it out",
       "document-language-not-applicable": "Not applicable — no language was stated for this document",
       "document-language-mixed": "{count, plural, one {# place is} other {# places are}} not written in {language, select, de {German} en {English} other {{language}}}: {examples}",
+      "keyword-other-language": "Not checked across languages — your profile contains text in another language, and this check compares wording only. Check {count, plural, one {this term} other {these terms}} yourself: {terms}",
       "skills-weak-vault-tie": "{count, plural, one {# skill is} other {# skills are}} tied to your profile only by a single shared word — worth a second look before sending: {skills}"
     },
     "pinnedFacts": {
@@ -1599,6 +1611,8 @@
     "bodyDivergenceNoName": "This document carries no name, and none of its employers appear in your profile under “{accountName}”. Is it yours — do you still want to merge it?",
     "bodyDivergenceNoNameNoAccount": "This document carries no name, and none of its employers appear in your profile. Is it yours — do you still want to merge it?",
     "bodyNotCv": "We couldn’t recognise a CV in this document. Do you still want to merge it into your profile?",
+    "titleReviewNotRun": "This import wasn’t checked",
+    "bodyReviewNotRun": "We read your document, but the automatic check of the data we took from it could not run, so nothing has been added to your profile yet. Merge it and look over the imported entries afterwards, or discard it and try again.",
     "mergeAnyway": "Merge anyway",
     "discard": "Discard",
     "cancel": "Cancel",
@@ -1654,6 +1668,7 @@
     "verdictFindings": "{count, plural, one {# place in the document is not covered by your profile.} other {# places in the document are not covered by your profile.}}",
     "verdictClear": "Every statement in the document is covered by your profile.",
     "verdictClearWithOthers": "Every statement in the document is covered by your profile. {count, plural, =0 {There are findings below that do not stand in the way of sending it.} one {There is # further finding below — it does not stand in the way of sending it.} other {There are # further findings below — they do not stand in the way of sending it.}}",
+    "verdictClearUnchecked": "Every statement in the document is covered by your profile. Not checked: {producers}{count, plural, =0 { — look over that part yourself before you send it.} one {. There is # further finding below.} other {. There are # further findings below.}}",
     "verdictClearWithSendCheck": "Every statement in the document is covered by your profile — but {count, plural, one {# finding needs} other {# findings need}} a look before you send it.",
     "verdictUnknown": "Whether every statement is covered was not checked for this document.",
     "group1Title": "In the document, but not in your profile",
@@ -1683,6 +1698,8 @@
     "progressDecided": "{decided} of {total} decided",
     "cardPosition": "{index} OF {total}",
     "cardMatched": "Your document says “{wording}” in {count, plural, one {# place} other {# places}}. Nothing in your profile backs it.",
+    "cardDenied": "You told us about a limit here yourself: “{denials}”. That is why Applire does not offer to add it to your profile. Take it out or edit the passage.",
+    "cardMatchedJoin": "”, “",
     "actionShowWhere": "Show me where",
     "actionAddToProfile": "It’s true, add it to my profile",
     "actionTakeOut": "Take it out for me",
@@ -1703,6 +1720,9 @@
     "statusAdded": "Added to profile",
     "statusTakenOut": "Taken out",
     "statusEdited": "Edited",
+    "statusSupported": "In your profile",
+    "supportedReceipt": "Your profile says: “{lines}”.",
+    "supportedStillListed": "The word check does not find it word for word — your confirmation counts.",
     "otherTitle": "Other findings",
     "otherSub": "None of these stand in the way of sending the document.",
     "sendCheckTitle": "Look at this before you send it",
@@ -1921,7 +1941,7 @@
     "copied": "Copied",
     "done": "Done, I have saved it",
     "agentSetupHint": "Add it as APPLIRE_AGENT_TOKEN to your MCP client's configuration, for example:",
-    "agentSetupRestart": "Restart the client afterwards. Without a valid token the Applire agent does not start.",
+    "agentSetupRestart": "Restart the client afterwards. The agent runs inside your Applire instance's backend, so Applire must be running. Without a valid token the Applire agent does not start.",
     "apiSetupHint": "Send it as a header with every call, for example:",
     "revokeAgentTitle": "Revoke token “{name}”?",
     "revokeAgentBody": "An agent using this token stops at its next step. Document links it gave you stop working.",

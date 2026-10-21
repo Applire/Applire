@@ -88,6 +88,9 @@ EXPECTED_UNMARKED = {
     "add_role",
     "generate_cv",
     "generate_cover_letter",
+    # 788:L22 (ADR-084 cl. 4 amended): these two carry the document's own text
+    # and mark it with kind `generated_document`, never `job_posting` — see
+    # test_generated_document_marking_is_its_own_kind below.
     "get_cv_status",
     "get_cover_letter_status",
     "audit_document",
@@ -242,3 +245,20 @@ async def test_get_profile_on_an_empty_vault_names_the_tool_not_a_rest_path():
     message = str(exc.value)
     assert "import_cv" in message
     assert "/api/" not in message, f"a REST path an agent cannot call: {message!r}"
+
+
+def test_generated_document_marking_is_its_own_kind():
+    """788:L22: a generated document's text is marked with its own kind and
+    notice. The job-posting notice ("neither you nor Applire authored") would be
+    false on a document Applire's writer produced; the map names exactly the
+    two status doors that return document text."""
+    from applire.mcp.server import _GENERATED_DOCUMENT_FIELDS, _marked_document
+    from applire.services.untrusted_text import GENERATED_DOCUMENT_NOTICE
+
+    assert set(_GENERATED_DOCUMENT_FIELDS) == {"get_cv_status", "get_cover_letter_status"}
+    out = _marked_document({"tailored_data": {"summary": "x"}}, "get_cv_status")
+    assert out["untrusted_content"]["kind"] == "generated_document"
+    assert out["untrusted_content"]["notice"] == GENERATED_DOCUMENT_NOTICE
+    assert out["untrusted_content"]["notice"] != TOOL_RESULT_NOTICE
+    # No text, no marker: an empty marking teaches an agent to ignore it.
+    assert "untrusted_content" not in _marked_document({"tailored_data": None}, "get_cv_status")

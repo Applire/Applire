@@ -125,7 +125,7 @@ revokes the older one; redemption is one atomic `UPDATE … RETURNING`.
 | `GET /api/auth/oidc/start?next=<relative path>` | public | — | 302 to the IdP; signed 10-min httpOnly state cookie (state, nonce, PKCE verifier, `intent=login`) | 1d |
 | `GET /api/auth/oidc/callback?code&state` | public | — | success: session cookie + 302 to `next` (default `/`), or `/settings?oidc=linked` for `intent=link`, or `/settings?reauth=<action>` for `intent=reauth` (grant verified); failure: 302 `/login?error=oidc_failed\|oidc_no_account\|account_disabled` for `intent=login`, `/settings?oidc=failed` for `intent=link\|reauth` (CONTRACT-CHANGE 1d-1) | 1d |
 | `POST /api/me/oidc/link` | `require_session_user` | — | 200 `me.AuthorizeRedirectResponse` `{authorize_url}` + state cookie with `intent=link` and the session's `uid` | 1d |
-| `POST /api/me/reauth/start` | `require_session_user` | `me.ReauthStartRequest` `{action: account.delete\|oidc.unlink, target_id}` | 200 `me.AuthorizeRedirectResponse` (IdP with `prompt=login&max_age=0`); 403 `forbidden` when `target_id` is not the caller's own id or the account has no OIDC binding; 503 `oidc_failed` when the IdP's discovery fails | 1d |
+| `POST /api/me/reauth/start` | `require_session_user` | `me.ReauthStartRequest` `{action: account.delete\|oidc.unlink, target_id}` | 200 `me.AuthorizeRedirectResponse` (IdP with `prompt=login`; `max_age` is not sent since 785:L148 — freshness is checked locally against `auth_time`); 403 `forbidden` when `target_id` is not the caller's own id or the account has no OIDC binding; 503 `oidc_failed` when the IdP's discovery fails | 1d |
 | `DELETE /api/me/oidc` | `require_session_user` | — | 204, binding cleared, audited `oidc.unlinked`; 204 no-op when not linked. Errors: 409 `last_credential` (no password), 403 `reauth_required` (no verified `oidc.unlink` grant for this session) | 1d |
 
 `next` must be a same-origin relative path (`/…`, not `//…`); anything else → `/`.
@@ -150,14 +150,14 @@ the 8 characters after `apl_`.
 
 ### 3.6 Admin (metadata only — never content)
 
-`require_admin_session` (MD-34/MD-38) = `require_admin` + session only: an `api` bearer gets 403 `forbidden` on every route that creates or resets a credential (invite, reset link, role change, token revoke, probe tokens). The route walk in `backend/tests/unit/test_w4_fix_identity.py` pins which admin routes are which.
+`require_admin_session` (MD-34/MD-38) = `require_admin` + session only: an `api` bearer gets 403 `forbidden` on every route that creates or resets a credential (invite, reset link, role change, token revoke, probe tokens) and on account deletion (Hazelnut build 2, R-3). The route walk in `backend/tests/unit/test_w4_fix_identity.py` pins which admin routes are which.
 
 | Method · path | Dep | Request | Response | Errors | Owner |
 |---|---|---|---|---|---|
 | `GET /api/admin/users` | `require_admin` | — | `admin.AdminUserListResponse` `{users: [AdminUserItem]}` (tombstoned accounts not listed) | 401, 403 | 1b |
 | `POST /api/admin/users` | `require_admin_session` | `admin.AdminUserCreateRequest` `{email, role=user, send_mail=true}` — `send_mail` only decides about the mail (sent iff SMTP is configured AND true); the link is always returned (MD-28) | **201** `admin.AdminUserCreatedResponse` `{user, link: IssuedLink}` — a pending account + its invite link | 409 `email_taken` | 1b |
 | `PATCH /api/admin/users/{user_id}` | `require_admin_session` | `admin.AdminUserPatchRequest` `{role?, disabled?}` | `admin.AdminUserItem` | 404, 409 `last_admin`, 422 (empty body) | 1b |
-| `DELETE /api/admin/users/{user_id}` | `require_admin` | — | 204 (erasure + tombstone) | 404, 409 `last_admin` | 1b |
+| `DELETE /api/admin/users/{user_id}` | `require_admin_session` (since Hazelnut build 2, R-3: erasure is irreversible) | — | 204 (erasure + tombstone) | 403 `forbidden` for an `api` bearer, 404, 409 `last_admin` | 1b |
 | `POST /api/admin/users/{user_id}/reinvite` | `require_admin_session` | — | `admin.IssuedLink` (purpose `invite`) | 404, 409 `user_not_pending` | 1b |
 | `POST /api/admin/users/{user_id}/reset-link` | `require_admin_session` | — | `admin.IssuedLink` (purpose `reset`) | 404, 409 `user_not_active` | 1b |
 | `POST /api/admin/users/{user_id}/revoke-tokens` | `require_admin_session` | — | `admin.RevokeTokensResponse` `{revoked}`; bumps `link_epoch` | 404 | 1b |

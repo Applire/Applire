@@ -236,6 +236,45 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   facts the profile already held. An item-free first wording (v1, "declining
   more detail denies nothing") reached only 7/15 on luna and was not shipped.
   Records: ``Documents/Runs/Hazelnut/build-1/h/evidence-F2-replay-*.md``.
+* **24,157 (Hazelnut build 2 WP-V, 2026-10-20, rulings V-3 / V-6).** Four
+  amendments, each replayed on persisted input (``gpt-5.6-luna``, Requesty,
+  reasoning OFF, n=5 per arm; records under
+  ``Documents/Runs/Hazelnut/build-2/v/*-replay/``). (1) Rule 7 "A PROMOTION IS
+  NOT A DIFFERENT TITLE" (783:L88, founder V-3 = A then V-6 = B): an incoming
+  dated position whose title differs and whose span covers only part of the
+  existing entry is ASKED about (request_confirmation, merge / add_separate,
+  the V-5 engagement context). Partly covering Senior Designer folded in 5/5 →
+  asked 4-5/5; a same-title dated position is asked too (5/5, not targeted).
+  (2) ``upsert_skill``: a figure's name is not a skill (783:L100), 8/15 → 0/15,
+  figure kept 15/15. (3) ``add_bullets`` NOT A SECOND TIME (783:L43), restated
+  bullets 39 → 17 with a held-out example, other bullets 40 → 37. (4) Rule 9 "A
+  DENIAL WITH AN EXCEPTION KEEPS THE EXCEPTION" (783:L101), bare-field denial
+  10/10 → 0/10, plain-denial controls 15/15. +2,829 chars; the attention cost
+  above applies.
+* **24,292 (Hazelnut build 2 WP-R2, 2026-10-21, delivery F1).** Rule 9's "A
+  DENIAL NAMES AN ITEM, NEVER MISSING EVIDENCE" sentence gains ", or that only
+  postpones an item to a later answer (…)" with two held-out examples (+135
+  chars). Why: the build-2 delivery run recorded "Zur OEE-Steuerung sage ich
+  gleich mehr, wenn es um unser MES geht" as the denial "OEE-Steuerung"; the
+  ledger floor then sank the JD's bare "OEE" (containment) and the signature
+  result "OEE 61 % → 73 %" from the next answer reached neither document (same
+  symptom as build-1 delivery-3 M1). The old sentence covered withholding MORE
+  evidence about what was stated, never postponing an item. *Measured* on the
+  verbatim captured prompts (``gpt-5.6-luna``, Requesty, reasoning OFF). Old
+  prompt, three replicates: captured deferral recorded as a denial 15/30, a
+  held-out synthetic deferral ("Kafka I'll come back to …") 12/30. Shipped
+  text: 0/10 and 0/10; a sibling arm with the same words plus a stray line
+  break (two replicates): 1/20 and 0/20. Plain-denial controls (IFS/BRC inside
+  SAP facts, blockchain/crypto, PSD2/BaFin, exactly-once, a scope of
+  responsibility) kept on every replay in every arm; the L101 exception
+  control 24/25 old → 4/5 shipped, 18/20 sibling. **Known side effect,
+  accepted:** the anaphor junk denial "der Standard" (from "Der Standard wäre
+  neu für mich" after an IFS/BRC denial) 0/20 old → 1/10 shipped, 8/20
+  sibling; it floors only a JD term literally "Standard". A separate-paragraph
+  wording with a "name the item, never a pointer" sentence (+432 chars) held
+  the junk at 1/20 but dropped the exception control to 11/15 (bare
+  "Konsumgüter" denying what the same sentence affirms) and was not shipped.
+  Records: ``Documents/Runs/Hazelnut/build-2/r2/f1-replay/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -313,6 +352,16 @@ Operations:
   technologies (list of str). REQUIRED: target. A bullet carries ONLY the clause about ITS OWN
   entity — never the opening span of an answer that spans several jobs
   ("15+ years in X, at A, at B, and now C" is not a fact of A).
+  NOT A SECOND TIME (783:L43): compare each bullet with the bullets the target
+  ALREADY holds. One that states the same fact in other words — no new figure,
+  scope, tool or outcome — is already there: leave it out, even when the
+  answer repeats it to anchor what follows. Worked example: the target holds
+  "Reduced quote-calculation p95 latency from 1.8 s to 240 ms through query
+  optimisation"; the answer says "I cut the quote calculation's p95 latency
+  from 1.8 seconds to 240 ms by optimising the queries" — already there, no
+  bullet.
+  Add only what is new; when nothing in the answer is new, "ops" is empty with
+  "empty_reason": "already_known".
 
 - upsert_skill — a skill. Fields: name, category, proficiency, years_experience
   (int), evidence (a LIST of existing ids or local refs of the experiences that
@@ -322,6 +371,12 @@ Operations:
   target: the `id` of the profile's skill when the new information names THAT
   skill differently (translation, synonym, abbreviation) — never a second
   skill under the new name; omit it for a new skill.
+  A skill is a capability the person HAS — a tool, method, field, standard or
+  language they work with. The NAME of a measured figure on its own (LTIF,
+  OEE, Ausschussquote, Termintreue, a KPI) is not a skill (783:L100): the
+  figure belongs in the bullet that states it; record a skill only for the
+  capability the new information says the person has ("OEE-Analyse",
+  "Arbeitssicherheitsmanagement").
   REQUIRED: name.
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency MUST be one of: "basic", "intermediate", "advanced", "expert".
@@ -478,6 +533,24 @@ Operations:
    technologies; never use add_bullets merely to restate a title or the same
    fact in different words. A restatement whose CLAIM has changed is not a
    restatement — route it through rule 13 instead of dropping it.
+   A PROMOTION IS NOT A DIFFERENT TITLE (ADR-013 rule 1). It applies ONLY
+   when BOTH hold: (a) the incoming position's title differs from the existing
+   entry's "role" (its role_aliases do not count), AND (b) the incoming
+   position's own date range covers only PART of the existing entry's span.
+   Then never target the existing entry and never record the title as an
+   alternate: ASK. Emit request_confirmation (founder ruling V-6) with
+   question "Is '<incoming title>, <its span>' a separate position, or part of
+   '<existing role>, <existing span>'?" (in the profile's language), options
+   ["merge", "add_separate"], and context {"section": "work_experience",
+   "incoming": <the upsert_work op you would emit for it, target: null, with
+   its ref, dates and bullets>, "existing_ids": [<the existing entry's id>]}.
+   Worked example: the profile holds "Art Director, 2014-03 – 2018-07"; the
+   new information lists "Art Director, 2016-01 – 2018-07" and "Senior
+   Designer, 2014-03 – 2015-12" at the same employer. "Senior Designer" meets
+   (a) and (b): ask. "Art Director" fails (a) — same title — so this rule does
+   not apply to it at all, whatever its dates: it IS the existing entry, target
+   its `id` as usual (differing dates are rule 5's flag_conflict, never this
+   question).
 
 8. CURRENT POSITION. When the new information states that a role is ongoing /
    current ("this is my current position", "I still work there", "bis heute",
@@ -513,11 +586,19 @@ Operations:
    they have not held. A sentence that only withholds MORE evidence about what
    they did state (no further example, project, figure, sum or detail: "mehr
    kann ich dazu nicht sagen", "weitere Referenzen kann ich nicht nennen",
-   "eine genaue Zahl habe ich nicht", "I can't give another example") denies
+   "eine genaue Zahl habe ich nicht", "I can't give another example"), or
+   that only postpones an item to a later answer ("darauf gehe ich beim Thema
+   Budget noch ein", "I'll get to Terraform later"), denies
    nothing: put nothing in "denials" for it, and still record every fact the
    rest of the answer states. Contrast: "mit SAP MM habe ich nicht gearbeitet"
    → "denials": ["SAP MM"]; "konkrete Zahlen zum Projekt kann ich nicht nennen"
    → no denial.
+   A DENIAL WITH AN EXCEPTION KEEPS THE EXCEPTION (783:L101). "Beyond X I
+   have no experience in Y" / "no other Y than X" affirms X, which is part of
+   Y: name the denied item WITH the exception, never bare Y — bare Y would deny
+   what the same sentence affirms. "Außer der Hydraulikwartung bei A habe ich
+   keine Erfahrung in der Fluidtechnik" → "denials": ["Fluidtechnik außer
+   Hydraulikwartung"], never ["Fluidtechnik"]; record X as the fact it is.
 
 10. CERTIFICATIONS. Every certification, licence or named qualification in the NEW
     INFORMATION (a `certifications` entry, or an item the source lists under a

@@ -225,7 +225,7 @@ ADMIN_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/admin/users"): "bearer",
     ("POST", "/api/admin/users"): "session",               # creates an account + invite link
     ("PATCH", "/api/admin/users/{user_id}"): "session",    # role change (and disable)
-    ("DELETE", "/api/admin/users/{user_id}"): "bearer",
+    ("DELETE", "/api/admin/users/{user_id}"): "session",   # erasure (R-3, 785:L78)
     ("POST", "/api/admin/users/{user_id}/reinvite"): "session",
     ("POST", "/api/admin/users/{user_id}/reset-link"): "session",
     ("POST", "/api/admin/users/{user_id}/revoke-tokens"): "session",

@@ -593,6 +593,63 @@ Rules:
 """
 
 
+# ── Letter pipeline v2 variants (Hazelnut build 2) ──────────────────────────
+# v1's three constants above stay byte-identical (RULING R-3 / R-10 precedent: v1 is
+# unchanged until US368 deletes it); v2 differs only by the sentences below, applied
+# with ``str.replace`` on ONE anchor each so a drifting anchor fails loudly at import.
+
+#: 784:L31 — the closing rule demanded availability on every letter: 40 of 169
+#: Ministral letter-reviewer responses on the v2 gate corpus (5c2f056b) asked for it,
+#: and the corrector then invented one ("Meine Kündigungsfrist von [X Wochen] …").
+_V1_CLOSING_DEMAND = (
+    "``closing`` is always required: a\n"
+    "   genuine paragraph (interest + call to action, availability folded in), never a bare\n"
+    "   terminal line."
+)
+_V2_CLOSING_DEMAND = (
+    "``closing`` is always required: a\n"
+    "   genuine paragraph (interest + call to action), never a bare terminal line.\n"
+    "   Availability, a notice period or a start date belongs in it ONLY when\n"
+    "   ``positioning_requested`` carries an ``availability`` entry or the candidate's stated\n"
+    "   inputs give one; without either, such a sentence is an INVENTED candidate fact —\n"
+    "   flag it, and never ask for one."
+)
+_V1_CORRECTOR_ANCHOR = "- Preserve the language, tone, structure, and every part the reviewer did not flag.\n"
+_V2_CORRECTOR_RULES = (
+    "- NO AVAILABILITY WITHOUT INPUT (784:L31): never add or keep a sentence about when the\n"
+    "  candidate could start — availability, a notice period (Kündigungsfrist), a start date\n"
+    "  (Eintrittstermin), \"flexible\" timing — unless the CANDIDATE SOURCE gives one (a\n"
+    "  ``positioning_requested.availability`` entry or the candidate's stated availability).\n"
+    "  When a review asks for one without such input, write the closing without it.\n"
+    "- LISTED-ONLY TERMS (ruling V-1): a KEYWORD LEDGER row marked\n"
+    "  [listed only — no role bullet or story states it] may be named in a list of tools or\n"
+    "  methods, never narrated as a responsibility, ownership or outcome — also when a review\n"
+    "  asks for coverage of it.\n"
+)
+
+
+def _v2(text: str, old: str, new: str) -> str:
+    if text.count(old) != 1:  # pragma: no cover - import-time anchor guard
+        raise RuntimeError(f"v2 letter prompt anchor drifted: {old[:60]!r}")
+    return text.replace(old, new)
+
+
+V2_REVIEW_SYSTEM_PROMPT = _v2(REVIEW_SYSTEM_PROMPT, _V1_CLOSING_DEMAND, _V2_CLOSING_DEMAND)
+V2_TERMINAL_REVIEW_SYSTEM_PROMPT = _v2(
+    TERMINAL_REVIEW_SYSTEM_PROMPT, _V1_CLOSING_DEMAND, _V2_CLOSING_DEMAND
+)
+V2_COVER_LETTER_REFINEMENT_PROMPT = _v2(
+    COVER_LETTER_REFINEMENT_PROMPT, _V1_CORRECTOR_ANCHOR, _V2_CORRECTOR_RULES + _V1_CORRECTOR_ANCHOR
+)
+
+
+def letter_loop_prompts(is_v2: bool) -> tuple[str, str, str]:
+    """``(reviewer, terminal reviewer, corrector)`` system prompts for the pipeline."""
+    if is_v2:
+        return V2_REVIEW_SYSTEM_PROMPT, V2_TERMINAL_REVIEW_SYSTEM_PROMPT, V2_COVER_LETTER_REFINEMENT_PROMPT
+    return REVIEW_SYSTEM_PROMPT, TERMINAL_REVIEW_SYSTEM_PROMPT, COVER_LETTER_REFINEMENT_PROMPT
+
+
 def build_retry_prompt(previous_draft: dict, feedback: str, source: str) -> str:
     """Build the retry user prompt after a reviewer rejection of a cover letter.
 

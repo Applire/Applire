@@ -554,3 +554,79 @@ def letter_name_findings(
             a for a in recorded_names(stored, aliases) if a != stored
         )))
     return out
+
+
+# ── 784:L31 (Hazelnut build 2): availability the candidate never gave ────────
+#
+# A letter may state when the candidate could start — a notice period, a start
+# date, "available immediately" — ONLY from an input: the availability the user
+# typed on the generate request, or the vault's availability testimony
+# (``cover_letter_positioning.find_availability_testimony``). Without either such
+# a sentence is an invented candidate fact.
+#
+# Measured before (free, v2 gate corpus 5c2f056b, no fixture carries an
+# availability input): 34 of 41 Ministral and 3 of 69 Luna delivered letters
+# state one ("Meine Kündigungsfrist ermöglicht einen reibungslosen Übergang");
+# 14 already in the writer's first draft, 21 introduced by the corrector or the
+# condense after the reviewer demanded "availability folded in" (40 of 169
+# Ministral letter-reviewer responses). The prompt half removes the demand; this
+# is the named check (a finding into the loop, never a rewrite — ADR-094 cl. 1).
+#
+# The vocabulary is a closed phrase list (ADR-062 cl. 1: token presence). It is
+# deliberately NARROWER than the vault-side ``_AVAILABILITY_PATTERNS``: those find
+# testimony to thread in (a miss is safe), these open a corrector round (a false
+# hit costs a round), so a bare "availability" — "a 99.9 % availability target" —
+# and an offer to talk ("stehe für ein Gespräch zur Verfügung") are not hits.
+
+#: Nouns and phrases that only ever mean "when I could start" — a hit wherever they appear.
+_AVAILABILITY_NOUN_RE = re.compile(
+    r"\b(?:notice\s+periods?|k[üu]ndigungs(?:frist|termin)\w*|eintritts(?:termin|datum)\w*|"
+    r"start(?:ing)?\s+date|fr[üu]hestm[öo]glich\w*\s+(?:eintritt|start|beginn)\w*|"
+    r"sofortige\s+verf[üu]gbarkeit|available\s+to\s+(?:start|commence|join|begin)|"
+    r"(?:start|begin|join)\s+immediately|eager\s+to\s+start|commence\s+employment)\b",
+    re.IGNORECASE,
+)
+#: Start-availability phrases — a hit unless the sentence is an offer to talk
+#: ("available for an interview", "ab sofort für ein Gespräch verfügbar").
+_AVAILABILITY_PHRASE_RE = re.compile(
+    r"\b(?:available\s+(?:immediately|from|as\s+of|starting|at\s+short\s+notice)|"
+    r"(?:immediately|readily)\s+available|"
+    r"ab\s+sofort\s+(?:f[üu]r\s+eine\s+(?:einstellung|einarbeitung|t[äa]tigkeit|mitarbeit)\s+)?"
+    r"(?:verf[üu]gbar|einsatzbereit|beginnen|starten)|"
+    r"kurzfristig\s+(?:verf[üu]gbar|einsatzbereit|beginnen|starten|wechseln)|"
+    r"meine\s+verf[üu]gbarkeit)\b",
+    re.IGNORECASE,
+)
+_TALK_OFFER_RE = re.compile(
+    r"\b(?:interview|gespr[äa]ch\w*|vorstellungsgespr[äa]ch\w*|conversation|call|meeting)\b",
+    re.IGNORECASE,
+)
+_SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+")
+
+
+def availability_sentences(letter_data: dict[str, Any] | None) -> list[str]:
+    """The body sentences that state the candidate's availability, notice period or
+    start date (a FACT: phrase presence). Salutation and sign-off lines included —
+    the template never prints such a sentence itself."""
+    out: list[str] = []
+    for para in _body_paragraphs(letter_data):
+        if not isinstance(para, str):
+            continue
+        for sentence in _SENTENCE_RE.split(para.strip()):
+            s = sentence.strip()
+            if not s:
+                continue
+            if _AVAILABILITY_NOUN_RE.search(s) or (
+                _AVAILABILITY_PHRASE_RE.search(s) and not _TALK_OFFER_RE.search(s)
+            ):
+                out.append(s)
+    return out
+
+
+def availability_finding_text(sentences: list[str]) -> str:
+    quotes = " ".join(f'"{s}"' for s in sentences[:_QUOTE_LIMIT])
+    return (
+        "States when the candidate could start (availability, notice period or start date), "
+        "but the candidate gave no availability for this letter (computed by code): "
+        f"{quotes} Remove that statement; the closing needs only interest and a call to action."
+    )

@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import uuid
+import re
 from datetime import date, datetime, timezone
 from typing import Any, Literal
 
@@ -25,6 +26,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    computed_field,
     field_validator,
     model_serializer,
     model_validator,
@@ -376,13 +378,62 @@ def _coerce_partial_date(v: Any) -> Any:
     return v
 
 
+_PRECISION_FORMS: tuple[tuple[str, str, str], ...] = (
+    # (regex, strptime format of the matched text, output precision)
+    (r"\d{4}", "%Y", "%Y"),
+    (r"\d{4}-\d{1,2}", "%Y-%m", "%Y-%m"),
+    (r"\d{4}/\d{1,2}", "%Y/%m", "%Y-%m"),
+    (r"\d{1,2}[./]\d{4}", None, "%Y-%m"),  # 03.2014 / 03/2014
+    (r"\d{4}-\d{1,2}-\d{1,2}", "%Y-%m-%d", "%Y-%m-%d"),
+    (r"\d{1,2}\.\d{1,2}\.\d{4}", "%d.%m.%Y", "%Y-%m-%d"),
+    (r"\d{1,2}/\d{1,2}/\d{4}", "%d/%m/%Y", "%Y-%m-%d"),
+)
+
+
+def normalise_partial_date(v: Any) -> str | None:
+    """A partial date at the precision the input STATES (ADR-013 amended
+    2026-10-20, 783:L65): ``"2010"`` stays ``"2010"``, ``"03.2014"`` becomes
+    ``"2014-03"``, a full date stays a full ISO date; unparseable → ``None``
+    (as ``_coerce_partial_date`` did). Never pads a month or a day the source
+    did not give — the padded ``2010-01-01`` rendered as "01/2010" on a CV
+    whose source said "2010" (delivery-3 record 5). For comparisons that need
+    a ``date`` (dedupe, span arithmetic) use ``_coerce_partial_date``."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    if not isinstance(v, str):
+        return None
+    s = v.strip()
+    if not s:
+        return None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T.*", s):  # an ISO datetime string
+        s = s[:10]
+    for pattern, fmt, out in _PRECISION_FORMS:
+        if not re.fullmatch(pattern, s):
+            continue
+        if fmt is None:  # MM.YYYY / MM/YYYY
+            month, year = re.split(r"[./]", s)
+            s, fmt = f"{year}-{month}", "%Y-%m"
+        try:
+            return datetime.strptime(s, fmt).strftime(out)
+        except ValueError:
+            return None
+    return None
+
+
 class Certification(BaseModel):
     # ADR-077 clause 1 — persisted id (see Skill.id)
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     issuing_organization: str | None = None
-    date_obtained: date | None = None
-    expiry_date: date | None = None  # None means doesn't expire
+    # ADR-013 amended 2026-10-20 (783:L65): a partial date string at the
+    # precision the source states ("2010", "2014-03", "2014-03-15") — was a
+    # ``date`` that padded "2010" to 2010-01-01 (rendered "01/2010").
+    date_obtained: str | None = None
+    expiry_date: str | None = None  # None means doesn't expire
     credential_id: str | None = None
     credential_url: str | None = None
     # ADR-061 clause 3 — "confirmed" (literal/aliased grounding, or a
@@ -398,7 +449,7 @@ class Certification(BaseModel):
     @field_validator("date_obtained", "expiry_date", mode="before")
     @classmethod
     def _coerce_cert_dates(cls, v: Any) -> Any:
-        return _coerce_partial_date(v)
+        return normalise_partial_date(v)
 
 
 _PROFICIENCY_ALIASES: dict[str, str] = {
@@ -681,7 +732,7 @@ class Publication(BaseModel):
     type: Literal["publication", "patent"] = "publication"
     co_authors: list[str] = Field(default_factory=list)
     venue: str | None = None  # journal, conference, or patent office
-    published_date: date | None = None
+    published_date: str | None = None  # partial date, source precision (783:L65)
     doi: str | None = None
     url: str | None = None
     patent_number: str | None = None
@@ -689,7 +740,7 @@ class Publication(BaseModel):
     @field_validator("published_date", mode="before")
     @classmethod
     def _coerce_partial_pub_date(cls, v: Any) -> Any:
-        return _coerce_partial_date(v)
+        return normalise_partial_date(v)
 
 
 class VolunteerActivity(ExperienceBase):
@@ -915,6 +966,12 @@ class ImportNotApplied(BaseModel):
     #: makes the loss diagnosable from the receipt alone. All three are FACTS
     #: (ADR-062 clause 1): which option key was answered, how many entries carry
     #: the anchor's name, whether a slot was empty.
+    #: ``target_unresolved`` (ADR-063 amended 2026-10-20, 783:L7/L60): an
+    #: ``add_bullets`` or ``set_field`` op named a ``target`` handle no entity
+    #: carries (a mistyped or invented id), so its content was written nowhere.
+    #: ``section`` is ``None`` — the target is unknown — and ``label`` carries the
+    #: op type plus its first incoming text, truncated. A FACT: the handle
+    #: resolved to nothing.
     reason: Literal[
         "no_op_carried_entry",
         "op_rejected",
@@ -926,6 +983,7 @@ class ImportNotApplied(BaseModel):
         "confirmation_held",
         "confirmation_unresolvable",
         "confirmation_already_present",
+        "target_unresolved",
     ]
 
 
@@ -937,14 +995,17 @@ class ImportNotApplied(BaseModel):
 #: bug") read as `partial`, and `mcp/AGENT_GUIDE.md` then told the agent to
 #: report a false loss to the candidate.
 #:
-#: Only these five reasons are evidence that incoming content did NOT reach
+#: Only these six reasons are evidence that incoming content did NOT reach
 #: the vault: ``op_rejected`` (a raw op failed schema validation before it
 #: could carry anything), ``summary_populated`` (the incoming summary text
 #: was dropped rather than disputed), ``no_write`` (the candidate stated
 #: something and the turn produced no vault write at all),
 #: ``confirmation_held`` (the content is parked pending one more question —
-#: not yet written) and ``confirmation_unresolvable`` (the named entry is
-#: gone, or the slot it would fill was already taken by someone else).
+#: not yet written), ``confirmation_unresolvable`` (the named entry is
+#: gone, or the slot it would fill was already taken by someone else) and
+#: ``target_unresolved`` (ADR-063 amended 2026-10-20, 783:L7/L60: an
+#: ``add_bullets`` / ``set_field`` op named a handle no entity carries, so its
+#: content was not written anywhere).
 #:
 #: The other five reasons name entries that are NOT missing:
 #: ``no_op_carried_entry`` is the documented false-positive shape;
@@ -964,6 +1025,7 @@ LOSS_REASONS: frozenset[str] = frozenset(
         "no_write",
         "confirmation_held",
         "confirmation_unresolvable",
+        "target_unresolved",
     }
 )
 
@@ -975,6 +1037,93 @@ def is_loss_reason(reason: str | None) -> bool:
     loss but recoverable; a rejected op is loss and needs a resend). ``None``
     is NOT loss — silence about the reason is not evidence of loss."""
     return reason in LOSS_REASONS
+
+
+#: 783:L41 (ADR-021 / ADR-063 amended 2026-10-20) — how the ingest's
+#: extraction review loop settled, as a FACT read off the loop's own
+#: ``ReviewSettle`` (``services.review_issues``), never re-derived.
+ExtractionReviewStatus = Literal["approved", "open_findings", "not_reviewed", "disabled"]
+
+
+class ExtractionReview(BaseModel):
+    """The import's extraction review outcome (783:L41, ADR-021 amended 2026-10-20).
+
+    Before this, a CV import whose ``cv_extraction`` review could not run — the
+    reviewer call failed (e.g. verdict-budget truncation on a verbose model) or
+    returned an unparseable verdict — shipped the unreviewed draft into the
+    vault and said so only in a log line ("shipping current draft
+    un-reviewed"). ``status`` is derived from the loop's settle path:
+
+    * ``approved`` — ``approved`` / ``minor_only``: the reviewer accepted it;
+    * ``open_findings`` — ``exhausted`` / ``cycle_detected`` /
+      ``generator_call_failed``: reviewed, blocking findings still open (the
+      shipped draft is a reviewed-and-rejected one);
+    * ``not_reviewed`` — ``reviewer_call_failed`` / ``review_malformed``: no
+      verdict exists for the draft that shipped;
+    * ``disabled`` — the review layer did not run (``LLM_REVIEW_MAX_RETRIES``
+      is 0: the operator's choice, ``ReviewSettle.path is None``).
+    """
+
+    status: ExtractionReviewStatus
+    path: str | None = None
+    rounds: int = 0
+    open_blocking: int = 0
+    #: Build-2 adversarial F-F (ruling R3-b): the source handed to the
+    #: extraction (and so to this review) was cut at the extraction input cap.
+    #: ``source_chars_read`` of ``source_chars_total`` characters were read; the
+    #: rest of the document was never extracted. ``False``/``None`` on every
+    #: import under the cap and on receipts persisted before the field existed.
+    source_truncated: bool = False
+    source_chars_read: int | None = None
+    source_chars_total: int | None = None
+
+
+class SourceTruncation(BaseModel):
+    """Build-2 adversarial F-F (ruling R3-2 = B): the import read the first
+    ``read_chars`` of ``total_chars`` characters of its source; the rest was
+    never extracted. Derived from :class:`ExtractionReview` — one fact, two
+    readers (the import result and the agent door)."""
+
+    read_chars: int
+    total_chars: int
+
+
+def source_truncation_of(review: "ExtractionReview | None") -> SourceTruncation | None:
+    if review is None or not review.source_truncated:
+        return None
+    if review.source_chars_read is None or review.source_chars_total is None:
+        return None
+    return SourceTruncation(read_chars=review.source_chars_read, total_chars=review.source_chars_total)
+
+
+_REVIEW_PATH_STATUS: dict[str | None, str] = {
+    "approved": "approved",
+    "minor_only": "approved",
+    "exhausted": "open_findings",
+    "cycle_detected": "open_findings",
+    "generator_call_failed": "open_findings",
+    "reviewer_call_failed": "not_reviewed",
+    "review_malformed": "not_reviewed",
+    None: "disabled",
+}
+
+
+#: Founder ruling V-2 = C (2026-10-20): the settle paths on which the review
+#: could NOT run — the import is HELD behind the US167 staged gate. Truncation
+#: and timeout of the reviewer call settle as ``reviewer_call_failed``.
+EXTRACTION_REVIEW_HOLD_PATHS: frozenset[str] = frozenset(
+    {"reviewer_call_failed", "review_malformed", "generator_call_failed"}
+)
+#: The staged-gate value for such a hold (``UploadRecord.gate_status``).
+REVIEW_NOT_RUN_GATE = "review_not_run"
+
+
+def extraction_review_from_settle(path: str | None, rounds: int, open_blocking: int) -> ExtractionReview:
+    """THE mapping settle-path → :class:`ExtractionReview` (ADR-066: one
+    implementation). An unknown future path reads ``not_reviewed`` — the
+    fail-safe direction: the user is told to look, never told it was checked."""
+    status = _REVIEW_PATH_STATUS.get(path, "not_reviewed")
+    return ExtractionReview(status=status, path=path, rounds=rounds, open_blocking=open_blocking)
 
 
 class EnrichmentRecord(BaseModel):
@@ -999,6 +1148,10 @@ class EnrichmentRecord(BaseModel):
     # under another surface form. Optional and default-empty for the same
     # reason `not_applied` is; NOT folded into `changes` (see `MatchReceipt`).
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the extraction review
+    #: outcome of the import this record receipts; ``None`` on every
+    #: non-import record and on records persisted before the field existed.
+    extraction_review: ExtractionReview | None = None
 
 
 # ─── Profile metadata ─────────────────────────────────────────────────────────
@@ -1498,7 +1651,9 @@ ImportMergeStatus = Literal["applied", "partial"]
 
 
 class ProfileImportResponse(MasterProfileResponse):
-    """`POST /api/profile/import` (LinkedIn/XING/text) response — #615.
+    """LinkedIn/XING/text import read model — #615 (returned by the import service;
+    the async job maps it onto ``CVUploadResponse``; the sync ``POST /api/profile/import``
+    that served it is retired, ruling V-4 = A).
 
     A SEPARATE subclass, not a field added to :class:`MasterProfileResponse`
     itself: that class is also `GET /api/profile` (a plain read, no merge in
@@ -1528,6 +1683,16 @@ class ProfileImportResponse(MasterProfileResponse):
     #: → `EnrichmentRecord.matched` to the profile page's history and stopped
     #: there, so no import DOOR ever stated it.
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: 783:L41 (ADR-021 amended 2026-10-20) — the extraction review outcome of
+    #: this import; see :class:`ExtractionReview`.
+    extraction_review: ExtractionReview | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def source_truncated(self) -> SourceTruncation | None:
+        """R3-2 = B: how much of an over-long source this import read (``None``
+        when nothing was cut) — derived from ``extraction_review``."""
+        return source_truncation_of(self.extraction_review)
     # #367 (2026-09-13, ruling V-2) — the same number as `completeness`, under the
     # name every import caller already reads. `ProfileImportView.tsx` posts a
     # LinkedIn/XING export to this door and then reads `data.completeness_score`
@@ -1562,7 +1727,8 @@ class ConflictSummary(BaseModel):
 
 
 class CVUploadResponse(BaseModel):
-    """Response for POST /api/profile/upload (ADR 014).
+    """Result of an import job (``GET /api/profile/import-jobs/{id}`` → ``result``;
+    the retired sync ``POST /api/profile/upload`` returned it directly) (ADR 014).
 
     Distinct from MasterProfileResponse — provides upload-specific feedback:
     transient DRAFT/COMPLETE status, GDPR expiry, and traceability back to
@@ -1581,7 +1747,7 @@ class CVUploadResponse(BaseModel):
     name_mismatch: bool = False         # US155 / FMEA 2.4 (vs existing profile name)
     undated_positions: int = 0          # US157 / FMEA 2.7
     # Pre-merge gate (US167 / ADR-041 amended). "none" on a clean merge.
-    gate: Literal["none", "not_a_cv", "name_divergence"] = "none"
+    gate: Literal["none", "not_a_cv", "name_divergence", "review_not_run"] = "none"
     account_name: str | None = None     # existing profile's name (divergence prompt)
     cv_name: str | None = None          # uploaded CV's name (divergence prompt)
     staged_id: uuid.UUID | None = None  # parked upload row to resolve (merge/discard)
@@ -1599,6 +1765,17 @@ class CVUploadResponse(BaseModel):
     #: import job's `result` (`CVImportStatusResponse`), and a job stored
     #: before this field existed must load unchanged.
     not_applied_loss_count: int | None = None
+    #: 783:L41 (ADR-021 amended 2026-10-20) — how the extraction review of THIS
+    #: import settled (see :class:`ExtractionReview`). ``None`` on a held
+    #: (GATED) upload and on a job result stored before the field existed.
+    extraction_review: ExtractionReview | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def source_truncated(self) -> SourceTruncation | None:
+        """R3-2 = B: how much of an over-long source this import read (``None``
+        when nothing was cut) — derived from ``extraction_review``."""
+        return source_truncation_of(self.extraction_review)
 
 
 _IMPORT_STATUS = Literal["pending", "processing", "ready", "failed", "expired"]

@@ -97,7 +97,7 @@ _SCHEMA_DESCRIPTION = """\
     {
       "company": "Employer name",
       "role": "Primary job title",
-      "role_aliases": ["Any additional titles used for this position"],
+      "role_aliases": ["Other titles for the SAME position over the SAME period — never an earlier, separately dated or promoted-from title"],
       "location": "Office city/country or null",
       "start_date": "e.g. '2020-01' or '2020' — partial dates accepted",
       "end_date": "e.g. '2023-06' or null for current position",
@@ -261,13 +261,20 @@ Rules:
   Systemintegration", "Technischer Fachwirt") — for these, put the whole title in "degree" and
   leave "field" null/empty. Only populate "field" for a degree whose title is generic on its own
   (e.g. "Bachelor of Science" + field "Informatik", "Diplom" + field "Betriebswirtschaftslehre").
-- ROLE ALIASES: If a position is described under multiple titles within the same employer and overlapping
-  time period, create exactly ONE work_experience entry using the most senior/formal title as "role",
-  and list all other titles in "role_aliases". Never create a separate entry per title.
+- ROLE ALIASES (ADR-013 rule 1): "role_aliases" is ONLY for several titles the source gives for the SAME
+  position over the SAME period (e.g. "Senior Consultant / Projektleiter, 2019 – 2022"): ONE entry, the
+  most senior/formal title as "role", the other titles in "role_aliases". A PROMOTION IS NOT AN ALIAS:
+  * titles the source dates SEPARATELY (each with its own date range, even at the same employer, as a
+    LinkedIn export lists them) are separate work_experience entries, one per dated title, each with
+    its own dates — never fold them into one entry, never move the earlier title into "role_aliases";
+  * a progression the source states under ONE date range ("Senior Designer → Art Director, Mar 2014 –
+    Jul 2018") is ONE entry whose "role" is the source's own wording of the progression, verbatim —
+    never the senior title alone; the earlier title is not an alias.
 - VALID ENTRIES ONLY: Every work_experience entry MUST have a non-empty "company" name AND at least one
   of: start_date, responsibilities, or achievements. Never emit an entry with an empty company ("" or null).
   Role titles mentioned within bullet points or as sub-roles belong in role_aliases, not as new entries.
-- COUNT CHECK: Before emitting work_experience, count the distinct employer positions in the source.
+- COUNT CHECK: Before emitting work_experience, count the distinct positions in the source — a title
+  with its own date range is one position, so two separately dated titles at one employer are two.
   Your output must contain exactly that many entries — no shell entries, no duplicates.
 - TEAM_SIZE SEMANTICS (#562): `team_size` counts ONLY the people the candidate PERSONALLY
   led or managed in THAT role (direct reports, or a team/shift they were responsible for) —

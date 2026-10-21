@@ -247,6 +247,7 @@ APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp
 ### Voraussetzungen
 
 - **Docker & Docker Compose**
+- **Etwa 8 GB freier Speicherplatz und 2 GB RAM** (plane 4 GB RAM ein, wenn sich mehrere Personen die Instanz teilen). Die vier Images belegen nach dem Pull etwa 5,2 GB: allein das Backend rund 4 GB, weil es das Chromium zum Erzeugen deiner PDFs mitbringt, dazu etwa 0,6 GB für PostgreSQL, 0,4 GB für das Frontend und 0,1 GB für nginx. Ein Update behält die alten Images, bis du sie aufräumst ([docs/SELF-HOSTING.md](docs/SELF-HOSTING.md#9-disk-and-pruning), auf Englisch). Der Stack braucht im Leerlauf etwa 0,5 GB RAM; jedes PDF-Rendering startet zusätzlich ein Headless-Chromium. Ein lokales Modell mit Ollama braucht von beidem mehr.
 - **Ein LLM-Anbieter deiner Wahl** (eigener Schlüssel): Mistral, Requesty, OpenRouter, Anthropic, OpenAI (oder jeder OpenAI-kompatible Endpunkt) oder Ollama (lokal/kostenlos, kein Schlüssel nötig)
 
 ### Self-Hosting (kein Klonen nötig)
@@ -265,7 +266,7 @@ curl -L -o .env.example https://github.com/Applire/Applire/releases/latest/downl
 
 # 2. Umgebung konfigurieren
 cp .env.example .env
-# .env bearbeiten: LLM_PROVIDER und den passenden API-Schlüssel setzen (siehe Konfiguration unten)
+# .env bearbeiten: LLM_PROVIDER und den passenden API-Schlüssel setzen (siehe unten und Konfiguration)
 
 # 3. Images holen, dann alle Dienste starten.
 #    Das ausdrückliche `pull` ist wichtig: `up -d` allein verwendet ein älteres,
@@ -276,13 +277,34 @@ docker compose pull && docker compose up -d
 
 Jeder Dienst — auch der Reverse-Proxy, dessen Konfiguration im `applire-nginx`-Image eingebacken ist — ist ein vorgefertigtes Image. `docker compose pull` holt damit einen vollständigen, lauffähigen Stack, ohne dass du Konfigurationsdateien auf dem Host ablegen musst.
 
+**Der Anbieter-Schritt in drei Zeilen.** In der eben kopierten `.env` sind das die einzigen Zeilen, die du setzen musst. Jeder Anbieter aus der Liste unter Konfiguration weiter unten funktioniert; Mistral steht hier als Beispiel, nicht als Empfehlung:
+
+```env
+LLM_PROVIDER=mistral
+MISTRAL_API_KEY=dein-schluessel
+MISTRAL_MODEL=mistral-small-latest
+```
+
+Für einen anderen Anbieter änderst du das Präfix: `LLM_PROVIDER=openrouter` gehört zu `OPENROUTER_API_KEY` und `OPENROUTER_MODEL`, ebenso `requesty`, `anthropic` und `openai`; `ollama` braucht keinen Schlüssel (nur `OLLAMA_MODEL`). Die Modellzeile ist optional — jeder Anbieter hat einen Standard — und [docs/llm-models.md](docs/llm-models.md) hilft bei der Wahl. Den Rest von `.env.example` musst du zum Start nicht lesen.
+
 Rufe die Anwendung unter **http://localhost** auf — der mitgelieferte nginx-Reverse-Proxy liefert das Frontend aus und leitet `/api/*` an das Backend weiter. Nur Port 80 muss veröffentlicht werden; die Backend- und Frontend-Container bleiben intern. Die vollständige Einstiegspunkt- und Port-Topologie findest du in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+**Prüfe, ob es läuft.** `docker compose up -d` kehrt zurück, bevor das Backend fertig gestartet ist (zuerst laufen die Datenbank-Migrationen; rechne beim ersten Start mit etwa einer Minute). Frage dann das Backend über nginx:
+
+```bash
+curl -s http://localhost/health
+# {"status":"ok","edition":"community","version":"…"}
+```
+
+`"status":"ok"` heißt: Das Backend antwortet. `version` ist das installierte Release in der normalisierten Python-Schreibweise: `0.44.0-beta` erscheint als `0.44.0b0`, `1.0.0` als `1.0.0`. Der Endpunkt ist offen und liefert nur diese drei Felder; der Compose-Healthcheck nutzt denselben.
 
 > **Erster Start: Instanz in Besitz nehmen.** Applire verlangt immer eine Anmeldung. Eine neue Installation zeigt einen Einrichtungsbildschirm, der einen einmaligen Code verlangt, den das Backend in sein Log schreibt:
 > ```bash
-> docker compose logs backend | grep "SETUP REQUIRED"
+> docker compose logs backend | grep -o "enter: [A-Z2-7-]*" | tail -n 1
 > ```
-> Gib den Code mit deiner E-Mail-Adresse und einem Passwort (mindestens 12 Zeichen) ein — damit bist du Administrator. (Oder ohne den Bildschirm: `docker compose exec backend python -m applire.admin create-admin --email du@example.org`.) Weitere Personen legst du unter **Administration → Personen** an; es gibt keine offene Registrierung. **Update von 0.42 oder früher?** Der Bildschirm erscheint einmal, und deine vorhandenen Daten werden zum Konto des Administrators — lies vorher die [Upgrade-Hinweise](CHANGELOG.md) (auf Englisch). Mehrere Personen können sich eine Instanz teilen, jede mit ihrem eigenen, privaten Tresor; Details, Single Sign-on und E-Mail-Versand in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md) (auf Englisch).
+> Das gibt genau eine Zeile aus, `enter: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`; der Code ist der Teil nach `enter:`. Jeder Start schreibt einen neuen Code und nur der neueste gilt, deshalb behält der Befehl die letzte Zeile. Gib den Code mit deiner E-Mail-Adresse und einem Passwort (mindestens 12 Zeichen) ein — damit bist du Administrator. (Oder ohne den Bildschirm: `docker compose exec backend python -m applire.admin create-admin --email du@example.org`.) Weitere Personen legst du unter **Administration → Personen** an; es gibt keine offene Registrierung. **Update von 0.42 oder früher?** Der Bildschirm erscheint einmal, und deine vorhandenen Daten werden zum Konto des Administrators — lies vorher die [Upgrade-Hinweise](CHANGELOG.md) (auf Englisch). Mehrere Personen können sich eine Instanz teilen, jede mit ihrem eigenen, privaten Tresor; Details, Single Sign-on und E-Mail-Versand in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md) (auf Englisch).
+>
+> **Was du siehst.** Die Oberfläche folgt der Sprache deines Browsers: Deutsch, wenn dein Browser Deutsch bevorzugt, sonst Englisch. Umstellen kannst du unter **Einstellungen → Sprache**. Wenn du deinen ersten Lebenslauf erzeugst, kommt vor der Template-Auswahl ein Foto-Schritt, sofern dein Profil noch kein Foto hat (du kannst ihn überspringen).
 >
 > **Hinter einem eigenen Proxy oder über https?** Leite den `Host`-Header unverändert weiter (oder setze `APPLIRE_BASE_URL`) und setze `COOKIE_SECURE=true`, sobald Applire über https erreicht wird.
 
@@ -298,6 +320,8 @@ So aktualisierst du auf die neueste Version:
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+Was eine Versionsnummer verspricht und was sich zwischen Releases ändern darf: [Versionierung und Stabilitätsversprechen](docs/versioning.md) (auf Englisch).
 
 > **Niemals `docker compose down -v`.** Das `-v`-Flag löscht die benannten Volumes — `postgres_data` (der Vault) und `applire_uploads` (jeder hochgeladene Lebenslauf und jedes Profilfoto) — und das lässt sich nicht rückgängig machen. `docker compose down` allein ist sicher und behält beide. Zum Aktualisieren genügt `pull` und `up -d` wie oben; du musst den Stack dafür nie herunterfahren. Sichere deine Daten vor jedem Upgrade: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 
@@ -469,11 +493,14 @@ Im Docker-Stack wird die REST-API über nginx unter `http://localhost/api/*` err
 
 #### Authentifizierung
 
-Jede Route außer `GET /health` und den Anmelde-/Einrichtungsseiten braucht eine Anmeldung. Ein Browser nutzt das Session-Cookie; ein **Skript** nutzt statt eines Cookie-Jars ein persönliches API-Token (anlegen unter Einstellungen → Tokens):
+Jede Route außer `GET /health` und den Anmelde-/Einrichtungsseiten braucht eine Anmeldung. Ein Browser nutzt das Session-Cookie; ein **Skript** nutzt statt eines Cookie-Jars ein persönliches **API-Token** (anlegen unter Einstellungen → Tokens; ein *Agent*-Token gilt nur für MCP, die REST-API lehnt es ab):
 
 ```bash
-curl -H "Authorization: Bearer apl_…" http://localhost/api/profile
+curl -H "Authorization: Bearer apl_…" http://localhost/api/profile/exists
+# {"exists":false,"completeness_score":0.0}   (true und ein Wert, sobald ein Lebenslauf importiert ist)
 ```
+
+`GET /api/profile` liefert das ganze Profil und antwortet mit 404 („No profile found“), bis der erste Lebenslauf importiert ist; schreibe den Pfad ohne abschließenden Schrägstrich, denn `/api/profile/` wird umgeleitet (307).
 
 `GET /health` ist offen und liefert nur `status`, `edition` und `version`. Instanz-Gesundheit und die Detailfelder liegen unter `GET /api/ops/health` (Administrator oder Monitoring-Token). `/docs` verlangt eine Anmeldung.
 
@@ -541,11 +568,24 @@ als kurzlebigen Container neben deinem laufenden Applire, über stdio:
 ```
 
 **Der Server braucht dein persönliches Agent-Token.** Lege eines in Applire unter
-**Einstellungen → Tokens** an (es wird nur einmal angezeigt) und trage es im
-`env`-Eintrag ein; der Agent arbeitet dann nur mit *deinen* Daten. Ohne gültiges
+**Einstellungen → Tokens** an (es wird nur einmal angezeigt: nimm den Knopf
+**Kopieren** im Dialog und füge es direkt in den `env`-Eintrag ein — die Liste
+danach zeigt nur die ersten Zeichen); der Agent arbeitet dann nur mit *deinen*
+Daten. Ein vollständiges Token hat die Form `apl_<8 Zeichen>_<43 Zeichen>`,
+insgesamt 56 Zeichen (die 8 sind Kleinbuchstaben oder Ziffern); ein kürzeres wurde
+abgeschnitten und muss ersetzt werden — ein Token lässt sich nicht erneut anzeigen,
+widerrufe es also und lege ein neues an. Ohne gültiges
 Token startet `python -m applire.mcp` nicht und sagt, wo du eines anlegst. Ein
 Quellcode-Checkout nimmt dieselbe Variable:
 `APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp`.
+
+Der `mcp`-Dienst in diesem Befehl ist in der `docker-compose.yml` des Releases
+definiert, unter `profiles: [mcp]`; ein einfaches `docker compose up -d` startet ihn
+also nie. Eine ältere oder von Hand kopierte und gekürzte Compose-Datei hat ihn
+nicht: Lade die aktuelle aus den Release-Assets
+(`curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml`,
+derselbe Befehl wie in der Installation oben; er ersetzt deine Datei, übernimm also
+eigene Änderungen) und behalte deine `.env`.
 
 `-T` ist wichtig: Der Server bekommt eine einfache Pipe statt eines Terminals,
 und genau die braucht der stdio-Transport. Starte Applire vorher

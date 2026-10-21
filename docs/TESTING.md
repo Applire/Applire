@@ -196,6 +196,25 @@ and CV review (`MobileCommandBar`'s three actions — ATS Checks, Fine-tune, Dow
 US226). Stays hermetic like every other OQ spec: `page.route()` mocks only, `LLM_PROVIDER=mock`,
 no real backend/LLM calls.
 
+### OQ from a worktree against your own `next dev` (stubbed-only)
+
+OQ specs stub the API with `page.route()`, but `frontend/next.config.ts` rewrites every
+*un-mocked* `/api/*` call to `BACKEND_URL ?? http://localhost:8001` — so a locally served
+frontend with an incomplete stub silently proxies to whatever backend runs on the machine
+(a spec has passed and failed on another stack's `ui_language`). For a stubbed-only run, serve
+the frontend with an unroutable backend and set `E2E_STUBBED_ONLY=1`; `tests/global-setup.ts`
+then proves it by requesting `/api/auth/state` through the frontend under test and refuses to
+start if a backend's JSON comes back:
+
+```bash
+cd frontend && BACKEND_URL=http://127.0.0.1:9 NEXT_PUBLIC_API_URL= npx next dev -p 3156 &
+E2E_BASE_URL=http://localhost:3156 E2E_STUBBED_ONLY=1 npx playwright test --project=chromium tests/oq/auth-shell.spec.ts
+```
+
+`next.config.ts` keeps its `localhost:8001` default (`cd frontend && npm run dev` against a local
+backend, and every Docker image passes `BACKEND_URL` at build). Do not run `npm run build` while a
+`next dev` is serving: it breaks the dev server.
+
 ### PQ tests (requires Docker stack)
 
 ```bash

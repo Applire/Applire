@@ -957,6 +957,15 @@ def retention_forms(entry: dict[str, Any]) -> list[str]:
     return forms
 
 
+#: Founder ruling V-1 = B (Hazelnut build 2, 787:L11), narrowed by V-1b — the
+#: marker a claimable ledger row carries in the writers' KEYWORD LEDGER block
+#: when its only vault backing is a bare list entry (row field
+#: ``listed_only: true``, stamped by the vault re-check that lifted it on a
+#: skill / certification / degree / language name). Writers key their "name it,
+#: never narrate it" rule on this exact string.
+LISTED_ONLY_MARKER = "[listed only — no role bullet or story states it]"
+
+
 def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> str:
     """Render the Keyword Ledger as a prompt fragment shared by the CV and cover-letter
     generators (ADR-048 §8 / US200/US201).
@@ -1022,8 +1031,19 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
                 # writer's honesty.
                 phrase = entry.get("jd_phrase")
                 qualifier = f' — the posting asks for it as: "{phrase}"' if phrase else ""
+                # Founder ruling V-1 = B (787:L11), narrowed by V-1b: a claimable
+                # row whose only backing is a list entry is marked, so the
+                # writers can tell a NAMED skill from a NARRATED one. The marker
+                # is a fact; what a writer may do with it is the writer prompts'
+                # rule (D1). Absent key = no marker.
+                # V-1b: only a row the vault re-check lifted on a bare list
+                # label carries the marker (`listed_only`, stamped there) — not
+                # every row #260's literal `narrative_backed` misses: that
+                # predicate is literal by design and misses testimony stated in
+                # another language or a coordinated form ("SAP PP und MM").
+                listed = f" {LISTED_ONLY_MARKER}" if entry.get("listed_only") is True else ""
                 lines.append(
-                    f"  - {concept} [forms: {forms}]{qualifier} — evidence: {evidence}"
+                    f"  - {concept} [forms: {forms}]{listed}{qualifier} — evidence: {evidence}"
                 )
     else:
         lines.append("  (none)")
@@ -2388,6 +2408,30 @@ def upgrade_ledger_for_concepts(
     return new_ledger, changed
 
 
+def _list_entry_labels(profile_json: dict[str, Any]) -> set[str]:
+    """Normalised NAMES of the vault's list entries — skills (+ aliases),
+    certifications, education degrees/fields/institutions, languages (ruling
+    V-1b). A FACT about the vault's structure (ADR-062 cl. 1): a text node that
+    is one of these labels is a list entry, not a sentence the candidate wrote."""
+    labels: set[str] = set()
+    for sk in profile_json.get("skills") or []:
+        if isinstance(sk, dict):
+            labels.update(_norm(x) for x in [sk.get("name"), *(sk.get("aliases") or [])] if isinstance(x, str))
+    for c in profile_json.get("certifications") or []:
+        if isinstance(c, dict) and isinstance(c.get("name"), str):
+            labels.add(_norm(c["name"]))
+    for ed in profile_json.get("education") or []:
+        if isinstance(ed, dict):
+            labels.update(
+                _norm(ed[k]) for k in ("degree", "field", "institution") if isinstance(ed.get(k), str)
+            )
+    for lang in profile_json.get("languages") or []:
+        if isinstance(lang, dict) and isinstance(lang.get("language"), str):
+            labels.add(_norm(lang["language"]))
+    labels.discard("")
+    return labels
+
+
 def reevaluate_gap_ledger_against_vault(
     keyword_ledger: list[dict[str, Any]] | None,
     profile_json: dict[str, Any] | None,
@@ -2484,6 +2528,8 @@ def reevaluate_gap_ledger_against_vault(
     # too would stop this function healing gap rows from bullets, which is the
     # entire reason it exists.
     release_corpus = denial_release_corpus(profile_json)
+    list_labels = _list_entry_labels(exclude_unconfirmed(profile_json) or {})
+    lifted: set[str] = set()
 
     # ADR-064 — reuse the same dict-or-str normaliser _enforce_denial_stance
     # uses, so this caller's extraction can never quietly diverge from that
@@ -2544,11 +2590,54 @@ def reevaluate_gap_ledger_against_vault(
 
         ledger, did_change = upgrade_ledger_for_concepts(ledger, [concept], evidence)
         changed = changed or did_change
+        if did_change:
+            lifted.add(_norm(concept))
+            # Ruling V-1 = B, narrowed by V-1b (787:L11): THIS seam knows the one
+            # vault text node it lifted on. When that node is a bare LIST label
+            # (a skill, certification, degree or language name) the row is
+            # listed-only by construction; a sentence (a bullet, a story, the
+            # summary) is not. Stamped only on the rows this seam moved — rows
+            # the classifier built cite its own evidence, which is not a list
+            # label (D1, v2 gate corpus: 26 such rows, almost all testimony).
+            listed = _norm(evidence) in list_labels
+            ledger = [
+                {**e, "listed_only": listed}
+                if _norm(e.get("concept", "")) == _norm(concept) and e.get("claimable")
+                else e
+                for e in ledger
+            ]
     # #525 site 2 — this seam's evidence IS a vault text node, so its owner is
     # the most directly derivable of the three. Stamped over the whole ledger,
     # not only the rows this call moved: the vault may have gained the entry that
     # owns an already-claimable term since the row was written.
     ledger = annotate_evidence_owners(ledger, profile_json)
+    # Founder ruling V-1 = B (Hazelnut build 2, 787:L11): a bare skills-list
+    # entry still lifts the gap, but the lifted row must carry what backs it.
+    # `narrative_backed` (#260) was stamped when the row was BUILT, as a gap;
+    # the lift above never re-stamped it, so a row lifted by a bullet kept a
+    # stale False and a row lifted by a bare name kept whatever the build
+    # wrote. Re-stamped here against today's vault, the same final pass the
+    # builder and the gap-analysis merge run (ADR-066: one implementation).
+    # The writers read it as the "listed only" marker
+    # (`render_ledger_prompt_block`).
+    # Re-stamped only where it can be stale: on the rows this call LIFTED, and
+    # on rows that already carry the key. A row neither lifted nor stamped keeps
+    # its shape (the persisted contract of an untouched row does not change).
+    if profile_json is not None:
+        restamp = [
+            e for e in ledger
+            if _norm(e.get("concept", "")) in lifted or "narrative_backed" in e
+        ]
+        fresh = {id(e): f for e, f in zip(restamp, _annotate_narrative_backed(restamp, profile_json))}
+        ledger = [fresh.get(id(e), e) for e in ledger]
+        # A listed-only row whose term a narrative entry has since come to state
+        # is no longer listed-only.
+        ledger = [
+            {**e, "listed_only": False}
+            if e.get("listed_only") and e.get("narrative_backed")
+            else e
+            for e in ledger
+        ]
     return ledger, changed
 
 
@@ -3252,7 +3341,76 @@ def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
         return ""
     from applire.services.ats_audit import _norm as ats_norm
 
-    return ats_norm(" ".join(_draft_strings(_strip_denial_text(profile_json))))
+    return ats_norm(" ".join(_draft_strings(_strip_unclaimable(_strip_denial_text(profile_json)))))
+
+
+#: The entity sections ADR-061 cl. 3 gives a status (``entry_is_claimable``).
+_STATUS_SECTIONS = ("skills", "languages", "certifications")
+
+
+def _entry_label(entry: Any) -> str:
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        for key in ("name", "language"):
+            v = entry.get(key)
+            if isinstance(v, str):
+                return v
+    return ""
+
+
+def _strip_unclaimable(profile_json: dict[str, Any]) -> dict[str, Any]:
+    """Build-2 adversarial F-A (ruling R3-a, R3-1 precedent ADR-061 cl. 3): the
+    coverage corpus without the vault's UNCLAIMABLE entries and the receipts
+    that wrote them.
+
+    The corpus decides "a keyword the vault literally carries is never
+    unsupported". An ``unconfirmed`` entry backs nothing and a ``denied`` one was
+    retracted (ADR-061 cl. 3 + amendment 2026-08-08), so neither may make that
+    decision — the same ``exclude_unconfirmed`` the Oracle's index now reads
+    (ADR-066: one predicate). The entity's add/rename receipt in
+    ``metadata.enrichment_history`` restates its name verbatim, so a change on
+    a status section naming a now-unclaimable entry (by id, else by name) is
+    dropped too; every other receipt passes untouched."""
+    if not isinstance(profile_json, dict):
+        return profile_json
+    out = exclude_unconfirmed(profile_json)
+    ids: set[str] = set()
+    names: set[str] = set()
+    for section in _STATUS_SECTIONS:
+        for e in profile_json.get(section) or []:
+            if entry_is_claimable(e):
+                continue
+            if isinstance(e, dict) and isinstance(e.get("id"), str) and e["id"]:
+                ids.add(e["id"])
+            label = _entry_label(e).strip().lower()
+            if label:
+                names.add(label)
+    if not ids and not names:
+        return out
+    metadata = out.get("metadata")
+    history = metadata.get("enrichment_history") if isinstance(metadata, dict) else None
+    if not isinstance(history, list):
+        return out
+
+    def _names_unclaimable(change: Any) -> bool:
+        if not isinstance(change, dict) or change.get("section") not in _STATUS_SECTIONS:
+            return False
+        for v in (change.get("new_value"), change.get("old_value")):
+            if isinstance(v, dict) and v.get("id") in ids:
+                return True
+        labels = [change.get("field"), _entry_label(change.get("new_value"))]
+        return any(isinstance(x, str) and x.strip().lower() in names for x in labels)
+
+    new_history: list[Any] = []
+    for record in history:
+        changes = record.get("changes") if isinstance(record, dict) else None
+        if not isinstance(changes, list):
+            new_history.append(record)
+            continue
+        kept = [c for c in changes if not _names_unclaimable(c)]
+        new_history.append(record if kept == changes else {**record, "changes": kept})
+    return {**out, "metadata": {**metadata, "enrichment_history": new_history}}
 
 
 # ── #318 / ADR-061 — THE affirmative invariant ──────────────────────────────

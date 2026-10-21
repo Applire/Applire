@@ -110,6 +110,10 @@ export type ATSReport = {
     // older than the field) → *Show me where* says it could not mark the place.
     present_unsupported_matches?: Record<string, KeywordMatch[]>;
     present_denied_matches?: Record<string, KeywordMatch[]>;
+    // Build-2 delivery F2 (SF-REVIEW.18): for a `present_unsupported` term that one of
+    // the candidate's own recorded denials covers, those denials. The review card
+    // shows them and offers no add-to-profile handle. Absent = legacy report / none.
+    present_unsupported_denials?: Record<string, string[]>;
     // E048/US266 (#249 option b): EVERY claimable Keyword Ledger entry's surface
     // forms (concept name included), regardless of presence in the document.
     claimable_concepts?: string[];
@@ -140,6 +144,9 @@ export const LOCALIZED_DETAIL_KEYS = new Set([
   // #759: a FAILED document-language check, shown in the review surface's
   // "before you send it" block ({language, count, examples}).
   "document-language-mixed",
+  // #790 line L10 (ruling D2-1 = A): present terms the keyword check did not
+  // verify across languages ({count, terms}) — a neutral not_applicable row.
+  "keyword-other-language",
 ]);
 
 /**

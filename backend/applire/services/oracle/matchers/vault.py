@@ -77,6 +77,14 @@ class VaultIndex:
     # its-own-receipt trap). Consulted ONLY by the numbers checker's guarded
     # absorption in ``audit._denial_statement_backing``.
     denial_units: list[EvidenceUnit] = field(default_factory=list)
+    # Build-2 delivery F2 (SF-REVIEW.18): the recorded denials' CONCEPTS and the
+    # corpus that may release one (``stance.denial_release_corpus``, ADR-059
+    # #480 §7.5(a)) — so every audit seam that builds this index can say which
+    # denial covers a flagged term (``ats_audit._keyword_coverage`` →
+    # ``keywords.present_unsupported_denials``) without a new parameter. Like
+    # ``denial_units``, never part of ``units``: a denial is no grounding.
+    denied_concepts: tuple[str, ...] = ()
+    denial_release_text: str = ""
     # ADR-068 clause 2a — the vault's OWN dominant language, computed ONCE per
     # audit over the CONCATENATED text of every evidence unit (never
     # per-unit: a short label like a skill name or a year span defaults to
@@ -95,6 +103,13 @@ class VaultIndex:
     # error, and that stays removed — this is a different predicate against a
     # different corpus, checked in ``audit._tenure_ceiling_flag``.
     derivable_tenure_years: float | None = None
+    # #790 line L15 — the envelope's earliest dated start (``None`` = undated).
+    earliest_dated_start: date | None = None
+    # #790 lines L10/L12 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20) —
+    # the share of the vault's LONG evidence units (>= OTHER_LANGUAGE_MIN_WORDS
+    # words, where ``detect_language`` has signal) per detected language.
+    # Computed once per index; read only by :func:`holds_other_language`.
+    unit_language_shares: dict[str, float] = field(default_factory=dict)
     # #747 (ADR-052 amended 2026-10-07) — per-skill evidenced span: skill name
     # -> (fractional years of the dated experiences whose OWN text names it,
     # their org labels). The shared instrument
@@ -214,6 +229,63 @@ def derive_tenure_ceiling_years(
     return max(0.0, (max(ends) - min(starts)).days / _DAYS_PER_YEAR)
 
 
+def derive_earliest_dated_start(profile: MasterProfileData | dict[str, Any]) -> date | None:
+    """The earliest dated start of the #469 envelope (same entries, same parse).
+
+    #790 line L15: a start-year statement ("seit 2004 in der Branche") is
+    checked against THIS, not as a duration to today. ADR-062: FACT (date
+    fields only). ``None`` when nothing is dated — the check fails open.
+    """
+    p = _coerce_profile(profile)
+    starts = [
+        d
+        for entry in [*p.all_experiences, *p.education]
+        if isinstance(d := _coerce_partial_date(getattr(entry, "start_date", None)), date)
+    ]
+    return min(starts) if starts else None
+
+
+#: #790 L10/L12 (D2-1 = A): a unit shorter than this carries no language signal
+#: (``detect_language`` defaults a short label to 'de'), so it never votes.
+OTHER_LANGUAGE_MIN_WORDS = 6
+#: The share of long units in the OTHER supported language from which a
+#: same-language pair counts as cross-language too (the mixed-vault case the
+#: dominant-language trigger is blind to). Measured premise: 268 / 1,219
+#: corpus pairs (22 %) sit at or above it while the trigger reads "same".
+OTHER_LANGUAGE_MIN_SHARE = 0.2
+_SUPPORTED_LANGUAGES = ("de", "en")
+
+
+def _unit_language_shares(units: Sequence[EvidenceUnit]) -> dict[str, float]:
+    long_units = [u for u in units if len(u.text.split()) >= OTHER_LANGUAGE_MIN_WORDS]
+    if not long_units:
+        return {}
+    counts: dict[str, int] = {}
+    for u in long_units:
+        lang = detect_language(u.text)
+        counts[lang] = counts.get(lang, 0) + 1
+    return {k: v / len(long_units) for k, v in counts.items()}
+
+
+def holds_other_language(index: VaultIndex, document_language: str | None) -> bool:
+    """#790 lines L10/L12 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20).
+
+    A FACT about the pair, never a judgement about a claim: may the vault state
+    evidence in a language other than ``document_language``? True when the
+    vault's dominant language differs (ADR-068 seam A's own trigger) or when at
+    least ``OTHER_LANGUAGE_MIN_SHARE`` of its long units read as the other
+    supported language (the mixed vault). A literal miss on such a pair is "not
+    checked across languages", never an absence-based accusation. ``None`` or an
+    unsupported language fails OPEN to today's behaviour (False).
+    """
+    if document_language not in _SUPPORTED_LANGUAGES:
+        return False
+    if document_language != index.dominant_language:
+        return True
+    other = "en" if document_language == "de" else "de"
+    return index.unit_language_shares.get(other, 0.0) >= OTHER_LANGUAGE_MIN_SHARE
+
+
 def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) -> VaultIndex:
     """A NEW index carrying ``entries`` as additional evidence beside the vault's own.
 
@@ -284,6 +356,8 @@ def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) ->
         denial_units=list(index.denial_units),
         dominant_language=index.dominant_language,
         derivable_tenure_years=index.derivable_tenure_years,
+        earliest_dated_start=index.earliest_dated_start,
+        unit_language_shares=dict(index.unit_language_shares),
         skill_spans=dict(index.skill_spans),
         transcribed_skill_years=dict(index.transcribed_skill_years),
         stated_skill_tenures=dict(index.stated_skill_tenures),
@@ -544,13 +618,33 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         experience_ids=frozenset(experience_ids),
         same_employer_ids=same_employer_ids,
         denial_units=denial_units,
+        **_denial_facts(profile, p),
         # ADR-068 clause 2a — corpus-level, once, over the SAME normalized
         # blob every grounding matcher already shares (never per-unit).
         dominant_language=detect_language(all_text_norm),
         # #469 — once per audit, from the typed profile's date fields.
         derivable_tenure_years=derive_tenure_ceiling_years(p),
+        earliest_dated_start=derive_earliest_dated_start(p),
+        unit_language_shares=_unit_language_shares(units),
         **_skill_duration_facts(p, units),
     )
+
+
+def _denial_facts(raw: Any, p: MasterProfileData) -> dict[str, Any]:
+    """The recorded denial concepts and the release corpus (see the
+    ``VaultIndex.denied_concepts`` field). Never raises: on any error the index
+    carries no denial facts, which offers what it offered before."""
+    try:
+        from applire.services.profile.reconcile.stance import denial_release_corpus
+
+        concepts = tuple(
+            d.concept for d in (p.metadata.denied_concepts if p.metadata else [])
+            if isinstance(getattr(d, "concept", None), str) and d.concept.strip()
+        )
+        source = raw if isinstance(raw, dict) else p.model_dump(mode="json")
+        return {"denied_concepts": concepts, "denial_release_text": denial_release_corpus(source)}
+    except Exception:  # pragma: no cover — defensive
+        return {}
 
 
 # Characters around a stated duration in which its subject skill must be
