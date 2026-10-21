@@ -41,6 +41,7 @@ _EXPECTED_LABEL_ORDER = [
     "20,543 (V-6,",
     "21,328 (Hazelnut F2,",
     "24,157 (Hazelnut build 2 WP-V,",
+    "24,292 (Hazelnut build 2 WP-R2,",
 ]
 
 
@@ -67,7 +68,7 @@ def test_the_final_shipped_entry_matches_the_actual_prompt_length():
     measured arm and the shipped text have drifted apart (evidence no longer
     describes the code it was measured against)."""
     prompt_len = len(reconcile_module.RECONCILE_SYSTEM_PROMPT)
-    assert prompt_len == 24157, (
+    assert prompt_len == 24292, (
         f"RECONCILE_SYSTEM_PROMPT is {prompt_len} chars; the version header's "
-        "last shipped entry claims 24,157 -- update whichever one drifted"
+        "last shipped entry claims 24,292 -- update whichever one drifted"
     )
