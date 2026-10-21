@@ -194,15 +194,20 @@ def test_the_corpus_is_pure():
 # ── The coverage consumers stay exactly as they were ─────────────────────────
 
 
-def test_profile_literal_corpus_is_untouched_and_still_sees_prose():
-    """`profile_literal_corpus` answers a COVERAGE question (Oracle
+def test_profile_literal_corpus_sees_prose_but_no_unclaimable_entry():
+    """`profile_literal_corpus` answers a COVERAGE question (ATS
     `present_unsupported`, the cover-letter guard, the US147 pre-download
-    diff), not a release question. Narrowing it would change three consumers
-    that must not change (ADR-059 amended 2026-08-09 clause 2)."""
+    diff), not a release question, so it keeps the vault's prose (ADR-059
+    amended 2026-08-09 clause 2). Build-2 adversarial F-A (ruling R3-a, R3-1
+    precedent ADR-061 cl. 3): it no longer carries an `unconfirmed`/`denied`
+    entry — such a row backs nothing, so it may not decide that a keyword is
+    supported (the Oracle's index reads the same claimable vault)."""
     corpus = profile_literal_corpus(_VAULT)
     assert "kubernetes" in corpus
     assert "grafana" in corpus
-    assert "helm" in corpus, "coverage sees the whole vault, statuses and all"
+    assert "ansible" in corpus and "cka" in corpus and "slovenian" in corpus
+    for unclaimable in ("helm", "docker", "ckad", "norwegian"):
+        assert unclaimable not in corpus, unclaimable
 
 
 # ── The five-site lockstep pin ───────────────────────────────────────────────
