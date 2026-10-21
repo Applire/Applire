@@ -602,6 +602,8 @@ export default function GapsPage({
   // bar's content varies across the three flow-context modes (Case 1/2/3)
   // and with/without the cancel action.
   const decisionBarRef = useRef<HTMLDivElement>(null);
+  // M4 — the phone's decisions row docks at the top of the fixed bar.
+  const [decisionsSlot, setDecisionsSlot] = useState<HTMLDivElement | null>(null);
   const [decisionBarHeight, setDecisionBarHeight] = useState(0);
   useEffect(() => {
     const el = decisionBarRef.current;
@@ -1190,17 +1192,16 @@ export default function GapsPage({
 
   return (
     <div data-testid="gap-analysis-page" className="max-w-4xl mx-auto">
-      {/* #686 (founder ruling V-1) — a profile dispute raised from a gap answer
-          reaches the user as a corner-anchored toast STACK, not as a card in the
-          page flow: no reserved UI space, one popup per pending decision, and it
-          disappears on its own after the operator's auto-dismiss window. The
-          component renders `position: fixed`, so this mount point only decides
-          WHEN it is alive, never where it sits. */}
+      {/* #686 — a profile dispute raised from a gap answer reaches the user.
+          M4 (ruling UX-2, amends V-1): ONE notice top-right on desktop that
+          shrinks to a chip; on a phone a row portaled into the top of the
+          fixed decision bar below — never an overlay on the content, always
+          an entry point. This mount point only decides WHEN it is alive. */}
       <ProfileDecisionsCard
         apiBase={API_BASE}
         flowId={flowId}
         refreshToken={decisionsToken}
-        bottomOffsetPx={decisionBarHeight}
+        mobileSlot={decisionsSlot}
       />
       <JdRecoveryBanner />
       <CvParseBanner />
@@ -1597,6 +1598,7 @@ export default function GapsPage({
           "md:bg-transparent md:backdrop-blur-none md:border-t-0",
         )}
       >
+        <div ref={setDecisionsSlot} data-testid="gaps-decisions-slot" className="md:hidden" />
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
           {offerInterview && (
             <div className="flex flex-col items-center w-full sm:w-auto">

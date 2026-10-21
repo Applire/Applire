@@ -182,6 +182,9 @@ describe("Case 3 — JD-only follow-up (returning + job)", () => {
     expect(screen.getByTestId("generate-cv-button")).toBeInTheDocument();
     // Ruling UX-3 (M7): skipping the interview says what it costs, before generating.
     expect(screen.getByTestId("generate-cv-skip-cost")).toHaveTextContent("gaps.generateWithoutInterviewCost");
+    // M4: the phone's decisions row docks at the TOP of the fixed decision bar.
+    const bar = screen.getByTestId("gaps-decision-bar");
+    expect(bar.firstElementChild).toBe(screen.getByTestId("gaps-decisions-slot"));
   });
 
   it("goes straight to generation when no gaps exist — no interview button", async () => {

@@ -2,35 +2,37 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // #686 (JF-M-3.5) — a profile dispute raised from a gap answer reaches the
-// user, as a corner-anchored toast STACK (founder ruling V-1, 2026-09-09
-// reversed the earlier full-width card). Properties pinned here:
+// user. M4 (UX audit 2026-10-20, ruling UX-2, amends V-1): ONE notice instead
+// of one identical popup per decision, a persistent entry point, and on a
+// phone no overlay at all. Properties pinned here:
 //
-// 1. Only the two decision-owed threads (conflict, confirmation) produce a
-//    popup; an `accuracy` issue is not a decision the candidate owes, and is
-//    excluded from both the popup count and the title's count.
-// 2. Zero decision-threaded issues -> the stack does not render at all.
-// 3. More than MAX_POPUPS (3) decision issues -> exactly 3 popups plus one
-//    "+N more" popup for the overflow.
-// 4. A popup's CTA opens ProfileReviewDrawer, and the stack itself is not
-//    rendered while the drawer is open.
-// 5. Dismissal is PER ISSUE: the x on one popup removes only that popup,
-//    records only that issue id, and a remount respects it per flowId.
-// 6. An auto-dismiss timer hides the whole stack after
-//    `notice_auto_dismiss_seconds` without interaction; 0 means never; an
+// 1. Only the two decision-owed threads (conflict, confirmation) count; an
+//    `accuracy` issue is not a decision the candidate owes.
+// 2. Zero decision-threaded issues -> nothing renders at all.
+// 3. However many decisions are open, there is exactly ONE notice (the title
+//    carries the count) — never one per decision, never "+N more".
+// 4. The CTA opens ProfileReviewDrawer on the first open decision; nothing
+//    else of this component renders while the drawer is open.
+// 5. The x collapses the notice to its compact entry point and records the
+//    decisions it was about, per flowId; a remount keeps it collapsed, a NEW
+//    decision brings the full notice back.
+// 6. The auto-dismiss timer collapses the notice after
+//    `notice_auto_dismiss_seconds` — the entry point stays; 0 means never; an
 //    auto-hide writes NOTHING to storage (it is not a dismissal).
 // 7. An absent `notice_auto_dismiss_seconds` falls back to 30 seconds, not to
 //    the "never hide" value 0.
-// 8. `refreshToken` changing re-reads /api/profile/health, and a stack that
-//    had auto-hidden becomes visible again once there is something to show.
-// 9. A rejecting/500ing health fetch leaves the stack hidden and throws
-//    nothing.
+// 8. `refreshToken` changing re-reads /api/profile/health; a NEW decision
+//    un-collapses an auto-hidden notice, re-reading the same ones does not.
+// 9. A rejecting/500ing health fetch renders nothing and throws nothing.
+// 10. Phone: the compact row is portaled into the page's `mobileSlot` (the top
+//     of the fixed decision bar) and stays after the auto-hide.
 //
 // Plus a unit-test block for `lib/gap-decisions-dismissed.ts`'s per-issue,
-// storage-degrades-safely contract (property 10).
+// storage-degrades-safely contract.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { ProfileDecisionsCard, MAX_POPUPS } from "../ProfileDecisionsCard";
+import { ProfileDecisionsCard } from "../ProfileDecisionsCard";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import type { HealthIssue, ProfileHealth } from "@/components/profile/HealthPanel";
 import { setStorageUserId } from "@/lib/auth/storage";
@@ -123,45 +125,37 @@ describe("ProfileDecisionsCard", () => {
     });
   });
 
-  // Property 1: only conflict + confirmation are counted; accuracy is not —
-  // neither in the popup count nor as a popup of its own.
-  it("renders one popup per decision-owed issue and counts only conflict + confirmation in the title", async () => {
+  // Property 1
+  it("counts only conflict + confirmation, in ONE notice", async () => {
     global.fetch = mockFetch({
       issues: [issue("conflict", "c-1"), issue("confirmation", "cf-1"), issue("accuracy", "a-1")],
     });
-
     render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
-
-    await waitFor(() => expect(screen.getAllByTestId("profile-decisions-card")).toHaveLength(2));
-    for (const title of screen.getAllByTestId("profile-decisions-title")) {
-      expect(title).toHaveTextContent("2 decisions needed to update your profile");
-    }
+    await waitFor(() => expect(screen.getAllByTestId("profile-decisions-card")).toHaveLength(1));
+    expect(screen.getByTestId("profile-decisions-title")).toHaveTextContent("2 decisions needed to update your profile");
   });
 
-  // Property 2: zero decision-threaded issues -> no stack at all.
+  // Property 2
   it("renders nothing when there are no decision-threaded issues", async () => {
     global.fetch = mockFetch({ issues: [issue("accuracy", "a-1")] });
-
     render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
-
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    await flushEffects();
     expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("profile-decisions-card")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("profile-decisions-bar-row")).not.toBeInTheDocument();
   });
 
   it("renders nothing when the issues array is empty", async () => {
     global.fetch = mockFetch({ issues: [] });
-
     render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
-
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    await flushEffects();
     expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("profile-decisions-bar-row")).not.toBeInTheDocument();
   });
 
-  // Property 3: more than MAX_POPUPS -> exactly MAX_POPUPS popups plus one
-  // "+N more" popup for the rest.
-  it("caps at MAX_POPUPS popups and folds the rest into a single '+N more' popup", async () => {
-    expect(MAX_POPUPS).toBe(3);
+  // Property 3 — the M4 shape: Emma's Pixel 7 showed three identical notices.
+  it("shows exactly one notice for five open decisions — no per-decision copies, no '+N more'", async () => {
     global.fetch = mockFetch({
       issues: [
         issue("conflict", "d-1"),
@@ -171,20 +165,18 @@ describe("ProfileDecisionsCard", () => {
         issue("conflict", "d-5"),
       ],
     });
-
     render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
-
-    await waitFor(() => expect(screen.getAllByTestId("profile-decisions-card")).toHaveLength(3));
-    expect(screen.getByTestId("profile-decisions-more")).toHaveTextContent("+2 more decisions");
+    await waitFor(() => expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument());
+    expect(screen.getAllByTestId("profile-decisions-card")).toHaveLength(1);
+    expect(screen.getAllByTestId("profile-decisions-title")).toHaveLength(1);
+    expect(screen.getByTestId("profile-decisions-title")).toHaveTextContent("5 decisions needed");
+    expect(screen.queryByTestId("profile-decisions-more")).not.toBeInTheDocument();
   });
 
-  // Property 4: the CTA opens ProfileReviewDrawer, and the stack itself
-  // disappears while the drawer is open.
-  it("opens the ProfileReviewDrawer from a popup's CTA and hides the stack while it is open", async () => {
+  // Property 4
+  it("opens the ProfileReviewDrawer from the CTA and renders nothing else while it is open", async () => {
     global.fetch = mockFetch({ issues: [issue("confirmation", "cf-1")] });
-
     render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
-
     await waitFor(() => expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument());
     expect(screen.queryByTestId("profile-review-drawer")).not.toBeInTheDocument();
 
@@ -192,75 +184,73 @@ describe("ProfileDecisionsCard", () => {
 
     expect(screen.getByTestId("profile-review-drawer")).toBeInTheDocument();
     expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
-
-    // Let the drawer's own startProfileReview() mock settle before the test
-    // ends, so its state update lands inside this test's act(), not the next.
+    expect(screen.queryByTestId("profile-decisions-bar-row")).not.toBeInTheDocument();
     await waitFor(() => expect(startMock).toHaveBeenCalled());
   });
 
-  // Property 5: dismissal is per issue — the x on ONE popup removes only
-  // that popup, records only that issue id, and a remount respects it
-  // scoped to the flowId.
-  it("dismisses one popup at a time, persists only that issue id per flow, and a remount honours it per flowId", async () => {
+  // Property 5
+  it("the x collapses to the entry point, records the decisions per flow, and only a NEW decision re-expands", async () => {
     global.fetch = mockFetch({
       issues: [issue("conflict", "d-1"), issue("confirmation", "d-2"), issue("conflict", "d-3")],
     });
+    const { unmount } = render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
+    await waitFor(() => expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument());
 
-    const { unmount } = render(
-      withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"),
-    );
-    await waitFor(() => expect(screen.getAllByTestId("profile-decisions-card")).toHaveLength(3));
+    fireEvent.click(screen.getByTestId("profile-decisions-dismiss"));
 
-    const firstCard = screen.getAllByTestId("profile-decisions-card")[0];
-    fireEvent.click(within(firstCard).getByTestId("profile-decisions-dismiss"));
-
-    // Only the clicked popup is gone; the other two remain.
-    await waitFor(() => expect(screen.getAllByTestId("profile-decisions-card")).toHaveLength(2));
-    // Only that ONE issue id was recorded — not all three, not zero.
-    expect(window.localStorage.getItem(decisionsDismissedKey("flow-1"))).toBe(
-      JSON.stringify(["d-1"]),
-    );
+    await waitFor(() => expect(screen.queryByTestId("profile-decisions-card")).not.toBeInTheDocument());
+    // The entry point stays, with the count.
+    expect(screen.getByTestId("profile-decisions-compact")).toHaveTextContent("3 decisions open");
+    expect(JSON.parse(window.localStorage.getItem(decisionsDismissedKey("flow-1")) ?? "[]").sort()).toEqual([
+      "d-1",
+      "d-2",
+      "d-3",
+    ]);
     unmount();
 
-    // Remount with the SAME flowId — the dismissed one stays hidden, the
-    // other two still render, even though the API reports all three again.
-    const remountSame = render(
-      withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"),
-    );
-    await waitFor(() => expect(screen.getAllByTestId("profile-decisions-card")).toHaveLength(2));
-    remountSame.unmount();
+    // Same flow, same decisions: collapsed from the start.
+    const same = render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
+    await waitFor(() => expect(screen.getByTestId("profile-decisions-compact")).toBeInTheDocument());
+    expect(screen.queryByTestId("profile-decisions-card")).not.toBeInTheDocument();
+    same.unmount();
 
-    // Remount with a DIFFERENT flowId — nothing is dismissed for this flow,
-    // so all three render.
+    // Same flow, one NEW decision: the full notice is back.
+    global.fetch = mockFetch({
+      issues: [issue("conflict", "d-1"), issue("confirmation", "d-2"), issue("conflict", "d-3"), issue("conflict", "d-4")],
+    });
+    const fresh = render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
+    await waitFor(() => expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument());
+    fresh.unmount();
+
+    // Another flow: nothing dismissed there.
     render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-2" />, "en"));
-    await waitFor(() => expect(screen.getAllByTestId("profile-decisions-card")).toHaveLength(3));
+    await waitFor(() => expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument());
   });
 
-  // Property 6: the auto-dismiss timer hides the whole stack after
-  // `notice_auto_dismiss_seconds` without interaction; 0 means never; and an
-  // auto-hide is not a dismissal — it writes nothing to storage.
+  // Property 6
   describe("auto-dismiss timer", () => {
     afterEach(() => {
       vi.useRealTimers();
     });
 
-    it("hides the stack after notice_auto_dismiss_seconds elapse, and writes nothing to storage", async () => {
+    it("collapses the notice after notice_auto_dismiss_seconds, keeps the entry point, writes nothing", async () => {
       vi.useFakeTimers();
       global.fetch = mockFetch({
         issues: [issue("confirmation", "cf-1")],
         settings: { notice_auto_dismiss_seconds: 1 },
       });
-
       render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
       await flushEffects();
-      expect(screen.getByTestId("profile-decisions-stack")).toBeInTheDocument();
+      expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
 
-      expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
-      // Load-bearing: auto-hidden is not remembered as dismissed.
+      expect(screen.queryByTestId("profile-decisions-card")).not.toBeInTheDocument();
+      // M4: the auto-hide used to take the only "Decide now" with it.
+      expect(screen.getByTestId("profile-decisions-compact")).toBeInTheDocument();
+      expect(screen.getByTestId("profile-decisions-compact-open")).toBeInTheDocument();
       expect(window.localStorage.getItem(decisionsDismissedKey("flow-1"))).toBeNull();
       expect(window.localStorage.length).toBe(0);
     });
@@ -271,22 +261,17 @@ describe("ProfileDecisionsCard", () => {
         issues: [issue("confirmation", "cf-1")],
         settings: { notice_auto_dismiss_seconds: 0 },
       });
-
       render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
       await flushEffects();
-      expect(screen.getByTestId("profile-decisions-stack")).toBeInTheDocument();
-
+      expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument();
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(1000 * 60 * 60 * 24); // a full day
+        await vi.advanceTimersByTimeAsync(1000 * 60 * 60 * 24);
       });
-
-      expect(screen.getByTestId("profile-decisions-stack")).toBeInTheDocument();
+      expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument();
     });
   });
 
-  // Property 7: an absent notice_auto_dismiss_seconds falls back to 30
-  // seconds — NOT to 0's "never hide" — so the stack still auto-hides, just
-  // on the fallback schedule.
+  // Property 7
   describe("auto-dismiss fallback", () => {
     afterEach(() => {
       vi.useRealTimers();
@@ -294,95 +279,116 @@ describe("ProfileDecisionsCard", () => {
 
     it("falls back to a 30s auto-dismiss when the settings payload omits the field", async () => {
       vi.useFakeTimers();
-      global.fetch = mockFetch({
-        issues: [issue("confirmation", "cf-1")],
-        settings: {}, // no notice_auto_dismiss_seconds key at all
-      });
-
+      global.fetch = mockFetch({ issues: [issue("confirmation", "cf-1")], settings: {} });
       render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
       await flushEffects();
-      expect(screen.getByTestId("profile-decisions-stack")).toBeInTheDocument();
-
-      // Not yet at 30s: still showing, proving it did not fall back to 0.
+      expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(29_999);
       });
-      expect(screen.getByTestId("profile-decisions-stack")).toBeInTheDocument();
-
-      // At 30s: hidden, pinning the fallback at exactly 30, not some other value.
+      expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1);
       });
-      expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("profile-decisions-card")).not.toBeInTheDocument();
     });
   });
 
-  // Property 8: refreshToken changing re-reads /api/profile/health, and a
-  // stack that had auto-hidden becomes visible again.
+  // Property 8
   describe("refreshToken", () => {
     afterEach(() => {
       vi.useRealTimers();
     });
 
-    it("re-reads /api/profile/health when refreshToken changes, and un-hides an auto-hidden stack", async () => {
+    it("re-reads health on a new token; only a NEW decision un-collapses an auto-hidden notice", async () => {
       vi.useFakeTimers();
-      const fetchMock = mockFetch({
-        issues: [issue("confirmation", "cf-1")],
-        settings: { notice_auto_dismiss_seconds: 1 },
+      let issues = [issue("confirmation", "cf-1")];
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/api/profile/health")) return Promise.resolve(jsonResponse(healthResponse(issues)));
+        if (url.includes("/api/settings")) return Promise.resolve(jsonResponse({ notice_auto_dismiss_seconds: 1 }));
+        return Promise.reject(new Error(`unexpected fetch: ${url}`));
       });
       global.fetch = fetchMock;
-
       const healthCalls = () =>
-        fetchMock.mock.calls.filter(([url]) => String(url).includes("/api/profile/health"))
-          .length;
+        fetchMock.mock.calls.filter(([url]) => String(url).includes("/api/profile/health")).length;
 
       const { rerender } = render(
         withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" refreshToken={0} />, "en"),
       );
       await flushEffects();
       expect(healthCalls()).toBe(1);
-      expect(screen.getByTestId("profile-decisions-stack")).toBeInTheDocument();
-
-      // Let the timer auto-hide it.
+      expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
-      expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("profile-decisions-card")).not.toBeInTheDocument();
 
-      // Bump refreshToken — re-reads health, and since it succeeds the
-      // auto-hide lapses and the stack is visible again.
-      rerender(
-        withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" refreshToken={1} />, "en"),
-      );
+      // The same decisions again: stays collapsed.
+      rerender(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" refreshToken={1} />, "en"));
       await flushEffects();
-
       expect(healthCalls()).toBe(2);
-      expect(screen.getByTestId("profile-decisions-stack")).toBeInTheDocument();
+      expect(screen.queryByTestId("profile-decisions-card")).not.toBeInTheDocument();
+      expect(screen.getByTestId("profile-decisions-compact")).toBeInTheDocument();
+
+      // A new one: the full notice is back.
+      issues = [issue("confirmation", "cf-1"), issue("conflict", "c-2")];
+      rerender(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" refreshToken={2} />, "en"));
+      await flushEffects();
+      expect(healthCalls()).toBe(3);
+      expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument();
     });
   });
 
-  // Property 9: a rejecting/500ing health fetch leaves the stack hidden and
-  // throws nothing.
-  it("leaves the stack hidden and throws nothing when the health fetch rejects", async () => {
+  // Property 9
+  it("renders nothing and throws nothing when the health fetch rejects", async () => {
     global.fetch = mockFetch({ healthImpl: () => Promise.reject(new Error("network down")) });
-
-    expect(() =>
-      render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en")),
-    ).not.toThrow();
-
+    expect(() => render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"))).not.toThrow();
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
   });
 
-  it("leaves the stack hidden and throws nothing when the health fetch 500s", async () => {
+  it("renders nothing and throws nothing when the health fetch 500s", async () => {
     global.fetch = mockFetch({ issues: [issue("confirmation", "cf-1")], healthOk: false });
-
-    expect(() =>
-      render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en")),
-    ).not.toThrow();
-
+    expect(() => render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"))).not.toThrow();
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
+  });
+
+  // Property 10
+  describe("phone: the entry point docks in the decision bar", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("portals the compact row into mobileSlot, outside the floating layer, and keeps it after the auto-hide", async () => {
+      vi.useFakeTimers();
+      const slot = document.createElement("div");
+      slot.setAttribute("data-testid", "bar-slot");
+      document.body.appendChild(slot);
+      global.fetch = mockFetch({
+        issues: [issue("conflict", "d-1"), issue("conflict", "d-2")],
+        settings: { notice_auto_dismiss_seconds: 1 },
+      });
+      render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" mobileSlot={slot} />, "en"));
+      await flushEffects();
+
+      const row = within(slot).getByTestId("profile-decisions-bar-row");
+      expect(row).toHaveTextContent("2 decisions open");
+      // Not inside the fixed (desktop) layer.
+      expect(screen.getByTestId("profile-decisions-stack").contains(row)).toBe(false);
+      // Below md the floating layer is not displayed at all.
+      expect(screen.getByTestId("profile-decisions-stack").className).toMatch(/(^| )hidden( |$)/);
+      expect(row.className).toContain("md:hidden");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(within(slot).getByTestId("profile-decisions-bar-row")).toBeInTheDocument();
+
+      fireEvent.click(within(slot).getByTestId("profile-decisions-bar-row-open"));
+      expect(screen.getByTestId("profile-review-drawer")).toBeInTheDocument();
+      slot.remove();
+    });
   });
 });
 

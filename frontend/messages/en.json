@@ -288,7 +288,6 @@
       "dismiss": "Dismiss",
       "dismissAria": "Dismiss this note",
       "stillThere": "You can come back to this on your profile page any time.",
-      "more": "+{count, plural, one {# more decision} other {# more decisions}}",
       "compact": "{count, plural, one {# decision open} other {# decisions open}}"
     },
     "inputsChangedTitle": "Your profile changed since this check.",
