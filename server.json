@@ -1,0 +1,95 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Applire/applire",
+  "title": "Applire",
+  "description": "Self-hosted job applications: vault, truthfulness audit, CVs. Needs a running Applire instance.",
+  "version": "0.44.0-beta",
+  "websiteUrl": "https://applire.de",
+  "repository": {
+    "url": "https://github.com/Applire/Applire",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/applire/applire-backend:0.44.0-beta",
+      "runtimeHint": "docker",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--network",
+          "value": "{instance_network}",
+          "description": "Join your running Applire instance's Docker network, so the server reaches its database.",
+          "isRequired": true,
+          "variables": {
+            "instance_network": {
+              "description": "The instance's compose network (see `docker network ls`).",
+              "default": "applire_default",
+              "isRequired": true
+            }
+          }
+        },
+        {
+          "type": "named",
+          "name": "--env-file",
+          "value": "{instance_env_file}",
+          "description": "Your instance's .env: database URL, LLM provider and key, base URL.",
+          "isRequired": true,
+          "variables": {
+            "instance_env_file": {
+              "description": "Absolute path to the .env next to your Applire docker-compose.yml.",
+              "format": "filepath",
+              "isRequired": true
+            }
+          }
+        },
+        {
+          "type": "named",
+          "name": "--volume",
+          "value": "{instance_uploads_volume}:/app/data/uploads",
+          "description": "The instance's uploads volume, so imported CVs and photos land where the instance keeps them.",
+          "isRequired": true,
+          "variables": {
+            "instance_uploads_volume": {
+              "description": "The instance's uploads volume (see `docker volume ls`).",
+              "default": "applire_applire_uploads",
+              "isRequired": true
+            }
+          }
+        },
+        {
+          "type": "named",
+          "name": "-e",
+          "value": "APPLIRE_AGENT_TOKEN",
+          "description": "Pass the agent token from the client environment into the container."
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "python"
+        },
+        {
+          "type": "positional",
+          "value": "-m"
+        },
+        {
+          "type": "positional",
+          "value": "applire.mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "APPLIRE_AGENT_TOKEN",
+          "description": "Your personal agent token: Applire → Settings → Tokens (shown once). The server refuses to start without it.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

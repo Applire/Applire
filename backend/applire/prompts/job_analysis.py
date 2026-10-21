@@ -15,6 +15,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v11 (UX audit M6 / ruling UX-1, Hazelnut build 2, 2026-10-20): WHAT
+#   THE KINDS MEAN said "team_size counts PEOPLE" — and a company's headcount, a
+#   product's users and a number of teams are people too. The 2026-10-20 audit
+#   (luna, thinking off) showed "Patienten-App … 800.000 Nutzerinnen" and the
+#   employer's "(220 Mitarbeitende)" as "Führungsspanne 800000 MA" / "220 MA"; the
+#   n=5 replay on the same fixtures read "zwei agilen Entwicklungsteams" as team_size
+#   2 and a "Wir bieten: 120.000–140.000 € Zielgehalt" salary as budget. Both kinds
+#   now name WHOSE number they are (the role's own) and the look-alikes they are not.
+#   The reviewer's check 2c says the same in one sentence.
+#
 # Prompt version: v10 (founder ruling B-2, 2026-09-20): the degree/field-of-study class v9
 #   removed from the three concept lists gets a home instead of being lost —
 #   "education_requirement", ONE string in the posting's own words, migration 0068. v9 was
@@ -192,10 +202,16 @@ bare scope word with no figure ("Budgetverantwortung") gets NO scope entry — t
 still belongs in the skill lists as usual. Never invent, estimate, or convert a vague
 phrase into a number. Multiple entries of the same kind are fine; each quote is its own
 entry. Emit an empty array when the posting states no quantified scope bar.
-WHAT THE KINDS MEAN — team_size counts PEOPLE (Mitarbeitende, direct reports, FTE);
-budget is a MONETARY amount. A DURATION is never a scope bar of any kind: "mindestens
-8 Jahre Führungserfahrung" is a years requirement, not a team size — years/tenure bars
-must NOT appear in scope_requirements at all.
+WHAT THE KINDS MEAN — both are bars on the ROLE ITSELF. team_size counts the PEOPLE THIS
+ROLE LEADS or is responsible for (Mitarbeitende, direct reports, FTE in the role's own
+area). It is never the employer's headcount ("Die Firma (450 Mitarbeitende) sucht …"
+describes the company), never the users, patients, customers or sites a product serves
+("Plattform mit 2 Mio. Nutzern", "für 3.000 Kanzleien"), and never a count of teams,
+products or locations ("Leitung von drei Squads" states no headcount — no entry).
+budget is a MONETARY amount THIS ROLE MANAGES — never the salary or benefits the posting
+offers ("Wir bieten: 75.000 € Jahresgehalt") and never the company's revenue or funding. A DURATION is never a scope bar of any kind: "mindestens 8 Jahre
+Führungserfahrung" is a years requirement, not a team size — years/tenure bars must NOT
+appear in scope_requirements at all.
 
 LEADERSHIP EMPHASIS (how the posting weighs leading PEOPLE against doing the work):
 Set "leadership_emphasis" to null unless the posting itself names a people-leadership

@@ -316,3 +316,57 @@ def test_guide_points_large_imports_at_the_async_door_not_the_sync_upload():
     guide = _guide()
     assert "POST /api/profile/import-jobs" in guide
     assert "/api/profile/upload" not in guide
+
+
+# ---------------------------------------------------------------------------
+# Hazelnut build 2 (WP-A) — guide session: one GUIDE_VERSION bump, these lines
+# ---------------------------------------------------------------------------
+
+
+def test_guide_says_ready_is_not_clean_and_names_every_terminal_review_state():
+    """788:L12/L31: a blind probe met `status: ready` WITH `terminal-review:
+    fail` on 4 of 5 generations and invented its own policy. The guide must say
+    ready ≠ clean, name the check, its three states, and when to stop looping."""
+    guide = _guide()
+    assert "`ready` means delivered, not clean" in guide
+    assert "`terminal-review`" in guide
+    for state in ("- `pass` —", "- `fail` —", "- `not_applicable` —"):
+        assert state in guide, state
+    assert "UNVERIFIED" in guide
+    assert "at most once" in guide  # the regeneration bound
+
+
+def test_guide_says_a_la_carte_calls_do_not_move_the_flow():
+    """788:L14: "cv_generation does not refuse" read as "never refuses"."""
+    guide = _guide()
+    assert "never moves the flow" in guide
+    assert "still\nrefused out of order" in guide or "still refused out of order" in guide.replace("\n", " ")
+
+
+def test_guide_reads_not_found_on_get_profile_as_an_empty_vault():
+    """788:L33: the guide opens with "call get_profile first", which errors on a
+    brand-new vault."""
+    guide = _guide()
+    assert "**empty vault**" in guide
+    assert "import_cv" in guide
+
+
+def test_guide_routes_parked_questions_to_the_profile_review():
+    """Ruling A-1 (788:L13/L20/L23/L29/L37): the guide names the door and keeps
+    the field-gap walk agent-authored (ADR-058 note 2026-09-11)."""
+    guide = _guide()
+    assert "`run_interview()` without" in guide
+    assert 'thread: "confirmation"' in guide and 'thread: "conflict"' in guide
+    assert "Applire does not ask these questions for you" in guide
+
+
+def test_guide_tells_a_letter_writer_to_name_the_employer_per_sentence():
+    """790:L11: the letter check grounds each sentence on its own."""
+    assert "names its employer" in _guide()
+
+
+def test_guide_documents_the_cv_readback_and_its_marker_kind():
+    """788:L22: `tailored_data` on get_cv_status, marked `generated_document`."""
+    guide = _guide()
+    assert "`tailored_data` on `get_cv_status`" in guide
+    assert '"kind": "generated_document"' in guide

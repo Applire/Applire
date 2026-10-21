@@ -144,7 +144,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 # 2026-08-25 while the document it returned said 2026-07-25. An agent that
 # caches by version could not tell it had a stale document. Pinned in both
 # directions by `test_guide_version_matches_the_guides_own_revision_line`.
-GUIDE_VERSION = "2026-10-03"
+GUIDE_VERSION = "2026-10-20"
 
 logger = logging.getLogger(__name__)
 
@@ -518,6 +518,8 @@ def _held_import_summary(gated) -> dict:
 # (get_guide, get_profile, update_profile, import_cv, submit_testimony, add_role,
 # generate_cv, generate_cover_letter, get_cv_status, get_cover_letter_status,
 # audit_document). Marking everything would make the marker mean nothing.
+# (The two status doors DO mark the generated document's own text, with the
+# separate `generated_document` kind — `_GENERATED_DOCUMENT_FIELDS` below.)
 _JD_DERIVED_FIELDS: dict[str, list[str]] = {
     "analyze_jd": [
         "role_title", "company_name", "required_skills", "nice_to_have_skills",
@@ -528,6 +530,12 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
         # sentence exactly as easily as in a requirement.
         "education_requirement",
         "scope_requirements[].quote", "leadership_emphasis.quote",
+        # 788:L2 (the MCP injection canary lane): the model's free-text reading
+        # of the posting's seniority is stored unconstrained (models/job.py
+        # `Text`, no closed set) — an obedient extraction put the canary there
+        # and it reached the agent unmarked. Pinned by
+        # tests/unit/test_mcp_injection_canary.py.
+        "seniority_level",
     ],
     "analyze_gaps": [
         "critical_gaps", "minor_gaps", "keyword_gaps", "category_a", "category_b",
@@ -564,6 +572,32 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
         "ats_report.keywords.present_denied_matches",
     ],
 }
+
+
+# 788:L22 (ADR-084 cl. 4 amended, Hazelnut build 2) — a GENERATED document's
+# text is a second, distinct exposure: Applire's writer model produced it from
+# the vault AND the job posting, and the writer is required to reproduce posting
+# surface forms verbatim, so posting text can survive into it word for word.
+# Its own `kind` ("generated_document") and notice, never the job-posting one:
+# that notice says "neither you nor Applire authored", which is false here.
+# Marked only when the text is actually present (status ready).
+_GENERATED_DOCUMENT_FIELDS: dict[str, list[str]] = {
+    "get_cv_status": ["tailored_data"],
+    "get_cover_letter_status": ["letter_data", "section_overrides"],
+}
+
+
+def _marked_document(payload, tool: str):
+    """Attach the generated-document `untrusted_content` object when *tool*'s
+    document text is present; otherwise return the payload untouched."""
+    from applire.services.untrusted_text import mark_tool_result
+
+    if not isinstance(payload, dict):
+        return payload
+    fields = [f for f in _GENERATED_DOCUMENT_FIELDS[tool] if payload.get(f)]
+    if not fields:
+        return payload
+    return mark_tool_result(payload, fields, kind="generated_document")
 
 
 def _marked(payload, kind: str):
@@ -664,9 +698,7 @@ async def import_cv(
         "Analyse a job description and return a structured JobAnalysis. "
         "Provide exactly one of: text (the JD body) or url (scraped "
         "server-side). Pass role_title/company_name to override the values "
-        "inferred from the body (when the board lists them separately). "
-        "May return a duplicate_of hint (see guide). jd_language = detected "
-        "document language (see guide)."
+        "inferred from the body. duplicate_of and jd_language: see guide."
     )
 )
 async def analyze_jd(
@@ -915,10 +947,10 @@ async def resolve_held_merge(staged_id: str, decision: str) -> dict:
 
 @agent_tool(
     description=(
-        "Submit facts elicited from the candidate as free-text testimony "
-        "(their own words); Applire reconciles them into the profile with "
-        "receipts. Recorded, not verified — the vault stays self-attested. "
-        "Read resource schema://claims first (max 20/call). Optional `gap` = "
+        "Submit facts elicited from the candidate, in their own words; "
+        "Applire reconciles them into the profile with receipts. Recorded, "
+        "not verified — the vault stays self-attested. Read schema://claims "
+        "first (max 20/call). Optional `gap` = "
         "EXACT concept string from analyze_gaps (requires job_id). Ambiguous/"
         "conflicting claims are parked in the profile Health hub, reported "
         "per claim. Denials are recorded (denial_recorded), never dropped."
@@ -1007,15 +1039,37 @@ async def analyze_gaps(job_id: str) -> dict:
 
 @agent_tool(
     description=(
-        "Start a gap-fill interview session for the given job. "
-        "Requires a gap analysis to exist (call analyze_gaps first). "
-        "Returns session_id and the first question."
+        "Start a gap-fill interview session for the given job (call "
+        "analyze_gaps first). Omit job_id to start the profile review that "
+        "answers the vault's parked confirmations and conflicts. Returns "
+        "session_id and the first question."
     )
 )
-async def run_interview(job_id: str) -> dict:
-    jid = _parse_uuid(job_id, "job_id")
+async def run_interview(job_id: str | None = None) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
+    if job_id is None:
+        # A-1 (788:L13/L20/L23/L29/L37, ADR-058 amended): the UI's Health-hub
+        # "Resolve" button starts exactly this session (POST
+        # /api/session/profile-review); its answers go through `send_message`
+        # like any interview turn. It walks only the parked conflicts and
+        # confirmations — deterministic option picks, no LLM question per turn —
+        # never the field-gap agenda (`completeness.field_gaps`), which stays the
+        # agent's own to ask (ADR-058 note 2026-09-11). Its payload carries no
+        # job-posting text, so it is not marked.
+        async with get_db() as db:
+            try:
+                result = await session_svc.create_profile_review_session(
+                    db, provider, user_id=uid
+                )
+            except LookupError as exc:
+                raise not_found(str(exc))
+            except ownership.OwnedNotFound:
+                raise
+            except Exception as exc:
+                raise internal_unexpected(exc, where="run_interview")
+        return result.model_dump(mode="json")
+    jid = _parse_uuid(job_id, "job_id")
     async with get_db() as db:
         # MD-23: posting access is the door's check (ADR-092 cl. 5c).
         await _owned_job(db, jid)
@@ -1236,14 +1290,13 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
 
 @agent_tool(
     description=(
-        "Generate a tailored CV for the given job. "
-        "Returns cv_id, html_url, and pdf_url. "
-        "The URLs point to the FastAPI backend (APPLIRE_BASE_URL). "
-        "Optional target_pages pins the CV to a specific page count for this "
-        f"generation only ({DEFAULT_REGION} norm: "
-        f"{REGION_NORMS[DEFAULT_REGION].cv_standard_pages} pages standard, "
-        f"{REGION_NORMS[DEFAULT_REGION].cv_max_pages} max); omit it to use "
-        "the user's default setting, then the region standard."
+        "Generate a tailored CV for the given job; blocks until done. "
+        "Returns cv_id, html_url, and pdf_url. 'ready' is not 'verified': "
+        "read get_cv_ats_report. Optional target_pages pins the page count "
+        f"for this generation ({DEFAULT_REGION}: "
+        f"{REGION_NORMS[DEFAULT_REGION].cv_standard_pages} standard, "
+        f"{REGION_NORMS[DEFAULT_REGION].cv_max_pages} max); omitted = user "
+        "default, then region standard."
     )
 )
 async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
@@ -1276,7 +1329,8 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
 @agent_tool(
     description=(
         "Poll the status of a CV generation. "
-        "Returns {cv_id, status, html_url?, pdf_url?, expires_at?}. "
+        "Returns {cv_id, status, html_url?, pdf_url?, expires_at?, "
+        "tailored_data?} — tailored_data is the CV's text once ready. "
         "status: 'pending' | 'generating' | 'ready' | 'failed'."
     )
 )
@@ -1284,7 +1338,7 @@ async def get_cv_status(cv_id: str) -> dict:
     cid = _parse_uuid(cv_id, "cv_id")
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned(db, GeneratedCV, cid, "CV")
+        record = await _owned(db, GeneratedCV, cid, "CV")
         try:
             # ADR-091 cl. 18: the URLs inside are the REST service's unsigned
             # ones; the identity wrapper re-signs them for this user.
@@ -1293,7 +1347,43 @@ async def get_cv_status(cv_id: str) -> dict:
             )
         except LookupError as exc:
             raise not_found(str(exc))
-    return result.model_dump(mode="json")
+        payload = result.model_dump(mode="json")
+        # 788:L22/L30 — the CV's own text, the twin of the letter status's
+        # `letter_data`: without it an agent judged a CV it could not read.
+        payload["tailored_data"] = (
+            _cv_readback(record) if payload.get("status") == "ready" else None
+        )
+    return _marked_document(payload, "get_cv_status")
+
+
+def _cv_readback(record: GeneratedCV) -> dict | None:
+    """The CV content as the human's preview shows it (schema://cv shape).
+
+    The same two steps ``services.cv.get_cv_html`` applies before it renders —
+    the human's saved section edits on top of the stored ``tailored_data``, then
+    no project with nothing under its heading — so the agent reads the document
+    the human sees, not a draft the edits have since replaced. ``photo_url`` is
+    dropped: it is a storage path resolved only at render time, not content.
+    A row whose stored data no longer validates reads as ``None`` rather than
+    failing the status poll (the poll is the door's liveness read).
+    """
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv_section_editor import apply_overrides_to_tailored
+
+    try:
+        tailored = TailoredCVData.model_validate(record.tailored_data or {})
+        tailored = apply_overrides_to_tailored(
+            tailored, record.content_snapshot, record.section_overrides
+        )
+        tailored = cv_svc.strip_empty_projects(tailored)
+    except Exception:
+        logger.exception(
+            "agent door: CV %s readback failed — returning no text", getattr(record, "id", None)
+        )
+        return None
+    data = tailored.model_dump(mode="json")
+    data.get("contact", {}).pop("photo_url", None)
+    return data
 
 
 @agent_tool(
@@ -1328,9 +1418,12 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
     and the generation-time self-audit does. Same input, same vault, two
     doors, two verdicts.
 
-    ``entailment`` is NOT mirrored, deliberately: ``audit_document``'s own
-    docstring records that the agent door keeps ``entailment=True`` while
-    ``build_self_audit_report`` passes ``False`` (ADR-068 clause 7 scoping).
+    ``entailment`` IS mirrored since founder ruling D2-4 (Hazelnut build 2,
+    ADR-068 cl. 7 parity): the door used to keep the narrow LLM entailment arm
+    on (``audit_document``'s default) while ``build_self_audit_report`` passes
+    ``False``, so one document could carry two different reports depending on
+    the channel that asked. Both now grade deterministically plus the two
+    bounded judgement seams only.
     ``document_language`` is not mirrored here either — that seam's parity is
     a separate question with its own cost profile, and nothing in this
     defect's evidence touches it.
@@ -1362,11 +1455,13 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
                 "cv", profile_json, tailored_data=record.tailored_data or {},
                 provider=get_provider(),
                 keyword_ledger=keyword_ledger,
+                entailment=False,  # D2-4: the self-audit's setting (selfaudit.py)
             )
         else:
             report = await oracle_svc.audit_document(
                 "cover_letter", profile_json, letter_data=record.letter_data or {},
                 provider=get_provider(),
+                entailment=False,  # D2-4: the self-audit's setting (selfaudit.py)
             )
     except ownership.OwnedNotFound:
         raise  # foreign = missing: the wrapper answers not_found (S-10)
@@ -1403,6 +1498,10 @@ async def audit_document(
                 report = await oracle_svc.audit_document(
                     "external", profile.profile_json or {},
                     text=document_text, provider=get_provider(),
+                    # Founder ruling D2-4b: the narrow entailment arm is off on
+                    # the whole tool — it graded TRUE claims "inflated", caught
+                    # nothing true and flipped on identical input.
+                    entailment=False,
                 )
             except ownership.OwnedNotFound:
                 raise  # foreign = missing: the wrapper answers not_found (S-10)
@@ -1421,6 +1520,10 @@ async def audit_document(
             if record.deleted_at is None:
                 return await _audit_stored_document(record, kind, db)
         raise not_found(f"No generated CV or cover letter with id {document_id}")
+
+
+#: 788:L38 — accepted spellings of a `document_kind`, mapped to the canonical one.
+_DOCUMENT_KIND_ALIASES = {"cover-letter": "cover_letter"}
 
 
 @agent_tool(
@@ -1446,8 +1549,15 @@ async def render_document(
     from applire.schemas.cv import CV_SCHEMA_VERSION, CVTemplate
     from applire.schemas.cover_letter import LETTER_SCHEMA_VERSION
 
+    # 788:L38 — the letter's resource and schema_version spell it with a hyphen
+    # (`schema://cover-letter`, `cover-letter/1`), so an agent that copies that
+    # spelling must not be refused. `cover_letter` stays canonical: the result's
+    # `document_kind` is always the underscore form.
+    document_kind = _DOCUMENT_KIND_ALIASES.get(document_kind, document_kind)
     if document_kind not in ("cv", "cover_letter"):
-        raise invalid_input("document_kind must be 'cv' or 'cover_letter'")
+        raise invalid_input(
+            "document_kind must be 'cv' or 'cover_letter' ('cover-letter' is accepted as an alias)"
+        )
     jid = _parse_uuid(job_id, "job_id")
     if not isinstance(content, dict) or not content:
         raise invalid_input(
@@ -1585,7 +1695,8 @@ async def generate_cover_letter(job_id: str) -> dict:
 @agent_tool(
     description=(
         "Poll the status of a cover letter generation. "
-        "Returns {cover_letter_id, status, html_url?, pdf_url?, expires_at?}. "
+        "Returns {cover_letter_id, status, html_url?, pdf_url?, expires_at?, "
+        "letter_data?}. "
         "status: 'pending' | 'generating' | 'ready' | 'failed'."
     )
 )
@@ -1600,7 +1711,7 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
             )
         except LookupError as exc:
             raise not_found(str(exc))
-    return result.model_dump(mode="json")
+    return _marked_document(result.model_dump(mode="json"), "get_cover_letter_status")
 
 
 @agent_tool(
@@ -1740,11 +1851,9 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
 
 @agent_tool(
     description=(
-        "Get details for a specific application by ID. A non-null stale_cv "
-        "field means the profile grew after the newest CV was tailored — "
-        "offer to re-tailor via generate_cv, or mute with "
-        "update_application(dismiss_stale_cv=true). Never regenerate without "
-        "asking; a pinned submitted version is never replaced."
+        "Get one application by ID. A non-null stale_cv means the profile "
+        "grew since the newest CV: offer a re-tailor, never regenerate "
+        "without asking (guide)."
     )
 )
 async def get_application(application_id: str) -> dict:
@@ -1816,9 +1925,7 @@ async def create_application(
         f"user_status: one of {_USER_STATUS_VALUES}. deadline: ISO 8601. "
         "submitted_cv_id/submitted_cover_letter_id: the sent document. "
         "dismiss_stale_cv=true mutes the stale hint. language_override: "
-        "'de'/'en'/'auto'. add_fact_pin {entry_type, entry_id, quote, "
-        "targets?} pins a verbatim vault quote generation must keep; "
-        "remove_fact_pin: pin_id — see guide."
+        "de/en/auto. add_fact_pin / remove_fact_pin: see guide."
     )
 )
 async def update_application(

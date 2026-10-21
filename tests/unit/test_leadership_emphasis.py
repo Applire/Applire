@@ -161,6 +161,7 @@ class TestResponseSchema:
         record.scope_requirements = None
         record.leadership_emphasis = None
         record.duplicate_of = None
+        record.review = None  # 787:L28: the ORM row has no review column; a MagicMock invents one
         assert JobAnalysisResponse.model_validate(record).leadership_emphasis is None
 
     def test_a_stored_facet_round_trips(self):
@@ -185,6 +186,7 @@ class TestResponseSchema:
         record.scope_requirements = None
         record.leadership_emphasis = dict(_FACET)
         record.duplicate_of = None
+        record.review = None  # 787:L28: the ORM row has no review column; a MagicMock invents one
         parsed = JobAnalysisResponse.model_validate(record)
         assert parsed.leadership_emphasis is not None
         assert parsed.leadership_emphasis.emphasis == "leadership_led"
