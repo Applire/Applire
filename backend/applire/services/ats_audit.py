@@ -1550,29 +1550,6 @@ def _keyword_coverage(
             k for k in present_unsupported
             if not _grounded_through_matched_forms(claim_matches[k], vault_index)
         ]
-    # #790 line L10 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20): every
-    # test above is literal, so on a pair whose vault may state the evidence in
-    # ANOTHER language ("Stripe payouts" on an EN CV, "Stripe-Auszahlungen …" in
-    # a DE-first vault) "nothing in your profile backs this" is an
-    # absence-based accusation the instrument cannot make. Such a term leaves
-    # the group-1 population for a neutral "not checked across languages" row
-    # (``present_other_language``, rendered by ``_other_language_check``). The
-    # pair fact is the Oracle's own (``holds_other_language``, ADR-066: one
-    # predicate for both halves). No vault index or no document language →
-    # unchanged (fail open to today's behaviour).
-    present_other_language: list[str] = []
-    if vault_index is not None and present_unsupported:
-        from applire.services.oracle.matchers.vault import holds_other_language
-
-        if holds_other_language(vault_index, document_language):
-            present_other_language = list(present_unsupported)
-            present_unsupported = []
-    # F-8: a PRESENT keyword whose owning ledger row the candidate DENIED. The
-    # ownership rule is `keyword_present`'s own (`_entry_norms`, ADR-048 §8/#122), so
-    # the two can never disagree about which row a keyword belongs to; the fact read
-    # off that row is its `status`, which the ledger already carries
-    # (`keyword_ledger._VALID_STATUS`) and already reports separately in the
-    # DO-NOT-CLAIM block. Read-only on the ledger — no ledger semantics change here.
     # Build-2 delivery F2 (SF-REVIEW.18): the recorded denials that cover a
     # flagged term, read off the vault index every audit seam already builds
     # (`grounding_vault_index`) — the ledger floor's own predicate, so the review
@@ -1589,6 +1566,38 @@ def _keyword_coverage(
             covering = denials_covering(k, [f for f in forms if f], denied_concepts, release)
             if covering:
                 present_unsupported_denials[k] = covering
+    # #790 line L10 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20): every
+    # test above is literal, so on a pair whose vault may state the evidence in
+    # ANOTHER language ("Stripe payouts" on an EN CV, "Stripe-Auszahlungen …" in
+    # a DE-first vault) "nothing in your profile backs this" is an
+    # absence-based accusation the instrument cannot make. Such a term leaves
+    # the group-1 population for a neutral "not checked across languages" row
+    # (``present_other_language``, rendered by ``_other_language_check``). The
+    # pair fact is the Oracle's own (``holds_other_language``, ADR-066: one
+    # predicate for both halves). No vault index or no document language →
+    # unchanged (fail open to today's behaviour).
+    # Build-2 adversarial F-D (founder ruling R3-a, ADR-068 amended): the
+    # other-language move below is about a term the vault may state in other
+    # WORDS. A term one of the candidate's own recorded denials covers is not
+    # that case — the candidate said they do not have it — so it never leaves
+    # the red population (the same cover the review card reads above).
+    present_other_language: list[str] = []
+    if vault_index is not None and present_unsupported:
+        from applire.services.oracle.matchers.vault import holds_other_language
+
+        if holds_other_language(vault_index, document_language):
+            present_other_language = [
+                k for k in present_unsupported if k not in present_unsupported_denials
+            ]
+            present_unsupported = [
+                k for k in present_unsupported if k in present_unsupported_denials
+            ]
+    # F-8: a PRESENT keyword whose owning ledger row the candidate DENIED. The
+    # ownership rule is `keyword_present`'s own (`_entry_norms`, ADR-048 §8/#122), so
+    # the two can never disagree about which row a keyword belongs to; the fact read
+    # off that row is its `status`, which the ledger already carries
+    # (`keyword_ledger._VALID_STATUS`) and already reports separately in the
+    # DO-NOT-CLAIM block. Read-only on the ledger — no ledger semantics change here.
     present_denied = [
         k for k in present
         if any(
@@ -1622,6 +1631,10 @@ def _keyword_coverage(
 def _other_language_check(checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> None:
     """#790 line L10 (D2-1 = A) — the neutral row for ``present_other_language``.
 
+    The copy claims only what the instrument knows (ruling R3-a): the check
+    compares wording and the vault holds text in another language, so
+    these terms were not checked — never that the profile states them.
+
     ``not_applicable``: the keyword check did not run across languages for these
     terms, so it neither passes nor fails them (ADR-079 cl. 4 bucket) and the
     review surface shows them under "Weitere Hinweise", outside group 1's count.
@@ -1633,7 +1646,9 @@ def _other_language_check(checks: list[ATSCheck], coverage: ATSKeywordCoverage) 
         id="keyword-other-language",
         status="not_applicable",
         details=(
-            "not verified — your profile states it in another language: "
+            "not checked across languages — your profile contains text in another "
+            "language and this check compares wording only; check these terms "
+            "yourself: "
             + ", ".join(terms[:8]) + (f" (+{len(terms) - 8} more)" if len(terms) > 8 else "")
         ),
         details_key="keyword-other-language",

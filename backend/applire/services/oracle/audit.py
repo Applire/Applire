@@ -136,6 +136,23 @@ _EXCERPT_CHARS = 160
 _LANGUAGE_LABELS = {"de": "German", "en": "English"}
 
 
+def _denial_covers(text: str, idx: VaultIndex) -> bool:
+    """Does one of the candidate's recorded denials cover ``text``? The ledger
+    floor's own predicate (``stance.denials_covering``) over the denials the
+    vault index carries — the same fact the ATS keyword check reads, so the
+    D2-1 "other language" softening never reaches a term the candidate denied
+    (build-2 adversarial F-D, ruling R3-a). Never raises."""
+    denials = list(getattr(idx, "denied_concepts", ()) or ())
+    if not denials:
+        return False
+    try:
+        from applire.services.profile.reconcile.stance import denials_covering
+
+        return bool(denials_covering(text, [], denials, getattr(idx, "denial_release_text", "") or ""))
+    except Exception:  # pragma: no cover — defensive: fall back to D2-1's verdict
+        return False
+
+
 def _evidence_refs(units: list[EvidenceUnit]) -> list[EvidenceRef]:
     refs: list[EvidenceRef] = []
     seen_receipts: set[str] = set()
@@ -1605,7 +1622,10 @@ async def _verify_claim_unchecked(
         # a German CV, "own brand identity" in the vault) fell through to an
         # absence-based accusation. A literal miss there is "not checked
         # across languages": unverifiable, no model call.
-        if holds_other_language(idx, document_language):
+        # Build-2 adversarial F-D (ruling R3-a): a skill one of the candidate's
+        # own recorded denials covers is not that case — it stays unbacked,
+        # the same cover the keyword check reads (ADR-066, one rule per half).
+        if holds_other_language(idx, document_language) and not _denial_covers(claim.text, idx):
             return ClaimVerdict(
                 verdict="unverifiable",
                 checker="grounding",
