@@ -536,7 +536,7 @@ curl -H "Authorization: Bearer apl_…" http://localhost/api/profile/exists
 
 `GET /api/profile` returns the whole profile and answers 404 ("No profile found") until the first CV is imported. Write it without a trailing slash: `/api/profile/` is redirected (307).
 
-An **MCP client** configuration gains the token (the Docker form passes it through):
+An **MCP client** configuration gains the token. The agent runs inside your running backend container (the same command the token dialog shows):
 
 ```json
 {
@@ -545,7 +545,7 @@ An **MCP client** configuration gains the token (the Docker form passes it throu
       "command": "docker",
       "args": [
         "compose", "-f", "/absolute/path/to/applire/docker-compose.yml",
-        "run", "--rm", "-e", "APPLIRE_AGENT_TOKEN", "-T", "mcp"
+        "exec", "-T", "-e", "APPLIRE_AGENT_TOKEN", "backend", "python", "-m", "applire.mcp"
       ],
       "env": { "APPLIRE_AGENT_TOKEN": "apl_…" }
     }
@@ -553,12 +553,16 @@ An **MCP client** configuration gains the token (the Docker form passes it throu
 }
 ```
 
-The `mcp` service is part of the shipped `docker-compose.yml` under the profile `mcp`, and has been since the first public release. A compose file that predates it, or one you wrote or trimmed yourself, may lack it. Then fetch the current file from the release assets (`curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml`; it replaces your file, so copy over any edits of your own) or copy just the `mcp` service from it, or start the server inside your running backend container instead:
+With the stack stopped, `run --rm -T -e APPLIRE_AGENT_TOKEN mcp` starts a one-off container instead:
 
 ```json
 "args": ["compose", "-f", "/absolute/path/to/applire/docker-compose.yml",
-         "exec", "-T", "-e", "APPLIRE_AGENT_TOKEN", "backend", "python", "-m", "applire.mcp"]
+         "run", "--rm", "-e", "APPLIRE_AGENT_TOKEN", "-T", "mcp"]
 ```
+
+The `mcp` service is part of the shipped `docker-compose.yml` under the profile `mcp`, and has been since the first public release. A compose file that predates it, or one you wrote or trimmed yourself, may lack it. Then fetch the current file from the release assets (`curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml`; it replaces your file, so copy over any edits of your own) or copy just the `mcp` service from it.
+
+MCP clients that install servers from the official MCP Registry find Applire as `io.github.Applire/applire`. That entry starts the same image with `docker run` and joins your running instance: it asks for your instance's Docker network (`docker network ls`, usually `<folder>_default`), the path to its `.env`, its uploads volume (`docker volume ls`, usually `<folder>_applire_uploads`) and your agent token. It is not a separate Applire — without a running instance it has nothing to connect to.
 
 Either way, set `APPLIRE_BASE_URL` in `.env` to the address you open Applire on (Section 8), so the document links your agent receives open in your browser.
 
