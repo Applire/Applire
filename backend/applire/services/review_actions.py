@@ -333,7 +333,9 @@ def _profile_for_support(profile_json: dict) -> tuple[dict, list[str]]:
     return out, denied
 
 
-def support_in_profile(wordings: list[str], profile_json: dict) -> tuple[list[dict], list[str]] | None:
+def support_in_profile(
+    wordings: list[str], profile_json: dict, *, user_id: uuid.UUID | None = None,
+) -> tuple[list[dict], list[str]] | None:
     """Bug #797 / founder ruling D2-5 = A — does the candidate's WHOLE profile
     hold every wording this finding stands on?
 
@@ -343,6 +345,8 @@ def support_in_profile(wordings: list[str], profile_json: dict) -> tuple[list[di
     concept; ``None`` otherwise. ``receipt`` names the backing profile lines (at
     most three, de-duplicated); ``unconfirmed_skill_names`` the skills with
     status ``unconfirmed`` that back a wording — the caller confirms them. Pure: no database, no model call.
+    ``user_id`` is accepted for the service-signature contract (ADR-092) and
+    unused: the caller passes the owner's own profile.
     """
     from applire.services.oracle.matchers import build_vault_index, ground_skill_claim
     from applire.services.profile.reconcile.stance import is_denied_concept
@@ -403,7 +407,7 @@ async def confirm_supported(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSe
         finding = _listed_or_raise(record, key)
         profile = await get_profile_for_user(db, owner)
         profile_json = (profile.profile_json if profile else None) or {}
-        found = support_in_profile(finding.wording(), profile_json)
+        found = support_in_profile(finding.wording(), profile_json, user_id=owner)
         if found is None:
             raise NotSupportedByProfile(
                 f"a wording of {key!r} is not in the profile — testimony needed"
