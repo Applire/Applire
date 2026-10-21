@@ -1573,6 +1573,22 @@ def _keyword_coverage(
     # off that row is its `status`, which the ledger already carries
     # (`keyword_ledger._VALID_STATUS`) and already reports separately in the
     # DO-NOT-CLAIM block. Read-only on the ledger — no ledger semantics change here.
+    # Build-2 delivery F2 (SF-REVIEW.18): the recorded denials that cover a
+    # flagged term, read off the vault index every audit seam already builds
+    # (`grounding_vault_index`) — the ledger floor's own predicate, so the review
+    # never offers "add it to my profile" for what the candidate disclaimed.
+    present_unsupported_denials: dict[str, list[str]] = {}
+    denied_concepts = list(getattr(vault_index, "denied_concepts", ()) or ())
+    if denied_concepts and present_unsupported:
+        from applire.services.profile.reconcile.stance import denials_covering
+
+        release = getattr(vault_index, "denial_release_text", "") or ""
+        for k in present_unsupported:
+            forms = [m.get("form", "") if isinstance(m, dict) else getattr(m, "form", "")
+                     for m in claim_matches.get(k) or []]
+            covering = denials_covering(k, [f for f in forms if f], denied_concepts, release)
+            if covering:
+                present_unsupported_denials[k] = covering
     present_denied = [
         k for k in present
         if any(
@@ -1599,6 +1615,7 @@ def _keyword_coverage(
         present_unsupported_matches={k: claim_matches[k] for k in present_unsupported},
         present_other_language=present_other_language,
         present_denied_matches={k: matches_by_kw[k] for k in present_denied},
+        present_unsupported_denials=present_unsupported_denials,
     )
 
 

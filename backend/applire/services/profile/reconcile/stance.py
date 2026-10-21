@@ -390,6 +390,51 @@ def containment_release_form(
     return None
 
 
+def denials_covering(
+    token: str,
+    forms: list[str] | None,
+    denials: list[str],
+    corpus: str | None,
+) -> list[str]:
+    """The recorded denials that cover ``token`` — the ledger floor's question,
+    asked of a term a DOCUMENT carries (build-2 delivery F2, SF-REVIEW.18).
+
+    The review surface offers *Stimmt, in mein Profil aufnehmen* on a term the
+    profile does not back. When one of the candidate's own recorded denials
+    covers that term, the offer invites them to write the claim they disclaimed
+    into their profile ("Lebensmittelkunden" under the denial "direkte
+    Produktion für Lebensmittelkunden"). This answers "which denial covers it"
+    with the floor's OWN machinery, never a second matcher (ADR-066): the term
+    is covered when :func:`is_denied_concept` holds for it or any of its forms
+    over the JOINT denial list, and :func:`containment_release_form` does not
+    release it against ``corpus`` (:func:`denial_release_corpus`). A fact, not
+    a judgement about the sentence (ADR-062 cl. 1): the term may stand in an
+    honest negation; what changes is only that the profile write is not
+    offered. Returns the covering denials longest first (declared ones and the
+    compounds that contain a probe), ``[]`` when none covers it.
+    """
+    probes = [
+        p for p in dict.fromkeys([token, *(forms or [])])
+        if isinstance(p, str) and p.strip()
+    ]
+    denials = [d for d in denials or [] if isinstance(d, str) and d.strip()]
+    if not probes or not denials:
+        return []
+    if not any(is_denied_concept(p, denials, corpus) for p in probes):
+        return []
+    if containment_release_form(token, forms, denials, corpus) is not None:
+        return []
+    covering = []
+    for d in denials:
+        d_norm = _norm(d)
+        if any(
+            _declares(d, _alias_forms(_norm(p))) or _bounded_present(p, d_norm)
+            for p in probes
+        ):
+            covering.append(d)
+    return sorted(dict.fromkeys(covering), key=lambda d: len(_norm(d)), reverse=True)
+
+
 def record_denials(
     metadata: ProfileMetadata,
     denials: list[str],

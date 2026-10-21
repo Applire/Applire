@@ -77,6 +77,14 @@ class VaultIndex:
     # its-own-receipt trap). Consulted ONLY by the numbers checker's guarded
     # absorption in ``audit._denial_statement_backing``.
     denial_units: list[EvidenceUnit] = field(default_factory=list)
+    # Build-2 delivery F2 (SF-REVIEW.18): the recorded denials' CONCEPTS and the
+    # corpus that may release one (``stance.denial_release_corpus``, ADR-059
+    # #480 §7.5(a)) — so every audit seam that builds this index can say which
+    # denial covers a flagged term (``ats_audit._keyword_coverage`` →
+    # ``keywords.present_unsupported_denials``) without a new parameter. Like
+    # ``denial_units``, never part of ``units``: a denial is no grounding.
+    denied_concepts: tuple[str, ...] = ()
+    denial_release_text: str = ""
     # ADR-068 clause 2a — the vault's OWN dominant language, computed ONCE per
     # audit over the CONCATENATED text of every evidence unit (never
     # per-unit: a short label like a skill name or a year span defaults to
@@ -610,6 +618,7 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         experience_ids=frozenset(experience_ids),
         same_employer_ids=same_employer_ids,
         denial_units=denial_units,
+        **_denial_facts(profile, p),
         # ADR-068 clause 2a — corpus-level, once, over the SAME normalized
         # blob every grounding matcher already shares (never per-unit).
         dominant_language=detect_language(all_text_norm),
@@ -619,6 +628,23 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         unit_language_shares=_unit_language_shares(units),
         **_skill_duration_facts(p, units),
     )
+
+
+def _denial_facts(raw: Any, p: MasterProfileData) -> dict[str, Any]:
+    """The recorded denial concepts and the release corpus (see the
+    ``VaultIndex.denied_concepts`` field). Never raises: on any error the index
+    carries no denial facts, which offers what it offered before."""
+    try:
+        from applire.services.profile.reconcile.stance import denial_release_corpus
+
+        concepts = tuple(
+            d.concept for d in (p.metadata.denied_concepts if p.metadata else [])
+            if isinstance(getattr(d, "concept", None), str) and d.concept.strip()
+        )
+        source = raw if isinstance(raw, dict) else p.model_dump(mode="json")
+        return {"denied_concepts": concepts, "denial_release_text": denial_release_corpus(source)}
+    except Exception:  # pragma: no cover — defensive
+        return {}
 
 
 # Characters around a stated duration in which its subject skill must be

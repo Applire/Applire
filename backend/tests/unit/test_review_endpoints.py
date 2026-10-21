@@ -1408,3 +1408,46 @@ def test_protected_name_must_stand_as_whole_words_in_the_section():
     text = "Ich arbeite seit 2019 mit agilen Methoden und Institutsleitung."
     assert ra.protected_name_hit(text, ["IT"], ["it"]) is None
     assert ra.protected_name_hit("Leitung der IT bei Acme.", ["IT"], ["it"]) == "it"
+
+
+# ── build-2 delivery F2: a term a recorded denial covers is never added ──────
+
+
+@pytest.mark.asyncio
+async def test_add_evidence_on_a_term_a_recorded_denial_covers_returns_409_and_writes_nothing(db):
+    report = _ats_report("cover-letter", ["Lebensmittelkunden"],
+                         {"Lebensmittelkunden": [{"form": "Lebensmittelkunden", "stem": False}]})
+    report["keywords"]["present_unsupported_denials"] = {
+        "Lebensmittelkunden": ["direkte Produktion für Lebensmittelkunden"]
+    }
+    cl_id = await seed_letter(db, ats_report=report)
+    client = _client(db)
+    with patch(
+        "applire.services.profile.reconcile.testimony_bridge.submit_testimony",
+    ) as mock_submit:
+        response = client.post(
+            f"/api/cover-letter/{cl_id}/review/add-evidence",
+            json={"finding_key": rs.finding_key("ats", "Lebensmittelkunden"),
+                  "text": "Ich habe für Lebensmittelkunden produziert."},
+        )
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["error"] == "finding_denied"
+    assert detail["denials"] == ["direkte Produktion für Lebensmittelkunden"]
+    mock_submit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_supported_on_a_term_a_recorded_denial_covers_returns_409_finding_denied(db):
+    report = _ats_report("cover-letter", ["Lebensmittelkunden"],
+                         {"Lebensmittelkunden": [{"form": "Lebensmittelkunden", "stem": False}]})
+    report["keywords"]["present_unsupported_denials"] = {
+        "Lebensmittelkunden": ["direkte Produktion für Lebensmittelkunden"]
+    }
+    cl_id = await seed_letter(db, ats_report=report)
+    response = _client(db).post(
+        f"/api/cover-letter/{cl_id}/review/supported",
+        json={"finding_key": rs.finding_key("ats", "Lebensmittelkunden")},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "finding_denied"
