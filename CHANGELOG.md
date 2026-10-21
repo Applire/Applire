@@ -29,9 +29,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **A budget line keeps its magnitude when it is translated (#786).** The check that a translated budget line kept its figures now also compares the magnitude word, so "€2M" can no longer become "2 Mrd."; the stored line is shown instead.
 - **A strength you named while answering "no" in the interview counts for the CV too (#783).** When you said, for example, "no PSD2 licence work, but I set up least-privilege IAM on AWS", the letter already used the second half; the CV review no longer treats it as unsupported. What you said you lack is still never claimed. v2 pipeline.
 - **A skill you only list is named, not narrated (#787, ruling V-1).** A job requirement backed only by your skills list may appear in the CV's skills line or a list of tools, never as a responsibility or result you did not describe. v2 pipeline.
+- **The interview's completion screen shows your real profile completeness (#789).** Ending the interview with "Ich bin fertig" showed "0 % Profilvollständigkeit" while the profile stood at 94 %; the done path now reads the profile. "Aktualisiertes Profil anzeigen" opens your profile (it was a dead link).
+- **A sidebar click no longer drops an unsaved edit (#789).** The sidebar, the phone menu and the account menu now ask first, like links, the tab strip and the back button already did, while a CV section or the letter has an unsaved draft.
 
 ### Changed
 - **Install docs (README, `docs/SELF-HOSTING.md`; #785).** Prerequisites now state disk and RAM; the installation names `GET /health` as the "it is up" check, shows the three `.env` lines the provider step needs, gives the one-line setup-code command, and says what the first screens look like; the `/api/profile` example now works on a fresh instance; the MCP section says where the `mcp` compose service comes from and how to copy the shown-once agent token whole.
+- **Pending profile decisions on the gaps page are one notice, not a stack (#789).** One notice instead of one identical popup per decision; after it hides, a small "N Entscheidungen offen" entry point stays. On a phone it sits as a row at the top of the bottom action bar and no longer covers the page.
+- **"Lebenslauf erstellen" says what skipping the interview costs (#789).** One line under the button while open points remain; the stepper no longer marks a skipped interview as done.
 
 ## [0.44.0-beta] – 2026-10-19 (Hazelnut build 1)
 
