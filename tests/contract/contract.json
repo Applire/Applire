@@ -349,8 +349,9 @@
     },
     "run_interview": {
       "job_id": {
-        "required": true,
+        "required": false,
         "types": [
+          "null",
           "string"
         ]
       }
