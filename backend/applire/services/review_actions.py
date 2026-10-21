@@ -76,6 +76,19 @@ class TakeOutProtectedName(Exception):
     Refused before any model call (→ 409); the user edits."""
 
 
+class FindingDenied(Exception):
+    """Build-2 delivery F2 (SF-REVIEW.18): one of the candidate's own recorded
+    denials covers the finding's term (``GroupOneFinding.denials``), so writing
+    it into the profile as testimony would record the claim they disclaimed.
+    Refused before any model call (→ 409 ``finding_denied``, with the denials);
+    the user takes it out or edits it. A changed position goes through the
+    profile's own denial correction (ADR-059 am. 2026-07-26 cl. 4)."""
+
+    def __init__(self, key: str, denials: list[str]):
+        super().__init__(f"finding {key!r} is covered by a recorded denial")
+        self.denials = list(denials)
+
+
 class RewriteUnavailable(Exception):
     """The removal rewrite service is not installed (pre-integration, → 503)."""
 
@@ -291,6 +304,8 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
     async with rs.document_lock(kind, doc_id):
         record = await load_document(kind, doc_id, db, user_id=owner)
         finding = _listed_or_raise(record, key)
+        if finding.denials:
+            raise FindingDenied(key, finding.denials)
         testimony = await submit_testimony(text, db, provider, user_id=owner)
         await reaudit(kind, record, db)
         vault_changed = testimony.status in ("applied", "partial")
@@ -405,6 +420,8 @@ async def confirm_supported(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSe
     async with rs.document_lock(kind, doc_id):
         record = await load_document(kind, doc_id, db, user_id=owner)
         finding = _listed_or_raise(record, key)
+        if finding.denials:
+            raise FindingDenied(key, finding.denials)
         profile = await get_profile_for_user(db, owner)
         profile_json = (profile.profile_json if profile else None) or {}
         found = support_in_profile(finding.wording(), profile_json, user_id=owner)

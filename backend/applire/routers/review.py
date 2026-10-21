@@ -11,8 +11,9 @@ Status mapping: unknown document → 404; malformed ``finding_key`` → 422; a k
 the current report does not list, ``undo`` without a decision, or ``undo`` of an
 ``added`` decision, *take-out* of a stem-only finding (RULING B-1), or *take-out*
 on a passage whose job title / employer name holds the wording (WP-R), or
-*supported* on a wording the profile does not hold (#797, ``not_in_profile``)
-→ 409 (``detail.error`` names which); the removal rewrite not
+*supported* on a wording the profile does not hold (#797, ``not_in_profile``),
+or *add-evidence* / *supported* on a term a recorded denial covers (build-2 F2,
+``finding_denied`` + ``denials``) → 409 (``detail.error`` names which); the removal rewrite not
 installed → 503.
 """
 from __future__ import annotations
@@ -123,6 +124,8 @@ async def _run(coro):
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "take_out_unavailable_stem_only", "message": str(exc)})
     except ra.TakeOutProtectedName as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "take_out_unavailable_protected_name", "message": str(exc)})
+    except ra.FindingDenied as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "finding_denied", "message": str(exc), "denials": exc.denials})
     except ra.NotSupportedByProfile as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "not_in_profile", "message": str(exc)})
     except ra.RewriteUnavailable as exc:

@@ -142,6 +142,14 @@ class ATSKeywordCoverage(BaseModel):
     # not_applicable check row instead. Additive, `[]` = none / legacy.
     present_other_language: list[str] = []
     present_denied_matches: Optional[dict[str, list[KeywordMatch]]] = None
+    # Build-2 delivery F2 (SF-REVIEW.18): for a `present_unsupported` term that one
+    # of the candidate's OWN recorded denials covers (`stance.denials_covering` —
+    # the ledger floor's predicate), those denials' concepts. A fact about the
+    # vault, not a verdict on the sentence: the term stays a group-1 finding, but
+    # the review surface does not offer to add it to the profile and shows the
+    # denial instead; the add-evidence door refuses it (409 `finding_denied`).
+    # Additive, `{}` = none / legacy report.
+    present_unsupported_denials: dict[str, list[str]] = {}
 
 
 class PinnedFactReportEntry(BaseModel):

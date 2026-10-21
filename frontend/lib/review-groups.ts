@@ -116,6 +116,12 @@ export interface ReviewItem {
    * card says the place could not be marked.
    */
   targets?: LocateTarget[] | null;
+  /**
+   * Group 1 term rows only — build-2 delivery F2 (SF-REVIEW.18): the candidate's
+   * own recorded denials that cover this term (`keywords.present_unsupported_denials`).
+   * Non-empty → the card shows them and offers no add-to-profile handle.
+   */
+  denials?: string[];
 }
 
 export interface ReviewGroup {
@@ -199,6 +205,7 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
   const { atsReport, truthReport } = inputs;
   const terms = atsReport?.keywords.present_unsupported ?? [];
   const matches = atsReport?.keywords.present_unsupported_matches;
+  const denialsByTerm = atsReport?.keywords.present_unsupported_denials;
   const claimable = claimableConceptSet(atsReport?.keywords.claimable_concepts);
   const claims = truthReport ? flaggedClaims(truthReport.claims ?? [], claimable) : [];
 
@@ -243,6 +250,10 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       detail: claim?.verdict.detail ?? null,
       location: claim?.claim.location ?? null,
       targets,
+      denials:
+        denialsByTerm && Object.prototype.hasOwnProperty.call(denialsByTerm, term)
+          ? denialsByTerm[term].filter((d) => typeof d === "string" && d.length > 0)
+          : [],
     });
   });
 

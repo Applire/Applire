@@ -251,6 +251,30 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   DENIAL WITH AN EXCEPTION KEEPS THE EXCEPTION" (783:L101), bare-field denial
   10/10 → 0/10, plain-denial controls 15/15. +2,829 chars; the attention cost
   above applies.
+* **24,292 (Hazelnut build 2 WP-R2, 2026-10-21, delivery F1).** Rule 9's "A
+  DENIAL NAMES AN ITEM, NEVER MISSING EVIDENCE" sentence gains ", or that only
+  postpones an item to a later answer (…)" with two held-out examples (+135
+  chars). Why: the build-2 delivery run recorded "Zur OEE-Steuerung sage ich
+  gleich mehr, wenn es um unser MES geht" as the denial "OEE-Steuerung"; the
+  ledger floor then sank the JD's bare "OEE" (containment) and the signature
+  result "OEE 61 % → 73 %" from the next answer reached neither document (same
+  symptom as build-1 delivery-3 M1). The old sentence covered withholding MORE
+  evidence about what was stated, never postponing an item. *Measured* on the
+  verbatim captured prompts (``gpt-5.6-luna``, Requesty, reasoning OFF). Old
+  prompt, three replicates: captured deferral recorded as a denial 15/30, a
+  held-out synthetic deferral ("Kafka I'll come back to …") 12/30. Shipped
+  text: 0/10 and 0/10; a sibling arm with the same words plus a stray line
+  break (two replicates): 1/20 and 0/20. Plain-denial controls (IFS/BRC inside
+  SAP facts, blockchain/crypto, PSD2/BaFin, exactly-once, a scope of
+  responsibility) kept on every replay in every arm; the L101 exception
+  control 24/25 old → 4/5 shipped, 18/20 sibling. **Known side effect,
+  accepted:** the anaphor junk denial "der Standard" (from "Der Standard wäre
+  neu für mich" after an IFS/BRC denial) 0/20 old → 1/10 shipped, 8/20
+  sibling; it floors only a JD term literally "Standard". A separate-paragraph
+  wording with a "name the item, never a pointer" sentence (+432 chars) held
+  the junk at 1/20 but dropped the exception control to 11/15 (bare
+  "Konsumgüter" denying what the same sentence affirms) and was not shipped.
+  Records: ``Documents/Runs/Hazelnut/build-2/r2/f1-replay/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -562,7 +586,9 @@ Operations:
    they have not held. A sentence that only withholds MORE evidence about what
    they did state (no further example, project, figure, sum or detail: "mehr
    kann ich dazu nicht sagen", "weitere Referenzen kann ich nicht nennen",
-   "eine genaue Zahl habe ich nicht", "I can't give another example") denies
+   "eine genaue Zahl habe ich nicht", "I can't give another example"), or
+   that only postpones an item to a later answer ("darauf gehe ich beim Thema
+   Budget noch ein", "I'll get to Terraform later"), denies
    nothing: put nothing in "denials" for it, and still record every fact the
    rest of the answer states. Contrast: "mit SAP MM habe ich nicht gearbeitet"
    → "denials": ["SAP MM"]; "konkrete Zahlen zum Projekt kann ich nicht nennen"
