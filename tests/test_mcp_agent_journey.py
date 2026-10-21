@@ -107,6 +107,9 @@ _ALLOWED_SUMMARY_KEYS = {
     "gated",
     "staged_id",
     "hold_reason",
+    # Build-2 adversarial F-F: how much of an over-long source was read
+    # (character counts only, no content).
+    "source_truncated",
 }
 
 

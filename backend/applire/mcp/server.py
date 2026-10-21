@@ -144,7 +144,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 # 2026-08-25 while the document it returned said 2026-07-25. An agent that
 # caches by version could not tell it had a stale document. Pinned in both
 # directions by `test_guide_version_matches_the_guides_own_revision_line`.
-GUIDE_VERSION = "2026-10-20"
+GUIDE_VERSION = "2026-10-21"
 
 logger = logging.getLogger(__name__)
 
@@ -476,7 +476,17 @@ def _profile_summary(profile_response) -> dict:
         # the caller branches on a field instead of on the absence of one.
         "merged": True,
         "gated": False,
+        # Build-2 adversarial F-F (ruling R3-b): the import read only the first
+        # part of a source longer than the extraction cap — the rest never
+        # reached the profile. ``None`` when nothing was cut.
+        "source_truncated": _source_truncation_summary(data.get("extraction_review")),
     }
+
+
+def _source_truncation_summary(review: dict | None) -> dict | None:
+    if not isinstance(review, dict) or not review.get("source_truncated"):
+        return None
+    return {"chars_read": review.get("source_chars_read"), "chars_total": review.get("source_chars_total")}
 
 
 def _held_import_summary(gated) -> dict:

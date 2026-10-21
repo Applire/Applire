@@ -1067,6 +1067,14 @@ class ExtractionReview(BaseModel):
     path: str | None = None
     rounds: int = 0
     open_blocking: int = 0
+    #: Build-2 adversarial F-F (ruling R3-b): the source handed to the
+    #: extraction (and so to this review) was cut at the extraction input cap.
+    #: ``source_chars_read`` of ``source_chars_total`` characters were read; the
+    #: rest of the document was never extracted. ``False``/``None`` on every
+    #: import under the cap and on receipts persisted before the field existed.
+    source_truncated: bool = False
+    source_chars_read: int | None = None
+    source_chars_total: int | None = None
 
 
 _REVIEW_PATH_STATUS: dict[str | None, str] = {

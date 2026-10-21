@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-10-20 · re-fetch anytime with `get_guide`*
+*Revision 2026-10-21 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -655,6 +655,11 @@ apply it.
     never by re-importing. The count includes harmless paraphrase duplicates:
     read each one's `profile_mismatch_severity` in `get_profile_health` before
     you alarm the human — `info` is safe to leave.
+  - `source_truncated` is `null`, or `{chars_read, chars_total}` when the
+    document was longer than one import reads: only the first `chars_read`
+    characters were extracted, and everything after them is missing from the
+    profile even when `merge_status` is `applied`. Tell your user what share
+    was read, and import the remainder as a separate, shorter text.
   - **`import_cv` can PARK instead of merging** (#367, 2026-09-13). The
     pre-merge integrity gate is part of the ingest, so it runs on this tool
     exactly as it does on the browser's upload. Every reply carries `merged`
