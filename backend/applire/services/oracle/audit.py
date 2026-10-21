@@ -136,6 +136,40 @@ _EXCERPT_CHARS = 160
 _LANGUAGE_LABELS = {"de": "German", "en": "English"}
 
 
+def _claimable_index(profile: Any) -> VaultIndex:
+    """The vault index every Oracle grading reads: :func:`build_vault_index`
+    over the CLAIMABLE vault (``exclude_unconfirmed``, ADR-061 cl. 3 + the
+    2026-08-08 amendment — an ``unconfirmed`` entry backs nothing, a
+    ``denied`` one was retracted). Before build-2 adversarial F-A (ruling R3-a,
+    R3-1 precedent ADR-061 cl. 3) the Oracle indexed the FULL profile, so a
+    skill chip backed only by such a row read ``grounded`` while the generator
+    (``cv.py``) and the ATS (``grounding_vault_index``) already read the
+    filtered vault. A typed profile is dumped first, so the filter sees the
+    same JSON every other reader filters. Evidence ``skills[i]`` paths index
+    the filtered list, exactly as the ATS index always has."""
+    from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+    raw = profile.model_dump(mode="json") if hasattr(profile, "model_dump") else profile
+    return build_vault_index(exclude_unconfirmed(raw) if isinstance(raw, dict) else raw)
+
+
+def _denial_covers(text: str, idx: VaultIndex) -> bool:
+    """Does one of the candidate's recorded denials cover ``text``? The ledger
+    floor's own predicate (``stance.denials_covering``) over the denials the
+    vault index carries — the same fact the ATS keyword check reads, so the
+    D2-1 "other language" softening never reaches a term the candidate denied
+    (build-2 adversarial F-D, ruling R3-a). Never raises."""
+    denials = list(getattr(idx, "denied_concepts", ()) or ())
+    if not denials:
+        return False
+    try:
+        from applire.services.profile.reconcile.stance import denials_covering
+
+        return bool(denials_covering(text, [], denials, getattr(idx, "denial_release_text", "") or ""))
+    except Exception:  # pragma: no cover — defensive: fall back to D2-1's verdict
+        return False
+
+
 def _evidence_refs(units: list[EvidenceUnit]) -> list[EvidenceRef]:
     refs: list[EvidenceRef] = []
     seen_receipts: set[str] = set()
@@ -1426,7 +1460,7 @@ async def verify_claim(
     """
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
-    idx = index or build_vault_index(profile)
+    idx = index or _claimable_index(profile)
     unmentioned = _unmentioned_identifiers(claim.text, idx)
     if not unmentioned:
         return await _verify_claim_unchecked(
@@ -1504,7 +1538,7 @@ async def _verify_claim_unchecked(
     """
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
-    idx = index or build_vault_index(profile)
+    idx = index or _claimable_index(profile)
     budget = budget or _EntailmentBudget()
     # #196: a stamped id the vault does not know (backfill heuristics, stale
     # data) disables the attribution matcher — fail open, never flag on it.
@@ -1605,7 +1639,10 @@ async def _verify_claim_unchecked(
         # a German CV, "own brand identity" in the vault) fell through to an
         # absence-based accusation. A literal miss there is "not checked
         # across languages": unverifiable, no model call.
-        if holds_other_language(idx, document_language):
+        # Build-2 adversarial F-D (ruling R3-a): a skill one of the candidate's
+        # own recorded denials covers is not that case — it stays unbacked,
+        # the same cover the keyword check reads (ADR-066, one rule per half).
+        if holds_other_language(idx, document_language) and not _denial_covers(claim.text, idx):
             return ClaimVerdict(
                 verdict="unverifiable",
                 checker="grounding",
@@ -2021,7 +2058,7 @@ async def audit_document(
             )
             triage_exemptions, triage_unavailable = {}, len(claims)
 
-    index = build_vault_index(profile)
+    index = _claimable_index(profile)
     budget = _EntailmentBudget(limit=ORACLE_MAX_ENTAILMENT_CALLS if entailment else 0)
     # ADR-068 clause 6 — every claim that defers to the judgement layer lands
     # here; ``pending`` remembers, in the SAME order, which ``results`` slot

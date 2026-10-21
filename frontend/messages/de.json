@@ -85,6 +85,7 @@
     "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut.",
     "notAppliedNote": "{count, plural, one {1 Eintrag aus deinem Lebenslauf wurde nicht automatisch übernommen} other {# Einträge aus deinem Lebenslauf wurden nicht automatisch übernommen}}: {labels}",
     "notAppliedMore": "+{count} weitere",
+    "sourceTruncatedNote": "Nur die ersten ≈ {percent} % Deiner Datei wurden gelesen – prüfe, ob alle Stationen übernommen sind.",
     "jdLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab — du kannst den Text später einfügen",
     "jdLinkedinOffPaste": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge die Stellenbeschreibung unten ein, um fortzufahren."
   },
@@ -1386,7 +1387,7 @@
       "terminal-review": "Abschlussprüfung des Dokuments",
       "narrative-evidence": "Belege im Werdegang statt nur als Skill",
       "document-language": "Dokument durchgehend in einer Sprache",
-      "keyword-other-language": "Begriffe, die Dein Profil in einer anderen Sprache nennt"
+      "keyword-other-language": "Nicht sprachübergreifend geprüfte Begriffe"
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht deinem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
@@ -1398,7 +1399,7 @@
       "page-length-not-applicable": "Nicht anwendbar — dieses Dokument hat keine feste Seitenaufteilung, bis ein Textprogramm es umbricht",
       "document-language-not-applicable": "Nicht anwendbar — für dieses Dokument wurde keine Sprache angegeben",
       "document-language-mixed": "{count, plural, one {# Stelle ist} other {# Stellen sind}} nicht auf {language, select, de {Deutsch} en {Englisch} other {{language}}} geschrieben: {examples}",
-      "keyword-other-language": "Nicht geprüft — Dein Profil nennt {count, plural, one {diesen Begriff} other {diese Begriffe}} in einer anderen Sprache: {terms}",
+      "keyword-other-language": "Nicht sprachübergreifend geprüft — Dein Profil enthält Text in einer anderen Sprache, und diese Prüfung vergleicht nur den Wortlaut. Prüfe {count, plural, one {diesen Begriff} other {diese Begriffe}} selbst: {terms}",
       "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
     },
     "pinnedFacts": {

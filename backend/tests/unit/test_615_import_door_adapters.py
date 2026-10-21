@@ -396,6 +396,9 @@ def test_mcp_profile_summary_reports_merge_status_and_not_applied():
     assert set(summary) == {
         "profile_id", "positions", "skills_count", "completeness", "merge_conflicts",
         "merge_status", "not_applied", "merged", "gated", "matched",
+        # build-2 adversarial F-F: a source cut at the extraction cap is stated
+        # (pinned in test_source_truncation_receipt.py)
+        "source_truncated",
     }
     assert summary["merge_status"] == "partial"
     assert summary["not_applied"] == [

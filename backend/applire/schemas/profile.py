@@ -26,6 +26,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    computed_field,
     field_validator,
     model_serializer,
     model_validator,
@@ -1067,6 +1068,32 @@ class ExtractionReview(BaseModel):
     path: str | None = None
     rounds: int = 0
     open_blocking: int = 0
+    #: Build-2 adversarial F-F (ruling R3-b): the source handed to the
+    #: extraction (and so to this review) was cut at the extraction input cap.
+    #: ``source_chars_read`` of ``source_chars_total`` characters were read; the
+    #: rest of the document was never extracted. ``False``/``None`` on every
+    #: import under the cap and on receipts persisted before the field existed.
+    source_truncated: bool = False
+    source_chars_read: int | None = None
+    source_chars_total: int | None = None
+
+
+class SourceTruncation(BaseModel):
+    """Build-2 adversarial F-F (ruling R3-2 = B): the import read the first
+    ``read_chars`` of ``total_chars`` characters of its source; the rest was
+    never extracted. Derived from :class:`ExtractionReview` — one fact, two
+    readers (the import result and the agent door)."""
+
+    read_chars: int
+    total_chars: int
+
+
+def source_truncation_of(review: "ExtractionReview | None") -> SourceTruncation | None:
+    if review is None or not review.source_truncated:
+        return None
+    if review.source_chars_read is None or review.source_chars_total is None:
+        return None
+    return SourceTruncation(read_chars=review.source_chars_read, total_chars=review.source_chars_total)
 
 
 _REVIEW_PATH_STATUS: dict[str | None, str] = {
@@ -1659,6 +1686,13 @@ class ProfileImportResponse(MasterProfileResponse):
     #: 783:L41 (ADR-021 amended 2026-10-20) — the extraction review outcome of
     #: this import; see :class:`ExtractionReview`.
     extraction_review: ExtractionReview | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def source_truncated(self) -> SourceTruncation | None:
+        """R3-2 = B: how much of an over-long source this import read (``None``
+        when nothing was cut) — derived from ``extraction_review``."""
+        return source_truncation_of(self.extraction_review)
     # #367 (2026-09-13, ruling V-2) — the same number as `completeness`, under the
     # name every import caller already reads. `ProfileImportView.tsx` posts a
     # LinkedIn/XING export to this door and then reads `data.completeness_score`
@@ -1735,6 +1769,13 @@ class CVUploadResponse(BaseModel):
     #: import settled (see :class:`ExtractionReview`). ``None`` on a held
     #: (GATED) upload and on a job result stored before the field existed.
     extraction_review: ExtractionReview | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def source_truncated(self) -> SourceTruncation | None:
+        """R3-2 = B: how much of an over-long source this import read (``None``
+        when nothing was cut) — derived from ``extraction_review``."""
+        return source_truncation_of(self.extraction_review)
 
 
 _IMPORT_STATUS = Literal["pending", "processing", "ready", "failed", "expired"]

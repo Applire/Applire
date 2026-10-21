@@ -3341,7 +3341,76 @@ def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
         return ""
     from applire.services.ats_audit import _norm as ats_norm
 
-    return ats_norm(" ".join(_draft_strings(_strip_denial_text(profile_json))))
+    return ats_norm(" ".join(_draft_strings(_strip_unclaimable(_strip_denial_text(profile_json)))))
+
+
+#: The entity sections ADR-061 cl. 3 gives a status (``entry_is_claimable``).
+_STATUS_SECTIONS = ("skills", "languages", "certifications")
+
+
+def _entry_label(entry: Any) -> str:
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        for key in ("name", "language"):
+            v = entry.get(key)
+            if isinstance(v, str):
+                return v
+    return ""
+
+
+def _strip_unclaimable(profile_json: dict[str, Any]) -> dict[str, Any]:
+    """Build-2 adversarial F-A (ruling R3-a, R3-1 precedent ADR-061 cl. 3): the
+    coverage corpus without the vault's UNCLAIMABLE entries and the receipts
+    that wrote them.
+
+    The corpus decides "a keyword the vault literally carries is never
+    unsupported". An ``unconfirmed`` entry backs nothing and a ``denied`` one was
+    retracted (ADR-061 cl. 3 + amendment 2026-08-08), so neither may make that
+    decision — the same ``exclude_unconfirmed`` the Oracle's index now reads
+    (ADR-066: one predicate). The entity's add/rename receipt in
+    ``metadata.enrichment_history`` restates its name verbatim, so a change on
+    a status section naming a now-unclaimable entry (by id, else by name) is
+    dropped too; every other receipt passes untouched."""
+    if not isinstance(profile_json, dict):
+        return profile_json
+    out = exclude_unconfirmed(profile_json)
+    ids: set[str] = set()
+    names: set[str] = set()
+    for section in _STATUS_SECTIONS:
+        for e in profile_json.get(section) or []:
+            if entry_is_claimable(e):
+                continue
+            if isinstance(e, dict) and isinstance(e.get("id"), str) and e["id"]:
+                ids.add(e["id"])
+            label = _entry_label(e).strip().lower()
+            if label:
+                names.add(label)
+    if not ids and not names:
+        return out
+    metadata = out.get("metadata")
+    history = metadata.get("enrichment_history") if isinstance(metadata, dict) else None
+    if not isinstance(history, list):
+        return out
+
+    def _names_unclaimable(change: Any) -> bool:
+        if not isinstance(change, dict) or change.get("section") not in _STATUS_SECTIONS:
+            return False
+        for v in (change.get("new_value"), change.get("old_value")):
+            if isinstance(v, dict) and v.get("id") in ids:
+                return True
+        labels = [change.get("field"), _entry_label(change.get("new_value"))]
+        return any(isinstance(x, str) and x.strip().lower() in names for x in labels)
+
+    new_history: list[Any] = []
+    for record in history:
+        changes = record.get("changes") if isinstance(record, dict) else None
+        if not isinstance(changes, list):
+            new_history.append(record)
+            continue
+        kept = [c for c in changes if not _names_unclaimable(c)]
+        new_history.append(record if kept == changes else {**record, "changes": kept})
+    return {**out, "metadata": {**metadata, "enrichment_history": new_history}}
 
 
 # ── #318 / ADR-061 — THE affirmative invariant ──────────────────────────────

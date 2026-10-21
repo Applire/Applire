@@ -1193,6 +1193,7 @@ async def ingest_cv(
     # never left for the ORM owner fill to guess from the context.
     user_id = resolve_owner(user_id)
 
+    source_chars_total = len(raw_text)
     if len(raw_text) > _MAX_CV_TEXT_CHARS:
         cut = raw_text.rfind("\n", 0, _MAX_CV_TEXT_CHARS)
         if cut == -1:
@@ -1237,6 +1238,17 @@ async def ingest_cv(
         if _settled
         else None
     )
+    # Build-2 adversarial F-F (ruling R3-b): a cut source is a FACT about what the
+    # extraction and its review saw — stated on the receipt every door carries,
+    # never only in the log line above.
+    if len(raw_text) < source_chars_total:
+        extraction_review = (
+            extraction_review or extraction_review_from_settle(None, 0, 0)
+        ).model_copy(update={
+            "source_truncated": True,
+            "source_chars_read": len(raw_text),
+            "source_chars_total": source_chars_total,
+        })
     # US179 / ADR-041: annotate role-aware expected fields at write time so the stored
     # completeness score and the enrichment gaps derive from one source. Best-effort:
     # never raises (provider errors leave entries unannotated → lean-floor fallback).
