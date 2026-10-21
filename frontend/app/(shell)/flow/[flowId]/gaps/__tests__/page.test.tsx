@@ -180,6 +180,8 @@ describe("Case 3 — JD-only follow-up (returning + job)", () => {
     expect(screen.getByTestId("gaps-section")).toBeInTheDocument();
     expect(screen.getByTestId("interview-button")).toBeInTheDocument();
     expect(screen.getByTestId("generate-cv-button")).toBeInTheDocument();
+    // Ruling UX-3 (M7): skipping the interview says what it costs, before generating.
+    expect(screen.getByTestId("generate-cv-skip-cost")).toHaveTextContent("gaps.generateWithoutInterviewCost");
   });
 
   it("goes straight to generation when no gaps exist — no interview button", async () => {
@@ -189,6 +191,8 @@ describe("Case 3 — JD-only follow-up (returning + job)", () => {
     expect(screen.queryByTestId("gaps-section")).not.toBeInTheDocument();
     expect(screen.queryByTestId("interview-button")).not.toBeInTheDocument();
     expect(screen.getByTestId("generate-cv-button")).toBeInTheDocument();
+    // Nothing is skipped when there is no interview to skip.
+    expect(screen.queryByTestId("generate-cv-skip-cost")).not.toBeInTheDocument();
   });
 });
 

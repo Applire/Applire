@@ -48,7 +48,8 @@ interface DetailMode {
 interface FlowStep {
   key: string;
   labelKey: IntlKey;
-  state: "done" | "active" | "pending";
+  /** "skipped" (M7): passed without being done — drawn like "pending". */
+  state: "done" | "active" | "pending" | "skipped";
 }
 
 interface FlowMode {
@@ -139,10 +140,13 @@ export function AppTopbar(props: AppTopbarProps) {
                     "px-2 md:px-3 py-0.5 md:py-1 rounded-full text-[11px] md:text-[12px] font-semibold whitespace-nowrap shrink-0",
                     s.state === "done"   && "bg-success text-white",
                     s.state === "active" && "bg-primary text-white",
-                    s.state === "pending" && "bg-surface-container text-gray-500",
+                    (s.state === "pending" || s.state === "skipped") && "bg-surface-container text-gray-500",
                   )}
+                  data-state={s.state}
+                  title={s.state === "skipped" ? t("flow.stepSkipped", { label: t(s.labelKey) }) : undefined}
                 >
                   {t(s.labelKey)}
+                  {s.state === "skipped" && <span className="sr-only">{t("flow.stepSkippedSr")}</span>}
                 </span>
               ))}
               {props.trailingBadge && (

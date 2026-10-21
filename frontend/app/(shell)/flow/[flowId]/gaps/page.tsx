@@ -1616,16 +1616,28 @@ export default function GapsPage({
             </div>
           )}
           {hasJob && (
-            <Button
-              variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
-              size="lg"
-              onClick={() => void advance("cv_generation")}
-              disabled={actionLoading}
-              className="w-full sm:w-auto sm:min-w-[200px]"
-              data-testid="generate-cv-button"
-            >
-              {t("generateCV")}
-            </Button>
+            <div className="flex flex-col items-center w-full sm:w-auto">
+              <Button
+                variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
+                size="lg"
+                onClick={() => void advance("cv_generation")}
+                disabled={actionLoading}
+                className="w-full sm:w-auto sm:min-w-[200px]"
+                data-testid="generate-cv-button"
+              >
+                {t("generateCV")}
+              </Button>
+              {/* Ruling UX-3 (M7): before skipping the interview, say what it
+                  costs — no new count, the open points are on this page. */}
+              {offerInterview && (
+                <p
+                  data-testid="generate-cv-skip-cost"
+                  className="text-xs italic text-gray-500 mt-2 max-w-[22rem] text-center"
+                >
+                  {t("generateWithoutInterviewCost")}
+                </p>
+              )}
+            </div>
           )}
           <a
             href="/profile"

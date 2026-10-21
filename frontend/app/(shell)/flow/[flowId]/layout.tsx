@@ -25,11 +25,12 @@ import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
 import { cn } from "@/lib/utils";
-import { STEP_ROUTE, resolveFlowRedirect, activeStepSegment } from "@/lib/flow-routing";
+import { resolveFlowRedirect } from "@/lib/flow-routing";
+import { flowStepState } from "@/lib/flow-steps";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
-const STEP_KEYS: { step: string; labelKey: string }[] = [
+const STEP_KEYS: { step: "cv_import" | "gap_analysis" | "interview" | "cv_generation"; labelKey: string }[] = [
   { step: "cv_import",     labelKey: "flow.stepProfile" },
   { step: "gap_analysis",  labelKey: "flow.stepGaps" },
   { step: "interview",     labelKey: "flow.stepInterview" },
@@ -45,6 +46,8 @@ interface FlowState {
   profile_completeness?: number | null;
   /** Linked Application — enables the walk-away action (US222, Branch I). */
   application_id?: string | null;
+  /** The flow's interview session, if one was started (M7: "done" needs it complete). */
+  interview_summary?: { status: string } | null;
 }
 
 
@@ -92,19 +95,12 @@ export default function FlowLayout({
 
   const currentSegment = pathname.split("/").pop() ?? "";
 
-  const stepOrder = ["cv_import", "gap_analysis", "interview", "cv_generation"];
-  const currentStepIndex = flowState
-    ? stepOrder.indexOf(flowState.current_step)
-    : -1;
-
-  const steps = STEP_KEYS.map(({ step, labelKey }, idx) => ({
+  // Ruling UX-3 (M7): a passed step is "done" by position, except the
+  // interview — skipped via "Generate CV Now", it is never drawn as finished.
+  const steps = STEP_KEYS.map(({ step, labelKey }) => ({
     key: step,
     labelKey,
-    state: (STEP_ROUTE[step] === activeStepSegment(currentSegment)
-      ? "active"
-      : currentStepIndex > idx
-      ? "done"
-      : "pending") as "active" | "done" | "pending",
+    state: flowStepState(step, flowState, currentSegment),
   }));
 
   return (

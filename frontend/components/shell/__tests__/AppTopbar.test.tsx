@@ -77,6 +77,23 @@ describe("AppTopbar", () => {
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
   });
 
+  it("M7: a skipped step is drawn like a pending one, never green, and says 'übersprungen'", () => {
+    render(withIntl(
+      <AppTopbar mode="flow" steps={[
+        { key: "cv_import",     labelKey: "flow.stepProfile",   state: "done"    },
+        { key: "gap_analysis",  labelKey: "flow.stepGaps",      state: "done"    },
+        { key: "interview",     labelKey: "flow.stepInterview", state: "skipped" },
+        { key: "cv_generation", labelKey: "flow.stepCV",        state: "active"  },
+      ]} />
+    ));
+    const pill = screen.getByText(messages.flow.stepInterview, { exact: false }).closest("span[data-state]")!;
+    expect(pill).toHaveAttribute("data-state", "skipped");
+    expect(pill.className).not.toContain("bg-success");
+    expect(pill.className).toContain("bg-surface-container");
+    expect(pill).toHaveAttribute("title", `${messages.flow.stepInterview} – übersprungen`);
+    expect(pill.textContent).toContain("übersprungen");
+  });
+
   // US223: below md the persistent AppSidebar is hidden, so every AppTopbar
   // mode needs its own hamburger affordance into the equivalent drawer nav.
   it("renders a hamburger button that opens the mobile nav drawer", () => {
