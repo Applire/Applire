@@ -617,9 +617,22 @@ export function buildGroup1Rows(items: ReviewItem[], state: ReviewState | null |
     if (listedFolds.has(fold)) return;
     decided.push({ findingKey: d.finding_key, label: d.label, status: d.action, item: null, decision: d });
   });
+  // #797 / ruling D2-5 = A (ADR-090 cl. 6 amended): `supported` is the ONE
+  // decision that closes a finding the live report still lists — the candidate
+  // confirmed it and every wording was found in their profile. The row keeps
+  // its report item, so the card can state the disagreement.
+  const closed = new Set<string>();
+  for (const it of items) {
+    const key = it.findingKey ?? it.key;
+    const d = latest.get(keyFold(key));
+    if (d?.action === "supported") {
+      closed.add(key);
+      decided.push({ findingKey: key, label: it.label, status: "supported", item: it, decision: d });
+    }
+  }
   decided.sort((a, b) => (a.decision!.at < b.decision!.at ? -1 : a.decision!.at > b.decision!.at ? 1 : 0));
 
-  const open: Group1Row[] = items.map((it) => {
+  const open: Group1Row[] = items.filter((it) => !closed.has(it.findingKey ?? it.key)).map((it) => {
     const key = it.findingKey ?? it.key;
     return { findingKey: key, label: it.label, status: "open", item: it, decision: latest.get(keyFold(key)) ?? null };
   });

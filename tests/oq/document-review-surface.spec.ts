@@ -431,6 +431,15 @@ test.describe('E058/ADR-090 — a stubbed end-to-end review flow', () => {
         }),
       }),
     );
+    // #797 (ruling D2-5): *Stimmt* first asks whether the profile already holds
+    // the wording; this finding's does not, so the testimony ask opens.
+    await page.route(`**/api/cv/${CV_ID}/review/supported`, (r) =>
+      r.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: { error: 'not_in_profile', message: 'x' } }),
+      }),
+    );
     await page.route(`**/api/cv/${CV_ID}/review/walked`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ review_state: null }) }),
     );

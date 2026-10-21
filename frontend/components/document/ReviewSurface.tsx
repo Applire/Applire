@@ -52,6 +52,7 @@ import {
 } from "@/lib/review-groups";
 import {
   addEvidence,
+  confirmSupported,
   markWalked,
   refreshedReport,
   ReviewActionError,
@@ -130,8 +131,9 @@ export function isStemOnly(targets: LocateTarget[] | null | undefined): boolean 
   return Boolean(targets && targets.length > 0 && targets.every((t) => t.stem === true));
 }
 
-const STATUS_KEY: Record<"added" | "taken_out" | "edited", string> = {
+const STATUS_KEY: Record<"added" | "taken_out" | "edited" | "supported", string> = {
   added: "statusAdded",
+  supported: "statusSupported",
   taken_out: "statusTakenOut",
   edited: "statusEdited",
 };
@@ -389,6 +391,31 @@ export function ReviewSurface({
     }
   };
 
+  /**
+   * #797 / ruling D2-5 = A: *Stimmt* first asks the server whether the profile
+   * already holds every wording. Yes → closed in one click, with the receipt
+   * (no "Wo hast du das gemacht?"). No (`null`) → the testimony ask opens.
+   */
+  const runConfirm = async (row: Group1Row) => {
+    if (!documentId || busy) return;
+    setBusy("add");
+    setError(null);
+    try {
+      const res = await confirmSupported(documentKind, documentId, row.findingKey);
+      if (res === null) {
+        setAddOpen(true);
+        return;
+      }
+      setCurrentKey(row.findingKey);
+      applyRefresh(res, false);
+      maybeWalked(res.review_state, openRows.length - 1);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const runAdd = async (row: Group1Row) => {
     if (!documentId || busy || !addText.trim()) return;
     setBusy("add");
@@ -536,7 +563,7 @@ export function ReviewSurface({
           disabled={busy !== null}
           onClick={() => {
             endPhoneLocate();
-            setAddOpen(true);
+            void runConfirm(row);
           }}
           className={base}
         >
@@ -646,6 +673,16 @@ export function ReviewSurface({
           {decided && !currentTakeOut && (
             <span data-testid="review-card-status" className="text-[13px] font-semibold text-success">
               {t(STATUS_KEY[row.status as keyof typeof STATUS_KEY])}
+            </span>
+          )}
+          {row.status === "supported" && row.decision?.receipt && row.decision.receipt.length > 0 && (
+            <span data-testid="review-card-receipt" className="text-[13px] leading-snug text-on-surface-variant">
+              {t("supportedReceipt", { lines: row.decision.receipt.map((r) => r.text).join(t("cardMatchedJoin")) })}
+            </span>
+          )}
+          {row.status === "supported" && row.item && (
+            <span data-testid="review-card-still-listed" className="text-xs text-on-surface-variant">
+              {t("supportedStillListed")}
             </span>
           )}
 
@@ -1004,7 +1041,7 @@ export function ReviewSurface({
                     <span
                       data-testid={`review-row-status-${r.status}`}
                       className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                        r.status === "added"
+                        r.status === "added" || r.status === "supported"
                           ? "bg-success-container text-success"
                           : "bg-surface-container text-on-surface-variant"
                       }`}

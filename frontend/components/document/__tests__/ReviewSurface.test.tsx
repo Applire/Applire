@@ -34,6 +34,7 @@ vi.mock("next/navigation", () => ({
 // Contract 2 — the review endpoints, mocked until WP-A's branch lands.
 const api = vi.hoisted(() => ({
   addEvidence: vi.fn(),
+  confirmSupported: vi.fn(),
   takeOut: vi.fn(),
   undoDecision: vi.fn(),
   markEdited: vi.fn(),
@@ -124,6 +125,8 @@ const MATCHED_ATS = ats({
 beforeEach(() => {
   Object.values(api).forEach((f) => f.mockReset());
   api.markWalked.mockResolvedValue({ review_state: null });
+  // #797: the profile does not hold the wording unless a test says so → the ask opens.
+  api.confirmSupported.mockResolvedValue(null);
 });
 
 /* ------------------------------------------------------------------ cl. 1 */
@@ -642,7 +645,7 @@ describe("ADR-090 cl. 4 — It's true, add it to my profile", () => {
     }
     render(withIntl(<Harness />));
     fireEvent.click(screen.getByTestId("review-action-add"));
-    const box = screen.getByTestId("review-add-box");
+    const box = await screen.findByTestId("review-add-box");
     expect(within(box).getByText("Where did you do this? In your own words.")).toBeTruthy();
     expect((screen.getByTestId("review-add-submit") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByTestId("review-add-text"), {
@@ -670,19 +673,56 @@ describe("ADR-090 cl. 4 — It's true, add it to my profile", () => {
     });
     renderSurface({ atsReport: MATCHED_ATS });
     fireEvent.click(screen.getByTestId("review-action-add"));
-    fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "x" } });
+    fireEvent.change(await screen.findByTestId("review-add-text"), { target: { value: "x" } });
     fireEvent.click(screen.getByTestId("review-add-submit"));
     await waitFor(() => expect(screen.getByTestId("review-testimony-result")).toBeTruthy());
     expect(screen.getByTestId("review-testimony-result").getAttribute("data-status")).toBe("needs_confirmation");
     expect(screen.getByTestId("review-card").getAttribute("data-status")).toBe("open");
   });
 
-  it("Cancel closes the box without a request", () => {
+  it("Cancel closes the box without a request", async () => {
     renderSurface({ atsReport: MATCHED_ATS });
     fireEvent.click(screen.getByTestId("review-action-add"));
-    fireEvent.click(screen.getByTestId("review-add-cancel"));
+    fireEvent.click(await screen.findByTestId("review-add-cancel"));
     expect(screen.queryByTestId("review-add-box")).toBeNull();
     expect(api.addEvidence).not.toHaveBeenCalled();
+  });
+
+  it("#797 (ruling D2-5): a wording the profile holds closes in one click, no ask, with the receipt", async () => {
+    const decision = {
+      finding_key: "ats:it data & ai governance", label: "IT Data & AI Governance", action: "supported",
+      at: "2026-10-21T10:00:00Z", undo: null,
+      receipt: [{ path: "work_experience[0].responsibilities[0]", text: "Leitete das AI governance board bei Nordwerk." }],
+    };
+    api.confirmSupported.mockResolvedValue({
+      still_listed: true, report: MATCHED_ATS, truthfulness: null,
+      review_state: { walked_at: null, decisions: [decision] },
+    });
+    function Harness() {
+      const [state, setState] = React.useState<ReviewState | null>(null);
+      return (
+        <ReviewSurface {...FULL_INPUTS} atsReport={MATCHED_ATS} reviewState={state}
+          onRefresh={(r) => setState(r.review_state)} />
+      );
+    }
+    render(withIntl(<Harness />));
+    fireEvent.click(screen.getByTestId("review-action-add"));
+    await waitFor(() => expect(screen.getByTestId("review-row-status-supported")).toBeTruthy());
+    expect(screen.queryByTestId("review-add-box")).toBeNull();
+    expect(api.addEvidence).not.toHaveBeenCalled();
+    expect(api.confirmSupported).toHaveBeenCalledWith("cv", "generated-cv-1", "ats:it data & ai governance");
+    expect(screen.getByTestId("review-row-status-supported").textContent).toBe("In your profile");
+    expect(screen.getByTestId("review-card-receipt").textContent).toBe(
+      "Your profile says: “Leitete das AI governance board bei Nordwerk.”.",
+    );
+    expect(screen.getByTestId("review-card-still-listed")).toBeTruthy();
+  });
+
+  it("#797: a wording the profile lacks opens the ask (the server answered not_in_profile)", async () => {
+    renderSurface({ atsReport: MATCHED_ATS });
+    fireEvent.click(screen.getByTestId("review-action-add"));
+    expect(await screen.findByTestId("review-add-box")).toBeTruthy();
+    expect(api.confirmSupported).toHaveBeenCalledTimes(1);
   });
 });
 

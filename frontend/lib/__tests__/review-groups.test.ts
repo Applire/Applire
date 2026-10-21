@@ -389,7 +389,7 @@ describe("buildGroup1Rows — counts from the live report, decisions only label 
     1,
   ).items;
 
-  function state(...decisions: Array<[string, "added" | "taken_out" | "edited", string]>): ReviewState {
+  function state(...decisions: Array<[string, "added" | "taken_out" | "edited" | "supported", string]>): ReviewState {
     return {
       walked_at: null,
       decisions: decisions.map(([finding_key, action, at]) => ({
@@ -408,6 +408,15 @@ describe("buildGroup1Rows — counts from the live report, decisions only label 
     expect(snow.status).toBe("open");
     expect(snow.decision?.action).toBe("taken_out");
     expect(rows.filter((r) => r.status === "open")).toHaveLength(2);
+  });
+
+  it("#797 (ruling D2-5): a `supported` decision closes a finding the report STILL lists", () => {
+    const rows = buildGroup1Rows(items, state(["ats:snowflake", "supported", "2026-10-21T10:00:00Z"]));
+    expect(rows.map((r) => [r.label, r.status])).toEqual([
+      ["Snowflake", "supported"],
+      ["Collibra", "open"],
+    ]);
+    expect(rows[0].item).not.toBeNull(); // the card can state the disagreement
   });
 
   it("a decision whose finding is gone is a decided row, before the open ones", () => {
