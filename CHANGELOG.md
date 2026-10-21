@@ -6,6 +6,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Applire is ready for the official MCP Registry and Glama (US371, #791).** The repository carries the registry entry (`server.json`, name `io.github.Applire/applire`) and the backend image carries the label the registry checks; from the 1.0.0 release on, every release that moves `:latest` publishes the entry automatically. The entry says plainly that the server needs a running Applire instance and your agent token. A separate image under `glama/` lets catalog sites start the server and list its tools without any real data: it brings its own throwaway database and mints a one-time token inside the container.
+- **Agents can answer the profile questions Applire parked (#788).** Questions Applire would not guess on its own — "is this the same role?", two values for one fact, two skill names for one skill — waited for you in the Health hub, and an agent could see them but not answer them. `run_interview` without a job starts the same review the Health hub's *Resolve* button opens; your agent relays the option you choose.
+- **Agents can read the CV they generated (#788).** `get_cv_status` now returns the CV's text once it is ready, with your own section edits applied, as `get_cover_letter_status` already did for the letter. Both texts are marked for the agent as a generated document that may repeat posting text.
+- **A job analysis says whether its review finished (#787).** The analysis result now carries `review`: `pass`, `fail` (findings still open) or `not_applicable` (no verdict was obtained, for example when the reviewer call failed). Until now an analysis whose review failed looked exactly like a clean one.
+
+### Changed
+- **The agent guide is updated (version 2026-10-20).** It now says that `ready` means delivered, not checked, and how to read the `terminal-review` result. It explains that calling tools directly does not move the flow, that an empty profile answers `get_profile` with "not found", and that a letter sentence with a figure should name its employer.
+- **The token dialog shows a command that works on every install (#788).** The MCP snippet now starts the agent inside your running backend (`docker compose exec … backend python -m applire.mcp`). The old `run … mcp` form failed when your compose file had no `mcp` service.
+- **The agent door's `audit_document` grades a document exactly like generation does.** It no longer runs the extra model check that could grade true claims as inflated, so one document carries one report whichever way you ask.
+
+### Fixed
+- **The job analysis no longer turns a company's size or an app's user count into a team-size requirement.** A posting's "220 employees", "an app with 800,000 users", "two teams" or the salary it offers could appear as a leadership span or budget you supposedly need. The analysis now counts only the people and money the role itself is responsible for. On five test postings, wrong entries fell from 3 in 20 analyses to 0 in 30, and every real team-size requirement was kept.
+- **One job-posting field reached agents unmarked.** The seniority level the analysis reads from the posting is now marked as posting text, like the other fields.
+
 ## [0.44.0-beta] – 2026-10-19 (Hazelnut build 1)
 
 ### Upgrade notes
