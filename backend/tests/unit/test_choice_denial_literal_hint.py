@@ -16,19 +16,23 @@ IFS, BRC) kept 10/10. Partial — reported as such.
 from applire.prompts.interview import _CHOICE_COVERAGE_RULES, build_question_prompt
 
 
-def _prompt():
+def _prompt(category="B"):
     cluster = {"id": "c", "label": "Produktionssteuerung", "category": "C",
                "gaps": ["Produktionsverantwortung", "Instandhaltung"], "jd_skills": [], "jd_context": ""}
     profile = {"skills": [{"name": "Instandhaltung"}],
                "work_experience": [{"company": "Weberit", "role": "Produktionsleiter"}]}
-    return build_question_prompt(cluster, profile, [], gap_category="C")
+    return build_question_prompt(cluster, profile, [], gap_category=category)
 
 
 def test_the_hint_states_a_literal_check_never_a_verdict():
     out = _prompt()
     assert "Still unevidenced" not in out and "only valid scope for a denial" not in out
-    assert "No word-for-word mention yet: Produktionsverantwortung" in out
     assert "That is a literal check, not a verdict." in out
+    # Category C (ruling V-7) carries the same literal-check statement, and no denial.
+    c = _prompt("C")
+    assert "Still unevidenced" not in c and "That is a literal check, not a verdict" in c
+    assert "offer NO denial choice" in c
+    assert "No word-for-word mention yet: Produktionsverantwortung" in c
 
 
 def test_the_coverage_rule_counts_evidence_in_any_wording():

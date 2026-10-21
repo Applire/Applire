@@ -220,7 +220,9 @@ at all"), so the candidate sees precisely what selecting it would deny. A denial
 NEVER deny, name, or sweep over a concept the profile summary or the candidate's earlier \
 answers evidence.
 - If EVERY constituent concept is evidenced, offer NO denial choice: the spanning set is then \
-DIRECT + PARTIAL, and there is nothing honest left for a denial to say.
+DIRECT + PARTIAL, and there is nothing honest left for a denial to say. When the question context \
+below says to offer NO denial choice (a Category C question, founder ruling V-7), that \
+instruction wins over the spanning rule: DIRECT + PARTIAL only.
 - A denial choice that IS offered is NEVER softened into a hedge. "I haven't worked with X" \
 is a denial. "I have limited exposure to X" is NOT a denial — that is a partial-level claim \
 dressed as a denial. Keep the denial choice honest and unambiguous, never watered down to \
@@ -558,7 +560,26 @@ def build_question_prompt(
         )
 
     if num_gaps >= 2 or gap_category == "B":
-        if not signal:
+        if gap_category == "C":
+            # Founder ruling V-7 (787 M2, 2026-10-21): an exploratory question
+            # offers NO one-click denial — the candidate types a denial in their
+            # own words. `choice_grounding.filter_ungrounded_choices` drops a
+            # denial-level chip on a Category C question deterministically; this
+            # sentence keeps the model from spending a slot on one.
+            literal = (
+                f" Constituent concepts with no word-for-word mention in the profile "
+                f"summary: {', '.join(unevidenced)}. That is a literal check, not a "
+                "verdict — a concept the profile states in other words (a role "
+                "title, a skill, a bullet) is evidenced."
+                if signal and unevidenced else ""
+            )
+            denial_fact = (
+                f"{literal} On this question (Category C) offer NO denial choice: "
+                "a candidate who lacks something types that in their own words. "
+                "Draft DIRECT and PARTIAL choices only; a PARTIAL choice may say what "
+                "it does not cover, never a concept the profile states in other words."
+            )
+        elif not signal:
             denial_fact = ""
         elif unevidenced:
             # UX-1 / 787 M2 (2026-10-20): this list comes from a LITERAL check

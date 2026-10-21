@@ -690,7 +690,7 @@ def filter_ungrounded_choices(
     choices: "list[str | dict[str, Any]] | None",
     cluster: dict[str, Any],
     profile: dict[str, Any],
-    gap_category: str | None,  # noqa: ARG001 — one rule for all categories; kept for call-site clarity
+    gap_category: str | None,
 ) -> list[str] | None:
     """Drop chips that assert experience the profile doesn't evidence.
 
@@ -785,6 +785,22 @@ def filter_ungrounded_choices(
     for choice in choices:
         text, level = _level_of(choice)
         if not text:
+            continue
+
+        if level == "denial" and gap_category == "C":
+            # Founder ruling V-7 (787 M2, 2026-10-21): a Category C question
+            # offers no one-click denial — one click on a denial chip records a
+            # denial (ADR-059), and on an exploratory question the model drafted
+            # denials of facts the CV states in other words (29 of 30 replayed
+            # calls before the prompt fix, 19 of 30 after). A STRUCTURAL rule on
+            # the question type, not a judgement about the chip: every
+            # denial-level chip on a C question is dropped. The candidate types
+            # a denial in their own words; the reconciler reads it from the
+            # answer as before.
+            logger.info(
+                "choice_grounding: dropped a 'denial'-level choice on a Category C "
+                "question (ruling V-7): %r", text,
+            )
             continue
 
         if level != "denial":
