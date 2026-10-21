@@ -63,14 +63,14 @@ class TestGapTypeHintRecompute:
             _cluster(["Digitalisierung", "Industrie 4.0"]), _PROFILE, [], gap_category="C"
         )
         assert "now evidences: Industrie 4.0" in prompt
-        assert "Still unevidenced: Digitalisierung" in prompt
-        assert "no signal for" not in prompt
+        assert "No word-for-word mention yet: Digitalisierung" in prompt
+        assert "no word-for-word mention of" not in prompt
 
     def test_fully_unevidenced_cluster_keeps_the_original_hint(self):
         prompt = build_question_prompt(
             _cluster(["IFS", "BRC"]), _PROFILE, [], gap_category="C"
         )
-        assert "no signal for 'Digital Transformation' was found" in prompt
+        assert "no word-for-word mention of 'Digital Transformation' was found" in prompt
 
     def test_category_b_hint_is_unchanged(self):
         prompt = build_question_prompt(
@@ -84,7 +84,7 @@ class TestChoicesHintDenialScope:
         prompt = build_question_prompt(
             _cluster(["Digitalisierung", "Industrie 4.0"]), _PROFILE, [], gap_category="C"
         )
-        assert "only valid scope for a denial choice: Digitalisierung" in prompt
+        assert "no word-for-word mention in the profile summary: Digitalisierung" in prompt
 
     def test_all_evidenced_cluster_instructs_no_denial_choice(self):
         prompt = build_question_prompt(

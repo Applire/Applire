@@ -33,6 +33,9 @@ profile evidence for "CSS".
 These tests are the named regression net for the guard — per the
 verification-hierarchy rule, each asserts behaviour that deleting or
 inverting the mirror check would flip.
+
+Founder ruling V-7 (2026-10-21): a Category C question offers no denial chip at all, so
+the mirror check's denial chips are exercised on Category B questions here.
 """
 
 import logging
@@ -76,7 +79,7 @@ class TestMirrorDropsContradictedDenials:
             [_denial("I haven't worked with Industrie 4.0.")],
             _CLUSTER,
             _profile(),
-            "C",
+            "B",
         )
         assert kept is None
 
@@ -92,7 +95,7 @@ class TestMirrorDropsContradictedDenials:
             ],
             _CLUSTER,
             _profile(),
-            "C",
+            "B",
         )
         assert kept is None
 
@@ -102,7 +105,7 @@ class TestMirrorDropsContradictedDenials:
                 [_denial("I haven't worked with Industrie 4.0.")],
                 _CLUSTER,
                 _profile(),
-                "C",
+                "B",
             )
         assert any("denies" in r.message and "347" in r.message for r in caplog.records)
 
@@ -114,7 +117,7 @@ class TestMirrorDropsContradictedDenials:
             ],
             _CLUSTER,
             _profile(),
-            "C",
+            "B",
         )
         assert kept == ["I led the MES rollout using SMED."]
 
@@ -132,7 +135,7 @@ class TestLegitimateDenialsAreKept:
             [_denial("I haven't worked with IFS or BRC.")],
             cluster,
             _profile(),
-            "C",
+            "B",
         )
         assert kept == ["I haven't worked with IFS or BRC."]
 
@@ -152,7 +155,7 @@ class TestLegitimateDenialsAreKept:
             [_denial("I haven't worked with Tailwind CSS.")],
             cluster,
             _profile(),
-            "C",
+            "B",
         )
         assert kept == ["I haven't worked with Tailwind CSS."]
 
@@ -176,7 +179,7 @@ class TestLegitimateDenialsAreKept:
             ],
             cluster,
             _profile(),
-            "C",
+            "B",
         )
         assert kept is not None and len(kept) == 1
 
@@ -194,6 +197,6 @@ class TestLegitimateDenialsAreKept:
             ["I have worked with SMED."],
             _CLUSTER,
             _profile(),
-            "C",
+            "B",
         )
         assert kept == ["I have worked with SMED."]
