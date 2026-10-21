@@ -11,13 +11,23 @@
 // the dispute the answer had raised. The founder found one days later by
 // opening the profile page (UAT 2026-09-06).
 //
-// **Shape: a toast stack, not a card in the page flow (founder ruling V-1,
-// 2026-09-09).** No reserved UI space — the popups are anchored in a corner,
-// stack, and disappear on their own after `notice_auto_dismiss_seconds` without
-// interaction. One popup per pending decision, up to three, then a single
-// "+N more". The first build put a full-width notice at the top of the gap
-// list; that reserved space on a page the candidate is trying to work through,
-// and was reversed.
+// **Shape: ONE notice and a persistent entry point (M4, UX audit 2026-10-20,
+// founder ruling UX-2 — amends V-1/V-1b of 2026-09-09).** V-1 asked for one
+// popup per pending decision, up to three, then "+N more", auto-hidden after
+// `notice_auto_dismiss_seconds`. Each popup carried the TOTAL count and the
+// same body, so a Pixel 7 showed three identical notices over ~2/3 of the gaps
+// page for 30 s on every visit — and the auto-hide took the only "decide now"
+// with it. Now:
+//  * desktop (md+): one notice in the V-1b corner (top-right, below the
+//    header); after the window or the × it shrinks to a compact chip that is
+//    portaled into the top bar (F-2: a fixed chip below the header
+//    covered the list once the page scrolled), and stays while decisions are
+//    open;
+//  * phone (< md): no floating overlay. The compact row is portaled into the
+//    TOP of the page's fixed decision bar (`mobileSlot`), whose measured
+//    spacer already keeps it off the content; it is always there.
+// "Decide now" opens the first open decision in the drawer; closing it
+// re-reads the count, so the next one is offered.
 //
 // Deliberately NOT a second conflict UI: a popup shows a count and one line,
 // and its CTA opens `ProfileReviewDrawer` with the same `HealthIssue` shape the
@@ -28,18 +38,19 @@
 // reload still shows it (the answer response is per-turn and is wiped on the
 // next send — `interview/page.tsx:528`, the shape this exists to not repeat).
 //
-// **Auto-hidden is not dismissed.** The timer hides the stack; it records
-// nothing, so an untouched popup returns on the next mount. Only the ×
-// remembers, and even then the dispute stays parked and stays on the profile
-// page — the popup's small print says so.
+// **Auto-hidden is not dismissed.** The timer collapses the notice; it records
+// nothing, so an untouched notice returns on the next mount. Only the ×
+// remembers (per decision id), and even then the dispute stays parked, the
+// compact entry point stays, and the profile page still shows it.
 
-import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import type { HealthIssue, ProfileHealth } from "@/components/profile/HealthPanel";
+import { TOPBAR_NOTICE_SLOT_ID } from "@/components/shell/AppTopbar";
 import {
   dismissedDecisions,
   markDecisionDismissed,
@@ -47,9 +58,6 @@ import {
 
 /** The two `HealthThread` values that represent a decision the candidate owes. */
 const DECISION_THREADS = new Set(["conflict", "confirmation"]);
-
-/** Founder ruling V-1: at most three popups, then one "+N more". */
-export const MAX_POPUPS = 3;
 
 /**
  * Fallback for `AppSettings.notice_auto_dismiss_seconds` until WP-O2's
@@ -74,23 +82,18 @@ export interface ProfileDecisionsCardProps {
    */
   refreshToken?: number;
   /**
-   * Height in px of the page's own bottom-fixed CTA bar, so the stack sits
-   * ABOVE it on mobile instead of on top of it. The gaps page already measures
-   * this for its own spacer (`decisionBarHeight`); passing it is cheaper and
-   * more honest than this component guessing a constant that would drift the
-   * moment the bar gains a line of text.
-   *
-   * Only used below `md:` — the bar is `static` at `md:` and above, so the
-   * stack's own `md:bottom-4` wins there.
+   * Phone (< md): the element at the top of the page's fixed decision bar the
+   * compact row is portaled into, so it never floats over the content. Absent
+   * (null), the row renders in place at the mount point, below md only.
    */
-  bottomOffsetPx?: number;
+  mobileSlot?: HTMLElement | null;
 }
 
 export function ProfileDecisionsCard({
   apiBase,
   flowId,
   refreshToken = 0,
-  bottomOffsetPx = 0,
+  mobileSlot = null,
 }: ProfileDecisionsCardProps) {
   const t = useTranslations("gaps");
   const [issues, setIssues] = useState<HealthIssue[]>([]);
@@ -99,6 +102,12 @@ export function ProfileDecisionsCard({
   const [drawerIssue, setDrawerIssue] = useState<HealthIssue | null>(null);
   const [autoSeconds, setAutoSeconds] = useState(DEFAULT_AUTO_DISMISS_SECONDS);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const known = useRef<Set<string>>(new Set());
+  // Ruling F-2: on desktop the compact entry point lives in the top bar.
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setHeaderSlot(document.getElementById(TOPBAR_NOTICE_SLOT_ID));
+  }, []);
 
   useEffect(() => {
     setDismissed(dismissedDecisions(flowId));
@@ -108,9 +117,12 @@ export function ProfileDecisionsCard({
     try {
       const res = await fetch(`${apiBase}/api/profile/health`);
       if (!res.ok) return;
-      setIssues(decisionIssues((await res.json()) as ProfileHealth));
-      // The stack has something new to say, so a previous auto-hide lapses.
-      setAutoHidden(false);
+      const next = decisionIssues((await res.json()) as ProfileHealth);
+      setIssues(next);
+      // A decision not seen before has something new to say, so a previous
+      // auto-hide lapses; re-reading the same ones (after the drawer) does not.
+      if (next.some((i) => !known.current.has(i.id))) setAutoHidden(false);
+      for (const i of next) known.current.add(i.id);
     } catch {
       // A health read that fails leaves the stack hidden. The dispute is not
       // lost — it is on the profile page, which is what the popup says anyway.
@@ -141,67 +153,70 @@ export function ProfileDecisionsCard({
     };
   }, [apiBase]);
 
-  const visible = useMemo(
+  // The notice is full while some open decision has not been waved away; the
+  // entry point (chip / bar row) stays as long as ANY decision is open.
+  const undismissed = useMemo(
     () => issues.filter((i) => !dismissed.has(i.id)),
     [issues, dismissed],
   );
+  const expanded = !autoHidden && undismissed.length > 0;
 
   // The timer. Restarted whenever what is on screen changes — the founder's
-  // wording is "x seconds without interaction", so dismissing one popup gives
-  // the remaining ones a fresh window rather than inheriting a spent one.
+  // wording is "x seconds without interaction".
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
-    if (autoSeconds <= 0 || visible.length === 0 || autoHidden || drawerIssue) return;
+    if (autoSeconds <= 0 || !expanded || drawerIssue) return;
     timer.current = setTimeout(() => setAutoHidden(true), autoSeconds * 1000);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [autoSeconds, visible.length, autoHidden, drawerIssue]);
+  }, [autoSeconds, expanded, undismissed.length, drawerIssue]);
 
-  const dismiss = (issueId: string) => {
-    setDismissed((prev) => new Set([...prev, issueId]));
-    markDecisionDismissed(flowId, issueId);
+  // The × collapses the notice to its entry point and remembers the decisions
+  // it was about — a new one brings the full notice back.
+  const dismiss = () => {
+    const ids = undismissed.map((i) => i.id);
+    setDismissed((prev) => new Set([...prev, ...ids]));
+    for (const id of ids) markDecisionDismissed(flowId, id);
   };
 
-  const shown = visible.slice(0, MAX_POPUPS);
-  const overflow = visible.length - shown.length;
+  const open = () => setDrawerIssue(undismissed[0] ?? issues[0] ?? null);
+  const show = !drawerIssue && issues.length > 0;
+
+  const compact = (testId: string, className: string) => (
+    <div
+      data-testid={testId}
+      className={`flex items-center justify-between gap-3 rounded-lg border border-warning/40 border-l-4 border-l-warning bg-white px-3 py-2 ${className}`}
+    >
+      <p className="text-sm font-semibold text-neutral-dark">
+        {t("decisions.compact", { count: issues.length })}
+      </p>
+      <Button data-testid={`${testId}-open`} size="sm" variant="outline" onClick={open}>
+        {t("decisions.cta")}
+      </Button>
+    </div>
+  );
+
+  const barRow = compact("profile-decisions-bar-row", "mb-3 md:hidden");
+  const chip = compact("profile-decisions-compact", "pointer-events-auto py-1 shadow-sm");
 
   return (
     <>
-      {/* Anchored in a corner, never in the page flow. z-[65] sits above the
-          shell sidebar (z-[60]) and below a full-screen dialog (z-[70]); the
-          stack also hides itself while the drawer is open, so there is no
-          layering contest. `pointer-events-none` on the container keeps the
-          page clickable THROUGH the gaps between popups.
-
-          **Corner, by viewport (founder ruling V-1b, 2026-09-09, from the
-          screenshot):** a bottom-right stack on desktop overlapped the right
-          edge of the page's own primary CTA ("Generate CV Now"). It is
-          **top-right** on desktop instead — below the header bar, over the
-          job-ad card's empty right part, where nothing is covered. Mobile is
-          unchanged: full-width bottom, offset above the page's fixed CTA bar by
-          its measured height (see `bottomOffsetPx`). */}
-      {!autoHidden && !drawerIssue && shown.length > 0 && (
+      {/* Desktop: the V-1b corner (top-right, below the header bar). z-[65]
+          sits above the shell sidebar (z-[60]) and below a full-screen dialog
+          (z-[70]); hidden while the drawer is open. Below md this whole layer
+          is gone — the phone gets the bar row instead. */}
+      {show && (expanded || !headerSlot) && (
         <div
           data-testid="profile-decisions-stack"
-          // The breakpoint is `md:` and not `sm:` deliberately: that is where the
-          // gaps page's own CTA bar stops being `fixed`, so the two elements
-          // change layout on the same line rather than overlapping in between.
-          style={{ "--stack-bottom": `${bottomOffsetPx + 12}px` } as React.CSSProperties}
-          className="pointer-events-none fixed inset-x-3 bottom-[var(--stack-bottom)] z-[65] flex flex-col gap-2 md:inset-x-auto md:bottom-auto md:right-4 md:top-20 md:w-[22rem]"
+          className="pointer-events-none fixed right-4 top-20 z-[65] hidden w-[22rem] md:block"
         >
-          {shown.map((issue) => (
+          {expanded ? (
             <div
-              key={issue.id}
               data-testid="profile-decisions-card"
-              // OPAQUE. `bg-warning/30 + bg-warning/5` is the house shape for an
-              // INLINE notice sitting on a known page background; a floating
-              // popup sits over arbitrary content, and at 5 % alpha the page —
-              // a score circle, a saturated CTA button — reads straight through
-              // the text. Caught on the 390 px screenshot, invisible to the
-              // a11y tree and to every unit test. `bg-white` is the convention
-              // for a solid surface in this codebase (`MergeGateDialog`); the
-              // warning role stays as the border and the left accent.
+              // OPAQUE: a floating notice sits over arbitrary content; `bg-white`
+              // is the solid-surface convention (`MergeGateDialog`), the warning
+              // role stays as the border and the left accent.
               className="pointer-events-auto rounded-lg border border-warning/40 border-l-4 border-l-warning bg-white px-4 py-3 shadow-lg"
             >
               <div className="flex items-start justify-between gap-3">
@@ -209,14 +224,14 @@ export function ProfileDecisionsCard({
                   data-testid="profile-decisions-title"
                   className="text-sm font-semibold text-neutral-dark"
                 >
-                  {t("decisions.title", { count: visible.length })}
+                  {t("decisions.title", { count: issues.length })}
                 </p>
                 <Button
                   data-testid="profile-decisions-dismiss"
                   size="sm"
                   variant="ghost"
                   aria-label={t("decisions.dismissAria")}
-                  onClick={() => dismiss(issue.id)}
+                  onClick={dismiss}
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
                 </Button>
@@ -227,7 +242,7 @@ export function ProfileDecisionsCard({
                   data-testid="profile-decisions-open"
                   size="sm"
                   variant="outline"
-                  onClick={() => setDrawerIssue(issue)}
+                  onClick={open}
                 >
                   {t("decisions.cta")}
                 </Button>
@@ -236,17 +251,18 @@ export function ProfileDecisionsCard({
                 {t("decisions.stillThere")}
               </p>
             </div>
-          ))}
-          {overflow > 0 && (
-            <div
-              data-testid="profile-decisions-more"
-              className="pointer-events-auto rounded-lg border border-outline-variant bg-white px-4 py-2 text-xs text-gray-600 shadow-lg"
-            >
-              {t("decisions.more", { count: overflow })}
-            </div>
+          ) : (
+            chip
           )}
         </div>
       )}
+
+      {/* Desktop, collapsed: the chip sits in the top bar (F-2) — it
+          covers nothing at any scroll position. */}
+      {show && !expanded && headerSlot && createPortal(chip, headerSlot)}
+
+      {/* Phone: the entry point lives in the page's fixed decision bar. */}
+      {show && (mobileSlot ? createPortal(barRow, mobileSlot) : barRow)}
 
       <ProfileReviewDrawer
         open={drawerIssue !== null}

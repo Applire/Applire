@@ -399,6 +399,47 @@ describe("InterviewPage hard-ceiling completion (#245)", () => {
     expect(screen.getByText("12")).toBeInTheDocument(); // questions_asked stat
   });
 
+  it("789:L47 (M3): the completion gauge shows the response's completeness and the profile link goes to /profile", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockCeilingApi({
+      complete: true,
+      reason: "user_ended",
+      questions_asked: 12,
+      gaps_resolved: 4,
+      completeness_score: 0.94,
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("Tell me about a recent project."),
+    );
+    await sendAnswer(user, "Ich bin fertig");
+
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    expect(screen.getByTestId("completeness-gauge")).toHaveAttribute("data-pct", "94");
+    // Was href="#" with preventDefault — a dead link.
+    expect(screen.getByTestId("view-profile-link")).toHaveAttribute("href", "/profile");
+  });
+
+  it("789:L47 (M3): a completion without a score renders no gauge instead of a made-up 0 %", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockCeilingApi({
+      complete: true,
+      reason: "user_ended",
+      questions_asked: 3,
+      gaps_resolved: 1,
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("Tell me about a recent project."),
+    );
+    await sendAnswer(user, "fertig");
+
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    expect(screen.queryByTestId("completeness-gauge")).not.toBeInTheDocument();
+  });
+
   it("#259 run-4 finding 9: a RESUMED session restores the real question count instead of resetting to 1", async () => {
     global.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

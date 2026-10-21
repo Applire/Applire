@@ -6,7 +6,7 @@
 /** Adversarial finding 11 — the unsaved-draft guard's own contract. */
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { internalNavTarget, useUnsavedDraftGuard, type GuardedNav } from "../useUnsavedDraftGuard";
+import { guardedNavigate, internalNavTarget, useUnsavedDraftGuard, type GuardedNav } from "../useUnsavedDraftGuard";
 
 function Probe({ dirty, onAttempt }: { dirty: boolean; onAttempt: (n: GuardedNav) => void }) {
   useUnsavedDraftGuard(dirty, onAttempt);
@@ -67,5 +67,38 @@ describe("useUnsavedDraftGuard", () => {
     expect(internalNavTarget(getByTestId("blank") as HTMLAnchorElement, mk(), here)).toBeNull();
     expect(internalNavTarget(getByTestId("internal") as HTMLAnchorElement, mk({ ctrlKey: true }), here)).toBeNull();
     expect(internalNavTarget(getByTestId("internal") as HTMLAnchorElement, mk(), here)).toBe("/profile");
+  });
+
+  // M5 (UX audit 2026-10-20) — the shell's nav buttons navigate with
+  // router.push, no anchor; the click guard never saw them and a draft was lost.
+  it("while dirty: a programmatic navigation is handed to the page, not pushed", () => {
+    const onAttempt = vi.fn();
+    const push = vi.fn();
+    render(<Probe dirty onAttempt={onAttempt} />);
+    guardedNavigate("/dashboard", push);
+    expect(push).not.toHaveBeenCalled();
+    expect(onAttempt).toHaveBeenCalledWith({ kind: "href", href: "/dashboard" });
+  });
+
+  it("clean, or once the page unmounted: a programmatic navigation just pushes", () => {
+    const onAttempt = vi.fn();
+    const push = vi.fn();
+    const { rerender, unmount } = render(<Probe dirty={false} onAttempt={onAttempt} />);
+    guardedNavigate("/dashboard", push);
+    expect(push).toHaveBeenCalledWith("/dashboard");
+    rerender(<Probe dirty onAttempt={onAttempt} />);
+    unmount();
+    guardedNavigate("/settings", push);
+    expect(push).toHaveBeenCalledWith("/settings");
+    expect(onAttempt).not.toHaveBeenCalled();
+  });
+
+  it("while dirty: a programmatic navigation to the page itself is not a way out", () => {
+    const onAttempt = vi.fn();
+    const push = vi.fn();
+    render(<Probe dirty onAttempt={onAttempt} />);
+    guardedNavigate(window.location.pathname, push);
+    expect(onAttempt).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalled();
   });
 });

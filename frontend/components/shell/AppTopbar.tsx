@@ -48,7 +48,8 @@ interface DetailMode {
 interface FlowStep {
   key: string;
   labelKey: IntlKey;
-  state: "done" | "active" | "pending";
+  /** "skipped" (M7): passed without being done — drawn like "pending". */
+  state: "done" | "active" | "pending" | "skipped";
 }
 
 interface FlowMode {
@@ -58,6 +59,9 @@ interface FlowMode {
 }
 
 type AppTopbarProps = SectionMode | DetailMode | FlowMode;
+
+/** The top bar's slot for a page's persistent notice entry point (desktop). */
+export const TOPBAR_NOTICE_SLOT_ID = "topbar-notice-slot";
 
 export function AppTopbar(props: AppTopbarProps) {
   const t = useTranslations();
@@ -139,10 +143,13 @@ export function AppTopbar(props: AppTopbarProps) {
                     "px-2 md:px-3 py-0.5 md:py-1 rounded-full text-[11px] md:text-[12px] font-semibold whitespace-nowrap shrink-0",
                     s.state === "done"   && "bg-success text-white",
                     s.state === "active" && "bg-primary text-white",
-                    s.state === "pending" && "bg-surface-container text-gray-500",
+                    (s.state === "pending" || s.state === "skipped") && "bg-surface-container text-gray-500",
                   )}
+                  data-state={s.state}
+                  title={s.state === "skipped" ? t("flow.stepSkipped", { label: t(s.labelKey) }) : undefined}
                 >
                   {t(s.labelKey)}
+                  {s.state === "skipped" && <span className="sr-only">{t("flow.stepSkippedSr")}</span>}
                 </span>
               ))}
               {props.trailingBadge && (
@@ -171,6 +178,14 @@ export function AppTopbar(props: AppTopbarProps) {
           </div>
         )}
 
+        {/* M4 / F-2 — a page's persistent notice entry point (the gaps
+            page's "N Entscheidungen offen") is portaled here on desktop, so it
+            never floats over the content. Empty → takes no space. */}
+        <div
+          id={TOPBAR_NOTICE_SLOT_ID}
+          data-testid="topbar-notice-slot"
+          className="hidden md:flex md:empty:hidden items-center flex-shrink-0"
+        />
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"

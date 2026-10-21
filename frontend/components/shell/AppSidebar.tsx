@@ -18,12 +18,13 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/auth/current-user";
 import { isNavItemActive, navItemsFor } from "./nav-items";
 import { avatarInitials } from "./avatar";
+import { useGuardedPush } from "@/components/document/useUnsavedDraftGuard";
 
 interface AppSidebarProps {
   userName?: string | null;
@@ -48,7 +49,8 @@ export function isDocumentRoute(pathname: string | null | undefined): boolean {
 
 export function AppSidebar({ userName }: AppSidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
+  // M5 — every nav button goes past an open page's unsaved-draft guard.
+  const navigate = useGuardedPush();
   const t = useTranslations("shell");
   // The rail is a collapse, not a removal: one labelled control expands it, and
   // the expansion lives only for this visit (no preference, no server state).
@@ -97,7 +99,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
             return (
               <button
                 key={key}
-                onClick={() => router.push(href)}
+                onClick={() => navigate(href)}
                 aria-label={t(key)}
                 title={t(key)}
                 className={cn(
@@ -196,7 +198,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
             <button
               key={key}
               data-testid={`sidebar-nav-${key}`}
-              onClick={() => router.push(href)}
+              onClick={() => navigate(href)}
               className={cn(
                 "flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors text-left",
                 active

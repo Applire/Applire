@@ -118,7 +118,9 @@
     "cancelDialogError": "Abbrechen fehlgeschlagen. Bitte versuche es erneut.",
     "cancelDialogKeep": "Weitermachen",
     "cancelDialogConfirm": "Bewerbung abbrechen",
-    "cancelDialogBusy": "Wird abgebrochen …"
+    "cancelDialogBusy": "Wird abgebrochen …",
+    "stepSkipped": "{label} – übersprungen",
+    "stepSkippedSr": " (übersprungen)"
   },
   "gaps": {
     "title": "Lückenanalyse",
@@ -286,14 +288,15 @@
       "dismiss": "Ausblenden",
       "dismissAria": "Diesen Hinweis ausblenden",
       "stillThere": "Du kannst das jederzeit auf deiner Profilseite erledigen.",
-      "more": "+{count, plural, one {# weitere Entscheidung} other {# weitere Entscheidungen}}"
+      "compact": "{count, plural, one {# Entscheidung offen} other {# Entscheidungen offen}}"
     },
     "inputsChangedTitle": "Dein Profil hat sich seit dieser Prüfung geändert.",
     "inputsChangedBody": "Die Lückenanalyse läuft nicht von selbst neu. Prüfe neu, damit Score und Lücken dein aktuelles Profil zeigen.",
     "recheckGaps": "Lücken neu prüfen",
     "recheckingGaps": "Wird geprüft …",
     "recheckLockedHint": "Beantworte zuerst die offene Frage, dann kannst du neu prüfen.",
-    "recheckFailed": "Die neue Prüfung hat nicht geklappt. Versuche es gleich noch einmal."
+    "recheckFailed": "Die neue Prüfung hat nicht geklappt. Versuche es gleich noch einmal.",
+    "generateWithoutInterviewCost": "Ohne Interview bleiben die offenen Punkte oben ungeklärt – die Fakten dazu sammelt erst das Interview."
   },
   "interview": {
     "loading": "Interview wird gestartet…",
