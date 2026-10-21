@@ -12,6 +12,10 @@
 //  * an in-app link (the shell nav, the flow stepper, any Next `<Link>`) → the
 //    click is stopped in the capture phase and handed to `onAttempt`, which
 //    opens the page's existing unsaved-draft dialog;
+//  * a programmatic in-app navigation from the shell chrome (the sidebar's nav
+//    buttons, the phone nav drawer, the user menu — `router.push`, no anchor,
+//    so the click guard never saw them: M5, the UX audit 2026-10-20 lost a
+//    draft that way) → `useGuardedPush()` hands it to the same `onAttempt`;
 //  * the browser's back button inside the app → a same-URL guard entry is
 //    pushed while dirty; leaving it fires `popstate` on the SAME page (Next
 //    restores the same tree), and `onAttempt({ kind: "back" })` asks. The page
@@ -22,6 +26,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 
 export type GuardedNav = { kind: "href"; href: string } | { kind: "back" };
 
@@ -42,12 +47,53 @@ export function internalNavTarget(anchor: HTMLAnchorElement, event: MouseEvent, 
   return url.pathname + url.search + url.hash;
 }
 
+// The pages whose guard is armed right now (normally at most one). A
+// programmatic navigation asks the most recently armed one.
+const activeGuards: Array<(nav: GuardedNav) => void> = [];
+
+/**
+ * Navigate in-app the way a guarded link click does: while a page holds an
+ * unsaved draft, the target is handed to that page's `onAttempt` (its own
+ * unsaved-draft dialog) instead of being pushed. The ONE way shell chrome
+ * navigates programmatically — never call `router.push` there directly.
+ */
+export function guardedNavigate(href: string, push: (href: string) => void): void {
+  const attempt = activeGuards.at(-1);
+  if (attempt) {
+    const here = window.location;
+    const url = new URL(href, here.href);
+    const samePage = url.origin === here.origin && url.pathname === here.pathname && url.search === here.search;
+    if (!samePage) {
+      attempt({ kind: "href", href: url.pathname + url.search + url.hash });
+      return;
+    }
+  }
+  push(href);
+}
+
+/** `router.push` behind the unsaved-draft guard — for buttons that navigate. */
+export function useGuardedPush(): (href: string) => void {
+  const router = useRouter();
+  return useCallback((href: string) => guardedNavigate(href, (h) => router.push(h)), [router]);
+}
+
 export function useUnsavedDraftGuard(dirty: boolean, onAttempt: (nav: GuardedNav) => void) {
   const attemptRef = useRef(onAttempt);
   useEffect(() => {
     attemptRef.current = onAttempt;
   });
   const armed = useRef(false);
+
+  // Programmatic navigation (guardedNavigate) while dirty.
+  useEffect(() => {
+    if (!dirty) return;
+    const attempt = (nav: GuardedNav) => attemptRef.current(nav);
+    activeGuards.push(attempt);
+    return () => {
+      const i = activeGuards.indexOf(attempt);
+      if (i >= 0) activeGuards.splice(i, 1);
+    };
+  }, [dirty]);
 
   // Page unload: reload, tab close, typed URL, external link.
   useEffect(() => {

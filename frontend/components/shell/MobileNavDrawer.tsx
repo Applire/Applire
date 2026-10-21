@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,7 @@ import { useCurrentUser } from "@/lib/auth/current-user";
 import { avatarInitials } from "./avatar";
 import { isNavItemActive, navItemsFor } from "./nav-items";
 import { useShellUser } from "./ShellUserContext";
+import { useGuardedPush } from "@/components/document/useUnsavedDraftGuard";
 
 interface MobileNavDrawerProps {
   open: boolean;
@@ -43,7 +44,8 @@ interface MobileNavDrawerProps {
  */
 export function MobileNavDrawer({ open, onOpenChange }: MobileNavDrawerProps) {
   const pathname = usePathname();
-  const router = useRouter();
+  // M5 — the phone nav goes past an open page's unsaved-draft guard.
+  const guardedPush = useGuardedPush();
   const t = useTranslations("shell");
   const { userName } = useShellUser();
   const { user, isAdmin } = useCurrentUser();
@@ -54,7 +56,7 @@ export function MobileNavDrawer({ open, onOpenChange }: MobileNavDrawerProps) {
 
   function navigate(href: string) {
     onOpenChange(false);
-    router.push(href);
+    guardedPush(href);
   }
 
   return (

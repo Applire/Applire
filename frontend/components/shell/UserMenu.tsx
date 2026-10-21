@@ -9,11 +9,11 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 import { useCurrentUser } from "@/lib/auth/current-user";
 import { cn } from "@/lib/utils";
+import { useGuardedPush } from "@/components/document/useUnsavedDraftGuard";
 
 interface UserMenuProps {
   /** The avatar content (letters), rendered inside the trigger button. */
@@ -23,7 +23,8 @@ interface UserMenuProps {
 
 export function UserMenu({ children, triggerClassName }: UserMenuProps) {
   const t = useTranslations("shell");
-  const router = useRouter();
+  // M5 — the menu's links go past an open page's unsaved-draft guard.
+  const navigate = useGuardedPush();
   const { user, isAdmin, signOut } = useCurrentUser();
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -49,7 +50,7 @@ export function UserMenu({ children, triggerClassName }: UserMenuProps) {
 
   function go(href: string) {
     setOpen(false);
-    router.push(href);
+    navigate(href);
   }
 
   async function handleSignOut() {
