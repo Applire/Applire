@@ -50,7 +50,7 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import { buildReviewGroups } from "@/lib/review-groups";
+import { openGroup1Count, buildReviewGroups } from "@/lib/review-groups";
 import {
   markEdited,
   refreshedReport,
@@ -689,7 +689,7 @@ export default function CVPage({
               kind: "finding",
               label,
               stillListed: g1.items.some((it) => it.findingKey === findingKey),
-              openCount: g1.items.length,
+              openCount: openGroup1Count(g1.items, r.review_state ?? reviewState),
             });
           })
           .catch(() => {
@@ -828,12 +828,13 @@ export default function CVPage({
 
     // ADR-081 cl. 6, carried onto the tab strip and the collapsed rail: group
     // 1's count is the one send-blocking number and may never be invisible.
-    const group1Count = buildReviewGroups({
+    const group1Live = buildReviewGroups({
       atsReport,
       truthReport,
       criticReport,
       gapClusters,
-    }).find((g) => g.id === 1)!.items.length;
+    }).find((g) => g.id === 1)!;
+    const group1Count = openGroup1Count(group1Live.items, reviewState);
 
     const sidebarTabs: SidebarTab[] = [
       {

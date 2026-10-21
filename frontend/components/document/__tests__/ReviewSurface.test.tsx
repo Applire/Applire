@@ -713,7 +713,7 @@ describe("ADR-090 cl. 4 — It's true, add it to my profile", () => {
     expect(api.confirmSupported).toHaveBeenCalledWith("cv", "generated-cv-1", "ats:it data & ai governance");
     expect(screen.getByTestId("review-row-status-supported").textContent).toBe("In your profile");
     expect(screen.getByTestId("review-card-receipt").textContent).toBe(
-      "Your profile says: “Leitete das AI governance board bei Nordwerk.”.",
+      "Your profile says: “Leitete das AI governance board bei Nordwerk”.",
     );
     expect(screen.getByTestId("review-card-still-listed")).toBeTruthy();
   });

@@ -677,7 +677,9 @@ export function ReviewSurface({
           )}
           {row.status === "supported" && row.decision?.receipt && row.decision.receipt.length > 0 && (
             <span data-testid="review-card-receipt" className="text-[13px] leading-snug text-on-surface-variant">
-              {t("supportedReceipt", { lines: row.decision.receipt.map((r) => r.text).join(t("cardMatchedJoin")) })}
+              {t("supportedReceipt", {
+                lines: row.decision.receipt.map((r) => r.text.replace(/[\s.;:,]+$/, "")).join(t("cardMatchedJoin")),
+              })}
             </span>
           )}
           {row.status === "supported" && row.item && (

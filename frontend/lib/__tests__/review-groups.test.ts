@@ -19,6 +19,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildGroup1Rows,
+  openGroup1Count,
   buildReviewGroups,
   buildSendChecks,
   SEND_CHECK_IDS,
@@ -417,6 +418,9 @@ describe("buildGroup1Rows — counts from the live report, decisions only label 
       ["Collibra", "open"],
     ]);
     expect(rows[0].item).not.toBeNull(); // the card can state the disagreement
+    // the tab badge / save receipt count OPEN rows, not listed items
+    expect(openGroup1Count(items, state(["ats:snowflake", "supported", "2026-10-21T10:00:00Z"]))).toBe(1);
+    expect(openGroup1Count(items, state(["ats:snowflake", "taken_out", "2026-10-21T10:00:00Z"]))).toBe(2);
   });
 
   it("a decision whose finding is gone is a decided row, before the open ones", () => {

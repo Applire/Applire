@@ -597,6 +597,15 @@ function keyFold(findingKey: string): string {
 }
 
 /**
+ * #797 (ruling D2-5): the number of OPEN group-1 rows — the tab badge and the
+ * save receipt count this, not the listed items, because a `supported`
+ * decision closes a finding the report still lists.
+ */
+export function openGroup1Count(items: ReviewItem[], state: ReviewState | null | undefined): number {
+  return buildGroup1Rows(items, state).filter((r) => r.status === "open").length;
+}
+
+/**
  * ADR-090 cl. 6 — every count is derived from the LIVE report. A finding the
  * report lists is open, whatever `review_state` says; a decision only LABELS a
  * finding the report no longer lists. A decision whose finding reappears is
