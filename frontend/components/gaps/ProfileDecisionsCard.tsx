@@ -19,9 +19,10 @@
 // page for 30 s on every visit — and the auto-hide took the only "decide now"
 // with it. Now:
 //  * desktop (md+): one notice in the V-1b corner (top-right, below the
-//    header, over the job-ad card's empty right part); after the window or
-//    the × it shrinks to a compact chip in the same corner, which stays while
-//    decisions are open;
+//    header); after the window or the × it shrinks to a compact chip that is
+//    portaled into the top bar (F-2: a fixed chip below the header
+//    covered the list once the page scrolled), and stays while decisions are
+//    open;
 //  * phone (< md): no floating overlay. The compact row is portaled into the
 //    TOP of the page's fixed decision bar (`mobileSlot`), whose measured
 //    spacer already keeps it off the content; it is always there.
@@ -49,6 +50,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import type { HealthIssue, ProfileHealth } from "@/components/profile/HealthPanel";
+import { TOPBAR_NOTICE_SLOT_ID } from "@/components/shell/AppTopbar";
 import {
   dismissedDecisions,
   markDecisionDismissed,
@@ -101,6 +103,11 @@ export function ProfileDecisionsCard({
   const [autoSeconds, setAutoSeconds] = useState(DEFAULT_AUTO_DISMISS_SECONDS);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const known = useRef<Set<string>>(new Set());
+  // Ruling F-2: on desktop the compact entry point lives in the top bar.
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setHeaderSlot(document.getElementById(TOPBAR_NOTICE_SLOT_ID));
+  }, []);
 
   useEffect(() => {
     setDismissed(dismissedDecisions(flowId));
@@ -191,6 +198,7 @@ export function ProfileDecisionsCard({
   );
 
   const barRow = compact("profile-decisions-bar-row", "mb-3 md:hidden");
+  const chip = compact("profile-decisions-compact", "pointer-events-auto py-1 shadow-sm");
 
   return (
     <>
@@ -198,7 +206,7 @@ export function ProfileDecisionsCard({
           sits above the shell sidebar (z-[60]) and below a full-screen dialog
           (z-[70]); hidden while the drawer is open. Below md this whole layer
           is gone — the phone gets the bar row instead. */}
-      {show && (
+      {show && (expanded || !headerSlot) && (
         <div
           data-testid="profile-decisions-stack"
           className="pointer-events-none fixed right-4 top-20 z-[65] hidden w-[22rem] md:block"
@@ -244,10 +252,14 @@ export function ProfileDecisionsCard({
               </p>
             </div>
           ) : (
-            compact("profile-decisions-compact", "pointer-events-auto shadow-lg")
+            chip
           )}
         </div>
       )}
+
+      {/* Desktop, collapsed: the chip sits in the top bar (F-2) — it
+          covers nothing at any scroll position. */}
+      {show && !expanded && headerSlot && createPortal(chip, headerSlot)}
 
       {/* Phone: the entry point lives in the page's fixed decision bar. */}
       {show && (mobileSlot ? createPortal(barRow, mobileSlot) : barRow)}

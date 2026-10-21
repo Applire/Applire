@@ -26,6 +26,8 @@
 // 9. A rejecting/500ing health fetch renders nothing and throws nothing.
 // 10. Phone: the compact row is portaled into the page's `mobileSlot` (the top
 //     of the fixed decision bar) and stays after the auto-hide.
+// 11. Desktop (F-2): once collapsed, the chip is portaled into the top bar's
+//     slot instead of floating below the header.
 //
 // Plus a unit-test block for `lib/gap-decisions-dismissed.ts`'s per-issue,
 // storage-degrades-safely contract.
@@ -352,6 +354,36 @@ describe("ProfileDecisionsCard", () => {
     expect(() => render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"))).not.toThrow();
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
+  });
+
+  // Property 11 (F-2)
+  describe("desktop: the collapsed chip lives in the top bar", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("after the window the chip is portaled into the top bar's slot, not floating", async () => {
+      vi.useFakeTimers();
+      const slot = document.createElement("div");
+      slot.id = "topbar-notice-slot";
+      document.body.appendChild(slot);
+      global.fetch = mockFetch({
+        issues: [issue("conflict", "d-1")],
+        settings: { notice_auto_dismiss_seconds: 1 },
+      });
+      render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
+      await flushEffects();
+      // The full notice floats in its corner while it is open.
+      expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument();
+      expect(slot.childElementCount).toBe(0);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(within(slot).getByTestId("profile-decisions-compact")).toHaveTextContent("1 decision open");
+      expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
+      slot.remove();
+    });
   });
 
   // Property 10

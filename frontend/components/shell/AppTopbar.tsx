@@ -60,6 +60,9 @@ interface FlowMode {
 
 type AppTopbarProps = SectionMode | DetailMode | FlowMode;
 
+/** The top bar's slot for a page's persistent notice entry point (desktop). */
+export const TOPBAR_NOTICE_SLOT_ID = "topbar-notice-slot";
+
 export function AppTopbar(props: AppTopbarProps) {
   const t = useTranslations();
   const { userName } = useShellUser();
@@ -175,6 +178,14 @@ export function AppTopbar(props: AppTopbarProps) {
           </div>
         )}
 
+        {/* M4 / F-2 — a page's persistent notice entry point (the gaps
+            page's "N Entscheidungen offen") is portaled here on desktop, so it
+            never floats over the content. Empty → takes no space. */}
+        <div
+          id={TOPBAR_NOTICE_SLOT_ID}
+          data-testid="topbar-notice-slot"
+          className="hidden md:flex md:empty:hidden items-center flex-shrink-0"
+        />
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"
