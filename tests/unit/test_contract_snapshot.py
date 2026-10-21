@@ -266,12 +266,16 @@ def test_the_generator_refuses_a_breaking_snapshot_without_the_flag(monkeypatch,
 def test_relaxing_a_required_parameter_to_optional_is_allowed(snapshot, live):
     """A relaxation keeps every existing call valid (WP-A: run_interview.job_id
     may become optional) — an addition to the freshness diff, never a break."""
+    # Build the pre-relaxation state explicitly: the committed snapshot already
+    # carries the relaxation once the integrated tree is regenerated.
+    old = copy.deepcopy(snapshot)
+    old["mcp_tools"]["run_interview"]["job_id"] = {"required": True, "types": ["string"]}
     new = _mutated(live)
     new["mcp_tools"]["run_interview"]["job_id"]["required"] = False
     new["mcp_tools"]["run_interview"]["job_id"]["types"] = ["null", "string"]
-    breaks, _ = gen.compare(snapshot, new)
+    breaks, _ = gen.compare(old, new)
     assert breaks == []
-    assert new != snapshot  # the snapshot must still be regenerated
+    assert new != old  # the snapshot must still be regenerated
 
 
 # --------------------------------------------------------------------------
