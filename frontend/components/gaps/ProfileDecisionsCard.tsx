@@ -42,7 +42,6 @@
 // remembers (per decision id), and even then the dispute stays parked, the
 // compact entry point stays, and the profile page still shows it.
 
-import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
