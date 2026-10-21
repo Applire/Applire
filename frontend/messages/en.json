@@ -1686,6 +1686,7 @@
     "progressDecided": "{decided} of {total} decided",
     "cardPosition": "{index} OF {total}",
     "cardMatched": "Your document says “{wording}” in {count, plural, one {# place} other {# places}}. Nothing in your profile backs it.",
+    "cardMatchedJoin": "”, “",
     "actionShowWhere": "Show me where",
     "actionAddToProfile": "It’s true, add it to my profile",
     "actionTakeOut": "Take it out for me",

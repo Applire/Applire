@@ -507,8 +507,10 @@ export function ReviewSurface({
       }
     }
     // The ICU message wraps `{wording}` in quotes; several distinct wordings
-    // are listed inside one pair, separated as quoted items.
-    return out.join("”, “");
+    // are listed inside one pair, separated as quoted items. #797: the
+    // separator is the CATALOG's quote convention (DE „a“, „b“ — EN “a”, “b”),
+    // never a hard-coded English pair inside a German sentence.
+    return out.join(t("cardMatchedJoin"));
   };
 
   const currentScan = scan && current && scan.findingKey === current.findingKey ? scan : null;

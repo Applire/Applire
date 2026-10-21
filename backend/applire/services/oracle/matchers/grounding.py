@@ -9,6 +9,9 @@ no new near-dupe implementation by construction.
 """
 from __future__ import annotations
 
+import functools
+import re
+
 from dataclasses import dataclass, field
 
 from applire.services.ats_audit import (
@@ -408,6 +411,13 @@ def ground_skill_claim(
             for unit in index.units:
                 if unit.path == f"skills[{i}]":
                     return unit
+    # Bug #797, the vault-side twin: the vault spells the enumeration ("SAP
+    # PP/MM", "PP/MM-Praxis") and the document names one part ("SAP MM").
+    if "/" not in name:
+        for unit in index.units:
+            expanded = _expand_slash_enumerations(unit.text_norm)
+            if expanded is not None and surface_present_whole_token(name, expanded):
+                return unit
     for sibling in _ledger_sibling_forms(name, ledger_forms or []):
         for unit in index.units:
             if surface_present_whole_token(sibling, unit.text_norm):
@@ -417,4 +427,62 @@ def ground_skill_claim(
                 for unit in index.units:
                     if unit.path == f"skills[{i}]":
                         return unit
+    parts = slash_enumeration_parts(name)
+    if parts:
+        backing = [ground_skill_claim(part, index, ledger_forms) for part in parts]
+        if all(u is not None for u in backing):
+            return backing[0]
     return None
+
+
+_SLASH_ENUM_RE = re.compile(r"^(?P<head>(?:[^\s/]+\s+)*)(?P<first>[^\s/]+)(?P<rest>(?:/[^\s/]+)+)$")
+
+
+_SLASH_IN_TEXT_RE = re.compile(r"(?:(?P<head>[^\W\d_][\w.+#-]*)\s+)?(?P<first>\w[\w.+#-]*)(?P<rest>(?:/\w[\w.+#-]*)+)")
+
+
+@functools.lru_cache(maxsize=4096)
+def _expand_slash_enumerations(text_norm: str) -> str | None:
+    """The vault text with every slash enumeration also spelled out part by
+    part ("sap pp/mm" → "… sap pp sap mm"), or ``None`` when it carries none.
+    The word before the enumeration is distributed as its head, exactly as
+    :func:`slash_enumeration_parts` reads a claim; the original text is kept,
+    so this only ever ADDS a reading (it can only ground, never un-ground)."""
+    if "/" not in text_norm:
+        return None
+    extra: list[str] = []
+    for m in _SLASH_IN_TEXT_RE.finditer(text_norm):
+        tails = [m.group("first")] + [t for t in m.group("rest").split("/") if t]
+        if not 2 <= len(tails) <= 4:
+            continue
+        head = f"{m.group('head')} " if m.group("head") else ""
+        extra.append(" ; ".join(f"{head}{t}" for t in tails))
+    if not extra:
+        return None
+    return text_norm + " ; " + " ; ".join(extra)
+
+
+def slash_enumeration_parts(name: str) -> list[str] | None:
+    """Bug #797 (founder ruling UX-1, 2026-10-20): the parts of a slash
+    enumeration, or ``None`` when ``name`` is not one.
+
+    "SAP PP/MM" is the job's short spelling of two competences, "SAP PP" and
+    "SAP MM"; "PP/MM" of "PP" and "MM". A vault that names them separately never
+    contains the slash spelling, so the whole-token test missed and the review
+    told a candidate who holds both that "nothing in your profile backs" them.
+    Reading the enumeration is a fact about the term's own characters (ADR-062
+    cl. 1, the same shape as the identifier list continuation of #790 L16): the
+    words before the first part are the shared head and are distributed onto
+    every single-word part. The caller grounds EVERY part — one unbacked part
+    ("IFS/BRC" with only IFS in the vault) leaves the term unbacked. A term with
+    a space around the slash, an empty part, or more than four parts is not
+    read as an enumeration.
+    """
+    m = _SLASH_ENUM_RE.match((name or "").strip())
+    if not m:
+        return None
+    head = m.group("head")
+    tails = [m.group("first")] + [t for t in m.group("rest").split("/") if t]
+    if len(tails) < 2 or len(tails) > 4 or any(not re.search(r"\w", t) for t in tails):
+        return None
+    return [f"{head}{t}" for t in tails]

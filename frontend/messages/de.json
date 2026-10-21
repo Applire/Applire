@@ -1686,6 +1686,7 @@
     "progressDecided": "{decided} von {total} entschieden",
     "cardPosition": "{index} VON {total}",
     "cardMatched": "Dein Dokument sagt „{wording}“ an {count, plural, one {# Stelle} other {# Stellen}}. Nichts in deinem Profil belegt das.",
+    "cardMatchedJoin": "“, „",
     "actionShowWhere": "Zeig mir, wo",
     "actionAddToProfile": "Stimmt, in mein Profil aufnehmen",
     "actionTakeOut": "Nimm es für mich heraus",

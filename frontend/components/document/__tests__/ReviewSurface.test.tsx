@@ -17,7 +17,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import React from "react";
-import { render, screen, fireEvent, within, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, within, waitFor, act, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { ReviewSurface, type ReviewSurfaceProps } from "../ReviewSurface";
@@ -383,6 +383,29 @@ describe("ADR-090 cl. 2 — Show me where", () => {
     renderSurface({ atsReport: MATCHED_ATS, locator: makePreviewLocator(previewDoc) });
     expect(screen.getByTestId("review-card-matched").textContent).toBe(
       "Your document says “AI governance” in 2 places. Nothing in your profile backs it.",
+    );
+  });
+
+  it("#797: several wordings use the catalog's quote convention in both locales", () => {
+    const sapDoc = (): Document => {
+      const doc = document.implementation.createHTMLDocument("cv");
+      const p = doc.createElement("p");
+      p.textContent = "Tägliche Arbeit mit SAP PP und SAP MM.";
+      doc.body.append(p);
+      return doc;
+    };
+    const sapAts = ats({
+      present_unsupported: ["PP/MM"],
+      present_unsupported_matches: { "PP/MM": [{ form: "SAP PP", stem: false }, { form: "SAP MM", stem: false }] },
+    });
+    render(withIntl(<ReviewSurface {...FULL_INPUTS} atsReport={sapAts} locator={makePreviewLocator(sapDoc)} />, "de"));
+    expect(screen.getByTestId("review-card-matched").textContent).toBe(
+      "Dein Dokument sagt „SAP PP“, „SAP MM“ an 2 Stellen. Nichts in deinem Profil belegt das.",
+    );
+    cleanup();
+    render(withIntl(<ReviewSurface {...FULL_INPUTS} atsReport={sapAts} locator={makePreviewLocator(sapDoc)} />, "en"));
+    expect(screen.getByTestId("review-card-matched").textContent).toBe(
+      "Your document says “SAP PP”, “SAP MM” in 2 places. Nothing in your profile backs it.",
     );
   });
 
