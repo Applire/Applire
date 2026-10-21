@@ -1382,7 +1382,8 @@
       "skills-weak-vault-tie": "Skills with only a weak profile link",
       "terminal-review": "Final document review",
       "narrative-evidence": "Evidence in the work history, not only as a skill",
-      "document-language": "Document written in a single language"
+      "document-language": "Document written in a single language",
+      "keyword-other-language": "Terms your profile states in another language"
     },
     "checkDetails": {
       "page-length-target": "{pages} pages — meets your chosen target of {target}; the {region} norm is {standard} pages",
@@ -1394,6 +1395,7 @@
       "page-length-not-applicable": "Not applicable — this document has no fixed pagination until a word processor lays it out",
       "document-language-not-applicable": "Not applicable — no language was stated for this document",
       "document-language-mixed": "{count, plural, one {# place is} other {# places are}} not written in {language, select, de {German} en {English} other {{language}}}: {examples}",
+      "keyword-other-language": "Not verified — your profile states {count, plural, one {this term} other {these terms}} in another language: {terms}",
       "skills-weak-vault-tie": "{count, plural, one {# skill is} other {# skills are}} tied to your profile only by a single shared word — worth a second look before sending: {skills}"
     },
     "pinnedFacts": {
@@ -1662,6 +1664,7 @@
     "verdictFindings": "{count, plural, one {# place in the document is not covered by your profile.} other {# places in the document are not covered by your profile.}}",
     "verdictClear": "Every statement in the document is covered by your profile.",
     "verdictClearWithOthers": "Every statement in the document is covered by your profile. {count, plural, =0 {There are findings below that do not stand in the way of sending it.} one {There is # further finding below — it does not stand in the way of sending it.} other {There are # further findings below — they do not stand in the way of sending it.}}",
+    "verdictClearUnchecked": "Every statement in the document is covered by your profile. Not checked: {producers}{count, plural, =0 { — look over that part yourself before you send it.} one {. There is # further finding below.} other {. There are # further findings below.}}",
     "verdictClearWithSendCheck": "Every statement in the document is covered by your profile — but {count, plural, one {# finding needs} other {# findings need}} a look before you send it.",
     "verdictUnknown": "Whether every statement is covered was not checked for this document.",
     "group1Title": "In the document, but not in your profile",
@@ -1691,6 +1694,7 @@
     "progressDecided": "{decided} of {total} decided",
     "cardPosition": "{index} OF {total}",
     "cardMatched": "Your document says “{wording}” in {count, plural, one {# place} other {# places}}. Nothing in your profile backs it.",
+    "cardMatchedJoin": "”, “",
     "actionShowWhere": "Show me where",
     "actionAddToProfile": "It’s true, add it to my profile",
     "actionTakeOut": "Take it out for me",
@@ -1711,6 +1715,9 @@
     "statusAdded": "Added to profile",
     "statusTakenOut": "Taken out",
     "statusEdited": "Edited",
+    "statusSupported": "In your profile",
+    "supportedReceipt": "Your profile says: “{lines}”.",
+    "supportedStillListed": "The word check does not find it word for word — your confirmation counts.",
     "otherTitle": "Other findings",
     "otherSub": "None of these stand in the way of sending the document.",
     "sendCheckTitle": "Look at this before you send it",

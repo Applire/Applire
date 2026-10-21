@@ -1382,7 +1382,8 @@
       "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug",
       "terminal-review": "Abschlussprüfung des Dokuments",
       "narrative-evidence": "Belege im Werdegang statt nur als Skill",
-      "document-language": "Dokument durchgehend in einer Sprache"
+      "document-language": "Dokument durchgehend in einer Sprache",
+      "keyword-other-language": "Begriffe, die Dein Profil in einer anderen Sprache nennt"
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht deinem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
@@ -1394,6 +1395,7 @@
       "page-length-not-applicable": "Nicht anwendbar — dieses Dokument hat keine feste Seitenaufteilung, bis ein Textprogramm es umbricht",
       "document-language-not-applicable": "Nicht anwendbar — für dieses Dokument wurde keine Sprache angegeben",
       "document-language-mixed": "{count, plural, one {# Stelle ist} other {# Stellen sind}} nicht auf {language, select, de {Deutsch} en {Englisch} other {{language}}} geschrieben: {examples}",
+      "keyword-other-language": "Nicht geprüft — Dein Profil nennt {count, plural, one {diesen Begriff} other {diese Begriffe}} in einer anderen Sprache: {terms}",
       "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
     },
     "pinnedFacts": {
@@ -1662,6 +1664,7 @@
     "verdictFindings": "{count, plural, one {# Stelle im Dokument ist nicht durch Dein Profil gedeckt.} other {# Stellen im Dokument sind nicht durch Dein Profil gedeckt.}}",
     "verdictClear": "Jede Aussage im Dokument ist durch Dein Profil gedeckt.",
     "verdictClearWithOthers": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. {count, plural, =0 {Weiter unten stehen Befunde, die dem Versand nicht im Weg stehen.} one {Weiter unten steht # weiterer Befund — er steht dem Versand nicht im Weg.} other {Weiter unten stehen # weitere Befunde — sie stehen dem Versand nicht im Weg.}}",
+    "verdictClearUnchecked": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Nicht geprüft: {producers}{count, plural, =0 { — sieh Dir diesen Teil selbst an, bevor Du sendest.} one {. Weiter unten steht # weiterer Befund.} other {. Weiter unten stehen # weitere Befunde.}}",
     "verdictClearWithSendCheck": "Jede Aussage im Dokument ist durch Dein Profil gedeckt — aber {count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
     "verdictUnknown": "Ob jede Aussage gedeckt ist, wurde für dieses Dokument nicht geprüft.",
     "group1Title": "Im Dokument, aber nicht in Deinem Profil",
@@ -1691,6 +1694,7 @@
     "progressDecided": "{decided} von {total} entschieden",
     "cardPosition": "{index} VON {total}",
     "cardMatched": "Dein Dokument sagt „{wording}“ an {count, plural, one {# Stelle} other {# Stellen}}. Nichts in deinem Profil belegt das.",
+    "cardMatchedJoin": "“, „",
     "actionShowWhere": "Zeig mir, wo",
     "actionAddToProfile": "Stimmt, in mein Profil aufnehmen",
     "actionTakeOut": "Nimm es für mich heraus",
@@ -1711,6 +1715,9 @@
     "statusAdded": "Ins Profil aufgenommen",
     "statusTakenOut": "Herausgenommen",
     "statusEdited": "Bearbeitet",
+    "statusSupported": "Steht in Deinem Profil",
+    "supportedReceipt": "Dein Profil sagt: „{lines}“.",
+    "supportedStillListed": "Die Wortprüfung findet es nicht wörtlich — Deine Bestätigung zählt.",
     "otherTitle": "Weitere Hinweise",
     "otherSub": "Nichts davon steht dem Versand im Weg.",
     "sendCheckTitle": "Vor dem Versand ansehen",

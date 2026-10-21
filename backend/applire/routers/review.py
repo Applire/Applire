@@ -10,8 +10,9 @@ refreshed ATS report response (``review_state`` on it), the truthfulness report
 Status mapping: unknown document → 404; malformed ``finding_key`` → 422; a key
 the current report does not list, ``undo`` without a decision, or ``undo`` of an
 ``added`` decision, *take-out* of a stem-only finding (RULING B-1), or *take-out*
-on a passage whose job title / employer name holds the wording (WP-R) → 409
-(``detail.error`` names which); the removal rewrite not
+on a passage whose job title / employer name holds the wording (WP-R), or
+*supported* on a wording the profile does not hold (#797, ``not_in_profile``)
+→ 409 (``detail.error`` names which); the removal rewrite not
 installed → 503.
 """
 from __future__ import annotations
@@ -78,6 +79,10 @@ class SectionChange(BaseModel):
     after: str
 
 
+class SupportedResponse(ReviewReportResponse):
+    still_listed: bool
+
+
 class TakeOutResponse(ReviewReportResponse):
     changes: list[SectionChange]
     still_listed: bool
@@ -118,6 +123,8 @@ async def _run(coro):
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "take_out_unavailable_stem_only", "message": str(exc)})
     except ra.TakeOutProtectedName as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "take_out_unavailable_protected_name", "message": str(exc)})
+    except ra.NotSupportedByProfile as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "not_in_profile", "message": str(exc)})
     except ra.RewriteUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     except LookupError as exc:
@@ -194,6 +201,19 @@ def _mount(prefix: str, kind: Kind) -> None:
         )
         return ReviewStateResponse(review_state=load_state(out.record.review_state))
 
+    async def supported(
+        doc_id: uuid.UUID,
+        body: FindingKeyBody,
+        db: AsyncSession = Depends(get_db),
+        _auth: User = Depends(require_user),
+    ) -> SupportedResponse:
+        """Bug #797 / ruling D2-5 = A (ADR-090 cl. 6 amended) — *Stimmt* on a
+        finding the profile already holds: confirm a matching unconfirmed skill,
+        re-audit, record `supported` with the receipt. 409 `not_in_profile` when
+        a wording is not in the profile (the surface then asks for testimony)."""
+        out = await _run(ra.confirm_supported(kind, doc_id, body.finding_key, db, user_id=_auth.id))
+        return SupportedResponse(still_listed=out.still_listed, **await _reports(kind, doc_id, db, _auth.id))
+
     async def walked(
         doc_id: uuid.UUID,
         db: AsyncSession = Depends(get_db),
@@ -213,6 +233,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         ("edited", edited, ReviewReportResponse),
         ("walked", walked, ReviewStateResponse),
         ("kept", kept, ReviewStateResponse),
+        ("supported", supported, SupportedResponse),
     ):
         fn.__name__ = f"review_{name.replace('-', '_')}_{tag.replace('-', '_')}"
         router.add_api_route(

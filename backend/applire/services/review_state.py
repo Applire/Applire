@@ -42,7 +42,7 @@ from typing import Any, Literal
 from applire.services.scope_requirements import _norm_quote
 
 Producer = Literal["ats", "oracle", "critic"]
-Action = Literal["added", "taken_out", "edited", "kept"]
+Action = Literal["added", "taken_out", "edited", "kept", "supported"]
 
 PRODUCERS: tuple[str, ...] = ("ats", "oracle", "critic")
 #: ADR-090 cl. 6's group-1 producers. `critic` (#702, ADR-060 amended 2026-10-07) keys a
@@ -51,7 +51,12 @@ PRODUCERS: tuple[str, ...] = ("ats", "oracle", "critic")
 #: group-1 decision whose fold happens to be equal.
 GROUP_ONE_PRODUCERS: tuple[str, ...] = ("ats", "oracle")
 # #702: `kept` — the candidate decided a cross-document item stays as it is.
-ACTIONS: tuple[str, ...] = ("added", "taken_out", "edited", "kept")
+ACTIONS: tuple[str, ...] = ("added", "taken_out", "edited", "kept", "supported")
+#: Bug #797 / founder ruling D2-5 = A (ADR-090 cl. 6 amended 2026-10-21): the ONE
+#: action that closes a finding the live report still lists. It is recorded only
+#: by ``review_actions.confirm_supported`` — after every wording of the finding
+#: was found in the candidate's whole profile — and carries that ``receipt``.
+CLOSES_LISTED: frozenset[str] = frozenset({"supported"})
 # frontend lib/truthfulness-display.ts FLAG_VERDICTS
 FLAG_VERDICTS: frozenset[str] = frozenset({"inflated", "misattributed", "unbacked"})
 
@@ -267,14 +272,16 @@ def with_decision(
     action: str,
     undo_sections: list[dict] | None = None,
     at: str | None = None,
+    receipt: list[dict] | None = None,
 ) -> dict:
     """Record ``action`` on ``key``, REPLACING any earlier decision on the same
-    finding (its ``undo.before`` is superseded by the new action's, cl. 6)."""
+    finding (its ``undo.before`` is superseded by the new action's, cl. 6).
+    ``receipt`` (``supported`` only): the profile lines that hold the wording."""
     if action not in ACTIONS:
         raise ValueError(f"unknown action {action!r}")
     split_key(key)
     out = without_decision(state, key)
-    out["decisions"].append({
+    entry = {
         "finding_key": key,
         "label": label,
         "action": action,
@@ -283,7 +290,10 @@ def with_decision(
             {"sections": [{"section_id": s["section_id"], "before": s["before"]} for s in undo_sections]}
             if undo_sections else None
         ),
-    })
+    }
+    if receipt:
+        entry["receipt"] = [{"path": r.get("path"), "text": r.get("text")} for r in receipt]
+    out["decisions"].append(entry)
     return out
 
 
@@ -300,13 +310,18 @@ def derive_review(state: Any, ats_report: dict | None, truth_report: dict | None
     """What the surface shows, derived from the LIVE report.
 
     ``open`` = every group-1 finding the report lists (a decision on it is
-    ignored). ``decided`` = the decisions whose finding the report no longer
-    lists. ``unknown_producers`` names a producer whose report is missing
+    ignored) — EXCEPT a ``supported`` decision (ADR-090 cl. 6 amended
+    2026-10-21, D2-5): the candidate confirmed it and every wording was found in
+    their profile, so it closes the row although the keyword check still lists
+    it (``still_listed: True`` on the decided row states the disagreement).
+    ``decided`` = the decisions whose finding the report no longer lists, plus
+    those. ``unknown_producers`` names a producer whose report is missing
     (ADR-081 cl. 9): no figure reads as complete while it is non-empty.
     """
     st = load_state(state)
     findings = group_one_findings(ats_report, truth_report)
     listed_norms = {f.norm for f in findings}
+    closed_norms: set[str] = set()
     decided = []
     for d in st["decisions"]:
         try:
@@ -317,6 +332,12 @@ def derive_review(state: Any, ats_report: dict | None, truth_report: dict | None
             continue  # #702: a cross-document decision is not a group-1 row
         if n not in listed_norms:
             decided.append({k: d.get(k) for k in ("finding_key", "label", "action", "at")})
+        elif d.get("action") in CLOSES_LISTED:
+            closed_norms.add(n)
+            row = {k: d.get(k) for k in ("finding_key", "label", "action", "at")}
+            row["still_listed"] = True
+            decided.append(row)
+    findings = [f for f in findings if f.norm not in closed_norms]
     unknown = [p for p, r in (("ats", ats_report), ("oracle", truth_report)) if r is None]
     return {
         "open": [{"finding_key": f.key, "label": f.label} for f in findings],

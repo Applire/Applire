@@ -677,29 +677,45 @@ async def test_saving_a_section_recomputes_completeness_and_last_updated(
 
 
 @pytest.mark.asyncio
-async def test_saved_introduction_goes_through_the_field_edit_intake(
+async def test_saved_introduction_stays_on_the_document_and_never_reaches_the_summary(
     db_with_dated_profile,
 ):
-    """#336 — the introduction write is merge-patched, not section-replaced.
+    """Founder ruling D2-2 = A (2026-10-20, #783 line L23).
 
-    `professional_summary` is an object section: the intake merges the supplied
-    keys (#178) so writing the document's language slot can never wipe the
-    other one. Asserted here because routing this write through the shared
-    intake is what makes that guarantee apply to the section editor too.
+    An edited TAILORED introduction is text written for one posting. Merged
+    into ``professional_summary`` it became role-agnostic Oracle evidence
+    (``matchers/vault.py``) that "backs" the next document — system-authored
+    prose grounding itself. "Save to profile" on the introduction now keeps the
+    edit on the document only: the override is written, the profile summary,
+    its trail and its clock are untouched.
     """
     from applire.models.profile import MasterProfile
     from applire.services.cv_section_editor import patch_cv_section
 
     ctx = db_with_dated_profile
     session, cv_id, profile_id = ctx["db"], ctx["cv_id"], ctx["profile_id"]
+    before = dict((await session.get(MasterProfile, profile_id)).profile_json)
 
-    await patch_cv_section(cv_id, "introduction", "Neue Zusammenfassung", True, session)
+    result = await patch_cv_section(cv_id, "introduction", "Neue Zusammenfassung", True, session)
 
+    assert "introduction" in result.overrides_applied
     profile = await session.get(MasterProfile, profile_id)
-    summary = profile.profile_json["professional_summary"]
-    assert summary["de"] == "Neue Zusammenfassung"
+    await session.refresh(profile)
+    assert profile.profile_json.get("professional_summary") == before.get("professional_summary")
     history = ((profile.profile_json.get("metadata") or {}).get("enrichment_history")) or []
-    assert [c["section"] for c in history[-1]["changes"]] == ["professional_summary"]
+    old_history = ((before.get("metadata") or {}).get("enrichment_history")) or []
+    assert len(history) == len(old_history), "no intake write for the introduction"
+
+
+def test_introduction_maps_to_no_vault_write():
+    """The pure adapter's half of D2-2: no (section, value) for the introduction."""
+    from applire.schemas.profile import MasterProfileData
+    from applire.services.cv_section_editor import build_section_field_edit
+
+    assert build_section_field_edit(
+        "introduction", "Tailored text", profile_data=MasterProfileData(),
+        content_snapshot=None, lang="en",
+    ) is None
 
 
 @pytest.mark.asyncio

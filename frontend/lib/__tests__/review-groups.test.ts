@@ -19,6 +19,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildGroup1Rows,
+  openGroup1Count,
   buildReviewGroups,
   buildSendChecks,
   SEND_CHECK_IDS,
@@ -294,7 +295,15 @@ describe("verdictState — ADR-081 clause 4 and JF-F-K.1", () => {
 
   it("qualifies the all-clear when another group is UNKNOWN, even with nothing else found", () => {
     const groups = buildReviewGroups(inputs({ criticReport: null }));
-    expect(verdictState(groups, 0)).toEqual({ kind: "clear_with_others", others: 0 });
+    // #789 line L60: names the blind producer — never "findings below" with none below.
+    expect(verdictState(groups, 0)).toEqual({ kind: "clear_unchecked", others: 0, unchecked: ["critic"] });
+  });
+
+  it("keeps the real count next to a blind producer, each producer named once", () => {
+    const groups = buildReviewGroups(
+      inputs({ criticReport: null, gapClusters: null, atsReport: ats({ missing_honest_gap: ["Terraform"] }) }),
+    );
+    expect(verdictState(groups, 0)).toEqual({ kind: "clear_unchecked", others: 1, unchecked: ["clusters", "critic"] });
   });
 
   it("renders a plain all-clear only when every group ran and every group is empty", () => {
@@ -381,7 +390,7 @@ describe("buildGroup1Rows — counts from the live report, decisions only label 
     1,
   ).items;
 
-  function state(...decisions: Array<[string, "added" | "taken_out" | "edited", string]>): ReviewState {
+  function state(...decisions: Array<[string, "added" | "taken_out" | "edited" | "supported", string]>): ReviewState {
     return {
       walked_at: null,
       decisions: decisions.map(([finding_key, action, at]) => ({
@@ -400,6 +409,18 @@ describe("buildGroup1Rows — counts from the live report, decisions only label 
     expect(snow.status).toBe("open");
     expect(snow.decision?.action).toBe("taken_out");
     expect(rows.filter((r) => r.status === "open")).toHaveLength(2);
+  });
+
+  it("#797 (ruling D2-5): a `supported` decision closes a finding the report STILL lists", () => {
+    const rows = buildGroup1Rows(items, state(["ats:snowflake", "supported", "2026-10-21T10:00:00Z"]));
+    expect(rows.map((r) => [r.label, r.status])).toEqual([
+      ["Snowflake", "supported"],
+      ["Collibra", "open"],
+    ]);
+    expect(rows[0].item).not.toBeNull(); // the card can state the disagreement
+    // the tab badge / save receipt count OPEN rows, not listed items
+    expect(openGroup1Count(items, state(["ats:snowflake", "supported", "2026-10-21T10:00:00Z"]))).toBe(1);
+    expect(openGroup1Count(items, state(["ats:snowflake", "taken_out", "2026-10-21T10:00:00Z"]))).toBe(2);
   });
 
   it("a decision whose finding is gone is a decided row, before the open ones", () => {

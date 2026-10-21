@@ -85,7 +85,7 @@ REST_BODIES: dict[tuple[str, str], dict] = {
     **{
         ("POST", f"/api/{kind}/{{doc_id}}/review/{action}"): dict(_FK)
         for kind in ("cv", "cover-letter")
-        for action in ("take-out", "undo", "edited")
+        for action in ("take-out", "undo", "edited", "supported")
     },
     # #702: *So lassen* on a cross-document item (a `critic:` key).
     **{

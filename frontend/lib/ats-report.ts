@@ -140,6 +140,9 @@ export const LOCALIZED_DETAIL_KEYS = new Set([
   // #759: a FAILED document-language check, shown in the review surface's
   // "before you send it" block ({language, count, examples}).
   "document-language-mixed",
+  // #790 line L10 (ruling D2-1 = A): present terms the keyword check did not
+  // verify across languages ({count, terms}) — a neutral not_applicable row.
+  "keyword-other-language",
 ]);
 
 /**

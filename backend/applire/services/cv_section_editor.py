@@ -358,8 +358,14 @@ def build_section_field_edit(
     the shared FieldEdit intake writes, or ``None`` when the edit targets
     nothing in the vault (an unknown position, a profile with no work history).
 
-    introduction → ``professional_summary``, merge-patched with the DOCUMENT's
-    language slot only (#178 object-section semantics: the other slot survives)
+    introduction → ``None`` (founder ruling D2-2 = A, 2026-10-20, #783 line
+    L23): an edited TAILORED introduction stays on the document. Until then it
+    was merge-patched into ``professional_summary.{lang}``, and that slot is
+    role-agnostic Oracle evidence (``matchers/vault.py``) with no provenance —
+    so text written for one posting became evidence that "backs" the next
+    document. The candidate's own summary keeps reaching the vault through CV
+    import, the profile page and the interview's ``set_summary`` on an empty
+    slot.
     skills → the ``skills`` section, additive, absent names appended as
     ``unconfirmed`` (ADR-061 clause 3)
     position::{uuid} → the ``work_experience`` section with ``responsibilities``
@@ -369,12 +375,9 @@ def build_section_field_edit(
     from applire.schemas.profile import Skill
 
     if section_id == "introduction":
-        # #336 — was hardcoded to `.de`, so an English CV's edited summary landed
-        # in the German slot (and silently overwrote a real German summary).
-        # ProfessionalSummary is a genuine {de, en} model; write the language the
-        # document was actually generated in, resolved the same way the renderer
-        # resolves it (ADR-038).
-        return "professional_summary", {("en" if lang == "en" else "de"): content}
+        # D2-2 = A (#783 L23): document only — see the docstring. (#336's
+        # language-slot fix is moot here now; the slot is never written.)
+        return None
 
     if section_id == "skills":
         new_skills_raw = [s.strip() for s in content.split("\n") if s.strip()]
@@ -502,21 +505,9 @@ async def _save_section_to_profile(
 
     profile_data = MasterProfileData.model_validate(profile.profile_json)
 
+    # D2-2 = A: the introduction (the only language-slotted section) is
+    # document-only, so no document-language resolution is needed here.
     lang = "de"
-    if section_id == "introduction":
-        # E054 clause 3b: pinned document language first; seam fallback for
-        # pre-migration rows.
-        lang = record.document_language or "de"
-        if not record.document_language and record.job_analysis_id:
-            from applire.models.job import JobAnalysis
-            from applire.services.application import get_application_for_job
-            from applire.utils.language_detection import resolve_document_language
-
-            job = await db.get(JobAnalysis, record.job_analysis_id)
-            application = await get_application_for_job(
-                record.job_analysis_id, owner, db
-            )
-            lang = resolve_document_language(application, job) if job else "de"
 
     field_edit = build_section_field_edit(
         section_id,

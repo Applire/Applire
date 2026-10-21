@@ -49,7 +49,7 @@ import UnaskedRequirementsPanel, {
 } from "@/components/gaps/UnaskedRequirementsPanel";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import { buildReviewGroups } from "@/lib/review-groups";
+import { openGroup1Count, buildReviewGroups } from "@/lib/review-groups";
 import {
   markEdited,
   refreshedReport,
@@ -517,7 +517,7 @@ export default function CoverLetterPage({
             kind: "finding",
             label,
             stillListed: g1.items.some((it) => it.findingKey === findingKey),
-            openCount: g1.items.length,
+            openCount: openGroup1Count(g1.items, reviewState),
           });
         })
         .catch(() => setSaveReceipt({ kind: "plain" }));
@@ -720,13 +720,14 @@ export default function CoverLetterPage({
     </>
   );
 
-  const group1Count = buildReviewGroups({
+  const group1Live = buildReviewGroups({
     atsReport,
     truthReport,
     criticReport,
     gapClusters: [],
     hasClusterProducer: false,
-  }).find((g) => g.id === 1)!.items.length;
+  }).find((g) => g.id === 1)!;
+  const group1Count = openGroup1Count(group1Live.items, reviewState);
 
   const sidebarTabs: SidebarTab[] = [
     {

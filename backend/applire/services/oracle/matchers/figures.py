@@ -32,6 +32,21 @@ class TenureClaim:
 
     years: float
     raw: str  # verbatim substring for report details
+    #: #790 line L15 — the LOWEST duration the text commits to, when it is
+    #: below ``years``: the lower bound of a range ("6-8 Jahre" → 6, years 8),
+    #: or a "seit 2004" reading that assumes the latest start within the year.
+    #: Claim-side over-direction checks (#469 ceiling, #747 subject span) read
+    #: :attr:`floor` — silence over a false accusation; vault-side readers keep
+    #: ``years`` (the most the candidate's own words state).
+    low: float | None = None
+    #: #790 line L15 — set for a start-year statement ("seit 2004"): it is
+    #: checked as a START against the vault's earliest dated start, never as a
+    #: duration to today (a role that ended is not "since 2019 until now").
+    since_year: int | None = None
+
+    @property
+    def floor(self) -> float:
+        return self.years if self.low is None else self.low
 
 
 # Multiplier suffixes folded into the canonical value (DE + EN).
@@ -201,10 +216,23 @@ _PLUS_QUANTIFIER_RE = re.compile(r"\b([1-9])\+")
 # judgement about the surrounding claim. Group 1 is the number itself; the
 # unit is only the evidence that the number is a duration.
 _TENURE_UNIT = r"(?:jahr(?:e|en|es)?|jährig\w*|jaehrig\w*|years?|yrs?)"
+# #790 line L15 (2026-10-20): the number may be a RANGE ("6-8 Jahre", "6–8
+# years" — group 1 is the whole range, so its lower bound is tenure-exempt
+# from figure matching too, #214) or a hyphenated EN compound ("twenty-two
+# years", which read as 2); "J." is the German abbreviation ("22 J.").
 _TENURE_RE = re.compile(
-    r"\b(\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß]+)\+?\s*[-–]?\s*" + _TENURE_UNIT + r"\b",
+    r"\b(\d+(?:[.,]\d+)?(?:\s*[-–]\s*\d+(?:[.,]\d+)?)?|[A-Za-zÄÖÜäöüß]+(?:-[A-Za-zÄÖÜäöüß]+)?)"
+    r"\+?\s*[-–]?\s*(?:" + _TENURE_UNIT + r"\b|j\.(?!\w))",
     re.IGNORECASE,
 )
+# #790 line L15 — "7 Jahre und 6 Monate": a months tail directly after a tenure.
+_TENURE_MONTHS_TAIL_RE = re.compile(
+    r"\s*(?:,|und|and)?\s*(\d{1,2})\s*(?:monate[n]?|monat|months?|mon\.)(?!\w)",
+    re.IGNORECASE,
+)
+# #790 line L15 — "seit 2004" / "since 2018": a duration stated as a start year.
+_TENURE_SINCE_RE = re.compile(r"\b(?:seit|since)\s+((?:19|20)\d{2})(?![\d.,])", re.IGNORECASE)
+_TENURE_RANGE_SPLIT_RE = re.compile(r"\s*[-–]\s*")
 
 # ── #220 — a date fragment is not a quantified figure ──────────────────────
 #
@@ -311,12 +339,37 @@ def _percent_range_bare_spans(text: str) -> list[tuple[str, tuple[int, int]]]:
 # claim extractor and ``build_vault_index`` call this one shared function;
 # the guard lives here, not in either caller, so both directions are fixed
 # by construction.
-_IDENTIFIER_PREFIX = r"(?:ISO|IEC|EN|DIN|CFR|GAMP|ASTM|ANSI|RFC|IEEE|VDE|VDI)"
-# The common shape: prefix immediately followed (one space/"/"/"-") by the
-# identifier's digits — "ISO 15189", "DIN EN 9100", "ISO/IEC 27001".
-_IDENTIFIER_AFTER_RE = re.compile(
-    rf"\b{_IDENTIFIER_PREFIX}(?:\s*/\s*{_IDENTIFIER_PREFIX})?[ /-]\s*(\d+)"
+#
+# #790 line L16 (2026-10-20): the notation variants the narrow list missed —
+# * prefixes IATF ("IATF 16949") and VDA ("VDA 6.3", dotted digits), and the
+#   "ISO/TS" / "ISO-TS" second part ("ISO/TS 16949");
+# * a separator-less form ("ISO9001", "IATF16949");
+# * lower/mixed case for the prefixes that are no ordinary word ("iso 9001",
+#   "Iso 45001") — EN, DIN and CFR stay uppercase-only ("en" is German prose);
+# * a list continuation ("ISO 9001/45001", "ISO 9001, 14001 und 45001"):
+#   a "/"-joined run of 4–5 digits, or a 5-digit number after ","/und/and/
+#   sowie/& — the standard-number shapes; a 4-digit number after "und" stays a
+#   figure ("ISO 9001 und 1200 Mitarbeitende" names a headcount).
+# #790 line L17: the edition year ("ISO 9001:2015") belongs to the identifier
+# and is not a year figure — excluded from figure extraction, but NOT an
+# identifier digit of its own (the #701 presence rule checks "9001", never
+# "2015").
+_IDENTIFIER_PREFIX = (
+    r"(?:EN|DIN|CFR|(?i:ISO|IEC|IATF|VDA|GAMP|ASTM|ANSI|RFC|IEEE|VDE|VDI))"
 )
+_IDENTIFIER_SECOND = rf"(?:{_IDENTIFIER_PREFIX}|(?i:TS))"
+_IDENTIFIER_DIGITS = r"\d+(?:\.\d+)?(?!\d)"
+# The common shape: prefix followed (directly, or by one space/"/"/"-") by the
+# identifier's digits — "ISO 15189", "DIN EN 9100", "ISO/IEC 27001", "ISO9001".
+_IDENTIFIER_AFTER_RE = re.compile(
+    rf"\b{_IDENTIFIER_PREFIX}(?:\s*[/-]\s*{_IDENTIFIER_SECOND})?[ /-]?\s*({_IDENTIFIER_DIGITS})"
+)
+# A list continuation right after an identifier match (applied repeatedly).
+_IDENTIFIER_CONTINUATION_RE = re.compile(
+    r"\s*/\s*(\d{4,5})(?![\d.,])"
+    r"|\s*(?:,|&|\bund\b|\band\b|\bsowie\b)\s*(\d{5})(?![\d.,])"
+)
+_IDENTIFIER_EDITION_RE = re.compile(r":\s?((?:19|20)\d{2})(?!\d)")
 # "21 CFR" — the CFR shape uniquely puts the identifying number BEFORE the
 # prefix (the US federal register title number), unlike every other prefix
 # in the list, so this is scoped to CFR only, not generalized.
@@ -326,12 +379,51 @@ _IDENTIFIER_BEFORE_CFR_RE = re.compile(r"\b(\d+)\s+CFR\b")
 _CFR_PART_RE = re.compile(r"\bCFR\b(?:\s+\S+){0,3}?\s+[Pp]art\s+(\d+)")
 
 
+def identifier_matches(text: str) -> list[tuple[tuple[int, int], str]]:
+    """(digit span, label as written) of every standard/regulation identifier.
+
+    A list continuation is labelled with its chain's prefix ("ISO 9001/45001"
+    yields "ISO 9001" and "ISO 45001") so a report names the standard, not a
+    bare number. The edition year of "ISO 9001:2015" is NOT an identifier
+    digit (see :func:`_identifier_excluded_spans`).
+    """
+    out: list[tuple[tuple[int, int], str]] = []
+    for m in _IDENTIFIER_AFTER_RE.finditer(text):
+        out.append((m.span(1), text[m.start():m.end(1)]))
+        prefix = text[m.start():m.start(1)].rstrip(" /-") or text[m.start():m.start(1)]
+        pos = m.end(1)
+        edition = _IDENTIFIER_EDITION_RE.match(text, pos)
+        if edition:
+            pos = edition.end()
+        while True:
+            c = _IDENTIFIER_CONTINUATION_RE.match(text, pos)
+            if c is None:
+                break
+            g = 1 if c.group(1) is not None else 2
+            out.append((c.span(g), f"{prefix} {c.group(g)}"))
+            pos = c.end()
+            edition = _IDENTIFIER_EDITION_RE.match(text, pos)
+            if edition:
+                pos = edition.end()
+    for pattern in (_IDENTIFIER_BEFORE_CFR_RE, _CFR_PART_RE):
+        for m in pattern.finditer(text):
+            out.append((m.span(1), ""))
+    return out
+
+
 def _identifier_spans(text: str) -> list[tuple[int, int]]:
     """Digit spans immediately owned by a standard/regulation identifier."""
-    spans: list[tuple[int, int]] = []
-    for pattern in (_IDENTIFIER_AFTER_RE, _IDENTIFIER_BEFORE_CFR_RE, _CFR_PART_RE):
-        for m in pattern.finditer(text):
-            spans.append(m.span(1))
+    return [span for span, _ in identifier_matches(text)]
+
+
+def _identifier_excluded_spans(text: str) -> list[tuple[int, int]]:
+    """Every span figure extraction must skip: the identifier digits plus an
+    edition year directly attached to one ("ISO 9001:2015", #790 line L17)."""
+    spans = _identifier_spans(text)
+    for a, b in list(spans):
+        edition = _IDENTIFIER_EDITION_RE.match(text, b)
+        if edition:
+            spans.append(edition.span(1))
     return spans
 
 
@@ -420,7 +512,7 @@ def extract_figures(text: str) -> list[Figure]:
     # #374: computed once — percent/currency extraction is deliberately NOT
     # guarded (a standard body never prefixes a percentage or a currency
     # amount), only the year- and number-kind matches consult it.
-    identifier_spans = _identifier_spans(text)
+    identifier_spans = _identifier_excluded_spans(text)
     # #214/#220: durations in years and date fragments are not quantified
     # figures. Computed once here and consulted only by the number-kind
     # passes — a percent or a currency symbol next to the number already
@@ -607,13 +699,17 @@ def _spelled_small_number(token: str) -> int | None:
     small = _SMALL_WORDS.get(token)
     if small is not None:
         return small
+    # #790 line L15: the hyphenated EN compound ("twenty-two").
+    tens, sep, unit = token.partition("-")
+    if sep and tens in _EN_TENS and unit in _EN_UNITS:
+        return _EN_TENS[tens] + _EN_UNITS[unit]
     de = _DE_UND_RE.match(token)
     if de:
         return _DE_COMPOUND_UNITS[de.group(1)] + _DE_TENS[de.group(2)]
     return None
 
 
-def extract_tenure_claims(text: str) -> list[TenureClaim]:
+def extract_tenure_claims(text: str, *, include_since: bool = False) -> list[TenureClaim]:
     """Every stated duration in years, as a NUMBER OF YEARS (#469).
 
     Reuses ``_TENURE_RE`` — the very regex whose #214 exemption removed
@@ -637,15 +733,32 @@ def extract_tenure_claims(text: str) -> list[TenureClaim]:
     claims: list[TenureClaim] = []
     for m in _TENURE_RE.finditer(text):
         token = m.group(1)
+        raw = m.group(0)
+        months = _TENURE_MONTHS_TAIL_RE.match(text, m.end())
+        extra = 0.0
+        if months is not None and 0 < int(months.group(1)) < 12:
+            extra = int(months.group(1)) / 12
+            raw = text[m.start():months.end()]
         if token[0].isdigit():
+            parts = _TENURE_RANGE_SPLIT_RE.split(token)
             try:
-                claims.append(TenureClaim(float(_canonical_number(token)), m.group(0)))
+                values = [float(_canonical_number(x)) for x in parts if x]
             except ValueError:  # pragma: no cover - _TENURE_RE cannot produce it
                 continue
+            high, low = max(values) + extra, min(values) + extra
+            claims.append(TenureClaim(high, raw, low if low < high else None))
             continue
         value = _spelled_small_number(token.lower())
         if value is not None:
-            claims.append(TenureClaim(float(value), m.group(0)))
+            claims.append(TenureClaim(float(value) + extra, raw))
+    if include_since:
+        # Opt-in: only the #469 envelope check reads start years (as a START,
+        # see ``TenureClaim.since_year``). The vault-side readers (#747's
+        # stated-tenure escapes, the #764 laundering detector) keep their
+        # duration-only population unchanged.
+        for m in _TENURE_SINCE_RE.finditer(text):
+            year = int(m.group(1))
+            claims.append(TenureClaim(0.0, m.group(0), since_year=year))
     return claims
 
 

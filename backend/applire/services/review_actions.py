@@ -307,6 +307,133 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
     return ActionOutcome(record=record, testimony=testimony, still_listed=still)
 
 
+class NotSupportedByProfile(LookupError):
+    """D2-5: a wording of the finding is not in the candidate's profile, so the
+    one-click close is refused (→ 409) and the surface asks for testimony."""
+
+
+def _profile_for_support(profile_json: dict) -> tuple[dict, list[str]]:
+    """The WHOLE profile minus what can never back a claim: ``denied`` skills,
+    languages and certifications (ADR-061 am. 2026-08-08). ``unconfirmed`` ones
+    stay in — the candidate's click is the confirmation ADR-061 cl. 3 asks for.
+    Also returns the persisted denied concepts."""
+    import copy as _copy
+
+    out = _copy.deepcopy(profile_json or {})
+    for section in ("skills", "languages", "certifications"):
+        items = out.get(section)
+        if isinstance(items, list):
+            out[section] = [
+                e for e in items if not (isinstance(e, dict) and e.get("status") == "denied")
+            ]
+    denied = [
+        d.get("concept") for d in ((out.get("metadata") or {}).get("denied_concepts") or [])
+        if isinstance(d, dict) and d.get("concept")
+    ]
+    return out, denied
+
+
+def support_in_profile(
+    wordings: list[str], profile_json: dict, *, user_id: uuid.UUID | None = None,
+) -> tuple[list[dict], list[str]] | None:
+    """Bug #797 / founder ruling D2-5 = A — does the candidate's WHOLE profile
+    hold every wording this finding stands on?
+
+    ``(receipt, unconfirmed_skill_names)`` when every wording grounds through
+    THE skill instrument (``ground_skill_claim``: whole token, near-dupe, slash
+    enumerations) over the profile minus denied entries, and none is a denied
+    concept; ``None`` otherwise. ``receipt`` names the backing profile lines (at
+    most three, de-duplicated); ``unconfirmed_skill_names`` the skills with
+    status ``unconfirmed`` that back a wording — the caller confirms them. Pure: no database, no model call.
+    ``user_id`` is accepted for the service-signature contract (ADR-092) and
+    unused: the caller passes the owner's own profile.
+    """
+    from applire.services.oracle.matchers import build_vault_index, ground_skill_claim
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    wordings = [w for w in wordings if w and w.strip()]
+    if not wordings:
+        return None
+    usable, denied = _profile_for_support(profile_json)
+    if denied and any(is_denied_concept(w, denied, None) for w in wordings):
+        return None
+    try:
+        index = build_vault_index(usable)
+    except Exception:  # pragma: no cover — an unreadable profile supports nothing
+        return None
+    units = []
+    for w in wordings:
+        unit = ground_skill_claim(w, index)
+        if unit is None:
+            return None
+        units.append(unit)
+    receipt: list[dict] = []
+    seen: set[str] = set()
+    for u in units:
+        if u.path not in seen:
+            seen.add(u.path)
+            receipt.append({"path": u.path, "text": u.text})
+    skills = usable.get("skills") or []
+    unconfirmed: list[str] = []
+    for u in units:
+        m = re.fullmatch(r"skills\[(\d+)\]", u.path)
+        if m:
+            i = int(m.group(1))
+            entry = skills[i] if i < len(skills) else None
+            if isinstance(entry, dict) and entry.get("status") == "unconfirmed":
+                name = entry.get("name") or ""
+                if name and name not in unconfirmed:
+                    unconfirmed.append(name)
+    return receipt[:3], unconfirmed
+
+
+async def confirm_supported(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """Bug #797 / founder ruling D2-5 = A (ADR-090 cl. 6 amended 2026-10-21).
+
+    *Stimmt, in mein Profil aufnehmen* on a finding the profile already holds:
+    no testimony is asked for. When :func:`support_in_profile` finds every
+    wording of the finding in the candidate's whole profile, a matching
+    UNCONFIRMED skill is confirmed through the shared intake (ADR-061 cl. 3 —
+    the click is the candidate's confirmation), the document is re-audited, and
+    a ``supported`` decision with the receipt closes the row even if the
+    keyword check still lists it. Otherwise :class:`NotSupportedByProfile`
+    (→ 409) and nothing is written — the surface falls back to the ask."""
+    from applire.services.owner_resolution import resolve_owner
+    from applire.services.profile import get_profile_for_user, patch_profile_section
+
+    owner = resolve_owner(user_id, site="review_actions.confirm_supported")
+    async with rs.document_lock(kind, doc_id):
+        record = await load_document(kind, doc_id, db, user_id=owner)
+        finding = _listed_or_raise(record, key)
+        profile = await get_profile_for_user(db, owner)
+        profile_json = (profile.profile_json if profile else None) or {}
+        found = support_in_profile(finding.wording(), profile_json, user_id=owner)
+        if found is None:
+            raise NotSupportedByProfile(
+                f"a wording of {key!r} is not in the profile — testimony needed"
+            )
+        receipt, unconfirmed = found
+        if unconfirmed:
+            skills = [dict(s) for s in (profile_json.get("skills") or [])]
+            names = {n.strip().casefold() for n in unconfirmed}
+            for s in skills:
+                if (s.get("name") or "").strip().casefold() in names and s.get("status") == "unconfirmed":
+                    s["status"] = "confirmed"
+            await patch_profile_section(
+                "skills", skills, db, source="manual_edit",
+                source_session_id=str(doc_id), user_id=owner,
+            )
+        await reaudit(kind, record, db)
+        state = rs.with_decision(
+            rs.load_state(record.review_state), key, finding.label, "supported", receipt=receipt,
+        )
+        await _save_state(record, state, db)
+        still = rs.find_listed(findings_of(record), key) is not None
+    if unconfirmed:
+        await _reaudit_sibling(kind, record, key, finding.label, db)
+    return ActionOutcome(record=record, still_listed=still)
+
+
 async def sibling_document_id(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> tuple[Kind, uuid.UUID] | None:
     """The other document of the same application: the job's flow session
     (one per user+job) records the CURRENT CV and cover letter. Only when the

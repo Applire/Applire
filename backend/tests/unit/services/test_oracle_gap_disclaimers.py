@@ -375,3 +375,58 @@ async def test_the_delivered_verdict_for_a_captured_limit_is_not_applicable():
     assert limit.claim.is_denial is True
     assert limit.verdict.verdict == "not_applicable"
     assert limit.verdict.checker == "extraction"
+
+
+# ── #790 line L19 (2026-10-20) — markers word-bounded; counter-claims graded ─
+#
+# Measured over the 1,219-pair offline corpus (6,937 distinct claim texts,
+# 0 provider calls): 106 texts classified as pure denials before, 96 after;
+# all 10 changes are positive claims or figure changes the old predicate
+# exempted from verification. The shapes below are synthetic twins of those
+# captured sentences, plus the substring hazards no corpus text happened to
+# carry.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # substring hazards: a marker inside a longer word is no marker
+        "Die Migration wurde durchgeführt und termingerecht abgenommen",
+        "The audit had nothing to report after the rollout",
+        # a negation word that negates nothing (#701's closed list, reused)
+        "I have not only introduced ISO 13485 but also trained the team",
+        "I have not only introduced ISO 13485 and trained the auditors",
+        # a figure change is not a delegation
+        "Die Unfallquote wurde von 8,2 auf 3,1 gesenkt.",
+        "Die Durchlaufzeit wurde durch 3 Maßnahmen um 20 % reduziert",
+        # a consequence of a positive claim, not the candidate's denial
+        "At Beta GmbH I built idempotent consumers so event replays did not double-bill.",
+        "Offset bookkeeping ensured that replays did not cause double-billing.",
+        # the positive half of "not X, but Y"
+        "I have supported ECMO patient care but have not managed a circuit",
+        "Anlagenbau habe ich nicht betreut, jedoch Sondermaschinen-Erfahrung.",
+        "Investitionsentscheidungen habe ich nicht getroffen, aber bei Beta vorbereitet",
+        "Make-or-buy habe ich nicht begleitet, bringe dafür Investitionsrechnung mit.",
+    ],
+)
+def test_l19_positive_claims_are_never_classified_denial(text: str) -> None:
+    assert _is_pure_denial_clause(text) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # true denials the change must keep (captured registers)
+        "Mit US-GAAP habe ich jedoch keine Erfahrung.",
+        "Direkt für Lebensmittelkunden habe ich allerdings keine Erfahrung.",
+        "Mit IFS oder BRC habe ich keine Erfahrungen.",
+        "So etwas habe ich noch nie verantwortet.",
+        "the vector store was handled by an external contractor",
+        "Configuration handled by an external contractor",
+        "I have not worked under a PSD2 licence or BaFin supervision",
+        "I do not have a specific SBAR example or SBAR training to claim",
+        "Die Konfiguration wurde von unserem Systemingenieur uebernommen",
+    ],
+)
+def test_l19_true_denials_stay_classified_denial(text: str) -> None:
+    assert _is_pure_denial_clause(text) is True
