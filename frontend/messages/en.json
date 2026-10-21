@@ -1697,6 +1697,7 @@
     "progressDecided": "{decided} of {total} decided",
     "cardPosition": "{index} OF {total}",
     "cardMatched": "Your document says “{wording}” in {count, plural, one {# place} other {# places}}. Nothing in your profile backs it.",
+    "cardDenied": "You told us about a limit here yourself: “{denials}”. That is why Applire does not offer to add it to your profile. Take it out or edit the passage.",
     "cardMatchedJoin": "”, “",
     "actionShowWhere": "Show me where",
     "actionAddToProfile": "It’s true, add it to my profile",

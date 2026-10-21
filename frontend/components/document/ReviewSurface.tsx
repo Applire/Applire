@@ -114,6 +114,9 @@ const KIND_LABEL_KEY: Record<Exclude<ReviewItem["kind"], "signal">, string> = {
   advisory: "kindAdvisory",
 };
 
+/** Handle-grid columns by handle count (Tailwind needs the literal class names). */
+const GRID_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3" };
+
 const SEVERITY_DOT: Record<ReviewItem["severity"], string> = {
   critical: "bg-critical",
   warning: "bg-warning",
@@ -553,10 +556,15 @@ export function ReviewSurface({
         ? "flex w-full items-center gap-2.5 min-h-11 rounded-xl border border-outline-variant bg-surface-bright px-3 py-2 text-left text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
         : "flex flex-col items-center justify-center gap-1 min-h-[60px] rounded-xl border border-outline-variant bg-surface-bright px-1 py-1.5 text-center text-xs font-semibold leading-tight text-on-surface hover:bg-surface-container disabled:opacity-50";
     const canTakeOut = !isStemOnly(row.item?.targets);
+    // Build-2 delivery F2 (SF-REVIEW.18): never offer to write into the profile a
+    // term the candidate's own recorded denial covers — the card shows the denial.
+    const canAdd = !(row.item?.denials && row.item.denials.length > 0);
+    const columns = 1 + Number(canAdd) + Number(canTakeOut);
     const wrap =
-      variant === "stack" ? "flex flex-col gap-2" : `grid ${canTakeOut ? "grid-cols-3" : "grid-cols-2"} gap-1.5`;
+      variant === "stack" ? "flex flex-col gap-2" : `grid ${GRID_COLS[columns]} gap-1.5`;
     return (
       <div className={wrap} data-testid={`review-handles-${variant}`}>
+        {canAdd && (
         <button
           type="button"
           data-testid="review-action-add"
@@ -570,6 +578,7 @@ export function ReviewSurface({
           <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
           {t("actionAddToProfile")}
         </button>
+        )}
         {canTakeOut && (
         <button
           type="button"
@@ -696,6 +705,11 @@ export function ReviewSurface({
           {notMarkable && (
             <span data-testid="review-locate-not-found" className="text-[13px] leading-snug text-on-surface-variant">
               {t("locateNotFound")}
+            </span>
+          )}
+          {!decided && row.item?.denials && row.item.denials.length > 0 && (
+            <span data-testid="review-card-denied" className="text-[13px] leading-snug text-on-surface">
+              {t("cardDenied", { denials: row.item.denials.join(t("cardMatchedJoin")) })}
             </span>
           )}
           {!decided && row.item?.detail && (

@@ -1697,6 +1697,7 @@
     "progressDecided": "{decided} von {total} entschieden",
     "cardPosition": "{index} VON {total}",
     "cardMatched": "Dein Dokument sagt „{wording}“ an {count, plural, one {# Stelle} other {# Stellen}}. Nichts in deinem Profil belegt das.",
+    "cardDenied": "Dazu hast Du selbst eine Einschränkung genannt: „{denials}“. Deshalb bietet Applire nicht an, es in Dein Profil aufzunehmen. Nimm es heraus oder bearbeite die Stelle.",
     "cardMatchedJoin": "“, „",
     "actionShowWhere": "Zeig mir, wo",
     "actionAddToProfile": "Stimmt, in mein Profil aufnehmen",
