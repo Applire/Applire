@@ -24,7 +24,9 @@ import type { ImportNotAppliedItem, MatchReceiptItem } from "@/lib/import-cv";
 // Empty string default lets Next.js rewrites handle /api/* routing in all environments
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-export type MergeGate = "name_divergence" | "not_a_cv";
+// "review_not_run" — founder ruling V-2 = C (#783 L41): the automatic check of the
+// extraction could not run, so the import is held until the user confirms.
+export type MergeGate = "name_divergence" | "not_a_cv" | "review_not_run";
 export type ResolveAction = "merge" | "discard";
 
 export interface StagedResolveResult {
@@ -94,7 +96,12 @@ export function MergeGateDialog({
   }
 
   const isDivergence = gate === "name_divergence";
-  const title = isDivergence ? t("titleDivergence") : t("titleNotCv");
+  const isReviewNotRun = gate === "review_not_run";
+  const title = isDivergence
+    ? t("titleDivergence")
+    : isReviewNotRun
+      ? t("titleReviewNotRun")
+      : t("titleNotCv");
   // #674 (merge-gate dialog) — a nameless CV (ADR-041 amended, founder ruling V-1 A)
   // has no cvName to interpolate; render a dedicated copy variant instead of "".
   const hasCvName = (cvName ?? "").trim() !== "";
@@ -110,6 +117,8 @@ export function MergeGateDialog({
         ? t("bodyDivergence", { cvName: cvName ?? "", accountName })
         : t("bodyDivergenceNoAccount", { cvName: cvName ?? "" });
     }
+  } else if (isReviewNotRun) {
+    body = t("bodyReviewNotRun");
   } else {
     body = t("bodyNotCv");
   }

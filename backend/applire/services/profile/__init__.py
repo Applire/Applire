@@ -75,6 +75,10 @@ from applire.services.reviewer import review_and_refine
 from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
 from applire.schemas.profile import (
     CompletenessBlock,
+    EXTRACTION_REVIEW_HOLD_PATHS,
+    REVIEW_NOT_RUN_GATE,
+    ExtractionReview,
+    extraction_review_from_settle,
     Conflict,
     ConflictSummary,
     CVUploadResponse,
@@ -192,6 +196,7 @@ def _to_import_response(
     not_applied: list[ImportNotApplied] | None = None,
     not_applied_loss_count: int | None = None,
     matched: list[MatchReceipt] | None = None,
+    extraction_review: "ExtractionReview | None" = None,
 ) -> ProfileImportResponse:
     """Same construction as :func:`_to_response`, plus the import fact (#615,
     ADR-063 amended 2026-08-28). A SEPARATE builder, not a parameter on
@@ -216,6 +221,7 @@ def _to_import_response(
         # #674 line 72 — the merge's `match_existing` receipts reach the import
         # doors' response, the same way `not_applied` does.
         matched=list(matched or []),
+        extraction_review=extraction_review,  # 783:L41
         # #367 — the same number under the name the import callers read.
         completeness_score=base.completeness,
     )
@@ -300,25 +306,14 @@ def _enrichment_from_merge(merge_result, source, session_id: str | None = None) 
     )
 
 
-def _parked_identity(value: object) -> str:
-    """A stable, hashable identity string for an arbitrary parked-item value.
-
-    Conflict values are `Any` (str, dict, list), so they cannot go straight into
-    a set. JSON with sorted keys is order-insensitive for dicts and cheap."""
-    return json.dumps(value, sort_keys=True, default=str)
-
-
-def _confirmation_key(confirmation: PendingConfirmation) -> tuple:
-    return (confirmation.question.strip().casefold(), tuple(confirmation.options))
-
-
-def _conflict_key(conflict: Conflict) -> tuple:
-    return (
-        conflict.section,
-        conflict.field,
-        _parked_identity(conflict.existing_value),
-        _parked_identity(conflict.incoming_value),
-    )
+# 788:L29 (A-4) — the parked-item identity keys moved to `commit.py`, where
+# the commit_ops door now applies the same dedupe the import doors apply here;
+# re-exported under the old names (ADR-066: one definition).
+from applire.services.profile.commit import (  # noqa: E402
+    _confirmation_key,
+    _conflict_key,
+    _parked_identity,
+)
 
 
 def _surviving_parked_items(
@@ -605,6 +600,7 @@ async def _import_from_text(
         not_applied=outcome.merge.not_applied,
         not_applied_loss_count=outcome.merge.not_applied_loss_count,
         matched=outcome.merge.matched,
+        extraction_review=getattr(outcome, "extraction_review", None),
     )
 
 
@@ -974,6 +970,7 @@ async def resolve_confirmation(
 # merge_gate module (US167 / ADR-041 amended) — re-exported here so the upload-time
 # warning path and the existing tests keep importing them from this package.
 from applire.services.profile.merge_gate import (  # noqa: E402
+    GateResult,
     evaluate_merge_gate,
     looks_like_cv as _looks_like_cv,
     names_clearly_differ as _names_clearly_differ,
@@ -989,7 +986,7 @@ class StagedExtractionAlreadyResolved(Exception):
 
 
 # A parked gate is "open" until the user resolves it (US167 / ADR-041 amended).
-_OPEN_GATES = {"not_a_cv", "name_divergence"}
+_OPEN_GATES = {"not_a_cv", "name_divergence", REVIEW_NOT_RUN_GATE}
 
 
 async def list_open_gates(
@@ -1090,6 +1087,8 @@ class IngestOutcome:
     account_name: str | None = None
     cv_name: str | None = None
     merge: "ApplyMergeOutcome | None" = None    # None exactly when held
+    #: 783:L41 — how the extraction review loop settled (``ReviewSettle``).
+    extraction_review: "ExtractionReview | None" = None
 
     @property
     def held(self) -> bool:
@@ -1156,6 +1155,7 @@ def gated_upload_response(outcome: IngestOutcome) -> CVUploadResponse:
         account_name=outcome.account_name,
         cv_name=outcome.cv_name,
         staged_id=outcome.upload_record.id,
+        extraction_review=outcome.extraction_review,  # V-2 = C: why it is held
     )
 
 
@@ -1208,6 +1208,7 @@ async def ingest_cv(
     # Cap-safe extraction: single call on the fast path, segmented (outline-then-expand)
     # on truncation/timeout or a known-small cap (ADR-047 / US195) — so a dense CV is
     # never silently dropped behind an optimistic "complete" UI.
+    _settled: list = []
     data: dict = await extract_with_fallback(
         raw_text,
         provider,
@@ -1225,6 +1226,16 @@ async def ingest_cv(
         max_retries=LLM_REVIEW_MAX_RETRIES,
         generator_max_tokens=CV_EXTRACTION_MAX_TOKENS,
         chain_id=recipe.chain_id,
+        on_settle=_settled.append,
+    )
+    # 783:L41 (ADR-021 amended 2026-10-20) — the loop's own settle report,
+    # recorded on the import receipt and response instead of a log line only.
+    extraction_review = (
+        extraction_review_from_settle(
+            _settled[-1].path, _settled[-1].rounds, len(_settled[-1].blocking_issues)
+        )
+        if _settled
+        else None
     )
     # US179 / ADR-041: annotate role-aware expected fields at write time so the stored
     # completeness score and the enrichment gaps derive from one source. Best-effort:
@@ -1244,6 +1255,25 @@ async def ingest_cv(
     # The vault is passed for the nameless-extraction branch (ADR-041 amended
     # 2026-09-26, #674 line (b)): no name + no employer in common → held.
     gate = evaluate_merge_gate(account_name, incoming, vault)
+    # Founder ruling V-2 = C (Hazelnut build 2, 783:L41): when the extraction
+    # review could NOT run — the reviewer call failed (timeout / verdict
+    # truncation), returned an unparseable verdict, or the corrector call
+    # failed — nobody has checked the draft, so it is HELD behind the US167
+    # staged gate until the user confirms. The identity gates keep precedence
+    # (they are asked first and say more). `exhausted` / `cycle_detected` (the
+    # review ran, findings still open) are NOT held: receipt field only.
+    if (
+        gate.gate == "none"
+        and extraction_review is not None
+        and extraction_review.path in EXTRACTION_REVIEW_HOLD_PATHS
+    ):
+        logger.warning(
+            "ingest_cv: extraction review could not run (path=%s) — holding the "
+            "import behind the staged gate (ruling V-2 = C)", extraction_review.path,
+        )
+        gate = GateResult(
+            gate=REVIEW_NOT_RUN_GATE, account_name=gate.account_name, cv_name=gate.cv_name
+        )
 
     if gate.gate != "none":
         record = await _persist_upload_record(
@@ -1266,11 +1296,12 @@ async def ingest_cv(
             account_name=gate.account_name,
             cv_name=gate.cv_name,
             merge=None,
+            extraction_review=extraction_review,
         )
 
     merge_outcome = await _apply_merge(
         db, incoming, source=created_via, emb_provider=emb_provider, provider=provider, now=now,
-        user_id=user_id,
+        user_id=user_id, extraction_review=extraction_review,
     )
     record = await _persist_upload_record(
         db,
@@ -1290,6 +1321,7 @@ async def ingest_cv(
         account_name=account_name,
         cv_name=gate.cv_name,
         merge=merge_outcome,
+        extraction_review=extraction_review,
     )
 
 
@@ -1397,6 +1429,8 @@ async def upload_cv(
         # #717 (ADR-063 amended 2026-10-07) — the import summary's
         # "Schon in deinem Profil" reads the same receipt the history shows.
         matched=merge_outcome.matched,
+        # 783:L41 — the extraction review outcome of this import.
+        extraction_review=outcome.extraction_review,
     )
 
 
@@ -1458,6 +1492,7 @@ async def _apply_merge(
     provider: LLMProvider,
     now: datetime | None = None,
     user_id: uuid.UUID | None = None,
+    extraction_review: "ExtractionReview | None" = None,
 ) -> ApplyMergeOutcome:
     """Additively merge ``incoming`` into the latest profile (or create the first),
     commit, and return the outcome as an :class:`ApplyMergeOutcome`.
@@ -1505,6 +1540,7 @@ async def _apply_merge(
                     reconciliation=enrichment.reconciliation,
                     not_applied=enrichment.not_applied,
                     matched=enrichment.matched,  # #707
+                    extraction_review=extraction_review,  # 783:L41
                 )
             ],
             CommitProvenance(source=source, intake="import", actor="candidate"),
@@ -1543,7 +1579,13 @@ async def _apply_merge(
     )
     committed = await commit_ops(
         db,
-        [ApplyImportMerge(merged=incoming, changes=enrichment.changes)],
+        [
+            ApplyImportMerge(
+                merged=incoming,
+                changes=enrichment.changes,
+                extraction_review=extraction_review,  # 783:L41
+            )
+        ],
         CommitProvenance(source=source, intake="import", actor="candidate"),
         record=None,
         snapshot=None,
@@ -1617,6 +1659,15 @@ async def resolve_staged_extraction(
         merge_outcome = await _apply_merge(
             db, incoming, source="cv_upload", emb_provider=emb_provider, provider=provider,
             user_id=rec.user_id,
+            # V-2 = C: an import held because its extraction review could not
+            # run is merged on the user's word — the receipt still says it was
+            # never reviewed (the settle path itself is not persisted on the
+            # parked row).
+            extraction_review=(
+                ExtractionReview(status="not_reviewed")
+                if rec.gate_status == REVIEW_NOT_RUN_GATE
+                else None
+            ),
         )
         rec.gate_status = "resolved_merged"
         await db.commit()

@@ -158,6 +158,22 @@ describe("MergeGateDialog", () => {
     expect(screen.getByText("titleNotCv")).toBeInTheDocument();
   });
 
+  it("renders the review-not-run title and body (ruling V-2 = C, #783 L41)", () => {
+    render(
+      <MergeGateDialog
+        gate="review_not_run"
+        stagedId="s1"
+        cvName="Katrin Hoffmann"
+        accountName="Katrin Hoffmann"
+        onResolved={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(screen.getByText("titleReviewNotRun")).toBeInTheDocument();
+    expect(screen.getByText("bodyReviewNotRun")).toBeInTheDocument();
+    expect(screen.queryByText("titleNotCv")).not.toBeInTheDocument();
+  });
+
   it("POSTs action=merge to the resolve endpoint and calls onResolved", async () => {
     const onResolved = vi.fn();
     global.fetch = makeFetchMock({ action: "merge", profile_id: "p1", completeness_score: 0.9 });

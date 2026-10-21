@@ -21,12 +21,19 @@
 import * as React from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { acceptWithoutImages } from "@/lib/import-capabilities";
 
 interface DropzoneProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onDrop"> {
   accept?: string;
   multiple?: boolean;
   onDrop: (files: FileList) => void;
   disabled?: boolean;
+  /**
+   * Whether this instance can read images (#789 L12). False drops the image
+   * extensions from the picker and the hint's promise of images; the caller learns it
+   * from `useImportCapabilities`. Defaults to true (the pre-report behaviour).
+   */
+  imageImport?: boolean;
 }
 
 /**
@@ -41,14 +48,26 @@ interface DropzoneProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onDr
  * is what `__tests__/dropzone.test.tsx` pins.
  *
  * Images go through the configured OCR backend (`OCR_BACKEND`, default
- * `mistral_vision`), so an instance without that key will reject them — an
- * operator-configuration limit, not a product one.
+ * `mistral_vision`), so an instance without that key cannot read them. The backend
+ * reports that (`GET /api/profile/import-capabilities`, #789 L12) and the `imageImport`
+ * prop drops the image extensions and the image promise from the picker and the hint.
  */
 export const CV_UPLOAD_ACCEPT =
   ".pdf,.docx,.doc,.txt,.md,.jpg,.jpeg,.png,.tiff,.tif,.bmp,.webp";
 
 const Dropzone = React.forwardRef<HTMLInputElement, DropzoneProps>(
-  ({ accept = CV_UPLOAD_ACCEPT, multiple = true, onDrop, disabled, className, ...props }, ref) => {
+  (
+    {
+      accept = CV_UPLOAD_ACCEPT,
+      multiple = true,
+      onDrop,
+      disabled,
+      imageImport = true,
+      className,
+      ...props
+    },
+    ref,
+  ) => {
     const t = useTranslations("dropzone");
     const [isDragOver, setIsDragOver] = React.useState(false);
     const inputRef = React.useRef<HTMLInputElement>(null);
@@ -113,7 +132,7 @@ const Dropzone = React.forwardRef<HTMLInputElement, DropzoneProps>(
         <input
           ref={inputRef}
           type="file"
-          accept={accept}
+          accept={imageImport ? accept : acceptWithoutImages(accept)}
           multiple={multiple}
           disabled={disabled}
           onChange={handleFileChange}
@@ -149,7 +168,7 @@ const Dropzone = React.forwardRef<HTMLInputElement, DropzoneProps>(
         </div>
 
         <p className="text-xs text-gray-400">
-          {t("formatHint")}
+          {t(imageImport ? "formatHint" : "formatHintNoImage")}
         </p>
       </div>
     );

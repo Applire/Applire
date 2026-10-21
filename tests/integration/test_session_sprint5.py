@@ -34,19 +34,13 @@ SAMPLE_JD = (
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module", autouse=True)
-def ensure_profile(api: str) -> None:
+def ensure_profile(api: str, import_job) -> None:
     """Upload a CV so Gap-Click (targeted) session tests can find a master profile.
 
     In CI each run starts with an empty database. Targeted sessions fail with
     "No profile found — upload a CV first" if no profile exists.
     """
-    with _CV_FILE.open("rb") as fh:
-        res = requests.post(
-            f"{api}/api/profile/upload",
-            files={"file": ("Profile.pdf", fh, "application/pdf")},
-            timeout=60,
-        )
-    assert res.status_code == 200, f"Profile upload failed: {res.text}"
+    import_job.result(api, "Profile.pdf", _CV_FILE.read_bytes(), "application/pdf")
 
 
 @pytest.fixture(scope="module")

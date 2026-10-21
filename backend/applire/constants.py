@@ -299,6 +299,15 @@ GENERATED_DOCUMENTS_TTL_DAYS: int = int(os.environ.get("GENERATED_DOCUMENTS_TTL_
 CANCELLED_APPLICATION_TTL_DAYS: int = int(os.environ.get("CANCELLED_APPLICATION_TTL_DAYS", "7"))
 INTERVIEW_SESSION_TTL_DAYS: int = int(os.environ.get("INTERVIEW_SESSION_TTL_DAYS", "30"))
 UPLOAD_TTL_DAYS: int = int(os.environ.get("UPLOAD_TTL_DAYS", "7"))
+
+# The largest CV / import file a door accepts (#789 L13). The upload surfaces promise
+# "up to 10 MB" (``dropzone.formatHint``, ``profileImport.formats``); this is the number
+# behind that copy. The MCP door's own ``MAX_CV_BYTES`` is the same figure (pinned equal
+# in ``tests/unit/test_import_door_size_limit.py``); the REST import doors enforce it
+# with a 413 instead of leaning on a reverse proxy's body cap (nginx ``client_max_body_size
+# 20M`` is a deployment setting, absent behind Caddy or Traefik). Fixed, not env-backed:
+# it is a product promise, not an operator knob.
+MAX_CV_UPLOAD_BYTES: int = 10 * 1024 * 1024
 PROFILE_INACTIVITY_TTL_DAYS: int = int(os.environ.get("PROFILE_INACTIVITY_TTL_DAYS", "730"))
 
 # Orphan-file grace period (issue #152, dFMEA SF-PROFILE.5). The retention

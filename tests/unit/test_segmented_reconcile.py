@@ -164,9 +164,11 @@ class TestSegmentedReconcileFallback:
                                      "company": "NewCo", "role": "Engineer"}],
                             "ambiguities": []}
                 if "Rustlang" in new_info:
-                    # The applied experience's id is now in the CURRENT PROFILE dump.
+                    # The applied experience's id is now in the CURRENT PROFILE dump —
+                    # as the handle the model sees (783:L79: a short `id_…` handle the
+                    # ShortIdProvider maps back to the UUID), whatever its shape.
                     current = prompt.split("NEW INFORMATION")[0]
-                    wid = re.search(r'"id":\s*"([0-9a-f-]{36})"', current).group(1)
+                    wid = re.search(r'"id":\s*"([^"]+)"', current).group(1)
                     return {"ops": [{"op": "upsert_skill", "name": "Rustlang",
                                      "category": "technical", "evidence": [wid]}],
                             "ambiguities": []}

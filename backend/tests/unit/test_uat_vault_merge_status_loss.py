@@ -56,6 +56,9 @@ _LOSS = {
     "no_write",
     "confirmation_held",
     "confirmation_unresolvable",
+    # ADR-063 amended 2026-10-20 (783:L7/L60) — an op's target named no
+    # entity, so its content was written nowhere: loss by the F-7 definition.
+    "target_unresolved",
 }
 _NOT_LOSS = {
     "no_op_carried_entry",
@@ -143,8 +146,9 @@ class TestMergeStatusFromNotApplied:
         assert status == "applied"
         assert count == 0
 
-    def test_all_five_loss_reasons_together_count_all_five(self):
+    def test_every_loss_reason_together_counts_each_one(self):
+        # Six since ADR-063 amended 2026-10-20 (target_unresolved, 783:L7/L60).
         items = [_item(reason) for reason in sorted(_LOSS)]
         status, count = _merge_status_from_not_applied(items)
         assert status == "partial"
-        assert count == 5
+        assert count == len(_LOSS) == 6

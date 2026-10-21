@@ -25,7 +25,13 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ProgressWidget, ProgressStep } from "@/components/ui/progress-widget";
 import { extractApiError, translateApiError } from "@/lib/api/errors";
-import { startCvImport, pollCvImport, CVImportError, type ImportNotAppliedItem } from "@/lib/import-cv";
+import {
+  startCvImport,
+  pollCvImport,
+  CVImportError,
+  importErrorMessageKey,
+  type ImportNotAppliedItem,
+} from "@/lib/import-cv";
 import { analyzeGapsAsync } from "@/lib/gap-analysis";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -152,10 +158,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   const markFileFailed = useRef((i: number, e: unknown) => {
     const uploadIdx = jdOffset + i;
     const code = e instanceof CVImportError ? e.errorCode : null;
-    const msg =
-      code === "llm_truncated" || code === "llm_timeout"
-        ? t("uploadTryAgain")
-        : t("uploadFailed");
+    const msg = t(importErrorMessageKey(code));
     setFileErrors((prev) => ({ ...prev, [uploadIdx]: msg }));
     setStepStatus(uploadIdx, "error");
   }).current;

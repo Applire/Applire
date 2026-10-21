@@ -25,6 +25,7 @@ Requires:
 import asyncio
 from io import BytesIO
 
+from applire.exceptions import OCRUnavailableError
 from applire.ocr.base import CVImageExtractor
 
 
@@ -34,7 +35,7 @@ class TesseractExtractor(CVImageExtractor):
             import pytesseract
             from PIL import Image
         except ImportError as exc:
-            raise RuntimeError(
+            raise OCRUnavailableError(
                 "OCR_BACKEND=tesseract requires 'pytesseract' and 'Pillow'. "
                 "Install them or switch to OCR_BACKEND=mistral_vision."
             ) from exc

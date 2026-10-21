@@ -215,3 +215,85 @@ def auth_session() -> requests.Session:
     if me.status_code != 200 or str(me.json().get("email", "")).lower() != REAL_AUTH_ADMIN_EMAIL.lower():
         raise RuntimeError(f"real-auth lane: /api/auth/me -> {me.status_code} {me.text[:300]}")
     return s
+
+
+# ---------------------------------------------------------------------------
+# Import through the async job (ruling V-4 = A, Hazelnut build 2): the sync
+# doors POST /api/profile/upload and POST /api/profile/import answer 410 Gone.
+# ---------------------------------------------------------------------------
+
+
+def import_via_job(
+    api_base: str,
+    filename: str,
+    content: bytes,
+    content_type: str,
+    *,
+    source: str | None = None,
+    session: requests.Session | None = None,
+    timeout: float = 600.0,
+    poll_interval: float = 2.0,
+) -> requests.Response:
+    """Submit a file to ``POST /api/profile/import-jobs`` and poll until it settles.
+
+    Returns the FINAL poll response (status 200). ``.json()["status"]`` is
+    ``ready`` (``["result"]`` holds the CVUploadResponse) or ``failed``
+    (``["error_code"]``). A LinkedIn PDF or JSON export passes
+    ``source="linkedin"``; a ZIP needs no hint. Raises on a non-202 submit or a
+    timeout, so a caller asserting on the result never sees a half-run job.
+    """
+    http = session or requests
+    params = {"source": source} if source else None
+    r = http.post(
+        f"{api_base}/api/profile/import-jobs",
+        files={"file": (filename, content, content_type)},
+        params=params,
+        timeout=60,
+    )
+    if r.status_code != 202:
+        raise AssertionError(f"POST /api/profile/import-jobs -> {r.status_code} {r.text[:300]}")
+    import_id = r.json()["import_id"]
+    deadline = time.monotonic() + timeout
+    while True:
+        poll = http.get(f"{api_base}/api/profile/import-jobs/{import_id}", timeout=30)
+        if poll.status_code != 200:
+            raise AssertionError(f"GET import-jobs/{import_id} -> {poll.status_code} {poll.text[:300]}")
+        if poll.json().get("status") in ("ready", "failed"):
+            return poll
+        if time.monotonic() > deadline:
+            raise AssertionError(f"import job {import_id} did not settle within {timeout:.0f}s")
+        time.sleep(poll_interval)
+
+
+def import_result_via_job(api_base: str, filename: str, content: bytes, content_type: str, **kw) -> dict:
+    """``import_via_job`` that requires ``ready`` and returns the CVUploadResponse dict."""
+    poll = import_via_job(api_base, filename, content, content_type, **kw)
+    body = poll.json()
+    if body.get("status") != "ready":
+        raise AssertionError(f"import job failed: {body.get('error_code')} {str(body)[:300]}")
+    return body["result"]
+
+
+@pytest.fixture(scope="session")
+def import_job():
+    """The submit-and-poll helpers for live-stack tests (V-4 = A).
+
+    ``import_job.run(api, name, bytes, mime, source=...)`` → final poll response;
+    ``import_job.result(...)`` → the ready CVUploadResponse dict;
+    ``import_job.linkedin_json(api, export_dict)`` → the ready result of a
+    LinkedIn JSON export (the retired ``linkedin_json`` form field).
+    """
+    import json as _json
+    from types import SimpleNamespace
+
+    def _linkedin_json(api_base: str, export: dict, **kw) -> dict:
+        return import_result_via_job(
+            api_base,
+            "linkedin-export.json",
+            _json.dumps(export).encode("utf-8"),
+            "application/json",
+            source="linkedin",
+            **kw,
+        )
+
+    return SimpleNamespace(run=import_via_job, result=import_result_via_job, linkedin_json=_linkedin_json)

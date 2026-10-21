@@ -236,6 +236,21 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   facts the profile already held. An item-free first wording (v1, "declining
   more detail denies nothing") reached only 7/15 on luna and was not shipped.
   Records: ``Documents/Runs/Hazelnut/build-1/h/evidence-F2-replay-*.md``.
+* **24,157 (Hazelnut build 2 WP-V, 2026-10-20, rulings V-3 / V-6).** Four
+  amendments, each replayed on persisted input (``gpt-5.6-luna``, Requesty,
+  reasoning OFF, n=5 per arm; records under
+  ``Documents/Runs/Hazelnut/build-2/v/*-replay/``). (1) Rule 7 "A PROMOTION IS
+  NOT A DIFFERENT TITLE" (783:L88, founder V-3 = A then V-6 = B): an incoming
+  dated position whose title differs and whose span covers only part of the
+  existing entry is ASKED about (request_confirmation, merge / add_separate,
+  the V-5 engagement context). Partly covering Senior Designer folded in 5/5 →
+  asked 4-5/5; a same-title dated position is asked too (5/5, not targeted).
+  (2) ``upsert_skill``: a figure's name is not a skill (783:L100), 8/15 → 0/15,
+  figure kept 15/15. (3) ``add_bullets`` NOT A SECOND TIME (783:L43), restated
+  bullets 39 → 17 with a held-out example, other bullets 40 → 37. (4) Rule 9 "A
+  DENIAL WITH AN EXCEPTION KEEPS THE EXCEPTION" (783:L101), bare-field denial
+  10/10 → 0/10, plain-denial controls 15/15. +2,829 chars; the attention cost
+  above applies.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -313,6 +328,16 @@ Operations:
   technologies (list of str). REQUIRED: target. A bullet carries ONLY the clause about ITS OWN
   entity — never the opening span of an answer that spans several jobs
   ("15+ years in X, at A, at B, and now C" is not a fact of A).
+  NOT A SECOND TIME (783:L43): compare each bullet with the bullets the target
+  ALREADY holds. One that states the same fact in other words — no new figure,
+  scope, tool or outcome — is already there: leave it out, even when the
+  answer repeats it to anchor what follows. Worked example: the target holds
+  "Reduced quote-calculation p95 latency from 1.8 s to 240 ms through query
+  optimisation"; the answer says "I cut the quote calculation's p95 latency
+  from 1.8 seconds to 240 ms by optimising the queries" — already there, no
+  bullet.
+  Add only what is new; when nothing in the answer is new, "ops" is empty with
+  "empty_reason": "already_known".
 
 - upsert_skill — a skill. Fields: name, category, proficiency, years_experience
   (int), evidence (a LIST of existing ids or local refs of the experiences that
@@ -322,6 +347,12 @@ Operations:
   target: the `id` of the profile's skill when the new information names THAT
   skill differently (translation, synonym, abbreviation) — never a second
   skill under the new name; omit it for a new skill.
+  A skill is a capability the person HAS — a tool, method, field, standard or
+  language they work with. The NAME of a measured figure on its own (LTIF,
+  OEE, Ausschussquote, Termintreue, a KPI) is not a skill (783:L100): the
+  figure belongs in the bullet that states it; record a skill only for the
+  capability the new information says the person has ("OEE-Analyse",
+  "Arbeitssicherheitsmanagement").
   REQUIRED: name.
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency MUST be one of: "basic", "intermediate", "advanced", "expert".
@@ -478,6 +509,24 @@ Operations:
    technologies; never use add_bullets merely to restate a title or the same
    fact in different words. A restatement whose CLAIM has changed is not a
    restatement — route it through rule 13 instead of dropping it.
+   A PROMOTION IS NOT A DIFFERENT TITLE (ADR-013 rule 1). It applies ONLY
+   when BOTH hold: (a) the incoming position's title differs from the existing
+   entry's "role" (its role_aliases do not count), AND (b) the incoming
+   position's own date range covers only PART of the existing entry's span.
+   Then never target the existing entry and never record the title as an
+   alternate: ASK. Emit request_confirmation (founder ruling V-6) with
+   question "Is '<incoming title>, <its span>' a separate position, or part of
+   '<existing role>, <existing span>'?" (in the profile's language), options
+   ["merge", "add_separate"], and context {"section": "work_experience",
+   "incoming": <the upsert_work op you would emit for it, target: null, with
+   its ref, dates and bullets>, "existing_ids": [<the existing entry's id>]}.
+   Worked example: the profile holds "Art Director, 2014-03 – 2018-07"; the
+   new information lists "Art Director, 2016-01 – 2018-07" and "Senior
+   Designer, 2014-03 – 2015-12" at the same employer. "Senior Designer" meets
+   (a) and (b): ask. "Art Director" fails (a) — same title — so this rule does
+   not apply to it at all, whatever its dates: it IS the existing entry, target
+   its `id` as usual (differing dates are rule 5's flag_conflict, never this
+   question).
 
 8. CURRENT POSITION. When the new information states that a role is ongoing /
    current ("this is my current position", "I still work there", "bis heute",
@@ -518,6 +567,12 @@ Operations:
    rest of the answer states. Contrast: "mit SAP MM habe ich nicht gearbeitet"
    → "denials": ["SAP MM"]; "konkrete Zahlen zum Projekt kann ich nicht nennen"
    → no denial.
+   A DENIAL WITH AN EXCEPTION KEEPS THE EXCEPTION (783:L101). "Beyond X I
+   have no experience in Y" / "no other Y than X" affirms X, which is part of
+   Y: name the denied item WITH the exception, never bare Y — bare Y would deny
+   what the same sentence affirms. "Außer der Hydraulikwartung bei A habe ich
+   keine Erfahrung in der Fluidtechnik" → "denials": ["Fluidtechnik außer
+   Hydraulikwartung"], never ["Fluidtechnik"]; record X as the fact it is.
 
 10. CERTIFICATIONS. Every certification, licence or named qualification in the NEW
     INFORMATION (a `certifications` entry, or an item the source lists under a

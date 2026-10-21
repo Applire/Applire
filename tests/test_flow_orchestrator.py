@@ -16,7 +16,6 @@ Run (requires Docker):
     pytest tests/test_iter15_flow_orchestrator.py -v
 """
 
-import json
 import uuid as _uuid
 from pathlib import Path
 
@@ -68,14 +67,9 @@ _DACH_PROFILE = {
 
 
 @pytest.fixture(scope="module", autouse=True)
-def ensure_profile(api):
-    """Import a minimal profile so gap analysis endpoints are available."""
-    r = requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": json.dumps(_DACH_PROFILE)},
-        timeout=90,
-    )
-    assert r.status_code == 200, f"Profile import failed: {r.text}"
+def ensure_profile(api, import_job):
+    """Import a minimal profile (LinkedIn JSON via the import job) so gap analysis endpoints are available."""
+    import_job.linkedin_json(api, _DACH_PROFILE)
 
 
 @pytest.fixture(scope="module")

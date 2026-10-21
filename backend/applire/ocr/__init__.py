@@ -18,6 +18,9 @@
 """CVImageExtractor factory — mirrors the LLMProvider / AuthProvider pattern (ADR 014)."""
 
 from applire.ocr.base import CVImageExtractor
+from applire.ocr.capability import image_import_available
+
+__all__ = ["CVImageExtractor", "get_ocr_extractor", "image_import_available"]
 
 
 def get_ocr_extractor() -> CVImageExtractor:

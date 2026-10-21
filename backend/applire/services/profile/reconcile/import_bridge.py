@@ -35,7 +35,7 @@ from applire.schemas.profile import (
     FieldChange,
     MasterProfileData,
     PendingConfirmation,
-    _coerce_partial_date,
+    normalise_partial_date,
 )
 from applire.services.profile.merge import MergeResult
 from applire.services.profile.reconcile.apply import (
@@ -243,8 +243,8 @@ def _union_certifications(
         if verdict.match is not None:
             changed = _fill_empties(verdict.match, {
                 "issuing_organization": cert.issuing_organization,
-                "date_obtained": _coerce_partial_date(cert.date_obtained),
-                "expiry_date": _coerce_partial_date(cert.expiry_date),
+                "date_obtained": normalise_partial_date(cert.date_obtained),
+                "expiry_date": normalise_partial_date(cert.expiry_date),
                 "credential_id": cert.credential_id,
                 "credential_url": cert.credential_url,
             })

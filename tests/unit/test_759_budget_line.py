@@ -92,6 +92,14 @@ def _translated(draft: dict, budget_text: str) -> dict:
     ("up to €2M", "bis zu 2.000.000 €", False),
     ("€2M across 3 brands", "2 Mio. € über drei Marken", False),
     ("€2M across 3 brands", "2 Mio. € über 3 Marken", True),
+    # 786:L127 — the magnitude word is part of the figure (SF-WRITE.44)
+    ("up to €2M", "bis zu 2 Mrd. €", False),
+    ("€200k", "200 Mio. €", False),
+    ("€200k", "200 Tsd. €", True),
+    ("€1.5 billion", "1,5 Mrd. €", True),
+    ("€1.5 billion", "1,5 Mio. €", False),
+    ("EUR 3 Mio. Budget", "EUR 3 million budget", True),
+    ("EUR 3 Mio. Budget", "EUR 3 thousand budget", False),
 ])
 def test_figures_preserved_is_a_multiset_comparison(original, translated, ok):
     from applire.services.cv import _figures_preserved
@@ -127,7 +135,8 @@ def test_a_figure_preserving_translation_is_accepted():
     assert "budget_managed" not in settled["work"][0], "furniture never stays in the prose"
 
 
-@pytest.mark.parametrize("bad", ["bis zu 3 Mio. €", "bis zu 2.000.000 €", "bis zu zwei Millionen"])
+@pytest.mark.parametrize("bad", ["bis zu 3 Mio. €", "bis zu 2.000.000 €", "bis zu zwei Millionen",
+                                 "bis zu 2 Mrd. €"])  # 786:L127: the magnitude word is a figure
 def test_a_translation_that_changes_a_figure_keeps_the_vault_original_receipted(bad, caplog):
     from applire.services.cv import _settle_language_preseed
 

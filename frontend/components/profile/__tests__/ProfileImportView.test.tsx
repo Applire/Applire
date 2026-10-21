@@ -134,24 +134,60 @@ describe("ProfileImportView", () => {
     await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1));
   });
 
-  it("routes a ZIP file to /api/profile/import", async () => {
-    const importResponse = { completeness_score: 0.0 };
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(importResponse) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });
+  it("routes a ZIP file through the async import-jobs door, never the sync /api/profile/import (#789 L31)", async () => {
+    global.fetch = importJobsMock(READY({ completeness_score: 0.7, status: "COMPLETE" }));
 
     render(<ProfileImportView />);
 
-    const input = screen.getByTestId("main-file-input");
     const file = new File(["content"], "linkedin_export.zip", { type: "application/zip" });
-    fireEvent.change(input, { target: { files: [file] } });
+    fireEvent.change(screen.getByTestId("main-file-input"), { target: { files: [file] } });
 
-    await waitFor(() => {
-      const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const importCall = calls.find((c) => (c[0] as string).includes("/api/profile/import"));
-      expect(importCall).toBeDefined();
+    await waitFor(() => expect(screen.getByTestId("upload-success-strip")).toBeInTheDocument());
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit?][];
+    const post = calls.find(([u, init]) => u.includes("/api/profile/import-jobs") && init?.method === "POST");
+    expect(post).toBeDefined();
+    expect(post![0]).toContain("source=linkedin");
+    expect((post![1]!.body as FormData).get("file")).toBe(file);
+    // The synchronous door (300 s proxy cut) is no longer used by this view.
+    expect(calls.some(([u]) => /\/api\/profile\/import(\?|$)/.test(u))).toBe(false);
+  });
+
+  it("names the LinkedIn import step (not the CV-merge step) while the ZIP job polls (#789 L31)", async () => {
+    let polls = 0;
+    global.fetch = importJobsMock(() => {
+      polls += 1;
+      return { status: "processing", error_code: null, result: null };
     });
+
+    render(<ProfileImportView />);
+    fireEvent.change(screen.getByTestId("main-file-input"), {
+      target: { files: [new File(["c"], "export.zip", { type: "application/zip" })] },
+    });
+
+    await waitFor(() => expect(polls).toBeGreaterThan(0));
+    const progress = screen.getByTestId("import-progress");
+    expect(progress).toHaveTextContent("stepUploading");
+    expect(progress).toHaveTextContent("stepImporting");
+    expect(progress).not.toHaveTextContent("stepMerging");
+  });
+
+  it("opens the merge-gate dialog when the ZIP job resolves GATED (#789 L31)", async () => {
+    global.fetch = importJobsMock(
+      READY({
+        status: "GATED",
+        gate: "name_divergence",
+        staged_id: "st-1",
+        account_name: "Anna",
+        cv_name: "Berta",
+        completeness_score: 0,
+      }),
+    );
+    render(<ProfileImportView />);
+    fireEvent.change(screen.getByTestId("main-file-input"), {
+      target: { files: [new File(["c"], "export.zip", { type: "application/zip" })] },
+    });
+    await waitFor(() => expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument());
+    expect(screen.queryByTestId("upload-success-strip")).toBeNull();
   });
 
   it("shows success strip with completeness score after PDF upload", async () => {
@@ -183,6 +219,55 @@ describe("ProfileImportView", () => {
 
     await waitFor(() => {
       expect(screen.getByText("uploadFailed")).toBeInTheDocument();
+    });
+  });
+
+  describe("OCR capability and size-limit honesty (#789 L12 / L13)", () => {
+    it("keeps inviting images while the instance has not said it cannot read them", async () => {
+      global.fetch = importJobsMock(READY({}));
+      render(<ProfileImportView />);
+      expect(screen.getByTestId("main-file-input").getAttribute("accept")).toContain(".jpg");
+      expect(screen.getByText("formats")).toBeInTheDocument();
+      expect(screen.getByText("subtitle")).toBeInTheDocument();
+    });
+
+    it("drops the image extensions and the image promise when image_import is false", async () => {
+      global.fetch = importJobsMock(READY({}), (u) =>
+        u.includes("/api/profile/import-capabilities")
+          ? { ok: true, body: { image_import: false } }
+          : null,
+      );
+      render(<ProfileImportView />);
+      await waitFor(() => expect(screen.getByText("formatsNoImage")).toBeInTheDocument());
+      const accept = (screen.getByTestId("main-file-input").getAttribute("accept") ?? "").split(",");
+      expect(accept).not.toContain(".jpg");
+      expect(accept).not.toContain(".png");
+      expect(accept).toEqual(expect.arrayContaining([".pdf", ".docx", ".zip"]));
+      expect(screen.getByText("subtitleNoImage")).toBeInTheDocument();
+      expect(screen.queryByText("formats")).toBeNull();
+    });
+
+    it("names the missing OCR when a dropped image fails with ocr_unavailable", async () => {
+      global.fetch = importJobsMock({ status: "failed", error_code: "ocr_unavailable", result: null });
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["x"], "scan.png", { type: "image/png" })] },
+      });
+      await waitFor(() => expect(screen.getByText("uploadNoOcr")).toBeInTheDocument());
+      expect(screen.queryByText("uploadFailed")).toBeNull();
+    });
+
+    it("names the size limit when the import door answers 413", async () => {
+      global.fetch = importJobsMock(READY({}), (u) =>
+        /\/api\/profile\/import-jobs$/.test(u)
+          ? { ok: false, status: 413, body: { detail: { error: "file_too_large" } } }
+          : null,
+      );
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["x"], "huge.pdf", { type: "application/pdf" })] },
+      });
+      await waitFor(() => expect(screen.getByText("uploadTooLarge")).toBeInTheDocument());
     });
   });
 

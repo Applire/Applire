@@ -292,9 +292,7 @@ Source tracking (an `EnrichmentRecord` for every change) is mandatory — every 
 
 ### ADR-014 — CV Upload & Parsing Pipeline
 
-**Decision:** Two semantically distinct endpoints:
-- `POST /api/profile/upload` — Human-facing, multipart file ingestion (PDF, DOCX, images, plain text).
-- `POST /api/profile/import` — Structured data ingestion (LinkedIn ZIP exports, XING OAuth responses, JSON).
+**Decision:** One import door, asynchronous: `POST /api/profile/import-jobs` (multipart `file`) answers 202 with an `import_id`; the caller polls `GET /api/profile/import-jobs/{import_id}` until `ready` (the result is the upload response, including a held `GATED` import) or `failed` (a stable `error_code`). It takes CVs (PDF, DOCX, images, plain text) and LinkedIn exports: a ZIP is detected, a LinkedIn profile PDF or JSON export passes `?source=linkedin`. The former synchronous doors `POST /api/profile/upload` and `POST /api/profile/import` answer **410 Gone** with a pointer to the job (retired before 1.0: a reverse proxy cut them at its read timeout while the ingest kept running).
 
 **OCR backends** (same factory pattern as LLM/Auth/Storage):
 

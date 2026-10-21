@@ -879,11 +879,32 @@ def _figure_digits(text: object) -> list[str]:
     return sorted(re.sub(r"\D", "", m) for m in _FIGURE_RE.findall(text))
 
 
+def _figure_amounts(text: object) -> list[str]:
+    """The figures of ``text`` as the Oracle reads them — each value with its
+    magnitude token folded in ("€2M" → ``2000000``, "2 Mrd." → ``2000000000``,
+    "200 Tsd. €" → ``200000``), sorted. The Oracle's ``extract_figures`` is THE
+    figure reader (ADR-066: one implementation); this only takes its values."""
+    if not isinstance(text, str) or not text.strip():
+        return []
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    return sorted(f.value for f in extract_figures(text))
+
+
 def _figures_preserved(original: object, translated: object) -> bool:
     """#759 (founder ruling E5-2): the deterministic control on the first figure
     field that passes through an LLM translation — the multiset of figures is
-    identical before and after. A fact comparison (ADR-062 clause 1)."""
-    return _figure_digits(original) == _figure_digits(translated)
+    identical before and after. A fact comparison (ADR-062 clause 1).
+
+    786:L127 (SF-WRITE.44, Hazelnut build 2): the digit multiset alone accepted a
+    swapped MAGNITUDE word — "€2M" → "2 Mrd.", "€200k" → "200 Mio. €" carry the
+    same digits. The amounts (value × the magnitude its own adjacent token names,
+    read by the Oracle's figure extractor) must match too. Both halves stay: the
+    digit half keeps the deliberate strictness against a re-grouped figure
+    ("2M" → "2.000.000"), the amount half refuses a factor of 1000."""
+    return _figure_digits(original) == _figure_digits(translated) and _figure_amounts(
+        original
+    ) == _figure_amounts(translated)
 
 
 def _settle_language_preseed(settled: dict, plan: "PreseedPlan") -> dict:

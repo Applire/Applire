@@ -771,9 +771,10 @@ def test_upsert_publication_appends_and_dedupes():
     assert merged[0].section == "publications"
 
 
-def test_publication_partial_date_coerces():
+def test_publication_partial_date_keeps_source_precision():
+    # ADR-013 amended 2026-10-20 (783:L65): never padded to 1 January.
     p = Publication(title="T", published_date="2019")
-    assert p.published_date == date(2019, 1, 1)
+    assert p.published_date == "2019"
 
 
 # ── #177 review (finding 4): raw op date strings must be coerced before fill ──
@@ -781,14 +782,13 @@ def test_publication_partial_date_coerces():
 
 def test_upsert_certification_match_fill_coerces_partial_date():
     """A near-dupe MATCH that fills date_obtained with a partial 'YYYY' string
-    must land as a real `date`, not the raw string surviving until round-trip."""
+    lands normalised at source precision (783:L65), and the profile round-trips."""
     profile = _profile_with_certification("AWS Certified Solutions Architect")
     ops = [UpsertCertification(name="AWS Certified Solutions Architect – Associate",
                                date_obtained="2019")]
     result = apply_ops(profile, ops, source="test")
     entry = result.profile.certifications[0]
-    assert entry.date_obtained == date(2019, 1, 1)
-    assert isinstance(entry.date_obtained, date)
+    assert entry.date_obtained == "2019"
     _roundtrips(result.profile)
 
 
@@ -903,7 +903,7 @@ def test_upsert_publication_match_fill_coerces_partial_date():
                              published_date="2019")]
     result = apply_ops(profile, ops, source="test")
     entry = result.profile.publications[0]
-    assert entry.published_date == date(2019, 1, 1)
+    assert entry.published_date == "2019"
     _roundtrips(result.profile)
 
 

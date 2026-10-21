@@ -70,6 +70,8 @@
     "retry": "Retry",
     "retrying": "Retrying…",
     "uploadFailed": "We couldn't read this file. Please try again.",
+    "uploadTooLarge": "This file is larger than 10 MB, so we couldn't read it. Please upload a smaller file.",
+    "uploadNoOcr": "This instance can't read images or scanned documents (no text recognition is set up). Please upload a text-based PDF, a DOCX or a plain-text file instead.",
     "stillWorking": "Still working — this can take a minute…",
     "stillWorkingElapsed": "Still working — {seconds}s elapsed. Large CVs can take a few minutes…",
     "genericError": "Something went wrong. Please try again.",
@@ -1062,7 +1064,8 @@
       "confirmation_discarded": "you chose to discard it",
       "confirmation_held": "it is waiting on one more question — which of your roles at that employer it belongs to",
       "confirmation_unresolvable": "the entry it named is no longer there, so it was not written",
-      "confirmation_already_present": "that entry already said it"
+      "confirmation_already_present": "that entry already said it",
+      "target_unresolved": "it was aimed at an entry your profile does not hold, so it was not written — add it to the right entry"
     },
     "notAppliedNoSection": "Not tied to a section",
     "notAppliedGroupHeading": "{section} ({count})",
@@ -1182,7 +1185,8 @@
     "dragDropHeading": "Drag & drop CVs here",
     "clickToBrowse": "click to browse",
     "orPrefix": "or",
-    "formatHint": "PDF, DOCX, DOC, TXT, MD or an image (JPG/PNG) — up to 10 MB each"
+    "formatHint": "PDF, DOCX, DOC, TXT, MD or an image (JPG/PNG) — up to 10 MB each",
+    "formatHintNoImage": "PDF, DOCX, DOC, TXT or MD — up to 10 MB each"
   },
   "progressWidget": {
     "done": "done"
@@ -1262,9 +1266,11 @@
   "profileImport": {
     "title": "Update Profile",
     "subtitle": "Upload your CV as PDF, DOCX, TXT, MD or an image — or a LinkedIn export as ZIP. The format is detected automatically.",
+    "subtitleNoImage": "Upload your CV as PDF, DOCX, TXT or MD — or a LinkedIn export as ZIP. The format is detected automatically.",
     "dropTitle": "Drop file here",
     "browse": "Choose file",
     "formats": "PDF · DOCX · TXT · MD · image · ZIP (LinkedIn) up to 10 MB",
+    "formatsNoImage": "PDF · DOCX · TXT · MD · ZIP (LinkedIn) up to 10 MB",
     "linkedinCardTitle": "Upload LinkedIn data export",
     "linkedinCardDesc": "Full archive (ZIP) from LinkedIn privacy settings — provides structured profile data for more accurate extraction.",
     "progressTitle": "Updating your profile",
@@ -1599,6 +1605,8 @@
     "bodyDivergenceNoName": "This document carries no name, and none of its employers appear in your profile under “{accountName}”. Is it yours — do you still want to merge it?",
     "bodyDivergenceNoNameNoAccount": "This document carries no name, and none of its employers appear in your profile. Is it yours — do you still want to merge it?",
     "bodyNotCv": "We couldn’t recognise a CV in this document. Do you still want to merge it into your profile?",
+    "titleReviewNotRun": "This import wasn’t checked",
+    "bodyReviewNotRun": "We read your document, but the automatic check of the data we took from it could not run, so nothing has been added to your profile yet. Merge it and look over the imported entries afterwards, or discard it and try again.",
     "mergeAnyway": "Merge anyway",
     "discard": "Discard",
     "cancel": "Cancel",

@@ -189,10 +189,10 @@ def test_v2_titles_rule_allows_recorded_alternate_forms_only():
     v2 = build_system_prompt("en", pipeline="v2")
     assert "recorded alternate" in v2
     assert "never translate, shorten, generalise, upgrade or downgrade it yourself" in v2
-    # v1's rules are carried otherwise unchanged; v2 adds exactly ONE top-level rule,
-    # the F1 closing rule (2026-10-18)
+    # v1's rules are carried otherwise unchanged; v2 adds exactly TWO top-level rules,
+    # the F1 closing rule (2026-10-18) and the listed-only rule (ruling V-1, build 2)
     assert v2.count("- GROUNDING CONTRACT") == 1
-    assert SYSTEM_PROMPT.split("Rules:")[1].count("\n- ") + 1 == v2.split("Rules:")[1].count("\n- ")
+    assert SYSTEM_PROMPT.split("Rules:")[1].count("\n- ") + 2 == v2.split("Rules:")[1].count("\n- ")
 
 
 def test_condense_prompt_names_the_language_on_v2_only():
@@ -518,7 +518,7 @@ async def db():
     await engine.dispose()
 
 
-async def _seed(db, profile_json=None):
+async def _seed(db, profile_json=None, pre_gen_inputs=None):
     from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
     from applire.models.job import JobAnalysis
     from applire.models.user import User
@@ -535,7 +535,7 @@ async def _seed(db, profile_json=None):
     await db.flush()
     cl = GeneratedCoverLetter(
         job_analysis_id=job.id, profile_id=profile.id, template="classic_german",
-        letter_data={}, pre_gen_inputs={}, status=CoverLetterStatus.pending.value,
+        letter_data={}, pre_gen_inputs=dict(pre_gen_inputs or {}), status=CoverLetterStatus.pending.value,
         document_language="en",
     )
     db.add(cl)
@@ -572,7 +572,8 @@ async def _run(db, ids, *, payload, pages=1, terminal_script=None, review_verdic
     async def _aparse(prompt, system=None, **kw):
         record["systems"].append((prompt, system))
         from applire.prompts.review_cover_letter import TERMINAL_REVIEW_SYSTEM_PROMPT as _T
-        if review_verdict is not None and system == _T:
+        from applire.prompts.review_cover_letter import V2_TERMINAL_REVIEW_SYSTEM_PROMPT as _T2
+        if review_verdict is not None and system in (_T, _T2):
             return copy.deepcopy(review_verdict)
         return copy.deepcopy(payload)
 
@@ -698,7 +699,8 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
     after it is REVIEW-ONLY — one reviewer call over the condensed letter, no
     corrector, and the reviewed letter is the one that ships."""
     from applire.models.cover_letter import GeneratedCoverLetter
-    from applire.prompts.review_cover_letter import TERMINAL_REVIEW_SYSTEM_PROMPT
+    # v2 run: the post-condense review uses the v2 terminal reviewer (784:L31 variant)
+    from applire.prompts.review_cover_letter import V2_TERMINAL_REVIEW_SYSTEM_PROMPT as TERMINAL_REVIEW_SYSTEM_PROMPT
 
     condensed = _draft(_ENGLISH_BODY)
     verdict = {"approved": False, "issues": [
@@ -1185,3 +1187,136 @@ async def test_seam_del3_every_denial_owed_still_reaches_the_loop_source(db, v2)
     k = drafting["source"].index('"stated_limits": {')
     entry = drafting["source"][k:drafting["source"].index('"instruction"', k)]
     assert _DEL3_OWED in entry and _DEL3_OTHER in entry
+
+
+# ── Hazelnut build 2 — 786:L136: a standard identifier the vault never states ──
+
+_ISO_PROFILE_JSON = copy.deepcopy(_PROFILE_JSON)
+_ISO_PROFILE_JSON["work_experience"][0]["achievements"].append(
+    "Interne Kontrollen nach ISO 27001 aufgebaut."
+)
+
+
+def _iso_body(sentence: str) -> list[str]:
+    return [_ENGLISH_BODY[0], _ENGLISH_BODY[1], _ENGLISH_BODY[2] + " " + sentence, _ENGLISH_BODY[3]]
+
+
+def test_identifier_typo_is_a_letter_finding():
+    letter = _compose(_draft(_iso_body("I built the internal controls under ISO 2701.")), "v2")
+    found = [f for f in _findings(letter, profile_json=_ISO_PROFILE_JSON) if f.family == "identifier"]
+    assert len(found) == 1
+    assert "“ISO 2701”" in found[0].text and "“ISO 27001”" in found[0].text
+
+
+def test_identifier_as_recorded_is_no_letter_finding():
+    letter = _compose(_draft(_iso_body("I built the internal controls under ISO 27001.")), "v2")
+    assert not [f for f in _findings(letter, profile_json=_ISO_PROFILE_JSON) if f.family == "identifier"]
+
+
+def test_v2_checks_fn_carries_an_identifier_finding_as_blocking():
+    from applire.services.cover_letter import _v2_checks_fn
+
+    fn = _v2_checks_fn(lambda d: d, profile_json=_ISO_PROFILE_JSON, keyword_ledger=None,
+                       denied_concepts=None, language="en")
+    found = [f for f in fn(_draft(_iso_body("I built the controls under ISO 2701."))) if f.check == "letter.identifier"]
+    assert len(found) == 1 and found[0].blocking
+
+
+# ── Hazelnut build 2 — 784:L31: availability the candidate never gave ─────────
+
+_NOTICE_BODY = [
+    _ENGLISH_BODY[0], _ENGLISH_BODY[1], _ENGLISH_BODY[2],
+    "I would welcome the opportunity to discuss my experience with you in an interview. "
+    "My notice period can be discussed.",
+]
+
+
+@pytest.mark.parametrize("sentence, hit", [
+    # the v2 gate corpus shapes (5c2f056b), all with no availability input
+    ("My notice period can be discussed.", True),
+    ("Meine Kündigungsfrist ermöglicht einen reibungslosen Übergang.", True),
+    ("Mein Eintrittstermin kann flexibel vereinbart werden.", True),
+    ("I am available to start immediately and would welcome a conversation.", True),
+    ("Available immediately, I am confident my skills would add value.", True),
+    ("Mein aktueller Arbeitgeber ermöglicht eine sofortige Verfügbarkeit.", True),
+    ("Mein Umzug ist geplant, und ich bin ab sofort für eine Einstellung verfügbar.", True),
+    # not a statement about when the candidate could start
+    ("I defined SLOs with a 99.9% availability target for the tracking API.", False),
+    ("Für ein persönliches Gespräch stehe ich Ihnen gerne zur Verfügung.", False),
+    ("Ich bin ab sofort für ein Gespräch verfügbar.", False),
+    ("I am available for an interview at your convenience.", False),
+    ("Die Anlage erreichte eine Verfügbarkeit von 98 %.", False),
+])
+def test_availability_sentences_vocabulary(sentence, hit):
+    from applire.services.letter_v2 import availability_sentences
+
+    letter = {"body": {"paragraphs": [_ENGLISH_BODY[0], sentence]}}
+    assert bool(availability_sentences(letter)) is hit
+
+
+def test_availability_without_input_is_a_finding_and_with_input_none():
+    letter = _compose(_draft(_NOTICE_BODY), "v2")
+    from applire.services.cover_letter import _letter_v2_findings
+
+    without = _letter_v2_findings(letter, profile_json=_PROFILE_JSON, keyword_ledger=None,
+                                  denied_concepts=None, availability_given=False)
+    found = [f for f in without if f.family == "availability"]
+    assert len(found) == 1 and '"My notice period can be discussed."' in found[0].text
+    given = _letter_v2_findings(letter, profile_json=_PROFILE_JSON, keyword_ledger=None,
+                                denied_concepts=None, availability_given=True)
+    assert not [f for f in given if f.family == "availability"]
+
+
+def test_v2_checks_fn_carries_availability_as_blocking():
+    from applire.services.cover_letter import _v2_checks_fn
+
+    fn = _v2_checks_fn(lambda d: d, profile_json=_PROFILE_JSON, keyword_ledger=None,
+                       denied_concepts=None, language="en", availability_given=False)
+    found = [f for f in fn(_draft(_NOTICE_BODY)) if f.check == "letter.availability"]
+    assert len(found) == 1 and found[0].blocking
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pre_gen, expected", [({}, True), ({"availability": "ab 01.03.2027"}, False)])
+async def test_seam_v2_availability_finding_follows_the_typed_input(db, v2, pre_gen, expected):
+    """Seam (render → drafting loop): no typed availability and no vault testimony →
+    the check fires on the round's draft; a typed availability silences it."""
+    rec = await _run(db, await _seed(db, pre_gen_inputs=pre_gen), payload=_draft(_NOTICE_BODY))
+    drafting = rec["loops"][0]
+    assert any(f.check == "letter.availability" for f in drafting["checks"]) is expected
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_loops_get_the_v2_reviewer_and_corrector_prompts(db, v2):
+    from applire.prompts import review_cover_letter as r
+
+    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY))
+    systems = {(e["chain_id"], e["reviewer_system"], e["generator_system"]) for e in rec["loops"]}
+    assert ("cover_letter", r.V2_REVIEW_SYSTEM_PROMPT, r.V2_COVER_LETTER_REFINEMENT_PROMPT) in systems
+    assert all(rs is not r.REVIEW_SYSTEM_PROMPT and rs is not r.TERMINAL_REVIEW_SYSTEM_PROMPT
+               for _c, rs, _g in systems)
+
+
+@pytest.mark.asyncio
+async def test_seam_v1_loops_keep_the_v1_prompts(db, v1):
+    from applire.prompts import review_cover_letter as r
+
+    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY))
+    for e in rec["loops"]:
+        assert e["reviewer_system"] in (r.REVIEW_SYSTEM_PROMPT, r.TERMINAL_REVIEW_SYSTEM_PROMPT)
+        assert e["generator_system"] is r.COVER_LETTER_REFINEMENT_PROMPT
+
+
+def test_v2_letter_prompts_drop_the_availability_demand_and_v1_keeps_it():
+    from applire.prompts import cover_letter as w
+    from applire.prompts import review_cover_letter as r
+
+    assert "availability folded in" in r.REVIEW_SYSTEM_PROMPT            # v1 byte-identical
+    assert "availability folded in" in r.TERMINAL_REVIEW_SYSTEM_PROMPT
+    for p in (r.V2_REVIEW_SYSTEM_PROMPT, r.V2_TERMINAL_REVIEW_SYSTEM_PROMPT):
+        assert "availability folded in" not in p and "never ask for one" in p
+    assert "NO AVAILABILITY WITHOUT INPUT" in r.V2_COVER_LETTER_REFINEMENT_PROMPT
+    assert "NO AVAILABILITY WITHOUT INPUT" not in r.COVER_LETTER_REFINEMENT_PROMPT
+    v2 = w.build_system_prompt("de", pipeline="v2")
+    assert "AVAILABILITY ONLY FROM INPUT" in v2 and "Include Eintrittstermin in body only" not in v2
+    assert "Include Eintrittstermin in body only if availability is provided." in w.SYSTEM_PROMPT

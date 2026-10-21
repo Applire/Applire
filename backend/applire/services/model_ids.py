@@ -53,16 +53,26 @@ _UNKNOWN_PREFIX = "x"
 
 
 class ShortIdMap:
-    """A per-generation bidirectional UUID ⇄ short-id map."""
+    """A per-generation bidirectional UUID ⇄ short-id map.
 
-    def __init__(self) -> None:
+    ``namespace`` (ADR-078 amended 2026-10-20, 783:L79) prefixes every issued id
+    (``id_w1``) for a caller whose prompt already gives the model its OWN short
+    handles — the reconciler's local refs are ``w1``/``p1``/``v1`` (prompt rule
+    3), so an un-namespaced map would make an existing entity and a new entity
+    the same string. Default ``""`` keeps the writers' ids (``w1``) unchanged."""
+
+    def __init__(self, namespace: str = "") -> None:
         self._to_short: dict[str, str] = {}
         self._to_long: dict[str, str] = {}
         self._counters: Counter[str] = Counter()
+        self._namespace = namespace
+        self._short_re = (
+            re.compile(rf"^{re.escape(namespace)}[a-z]\d+$") if namespace else _SHORT_RE
+        )
 
     @classmethod
-    def from_profile(cls, profile_json: dict | None) -> "ShortIdMap":
-        m = cls()
+    def from_profile(cls, profile_json: dict | None, *, namespace: str = "") -> "ShortIdMap":
+        m = cls(namespace)
         for section, prefix in SECTION_PREFIXES:
             for entry in (profile_json or {}).get(section) or []:
                 if isinstance(entry, dict) and isinstance(entry.get("id"), str):
@@ -79,7 +89,7 @@ class ShortIdMap:
         if found is not None:
             return found
         self._counters[prefix] += 1
-        sid = f"{prefix}{self._counters[prefix]}"
+        sid = f"{self._namespace}{prefix}{self._counters[prefix]}"
         self._to_short[key] = sid
         self._to_long[sid] = long_id
         return sid
@@ -98,7 +108,7 @@ class ShortIdMap:
         back to its UUID. Anything else — prose, numbers, unknown short ids — is
         returned unchanged."""
         if isinstance(obj, str):
-            if _SHORT_RE.match(obj):
+            if self._short_re.match(obj):
                 return self._to_long.get(obj, obj)
             return obj
         if isinstance(obj, list):
@@ -114,7 +124,7 @@ class ShortIdMap:
             return json.dumps(self.restore(json.loads(text)), ensure_ascii=False)
         except (TypeError, ValueError):
             return re.sub(
-                r'"([a-z]\d+)"',
+                rf'"({re.escape(self._namespace)}[a-z]\d+)"',
                 lambda mt: f'"{self._to_long[mt.group(1)]}"' if mt.group(1) in self._to_long else mt.group(0),
                 text,
             )
