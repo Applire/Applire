@@ -137,7 +137,9 @@ _FOLD_MIN_STEM = 4
 #:   "Optimierung" ↔ "optimieren") and ``-ktion`` ↔ ``-zier``
 #:   ("Produktion" ↔ "produziert", "Reduktion" ↔ "reduzieren").
 #: Deliberately absent: any bare "-e"/"-n"/"-er" fold — too short to be a fact
-#: about the word rather than a coincidence of letters.
+#: about the word rather than a coincidence of letters. (The adjective
+#: declension fold below is anchored on an adjective-forming suffix and a
+#: minimum stem, and reaches non-final tokens only.)
 _FOLD_SUFFIX_PAIRS: tuple[tuple[str, str], ...] = (
     ("y", "ies"),
     ("ungen", "ung"),
@@ -163,6 +165,48 @@ def _suffix_pair_variants(last: str) -> list[str]:
     return out
 
 
+#: Bug #797 / build-2 adversarial F-C (ruling R3-b): a German ATTRIBUTIVE
+#: adjective declines by case and gender in front of its noun —
+#: "industrieller Mittelstand" / "im industriellen Mittelstand" — and the ending
+#: never changes what the phrase states. The fold reaches it for a NON-final
+#: token only (the final token keeps the pairs above), and only when the stem
+#: before the ending carries an adjective-forming suffix and has at least
+#: ``_ADJ_FOLD_MIN_STEM`` letters ("neuer"/"neuen" stays unfolded; "Quellen"
+#: is too short to be read as an adjective).
+_ADJ_DECLENSION_ENDINGS: tuple[str, ...] = ("en", "em", "er", "es", "e")
+_ADJ_STEM_SUFFIXES: tuple[str, ...] = (
+    "ell", "isch", "lich", "ig", "al", "iv", "ar", "bar", "haft", "los", "sam",
+)
+_ADJ_FOLD_MIN_STEM = 6
+#: At most this many declinable tokens are folded in one phrase (bounds the variants).
+_ADJ_FOLD_MAX_TOKENS = 2
+
+
+def _adjective_declensions(token: str) -> list[str]:
+    """The other declension forms of ``token`` when it is an inflected
+    adjective under the closed rule above; ``[]`` otherwise."""
+    for ending in _ADJ_DECLENSION_ENDINGS:
+        if not token.endswith(ending):
+            continue
+        stem = token[: -len(ending)]
+        if len(stem) >= _ADJ_FOLD_MIN_STEM and stem.isalpha() and stem.endswith(_ADJ_STEM_SUFFIXES):
+            return [stem + e for e in _ADJ_DECLENSION_ENDINGS if e != ending]
+        return []
+    return []
+
+
+def _with_adjective_declensions(phrase: str) -> list[str]:
+    """``phrase`` plus every combination of its non-final tokens' declension
+    forms (:func:`_adjective_declensions`), the phrase itself first."""
+    tokens = phrase.split(" ")
+    slots = [(i, _adjective_declensions(t)) for i, t in enumerate(tokens[:-1])]
+    slots = [(i, alts) for i, alts in slots if alts][:_ADJ_FOLD_MAX_TOKENS]
+    out = [tokens]
+    for i, alts in slots:
+        out = out + [t[:i] + [a] + t[i + 1:] for t in out for a in alts]
+    return [" ".join(t) for t in out]
+
+
 def _fold_variants(needle_norm: str) -> list[str]:
     """Deterministic singular/plural variants of a normalised phrase (final token only).
 
@@ -170,7 +214,8 @@ def _fold_variants(needle_norm: str) -> list[str]:
     layer — "Code reviews" must match a document that says "code review standards".
     Purely morphological, guarded, no LLM. #783 line L35 / #787 line L43: plus
     the closed suffix pairs of ``_FOLD_SUFFIX_PAIRS`` (EN y↔ies, DE plurals and
-    noun↔verb-stem forms).
+    noun↔verb-stem forms). Bug #797 / F-C: plus the declension endings of a
+    non-final German attributive adjective (:func:`_with_adjective_declensions`).
     """
     variants = [needle_norm]
     head, _, last = needle_norm.rpartition(" ")
@@ -183,6 +228,11 @@ def _fold_variants(needle_norm: str) -> list[str]:
         candidate = prefix + v
         if candidate not in variants:
             variants.append(candidate)
+    if head:
+        for v in list(variants):
+            for candidate in _with_adjective_declensions(v)[1:]:
+                if candidate not in variants:
+                    variants.append(candidate)
     return variants
 
 
