@@ -37,6 +37,7 @@ import {
   pollCvImport,
   CVImportError,
   importErrorMessageKey,
+  sourceTruncatedPercent,
   type CVUploadResult,
   type ImportNotAppliedItem,
   type MatchReceiptItem,
@@ -113,6 +114,8 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   const [uploadSuccess, setUploadSuccess] = useState(false);
   // #615 — the merge's own carried-predicate fact for the strip below.
   const [notApplied, setNotApplied] = useState<ImportNotAppliedItem[]>([]);
+  // R3-2 = B: the share of an over-long file the import read (null = all of it).
+  const [truncatedPercent, setTruncatedPercent] = useState<number | null>(null);
   // #717 — the merge's recognised pairs ("Schon in deinem Profil").
   const [matched, setMatched] = useState<MatchReceiptItem[]>([]);
   const [history, setHistory] = useState<UploadHistoryItem[]>([]);
@@ -161,6 +164,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     setUploadSuccess(false);
     setCompletenessScore(null);
     setNotApplied([]);
+    setTruncatedPercent(null);
     setMatched([]);
     setLoading(true);
     const isZip = file.name.toLowerCase().endsWith(".zip");
@@ -216,7 +220,12 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
         return;
       }
 
-      await proceedAfterUpdate(data.completeness_score ?? null, data.not_applied, data.matched);
+      await proceedAfterUpdate(
+        data.completeness_score ?? null,
+        data.not_applied,
+        data.matched,
+        sourceTruncatedPercent(data.source_truncated),
+      );
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return; // unmounted
       if (e instanceof CVImportError) {
@@ -236,9 +245,11 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     completeness: number | null,
     notAppliedItems?: ImportNotAppliedItem[],
     matchedItems?: MatchReceiptItem[],
+    readPercent: number | null = null,
   ) {
     setCompletenessScore(completeness);
     setNotApplied(notAppliedItems ?? []);
+    setTruncatedPercent(readPercent);
     setMatched(matchedItems ?? []);
     setUploadSuccess(true);
     refreshHistory();
@@ -534,6 +545,17 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
                     ? " " + tproc("notAppliedMore", { count: notApplied.length - 3 })
                     : ""),
               })}
+            </p>
+          )}
+
+          {/* R3-2 = B — an over-long file was read only in part; the rest never
+              reached the profile. */}
+          {uploadSuccess && !error && truncatedPercent !== null && (
+            <p
+              data-testid="upload-source-truncated-note"
+              className="mt-2 text-[12px] text-on-surface-variant"
+            >
+              {tproc("sourceTruncatedNote", { percent: truncatedPercent })}
             </p>
           )}
 

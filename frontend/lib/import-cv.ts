@@ -73,7 +73,25 @@ export interface CVUploadResult {
   not_applied?: ImportNotAppliedItem[];
   /** #717 — the merge's recognised pairs (same receipt the history shows). */
   matched?: MatchReceiptItem[];
+  /** R3-2 = B — the source was longer than one import reads: only the first
+   * `read_chars` of `total_chars` characters were extracted. `null` when not. */
+  source_truncated?: SourceTruncation | null;
   [key: string]: unknown;
+}
+
+export interface SourceTruncation {
+  read_chars: number;
+  total_chars: number;
+}
+
+/**
+ * R3-2 = B: the share of an over-long source the import read, as a whole
+ * percent kept inside 1..99 (a cut file never reads as "0 %" or "100 %").
+ * `null` when nothing was cut or the fact is malformed.
+ */
+export function sourceTruncatedPercent(t: SourceTruncation | null | undefined): number | null {
+  if (!t || !(t.total_chars > 0) || !(t.read_chars >= 0)) return null;
+  return Math.min(99, Math.max(1, Math.round((t.read_chars / t.total_chars) * 100)));
 }
 
 /** Carries the backend's stable error_code so callers can localize the message. */

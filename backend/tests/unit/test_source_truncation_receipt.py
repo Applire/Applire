@@ -65,6 +65,14 @@ async def test_a_cut_source_is_on_the_receipt_and_the_history_record(sqlite_sess
     assert review is not None and review.source_truncated is True
     assert review.source_chars_total == len(text)
     assert review.source_chars_read == len(seen) < len(text)
+    # R3-2 = B: the import result states it at top level too
+    assert response.source_truncated.model_dump() == {"read_chars": len(seen), "total_chars": len(text)}
+    dumped = response.model_dump(mode="json")
+    assert dumped["source_truncated"] == {"read_chars": len(seen), "total_chars": len(text)}
+    # a job result persisted with the derived key loads again (import_jobs round trip)
+    from applire.schemas.profile import CVUploadResponse
+
+    assert CVUploadResponse.model_validate(dumped).source_truncated == response.source_truncated
 
     from applire.services.profile import _get_latest
 
@@ -80,6 +88,7 @@ async def test_a_source_under_the_cap_says_nothing_was_cut(sqlite_session, tmp_p
     assert seen == _cv(20)
     assert response.extraction_review.source_truncated is False
     assert response.extraction_review.source_chars_read is None
+    assert response.source_truncated is None
 
 
 def test_a_receipt_persisted_before_the_field_loads_unchanged():
@@ -103,6 +112,6 @@ def test_the_agent_summary_states_the_cut():
 
     cut = ExtractionReview(status="approved", path="approved", rounds=1, source_truncated=True,
                            source_chars_read=24870, source_chars_total=133272)
-    assert summary(cut)["source_truncated"] == {"chars_read": 24870, "chars_total": 133272}
+    assert summary(cut)["source_truncated"] == {"read_chars": 24870, "total_chars": 133272}
     assert summary(ExtractionReview(status="approved"))["source_truncated"] is None
     assert summary(None)["source_truncated"] is None

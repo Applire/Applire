@@ -549,6 +549,38 @@ describe("ProfileImportView", () => {
       expect(screen.queryByTestId("upload-not-applied-note")).toBeNull();
     });
 
+    it("R3-2 = B: says how much of an over-long file was read, and nothing when all was read", async () => {
+      global.fetch = urlMock({
+        status: "ready",
+        error_code: null,
+        result: {
+          completeness_score: 0.65,
+          merge_status: "applied",
+          source_truncated: { read_chars: 24870, total_chars: 133272 },
+        },
+      });
+
+      const { unmount } = render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["c"], "huge.txt", { type: "text/plain" })] },
+      });
+      await waitFor(() => expect(screen.getByTestId("upload-success-strip")).toBeInTheDocument());
+      expect(screen.getByTestId("upload-source-truncated-note")).toHaveTextContent("sourceTruncatedNote");
+      unmount();
+
+      global.fetch = urlMock({
+        status: "ready",
+        error_code: null,
+        result: { completeness_score: 0.9, merge_status: "applied", source_truncated: null },
+      });
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["c"], "resume.pdf", { type: "application/pdf" })] },
+      });
+      await waitFor(() => expect(screen.getByTestId("upload-success-strip")).toBeInTheDocument());
+      expect(screen.queryByTestId("upload-source-truncated-note")).toBeNull();
+    });
+
     it("shows the merge phase as active while the import job is processing", async () => {
       // Job never finishes in this test — we only assert the honest phase labels.
       global.fetch = urlMock({ status: "processing", error_code: null, result: null });

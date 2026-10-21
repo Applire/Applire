@@ -476,17 +476,12 @@ def _profile_summary(profile_response) -> dict:
         # the caller branches on a field instead of on the absence of one.
         "merged": True,
         "gated": False,
-        # Build-2 adversarial F-F (ruling R3-b): the import read only the first
-        # part of a source longer than the extraction cap — the rest never
-        # reached the profile. ``None`` when nothing was cut.
-        "source_truncated": _source_truncation_summary(data.get("extraction_review")),
+        # Build-2 adversarial F-F (ruling R3-2 = B): the import read only the
+        # first part of a source longer than the extraction cap — the rest never
+        # reached the profile. ``None`` when nothing was cut. Character counts
+        # only, no content (the black-box property of this summary holds).
+        "source_truncated": data.get("source_truncated"),
     }
-
-
-def _source_truncation_summary(review: dict | None) -> dict | None:
-    if not isinstance(review, dict) or not review.get("source_truncated"):
-        return None
-    return {"chars_read": review.get("source_chars_read"), "chars_total": review.get("source_chars_total")}
 
 
 def _held_import_summary(gated) -> dict:

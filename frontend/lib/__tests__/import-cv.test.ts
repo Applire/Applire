@@ -22,6 +22,7 @@ import {
   pollCvImport,
   CVImportError,
   importErrorMessageKey,
+  sourceTruncatedPercent,
 } from "@/lib/import-cv";
 
 function res(body: unknown, ok = true, status = 200): Response {
@@ -203,5 +204,19 @@ describe("size limit and OCR error codes (#789 L12/L13)", () => {
     [null, "uploadFailed"],
   ])("importErrorMessageKey(%s) -> %s", (code, key) => {
     expect(importErrorMessageKey(code)).toBe(key);
+  });
+});
+
+describe("sourceTruncatedPercent (R3-2 = B)", () => {
+  it("rounds the share that was read, never to 0 or 100", () => {
+    expect(sourceTruncatedPercent({ read_chars: 24870, total_chars: 133272 })).toBe(19);
+    expect(sourceTruncatedPercent({ read_chars: 1, total_chars: 100000 })).toBe(1);
+    expect(sourceTruncatedPercent({ read_chars: 99990, total_chars: 100000 })).toBe(99);
+  });
+
+  it("is null when nothing was cut or the fact is malformed", () => {
+    expect(sourceTruncatedPercent(null)).toBeNull();
+    expect(sourceTruncatedPercent(undefined)).toBeNull();
+    expect(sourceTruncatedPercent({ read_chars: 5, total_chars: 0 })).toBeNull();
   });
 });

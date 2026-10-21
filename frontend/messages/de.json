@@ -85,6 +85,7 @@
     "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut.",
     "notAppliedNote": "{count, plural, one {1 Eintrag aus deinem Lebenslauf wurde nicht automatisch übernommen} other {# Einträge aus deinem Lebenslauf wurden nicht automatisch übernommen}}: {labels}",
     "notAppliedMore": "+{count} weitere",
+    "sourceTruncatedNote": "Nur die ersten ≈ {percent} % Deiner Datei wurden gelesen – prüfe, ob alle Stationen übernommen sind.",
     "jdLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab — du kannst den Text später einfügen",
     "jdLinkedinOffPaste": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge die Stellenbeschreibung unten ein, um fortzufahren."
   },

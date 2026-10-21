@@ -655,8 +655,8 @@ apply it.
     never by re-importing. The count includes harmless paraphrase duplicates:
     read each one's `profile_mismatch_severity` in `get_profile_health` before
     you alarm the human — `info` is safe to leave.
-  - `source_truncated` is `null`, or `{chars_read, chars_total}` when the
-    document was longer than one import reads: only the first `chars_read`
+  - `source_truncated` is `null`, or `{read_chars, total_chars}` when the
+    document was longer than one import reads: only the first `read_chars`
     characters were extracted, and everything after them is missing from the
     profile even when `merge_status` is `applied`. Tell your user what share
     was read, and import the remainder as a separate, shorter text.
