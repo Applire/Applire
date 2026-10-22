@@ -296,6 +296,21 @@ def vault_sender(profile_json: dict[str, Any] | None, cv_data: dict[str, Any] | 
     }
 
 
+def sender_location(profile_json: dict[str, Any] | None, cv_data: dict[str, Any] | None) -> str | None:
+    """The sender's recorded place for the date line (ADR-094 cl. L2 amended
+    2026-10-22): the vault's ``personal_info.location``, else the tailored CV's
+    ``contact.location`` — the same value the CV's own ``Ort, Datum`` line prints.
+    A field read; ``None`` when neither records one (the line then has no place)."""
+    pi = (profile_json or {}).get("personal_info") if isinstance(profile_json, dict) else None
+    pi = pi if isinstance(pi, dict) else {}
+    contact = (cv_data or {}).get("contact") if isinstance(cv_data, dict) else None
+    contact = contact if isinstance(contact, dict) else {}
+    for v in (pi.get("location"), contact.get("location")):
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
 def apply_code_owned_fields(
     letter_data: dict[str, Any],
     *,
@@ -331,7 +346,12 @@ def apply_code_owned_fields(
     data["header"] = header
     signature = data.get("signature")
     signature = dict(signature) if isinstance(signature, dict) else {}
-    signature["name"] = sender.get("name") or ""
+    # Hazelnut build 3 (784 polish (b), ADR-094 cl. L2 amended): the sign-off
+    # name in display casing — a vault name transcribed in capitals from a CV
+    # header ("DANIEL KOVAČ") is signed "Daniel Kovač". Casing only.
+    from applire.utils.person_name import display_name
+
+    signature["name"] = display_name(sender.get("name") or "")
     data["signature"] = signature
     return data
 

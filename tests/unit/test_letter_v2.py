@@ -376,6 +376,65 @@ def test_v2_compose_sets_every_code_owned_field():
     assert out["recipient"]["date"]
 
 
+def test_v2_compose_date_line_carries_the_sender_place():
+    """Hazelnut build 3 (784 date-line line, ADR-094 cl. L2 amended): DIN 5008 —
+    "Stuttgart, 10. Juni 2026", the place read from the vault's own location (the
+    same Ort, Datum helper the CV's closing line uses); v1 is unchanged."""
+    from datetime import date
+    from types import SimpleNamespace
+
+    from applire.services.cover_letter import _compose_letter
+
+    def compose(pipeline, pj, lang):
+        return _compose_letter(
+            copy.deepcopy(_draft(_GERMAN_BODY)), profile_json=pj, cv_data={},
+            profile=SimpleNamespace(profile_json=pj), pre_gen={}, language=lang,
+            today=date(2026, 6, 10), pipeline=pipeline,
+        )["recipient"]["date"]
+
+    assert compose("v2", _PROFILE_JSON, "de") == "Stuttgart, 10. Juni 2026"
+    assert compose("v2", _PROFILE_JSON, "en") == "Stuttgart, 10 June 2026"
+    no_place = copy.deepcopy(_PROFILE_JSON)
+    no_place["personal_info"]["location"] = None
+    assert compose("v2", no_place, "de") == "10. Juni 2026"  # never an invented place
+    assert compose("v1", _PROFILE_JSON, "de") == "10. Juni 2026"
+
+
+def test_v2_compose_signs_a_capitalised_vault_name_in_display_casing():
+    """Hazelnut build 3 (784 polish (b)): a vault name transcribed in capitals from
+    a CV header is signed in display casing — casing only; the header keeps the
+    template's own typography (it is not touched here)."""
+    pj = copy.deepcopy(_PROFILE_JSON)
+    pj["personal_info"]["name"] = "DANIEL KOVAČ"
+    from types import SimpleNamespace
+
+    from applire.services.cover_letter import _compose_letter
+
+    out = _compose_letter(
+        copy.deepcopy(_draft(_ENGLISH_BODY)), profile_json=pj, cv_data={},
+        profile=SimpleNamespace(profile_json=pj), pre_gen={}, language="en", pipeline="v2",
+    )
+    assert out["signature"]["name"] == "Daniel Kovač"
+    assert out["header"]["name"] == "DANIEL KOVAČ"
+
+
+@pytest.mark.parametrize("raw,shown", [
+    ("STEFAN BRANDT", "Stefan Brandt"),
+    ("ANNA-LENA VON DER HEIDE", "Anna-Lena von der Heide"),
+    ("SEAN O'BRIEN", "Sean O'Brien"),
+    ("JÖRG MÜLLER-LÜDENSCHEIDT", "Jörg Müller-Lüdenscheidt"),
+    ("Emma Schneider", "Emma Schneider"),   # already the candidate's own casing
+    ("McAllister", "McAllister"),
+    ("", ""),
+])
+def test_display_name_changes_casing_only(raw, shown):
+    from applire.utils.person_name import display_name
+
+    out = display_name(raw)
+    assert out == shown
+    assert out.casefold() == raw.casefold()
+
+
 def test_v1_compose_keeps_the_model_header():
     out = _compose(_draft(_ENGLISH_BODY), "v1")
     assert out["header"]["address"] == "Musterstraße 123, 70563 Stuttgart"
