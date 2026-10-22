@@ -391,3 +391,74 @@ async def test_render_cv_background_arms_the_page_ladder_with_this_jobs_skill_ra
     assert callable(ctx.skill_tier)
     assert ctx.skill_tier("Kubernetes") == 0
     assert ctx.skill_tier("Kosmetik-Verpackungen") == 3
+
+
+@pytest.mark.asyncio
+async def test_render_cv_background_hands_the_final_measure_to_the_page_cut_proposal():
+    """#786 L-3: the x+1 proposal is computed at the ready-commit from the SAME
+    context and the LAST measurement — the seam ``test_cv_page_overflow`` cannot see."""
+    from types import SimpleNamespace
+
+    from applire.services.cv import MeasuredRender
+
+    cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    mock_cv = MagicMock()
+    mock_cv.status = "pending"
+    mock_cv.target_pages = 2
+    mock_job = MagicMock()
+    mock_job.role_title = "Dev"
+    mock_job.required_skills = ["Kubernetes"]
+    mock_job.nice_to_have_skills = []
+    mock_job.keywords = []
+    mock_job.seniority_level = ""
+    mock_job.company_culture_signals = []
+    mock_job.language_requirement = ""
+    mock_profile = MagicMock()
+    mock_profile.profile_json = _profile_json()
+    mock_gap = MagicMock()
+    mock_gap.keyword_gaps = []
+    mock_gap.critical_gaps = []
+    mock_gap.keyword_ledger = []
+    mock_db = AsyncMock()
+    mock_db.get.side_effect = lambda model, id_: {
+        cv_id: mock_cv, job_id: mock_job, profile_id: mock_profile,
+    }[id_]
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_gap
+    mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
+
+    measured = MeasuredRender("", 3, True, 2, "DACH")
+    proposals: list = []
+
+    async def spy_measure(record, db, ctx):
+        return measured
+
+    async def spy_terminal(record, db, **kw):
+        return SimpleNamespace(prose_draft=kw["prose_draft"], measured=kw["measured"],
+                               rounds=0, reentry_exhausted=False, outcome=None)
+
+    async def spy_propose(record, db, ctx, m):
+        proposals.append((ctx, m))
+
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cv.get_provider", return_value=AsyncMock()), \
+         patch(
+             "applire.services.cv._tailor_cv_with_fallback",
+             new=AsyncMock(side_effect=lambda *a, **kw: _tailored_raw()),
+         ), \
+         patch("applire.services.cv.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+         patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda draft, *a, **kw: draft)), \
+         patch("applire.services.cv._measure_and_condense", new=spy_measure), \
+         patch("applire.services.cv._terminal_review", new=spy_terminal), \
+         patch("applire.services.cv._update_ats_report", new=AsyncMock()), \
+         patch("applire.services.cv._propose_page_cut", new=spy_propose), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+         patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+        mock_session_local.return_value.__aenter__.return_value = mock_db
+        from applire.services.cv import _render_cv_background
+        await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+    assert len(proposals) == 1, "the proposal runs once, at the ready-commit"
+    ctx, m = proposals[0]
+    assert m is measured
+    assert ctx.target == 2 and ctx.page_ladder is True and callable(ctx.skill_tier)

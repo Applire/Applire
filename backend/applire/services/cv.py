@@ -3546,6 +3546,10 @@ async def get_cv_status(
         signature_override=record.signature_override,
         signature_effective=signature_effective,
         signature_available=signature_available,
+        # #786 L-3: the x+1 decision (None = the CV fits its target).
+        page_overflow=(
+            page_overflow_public(record) if status == CVGenerationStatus.ready else None
+        ),
     )
 
 
@@ -4851,6 +4855,14 @@ async def _render_cv_background(
                             else terminal_outcome
                         )
                     verdict_hash = _subject_hash(record.tailored_data)
+                # #786 L-3: when the delivered CV is still over its target, the
+                # page ladder proposes the cuts that would reach it; the person
+                # decides on the CV page (keep x+1 or cut). Never fails generation.
+                try:
+                    await _propose_page_cut(record, db, condense_ctx, measured)
+                except Exception:
+                    logger.exception("page-cut proposal failed for CV %s — no x+1 card", record.id)
+                    record.page_overflow = None
                 # ADR-039: the single ready-commit — status + reports together.
                 await db.commit()
 
@@ -5331,6 +5343,155 @@ async def _apply_page_ladder(
         [(c["kind"], len(c["items"])) for c in merge_cuts(applied)],
     )
     return text, count, applied
+
+
+class PageOverflowConflict(ValueError):
+    """The x+1 choice cannot be applied to this CV as it stands (no proposal, the
+    content changed since the proposal, or a section edit sits on top) — 409."""
+
+
+async def _propose_page_cut(
+    record: GeneratedCV,
+    db: AsyncSession,
+    condense_ctx: CondenseContext | None,
+    measured: MeasuredRender | None,
+) -> None:
+    """#786 L-3 (founder ruling 2026-10-22): the x+1 decision's proposal.
+
+    When the delivered render is longer than the target, walk the page ladder
+    further (dry run — ``tailored_data`` is restored) until the render reaches the
+    target, and store the cuts that got it there plus the data after them. The
+    person then keeps x+1 pages or cuts — deterministically, to exactly this data,
+    so "Kürzen" removes precisely what the card named. No reachable target (the
+    ladder runs out) leaves an empty proposal: nothing is offered.
+    """
+    from applire.services.ats_audit import extract_text_and_pages
+    from applire.services.cv_page_ladder import ladder_steps, merge_cuts
+
+    record.page_overflow = None
+    if (
+        measured is None or condense_ctx is None or not condense_ctx.page_ladder
+        or measured.page_count <= condense_ctx.target or record.section_overrides
+    ):
+        return
+    target = condense_ctx.target
+    full = record.tailored_data
+    tried: list = []
+    reached: dict | None = None
+    try:
+        for step in ladder_steps(
+            full, condense_ctx.skill_tier, pinned=_ladder_pin_predicate(condense_ctx.pins),
+        ):
+            record.tailored_data = step.data
+            tried.append(step.cut)
+            html = await get_cv_html(record.id, db, user_id=record.user_id)
+            _text, count = extract_text_and_pages(await _html_to_pdf(html))
+            if count <= target:
+                reached = step.data
+                break
+    finally:
+        record.tailored_data = full
+    proposed = merge_cuts(tried) if reached is not None else []
+    record.page_overflow = {
+        "target": target,
+        "actual": measured.page_count,
+        "proposed": proposed,
+        "choice": None,
+        "basis_hash": _subject_hash(full),
+        "cut_data": reached,
+        "full_data": None,
+    }
+    logger.info(
+        "PAGE_OVERFLOW_PROPOSAL cv_id=%s target=%d actual=%d reachable=%s cuts=%s",
+        record.id, target, measured.page_count, reached is not None,
+        [(c["kind"], len(c["items"])) for c in proposed],
+    )
+
+
+def page_overflow_public(record: GeneratedCV) -> dict | None:
+    """The x+1 decision as the CV page reads it — never the stored data copies.
+    ``cut_available`` / ``uncut_available``: the switch can be applied to the CV as
+    it stands now (same content as at the proposal, no section edit on top)."""
+    po = record.page_overflow
+    if not po:
+        return None
+    choice = po.get("choice")
+    unedited = not record.section_overrides
+    current = _subject_hash(record.tailored_data)
+    cut_available = (
+        choice != "cut" and unedited and bool(po.get("cut_data"))
+        and current == po.get("basis_hash")
+    )
+    uncut_available = (
+        choice == "cut" and unedited and bool(po.get("full_data"))
+        and bool(po.get("cut_data")) and current == _subject_hash(po["cut_data"])
+    )
+    return {
+        "target": po.get("target"),
+        "actual": po.get("actual"),
+        "proposed": po.get("proposed") or [],
+        "choice": choice,
+        "cut_available": cut_available,
+        "uncut_available": uncut_available,
+    }
+
+
+async def set_page_overflow_choice(
+    cv_id: uuid.UUID,
+    choice: str,
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> dict:
+    """Apply the person's x+1 choice ("keep" | "cut") and remember it on the CV.
+
+    "cut" swaps in the proposal's data — no LLM, the exact cuts the card named —
+    and keeps the full data so the choice can be changed back; "keep" after a cut
+    restores it. Either content swap rebuilds the snapshot and re-audits (the
+    page-length finding follows the new page count). Raises ``LookupError`` (404)
+    or ``PageOverflowConflict`` (409)."""
+    import copy
+
+    from applire.services.cv_section_editor import build_content_snapshot
+    from applire.services.review_state import document_lock
+
+    if choice not in ("keep", "cut"):
+        raise PageOverflowConflict(f"unknown choice {choice!r}")
+    owner = resolve_owner(user_id, site="cv.set_page_overflow_choice")
+    async with document_lock("cv", cv_id):
+        try:
+            record = await owned_cv(db, cv_id, owner)
+        except LookupError:
+            raise LookupError(f"CV {cv_id} not found") from None
+        if record.status != CVGenerationStatus.ready.value or not record.page_overflow:
+            raise PageOverflowConflict("this CV has no page decision to make")
+        po = dict(record.page_overflow)
+        if po.get("choice") == choice:
+            return page_overflow_public(record)
+        public = page_overflow_public(record)
+        new_data: dict | None = None
+        if choice == "cut":
+            if not public["cut_available"]:
+                raise PageOverflowConflict("the CV changed since the proposal")
+            po["full_data"] = record.tailored_data
+            new_data = po["cut_data"]
+        elif po.get("choice") == "cut":
+            if not public["uncut_available"]:
+                raise PageOverflowConflict("the CV changed since it was cut")
+            new_data = po["full_data"]
+            po["full_data"] = None
+        po["choice"] = choice
+        record.page_overflow = po
+        logger.info("PAGE_OVERFLOW_CHOICE cv_id=%s choice=%s", record.id, choice)
+        if new_data is None:
+            await db.commit()
+        else:
+            record.tailored_data = copy.deepcopy(new_data)
+            record.content_snapshot = build_content_snapshot(
+                TailoredCVData.model_validate(new_data)
+            )
+            await _update_ats_report(record, db)
+        return page_overflow_public(record)
 
 
 async def _measure_and_condense(

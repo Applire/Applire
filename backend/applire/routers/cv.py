@@ -33,7 +33,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.schemas.ats import ATSReportResponse
 from applire.schemas.oracle import TruthfulnessReportResponse
 from applire.schemas.outcome_critic import OutcomeCriticReportResponse
-from applire.schemas.cv import CVGenerateRequest, CVGenerateResponse, CVProfileDiffResponse, CVSignatureOverrideRequest, CVSignatureOverrideResponse, CVStatusResponse
+from applire.schemas.cv import CVGenerateRequest, CVGenerateResponse, CVPageOverflow, CVPageOverflowChoiceRequest, CVProfileDiffResponse, CVSignatureOverrideRequest, CVSignatureOverrideResponse, CVStatusResponse
 from applire.schemas.cv_sections import (
     AssistAnswerRequest,
     AssistAnswerResponse,
@@ -46,6 +46,7 @@ from applire.schemas.cv_sections import (
     SectionPatchResponse,
 )
 from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_critic_report, get_cv_docx, get_cv_html, get_cv_pdf, get_cv_status, get_cv_truthfulness_report, get_docx_filename, get_pdf_filename, list_cvs_for_job, set_cv_signature_override
+from applire.services.cv import PageOverflowConflict, set_page_overflow_choice
 from applire.services.cv_diff import get_cv_profile_diff
 from applire.services.cv_assist import rewrite_section, start_assist_session, submit_assist_answer
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
@@ -430,3 +431,26 @@ async def patch_cv_signature(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.post("/{cv_id}/page-overflow", response_model=CVPageOverflow)
+async def post_page_overflow_choice(
+    cv_id: uuid.UUID,
+    body: CVPageOverflowChoiceRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: User = Depends(require_user),
+) -> CVPageOverflow:
+    """#786 L-3 (founder ruling 2026-10-22): keep the CV's extra page or cut to the
+    target. "cut" is deterministic — the page ladder's proposal, exactly the items
+    the card named — and can be changed back. 409 when the CV has no decision to
+    make or changed since the proposal."""
+    try:
+        return CVPageOverflow(**await set_page_overflow_choice(cv_id, body.choice, db, user_id=_auth.id))
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except PageOverflowConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise internal_server_error(exc, where="cv.page_overflow")
