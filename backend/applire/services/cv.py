@@ -3319,9 +3319,12 @@ def format_place_date_for_cv(location: str | None, language: str, *, user_id: uu
     """#359: the CV tail's ``Ort, Datum`` line. A thin alias so both CV render
     paths name the same function; the implementation lives with the rest of the
     signature logic in ``services/signature.py``."""
+    from applire.services.letter_v2 import date_line_place
     from applire.services.signature import format_place_date
 
-    return format_place_date(location, language)
+    # The place only ("Frankfurt am Main", not "…, Germany") — the same cut the
+    # letter's date line takes, so both documents name one place.
+    return format_place_date(date_line_place(location), language)
 
 
 async def _resolve_photo_data_uri(
@@ -3887,7 +3890,7 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
     # other (SF-PDF.6). None covers every "do not render" case alike.
     # F-4b: this CV's own signature_override (None = kind default) wins over
     # the kind-level toggle, ahead of the storage/toggle resolution itself.
-    from applire.services.signature import format_place_date, resolve_signature_data_uri
+    from applire.services.signature import resolve_signature_data_uri
 
     signature_image = await resolve_signature_data_uri(
         db, document="cv", override=record.signature_override, user_id=owner
@@ -3899,7 +3902,7 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
         labels=cv_labels(lang),
         signature_image=signature_image,
         signature_place_date=(
-            format_place_date(tailored.contact.location, lang)
+            format_place_date_for_cv(tailored.contact.location, lang)
             if signature_image
             else None
         ),

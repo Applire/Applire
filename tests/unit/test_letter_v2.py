@@ -1392,3 +1392,34 @@ def test_letter_default_colour_is_the_cv_default():
         "primary": cv.primary, "primary_tint": cv.primary_tint,
         "surface": cv.surface, "surface_text": cv.surface_text,
     }
+
+
+@pytest.mark.parametrize("recorded, place", [
+    ("Frankfurt am Main, Germany", "Frankfurt am Main"),
+    ("München, Deutschland", "München"),
+    ("Maximilianstraße 12, 80539 München", "München"),
+    ("8001 Zürich, Schweiz", "Zürich"),
+    ("Koblenz", "Koblenz"),
+    ("Germany", "Germany"),
+    ("  ", None),
+    (None, None),
+])
+def test_date_line_place_names_the_place_only(recorded, place):
+    """Bench 2026-10-22 (WP-L after-run): Daniel's German letter was dated
+    "Frankfurt am Main, Germany, 22. Oktober 2026" — DIN 5008 names the place."""
+    from applire.services.letter_v2 import date_line_place
+
+    assert date_line_place(recorded) == place
+
+
+def test_letter_and_cv_closing_name_the_same_place():
+    from datetime import date
+
+    from applire.services.cover_letter import _inject_letter_date
+    from applire.services.cv import format_place_date_for_cv
+    from applire.services.letter_v2 import sender_location
+
+    profile = {"personal_info": {"location": "Frankfurt am Main, Germany"}}
+    letter = _inject_letter_date({}, "de", date(2026, 10, 22), location=sender_location(profile, None))
+    assert letter["recipient"]["date"] == "Frankfurt am Main, 22. Oktober 2026"
+    assert format_place_date_for_cv("Frankfurt am Main, Germany", "de").startswith("Frankfurt am Main, ")
