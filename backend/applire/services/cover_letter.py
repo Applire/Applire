@@ -344,6 +344,7 @@ async def get_cover_letter_status(
         expires_at=cl.expires_at,
         letter_data=letter_data,
         section_overrides=section_overrides,
+        pre_gen_inputs=dict(cl.pre_gen_inputs) if cl.pre_gen_inputs else None,
         origin=cl.origin,
         # #702: through the schema, so `cross_document` reaches the agent door
         # on legacy rows too (derived, never stored-and-trusted).

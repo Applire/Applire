@@ -119,6 +119,11 @@ class CoverLetterStatusResponse(BaseModel):
     error_message: Optional[str] = None
     expires_at: datetime
     letter_data: Optional[dict] = None  # populated only when status == ready
+    # 787 L-1 (Hazelnut build 3): the user's own generation inputs as stored
+    # (recipient, salary, availability, motivation, tone) — the preview says when
+    # the letter names no notice period / no reason of change, and the regenerate
+    # form starts from them. None when the row stores none (agent-authored letters).
+    pre_gen_inputs: Optional[dict] = None
     # NOTE C-4 (ADR-090 run): the saved section overrides ({"body": "..."}) —
     # `letter_data` stays RAW, so the editor needs these to start from the
     # effective body (else "Let me edit it" after a take-out writes the removed
