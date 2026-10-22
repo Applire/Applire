@@ -2824,6 +2824,12 @@ def _targeted_skill(op, profile):
         for s in profile.skills
     ):
         return None
+    # #801 (ADR-046 amended 2026-10-22) — nor a target the op's own `existing`
+    # does not name, nor one across technical/soft (facts; binding_guard).
+    from applire.services.profile.reconcile.binding_guard import skill_binding_refusal
+
+    if skill_binding_refusal(op.name, op.category, getattr(op, "existing", None), target):
+        return None
     return target
 
 
@@ -3148,7 +3154,22 @@ def _apply_match_existing(op, resolve, matched):
             "binding for %r recorded nowhere (#707)", op.target, op.incoming,
         )
         return
-    receipt = _match_receipt(_section_for(entity), entity, op.incoming)
+    section = _section_for(entity)
+    if section == "skills":
+        # #801 (ADR-046 amended 2026-10-22) — the op names the entry it means;
+        # an id that names another skill is a slip, not a binding (check (a);
+        # the op carries no category). The import door has already rewritten
+        # such an op (binding_guard.refuse_false_skill_bindings).
+        from applire.services.profile.reconcile.binding_guard import skill_binding_refusal
+
+        reason = skill_binding_refusal(op.incoming, None, getattr(op, "existing", None), entity)
+        if reason is not None:
+            logger.warning(
+                "reconcile: match_existing %r -> %r refused (%s); no receipt (#801)",
+                op.incoming, getattr(entity, "name", None), reason,
+            )
+            return
+    receipt = _match_receipt(section, entity, op.incoming)
     receipt.entity_id = str(op.target)
     if _same_words(receipt.incoming, receipt.existing):
         # E2E-3 (b), 2026-10-08 — the model also matches word-for-word

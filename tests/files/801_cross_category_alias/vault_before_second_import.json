@@ -1,0 +1,343 @@
+{
+ "skills": [
+  {
+   "id": "bad4bc6e-2f7e-484d-a71c-911c5ee4b364",
+   "name": "Python",
+   "source": "computed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [
+    "Cargonaut Logistics GmbH",
+    "Finleap Build GmbH",
+    "DATIS IT-Services"
+   ],
+   "years_experience": 11
+  },
+  {
+   "id": "48f88ffb-eec4-43d7-822c-f0527f61734d",
+   "name": "Django",
+   "source": "computed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [
+    "Cargonaut Logistics GmbH"
+   ],
+   "years_experience": 6
+  },
+  {
+   "id": "3dc435fb-e0de-4b60-a16f-a9816acda0ff",
+   "name": "Flask",
+   "source": "computed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [
+    "Finleap Build GmbH"
+   ],
+   "years_experience": 4
+  },
+  {
+   "id": "b015333f-4db1-484d-acee-edb2ae466491",
+   "name": "PostgreSQL",
+   "source": "computed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [
+    "Cargonaut Logistics GmbH",
+    "Finleap Build GmbH"
+   ],
+   "years_experience": 9
+  },
+  {
+   "id": "4b3cd773-72e4-46a8-8fa0-199e3aa99347",
+   "name": "AWS",
+   "source": "computed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [
+    "Cargonaut Logistics GmbH"
+   ],
+   "years_experience": 6
+  },
+  {
+   "id": "3f9637e5-e37b-4bef-a4e6-b58c72b78b80",
+   "name": "ECS",
+   "source": "computed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [
+    "Cargonaut Logistics GmbH"
+   ],
+   "years_experience": 6
+  },
+  {
+   "id": "8e5680f9-cff6-428b-8709-3465dff00084",
+   "name": "RDS",
+   "source": "computed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [
+    "Cargonaut Logistics GmbH"
+   ],
+   "years_experience": 6
+  },
+  {
+   "id": "068565c7-7289-434e-a497-82e85fdc75dc",
+   "name": "S3",
+   "source": "computed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [
+    "Cargonaut Logistics GmbH"
+   ],
+   "years_experience": 6
+  },
+  {
+   "id": "90246408-a9dc-4549-9648-527bf134ca37",
+   "name": "GitLab CI/CD",
+   "source": "computed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [
+    "Cargonaut Logistics GmbH"
+   ],
+   "years_experience": 6
+  },
+  {
+   "id": "2561b1ac-9dcd-4469-848e-6c2434e30100",
+   "name": "Contract testing",
+   "source": "transcribed",
+   "status": "confirmed",
+   "category": "domain",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [],
+   "years_experience": null
+  },
+  {
+   "id": "a7f0859c-5534-409d-bee8-21c95179deaa",
+   "name": "Incident management",
+   "source": "transcribed",
+   "status": "confirmed",
+   "category": "domain",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [],
+   "years_experience": null
+  },
+  {
+   "id": "af85b558-a27f-43e8-b8ea-a7ffc795245b",
+   "name": "REST API design",
+   "source": "llm_estimated",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [],
+   "years_experience": 4
+  },
+  {
+   "id": "8ee1a273-ef52-44f4-8e28-7536c023a094",
+   "name": "SQL performance tuning",
+   "source": "transcribed",
+   "status": "confirmed",
+   "category": "technical",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [],
+   "years_experience": null
+  },
+  {
+   "id": "8def9047-4bd7-4421-ad1b-e9b27a07ed9d",
+   "name": "Mentoring",
+   "source": "llm_estimated",
+   "status": "confirmed",
+   "category": "soft",
+   "last_used": null,
+   "proficiency": "intermediate",
+   "experience_refs": [],
+   "years_experience": 4
+  }
+ ],
+ "metadata": {
+  "denied_concepts": [],
+  "created_via": "cv_upload"
+ },
+ "projects": [],
+ "education": [
+  {
+   "id": "dbc0c6fa-7d2b-4a4f-8844-352a3fab6435",
+   "field": "Informatik",
+   "grade": null,
+   "degree": "B.Sc.",
+   "end_date": "2016",
+   "start_date": null,
+   "institution": "Technische Universität Darmstadt",
+   "thesis_title": null,
+   "relevant_coursework": []
+  }
+ ],
+ "languages": [
+  {
+   "id": "9d46a431-ae20-40f6-b568-ac75774071ea",
+   "level": "Muttersprache",
+   "status": "confirmed",
+   "language": "Deutsch"
+  },
+  {
+   "id": "2968ca5b-b038-4bc9-921e-3fd40e8d4f5a",
+   "level": "fließend, C1",
+   "status": "confirmed",
+   "language": "Englisch"
+  }
+ ],
+ "publications": [],
+ "personal_info": {
+  "name": "DANIEL KOVAČ",
+  "email": "daniel.kovac@example.com",
+  "phone": "+49 170 0000000",
+  "address": null,
+  "location": "Frankfurt am Main, Germany",
+  "xing_url": null,
+  "photo_url": null,
+  "nationality": null,
+  "website_url": null,
+  "linkedin_url": null,
+  "date_of_birth": null
+ },
+ "certifications": [],
+ "work_experience": [
+  {
+   "id": "b69cbf33-6a5a-4810-adb7-c69a71009187",
+   "role": "Senior Backend Engineer",
+   "company": "Cargonaut Logistics GmbH",
+   "end_date": null,
+   "location": "Frankfurt",
+   "team_size": null,
+   "is_current": true,
+   "start_date": "2021-03",
+   "achievements": [
+    "Redesigned the pricing data model and cut the p95 latency of quote calculation from 1.8s to 240ms through query optimisation and targeted PostgreSQL indexing.",
+    "Introduced contract tests between the tracking API and three consumer teams."
+   ],
+   "role_aliases": [],
+   "technologies": [
+    "Python",
+    "Django",
+    "PostgreSQL",
+    "AWS",
+    "ECS",
+    "RDS",
+    "S3",
+    "GitLab CI/CD"
+   ],
+   "budget_managed": null,
+   "expected_fields": [
+    "industry_context"
+   ],
+   "industry_context": "Logistics and shipment tracking",
+   "responsibilities": [
+    "Design and operate the shipment-tracking backend (Python, Django, PostgreSQL) serving ~40k daily active logistics customers.",
+    "Own the AWS deployment (ECS, RDS, S3) and the GitLab CI/CD pipelines for four services.",
+    "Mentor two mid-level engineers; run the team's weekly design-review session."
+   ],
+   "role_fact_projections": {
+    "industry_context": {
+     "unit": null,
+     "quote": null,
+     "value": "Logistics and shipment tracking",
+     "provenance": "uncorroborated"
+    }
+   }
+  },
+  {
+   "id": "ad3edd8f-5409-4961-b6b7-a4c1a05289db",
+   "role": "Backend Engineer",
+   "company": "Finleap Build GmbH",
+   "end_date": "2021-02",
+   "location": "Berlin",
+   "team_size": null,
+   "is_current": false,
+   "start_date": "2017-06",
+   "achievements": [
+    "Implemented the invoice-dunning workflow engine processing ~200k invoices/month.",
+    "Integrated a Stripe-based checkout for a subscription billing feature."
+   ],
+   "role_aliases": [],
+   "technologies": [
+    "Python",
+    "Flask",
+    "PostgreSQL",
+    "Stripe"
+   ],
+   "budget_managed": null,
+   "expected_fields": [],
+   "industry_context": "B2B invoicing and subscription billing",
+   "responsibilities": [
+    "Built REST APIs (Python, Flask, PostgreSQL) for a B2B invoicing product.",
+    "On-call rotation for production services; wrote the team's incident runbook."
+   ],
+   "role_fact_projections": {
+    "industry_context": {
+     "unit": null,
+     "quote": null,
+     "value": "B2B invoicing and subscription billing",
+     "provenance": "uncorroborated"
+    }
+   }
+  },
+  {
+   "id": "6b4a2f54-653d-4c6d-a7e9-519aa12b7ef5",
+   "role": "Werkstudent Software Engineering",
+   "company": "DATIS IT-Services",
+   "end_date": "2017-05",
+   "location": "Darmstadt",
+   "team_size": null,
+   "is_current": false,
+   "start_date": "2015-10",
+   "achievements": [],
+   "role_aliases": [],
+   "technologies": [
+    "Python",
+    "SQL"
+   ],
+   "budget_managed": null,
+   "expected_fields": [],
+   "industry_context": "IT services and operations reporting",
+   "responsibilities": [
+    "Internal tooling in Python; SQL reporting for operations."
+   ],
+   "role_fact_projections": {
+    "industry_context": {
+     "unit": null,
+     "quote": null,
+     "value": "IT services and operations reporting",
+     "provenance": "uncorroborated"
+    }
+   }
+  }
+ ],
+ "signature_stories": [],
+ "professional_summary": {
+  "de": null,
+  "en": "Backend engineer with 8 years of experience designing and operating Python services for data-heavy products. Strong focus on relational data modelling, API design and reliable delivery. Enjoys mentoring and pragmatic engineering culture."
+ },
+ "volunteer_activities": []
+}

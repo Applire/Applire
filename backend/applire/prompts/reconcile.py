@@ -284,6 +284,21 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   extraction half is measured (two audit CVs, luna, thinking off: 23 of 24 skills
   ``null``, the one level stated in the CV text); this reconcile line was not
   replayed separately — it removes a demand, it adds none.
+* **24,580 (Hazelnut build 3 WP-A, 2026-10-22, Bug #801).** ``match_existing`` gains a
+  REQUIRED ``existing`` (the target's name as the profile writes it), and a targeted
+  ``upsert_skill`` gives it too (+214 chars; the op schema requires the key on
+  ``match_existing``). Why: the UX audit bound "REST APIs" to the id of "Mentoring";
+  replays of the persisted input (luna, Requesty, thinking off, the stack's op schema)
+  bound REST APIs to "REST API design" in every run that bound it (27/27) — the intent
+  was right, the id slipped (also seen: AWS → the adjacent "ECS"). The echo lets the
+  committer refuse an id that names another entry (``reconcile/binding_guard.py``,
+  ADR-046 am. 2026-10-22). *Measured:* echo present on 178/178 bindings (audit input n=6,
+  held-out stress case of 33 genuine renames n=3), equal to the target's own name or
+  label on every one; genuine renames bound 96/96 (157/160 on the old prompt, n=5);
+  no new false binding. **Not shipped:** a rule "only the SAME thing — a broader,
+  narrower or related entry is a DIFFERENT one" (+490 chars): the one over-binding
+  the stress case provokes ("Budget responsibility" → "Budgetplanung") stayed 5/5, so
+  it bought nothing measurable. Records: ``Documents/Runs/Hazelnut/build-3/a/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -379,7 +394,8 @@ Operations:
   rendered under the name "experience_refs"; on an OP the field is "evidence").
   target: the `id` of the profile's skill when the new information names THAT
   skill differently (translation, synonym, abbreviation) — never a second
-  skill under the new name; omit it for a new skill.
+  skill under the new name; omit it for a new skill. With target, also give
+  existing: that skill's name exactly as the profile writes it.
   A skill is a capability the person HAS — a tool, method, field, standard or
   language they work with. The NAME of a measured figure on its own (LTIF,
   OEE, Ausschussquote, Termintreue, a KPI) is not a skill (783:L100): the
@@ -452,12 +468,13 @@ Operations:
 - match_existing — the new information names an entity the profile ALREADY holds
   under another surface form — a translation ("English" for "Englisch"), a
   synonym, an abbreviation — and adds nothing new about it. Fields: target (that
-  existing entity's id), incoming (the name EXACTLY as the new information
-  writes it: the skill / certification / language name, the publication,
-  story or project title, "Institution / Degree" for education, "Company /
-  Role" for a job, "Organization / Role" for volunteering). REQUIRED: target,
-  incoming. Writes nothing — it records that you SAW the entry and where it
-  already lives. For a job or volunteering role only when the employer is
+  existing entity's id), existing (that entity's name exactly as the profile
+  writes it — the name of the entry whose id you put in target), incoming (the
+  name EXACTLY as the new information writes it: the skill / certification /
+  language name, the publication, story or project title, "Institution /
+  Degree" for education, "Company / Role" for a job, "Organization / Role" for
+  volunteering). REQUIRED: target, existing, incoming. Writes nothing — it
+  records that you SAW the entry and where it already lives. For a job or volunteering role only when the employer is
   named differently and the title is the same; a different TITLE is rule 7.
   A WORD-FOR-WORD restatement needs no op.
 
