@@ -181,7 +181,7 @@ test.describe("Emma — Returning Power User: dashboard journey (PQ)", () => {
     await textarea.fill(secondJD);
 
     // Analyse button must become enabled
-    const analyseBtn = page.getByRole("button", { name: /analysieren|analyse/i });
+    const analyseBtn = page.getByRole("button", { name: /analysieren|analy[sz]e/i });
     await expect(analyseBtn).toBeEnabled({ timeout: 3000 });
 
     // A new flow starts via the flow index, which advances the state machine.
