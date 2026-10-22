@@ -2530,17 +2530,15 @@ def _compose_letter(
     letter_data = _apply_recipient_overrides(letter_data, pre_gen)
     # The letter date is system-injected — the model never sets it (the prior
     # date-hallucination fix, 2026-06-10).
-    if v1:
-        letter_data = _inject_letter_date(letter_data, language, today)
-    else:
-        # ADR-094 cl. L2 amended (Hazelnut build 3): the v2 date line carries the
-        # sender's recorded place — the vault's own location, never invented.
-        from applire.services.letter_v2 import sender_location
+    # ADR-094 cl. L2 amended (Hazelnut build 3): the v2 date line carries the
+    # sender's recorded place — the vault's own location, never invented. v1 keeps
+    # the bare date (location=None).
+    from applire.services.letter_v2 import sender_location
 
-        letter_data = _inject_letter_date(
-            letter_data, language, today,
-            location=sender_location(profile_json, cv_data) or "",
-        )
+    letter_data = _inject_letter_date(
+        letter_data, language, today,
+        location=None if v1 else (sender_location(profile_json, cv_data) or ""),
+    )
     # #189: the sign-off is chrome — language-routed label + sender-name
     # backfill from the candidate's real name, so the letter is never unsigned.
     letter_data = _normalize_signature_closing(letter_data, language)
