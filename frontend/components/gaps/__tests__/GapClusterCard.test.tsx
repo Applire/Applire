@@ -352,6 +352,39 @@ describe("GapClusterCard", () => {
   });
 });
 
+describe("GapClusterCard — lead G posting terms", () => {
+  it("shows a requirement:false member on its own neutral line, labelled as a term from the posting", () => {
+    const cluster = makeCluster({
+      gaps: ["Kubernetes", "EKS"],
+      member_statuses: [
+        { member: "Kubernetes", status: "gap" },
+        { member: "EKS", status: "gap", requirement: false },
+      ],
+    });
+    render(withIntl(<GapClusterCard cluster={cluster} view={clusterView(cluster)} />, "de"));
+
+    const line = screen.getByTestId("gap-posting-terms");
+    expect(line).toHaveTextContent("Begriff aus der Anzeige:");
+    const chips = screen.getAllByTestId("gap-member");
+    const eks = chips.find((c) => c.textContent?.startsWith("EKS"))!;
+    const k8s = chips.find((c) => c.textContent?.startsWith("Kubernetes"))!;
+    expect(line).toContainElement(eks);
+    expect(line).not.toContainElement(k8s);
+    expect(eks).toHaveAttribute("data-requirement", "false");
+    expect(eks.className).toContain("bg-surface-container");
+    expect(eks.className).not.toContain("border-dashed");
+    expect(eks).toHaveTextContent("keine gezählte Anforderung");
+    expect(eks).not.toHaveTextContent("(offen)");
+    expect(k8s.className).toContain("border-dashed");
+  });
+
+  it("no posting-term line when every member is a requirement", () => {
+    const cluster = makeCluster({ gaps: ["Kubernetes"], member_statuses: [{ member: "Kubernetes", status: "gap" }] });
+    render(withIntl(<GapClusterCard cluster={cluster} view={clusterView(cluster)} />));
+    expect(screen.queryByTestId("gap-posting-terms")).not.toBeInTheDocument();
+  });
+});
+
 describe("GapClusterCard — ruling K-1 (leave a gap open, pick it up again)", () => {
   it("offers 'Leave this gap open' only when the page passes the handler, and its click never reaches the card", () => {
     const cluster = makeCluster({ gaps: ["Terraform"] });

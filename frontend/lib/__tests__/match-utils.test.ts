@@ -196,7 +196,7 @@ describe("clusterView — a card's state comes from the server record only", () 
       }),
     );
     expect(v.coverage).toBe("partly_covered");
-    expect(v.members).toEqual([
+    expect(v.members.map(({ term, state }) => ({ term, state }))).toEqual([
       { term: "Terraform", state: "partial" },
       { term: "Kubernetes", state: "covered" },
     ]);
@@ -276,7 +276,7 @@ describe("clusterView — a card's state comes from the server record only", () 
         member_statuses: statuses([["Kubernetes", "covered"], ["Terraform", "declined"]]),
       }),
     );
-    expect(v.members).toEqual([
+    expect(v.members.map(({ term, state }) => ({ term, state }))).toEqual([
       { term: "Kubernetes", state: "covered" },
       { term: "Terraform", state: "declined" },
     ]);
@@ -290,7 +290,7 @@ describe("clusterView — a card's state comes from the server record only", () 
       budget_remaining: 1,
     });
     expect(v.coverage).toBe("partly_covered");
-    expect(v.members).toEqual([
+    expect(v.members.map(({ term, state }) => ({ term, state }))).toEqual([
       { term: "Kubernetes", state: "closed" },
       { term: "Terraform", state: "gap" },
     ]);
@@ -321,7 +321,7 @@ describe("clusterView — a card's state comes from the server record only", () 
     expect(v.coverage).toBe("open");
     expect(v.askable).toBe(true);
     expect(v.asked).toBe(0);
-    expect(v.members).toEqual([{ term: "Docker", state: "partial" }]);
+    expect(v.members.map(({ term, state }) => ({ term, state }))).toEqual([{ term: "Docker", state: "partial" }]);
     expect(v.tone).toBe("yellow");
     expect(clusterView({ ...legacy, category: "C" } as GapCluster).tone).toBe("red");
   });
@@ -366,6 +366,57 @@ describe("ruling C-1 — the card's colour is its WORST requirement", () => {
       ["Istio", "gap"],
       ["Kubernetes", "covered"],
     ]);
+  });
+});
+
+describe("lead G — a posting term (requirement: false) is not a requirement", () => {
+  it("never colours the card: a term in gap state beside covered requirements leaves it green", () => {
+    const v = clusterView(
+      cluster({
+        gaps: ["EKS"],
+        outcome: { asked: 1, covered: ["Kubernetes"], declined: [], session_ids: ["s1"] },
+        coverage: "partly_covered",
+        member_statuses: [
+          { member: "Kubernetes", status: "covered" },
+          { member: "EKS", status: "gap", requirement: false },
+        ],
+      }),
+    );
+    expect(v.tone).toBe("green");
+    expect(v.members.map((m) => [m.term, m.requirement])).toEqual([
+      ["EKS", false],
+      ["Kubernetes", true],
+    ]);
+  });
+
+  it("an absent flag (legacy row) is a requirement and still colours the card", () => {
+    const v = clusterView(
+      cluster({
+        gaps: ["EKS"],
+        outcome: { asked: 1, covered: ["Kubernetes"], declined: [], session_ids: ["s1"] },
+        coverage: "partly_covered",
+        member_statuses: statuses([["Kubernetes", "covered"], ["EKS", "gap"]]),
+      }),
+    );
+    expect(v.tone).toBe("red");
+    expect(v.members.every((m) => m.requirement)).toBe(true);
+  });
+
+  it("a member a turn adds keeps its term flag", () => {
+    const v = clusterView(
+      cluster({
+        gaps: [],
+        outcome: { asked: 1, covered: ["Helm"], declined: [], session_ids: ["s1"] },
+        coverage: "partly_covered",
+        member_statuses: [
+          { member: "Helm", status: "covered" },
+          { member: "Settlement", status: "gap", requirement: false },
+        ],
+      }),
+      { cluster_id: "c1", coverage: "partly_covered", open_concepts: ["Settlement"], budget_remaining: 1 },
+    );
+    expect(v.members.find((m) => m.term === "Settlement")?.requirement).toBe(false);
+    expect(v.tone).toBe("green");
   });
 });
 

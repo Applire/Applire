@@ -163,6 +163,9 @@ const TRACKER_CHIP: Record<MemberState, string> = {
   closed: "bg-surface-container text-on-surface-variant",
 };
 const MEMBER_ORDER: Record<MemberState, number> = { gap: 0, partial: 1, closed: 2, covered: 3, declined: 4 };
+/** Lead G — a posting term the match does not count: neutral, whatever its
+ * ledger state (the gap card's TERM chip, smaller). */
+const TRACKER_TERM_CHIP = "bg-surface-container text-on-surface-variant";
 
 const TRACKER_GLYPH: Record<Exclude<TrackerStatus, "spent" | "left_open" | "partly_covered">, string> = {
   resolved: "✓",
@@ -1293,12 +1296,20 @@ export default function InterviewPage({
                   .map((m) => m.term);
                 // Members, open ones first; a legacy row with no members
                 // falls back to the posting terms, shown neutrally.
-                const shownMembers: { term: string; state: MemberState }[] =
+                // Lead G — a posting term (`requirement: false`) sorts after
+                // every requirement and is drawn neutrally, never as open.
+                const shownMembers: { term: string; state: MemberState; requirement: boolean }[] =
                   view.members.length > 0
                     ? [...view.members]
-                        .sort((a, b) => MEMBER_ORDER[a.state] - MEMBER_ORDER[b.state])
+                        .sort(
+                          (a, b) =>
+                            Number(a.requirement === false) - Number(b.requirement === false) ||
+                            MEMBER_ORDER[a.state] - MEMBER_ORDER[b.state],
+                        )
                         .slice(0, 4)
-                    : cluster.jd_skills.slice(0, 3).map((term) => ({ term, state: "closed" as MemberState }));
+                    : cluster.jd_skills
+                        .slice(0, 3)
+                        .map((term) => ({ term, state: "closed" as MemberState, requirement: true }));
                 const srLabel =
                   status === "resolved" && typeof cluster.coverage === "string"
                     ? tGaps("coverageCovered")
@@ -1360,9 +1371,15 @@ export default function InterviewPage({
                             key={m.term}
                             data-testid="tracker-member"
                             data-state={m.state}
-                            className={cn("rounded-full px-1.5 py-0.5 text-[10px]", TRACKER_CHIP[m.state])}
+                            data-requirement={m.requirement === false ? "false" : undefined}
+                            title={m.requirement === false ? tGaps("postingTermTitle") : undefined}
+                            className={cn(
+                              "relative rounded-full px-1.5 py-0.5 text-[10px]",
+                              m.requirement === false ? TRACKER_TERM_CHIP : TRACKER_CHIP[m.state],
+                            )}
                           >
                             {m.term}
+                            {m.requirement === false && <span className="sr-only">{tGaps("postingTermSr")}</span>}
                           </span>
                         ))}
                       </div>

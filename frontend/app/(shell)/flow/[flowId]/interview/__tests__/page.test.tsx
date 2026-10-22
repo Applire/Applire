@@ -1081,9 +1081,13 @@ const F1_CLUSTERS: GapCluster[] = [
   toneCluster("p1", "C", {
     label: "Produktion",
     coverage: "open",
-    gaps: ["Produktionsverantwortung", "MES"],
+    gaps: ["PP/MM", "Produktionsverantwortung", "MES"],
     outcome: { asked: 0, covered: [], declined: [], session_ids: [] },
-    member_statuses: ms([["Produktionsverantwortung", "gap"], ["MES", "gap"]]),
+    // lead G: PP/MM is a posting TERM (fit_weight 0) — `requirement: false`
+    member_statuses: [
+      { member: "PP/MM", status: "gap", requirement: false },
+      ...ms([["Produktionsverantwortung", "gap"], ["MES", "gap"]]),
+    ],
   }),
 ];
 
@@ -1254,6 +1258,32 @@ describe("Hazelnut b3 #789 — interview intro, one count, match ring", () => {
     const iso = chips.find((c) => c.textContent === "ISO 9001");
     expect(iso).toHaveAttribute("data-state", "covered");
     expect(chips.find((c) => c.textContent === "IFS/BRC")).toHaveAttribute("data-state", "declined");
+  });
+});
+
+describe("lead G — a posting term in the tracker", () => {
+  it("draws a requirement:false member neutrally, after the requirements, labelled as a posting term — and never counts it", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+
+    const row = await screen.findByTestId("gap-cluster-p1");
+    expect(row).toHaveAttribute("data-tone", "red");
+    const chips = Array.from(row.querySelectorAll('[data-testid="tracker-member"]'));
+    expect(chips.map((c) => c.textContent?.replace(/postingTermSr.*/, ""))).toEqual([
+      "Produktionsverantwortung",
+      "MES",
+      "PP/MM",
+    ]);
+    const term = chips[2];
+    expect(term).toHaveAttribute("data-requirement", "false");
+    expect(term.className).toContain("bg-surface-container");
+    expect(term.className).not.toContain("border-dashed");
+    expect(term.textContent).toContain("postingTermSr");
+    expect(term).toHaveAttribute("title", "postingTermTitle");
+    expect(chips[0]).not.toHaveAttribute("data-requirement");
+    // the ledger's fit_weight 0 row is not a requirement: 2 open, not 3
+    expect(screen.getByTestId("tracker-open-count")).toHaveTextContent('trackerHeading({"count":2,');
   });
 });
 

@@ -186,8 +186,11 @@ export interface GapCluster {
   budget_remaining: number;
   /** Derived at response time over ALL members (ruling C-1): each member's
    * ledger fact — drives the chip colours and, through the worst member, the
-   * card's colour. */
-  member_statuses: { member: string; status: MemberStatus }[];
+   * card's colour. `requirement` (lead G, Hazelnut build 3, additive): `false`
+   * = a posting TERM the match does not count (a keyword-only ledger row,
+   * fit_weight 0, folded into clustering by US204) — shown as a term from the
+   * posting, never as an open requirement. Absent (legacy row) = `true`. */
+  member_statuses: { member: string; status: MemberStatus; requirement?: boolean }[];
 }
 
 /** `SessionMessageResponse.cluster_coverage` (contract item 4) — the record a
@@ -283,9 +286,17 @@ export type CardTone = "red" | "yellow" | "green" | "grey";
  * cluster nobody has asked yet. `null` = no pill (an open cluster). */
 export type CoveragePill = "covered" | "partly" | "likely" | "declined";
 
+export interface ClusterMember {
+  term: string;
+  state: MemberState;
+  requirement: boolean;
+}
+
 export interface ClusterView {
   coverage: ClusterCoverage;
-  members: { term: string; state: MemberState }[];
+  /** `requirement: false` = a posting term (see `GapCluster.member_statuses`):
+   * it never colours the card and is shown neutrally. */
+  members: ClusterMember[];
   tone: CardTone;
   pill: CoveragePill | null;
   /** Budget left AND coverage not covered/declined AND not left open by hand
@@ -339,8 +350,13 @@ export function clusterView(
   const coverage = clusterCoverage(cluster, turn);
   const budget = clusterBudgetRemaining(cluster, turn);
   const facts = new Map<string, MemberStatus>();
+  const terms = new Set<string>();
   for (const entry of cluster.member_statuses ?? []) {
-    if (entry && typeof entry.member === "string") facts.set(normMember(entry.member), entry.status);
+    if (entry && typeof entry.member === "string") {
+      facts.set(normMember(entry.member), entry.status);
+      // Only an explicit `false` makes a posting term; absent = requirement.
+      if (entry.requirement === false) terms.add(normMember(entry.member));
+    }
   }
   const covered = new Set((cluster.outcome?.covered ?? []).map(normMember));
   const declined = new Set((cluster.outcome?.declined ?? []).map(normMember));
@@ -366,18 +382,26 @@ export function clusterView(
     return fact === "covered" || fact === "declined" ? fact : "closed";
   };
 
-  const members: { term: string; state: MemberState }[] = allClusterMembers(cluster).map((term) => ({
+  const members: ClusterMember[] = allClusterMembers(cluster).map((term) => ({
     term,
     state: stateOf(normMember(term)),
+    requirement: !terms.has(normMember(term)),
   }));
   if (turn) {
     const known = new Set(members.map((m) => normMember(m.term)));
     for (const term of turn.open_concepts) {
-      if (!known.has(normMember(term))) members.push({ term, state: openFallback });
+      if (!known.has(normMember(term))) {
+        members.push({ term, state: openFallback, requirement: !terms.has(normMember(term)) });
+      }
     }
   }
 
-  const tone = cardTone(members.map((m) => m.state), coverage);
+  // A posting term is not a requirement (lead G): it never colours the card —
+  // a card of terms only falls back to the cluster's coverage.
+  const tone = cardTone(
+    members.filter((m) => m.requirement).map((m) => m.state),
+    coverage,
+  );
   const asked = cluster.outcome?.asked ?? 0;
   const pill: CoveragePill | null =
     coverage === "covered"

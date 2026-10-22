@@ -112,8 +112,33 @@ const PILL_TESTID: Record<CoveragePill, string> = {
   declined: "gap-declined",
 };
 
-function MemberChip({ term, state }: { term: string; state: MemberState }) {
+/** A posting term (lead G `requirement: false`): neutral, never "open" — the
+ * match does not count it, so it must not read as a missing requirement. */
+const TERM_CHIP = "bg-surface-container text-on-surface-variant";
+
+function MemberChip({
+  term,
+  state,
+  requirement = true,
+}: {
+  term: string;
+  state: MemberState;
+  requirement?: boolean;
+}) {
   const t = useTranslations("gaps");
+  if (!requirement) {
+    return (
+      <span
+        data-testid="gap-member"
+        data-state={state}
+        data-requirement="false"
+        className={cn("relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs", TERM_CHIP)}
+      >
+        {term}
+        <span className="sr-only">{t("postingTermSr")}</span>
+      </span>
+    );
+  }
   const sr =
     state === "covered"
       ? t("memberCoveredSr")
@@ -181,6 +206,9 @@ export function GapClusterCard({
 }: GapClusterCardProps) {
   const t = useTranslations("gaps");
   const colours = TONE[view.tone];
+  // A member without `requirement` (a view built by hand) is a requirement.
+  const requirementMembers = view.members.filter((m) => m.requirement !== false);
+  const postingTerms = view.members.filter((m) => m.requirement === false);
 
   return (
     <div
@@ -213,11 +241,23 @@ export function GapClusterCard({
               {cluster.jd_context}
             </p>
           )}
-          {view.members.length > 0 && (
+          {requirementMembers.length > 0 && (
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
               <span className="text-xs text-on-surface-variant">{t("clusterCardConstituentLabel")}</span>
-              {view.members.map((m) => (
+              {requirementMembers.map((m) => (
                 <MemberChip key={m.term} term={m.term} state={m.state} />
+              ))}
+            </div>
+          )}
+          {/* Lead G — posting terms the match does not count (fit_weight 0):
+              their own line, neutral, labelled as what they are. */}
+          {postingTerms.length > 0 && (
+            <div data-testid="gap-posting-terms" className="flex flex-wrap items-center gap-1 mt-1.5">
+              <span className="text-xs text-on-surface-variant">
+                {t("postingTermsLabel", { count: postingTerms.length })}
+              </span>
+              {postingTerms.map((m) => (
+                <MemberChip key={m.term} term={m.term} state={m.state} requirement={false} />
               ))}
             </div>
           )}
