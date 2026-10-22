@@ -1263,15 +1263,15 @@
   },
   "quickTailor": {
     "title": "Quick Tailor",
-    "subtitle": "Paste a job link or full description — Applire analyses it and starts your CV flow.",
+    "subtitle": "Paste a job link or full description — Applire analyzes it and starts your CV flow.",
     "tabUrl": "Job URL",
     "tabText": "Paste Text",
     "urlPlaceholder": "https://www.stepstone.de/stellenangebote/…",
     "textPlaceholder": "Paste the full job description here…",
     "sourcePlaceholder": "Optional: link to the original posting (https://…)",
     "sourceLabel": "Link to the original posting (optional)",
-    "analyseButton": "Analyse →",
-    "analysing": "Analysing…"
+    "analyseButton": "Analyze →",
+    "analysing": "Analyzing…"
   },
   "profileImport": {
     "title": "Update Profile",
