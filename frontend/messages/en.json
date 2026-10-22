@@ -1503,7 +1503,7 @@
   },
   "documents": {
     "title": "My Documents",
-    "subtitle": "All generated CVs across your applications",
+    "subtitle": "All CVs and cover letters across your applications",
     "totalDocs": "Total documents",
     "expiringCount": "Expiring within 7 days",
     "filterAll": "All",
@@ -1530,7 +1530,12 @@
     "generatedOn": "Generated {date}",
     "page": "Page {page} of {total}",
     "showing": "{from}–{to} of {total} documents",
-    "agentAuthored": "Agent-authored"
+    "agentAuthored": "Agent-authored",
+    "letterReady": "Cover letter ready",
+    "letterGenerating": "Cover letter in progress",
+    "letterFailed": "Cover letter failed",
+    "letterExpired": "Cover letter expired",
+    "letterOpen": "Open cover letter"
   },
   "explainers": {
     "dontShowAgain": "Don't show this again",

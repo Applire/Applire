@@ -1503,7 +1503,7 @@
   },
   "documents": {
     "title": "Meine Dokumente",
-    "subtitle": "Alle generierten Lebensläufe deiner Bewerbungen",
+    "subtitle": "Alle Lebensläufe und Anschreiben deiner Bewerbungen",
     "totalDocs": "Dokumente gesamt",
     "expiringCount": "Ablaufend in 7 Tagen",
     "filterAll": "Alle",
@@ -1530,7 +1530,12 @@
     "generatedOn": "Erstellt am {date}",
     "page": "Seite {page} von {total}",
     "showing": "{from}–{to} von {total} Dokumenten",
-    "agentAuthored": "Agent-erstellt"
+    "agentAuthored": "Agent-erstellt",
+    "letterReady": "Anschreiben bereit",
+    "letterGenerating": "Anschreiben wird erstellt",
+    "letterFailed": "Anschreiben fehlgeschlagen",
+    "letterExpired": "Anschreiben abgelaufen",
+    "letterOpen": "Anschreiben öffnen"
   },
   "explainers": {
     "dontShowAgain": "Nicht mehr anzeigen",

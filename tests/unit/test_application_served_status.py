@@ -263,6 +263,29 @@ async def test_soft_deleted_artifacts_prove_nothing(db):
 
 
 @pytest.mark.asyncio
+async def test_another_users_documents_for_the_same_posting_prove_nothing(db, monkeypatch):
+    """ADR-092 cl. 3: the posting is shared. Another owner's ready CV and
+    letter for the SAME posting must not lift this owner's status. The ORM
+    loader criteria are defence in depth, never credited — switched off here
+    so the enrichment's own owner key has to hold."""
+    from applire import ownership
+    from applire.models.user import User
+
+    monkeypatch.setattr(ownership, "GUARD_ENABLED", False)
+    other = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
+    db.add(User(id=other, email="other@test.de"))
+    app = await _app(db, start_workflow=True)
+    letter = _letter(app.job_analysis_id)
+    letter.user_id = other
+    db.add_all([_cv(app.job_analysis_id, user_id=other), letter])
+    await db.commit()
+
+    got = await get_application(app.id, _USER, db)
+    assert got.workflow_status == WorkflowStatus.analyzing
+    assert got.cover_letter_ready is False
+
+
+@pytest.mark.asyncio
 async def test_letter_ready_does_not_claim_a_cv(db):
     """"completed" reads "CV ready" in the UI — a letter alone does not lift it,
     it only sets `cover_letter_ready`."""

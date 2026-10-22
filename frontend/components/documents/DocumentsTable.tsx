@@ -20,7 +20,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
 export interface DocumentItem {
@@ -34,6 +34,13 @@ export interface DocumentItem {
   expires_at: string;
   /** E044/US252 (ADR-054): 'pipeline' | 'agent' — agent-rendered documents carry a badge. */
   origin?: string;
+  /** #789: the posting's newest letter, on its newest CV row only (additive). */
+  cover_letter?: {
+    cover_letter_id: string;
+    status: string;
+    created_at: string;
+    expires_at: string;
+  } | null;
 }
 
 type StatusFilter = "all" | "ready" | "generating" | "expiring";
@@ -57,9 +64,17 @@ function daysUntilExpiry(expiresAt: string): number {
   return Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 864e5);
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("de-DE", { day: "numeric", month: "short", year: "numeric" });
+// #789: the date follows the UI language (was a hard-coded "de-DE").
+function formatDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale === "de" ? "de-DE" : "en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
+
+// Material Symbols identifier — not user-facing text.
+const LETTER_ICON = "mail";
 
 interface DocumentsTableProps {
   items: DocumentItem[];
@@ -74,6 +89,7 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
   const tApp = useTranslations("applications");
   const tCv = useTranslations("cv");
   const router = useRouter();
+  const locale = useLocale();
 
   const templateLabel = (template: string): string => {
     const key = TEMPLATE_NAME_KEYS[template];
@@ -215,8 +231,31 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                           </p>
                           <p className="text-[11.5px] text-gray-500 mt-0.5">
                             {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-                            {item.company_name ?? ""} · {t("generatedOn", { date: formatDate(item.created_at) })}
+                            {item.company_name ?? ""} · {t("generatedOn", { date: formatDate(item.created_at, locale) })}
                           </p>
+                          {/* #789: the letter that belongs with this CV — My
+                              Documents listed CVs only, so a ready letter had
+                              no home here. */}
+                          {item.cover_letter && (
+                            <LetterLine
+                              status={item.cover_letter.status}
+                              onOpen={
+                                item.cover_letter.status === "ready" && item.flow_id
+                                  ? () => router.push(`/flow/${item.flow_id}/cover-letter`)
+                                  : null
+                              }
+                              label={
+                                item.cover_letter.status === "ready"
+                                  ? t("letterReady")
+                                  : item.cover_letter.status === "failed"
+                                    ? t("letterFailed")
+                                    : item.cover_letter.status === "expired"
+                                      ? t("letterExpired")
+                                      : t("letterGenerating")
+                              }
+                              openLabel={t("letterOpen")}
+                            />
+                          )}
                         </div>
                       </div>
                     </td>
@@ -279,7 +318,7 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                           {days <= 0 ? t("expiresToday") : t("expiresIn", { days })}
                         </span>
                       ) : isReady ? (
-                        <span className="text-[12px] text-gray-500">{formatDate(item.expires_at)}</span>
+                        <span className="text-[12px] text-gray-500">{formatDate(item.expires_at, locale)}</span>
                       ) : (
                         // eslint-disable-next-line formatjs/no-literal-string-in-jsx
                         <span className="text-[12px] text-gray-300">—</span>
@@ -357,5 +396,43 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
         )}
       </div>
     </div>
+  );
+}
+
+function LetterLine({
+  status,
+  label,
+  openLabel,
+  onOpen,
+}: {
+  status: string;
+  label: string;
+  openLabel: string;
+  onOpen: (() => void) | null;
+}) {
+  return (
+    <p
+      data-testid="documents-letter"
+      data-status={status}
+      className="mt-1 flex items-center gap-1.5 text-[11.5px] text-gray-600"
+    >
+      <span className="material-symbols-outlined text-primary" aria-hidden="true" style={{ fontSize: 14 }}>
+        {LETTER_ICON}
+      </span>
+      <span>{label}</span>
+      {onOpen && (
+        <button
+          type="button"
+          data-testid="documents-letter-open"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+          className="font-semibold text-primary hover:underline"
+        >
+          {openLabel}
+        </button>
+      )}
+    </p>
   );
 }
