@@ -211,6 +211,7 @@ def _assert_801_refused(result):
     merged = result.merged_profile
     mentoring = next(s for s in merged.skills if s.id == _MENTORING)
     assert "REST APIs" not in (mentoring.aliases or [])
+    assert mentoring.experience_refs == []  # the REST job's evidence never lands on Mentoring
     assert not any(m.incoming == "REST APIs" and m.entity_id == _MENTORING for m in result.matched)
     # the entry is kept: its own skill (or a question about it), never lost
     names = {s.name for s in merged.skills} | {a for s in merged.skills for a in (s.aliases or [])}
@@ -229,6 +230,16 @@ async def test_seam_fast_path_refuses_the_audit_binding():
     from applire.services.profile.reconcile.import_bridge import reconcile_import
 
     vault, incoming, batch = _audit_inputs()
+    result = await reconcile_import(vault, incoming, "cv_upload", _Provider(batch))
+    _assert_801_refused(result)
+
+
+@pytest.mark.asyncio
+async def test_seam_fast_path_refuses_the_match_existing_face_too():
+    from applire.services.profile.reconcile.import_bridge import reconcile_import
+
+    vault, incoming, batch = _audit_inputs()
+    batch["ops"][0] = {"op": "match_existing", "target": _MENTORING, "incoming": "REST APIs"}
     result = await reconcile_import(vault, incoming, "cv_upload", _Provider(batch))
     _assert_801_refused(result)
 
@@ -267,6 +278,7 @@ async def test_seam_baseline_without_the_guard_writes_the_alias(monkeypatch):
     result = await reconcile_import(vault, incoming, "cv_upload", _Provider(batch))
     mentoring = next(s for s in result.merged_profile.skills if s.id == _MENTORING)
     assert "REST APIs" in (mentoring.aliases or [])
+    assert mentoring.experience_refs == ["ad3edd8f-5409-4961-b6b7-a4c1a05289db"]  # the audit's vault
 
 
 def _merge_vault() -> MasterProfileData:

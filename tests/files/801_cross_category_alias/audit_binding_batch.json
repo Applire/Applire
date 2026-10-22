@@ -1,9 +1,14 @@
 {
  "ops": [
   {
-   "op": "match_existing",
+   "op": "upsert_skill",
+   "name": "REST APIs",
+   "category": "technical",
+   "proficiency": "intermediate",
    "target": "8def9047-4bd7-4421-ad1b-e9b27a07ed9d",
-   "incoming": "REST APIs"
+   "evidence": [
+    "ad3edd8f-5409-4961-b6b7-a4c1a05289db"
+   ]
   },
   {
    "op": "match_existing",
