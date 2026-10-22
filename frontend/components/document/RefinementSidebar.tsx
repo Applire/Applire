@@ -19,7 +19,7 @@
 
 import { useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 
 export interface SidebarTab {
   id: string;
@@ -143,9 +143,10 @@ export function RefinementSidebar({
           onClick={onToggleCollapse}
           className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-container text-on-surface-variant"
           title={t("panelExpand")}
+          aria-label={t("panelExpand")}
           data-testid="sidebar-expand-btn"
         >
-          <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+          <PanelRightOpen className="w-4 h-4" aria-hidden="true" />
         </button>
         {tabs.map((tab) => (
           <button
@@ -195,12 +196,17 @@ export function RefinementSidebar({
               {t("matchScoreLabel")}
             </span>
           </div>
+          {/* #789 / TO-F2: the retention date says what it is — "Gespeichert
+              bis …" (not "GÜLTIG BIS", which read as an expiry of the
+              document's validity) — and the hint says what happens then. */}
           {validity && (
             <span
-              className="text-[10px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-white/10 text-white/80 border border-white/15"
+              className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white/10 text-white/80 border border-white/15 cursor-help"
               data-testid="sidebar-validity"
+              title={validity.level === "warning" ? t("validUntilHint") : undefined}
             >
               {validity.label}
+              {validity.level === "warning" && <span className="sr-only">{t("validUntilHint")}</span>}
             </span>
           )}
         </div>
@@ -226,14 +232,17 @@ export function RefinementSidebar({
             {tab.badge}
           </button>
         ))}
+        {/* #789 / TO-F2: a panel icon, set apart from the tabs — the bare ">"
+            chevron after "Aktionen" read as "more tabs". */}
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="px-2 py-3 text-on-surface-variant hover:text-on-surface shrink-0"
+          className="px-2.5 py-3 border-l border-outline-variant text-on-surface-variant hover:text-on-surface shrink-0"
           title={t("panelCollapse")}
+          aria-label={t("panelCollapse")}
           data-testid="sidebar-collapse-btn"
         >
-          <ChevronRight className="w-4 h-4" aria-hidden="true" />
+          <PanelRightClose className="w-4 h-4" aria-hidden="true" />
         </button>
       </div>
 

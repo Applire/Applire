@@ -19,10 +19,13 @@
 
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { FramedPhoto, PhotoCropDialog } from "@/components/profile/PhotoCropDialog";
 import type { CropState } from "@/lib/photo-crop";
+
+// Non-user-facing Material Symbols identifier — a JS const, not a JSX literal.
+const PHOTO_ICON = "add_a_photo";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -35,6 +38,7 @@ interface PhotoManagerProps {
 
 export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerProps) {
   const t = useTranslations("profile.photo");
+  const locale = useLocale();
   // Consent defaults to true when the user already has a photo (Replace path — no re-consent needed)
   const [consent, setConsent] = useState(!!currentPhotoUrl);
   const [uploading, setUploading] = useState(false);
@@ -53,6 +57,10 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [savedCrop, setSavedCrop] = useState<CropState | null>(null);
   const [savingCrop, setSavingCrop] = useState(false);
+  // #789 (Hazelnut build 3): a file picked BEFORE consent is held, never
+  // discarded — ticking consent continues with it (UX audit marcus-045/048:
+  // the pick was thrown away and had to be repeated).
+  const [heldFile, setHeldFile] = useState<File | null>(null);
 
   const hasPhoto = !!(currentPhotoUrl || previewSrc);
 
@@ -101,9 +109,24 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
   function handlePick(file: File) {
     setError(null);
     if (!consent) {
-      setError(t("consentError"));
+      setHeldFile(file);
       return;
     }
+    setHeldFile(null);
+    setPendingFile(file);
+    setCropSrc(URL.createObjectURL(file));
+  }
+
+  function handleConsentChange(next: boolean) {
+    setConsent(next);
+    if (next && heldFile) handlePickAfterConsent(heldFile);
+  }
+
+  // Consent was just given: continue with the held file (state is not yet
+  // committed, so this cannot go through handlePick's consent check).
+  function handlePickAfterConsent(file: File) {
+    setError(null);
+    setHeldFile(null);
     setPendingFile(file);
     setCropSrc(URL.createObjectURL(file));
   }
@@ -162,8 +185,9 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
         throw new Error((err as { detail?: string }).detail ?? t("uploadError"));
       }
       const data = (await res.json()) as { photo_url: string; consent_at: string };
+      // #789: the UI locale, not a hard-coded en-GB ("Hochgeladen 20 Oct 2026").
       setUploadedAt(
-        new Date(data.consent_at).toLocaleDateString("en-GB", {
+        new Date(data.consent_at).toLocaleDateString(locale === "de" ? "de-DE" : "en-GB", {
           day: "numeric",
           month: "short",
           year: "numeric",
@@ -271,24 +295,16 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
           </div>
         </div>
       ) : (
-        /* Empty state */
+        /* Empty state — #789: consent FIRST, then the pick; upload is the
+           one primary action. */
         <>
-          <div
-            className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
-            onClick={() => inputRef.current?.click()}
-          >
-            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-            <div className="text-2xl mb-2">📷</div>
-            <p className="text-sm font-medium text-gray-700">{t("uploadPrompt")}</p>
-            <p className="text-xs text-gray-400 mt-1">{t("fileHint")}</p>
-          </div>
-
           <div className="flex gap-2 items-start bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
             <input
               type="checkbox"
               id="photo-consent"
+              data-testid="photo-consent"
               checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
+              onChange={(e) => handleConsentChange(e.target.checked)}
               className="mt-0.5 flex-shrink-0"
             />
             <label
@@ -303,6 +319,28 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
               </a>
             </label>
           </div>
+
+          <div
+            data-testid="photo-dropzone"
+            className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
+            onClick={() => inputRef.current?.click()}
+          >
+            <span className="material-symbols-outlined block text-gray-500 mb-2" aria-hidden="true" style={{ fontSize: 28 }}>
+              {PHOTO_ICON}
+            </span>
+            <p className="text-sm font-medium text-gray-700">{t("uploadPrompt")}</p>
+            <p className="text-xs text-gray-400 mt-1">{t("fileHint")}</p>
+          </div>
+
+          {heldFile && (
+            <p
+              data-testid="photo-held"
+              role="status"
+              className="text-xs text-on-surface bg-warning-container border border-warning/40 rounded px-3 py-2"
+            >
+              {t("heldForConsent", { name: heldFile.name })}
+            </p>
+          )}
 
           <Button
             className="w-full"

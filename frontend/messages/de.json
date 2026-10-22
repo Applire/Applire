@@ -475,12 +475,12 @@
     "photoStepProgress": "Schritt 4 von 4",
     "photoStepProgressPhoto": "Schritt 4 von 4 — Profilfoto",
     "uploadPhoto": "Foto hochladen",
-    "uploadPhotoSaved": "Im Profil gespeichert",
-    "skipPhotoNow": "Jetzt überspringen",
-    "skipPhotoHint": "Ohne Foto generieren",
-    "photoLaterHint": "Du kannst später unter Profil → Foto ein Bild hinzufügen",
+    "uploadPhotoSaved": "Bleibt für deine nächsten Lebensläufe im Profil",
+    "skipPhotoNow": "Ohne Foto weiter",
+    "skipPhotoHint": "Wir fragen nicht noch einmal",
+    "photoLaterHint": "Ein Foto kannst du jederzeit unter „Mein Profil“ hinzufügen.",
     "photoUploadedContinue": "Weiter →",
-    "skipAndContinue": "Überspringen und weiter",
+    "skipAndContinue": "Ohne Foto weiter",
     "assistLoading": "Frage wird generiert…",
     "assistPlaceholder": "Deine Antwort…",
     "assistSending": "Wird generiert…",
@@ -577,8 +577,8 @@
     "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal."
   },
   "saveScopePrompt": {
-    "saveToProfile": "Im Master-Profil speichern?",
-    "description": "Im Masterprofil bleibt die Änderung dauerhaft erhalten. Nur für diesen Lebenslauf bleibt sie auf diesen Lebenslauf beschränkt.",
+    "saveToProfile": "Wo soll die Änderung gelten?",
+    "description": "„Nur für diesen Lebenslauf“ ändert nur dieses Dokument. „Im Profil speichern“ übernimmt die Änderung dauerhaft in dein Profil — auch für künftige Lebensläufe.",
     "toProfile": "Im Profil speichern",
     "justThisCV": "Nur für diesen Lebenslauf",
     "rememberChoice": "Meine Wahl für diese Sitzung merken",
@@ -720,7 +720,7 @@
     "statusInterviewing": "Interview",
     "statusGeneratingCV": "Lebenslauf wird erstellt",
     "statusCVReady": "Lebenslauf bereit",
-    "statusTracking": "Verfolgung",
+    "statusTracking": "Vorgemerkt",
     "statusApplied": "Beworben",
     "statusRejected": "Abgelehnt",
     "statusOffer": "Angebot",
@@ -745,7 +745,7 @@
     "chipInProgress": "In Bearbeitung",
     "chipCvReady": "Lebenslauf bereit",
     "chipInterrupted": "Unterbrochen",
-    "chipTracking": "Verfolgung",
+    "chipTracking": "Vorgemerkt",
     "actionResume": "Fortsetzen",
     "actionOpen": "Öffnen",
     "actionContinue": "Weiter",
@@ -770,7 +770,22 @@
     "cancelledSection": "Abgebrochene Bewerbungen ({count})",
     "cancelledRemovalDate": "Wird entfernt am {date}",
     "cancelledRestore": "Wiederherstellen",
-    "errorLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge den Text der Stellenanzeige ein."
+    "errorLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge den Text der Stellenanzeige ein.",
+    "chipCvAndLetterReady": "Lebenslauf + Anschreiben bereit",
+    "markAppliedAction": "Als beworben markieren",
+    "availabilityReminder": {
+      "missingTitle": "Ab wann könntest du anfangen?",
+      "missingBody": "Arbeitgeber fragen fast immer nach deiner Kündigungsfrist. Trag sie einmal in deinem Profil ein — dann steht sie für jedes Anschreiben bereit.",
+      "missingAction": "Im Profil eintragen",
+      "missingDismiss": "Nicht jetzt",
+      "staleTitle": "Stimmt deine Kündigungsfrist noch?",
+      "staleBody": "Eingetragen am {date}: „{value}“. Wenn sich etwas geändert hat, pass sie an — sie steht in jedem Anschreiben.",
+      "staleBodyNoValue": "Wenn sich an deiner Kündigungsfrist etwas geändert hat, pass sie an — sie steht in jedem Anschreiben.",
+      "staleAction": "Im Profil prüfen",
+      "staleDismiss": "Stimmt noch",
+      "region": "Hinweis zu deiner Kündigungsfrist"
+    },
+    "statusYourTurn": "Du bist dran"
   },
   "profile": {
     "title": "Mein Profil",
@@ -873,7 +888,8 @@
         "saving": "Wird gespeichert …",
         "loadError": "Das Foto ließ sich nicht öffnen. Versuche es mit einer JPEG-, PNG- oder WebP-Datei.",
         "saveError": "Der Ausschnitt konnte nicht gespeichert werden."
-      }
+      },
+      "heldForConsent": "„{name}“ ist ausgewählt — setz oben noch das Häkchen bei der Einwilligung, dann geht es weiter."
     },
     "signature": {
       "title": "Unterschrift",
@@ -1575,7 +1591,7 @@
   },
   "documents": {
     "title": "Meine Dokumente",
-    "subtitle": "Alle generierten Lebensläufe deiner Bewerbungen",
+    "subtitle": "Alle Lebensläufe und Anschreiben deiner Bewerbungen",
     "totalDocs": "Dokumente gesamt",
     "expiringCount": "Ablaufend in 7 Tagen",
     "filterAll": "Alle",
@@ -1602,7 +1618,12 @@
     "generatedOn": "Erstellt am {date}",
     "page": "Seite {page} von {total}",
     "showing": "{from}–{to} von {total} Dokumenten",
-    "agentAuthored": "Agent-erstellt"
+    "agentAuthored": "Agent-erstellt",
+    "letterReady": "Anschreiben bereit",
+    "letterGenerating": "Anschreiben wird erstellt",
+    "letterFailed": "Anschreiben fehlgeschlagen",
+    "letterExpired": "Anschreiben abgelaufen",
+    "letterOpen": "Anschreiben öffnen"
   },
   "explainers": {
     "dontShowAgain": "Nicht mehr anzeigen",
@@ -1736,7 +1757,7 @@
     "matchScoreLabel": "Profil-Match",
     "panelCollapse": "Panel einklappen",
     "panelExpand": "Panel ausklappen",
-    "validUntil": "gültig bis {date}",
+    "validUntil": "Gespeichert bis {date}",
     "langNameDe": "Deutsch",
     "langNameEn": "Englisch",
     "languageBadgeTitle": "Dokumentsprache",
@@ -1759,7 +1780,9 @@
     "signatureWithout": "ohne",
     "signatureUnavailableHint": "Keine Unterschrift hinterlegt.",
     "signatureUnavailableLink": "Im Profil hinzufügen",
-    "signatureSaveError": "Die Einstellung konnte nicht gespeichert werden."
+    "signatureSaveError": "Die Einstellung konnte nicht gespeichert werden.",
+    "docxScopeCaption": "Word-Datei: Geprüft ist der Stand beim Export — was du danach in Word änderst, prüfen wir nicht.",
+    "validUntilHint": "Danach wird dieses Dokument automatisch gelöscht — dein Profil bleibt."
   },
   "commandBar": {
     "atsChecks": "Prüfung",

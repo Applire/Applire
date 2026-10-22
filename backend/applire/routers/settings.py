@@ -107,9 +107,15 @@ class SettingsResponse(BaseModel):
 #       "Bearbeiten" tab (`frontend/components/pins/**`). Shown once per
 #       user until the "Nicht mehr anzeigen" checkbox writes this id.
 #
+#   cv_photo_prompt
+#       Hazelnut build 3 (#789): "no photo" remembered per user. Consumer:
+#       `frontend/components/cv/PhotoPromptStep` — the CV page's "Profilfoto
+#       hinzufügen?" step is skipped once the user chose "Ohne Foto weiter";
+#       a photo can still be added on My Profile at any time.
+#
 # Not exposed over MCP (ADR-081 clause 8 / SF-DOOR.4, the `review_mode`
 # precedent): an ADR-054 BYOI agent has no explainer to dismiss.
-EXPLAINER_IDS = frozenset({"fact_pins_intro"})
+EXPLAINER_IDS = frozenset({"fact_pins_intro", "cv_photo_prompt"})
 
 
 class SettingsPatchRequest(BaseModel):

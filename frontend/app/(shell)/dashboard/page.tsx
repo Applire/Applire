@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
+import { AvailabilityReminderCard } from "@/components/dashboard/AvailabilityReminderCard";
 import { ImportInProgressBanner } from "@/components/dashboard/ImportInProgressBanner";
 import { UpgradeNotice } from "@/components/dashboard/UpgradeNotice";
 import { InstanceSignal } from "@/components/dashboard/InstanceSignal";
@@ -52,6 +53,8 @@ interface Application {
   stale_cv?: StaleCVInfo | null;
   /** Removal date of a cancelled application (US222, ADR-005 short clock). */
   expires_at?: string | null;
+  /** E12-788:L21 read model — a letter is ready too (WP-F2). */
+  cover_letter_ready?: boolean;
 }
 
 export default function DashboardPage() {
@@ -188,6 +191,10 @@ export default function DashboardPage() {
           </p>
         </div>
 
+        {/* Ruling V-4 (WP-F2): notice period missing / out of date —
+            below the greeting, as mocked (f2/COPY.md). */}
+        <AvailabilityReminderCard />
+
         {/* #789 "Phone dashboard order": below md the applications a person
             came back for come first; Quick Tailor + Profile Strength follow.
             Desktop keeps the top row. */}
@@ -281,6 +288,7 @@ export default function DashboardPage() {
                 submittedCvId={app.submitted_cv_id}
                 submittedCvCreatedAt={app.submitted_cv_created_at}
                 staleCv={app.stale_cv}
+                coverLetterReady={app.cover_letter_ready}
                 onStartFlow={() => handleStartFlow(app.id)}
                 onStatusChange={(s) => handleStatusChange(app.id, s)}
               />

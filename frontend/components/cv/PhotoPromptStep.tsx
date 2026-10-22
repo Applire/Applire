@@ -18,10 +18,23 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { PhotoManager } from "@/components/profile/PhotoManager";
+import { dismissExplainer, getSettings } from "@/lib/api/settings";
+
+/**
+ * #789 (Hazelnut build 3): "no photo" is remembered per user, server-side, as
+ * the `cv_photo_prompt` explainer id (the #679 dismissal store — no new
+ * field). Once chosen, the step is skipped on every later CV; a photo can be
+ * added on My Profile at any time.
+ */
+export const PHOTO_PROMPT_EXPLAINER_ID = "cv_photo_prompt";
+
+// Non-user-facing Material Symbols identifiers — JS consts, not JSX literals.
+const UPLOAD_ICON = "add_a_photo";
+const SKIP_ICON = "arrow_forward";
 
 interface PhotoPromptStepProps {
   onContinue: () => void;
@@ -33,6 +46,35 @@ export function PhotoPromptStep({ onContinue, currentPhotoUrl, onPhotoChange }: 
   const t = useTranslations("cv");
   const [showUpload, setShowUpload] = useState(false);
   const [photoAdded, setPhotoAdded] = useState(false);
+  // null = still reading the remembered choice (render nothing — no flash of
+  // a question the user already answered).
+  const [remembered, setRemembered] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSettings()
+      .then((s) => {
+        if (cancelled) return;
+        const skip = (s.dismissed_explainers ?? []).includes(PHOTO_PROMPT_EXPLAINER_ID);
+        setRemembered(skip);
+        if (skip) onContinue();
+      })
+      .catch(() => {
+        // A settings failure asks again — never a gate.
+        if (!cancelled) setRemembered(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount
+  }, []);
+
+  function skipForGood() {
+    void dismissExplainer(PHOTO_PROMPT_EXPLAINER_ID);
+    onContinue();
+  }
+
+  if (remembered !== false) return null;
 
   if (showUpload) {
     return (
@@ -47,9 +89,15 @@ export function PhotoPromptStep({ onContinue, currentPhotoUrl, onPhotoChange }: 
             onPhotoChange?.(url);
           }}
         />
-        <Button className="w-full" onClick={onContinue}>
-          {photoAdded ? t("photoUploadedContinue") : t("skipAndContinue")}
-        </Button>
+        {photoAdded ? (
+          <Button className="w-full" onClick={onContinue} data-testid="photo-continue">
+            {t("photoUploadedContinue")}
+          </Button>
+        ) : (
+          <Button variant="outline" className="w-full" onClick={skipForGood} data-testid="photo-upload-skip">
+            {t("skipAndContinue")}
+          </Button>
+        )}
       </div>
     );
   }
@@ -65,23 +113,26 @@ export function PhotoPromptStep({ onContinue, currentPhotoUrl, onPhotoChange }: 
       </p>
       <div className="grid grid-cols-2 gap-3">
         <button
-          className="border-2 border-blue-600 bg-blue-50 rounded-lg p-4 text-center hover:bg-blue-100 transition-colors"
+          data-testid="photo-prompt-upload"
+          className="border-2 border-primary bg-primary text-white rounded-lg p-4 text-center hover:opacity-90 transition-opacity"
           onClick={() => setShowUpload(true)}
         >
-          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-          <div className="text-2xl mb-1" aria-hidden="true">📷</div>
-          <p className="text-xs font-semibold text-blue-700">{t("uploadPhoto")}</p>
-          <p className="text-xs text-blue-500 mt-0.5">{t("uploadPhotoSaved")}</p>
+          <span className="material-symbols-outlined block mb-1" aria-hidden="true" style={{ fontSize: 24 }}>
+            {UPLOAD_ICON}
+          </span>
+          <p className="text-xs font-semibold">{t("uploadPhoto")}</p>
+          <p className="text-xs text-white/80 mt-0.5">{t("uploadPhotoSaved")}</p>
         </button>
         <button
           data-testid="photo-prompt-skip"
-          className="border border-gray-200 bg-gray-50 rounded-lg p-4 text-center hover:bg-gray-100 transition-colors"
-          onClick={onContinue}
+          className="border border-outline-variant bg-white rounded-lg p-4 text-center hover:bg-surface-container transition-colors"
+          onClick={skipForGood}
         >
-          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-          <div className="text-2xl mb-1" aria-hidden="true">⏭</div>
-          <p className="text-xs font-medium text-gray-700">{t("skipPhotoNow")}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{t("skipPhotoHint")}</p>
+          <span className="material-symbols-outlined block mb-1 text-on-surface-variant" aria-hidden="true" style={{ fontSize: 24 }}>
+            {SKIP_ICON}
+          </span>
+          <p className="text-xs font-medium text-on-surface">{t("skipPhotoNow")}</p>
+          <p className="text-xs text-on-surface-variant mt-0.5">{t("skipPhotoHint")}</p>
         </button>
       </div>
       <p className="text-xs text-gray-400 text-center">

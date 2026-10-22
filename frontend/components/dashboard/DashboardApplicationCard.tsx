@@ -50,6 +50,8 @@ export interface DashboardApplicationCardProps {
   /** Stale-CV hint (E039/US221): profile grew after the newest CV — badge only;
       the full nudge (delta + re-tailor + dismiss) lives on the detail page. */
   staleCv?: StaleCVInfo | null;
+  /** E12-788:L21 read model: a letter is ready too — the chip names both documents (#789). */
+  coverLetterReady?: boolean;
   onStartFlow?: () => void;
   /** Notifies the dashboard after a successful status PATCH (filter chips re-count). */
   onStatusChange?: (userStatus: string) => void;
@@ -72,7 +74,7 @@ const PROGRESS: Record<CardStatus, number> = {
   tracking: 0,
 };
 
-type ChipKey = "chipInProgress" | "chipCvReady" | "chipInterrupted" | "chipTracking";
+type ChipKey = "chipInProgress" | "chipCvReady" | "chipCvAndLetterReady" | "chipInterrupted" | "chipTracking";
 
 const CHIP: Record<CardStatus, { labelKey: ChipKey; className: string }> = {
   in_progress:  { labelKey: "chipInProgress",  className: "bg-teal-container text-primary" },
@@ -100,13 +102,18 @@ export function DashboardApplicationCard({
   submittedCvId,
   submittedCvCreatedAt,
   staleCv,
+  coverLetterReady = false,
   onStartFlow,
   onStatusChange,
 }: DashboardApplicationCardProps) {
   const router = useRouter();
   const tDash = useTranslations("dashboard");
   const status = deriveCardStatus(workflowStatus, updatedAt);
-  const chip = CHIP[status];
+  // #789: "LEBENSLAUF BEREIT" while the letter is ready too undersold the set.
+  const chip =
+    status === "cv_ready" && coverLetterReady
+      ? { ...CHIP.cv_ready, labelKey: "chipCvAndLetterReady" as ChipKey }
+      : CHIP[status];
   const initial = (companyName ?? roleTitle ?? "?")[0].toUpperCase();
 
   const tHired = useTranslations("profileUpdate.markHired");
@@ -114,7 +121,18 @@ export function DashboardApplicationCard({
 
   // Pipeline status (E039/US218) — optimistic local state, reverted on PATCH failure.
   const [userStatusValue, setUserStatusValue] = useState(userStatus ?? "tracking");
-  const showMarkHired = workflowStatus === "completed" && userStatusValue !== "hired";
+  // #789 (Hazelnut build 3): the card's secondary action is the NEXT pipeline
+  // step — right after generating (still "tracking") that is "applied", not
+  // "hired"; "Als eingestellt markieren" only once the application went out
+  // (applied / interviewing / offer). Terminal statuses get none.
+  const nextStep: "applied" | "hired" | null =
+    workflowStatus !== "completed"
+      ? null
+      : userStatusValue === "tracking"
+        ? "applied"
+        : ["applied", "interviewing", "offer"].includes(userStatusValue)
+          ? "hired"
+          : null;
 
   async function handleStatusChange(next: string) {
     const previous = userStatusValue;
@@ -288,9 +306,23 @@ export function DashboardApplicationCard({
             </span>
             {tDash(ACTION_LABEL[status])}
           </button>
-          {showMarkHired && (
+          {nextStep === "applied" && (
             <button
               type="button"
+              data-testid="dashboard-card-mark-applied"
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleStatusChange("applied");
+              }}
+              className="text-[12px] font-bold px-3 py-1.5 rounded-lg border border-primary text-primary hover:bg-primary-container"
+            >
+              {tDash("markAppliedAction")}
+            </button>
+          )}
+          {nextStep === "hired" && (
+            <button
+              type="button"
+              data-testid="dashboard-card-mark-hired"
               onClick={handleMarkHired}
               disabled={hiring}
               className="text-[12px] font-bold px-3 py-1.5 rounded-lg border border-primary text-primary hover:bg-primary-container disabled:opacity-50"

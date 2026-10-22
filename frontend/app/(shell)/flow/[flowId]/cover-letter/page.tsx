@@ -47,7 +47,7 @@ import { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import UnaskedRequirementsPanel, {
   type UnaskedRequirement,
 } from "@/components/gaps/UnaskedRequirementsPanel";
-import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
+import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { openGroup1Count, buildReviewGroups, decisionCount } from "@/lib/review-groups";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
@@ -488,7 +488,8 @@ export default function CoverLetterPage({
     const hideNotice = await getSettings()
       .then((s) => s.hide_predownload_notice)
       .catch(() => false);
-    if (hideNotice) {
+    // #789 / F2-1: once per document set (this flow) per browser session.
+    if (hideNotice || predownloadNoticeSeen(clState?.applicationId ?? flowId)) {
       if (format === "docx") void handleDownloadDocx();
       else void handleDownloadPdf();
       return;
@@ -897,6 +898,7 @@ export default function CoverLetterPage({
             <PreDownloadNotice
               canSuppress={downloadNotice.canSuppress}
               format={downloadNotice.format}
+              setKey={clState?.applicationId ?? flowId}
               onConfirm={(dontShowAgain) => {
                 if (dontShowAgain) void setHidePredownloadNotice(true);
                 const format = downloadNotice.format;

@@ -50,7 +50,7 @@ import { ClipboardCheck, Palette, Zap } from "lucide-react";
 import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
-import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
+import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/PreDownloadNotice";
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { openGroup1Count, buildReviewGroups, decisionCount } from "@/lib/review-groups";
@@ -646,7 +646,8 @@ export default function CVPage({
     const hideNotice = await getSettings()
       .then((s) => s.hide_predownload_notice)
       .catch(() => false);
-    if (hideNotice) {
+    // #789 / F2-1: once per document set (this flow) per browser session.
+    if (hideNotice || predownloadNoticeSeen(flowState?.application_id ?? flowId)) {
       if (format === "docx") void handleDownloadDocx();
       else void handleDownloadPdf();
       return;
@@ -1155,6 +1156,7 @@ export default function CVPage({
               <PreDownloadNotice
                 canSuppress={downloadNotice.canSuppress}
                 format={downloadNotice.format}
+                setKey={flowState?.application_id ?? flowId}
                 onConfirm={(dontShowAgain) => {
                   if (dontShowAgain) void setHidePredownloadNotice(true);
                   const format = downloadNotice.format;

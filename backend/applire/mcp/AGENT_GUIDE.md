@@ -193,7 +193,11 @@ the matching `artifact_id` when advancing.
 **The flow is a ledger you keep, not a tracker that watches you.** Calling
 `analyze_gaps`, `run_interview`, `submit_testimony`, `generate_cv` or any other
 tool directly never moves the flow: it stays where you last advanced it, and so
-do the application's `workflow_status` / `flow_current_step`. `advance_flow`
+does the application's `flow_current_step` (the resume pointer). The
+application's `workflow_status` is served from what exists — a ready CV reads
+`completed` even if the flow never moved — and `cover_letter_ready` /
+`workflow_running` say whether a letter is ready and whether Applire is still
+producing something (false = the next move is yours). `advance_flow`
 accepts only the next step in this order — `jd_analysis` → `cv_import` →
 `gap_analysis` → `interview` → `cv_generation` → `complete` (`cv_import` may be
 skipped by a returning user, `interview` after `gap_analysis`; a candidate with

@@ -241,3 +241,81 @@ async def test_list_documents_status_filter(db):
     ready = await list_documents(user_id=_USER_A, db=db, status="ready")
     assert ready.total == 1
     assert ready.items[0].role_title == "Role A"
+
+
+# ---------------------------------------------------------------------------
+# #789 (Hazelnut build 3) — My Documents names the letter too
+# ---------------------------------------------------------------------------
+
+
+def _letter_for(cv, user_id, *, status="ready", minutes=0, deleted=False):
+    from datetime import timedelta
+
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    now = datetime.now(timezone.utc)
+    return GeneratedCoverLetter(
+        job_analysis_id=cv.job_analysis_id,
+        profile_id=cv.profile_id,
+        user_id=user_id,
+        status=status,
+        created_at=now + timedelta(minutes=minutes),
+        expires_at=now + timedelta(days=90),
+        deleted_at=now if deleted else None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_documents_attaches_the_newest_letter_to_the_newest_cv_row(db):
+    from datetime import timedelta
+
+    from applire.models.cv import GeneratedCV
+    from applire.services.documents import list_documents
+
+    old_cv = await _seed_cv(db, _USER_A, "Leiter Operations", "Rheinwerk")
+    new_cv = GeneratedCV(
+        job_analysis_id=old_cv.job_analysis_id,
+        profile_id=old_cv.profile_id,
+        tailored_data={},
+        template="classic_german",
+        status="ready",
+        created_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=90),
+    )
+    db.add(new_cv)
+    first = _letter_for(old_cv, _USER_A, minutes=1)
+    newest = _letter_for(old_cv, _USER_A, minutes=2)
+    gone = _letter_for(old_cv, _USER_A, minutes=3, deleted=True)
+    db.add_all([first, newest, gone])
+    await db.commit()
+
+    result = await list_documents(user_id=_USER_A, db=db)
+    by_cv = {i.cv_id: i for i in result.items}
+    assert by_cv[new_cv.id].cover_letter is not None
+    assert by_cv[new_cv.id].cover_letter.cover_letter_id == newest.id
+    assert by_cv[new_cv.id].cover_letter.status == "ready"
+    # One letter, one row — the older CV version carries none.
+    assert by_cv[old_cv.id].cover_letter is None
+
+
+@pytest.mark.asyncio
+async def test_list_documents_never_attaches_another_users_letter(db, monkeypatch):
+    """ADR-092 cl. 3: the posting is shared — B's letter for the same posting
+    must not appear on A's row. The ORM loader criteria are defence in depth
+    and never credited (ownership.py), so they are switched off here: the
+    service's own owner key must hold by itself."""
+    from applire import ownership
+    from applire.services.documents import list_documents
+
+    monkeypatch.setattr(ownership, "GUARD_ENABLED", False)
+
+    cv = await _seed_cv(db, _USER_A, "QA Lead", "Bayer")
+    from applire.models.user import User
+
+    db.add(User(id=_USER_B, email="b@test.de"))
+    await db.flush()
+    db.add(_letter_for(cv, _USER_B))
+    await db.commit()
+
+    result = await list_documents(user_id=_USER_A, db=db)
+    assert result.items[0].cover_letter is None

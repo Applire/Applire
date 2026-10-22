@@ -47,7 +47,14 @@ import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
-type WorkflowStatusLabelKey = "statusAnalyzing" | "statusInterviewing" | "statusGeneratingCV" | "statusCVReady" | "statusTracking";
+type WorkflowStatusLabelKey =
+  | "statusAnalyzing"
+  | "statusInterviewing"
+  | "statusGeneratingCV"
+  | "statusCVReady"
+  | "statusTracking"
+  | "statusYourTurn"
+  | "chipCvAndLetterReady";
 
 const WORKFLOW_STATUS_CONFIG: Record<string, { labelKey: WorkflowStatusLabelKey; className: string }> = {
   analyzing:    { labelKey: "statusAnalyzing",    className: "bg-teal text-white" },
@@ -56,6 +63,25 @@ const WORKFLOW_STATUS_CONFIG: Record<string, { labelKey: WorkflowStatusLabelKey;
   completed:    { labelKey: "statusCVReady",       className: "bg-success text-white" },
   none:         { labelKey: "statusTracking",      className: "bg-gray-400 text-white" },
 };
+
+/**
+ * #789 / E12-788:L21 (Hazelnut build 3): the header badge says what is TRUE
+ * now. A "working" word (Analysiere / Lebenslauf wird erstellt) only while
+ * the server says something is being produced (`workflow_running`); a step
+ * that finished and waits for the user reads "Du bist dran" (audit felix-020:
+ * "Analyzing" on an analysis that was long done). A ready letter joins the
+ * ready label, like the dashboard card.
+ */
+function workflowBadge(app: ApplicationDetail): { labelKey: WorkflowStatusLabelKey; className: string } {
+  const base = WORKFLOW_STATUS_CONFIG[app.workflow_status] ?? WORKFLOW_STATUS_CONFIG.none;
+  if (app.workflow_status === "completed" && app.cover_letter_ready) {
+    return { ...base, labelKey: "chipCvAndLetterReady" };
+  }
+  if ((app.workflow_status === "analyzing" || app.workflow_status === "cv_generating") && !app.workflow_running) {
+    return { labelKey: "statusYourTurn", className: "bg-primary text-white" };
+  }
+  return base;
+}
 
 // Non-user-facing Material Symbols identifier — JS const to avoid the JSX literal rule
 const SOURCE_LINK_ICON = "open_in_new";
@@ -81,6 +107,10 @@ export interface ApplicationDetail {
   updated_at: string;
   /** Removal date — the announced purge moment while cancelled (US222). */
   expires_at?: string | null;
+  /** E12-788:L21 read model: a cover letter is ready too. */
+  cover_letter_ready?: boolean;
+  /** E12-788:L21 read model: Applire is producing something right now. */
+  workflow_running?: boolean;
 }
 
 /**
@@ -422,7 +452,7 @@ export default function ApplicationDetailPage() {
 
   if (!application) return null;
 
-  const workflowConfig = WORKFLOW_STATUS_CONFIG[application.workflow_status] ?? WORKFLOW_STATUS_CONFIG.none;
+  const workflowConfig = workflowBadge(application);
   const daysUntilDeadline = application.deadline
     ? Math.ceil((new Date(application.deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : null;
@@ -589,11 +619,14 @@ export default function ApplicationDetailPage() {
 
             {/* Actions row */}
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              {isCompleted && (
+              {/* #789: the ONE "Lebenslauf öffnen" — the journey zone no longer
+                  repeats it. Needs a flow: the result page lives under it. */}
+              {isCompleted && hasFlow && (
                 <Button data-testid="dossier-open-cv" onClick={handleViewCV}>{t("openCvAction")}</Button>
               )}
+              {/* #789: the ONE "Fortsetzen" (the journey zone's copy is gone). */}
               {isMidFlow && (
-                <Button onClick={handleResume}>{t("resumeAction")}</Button>
+                <Button data-testid="dossier-resume" onClick={handleResume}>{t("resumeAction")}</Button>
               )}
               {!hasFlow && (
                 <Button onClick={() => void handleStartTailoring()}>{t("startTailoringAction")}</Button>
@@ -685,7 +718,7 @@ export default function ApplicationDetailPage() {
                 <DossierJourneyZone
                   flowSessionId={application.flow_session_id}
                   currentStep={application.flow_current_step}
-                  workflowStatus={application.workflow_status}
+                  running={!!application.workflow_running}
                 />
               )}
             </div>

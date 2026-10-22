@@ -475,12 +475,12 @@
     "photoStepProgress": "Step 4 of 4",
     "photoStepProgressPhoto": "Step 4 of 4 — Profile photo",
     "uploadPhoto": "Upload photo",
-    "uploadPhotoSaved": "Saved to your profile",
-    "skipPhotoNow": "Skip for now",
-    "skipPhotoHint": "Generate without photo",
-    "photoLaterHint": "You can add a photo later in Profile → Photo",
+    "uploadPhotoSaved": "Kept in your profile for your next CVs",
+    "skipPhotoNow": "Continue without a photo",
+    "skipPhotoHint": "We won't ask again",
+    "photoLaterHint": "You can add a photo any time under “My Profile”.",
     "photoUploadedContinue": "Continue →",
-    "skipAndContinue": "Skip and continue",
+    "skipAndContinue": "Continue without a photo",
     "assistLoading": "Generating question…",
     "assistPlaceholder": "Your answer…",
     "assistSending": "Generating…",
@@ -577,8 +577,8 @@
     "pageOverflowError": "That did not work. Reload the page and try again."
   },
   "saveScopePrompt": {
-    "saveToProfile": "Save to your Master Profile?",
-    "description": "Changes saved to the Master Profile are permanent. Changes saved to this CV only apply to this document.",
+    "saveToProfile": "Where should this change apply?",
+    "description": "“Just this CV” changes only this document. “Save to Profile” keeps the change in your profile for good — future CVs included.",
     "toProfile": "Save to Profile",
     "justThisCV": "Just this CV",
     "rememberChoice": "Remember my choice for this session",
@@ -720,7 +720,7 @@
     "statusInterviewing": "Interviewing",
     "statusGeneratingCV": "Generating CV",
     "statusCVReady": "CV Ready",
-    "statusTracking": "Tracking",
+    "statusTracking": "Saved",
     "statusApplied": "Applied",
     "statusRejected": "Rejected",
     "statusOffer": "Offer",
@@ -745,7 +745,7 @@
     "chipInProgress": "In Progress",
     "chipCvReady": "CV Ready",
     "chipInterrupted": "Interrupted",
-    "chipTracking": "Tracking",
+    "chipTracking": "Saved",
     "actionResume": "Resume",
     "actionOpen": "Open",
     "actionContinue": "Continue",
@@ -770,7 +770,22 @@
     "cancelledSection": "Cancelled applications ({count})",
     "cancelledRemovalDate": "Will be removed on {date}",
     "cancelledRestore": "Restore",
-    "errorLinkedinOff": "This instance does not fetch LinkedIn pages. Paste the job posting text instead."
+    "errorLinkedinOff": "This instance does not fetch LinkedIn pages. Paste the job posting text instead.",
+    "chipCvAndLetterReady": "CV + letter ready",
+    "markAppliedAction": "Mark as applied",
+    "availabilityReminder": {
+      "missingTitle": "When could you start?",
+      "missingBody": "Employers almost always ask about your notice period. Add it to your profile once — then it is ready for every cover letter.",
+      "missingAction": "Add it to my profile",
+      "missingDismiss": "Not now",
+      "staleTitle": "Is your notice period still right?",
+      "staleBody": "Added on {date}: “{value}”. If anything has changed, update it — it goes into every cover letter.",
+      "staleBodyNoValue": "If your notice period has changed, update it — it goes into every cover letter.",
+      "staleAction": "Review it in my profile",
+      "staleDismiss": "Still right",
+      "region": "Notice period reminder"
+    },
+    "statusYourTurn": "Your turn"
   },
   "profile": {
     "title": "My Profile",
@@ -873,7 +888,8 @@
         "saving": "Saving …",
         "loadError": "The photo could not be opened. Try a JPEG, PNG or WebP file.",
         "saveError": "The framing could not be saved."
-      }
+      },
+      "heldForConsent": "“{name}” is selected — tick the consent box above to continue."
     },
     "signature": {
       "title": "Signature",
@@ -1575,7 +1591,7 @@
   },
   "documents": {
     "title": "My Documents",
-    "subtitle": "All generated CVs across your applications",
+    "subtitle": "All CVs and cover letters across your applications",
     "totalDocs": "Total documents",
     "expiringCount": "Expiring within 7 days",
     "filterAll": "All",
@@ -1602,7 +1618,12 @@
     "generatedOn": "Generated {date}",
     "page": "Page {page} of {total}",
     "showing": "{from}–{to} of {total} documents",
-    "agentAuthored": "Agent-authored"
+    "agentAuthored": "Agent-authored",
+    "letterReady": "Cover letter ready",
+    "letterGenerating": "Cover letter in progress",
+    "letterFailed": "Cover letter failed",
+    "letterExpired": "Cover letter expired",
+    "letterOpen": "Open cover letter"
   },
   "explainers": {
     "dontShowAgain": "Don't show this again",
@@ -1736,7 +1757,7 @@
     "matchScoreLabel": "Profile match",
     "panelCollapse": "Collapse panel",
     "panelExpand": "Expand panel",
-    "validUntil": "valid until {date}",
+    "validUntil": "Kept until {date}",
     "langNameDe": "German",
     "langNameEn": "English",
     "languageBadgeTitle": "Document language",
@@ -1759,7 +1780,9 @@
     "signatureWithout": "without",
     "signatureUnavailableHint": "No signature on file.",
     "signatureUnavailableLink": "Add one in your profile",
-    "signatureSaveError": "The setting could not be saved."
+    "signatureSaveError": "The setting could not be saved.",
+    "docxScopeCaption": "Word file: the checks cover the file as exported — changes you make in Word afterwards are not checked.",
+    "validUntilHint": "After that this document is deleted automatically — your profile stays."
   },
   "commandBar": {
     "atsChecks": "Review",
