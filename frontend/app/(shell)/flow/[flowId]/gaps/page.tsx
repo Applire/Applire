@@ -1266,43 +1266,8 @@ export default function GapsPage({
           )}
         </div>
       )}
-      {/* Section 1c: Parsed-JD echo — what we read from the job ad (US158, FMEA 4.3/4.4).
-          Chips + count come from the ledger fit-slice so the echo total always
-          equals the badge math below (#111); raw JD lists only pre-ledger. */}
-      {jobEcho &&
-        (() => {
-          const echoChips = canonicalRequirementChips(
-            gaps?.keyword_ledger,
-            jobEcho.required_skills,
-            jobEcho.nice_to_have_skills,
-          );
-          return (
-            <>
-              <JobEchoCard
-                companyName={jobEcho.company_name}
-                roleTitle={jobEcho.role_title}
-                educationRequirement={jobEcho.education_requirement}
-                requiredSkills={echoChips.required}
-                niceToHaveSkills={echoChips.niceToHave}
-              />
-              {/* E054/US288: leading document language — detection prefills,
-                  the user decides (ADR-038 amendment 2026-08-23). Rendered
-                  once the persisted override finished loading so the
-                  control's initial state is honest. */}
-              {flowState?.application_id && appLanguageOverride !== undefined && (
-                <div className="-mt-6 mb-8">
-                  <DocumentLanguageControl
-                    applicationId={flowState.application_id}
-                    detectedLanguage={jobEcho.jd_language}
-                    initialOverride={appLanguageOverride}
-                    apiBase={API_BASE}
-                  />
-                </div>
-              )}
-            </>
-          );
-        })()}
-
+      {/* #789 (ruling F1-1 A, mock b): the decision comes first — the
+          posting read-back and the document language follow it. */}
       {/* Section 2: the match card carries the decision (#789 "Gaps page is
           5 viewports long", mock F1-1 b): the ONE requirement bar (ruling
           F1-2) and the two decisive actions right under it — above the fold
@@ -1432,6 +1397,43 @@ export default function GapsPage({
         )}
       </Card>
       )}
+      {/* Section 1c: Parsed-JD echo — what we read from the job ad (US158, FMEA 4.3/4.4).
+          Chips + count come from the ledger fit-slice so the echo total always
+          equals the badge math below (#111); raw JD lists only pre-ledger. */}
+      {jobEcho &&
+        (() => {
+          const echoChips = canonicalRequirementChips(
+            gaps?.keyword_ledger,
+            jobEcho.required_skills,
+            jobEcho.nice_to_have_skills,
+          );
+          return (
+            <>
+              <JobEchoCard
+                companyName={jobEcho.company_name}
+                roleTitle={jobEcho.role_title}
+                educationRequirement={jobEcho.education_requirement}
+                requiredSkills={echoChips.required}
+                niceToHaveSkills={echoChips.niceToHave}
+              />
+              {/* E054/US288: leading document language — detection prefills,
+                  the user decides (ADR-038 amendment 2026-08-23). Rendered
+                  once the persisted override finished loading so the
+                  control's initial state is honest. */}
+              {flowState?.application_id && appLanguageOverride !== undefined && (
+                <div className="-mt-6 mb-8">
+                  <DocumentLanguageControl
+                    applicationId={flowState.application_id}
+                    detectedLanguage={jobEcho.jd_language}
+                    initialOverride={appLanguageOverride}
+                    apiBase={API_BASE}
+                  />
+                </div>
+              )}
+            </>
+          );
+        })()}
+
       {/* ADR-090 clause 8 — a stored analysis older than the profile says so;
           it never re-runs by itself. */}
       {hasJob && gaps?.inputs_changed && (
