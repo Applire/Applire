@@ -378,9 +378,23 @@ def member_statuses(
             "status": "declined"
             if _norm(member) in recorded_declined
             else _member_status(member, keyword_ledger, denials),
+            "requirement": member_is_requirement(member, keyword_ledger),
         }
         for member in all_members(cluster)
     ]
+
+
+def member_is_requirement(member: str, keyword_ledger: list[dict[str, Any]] | None) -> bool:
+    """Whether a chip names a REQUIREMENT the match counts (Hazelnut build 3 /
+    WP-G): some row the member anchors on carries ``fit_weight > 0``. The
+    member's OWN rows decide (normalised equality on concept/surface form) —
+    a broader row merely containing the term must not lend it requirement
+    status; only when no row is the member's own do the matched rows answer.
+    A member no row speaks for is not a counted requirement. A fact about the
+    ledger (ADR-062 cl. 1)."""
+    rows = _rows_for(member, keyword_ledger)
+    own = _own_rows(member, rows) or rows
+    return any(float(row.get("fit_weight") or 0) > 0 for row in own)
 
 
 def member_matches_ledger(member: str, keyword_ledger: list[dict[str, Any]] | None) -> bool:

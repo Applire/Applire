@@ -42,12 +42,18 @@ def test_the_build_floor_reaches_the_plural_row():
 
 
 def test_the_vault_recheck_never_lifts_the_plural_row():
-    # The row's only vault evidence is prose (a bullet), not an attested entity
-    # label — so nothing in the release corpus independently affirms it.
+    # The row's only vault evidence is an INTERVIEW-written bullet — not an
+    # attested entity label and not import-provenance prose (ADR-059 amended
+    # 2026-10-22, E-11), so nothing in the release corpus affirms it.
+    bullet = "Teamarbeit nach agile methodologies im Projektalltag"
     vault = {
         "work_experience": [{"id": "w1", "company": "Acme", "role": "PM",
-                             "responsibilities": ["Teamarbeit nach agile methodologies im Projektalltag"]}],
-        "metadata": {"denied_concepts": _DENIAL},
+                             "responsibilities": [bullet]}],
+        "metadata": {"denied_concepts": _DENIAL, "enrichment_history": [{
+            "source": "interview", "timestamp": "2026-10-01T00:00:00Z",
+            "changes": [{"section": "work_experience", "field": "responsibilities",
+                         "action": "merged", "old_value": None, "new_value": [bullet]}],
+        }]},
     }
     out, changed = reevaluate_gap_ledger_against_vault([_row("gap", False)], vault)
     assert out[0]["claimable"] is False

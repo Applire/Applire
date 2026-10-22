@@ -1568,3 +1568,31 @@ def test_prefix_merge_evidence_is_order_independent_and_deduped():
     r = [e for e in reverse if e["concept"].casefold().startswith("sap")][0]
     assert f["evidence"].count(common) == 1, f"duplicate evidence emitted twice: {f['evidence']!r}"
     assert f["evidence"] == r["evidence"], "merged evidence must not depend on member order"
+
+
+# Hazelnut build 3 / WP-G — the merged evidence is shown ("Schlagworte" card,
+# writers' ledger block); the old "; ".join glued sentences into "….; …".
+def test_prefix_merge_joins_member_evidence_as_sentences():
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("SAP", "partial", ["SAP"], evidence="Mitarbeit bei der Einführung von SAP in der Fertigung."),
+            _cls("SAP PP", "partial", ["SAP PP"], evidence="Key-User für Fertigungsaufträge;"),
+            _cls("SAP MM", "partial", ["SAP MM"], evidence="Bestellanforderungen (MM)"),
+        ],
+        required_skills=["SAP"],
+        nice_to_have_skills=["SAP PP", "SAP MM"],
+        keywords=[],
+    )
+    entry = [e for e in ledger if e["concept"].casefold().startswith("sap")][0]
+    assert entry["evidence"] == (
+        "Mitarbeit bei der Einführung von SAP in der Fertigung. "
+        "Key-User für Fertigungsaufträge. Bestellanforderungen (MM)."
+    )
+    assert ".;" not in entry["evidence"] and ";." not in entry["evidence"]
+
+
+def test_join_evidence_parts_keeps_every_part_and_closing_punctuation():
+    from applire.services.keyword_ledger import join_evidence_parts
+
+    assert join_evidence_parts(["A ist belegt.", "B?", "  ", "C „zitiert“"]) == "A ist belegt. B? C „zitiert“"
+    assert join_evidence_parts([]) == ""

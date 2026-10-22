@@ -85,7 +85,7 @@ def _mode_a_state(cluster: dict) -> dict:
 
 def test_no_new_params_is_byte_identical_to_the_default_call():
     """The ADR-089 params must reproduce EXACTLY what a pre-ADR-089 call
-    produced — same guarantee US265 makes for quant_concepts/include_availability."""
+    produced — same guarantee US265 makes for quant_concepts."""
     from applire.prompts.interview import build_question_prompt
 
     cluster = {"id": "c1", "label": "X", "gaps": [], "jd_skills": [], "jd_context": ""}
@@ -215,7 +215,6 @@ async def test_follow_up_focus_never_carries_the_quantification_or_availability_
         provider,
         gap_category="C",
         follow_up_focus=["CI/CD"],
-        include_availability=True,
     )
 
     first_prompt = provider.aparse_json.call_args_list[0].args[0]

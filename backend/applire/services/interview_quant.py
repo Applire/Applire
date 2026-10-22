@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """US265 (E048 / ADR-058 exception b, PO-approved 2026-07-24) — deterministic
-quantification + availability elicitation signals for the EXISTING interview
+quantification elicitation signals for the EXISTING interview
 QuestionGenerator (services/interview_graph.py + prompts/interview.py).
 
 STRICT boundary: this module supplies pure, deterministic INPUTS to the
@@ -13,6 +13,11 @@ Trigger (founder acceptance, 2026-07-23): a blind hiring panel named missing
 NUMBERS (team size, production scale, eval metrics) on evidenced JD-critical
 claims as invite-flipping facts — the interview collects capabilities but
 never their quantification.
+
+Hazelnut build 3, ruling V-4 (founder 2026-10-22): the availability /
+notice-period trigger that lived here (posting marker + >= 2 open roles) is
+REMOVED with the interview add-on it fed — the interview never asks the notice
+period; the profile field is prompted by a login info card (V + F2).
 """
 from __future__ import annotations
 
@@ -66,51 +71,3 @@ def detect_unquantified_concepts(cluster: dict, profile: dict) -> list[str]:
         if not extract_figures(evidence):
             flagged.append(concept)
     return flagged
-
-
-# ---------------------------------------------------------------------------
-# Availability elicitation (US265 task 3 — approved fold-in)
-# ---------------------------------------------------------------------------
-
-# Small, conservative, EN+DE marker list — a JD signalling an availability /
-# commitment requirement. Deliberately narrow: a false positive only adds one
-# invitingly-phrased, terminal-answer question; a false negative silently
-# skips it — the safe direction to err in.
-_AVAILABILITY_MARKERS: tuple[str, ...] = (
-    "permanent employment",
-    "notice period",
-    "availability",
-    "verfügbarkeit",
-    "unbefristet",
-)
-
-
-def detect_availability_signal(jd_raw_text: str) -> bool:
-    """True if the JD's raw text names an availability/commitment requirement."""
-    text = (jd_raw_text or "").lower()
-    return any(marker in text for marker in _AVAILABILITY_MARKERS)
-
-
-def _is_open_ended_role(entry: dict) -> bool:
-    """A role counts as "open-ended/current" via the explicit ``is_current``
-    flag when present; otherwise falls back to an empty ``end_date`` (the
-    schema's own "current" convention, ADR-044)."""
-    is_current = entry.get("is_current")
-    if is_current is True:
-        return True
-    if is_current is False:
-        return False
-    return not entry.get("end_date")
-
-
-def has_multiple_open_roles(profile: dict) -> bool:
-    """True if the profile shows >= 2 open-ended ("current") roles — the
-    signal that the candidate's availability genuinely needs clarifying."""
-    roles = profile.get("work_experience", []) or []
-    return sum(1 for entry in roles if _is_open_ended_role(entry)) >= 2
-
-
-def should_ask_availability(jd_raw_text: str, profile: dict) -> bool:
-    """Both deterministic conditions required: a JD availability/commitment
-    marker AND >= 2 open-ended current roles on the candidate's profile."""
-    return detect_availability_signal(jd_raw_text) and has_multiple_open_roles(profile)

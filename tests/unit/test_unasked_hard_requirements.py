@@ -263,24 +263,33 @@ def test_a_vocabulary_demotion_keeps_the_vault_material_it_was_graded_on():
         "fixture premise: the literal term must be ungroundable, or this proves nothing"
     )
     out = healed[0]
-    assert out["status"] == "gap" and out["claimable"] is False, "still never claimable"
+    # ADR-061/074 amended 2026-10-22 (founder ruling G-1 = A): a verified
+    # vocabulary demotion lands on ADR-048's ADJACENT partial — claimable for the
+    # profile's own wording, never for the JD's term — not on an "offen" gap.
+    from applire.services.keyword_ledger import is_positioning_only
+
+    assert out["status"] == "partial" and out["claimable"] is True, out
+    assert is_positioning_only(out), "the writers must promote the vault's words, not the JD term"
     kept = out.get("adjacent_evidence") or ""
     assert "Investitionsentscheidungen im Rahmen der Industrie-4.0-Roadmap" in kept
     # The second citation is the model's own paraphrase — the vault does not
-    # carry those words, so it must not survive as "material".
+    # carry those words, so it must not survive as "material" nor as evidence.
     assert "Investitionsvorlage für MES-Projekt" not in kept
+    assert out["evidence"] == kept, "the evidence the writers read is the vault's sentence"
+    again, again_violations = assert_claimable_backed(healed, _RUN1_VAULT, seam="test")
+    assert again == healed and not again_violations, "the healed shape is a fixed point"
+
 
     # The row is no longer an ADR-074 Restfall: it has something to position with.
     assert is_unasked_requirement(out) is False
-    # ...but it gains NOTHING else. Not claimable, not positioning-only (that is
-    # the ADR-048 substitute contract, which is for a CLAIMABLE partial), and
-    # still on the do-not-claim list.
-    from applire.services.keyword_ledger import is_positioning_only, split_ledger_for_prompt
+    # ADR-061/074 amended 2026-10-22: it is the ADR-048 substitute contract now —
+    # on the claimable side, as the positioning-only partial the writers promote
+    # through the vault's own wording.
+    from applire.services.keyword_ledger import split_ledger_for_prompt
 
-    assert is_positioning_only(out) is False
     claimable, forbidden = split_ledger_for_prompt(healed)
-    assert "Investitionsverantwortung" in forbidden
-    assert out not in claimable
+    assert "Investitionsverantwortung" not in forbidden
+    assert any(e.get("concept") == "Investitionsverantwortung" for e in claimable)
 
 
 def test_a_demotion_with_no_verifiable_material_stays_a_restfall():

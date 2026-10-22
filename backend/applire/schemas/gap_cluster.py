@@ -49,6 +49,12 @@ class GapClusterMemberStatus(BaseModel):
 
     member: str
     status: Literal["covered", "partial", "gap", "declined"]
+    # Hazelnut build 3 / WP-G (ADR-095: additive) — False when the member is a
+    # posting TERM the analysis does not count as a requirement (a keyword-only
+    # ledger row, fit_weight 0: US204 / ADR-048 §10 folds those into clustering
+    # so the interview can ask about them). The gaps page labels such a chip as
+    # a term from the posting instead of presenting it as a missing requirement.
+    requirement: bool = True
 
 
 class GapClusterSchema(BaseModel):

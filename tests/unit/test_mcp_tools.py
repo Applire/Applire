@@ -381,7 +381,7 @@ async def test_analyze_gaps_happy_path():
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider"),
-        patch("applire.mcp.server.gap_svc.analyze_gaps", AsyncMock(return_value=mock_result)),
+        patch("applire.mcp.server.gap_svc.analyze_or_refresh_gaps", AsyncMock(return_value=mock_result)),
     ):
         result = await analyze_gaps(job_id=job_id)
 
@@ -423,7 +423,7 @@ async def test_analyze_gaps_surfaces_keyword_liabilities_data_no_new_tool():
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider"),
-        patch("applire.mcp.server.gap_svc.analyze_gaps", AsyncMock(return_value=real_result)),
+        patch("applire.mcp.server.gap_svc.analyze_or_refresh_gaps", AsyncMock(return_value=real_result)),
     ):
         result = await analyze_gaps(job_id=job_id)
 

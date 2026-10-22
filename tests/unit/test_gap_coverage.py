@@ -342,7 +342,7 @@ def test_member_statuses_cover_every_member_in_all_members_order():
 def test_a_recorded_decline_stays_declined_whatever_the_row_says():
     c = cluster(gaps=[], outcome=outcome(declined=["Docker"]))
     assert member_statuses(c, [row("Docker", "direct")]) == [
-        {"member": "Docker", "status": "declined"}
+        {"member": "Docker", "status": "declined", "requirement": True}
     ]
 
 
@@ -867,3 +867,31 @@ async def test_two_turns_accumulate_across_sessions(db):
     assert persisted["outcome"]["session_ids"] == ["s1", "s2"]
     assert remaining_budget(persisted, 2) == 0
     assert not is_askable(persisted, 2)
+
+
+# Hazelnut build 3 / WP-G — a chip says whether it names a counted requirement.
+def test_a_keyword_only_member_is_not_a_requirement():
+    c = cluster(gaps=["Kubernetes", "EKS", "hybrid work"])
+    ledger = [
+        row("Kubernetes", "gap"),
+        row("EKS", "gap", sources=("keywords",)),
+    ]
+    ledger[1]["fit_weight"] = 0.0
+    got = {m["member"]: m["requirement"] for m in member_statuses(c, ledger)}
+    assert got == {"Kubernetes": True, "EKS": False, "hybrid work": False}
+
+
+def test_a_broader_requirement_row_does_not_lend_a_keyword_term_requirement_status():
+    """A keyword-only "Lebensmittel" (its own row, fit_weight 0) must not borrow
+    the weight of the nice-to-have "Lebensmittelindustrie" row that the ledger's
+    substring matcher also finds for it."""
+    c = cluster(gaps=["Lebensmittel"])
+    ledger = [row("Lebensmittelindustrie", "gap", sources=("nice_to_have",)),
+              row("Lebensmittel", "gap", sources=("keywords",))]
+    ledger[1]["fit_weight"] = 0.0
+    assert member_statuses(c, ledger)[0]["requirement"] is False
+
+
+def test_a_member_matched_only_through_a_surface_form_keeps_the_rows_weight():
+    c = cluster(gaps=["K8s"])
+    assert member_statuses(c, [row("Kubernetes", "gap", forms=["Kubernetes", "K8s"])])[0]["requirement"] is True

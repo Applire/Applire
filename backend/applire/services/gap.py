@@ -357,6 +357,35 @@ async def analyze_gaps(
     )
 
 
+async def analyze_or_refresh_gaps(
+    job_id: uuid.UUID,
+    db: AsyncSession,
+    provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> GapAnalysisResponse:
+    """The agent door's ``analyze_gaps`` (788:L24, founder ruling on the E-12
+    walk 2026-10-22; ADR-089/090 amended — door parity, one gap number).
+
+    The UI analyses a posting once (``POST /gaps``, no answer scope) and from
+    then on refreshes it (``POST /gaps/refresh``, ``AnswerScope()``: every
+    requirement merged with its previous row, clusters carried forward). The
+    agent door used to take the first-analysis path on EVERY call, so a second
+    ``analyze_gaps`` re-graded the whole posting from scratch and could move
+    requirements nobody had worked on — a different number for the same
+    application than the gaps page shows. Now: no previous row → the first
+    analysis; a previous row → exactly the refresh the UI runs."""
+    uid = resolve_user_id(user_id, site="gap.analyze_or_refresh_gaps")
+    previous = await _latest_gap_analysis(job_id, db, user_id=uid)
+    return await analyze_gaps(
+        job_id,
+        db,
+        provider,
+        answer_scope=AnswerScope() if previous is not None else None,
+        user_id=uid,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public: session-scoped (convenience wrapper)
 # ---------------------------------------------------------------------------

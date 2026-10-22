@@ -1032,7 +1032,9 @@ async def analyze_gaps(job_id: str) -> dict:
         # MD-23: posting access is the door's check (ADR-092 cl. 5c).
         await _owned_job(db, jid)
         try:
-            result = await gap_svc.analyze_gaps(jid, db, provider, user_id=uid)
+            # 788:L24 (ADR-089/090 amended): the UI's path — first analysis
+            # once, then the answer-scoped refresh (per-requirement merge).
+            result = await gap_svc.analyze_or_refresh_gaps(jid, db, provider, user_id=uid)
         except LookupError as exc:
             raise not_found(str(exc))
         except ownership.OwnedNotFound:
