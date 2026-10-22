@@ -2712,7 +2712,7 @@ class TestSalutationRule564:
         assert "dear ms <surname>" in low
         assert "dear mr <surname>" in low
         assert "sehr geehrte damen und herren" in low
-        assert "dear sir or madam" in low
+        assert "\"dear hiring manager,\" — never the dated \"dear sir or madam,\"" in low
         assert "if the gender cannot be read from the name or title, use the generic form" in low
 
     def test_writer_prompt_paragraph_count_rule_does_not_contradict_the_salutation(self):
@@ -2735,7 +2735,7 @@ class TestSalutationRule564:
         assert "#564" in p
         assert "supplied as the generic, impersonal form" in low
         assert "sehr geehrte damen und herren" in low
-        assert "dear sir or madam" in low
+        assert "dear hiring manager" in low
         assert "or its generic/impersonal wording" in low
         assert "even when a named recipient is known" in low
 
