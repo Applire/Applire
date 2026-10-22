@@ -7,6 +7,15 @@ After a second source is merged onto a profile, one call asks which NEW bullets
 for an existing entry state no fact its HELD bullets do not already state. A
 judgement — the model's (ADR-062 clause 1); code only acts on the indexes the
 model names (``services/profile/reconcile/restatement.py``).
+
+Measured 2026-10-22 (luna, Requesty, thinking off; labels by a blind labeler):
+replay set (the reconcile arms' bullets for records 182 + 71, 118 instances, 18
+unique: 17 restated / 1 new) — 108/108 restatements held back, 10/10 new kept.
+Held-out synthetic set (22 bullets on the same entries, 9 restated / 13 adding
+one fact, n = 3): first text 27/27 held, 36/39 new kept (one bullet — a mentoring
+line adding a promotion — held back 3/3); the "repeats AND adds" sentence below
+was added for it: 27/27 and 39/39, replay set unchanged. That bullet is now a
+development case, not a held-out one.
 """
 from __future__ import annotations
 
@@ -30,6 +39,9 @@ a result or outcome; a date or duration.
   wording or language, shortened, abbreviated or expanded, split across several held
   bullets) does it RESTATE. Example: HELD "Einführung von Shopfloor-Management und
   KVP-Routinen" / NEW "Shopfloor-Management und KVP eingeführt." — RESTATES.
+- A NEW bullet that repeats a held bullet AND adds something to it (a clause, a figure, an
+  outcome such as a promotion, an award or a result) is NEW: judge the added part, not the
+  repeated part.
 - Wording, tone, language, word order, length and abbreviations are never facts.
 - A more general NEW bullet whose content a held bullet states more specifically RESTATES.
 - When you are not sure, it is NEW.
