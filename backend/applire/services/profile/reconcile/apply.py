@@ -101,6 +101,8 @@ from applire.services.profile.reconcile.ops import (
     MatchExisting,
     ReplaceSection,
     SeparateMatch,
+    SetAvailability,
+    DismissAvailabilityReminder,
     RequestConfirmation,
     ResolveConfirmation,
     ResolveField,
@@ -699,6 +701,18 @@ def apply_ops(
             # resolved to None: no exception, no conflicts entry, no witness —
             # a silently discarded dispute. See resolve_any's own docstring.
             _apply_flag_conflict(op, resolve_any, source, conflicts)
+        elif isinstance(op, SetAvailability):
+            # D-B3V7 (ADR-063 amended 2026-10-22; rulings 787:L3 + V-4).
+            _apply_set_availability(op, new_profile, source, changes)
+        elif isinstance(op, DismissAvailabilityReminder):
+            # D-B3V7 (ruling V-4) — the server-side close of the reminder card.
+            from applire.services.profile.availability import today_utc
+            from applire.schemas.profile import Availability
+
+            current = new_profile.availability or Availability()
+            new_profile.availability = current.model_copy(
+                update={"reminder_dismissed_at": today_utc().isoformat()}
+            )
         elif isinstance(op, SeparateMatch):
             # #717 (ADR-063 amended 2026-10-07 cl. 4, ruling V-2) — the
             # candidate's "Nicht dasselbe". Raises when no receipt may be undone.
@@ -3553,3 +3567,33 @@ def _apply_flag_conflict(op, resolve, source, conflicts):
             source=source,
         )
     )
+
+
+def _apply_set_availability(op, profile, source, changes) -> None:
+    """D-B3V7 — the notice period's one writer. Stamps ``recorded_at`` (today,
+    UTC) and ``source``; clears a reminder close (a new value is a new state,
+    ruling V-4); an empty text clears the value. A write of the same text
+    refreshes ``recorded_at`` — re-confirming an unchanged notice period is a
+    real act that makes it current again."""
+    from applire.schemas.profile import Availability
+    from applire.services.profile.availability import today_utc
+
+    text = (op.text or "").strip()
+    old = profile.availability.text if profile.availability else None
+    if not text:
+        if old:
+            changes.append(FieldChange(
+                section="availability", field="text", action="removed",
+                old_value=old, new_value=None, rationale_key="availability_cleared",
+            ))
+        profile.availability = None
+        return
+    profile.availability = Availability(
+        text=text, recorded_at=today_utc().isoformat(), source=source,
+        reminder_dismissed_at=None,
+    )
+    changes.append(FieldChange(
+        section="availability", field="text",
+        action="updated" if old else "added",
+        old_value=old, new_value=text, rationale_key="availability_recorded",
+    ))

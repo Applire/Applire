@@ -102,6 +102,7 @@ from applire.schemas.profile import (
 )
 from applire.services.profile.expectations import annotate_expected_fields
 from applire.services.profile.health import assess_health
+from applire.services.profile.availability import availability_reminder
 
 _DEFAULT_EMBEDDING_PROVIDER = NoopEmbeddingProvider()
 
@@ -187,6 +188,8 @@ def _to_response(record: MasterProfile) -> MasterProfileResponse:
         merge_conflicts=conflicts,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        # D-B3V7 (ruling V-4) — the dashboard reminder's condition, one reader.
+        availability_reminder=availability_reminder(profile_data),
     )
 
 
@@ -763,6 +766,64 @@ async def separate_match(
         )
     except MatchNotSeparableError as exc:
         raise MatchNotSeparable(exc.code) from exc
+    await db.commit()
+    await db.refresh(result.record)
+    return _to_response(result.record)
+
+
+async def record_availability(
+    db: AsyncSession,
+    *,
+    text: str,
+    source: str,
+    session_id: str | None = None,
+    user_id: uuid.UUID | None = None,
+    commit: bool = True,
+) -> MasterProfileResponse:
+    """D-B3V7 (ADR-063 amended 2026-10-22; rulings 787:L3 + V-4) — write the
+    notice period / earliest start through the one write door
+    (``SetAvailability`` via ``commit_ops``). ``source`` is the provenance:
+    ``manual_edit`` (My Profile), the letter form's door, or an agent's.
+    ``commit=False`` leaves the transaction to a caller that owns one."""
+    from applire.services.profile.reconcile.ops import SetAvailability
+
+    record = await _get_latest(db, user_id)
+    if not record:
+        raise LookupError("No profile found")
+    result = await commit_ops(
+        db,
+        [SetAvailability(text=text)],
+        CommitProvenance(source=source, intake="field_edit", session_id=session_id, actor="candidate"),
+        record=record,
+        grounding=None,
+        snapshot=None,
+        llm_provider=None,
+    )
+    if commit:
+        await db.commit()
+        await db.refresh(result.record)
+    return _to_response(result.record)
+
+
+async def dismiss_availability_reminder(
+    db: AsyncSession, *, user_id: uuid.UUID | None = None
+) -> MasterProfileResponse:
+    """D-B3V7 (ruling V-4) — the candidate closed the reminder card; stored
+    server-side so it holds on every device."""
+    from applire.services.profile.reconcile.ops import DismissAvailabilityReminder
+
+    record = await _get_latest(db, user_id)
+    if not record:
+        raise LookupError("No profile found")
+    result = await commit_ops(
+        db,
+        [DismissAvailabilityReminder()],
+        CommitProvenance(source="manual_edit", intake="field_edit", actor="candidate"),
+        record=record,
+        grounding=None,
+        snapshot=None,
+        llm_provider=None,
+    )
     await db.commit()
     await db.refresh(result.record)
     return _to_response(result.record)

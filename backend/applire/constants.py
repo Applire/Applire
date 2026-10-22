@@ -75,6 +75,11 @@ INTERVIEW_TARGET_MIN_GUIDED: int = 5
 # advance-decision block, and NOT a quality judgement: addressed/denied turns
 # always advance immediately regardless of this counter.
 # Set INTERVIEW_MAX_QUESTIONS_PER_GAP in environment to override (e.g. in docker-compose.yml).
+#: D-B3V7 (ruling V-4) — a recorded notice period older than this is "stale"
+#: and the dashboard reminds the candidate. A main-session default: the founder
+#: gave no number (2026-10-22).
+AVAILABILITY_STALE_AFTER_DAYS: int = 90
+
 INTERVIEW_MAX_QUESTIONS_PER_GAP: int = int(
     os.environ.get("INTERVIEW_MAX_QUESTIONS_PER_GAP", "2")
 )

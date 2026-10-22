@@ -890,6 +890,25 @@ class MatchReceipt(BaseModel):
     undone_at: datetime | None = None
 
 
+class Availability(BaseModel):
+    """The candidate's notice period / earliest start (ADR-063 amended
+    2026-10-22, D-B3V7; rulings 787:L3 + V-4).
+
+    It belongs to the CURRENT contract, so it is stored once on the profile and
+    pre-fills every letter. Free text as the candidate says it ("3 Monate zum
+    Quartalsende"); ``recorded_at`` and ``source`` are stamped by the one write
+    door (``SetAvailability`` through ``commit_ops``), never by a caller.
+    ``reminder_dismissed_at`` is the server-side close of the dashboard
+    reminder (ruling V-4 — never browser storage; the user logs in from
+    several devices). Read: ``services/profile/availability.py``.
+    """
+
+    text: str | None = None
+    recorded_at: str | None = None  # ISO date (YYYY-MM-DD)
+    source: str | None = None
+    reminder_dismissed_at: str | None = None  # ISO date (YYYY-MM-DD)
+
+
 class RestatedReceipt(BaseModel):
     """One bullet a second source would have added to an existing entry and the
     import restatement check held back as a restatement of a held bullet
@@ -1490,6 +1509,8 @@ class MasterProfileData(BaseModel):
     # ADR-055 — signature stories: narrative evidence, reconciler-written
     # (upsert_story), Oracle-indexed. Defaulted list = legacy JSONB loads clean.
     signature_stories: list[SignatureStory] = Field(default_factory=list)
+    #: D-B3V7 (rulings 787:L3 + V-4) — notice period / earliest start.
+    availability: Availability | None = None
     metadata: ProfileMetadata | None = None
     # #505 — the raw JSON's `_meta` sidecar (candidate N/A suppressions). Named
     # `meta` here only because pydantic v2 reserves leading-underscore attribute
@@ -1737,6 +1758,9 @@ class MasterProfileResponse(BaseModel):
     merge_conflicts: list[Conflict] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+    #: D-B3V7 (ruling V-4) — the dashboard reminder's condition:
+    #: ``services/profile/availability.availability_reminder``.
+    availability_reminder: Literal["missing", "stale"] | None = None
 
 
 #: #615 (ADR-063 amended 2026-08-28, second entry) — "the merge ran AND

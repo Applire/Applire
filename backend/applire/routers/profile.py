@@ -83,6 +83,8 @@ from applire.services.profile import (
     separate_match,
     apply_restated,
     RestatedNotApplicable,
+    record_availability,
+    dismiss_availability_reminder,
     StagedExtractionAlreadyResolved,
     StagedExtractionNotFound,
 )
@@ -409,6 +411,48 @@ async def separate_match_endpoint(
         raise HTTPException(status_code=404, detail="No profile found")
     except MatchNotSeparable as exc:
         raise HTTPException(status_code=409, detail=exc.code)
+
+
+class AvailabilityRequest(BaseModel):
+    text: str
+
+
+@router.put(
+    "/availability",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def put_availability_endpoint(
+    body: AvailabilityRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """D-B3V7 (rulings 787:L3 + V-4) — set the notice period / earliest start
+    from My Profile (source ``manual_edit``); an empty text clears it."""
+    if len(body.text) > 500:
+        raise HTTPException(status_code=422, detail="text_too_long")
+    try:
+        return await record_availability(
+            db, text=body.text, source="manual_edit", user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
+
+
+@router.post(
+    "/availability/reminder/dismiss",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def dismiss_availability_reminder_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """D-B3V7 (ruling V-4) — close the dashboard reminder, server-side."""
+    try:
+        return await dismiss_availability_reminder(db, user_id=_uid(current_user))
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
 
 
 class ApplyRestatedRequest(BaseModel):

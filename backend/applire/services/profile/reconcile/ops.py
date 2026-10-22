@@ -1081,6 +1081,24 @@ _MODEL_EMITTABLE = (
 # Adapter-only ops. PR 3 added ``ReplaceSection``; PR 5 added ``ResolveField``
 # and ``ResolveConfirmation``; PR 6 added ``AddRole`` and ``CloseRole``; PR 7
 # added the metadata-writer family.
+class SetAvailability(BaseModel):
+    """D-B3V7 (ADR-063 amended 2026-10-22; rulings 787:L3 + V-4) — write the
+    candidate's notice period / earliest start. Adapter-only (a direct act or
+    a door's own decision, never model output). The applier stamps
+    ``recorded_at`` (today) and ``source`` (the batch's provenance source) and
+    clears a reminder dismissal; an empty ``text`` clears the value."""
+
+    op: Literal["set_availability"] = "set_availability"
+    text: str
+
+
+class DismissAvailabilityReminder(BaseModel):
+    """D-B3V7 (ruling V-4) — the candidate closed the dashboard reminder.
+    Stamps ``availability.reminder_dismissed_at``; the value is untouched."""
+
+    op: Literal["dismiss_availability_reminder"] = "dismiss_availability_reminder"
+
+
 _ADAPTER_ONLY = (
     DemoteSkill,
     ApplyImportMerge,
@@ -1093,6 +1111,8 @@ _ADAPTER_ONLY = (
     MarkProbeAsked,
     EscalateDenialLevel,
     SeparateMatch,
+    SetAvailability,
+    DismissAvailabilityReminder,
 )
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
