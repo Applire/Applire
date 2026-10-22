@@ -169,14 +169,16 @@ def test_every_compose_source_entry_appears_in_docker_compose_yml():
     )
 
 
-def test_there_are_exactly_the_four_known_compose_entries():
+def test_there_are_exactly_the_five_known_compose_entries():
     # Pinned by name, not just by count: a further compose entry with a typo'd
     # env_var could still pass the substring check above against an unrelated
     # ${...} elsewhere in the file. APPLIRE_TRUSTED_PROXY (MD-33) is read by the
-    # nginx service's entrypoint, not by the backend.
+    # nginx service's entrypoint, not by the backend; APPLIRE_HTTP_PORT (785 line,
+    # build 3) is the host side of nginx's published port.
     compose_vars = {e.env_var for e in all_settings() if e.source == "compose"}
     assert compose_vars == {
         "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "APPLIRE_TRUSTED_PROXY",
+        "APPLIRE_HTTP_PORT",
     }
 
 

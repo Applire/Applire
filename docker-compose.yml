@@ -138,8 +138,13 @@ services:
       # address nginx sees). Behind your own TLS proxy, set it in .env to that
       # proxy's address (SELF-HOSTING §8).
       APPLIRE_TRUSTED_PROXY: ${APPLIRE_TRUSTED_PROXY:-}
+      # 785:L71: LOG_LEVEL=DEBUG also makes nginx log full upstream error lines
+      # (they include the request's query string); otherwise only critical ones.
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
-      - "80:80"
+      # The host port Applire answers on. Port 80 already taken on this machine?
+      # Set APPLIRE_HTTP_PORT in .env (SELF-HOSTING §2).
+      - "${APPLIRE_HTTP_PORT:-80}:80"
     depends_on:
       backend:
         condition: service_healthy

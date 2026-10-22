@@ -759,9 +759,13 @@ _register_all(
             default="INFO",
             section="Operations",
             introduced_in="0.31.0",
+            semantics_changed_in="1.0.0",
             description=(
                 "DEBUG | INFO | WARNING | ERROR — applied to every applire.* logger. "
-                "DEBUG is loud; it does not log prompts (that is LLM_DEBUG_LOG)."
+                "DEBUG is loud; it does not log prompts (that is LLM_DEBUG_LOG).\n"
+                "DEBUG also makes nginx log full upstream error lines (a 502/504 with the\n"
+                "request's query string, which can hold a short-lived download link);\n"
+                "otherwise nginx logs only critical errors."
             ),
         ),
         SettingEntry(
@@ -1131,6 +1135,18 @@ _register_all(
                 "so Applire's nginx takes the client address for the login throttle from\n"
                 "that proxy's X-Forwarded-For. Empty = trust nobody (the default; a direct\n"
                 "install needs nothing here). An invalid value stops nginx at start (MD-33)."
+            ),
+        ),
+        SettingEntry(
+            env_var="APPLIRE_HTTP_PORT",
+            source="compose",
+            default="80",
+            section="Network and access",
+            introduced_in="1.0.0",
+            description=(
+                "The host port Applire answers on (nginx inside listens on 80). Change it\n"
+                "only when port 80 is already taken on this machine, e.g. 8080 — then open\n"
+                "http://<host>:8080 and include the port in APPLIRE_BASE_URL."
             ),
         ),
         SettingEntry(

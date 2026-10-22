@@ -9,7 +9,9 @@
 #
 # MD-33: the stock entrypoint runs /docker-entrypoint.d/*.sh before nginx; ours
 # turns APPLIRE_TRUSTED_PROXY (.env, one line) into the X-Forwarded-For trust the
-# config includes from /etc/nginx/applire/ — empty = trust nobody.
+# config includes from /etc/nginx/applire/ — empty = trust nobody. 785:L71: a second
+# script sets the error-log level from LOG_LEVEL (DEBUG = full upstream error lines).
 FROM nginx:alpine
 COPY self-hosted.conf /etc/nginx/conf.d/default.conf
 COPY --chmod=755 15-applire-trusted-proxy.sh /docker-entrypoint.d/15-applire-trusted-proxy.sh
+COPY --chmod=755 16-applire-log-level.sh /docker-entrypoint.d/16-applire-log-level.sh
