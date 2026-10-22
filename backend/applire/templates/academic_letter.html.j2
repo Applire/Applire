@@ -26,7 +26,9 @@
        1. 4mm less air (again) shrinks the atomic unit so it fits the
        remainder more often; this is a probability reduction, not a proof —
        CSS pagination cannot guarantee fit without content-aware sizing. */
-    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 5mm; }
+    .signature { break-inside: avoid; page-break-inside: avoid; break-before: avoid; page-break-before: avoid; margin-top: 5mm; }
+    /* 786:L41 keep-with-signature: the last paragraph and the closing move as one unit, so a page break never leaves the closing alone. */
+    .body p:last-child { break-after: avoid; page-break-after: avoid; }
     .signature .closing { margin-bottom: 7mm; }
     .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; margin: 0 0 1mm; }
     .signature.has-signature .closing { margin-bottom: 2mm; }

@@ -29,7 +29,9 @@
        freed space still visible on page 1 — 4mm less air shrinks the
        atomic unit so it fits the remainder more often (see academic_letter
        for the full rationale; same fix, N templates — ADR-066). */
-    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 6mm; }
+    .signature { break-inside: avoid; page-break-inside: avoid; break-before: avoid; page-break-before: avoid; margin-top: 6mm; }
+    /* 786:L41 keep-with-signature: the last paragraph and the closing move as one unit, so a page break never leaves the closing alone. */
+    .body p:last-child { break-after: avoid; page-break-after: avoid; }
     .signature .closing { margin-bottom: 8mm; }
     .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; margin: 0 0 1mm; }
     .signature.has-signature .closing { margin-bottom: 2mm; }
