@@ -997,6 +997,18 @@
       "fieldCause": "Bereich",
       "fieldLocation": "Ort",
       "fieldDescription": "Beschreibung"
+    },
+    "availability": {
+      "title": "Kündigungsfrist / frühester Start",
+      "recordedAt": "Stand: {date}",
+      "add": "Kündigungsfrist eintragen",
+      "edit": "Bearbeiten",
+      "label": "Wann kannst du frühestens anfangen?",
+      "placeholder": "z. B. 3 Monate zum Quartalsende",
+      "save": "Speichern",
+      "cancel": "Abbrechen",
+      "saveFailed": "Das hat nicht geklappt. Bitte versuch es noch einmal.",
+      "clearHint": "Leer speichern entfernt die Angabe."
     }
   },
   "health": {

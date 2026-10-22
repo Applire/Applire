@@ -997,6 +997,18 @@
       "fieldCause": "Cause",
       "fieldLocation": "Location",
       "fieldDescription": "Description"
+    },
+    "availability": {
+      "title": "Notice period / earliest start",
+      "recordedAt": "As of {date}",
+      "add": "Add your notice period",
+      "edit": "Edit",
+      "label": "When could you start at the earliest?",
+      "placeholder": "e.g. 3 months to the end of a quarter",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saveFailed": "That did not work. Please try again.",
+      "clearHint": "Saving it empty removes it."
     }
   },
   "health": {
