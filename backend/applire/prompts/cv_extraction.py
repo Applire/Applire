@@ -136,7 +136,7 @@ _SCHEMA_DESCRIPTION = """\
     {
       "name": "Skill name",
       "category": "technical | soft | language | domain",
-      "proficiency": "basic | intermediate | advanced | expert",
+      "proficiency": "basic | intermediate | advanced | expert | null",
       "years_experience": "Integer years or null",
       "last_used": "ISO date YYYY-MM-DD or null"
     }
@@ -233,8 +233,9 @@ Rules:
   derive one from the certificate's own name — a "Herstellerschulung" does not state an issuer
   called "Hersteller", and an "IHK-Zertifikat" states one only because the source wrote it. Leave
   the field null/absent when no issuer is stated; an invented issuer is fabricated credential data.
-- PROFICIENCY SCALE: every skill "proficiency" MUST be exactly one of basic | intermediate |
-  advanced | expert. Map a graphical or numeric competency scale deterministically by the filled
+- PROFICIENCY SCALE: a skill "proficiency" is set only when the source states or shows a level
+  for it — then exactly one of basic | intermediate | advanced | expert; when the source states
+  none, null (never a default "intermediate" — ADR-013/061 amended 2026-10-22). Map a graphical or numeric competency scale deterministically by the filled
   fraction of its maximum, so equal scale positions always yield the same proficiency level:
     • full marks (5/5 dots, 10/10, ●●●●●) → "expert"
     • ~80% (4/5 dots, 8/10, ●●●●○) → "advanced"

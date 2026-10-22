@@ -762,6 +762,7 @@ async def commit_ops(
         # bindings of the same batch; a receipt for something that did NOT
         # write, kept off `changes` on purpose (see `MatchReceipt`).
         matched=applied.matched,
+        restated=applied.restated,  # D-B3V6
         # 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the import's
         # extraction review outcome; `None` for every non-import batch.
         extraction_review=applied.extraction_review,

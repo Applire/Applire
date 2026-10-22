@@ -81,6 +81,8 @@ from applire.services.profile import (
     MatchNotSeparable,
     resolve_staged_extraction,
     separate_match,
+    apply_restated,
+    RestatedNotApplicable,
     StagedExtractionAlreadyResolved,
     StagedExtractionNotFound,
 )
@@ -406,6 +408,37 @@ async def separate_match_endpoint(
     except LookupError:
         raise HTTPException(status_code=404, detail="No profile found")
     except MatchNotSeparable as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
+
+
+class ApplyRestatedRequest(BaseModel):
+    entity_id: str
+    field: Literal["responsibilities", "achievements"]
+    text: str
+
+
+@router.post(
+    "/restated/apply",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def apply_restated_endpoint(
+    body: ApplyRestatedRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """D-B3V6 (ruling V-3 = A) — "Trotzdem übernehmen": write one bullet the
+    import restatement check held back. 409 ``unknown`` when no restated
+    receipt on that entry names the text, ``entity_gone`` when the entry no
+    longer exists; 404 without a profile."""
+    try:
+        return await apply_restated(
+            db, entity_id=body.entity_id, field=body.field, text=body.text,
+            user_id=_uid(current_user),
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
+    except RestatedNotApplicable as exc:
         raise HTTPException(status_code=409, detail=exc.code)
 
 

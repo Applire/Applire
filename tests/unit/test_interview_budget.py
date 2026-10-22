@@ -336,8 +336,8 @@ def test_a_pathological_cap_still_leaves_room_for_one_question():
 # `questions_asked`. The ceiling is `per_gap * n + 2` and the +2 is a measured
 # correctness term (above), so answered confirmations spent the terminal
 # headroom and a third ended a fully-worked interview on
-# `max_questions_reached`. The ceiling now counts gap turns only;
-# `questions_asked` (the UI's "Frage x von y") still counts every answer.
+# `max_questions_reached`. RULING 787:L7: `questions_asked` (the budget AND the
+# header count) counts gap elicitation only.
 
 
 async def _walk_with_confirmations(db, job, n_confirmations, max_turns=200):
@@ -376,6 +376,9 @@ async def _walk_with_confirmations(db, job, n_confirmations, max_turns=200):
         created = await S.create_session(SessionCreateRequest(job_id=job.id), db, provider)
         for _ in range(max_turns):
             resp = await S.send_message(created.session_id, _answer(), db, provider)
+            # RULING 787:L7 — every turn carries the backend's count (the
+            # header reads it; a client-side +1 would count confirmations).
+            assert resp.questions_asked is not None
             if resp.complete:
                 return created, resp
     raise AssertionError("session never completed")
@@ -397,5 +400,14 @@ async def test_confirmations_do_not_spend_the_gap_budget(sqlite_session, n_clust
         f"(budget {created.hard_ceiling}, {resp.questions_asked} questions)"
     )
     assert not resp.gaps_unresolved
-    # the candidate's count still includes the three confirmations they answered
-    assert resp.questions_asked >= 1 + n_clusters * INTERVIEW_MAX_QUESTIONS_PER_GAP
+    # RULING 787:L7 — `questions_asked` counts gap elicitation only: every
+    # assistant question in the transcript except the three confirmations.
+    from applire.models.session import InterviewSession
+
+    record = await sqlite_session.get(InterviewSession, created.session_id)
+    asked = [m for m in record.state["messages"] if m["role"] == "assistant"]
+    confirmations = [m for m in asked if "shares a word with skills" in m["content"]]
+    assert len(confirmations) == 3
+    # (the ADR-080 convention: 1 at creation + 1 per answered gap question)
+    gap_questions = len(asked) - len(confirmations)
+    assert resp.questions_asked == record.questions_asked == gap_questions + 1

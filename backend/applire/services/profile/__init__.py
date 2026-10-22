@@ -90,6 +90,7 @@ from applire.schemas.profile import (
     MasterProfileData,
     MasterProfileResponse,
     MatchReceipt,
+    RestatedReceipt,
     PendingConfirmation,
     ProfileChangesResponse,
     ProfileHealthResponse,
@@ -196,6 +197,7 @@ def _to_import_response(
     not_applied: list[ImportNotApplied] | None = None,
     not_applied_loss_count: int | None = None,
     matched: list[MatchReceipt] | None = None,
+    restated: list[RestatedReceipt] | None = None,
     extraction_review: "ExtractionReview | None" = None,
 ) -> ProfileImportResponse:
     """Same construction as :func:`_to_response`, plus the import fact (#615,
@@ -221,6 +223,7 @@ def _to_import_response(
         # #674 line 72 — the merge's `match_existing` receipts reach the import
         # doors' response, the same way `not_applied` does.
         matched=list(matched or []),
+        restated=list(restated or []),  # D-B3V6
         extraction_review=extraction_review,  # 783:L41
         # #367 — the same number under the name the import callers read.
         completeness_score=base.completeness,
@@ -303,6 +306,7 @@ def _enrichment_from_merge(merge_result, source, session_id: str | None = None) 
         # carried-predicate facts, persisted beside `reconciliation`.
         not_applied=list(merge_result.not_applied),
         matched=list(getattr(merge_result, "matched", None) or []),  # #707
+        restated=list(getattr(merge_result, "restated", None) or []),  # D-B3V6
     )
 
 
@@ -600,6 +604,7 @@ async def _import_from_text(
         not_applied=outcome.merge.not_applied,
         not_applied_loss_count=outcome.merge.not_applied_loss_count,
         matched=outcome.merge.matched,
+        restated=list(getattr(outcome.merge, "restated", None) or []),  # D-B3V6
         extraction_review=getattr(outcome, "extraction_review", None),
     )
 
@@ -758,6 +763,74 @@ async def separate_match(
         )
     except MatchNotSeparableError as exc:
         raise MatchNotSeparable(exc.code) from exc
+    await db.commit()
+    await db.refresh(result.record)
+    return _to_response(result.record)
+
+
+class RestatedNotApplicable(Exception):
+    """D-B3V6 — the text names no restated receipt "Trotzdem übernehmen" may
+    write. ``code``: ``unknown`` (no receipt on that entry names this text) ·
+    ``entity_gone`` (the entry no longer exists)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+async def apply_restated(
+    db: AsyncSession,
+    *,
+    entity_id: str,
+    field: str,
+    text: str,
+    user_id: uuid.UUID | None = None,
+) -> MasterProfileResponse:
+    """D-B3V6 (ADR-046 + ADR-063 amended 2026-10-22, ruling V-3 = A) —
+    "Trotzdem übernehmen": write ONE bullet the import restatement check held
+    back, on the candidate's word.
+
+    One ``add_bullets`` through the committer (source ``manual_edit``, actor
+    candidate — a direct act, like ``separate_match``). Only a text a
+    ``RestatedReceipt`` on that entry names may be written (409 ``unknown``);
+    a text the entry already holds is not appended twice (``_append_dedup``),
+    so the click is idempotent.
+    """
+    from applire.services.profile.reconcile.ops import AddBullets
+
+    record = await _get_latest(db, user_id)
+    if not record:
+        raise LookupError("No profile found")
+    profile = MasterProfileData.model_validate(record.profile_json)
+    receipt = next(
+        (
+            r for rec in (profile.metadata.enrichment_history if profile.metadata else [])
+            for r in rec.restated
+            if r.entity_id == entity_id and r.field == field and r.text == text
+        ),
+        None,
+    )
+    if receipt is None:
+        raise RestatedNotApplicable("unknown")
+    entity = next(
+        (
+            e for section in ("work_experience", "projects", "volunteer_activities")
+            for e in (getattr(profile, section, None) or [])
+            if str(getattr(e, "id", "")) == entity_id
+        ),
+        None,
+    )
+    if entity is None:
+        raise RestatedNotApplicable("entity_gone")
+    result = await commit_ops(
+        db,
+        [AddBullets(target=entity_id, **{field: [text]})],
+        CommitProvenance(source="manual_edit", intake="field_edit", actor="candidate"),
+        record=record,
+        grounding=None,
+        snapshot=None,
+        llm_provider=None,
+    )
     await db.commit()
     await db.refresh(result.record)
     return _to_response(result.record)
@@ -1457,6 +1530,7 @@ async def upload_cv(
         # #717 (ADR-063 amended 2026-10-07) — the import summary's
         # "Schon in deinem Profil" reads the same receipt the history shows.
         matched=merge_outcome.matched,
+        restated=list(getattr(merge_outcome, "restated", None) or []),  # D-B3V6
         # 783:L41 — the extraction review outcome of this import.
         extraction_review=outcome.extraction_review,
     )
@@ -1509,6 +1583,7 @@ class ApplyMergeOutcome:
     # persisted `EnrichmentRecord` and stopped, because this outcome object did
     # not carry it to either caller.
     matched: list[MatchReceipt] = field(default_factory=list)
+    restated: list[RestatedReceipt] = field(default_factory=list)  # D-B3V6
 
 
 async def _apply_merge(
@@ -1568,6 +1643,7 @@ async def _apply_merge(
                     reconciliation=enrichment.reconciliation,
                     not_applied=enrichment.not_applied,
                     matched=enrichment.matched,  # #707
+                    restated=enrichment.restated,  # D-B3V6
                     extraction_review=extraction_review,  # 783:L41
                 )
             ],
@@ -1589,6 +1665,7 @@ async def _apply_merge(
             merge_status=merge_status,
             not_applied_loss_count=loss_count,
             matched=enrichment.matched,  # #674 line 72
+            restated=enrichment.restated,  # D-B3V6
         )
 
     # First upload — the committer creates the profile (#480 PR 8), through the
@@ -1720,6 +1797,7 @@ async def resolve_staged_extraction(
             not_applied=merge_outcome.not_applied,
             not_applied_loss_count=merge_outcome.not_applied_loss_count,
             matched=merge_outcome.matched,  # #717
+            restated=list(getattr(merge_outcome, "restated", None) or []),  # D-B3V6
         )
 
     raise ValueError(f"unknown resolve action: {action!r}")

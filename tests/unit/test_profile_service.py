@@ -107,7 +107,7 @@ class TestSchemaDefaults:
     def test_skill_default_proficiency_and_category(self):
         from applire.schemas.profile import Skill
         s = Skill(name="Python")
-        assert s.proficiency == "intermediate"
+        assert s.proficiency is None  # ruling V-2 = A: no level unless stated
         assert s.category == "technical"
 
     def test_master_profile_data_list_sections_default_to_empty(self):
@@ -212,7 +212,7 @@ class TestLegacyMigration:
         assert len(p.skills) == 2
         assert all(isinstance(s, Skill) for s in p.skills)
         assert p.skills[0].name == "Python"
-        assert p.skills[0].proficiency == "intermediate"
+        assert p.skills[0].proficiency is None  # ruling V-2 = A
         assert p.skills[0].category == "technical"
 
 

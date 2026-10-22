@@ -165,6 +165,9 @@ class SessionMessageResponse(BaseModel):
     choices: list[str] | None = None
     # Populated when complete=True
     reason: Literal["gaps_resolved", "user_ended", "max_questions_reached"] | None = None
+    # RULING 787:L7 — set on EVERY turn since Hazelnut b3 (not only on
+    # completion): the gap questions asked so far; a confirmation turn does
+    # not count.
     questions_asked: int | None = None
     gaps_resolved: int | None = None
     gaps_unresolved: list[str] | None = None
@@ -251,9 +254,6 @@ class InterviewState(TypedDict):
     hard_ceiling: int
     # Sprint 15 additions (optional — missing keys default to {} / [] / [])
     questions_per_gap: dict   # gap_str → questions asked so far for this gap
-    # Hazelnut b3 WP-V — answered interview confirmations; not charged to the
-    # ADR-080 hard ceiling (services.session ceiling check). Missing = 0.
-    confirmation_answers: int
     skipped_gaps: list[str]   # gaps resolved transitively via cross-gap answer
     full_gaps: list[str]      # full gap list from analysis; set for micro-sessions only
     na_gaps: list[str]        # gaps dismissed as N/A by the user (Mode C)

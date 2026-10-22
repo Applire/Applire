@@ -47,6 +47,7 @@ from applire.schemas.profile import (
     FieldChange,
     ImportNotApplied,
     MatchReceipt,
+    RestatedReceipt,
     Language,
     MasterProfileData,
     ProfileMetaBlock,
@@ -156,7 +157,7 @@ def _promote_to_confirmed(entity: Any, op_status: str) -> bool:
     return True
 
 
-def _merge_declared_proficiency(existing: str, incoming: str | None) -> str:
+def _merge_declared_proficiency(existing: str | None, incoming: str | None) -> str | None:
     """ADR-061 clause 5 — a declared proficiency is a ceiling, not a floor.
 
     ``existing`` is the tier already recorded on the profile's skill. A prior
@@ -258,6 +259,8 @@ class ApplyResult(BaseModel):
     # #707 — `match_existing` receipts: recognised-as-present, nothing written.
     # Kept OFF `changes` on purpose (see `schemas.profile.MatchReceipt`).
     matched: list[MatchReceipt] = []
+    # D-B3V6 — second-source bullets held back as restatements (import only).
+    restated: list[RestatedReceipt] = []
     # 783:L41 — the ingest's extraction review outcome; set exclusively by
     # `ApplyImportMerge`, `None` for every other batch.
     extraction_review: ExtractionReview | None = None
@@ -555,6 +558,7 @@ def apply_ops(
     not_applied: list[ImportNotApplied] = []  # #615 — see ApplyResult.not_applied
     extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
+    restated: list[RestatedReceipt] = []  # D-B3V6 — see ApplyResult.restated
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
     ref_map: dict[str, ExperienceBase] = {}
@@ -752,6 +756,7 @@ def apply_ops(
             new_profile = op.merged.model_copy(deep=True)
             changes.extend(op.changes)
             matched.extend(op.matched)  # #707 — the intake's bindings ride with it
+            restated.extend(op.restated)  # D-B3V6
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
             extraction_review = op.extraction_review
@@ -835,6 +840,7 @@ def apply_ops(
         reconciliation=reconciliation,
         not_applied=not_applied,
         matched=matched,
+        restated=restated,
         extraction_review=extraction_review,
     )
 

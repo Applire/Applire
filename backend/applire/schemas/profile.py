@@ -505,7 +505,12 @@ class Skill(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     category: Literal["technical", "soft", "language", "domain"] = "technical"
-    proficiency: Literal["basic", "intermediate", "advanced", "expert"] = "intermediate"
+    # ADR-013/061 amended 2026-10-22 (Hazelnut b3 WP-V, ruling V-2 = A): None =
+    # the source stated no level. Was a default "intermediate" — every unscaled
+    # skill of an 8-year senior read "Intermediate Python" (UX audit, Felix).
+    # Values persisted before stay as stored (a stored "intermediate" cannot be
+    # told apart from a stated one).
+    proficiency: Literal["basic", "intermediate", "advanced", "expert"] | None = None
     years_experience: int | None = None
     # Provenance of ``years_experience`` (ADR-061 clause 7 — transcribed vs
     # computed). Two writers since ADR-061's 2026-09-08 amendment (#684):
@@ -641,11 +646,10 @@ class Skill(BaseModel):
         # (#319, PO decision 2026-08-07).
         #
         # THE PAGE SAID NOTHING (None, or the field omitted so the model default
-        # applies) — still "intermediate". Whether a never-stated proficiency
-        # deserves a distinct not-stated state is deferred to #316's consumer
-        # audit (they touch the same consumers); until then this stays put.
+        # applies) — None, "not stated" (ruling V-2 = A, 2026-10-22; was
+        # "intermediate", the deferral #319 named).
         if v is None:
-            return "intermediate"
+            return None
         if isinstance(v, str):
             normalized = _PROFICIENCY_ALIASES.get(v.strip().lower())
             if normalized:
@@ -657,7 +661,7 @@ class Skill(BaseModel):
             # An empty slot is the page saying nothing, not the page saying
             # something we could not read — path 1 above, not path 2 below.
             if not lowered:
-                return "intermediate"
+                return None
             # THE PAGE SAID SOMETHING WE DO NOT RECOGNISE (tomorrow's Xing
             # wording, a CEFR level, an LLM emitting free text) — fall to
             # "basic", the lowest tier, and never raise a validation error.
@@ -884,6 +888,31 @@ class MatchReceipt(BaseModel):
     incoming_entry: dict[str, Any] | None = None
     #: set when the candidate said "Nicht dasselbe" (`SeparateMatch`).
     undone_at: datetime | None = None
+
+
+class RestatedReceipt(BaseModel):
+    """One bullet a second source would have added to an existing entry and the
+    import restatement check held back as a restatement of a held bullet
+    (ADR-046 + ADR-063 amended 2026-10-22, D-B3V6; founder ruling V-3 = A).
+
+    The receipt for something that was NOT written: ``text`` (the new bullet as
+    the reconciler wrote it) restates ``restates`` (a bullet ``entity_id``
+    already holds) — the model's judgement, ``services/profile/reconcile/
+    restatement.py``. Rides ``MergeResult.restated`` → ``ApplyImportMerge.
+    restated`` → ``EnrichmentRecord.restated`` and every import door's
+    response; "Trotzdem übernehmen" (``POST /api/profile/restated/apply``)
+    writes it on the candidate's word. Not a :class:`FieldChange` for the same
+    reason :class:`MatchReceipt` is not one: nothing in the vault changed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity_id: str
+    entity_label: str | None = None
+    section: str
+    field: Literal["responsibilities", "achievements"]
+    text: str
+    restates: str
 
 
 class ImportNotApplied(BaseModel):
@@ -1154,6 +1183,8 @@ class EnrichmentRecord(BaseModel):
     # under another surface form. Optional and default-empty for the same
     # reason `not_applied` is; NOT folded into `changes` (see `MatchReceipt`).
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
+    restated: list[RestatedReceipt] = Field(default_factory=list)
     #: 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the extraction review
     #: outcome of the import this record receipts; ``None`` on every
     #: non-import record and on records persisted before the field existed.
@@ -1538,7 +1569,7 @@ class MasterProfileData(BaseModel):
             skills = []
             for s in data["skills"]:
                 if isinstance(s, str):
-                    skills.append({"name": s, "category": "technical", "proficiency": "intermediate"})
+                    skills.append({"name": s, "category": "technical"})
                 else:
                     skills.append(s)
             data["skills"] = skills
@@ -1748,6 +1779,8 @@ class ProfileImportResponse(MasterProfileResponse):
     #: → `EnrichmentRecord.matched` to the profile page's history and stopped
     #: there, so no import DOOR ever stated it.
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
+    restated: list[RestatedReceipt] = Field(default_factory=list)
     #: 783:L41 (ADR-021 amended 2026-10-20) — the extraction review outcome of
     #: this import; see :class:`ExtractionReview`.
     extraction_review: ExtractionReview | None = None
@@ -1825,6 +1858,8 @@ class CVUploadResponse(BaseModel):
     # #717 (ADR-063 amended 2026-10-07) — the merge's recognised pairs, the
     # same receipt `ProfileImportResponse.matched` carries (2026-09-18).
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
+    restated: list[RestatedReceipt] = Field(default_factory=list)
     #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`. Optional
     #: for the same reason: this class is persisted verbatim as a background
     #: import job's `result` (`CVImportStatusResponse`), and a job stored
@@ -1909,6 +1944,8 @@ class StagedResolveResponse(BaseModel):
     # #717 (ADR-063 amended 2026-10-07) — the merge's recognised pairs, the
     # same receipt `ProfileImportResponse.matched` carries (2026-09-18).
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
+    restated: list[RestatedReceipt] = Field(default_factory=list)
     #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`.
     not_applied_loss_count: int | None = None
 
