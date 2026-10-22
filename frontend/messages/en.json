@@ -1235,7 +1235,7 @@
   "shell": {
     "dashboard": "Dashboard",
     "profile": "My Profile",
-    "import": "Update Profile",
+    "import": "Add a CV or role",
     "documents": "My Documents",
     "settings": "Settings",
     "admin": "Administration",
