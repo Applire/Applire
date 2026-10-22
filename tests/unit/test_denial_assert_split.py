@@ -558,6 +558,14 @@ def test_seam_vault_reevaluation_still_skips_an_unreleased_containment_match():
     profile["work_experience"][0]["responsibilities"] = [
         "Leitung der Produktion an zwei Standorten."
     ]
+    # Interview-written (ADR-059 amended 2026-10-22, E-11): only prose of
+    # import provenance releases, so this bullet leaves the match unreleased.
+    profile["metadata"]["enrichment_history"] = [{
+        "source": "interview", "timestamp": "2026-10-01T00:00:00Z",
+        "changes": [{"section": "work_experience", "field": "responsibilities",
+                     "action": "merged", "old_value": None,
+                     "new_value": ["Leitung der Produktion an zwei Standorten."]}],
+    }]
     row = _entry(
         BARE_CONCEPT,
         status="gap",
