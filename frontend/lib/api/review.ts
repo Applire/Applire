@@ -124,3 +124,46 @@ export function hasMergeReview(
   const conflicts = trail.pendingConflicts ?? [];
   return mergeChanges.length > 0 || conflicts.length > 0;
 }
+
+
+/** ADR-040 amended 2026-10-22 (ruling V-1 = A) — the interview receipt as a
+ *  summary of ONE session, produced backend-side from the complete trail. */
+export interface ReceiptFact {
+  key: string;
+  section: string;
+  kind:
+    | "story" | "result" | "position" | "project" | "certification"
+    | "responsibility" | "tool" | "skill" | "education" | "language"
+    | "limit" | "detail";
+  action: "added" | "updated" | "merged" | "removed";
+  text: string;
+  entity_label?: string | null;
+  also_in: string[];
+  detail?: string | null;
+}
+
+export interface ReceiptGroup {
+  section: string;
+  count: number;
+  entities: { label: string; count: number }[];
+  preview: string[];
+  more: number;
+}
+
+export interface ReceiptSummary {
+  session_id: string | null;
+  answers: number;
+  facts_total: number;
+  groups: ReceiptGroup[];
+  top: ReceiptFact[];
+  facts: ReceiptFact[];
+}
+
+export async function getReceiptSummary(sessionId?: string | null): Promise<ReceiptSummary> {
+  const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  const res = await fetch(`${API_BASE}/api/profile/changes/summary${qs}`);
+  if (!res.ok) {
+    throw new Error(await getApiErrorMessage(res));
+  }
+  return (await res.json()) as ReceiptSummary;
+}

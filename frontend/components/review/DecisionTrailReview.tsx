@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 
 import { getProfileChanges } from "@/lib/api/review";
+import { ReceiptSummaryReview } from "./ReceiptSummaryReview";
 import { WhatChangedReview, type ReviewChange } from "./WhatChangedReview";
 
 /**
@@ -36,9 +37,30 @@ export interface DecisionTrailReviewProps {
   onConfirm?: () => void;
   onDismiss?: () => void;
   onFix?: (change: ReviewChange) => void;
+  /** interview mode: the session whose receipt to summarise (latest when absent). */
+  sessionId?: string | null;
 }
 
-export function DecisionTrailReview({ mode, onConfirm, onDismiss, onFix }: DecisionTrailReviewProps) {
+export function DecisionTrailReview(props: DecisionTrailReviewProps) {
+  // ADR-040 amended 2026-10-22 (ruling V-1 = A): the interview receipt is the
+  // backend's session-scoped summary, not the raw trail rows.
+  if (props.mode === "interview") {
+    const { onFix, sessionId } = props;
+    return (
+      <ReceiptSummaryReview
+        sessionId={sessionId}
+        onFix={
+          onFix
+            ? (f) => onFix({ section: f.section, field: f.kind, action: f.action, newValue: f.text })
+            : undefined
+        }
+      />
+    );
+  }
+  return <TrailReview {...props} />;
+}
+
+function TrailReview({ mode, onConfirm, onDismiss, onFix }: DecisionTrailReviewProps) {
   const [changes, setChanges] = useState<ReviewChange[] | null>(null);
 
   useEffect(() => {

@@ -222,3 +222,17 @@ def test_add_bullets_receipt_names_its_entity_and_only_what_it_appended():
     assert by_field["responsibilities"].new_value == ["Hired four engineers."]
     assert by_field["responsibilities"].entity_id == entry.id
     assert by_field["technologies"].entity_id == entry.id
+
+
+def test_agent_interview_records_are_interview_receipts():
+    """US256: a claim an agent submitted over MCP is testimony — it belongs to
+    the interview receipt (moved here from DecisionTrailReview's filter)."""
+    now = datetime.now(timezone.utc)
+    profile = MasterProfileData(metadata=ProfileMetadata(enrichment_history=[
+        EnrichmentRecord(timestamp=now, source="agent_interview", source_session_id="a1", changes=[
+            FieldChange(section="skills", field="name", action="added", new_value="Terraform")]),
+        EnrichmentRecord(timestamp=now, source="cv_upload", changes=[
+            FieldChange(section="skills", field="name", action="added", new_value="Python")]),
+    ]))
+    s = summarize_session_receipts(profile, None)
+    assert s.session_id == "a1" and [f.text for f in s.facts] == ["Terraform"]
