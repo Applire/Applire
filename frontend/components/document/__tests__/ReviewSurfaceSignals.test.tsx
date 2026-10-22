@@ -164,8 +164,12 @@ describe("#789 line L60 — an unanswered CV critic never reads as findings belo
     render(withIntl(<ReviewSurface {...cvProps({ atsReport: withGap, criticReport: notRun })} />, "en"));
     const verdict = screen.getByTestId("review-verdict");
     expect(verdict).toHaveTextContent("Coherence advisory");
-    expect(verdict).toHaveTextContent("Not checked: Coherence advisory. There is 1 further finding below.");
+    expect(verdict).toHaveTextContent("Not checked: Coherence advisory — look over that part yourself before you send it.");
     expect(verdict).not.toHaveTextContent("stand in the way");
+    // T-1: the real count stays, on the truth line below the headline.
+    expect(screen.getByTestId("review-verdict-truth")).toHaveTextContent(
+      "Nothing is made up: every statement in the document is covered by your profile. Plus 1 note.",
+    );
   });
 
   it("names the count in the ruled DE wording when findings sit below (D2-3)", () => {
@@ -175,8 +179,12 @@ describe("#789 line L60 — an unanswered CV critic never reads as findings belo
       keywords: { ...base.keywords, missing_honest_gap: ["Terraform", "Ansible"], missing: ["Terraform", "Ansible"] },
     };
     render(withIntl(<ReviewSurface {...cvProps({ atsReport: withGaps, criticReport: errored })} />, "de"));
+    // D2-3 reordered by T-1: the blind check leads, the count sits on the truth line.
     expect(screen.getByTestId("review-verdict")).toHaveTextContent(
-      /^Jede Aussage im Dokument ist durch Dein Profil gedeckt\. Nicht geprüft: Kohärenz-Hinweis\. Weiter unten stehen 2 weitere Befunde\.$/,
+      /^Nicht geprüft: Kohärenz-Hinweis — sieh Dir diesen Teil selbst an, bevor Du sendest\.$/,
+    );
+    expect(screen.getByTestId("review-verdict-truth")).toHaveTextContent(
+      /^Erfunden ist nichts: Jede Aussage im Dokument ist durch Dein Profil gedeckt\. Dazu kommen 2 Hinweise\.$/,
     );
   });
 

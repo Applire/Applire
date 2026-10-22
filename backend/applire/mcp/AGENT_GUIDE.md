@@ -115,6 +115,12 @@ before you judge or describe the document. `get_cover_letter_status`
 also carries `critic_report` (ADR-060 Pass B) — a cross-document coherence
 advisory when the letter states something your CV doesn't back at the same
 depth. Read-only, never mutates either document; null until the pass runs.
+Both status tools also carry `review_degradation`: the review steps of the
+writing loop that did not run (`[{check, stage, reason, attempt, count}]` —
+`stage: "review"` = the draft shipped un-reviewed, `"correction"` = findings were
+not acted on). `[]` = every step answered; `null` = not recorded (an older
+document, or one you authored). A non-empty list is worth telling the human:
+offer a regeneration or a careful read of that part.
 Its `cross_document` list folds the advisories that quote the same letter
 sentence into one item; `weight: "high"` means the letter states a fact the CV
 never mentions, with a figure, year or duration — the shape blind recruiters

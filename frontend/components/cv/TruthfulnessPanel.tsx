@@ -9,6 +9,7 @@ import { useTranslations } from "next-intl";
 import { AlertTriangle, Info, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ATSReport } from "@/components/cv/ATSChecksPanel";
+import { oracleDetailText } from "@/lib/oracle-detail";
 import {
   FLAG_VERDICTS,
   claimableConceptSet,
@@ -130,6 +131,7 @@ export default function TruthfulnessPanel({
 }) {
   const t = useTranslations("truthfulness");
   const tCommon = useTranslations("common");
+  const tOracle = useTranslations("oracleDetail");
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -328,7 +330,7 @@ export default function TruthfulnessPanel({
                   <span className="block">{c.claim.text}</span>
                   {c.verdict.detail ? (
                     <span className="block text-xs text-on-surface-variant">
-                      {c.verdict.detail}
+                      {oracleDetailText(c.verdict, tOracle)}
                     </span>
                   ) : null}
                 </span>
@@ -405,7 +407,7 @@ export default function TruthfulnessPanel({
                 // this feature resolves).
                 const chipKind: DisplayKind = claimIsRelated ? "related" : c.verdict.verdict;
                 const chipLabel = claimIsRelated ? t("verdicts.related") : verdictLabel(c.verdict.verdict);
-                const detailText = claimIsRelated ? t("relatedDetail") : c.verdict.detail;
+                const detailText = claimIsRelated ? t("relatedDetail") : oracleDetailText(c.verdict, tOracle);
                 return (
                   <li
                     key={c.claim.location}

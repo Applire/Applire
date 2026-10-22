@@ -1660,15 +1660,16 @@
     "fineTune": "Fine-tune",
     "downloadPdf": "Download PDF",
     "atsSheetTitle": "Review",
-    "fineTuneSheetTitle": "Fine-tune",
-    "passBadgeLabel": "{count, plural, one {# ATS check passing} other {# ATS checks passing}}"
+    "fineTuneSheetTitle": "Fine-tune"
   },
   "documentReview": {
     "title": "Review",
     "verdictFindings": "{count, plural, one {# place in the document is not covered by your profile.} other {# places in the document are not covered by your profile.}}",
     "verdictClear": "Every statement in the document is covered by your profile.",
-    "verdictClearWithOthers": "Every statement in the document is covered by your profile. {count, plural, =0 {There are findings below that do not stand in the way of sending it.} one {There is # further finding below — it does not stand in the way of sending it.} other {There are # further findings below — they do not stand in the way of sending it.}}",
-    "verdictClearUnchecked": "Every statement in the document is covered by your profile. Not checked: {producers}{count, plural, =0 { — look over that part yourself before you send it.} one {. There is # further finding below.} other {. There are # further findings below.}}",
+    "verdictDecisions": "{count, plural, one {# point needs your decision before you send it.} other {# points need your decision before you send it.}}",
+    "verdictNotesOnly": "{count, plural, one {There is # note below you should know before you send it.} other {There are # notes below you should know before you send it.}}",
+    "verdictUncheckedHead": "Not checked: {producers} — look over that part yourself before you send it.",
+    "verdictTruthLine": "Nothing is made up: every statement in the document is covered by your profile.{decisions, plural, =0 {} one { # point needs your decision.} other { # points need your decision.}}{notes, plural, =0 {} one { Plus # note.} other { Plus # notes.}}",
     "verdictClearWithSendCheck": "Every statement in the document is covered by your profile — but {count, plural, one {# finding needs} other {# findings need}} a look before you send it.",
     "verdictUnknown": "Whether every statement is covered was not checked for this document.",
     "group1Title": "In the document, but not in your profile",
@@ -1728,7 +1729,25 @@
     "sendCheckTitle": "Look at this before you send it",
     "sendCheckSub": "The document is not ready to send as it is. Edit these places yourself or generate it again.",
     "group3Link": "Open in the gap analysis",
-    "coverageLine": "{present} of {total} job keywords appear in the document."
+    "coverageLine": "{present} of {total} job keywords appear in the document.",
+    "degradationTitle": "{count, plural, one {A check did not run while the document was written} other {# checks did not run while the document was written}}",
+    "degradationReview": "{check}: did not run — {reason}.",
+    "degradationCorrection": "{check}: found something, but the correction did not run.",
+    "degradationAdvice": "The document is finished all the same. Create a new version, or proofread that part yourself before you send it.",
+    "degradationRegenerate": "Create a new version",
+    "degradationCheck": {
+      "language": "Language check",
+      "draft": "Draft check",
+      "final": "Final check",
+      "other": "Check"
+    },
+    "degradationReason": {
+      "timeout": "the AI provider did not answer in time",
+      "truncated": "the AI provider's answer was cut off",
+      "malformed": "the AI provider's answer could not be read",
+      "shape": "the AI provider's answer could not be read",
+      "error": "the AI provider could not be reached"
+    }
   },
   "upgradeNotice": {
     "title": "Something about your settings changed since your last start",
@@ -2389,5 +2408,16 @@
       "stale": "This duration was already updated — the list is refreshed.",
       "failed": "Recalculating didn't work. Nothing was changed — please try again."
     }
+  },
+  "oracleDetail": {
+    "credentialUnbacked": "States the qualification “{credential}”, which no entry in your profile names. Add it to your profile if you hold it — otherwise take it out.",
+    "identifierAbsent": "Names {identifiers} — a standard your profile never mentions.",
+    "tenureStartBeforeVault": "The stated start “{claimed}” lies before the earliest position in your profile ({earliest}).",
+    "tenureExceedsVault": "The stated duration “{claimed}” is longer than the {years} years your dated positions add up to. Write at most “over {whole} years”.",
+    "subjectTenureExceeds": "The stated duration “{claimed}” is longer than the {years} years of the positions that mention “{skill}”. Write at most “over {whole} years”.",
+    "misattributed": "The evidence for this comes from a different position — the statement sits under a role it does not belong to.",
+    "skillNoEvidence": "“{skill}” appears nowhere in your profile.",
+    "figuresNoEvidence": "Your profile has no evidence for these figure(s): {figures}.",
+    "inflatedAspirational": "Stated as an achieved result, but your profile records it as a target, not a result."
   }
 }

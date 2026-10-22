@@ -105,6 +105,11 @@ class GeneratedCV(Base):
     # lists; every count derives from the report (services/review_state.py).
     # NULL = no decision yet. A regeneration is a new row and starts empty.
     review_state: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-081 cl. 9 amended 2026-10-22 (migration 0084, #786): the review steps of
+    # the writing loop that did not run — [{check, stage, reason, attempt, count}]
+    # (services/review_degradation.py). NULL = not recorded (pre-0084 row, agent
+    # render); [] = recorded, every review step answered. Written in the ready-commit.
+    review_degradation: Mapped[list | None] = mapped_column(_JSON, nullable=True)
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )
