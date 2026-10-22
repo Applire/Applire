@@ -39,7 +39,9 @@ import { NewVersionDialog } from "@/components/document/NewVersionDialog";
 import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
 
 /** Where a held-back navigation goes once the draft question is answered. */
-type PageNav = { kind: "tab"; id: string } | GuardedNav;
+// #789 (mobile Feinschliff): leaving the phone's Fine-tune sheet is a navigation
+// the draft question guards too; `proceed` closes/switches the sheet.
+type PageNav = { kind: "tab"; id: string } | { kind: "sheet"; proceed: () => void } | GuardedNav;
 import { crossDocumentHandle, letterOnlyFacts } from "@/components/review/CrossDocumentSection";
 import { DesignTab } from "@/components/cv/DesignTab";
 import { CVActionsTab } from "@/components/cv/CVActionsTab";
@@ -50,7 +52,8 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import { openGroup1Count, buildReviewGroups } from "@/lib/review-groups";
+import { openGroup1Count, buildReviewGroups, decisionCount } from "@/lib/review-groups";
+import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
   markEdited,
   refreshedReport,
@@ -152,6 +155,11 @@ export default function CVPage({
   const [truthReport, setTruthReport] = useState<TruthfulnessReport>(null);
   // ADR-060/E049 49.6: outcome critic advisory report (Pass A, this mount).
   const [criticReport, setCriticReport] = useState<OutcomeCriticReport>(null);
+  // #786 / T-2: the writing loop's review steps that did not run (status door).
+  // Keyed by the CV it belongs to, so a new version never shows the old record.
+  const [degradationFor, setDegradationFor] = useState<{ cvId: string; steps: DegradedReviewStep[] | null } | null>(
+    null,
+  );
   // E042/US239 (ADR-051 §1): per-generation page-target override, sent as
   // `target_pages` in the generate POST body. Defaults to the user's
   // `target_cv_pages` setting when set, else the DACH standard (2).
@@ -479,10 +487,13 @@ export default function CVPage({
             signature_override?: boolean | null;
             signature_effective?: boolean;
             signature_available?: boolean;
+            // #786 / T-2 (ADR-081 cl. 9 amended): null = not recorded.
+            review_degradation?: DegradedReviewStep[] | null;
           } | null,
         ) => {
           if (cancelled || !data) return;
           setDocLanguage(data.document_language ?? null);
+          setDegradationFor({ cvId, steps: data.review_degradation ?? null });
           if (data.template && (CV_TEMPLATES as readonly string[]).includes(data.template)) {
             setTemplate(data.template as CVTemplate);
           }
@@ -711,6 +722,10 @@ export default function CVPage({
 
     // #737 — leave *Bearbeiten* only past the unsaved-draft question.
     const proceedNav = (nav: PageNav) => {
+      if (nav.kind === "sheet") {
+        nav.proceed();
+        return;
+      }
       if (nav.kind === "href") {
         draftGuard.release();
         router.push(nav.href);
@@ -790,6 +805,8 @@ export default function CVPage({
       <ReviewSurface
         documentKind="cv"
         documentId={cvId}
+        degradation={degradationFor?.cvId === cvId ? degradationFor.steps : null}
+        onRegenerate={() => requestNewVersion(() => void handleGenerate(template))}
         atsReport={atsReport}
         truthReport={truthReport}
         criticReport={criticReport}
@@ -828,13 +845,16 @@ export default function CVPage({
 
     // ADR-081 cl. 6, carried onto the tab strip and the collapsed rail: group
     // 1's count is the one send-blocking number and may never be invisible.
-    const group1Live = buildReviewGroups({
+    const liveGroups = buildReviewGroups({
       atsReport,
       truthReport,
       criticReport,
       gapClusters,
-    }).find((g) => g.id === 1)!;
+    });
+    const group1Live = liveGroups.find((g) => g.id === 1)!;
     const group1Count = openGroup1Count(group1Live.items, reviewState);
+    // T-1: the phone badge's amber number when group 1 is clean.
+    const liveDecisionCount = decisionCount(liveGroups);
 
     const sidebarTabs: SidebarTab[] = [
       {
@@ -1027,7 +1047,6 @@ export default function CVPage({
                its sheets; only the sheet's CONTENT follows the new grouping —
                the SAME live ReviewSurface instance, never a forked panel. */
             <MobileCommandBar
-              atsReport={atsReport}
               atsPanel={renderReviewSurface("sheet")}
               fineTuneSurface={
                 <>
@@ -1050,6 +1069,15 @@ export default function CVPage({
               openFineTuneNonce={fineTuneNonce}
               suspended={mobileLocating}
               openCount={atsReport || truthReport ? group1Count : null}
+              decisionCount={atsReport ? liveDecisionCount : null}
+              onLeaveFineTune={(proceed) => {
+                if (!editDraft.dirty) {
+                  proceed();
+                  return;
+                }
+                setPendingNavFailed(false);
+                setPendingNav({ kind: "sheet", proceed });
+              }}
             />
           }
         />

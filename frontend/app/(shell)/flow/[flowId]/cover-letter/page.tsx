@@ -49,7 +49,8 @@ import UnaskedRequirementsPanel, {
 } from "@/components/gaps/UnaskedRequirementsPanel";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import { openGroup1Count, buildReviewGroups } from "@/lib/review-groups";
+import { openGroup1Count, buildReviewGroups, decisionCount } from "@/lib/review-groups";
+import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
   markEdited,
   refreshedReport,
@@ -126,6 +127,8 @@ export default function CoverLetterPage({
   const [truthReport, setTruthReport] = useState<TruthfulnessReport>(null);
   // ADR-060/E049 49.6: outcome critic advisory report (Pass B, cross-document mount).
   const [criticReport, setCriticReport] = useState<OutcomeCriticReport>(null);
+  // #786 / T-2: the writing loop's review steps that did not run (status door).
+  const [reviewDegradation, setReviewDegradation] = useState<DegradedReviewStep[] | null>(null);
   // ADR-074 (#526): JD hard requirements Applire holds nothing on and never
   // asked about. Derived per APPLICATION from the persisted keyword ledger, so
   // it rides the gap-analysis response the gaps page already reads rather than a
@@ -153,7 +156,10 @@ export default function CoverLetterPage({
   const [confirmNewVersion, setConfirmNewVersion] = useState(false);
   // #737: an unsaved body draft holds back a tab switch (Finetuner Branch B).
   const [bodyDirty, setBodyDirty] = useState(false);
-  const [pendingNav, setPendingNav] = useState<{ kind: "tab"; id: string } | GuardedNav | null>(null);
+  // #789 (mobile Feinschliff): closing the phone's Fine-tune sheet is guarded too.
+  const [pendingNav, setPendingNav] = useState<
+    { kind: "tab"; id: string } | { kind: "sheet"; proceed: () => void } | GuardedNav | null
+  >(null);
   // Adversarial finding 11: the body draft also holds back a reload / tab
   // close, every in-app link and the browser's back button.
   const draftGuard = useUnsavedDraftGuard(bodyDirty, (nav) => setPendingNav(nav));
@@ -242,7 +248,10 @@ export default function CoverLetterPage({
         signature_override?: boolean | null;
         signature_effective?: boolean;
         signature_available?: boolean;
+        // #786 / T-2 (ADR-081 cl. 9 amended): null = not recorded.
+        review_degradation?: DegradedReviewStep[] | null;
       };
+      setReviewDegradation(statusData.review_degradation ?? null);
       setSignatureOverride(statusData.signature_override ?? null);
       setSignatureEffective(statusData.signature_effective ?? false);
       setSignatureAvailable(statusData.signature_available ?? false);
@@ -344,6 +353,8 @@ export default function CoverLetterPage({
 
   function startPolling(clId: string) {
     if (pollRef.current) clearInterval(pollRef.current);
+    // A new letter starts unrecorded until its own status answers.
+    setReviewDegradation(null);
     pollRef.current = setInterval(async () => {
       try {
         const res = await fetch(`${API_BASE}/api/cover-letter/${clId}/status`);
@@ -353,9 +364,11 @@ export default function CoverLetterPage({
           letter_data?: Record<string, unknown> | null;
           section_overrides?: Record<string, unknown> | null;
           document_language?: "de" | "en" | null;
+          review_degradation?: DegradedReviewStep[] | null;
         };
         if (data.status === "ready") {
           clearInterval(pollRef.current!);
+          setReviewDegradation(data.review_degradation ?? null);
           setPhase("ready");
           setClState((prev) =>
             prev
@@ -653,6 +666,8 @@ export default function CoverLetterPage({
     <ReviewSurface
       documentKind="cover-letter"
       documentId={clState?.coverLetterId ?? null}
+      degradation={reviewDegradation}
+      onRegenerate={requestRegenerate}
       atsReport={atsReport}
       truthReport={truthReport}
       criticReport={criticReport}
@@ -720,13 +735,16 @@ export default function CoverLetterPage({
     </>
   );
 
-  const group1Live = buildReviewGroups({
+  const liveGroups = buildReviewGroups({
     atsReport,
     truthReport,
     criticReport,
     gapClusters: [],
     hasClusterProducer: false,
-  }).find((g) => g.id === 1)!;
+  });
+  const group1Live = liveGroups.find((g) => g.id === 1)!;
+  // T-1: the phone badge's amber number when group 1 is clean.
+  const liveDecisionCount = decisionCount(liveGroups);
   const group1Count = openGroup1Count(group1Live.items, reviewState);
 
   const sidebarTabs: SidebarTab[] = [
@@ -841,13 +859,20 @@ export default function CoverLetterPage({
              command bar the CV page uses, hosting the live review surface and
              the live body editor. */
           <MobileCommandBar
-            atsReport={atsReport}
             atsPanel={renderReviewSurface("sheet")}
             fineTuneSurface={renderContentTab("sheet")}
             onDownloadPdf={() => void requestDownload("pdf")}
             openFineTuneNonce={fineTuneNonce}
             suspended={mobileLocating}
             openCount={atsReport || truthReport ? group1Count : null}
+            decisionCount={atsReport ? liveDecisionCount : null}
+            onLeaveFineTune={(proceed) => {
+              if (!bodyDirty) {
+                proceed();
+                return;
+              }
+              setPendingNav({ kind: "sheet", proceed });
+            }}
           />
         }
       />
@@ -889,7 +914,8 @@ export default function CoverLetterPage({
           const nav = pendingNav;
           setPendingNav(null);
           if (!nav) return;
-          if (nav.kind === "tab") switchTab(nav.id);
+          if (nav.kind === "sheet") nav.proceed();
+          else if (nav.kind === "tab") switchTab(nav.id);
           else if (nav.kind === "href") {
             draftGuard.release();
             router.push(nav.href);

@@ -17,14 +17,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { ClipboardCheck, SlidersHorizontal, Download, X } from "lucide-react";
-import type { ATSReport } from "./ATSChecksPanel";
 
 interface MobileCommandBarProps {
-  /** ATS report — drives the pass-count badge. `null` while unavailable. */
-  atsReport: ATSReport;
   /** The existing ATSChecksPanel, re-presented inside the ATS bottom sheet. */
   atsPanel: ReactNode;
   /**
@@ -55,10 +52,24 @@ interface MobileCommandBarProps {
   suspended?: boolean;
   /**
    * ADR-081 cl. 6 / ADR-090 cl. 6: the open group-1 count — the one
-   * send-blocking number, shown on the review button when non-zero. `null`
-   * while unknown; the pass-count badge shows otherwise.
+   * send-blocking number, shown on the review button (red) when non-zero.
+   * `null` while unknown.
    */
   openCount?: number | null;
+  /**
+   * T-1 (ADR-081 cl. 7 amended 2026-10-22): when group 1 is clean, the number of
+   * points that need a decision (`decisionCount`) — shown amber. Neither → no
+   * badge: never the passed-check count (UX audit 2026-10-20: a green "33" read
+   * as 33 things to fix), never a check mark.
+   */
+  decisionCount?: number | null;
+  /**
+   * #789 line (mobile Feinschliff draft loss, ADR-081 cl. 7 amended): leaving the
+   * Fine-tune sheet (close, backdrop, Escape) goes through the page, which asks
+   * its unsaved-draft question first and calls `proceed` once the user chose.
+   * Absent → the sheet closes at once (no editor with a draft to lose).
+   */
+  onLeaveFineTune?: (proceed: () => void) => void;
 }
 
 type ActiveSheet = "ats" | "fineTune" | null;
@@ -81,18 +92,30 @@ type ActiveSheet = "ats" | "fineTune" | null;
  * preview simply fills the remaining height and the iframe scrolls internally.
  */
 export function MobileCommandBar({
-  atsReport,
   atsPanel,
   fineTuneSurface,
   onDownloadPdf,
   openFineTuneNonce,
   suspended = false,
   openCount = null,
+  decisionCount = null,
+  onLeaveFineTune,
 }: MobileCommandBarProps) {
   const t = useTranslations("commandBar");
   const tCommon = useTranslations("common");
   const tReview = useTranslations("documentReview");
   const [sheet, setSheet] = useState<ActiveSheet>(null);
+  // Every way out of the Fine-tune sheet passes the page's draft question.
+  const changeSheet = useCallback(
+    (next: ActiveSheet) => {
+      if (sheet === "fineTune" && next !== "fineTune" && onLeaveFineTune) {
+        onLeaveFineTune(() => setSheet(next));
+        return;
+      }
+      setSheet(next);
+    },
+    [sheet, onLeaveFineTune],
+  );
 
   // #667: honour the page's request to move into the section editor. Skips the
   // initial render (`undefined` / the first value) so a freshly-mounted bar
@@ -109,16 +132,11 @@ export function MobileCommandBar({
   useEffect(() => {
     if (!sheet || suspended) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSheet(null);
+      if (e.key === "Escape") changeSheet(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [sheet, suspended]);
-
-  const passCount =
-    atsReport != null
-      ? atsReport.checks.filter((c) => c.status === "pass").length
-      : null;
+  }, [sheet, suspended, changeSheet]);
 
   const sheetTitle =
     sheet === "ats" ? t("atsSheetTitle") : sheet === "fineTune" ? t("fineTuneSheetTitle") : "";
@@ -145,15 +163,15 @@ export function MobileCommandBar({
             >
               {openCount}
             </span>
-          ) : passCount !== null && (
+          ) : decisionCount !== null && decisionCount > 0 ? (
             <span
-              data-testid="command-ats-badge"
-              aria-label={t("passBadgeLabel", { count: passCount })}
-              className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 flex items-center justify-center rounded-full bg-success-container text-success text-[11px] font-bold border border-surface-bright"
+              data-testid="command-ats-decision-badge"
+              aria-label={tReview("verdictDecisions", { count: decisionCount })}
+              className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 flex items-center justify-center rounded-full bg-warning-container text-warning text-[11px] font-bold border border-surface-bright"
             >
-              {passCount}
+              {decisionCount}
             </span>
-          )}
+          ) : null}
         </button>
 
         <button
@@ -186,7 +204,7 @@ export function MobileCommandBar({
           className={`md:hidden fixed inset-0 z-50 items-end justify-center bg-black/40 p-0 ${
             suspended ? "hidden" : "flex"
           }`}
-          onClick={() => setSheet(null)}
+          onClick={() => changeSheet(null)}
         >
           <div
             className="bg-white rounded-t-2xl w-full max-h-[85vh] flex flex-col overflow-hidden shadow-xl"
@@ -199,7 +217,7 @@ export function MobileCommandBar({
                 type="button"
                 data-testid="command-sheet-close"
                 aria-label={tCommon("close")}
-                onClick={() => setSheet(null)}
+                onClick={() => changeSheet(null)}
                 className="text-on-surface-variant hover:text-on-surface p-1"
               >
                 <X className="w-5 h-5" aria-hidden="true" />

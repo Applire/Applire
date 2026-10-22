@@ -98,6 +98,8 @@ interface StubOptions {
   truth?: unknown | null;
   critic?: unknown | null;
   sections?: unknown | null;
+  /** #786 / T-2: the status door's `review_degradation` (absent = not recorded). */
+  degradation?: unknown | null;
 }
 
 /**
@@ -110,6 +112,7 @@ async function stubBackend(page: Page, opts: StubOptions = {}) {
     truth = TRUTH_EMPTY,
     critic = CRITIC_RAN,
     sections = { sections: [], general_gaps: [] },
+    degradation = null,
   } = opts;
 
   const json = async (route: import('@playwright/test').Route, body: unknown) =>
@@ -129,6 +132,7 @@ async function stubBackend(page: Page, opts: StubOptions = {}) {
       signature_override: null,
       signature_effective: false,
       signature_available: false,
+      review_degradation: degradation,
     }),
   );
   await page.route('**/api/settings', (r) =>
@@ -284,6 +288,26 @@ test.describe('E058 — clause 9, a producer that did not run', () => {
     // sibling test above; here the all-clear collapse being absent is the point.
     await expect(page.getByTestId('review-group-unknown-1')).toBeVisible();
     await expect(page.locator('[data-testid="review-passed-checks"]')).toHaveCount(0);
+  });
+});
+
+test.describe('#786 / T-2 — a review step of the writing loop that did not run', () => {
+  test('the note names the check above the verdict and offers a new version', async ({ page }) => {
+    await stubBackend(page, {
+      degradation: [{ check: 'cv_language', stage: 'review', reason: 'timeout', attempt: 1, count: 2 }],
+    });
+    await page.goto(CV_PAGE_URL);
+    const note = page.getByTestId('review-degradation');
+    await expect(note).toBeVisible({ timeout: 15_000 });
+    await expect(note).toContainText('Language check: did not run — the AI provider did not answer in time.');
+    await expect(note.getByTestId('review-degradation-regenerate')).toBeVisible();
+  });
+
+  test('a clean record renders no note', async ({ page }) => {
+    await stubBackend(page, { degradation: [] });
+    await page.goto(CV_PAGE_URL);
+    await expect(page.getByTestId('review-surface')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('review-degradation')).toHaveCount(0);
   });
 });
 

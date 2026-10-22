@@ -85,6 +85,9 @@ export interface ReviewItem {
   severity: ReviewSeverity;
   /** Producer-supplied detail, rendered verbatim. Never composed here. */
   detail?: string | null;
+  /** ADR-052 amended 2026-10-22: the Oracle detail's catalog key + params, carried verbatim. */
+  detailKey?: string | null;
+  detailParams?: Record<string, string> | null;
   /** For a cluster row: the gap id, so the surface can route to its existing handler. */
   clusterId?: string;
   /** For a check row: the check id, so the surface can label it via `ats.checks.*`. */
@@ -248,6 +251,8 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       producers: overlap ? ["ats", "oracle"] : ["ats"],
       severity: "critical",
       detail: claim?.verdict.detail ?? null,
+      detailKey: claim?.verdict.detail_key ?? null,
+      detailParams: claim?.verdict.detail_params ?? null,
       location: claim?.claim.location ?? null,
       targets,
       denials:
@@ -270,6 +275,8 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       producers: ["oracle"],
       severity: "critical",
       detail: c.verdict.detail ?? null,
+      detailKey: c.verdict.detail_key ?? null,
+      detailParams: c.verdict.detail_params ?? null,
       location: c.claim.location,
       targets: [{ form: c.claim.text }],
     });
@@ -549,7 +556,18 @@ export type VerdictState =
    * clean group 1 may not render as an unqualified all-clear while real
    * findings sit beneath it.
    */
-  | { kind: "clear_with_others"; others: number }
+  | {
+      kind: "clear_with_others";
+      others: number;
+      /**
+       * T-1 (ADR-081 cl. 4 amended 2026-10-22): of `others`, the rows that ask
+       * for a decision before sending (`decisionCount`) and the rest (`notes`).
+       * UX audit 2026-10-20 (Felix, Emma): an all-clear sentence on top of 32
+       * findings read as "done" — the headline now names what needs deciding.
+       */
+      decisions: number;
+      notes: number;
+    }
   /**
    * #789 line L60 (ADR-081 cl. 9 at the headline): group 1 is clean, but at
    * least one producer of the surface did not answer (`unchecked`, de-duplicated,
@@ -557,7 +575,7 @@ export type VerdictState =
    * that "findings below do not stand in the way" — with `others = 0` there are
    * none, and with `others > 0` the blind spot would be swallowed.
    */
-  | { kind: "clear_unchecked"; others: number; unchecked: ReviewProducer[] }
+  | { kind: "clear_unchecked"; others: number; decisions: number; notes: number; unchecked: ReviewProducer[] }
   /**
    * #759 — group 1 is clean, but a send-blocking check failed (`buildSendChecks`).
    * The sentence names it instead of calling the rest harmless.
@@ -582,9 +600,32 @@ export function verdictState(
   // real blind spot, and the sentence must not swallow the blind spot.
   const unchecked: ReviewProducer[] = [];
   for (const g of groups) for (const p of g.unknownProducers) if (!unchecked.includes(p)) unchecked.push(p);
-  if (unchecked.length > 0) return { kind: "clear_unchecked", others, unchecked };
-  if (others > 0) return { kind: "clear_with_others", others };
+  const decisions = decisionCount(groups);
+  const notes = others - decisions;
+  if (unchecked.length > 0) return { kind: "clear_unchecked", others, decisions, notes, unchecked };
+  if (others > 0) return { kind: "clear_with_others", others, decisions, notes };
   return { kind: "clear" };
+}
+
+/**
+ * T-1 (ADR-081 cl. 4 amended 2026-10-22): the rows BELOW group 1 that ask the
+ * candidate to decide something before sending — every group-2 row (a keyword
+ * the vault covers and the document leaves out: add it or not) and every
+ * FAILED craft check of group 4. Group 3 (honest gaps), passing-with-detail and
+ * not-applicable checks, critic advisories and late-landed signals are notes:
+ * worth knowing, nothing to decide. An unknown group contributes nothing
+ * (ADR-081 cl. 9 — never a number for a producer that did not run).
+ *
+ * The phone review button carries this number when group 1 is clean.
+ */
+export function decisionCount(groups: ReviewGroup[]): number {
+  let n = 0;
+  for (const g of groups) {
+    if (g.unknown) continue;
+    if (g.id === 2) n += g.items.length;
+    else if (g.id === 4) n += g.items.filter((it) => it.kind === "check" && it.severity === "critical").length;
+  }
+  return n;
 }
 
 /* ---------------------------------------------------------- ADR-090 cl. 6 */

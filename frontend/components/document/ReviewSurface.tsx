@@ -67,6 +67,9 @@ import {
 import { countInText, type LocateTarget, type PreviewLocator } from "@/lib/locate-in-preview";
 import { changedPassages } from "@/lib/passage-diff";
 import { CrossDocumentSection } from "@/components/review/CrossDocumentSection";
+import { ReviewDegradationNote } from "./ReviewDegradationNote";
+import { oracleDetailText, type OracleDetailTranslator } from "@/lib/oracle-detail";
+import type { DegradedReviewStep } from "@/lib/review-degradation";
 
 /**
  * The document review surface (arc42 §5.3.29, ADR-081 as amended by ADR-090).
@@ -197,6 +200,14 @@ export interface ReviewSurfaceProps {
   onEditGapSection?: (gapId: string) => void;
   /** Not one of the four producers — rendered after the groups (the letter's unasked-requirements panel). */
   children?: ReactNode;
+  /**
+   * ADR-081 cl. 9 amended 2026-10-22 (#786, T-2): the writing loop's review
+   * steps that did not run (`review_degradation` from the status door).
+   * `null` = not recorded; a non-empty list renders a note above the verdict.
+   */
+  degradation?: DegradedReviewStep[] | null;
+  /** T-2: the existing regenerate path (behind the page's new-version confirmation). */
+  onRegenerate?: () => void;
 }
 
 type Busy = "add" | "takeout" | "undo" | null;
@@ -236,11 +247,14 @@ export function ReviewSurface({
   onResolveCluster,
   onEditGapSection,
   children,
+  degradation = null,
+  onRegenerate,
 }: ReviewSurfaceProps) {
   const t = useTranslations("documentReview");
   const tAts = useTranslations("ats");
   const tProfile = useTranslations("profile");
   const tErrors = useTranslations("errors");
+  const tOracle = useTranslations("oracleDetail");
   const locale = useLocale();
 
   const groups = useMemo(
@@ -713,7 +727,9 @@ export function ReviewSurface({
             </span>
           )}
           {!decided && row.item?.detail && (
-            <span className="text-xs text-on-surface-variant">{row.item.detail}</span>
+            <span data-testid="review-card-detail" className="text-xs text-on-surface-variant">
+              {itemOracleDetail(row.item, tOracle)}
+            </span>
           )}
         </div>
 
@@ -946,6 +962,8 @@ export function ReviewSurface({
       {/* ADR-081 cl. 9 / ADR-090 cl. 1: a blind group-1 producer is stated
           ABOVE the verdict and the list, never inside a collapse. */}
       <UnknownProducerNote group={group1} />
+      {/* #786 / T-2: a review step of the writing loop that did not run. */}
+      <ReviewDegradationNote steps={degradation} onRegenerate={onRegenerate} />
 
       <div className="flex flex-col gap-1.5">
         <p
@@ -958,15 +976,19 @@ export function ReviewSurface({
           {groupOneClear && openCrossRead > 0 ? tSignals("verdictClearCrossRead", { open: openCrossRead }) : null}
           {groupOneClear && crossReadUnknown ? tSignals("verdictClearCrossReadUnknown") : null}
           {verdict.kind === "clear" && openCrossRead === 0 && !crossReadUnknown && t("verdictClear")}
+          {/* T-1 (ADR-081 cl. 4 amended 2026-10-22): decisions first — the
+              headline names what needs deciding; the all-clear drops to the
+              normal-weight line below. */}
           {verdict.kind === "clear_with_others" &&
             openCrossRead === 0 &&
             !crossReadUnknown &&
-            t("verdictClearWithOthers", { count: verdict.others })}
+            (verdict.decisions > 0
+              ? t("verdictDecisions", { count: verdict.decisions })
+              : t("verdictNotesOnly", { count: verdict.notes }))}
           {verdict.kind === "clear_unchecked" &&
             openCrossRead === 0 &&
             !crossReadUnknown &&
-            t("verdictClearUnchecked", {
-              count: verdict.others,
+            t("verdictUncheckedHead", {
               producers: verdict.unchecked.map((p) => t(PRODUCER_LABEL_KEY[p])).join(", "),
             })}
           {verdict.kind === "clear_with_send_checks" && t("verdictClearWithSendCheck", { count: verdict.count })}
@@ -977,6 +999,19 @@ export function ReviewSurface({
             {t("verdictSub")}
           </p>
         )}
+        {(verdict.kind === "clear_with_others" || verdict.kind === "clear_unchecked") &&
+          openCrossRead === 0 &&
+          !crossReadUnknown && (
+            <p data-testid="review-verdict-truth" className="text-sm leading-snug text-on-surface">
+              {t("verdictTruthLine", {
+                // The headline already names the decisions (clear_with_others)
+                // or the notes (notes-only); the truth line adds what it did not.
+                decisions: verdict.kind === "clear_unchecked" ? verdict.decisions : 0,
+                notes:
+                  verdict.kind === "clear_unchecked" || verdict.decisions > 0 ? verdict.notes : 0,
+              })}
+            </p>
+          )}
       </div>
 
       {/* "k of n decided" — n = open + decided. Withheld while a group-1
@@ -1323,7 +1358,8 @@ function ItemRow({
   onEditGapSection?: (gapId: string) => void;
 }) {
   const tSig = useTranslations("reviewSignals");
-  const detail = itemDetail(item, locale, tAts);
+  const tOracle = useTranslations("oracleDetail");
+  const detail = itemDetail(item, locale, tAts, tOracle);
   const doc = documentKind === "cv" ? "cv" : "letter";
   const label = item.kind === "check" && item.checkId ? tAts(`checks.${baseId(item.checkId)}`) : item.label;
 
@@ -1414,10 +1450,23 @@ function ItemRow({
   );
 }
 
-function itemDetail(item: ReviewItem, locale: string, tAts: ReturnType<typeof useTranslations<"ats">>): string | null {
+function itemDetail(
+  item: ReviewItem,
+  locale: string,
+  tAts: ReturnType<typeof useTranslations<"ats">>,
+  tOracle: OracleDetailTranslator,
+): string | null {
   if (item.kind === "advisory" && item.advisory) return localizedMessage(item.advisory.message, locale);
   if (item.kind === "check" && item.check) return checkDetail(item.check, tAts);
-  return item.detail ?? null;
+  return itemOracleDetail(item, tOracle);
+}
+
+/** ADR-052 amended 2026-10-22: an Oracle detail in the UI language when it carries a key. */
+function itemOracleDetail(item: ReviewItem, tOracle: OracleDetailTranslator): string | null {
+  return oracleDetailText(
+    { detail: item.detail, detail_key: item.detailKey, detail_params: item.detailParams },
+    tOracle,
+  );
 }
 
 /**

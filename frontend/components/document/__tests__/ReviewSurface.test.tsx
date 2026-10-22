@@ -217,12 +217,38 @@ describe("ADR-081 cl. 4 (amended by ADR-090 cl. 6) — the verdict counts the OP
 
   it("does NOT render an unqualified all-clear while groups 2-4 carry findings (JF-F-K.1)", () => {
     renderSurface({ atsReport: ats({ missing_honest_gap: ["Terraform"], missing: ["Terraform"] }) });
-    expect(screen.getByTestId("review-verdict").textContent).toMatch(/further finding/i);
+    // T-1: notes only → the headline names the notes; the truth line sits below.
+    expect(screen.getByTestId("review-verdict").textContent).toMatch(
+      /^There are \d+ notes below you should know before you send it\.$/,
+    );
+    expect(screen.getByTestId("review-verdict-truth").textContent).toBe(
+      "Nothing is made up: every statement in the document is covered by your profile.",
+    );
+  });
+
+  it("T-1: leads with the decision count; the all-clear drops to the normal-weight line", () => {
+    renderSurface({
+      atsReport: ats(
+        { missing_claimable: ["Scrum", "Jira"], missing_honest_gap: ["SAP"], missing: ["Scrum", "Jira", "SAP"] },
+        [{ id: "contact-name", status: "fail" }],
+      ),
+      gapClusters: [],
+    });
+    const head = screen.getByTestId("review-verdict");
+    expect(head.textContent).toBe("3 points need your decision before you send it.");
+    expect(head.className).toContain("font-bold");
+    const truth = screen.getByTestId("review-verdict-truth");
+    expect(truth.textContent).toBe(
+      "Nothing is made up: every statement in the document is covered by your profile. Plus 1 note.",
+    );
+    expect(truth.className).not.toContain("font-bold");
   });
 
   it("renders the plain all-clear only when every producer ran and every group is empty", () => {
     renderSurface({ atsReport: ats({}, [{ id: "contact-0", status: "pass" }]), gapClusters: [] });
     expect(screen.getByTestId("review-verdict").textContent).toMatch(/covered by your profile\.$/);
+    // Stands alone only when nothing is open (T-1).
+    expect(screen.queryByTestId("review-verdict-truth")).toBeNull();
   });
 });
 
@@ -886,5 +912,28 @@ describe("#759 — a failed document-language check is not 'nothing stands in th
   it("no block when the check passed", () => {
     renderSurface({ atsReport: ats({}, [{ id: "document-language", status: "pass" }]), gapClusters: [] });
     expect(screen.queryByTestId("review-send-checks")).toBeNull();
+  });
+});
+
+/* ------------------------------------------------- #786 / T-2 degradation */
+
+describe("ADR-081 cl. 9 amended (#786, T-2) — a review step that did not run is told above the verdict", () => {
+  it("renders the degradation note before the verdict and wires the regenerate path", () => {
+    const onRegenerate = vi.fn();
+    renderSurface({
+      degradation: [{ check: "cv_language", stage: "review", reason: "timeout", attempt: 1, count: 3 }],
+      onRegenerate,
+    });
+    const note = screen.getByTestId("review-degradation");
+    const verdict = screen.getByTestId("review-verdict");
+    expect(note.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(note).toHaveTextContent("Language check: did not run — the AI provider did not answer in time.");
+    fireEvent.click(screen.getByTestId("review-degradation-regenerate"));
+    expect(onRegenerate).toHaveBeenCalledOnce();
+  });
+
+  it("renders no note for an unrecorded or clean record", () => {
+    renderSurface({ degradation: [] });
+    expect(screen.queryByTestId("review-degradation")).toBeNull();
   });
 });

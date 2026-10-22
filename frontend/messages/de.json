@@ -1660,15 +1660,16 @@
     "fineTune": "Feinschliff",
     "downloadPdf": "PDF herunterladen",
     "atsSheetTitle": "Prüfung",
-    "fineTuneSheetTitle": "Feinschliff",
-    "passBadgeLabel": "{count, plural, one {# ATS-Check bestanden} other {# ATS-Checks bestanden}}"
+    "fineTuneSheetTitle": "Feinschliff"
   },
   "documentReview": {
     "title": "Prüfung",
     "verdictFindings": "{count, plural, one {# Stelle im Dokument ist nicht durch Dein Profil gedeckt.} other {# Stellen im Dokument sind nicht durch Dein Profil gedeckt.}}",
     "verdictClear": "Jede Aussage im Dokument ist durch Dein Profil gedeckt.",
-    "verdictClearWithOthers": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. {count, plural, =0 {Weiter unten stehen Befunde, die dem Versand nicht im Weg stehen.} one {Weiter unten steht # weiterer Befund — er steht dem Versand nicht im Weg.} other {Weiter unten stehen # weitere Befunde — sie stehen dem Versand nicht im Weg.}}",
-    "verdictClearUnchecked": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Nicht geprüft: {producers}{count, plural, =0 { — sieh Dir diesen Teil selbst an, bevor Du sendest.} one {. Weiter unten steht # weiterer Befund.} other {. Weiter unten stehen # weitere Befunde.}}",
+    "verdictDecisions": "{count, plural, one {# Punkt braucht Deine Entscheidung, bevor Du sendest.} other {# Punkte brauchen Deine Entscheidung, bevor Du sendest.}}",
+    "verdictNotesOnly": "{count, plural, one {Weiter unten steht # Hinweis, den Du vor dem Versand kennen solltest.} other {Weiter unten stehen # Hinweise, die Du vor dem Versand kennen solltest.}}",
+    "verdictUncheckedHead": "Nicht geprüft: {producers} — sieh Dir diesen Teil selbst an, bevor Du sendest.",
+    "verdictTruthLine": "Erfunden ist nichts: Jede Aussage im Dokument ist durch Dein Profil gedeckt.{decisions, plural, =0 {} one { # Punkt braucht Deine Entscheidung.} other { # Punkte brauchen Deine Entscheidung.}}{notes, plural, =0 {} one { Dazu kommt # Hinweis.} other { Dazu kommen # Hinweise.}}",
     "verdictClearWithSendCheck": "Jede Aussage im Dokument ist durch Dein Profil gedeckt — aber {count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
     "verdictUnknown": "Ob jede Aussage gedeckt ist, wurde für dieses Dokument nicht geprüft.",
     "group1Title": "Im Dokument, aber nicht in Deinem Profil",
@@ -1728,7 +1729,25 @@
     "sendCheckTitle": "Vor dem Versand ansehen",
     "sendCheckSub": "So ist das Dokument nicht versandfertig. Bearbeite die Stellen selbst oder generiere neu.",
     "group3Link": "In der Lückenanalyse öffnen",
-    "coverageLine": "{present} von {total} Stichwörtern der Stelle stehen im Dokument."
+    "coverageLine": "{present} von {total} Stichwörtern der Stelle stehen im Dokument.",
+    "degradationTitle": "{count, plural, one {Beim Schreiben ist eine Prüfung ausgefallen} other {Beim Schreiben sind # Prüfungen ausgefallen}}",
+    "degradationReview": "{check}: lief nicht — {reason}.",
+    "degradationCorrection": "{check}: hat etwas gefunden, die Korrektur lief aber nicht.",
+    "degradationAdvice": "Das Dokument ist trotzdem fertig. Erstelle eine neue Fassung oder lies diesen Teil selbst gegen, bevor Du sendest.",
+    "degradationRegenerate": "Neue Fassung erstellen",
+    "degradationCheck": {
+      "language": "Sprachprüfung",
+      "draft": "Entwurfsprüfung",
+      "final": "Schlussprüfung",
+      "other": "Prüfung"
+    },
+    "degradationReason": {
+      "timeout": "der KI-Anbieter hat nicht rechtzeitig geantwortet",
+      "truncated": "die Antwort des KI-Anbieters brach ab",
+      "malformed": "die Antwort des KI-Anbieters war nicht lesbar",
+      "shape": "die Antwort des KI-Anbieters war nicht lesbar",
+      "error": "der KI-Anbieter war nicht erreichbar"
+    }
   },
   "upgradeNotice": {
     "title": "Seit deinem letzten Start hat sich an den Einstellungen etwas geändert",
@@ -2389,5 +2408,16 @@
       "stale": "Diese Dauer wurde schon aktualisiert — die Liste ist neu geladen.",
       "failed": "Das Neuberechnen hat nicht geklappt. Es wurde nichts geändert — bitte versuch es noch einmal."
     }
+  },
+  "oracleDetail": {
+    "credentialUnbacked": "Nennt die Qualifikation „{credential}“, die in Deinem Profil nirgends steht. Trag sie in Dein Profil ein, wenn Du sie hast — sonst nimm sie heraus.",
+    "identifierAbsent": "Nennt {identifiers} — eine Norm, die Dein Profil nirgends erwähnt.",
+    "tenureStartBeforeVault": "Der genannte Beginn „{claimed}“ liegt vor der frühesten Station in Deinem Profil ({earliest}).",
+    "tenureExceedsVault": "Die genannte Dauer „{claimed}“ ist länger als die {years} Jahre, die Deine datierten Stationen ergeben. Schreib höchstens „über {whole} Jahre“.",
+    "subjectTenureExceeds": "Die genannte Dauer „{claimed}“ ist länger als die {years} Jahre der Stationen, in denen „{skill}“ vorkommt. Schreib höchstens „über {whole} Jahre“.",
+    "misattributed": "Der Beleg dafür stammt aus einer anderen Station — die Aussage steht unter einer Rolle, zu der sie nicht gehört.",
+    "skillNoEvidence": "„{skill}“ steht nirgends in Deinem Profil.",
+    "figuresNoEvidence": "Für diese Zahl(en) gibt es in Deinem Profil keinen Beleg: {figures}.",
+    "inflatedAspirational": "Steht als erreichtes Ergebnis da, in Deinem Profil ist es aber ein Ziel, kein Ergebnis."
   }
 }
