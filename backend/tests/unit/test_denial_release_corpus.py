@@ -508,3 +508,52 @@ def test_e11_daniel_settlement_stays_floored_against_interview_prose():
     d = next(x for x in _e11_decisions()
              if x["cell"] == "it_backend_daniel/mixed_en" and x["term"] == "Settlement")
     assert _e11_floors(d) is True
+
+
+# ── E-11 seams the corpus tests above do not name (one per call site) ────────
+
+
+def _carried_floor_status(history: list[dict]) -> dict:
+    """gap._apply_floors_to_merged — the answer-driven merge re-floors a CARRIED
+    row against today's denials with the release corpus (ADR-089 cl. 5)."""
+    from applire.services.gap import _apply_floors_to_merged
+
+    profile = _with_bullets(history)
+    profile["metadata"]["denied_concepts"] = _REPROBE_DENIAL
+    row = {"concept": "Produktion", "surface_forms": ["Produktion"], "sources": ["required"],
+           "fit_weight": 1.0, "status": "direct", "claimable": True,
+           "evidence": "Verantwortung für die Produktion in zwei Fertigungsbereichen."}
+    out = _apply_floors_to_merged([row], [0], denied_concepts=_REPROBE_DENIAL, profile_json=profile)
+    return out[0]
+
+
+def test_site_6_the_merge_refloor_releases_on_the_imported_bullet():
+    assert _carried_floor_status([])["status"] == "direct"
+
+
+def test_site_6_the_merge_refloor_still_floors_on_interview_prose():
+    history = [{"source": "interview", "changes": [{
+        "section": "work_experience", "field": "responsibilities", "action": "merged",
+        "old_value": None,
+        "new_value": ["Verantwortung für die Produktion in zwei Fertigungsbereichen."]}]}]
+    assert _carried_floor_status(history)["status"] == "gap"
+
+
+def test_site_7_the_oracle_vault_index_carries_the_imported_prose():
+    """oracle/matchers/vault.py — the Oracle's denial check releases on the same
+    corpus the ledger does (one release instrument, ADR-066)."""
+    from applire.services.oracle.matchers.vault import build_vault_index
+
+    def _oracle_vault(history):
+        v = _with_bullets(history)
+        v.pop("signature_stories")  # the fixture's story is a stub, not a schema-valid story
+        for rec in v["metadata"]["enrichment_history"]:
+            rec.setdefault("timestamp", "2026-10-22T00:00:00Z")
+        return v
+
+    imported = build_vault_index(_oracle_vault([]))
+    assert "zwei fertigungsbereichen" in imported.denial_release_text
+    history = [{"source": "interview", "changes": [{
+        "section": "work_experience", "field": "responsibilities", "action": "merged",
+        "old_value": None, "new_value": ["OEE im Spritzguss von 61 % auf 73 % gesteigert."]}]}]
+    assert "oee" not in build_vault_index(_oracle_vault(history)).denial_release_text
