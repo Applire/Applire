@@ -56,6 +56,10 @@ interface FlowMode {
   mode: "flow";
   steps: FlowStep[];
   trailingBadge?: string;
+  /** md and up: a quiet flow-level action in the bar itself (the document
+   * routes' walk-away — #789: as a strip above the workspace it covered the
+   * panel's tab row). */
+  trailing?: React.ReactNode;
 }
 
 type AppTopbarProps = SectionMode | DetailMode | FlowMode;
@@ -175,6 +179,12 @@ export function AppTopbar(props: AppTopbarProps) {
               placeholder={props.searchPlaceholderKey ? t(props.searchPlaceholderKey) : ""}
               className="bg-transparent border-none outline-none text-[12.5px] text-gray-800 placeholder:text-gray-400 w-full"
             />
+          </div>
+        )}
+
+        {props.mode === "flow" && props.trailing && (
+          <div data-testid="topbar-flow-trailing" className="hidden md:flex items-center flex-shrink-0">
+            {props.trailing}
           </div>
         )}
 

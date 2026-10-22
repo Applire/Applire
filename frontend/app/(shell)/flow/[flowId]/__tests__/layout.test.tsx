@@ -57,3 +57,33 @@ describe("FlowLayout stepper (M7)", () => {
     await waitFor(() => expect(pill("flow.stepInterview")).toHaveAttribute("data-state", "done"));
   });
 });
+
+describe("FlowLayout chrome (#789)", () => {
+  function renderApp() {
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        flow_id: "f1", user_type: "new", current_step: "cv_generation",
+        available_actions: {}, application_id: "app-1",
+      }),
+    })) as unknown as typeof fetch;
+    render(
+      <FlowLayout params={fulfilledParams("f1")}>
+        <div data-testid="child" />
+      </FlowLayout>,
+    );
+  }
+
+  it("the step content sits in a <main> landmark", async () => {
+    renderApp();
+    await waitFor(() => screen.getByTestId("child"));
+    expect(screen.getByRole("main")).toContainElement(screen.getByTestId("child"));
+  });
+
+  it("on a document route the walk-away moves into the top bar from md up (no strip over the panel)", async () => {
+    renderApp();
+    await waitFor(() => screen.getByTestId("topbar-flow-trailing"));
+    expect(screen.getByTestId("topbar-flow-trailing").className).toContain("md:flex");
+    expect(screen.getByTestId("flow-cancel-strip").className).toContain("md:hidden");
+  });
+});
