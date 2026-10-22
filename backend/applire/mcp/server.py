@@ -1667,16 +1667,9 @@ async def render_document(
 
 @agent_tool(
     description=(
-        "Generate a cover letter for the given job. Requires an existing flow "
-        "session (call start_flow first). Returns cover_letter_id, status, "
-        "html_url, and pdf_url. Editing a generated letter's sections is "
-        "UI-only. Optional inputs mirror the web form and are the USER's own "
-        "words — pass one only when the user stated it, never a guess: "
-        "recipient_name (contact person), recipient_company, salary (salary "
-        "expectation), availability (notice period / earliest start), "
-        "motivation (why this role, why the change), tone ('formal' default, "
-        "'professional', 'conversational'). The letter never invents a notice "
-        "period, a start date or a reason for the change."
+        "Generate a cover letter for a job (after start_flow). Returns "
+        "cover_letter_id, status, html_url, pdf_url. Optional inputs: the "
+        "user's own words only (AGENT_GUIDE.md)."
     )
 )
 async def generate_cover_letter(

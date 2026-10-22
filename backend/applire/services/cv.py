@@ -169,7 +169,7 @@ _EDU_YEAR_FIRST = re.compile(r"\s*(\d{4})(?:[-/.](\d{1,2}))?\b")
 _EDU_MONTH_FIRST = re.compile(r"\s*(\d{1,2})[/.](\d{4})\b")
 
 
-def sort_education_by_date(entries: list) -> list:
+def sort_education_by_date(entries: list, *, user_id: uuid.UUID | None = None) -> list:
     """Education rows newest first (Hazelnut build 3, 786 polish (c); ADR-094 cl. 2
     amended 2026-10-22): keyed on the END date (graduation), else the START date;
     rows with neither sort last. Stable, so equal keys keep the vault's order. A
@@ -2595,7 +2595,9 @@ def _guaranteed_vault_skills(
     return out
 
 
-def skill_jd_tier_fn(job_dict: dict, keyword_ledger: list[dict] | None):
+def skill_jd_tier_fn(
+    job_dict: dict, keyword_ledger: list[dict] | None, *, user_id: uuid.UUID | None = None
+):
     """The #192 relevance rank of one skill tag against THIS job, as a function:
     required (0) > nice-to-have (1) > keyword (2) > no JD relevance (3).
 
@@ -5411,7 +5413,7 @@ async def _propose_page_cut(
     )
 
 
-def page_overflow_public(record: GeneratedCV) -> dict | None:
+def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = None) -> dict | None:
     """The x+1 decision as the CV page reads it — never the stored data copies.
     ``cut_available`` / ``uncut_available``: the switch can be applied to the CV as
     it stands now (same content as at the proposal, no section edit on top)."""

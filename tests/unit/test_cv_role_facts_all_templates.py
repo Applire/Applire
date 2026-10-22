@@ -236,7 +236,8 @@ def _assert_role_facts_html(html: str, *, lang: str) -> None:
     # w1 (Nordstahl AG / Werksleiterin) carries all three quantified facts,
     # rendered as deterministic furniture regardless of the writer's bullet.
     assert "38" in html, "team_size figure missing from rendered HTML"
-    assert "ca. 6 Mio. EUR" in html, "budget_managed figure missing from rendered HTML"
+    # #786 NBSP (ADR-066): figure and unit are bound with U+00A0.
+    assert "ca. 6 Mio. EUR" in html.replace("\u00a0", " "), "budget_managed figure missing from rendered HTML"
     assert "Anlagenbau" in html, "industry_context figure missing from rendered HTML"
     assert labels["role_team_size"] in html
     assert labels["role_budget"] in html

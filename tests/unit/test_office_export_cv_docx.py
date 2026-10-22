@@ -608,7 +608,8 @@ class TestRenderCvDocxRoleFacts:
         text = _all_text(render_cv_docx(_full_tailored_cv(), lang="de", accent_color=ACCENT))
         labels_de = cv_labels("de")
         assert f"{labels_de['role_team_size']}: 42" in text
-        assert f"{labels_de['role_budget']}: MARKER 4,2 Mio. EUR" in text
+        # #786 NBSP (ADR-066): the DOCX sink binds a figure to its unit.
+        assert f"{labels_de['role_budget']}: MARKER 4,2 Mio. EUR" in text.replace("\u00a0", " ")
         assert f"{labels_de['role_industry']}: MARKER_INDUSTRY_ALPHA" in text
 
     def test_team_size_zero_renders(self):
@@ -877,7 +878,7 @@ class TestRemainingDisplayFilterParity:
         cv = _full_tailored_cv()
         cv.work_history[0].budget_managed = "ca. 6 Mio. EUR"
 
-        assert "ca. 6 Mio. EUR" in self._text(cv)
+        assert "ca. 6 Mio. EUR" in self._text(cv).replace("\u00a0", " ")  # #786 NBSP
 
     def test_a_degree_that_repeats_its_field_is_not_printed_twice(self):
         """#548's shape: degree 'Industriemeister Metall' + field 'Metall'.
