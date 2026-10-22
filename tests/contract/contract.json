@@ -167,8 +167,54 @@
       }
     },
     "generate_cover_letter": {
+      "availability": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
       "job_id": {
         "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "motivation": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "recipient_company": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "recipient_name": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "salary": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "tone": {
+        "enum": [
+          "\"conversational\"",
+          "\"formal\"",
+          "\"professional\""
+        ],
+        "required": false,
         "types": [
           "string"
         ]

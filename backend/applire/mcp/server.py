@@ -113,7 +113,7 @@ from applire.schemas.application import (
     CreateApplicationRequest,
     PatchApplicationRequest,
 )
-from applire.schemas.cover_letter import CoverLetterGenerateRequest
+from applire.schemas.cover_letter import CLTone, CoverLetterGenerateRequest
 from applire.schemas.cv import GeneratedCVResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
 from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
@@ -1670,11 +1670,41 @@ async def render_document(
         "Generate a cover letter for the given job. Requires an existing flow "
         "session (call start_flow first). Returns cover_letter_id, status, "
         "html_url, and pdf_url. Editing a generated letter's sections is "
-        "UI-only."
+        "UI-only. Optional inputs mirror the web form and are the USER's own "
+        "words — pass one only when the user stated it, never a guess: "
+        "recipient_name (contact person), recipient_company, salary (salary "
+        "expectation), availability (notice period / earliest start), "
+        "motivation (why this role, why the change), tone ('formal' default, "
+        "'professional', 'conversational'). The letter never invents a notice "
+        "period, a start date or a reason for the change."
     )
 )
-async def generate_cover_letter(job_id: str) -> dict:
+async def generate_cover_letter(
+    job_id: str,
+    recipient_name: str | None = None,
+    recipient_company: str | None = None,
+    salary: str | None = None,
+    availability: str | None = None,
+    motivation: str | None = None,
+    tone: CLTone = "formal",
+) -> dict:
+    # 788:L1 (Hazelnut build 3): the six REST inputs, additive and optional,
+    # handed to the SAME request model the web form posts — no MCP-only path.
+    from pydantic import ValidationError
+
     jid = _parse_uuid(job_id, "job_id")
+    try:
+        request = CoverLetterGenerateRequest(
+            job_id=jid,
+            recipient_name=recipient_name,
+            recipient_company=recipient_company,
+            salary=salary,
+            availability=availability,
+            motivation=motivation,
+            tone=tone,
+        )
+    except ValidationError as exc:
+        raise invalid_input(str(exc))
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
@@ -1682,7 +1712,7 @@ async def generate_cover_letter(job_id: str) -> dict:
         await _owned_job(db, jid)
         try:
             result = await cover_letter_svc.generate_cover_letter(
-                CoverLetterGenerateRequest(job_id=jid),
+                request,
                 db,
                 provider,
                 base_url=settings.applire_base_url,
