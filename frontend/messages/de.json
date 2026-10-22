@@ -422,12 +422,12 @@
     "photoStepProgress": "Schritt 3 von 4",
     "photoStepProgressPhoto": "Schritt 3 von 4 — Profilfoto",
     "uploadPhoto": "Foto hochladen",
-    "uploadPhotoSaved": "Im Profil gespeichert",
-    "skipPhotoNow": "Jetzt überspringen",
-    "skipPhotoHint": "Ohne Foto generieren",
-    "photoLaterHint": "Du kannst später unter Profil → Foto ein Bild hinzufügen",
+    "uploadPhotoSaved": "Bleibt für deine nächsten Lebensläufe im Profil",
+    "skipPhotoNow": "Ohne Foto weiter",
+    "skipPhotoHint": "Wir fragen nicht noch einmal",
+    "photoLaterHint": "Ein Foto kannst du jederzeit unter „Mein Profil“ hinzufügen.",
     "photoUploadedContinue": "Weiter →",
-    "skipAndContinue": "Überspringen und weiter",
+    "skipAndContinue": "Ohne Foto weiter",
     "assistLoading": "Frage wird generiert…",
     "assistPlaceholder": "Deine Antwort…",
     "assistSending": "Wird generiert…",
@@ -798,7 +798,8 @@
         "saving": "Wird gespeichert …",
         "loadError": "Das Foto ließ sich nicht öffnen. Versuche es mit einer JPEG-, PNG- oder WebP-Datei.",
         "saveError": "Der Ausschnitt konnte nicht gespeichert werden."
-      }
+      },
+      "heldForConsent": "„{name}“ ist ausgewählt — setz oben noch das Häkchen bei der Einwilligung, dann geht es weiter."
     },
     "signature": {
       "title": "Unterschrift",

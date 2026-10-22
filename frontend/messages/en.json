@@ -422,12 +422,12 @@
     "photoStepProgress": "Step 3 of 4",
     "photoStepProgressPhoto": "Step 3 of 4 — Profile photo",
     "uploadPhoto": "Upload photo",
-    "uploadPhotoSaved": "Saved to your profile",
-    "skipPhotoNow": "Skip for now",
-    "skipPhotoHint": "Generate without photo",
-    "photoLaterHint": "You can add a photo later in Profile → Photo",
+    "uploadPhotoSaved": "Kept in your profile for your next CVs",
+    "skipPhotoNow": "Continue without a photo",
+    "skipPhotoHint": "We won't ask again",
+    "photoLaterHint": "You can add a photo any time under “My Profile”.",
     "photoUploadedContinue": "Continue →",
-    "skipAndContinue": "Skip and continue",
+    "skipAndContinue": "Continue without a photo",
     "assistLoading": "Generating question…",
     "assistPlaceholder": "Your answer…",
     "assistSending": "Generating…",
@@ -798,7 +798,8 @@
         "saving": "Saving …",
         "loadError": "The photo could not be opened. Try a JPEG, PNG or WebP file.",
         "saveError": "The framing could not be saved."
-      }
+      },
+      "heldForConsent": "“{name}” is selected — tick the consent box above to continue."
     },
     "signature": {
       "title": "Signature",

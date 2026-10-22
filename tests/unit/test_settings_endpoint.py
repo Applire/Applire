@@ -457,6 +457,17 @@ class TestDismissedExplainers:
         assert result["dismissed_explainers"] == ["fact_pins_intro"]
 
     @pytest.mark.asyncio
+    async def test_no_photo_choice_is_remembered_per_user(self, db):
+        """#789 (Hazelnut build 3): "Ohne Foto weiter" on the CV page's photo
+        step writes `cv_photo_prompt`; the step reads it and is skipped next
+        time (frontend `PhotoPromptStep`)."""
+        from applire.routers.settings import get_settings, update_settings
+
+        written = await update_settings(db, dismiss_explainer="cv_photo_prompt")
+        assert written["dismissed_explainers"] == ["cv_photo_prompt"]
+        assert (await get_settings(db))["dismissed_explainers"] == ["cv_photo_prompt"]
+
+    @pytest.mark.asyncio
     async def test_dismissing_twice_is_idempotent(self, db):
         from applire.routers.settings import get_settings, update_settings
 
