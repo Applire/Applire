@@ -26,6 +26,8 @@
  * form state instead of being silently dropped (H1.3).
  */
 
+import { formatDisplayDate, type DisplayLocale } from "./profileDisplay";
+
 export interface WorkEntry {
   /** Absent on a NEW entry — the backend mints the id (H1.1). */
   id?: string;
@@ -86,7 +88,8 @@ export interface Skill {
   id?: string;
   name: string;
   category?: "technical" | "soft" | "language" | "domain";
-  proficiency?: "basic" | "intermediate" | "advanced" | "expert";
+  /** null / absent = the source stated no level (shown as nothing). */
+  proficiency?: "basic" | "intermediate" | "advanced" | "expert" | null;
   years_experience?: number | null;
   /** Provenance of the number — NEVER editable on this door. */
   source?: string | null;
@@ -257,10 +260,11 @@ export function formatEntryPeriod(
   end?: string | null,
   presentLabel?: string,
   isCurrent?: boolean | null,
+  locale: DisplayLocale = "en",
 ): string | null {
   if (!nonEmptyText(start) && !nonEmptyText(end)) return null;
-  const left = nonEmptyText(start) ? start : null;
-  const explicitEnd = nonEmptyText(end) ? end : null;
+  const left = nonEmptyText(start) ? formatDisplayDate(start, locale) : null;
+  const explicitEnd = nonEmptyText(end) ? formatDisplayDate(end, locale) : null;
   const right = isCurrent === true ? (presentLabel ?? explicitEnd) : (explicitEnd ?? presentLabel ?? null);
   if (!left) return right;
   if (!right) return left;
@@ -312,7 +316,7 @@ export function makeEmptySkill(): Skill {
   return {
     name: "",
     category: "technical",
-    proficiency: "intermediate",
+    proficiency: null,
     years_experience: null,
     last_used: null,
     status: "confirmed",

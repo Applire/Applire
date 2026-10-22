@@ -866,7 +866,6 @@
       "statusUnconfirmed": "unconfirmed",
       "statusDenied": "denied",
       "addAsConfirmed": "Add as confirmed",
-      "validationMonthRequired": "Please add the month too — a year alone would be stored as 1 January.",
       "validationYearsRange": "Years of experience: please enter 0–80."
     },
     "summaryEditor": {
@@ -934,6 +933,7 @@
       "fieldName": "Name *",
       "fieldCategory": "Category",
       "fieldProficiency": "Proficiency",
+      "proficiencyNotStated": "Not stated",
       "fieldYearsExperience": "Years of experience",
       "categoryTechnical": "Technical",
       "categorySoft": "Soft skill",

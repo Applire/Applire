@@ -392,10 +392,13 @@ export function SkillsEditor({ entries, apiBase, profileUpdatedAt, onProfileUpda
                   <select
                     id="skill-proficiency"
                     data-testid="skill-field-proficiency"
-                    value={dialog.draft.proficiency ?? "intermediate"}
-                    onChange={(e) => updateDraft({ proficiency: e.target.value as Skill["proficiency"] })}
+                    value={dialog.draft.proficiency ?? ""}
+                    onChange={(e) =>
+                      updateDraft({ proficiency: e.target.value === "" ? null : (e.target.value as Skill["proficiency"]) })
+                    }
                     className="w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface"
                   >
+                    <option value="">{t("skillsEditor.proficiencyNotStated")}</option>
                     {PROFICIENCY_VALUES.map((p) => (
                       <option key={p} value={p}>
                         {t(`proficiency_${p}` as "proficiency_basic")}

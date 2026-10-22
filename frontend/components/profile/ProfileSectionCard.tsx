@@ -24,6 +24,11 @@
 // (ADR-038), so we surface whichever localized summary actually exists.
 
 import { useTranslations } from "next-intl";
+import {
+  formatDisplayDate,
+  localizedLanguageLevel,
+  localizedLanguageName,
+} from "@/lib/profileDisplay";
 
 export type UiLanguage = "de" | "en";
 
@@ -206,10 +211,12 @@ function formatPeriod(
   end?: string | null,
   presentLabel?: string,
   isCurrent?: boolean | null,
+  locale: UiLanguage = "en",
 ): string | null {
   if (!nonEmpty(start) && !nonEmpty(end)) return null;
-  const left = nonEmpty(start) ? start : null;
-  const explicitEnd = nonEmpty(end) ? end : null;
+  // Dates show at the precision stored, in the UI language (WP-V).
+  const left = nonEmpty(start) ? formatDisplayDate(start, locale) : null;
+  const explicitEnd = nonEmpty(end) ? formatDisplayDate(end, locale) : null;
   // #155 — an explicit is_current === true always renders the present label;
   // an empty end keeps the existing present-label fallback.
   const right =
@@ -298,6 +305,7 @@ export function ProfileSectionBody({
             e.end_date,
             t("present"),
             e.is_current,
+            uiLanguage,
           );
           const bullets = [
             ...(e.achievements ?? []),
@@ -347,7 +355,7 @@ export function ProfileSectionBody({
           // #113(d) — education gets the same present label as work: an
           // ongoing degree reads "2023-09 → present", not a dangling dash.
           const period =
-            formatPeriod(e.start_date, e.end_date, t("present")) ??
+            formatPeriod(e.start_date, e.end_date, t("present"), undefined, uiLanguage) ??
             (nonEmpty(e.year) ? e.year : null);
           return (
             <div key={i} className="border-l-2 border-teal/40 pl-3">
@@ -405,14 +413,19 @@ export function ProfileSectionBody({
       <div className="flex flex-wrap gap-2">
         {named.map((l, i) => {
           const level = l.level ?? l.proficiency;
-          const name = nonEmpty(l.language) ? l.language : l.name;
+          const name = localizedLanguageName(
+            (nonEmpty(l.language) ? l.language : l.name) as string,
+            uiLanguage,
+          );
           return (
             <span
               key={i}
               className="inline-flex items-center gap-1.5 rounded-full bg-surface-container px-3 py-1 text-xs text-neutral-dark"
             >
               <span className="font-medium">{name}</span>
-              {nonEmpty(level) && <span className="text-gray-500">{level}</span>}
+              {nonEmpty(level) && (
+                <span className="text-gray-500">{localizedLanguageLevel(level, uiLanguage)}</span>
+              )}
             </span>
           );
         })}
@@ -430,7 +443,7 @@ export function ProfileSectionBody({
     return (
       <div className="space-y-4">
         {named.map((p, i) => {
-          const period = formatPeriod(p.start_date, p.end_date, t("present"), p.is_current);
+          const period = formatPeriod(p.start_date, p.end_date, t("present"), p.is_current, uiLanguage);
           const bullets = [...(p.achievements ?? []), ...(p.responsibilities ?? [])].filter(nonEmpty);
           const technologies = (p.technologies ?? []).filter(nonEmpty);
           return (
@@ -486,7 +499,9 @@ export function ProfileSectionBody({
               )}
             </span>
             <span className="text-xs text-gray-500">
-              {[p.venue, p.published_date].filter(nonEmpty).join(" · ")}
+              {[p.venue, nonEmpty(p.published_date) ? formatDisplayDate(p.published_date, uiLanguage) : null]
+                .filter(nonEmpty)
+                .join(" · ")}
             </span>
           </li>
         ))}
@@ -502,7 +517,7 @@ export function ProfileSectionBody({
       <div className="space-y-4">
         {named.map((v, i) => {
           const heading = [v.role, v.organization].filter(nonEmpty).join(" @ ");
-          const period = formatPeriod(v.start_date, v.end_date, t("present"), v.is_current);
+          const period = formatPeriod(v.start_date, v.end_date, t("present"), v.is_current, uiLanguage);
           const bullets = [...(v.achievements ?? []), ...(v.responsibilities ?? [])].filter(nonEmpty);
           return (
             <div key={i} className="border-l-2 border-teal/40 pl-3">
@@ -581,7 +596,9 @@ export function ProfileSectionBody({
           <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-2">
             <span className="font-medium text-neutral-dark">{c.name}</span>
             <span className="text-xs text-gray-500">
-              {[issuer, when].filter(nonEmpty).join(" · ")}
+              {[issuer, nonEmpty(when) ? formatDisplayDate(when, uiLanguage) : null]
+                .filter(nonEmpty)
+                .join(" · ")}
             </span>
           </li>
         );

@@ -320,4 +320,11 @@ describe("LanguagesEditor", () => {
     expect(keyWarning).toBe(false);
     errorSpy.mockRestore();
   });
+  it("lists the language and level in the UI language but edits the stored value", () => {
+    renderEditor([{ id: "l9", language: "Englisch", level: "fließend, C1", status: "confirmed" }]);
+    expect(screen.getByText("English")).toBeInTheDocument();
+    expect(screen.getByText("fluent, C1")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("language-edit-0"));
+    expect((screen.getByTestId("language-field-level") as HTMLSelectElement).value).toBe("fließend, C1");
+  });
 });

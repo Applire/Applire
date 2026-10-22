@@ -27,7 +27,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   cloneEntry,
   formatEntryPeriod,
@@ -37,6 +37,7 @@ import {
   type ProfileSectionsResponse,
   type ProjectEntry,
 } from "@/lib/profile-entries";
+import { type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
@@ -71,6 +72,7 @@ export function ProjectsEditor({
   onProfileUpdated,
 }: ProjectsEditorProps) {
   const t = useTranslations("profile");
+  const locale: DisplayLocale = useLocale() === "de" ? "de" : "en";
   const tCommon = useTranslations("common");
 
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -275,7 +277,7 @@ export function ProjectsEditor({
           {entries.map((e, i) => {
             const rawLabel = nonEmptyText(e.name) ? e.name : null;
             const label = rawLabel ?? t("notProvided");
-            const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current);
+            const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current, locale);
             return (
               <div key={nonEmptyText(e.id) ? e.id : i} className="border-l-2 border-teal/40 pl-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-2">

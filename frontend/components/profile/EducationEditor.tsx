@@ -25,7 +25,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   cloneEntry,
   type EducationEntry,
@@ -35,6 +35,7 @@ import {
   type ProfileSectionsResponse,
 } from "@/lib/profile-entries";
 import { trimStringList } from "@/lib/profile-entries";
+import { type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { AliasChips } from "@/components/profile/AliasChips";
 import { PartialDateField } from "./PartialDateField";
@@ -69,6 +70,7 @@ function entryLabel(entry: EducationEntry): string {
 
 export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileUpdated }: EducationEditorProps) {
   const t = useTranslations("profile");
+  const locale: DisplayLocale = useLocale() === "de" ? "de" : "en";
   const tCommon = useTranslations("common");
 
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -263,7 +265,7 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
           {entries.map((e, i) => {
             const heading = [e.degree, e.field].filter(nonEmptyText).join(", ");
             const period =
-              formatEntryPeriod(e.start_date, e.end_date, t("present")) ??
+              formatEntryPeriod(e.start_date, e.end_date, t("present"), undefined, locale) ??
               (nonEmptyText(e.year) ? e.year : null);
             const rawLabel = entryLabel(e);
             const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
