@@ -77,7 +77,15 @@ def _profile_two_concurrent_positions() -> dict:
                 "end_date": None,
             },
         ],
-        "education": [],
+        # Hazelnut build 3 (786 polish (c)): the Ausbildung in the audit's vault
+        # order — 2010, 2004, 2013 — plus an undated row, so the pipeline seam
+        # test below can assert the delivered order is reverse-chronological.
+        "education": [
+            {"id": "e-meister", "institution": "IHK", "degree": "Industriemeister Metall (IHK)", "end_date": "2010"},
+            {"id": "e-undated", "institution": "VHS", "degree": "Kurs ohne Datum"},
+            {"id": "e-ausbildung", "institution": "Rasselstein", "degree": "Ausbildung Industriemechaniker", "end_date": "2004"},
+            {"id": "e-refa", "institution": "REFA", "degree": "REFA-Grundschein", "start_date": "2013-03"},
+        ],
         "languages": [],
     }
 
@@ -221,3 +229,58 @@ async def test_generation_persists_reverse_chronological_order(db_with_cv):
     assert companies == ["Alpha Analytics AG", "Beta Consulting GmbH"]
     snapshot_companies = [p["company"] for p in record.content_snapshot["positions"]]
     assert snapshot_companies == ["Alpha Analytics AG", "Beta Consulting GmbH"]
+
+
+@pytest.mark.asyncio
+async def test_generation_persists_reverse_chronological_education(db_with_cv):
+    """Hazelnut build 3 (786 polish (c), ADR-094 cl. 2 amended 2026-10-22): the
+    delivered Ausbildung is newest first (end date, else start date), undated rows
+    last — driven through the real ``_render_cv_background`` so the seam (the
+    generation copy's sort beside the #118 work sort) is what is pinned, not only
+    the helper. Vault order 2010, —, 2004, 2013 → 2013, 2010, 2004, —."""
+    from applire.models.cv import GeneratedCV
+
+    ctx = db_with_cv
+    session = ctx["db"]
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = _prose_two_concurrent_positions()
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cv.get_provider", return_value=mock_provider), \
+         patch("applire.services.cv.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", 0), \
+         patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda t, *a, **k: t)), \
+         patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-fake")):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cv import _render_cv_background
+        await _render_cv_background(ctx["cv_id"], ctx["job_id"], ctx["profile_id"], "classic_german")
+
+    record = await session.get(GeneratedCV, ctx["cv_id"])
+    assert record.status == "ready", f"generation failed: {record.error_message!r}"
+    degrees = [e["degree"] for e in record.tailored_data["education"]]
+    assert degrees == [
+        "REFA-Grundschein",
+        "Industriemeister Metall (IHK)",
+        "Ausbildung Industriemechaniker",
+        "Kurs ohne Datum",
+    ]
+
+
+def test_sort_education_by_date_is_stable_and_keeps_every_row():
+    """The helper: end date wins over start date, month precision counts, equal
+    keys keep vault order, undated and non-dict rows go last, nothing is dropped."""
+    from applire.services.cv import sort_education_by_date
+
+    rows = [
+        {"degree": "A", "end_date": "2010"},
+        {"degree": "B", "start_date": "2019", "end_date": "2012-09"},
+        {"degree": "C"},
+        {"degree": "D", "end_date": "2012-09"},
+        {"degree": "E", "start_date": "2024-10", "end_date": None},
+    ]
+    assert [r["degree"] for r in sort_education_by_date(rows)] == ["E", "B", "D", "A", "C"]
+    assert sort_education_by_date([]) == []

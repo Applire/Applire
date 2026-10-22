@@ -162,6 +162,29 @@ class UnknownWorkEntryIdError(ValueError):
     misassignment this design removes), so generation fails instead."""
 
 
+_EDU_YEAR = re.compile(r"\s*(\d{4})(?:-(\d{1,2}))?")
+
+
+def sort_education_by_date(entries: list) -> list:
+    """Education rows newest first (Hazelnut build 3, 786 polish (c); ADR-094 cl. 2
+    amended 2026-10-22): keyed on the END date (graduation), else the START date;
+    rows with neither sort last. Stable, so equal keys keep the vault's order. A
+    DACH Lebenslauf lists the Ausbildung reverse-chronologically exactly like the
+    Berufserfahrung — the audit delivered "2010, 2004, 2013" in vault order.
+    Ordering by date is a FACT (ADR-062 cl. 1); no row is changed or dropped.
+    Pure; non-dict rows keep their position relative to each other at the end."""
+    def _key(e: object) -> tuple[int, str]:
+        if not isinstance(e, dict):
+            return (0, "0000-00")
+        for fld in ("end_date", "start_date"):
+            m = _EDU_YEAR.match(str(e.get(fld) or ""))
+            if m:
+                return (1, f"{m.group(1)}-{int(m.group(2) or 0):02d}")
+        return (0, "0000-00")
+
+    return sorted(list(entries), key=_key, reverse=True)
+
+
 def assemble_tailored_cv(prose: dict, profile_json: dict, *, user_id: uuid.UUID | None = None) -> dict:
     """Deterministically join the writer's PROSE onto the vault's FACTS, producing a
     TailoredCVData-shaped dict (E049 / ADR-067 clauses 2–3 — one assembly for both
@@ -4179,6 +4202,13 @@ async def _render_cv_background(
                     profile_json["work_experience"] = [
                         e.model_dump() for e in _sort_work_by_date(we)
                     ]
+                # Hazelnut build 3 (786 polish (c), ADR-094 cl. 2 amended): the
+                # Ausbildung section is reverse-chronological like the work history —
+                # a date ordering, a fact. Sorted on this generation COPY so the
+                # writer's VAULT FIELDS block, compose_v2's id join and every renderer
+                # see one order; the persisted profile is untouched.
+                if profile_json.get("education"):
+                    profile_json["education"] = sort_education_by_date(profile_json["education"])
                 # ADR-061 clause 3: neither the writer LLM nor any deterministic pass
                 # below (certifications passthrough, skill-restoration pools) may see
                 # an unconfirmed vault entry — it cannot back a CV line. The
