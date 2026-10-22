@@ -299,6 +299,15 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   narrower or related entry is a DIFFERENT one" (+490 chars): the one over-binding
   the stress case provokes ("Budget responsibility" → "Budgetplanung") stayed 5/5, so
   it bought nothing measurable. Records: ``Documents/Runs/Hazelnut/build-3/a/``.
+  **Also not shipped (founder ruling a-1 = B, then its own fallback A):** two wordings
+  against related-skill bindings, each measured n=5 per case on the stress case, the
+  captured German Budget call and the SQL/PostgreSQL and EPR/Cerner captures —
+  W1 "the two names must be INTERCHANGEABLE … a related, broader or narrower
+  capability is a new entry" (+284): stress Budget 5/5 → 4/5, captured Budget 3/5 →
+  0/5; W2 = W1 + "a translation says the same words in the other language" (+460):
+  4/5 and 3/5. The two other captures were 0/5 on every arm including today's (both
+  were id slips, not related-skill judgements), and W1/W2 each lost the languages in
+  2/5 stress runs (0/5 on today's). No wording dropped the rate on every case.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault

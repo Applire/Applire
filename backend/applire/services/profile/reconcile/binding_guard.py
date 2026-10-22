@@ -24,7 +24,12 @@ Two FACTS (ADR-062 cl. 1), never a judgement of whether two skills are the same:
 (b) ``category_mismatch`` — the incoming skill's stated category and the
     target's are ``technical`` and ``soft``. Only that pair: technical↔domain and
     domain↔soft drift between two extractions of the same skill (four genuine
-    such bindings in the captured logs, none technical↔soft).
+    such bindings in the captured logs, none technical↔soft);
+(c) ``name_taken`` — ANOTHER skill of the vault already carries the incoming
+    name as its own name or a recorded alias (the fact ``apply._targeted_skill``
+    has applied to a targeted upsert since 2026-10-08, now on ``match_existing``
+    too). Captured 2026-10-08: "SQL" bound to the id of "PostgreSQL" while the
+    vault held "SQL" as its own entry.
 
 A binding whose incoming name already IS one of the target's names is never
 refused — identity by the same words is a fact (a category that drifted between
@@ -57,12 +62,19 @@ def skill_binding_refusal(
     incoming_category: str | None,
     existing_echo: str | None,
     target: Any,
+    skills: Sequence[Any] = (),
 ) -> str | None:
     """The reason a model binding of ``incoming_name`` to the skill ``target`` is
-    refused, or ``None`` when it stands. Facts only — see the module docstring."""
+    refused, or ``None`` when it stands. Facts only — see the module docstring.
+    ``skills`` is the vault's skill list, for check (c)."""
     target_names = _aliases.names_of(target, "name", "skills")
     if _aliases.norm(incoming_name) in target_names:
         return None
+    if any(
+        s is not target and _aliases.norm(incoming_name) in _aliases.names_of(s, "name", "skills")
+        for s in skills
+    ):
+        return "name_taken"
     if existing_echo is not None and _aliases.norm(existing_echo) and (
         _aliases.norm(existing_echo) not in target_names
     ):
@@ -107,7 +119,8 @@ def refuse_false_skill_bindings(
         if isinstance(op, MatchExisting) and op.target in skills_by_id:
             entry = _document_skill(incoming, op.incoming)
             reason = skill_binding_refusal(
-                op.incoming, getattr(entry, "category", None), op.existing, skills_by_id[op.target]
+                op.incoming, getattr(entry, "category", None), op.existing, skills_by_id[op.target],
+                skills_by_id.values(),
             )
             if reason is None:
                 out.append(op)
@@ -120,7 +133,9 @@ def refuse_false_skill_bindings(
                     years_experience=getattr(entry, "years_experience", None),
                 ))
         elif isinstance(op, UpsertSkill) and op.target in skills_by_id:
-            reason = skill_binding_refusal(op.name, op.category, op.existing, skills_by_id[op.target])
+            reason = skill_binding_refusal(
+                op.name, op.category, op.existing, skills_by_id[op.target], skills_by_id.values()
+            )
             if reason is None:
                 out.append(op)
                 continue

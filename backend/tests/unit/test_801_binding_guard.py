@@ -87,6 +87,34 @@ def test_same_words_are_never_refused():
     assert skill_binding_refusal("mentoring", "technical", "Mentoring", target) is None
 
 
+def test_a_name_another_entry_carries_is_refused():
+    """Captured 2026-10-08: "SQL" bound to PostgreSQL's id while "SQL" was its own entry."""
+    vault = _vault()
+    vault.skills.append(Skill(id="s-sql2", name="SQL", category="technical"))
+    target = _skill(vault, "s-sql")
+    assert skill_binding_refusal("SQL", "technical", None, target, vault.skills) == "name_taken"
+    _skill(vault, "s-aws").aliases = ["Amazon ECS"]
+    assert skill_binding_refusal("amazon ecs", None, None, _skill(vault, "s-ecs"), vault.skills) == "name_taken"
+    assert skill_binding_refusal("Postgres", "technical", None, target, vault.skills) is None
+
+
+def test_match_existing_onto_a_neighbour_of_an_existing_name_leaves_no_receipt():
+    vault = _vault()
+    vault.skills.append(Skill(id="s-sql2", name="SQL", category="technical"))
+    applied = apply_ops(vault, [MatchExisting(target="s-sql", incoming="SQL")], "interview")
+    assert applied.matched == []
+
+
+def test_prepass_rewrites_a_name_taken_binding_onto_the_entry_of_that_name():
+    vault = _vault()
+    vault.skills.append(Skill(id="s-sql2", name="SQL", category="technical"))
+    incoming = MasterProfileData(skills=[Skill(name="SQL", category="technical")])
+    out, refused = refuse_false_skill_bindings(incoming, vault, [MatchExisting(target="s-sql", incoming="SQL")])
+    assert refused[0]["reason"] == "name_taken" and out[0].target is None
+    applied = apply_ops(vault, out, "cv_upload")
+    assert [s.name for s in applied.profile.skills].count("SQL") == 1  # merged into its own entry
+
+
 # ── caller 1: the applier's target check, every door ────────────────────────
 
 def test_turn_door_targeted_upsert_across_categories_is_not_merged():
