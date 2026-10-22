@@ -709,7 +709,8 @@
       "staleAction": "Im Profil prüfen",
       "staleDismiss": "Stimmt noch",
       "region": "Hinweis zu deiner Kündigungsfrist"
-    }
+    },
+    "statusYourTurn": "Du bist dran"
   },
   "profile": {
     "title": "Mein Profil",

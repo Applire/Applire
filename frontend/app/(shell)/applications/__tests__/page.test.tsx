@@ -71,6 +71,8 @@ interface AppOverrides {
   flow_current_step?: string | null;
   source_url?: string | null;
   deadline?: string | null;
+  workflow_running?: boolean;
+  cover_letter_ready?: boolean;
 }
 
 function baseApplication(o: AppOverrides = {}) {
@@ -94,6 +96,8 @@ function baseApplication(o: AppOverrides = {}) {
     created_at: "2026-07-01T09:00:00Z",
     updated_at: "2026-07-10T09:00:00Z",
     expires_at: null,
+    workflow_running: o.workflow_running ?? false,
+    cover_letter_ready: o.cover_letter_ready ?? false,
   };
 }
 
@@ -184,6 +188,44 @@ describe("ApplicationDetailPage — cockpit header zone (US231)", () => {
     expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open CV" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start tailoring" })).not.toBeInTheDocument();
+  });
+
+  it("#789: one Resume and one Open CV on the whole page — the journey zone repeats neither", async () => {
+    await renderPage({
+      app: baseApplication({ workflow_status: "analyzing", flow_current_step: "gap_analysis" }),
+    });
+    expect(screen.getAllByRole("button", { name: "Resume" })).toHaveLength(1);
+    expect(screen.queryByRole("link", { name: "Resume" })).toBeNull();
+    expect(screen.queryByTestId("dossier-journey-resume-link")).toBeNull();
+  });
+
+  it("#789 felix-020: a finished analysis waiting for the user reads 'Your turn', no spinner", async () => {
+    await renderPage({
+      app: baseApplication({ workflow_status: "analyzing", flow_current_step: "gap_analysis", workflow_running: false }),
+    });
+    expect(screen.getByText("Your turn")).toBeInTheDocument();
+    expect(screen.queryByText("Analyzing")).toBeNull();
+    expect(document.querySelector('[data-testid="dossier-journey-zone"] .animate-spin')).toBeNull();
+  });
+
+  it("#789: a running generation keeps the working word and the spinner", async () => {
+    await renderPage({
+      app: baseApplication({ workflow_status: "cv_generating", flow_current_step: "cv_generation", workflow_running: true }),
+    });
+    expect(screen.getByText("Generating CV")).toBeInTheDocument();
+    expect(document.querySelector('[data-testid="dossier-journey-zone"] .animate-spin')).not.toBeNull();
+  });
+
+  it("#789: the ready badge names the letter too when it is ready", async () => {
+    await renderPage({ app: baseApplication({ workflow_status: "completed", cover_letter_ready: true }) });
+    expect(screen.getByText("CV + letter ready")).toBeInTheDocument();
+  });
+
+  it("#789: no Open CV without a flow — the result page lives under it", async () => {
+    await renderPage({
+      app: baseApplication({ workflow_status: "completed", flow_session_id: null, flow_current_step: null }),
+    });
+    expect(screen.queryByTestId("dossier-open-cv")).toBeNull();
   });
 
   it("no-flow state: Start tailoring present, Resume + Open CV + Re-tailor absent", async () => {

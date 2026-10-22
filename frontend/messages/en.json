@@ -709,7 +709,8 @@
       "staleAction": "Review it in my profile",
       "staleDismiss": "Still right",
       "region": "Notice period reminder"
-    }
+    },
+    "statusYourTurn": "Your turn"
   },
   "profile": {
     "title": "My Profile",

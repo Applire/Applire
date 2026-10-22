@@ -26,7 +26,13 @@ import { cn } from "@/lib/utils";
 interface DossierJourneyZoneProps {
   flowSessionId: string;
   currentStep: string;
-  workflowStatus: string;
+  /**
+   * E12-788:L21 read model (`workflow_running`): Applire is producing
+   * something for this application right now. The spinner keys on THIS, not
+   * on the status word — a finished gap analysis waiting for the user is
+   * "analyzing" by step but not running (UX audit felix-020).
+   */
+  running: boolean;
 }
 
 /**
@@ -46,10 +52,6 @@ const STEP_LABEL_KEYS: Record<VisibleStep, string> = {
   cv_generation: "stepCV",
 };
 
-// workflow_status values where the active step is actually mid-generation —
-// shows a spinner instead of a static highlight.
-const BUSY_WORKFLOW_STATUSES = new Set(["analyzing", "interviewing", "cv_generating"]);
-
 type MilestoneState = "done" | "active" | "pending";
 
 /**
@@ -58,20 +60,22 @@ type MilestoneState = "done" | "active" | "pending";
  *  - Completed (`currentStep === "complete"`): the strip is all done
  *    milestones (never links — a past step isn't a route to revisit) plus
  *    two explicit result links: the CV result and the cover letter.
- *  - Mid-flow: the strip highlights the current step; the ONE navigation
- *    action goes to `/flow/{flowSessionId}` — the flow INDEX, never a
- *    hard-coded step route. Hard-coding a step desyncs the flow state
- *    machine (see `lib/flow-routing.ts` header comment and
- *    `DashboardApplicationCard.tsx` `handleAction`) — this is a locked
- *    boundary, not a style choice.
+ *  - Mid-flow: the strip highlights the current step.
+ *
+ * #789 (Hazelnut build 3): the zone carries NO re-entry action of its own any
+ * more — "Fortsetzen" and "Lebenslauf öffnen" live once, in the dossier
+ * header (the audit counted two "Resume" buttons on one screen). The header's
+ * Resume still goes to the flow INDEX, never a hard-coded step route (the
+ * locked boundary in `lib/flow-routing.ts`). Only the letter-draft link stays
+ * here: the header's letter button opens the PDF, a different destination.
  */
-export function DossierJourneyZone({ flowSessionId, currentStep, workflowStatus }: DossierJourneyZoneProps) {
+export function DossierJourneyZone({ flowSessionId, currentStep, running }: DossierJourneyZoneProps) {
   const t = useTranslations("applications");
   const tFlow = useTranslations("flow");
 
   const isComplete = currentStep === "complete";
   const currentIndex = STEP_ORDER.indexOf(currentStep as VisibleStep);
-  const isBusy = BUSY_WORKFLOW_STATUSES.has(workflowStatus);
+  const isBusy = running;
 
   return (
     <Card className="p-6" data-testid="dossier-journey-zone">
@@ -131,39 +135,21 @@ export function DossierJourneyZone({ flowSessionId, currentStep, workflowStatus 
         })}
       </ol>
 
-      <div className="mt-4 flex items-center gap-2 flex-wrap">
-        {isComplete ? (
-          <>
-            <Link
-              href={`/flow/${flowSessionId}/cv`}
-              data-testid="dossier-journey-cv-link"
-              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-teal-dim text-white hover:bg-primary"
-            >
-              {t("openCvAction")}
-            </Link>
-            {/* Same destination as the documents zone's draft link
-                (/flow/{id}/cover-letter) — reuses ITS label ("View draft"),
-                not the header's "Cover letter" button, which opens the PDF
-                directly. Same text + different behavior would be confusing. */}
-            <Link
-              href={`/flow/${flowSessionId}/cover-letter`}
-              data-testid="dossier-journey-cl-link"
-              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-outline-variant text-on-surface hover:bg-surface-container"
-            >
-              {t("coverLetterDraftLink")}
-            </Link>
-          </>
-        ) : (
-          // Single re-entry action, index-only — see the boundary note above.
+      {isComplete && (
+        <div className="mt-4 flex items-center gap-2 flex-wrap">
+          {/* Same destination as the documents zone's draft link
+              (/flow/{id}/cover-letter) — reuses ITS label ("View draft"),
+              not the header's "Cover letter" button, which opens the PDF
+              directly. Same text + different behavior would be confusing. */}
           <Link
-            href={`/flow/${flowSessionId}`}
-            data-testid="dossier-journey-resume-link"
-            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-teal-dim text-white hover:bg-primary"
+            href={`/flow/${flowSessionId}/cover-letter`}
+            data-testid="dossier-journey-cl-link"
+            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-outline-variant text-on-surface hover:bg-surface-container"
           >
-            {t("resumeAction")}
+            {t("coverLetterDraftLink")}
           </Link>
-        )}
-      </div>
+        </div>
+      )}
     </Card>
   );
 }
