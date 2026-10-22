@@ -26,6 +26,7 @@ import { TemplateSelector } from "@/components/cv/TemplateSelector";
 import { TargetPagesSelect } from "@/components/cv/TargetPagesSelect";
 import { GenerationProgress } from "@/components/cv/GenerationProgress";
 import { CVDocument, type CVDocumentHandle } from "@/components/cv/CVDocument";
+import { PageOverflowCard } from "@/components/cv/PageOverflowCard";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
 import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
 import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
@@ -979,12 +980,23 @@ export default function CVPage({
         )}
         <DocumentWorkspace
           preview={
-            <CVDocument
-              cvId={cvId}
-              ref={cvDocRef}
-              className="flex-1"
-              onPreviewLoad={() => setPreviewVersion((v) => v + 1)}
-            />
+            <>
+              {/* #786 L-3 (WP-L): the x+1 decision, above the preview. */}
+              <PageOverflowCard
+                key={cvId}
+                cvId={cvId}
+                onContentChanged={() => {
+                  cvDocRef.current?.refresh();
+                  setAtsRefresh((n) => n + 1);
+                }}
+              />
+              <CVDocument
+                cvId={cvId}
+                ref={cvDocRef}
+                className="flex-1"
+                onPreviewLoad={() => setPreviewVersion((v) => v + 1)}
+              />
+            </>
           }
           sidebar={
             <RefinementSidebar
