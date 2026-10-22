@@ -146,10 +146,15 @@ _XML_STRIP = {c: None for c in _XML_FORBIDDEN}
 
 
 def xml_safe(text: str | None) -> str | None:
-    """Drop characters XML 1.0 forbids, preserving everything else verbatim."""
+    """Drop characters XML 1.0 forbids, preserving everything else verbatim —
+    except the space between a figure and its unit, which becomes a no-break
+    space exactly as in the PDF render (#786, ``templates.filters.bind_units``:
+    one rule for every document surface)."""
     if text is None:
         return None
-    return text.translate(_XML_STRIP)
+    from applire.templates.filters import bind_units
+
+    return bind_units(text).translate(_XML_STRIP)
 
 
 def _is_blank(text: str | None) -> bool:

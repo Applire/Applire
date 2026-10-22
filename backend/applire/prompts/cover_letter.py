@@ -167,7 +167,7 @@ Rules:
   Frau <Nachname>," / "Sehr geehrter Herr <Nachname>,", EN "Dear Ms <Surname>," / "Dear Mr
   <Surname>,"); if the gender cannot be read from the name or title, use the generic form.
   When no recipient is known, use the generic form ("Sehr geehrte Damen und Herren," /
-  "Dear Sir or Madam,"). The 3-4 body paragraphs below are counted AFTER the salutation.
+  "Dear Hiring Manager," — never the dated "Dear Sir or Madam,"). The 3-4 body paragraphs below are counted AFTER the salutation.
 - Body should have 3-4 paragraphs AFTER the salutation (see SALUTATION above): opening
   (interest + role), why-me (key achievements), company-fit, closing.
 - REQUIRED CLOSING PARAGRAPH (#272): the letter's LAST paragraph must be a genuine closing —

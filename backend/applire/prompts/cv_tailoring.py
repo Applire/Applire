@@ -15,6 +15,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v12.2 (#786 Hazelnut build 3 WP-L, 2026-10-22 — rule 5 asked for the
+#   defect: "third person" produced "Er verbindet …" / "Sie verbindet …" in 16/35 DE Luna
+#   corpus CVs. Rule 5 now asks for the CV register (no pronoun, no name, no sentence about
+#   the document). Rule 7 + the JD-REQUIRED SKILLS block: the block demanded "each … once"
+#   for an acronym AND its expansion while rule 7 forbade listing both — both now ask for
+#   ONE entry carrying both forms. Luna replay of 4 captured v2-gate writer calls, n=5 per
+#   arm, the rule text the only variable: summary pronoun/frame 15/20 → 1/20 (terse wording
+#   without the "Ergänzt" example) → 0/10 with it (as shipped); MES beside its expansion
+#   10/10 → 2/10 (0/5 as shipped); SAP beside SAP PP/MM 10/10 → 8/10; ISO 45001 beside
+#   Arbeitssicherheit 10/10 → 10/10 (no effect). Size gate: 10487 < reviewer 10590.
+#   Runs/Hazelnut/build-3/l/report.md.)
 # Prompt version: v12.1 (#759, 2026-10-08 — `build_retry_prompt(document_language=…)`: the
 #   TERMINAL corrector is told the document language (it never was; it copied English vault
 #   evidence into a German CV after the language pass, CV 1680cd28 records 176/178). The
@@ -191,7 +202,7 @@ Your job is to make true things read well, and land for THIS job.
    - EXPLICITLY DENIED, or a plain UNKNOWN gap: omit it. A CV is not the place to disclose a gap — that is the cover letter's job. Never claim it, and never gesture at it with a hedge like "familiar with" or "exposure to".
    An absent required keyword is a truthful outcome. An asserted one the candidate cannot back is a fabrication, and the worst failure mode here.
 
-5. SUMMARY. 2–3 sentences, third person, aimed at THIS role. Lead with the KEYWORD LEDGER's top claimable concepts — the terms the profile's evidence actually backs. Do not let an earlier, no-longer-central specialism dominate because it happens to fill more of the profile. Leading with a concept never licenses re-labelling a fact into it: reach for evidence the profile already states in those terms, never for a fact restated in them (rule 6).
+5. SUMMARY. 2–3 sentences aimed at THIS role, in CV register: no pronoun, no name, no sentence about the document ("Ergänzt wird das Profil …") — open with the title phrase. Lead with the KEYWORD LEDGER's top claimable concepts — the terms the profile's evidence actually backs. Do not let an earlier, no-longer-central specialism dominate because it happens to fill more of the profile. Leading with a concept never licenses re-labelling a fact into it: reach for evidence the profile already states in those terms, never for a fact restated in them (rule 6).
 
 6. CLAIM STRENGTH. Vivid, never inflated — any line you write, a summary sentence as much as a bullet, drawn from a truthful source but with misleading emphasis is still a defect, and the candidate is the one exposed in the interview. Mirror the profile's own verb strength: if it says "supported", "contributed to" or "was part of", do not upgrade to "led", "owned" or "drove". Never enlarge a team size, budget, scope or user count, and never imply a more senior role than the profile states.
    A true figure can still be written untruthfully, in two ways. Ask both of every figure you carry.
@@ -200,7 +211,7 @@ Your job is to make true things read well, and land for THIS job.
    Both are FRAMING instructions and never a reason to drop the figure or to write around it: the resolution is always the profile's own subject and the profile's own relationship, written out — never a vaguer line, never a missing number. A bullet vaguer than the truth is the opposite defect and just as damaging (rule 3).
 
 7. SKILLS. Return the skills this JD cares about that the profile supports, most relevant first. A skill with no basis in the profile is omitted, however loudly the JD asks for it. A requirement phrase — a duration ("5+ years of…", "X Jahre…"), an industry or sector name, or a degree requirement — is not a skill: a skill is a named competence, tool or method the candidate holds in the vault. An industry or sector name ("Maschinenbau", "Verpackungsindustrie") and years of experience are the SETTING of the work — they belong in the summary or in the bullet that states them, never in the skills list.
-   - One entry per competence. Never list an acronym, its expansion and a translated form as separate entries — pick the one form a DACH recruiter for this role would expect.
+   - One entry per competence. Never list an acronym, its expansion and a translated form as separate entries — pick the one form a DACH recruiter for this role would expect. Two forms the posting names for one competence share ONE entry: "MES (Maschinen- und Betriebsdatenerfassung)".
    - Every skill you name in a bullet must also appear in the skills list.
 
 8. LANGUAGE. Write all prose — summary, bullets, skill entries — in the OUTPUT LANGUAGE stated in the user message, translating from the profile's language where needed. Translating is not inventing.
@@ -626,8 +637,10 @@ def build_v2_fields_block(
         )
     if required_vault_skills:
         lines.append(
-            "JD-REQUIRED SKILLS THE PROFILE HOLDS — each belongs in the skills list, once, "
-            "in the OUTPUT LANGUAGE (a translated or recorded form is the same skill): "
+            "JD-REQUIRED SKILLS THE PROFILE HOLDS — each must be findable in the skills list, "
+            "in the OUTPUT LANGUAGE (a translated or recorded form is the same skill). Two of "
+            "them that name ONE competence (an acronym and its expansion, a synonym, a standard "
+            "and its discipline) share ONE entry that carries both forms — rule 7: "
             + ", ".join(f'"{s}"' for s in required_vault_skills)
         )
     return "\n".join(lines)

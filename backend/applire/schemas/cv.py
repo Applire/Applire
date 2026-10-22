@@ -116,8 +116,42 @@ class CVStatusResponse(BaseModel):
     # "uploaded but toggled off", which the control needs to decide whether to
     # render itself or a disabled hint.
     signature_available: bool = False
+    # #786 L-3 (founder ruling 2026-10-22): the x+1 decision — the CV is longer
+    # than its target, the page ladder names what would have to go, and the
+    # person keeps the extra page or cuts. None = the CV fits its target.
+    page_overflow: Optional["CVPageOverflow"] = None
 
     model_config = {"from_attributes": True}
+
+
+class CVPageOverflowCut(BaseModel):
+    """One kind of cut the ladder proposes, with the items it removes (named, so
+    "Kürzen" says exactly what went)."""
+    kind: Literal[
+        "duplicate_project", "off_job_skills", "repeated_industry",
+        "oldest_certification", "oldest_education",
+    ]
+    items: list[str] = Field(default_factory=list)
+
+
+class CVPageOverflow(BaseModel):
+    """The x+1 decision on one CV (#786 L-3). ``choice`` null = not yet asked
+    back; ``cut_available`` / ``uncut_available`` = the switch can be applied to
+    the CV as it stands (no content change or section edit since)."""
+    target: int
+    actual: int
+    proposed: list[CVPageOverflowCut] = Field(default_factory=list)
+    choice: Optional[Literal["keep", "cut"]] = None
+    cut_available: bool = False
+    uncut_available: bool = False
+
+
+class CVPageOverflowChoiceRequest(BaseModel):
+    """POST /api/cv/{cv_id}/page-overflow body."""
+    choice: Literal["keep", "cut"]
+
+
+CVStatusResponse.model_rebuild()
 
 
 class CVSignatureOverrideRequest(BaseModel):

@@ -223,6 +223,15 @@ silence, and the transition still succeeds. **There is no `cover_letter`
 step** — `generate_cover_letter` links the letter to the flow itself, so you
 never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
 
+**The letter's optional inputs** (`generate_cover_letter`) mirror the web form
+and carry the USER's own words — pass one only when the user stated it, never
+a guess: `recipient_name` (contact person), `recipient_company`, `salary`
+(salary expectation), `availability` (notice period / earliest start),
+`motivation` (why this role, why the change), `tone` (`formal` default,
+`professional`, `conversational`). The letter never invents a notice period, a
+start date or a reason for the change — left out, the letter does without.
+Editing a generated letter's sections is UI-only.
+
 **À-la-carte (BYOI)** (you write; preferred when your model is strong):
 - `get_profile` — the full vault, your evidence base. Signature stories
   (challenge → mechanism → outcome → benchmark) are its richest material.

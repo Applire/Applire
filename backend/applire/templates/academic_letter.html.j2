@@ -8,9 +8,11 @@
     :root { --primary: {{ color.primary }}; }
     body { font-family: "Palatino Linotype", Georgia, serif; font-size: 10.5pt; line-height: 1.55; color: #111; background: #fff; }
     .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 20mm 24mm; }
-    .header { text-align: center; margin-bottom: 14mm; border-bottom: 1px solid var(--primary); padding-bottom: 8px; }
-    .header-name { font-size: 16pt; font-weight: bold; }
-    .header-contact { font-size: 9pt; color: #666; margin-top: 4px; }
+    /* Header = the CV twin's header (academic.html.j2): centred serif name, centred contact
+       line with middots, 1.5px accent rule. */
+    .header { text-align: center; border-bottom: 1.5px solid var(--primary); padding-bottom: 10pt; margin-bottom: 12mm; font-family: "Times New Roman", Times, serif; }
+    .header-name { font-size: 18pt; font-weight: bold; letter-spacing: 0.03em; margin-bottom: 4pt; line-height: 1.5; }
+    .header-contact { font-size: 9.5pt; color: #444; line-height: 1.8; }
     .recipient { margin-bottom: 8mm; font-size: 10pt; }
     .date { text-align: right; margin-bottom: 6mm; font-style: italic; color: #555; }
     .subject { font-weight: bold; font-size: 11pt; margin-bottom: 7mm; text-align: center; }
@@ -24,7 +26,9 @@
        1. 4mm less air (again) shrinks the atomic unit so it fits the
        remainder more often; this is a probability reduction, not a proof —
        CSS pagination cannot guarantee fit without content-aware sizing. */
-    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 5mm; }
+    .signature { break-inside: avoid; page-break-inside: avoid; break-before: avoid; page-break-before: avoid; margin-top: 5mm; }
+    /* 786:L41 keep-with-signature: the last paragraph and the closing move as one unit, so a page break never leaves the closing alone. */
+    .body p:last-child { break-after: avoid; page-break-after: avoid; }
     .signature .closing { margin-bottom: 7mm; }
     .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; margin: 0 0 1mm; }
     .signature.has-signature .closing { margin-bottom: 2mm; }
@@ -47,7 +51,7 @@
 <div class="page">
   <div class="header">
     <div class="header-name">{{ letter.header.name }}</div>
-    <div class="header-contact">{% if letter.header.address %}{{ letter.header.address }}{% endif %}{% if letter.header.email %} · {{ letter.header.email }}{% endif %}{% if letter.header.phone %} · {{ letter.header.phone }}{% endif %}</div>
+    <div class="header-contact">{% if letter.header.address %}<span>{{ letter.header.address }}</span>{% endif %}{% if letter.header.email %} &nbsp;·&nbsp; <span>{{ letter.header.email }}</span>{% endif %}{% if letter.header.phone %} &nbsp;·&nbsp; <span>{{ letter.header.phone }}</span>{% endif %}</div>
   </div>
   <div class="recipient">{% if letter.recipient.name %}{{ letter.recipient.name }}<br>{% endif %}{% if letter.recipient.title %}{{ letter.recipient.title }}<br>{% endif %}{% if letter.recipient.company %}{{ letter.recipient.company }}<br>{% endif %}{% if letter.recipient.address %}{{ letter.recipient.address }}{% endif %}</div>
   <div class="date">{{ letter.recipient.date }}</div>

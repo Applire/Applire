@@ -859,9 +859,9 @@ async def test_letter_signature_orphans_less_often_547():
 # `@page :first` inset or #431's retypography — both visible "look"
 # decisions the founder made for their own templates, not a shared CSS
 # budget this block owns. Not made unilaterally here; the four affected
-# templates are marked `xfail` below, carrying their measured flip word
-# count, so the gap is recorded rather than hidden. Same lever, N
-# templates, when it earns its keep — ADR-066.
+# templates were marked `xfail`, carrying their measured flip word count.
+# Closed by 786:L41 (Hazelnut build 3) — not by spending page-1 capacity but
+# by keeping the end of the last paragraph with the closing (see below).
 # ---------------------------------------------------------------------------
 
 _ORPHAN_547_FILLER_WORDS = (
@@ -877,53 +877,24 @@ _ORPHAN_547_FREE_SPACE_FLOOR_MM = 8.0  # below this, a lonely page-2 closing
 # not the #547 orphan shape — see the sweep comment above for the measured
 # 17-25mm this defect actually leaves on every reproduced case.
 
-_ORPHAN_547_XFAIL_REASON = (
-    "flips at +{measured} words (this test is calibrated at that exact "
-    "measured flip point). "
-    "Root cause pinned to this template's OWN page-1 capacity (header/"
-    "accent-rule/date-block budget), not the shared signature block — a "
-    "shared-block margin trim was tried and reverted (measured to help "
-    "unevenly across templates, see the comment above). Needs a "
-    "per-template page-1-capacity change (#621 @page:first / #431 "
-    "retypography class) — a founder 'look' decision, not made here."
-)
-
-def _xfail_547(measured_flip_words: int) -> pytest.MarkDecorator:
-    """Records the #547 gap without asserting it reproduces everywhere.
-
-    **`strict=True` was tried first and withdrawn on evidence** (CI run
-    33432704537, job 99621656399): `tech_developer` XPASSed there and turned a
-    recorded gap into a red build, while the other three still XFAILed. The
-    word counts below are each template's flip point *as measured on the
-    development host*, and a flip point is a rendered-layout quantity — CI
-    substitutes fonts, so the same fixture overflows at a different word count,
-    or not at all. This file's own #429 docstring already flags that hazard for
-    the assertion; it applies just as much to the fixture that provokes it.
-
-    So: the ASSERTION stays a relative invariant read from a single render
-    (page 2 holds only the closing AND page 1 still has >8 mm unused), which
-    survives a font swap — and the MARKER is non-strict, because "does this
-    template overflow at exactly N words" does not.
-
-    The cost is real and stated rather than hidden: a future capacity fix will
-    NOT make this suite go red by itself. #547 stays open and the writer
-    collector (#601) carries the finding, which is where the tracking lives now.
-    """
-    return pytest.mark.xfail(
-        reason=_ORPHAN_547_XFAIL_REASON.format(measured=measured_flip_words),
-        strict=False,
-    )
-
+# 786:L41 (Hazelnut build 3): the xfail markers that recorded the four
+# reproducing templates are gone. Every letter template now carries a
+# keep-with-signature rule (`.body p:last-child { break-after: avoid }` +
+# `.signature { break-before: avoid }`): a page break carries the end of the
+# last paragraph WITH the closing, so page 2 never holds the closing alone.
+# That makes the invariant a property of the CSS, not of a font's flip point,
+# so the params below are plain — a template that loses the rule goes red
+# (mutation-checked on tech_developer, the CI XPASS case from #547).
 
 _ORPHAN_547_PARAMS = [
     # (template, n_words_appended) — each template's OWN measured flip
-    # point (the smallest overflow that reproduces the orphan; 40 == the
-    # full filler list, for the 3 templates that never flipped within it);
-    # xfail only on the 4 confirmed-reproducing cases.
-    pytest.param("classic_german", 8, marks=_xfail_547(8), id="classic_german"),
-    pytest.param("tech_developer", 20, marks=_xfail_547(20), id="tech_developer"),
-    pytest.param("modern_swiss", 30, marks=_xfail_547(30), id="modern_swiss"),
-    pytest.param("academic", 34, marks=_xfail_547(34), id="academic"),
+    # point before the keep-with-signature rule (the smallest overflow that
+    # reproduced the orphan; 40 == the full filler list, for the 3 templates
+    # that never flipped within it).
+    pytest.param("classic_german", 8, id="classic_german"),
+    pytest.param("tech_developer", 20, id="tech_developer"),
+    pytest.param("modern_swiss", 30, id="modern_swiss"),
+    pytest.param("academic", 34, id="academic"),
     pytest.param("executive", 40, id="executive"),
     pytest.param("compact_pro", 40, id="compact_pro"),
     pytest.param("creative_sidebar", 40, id="creative_sidebar"),
@@ -1006,13 +977,9 @@ async def test_letter_signature_no_wasteful_orphan_547(template, n_words):
     the closing — would share page 2, or page 1 would already be genuinely
     full.
 
-    xfail (strict, via the marks on _ORPHAN_547_PARAMS) on the four
-    templates this session confirmed still reproduce the orphan today: the
-    body of THIS function still runs and is still asserted on for those
-    four (imperative ``pytest.xfail()`` would skip the render entirely and
-    defeat strict's whole purpose) — only the marker on the param, not a
-    skip in this body, is what converts a real failure into a recorded,
-    tracked XFAIL, and an unexpected pass into a hard error.
+    All seven params are plain since 786:L41 (Hazelnut build 3): the
+    keep-with-signature rule every letter template carries closes the gap
+    the four former xfails recorded.
     """
     import copy
 

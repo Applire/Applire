@@ -7,10 +7,12 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root { --primary: {{ color.primary }}; }
     body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 10pt; line-height: 1.6; color: #222; background: #fff; }
-    .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 20mm 22mm 20mm 25mm; border-top: 5px solid var(--primary); }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12mm; }
-    .header-name { font-size: 16pt; font-weight: 800; color: var(--primary); }
-    .header-contact { font-size: 8.5pt; color: #666; text-align: right; line-height: 1.7; }
+    .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 20mm 22mm 20mm 25mm; }
+    /* Header = the CV twin's header (modern_swiss.html.j2): 4pt accent bar on the left,
+       sans name in ink, muted contact lines stacked right-aligned under it. */
+    .header { border-left: 4pt solid var(--primary); padding-left: 10pt; margin-bottom: 10mm; line-height: 1.5; }
+    .header-name { font-size: 22pt; font-weight: 700; letter-spacing: -0.01em; color: #1c1c1c; }
+    .header-contact { text-align: right; font-size: 9pt; color: #5a5a5a; line-height: 1.7; }
     .recipient { margin-bottom: 8mm; font-size: 10pt; }
     .date { text-align: right; margin-bottom: 6mm; color: #888; font-size: 9.5pt; }
     .subject { font-weight: 700; font-size: 11pt; margin-bottom: 7mm; color: var(--primary); }
@@ -20,7 +22,9 @@
        freed space still visible on page 1 — 4mm less air shrinks the
        atomic unit so it fits the remainder more often (see academic_letter
        for the full rationale; same fix, N templates — ADR-066). */
-    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 6mm; }
+    .signature { break-inside: avoid; page-break-inside: avoid; break-before: avoid; page-break-before: avoid; margin-top: 6mm; }
+    /* 786:L41 keep-with-signature: the last paragraph and the closing move as one unit, so a page break never leaves the closing alone. */
+    .body p:last-child { break-after: avoid; page-break-after: avoid; }
     .signature .closing { margin-bottom: 8mm; }
     .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; margin: 0 0 1mm; }
     .signature.has-signature .closing { margin-bottom: 2mm; }
@@ -44,9 +48,9 @@
   <div class="header">
     <div class="header-name">{{ letter.header.name }}</div>
     <div class="header-contact">
-      {% if letter.header.email %}{{ letter.header.email }}<br>{% endif %}
-      {% if letter.header.phone %}{{ letter.header.phone }}<br>{% endif %}
-      {% if letter.header.address %}{{ letter.header.address }}{% endif %}
+      {% if letter.header.address %}<div>{{ letter.header.address }}</div>{% endif %}
+      {% if letter.header.phone %}<div>{{ letter.header.phone }}</div>{% endif %}
+      {% if letter.header.email %}<div>{{ letter.header.email }}</div>{% endif %}
     </div>
   </div>
 

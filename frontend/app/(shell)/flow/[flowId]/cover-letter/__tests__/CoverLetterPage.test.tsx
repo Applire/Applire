@@ -34,7 +34,9 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/components/cover-letter/CoverLetterDocument", () => ({
-  CoverLetterDocument: () => <div data-testid="cl-document" />,
+  CoverLetterDocument: ({ generationInputs }: { generationInputs?: unknown }) => (
+    <div data-testid="cl-document" data-inputs={JSON.stringify(generationInputs ?? null)} />
+  ),
 }));
 // Sidebar tab bodies are stubbed — the page renders them via the shared
 // RefinementSidebar shell (E038); we only exercise page-level behaviour here.
@@ -176,6 +178,35 @@ describe("CoverLetterPage — polling loop", () => {
       () => expect(screen.getByTestId("cl-document")).toBeInTheDocument(),
       { timeout: 8000 }
     );
+  });
+
+  it.each([
+    ["a stored form row reaches the preview", { availability: "", motivation: "Wechsel", tone: "formal" }, true],
+    ["an agent-authored row (no form inputs) reaches it as null", {}, false],
+  ])("787 L-1: %s", async (_name, stored, expectInputs) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return { ok: true, json: async () => FLOW_STATE_RESPONSE } as Response;
+      }
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "ready", letter_data: { header: { name: "Max" } }, pre_gen_inputs: stored,
+          }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    await act(async () => { renderPage(); });
+    const doc = await screen.findByTestId("cl-document", {}, { timeout: 5000 });
+    const passed = JSON.parse(doc.getAttribute("data-inputs") ?? "null");
+    if (expectInputs) {
+      expect(passed).toMatchObject({ availability: "", motivation: "Wechsel" });
+    } else {
+      expect(passed).toBeNull();
+    }
   });
 
   it("shows the pre-download notice, then downloads on confirm (ADR-040 amended)", async () => {

@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
 type CLTone = "formal" | "professional" | "conversational";
@@ -37,7 +37,18 @@ interface GenerateCoverLetterModalProps {
     tone?: CLTone;
   } | null;
   onClose: () => void;
-  onGenerated: (coverLetterId: string) => void;
+  /** The second argument carries what was submitted, so the page can tell the
+   * preview which optional inputs the letter was generated without. */
+  onGenerated: (coverLetterId: string, inputs?: SubmittedInputs) => void;
+}
+
+export interface SubmittedInputs {
+  recipient_name: string | null;
+  recipient_company: string | null;
+  salary: string | null;
+  availability: string | null;
+  motivation: string | null;
+  tone: CLTone;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -61,6 +72,8 @@ export function GenerateCoverLetterModal({
   );
   const [salary, setSalary] = useState(existingInputs?.salary ?? "");
   const [availability, setAvailability] = useState(existingInputs?.availability ?? "");
+  const [availabilityFromProfile, setAvailabilityFromProfile] = useState(false);
+  const availabilityTouched = useRef(false);
   const [motivation, setMotivation] = useState(existingInputs?.motivation ?? "");
   const [tone, setTone] = useState<CLTone>(existingInputs?.tone ?? "formal");
   const [loading, setLoading] = useState(false);
@@ -104,6 +117,37 @@ export function GenerateCoverLetterModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
+  // 787:L3 — the notice period is a fact about the person, so a value stored in
+  // the profile pre-fills the field, but only when this application has none of
+  // its own. It stays editable and per application; nothing is written back.
+  // A failed read leaves the form exactly as it was.
+  useEffect(() => {
+    if (existingInputs?.availability) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/profile`);
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          profile?: { availability?: { text?: string | null } | null } | null;
+        };
+        const text = data?.profile?.availability?.text?.trim();
+        // Only into a still-empty field: anything the user typed meanwhile wins.
+        if (!cancelled && text && !availabilityTouched.current) {
+          setAvailability(text);
+          setAvailabilityFromProfile(true);
+        }
+      } catch {
+        /* the field simply stays empty */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Once per opened modal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const TONE_OPTIONS: { value: CLTone; label: string; sub: string }[] = [
     { value: "formal", label: t("toneFormalLabel"), sub: t("toneFormalSub") },
     { value: "professional", label: t("toneProfessionalLabel"), sub: t("toneProfessionalSub") },
@@ -114,18 +158,18 @@ export function GenerateCoverLetterModal({
     setLoading(true);
     setError(null);
     try {
+      const inputs: SubmittedInputs = {
+        recipient_name: recipientName || null,
+        recipient_company: recipientCompany || null,
+        salary: salary || null,
+        availability: availability || null,
+        motivation: motivation || null,
+        tone,
+      };
       const res = await fetch(`${API_BASE}/api/cover-letter/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job_id: jobId,
-          recipient_name: recipientName || null,
-          recipient_company: recipientCompany || null,
-          salary: salary || null,
-          availability: availability || null,
-          motivation: motivation || null,
-          tone,
-        }),
+        body: JSON.stringify({ job_id: jobId, ...inputs }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -138,7 +182,7 @@ export function GenerateCoverLetterModal({
         throw new Error(typeof detail === "string" && detail.trim() ? detail : "");
       }
       const data = await res.json();
-      onGenerated((data as { cover_letter_id: string }).cover_letter_id);
+      onGenerated((data as { cover_letter_id: string }).cover_letter_id, inputs);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "";
       setError(message || t("errorGenerationFailed"));
@@ -186,21 +230,6 @@ export function GenerateCoverLetterModal({
           </div>
         </div>
 
-        {/* Salary */}
-        <div>
-          <label className="flex items-center gap-1 text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
-            {t("salaryLabel")}
-            <span className="font-normal text-neutral-400 normal-case">{t("optionalHint")}</span>
-          </label>
-          <input
-            className="w-full border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder={t("salaryPlaceholder")}
-            value={salary}
-            onChange={(e) => setSalary(e.target.value)}
-            data-testid="cl-salary"
-          />
-        </div>
-
         {/* Availability */}
         <div>
           <label className="flex items-center gap-1 text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
@@ -211,9 +240,18 @@ export function GenerateCoverLetterModal({
             className="w-full border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder={t("availabilityPlaceholder")}
             value={availability}
-            onChange={(e) => setAvailability(e.target.value)}
+            onChange={(e) => {
+              availabilityTouched.current = true;
+              setAvailability(e.target.value);
+              setAvailabilityFromProfile(false);
+            }}
             data-testid="cl-availability"
           />
+          {availabilityFromProfile && (
+            <p className="mt-1 text-xs text-neutral-500" data-testid="cl-availability-profile-hint">
+              {t("availabilityFromProfile")}
+            </p>
+          )}
         </div>
 
         {/* Motivation */}
@@ -229,6 +267,21 @@ export function GenerateCoverLetterModal({
             value={motivation}
             onChange={(e) => setMotivation(e.target.value)}
             data-testid="cl-motivation"
+          />
+        </div>
+
+        {/* Salary */}
+        <div>
+          <label className="flex items-center gap-1 text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
+            {t("salaryLabel")}
+            <span className="font-normal text-neutral-400 normal-case">{t("optionalHint")}</span>
+          </label>
+          <input
+            className="w-full border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder={t("salaryPlaceholder")}
+            value={salary}
+            onChange={(e) => setSalary(e.target.value)}
+            data-testid="cl-salary"
           />
         </div>
 

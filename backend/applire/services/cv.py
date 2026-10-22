@@ -167,6 +167,38 @@ class UnknownWorkEntryIdError(ValueError):
     misassignment this design removes), so generation fails instead."""
 
 
+# A year with an optional month on either side: "2010", "2010-09", "09/2010",
+# "09.2010" (786:L27 — vault dates are not always normalised; a mixed MM/YYYY vs
+# YYYY section rendered in no order at all on edge 2026-08-29).
+_EDU_YEAR_FIRST = re.compile(r"\s*(\d{4})(?:[-/.](\d{1,2}))?\b")
+_EDU_MONTH_FIRST = re.compile(r"\s*(\d{1,2})[/.](\d{4})\b")
+
+
+def sort_education_by_date(entries: list, *, user_id: uuid.UUID | None = None) -> list:
+    """Education rows newest first (Hazelnut build 3, 786 polish (c); ADR-094 cl. 2
+    amended 2026-10-22): keyed on the END date (graduation), else the START date;
+    rows with neither sort last. Stable, so equal keys keep the vault's order. A
+    DACH Lebenslauf lists the Ausbildung reverse-chronologically exactly like the
+    Berufserfahrung — the audit delivered "2010, 2004, 2013" in vault order.
+    Ordering by date is a FACT (ADR-062 cl. 1); no row is changed or dropped.
+    Pure; non-dict rows keep their position relative to each other at the end."""
+    def _key(e: object) -> tuple[int, str]:
+        if not isinstance(e, dict):
+            return (0, "0000-00")
+        for fld in ("end_date", "start_date"):
+            raw = str(e.get(fld) or "")
+            m = _EDU_MONTH_FIRST.match(raw)
+            if m and 1 <= int(m.group(1)) <= 12:
+                return (1, f"{m.group(2)}-{int(m.group(1)):02d}")
+            m = _EDU_YEAR_FIRST.match(raw)
+            if m:
+                month = int(m.group(2) or 0)
+                return (1, f"{m.group(1)}-{month if month <= 12 else 0:02d}")
+        return (0, "0000-00")
+
+    return sorted(list(entries), key=_key, reverse=True)
+
+
 def assemble_tailored_cv(prose: dict, profile_json: dict, *, user_id: uuid.UUID | None = None) -> dict:
     """Deterministically join the writer's PROSE onto the vault's FACTS, producing a
     TailoredCVData-shaped dict (E049 / ADR-067 clauses 2–3 — one assembly for both
@@ -1018,15 +1050,11 @@ async def _review_cv_language(
     directive alone leaks discipline-skill phrases; this is the enforcing pass — the same
     fix ADR-038 applied to interview questions. Never raises; no-op when the budget is 0.
 
-    #122 follow-up: this chain runs AFTER the gated tailoring loop and rewrites wording,
-    so it can silently translate a covered surface form into an unlisted synonym. The
-    same US213 coverage wrapper feeds this reviewer; its remedy is word choice (use the
-    exact required-language surface form), never inserting content.
-
-    ADR-076 clause 6 (#543): ``budget`` — the SAME ``cv_budget.BudgetResult`` the
-    tailoring loop above rank-gates with — is threaded through so this LAST writer's
-    coverage demand agrees with the tailoring loop's about which absences are still
-    blocking (:func:`applire.services.keyword_ledger.cv_coverage_budget`).
+    #122 follow-up (RETIRED 2026-10-22, 786:L43): the US213 coverage wrapper used to
+    feed this reviewer so a translated surface form could be asked back. The ruling
+    removed the demand — a coverage term is no longer a language finding; see the
+    comment at the call below. ``keyword_ledger`` / ``budget`` (ADR-076 cl. 6) stay
+    in the signature and are ignored.
 
     #759 (ADR-076 clause 3 / ADR-038 amended 2026-10-08): the SAME pass re-runs
     over a terminal corrector round's output (:func:`_terminal_language_recheck`),
@@ -1037,18 +1065,21 @@ async def _review_cv_language(
     """
     if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0:
         return draft
-    from applire.services.keyword_ledger import coverage_reviewer_prompt_fn, cv_coverage_budget
+    # 786:L43 (Hazelnut build 3, ruling): the language pass no longer carries the
+    # US213 coverage demand. Its remedy is word choice, so a coverage term it could
+    # not honestly place became a blocking finding on the LAST writer that the
+    # refiner cannot satisfy (delivery run 2026-09-05: "Supply Chain", fit 0.0;
+    # 2026-09-18: 25 anglicisms on round 2). Coverage stays with the tailoring loop
+    # and the terminal review, which may insert content. ``keyword_ledger`` and
+    # ``budget`` are kept in the signature for the callers; this pass ignores them.
+    del keyword_ledger, budget
 
     return await review_and_refine(
         source=language_name(output_language),
         draft=draft,
         generator_prompt_fn=build_cv_language_refinement_prompt,
         generator_system=CV_LANGUAGE_REFINEMENT_PROMPT,
-        reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-            build_cv_language_review_prompt,
-            keyword_ledger,
-            budget=cv_coverage_budget(budget),
-        ),
+        reviewer_prompt_fn=build_cv_language_review_prompt,
         reviewer_system=CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
         provider=provider,
         max_retries=CV_LANGUAGE_REVIEW_MAX_RETRIES,
@@ -2571,6 +2602,51 @@ def _guaranteed_vault_skills(
     return out
 
 
+def skill_jd_tier_fn(
+    job_dict: dict, keyword_ledger: list[dict] | None, *, user_id: uuid.UUID | None = None
+):
+    """The #192 relevance rank of one skill tag against THIS job, as a function:
+    required (0) > nice-to-have (1) > keyword (2) > no JD relevance (3).
+
+    Extracted from :func:`_tailor_skills_to_jd` (Hazelnut build 3, 786:L9) so the
+    page ladder (:mod:`applire.services.cv_page_ladder`) ranks skill chips with the
+    SAME predicate the skills pass selected them with — one implementation
+    (ADR-066)."""
+    from applire.services.ats_audit import _NEAR_DUPE_JACCARD, skill_tokens
+
+    required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
+    req_toks = [t for t in (skill_tokens(x) for x in required) if t]
+    nice_toks = [t for t in (skill_tokens(x) for x in nice) if t]
+    kw_toks = [t for t in (skill_tokens(x) for x in keyword) if t]
+
+    def _relevant(st: frozenset[str], tt: frozenset[str]) -> bool:
+        # A skill maps to a JD term on equality/containment (JD 'React' ⊆ 'React Native')
+        # or strong token overlap — NOT a single shared common token ('MES systems' vs
+        # 'System Architecture' share only 'system', Jaccard 0.33 < 0.75 → no match).
+        if not st or not tt:
+            return False
+        if st <= tt or tt <= st:
+            return True
+        return len(st & tt) / len(st | tt) >= _NEAR_DUPE_JACCARD
+
+    def _matches(skill_toks: frozenset[str], term_toks: list[frozenset[str]]) -> bool:
+        return any(_relevant(skill_toks, t) for t in term_toks)
+
+    def _tier(skill: str) -> int:
+        st = skill_tokens(skill)
+        if not st:
+            return 3
+        if _matches(st, req_toks):
+            return 0
+        if _matches(st, nice_toks):
+            return 1
+        if _matches(st, kw_toks):
+            return 2
+        return 3
+
+    return _tier
+
+
 def _tailor_skills_to_jd(
     tailored: TailoredCVData,
     profile_json: dict,
@@ -2602,7 +2678,6 @@ def _tailor_skills_to_jd(
     only — nothing outside the master profile can enter. Pure; input unmutated.
     """
     from applire.services.ats_audit import (
-        _NEAR_DUPE_JACCARD,
         skill_tokens,
         skills_page_dupe,
     )
@@ -2621,35 +2696,7 @@ def _tailor_skills_to_jd(
     # from THE shared predicate, not a local copy of the status literal.
     profile_skills: list[str] = claimable_skill_names(profile_json)
 
-    required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
-    req_toks = [t for t in (skill_tokens(x) for x in required) if t]
-    nice_toks = [t for t in (skill_tokens(x) for x in nice) if t]
-    kw_toks = [t for t in (skill_tokens(x) for x in keyword) if t]
-
-    def _relevant(st: frozenset[str], tt: frozenset[str]) -> bool:
-        # A skill maps to a JD term on equality/containment (JD 'React' ⊆ 'React Native')
-        # or strong token overlap — NOT a single shared common token ('MES systems' vs
-        # 'System Architecture' share only 'system', Jaccard 0.33 < 0.75 → no match).
-        if not st or not tt:
-            return False
-        if st <= tt or tt <= st:
-            return True
-        return len(st & tt) / len(st | tt) >= _NEAR_DUPE_JACCARD
-
-    def _matches(skill_toks: frozenset[str], term_toks: list[frozenset[str]]) -> bool:
-        return any(_relevant(skill_toks, t) for t in term_toks)
-
-    def _tier(skill: str) -> int:
-        st = skill_tokens(skill)
-        if not st:
-            return 3
-        if _matches(st, req_toks):
-            return 0
-        if _matches(st, nice_toks):
-            return 1
-        if _matches(st, kw_toks):
-            return 2
-        return 3
+    _tier = skill_jd_tier_fn(job_dict, keyword_ledger)
 
     # Candidate pool = the writer's tags, PLUS any master-profile skill that maps to a
     # JD-required term but the writer dropped (defect #2). Profile spelling is used verbatim
@@ -3281,9 +3328,12 @@ def format_place_date_for_cv(location: str | None, language: str, *, user_id: uu
     """#359: the CV tail's ``Ort, Datum`` line. A thin alias so both CV render
     paths name the same function; the implementation lives with the rest of the
     signature logic in ``services/signature.py``."""
+    from applire.services.letter_v2 import date_line_place
     from applire.services.signature import format_place_date
 
-    return format_place_date(location, language)
+    # The place only ("Frankfurt am Main", not "…, Germany") — the same cut the
+    # letter's date line takes, so both documents name one place.
+    return format_place_date(date_line_place(location), language)
 
 
 async def _resolve_photo_data_uri(
@@ -3510,6 +3560,10 @@ async def get_cv_status(
         signature_override=record.signature_override,
         signature_effective=signature_effective,
         signature_available=signature_available,
+        # #786 L-3: the x+1 decision (None = the CV fits its target).
+        page_overflow=(
+            page_overflow_public(record) if status == CVGenerationStatus.ready else None
+        ),
     )
 
 
@@ -3847,7 +3901,7 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
     # other (SF-PDF.6). None covers every "do not render" case alike.
     # F-4b: this CV's own signature_override (None = kind default) wins over
     # the kind-level toggle, ahead of the storage/toggle resolution itself.
-    from applire.services.signature import format_place_date, resolve_signature_data_uri
+    from applire.services.signature import resolve_signature_data_uri
 
     signature_image = await resolve_signature_data_uri(
         db, document="cv", override=record.signature_override, user_id=owner
@@ -3859,7 +3913,7 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
         labels=cv_labels(lang),
         signature_image=signature_image,
         signature_place_date=(
-            format_place_date(tailored.contact.location, lang)
+            format_place_date_for_cv(tailored.contact.location, lang)
             if signature_image
             else None
         ),
@@ -4190,6 +4244,13 @@ async def _render_cv_background(
                     profile_json["work_experience"] = [
                         e.model_dump() for e in _sort_work_by_date(we)
                     ]
+                # Hazelnut build 3 (786 polish (c), ADR-094 cl. 2 amended): the
+                # Ausbildung section is reverse-chronological like the work history —
+                # a date ordering, a fact. Sorted on this generation COPY so the
+                # writer's VAULT FIELDS block, compose_v2's id join and every renderer
+                # see one order; the persisted profile is untouched.
+                if profile_json.get("education"):
+                    profile_json["education"] = sort_education_by_date(profile_json["education"])
                 # ADR-061 clause 3: neither the writer LLM nor any deterministic pass
                 # below (certifications passthrough, skill-restoration pools) may see
                 # an unconfirmed vault entry — it cannot back a CV line. The
@@ -4691,6 +4752,7 @@ async def _render_cv_background(
                 condense_ctx = CondenseContext(
                     budgets=budget, target=resolved_target_pages, pins=tuple(cv_pins),
                     condense=v2_terminal is None,
+                    skill_tier=skill_jd_tier_fn(job_dict, keyword_ledger),
                 )
                 try:
                     measured = await _measure_and_condense(record, db, condense_ctx)
@@ -4811,6 +4873,14 @@ async def _render_cv_background(
                     verdict_hash = _subject_hash(record.tailored_data)
                 # #786 (WP-T): the degraded review steps ride the same ready-commit.
                 record.review_degradation = degradation.as_json()
+                # #786 L-3: when the delivered CV is still over its target, the
+                # page ladder proposes the cuts that would reach it; the person
+                # decides on the CV page (keep x+1 or cut). Never fails generation.
+                try:
+                    await _propose_page_cut(record, db, condense_ctx, measured)
+                except Exception:
+                    logger.exception("page-cut proposal failed for CV %s — no x+1 card", record.id)
+                    record.page_overflow = None
                 # ADR-039: the single ready-commit — status + reports together.
                 await db.commit()
 
@@ -5119,6 +5189,13 @@ class CondenseContext:
     # check finding fed into the terminal loop, never a deletion (W1-3 names the
     # exhaustion disposition). v1 keeps True — byte-identical.
     condense: bool = True
+    # #786 L9/L18 (founder design, Hazelnut build 3): the page ladder holds every
+    # delivery at <= target + 1 pages by cutting list-section volume in a fixed
+    # order (services.cv_page_ladder). Runs in BOTH pipelines — the founder's
+    # "never more than x+1" is not a v1/v2 property. ``skill_tier`` is the #192
+    # rank for THIS job (skill_jd_tier_fn); None skips the skills rung.
+    page_ladder: bool = True
+    skill_tier: Any = None
 
 
 def _log_render_budget_iteration(
@@ -5222,6 +5299,217 @@ class MeasuredRender:
     condensation_exhausted: bool
     target: int
     region: str
+    # #786 L9/L18: the page-ladder cuts this measurement's document carries
+    # (services.cv_page_ladder.LadderCut), in the order they were applied.
+    ladder_cuts: tuple = ()
+
+
+def _ladder_pin_predicate(pins: Sequence):
+    """ADR-077 cl. 4 for the page ladder: a skill or certification carrying an
+    active CV pin is never cut — the same containment fold as the skills pass."""
+    from applire.services.scope_requirements import _norm_quote
+
+    quotes = [
+        _norm_quote(p.quote) for p in pins
+        if not getattr(p, "stale", False) and "cv" in getattr(p, "targets", ())
+        and getattr(p, "entry_type", "") in ("skill", "certification", "language")
+    ]
+    quotes = [q for q in quotes if q]
+    if not quotes:
+        return None
+    return lambda text: any(q in _norm_quote(text) or _norm_quote(text) in q for q in quotes)
+
+
+async def _apply_page_ladder(
+    record: GeneratedCV,
+    db: AsyncSession,
+    condense_ctx: CondenseContext,
+    *,
+    text: str,
+    count: int,
+) -> tuple[str, int, list]:
+    """#786 L9/L18: cut list-section volume rung by rung until the render is at
+    most ``target + 1`` pages (services.cv_page_ladder). Re-renders after every
+    step and stops at the limit; the snapshot is rebuilt in the same breath as
+    each ``tailored_data`` write (amendment §2, as the condense loop does).
+    Returns the final (text, count, applied cuts)."""
+    from applire.services.ats_audit import extract_text_and_pages
+    from applire.services.cv_page_ladder import ladder_steps, merge_cuts
+    from applire.services.cv_section_editor import build_content_snapshot
+
+    limit = condense_ctx.target + 1
+    before = count
+    applied: list = []
+    for step in ladder_steps(
+        record.tailored_data, condense_ctx.skill_tier,
+        pinned=_ladder_pin_predicate(condense_ctx.pins),
+    ):
+        if count <= limit:
+            break
+        record.tailored_data = step.data
+        record.content_snapshot = build_content_snapshot(
+            TailoredCVData.model_validate(step.data)
+        )
+        applied.append(step.cut)
+        html = await get_cv_html(record.id, db, user_id=record.user_id)
+        pdf = await _html_to_pdf(html)
+        text, count = extract_text_and_pages(pdf)
+    logger.log(
+        logging.WARNING if count > limit else logging.INFO,
+        "PAGE_LADDER cv_id=%s target=%d pages_before=%d pages_after=%d cuts=%s",
+        record.id, condense_ctx.target, before, count,
+        [(c["kind"], len(c["items"])) for c in merge_cuts(applied)],
+    )
+    return text, count, applied
+
+
+class PageOverflowConflict(ValueError):
+    """The x+1 choice cannot be applied to this CV as it stands (no proposal, the
+    content changed since the proposal, or a section edit sits on top) — 409."""
+
+
+async def _propose_page_cut(
+    record: GeneratedCV,
+    db: AsyncSession,
+    condense_ctx: CondenseContext | None,
+    measured: MeasuredRender | None,
+) -> None:
+    """#786 L-3 (founder ruling 2026-10-22): the x+1 decision's proposal.
+
+    When the delivered render is longer than the target, walk the page ladder
+    further (dry run — ``tailored_data`` is restored) until the render reaches the
+    target, and store the cuts that got it there plus the data after them. The
+    person then keeps x+1 pages or cuts — deterministically, to exactly this data,
+    so "Kürzen" removes precisely what the card named. No reachable target (the
+    ladder runs out) leaves an empty proposal: nothing is offered.
+    """
+    from applire.services.ats_audit import extract_text_and_pages
+    from applire.services.cv_page_ladder import ladder_steps, merge_cuts
+
+    record.page_overflow = None
+    if (
+        measured is None or condense_ctx is None or not condense_ctx.page_ladder
+        or measured.page_count <= condense_ctx.target or record.section_overrides
+    ):
+        return
+    target = condense_ctx.target
+    full = record.tailored_data
+    tried: list = []
+    reached: dict | None = None
+    try:
+        for step in ladder_steps(
+            full, condense_ctx.skill_tier, pinned=_ladder_pin_predicate(condense_ctx.pins),
+        ):
+            record.tailored_data = step.data
+            tried.append(step.cut)
+            html = await get_cv_html(record.id, db, user_id=record.user_id)
+            _text, count = extract_text_and_pages(await _html_to_pdf(html))
+            if count <= target:
+                reached = step.data
+                break
+    finally:
+        record.tailored_data = full
+    proposed = merge_cuts(tried) if reached is not None else []
+    record.page_overflow = {
+        "target": target,
+        "actual": measured.page_count,
+        "proposed": proposed,
+        "choice": None,
+        "basis_hash": _subject_hash(full),
+        "cut_data": reached,
+        "full_data": None,
+    }
+    logger.info(
+        "PAGE_OVERFLOW_PROPOSAL cv_id=%s target=%d actual=%d reachable=%s cuts=%s",
+        record.id, target, measured.page_count, reached is not None,
+        [(c["kind"], len(c["items"])) for c in proposed],
+    )
+
+
+def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = None) -> dict | None:
+    """The x+1 decision as the CV page reads it — never the stored data copies.
+    ``cut_available`` / ``uncut_available``: the switch can be applied to the CV as
+    it stands now (same content as at the proposal, no section edit on top)."""
+    po = record.page_overflow
+    if not po:
+        return None
+    choice = po.get("choice")
+    unedited = not record.section_overrides
+    current = _subject_hash(record.tailored_data)
+    cut_available = (
+        choice != "cut" and unedited and bool(po.get("cut_data"))
+        and current == po.get("basis_hash")
+    )
+    uncut_available = (
+        choice == "cut" and unedited and bool(po.get("full_data"))
+        and bool(po.get("cut_data")) and current == _subject_hash(po["cut_data"])
+    )
+    return {
+        "target": po.get("target"),
+        "actual": po.get("actual"),
+        "proposed": po.get("proposed") or [],
+        "choice": choice,
+        "cut_available": cut_available,
+        "uncut_available": uncut_available,
+    }
+
+
+async def set_page_overflow_choice(
+    cv_id: uuid.UUID,
+    choice: str,
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> dict:
+    """Apply the person's x+1 choice ("keep" | "cut") and remember it on the CV.
+
+    "cut" swaps in the proposal's data — no LLM, the exact cuts the card named —
+    and keeps the full data so the choice can be changed back; "keep" after a cut
+    restores it. Either content swap rebuilds the snapshot and re-audits (the
+    page-length finding follows the new page count). Raises ``LookupError`` (404)
+    or ``PageOverflowConflict`` (409)."""
+    import copy
+
+    from applire.services.cv_section_editor import build_content_snapshot
+    from applire.services.review_state import document_lock
+
+    if choice not in ("keep", "cut"):
+        raise PageOverflowConflict(f"unknown choice {choice!r}")
+    owner = resolve_owner(user_id, site="cv.set_page_overflow_choice")
+    async with document_lock("cv", cv_id):
+        try:
+            record = await owned_cv(db, cv_id, owner)
+        except LookupError:
+            raise LookupError(f"CV {cv_id} not found") from None
+        if record.status != CVGenerationStatus.ready.value or not record.page_overflow:
+            raise PageOverflowConflict("this CV has no page decision to make")
+        po = dict(record.page_overflow)
+        if po.get("choice") == choice:
+            return page_overflow_public(record)
+        public = page_overflow_public(record)
+        new_data: dict | None = None
+        if choice == "cut":
+            if not public["cut_available"]:
+                raise PageOverflowConflict("the CV changed since the proposal")
+            po["full_data"] = record.tailored_data
+            new_data = po["cut_data"]
+        elif po.get("choice") == "cut":
+            if not public["uncut_available"]:
+                raise PageOverflowConflict("the CV changed since it was cut")
+            new_data = po["full_data"]
+            po["full_data"] = None
+        po["choice"] = choice
+        record.page_overflow = po
+        logger.info("PAGE_OVERFLOW_CHOICE cv_id=%s choice=%s", record.id, choice)
+        if new_data is None:
+            await db.commit()
+        else:
+            record.tailored_data = copy.deepcopy(new_data)
+            record.content_snapshot = build_content_snapshot(
+                TailoredCVData.model_validate(new_data)
+            )
+            await _update_ats_report(record, db)
+        return page_overflow_public(record)
 
 
 async def _measure_and_condense(
@@ -5334,7 +5622,17 @@ async def _measure_and_condense(
                 condense_fired=True,
                 condensation_exhausted=condensation_exhausted,
             )
-    return MeasuredRender(text, count, condensation_exhausted, target, region)
+    # #786 L9/L18: never more than target + 1 pages — the ladder cuts list-section
+    # volume (never a bullet) once the bullet levers above are spent or disarmed.
+    cuts: list = []
+    if condense_ctx.page_ladder and count > target + 1:
+        text, count, cuts = await _apply_page_ladder(
+            record, db, condense_ctx, text=text, count=count
+        )
+        condensation_exhausted = count > target
+    return MeasuredRender(
+        text, count, condensation_exhausted, target, region, ladder_cuts=tuple(cuts)
+    )
 
 
 def _subject_hash(tailored_data: dict) -> str:
@@ -5949,12 +6247,17 @@ async def _update_ats_report(
         )
         from applire.services.cv_section_editor import apply_overrides_to_tailored
 
+        ladder_cuts = None
         if measured is not None:
             text = measured.text
             count = measured.page_count
             condensation_exhausted = measured.condensation_exhausted
             target = measured.target
             region = measured.region
+            if measured.ladder_cuts:
+                from applire.services.cv_page_ladder import merge_cuts
+
+                ladder_cuts = merge_cuts(list(measured.ladder_cuts))
         else:
             target = await _resolve_audit_target(record, db)
             region = DEFAULT_REGION
@@ -6014,6 +6317,7 @@ async def _update_ats_report(
             target=target,
             region=region,
             condensation_exhausted=condensation_exhausted,
+            ladder_cuts=ladder_cuts,
             vault_text_norm=vault_text_norm,
             vault_skill_forms=vault_skill_forms,
             pins=audit_pins,

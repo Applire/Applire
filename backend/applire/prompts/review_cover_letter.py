@@ -137,7 +137,7 @@ deterministic guards ran over it by code: the letter DATE was stamped by the sys
 sign-off closing was normalized to the language-routed label and the sender name
 backfilled from the candidate's own profile; the salutation was split into its own
 paragraph or, when the writer omitted one entirely (#564), supplied as the generic,
-impersonal form ("Sehr geehrte Damen und Herren," / "Dear Sir or Madam,"); the recipient
+impersonal form ("Sehr geehrte Damen und Herren," / "Dear Hiring Manager,"); the recipient
 fields were overlaid with the user's own typed inputs; an unanchored borrowed figure may
 have been stripped, and a bare target/projection may have been re-framed to its measured
 outcome from the profile. These effects are ground truth BY CONSTRUCTION — never flag the

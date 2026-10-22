@@ -73,7 +73,7 @@ _CV_LABELS: dict[str, dict[str, str]] = {
 # every other value here — it is not part of the stored `closing` string.
 _COVER_LETTER_LABELS: dict[str, dict[str, str]] = {
     "de": {"document_title": "Anschreiben", "subject_prefix": "Bewerbung", "subject_at": "bei", "email": "E-Mail", "phone": "Telefon", "address": "Adresse", "closing": "Mit freundlichen Grüßen", "closing_punctuation": "", "salutation": "Sehr geehrte Damen und Herren,"},
-    "en": {"document_title": "Cover Letter", "subject_prefix": "Application", "subject_at": "at", "email": "Email", "phone": "Phone", "address": "Address", "closing": "Kind regards", "closing_punctuation": ",", "salutation": "Dear Sir or Madam,"},
+    "en": {"document_title": "Cover Letter", "subject_prefix": "Application", "subject_at": "at", "email": "Email", "phone": "Phone", "address": "Address", "closing": "Kind regards", "closing_punctuation": ",", "salutation": "Dear Hiring Manager,"},
 }
 
 # #261: the word framing a target bullet's paired measured outcome ("target X

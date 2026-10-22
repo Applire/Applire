@@ -30,6 +30,7 @@ import re
 import unicodedata
 
 from jinja2 import Environment, FileSystemLoader
+from markupsafe import Markup
 
 from applire.utils.budget_unit import budget_needs_unit
 
@@ -39,6 +40,7 @@ __all__ = [
     "education_title",
     "register_filters",
     "build_template_env",
+    "bind_units",
 ]
 
 # "2017-04", "2017-04-01", "2017/04" — the shapes the extractor and the reconciler
@@ -216,6 +218,29 @@ def education_title(degree: object, field: object = "") -> str:
     return f"{degree_text}, {field_text}"
 
 
+# #786 (Hazelnut build 3, WP-L): a figure and its unit must not be split across a
+# line ("96" at the end of one justified line, "%" at the start of the next —
+# Marcus's letter, UX audit 2026-10-20). DIN 5008 / German typesetting puts a
+# space before % and €, and that space has to be a non-breaking one. A unit word
+# after a figure ("6 Mio.", "Mio. €") is bound the same way.
+_UNIT_AFTER_FIGURE = re.compile(r"(?<=\d) (?=(?:%|‰|€|Mio\.|Mrd\.|Tsd\.)(?!\w))")
+_CURRENCY_AFTER_SCALE = re.compile(r"(?<=\b(?:Mio|Mrd|Tsd)\.) (?=€)")
+
+
+def bind_units(value: object) -> object:
+    """Replace the plain space between a figure and its unit with a no-break space
+    (U+00A0). Every other character is unchanged; non-strings pass through.
+
+    Installed as the environment's ``finalize`` hook in :func:`build_template_env`,
+    so it applies to every ``{{ … }}`` output of every CV and letter template — one
+    implementation, not one per template (ADR-066). Already-safe ``Markup`` stays
+    ``Markup`` (a plain ``str`` would be escaped a second time)."""
+    if not isinstance(value, str) or " " not in value:
+        return value
+    out = _CURRENCY_AFTER_SCALE.sub("\u00a0", _UNIT_AFTER_FIGURE.sub("\u00a0", str(value)))
+    return Markup(out) if isinstance(value, Markup) else out
+
+
 def register_filters(env) -> None:
     """Install every shared template filter on a Jinja environment.
 
@@ -243,6 +268,8 @@ def build_template_env(templates_dir) -> Environment:
         # phrase silently deleted by the HTML parser. This directory holds only
         # HTML templates; anything else added here would need its own env.
         autoescape=True,
+        # #786: a figure and its unit never break across a line (bind_units).
+        finalize=bind_units,
     )
     register_filters(env)
     return env

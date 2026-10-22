@@ -255,7 +255,7 @@ async def test_role_facts_rendered_as_furniture_in_german_html(db):
     html = await get_cv_html(cv.id, db)
 
     assert "38" in html
-    assert "ca. 6 Mio. EUR" in html
+    assert "ca. 6 Mio. EUR" in html.replace("\u00a0", " ")  # #786 NBSP binds figure+unit
     assert "Anlagenbau" in html
     # DE labels (labels[lang] chrome mechanism, ADR-038) -- not hardcoded EN.
     assert "Teamgröße" in html
@@ -281,7 +281,7 @@ async def test_role_facts_rendered_as_furniture_in_english_html(db):
     html = await get_cv_html(cv.id, db)
 
     assert "38" in html
-    assert "ca. 6 Mio. EUR" in html
+    assert "ca. 6 Mio. EUR" in html.replace("\u00a0", " ")  # #786 NBSP binds figure+unit
     assert "Anlagenbau" in html
     assert "Team size" in html
     assert "Industry" in html

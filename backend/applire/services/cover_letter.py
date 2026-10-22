@@ -345,6 +345,7 @@ async def get_cover_letter_status(
         expires_at=cl.expires_at,
         letter_data=letter_data,
         section_overrides=section_overrides,
+        pre_gen_inputs=dict(cl.pre_gen_inputs) if cl.pre_gen_inputs else None,
         origin=cl.origin,
         # #702: through the schema, so `cross_document` reaches the agent door
         # on legacy rows too (derived, never stored-and-trusted).
@@ -919,18 +920,40 @@ async def get_cover_letter_by_job(
 
 
 def _default_color_context() -> dict:
+    """The letter's colours when no colour profile is set: the CV's own default
+    (``color_detection._default_context``), so the two documents of one application
+    read as one set (L-2 = A, Hazelnut build 3). Was a separate navy ``#1a1a2e``
+    against the CV's blue — and on ``tech_developer`` the name in ``--primary`` sat
+    dark-on-dark."""
+    from applire.services.color_detection import _default_context
+
+    c = _default_context()
     return {
-        "primary": "#1a1a2e",
-        "primary_tint": "#e8e8f0",
-        "surface": "#1a1a2e",
-        "surface_text": "#ffffff",
+        "primary": c.primary,
+        "primary_tint": c.primary_tint,
+        "surface": c.surface,
+        "surface_text": c.surface_text,
     }
 
 
-def _inject_letter_date(letter_data: dict, language: str, today: date | None = None) -> dict:
+def _inject_letter_date(
+    letter_data: dict, language: str, today: date | None = None, *, location: str | None = None
+) -> dict:
     """Set recipient.date from the system clock, overwriting any LLM value —
-    the model cannot know today's date and hallucinates one if asked."""
-    letter_data.setdefault("recipient", {})["date"] = format_letter_date(language, today)
+    the model cannot know today's date and hallucinates one if asked.
+
+    Hazelnut build 3 (784 date-line line, ADR-094 cl. L2 amended 2026-10-22): with
+    the sender's recorded ``location`` the line reads "Koblenz, 20. Oktober 2026"
+    (DIN 5008) — the same ``Ort, Datum`` helper the CV's closing line uses
+    (``signature.format_place_date``, ADR-066), so both documents of one
+    application date themselves identically. No location → the bare date."""
+    if location is not None:
+        from applire.services.signature import format_place_date
+
+        line = format_place_date(location, language, today)
+    else:
+        line = format_letter_date(language, today)
+    letter_data.setdefault("recipient", {})["date"] = line
     return letter_data
 
 
@@ -1003,7 +1026,7 @@ def _inject_salutation(letter_data: dict, language: str) -> dict:
     a missing salutation is a formal defect in both DE and EN business letters
     (flagged by an HR screener in the 2026-07-21 edge hiring-panel run). We only
     inject the generic, always-correct floor ("Sehr geehrte Damen und Herren," /
-    "Dear Sir or Madam,") — a capable agent is guided to author the named form
+    "Dear Hiring Manager,") — a capable agent is guided to author the named form
     itself, and injecting a guessed named/gendered Anrede risks getting it wrong.
     """
     from applire.templates.labels import cover_letter_labels
@@ -2522,7 +2545,15 @@ def _compose_letter(
     letter_data = _apply_recipient_overrides(letter_data, pre_gen)
     # The letter date is system-injected — the model never sets it (the prior
     # date-hallucination fix, 2026-06-10).
-    letter_data = _inject_letter_date(letter_data, language, today)
+    # ADR-094 cl. L2 amended (Hazelnut build 3): the v2 date line carries the
+    # sender's recorded place — the vault's own location, never invented. v1 keeps
+    # the bare date (location=None).
+    from applire.services.letter_v2 import sender_location
+
+    letter_data = _inject_letter_date(
+        letter_data, language, today,
+        location=None if v1 else (sender_location(profile_json, cv_data) or ""),
+    )
     # #189: the sign-off is chrome — language-routed label + sender-name
     # backfill from the candidate's real name, so the letter is never unsigned.
     letter_data = _normalize_signature_closing(letter_data, language)
@@ -4707,7 +4738,14 @@ async def render_agent_letter(
     _application = await get_application_for_job(job_id, uid, db)
     language = resolve_document_language(_application, job)
     if not letter_data["recipient"].get("date"):
-        letter_data = _inject_letter_date(letter_data, language)
+        # Hazelnut build 3: the door's empty-date fill carries the sender's
+        # recorded place too (one helper, ADR-094 cl. L2 amended).
+        from applire.services.letter_v2 import sender_location
+
+        letter_data = _inject_letter_date(
+            letter_data, language,
+            location=sender_location(profile.profile_json or {}, None) or "",
+        )
     if not letter_data["signature"].get("closing"):
         letter_data = _normalize_signature_closing(letter_data, language)
     # #224/#564: a missing Anrede is a formal defect — inject the generic

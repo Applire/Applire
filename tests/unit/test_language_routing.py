@@ -265,7 +265,7 @@ class TestSalutationChrome:
         from applire.services.cover_letter import _inject_salutation
         letter_data = {"body": {"paragraphs": ["I read your posting with great interest."]}}
         result = _inject_salutation(letter_data, "en")
-        assert result["body"]["paragraphs"][0] == "Dear Sir or Madam,"
+        assert result["body"]["paragraphs"][0] == "Dear Hiring Manager,"
 
     def test_does_not_double_up_when_author_wrote_a_salutation(self):
         from applire.services.cover_letter import _inject_salutation

@@ -242,6 +242,8 @@ export default function CoverLetterPage({
         status: string;
         letter_data?: Record<string, unknown> | null;
         section_overrides?: Record<string, unknown> | null;
+        // 787 L-1: the stored generation inputs (null for agent-authored letters).
+        pre_gen_inputs?: Record<string, unknown> | null;
         document_language?: "de" | "en" | null;
         // F-4b (founder ruling, 2026-09-11): the per-document signature
         // override and its resolved state.
@@ -262,7 +264,12 @@ export default function CoverLetterPage({
         template: clSummary.template as CLTemplate,
         letterData: statusData.letter_data ?? null,
         sectionOverrides: statusData.section_overrides ?? null,
-        preGenInputs: null,
+        // 787 L-1: only a row that recorded the form's inputs (the key is there,
+        // even when empty) can say "no notice period" — never a guess.
+        preGenInputs:
+          statusData.pre_gen_inputs && "availability" in statusData.pre_gen_inputs
+            ? statusData.pre_gen_inputs
+            : null,
         jobId: flowData.job_id ?? null,
         applicationId: flowData.application_id ?? null,
         roleTitle: flowData.job_summary?.role_title ?? null,
@@ -584,10 +591,12 @@ export default function CoverLetterPage({
     setFineTuneNonce((n) => (n ?? 0) + 1);
   }
 
-  function handleGenerated(newClId: string) {
+  function handleGenerated(newClId: string, inputs?: object) {
     setShowModal(false);
     setClState((prev) =>
-      prev ? { ...prev, coverLetterId: newClId, status: "pending" } : prev
+      prev
+        ? { ...prev, coverLetterId: newClId, status: "pending", preGenInputs: (inputs as Record<string, unknown> | undefined) ?? null }
+        : prev
     );
     setPhase("generating");
     startPolling(newClId);
@@ -812,6 +821,7 @@ export default function CoverLetterPage({
           <CoverLetterDocument
             key={previewKey}
             coverLetterId={clState!.coverLetterId}
+            generationInputs={clState!.preGenInputs as { availability?: string | null; motivation?: string | null } | null}
             onPreviewLoad={() => setPreviewVersion((v) => v + 1)}
           />
         }

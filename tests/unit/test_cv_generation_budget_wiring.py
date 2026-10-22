@@ -269,18 +269,15 @@ async def test_render_cv_background_threads_the_real_budget_into_the_tailoring_c
 
 
 @pytest.mark.asyncio
-async def test_review_cv_language_threads_the_budget_into_its_own_coverage_gate():
-    """ADR-076 clause 6 (#543): ``_review_cv_language`` is the LAST writer
-    (#122 follow-up) and shares the coverage instrument with the tailoring
-    loop — it must rank-gate under the SAME budget, or a low-rank concept the
-    tailoring loop legally omitted could still be (uselessly) re-demanded by
-    the language pass. Exercises ``_review_cv_language`` directly rather than
-    through the full background pipeline (see the sibling test above for why:
-    the downstream ATS-report/self-audit stages need far more DB mocking than
-    this wiring question is worth)."""
+async def test_review_cv_language_carries_no_coverage_gate():
+    """786:L43 (Hazelnut build 3 ruling, 2026-10-22): the language pass no longer
+    carries the US213 coverage demand — it was the LAST writer, its remedy is word
+    choice, and a demand it could not honestly satisfy blocked it (Luna replay of 8
+    captured reviewer calls: 2/24 approved with the block, 39 blocking issues, all
+    coverage terms). The coverage factory is therefore not consulted at all, with
+    or without a budget; the tailoring loop and the terminal review keep it."""
     from applire.services.cv import _review_cv_language
     from applire.services.cv_budget import BudgetResult, RoleBudget
-    from applire.services.keyword_ledger import CoverageBudget
 
     budget_result = BudgetResult(
         roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=6)},
@@ -290,9 +287,6 @@ async def test_review_cv_language_threads_the_budget_into_its_own_coverage_gate(
     seen: list = []
 
     def spy_coverage_reviewer_prompt_fn(base_fn, keyword_ledger, budget=None, **kw):
-        # `**kw` absorbs `on_demand=` (#415, 2026-09-17): the terminal chain now passes a
-        # demand REPORT through this factory. A spy that pins the factory's signature
-        # would fail on any additive parameter — which is what this test caught.
         seen.append(budget)
         return lambda source, draft: base_fn(source, draft)
 
@@ -306,9 +300,7 @@ async def test_review_cv_language_threads_the_budget_into_its_own_coverage_gate(
             _tailored_raw(), "de", provider, keyword_ledger=[], budget=budget_result
         )
 
-    assert len(seen) == 1
-    assert isinstance(seen[0], CoverageBudget)
-    assert seen[0].capacity == 6
+    assert seen == []
 
 
 def _execute_by_entity(mock_cv, default_result, job_id):
@@ -335,3 +327,138 @@ def _execute_by_entity(mock_cv, default_result, job_id):
         return result
 
     return _execute
+
+
+@pytest.mark.asyncio
+async def test_render_cv_background_arms_the_page_ladder_with_this_jobs_skill_rank():
+    """#786 L9/L18 (Hazelnut build 3): the generation path arms the page ladder and
+    hands it the #192 skill rank for THIS job — without the rank the skills rung
+    silently never fires (the seam the ladder's own tests cannot see)."""
+    ledger = [
+        {"concept": "Kubernetes", "surface_forms": ["Kubernetes"], "claimable": True,
+         "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "8y"},
+    ]
+    cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    mock_cv = MagicMock()
+    mock_cv.status = "pending"
+    mock_cv.target_pages = 2
+    mock_job = MagicMock()
+    mock_job.role_title = "Dev"
+    mock_job.required_skills = ["Kubernetes"]
+    mock_job.nice_to_have_skills = []
+    mock_job.keywords = []
+    mock_job.seniority_level = ""
+    mock_job.company_culture_signals = []
+    mock_job.language_requirement = ""
+    mock_profile = MagicMock()
+    mock_profile.profile_json = _profile_json()
+    mock_gap = MagicMock()
+    mock_gap.keyword_gaps = []
+    mock_gap.critical_gaps = []
+    mock_gap.keyword_ledger = ledger
+    mock_db = AsyncMock()
+    mock_db.get.side_effect = lambda model, id_: {
+        cv_id: mock_cv, job_id: mock_job, profile_id: mock_profile,
+    }[id_]
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_gap
+    mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
+
+    seen: list = []
+
+    async def spy_measure(record, db, ctx):
+        seen.append(ctx)
+        raise RuntimeError("stop here — the caller degrades to an unmeasured delivery")
+
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cv.get_provider", return_value=AsyncMock()), \
+         patch(
+             "applire.services.cv._tailor_cv_with_fallback",
+             new=AsyncMock(side_effect=lambda *a, **kw: _tailored_raw()),
+         ), \
+         patch("applire.services.cv.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+         patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda draft, *a, **kw: draft)), \
+         patch("applire.services.cv._measure_and_condense", new=spy_measure), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+         patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+        mock_session_local.return_value.__aenter__.return_value = mock_db
+        from applire.services.cv import _render_cv_background
+        await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+    assert seen, "_measure_and_condense was never reached"
+    ctx = seen[0]
+    assert ctx.page_ladder is True
+    assert callable(ctx.skill_tier)
+    assert ctx.skill_tier("Kubernetes") == 0
+    assert ctx.skill_tier("Kosmetik-Verpackungen") == 3
+
+
+@pytest.mark.asyncio
+async def test_render_cv_background_hands_the_final_measure_to_the_page_cut_proposal():
+    """#786 L-3: the x+1 proposal is computed at the ready-commit from the SAME
+    context and the LAST measurement — the seam ``test_cv_page_overflow`` cannot see."""
+    from types import SimpleNamespace
+
+    from applire.services.cv import MeasuredRender
+
+    cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    mock_cv = MagicMock()
+    mock_cv.status = "pending"
+    mock_cv.target_pages = 2
+    mock_job = MagicMock()
+    mock_job.role_title = "Dev"
+    mock_job.required_skills = ["Kubernetes"]
+    mock_job.nice_to_have_skills = []
+    mock_job.keywords = []
+    mock_job.seniority_level = ""
+    mock_job.company_culture_signals = []
+    mock_job.language_requirement = ""
+    mock_profile = MagicMock()
+    mock_profile.profile_json = _profile_json()
+    mock_gap = MagicMock()
+    mock_gap.keyword_gaps = []
+    mock_gap.critical_gaps = []
+    mock_gap.keyword_ledger = []
+    mock_db = AsyncMock()
+    mock_db.get.side_effect = lambda model, id_: {
+        cv_id: mock_cv, job_id: mock_job, profile_id: mock_profile,
+    }[id_]
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_gap
+    mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
+
+    measured = MeasuredRender("", 3, True, 2, "DACH")
+    proposals: list = []
+
+    async def spy_measure(record, db, ctx):
+        return measured
+
+    async def spy_terminal(record, db, **kw):
+        return SimpleNamespace(prose_draft=kw["prose_draft"], measured=kw["measured"],
+                               rounds=0, reentry_exhausted=False, outcome=None)
+
+    async def spy_propose(record, db, ctx, m):
+        proposals.append((ctx, m))
+
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cv.get_provider", return_value=AsyncMock()), \
+         patch(
+             "applire.services.cv._tailor_cv_with_fallback",
+             new=AsyncMock(side_effect=lambda *a, **kw: _tailored_raw()),
+         ), \
+         patch("applire.services.cv.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+         patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda draft, *a, **kw: draft)), \
+         patch("applire.services.cv._measure_and_condense", new=spy_measure), \
+         patch("applire.services.cv._terminal_review", new=spy_terminal), \
+         patch("applire.services.cv._update_ats_report", new=AsyncMock()), \
+         patch("applire.services.cv._propose_page_cut", new=spy_propose), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+         patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+        mock_session_local.return_value.__aenter__.return_value = mock_db
+        from applire.services.cv import _render_cv_background
+        await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+    assert len(proposals) == 1, "the proposal runs once, at the ready-commit"
+    ctx, m = proposals[0]
+    assert m is measured
+    assert ctx.target == 2 and ctx.page_ladder is True and callable(ctx.skill_tier)
