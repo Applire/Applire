@@ -80,6 +80,29 @@ DENIAL_FLOOR_EVIDENCE = (
 )
 
 
+def join_evidence_parts(parts: list[str]) -> str:
+    """Join several members' evidence into one readable text (Hazelnut build 3 / WP-G).
+
+    The merged row's evidence is SHOWN — the gaps page's "Schlagworte" card and the
+    writers' ledger block both render it — and the old ``"; ".join`` glued whole
+    sentences into ``"…in der Fertigung.; SAP-Erfahrung…"`` (10 of 12 baseline-matrix
+    gap analyses carried the ``.;`` seam). Each part becomes a sentence of its own:
+    trailing separators are dropped, a part without closing punctuation gets a full
+    stop, and the parts are joined by a space. Pure formatting — no part is dropped,
+    reordered or reworded, so #434's every-member guarantee and
+    :func:`verified_adjacent_material` (span-based, punctuation-blind) are unaffected.
+    """
+    sentences: list[str] = []
+    for part in parts:
+        text = (part or "").strip().rstrip(";,").rstrip()
+        if not text:
+            continue
+        if text[-1] not in ".!?…\"'»“”":
+            text += "."
+        sentences.append(text)
+    return " ".join(sentences)
+
+
 def _norm(s: str) -> str:
     return (s or "").strip().casefold()
 
@@ -370,7 +393,7 @@ def _collapse_prefix_duplicates(
             if ev and _norm(ev) not in seen_evidence:
                 seen_evidence.add(_norm(ev))
                 evidence_parts.append(ev)
-        evidence = "; ".join(evidence_parts)
+        evidence = join_evidence_parts(evidence_parts)
         # ADR-048 amended 2026-08-13 (#526): start from the canonical entry and
         # OVERRIDE. This used to be a fixed key literal, which silently dropped
         # every field outside it — `adjacent_evidence` among them, so a JD naming
