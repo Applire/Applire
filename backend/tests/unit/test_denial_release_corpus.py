@@ -70,6 +70,41 @@ _VAULT = {
         {"language": "Norwegian", "status": "unconfirmed"},
     ],
     "education": [{"institution": "TU Graz", "field_of_study": "Kubernetes theory"}],
+    # ADR-059 amended 2026-10-22 (E-11): the trail says who wrote each bullet. The
+    # Kubernetes bullet was typed into the CV section editor (#480 — `manual_edit`
+    # receipts the whole entry before and after); the Grafana achievement came
+    # from an interview turn. Neither may release a denial.
+    "metadata": {
+        "enrichment_history": [
+            {
+                "source": "manual_edit",
+                "changes": [
+                    {
+                        "section": "work_experience",
+                        "field": "Automation Engineer @ Rheinwerk GmbH",
+                        "action": "updated",
+                        "old_value": {"id": "w1", "responsibilities": []},
+                        "new_value": {
+                            "id": "w1",
+                            "responsibilities": ["Ran the Kubernetes rollout for two teams."],
+                        },
+                    }
+                ],
+            },
+            {
+                "source": "interview",
+                "changes": [
+                    {
+                        "section": "work_experience",
+                        "field": "achievements",
+                        "action": "merged",
+                        "old_value": None,
+                        "new_value": ["Cut Grafana alert noise by half."],
+                    }
+                ],
+            },
+        ]
+    },
 }
 
 
@@ -141,7 +176,7 @@ def test_hand_typed_bullet_prose_is_never_in_the_release_corpus():
 
 def test_prose_is_out_which_is_the_line_the_corpus_actually_draws():
     corpus = _corpus()
-    assert "grafana" not in corpus, "achievements are prose"
+    assert "grafana" not in corpus, "an interview-written achievement is not the candidate's document"
     assert "kafka" not in corpus, "a personal-info summary is prose"
     assert "terraform" not in corpus, "a professional summary is prose"
     assert "tu graz" not in corpus, "education free text is prose"
@@ -303,3 +338,121 @@ def test_site_5_the_agent_bridge_thread_cannot_reach_the_wide_corpus():
     assert not hasattr(agent_bridge, "profile_literal_corpus")
     src = inspect.getsource(agent_bridge.submit_agent_claims)
     assert "denial_release_corpus(" in src
+
+
+# ── ADR-059 amended 2026-10-22 (E-11, ruling G-2): imported prose releases ────
+
+
+def _with_bullets(history: list[dict]) -> dict:
+    return {
+        "work_experience": [
+            {
+                "id": "w1",
+                "company": "Weberit GmbH",
+                "role": "Produktionsleiter",
+                "responsibilities": [
+                    "Verantwortung für die Produktion in zwei Fertigungsbereichen.",
+                    "OEE im Spritzguss von 61 % auf 73 % gesteigert.",
+                ],
+            }
+        ],
+        "projects": [{"name": "MES", "description": "Pilotlinie für Maschinendatenerfassung."}],
+        "signature_stories": [{"title": "Kaizen", "outcome": "Rüstzeit halbiert mit SMED."}],
+        "professional_summary": {"de": "Lean-Experte mit Reanimationserfahrung."},
+        "metadata": {"enrichment_history": history},
+    }
+
+
+def test_an_imported_bullet_releases_the_bare_term():
+    """The build-2 reprobe shape: "Produktion" floored for a Produktionsleiter whose
+    own CV bullet names it, under the narrower denial "direkte Produktion für
+    Lebensmittelkunden". An unrecorded bullet is the initial import's."""
+    corpus = denial_release_corpus(_with_bullets([]))
+    assert "produktion" in corpus
+    assert "maschinendatenerfassung" in corpus, "a project description is a bullet too"
+
+
+def test_an_import_record_keeps_its_bullets_releasing():
+    history = [{"source": "cv_upload", "changes": [{
+        "section": "work_experience", "field": "responsibilities", "action": "merged",
+        "old_value": None, "new_value": ["OEE im Spritzguss von 61 % auf 73 % gesteigert."]}]}]
+    assert "oee" in denial_release_corpus(_with_bullets(history))
+
+
+def test_an_interview_written_bullet_never_releases():
+    history = [{"source": "interview", "changes": [{
+        "section": "work_experience", "field": "responsibilities", "action": "merged",
+        "old_value": None, "new_value": ["OEE im Spritzguss von 61 % auf 73 % gesteigert."]}]}]
+    corpus = denial_release_corpus(_with_bullets(history))
+    assert "oee" not in corpus
+    assert "zwei fertigungsbereichen" in corpus, "only the interview's own text is excluded"
+
+
+@pytest.mark.parametrize("source", ["agent_interview", "testimony", "manual_edit", "manual_role_add", "something_new"])
+def test_every_non_import_source_is_excluded_fail_closed(source):
+    history = [{"source": source, "changes": [{
+        "section": "work_experience", "field": "responsibilities", "action": "merged",
+        "old_value": None, "new_value": ["OEE im Spritzguss von 61 % auf 73 % gesteigert."]}]}]
+    assert "oee" not in denial_release_corpus(_with_bullets(history))
+
+
+def test_an_editor_change_excludes_only_the_text_it_added():
+    """`manual_edit` receipts the whole entry before and after; the bullets that
+    were already there stay the import's."""
+    entry_before = {"id": "w1", "responsibilities": ["Verantwortung für die Produktion in zwei Fertigungsbereichen."]}
+    entry_after = {"id": "w1", "responsibilities": [
+        "Verantwortung für die Produktion in zwei Fertigungsbereichen.",
+        "OEE im Spritzguss von 61 % auf 73 % gesteigert."]}
+    history = [{"source": "manual_edit", "changes": [{
+        "section": "work_experience", "field": "Produktionsleiter @ Weberit GmbH", "action": "updated",
+        "old_value": entry_before, "new_value": entry_after}]}]
+    corpus = denial_release_corpus(_with_bullets(history))
+    assert "oee" not in corpus
+    assert "zwei fertigungsbereichen" in corpus, "the bullet that was already there stays the import's"
+
+
+def test_stories_and_summary_never_release():
+    corpus = denial_release_corpus(_with_bullets([]))
+    assert "smed" not in corpus, "signature stories are interview material"
+    assert "reanimation" not in corpus, "the summary can be system-seeded"
+
+
+def test_no_phrase_spans_two_bullets():
+    corpus = denial_release_corpus(_with_bullets([]))
+    assert "fertigungsbereichen. | oee" in corpus, "each bullet sits behind the label separator"
+
+
+# ── E-11 end to end through the real floor (no spy) ──────────────────────────
+
+_REPROBE_DENIAL = [{"concept": "direkte Produktion für Lebensmittelkunden", "level": "direct"}]
+
+
+def _floor_status(history: list[dict]) -> dict:
+    from applire.services.keyword_ledger import build_keyword_ledger
+
+    profile = _with_bullets(history)
+    profile["metadata"]["denied_concepts"] = _REPROBE_DENIAL
+    ledger = build_keyword_ledger(
+        [{"concept": "Produktion", "status": "direct",
+          "evidence": "Verantwortung für die Produktion in zwei Fertigungsbereichen."}],
+        ["Produktion"], [], [],
+        denied_concepts=_REPROBE_DENIAL,
+        profile_json=profile,
+    )
+    return next(e for e in ledger if e["concept"] == "Produktion")
+
+
+def test_build_keyword_ledger_releases_produktion_on_the_imported_bullet():
+    """The build-2 reprobe (R2-2 cl. 3): a Produktionsleiter's bare "Produktion"
+    under "direkte Produktion für Lebensmittelkunden" — released by his own CV."""
+    row = _floor_status([])
+    assert row["status"] == "direct" and row["claimable"] is True, row
+
+
+def test_build_keyword_ledger_still_floors_when_only_an_interview_wrote_it():
+    history = [{"source": "interview", "changes": [{
+        "section": "work_experience", "field": "responsibilities", "action": "merged",
+        "old_value": None,
+        "new_value": ["Verantwortung für die Produktion in zwei Fertigungsbereichen."]}]}]
+    row = _floor_status(history)
+    assert row["status"] == "gap" and row["claimable"] is False, row

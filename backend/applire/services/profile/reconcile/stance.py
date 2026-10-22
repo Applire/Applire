@@ -1257,9 +1257,17 @@ def denial_release_corpus(profile_json: dict[str, Any] | None) -> str:
       the only way this gate differs from :func:`entry_is_claimable`;
     * ``work_experience[].role``, ``.company`` and ``.technologies[]``.
 
-    **Out, deliberately:** ``responsibilities``, ``achievements``, summaries and
-    education free text — PROSE. (The design's ``skills[].specialisation`` is
-    dropped: the field does not exist in the schema.)
+    * **imported prose** (ADR-059 amended 2026-10-22, E-11 / ruling G-2) — the
+      ``responsibilities``/``achievements``/``description`` units of roles,
+      projects and volunteer activities that the candidate's OWN imported
+      document supplied (:func:`imported_prose_units`). A bullet an interview
+      turn, an agent or the CV section editor wrote never releases (#480's
+      vector stays closed: the ``manual_edit`` receipt names the typed text).
+
+    **Out, deliberately:** interview- and editor-written prose, signature
+    stories, summaries and education free text. (The design's
+    ``skills[].specialisation`` is dropped: the field does not exist in the
+    schema.)
 
     **Why ``technologies[]`` is in** (PO addendum to the ADR-059 2026-08-09
     amendment, ruled the same day): it is a STRUCTURED TAG LIST, not a sentence
@@ -1320,7 +1328,95 @@ def denial_release_corpus(profile_json: dict[str, Any] | None) -> str:
         for tech in entry.get("technologies") or []:
             _add(tech)
 
+    # ADR-059 amended 2026-10-22 (E-11, Hazelnut build 3 / WP-G) — the candidate's
+    # IMPORTED prose releases too. One unit per bullet, each behind the label
+    # separator, so no match spans two bullets.
+    for unit in imported_prose_units(profile_json):
+        _add(unit)
+
     return _norm(_LABEL_SEPARATOR.join(labels))
+
+
+#: ``EnrichmentRecord.source`` values whose prose is the candidate's OWN document
+#: (ADR-059 amended 2026-10-22, E-11). Everything else is interview- or
+#: editor-written and never releases a denial; an unknown source is treated as
+#: not-an-import (fail-closed).
+_IMPORT_SOURCES = frozenset({"cv_upload", "cv_paste", "linkedin_import", "xing_import"})
+
+#: Prose sections whose units are release candidates — the bullets of a role,
+#: project or volunteer activity. Signature stories (interview material by
+#: construction) and the professional summary (may be system-seeded) are out.
+_PROSE_SECTIONS = ("work_experience", "projects", "volunteer_activities")
+_PROSE_FIELDS = ("responsibilities", "achievements", "description")
+
+
+def _history_strings(value: Any) -> set[str]:
+    out: set[str] = set()
+    if isinstance(value, str):
+        if value.strip():
+            out.add(value.strip())
+    elif isinstance(value, dict):
+        for v in value.values():
+            out |= _history_strings(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            out |= _history_strings(v)
+    return out
+
+
+def non_import_prose(profile_json: dict[str, Any] | None) -> set[str]:
+    """Prose texts some NON-import change wrote: the strings a change's
+    ``new_value`` carries that its ``old_value`` did not, for every
+    ``metadata.enrichment_history`` record whose ``source`` is not an import —
+    an interview answer rendered into a bullet, a sentence typed into the CV
+    section editor (#480's vector: ``manual_edit`` receipts the whole entry
+    before and after, so the difference is exactly the typed text), an agent
+    write. A fact about the trail (ADR-062 cl. 1), read the way
+    :mod:`span_provenance` reads it."""
+    if not isinstance(profile_json, dict):
+        return set()
+    metadata = profile_json.get("metadata")
+    history = metadata.get("enrichment_history") if isinstance(metadata, dict) else None
+    out: set[str] = set()
+    for record in history or []:
+        if not isinstance(record, dict) or record.get("source") in _IMPORT_SOURCES:
+            continue
+        for change in record.get("changes") or []:
+            if not isinstance(change, dict) or change.get("section") == "metadata":
+                continue
+            out |= _history_strings(change.get("new_value")) - _history_strings(
+                change.get("old_value")
+            )
+    return out
+
+
+def imported_prose_units(profile_json: dict[str, Any] | None) -> list[str]:
+    """The prose units the candidate's own imported document supplied
+    (ADR-059 amended 2026-10-22, E-11 — founder ruling G-2).
+
+    A bullet of a role, project or volunteer activity is an import unless a
+    non-import change wrote it (:func:`non_import_prose`). A unit no recorded
+    change names is the initial import's — the import record carries no
+    per-bullet values — which is the same trust :func:`denial_release_corpus`
+    already gives ``role``/``company``/``technologies[]``. Measured on the E-11
+    corpus (106 containment-only decisions, two blind label sets): releasing on
+    these units cuts harmful wrong floors 6 -> 2 / 7 -> 3 with zero wrong
+    releases; adding interview prose released one real denial ("Settlement",
+    grounded only by an interview-written bullet)."""
+    if not isinstance(profile_json, dict):
+        return []
+    written_elsewhere = non_import_prose(profile_json)
+    units: list[str] = []
+    for section in _PROSE_SECTIONS:
+        for entry in profile_json.get(section) or []:
+            if not isinstance(entry, dict):
+                continue
+            for field_name in _PROSE_FIELDS:
+                value = entry.get(field_name)
+                for text in value if isinstance(value, list) else [value]:
+                    if isinstance(text, str) and text.strip() and text.strip() not in written_elsewhere:
+                        units.append(text.strip())
+    return units
 
 
 def demote_ops_for_denials(
