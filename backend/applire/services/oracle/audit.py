@@ -755,6 +755,8 @@ def _tenure_ceiling_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
                     f'Claimed start "{tenure.raw.strip()}" lies before the earliest '
                     f"dated span in the vault ({earliest:%m/%Y})."
                 ),
+                detail_key="tenureStartBeforeVault",
+                detail_params={"claimed": tenure.raw.strip(), "earliest": f"{earliest:%m/%Y}"},
             )
         # #790 line L15: the lowest duration the claim commits to (a range's
         # lower bound) — never a false accusation.
@@ -770,6 +772,8 @@ def _tenure_ceiling_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
                 "spans (earliest recorded start to the latest end; an "
                 "open-ended span counts to today)."
             ),
+            detail_key="tenureExceedsVault",
+            detail_params={"claimed": tenure.raw.strip(), "years": f"{ceiling:.1f}", "whole": str(int(ceiling))},
         )
     return None
 
@@ -918,6 +922,11 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
                 f'"{best}" ({where}). A span derived from dates may be stated '
                 f'only hedged and rounded down (e.g. "über {int(span)} Jahre").'
             ),
+            detail_key="subjectTenureExceeds",
+            detail_params={
+                "claimed": raw, "years": f"{span:.1f}", "whole": str(int(span)), "skill": best,
+                "where": ", ".join(orgs) if orgs else "",
+            },
         )
     return None
 
@@ -951,6 +960,7 @@ def _attribution_red_flag(
             f"Backed only by evidence from a different position ({unit.path}) — "
             "the claim is rendered under a role it does not belong to."
         ),
+        detail_key="misattributed",
     )
 
 
@@ -1692,6 +1702,8 @@ async def _verify_claim_unchecked(
             verdict="unbacked",
             checker="grounding",
             detail=f'Skill "{claim.text}" has no vault evidence.',
+            detail_key="skillNoEvidence",
+            detail_params={"skill": claim.text},
         )
         # ADR-068 Seam A (#394 site): a literal miss on a DIFFERENT-language
         # document gets one bounded equivalence judgement before the
@@ -1770,6 +1782,8 @@ async def _verify_claim_unchecked(
                 verdict="unbacked",
                 checker="numbers",
                 detail=f"No vault evidence for figure(s): {missing}.",
+                detail_key="figuresNoEvidence",
+                detail_params={"figures": missing},
                 figures=[f.raw for f in fig_match.unmatched],
             )
         denial_backing = absorbed
@@ -1807,6 +1821,7 @@ async def _verify_claim_unchecked(
                         "Rendered as an achieved outcome, but the vault evidence "
                         "for these figures is aspirational (a target, not a result)."
                     ),
+                    detail_key="inflatedAspirational",
                 )
         # ── 2b. role attribution (deterministic red flag, #196) ─────────────
         # Per FIGURE, before entailment: a figure whose vault occurrences all

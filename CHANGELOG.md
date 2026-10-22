@@ -24,6 +24,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **A job analysis says whether its review finished (#787).** The analysis result now carries `review`: `pass`, `fail` (findings still open) or `not_applicable` (no verdict was obtained, for example when the reviewer call failed). Until now an analysis whose review failed looked exactly like a clean one.
 
 ### Fixed
+- **A review step that did not run is no longer silent (#786).** When the AI provider timed out or answered unreadably during the language check, the draft check or the final check, the document used to arrive as if fully checked. The review now says which check did not run and offers a new version; agents see the same record as `review_degradation` on `get_cv_status` / `get_cover_letter_status` (migration 0084).
+- **The review headline no longer reads "done" while points are open (#789).** With nothing uncovered in the document, the headline now counts the points that need your decision before sending; "Nothing is made up" moves to the line below. The phone's review button shows that count instead of the number of passed checks.
+- **Closing the phone's fine-tune sheet asks before an unsaved edit is lost (#789).**
+- **A stated qualification your profile never names is flagged (E-2).** A degree, professional title or certification the document ascribes to you that no profile entry names now reads as not covered, on the review surface and in `audit_document`.
+- ***Show me where* finds every place the check found (#789)**, including a word inside a compound ("Ärzte" in "Ärzteteam").
+- **Explanations under truthfulness findings are shown in your interface language (#790).**
 - **A fresh install's ops health no longer reads degraded on day one (#785)** for a backup or a retention run that is not due yet: they show `ok` with the date the first one is due. A provider that refuses the key is still reported down.
 - **One failing retention rule no longer skips every later one (#785).** Each rule runs on its own; a failure is logged by rule name, listed in the run's `failed_rules`, and the run is reported as failed.
 - **Single-sign-on re-authentication works with Authelia (#785).** Self-deletion and unlinking no longer send `max_age=0`, on which Authelia looped forever; freshness is still checked by Applire against `auth_time`.
