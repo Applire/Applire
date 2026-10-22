@@ -199,6 +199,15 @@ class ApplicationResponse(BaseModel):
     stale_cv_dismissed_at: datetime | None = None
     flow_session_id: uuid.UUID | None
     flow_current_step: str | None = None
+    # E12-788:L21 (founder 2026-10-22) — read model, enriched by the service
+    # from the artifacts that exist for this posting (never stored):
+    # `workflow_status` above is SERVED as the higher of the flow step's status
+    # and what the artifacts prove; `cover_letter_ready` says a letter is ready
+    # too; `workflow_running` says Applire is working on it right now (a CV,
+    # letter or gap analysis is being produced) — false means the next move is
+    # the user's.
+    cover_letter_ready: bool = False
+    workflow_running: bool = False
     created_at: datetime
     updated_at: datetime
     expires_at: datetime
