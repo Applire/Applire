@@ -55,6 +55,17 @@ export interface MatchReceiptItem {
   undone_at?: string | null;
 }
 
+/** D-B3V6 (ruling V-3 = A) — a second-source bullet the import's restatement
+ * check held back: `text` restates `restates`, a bullet the entry already holds. */
+export interface RestatedReceiptItem {
+  entity_id: string;
+  entity_label?: string | null;
+  section: string;
+  field: "responsibilities" | "achievements";
+  text: string;
+  restates: string;
+}
+
 /** Subset of the backend CVUploadResponse that callers read; extra fields pass through. */
 export interface CVUploadResult {
   profile_id: string | null;
@@ -73,6 +84,8 @@ export interface CVUploadResult {
   not_applied?: ImportNotAppliedItem[];
   /** #717 — the merge's recognised pairs (same receipt the history shows). */
   matched?: MatchReceiptItem[];
+  /** D-B3V6 — bullets held back as restatements of a held bullet. */
+  restated?: RestatedReceiptItem[];
   /** R3-2 = B — the source was longer than one import reads: only the first
    * `read_chars` of `total_chars` characters were extracted. `null` when not. */
   source_truncated?: SourceTruncation | null;

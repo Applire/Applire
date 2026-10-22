@@ -2308,7 +2308,12 @@
     "separatedDone": "Als eigener Eintrag hinzugefügt",
     "sameLanguage": "gleiche Sprache",
     "showAll": "Alle {count} anzeigen",
-    "separateFailed": "Das hat nicht geklappt. Bitte versuch es noch einmal."
+    "separateFailed": "Das hat nicht geklappt. Bitte versuch es noch einmal.",
+    "restatedTitle": "Schon in deinem Profil (anders formuliert) ({count})",
+    "restatedIntro": "Diese Punkte aus deiner Datei sagen dasselbe wie ein Punkt, der schon bei dieser Station steht. Wir haben sie nicht übernommen und nichts gelöscht. Steckt doch etwas Neues darin, tippe auf „Trotzdem übernehmen“.",
+    "restatedHeld": "Steht schon da: {text}",
+    "restatedApply": "Trotzdem übernehmen",
+    "restatedApplied": "Übernommen"
   },
   "profileAliases": {
     "label": "Auch bekannt als",

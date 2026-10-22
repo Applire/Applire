@@ -129,6 +129,45 @@ test.describe("#717 — recognised entries on the import summary", () => {
   });
 });
 
+test.describe("D-B3V6 — restated bullets on the import summary (Hazelnut b3, ruling V-3 = A)", () => {
+  test.use({ authUser: { ...ADMIN_USER, ui_language: "de" } });
+
+  test("lists a held-back restatement without any matched pair and adds it on click", async ({ page }) => {
+    const applied: string[] = [];
+    await mockGermanSettings(page);
+    await page.route("**/api/profile/uploads", (r) => r.fulfill(json([])));
+    await page.route("**/api/profile/import-jobs", (r) => r.fulfill(json({ import_id: "imp-1", status: "pending" }, 202)));
+    await page.route("**/api/profile/import-jobs/imp-1", (r) =>
+      r.fulfill(json({
+        import_id: "imp-1", status: "ready", error_code: null,
+        result: {
+          ...UPLOAD_RESULT,
+          matched: [],
+          restated: [{
+            entity_id: "w-nov", entity_label: "System Analyst @ Novartis Diagnostics GmbH",
+            section: "work_experience", field: "responsibilities",
+            text: "Analysed lab systems.", restates: "Analysis of laboratory IT systems.",
+          }],
+        },
+      })),
+    );
+    await page.route("**/api/profile/restated/apply", async (r) => {
+      applied.push(r.request().postData() ?? "");
+      await r.fulfill(json(PROFILE));
+    });
+    await uploadOneCv(page);
+
+    await expect(page.getByTestId("recognised-matches")).toHaveCount(0);
+    const card = page.getByTestId("restated-bullets");
+    await expect(card.getByText("Schon in deinem Profil (anders formuliert) (1)")).toBeVisible();
+    await card.getByRole("button", { name: "Trotzdem übernehmen" }).click();
+    await expect(card.getByTestId("restated-done")).toHaveText(/Übernommen/);
+    expect(JSON.parse(applied[0])).toEqual({
+      entity_id: "w-nov", field: "responsibilities", text: "Analysed lab systems.",
+    });
+  });
+});
+
 test.describe("#709/#716 — alternate names on the profile editors", () => {
   test.use({ authUser: { ...ADMIN_USER, ui_language: "de" } });
 

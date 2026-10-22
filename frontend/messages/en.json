@@ -2308,7 +2308,12 @@
     "separatedDone": "Added as its own entry",
     "sameLanguage": "same language",
     "showAll": "Show all {count}",
-    "separateFailed": "That did not work. Please try again."
+    "separateFailed": "That did not work. Please try again.",
+    "restatedTitle": "Already in your profile (worded differently) ({count})",
+    "restatedIntro": "These points from your file say the same as a point already listed for this role. We did not add them and deleted nothing. If one does say something new, tap “Add anyway”.",
+    "restatedHeld": "Already there: {text}",
+    "restatedApply": "Add anyway",
+    "restatedApplied": "Added"
   },
   "profileAliases": {
     "label": "Also known as",
