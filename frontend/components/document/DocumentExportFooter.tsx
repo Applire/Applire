@@ -191,6 +191,14 @@ export function DocumentExportFooter({
           </button>
         )}
       </div>
+      {/* #789 / F2-1: the pre-download notice now shows once per document set
+          per session, so the .docx export-scope line (ADR-079 cl. 6) also sits
+          here, on every export. */}
+      {onDownloadDocx && (
+        <p data-testid="document-docx-scope" className="text-[11px] leading-snug text-on-surface-variant">
+          {t("docxScopeCaption")}
+        </p>
+      )}
     </div>
   );
 }

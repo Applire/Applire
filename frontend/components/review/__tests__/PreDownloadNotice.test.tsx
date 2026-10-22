@@ -19,9 +19,41 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 
 import { withIntl } from "@/lib/test-utils/with-intl";
-import { PreDownloadNotice } from "../PreDownloadNotice";
+import { PreDownloadNotice, predownloadNoticeSeen } from "../PreDownloadNotice";
 
 describe("PreDownloadNotice", () => {
+  // #789 (F2-1): a labelled modal; once per document set per session.
+  describe("#789 — dialog semantics and once per document set", () => {
+    it("is a labelled modal dialog", () => {
+      render(withIntl(<PreDownloadNotice canSuppress onConfirm={vi.fn()} onCancel={vi.fn()} />));
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toHaveAttribute("aria-modal", "true");
+      expect(dialog.getAttribute("aria-labelledby")).toBeTruthy();
+      expect(dialog).toHaveAccessibleName();
+    });
+
+    it("Escape cancels", () => {
+      const onCancel = vi.fn();
+      render(withIntl(<PreDownloadNotice canSuppress onConfirm={vi.fn()} onCancel={onCancel} />));
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onCancel).toHaveBeenCalled();
+    });
+
+    it("a confirm marks the set seen; cancel and other sets do not", () => {
+      window.sessionStorage.clear();
+      const first = render(
+        withIntl(<PreDownloadNotice canSuppress setKey="flow-a" onConfirm={vi.fn()} onCancel={vi.fn()} />),
+      );
+      fireEvent.click(screen.getByTestId("predownload-cancel"));
+      expect(predownloadNoticeSeen("flow-a")).toBe(false);
+      fireEvent.click(screen.getByTestId("predownload-download"));
+      expect(predownloadNoticeSeen("flow-a")).toBe(true);
+      expect(predownloadNoticeSeen("flow-b")).toBe(false);
+      expect(predownloadNoticeSeen(null)).toBe(false);
+      first.unmount();
+    });
+  });
+
   it("always shows the AI-content warning and Download", () => {
     render(withIntl(<PreDownloadNotice canSuppress onConfirm={vi.fn()} onCancel={vi.fn()} />));
     expect(screen.getByTestId("predownload-notice")).toBeTruthy();

@@ -1653,7 +1653,8 @@
     "signatureWithout": "ohne",
     "signatureUnavailableHint": "Keine Unterschrift hinterlegt.",
     "signatureUnavailableLink": "Im Profil hinzufügen",
-    "signatureSaveError": "Die Einstellung konnte nicht gespeichert werden."
+    "signatureSaveError": "Die Einstellung konnte nicht gespeichert werden.",
+    "docxScopeCaption": "Word-Datei: Geprüft ist der Stand beim Export — was du danach in Word änderst, prüfen wir nicht."
   },
   "commandBar": {
     "atsChecks": "Prüfung",

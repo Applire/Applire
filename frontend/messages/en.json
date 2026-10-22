@@ -1653,7 +1653,8 @@
     "signatureWithout": "without",
     "signatureUnavailableHint": "No signature on file.",
     "signatureUnavailableLink": "Add one in your profile",
-    "signatureSaveError": "The setting could not be saved."
+    "signatureSaveError": "The setting could not be saved.",
+    "docxScopeCaption": "Word file: the checks cover the file as exported — changes you make in Word afterwards are not checked."
   },
   "commandBar": {
     "atsChecks": "Review",
