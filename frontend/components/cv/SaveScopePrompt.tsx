@@ -46,10 +46,19 @@ export function SaveScopePrompt({ onConfirm, onCancel }: SaveScopePromptProps) {
     onConfirm(saveToProfile);
   }
 
+  // #789 (Hazelnut build 3): the safe choice is the default — "Just this CV"
+  // is the filled, first, focused button; the permanent profile write is the
+  // secondary one (Finetuner principle 8: a free-text edit defaults to the
+  // document, never a silent vault write).
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl p-6 shadow-xl max-w-sm w-full mx-4">
-        <h3 className="text-sm font-bold text-neutral-dark mb-1">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="save-scope-title"
+        className="bg-white rounded-xl p-6 shadow-xl max-w-sm w-full mx-4"
+      >
+        <h3 id="save-scope-title" className="text-sm font-bold text-neutral-dark mb-1">
           {t("saveToProfile")}
         </h3>
         <p className="text-xs text-gray-500 mb-4">
@@ -58,19 +67,20 @@ export function SaveScopePrompt({ onConfirm, onCancel }: SaveScopePromptProps) {
         <div className="flex flex-col gap-2 mb-4">
           <button
             type="button"
-            onClick={() => handleChoice(true)}
-            data-testid="save-to-profile-btn"
+            autoFocus
+            onClick={() => handleChoice(false)}
+            data-testid="save-cv-only-btn"
             className="w-full bg-teal text-white font-semibold py-2.5 rounded-lg text-sm hover:opacity-90"
           >
-            {t("toProfile")}
+            {t("justThisCV")}
           </button>
           <button
             type="button"
-            onClick={() => handleChoice(false)}
-            data-testid="save-cv-only-btn"
+            onClick={() => handleChoice(true)}
+            data-testid="save-to-profile-btn"
             className="w-full border border-teal text-teal font-semibold py-2.5 rounded-lg text-sm hover:opacity-90"
           >
-            {t("justThisCV")}
+            {t("toProfile")}
           </button>
         </div>
         <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">

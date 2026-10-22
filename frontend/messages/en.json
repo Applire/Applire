@@ -507,8 +507,8 @@
     "targetPagesBeyondNormHint": "Beyond the DACH norm — best for senior or executive profiles."
   },
   "saveScopePrompt": {
-    "saveToProfile": "Save to your Master Profile?",
-    "description": "Changes saved to the Master Profile are permanent. Changes saved to this CV only apply to this document.",
+    "saveToProfile": "Where should this change apply?",
+    "description": "“Just this CV” changes only this document. “Save to Profile” keeps the change in your profile for good — future CVs included.",
     "toProfile": "Save to Profile",
     "justThisCV": "Just this CV",
     "rememberChoice": "Remember my choice for this session",

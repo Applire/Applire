@@ -507,8 +507,8 @@
     "targetPagesBeyondNormHint": "Über der DACH-Norm — geeignet für Senior- oder Führungsprofile."
   },
   "saveScopePrompt": {
-    "saveToProfile": "Im Master-Profil speichern?",
-    "description": "Im Masterprofil bleibt die Änderung dauerhaft erhalten. Nur für diesen Lebenslauf bleibt sie auf diesen Lebenslauf beschränkt.",
+    "saveToProfile": "Wo soll die Änderung gelten?",
+    "description": "„Nur für diesen Lebenslauf“ ändert nur dieses Dokument. „Im Profil speichern“ übernimmt die Änderung dauerhaft in dein Profil — auch für künftige Lebensläufe.",
     "toProfile": "Im Profil speichern",
     "justThisCV": "Nur für diesen Lebenslauf",
     "rememberChoice": "Meine Wahl für diese Sitzung merken",

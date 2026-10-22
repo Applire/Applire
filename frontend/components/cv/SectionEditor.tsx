@@ -222,13 +222,15 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
 
       {showHeading && <p className="text-xs font-semibold text-neutral-dark">{section.label}</p>}
 
+      {/* #789 (Hazelnut build 3): prose is edited in the prose font at a
+          readable size — the monospace field fit ~30 characters per line. */}
       <textarea
         ref={textareaRef}
         value={content}
         onChange={(e) => handleContentChange(e.target.value)}
         data-testid="section-textarea"
         placeholder={t("placeholder")}
-        className="w-full min-h-[180px] resize-y text-sm font-mono border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-teal"
+        className="w-full min-h-[240px] resize-y font-sans text-[15px] leading-relaxed text-on-surface border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal"
       />
 
       {saveError && (
