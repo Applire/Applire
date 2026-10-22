@@ -49,7 +49,7 @@ def _op(entry_id):
 @pytest.mark.asyncio
 async def test_named_restatement_is_held_back_and_receipted():
     profile, entry = _profile()
-    provider = _Provider({"restated": [{"new": "e1.n1", "held": "e1.h2"}]})
+    provider = _Provider({"items": [{"new": "e1.n1", "added": "", "held": "e1.h2"}]})
     ops, receipts = await hold_back_restatements(profile, [_op(entry.id)], provider)
     assert ops[0].responsibilities == ["Budgetverantwortung von rund 6 Mio. € pro Jahr."]
     assert ops[0].technologies == ["SAP PP"]
@@ -66,7 +66,7 @@ async def test_named_restatement_is_held_back_and_receipted():
 @pytest.mark.asyncio
 async def test_held_bullets_are_never_touched():
     profile, entry = _profile()
-    provider = _Provider({"restated": [{"new": "e1.n1", "held": "e1.h2"}]})
+    provider = _Provider({"items": [{"new": "e1.n1", "added": "", "held": "e1.h2"}]})
     await hold_back_restatements(profile, [_op(entry.id)], provider)
     assert profile.work_experience[0].responsibilities == HELD
 
@@ -76,17 +76,21 @@ async def test_an_op_left_empty_is_dropped_but_other_ops_pass_through():
     profile, entry = _profile()
     op = AddBullets(target=entry.id, responsibilities=["Shopfloor-Management und KVP eingeführt."])
     skill = UpsertSkill(name="OEE")
-    provider = _Provider({"restated": [{"new": "e1.n1", "held": "e1.h2"}]})
+    provider = _Provider({"items": [{"new": "e1.n1", "added": "", "held": "e1.h2"}]})
     ops, receipts = await hold_back_restatements(profile, [op, skill], provider)
     assert ops == [skill] and len(receipts) == 1
 
 
 @pytest.mark.parametrize("answer", [
-    {"restated": [{"new": "e1.n9", "held": "e1.h1"}]},     # index out of range
-    {"restated": [{"new": "e1.n1", "held": "e1.h9"}]},     # held out of range
-    {"restated": [{"new": "e2.n1", "held": "e2.h1"}]},     # no such entry
-    {"restated": [{"new": "e1.h1", "held": "e1.n1"}]},     # swapped kinds
-    {"restated": "e1.n1"},                                 # wrong shape
+    {"items": [{"new": "e1.n9", "added": "", "held": "e1.h1"}]},     # index out of range
+    {"items": [{"new": "e1.n1", "added": "", "held": "e1.h9"}]},     # held out of range
+    {"items": [{"new": "e2.n1", "added": "", "held": "e2.h1"}]},     # no such entry
+    {"items": [{"new": "e1.h1", "added": "", "held": "e1.n1"}]},     # swapped kinds
+    {"items": [{"new": "e1.n1", "added": "GitLab", "held": "e1.h2"}]},  # a fact added
+    {"items": [{"new": "e1.n1", "held": "e1.h2"}]},        # `added` missing: malformed
+    {"items": [{"new": "e1.n1", "added": "", "held": None}]},  # no held bullet named
+    {"items": "e1.n1"},                                    # wrong shape
+    {"restated": [{"new": "e1.n1", "held": "e1.h2"}]},     # the retired shape
     ["e1.n1"],                                             # not an object
 ])
 @pytest.mark.asyncio
@@ -128,7 +132,7 @@ def _merge_fixture():
     reconcile_answer = {"ops": [{"op": "add_bullets", "target": entry.id,
                                   "responsibilities": ["Shopfloor-Management und KVP eingeführt.",
                                                        "Budgetverantwortung von rund 6 Mio. € pro Jahr."]}]}
-    check_answer = {"restated": [{"new": "e1.n1", "held": "e1.h2"}]}
+    check_answer = {"items": [{"new": "e1.n1", "added": "", "held": "e1.h2"}]}
     return existing, incoming, entry, reconcile_answer, check_answer
 
 

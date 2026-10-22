@@ -64,9 +64,15 @@ def _parse_pairs(data: Any) -> list[tuple[int, int, int]]:
     """``(entry, new, held)`` 1-based triples from the model's answer; anything
     malformed is dropped (never guessed)."""
     pairs: list[tuple[int, int, int]] = []
-    items = data.get("restated") if isinstance(data, dict) else None
+    items = data.get("items") if isinstance(data, dict) else None
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
+            continue
+        # The model names the words of the NEW bullet no held bullet states;
+        # only an item whose `added` is present AND empty restates (a missing
+        # key is malformed, never read as "nothing added").
+        added = item.get("added")
+        if not isinstance(added, str) or added.strip():
             continue
         new = _ID.match(str(item.get("new") or "").strip())
         held = _ID.match(str(item.get("held") or "").strip())

@@ -16,6 +16,21 @@ one fact, n = 3): first text 27/27 held, 36/39 new kept (one bullet — a mentor
 line adding a promotion — held back 3/3); the "repeats AND adds" sentence below
 was added for it: 27/27 and 39/39, replay set unchanged. That bullet is now a
 development case, not a held-out one.
+
+Second round, same day — a REAL two-source import on this branch (Daniel,
+LinkedIn PDF then CV) showed the opposite direction failing: the held bullets
+were LinkedIn's terse fragments and the CV's richer bullets ("Own the AWS
+deployment and the GitLab CI/CD pipelines for four services" over "CI/CD
+ownership for four services"; the p95 bullet adding "through query optimisation
+and targeted PostgreSQL indexing") were held back — 3 of 3 false "restated" on
+the captured call, 5/5 replays, unchanged by a clarifying rule. The answer
+shape changed instead: the model now names, for EVERY new bullet, the facts it
+adds (`added`), and only an item with an empty `added` restates (code acts on
+the model's own statement; ADR-062 clause 1). Results: captured call 0/5 false
+"restated" (now a development case — its GitLab shape is the second example
+below); replay set 106/108 restatements held, 10/10 new kept; synthetic set
+27/27 and 39/39; held-out real import (Stefan, XING PDF then CV, n = 1): 6/6
+new bullets kept, 0 held.
 """
 from __future__ import annotations
 
@@ -46,9 +61,12 @@ a result or outcome; a date or duration.
 - A more general NEW bullet whose content a held bullet states more specifically RESTATES.
 - When you are not sure, it is NEW.
 
-Respond ONLY with JSON:
-{"restated": [{"new": "<NEW bullet id, e.g. e1.n2>", "held": "<HELD bullet id that states it most completely, e.g. e1.h1>"}]}
-List only the NEW bullets that restate. An empty list when none does.
+Respond ONLY with JSON, one item for EVERY NEW bullet:
+{"items": [{"new": "<NEW bullet id, e.g. e1.n2>", "added": "<the facts of the NEW bullet that no HELD bullet of the entry states, as short phrases; an empty string when every fact is held>", "held": "<the HELD bullet id that states it most completely, or null>"}]}
+"added" lists facts only: a different verb, verb form, word order, language or phrasing for a
+fact a held bullet states is not added (HELD "Einführung von KVP-Routinen" / NEW "KVP
+eingeführt." — added ""; HELD "CI/CD ownership" / NEW "Own the GitLab CI/CD pipelines" —
+added "GitLab").
 """
 
 
