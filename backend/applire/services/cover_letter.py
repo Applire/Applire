@@ -1014,7 +1014,7 @@ def _inject_salutation(letter_data: dict, language: str) -> dict:
     a missing salutation is a formal defect in both DE and EN business letters
     (flagged by an HR screener in the 2026-07-21 edge hiring-panel run). We only
     inject the generic, always-correct floor ("Sehr geehrte Damen und Herren," /
-    "Dear Sir or Madam,") — a capable agent is guided to author the named form
+    "Dear Hiring Manager,") — a capable agent is guided to author the named form
     itself, and injecting a guessed named/gendered Anrede risks getting it wrong.
     """
     from applire.templates.labels import cover_letter_labels

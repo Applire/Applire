@@ -365,7 +365,7 @@ def test_v2_compose_changes_no_body_text():
     v2 = _compose(letter, "v2")
     assert v2["body"]["paragraphs"] == body  # no Anrede injected, no sign-off dropped
     v1 = _compose(letter, "v1")
-    assert v1["body"]["paragraphs"][0] == "Dear Sir or Madam,"
+    assert v1["body"]["paragraphs"][0] == "Dear Hiring Manager,"
     assert v1["body"]["paragraphs"][-1] != "Kind regards"
 
 
