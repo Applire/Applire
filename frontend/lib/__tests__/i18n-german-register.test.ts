@@ -137,7 +137,6 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "match.emptyIcon",
   "match.strengthPrefix",
   "match.gapPrefix",
-  "gaps.matchScoreDisplay",
   // Hazelnut b3 WP-V (V-1 receipt summary): a placeholder pair and a dash
   // attribution — no German word left to translate.
   "review.summary.entityCount",
