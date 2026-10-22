@@ -834,6 +834,12 @@ class FieldChange(BaseModel):
     # records without a key fall back to the stored `rationale` prose.
     rationale: str | None = None
     rationale_key: str | None = None
+    # ADR-063 amended 2026-10-22 (Hazelnut b3 WP-V, D-B3V2): the id-bearing
+    # entity this change was written onto (a role, a project, a skill …), so a
+    # receipt can say WHICH role a bullet joined. Optional and default-None:
+    # records persisted before it existed load unchanged, and a profile-level
+    # change (summary, personal_info, metadata) has no entity.
+    entity_id: str | None = None
 
 
 class MatchReceipt(BaseModel):
@@ -1164,6 +1170,65 @@ class ProfileChangesResponse(BaseModel):
     """
     enrichment_history: list["EnrichmentRecord"] = Field(default_factory=list)
     pending_conflicts: list["Conflict"] = Field(default_factory=list)
+
+
+class ReceiptFact(BaseModel):
+    """One fact a session wrote, as the receipt summary shows it (ADR-040
+    amended 2026-10-22, ruling V-1 = A). One fact = one line: a list value is
+    one fact per item, and the same item written to several sections (a role's
+    technologies AND a skill) is ONE fact naming every section in ``also_in``.
+    """
+
+    #: The normalised text — stable within one summary, for React keys.
+    key: str
+    #: The section the fact is listed under (its first write in trail order).
+    section: str
+    #: What kind of entry the fact is — a FACT about the write (which field /
+    #: section it went to), never a judgement of importance (ADR-062 cl. 1).
+    kind: Literal[
+        "story", "result", "position", "project", "certification",
+        "responsibility", "tool", "skill", "education", "language",
+        "limit", "detail",
+    ]
+    action: Literal["added", "updated", "merged", "removed"]
+    text: str
+    #: Label of the entity the fact was written onto ("Leiter Produktion @
+    #: Weberit GmbH"), when the receipt names one.
+    entity_label: str | None = None
+    #: The OTHER sections the same fact was also written to.
+    also_in: list[str] = Field(default_factory=list)
+    #: The story's result line, shown under its title.
+    detail: str | None = None
+
+
+class ReceiptEntityCount(BaseModel):
+    label: str
+    count: int
+
+
+class ReceiptGroup(BaseModel):
+    section: str
+    count: int
+    #: Per-entity counts (work/projects: per role or project).
+    entities: list[ReceiptEntityCount] = Field(default_factory=list)
+    #: The group's first items (≤ 5), as text.
+    preview: list[str] = Field(default_factory=list)
+    #: How many items the preview leaves out.
+    more: int = 0
+
+
+class ReceiptSummary(BaseModel):
+    """The interview receipt as a summary of ONE session (ADR-040 amended
+    2026-10-22). Produced by ``services/profile/receipts.py`` from the
+    complete decision trail, which it never rewrites."""
+
+    session_id: str | None = None
+    #: Interview turns recorded in the session (one trail record per turn).
+    answers: int = 0
+    facts_total: int = 0
+    groups: list[ReceiptGroup] = Field(default_factory=list)
+    top: list[ReceiptFact] = Field(default_factory=list)
+    facts: list[ReceiptFact] = Field(default_factory=list)
 
 
 class DeniedConcept(BaseModel):

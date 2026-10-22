@@ -459,10 +459,17 @@ def _coerce_to_field_type(model_or_instance: Any, field_name: str, value: Any) -
         return _SKIP
 
 
-def _append_dedup(existing: list[str], incoming: list[str]) -> bool:
-    """Case-insensitively append non-dup strings; return True if the list grew."""
+def _append_dedup(existing: list[str], incoming: list[str]) -> list[str]:
+    """Case-insensitively append non-dup strings; return the items appended.
+
+    The returned list is falsy when nothing was appended, so ``if
+    _append_dedup(...)`` keeps reading as "did the list grow". ADR-063 amended
+    2026-10-22 (D-B3V2): a merge receipt carries THESE items — before, it
+    carried the whole incoming list, so it claimed a write for items the entry
+    already held.
+    """
     seen = {_norm(x) for x in existing}
-    grew = False
+    appended: list[str] = []
     for item in incoming:
         if not isinstance(item, str):
             continue
@@ -470,8 +477,8 @@ def _append_dedup(existing: list[str], incoming: list[str]) -> bool:
         if key and key not in seen:
             existing.append(item)
             seen.add(key)
-            grew = True
-    return grew
+            appended.append(item)
+    return appended
 
 
 def _section_for(entity: Any) -> str:
@@ -937,7 +944,13 @@ def _fill_empties(entity: Any, fields: dict[str, Any]) -> bool:
     return changed
 
 
-def _added(section: str, field: str, value: Any) -> FieldChange:
+def _entity_id_of(entity: Any) -> str | None:
+    """The receipt's ``entity_id`` (ADR-063 amended 2026-10-22, D-B3V2)."""
+    value = getattr(entity, "id", None)
+    return str(value) if value else None
+
+
+def _added(section: str, field: str, value: Any, *, entity: Any = None) -> FieldChange:
     return FieldChange(
         section=section,
         field=field,
@@ -945,10 +958,13 @@ def _added(section: str, field: str, value: Any) -> FieldChange:
         new_value=value,
         rationale=f"Added {field} to {section} via reconciliation.",
         rationale_key="reconcile_added",
+        entity_id=_entity_id_of(entity),
     )
 
 
-def _merged(section: str, field: str, old: Any, new: Any) -> FieldChange:
+def _merged(
+    section: str, field: str, old: Any, new: Any, *, entity: Any = None
+) -> FieldChange:
     return FieldChange(
         section=section,
         field=field,
@@ -957,10 +973,13 @@ def _merged(section: str, field: str, old: Any, new: Any) -> FieldChange:
         new_value=new,
         rationale=f"Merged {field} into existing {section} via reconciliation.",
         rationale_key="reconcile_merged",
+        entity_id=_entity_id_of(entity),
     )
 
 
-def _updated(section: str, field: str, old: Any, new: Any) -> FieldChange:
+def _updated(
+    section: str, field: str, old: Any, new: Any, *, entity: Any = None
+) -> FieldChange:
     return FieldChange(
         section=section,
         field=field,
@@ -969,6 +988,7 @@ def _updated(section: str, field: str, old: Any, new: Any) -> FieldChange:
         new_value=new,
         rationale=f"Filled empty {field} on {section} via reconciliation.",
         rationale_key="reconcile_updated",
+        entity_id=_entity_id_of(entity),
     )
 
 
@@ -1656,7 +1676,9 @@ def _apply_resolve_confirmation(
             )
             continue
         if _append_dedup(getattr(entity, field), [text]):
-            changes.append(_merged(_section_for(entity), field, None, [text]))
+            changes.append(
+                _merged(_section_for(entity), field, None, [text], entity=entity)
+            )
         else:
             # Already on that entry: the candidate's decision is satisfied and
             # the vault is correct, but `changes` stays silent — so the receipt
@@ -1694,7 +1716,9 @@ def _apply_resolve_confirmation(
                 )
                 continue
             setattr(entity, field, coerced)
-            changes.append(_updated(_section_for(entity), field, current, coerced))
+            changes.append(
+                _updated(_section_for(entity), field, current, coerced, entity=entity)
+            )
         else:
             # Same refusal `_apply_set_field` makes: a populated scalar is a
             # dispute, and an attribution answer is not the act that settles it.
@@ -2188,7 +2212,7 @@ def _apply_upsert_work(
         )
         profile.work_experience.append(entry)
         ref_map[op.ref] = entry
-        changes.append(_added("work_experience", "company", entry.company))
+        changes.append(_added("work_experience", "company", entry.company, entity=entry))
         return
 
     # Merge into existing.
@@ -2210,7 +2234,9 @@ def _apply_upsert_work(
         and _norm(op.role) not in {_norm(a) for a in target.role_aliases}
     ):
         target.role_aliases.append(op.role)
-        changes.append(_merged("work_experience", "role_aliases", None, op.role))
+        changes.append(
+            _merged("work_experience", "role_aliases", None, op.role, entity=target)
+        )
     # ADR-046 amended 2026-10-07 (#716), writer (b) — the employer's other name
     # from a targeted upsert — lives in the IMPORT bridge
     # (`alias_writer.record_targeted_upsert_aliases`), never here: this applier
@@ -2224,7 +2250,11 @@ def _apply_upsert_work(
     if op.company:
         preferred = _prefer_mixed_case_spelling(target.company, op.company)
         if preferred != target.company:
-            changes.append(_updated("work_experience", "company", target.company, preferred))
+            changes.append(
+                _updated(
+                    "work_experience", "company", target.company, preferred, entity=target
+                )
+            )
             target.company = preferred
     # Fill only empties for the rest (never overwrite company/role).
     _fill_empties(
@@ -2313,7 +2343,7 @@ def _apply_upsert_project(
         )
         profile.projects.append(entry)
         ref_map[op.ref] = entry
-        changes.append(_added("projects", "name", entry.name))
+        changes.append(_added("projects", "name", entry.name, entity=entry))
         return
 
     ref_map[op.ref] = target
@@ -2424,7 +2454,9 @@ def _apply_upsert_volunteer(
         )
         profile.volunteer_activities.append(entry)
         ref_map[op.ref] = entry
-        changes.append(_added("volunteer_activities", "organization", entry.organization))
+        changes.append(
+            _added("volunteer_activities", "organization", entry.organization, entity=entry)
+        )
         return
 
     ref_map[op.ref] = target
@@ -2535,8 +2567,9 @@ def _apply_add_bullets(op, resolve, changes, pending, not_applied=None):
     ):
         if not incoming:
             continue
-        if _append_dedup(getattr(entity, field), incoming):
-            changes.append(_merged(section, field, None, incoming))
+        appended = _append_dedup(getattr(entity, field), incoming)
+        if appended:
+            changes.append(_merged(section, field, None, appended, entity=entity))
 
 
 def _apply_transcribed_years(existing: Skill, op) -> None:
@@ -3294,7 +3327,9 @@ def _apply_set_field(op, resolve, changes, not_applied=None):
     if value is _SKIP:
         return  # uncoercible — never setattr a type the schema would reject
     setattr(entity, op.field, value)
-    changes.append(_updated(_section_for(entity), op.field, current, value))
+    changes.append(
+        _updated(_section_for(entity), op.field, current, value, entity=entity)
+    )
 
 
 #: `personal_info` fields another writer OWNS — an import may neither write

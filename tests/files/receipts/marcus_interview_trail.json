@@ -1,0 +1,1152 @@
+{
+ "_source": "UX audit 2026-10-20 (v0.44.0-beta), synthetic case operations_marcus_de (\"Stefan Brandt\"); personal_info removed; the interview session 45d2276b: 12 answers, 38 FieldChange rows (shots/marcus-035..041)",
+ "profile": {
+  "work_experience": [
+   {
+    "id": "8ce5f62d-f0af-48d0-aac6-6f16eede7f81",
+    "role": "Produktionsleiter",
+    "company": "Weberit Kunststofftechnik GmbH",
+    "end_date": null,
+    "location": "Neuwied",
+    "team_size": 38,
+    "is_current": true,
+    "start_date": "2017-04",
+    "achievements": [
+     "Einführung von Shopfloor-Management und KVP-Routinen; Ausschussquote von 4,1 % auf 2,3 % gesenkt.",
+     "Termintreue von 87 % auf 96 % verbessert durch neue Feinplanung und Rüstworkshops (SMED).",
+     "Budgetverantwortung ca. 6 Mio. € (Personal, Instandhaltung, Material-Gemeinkosten).",
+     "Unfallquote (LTIF) im eigenen Bereich in fünf Jahren von 8,2 auf 3,1 gesenkt.",
+     "Termintreue von 87 % auf 96 % verbessert durch Rüstworkshops nach SMED.",
+     "Ausschussquote von 4,1 % auf 2,3 % gesenkt durch die Einführung von Shopfloor-Management und KVP-Routinen."
+    ],
+    "role_aliases": [],
+    "technologies": [
+     "SMED",
+     "ISO 45001",
+     "LTIF",
+     "SAP PP",
+     "SAP MM",
+     "Shopfloor-Management",
+     "KVP"
+    ],
+    "budget_managed": "ca. 6 Mio. €",
+    "expected_fields": [
+     "team_size",
+     "industry_context"
+    ],
+    "industry_context": "Kunststofftechnik, diskrete Fertigung, Serienfertigung",
+    "responsibilities": [
+     "Verantwortung für zwei Fertigungsbereiche (Spritzguss, Montage) mit 38 Mitarbeitenden im Dreischichtbetrieb.",
+     "Schnittstelle zu Einkauf, Qualitätssicherung und Supply Chain; Eskalationsinstanz für Kundenreklamationen aus der Serienfertigung.",
+     "Begleitung der jährlichen ISO-9001-Audits als Bereichsverantwortlicher.",
+     "Direktführung von 38 Mitarbeitenden über drei Schichtleiter bei rund 6 Mio. € Budgetverantwortung.",
+     "Mehrfach in Urlaubs- und Krankheitsvertretung des Betriebsleiters den Gesamtstandort mit rund 90 Mitarbeitenden geführt, jeweils 2–4 Wochen am Stück.",
+     "Führung und Einarbeitung von drei Schichtleitern, über die 38 Mitarbeitende geführt werden.",
+     "Schulung der Schichtteams in KVP-Routinen und Shopfloor-Management durch moderierte 5S- und Kaizen-Workshops.",
+     "Meine Budgetverantwortung bei Weberit umfasst rund 6 Mio. € für Personal, Instandhaltung und Material-Gemeinkosten — das plane und steuere ich jährlich.",
+     "Vorbereitung der ISO-45001-Zertifizierung für die Produktion begleitet; Gefährdungsbeurteilungen überarbeitet und das Unterweisungssystem neu aufgesetzt.",
+     "Produktionspart bei der Vorbereitung der ISO-45001-Zertifizierung; die Zertifizierung selbst wurde vom QHSE-Leiter verantwortet.",
+     "Tägliche Arbeit mit SAP PP und MM, einschließlich Disposition und Bestellanforderungen für Instandhaltungsmaterial.",
+     "Leitung der Stammdatenbereinigung für die Arbeitspläne.",
+     "Hygiene- und Dokumentationsdisziplin in der Fertigung für Kosmetik-Verpackungen im Sauberraumbereich bei Weberit seit 2021.",
+     "Begleitung von ISO-9001-Audits seit zehn Jahren als Bereichsverantwortlicher.",
+     "Verantwortung als Produktionsleiter für die Fertigung von Kosmetik-Verpackungen im Sauberraumbereich bei Weberit seit 2021.",
+     "Einführung von Shopfloor-Management und KVP-Routinen.",
+     "Durchführung von Rüstworkshops nach SMED."
+    ],
+    "role_fact_projections": {
+     "team_size": {
+      "unit": null,
+      "quote": "Verantwortung für zwei Fertigungsbereiche (Spritzguss, Montage) mit 38 Mitarbeitenden im Dreischichtbetrieb.",
+      "value": "38",
+      "provenance": "derived"
+     },
+     "budget_managed": {
+      "unit": "€",
+      "quote": "Direktführung von 38 Mitarbeitenden über drei Schichtleiter bei rund 6 Mio. € Budgetverantwortung.",
+      "value": "ca. 6 Mio. €",
+      "provenance": "derived"
+     },
+     "industry_context": {
+      "unit": null,
+      "quote": null,
+      "value": "Kunststofftechnik, diskrete Fertigung, Serienfertigung",
+      "provenance": "uncorroborated"
+     }
+    }
+   },
+   {
+    "id": "fea03ce4-72a2-40fa-937b-6807d37a8ed6",
+    "role": "Fertigungsmeister / Schichtleiter",
+    "company": "Rasselstein Umformtechnik GmbH",
+    "end_date": "2017-03",
+    "location": "Andernach",
+    "team_size": 14,
+    "is_current": false,
+    "start_date": "2011-08",
+    "achievements": [],
+    "role_aliases": [
+     "Fertigungsmeister"
+    ],
+    "technologies": [
+     "SAP",
+     "SAP PP"
+    ],
+    "budget_managed": null,
+    "expected_fields": [
+     "team_size",
+     "industry_context"
+    ],
+    "industry_context": "Blechumformung, diskrete Fertigung",
+    "responsibilities": [
+     "Führung einer Schicht mit 14 Mitarbeitenden in der Blechumformung.",
+     "Mitarbeit bei der Einführung von SAP in der Fertigung.",
+     "Ausbildung zum Lean-Multiplikator; Moderation von 5S- und Kaizen-Workshops.",
+     "Führung einer Schicht mit 14 Mitarbeitenden.",
+     "Key-User beim SAP-Rollout für PP, einschließlich Fertigungsaufträgen und Rückmeldungen."
+    ],
+    "role_fact_projections": {
+     "team_size": {
+      "unit": null,
+      "quote": "Führung einer Schicht mit 14 Mitarbeitenden in der Blechumformung.",
+      "value": "14",
+      "provenance": "derived"
+     },
+     "industry_context": {
+      "unit": null,
+      "quote": null,
+      "value": "Blechumformung, diskrete Fertigung",
+      "provenance": "uncorroborated"
+     }
+    }
+   },
+   {
+    "id": "7ea36971-2755-4d27-92d1-cdc073a9e6ab",
+    "role": "Industriemechaniker",
+    "company": "Rasselstein Umformtechnik GmbH",
+    "end_date": "2011-07",
+    "location": "Andernach",
+    "team_size": null,
+    "is_current": false,
+    "start_date": "2004-07",
+    "achievements": [],
+    "role_aliases": [],
+    "technologies": [],
+    "budget_managed": null,
+    "expected_fields": [],
+    "industry_context": "Instandhaltung, Blechumformung",
+    "responsibilities": [
+     "Facharbeiter in der Instandhaltung, später Vorarbeiter."
+    ],
+    "role_fact_projections": {
+     "industry_context": {
+      "unit": null,
+      "quote": null,
+      "value": "Instandhaltung, Blechumformung",
+      "provenance": "uncorroborated"
+     }
+    }
+   }
+  ],
+  "projects": [
+   {
+    "id": "5174d925-3652-4e7c-b1a5-5cf9c160f4ed",
+    "url": null,
+    "name": "Einführung eines MES-Systems bei Weberit",
+    "role": "Projektleiter",
+    "end_date": null,
+    "location": null,
+    "is_current": null,
+    "start_date": "2023",
+    "description": "Verantwortung für die Auswahl, Pilotlinie und den Rollout eines MES-Systems zur Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen in beide Fertigungsbereiche. Echtzeit-OEE-Transparenz am Shopfloor-Board; Teil der gemeinsam mit der Geschäftsführung erarbeiteten Industrie-4.0-Roadmap.",
+    "achievements": [
+     "OEE-Transparenz in Echtzeit am Shopfloor-Board eingeführt; OEE im Spritzguss in 18 Monaten von 61 % auf 73 % gesteigert."
+    ],
+    "technologies": [
+     "MES",
+     "Maschinen- und Betriebsdatenerfassung",
+     "Industrie 4.0",
+     "OEE"
+    ],
+    "expected_fields": null,
+    "responsibilities": [
+     "Verantwortung für die Auswahl, Pilotlinie und den Rollout eines MES-Systems zur Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen in beide Fertigungsbereiche.",
+     "Erarbeitung der Industrie-4.0-Roadmap gemeinsam mit der Geschäftsführung."
+    ],
+    "associated_experience": "8ce5f62d-f0af-48d0-aac6-6f16eede7f81"
+   }
+  ],
+  "skills": [
+   {
+    "id": "f9d2c8b4-0ec3-47b6-87b6-875a07cce2bb",
+    "name": "5S",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [
+     "Rasselstein Umformtechnik GmbH",
+     "Weberit Kunststofftechnik GmbH"
+    ],
+    "years_experience": 15
+   },
+   {
+    "id": "1a9d23f4-7358-479b-b39a-f005503c0454",
+    "name": "SMED",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [
+     "Weberit Kunststofftechnik GmbH"
+    ],
+    "years_experience": 10
+   },
+   {
+    "id": "5382a0cd-0cdc-44b4-b468-6bca88e0fed3",
+    "name": "Shopfloor-Management",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [
+     "Weberit Kunststofftechnik GmbH"
+    ],
+    "years_experience": 10
+   },
+   {
+    "id": "e9979034-f47b-47ab-8e77-76b87a5e4818",
+    "name": "SAP",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "technical",
+    "last_used": null,
+    "proficiency": "basic",
+    "experience_refs": [
+     "Rasselstein Umformtechnik GmbH",
+     "Weberit Kunststofftechnik GmbH"
+    ],
+    "years_experience": 15
+   },
+   {
+    "id": "3aae196e-a4ed-4449-95f5-de548b616c62",
+    "name": "ISO 9001",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [
+     "Weberit Kunststofftechnik GmbH"
+    ],
+    "years_experience": 10
+   },
+   {
+    "id": "ff60ea91-52ce-40c5-b45a-0d918c0cb4af",
+    "name": "Budgetverantwortung",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [
+     "Weberit Kunststofftechnik GmbH"
+    ],
+    "years_experience": 10
+   },
+   {
+    "id": "622b037e-01b4-466c-93cf-25b12166f67c",
+    "name": "MES",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "technical",
+    "last_used": null,
+    "proficiency": "advanced",
+    "experience_refs": [
+     "5174d925-3652-4e7c-b1a5-5cf9c160f4ed",
+     "Einführung eines MES-Systems bei Weberit"
+    ],
+    "years_experience": 4
+   },
+   {
+    "id": "17e0e85e-080d-473d-9e88-1d0e1e556961",
+    "name": "Maschinen- und Betriebsdatenerfassung",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "technical",
+    "last_used": null,
+    "proficiency": "advanced",
+    "experience_refs": [
+     "5174d925-3652-4e7c-b1a5-5cf9c160f4ed",
+     "Einführung eines MES-Systems bei Weberit"
+    ],
+    "years_experience": 4
+   },
+   {
+    "id": "7f05b6ec-0ad3-4845-8901-beddaec02ee7",
+    "name": "Industrie 4.0",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "advanced",
+    "experience_refs": [
+     "5174d925-3652-4e7c-b1a5-5cf9c160f4ed",
+     "Einführung eines MES-Systems bei Weberit"
+    ],
+    "years_experience": 4
+   },
+   {
+    "id": "b30b6961-5d76-4b2f-bcb0-13c280eaca54",
+    "name": "OEE",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "advanced",
+    "experience_refs": [
+     "5174d925-3652-4e7c-b1a5-5cf9c160f4ed",
+     "Einführung eines MES-Systems bei Weberit"
+    ],
+    "years_experience": 4
+   },
+   {
+    "id": "06bd66c7-52fb-485d-a68f-1cd165201bf6",
+    "name": "ISO 45001",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [
+     "8ce5f62d-f0af-48d0-aac6-6f16eede7f81",
+     "Weberit Kunststofftechnik GmbH"
+    ],
+    "years_experience": 10
+   },
+   {
+    "id": "2866db73-e96d-4776-9322-04a40b4102b2",
+    "name": "SAP PP",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "technical",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [
+     "fea03ce4-72a2-40fa-937b-6807d37a8ed6",
+     "8ce5f62d-f0af-48d0-aac6-6f16eede7f81",
+     "Weberit Kunststofftechnik GmbH",
+     "Rasselstein Umformtechnik GmbH"
+    ],
+    "years_experience": 15
+   },
+   {
+    "id": "0916cc55-9f95-48da-a0d8-91d589ccce2c",
+    "name": "SAP MM",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "technical",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [
+     "8ce5f62d-f0af-48d0-aac6-6f16eede7f81",
+     "Weberit Kunststofftechnik GmbH"
+    ],
+    "years_experience": 10
+   },
+   {
+    "id": "fac80b31-634f-4100-99f4-592ebe26cf9c",
+    "name": "Hygiene- und Dokumentationsdisziplin",
+    "source": "computed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "advanced",
+    "experience_refs": [
+     "8ce5f62d-f0af-48d0-aac6-6f16eede7f81",
+     "Weberit Kunststofftechnik GmbH"
+    ],
+    "years_experience": 10
+   },
+   {
+    "id": "32f3b8f5-ebd7-4419-851e-d554aaa62300",
+    "name": "Lean Management",
+    "source": "transcribed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [],
+    "years_experience": null
+   },
+   {
+    "id": "b780d500-6b75-45df-a359-27845fd160ea",
+    "name": "KVP/Kaizen",
+    "source": "transcribed",
+    "status": "confirmed",
+    "aliases": [
+     "KVP"
+    ],
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [],
+    "years_experience": null
+   },
+   {
+    "id": "1a8b0de0-456e-4226-bfcf-a6d7ac2a5efd",
+    "name": "Feinplanung/Fertigungssteuerung",
+    "source": "transcribed",
+    "status": "confirmed",
+    "aliases": [
+     "Fertigungssteuerung"
+    ],
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [],
+    "years_experience": null
+   },
+   {
+    "id": "f907cf68-b430-40a2-bfb4-49a622df9042",
+    "name": "Budgetplanung",
+    "source": "transcribed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [],
+    "years_experience": null
+   },
+   {
+    "id": "a6870eb8-e59b-443d-9b9d-9177624e1fc4",
+    "name": "MS Excel",
+    "source": "transcribed",
+    "status": "confirmed",
+    "category": "technical",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [],
+    "years_experience": null
+   },
+   {
+    "id": "ecafbccc-6b4a-4f33-8a91-42cd4a91c6f6",
+    "name": "Arbeitsvorbereitung",
+    "source": "transcribed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [],
+    "years_experience": null
+   },
+   {
+    "id": "14dbbd77-61ed-4475-8c40-7c12d684ad48",
+    "name": "Mitarbeiterführung",
+    "source": "llm_estimated",
+    "status": "confirmed",
+    "category": "soft",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [],
+    "years_experience": 14
+   },
+   {
+    "id": "dbbf7c32-7640-4702-8489-b84661afc12c",
+    "name": "Arbeitssicherheit",
+    "source": "transcribed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "advanced",
+    "experience_refs": [
+     "8ce5f62d-f0af-48d0-aac6-6f16eede7f81"
+    ],
+    "years_experience": null
+   },
+   {
+    "id": "790065f3-7e9b-470c-8965-de537c896c6f",
+    "name": "Arbeitssicherheitsmanagementsysteme",
+    "source": "transcribed",
+    "status": "confirmed",
+    "category": "domain",
+    "last_used": null,
+    "proficiency": "intermediate",
+    "experience_refs": [
+     "8ce5f62d-f0af-48d0-aac6-6f16eede7f81"
+    ],
+    "years_experience": null
+   }
+  ],
+  "certifications": [
+   {
+    "id": "b63ad3ed-d332-4bba-bfc5-b383290c69d5",
+    "name": "Ausgebildeter Sicherheitsbeauftragter",
+    "status": "confirmed",
+    "expiry_date": null,
+    "credential_id": null,
+    "date_obtained": null,
+    "credential_url": null,
+    "issuing_organization": null
+   }
+  ],
+  "education": [
+   {
+    "id": "e039f279-3e29-4e0f-8b52-ca248d28f5dd",
+    "field": "",
+    "grade": null,
+    "degree": "Industriemeister Metall (IHK)",
+    "end_date": "2010",
+    "start_date": null,
+    "institution": "",
+    "thesis_title": null,
+    "relevant_coursework": []
+   },
+   {
+    "id": "fb9d2a99-5ce5-46b5-b988-34e472530d8e",
+    "field": "",
+    "grade": null,
+    "degree": "Ausbildung Industriemechaniker",
+    "end_date": "2004",
+    "start_date": null,
+    "institution": "Rasselstein Umformtechnik",
+    "thesis_title": null,
+    "relevant_coursework": []
+   },
+   {
+    "id": "ccbd9a07-00dc-4653-a279-9d12f816bc75",
+    "field": "",
+    "grade": null,
+    "degree": "REFA-Grundschein Arbeitsorganisation",
+    "end_date": "2013",
+    "start_date": null,
+    "institution": "",
+    "thesis_title": null,
+    "relevant_coursework": []
+   }
+  ],
+  "languages": [
+   {
+    "id": "f0e916c5-64dc-4b39-a509-fc6b823ceb99",
+    "level": "Muttersprache",
+    "status": "confirmed",
+    "language": "Deutsch"
+   },
+   {
+    "id": "5719c894-d6aa-4c98-b726-541046c3351c",
+    "level": "B2",
+    "status": "confirmed",
+    "language": "Englisch"
+   }
+  ],
+  "signature_stories": [
+   {
+    "id": "088e9a3c-6cbc-486e-a868-0e3d24b46a85",
+    "title": "MES-Einführung und OEE-Steigerung bei Weberit",
+    "source": "interview",
+    "outcome": "Die OEE im Spritzguss ist in 18 Monaten von 61 % auf 73 % gestiegen.",
+    "benchmark": "OEE-Transparenz in Echtzeit am Shopfloor-Board.",
+    "challenge": "Fehlende Echtzeit-OEE-Transparenz in den beiden Fertigungsbereichen mit 14 Spritzgussmaschinen.",
+    "mechanism": "Als Projektleiter die Auswahl, Pilotlinie und den Rollout eines MES-Systems zur Maschinen- und Betriebsdatenerfassung verantwortet und die Industrie-4.0-Roadmap mit der Geschäftsführung erarbeitet.",
+    "experience_refs": [
+     "5174d925-3652-4e7c-b1a5-5cf9c160f4ed"
+    ]
+   }
+  ],
+  "metadata": {
+   "enrichment_history": [
+    {
+     "id": "d7832879-14c3-444c-91b8-f98640e9d75d",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Direktführung von 38 Mitarbeitenden über drei Schichtleiter bei rund 6 Mio. € Budgetverantwortung.",
+        "Mehrfach in Urlaubs- und Krankheitsvertretung des Betriebsleiters den Gesamtstandort mit rund 90 Mitarbeitenden geführt, jeweils 2–4 Wochen am Stück."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "denied_concepts",
+       "action": "added",
+       "section": "metadata",
+       "new_value": "dauerhafte Führungsspanne von 120 Mitarbeitenden",
+       "old_value": null,
+       "rationale": "Noted limit: no hands-on dauerhafte Führungsspanne von 120 Mitarbeitenden (candidate's own testimony)",
+       "rationale_key": "denial_noted"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:22:28.679114Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "878466ab-c358-4a60-9a2f-8fa9ac8aad7d",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Führung und Einarbeitung von drei Schichtleitern, über die 38 Mitarbeitende geführt werden.",
+        "Schulung der Schichtteams in KVP-Routinen und Shopfloor-Management durch moderierte 5S- und Kaizen-Workshops."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Führung einer Schicht mit 14 Mitarbeitenden."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:22:45.915955Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "e1c5b7ef-f781-4789-8c6e-caa1f5aa411e",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "name",
+       "action": "added",
+       "section": "projects",
+       "new_value": "Einführung eines MES-Systems bei Weberit",
+       "old_value": null,
+       "rationale": "Added name to projects via reconciliation.",
+       "rationale_key": "reconcile_added"
+      },
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "projects",
+       "new_value": [
+        "Verantwortung für die Auswahl, Pilotlinie und den Rollout eines MES-Systems zur Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen in beide Fertigungsbereiche.",
+        "Erarbeitung der Industrie-4.0-Roadmap gemeinsam mit der Geschäftsführung."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing projects via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "achievements",
+       "action": "merged",
+       "section": "projects",
+       "new_value": [
+        "OEE-Transparenz in Echtzeit am Shopfloor-Board eingeführt; OEE im Spritzguss in 18 Monaten von 61 % auf 73 % gesteigert."
+       ],
+       "old_value": null,
+       "rationale": "Merged achievements into existing projects via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "technologies",
+       "action": "merged",
+       "section": "projects",
+       "new_value": [
+        "MES",
+        "Maschinen- und Betriebsdatenerfassung",
+        "Industrie 4.0",
+        "OEE"
+       ],
+       "old_value": null,
+       "rationale": "Merged technologies into existing projects via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "MES",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      },
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "Maschinen- und Betriebsdatenerfassung",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      },
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "Industrie 4.0",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      },
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "OEE",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      },
+      {
+       "field": "MES-Einführung und OEE-Steigerung bei Weberit",
+       "action": "added",
+       "section": "signature_stories",
+       "new_value": {
+        "id": "088e9a3c-6cbc-486e-a868-0e3d24b46a85",
+        "title": "MES-Einführung und OEE-Steigerung bei Weberit",
+        "source": "interview",
+        "outcome": "Die OEE im Spritzguss ist in 18 Monaten von 61 % auf 73 % gestiegen.",
+        "benchmark": "OEE-Transparenz in Echtzeit am Shopfloor-Board.",
+        "challenge": "Fehlende Echtzeit-OEE-Transparenz in den beiden Fertigungsbereichen mit 14 Spritzgussmaschinen.",
+        "mechanism": "Als Projektleiter die Auswahl, Pilotlinie und den Rollout eines MES-Systems zur Maschinen- und Betriebsdatenerfassung verantwortet und die Industrie-4.0-Roadmap mit der Geschäftsführung erarbeitet.",
+        "experience_refs": [
+         "5174d925-3652-4e7c-b1a5-5cf9c160f4ed"
+        ]
+       },
+       "old_value": null,
+       "rationale": "Added MES-Einführung und OEE-Steigerung bei Weberit to signature_stories via reconciliation.",
+       "rationale_key": "reconcile_added"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:23:06.471469Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "eb79b9cc-d997-4bda-8fb4-c2eec2e034a8",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Meine Budgetverantwortung bei Weberit umfasst rund 6 Mio. € für Personal, Instandhaltung und Material-Gemeinkosten — das plane und steuere ich jährlich."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "denied_concepts",
+       "action": "added",
+       "section": "metadata",
+       "new_value": "eigenständige Investitionsplanung",
+       "old_value": null,
+       "rationale": "Noted limit: no hands-on eigenständige Investitionsplanung (candidate's own testimony)",
+       "rationale_key": "denial_noted"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:23:40.461216Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "36e2872d-adc0-4c21-a9a4-8ddfe247e2de",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "name",
+       "action": "added",
+       "section": "certifications",
+       "new_value": "Ausgebildeter Sicherheitsbeauftragter",
+       "old_value": null,
+       "rationale": "Added name to certifications via reconciliation.",
+       "rationale_key": "reconcile_added"
+      },
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Vorbereitung der ISO-45001-Zertifizierung für die Produktion begleitet; Gefährdungsbeurteilungen überarbeitet und das Unterweisungssystem neu aufgesetzt.",
+        "Produktionspart bei der Vorbereitung der ISO-45001-Zertifizierung; die Zertifizierung selbst wurde vom QHSE-Leiter verantwortet."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "achievements",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Unfallquote (LTIF) im eigenen Bereich in fünf Jahren von 8,2 auf 3,1 gesenkt."
+       ],
+       "old_value": null,
+       "rationale": "Merged achievements into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "technologies",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "ISO 45001",
+        "LTIF"
+       ],
+       "old_value": null,
+       "rationale": "Merged technologies into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "Arbeitssicherheit",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      },
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "ISO 45001",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      },
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "Arbeitssicherheitsmanagementsysteme",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:24:00.593382Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "842773fb-9405-444c-b0ca-3c13566715a4",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Key-User beim SAP-Rollout für PP, einschließlich Fertigungsaufträgen und Rückmeldungen."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "technologies",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "SAP PP"
+       ],
+       "old_value": null,
+       "rationale": "Merged technologies into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Tägliche Arbeit mit SAP PP und MM, einschließlich Disposition und Bestellanforderungen für Instandhaltungsmaterial.",
+        "Leitung der Stammdatenbereinigung für die Arbeitspläne."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "technologies",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "SAP PP",
+        "SAP MM"
+       ],
+       "old_value": null,
+       "rationale": "Merged technologies into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:24:33.415130Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "e4db4cad-b966-4ad4-a90d-3a7acdedb4d9",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "SAP PP",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:24:41.776499Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "d6caecfd-fd43-48a9-a064-02fb5862494d",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "SAP MM",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:26:08.619772Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "fa97362d-e6c8-49e7-a072-ff93c4017eaf",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Hygiene- und Dokumentationsdisziplin in der Fertigung für Kosmetik-Verpackungen im Sauberraumbereich bei Weberit seit 2021.",
+        "Begleitung von ISO-9001-Audits seit zehn Jahren als Bereichsverantwortlicher."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "name",
+       "action": "added",
+       "section": "skills",
+       "new_value": "Hygiene- und Dokumentationsdisziplin",
+       "old_value": null,
+       "rationale": "Added name to skills via reconciliation.",
+       "rationale_key": "reconcile_added"
+      },
+      {
+       "field": "denied_concepts",
+       "action": "added",
+       "section": "metadata",
+       "new_value": "IFS",
+       "old_value": null,
+       "rationale": "Noted limit: no hands-on IFS (candidate's own testimony)",
+       "rationale_key": "denial_noted"
+      },
+      {
+       "field": "denied_concepts",
+       "action": "added",
+       "section": "metadata",
+       "new_value": "BRC",
+       "old_value": null,
+       "rationale": "Noted limit: no hands-on BRC (candidate's own testimony)",
+       "rationale_key": "denial_noted"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:26:30.512887Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "352158a2-be94-47b6-a6b8-e6678e907975",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Verantwortung als Produktionsleiter für die Fertigung von Kosmetik-Verpackungen im Sauberraumbereich bei Weberit seit 2021."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "denied_concepts",
+       "action": "added",
+       "section": "metadata",
+       "new_value": "Lebensmittelindustrie",
+       "old_value": null,
+       "rationale": "Noted limit: no hands-on Lebensmittelindustrie (candidate's own testimony)",
+       "rationale_key": "denial_noted"
+      },
+      {
+       "field": "denied_concepts",
+       "action": "added",
+       "section": "metadata",
+       "new_value": "Lebensmittelkunden",
+       "old_value": null,
+       "rationale": "Noted limit: no hands-on Lebensmittelkunden (candidate's own testimony)",
+       "rationale_key": "denial_noted"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:26:44.376659Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    },
+    {
+     "id": "9916db9f-c16c-4161-88c4-7b75f68bb75c",
+     "source": "interview",
+     "changes": [
+      {
+       "field": "responsibilities",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Einführung von Shopfloor-Management und KVP-Routinen.",
+        "Durchführung von Rüstworkshops nach SMED."
+       ],
+       "old_value": null,
+       "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "achievements",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Termintreue von 87 % auf 96 % verbessert durch Rüstworkshops nach SMED.",
+        "Ausschussquote von 4,1 % auf 2,3 % gesenkt durch die Einführung von Shopfloor-Management und KVP-Routinen."
+       ],
+       "old_value": null,
+       "rationale": "Merged achievements into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      },
+      {
+       "field": "technologies",
+       "action": "merged",
+       "section": "work_experience",
+       "new_value": [
+        "Shopfloor-Management",
+        "KVP",
+        "SMED"
+       ],
+       "old_value": null,
+       "rationale": "Merged technologies into existing work_experience via reconciliation.",
+       "rationale_key": "reconcile_merged"
+      }
+     ],
+     "matched": [],
+     "timestamp": "2026-10-20T09:27:01.187769Z",
+     "confidence": null,
+     "not_applied": [],
+     "reconciliation": null,
+     "source_session_id": "45d2276b-674d-4700-9f8d-39311704d98e"
+    }
+   ],
+   "denied_concepts": [
+    {
+     "date": "2026-10-20",
+     "source": "interview",
+     "concept": "dauerhafte Führungsspanne von 120 Mitarbeitenden",
+     "statement": "Direkt geführt habe ich bei Weberit 38 Mitarbeitende über drei Schichtleiter, mit rund 6 Mio. € Budgetverantwortung. In Urlaubs- und Krankheitsvertretung des Betriebsleiters habe ich mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden geführt, jeweils 2–4 Wochen am Stück. Ehrlich gesagt: eine dauerhafte Spanne von 120 wäre für mich der nächste Schritt — genau deshalb reizt mich die Stelle.",
+     "probe_asked": false,
+     "denial_level": "direct"
+    },
+    {
+     "date": "2026-10-20",
+     "source": "interview",
+     "concept": "eigenständige Investitionsplanung",
+     "statement": "Eine eigenständige Investitionsplanung habe ich bisher nicht verantwortet. Meine Budgetverantwortung bei Weberit umfasst rund 6 Mio. € für Personal, Instandhaltung und Material-Gemeinkosten — das plane und steuere ich jährlich.",
+     "probe_asked": false,
+     "denial_level": "direct"
+    },
+    {
+     "date": "2026-10-20",
+     "source": "interview",
+     "concept": "IFS",
+     "statement": "Nein, mit IFS oder BRC habe ich keine Erfahrung — das ist eine ehrliche Lücke. Hygiene- und Dokumentationsdisziplin kenne ich aber aus der Fertigung für Kosmetik-Verpackungen im Sauberraumbereich bei Weberit seit 2021, und ISO-9001-Audits begleite ich seit zehn Jahren als Bereichsverantwortlicher. Der Standard wäre neu, die Audit- und Dokumentationsdisziplin nicht.",
+     "probe_asked": false,
+     "denial_level": "direct"
+    },
+    {
+     "date": "2026-10-20",
+     "source": "interview",
+     "concept": "BRC",
+     "statement": "Nein, mit IFS oder BRC habe ich keine Erfahrung — das ist eine ehrliche Lücke. Hygiene- und Dokumentationsdisziplin kenne ich aber aus der Fertigung für Kosmetik-Verpackungen im Sauberraumbereich bei Weberit seit 2021, und ISO-9001-Audits begleite ich seit zehn Jahren als Bereichsverantwortlicher. Der Standard wäre neu, die Audit- und Dokumentationsdisziplin nicht.",
+     "probe_asked": false,
+     "denial_level": "direct"
+    },
+    {
+     "date": "2026-10-20",
+     "source": "interview",
+     "concept": "Lebensmittelindustrie",
+     "statement": "Verpackung ja: Bei Weberit fertigen wir seit 2021 unter anderem Kosmetik-Verpackungen im Sauberraumbereich, das verantworte ich als Produktionsleiter mit. Für Lebensmittelkunden habe ich dagegen nie direkt produziert.",
+     "probe_asked": false,
+     "denial_level": "direct"
+    },
+    {
+     "date": "2026-10-20",
+     "source": "interview",
+     "concept": "Lebensmittelkunden",
+     "statement": "Verpackung ja: Bei Weberit fertigen wir seit 2021 unter anderem Kosmetik-Verpackungen im Sauberraumbereich, das verantworte ich als Produktionsleiter mit. Für Lebensmittelkunden habe ich dagegen nie direkt produziert.",
+     "probe_asked": false,
+     "denial_level": "direct"
+    }
+   ]
+  }
+ }
+}

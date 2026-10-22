@@ -789,6 +789,22 @@ async def get_profile_changes(db: AsyncSession, *, user_id: uuid.UUID | None = N
     )
 
 
+async def get_receipt_summary(
+    db: AsyncSession, *, session_id: str | None = None, user_id: uuid.UUID | None = None
+) -> "ReceiptSummary":
+    """ADR-040 amended 2026-10-22 (ruling V-1 = A) — the interview receipt as
+    a summary of ONE session (the latest when ``session_id`` is None), produced
+    from the complete trail by ``services.profile.receipts``; read-only."""
+    from applire.schemas.profile import ReceiptSummary
+    from applire.services.profile.receipts import summarize_session_receipts
+
+    record = await _get_latest(db, user_id)
+    if not record:
+        return ReceiptSummary()
+    profile_data = MasterProfileData.model_validate(record.profile_json)
+    return summarize_session_receipts(profile_data, session_id)
+
+
 async def get_profile_health(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ProfileHealthResponse:
     """US160 (E033 / ADR-041 amended) — deterministic Tier-2 health for the
     current profile: conflict + accuracy issues plus a completeness block.

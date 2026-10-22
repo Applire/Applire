@@ -51,6 +51,7 @@ from applire.schemas.profile import (
     MasterProfileResponse,
     PhotoCrop,
     ProfileChangesResponse,
+    ReceiptSummary,
     ProfileHealthResponse,
     SeparateMatchRequest,
     StagedResolveRequest,
@@ -71,6 +72,7 @@ from applire.services.profile.commit import StaleEditError, VaultWriteRevertedEr
 from applire.services.profile import (
     get_enrichment_history,
     get_profile_changes,
+    get_receipt_summary,
     get_profile_health,
     get_profile,
     patch_profile_section,
@@ -635,6 +637,26 @@ async def get_profile_changes_endpoint(
     """US145 / ADR-040 — the "what changed & why" surface data: the decision trail
     plus pending conflicts, read from the Master Profile only (retention-independent)."""
     return await get_profile_changes(db, user_id=_uid(current_user))
+
+
+@router.get(
+    "/changes/summary",
+    response_model=ReceiptSummary,
+    status_code=status.HTTP_200_OK,
+)
+async def get_receipt_summary_endpoint(
+    session_id: str | None = Query(
+        default=None,
+        max_length=64,
+        description="The interview session to summarise; the latest one when omitted.",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> ReceiptSummary:
+    """ADR-040 amended 2026-10-22 (ruling V-1 = A) — the interview receipt as a
+    summary of one session: one fact per line, grouped per section, the key
+    points first. A view over the trail; the trail itself is unchanged."""
+    return await get_receipt_summary(db, session_id=session_id, user_id=_uid(current_user))
 
 
 @router.get(
