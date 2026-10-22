@@ -104,6 +104,7 @@ _PROMPT_REQUIRED_EXTRA: dict[str, tuple[str, ...]] = {
     "SetField": ("value",),
     "SetPersonalInfo": ("value",),
     "FlagConflict": ("existing", "incoming"),
+    "MatchExisting": ("existing",),
     "RequestConfirmation": ("options",),
 }
 

@@ -149,6 +149,8 @@ class UpsertSkill(BaseModel):
     # (E2E-3: 6/10 translated duplicates with reasoning off). A missing or
     # unknown target behaves exactly as before.
     target: str | None = None
+    # #801 — the targeted skill's name as the model read it (see MatchExisting).
+    existing: str | None = None
     category: str | None = None
     proficiency: str | None = None
     # Existing ids or local refs of experiences that demonstrate the skill.
@@ -406,6 +408,11 @@ class MatchExisting(BaseModel):
     op: Literal["match_existing"] = "match_existing"
     target: str
     incoming: str
+    # #801 (ADR-046 amended 2026-10-22) — the target's name as the model read
+    # it off the profile. Optional on the op (an older or agent-built op still
+    # validates); when present, the committer refuses a binding whose target id
+    # names a different entry (`binding_guard.refusal`).
+    existing: str | None = None
 
 
 class RequestConfirmation(BaseModel):

@@ -1,0 +1,36 @@
+{
+ "ops": [
+  {
+   "op": "upsert_skill",
+   "name": "REST APIs",
+   "category": "technical",
+   "proficiency": "intermediate",
+   "target": "8def9047-4bd7-4421-ad1b-e9b27a07ed9d",
+   "evidence": [
+    "ad3edd8f-5409-4961-b6b7-a4c1a05289db"
+   ]
+  },
+  {
+   "op": "match_existing",
+   "target": "8def9047-4bd7-4421-ad1b-e9b27a07ed9d",
+   "incoming": "Mentoring"
+  },
+  {
+   "op": "match_existing",
+   "target": "4b3cd773-72e4-46a8-8fa0-199e3aa99347",
+   "incoming": "Amazon Web Services (AWS)"
+  },
+  {
+   "op": "match_existing",
+   "target": "9d46a431-ae20-40f6-b568-ac75774071ea",
+   "incoming": "German"
+  },
+  {
+   "op": "match_existing",
+   "target": "2968ca5b-b038-4bc9-921e-3fd40e8d4f5a",
+   "incoming": "English"
+  }
+ ],
+ "ambiguities": [],
+ "denials": []
+}

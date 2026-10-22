@@ -304,12 +304,17 @@ def test_adv_vault_4_alias_equal_to_another_entrys_own_name_and_undo_duplicates_
 
 
 def test_adv_vault_4_undo_appends_an_exact_duplicate_of_an_existing_entry():
+    """Since #801 (ADR-046 am. 2026-10-22, check ``name_taken``) the wrong
+    binding leaves no receipt at all — "Java" is an entry of its own — so there
+    is nothing to undo and the vault keeps exactly one "Java"."""
     vault = MasterProfileData(skills=[Skill(id="j", name="Java"), Skill(id="js", name="JavaScript")])
     incoming = MasterProfileData(skills=[Skill(name="Java")])
     after_import = _import_once(vault, incoming, [MatchExisting(target="js", incoming="Java")])
-    after = apply_ops(after_import, [SeparateMatch(entity_id="js", incoming="Java")], "manual_edit").profile
-    names = [s.name for s in after.skills]
-    assert names.count("Java") == 1, f"undo appended a duplicate: {names}"
+    with pytest.raises(MatchNotSeparableError):
+        after = apply_ops(after_import, [SeparateMatch(entity_id="js", incoming="Java")], "manual_edit").profile
+        pytest.fail(f"a refused binding was undoable: {[s.name for s in after.skills]}")
+    names = [s.name for s in after_import.skills]
+    assert names.count("Java") == 1, f"duplicate Java: {names}"
 
 
 # ── finding 5: a language-table pair is undoable when the model matched it ────
