@@ -646,7 +646,7 @@ export default function CVPage({
       .then((s) => s.hide_predownload_notice)
       .catch(() => false);
     // #789 / F2-1: once per document set (this flow) per browser session.
-    if (hideNotice || predownloadNoticeSeen(flowId)) {
+    if (hideNotice || predownloadNoticeSeen(flowState?.application_id ?? flowId)) {
       if (format === "docx") void handleDownloadDocx();
       else void handleDownloadPdf();
       return;
@@ -1144,7 +1144,7 @@ export default function CVPage({
               <PreDownloadNotice
                 canSuppress={downloadNotice.canSuppress}
                 format={downloadNotice.format}
-                setKey={flowId}
+                setKey={flowState?.application_id ?? flowId}
                 onConfirm={(dontShowAgain) => {
                   if (dontShowAgain) void setHidePredownloadNotice(true);
                   const format = downloadNotice.format;

@@ -219,6 +219,34 @@ describe("CoverLetterPage — polling loop", () => {
     await waitFor(() => expect(pdfFetched).toBe(true));
   });
 
+  it("#789 (ruling F2-1): the set is the APPLICATION — a notice confirmed on its CV page is not shown again on its letter page", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const { markSeenThisSession } = await import("@/lib/session-once");
+    let pdfFetched = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return { ok: true, json: async () => ({ ...FLOW_STATE_RESPONSE, application_id: "app-77" }) } as Response;
+      }
+      if (url.includes("/pdf")) {
+        pdfFetched = true;
+        return { ok: true, headers: new Headers(), blob: async () => new Blob(["pdf"]) } as Response;
+      }
+      if (url.includes("/status")) {
+        return { ok: true, json: async () => ({ status: "ready", letter_data: { header: { name: "Max" } } }) } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    // What confirming the notice on the CV page of application app-77 left behind.
+    markSeenThisSession("predownload-notice", "app-77");
+
+    await act(async () => { renderPage(); });
+    await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
+    await act(async () => { fireEvent.click(screen.getByTestId("document-download-btn")); });
+    await waitFor(() => expect(pdfFetched).toBe(true));
+    expect(screen.queryByTestId("cl-download-review-overlay")).toBeNull();
+  });
+
   it("US298 (E057 doors) — the .docx download is ALSO gated by the pre-download notice, and confirming downloads the docx (not the pdf)", async () => {
     const { fireEvent } = await import("@testing-library/react");
     let docxFetched = false;

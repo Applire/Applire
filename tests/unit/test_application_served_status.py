@@ -341,3 +341,26 @@ async def test_agent_door_get_and_list_application_serve_the_derived_status(db):
     rows = listed if isinstance(listed, list) else listed.get("items", [listed])
     row = next(r for r in rows if r["id"] == str(app.id))
     assert row["workflow_status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_agent_door_pins_both_additive_fields_in_both_states(db):
+    """Ruling F2-1 / E12-788:L21 (main 2026-10-22): `cover_letter_ready` and
+    `workflow_running` are pinned through the MCP `get_application` seam in
+    BOTH states — the contract snapshot records input schemas only (ADR-095
+    cl. 6), so this seam test is what holds the result shape."""
+    idle = await _app(db, start_workflow=True)
+    got = await _call("get_application", {"application_id": str(idle.id)}, db)
+    assert got["cover_letter_ready"] is False
+    assert got["workflow_running"] is False
+    assert got["workflow_status"] == "analyzing"
+
+    busy = await _app(db, start_workflow=True)
+    db.add_all([_cv(busy.job_analysis_id, status="generating"), _letter(busy.job_analysis_id)])
+    await db.commit()
+    got = await _call("get_application", {"application_id": str(busy.id)}, db)
+    assert got["workflow_running"] is True
+    assert got["cover_letter_ready"] is True
+    assert got["workflow_status"] == "cv_generating"
+    # The flow's resume pointer is NOT lifted (ruling: served status only).
+    assert got["flow_current_step"] == "jd_analysis"
