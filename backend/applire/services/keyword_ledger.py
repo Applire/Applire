@@ -3710,14 +3710,32 @@ def assert_claimable_backed(
                     entry.get("evidence"), profile_literal_corpus(confirmed)
                 )
                 if material:
-                    gap_row["adjacent_evidence"] = material
+                    # ADR-061/ADR-074 amended 2026-10-22 (founder ruling G-1 = A,
+                    # Hazelnut build 3 / WP-G): the vault says the same thing in
+                    # its own words and the classifier cited them VERBATIM, so the
+                    # requirement is met — only the JD's term is not the vault's.
+                    # That is ADR-048's ADJACENT partial exactly: claimable, the
+                    # writers promote the profile's wording and never the JD's term
+                    # (`is_positioning_only`), half credit, "teilweise" — instead of
+                    # an "offen" the candidate's own CV contradicts. Measured on the
+                    # 12-run baseline matrix (luna): 9 healed core rows (Jahresab-
+                    # schluss-Reporting, Management-Reporting, Backend engineering,
+                    # Shift work, ...), 7 of them with verified material.
+                    healed.append({
+                        **entry,
+                        "status": "partial",
+                        "claimable": True,
+                        "evidence": material,
+                        "adjacent_evidence": material,
+                    })
                     logger.info(
-                        "assert_claimable_backed[%s]: %r keeps its vault-verified "
-                        "adjacent material through the demotion — not claimable, but "
-                        "positionable (ADR-074 amended)",
+                        "assert_claimable_backed[%s]: %r healed to an ADJACENT partial on "
+                        "vault-verified material %r (ADR-061/074 amended 2026-10-22)",
                         seam or "unnamed-seam",
                         entry.get("concept"),
+                        material,
                     )
+                    continue
             healed.append(gap_row)
     return healed, violations
 
