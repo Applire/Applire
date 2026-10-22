@@ -697,7 +697,19 @@
     "cancelledRestore": "Wiederherstellen",
     "errorLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge den Text der Stellenanzeige ein.",
     "chipCvAndLetterReady": "Lebenslauf + Anschreiben bereit",
-    "markAppliedAction": "Als beworben markieren"
+    "markAppliedAction": "Als beworben markieren",
+    "availabilityReminder": {
+      "missingTitle": "Ab wann könntest du anfangen?",
+      "missingBody": "Arbeitgeber fragen fast immer nach deiner Kündigungsfrist. Trag sie einmal in deinem Profil ein — dann steht sie für jedes Anschreiben bereit.",
+      "missingAction": "Im Profil eintragen",
+      "missingDismiss": "Nicht jetzt",
+      "staleTitle": "Stimmt deine Kündigungsfrist noch?",
+      "staleBody": "Eingetragen am {date}: „{value}“. Wenn sich etwas geändert hat, pass sie an — sie steht in jedem Anschreiben.",
+      "staleBodyNoValue": "Wenn sich an deiner Kündigungsfrist etwas geändert hat, pass sie an — sie steht in jedem Anschreiben.",
+      "staleAction": "Im Profil prüfen",
+      "staleDismiss": "Stimmt noch",
+      "region": "Hinweis zu deiner Kündigungsfrist"
+    }
   },
   "profile": {
     "title": "Mein Profil",
