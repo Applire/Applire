@@ -134,3 +134,13 @@ async def test_rest_put_dismiss_and_the_reminder_on_the_profile_response(client)
     cleared = await client.put("/api/profile/availability", json={"text": ""})
     assert cleared.json()["profile"]["availability"] is None
     assert cleared.json()["availability_reminder"] == "missing"
+
+
+def test_the_prompt_view_carries_the_text_only_when_recorded():
+    from applire.services.prompt_view import prompt_profile_view
+
+    assert "availability" not in prompt_profile_view(MasterProfileData().model_dump(mode="json"))
+    view = prompt_profile_view(_with(
+        text="sofort", recorded_at="2026-10-01", source="manual_edit", reminder_dismissed_at="2026-10-02",
+    ).model_dump(mode="json"))
+    assert view["availability"] == {"text": "sofort", "recorded_at": "2026-10-01"}

@@ -245,6 +245,21 @@ def prompt_profile_view(
             k: v for k, v in personal_info.items() if k not in PROMPT_EXCLUDED_PERSONAL_INFO_KEYS
         }
 
+    # D-B3V7 (rulings 787:L3 + V-4) — the notice period. Absent from the view
+    # while nothing is recorded (no `"availability": null` in every prompt), and
+    # only its CONTENT when set: the text and when it was recorded. Its source
+    # and the reminder-dismissal date are bookkeeping no model reads.
+    if "availability" in view:
+        availability = view.get("availability")
+        text = availability.get("text") if isinstance(availability, dict) else None
+        if isinstance(text, str) and text.strip():
+            view["availability"] = {
+                "text": text,
+                "recorded_at": availability.get("recorded_at"),
+            }
+        else:
+            del view["availability"]
+
     if derived_spans == "hedge":
         view = _hedge_derived_spans(view)
     return view
