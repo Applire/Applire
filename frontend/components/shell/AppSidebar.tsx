@@ -25,6 +25,7 @@ import { useCurrentUser } from "@/lib/auth/current-user";
 import { isNavItemActive, navItemsFor } from "./nav-items";
 import { avatarInitials } from "./avatar";
 import { useGuardedPush } from "@/components/document/useUnsavedDraftGuard";
+import { formatVersion } from "@/lib/format-version";
 
 interface AppSidebarProps {
   userName?: string | null;
@@ -224,7 +225,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
           data-testid="sidebar-version"
           className="text-[10px] text-center text-outline-variant"
         >
-          {process.env.NEXT_PUBLIC_APP_VERSION}
+          {formatVersion(process.env.NEXT_PUBLIC_APP_VERSION)}
         </p>
       </div>
     </aside>
