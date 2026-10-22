@@ -882,11 +882,12 @@ def test_a_keyword_only_member_is_not_a_requirement():
 
 
 def test_a_broader_requirement_row_does_not_lend_a_keyword_term_requirement_status():
-    """"Verpackungen" (keyword-only, its own row) must not borrow the weight of
-    the nice-to-have "Verpackungsindustrie" row that merely contains it."""
-    c = cluster(gaps=["Verpackungen"])
-    ledger = [row("Verpackungsindustrie", "gap", sources=("nice_to_have",)),
-              row("Verpackungen", "gap", sources=("keywords",))]
+    """A keyword-only "Lebensmittel" (its own row, fit_weight 0) must not borrow
+    the weight of the nice-to-have "Lebensmittelindustrie" row that the ledger's
+    substring matcher also finds for it."""
+    c = cluster(gaps=["Lebensmittel"])
+    ledger = [row("Lebensmittelindustrie", "gap", sources=("nice_to_have",)),
+              row("Lebensmittel", "gap", sources=("keywords",))]
     ledger[1]["fit_weight"] = 0.0
     assert member_statuses(c, ledger)[0]["requirement"] is False
 
