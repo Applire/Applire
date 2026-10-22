@@ -917,11 +917,19 @@ async def get_cover_letter_by_job(
 
 
 def _default_color_context() -> dict:
+    """The letter's colours when no colour profile is set: the CV's own default
+    (``color_detection._default_context``), so the two documents of one application
+    read as one set (L-2 = A, Hazelnut build 3). Was a separate navy ``#1a1a2e``
+    against the CV's blue — and on ``tech_developer`` the name in ``--primary`` sat
+    dark-on-dark."""
+    from applire.services.color_detection import _default_context
+
+    c = _default_context()
     return {
-        "primary": "#1a1a2e",
-        "primary_tint": "#e8e8f0",
-        "surface": "#1a1a2e",
-        "surface_text": "#ffffff",
+        "primary": c.primary,
+        "primary_tint": c.primary_tint,
+        "surface": c.surface,
+        "surface_text": c.surface_text,
     }
 
 

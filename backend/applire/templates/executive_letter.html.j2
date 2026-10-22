@@ -12,8 +12,14 @@
     }
     body { font-family: Georgia, "Times New Roman", serif; font-size: 10.5pt; line-height: 1.65; color: #1a1a2e; background: #fff; }
     .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 0 22mm 20mm 25mm; }
-    .header { background: var(--surface); color: var(--surface-text); padding: 16px 20px; font-size: 9pt; letter-spacing: 1.5px; text-transform: uppercase; font-weight: bold; }
-    .gold-rule { height: 2px; background: var(--primary); margin-bottom: 14mm; }
+    /* Header = the CV twin's header (executive.html.j2): full-width surface band, bold
+       mixed-case serif name (24pt, 0.04em), sans contact lines stacked right-aligned
+       at 0.85 opacity. The CV's role line under the name has no source in a letter's
+       header data, so it is not printed. */
+    .header { background: var(--surface); color: var(--surface-text); padding: 5mm 8mm; margin-bottom: 10mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .header-inner { display: flex; justify-content: space-between; align-items: flex-start; gap: 16pt; line-height: 1.5; }
+    .header-name { font-size: 24pt; font-weight: bold; letter-spacing: 0.04em; white-space: nowrap; flex-shrink: 0; }
+    .header-contact { text-align: right; font-size: 9pt; opacity: 0.85; line-height: 1.8; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; white-space: nowrap; }
     .recipient { margin-bottom: 8mm; font-size: 10pt; }
     .date { text-align: right; margin-bottom: 6mm; color: #666; }
     .subject { font-weight: bold; font-size: 11pt; margin-bottom: 7mm; color: #1a1a2e; }
@@ -67,9 +73,15 @@
 <body>
 <div class="page">
   <div class="header">
-    {{ letter.header.name }}{% if letter.header.email %} · {{ letter.header.email }}{% endif %}{% if letter.header.phone %} · {{ letter.header.phone }}{% endif %}{% if letter.header.address %} · {{ letter.header.address }}{% endif %}
+    <div class="header-inner">
+      <div class="header-name">{{ letter.header.name }}</div>
+      <div class="header-contact">
+        {% if letter.header.address %}<div>{{ letter.header.address }}</div>{% endif %}
+        {% if letter.header.phone %}<div>{{ letter.header.phone }}</div>{% endif %}
+        {% if letter.header.email %}<div>{{ letter.header.email }}</div>{% endif %}
+      </div>
+    </div>
   </div>
-  <div class="gold-rule"></div>
 
   <div class="recipient">
     {% if letter.recipient.name %}{{ letter.recipient.name }}<br>{% endif %}

@@ -6,12 +6,15 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root { --primary: {{ color.primary }}; --surface: {{ color.surface }}; --surface-text: {{ color.surface_text }}; }
-    body { font-family: "Segoe UI", system-ui, sans-serif; font-size: 10pt; line-height: 1.6; color: #e2e8f0; background: var(--surface); }
+    body { font-family: "Segoe UI", system-ui, sans-serif; font-size: 10pt; line-height: 1.6; color: #e2e8f0; background: #0d1117; /* = the CV twin's page colour; var(--surface) equals --primary in every colour profile (surface = primary), which made the accent-coloured name and strip invisible */ }
     .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 20mm 22mm 20mm 25mm; }
-    .header { margin-bottom: 10mm; border-left: 4px solid var(--primary); padding-left: 12px; }
-    .header-name { font-family: "Courier New", monospace; font-size: 14pt; font-weight: bold; color: var(--primary); }
-    .header-contact { font-size: 8.5pt; color: #94a3b8; margin-top: 4px; }
-    .accent-rule { height: 1px; background: var(--primary); opacity: 0.4; margin-bottom: 10mm; }
+    /* Header = the CV twin's header (tech_developer.html.j2): 3pt accent strip on top, then
+       mono name in the accent colour with the muted contact lines stacked right-aligned,
+       closed by a 1px #30363d rule. */
+    .accent-strip { height: 3pt; background: var(--primary); margin-bottom: 16pt; border-radius: 1pt; }
+    .header { border-bottom: 1px solid #30363d; padding-bottom: 12pt; margin-bottom: 8mm; display: flex; justify-content: space-between; align-items: flex-end; line-height: 1.55; }
+    .header-name { font-family: "Courier New", Courier, monospace; font-size: 20pt; font-weight: bold; color: var(--primary); letter-spacing: -0.01em; }
+    .header-contact { text-align: right; font-family: "Courier New", Courier, monospace; font-size: 8.5pt; color: #8b949e; line-height: 1.8; }
     .recipient { margin-bottom: 8mm; font-size: 10pt; color: #cbd5e1; }
     .date { text-align: right; margin-bottom: 6mm; color: #94a3b8; font-size: 9pt; font-family: "Courier New", monospace; }
     .subject { font-weight: 700; font-size: 11pt; margin-bottom: 7mm; color: var(--primary); }
@@ -42,11 +45,15 @@
 </head>
 <body>
 <div class="page">
+  <div class="accent-strip"></div>
   <div class="header">
     <div class="header-name">{{ letter.header.name }}</div>
-    <div class="header-contact">{{ letter.header.email }}{% if letter.header.phone %} · {{ letter.header.phone }}{% endif %}{% if letter.header.address %} · {{ letter.header.address }}{% endif %}</div>
+    <div class="header-contact">
+      {% if letter.header.address %}<div>{{ letter.header.address }}</div>{% endif %}
+      {% if letter.header.email %}<div>{{ letter.header.email }}</div>{% endif %}
+      {% if letter.header.phone %}<div>{{ letter.header.phone }}</div>{% endif %}
+    </div>
   </div>
-  <div class="accent-rule"></div>
   <div class="recipient">{% if letter.recipient.name %}{{ letter.recipient.name }}<br>{% endif %}{% if letter.recipient.company %}{{ letter.recipient.company }}<br>{% endif %}{% if letter.recipient.address %}{{ letter.recipient.address }}{% endif %}</div>
   <div class="date">{{ letter.recipient.date }}</div>
   <div class="subject">{{ subject }}{% if letter.recipient.company %} — {{ letter.recipient.company }}{% endif %}</div>

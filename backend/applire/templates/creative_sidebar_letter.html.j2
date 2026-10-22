@@ -8,15 +8,21 @@
     :root { --surface: {{ color.surface }}; --surface-text: {{ color.surface_text }}; --primary: {{ color.primary }}; }
     body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10pt; background: #fff; color: #1a1a1a; }
     .page { width: 210mm; min-height: 297mm; margin: 0 auto; display: flex; }
-    .sidebar { width: 55mm; background: var(--surface); color: var(--surface-text); padding: 16mm 8mm 16mm 10mm; flex-shrink: 0; }
-    .sidebar-name { font-size: 12pt; font-weight: bold; margin-bottom: 8mm; }
+    /* Header = the CV twin's sidebar head (creative_sidebar.html.j2): 68mm surface column,
+       round avatar placeholder (letters carry no photo), centred bold name with unbreakable
+       tokens, then a "Kontakt" block of plain items. */
+    .sidebar { width: 68mm; background: var(--surface); color: var(--surface-text); padding: 16mm 12mm 16mm 10mm; flex-shrink: 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+    .sidebar-avatar-placeholder { width: 40mm; height: 40mm; border-radius: 50%; background: color-mix(in srgb, var(--surface-text) 20%, transparent); margin: 0 auto 10pt; }
+    .sidebar-name { font-size: 12pt; font-weight: bold; text-align: center; color: var(--surface-text); margin-bottom: 4pt; line-height: 1.5; }
+    .sidebar-section { margin-top: 14pt; }
     /* ADR-039: the muted look is baked into an OPAQUE colour via color-mix
        instead of `opacity`. A sub-1 opacity layer made Chromium emit the
        sidebar text as a separate group that pypdf extracted glyph-by-glyph
        ("j o e r g . m u e l l e r @ …") and reordered after the body — both
-       failing the local extraction audit. Opaque colour extracts intact. */
-    .sidebar-label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 1px; color: color-mix(in srgb, var(--surface-text) 70%, var(--surface)); margin-bottom: 2mm; margin-top: 6mm; }
-    .sidebar-value { font-size: 8.5pt; color: color-mix(in srgb, var(--surface-text) 90%, var(--surface)); }
+       failing the local extraction audit. Opaque colour extracts intact.
+       (The CV's sidebar-section-title uses `opacity: 0.65`; the letter keeps the opaque form.) */
+    .sidebar-section-title { font-size: 7pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.15em; color: color-mix(in srgb, var(--surface-text) 65%, var(--surface)); border-bottom: 1px solid color-mix(in srgb, var(--surface-text) 25%, transparent); padding-bottom: 3pt; margin-bottom: 6pt; }
+    .sidebar-item { font-size: 8.5pt; color: var(--surface-text); line-height: 1.7; }
     .main { flex: 1; padding: 16mm 14mm 16mm 12mm; }
     .recipient { margin-bottom: 8mm; font-size: 10pt; }
     .date { text-align: right; margin-bottom: 6mm; color: #666; }
@@ -52,7 +58,7 @@
     @media print {
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .page { width: auto; min-height: auto; margin: 0; }
-      .sidebar { padding: 0 8mm 0 0; }
+      .sidebar { padding: 0 12mm 0 0; }
       .main { padding: 0 0 0 12mm; }
     }
   </style>
@@ -60,10 +66,14 @@
 <body>
 <div class="page">
   <div class="sidebar">
-    <div class="sidebar-name">{{ letter.header.name }}</div>
-    {% if letter.header.email %}<div class="sidebar-label">{{ labels.email }}</div><div class="sidebar-value">{{ letter.header.email }}</div>{% endif %}
-    {% if letter.header.phone %}<div class="sidebar-label">{{ labels.phone }}</div><div class="sidebar-value">{{ letter.header.phone }}</div>{% endif %}
-    {% if letter.header.address %}<div class="sidebar-label">{{ labels.address }}</div><div class="sidebar-value">{{ letter.header.address }}</div>{% endif %}
+    <div class="sidebar-avatar-placeholder"></div>
+    <div class="sidebar-name">{% for tok in letter.header.name.split() %}<span style="white-space: nowrap;">{{ tok }}</span>{% if not loop.last %} {% endif %}{% endfor %}</div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">{{ labels.contact or ('Contact' if lang == 'en' else 'Kontakt') }}</div>
+      {% if letter.header.address %}<div class="sidebar-item">{{ letter.header.address }}</div>{% endif %}
+      {% if letter.header.phone %}<div class="sidebar-item">{{ letter.header.phone }}</div>{% endif %}
+      {% if letter.header.email %}<div class="sidebar-item">{{ letter.header.email }}</div>{% endif %}
+    </div>
   </div>
   <div class="main">
     <div class="recipient">{% if letter.recipient.name %}{{ letter.recipient.name }}<br>{% endif %}{% if letter.recipient.company %}{{ letter.recipient.company }}<br>{% endif %}{% if letter.recipient.address %}{{ letter.recipient.address }}{% endif %}</div>

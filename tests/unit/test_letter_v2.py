@@ -1379,3 +1379,16 @@ def test_v2_letter_prompts_drop_the_availability_demand_and_v1_keeps_it():
     v2 = w.build_system_prompt("de", pipeline="v2")
     assert "AVAILABILITY ONLY FROM INPUT" in v2 and "Include Eintrittstermin in body only" not in v2
     assert "Include Eintrittstermin in body only if availability is provided." in w.SYSTEM_PROMPT
+
+
+def test_letter_default_colour_is_the_cv_default():
+    """L-2 = A (Hazelnut build 3): with no colour profile the letter renders in the
+    CV's default colours, so both documents of one application read as one set."""
+    from applire.services.color_detection import _default_context
+    from applire.services.cover_letter import _default_color_context
+
+    cv = _default_context()
+    assert _default_color_context() == {
+        "primary": cv.primary, "primary_tint": cv.primary_tint,
+        "surface": cv.surface, "surface_text": cv.surface_text,
+    }
