@@ -149,8 +149,6 @@ export default function DashboardPage() {
             (e.g. after a refresh interrupted onboarding). Say so instead of showing
             a half-imported profile as complete; refresh the strength card when done. */}
         <ImportInProgressBanner onAllDone={() => setProfileRefreshKey((k) => k + 1)} />
-        {/* Ruling V-4 (WP-F2): notice period missing / out of date. */}
-        <AvailabilityReminderCard />
 
         {/* Page header */}
         <div className="mb-5">
@@ -161,6 +159,10 @@ export default function DashboardPage() {
             {t("activeApplicationsSubtitle", { count: inProgress })}
           </p>
         </div>
+
+        {/* Ruling V-4 (WP-F2): notice period missing / out of date —
+            below the greeting, as mocked (f2/COPY.md). */}
+        <AvailabilityReminderCard />
 
         {/* Top row: Quick Tailor + Profile Strength */}
         <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 mb-6">
