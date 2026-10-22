@@ -24,6 +24,9 @@ import { useTranslations } from "next-intl";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
+/** From this score on the card stops asking for more. */
+const HIGH_SCORE = 90;
+
 type ChecklistKey = "profileCheckWorkExp" | "profileCheckSkills" | "profileCheckEducation" | "profileCheckSummary";
 
 interface ChecklistItem {
@@ -75,31 +78,50 @@ export function ProfileStrengthCard() {
 
   const barWidth = score !== null ? `${score}%` : "0%";
 
-  return (
-    <div className="rounded-[14px] p-5 text-white flex flex-col bg-gradient-to-br from-teal-dim to-primary shadow-lg shadow-teal-dim/20">
-      <p className="text-[11px] font-bold uppercase tracking-widest text-white/60 mb-1.5">
-        {t("profileStrengthTitle")}
-      </p>
+  // A strong profile is not nagged (UX audit 2026-10-20: "99" beside "Fehlende
+  // Abschnitte ergänzen"): from HIGH_SCORE the hint names the one missing
+  // section as optional, or says nothing when nothing is missing.
+  const strong = score !== null && score >= HIGH_SCORE;
+  const firstMissing = checklist.find((item) => !item.done);
 
-      {score === null ? (
-        <div className="h-12 w-20 rounded bg-white/10 animate-pulse mb-3" />
-      ) : (
-        <p className="text-[46px] font-extrabold leading-none font-manrope mb-2.5">{score}</p>
-      )}
+  let hint: string | null;
+  if (!strong) hint = t("profileStrengthHint");
+  else if (firstMissing) hint = t("profileStrengthOptional", { section: t(firstMissing.labelKey) });
+  else hint = null;
+
+  return (
+    <div
+      data-testid="profile-strength-card"
+      className="rounded-[14px] p-3.5 md:p-5 text-white flex flex-row items-center justify-between gap-3 md:flex-col md:items-stretch md:justify-start bg-gradient-to-br from-teal-dim to-primary shadow-lg shadow-teal-dim/20"
+    >
+      {/* Below md the card is one row: number + label + link. */}
+      <div className="flex items-baseline gap-2.5 md:flex-col md:items-stretch md:gap-0">
+        <p className="text-[11px] font-bold uppercase tracking-widest text-white/60 md:mb-1.5 md:order-first">
+          {t("profileStrengthTitle")}
+        </p>
+
+        {score === null ? (
+          <div className="h-8 w-12 md:h-12 md:w-20 rounded bg-white/10 animate-pulse md:mb-3" />
+        ) : (
+          <p className="text-[28px] md:text-[46px] font-extrabold leading-none font-manrope md:mb-2.5">{score}</p>
+        )}
+      </div>
 
       {/* Progress bar */}
-      <div className="h-[5px] bg-white/20 rounded-full mb-2">
+      <div className="hidden md:block h-[5px] bg-white/20 rounded-full mb-2">
         <div
           className="h-[5px] bg-gold rounded-full transition-all duration-700"
           style={{ width: barWidth }}
         />
       </div>
-      <p className="text-[11.5px] text-white/60 mb-3">
-        {t("profileStrengthHint")}
-      </p>
+      {hint ? (
+        <p data-testid="profile-strength-hint" className="hidden md:block text-[11.5px] text-white/60 mb-3">
+          {hint}
+        </p>
+      ) : null}
 
       {/* Checklist */}
-      <div className="flex flex-col gap-1.5 mb-4">
+      <div className="hidden md:flex flex-col gap-1.5 mb-4">
         {checklist.map((item) => {
           // Icon name as variable to avoid JSX literal rule (material-symbols identifiers are not user-facing text)
           const checkIcon: string = item.done ? "check_circle" : "radio_button_unchecked";
@@ -123,7 +145,7 @@ export function ProfileStrengthCard() {
 
       <button
         onClick={() => router.push("/profile")}
-        className="mt-auto text-[12px] font-bold text-gold flex items-center gap-1 hover:opacity-80 transition-opacity"
+        className="md:mt-auto shrink-0 text-[12px] font-bold text-gold flex items-center gap-1 hover:opacity-80 transition-opacity"
       >
         {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
         <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 15 }}>arrow_forward</span>

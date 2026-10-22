@@ -20,6 +20,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import { useCurrentUser } from "@/lib/auth/current-user";
+import { displayName } from "@/lib/display-name";
 
 interface ShellUserContextValue {
   /** Profile display name, or null while loading / if the fetch failed. */
@@ -46,7 +47,7 @@ export function ShellUserProvider({
 }) {
   const { user } = useCurrentUser();
   const value = useMemo<ShellUserContextValue>(
-    () => ({ userName, id: user?.id ?? null, email: user?.email ?? null, role: user?.role ?? null }),
+    () => ({ userName: displayName(userName), id: user?.id ?? null, email: user?.email ?? null, role: user?.role ?? null }),
     [userName, user],
   );
   return (

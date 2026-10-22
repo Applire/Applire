@@ -27,7 +27,7 @@ const USER: CurrentUser = { ...ADMIN, id: "u-2", email: "jonas@example.org", rol
 const DASH = {
   health: {
     status: "degraded",
-    version: "0.44.0",
+    version: "0.44.0b0",
     edition: "community",
     topology: "prod",
     debug_log_on: false,
@@ -137,6 +137,7 @@ describe("Administration → Übersicht", () => {
     expect(screen.getByTestId("admin-health-provider-checked")).toHaveTextContent(
       en.adminDashboard.providerCheckedAt.split("{time}")[0].trim(),
     );
+    expect(screen.getByTestId("admin-overview-tile-version")).toHaveTextContent("v0.44.0-beta");
     expect(screen.getByTestId("admin-overview-tile-people")).toHaveTextContent("3");
     expect(screen.getByTestId("admin-overview-failed-row")).toHaveTextContent(en.adminDashboard.reasonTimeout);
     expect(screen.getByTestId("admin-overview-failed-row")).toHaveTextContent(en.adminDashboard.kindImport);

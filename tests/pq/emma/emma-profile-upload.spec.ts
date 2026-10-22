@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * Felix is the finetuner, not the returning user.
  *
  * Validates that a returning user (with an existing profile) can navigate
- * to the "Profil aktualisieren" page via the sidebar, upload an updated CV,
+ * to the "Lebenslauf oder Stelle hinzufügen" page via the sidebar, upload an updated CV,
  * and land back at /profile after successful processing.
  *
  * PQ tier: requires the full Docker stack (LLM_PROVIDER=mock).
@@ -75,14 +75,14 @@ async function runFullOnboardingFlow(page: Page): Promise<void> {
 // ────────────────────────────────────────────────────────────────────────────
 
 test.describe("Emma — Returning Power User: profile upload (PQ)", () => {
-  test("sidebar 'Profil aktualisieren' navigates to /profile/upload", async ({
+  test("sidebar 'Lebenslauf oder Stelle hinzufügen' navigates to /profile/upload", async ({
     page,
   }) => {
     await runFullOnboardingFlow(page);
     await page.goto("/dashboard");
 
     await page
-      .getByRole("button", { name: /profil aktualisieren|update profile/i })
+      .getByRole("button", { name: /lebenslauf oder stelle hinzufügen|add a cv or role/i })
       .click();
 
     await expect(page).toHaveURL(/\/profile\/upload/, { timeout: 10000 });
