@@ -19,7 +19,7 @@
 
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
 interface FileChipProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -29,16 +29,19 @@ interface FileChipProps extends React.HTMLAttributes<HTMLDivElement> {
   onRemove: () => void;
 }
 
-function formatFileSize(bytes?: number): string {
+// Locale-aware decimal separator: "35,0 KB" in the German UI, "35.0 KB" in English.
+export function formatFileSize(bytes?: number, locale: string = "en"): string {
   if (!bytes) return "";
+  const one = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024) return `${one.format(bytes / 1024)} KB`;
+  return `${one.format(bytes / (1024 * 1024))} MB`;
 }
 
 const FileChip = React.forwardRef<HTMLDivElement, FileChipProps>(
   ({ filename, size, progress, onRemove, className, ...props }, ref) => {
     const t = useTranslations("common");
+    const locale = useLocale();
     const isUploading = progress !== undefined && progress < 100;
 
     return (
@@ -76,7 +79,7 @@ const FileChip = React.forwardRef<HTMLDivElement, FileChipProps>(
           </p>
           {size !== undefined && (
             <p className="text-xs text-gray-500">
-              {formatFileSize(size)}
+              {formatFileSize(size, locale)}
             </p>
           )}
           {isUploading && (
