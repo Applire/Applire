@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, field_validator
 from applire.constants import MAX_TARGET_PAGES
 from applire.models.cv import CVGenerationStatus
 from applire.schemas.profile import FieldChange
+from applire.schemas.review_degradation import DegradedReviewStep
 
 # E044 (ADR-054): version tag of the public tailored-CV content contract served
 # via the MCP resource schema://cv. Bump on any breaking field change.
@@ -93,6 +94,10 @@ class CVStatusResponse(BaseModel):
     # status carrying its critic_report (ADR-060 clause 6). None = not yet
     # computed or pre-two-mount row.
     critic_report: Optional[dict] = None
+    # ADR-081 cl. 9 amended 2026-10-22 (#786): the review steps of the writing loop
+    # that did not run. None = not recorded (pre-0084 row, agent render); [] = every
+    # review step answered. Same value on REST and the MCP status tool (ADR-066).
+    review_degradation: Optional[list[DegradedReviewStep]] = None
     # E054/US289 (ADR-038 amendment clause 3b): the language PINNED at
     # generation time — the UI badges each document with it (FMEA JF-F-G2.2).
     # Surfaced as stored; a legacy NULL row stays None rather than gaining a

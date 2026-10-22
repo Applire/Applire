@@ -109,6 +109,11 @@ from applire.services.pdf_provenance import (
     render_marked_pdf,
 )
 from applire.services.reviewer import review_and_refine
+from applire.services.review_degradation import (
+    normalize_stored,
+    record_review_degradation,
+    review_degradation_record,
+)
 from applire.utils.budget_unit import budget_needs_unit
 from applire.utils.language_detection import (
     resolve_document_language,
@@ -1297,7 +1302,9 @@ async def _terminal_language_recheck(
             chain_id="cv_language_recheck",
             checks_fn=checks_fn,
         )
-    except Exception:
+    except Exception as exc:
+        # #786 (WP-T): the whole pass failed — recorded like a failed review step.
+        record_review_degradation("cv_language_recheck", "review", type(exc).__name__, 1)
         logger.exception(
             "TERMINAL_LANGUAGE_RECHECK failed for CV %s — shipping the corrector's "
             "draft; the document-language check reports what it finds", cv_id,
@@ -3493,6 +3500,8 @@ async def get_cv_status(
         # ADR-060 clause 6: the Pass A verdict is data on the status surface,
         # both doors (REST poller and MCP get_cv_status serialize this model).
         critic_report=_critic_report_for_door(record.critic_report),
+        # ADR-081 cl. 9 amended 2026-10-22 (#786, WP-T): the stored record as-is.
+        review_degradation=normalize_stored(record.review_degradation),
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=record.document_language,
         # F-4b: the stored per-document override (None/True/False) and the
@@ -4077,12 +4086,14 @@ async def _render_cv_background(
     # ADR-092 cl. 14: the task carries its user and sets the owner context
     # itself — it may outlive the request that scheduled it.
     owner = resolve_owner(user_id, site="cv._render_cv_background")
+    # ADR-081 cl. 9 amended 2026-10-22 (#786, WP-T): every fail-open exit of the
+    # writing loop's review steps reports to this record; persisted in the ready-commit.
     with ownership.owner_context(owner), llm_usage_context(
         stage="cv",
         document_kind="cv",
         document_id=cv_id,
         application_id=application_id,
-    ):
+    ), review_degradation_record() as degradation:
         async with AsyncSessionLocal() as db:
             try:
                 record = await owned_cv(db, cv_id, owner)
@@ -4798,6 +4809,8 @@ async def _render_cv_background(
                             else terminal_outcome
                         )
                     verdict_hash = _subject_hash(record.tailored_data)
+                # #786 (WP-T): the degraded review steps ride the same ready-commit.
+                record.review_degradation = degradation.as_json()
                 # ADR-039: the single ready-commit — status + reports together.
                 await db.commit()
 

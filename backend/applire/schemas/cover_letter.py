@@ -22,6 +22,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from applire.models.cover_letter import CoverLetterStatus
+from applire.schemas.review_degradation import DegradedReviewStep
 
 CLTemplate = Literal[
     "classic_german",
@@ -132,6 +133,10 @@ class CoverLetterStatusResponse(BaseModel):
     # agent sees the advisory the moment it polls for readiness, same as a
     # human. Null until computed; see OutcomeCriticReport.reason for why.
     critic_report: Optional[dict] = None
+    # ADR-081 cl. 9 amended 2026-10-22 (#786): the review steps of the writing loop
+    # that did not run. None = not recorded (pre-0084 row, agent render); [] = every
+    # review step answered. Same value on REST and the MCP status tool (ADR-066).
+    review_degradation: Optional[list[DegradedReviewStep]] = None
     # E054/US289 (ADR-038 amendment clause 3b): the language pinned at
     # generation time — badge source (FMEA JF-F-G2.2). Stored value as-is;
     # legacy NULL rows stay None.

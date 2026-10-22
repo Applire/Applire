@@ -56,6 +56,7 @@ from applire.models.profile import MasterProfile
 from applire import ownership
 from applire.services.cover_letter_positioning import letter_shape_ok
 from applire.services.owner_resolution import owned_row, resolve_user_id
+from applire.services.review_degradation import normalize_stored, review_degradation_record
 from applire.services.posting_labels import effective_posting_labels
 from applire.constants import (
     CV_GENERATION_MAX_TOKENS,
@@ -348,6 +349,8 @@ async def get_cover_letter_status(
         # #702: through the schema, so `cross_document` reaches the agent door
         # on legacy rows too (derived, never stored-and-trusted).
         critic_report=_critic_report_for_door(cl.critic_report),
+        # ADR-081 cl. 9 amended 2026-10-22 (#786, WP-T): the stored record as-is.
+        review_degradation=normalize_stored(cl.review_degradation),
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=cl.document_language,
         # F-4b: the stored per-document override (None/True/False) and the
@@ -1275,12 +1278,14 @@ async def _render_cover_letter_body(
     # an audit tail cannot inherit it.
     from applire.providers.llm.usage import llm_usage_context
 
+    # ADR-081 cl. 9 amended 2026-10-22 (#786, WP-T): every fail-open exit of the
+    # writing loop's review steps reports to this record; persisted in the ready-commit.
     with llm_usage_context(
         stage="cover_letter",
         document_kind="cover_letter",
         document_id=cl_id,
         application_id=application_id,
-    ):
+    ), review_degradation_record() as degradation:
         async with AsyncSessionLocal() as db:
             try:
                 # Load cover letter record
@@ -2414,6 +2419,8 @@ async def _render_cover_letter_body(
                     )
                     verdict_hash = subject_hash(cl.letter_data)
 
+                # #786 (WP-T): the degraded review steps ride the ready-commit.
+                cl.review_degradation = degradation.as_json()
                 # Now flip to 'ready' — the report is already committed, so the frontend's
                 # single fetch always sees it.
                 cl.status = CoverLetterStatus.ready.value
