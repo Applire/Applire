@@ -1045,15 +1045,11 @@ async def _review_cv_language(
     directive alone leaks discipline-skill phrases; this is the enforcing pass — the same
     fix ADR-038 applied to interview questions. Never raises; no-op when the budget is 0.
 
-    #122 follow-up: this chain runs AFTER the gated tailoring loop and rewrites wording,
-    so it can silently translate a covered surface form into an unlisted synonym. The
-    same US213 coverage wrapper feeds this reviewer; its remedy is word choice (use the
-    exact required-language surface form), never inserting content.
-
-    ADR-076 clause 6 (#543): ``budget`` — the SAME ``cv_budget.BudgetResult`` the
-    tailoring loop above rank-gates with — is threaded through so this LAST writer's
-    coverage demand agrees with the tailoring loop's about which absences are still
-    blocking (:func:`applire.services.keyword_ledger.cv_coverage_budget`).
+    #122 follow-up (RETIRED 2026-10-22, 786:L43): the US213 coverage wrapper used to
+    feed this reviewer so a translated surface form could be asked back. The ruling
+    removed the demand — a coverage term is no longer a language finding; see the
+    comment at the call below. ``keyword_ledger`` / ``budget`` (ADR-076 cl. 6) stay
+    in the signature and are ignored.
 
     #759 (ADR-076 clause 3 / ADR-038 amended 2026-10-08): the SAME pass re-runs
     over a terminal corrector round's output (:func:`_terminal_language_recheck`),
@@ -1064,18 +1060,21 @@ async def _review_cv_language(
     """
     if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0:
         return draft
-    from applire.services.keyword_ledger import coverage_reviewer_prompt_fn, cv_coverage_budget
+    # 786:L43 (Hazelnut build 3, ruling): the language pass no longer carries the
+    # US213 coverage demand. Its remedy is word choice, so a coverage term it could
+    # not honestly place became a blocking finding on the LAST writer that the
+    # refiner cannot satisfy (delivery run 2026-09-05: "Supply Chain", fit 0.0;
+    # 2026-09-18: 25 anglicisms on round 2). Coverage stays with the tailoring loop
+    # and the terminal review, which may insert content. ``keyword_ledger`` and
+    # ``budget`` are kept in the signature for the callers; this pass ignores them.
+    del keyword_ledger, budget
 
     return await review_and_refine(
         source=language_name(output_language),
         draft=draft,
         generator_prompt_fn=build_cv_language_refinement_prompt,
         generator_system=CV_LANGUAGE_REFINEMENT_PROMPT,
-        reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-            build_cv_language_review_prompt,
-            keyword_ledger,
-            budget=cv_coverage_budget(budget),
-        ),
+        reviewer_prompt_fn=build_cv_language_review_prompt,
         reviewer_system=CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
         provider=provider,
         max_retries=CV_LANGUAGE_REVIEW_MAX_RETRIES,

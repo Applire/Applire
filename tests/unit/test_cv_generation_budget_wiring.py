@@ -269,18 +269,15 @@ async def test_render_cv_background_threads_the_real_budget_into_the_tailoring_c
 
 
 @pytest.mark.asyncio
-async def test_review_cv_language_threads_the_budget_into_its_own_coverage_gate():
-    """ADR-076 clause 6 (#543): ``_review_cv_language`` is the LAST writer
-    (#122 follow-up) and shares the coverage instrument with the tailoring
-    loop — it must rank-gate under the SAME budget, or a low-rank concept the
-    tailoring loop legally omitted could still be (uselessly) re-demanded by
-    the language pass. Exercises ``_review_cv_language`` directly rather than
-    through the full background pipeline (see the sibling test above for why:
-    the downstream ATS-report/self-audit stages need far more DB mocking than
-    this wiring question is worth)."""
+async def test_review_cv_language_carries_no_coverage_gate():
+    """786:L43 (Hazelnut build 3 ruling, 2026-10-22): the language pass no longer
+    carries the US213 coverage demand — it was the LAST writer, its remedy is word
+    choice, and a demand it could not honestly satisfy blocked it (Luna replay of 8
+    captured reviewer calls: 2/24 approved with the block, 39 blocking issues, all
+    coverage terms). The coverage factory is therefore not consulted at all, with
+    or without a budget; the tailoring loop and the terminal review keep it."""
     from applire.services.cv import _review_cv_language
     from applire.services.cv_budget import BudgetResult, RoleBudget
-    from applire.services.keyword_ledger import CoverageBudget
 
     budget_result = BudgetResult(
         roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=6)},
@@ -290,9 +287,6 @@ async def test_review_cv_language_threads_the_budget_into_its_own_coverage_gate(
     seen: list = []
 
     def spy_coverage_reviewer_prompt_fn(base_fn, keyword_ledger, budget=None, **kw):
-        # `**kw` absorbs `on_demand=` (#415, 2026-09-17): the terminal chain now passes a
-        # demand REPORT through this factory. A spy that pins the factory's signature
-        # would fail on any additive parameter — which is what this test caught.
         seen.append(budget)
         return lambda source, draft: base_fn(source, draft)
 
@@ -306,9 +300,7 @@ async def test_review_cv_language_threads_the_budget_into_its_own_coverage_gate(
             _tailored_raw(), "de", provider, keyword_ledger=[], budget=budget_result
         )
 
-    assert len(seen) == 1
-    assert isinstance(seen[0], CoverageBudget)
-    assert seen[0].capacity == 6
+    assert seen == []
 
 
 def _execute_by_entity(mock_cv, default_result, job_id):
