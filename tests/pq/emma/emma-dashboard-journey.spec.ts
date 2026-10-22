@@ -112,7 +112,7 @@ test.describe("Emma — Returning Power User: dashboard journey (PQ)", () => {
     const nav = page.getByRole("navigation");
     await expect(nav.getByRole("button", { name: /dashboard/i })).toBeVisible();
     await expect(nav.getByRole("button", { name: /profile|masterprofil/i }).first()).toBeVisible();
-    await expect(nav.getByRole("button", { name: /profil aktualisieren|update profile/i })).toBeVisible();
+    await expect(nav.getByRole("button", { name: /lebenslauf oder stelle hinzufügen|add a cv or role/i })).toBeVisible();
     await expect(nav.getByRole("button", { name: /documents|dokumente/i })).toBeVisible();
     await expect(nav.getByRole("button", { name: /settings|einstellungen/i })).toBeVisible();
   });
