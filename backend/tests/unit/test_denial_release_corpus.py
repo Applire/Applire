@@ -36,6 +36,9 @@ Two things this file pins:
    sentinel per site, which IS the lockstep evidence.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
 from applire.services.keyword_ledger import profile_literal_corpus
@@ -456,3 +459,52 @@ def test_build_keyword_ledger_still_floors_when_only_an_interview_wrote_it():
         "new_value": ["Verantwortung für die Produktion in zwei Fertigungsbereichen."]}]}]
     row = _floor_status(history)
     assert row["status"] == "gap" and row["claimable"] is False, row
+
+
+# ── E-11 regression set (ruling G-2): the blind-labelled bench decisions ─────
+
+_E11 = Path(__file__).resolve().parents[3] / "tests" / "files" / "quality_bench" / "e11_release_regression.json"
+
+
+def _e11_decisions() -> list[dict]:
+    return json.loads(_E11.read_text(encoding="utf-8"))["decisions"]
+
+
+def _e11_floors(decision: dict) -> bool:
+    from applire.services.profile.reconcile.stance import containment_release_form
+
+    vault = json.loads(
+        (_E11.parent / decision["cell"] / "vault.json").read_text(encoding="utf-8")
+    )
+    denials = [d["concept"] for d in vault["metadata"]["denied_concepts"]]
+    return containment_release_form(
+        decision["term"], decision["forms"], denials, denial_release_corpus(vault)
+    ) is None
+
+
+def test_e11_regression_set_floors_exactly_as_measured():
+    wrong = [
+        (d["cell"], d["term"], d["expect_floor"])
+        for d in _e11_decisions()
+        if _e11_floors(d) != d["expect_floor"]
+    ]
+    assert not wrong, wrong
+
+
+def test_e11_regression_set_never_releases_a_term_both_labellers_say_is_lacking():
+    released = [
+        (d["cell"], d["term"])
+        for d in _e11_decisions()
+        if d["label_lead"] == "N" and d["label_blind"] == "N" and not _e11_floors(d)
+    ]
+    assert not released, released
+
+
+def test_e11_daniel_settlement_stays_floored_against_interview_prose():
+    """The case that decided G-2: "Settlement" grounds only through an
+    interview-written bullet ("...the settlement-adjacent parts of the stack"),
+    against "No, I have no blockchain or crypto experience ... settlement rails
+    on chain". Letting interview prose release would claim it."""
+    d = next(x for x in _e11_decisions()
+             if x["cell"] == "it_backend_daniel/mixed_en" and x["term"] == "Settlement")
+    assert _e11_floors(d) is True

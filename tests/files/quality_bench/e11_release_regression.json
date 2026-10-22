@@ -1,0 +1,1060 @@
+{
+ "_about": "ADR-059 amended 2026-10-22 (E-11, ruling G-2): every containment-only denial match over the quality-bench vaults, with the floor decision the imported-prose release rule makes and two blind truth labels (Y has / P partial / N lacks the broad term). Regression set for stance.denial_release_corpus. Hazelnut build 3, WP-G.",
+ "decisions": [
+  {
+   "cell": "it_backend_daniel/cross_en2de",
+   "term": "Apache Kafka",
+   "forms": [
+    "Apache Kafka",
+    "Kafka"
+   ],
+   "denials_touching": [
+    "Kafka transactions"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "it_backend_daniel/cross_en2de",
+   "term": "Payments",
+   "forms": [
+    "Payments",
+    "Payment systems",
+    "Payment processing",
+    "Payments-Plattform",
+    "Payments platform",
+    "Payment platform"
+   ],
+   "denials_touching": [
+    "regulated payment-institution environment"
+   ],
+   "expect_floor": true,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/cross_en2de",
+   "term": "Finanzdaten",
+   "forms": [
+    "Finanzdaten",
+    "Financial data",
+    "Financial data modelling"
+   ],
+   "denials_touching": [
+    "regulated financial data"
+   ],
+   "expect_floor": false,
+   "label_lead": "P",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "it_backend_daniel/cross_en2de",
+   "term": "PSD2",
+   "forms": [
+    "PSD2-Integrationen",
+    "PSD2 integrations",
+    "PSD2",
+    "Payment Services Directive 2"
+   ],
+   "denials_touching": [
+    "PSD2 licence"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/cross_en2de",
+   "term": "Settlement",
+   "forms": [
+    "Settlement",
+    "Payment settlement"
+   ],
+   "denials_touching": [
+    "settlement rails",
+    "settlement rails on chain"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/cross_en2de",
+   "term": "Exactly-once-Settlement-Events",
+   "forms": [
+    "Exactly-once-Settlement-Events",
+    "Exactly-once settlement events",
+    "Exactly-once semantics"
+   ],
+   "denials_touching": [
+    "formal exactly-once semantics"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/cross_en2de",
+   "term": "Auditierbarkeit",
+   "forms": [
+    "Auditierbarkeit",
+    "Auditability",
+    "Audit trails"
+   ],
+   "denials_touching": [
+    "audit-trail background",
+    "formal auditability requirements",
+    "specific audit-trail project"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/mixed_en",
+   "term": "Infrastructure as code",
+   "forms": [
+    "Infrastructure as code",
+    "IaC",
+    "Helm charts",
+    "GitOps"
+   ],
+   "denials_touching": [
+    "other infrastructure-as-code tooling"
+   ],
+   "expect_floor": false,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/mixed_en",
+   "term": "Payments",
+   "forms": [
+    "Payments",
+    "Payment processing",
+    "Payment engineering",
+    "Payments platform",
+    "Payment platform"
+   ],
+   "denials_touching": [
+    "payment-institution experience",
+    "payment-provider routing",
+    "regulated payments wrapper"
+   ],
+   "expect_floor": true,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/mixed_en",
+   "term": "Settlement",
+   "forms": [
+    "Settlement",
+    "Payment settlement",
+    "Reconciliation"
+   ],
+   "denials_touching": [
+    "settlement rails on chain"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/mixed_en",
+   "term": "Regulated environments",
+   "forms": [
+    "Regulated environments",
+    "Regulated financial environment",
+    "Regulated financial environments"
+   ],
+   "denials_touching": [
+    "formally regulated environment",
+    "regulated-environment experience"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/mixed_en",
+   "term": "European e-commerce",
+   "forms": [
+    "European e-commerce",
+    "European online commerce"
+   ],
+   "denials_touching": [
+    "European e-commerce markets"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/mixed_en",
+   "term": "Payment institution",
+   "forms": [
+    "Payment institution",
+    "Payment institution engineering"
+   ],
+   "denials_touching": [
+    "payment-institution experience"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/mixed_en",
+   "term": "Auditability",
+   "forms": [
+    "Auditability",
+    "Audit trails",
+    "Audit trail"
+   ],
+   "denials_touching": [
+    "auditability figures"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "Apache Kafka",
+   "forms": [
+    "Apache Kafka",
+    "Kafka"
+   ],
+   "denials_touching": [
+    "Kafka transactions"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "Payments",
+   "forms": [
+    "Payments",
+    "Payment processing",
+    "Payments platform",
+    "Payment platform"
+   ],
+   "denials_touching": [
+    "regulated payment-institution environment"
+   ],
+   "expect_floor": true,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "Settlement",
+   "forms": [
+    "Settlement",
+    "Payment settlement"
+   ],
+   "denials_touching": [
+    "settlement rails",
+    "settlement rails on chain"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "Financial data",
+   "forms": [
+    "Financial data",
+    "Financial data modelling",
+    "Financial information",
+    "Billing data",
+    "Invoice data"
+   ],
+   "denials_touching": [
+    "regulated financial data"
+   ],
+   "expect_floor": false,
+   "label_lead": "P",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "PSD2",
+   "forms": [
+    "PSD2",
+    "Payment Services Directive 2"
+   ],
+   "denials_touching": [
+    "PSD2 licence"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "BaFin",
+   "forms": [
+    "BaFin",
+    "Federal Financial Supervisory Authority"
+   ],
+   "denials_touching": [
+    "BaFin supervision"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "Regulated environments",
+   "forms": [
+    "Regulated environments",
+    "Regulated industries"
+   ],
+   "denials_touching": [
+    "formally regulated environment"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "European e-commerce",
+   "forms": [
+    "European e-commerce",
+    "European online commerce"
+   ],
+   "denials_touching": [
+    "European e-commerce market experience"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "Payment institution",
+   "forms": [
+    "Payment institution",
+    "Payment services institution"
+   ],
+   "denials_touching": [
+    "regulated payment-institution environment"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "Exactly-once processing",
+   "forms": [
+    "Exactly-once processing",
+    "Exactly-once semantics"
+   ],
+   "denials_touching": [
+    "formal exactly-once semantics"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/same_en",
+   "term": "Auditability",
+   "forms": [
+    "Auditability",
+    "Audit trails"
+   ],
+   "denials_touching": [
+    "audit-trail background",
+    "formal auditability requirements",
+    "specific audit-trail project"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "Financial data",
+   "forms": [
+    "Financial data modelling",
+    "Financial data processing"
+   ],
+   "denials_touching": [
+    "regulated financial data"
+   ],
+   "expect_floor": false,
+   "label_lead": "P",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "Auditability",
+   "forms": [
+    "Audit trails",
+    "Audit logging"
+   ],
+   "denials_touching": [
+    "audit-trail background",
+    "formal auditability requirements",
+    "specific audit-trail project"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "Apache Kafka",
+   "forms": [
+    "Kafka"
+   ],
+   "denials_touching": [
+    "Kafka transactions"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "Exactly-once processing",
+   "forms": [
+    "Exactly-once semantics",
+    "Exactly once delivery"
+   ],
+   "denials_touching": [
+    "formal exactly-once semantics"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "Payments",
+   "forms": [
+    "Payment processing",
+    "Payment systems",
+    "Payment platform",
+    "Payments infrastructure"
+   ],
+   "denials_touching": [
+    "regulated payment-institution environment"
+   ],
+   "expect_floor": true,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "PSD2",
+   "forms": [
+    "Payment Services Directive 2"
+   ],
+   "denials_touching": [
+    "PSD2 licence"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "Regulated environments",
+   "forms": [
+    "Regulated environment experience",
+    "Regulated financial services"
+   ],
+   "denials_touching": [
+    "formally regulated environment"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "Settlement",
+   "forms": [
+    "Settlement processing",
+    "Financial settlement"
+   ],
+   "denials_touching": [
+    "settlement rails",
+    "settlement rails on chain"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "Payouts",
+   "forms": [
+    "Payout processing",
+    "Payout reconciliation"
+   ],
+   "denials_touching": [
+    "payout rails"
+   ],
+   "expect_floor": true,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "Payment institution",
+   "forms": [
+    "Payment service provider",
+    "Payment institution environment"
+   ],
+   "denials_touching": [
+    "regulated payment-institution environment"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "it_backend_daniel/upward_en",
+   "term": "European e-commerce",
+   "forms": [
+    "European e-commerce",
+    "European online commerce"
+   ],
+   "denials_touching": [
+    "European e-commerce market experience"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "nursing_priya_relocator/cross_en2de",
+   "term": "Nierenersatzverfahren",
+   "forms": [
+    "Renal replacement therapy",
+    "CRRT",
+    "Continuous renal replacement therapy",
+    "Nierenersatzverfahren"
+   ],
+   "denials_touching": [
+    "number of CRRT treatments supported"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "nursing_priya_relocator/cross_en2de",
+   "term": "SBAR",
+   "forms": [
+    "SBAR communication",
+    "Situation-Background-Assessment-Recommendation"
+   ],
+   "denials_touching": [
+    "formal SBAR experience"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "nursing_priya_relocator/cross_en2de",
+   "term": "Reanimation",
+   "forms": [
+    "Resuscitation",
+    "Code-team participation",
+    "Resus team"
+   ],
+   "denials_touching": [
+    "number of resuscitations",
+    "resuscitation team size"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "nursing_priya_relocator/cross_en2de",
+   "term": "ECMO",
+   "forms": [
+    "ECMO patient care",
+    "Extracorporeal membrane oxygenation"
+   ],
+   "denials_touching": [
+    "ECMO certification",
+    "independent ECMO circuit management"
+   ],
+   "expect_floor": false,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "nursing_priya_relocator/cross_en2de",
+   "term": "Pädiatrische Intensivpflege",
+   "forms": [
+    "Paediatric intensive care",
+    "Pediatric intensive care"
+   ],
+   "denials_touching": [
+    "paediatric intensive care experience"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "nursing_priya_relocator/mixed_en",
+   "term": "Intensive care nursing",
+   "forms": [
+    "Intensive care nursing",
+    "Intensivpflege",
+    "Adult intensive care nursing",
+    "Intensive care"
+   ],
+   "denials_touching": [
+    "paediatric intensive care experience"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "nursing_priya_relocator/mixed_en",
+   "term": "Nursing registration",
+   "forms": [
+    "Nursing registration",
+    "Registered Nurse",
+    "NMC Registered Nurse (Adult)",
+    "Registered Nurse (Adult)",
+    "NMC registration"
+   ],
+   "denials_touching": [
+    "German nursing registration"
+   ],
+   "expect_floor": false,
+   "label_lead": "P",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "nursing_priya_relocator/mixed_en",
+   "term": "ECMO",
+   "forms": [
+    "ECMO",
+    "ECMO patient care",
+    "ECMO circuit observation",
+    "Extracorporeal membrane oxygenation"
+   ],
+   "denials_touching": [
+    "ECMO certification",
+    "independent ECMO circuit management"
+   ],
+   "expect_floor": true,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "nursing_priya_relocator/mixed_en",
+   "term": "Paediatric intensive care",
+   "forms": [
+    "Paediatric intensive care",
+    "Paediatric ICU",
+    "Pediatric intensive care"
+   ],
+   "denials_touching": [
+    "paediatric intensive care experience"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "nursing_priya_relocator/same_en",
+   "term": "Renal replacement therapy",
+   "forms": [
+    "Renal replacement therapy",
+    "CRRT"
+   ],
+   "denials_touching": [
+    "number of CRRT treatments supported"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "nursing_priya_relocator/same_en",
+   "term": "CRRT",
+   "forms": [
+    "CRRT",
+    "Continuous renal replacement therapy",
+    "Renal replacement therapy"
+   ],
+   "denials_touching": [
+    "number of CRRT treatments supported"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "nursing_priya_relocator/same_en",
+   "term": "SBAR",
+   "forms": [
+    "SBAR handovers",
+    "SBAR"
+   ],
+   "denials_touching": [
+    "formal SBAR experience"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "nursing_priya_relocator/same_en",
+   "term": "Emergency response",
+   "forms": [
+    "Emergency response",
+    "Deteriorating-patient response",
+    "NEWS2 escalation",
+    "Rapid response",
+    "Resuscitation"
+   ],
+   "denials_touching": [
+    "number of resuscitations",
+    "resuscitation team size"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "nursing_priya_relocator/same_en",
+   "term": "Resuscitation",
+   "forms": [
+    "Resuscitation",
+    "Resus team",
+    "Code-team participation",
+    "Cardiopulmonary resuscitation",
+    "CPR",
+    "Resuscitation team",
+    "Code team",
+    "Resuscitation response team"
+   ],
+   "denials_touching": [
+    "number of resuscitations",
+    "resuscitation team size"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "nursing_priya_relocator/same_en",
+   "term": "ECMO",
+   "forms": [
+    "ECMO",
+    "ECMO patient care",
+    "ECMO circuit management",
+    "Extracorporeal membrane oxygenation"
+   ],
+   "denials_touching": [
+    "ECMO certification",
+    "independent ECMO circuit management"
+   ],
+   "expect_floor": false,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "nursing_priya_relocator/same_en",
+   "term": "Paediatric intensive care",
+   "forms": [
+    "Paediatric intensive care",
+    "Paediatric ICU",
+    "Pediatric intensive care"
+   ],
+   "denials_touching": [
+    "paediatric intensive care experience"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "nursing_priya_relocator/same_en",
+   "term": "ICU",
+   "forms": [
+    "Intensive Care Unit",
+    "ICU",
+    "Adult ICU",
+    "ICU experience",
+    "Intensive care experience",
+    "Critical care experience",
+    "Adult intensive care"
+   ],
+   "denials_touching": [
+    "paediatric intensive care experience"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "operations_marcus_de/cross_de2en",
+   "term": "Investment planning",
+   "forms": [
+    "Investment planning",
+    "Investitionsplanung"
+   ],
+   "denials_touching": [
+    "Investitionsplanung für Anlagen",
+    "Investitionsplanung für Maschinen",
+    "Investitionsplanung für größere Instandhaltungsmaßnahmen",
+    "eigene Investitionsplanung"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "operations_marcus_de/cross_de2en",
+   "term": "Leadership",
+   "forms": [
+    "Leadership",
+    "Mitarbeiterführung",
+    "Führung"
+   ],
+   "denials_touching": [
+    "dauerhafte Führung von rund 120 Mitarbeitenden"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "operations_marcus_de/cross_de2en",
+   "term": "Production",
+   "forms": [
+    "Production",
+    "Produktion",
+    "Manufacturing"
+   ],
+   "denials_touching": [
+    "direkte Produktion für Lebensmittelkunden"
+   ],
+   "expect_floor": true,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "operations_marcus_de/cross_de2en",
+   "term": "Sales",
+   "forms": [
+    "Sales",
+    "Vertrieb",
+    "Sales management"
+   ],
+   "denials_touching": [
+    "Arbeit mit Vertrieb oder Kunden an Lösungen",
+    "eigene Erfahrung mit Vertrieb"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "operations_marcus_de/mixed_de",
+   "term": "Arbeitsvorbereitung",
+   "forms": [
+    "Arbeitsvorbereitung",
+    "Work Preparation",
+    "Fertigungsplanung"
+   ],
+   "denials_touching": [
+    "eigene Abteilung Arbeitsvorbereitung"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "operations_marcus_de/mixed_de",
+   "term": "MES",
+   "forms": [
+    "MES-Systeme",
+    "MES",
+    "Manufacturing Execution System",
+    "Manufacturing Execution Systems"
+   ],
+   "denials_touching": [
+    "Investitionsumfang des MES-Projekts"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "operations_marcus_de/mixed_de",
+   "term": "Führung",
+   "forms": [
+    "Führung",
+    "People Management",
+    "Mitarbeiterführung",
+    "Leadership"
+   ],
+   "denials_touching": [
+    "dauerhafte Führung mehrerer Führungsebenen"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "operations_marcus_de/mixed_de",
+   "term": "Verpackungsindustrie",
+   "forms": [
+    "Verpackungsindustrie",
+    "Packaging Industry"
+   ],
+   "denials_touching": [
+    "branchenspezifische Qualitätsanforderungen in der Verpackungsindustrie"
+   ],
+   "expect_floor": true,
+   "label_lead": "P",
+   "label_blind": "P"
+  },
+  {
+   "cell": "operations_marcus_de/mixed_de",
+   "term": "Lebensmittelindustrie",
+   "forms": [
+    "Lebensmittelindustrie",
+    "Food Industry"
+   ],
+   "denials_touching": [
+    "branchenspezifische Qualitätsanforderungen in der Lebensmittelindustrie"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "operations_marcus_de/mixed_de",
+   "term": "Produktion",
+   "forms": [
+    "Produktion",
+    "Fertigung",
+    "Manufacturing"
+   ],
+   "denials_touching": [
+    "direkte Produktion für Lebensmittelkunden"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "operations_marcus_de/mixed_de",
+   "term": "Vertrieb",
+   "forms": [
+    "Vertrieb",
+    "Sales",
+    "Vertriebsmanagement"
+   ],
+   "denials_touching": [
+    "Abstimmung kundenbezogener Anforderungen mit Vertrieb oder Kunden",
+    "belegbare Zusammenarbeit mit dem Vertrieb"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "operations_marcus_de/same_de",
+   "term": "Führung",
+   "forms": [
+    "Führung",
+    "Mitarbeiterführung",
+    "Führungskompetenz"
+   ],
+   "denials_touching": [
+    "dauerhafte Führung von rund 120 Mitarbeitenden"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "operations_marcus_de/same_de",
+   "term": "Produktion",
+   "forms": [
+    "Produktion",
+    "Fertigung",
+    "Serienfertigung",
+    "Fertigungsleitung"
+   ],
+   "denials_touching": [
+    "direkte Produktion für Lebensmittelkunden"
+   ],
+   "expect_floor": false,
+   "label_lead": "Y",
+   "label_blind": "Y"
+  },
+  {
+   "cell": "operations_marcus_de/same_de",
+   "term": "Vertrieb",
+   "forms": [
+    "Vertrieb",
+    "Sales"
+   ],
+   "denials_touching": [
+    "Arbeit mit Vertrieb oder Kunden an Lösungen",
+    "eigene Erfahrung mit Vertrieb"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "operations_marcus_de/upward_de",
+   "term": "Lebensmittelkunden",
+   "forms": [
+    "Lebensmittelkunden"
+   ],
+   "denials_touching": [
+    "direkte Produktion für Lebensmittelkunden"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  },
+  {
+   "cell": "operations_marcus_de/upward_de",
+   "term": "Investitionsplanung",
+   "forms": [
+    "Investitionsplanung"
+   ],
+   "denials_touching": [
+    "Investitionsplanung für Anlagen",
+    "Investitionsplanung für Maschinen",
+    "Investitionsplanung für größere Instandhaltungsmaßnahmen",
+    "eigene Investitionsplanung"
+   ],
+   "expect_floor": true,
+   "label_lead": "N",
+   "label_blind": "N"
+  }
+ ]
+}
