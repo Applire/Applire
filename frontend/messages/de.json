@@ -376,7 +376,7 @@
     "introWhyBody": "Dein Lebenslauf zeigt noch nicht alles, was die Stelle verlangt. Wir fragen nur nach {count, plural, one {dieser # offenen Anforderung} other {diesen # offenen Anforderungen}} — Thema für Thema.",
     "introWhyBodyNoneOpen": "Ein paar Anforderungen der Stelle sind nur wahrscheinlich belegt. Wir fragen kurz nach, damit dein Lebenslauf sie sicher nennen kann.",
     "introHowLongTitle": "Wie lange",
-    "introHowLongBody": "Etwa {count} Fragen, meist {low}–{high} Minuten. Antworte in deinen Worten; Stichpunkte reichen.",
+    "introHowLongBody": "Etwa {count} Fragen, meist 10–20 Minuten. Antworte in deinen Worten; Stichpunkte reichen.",
     "introHowLongBodyNoEstimate": "Ein paar Fragen. Antworte in deinen Worten; Stichpunkte reichen.",
     "introStopTitle": "Aufhören, wann du willst",
     "introStopBody": "Mit „Ich bin fertig“ endest du jederzeit. Was du bis dahin gesagt hast, steht in deinem Profil und hilft auch bei späteren Bewerbungen.",

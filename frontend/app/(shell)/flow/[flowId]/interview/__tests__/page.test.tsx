@@ -1167,7 +1167,7 @@ describe("Hazelnut b3 #789 — interview intro, one count, match ring", () => {
     expect(intro.textContent).toContain("introWhyBody");
     // the open count the intro names is the ledger's (2 gap rows, fit > 0)
     expect(intro.textContent).toContain('introWhyBody({"count":2})');
-    expect(intro.textContent).toContain('introHowLongBody({"count":12,"low":12,"high":24})');
+    expect(intro.textContent).toContain('introHowLongBody({"count":12})');
     expect(intro.textContent).toContain("introStopBody");
     expect(intro.textContent).toContain("introHonestBody");
 
@@ -1254,5 +1254,18 @@ describe("Hazelnut b3 #789 — interview intro, one count, match ring", () => {
     const iso = chips.find((c) => c.textContent === "ISO 9001");
     expect(iso).toHaveAttribute("data-state", "covered");
     expect(chips.find((c) => c.textContent === "IFS/BRC")).toHaveAttribute("data-state", "declined");
+  });
+});
+
+// #789 "numbers that agree": the interview's duration is ONE phrase on every
+// surface that names it — the first-run step, the gaps CTA hint, the intro.
+import deCatalog from "@/messages/de.json";
+import enCatalog from "@/messages/en.json";
+describe("#789 one interview duration across first contact", () => {
+  it.each([["de", deCatalog], ["en", enCatalog]] as const)("%s: first run, gaps hint and intro say the same 10–20", (_l, c) => {
+    const cat = c as unknown as Record<string, Record<string, string>>;
+    for (const v of [cat.home.step4Tag, cat.gaps.gapInterviewHintCount, cat.interview.introHowLongBody]) {
+      expect(v).toContain("10–20");
+    }
   });
 });

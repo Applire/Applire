@@ -376,7 +376,7 @@
     "introWhyBody": "Your CV does not show everything the job asks for yet. We only ask about {count, plural, one {this # open requirement} other {these # open requirements}} — one topic at a time.",
     "introWhyBodyNoneOpen": "A few of the job's requirements are only likely covered. We ask briefly so your CV can state them with confidence.",
     "introHowLongTitle": "How long",
-    "introHowLongBody": "About {count} questions, usually {low}–{high} minutes. Answer in your own words; bullet points are fine.",
+    "introHowLongBody": "About {count} questions, usually 10–20 minutes. Answer in your own words; bullet points are fine.",
     "introHowLongBodyNoEstimate": "A few questions. Answer in your own words; bullet points are fine.",
     "introStopTitle": "Stop whenever you like",
     "introStopBody": "\"I'm done\" ends it at any time. What you said until then is in your profile and helps later applications too.",

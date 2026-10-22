@@ -345,7 +345,7 @@ function InterviewIntro({
       icon: <Clock aria-hidden="true" className="h-4 w-4" />,
       title: t("introHowLongTitle"),
       body: typicalQuestions
-        ? t("introHowLongBody", { count: typicalQuestions, low: typicalQuestions, high: typicalQuestions * 2 })
+        ? t("introHowLongBody", { count: typicalQuestions })
         : t("introHowLongBodyNoEstimate"),
     },
     {
