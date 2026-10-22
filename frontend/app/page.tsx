@@ -21,37 +21,19 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { CV_UPLOAD_ACCEPT, Dropzone } from "@/components/ui/dropzone";
-import { FileChip } from "@/components/ui/file-chip";
-import { useFileUpload } from "@/lib/hooks/use-file-upload";
-import { cn } from "@/lib/utils";
-import { ProcessingOverlay } from "@/components/processing-overlay";
+import { FirstRunScreen } from "@/components/onboarding/FirstRunScreen";
 import { HarnessBanner } from "@/components/shell/HarnessBanner";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { ShellUserProvider } from "@/components/shell/ShellUserContext";
 import { loginPathFor, useCurrentUser } from "@/lib/auth";
-import { useImportCapabilities } from "@/lib/import-capabilities";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
-type JdMode = "url" | "text";
-
 export default function Home() {
   const t = useTranslations("home");
-  const tErrors = useTranslations("errors");
   const tCommon = useTranslations("common");
   const router = useRouter();
-  const { files, addFiles, removeFile } = useFileUpload();
-  const [jdMode, setJdMode] = useState<JdMode>("url");
-  const [jdUrl, setJdUrl] = useState("");
-  const [jdText, setJdText] = useState("");
-  const [error, setError] = useState("");
-  const [showOverlay, setShowOverlay] = useState(false);
-  const [guided, setGuided] = useState(false);
   const [isReturningUser, setIsReturningUser] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -59,11 +41,6 @@ export default function Home() {
   const { status: authStatus, authState } = useCurrentUser();
   const authReady = authStatus === "authenticated" || authStatus === "error";
 
-  // #789 L12 — only ask once signed in (this screen renders before the auth check settles).
-  const { imageImport } = useImportCapabilities(authReady);
-
-  const hasFiles = files.length > 0;
-  const canSubmit = hasFiles && !showOverlay;
 
   useEffect(() => {
     if (authStatus !== "unauthenticated") return;
@@ -103,30 +80,6 @@ export default function Home() {
     }
   }, [isReturningUser, router]);
 
-  function handleSubmit() {
-    if (!hasFiles) {
-      setError(tErrors("uploadAtLeastOne"));
-      return;
-    }
-    setError("");
-    setGuided(false);
-    setShowOverlay(true);
-  }
-
-  // No-CV onboarding (US156, FMEA 2.6): build the profile through a guided
-  // interview instead of an upload. The guided interview needs a job, so a JD
-  // is required to start.
-  function handleNoCv() {
-    const jd = jdMode === "url" ? jdUrl.trim() : jdText.trim();
-    if (!jd) {
-      setError(t("noCvNeedJd"));
-      return;
-    }
-    setError("");
-    setGuided(true);
-    setShowOverlay(true);
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-dim">
@@ -144,180 +97,6 @@ export default function Home() {
     );
   }
 
-  const overlay = showOverlay && (
-        <ProcessingOverlay
-          files={guided ? [] : files.map(({ file }) => file)}
-          jdMode={jdMode}
-          jdUrl={jdUrl}
-          jdText={jdText}
-          guided={guided}
-          onCancel={() => setShowOverlay(false)}
-        />
-  );
-
-  const main = (
-      <main className="flex-1 px-4 py-8 md:py-12">
-        <div className="max-w-[900px] mx-auto">
-          {/* Two-column grid */}
-          <div className="grid grid-cols-1 md:grid-cols-[60%_40%] gap-6 md:gap-8">
-            {/* Left Column - CV Upload */}
-            <div>
-              <h2 className="font-heading text-xl font-bold text-neutral-dark mb-1">
-                {t("yourCVs")}
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">
-                {t("cvUploadHint")}
-              </p>
-
-              {/* Dropzone */}
-              <Dropzone
-                data-testid="upload-area"
-                onDrop={(fileList) => addFiles(fileList)}
-                accept={CV_UPLOAD_ACCEPT}
-                imageImport={imageImport}
-                multiple
-                disabled={showOverlay}
-              />
-
-              <p className="text-xs text-gray-500 mt-2">{t("linkedinHint")}</p>
-
-              {/* File chips */}
-              {files.length > 0 && (
-                <div className="mt-4 space-y-2">
-                  {files.map(({ id, file }) => (
-                    <FileChip
-                      key={id}
-                      filename={file.name}
-                      size={file.size}
-                      onRemove={() => removeFile(id)}
-                    />
-                  ))}
-                  {files.length < 4 && (
-                    <p className="text-xs text-gray-500 mt-2">
-                      {t("addMoreFiles")}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Right Column - JD Input */}
-            <div>
-              <h2 className="font-heading text-xl font-bold text-neutral-dark mb-1">
-                {t("jobDescription")}
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">
-                {t("jdHint")}
-              </p>
-
-              <Card className="p-4">
-                {/* Tab toggle */}
-                <div className="flex gap-1 mb-4 border-b border-gray-200">
-                  <button
-                    type="button"
-                    onClick={() => setJdMode("url")}
-                    className={cn(
-                      "px-4 py-2 text-sm font-medium transition-colors relative",
-                      jdMode === "url"
-                        ? "text-teal"
-                        : "text-gray-500 hover:text-neutral-dark"
-                    )}
-                  >
-                    {t("jdUrlTab")}
-                    {jdMode === "url" && (
-                      <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-teal" />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="jd-mode-text"
-                    onClick={() => setJdMode("text")}
-                    className={cn(
-                      "px-4 py-2 text-sm font-medium transition-colors relative",
-                      jdMode === "text"
-                        ? "text-teal"
-                        : "text-gray-500 hover:text-neutral-dark"
-                    )}
-                  >
-                    {t("pasteText")}
-                    {jdMode === "text" && (
-                      <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-teal" />
-                    )}
-                  </button>
-                </div>
-
-                {/* Tab content */}
-                {jdMode === "url" ? (
-                  <Input
-                    type="url"
-                    placeholder="https://www.stepstone.de/..."
-                    value={jdUrl}
-                    onChange={(e) => setJdUrl(e.target.value)}
-                    disabled={showOverlay}
-                  />
-                ) : (
-                  <textarea
-                    data-testid="jd-text-input"
-                    className="flex min-h-[180px] w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-neutral-dark placeholder:text-gray-400 transition-colors focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                    placeholder={t("jdTextPlaceholder")}
-                    value={jdText}
-                    onChange={(e) => setJdText(e.target.value)}
-                    disabled={showOverlay}
-                  />
-                )}
-
-                <p className="text-xs italic text-gray-400 mt-3">
-                  {t("optional")}
-                </p>
-              </Card>
-            </div>
-          </div>
-
-          {/* Error message */}
-          {error && (
-            <div data-testid="error-message" className="mt-6 p-4 rounded-lg bg-critical/10 border border-critical/20">
-              <p className="text-sm text-critical">{error}</p>
-            </div>
-          )}
-
-          {/* CTA Section */}
-          <div className="mt-8 flex flex-col items-center">
-            <Button
-              size="lg"
-              disabled={!canSubmit}
-              onClick={handleSubmit}
-              className="min-w-[240px]"
-              data-testid="submit-button"
-            >
-              {t("analyzeButton")}
-            </Button>
-            {!canSubmit && !showOverlay && (
-              <p className="text-xs text-amber-600 mt-2">
-                {t("uploadAtLeastOne")}
-              </p>
-            )}
-            <p className="text-xs text-gray-500 mt-3">
-              {t("usuallyTakes")}
-            </p>
-
-            {/* No-CV onboarding entry (US156, FMEA 2.6) — first-class, not hidden behind a failed upload */}
-            <div className="mt-6 flex flex-col items-center border-t border-gray-200 pt-5 w-full max-w-[420px]">
-              <button
-                type="button"
-                data-testid="no-cv-button"
-                onClick={handleNoCv}
-                disabled={showOverlay}
-                className="text-sm font-medium text-teal underline hover:no-underline disabled:opacity-50"
-              >
-                {t("noCv")}
-              </button>
-              <p className="text-xs text-gray-500 mt-1 text-center">{t("noCvSub")}</p>
-            </div>
-          </div>
-        </div>
-      </main>
-  );
-
   // Strawberry int-1 (approved mock user-menu screen 3): a signed-in account
   // without a profile sees the onboarding INSIDE the shell — e-mail in the
   // sidebar, the nav, the account menu with sign-out, Administration for
@@ -329,9 +108,8 @@ export default function Home() {
           <div className="flex flex-1 min-h-0 overflow-hidden">
             <AppSidebar userName={null} />
             <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">
-              <AppTopbar mode="section" titleKey="shell.dashboard" />
-              {overlay}
-              {main}
+              <AppTopbar mode="section" titleKey="shell.welcome" />
+              <FirstRunScreen importReady={authReady} />
             </div>
           </div>
         </div>
@@ -343,7 +121,6 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-surface-dim">
       <HarnessBanner />
-      {overlay}
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
@@ -356,7 +133,7 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      {main}
+      <FirstRunScreen importReady={authReady} />
 
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200 px-4 py-4">

@@ -122,6 +122,9 @@ test.describe("/setup", () => {
     await expect(page.getByText("This code does not match.")).toBeVisible();
     await page.getByLabel("Setup code").fill("CCCC-DDDD");
     await page.getByRole("button", { name: "Set up and sign in" }).click();
+    // #789 (polish c): setup names the next step before leaving the page.
+    await expect(page.getByTestId("setup-created")).toBeVisible();
+    await page.getByTestId("setup-start").click();
     await expect.poll(() => new URL(page.url()).pathname).not.toBe("/setup");
   });
 });
