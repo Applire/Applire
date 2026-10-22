@@ -468,7 +468,6 @@ async def question_generator_with_profile(
     job_context: dict | None = None,
     follow_up_hint: str | None = None,
     lang: str = "en",
-    include_availability: bool = False,
     denial_probe: bool = False,
     prior_exchanges: list[dict] | None = None,
     follow_up_focus: list[str] | None = None,
@@ -487,14 +486,6 @@ async def question_generator_with_profile(
     finding-fix): lateral-probe question WITH choices, under the SAME
     coverage/truthfulness rules and ``filter_ungrounded_choices`` guard as
     MODE A (uses aparse_json)
-
-    include_availability: US265 — set True only by the caller's one-shot check
-    (JD availability marker + >=2 open profile roles); folded into the MODE A
-    cluster prompt OR the MODE B guided-section prompt, but only for the first
-    real cluster/section of a session — the caller (session.py) computes this
-    exactly once, at session creation, and every later advance/follow-up call
-    leaves it at the False default, so "one availability question" stays
-    enforced by construction rather than a tracked flag.
 
     prior_exchanges (ADR-089 clause 6): earlier ``{"question", "answer"}``
     pairs on the current MODE A cluster from OTHER sessions, read by the caller
@@ -651,7 +642,6 @@ async def question_generator_with_profile(
                     section,
                     job_context or {},
                     state["messages"],
-                    include_availability=include_availability,
                 ),
                 system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
                 temperature=0.4,
@@ -688,7 +678,6 @@ async def question_generator_with_profile(
                 cluster, profile, state["messages"],
                 gap_category=gap_category,
                 quant_concepts=quant_concepts,
-                include_availability=include_availability and not follow_up_focus,
                 **prompt_extras,
             ),
             system=with_language(QUESTION_SYSTEM_PROMPT, lang),

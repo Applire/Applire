@@ -28,8 +28,10 @@ Covers:
   - build_question_prompt: quantification instruction present + capped at one
     concept when flagged; byte-identical to the no-flag call when nothing is
     flagged (prompt stability).
-  - should_ask_availability: JD marker + >=2 open roles → True; marker absent or
-    single role → False.
+  - Ruling V-4 (Hazelnut build 3, 2026-10-22): the availability/notice-period
+    add-on and its trigger are REMOVED — no session, door or prompt builder
+    asks the notice period any more (a login info card prompts the profile
+    field instead).
   - No-re-ask proof: a real multi-turn exchange (question_generator_with_profile,
     then the follow-up path) never emits the quantification instruction twice —
     it structurally cannot, because build_follow_up_question_prompt carries no
@@ -164,8 +166,8 @@ def test_multiple_gaps_only_unquantified_ones_flagged():
 
 
 def test_no_flag_prompt_is_byte_identical_to_default_call():
-    """Passing quant_concepts=None/include_availability=False (the new
-    defaults) must reproduce EXACTLY what a pre-US265 call produced."""
+    """Passing quant_concepts=None (the default) must reproduce EXACTLY what a
+    pre-US265 call produced."""
     from applire.prompts.interview import build_question_prompt
 
     cluster = {"id": "c1", "label": "X", "gaps": [], "jd_skills": [], "jd_context": ""}
@@ -174,10 +176,10 @@ def test_no_flag_prompt_is_byte_identical_to_default_call():
 
     baseline = build_question_prompt(cluster, profile, messages)
     explicit_defaults = build_question_prompt(
-        cluster, profile, messages, quant_concepts=None, include_availability=False
+        cluster, profile, messages, quant_concepts=None
     )
     explicit_empty = build_question_prompt(
-        cluster, profile, messages, quant_concepts=[], include_availability=False
+        cluster, profile, messages, quant_concepts=[]
     )
     assert baseline == explicit_defaults == explicit_empty
 
@@ -219,89 +221,25 @@ def test_multiple_flagged_concepts_capped_at_one_mention():
     assert "Kubernetes" not in instruction
 
 
-def test_availability_instruction_present_when_flagged():
-    from applire.prompts.interview import build_question_prompt
+def test_no_prompt_builder_takes_an_availability_add_on_any_more():
+    """Ruling V-4: the add-on is gone, not defaulted off — a caller that still
+    passes it fails loudly instead of silently re-introducing the ask."""
+    from applire.prompts import interview
+    from applire.prompts.interview import build_guided_question_prompt, build_question_prompt
 
     cluster = {"id": "c1", "label": "X", "gaps": [], "jd_skills": [], "jd_context": ""}
-    profile = {"skills": [], "work_experience": []}
-
-    out = build_question_prompt(cluster, profile, [], include_availability=True)
-    assert "availability" in out.lower() or "notice period" in out.lower()
-    assert "valid" in out.lower()
-
-
-def test_availability_instruction_absent_by_default():
-    from applire.prompts.interview import build_question_prompt
-
-    cluster = {"id": "c1", "label": "X", "gaps": [], "jd_skills": [], "jd_context": ""}
-    profile = {"skills": [], "work_experience": []}
-
-    out = build_question_prompt(cluster, profile, [])
-    assert "notice period" not in out.lower()
+    with pytest.raises(TypeError):
+        build_question_prompt(cluster, {}, [], include_availability=True)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        build_guided_question_prompt("skills", {}, [], include_availability=True)  # type: ignore[call-arg]
+    assert not hasattr(interview, "_AVAILABILITY_INSTRUCTION")
 
 
-# ---------------------------------------------------------------------------
-# Part C — should_ask_availability
-# ---------------------------------------------------------------------------
+def test_the_availability_trigger_is_removed():
+    from applire.services import interview_quant
 
-
-def _profile_with_open_roles(n):
-    return {
-        "work_experience": [
-            {"company": f"C{i}", "role": "Engineer", "is_current": True, "end_date": None}
-            for i in range(n)
-        ]
-    }
-
-
-@pytest.mark.parametrize(
-    "jd_text",
-    [
-        "This is a permanent employment position with a 3-month notice period.",
-        "Bitte gib deine Verfügbarkeit an.",
-        "The role is unbefristet.",
-        "We require full availability from day one.",
-    ],
-)
-def test_availability_marker_plus_two_open_roles_allows_question(jd_text):
-    from applire.services.interview_quant import should_ask_availability
-
-    assert should_ask_availability(jd_text, _profile_with_open_roles(2)) is True
-
-
-def test_no_marker_blocks_even_with_two_open_roles():
-    from applire.services.interview_quant import should_ask_availability
-
-    jd_text = "We are looking for a talented backend engineer with FastAPI experience."
-    assert should_ask_availability(jd_text, _profile_with_open_roles(2)) is False
-
-
-def test_marker_present_but_single_open_role_blocks():
-    from applire.services.interview_quant import should_ask_availability
-
-    jd_text = "Notice period and availability must be stated in your application."
-    assert should_ask_availability(jd_text, _profile_with_open_roles(1)) is False
-
-
-def test_marker_present_no_open_roles_blocks():
-    from applire.services.interview_quant import should_ask_availability
-
-    jd_text = "unbefristete Anstellung, sofortige Verfügbarkeit erwünscht"
-    assert should_ask_availability(jd_text, {"work_experience": []}) is False
-
-
-def test_has_multiple_open_roles_counts_end_date_none_without_is_current_key():
-    """Some profile sources omit is_current; falls back to end_date being empty."""
-    from applire.services.interview_quant import has_multiple_open_roles
-
-    profile = {
-        "work_experience": [
-            {"company": "A", "role": "Eng", "end_date": None},
-            {"company": "B", "role": "Eng", "end_date": ""},
-            {"company": "C", "role": "Eng", "end_date": "2020-01"},
-        ]
-    }
-    assert has_multiple_open_roles(profile) is True  # A and B
+    for name in ("should_ask_availability", "detect_availability_signal", "has_multiple_open_roles"):
+        assert not hasattr(interview_quant, name), name
 
 
 # ---------------------------------------------------------------------------
@@ -375,17 +313,11 @@ async def test_followup_path_never_carries_the_quantification_instruction():
 
 
 # ---------------------------------------------------------------------------
-# Part E — full (guided/MODE B) session: availability wiring at ALL
-# session-creation call sites, not just the targeted path.
-#
-# Coordinator correction (2026-07-24): the initial cut wired
-# should_ask_availability only into _create_targeted_session. The founder-
-# charter path — a candidate with a messy/incomplete profile (>=2 open-ended
-# current roles) auto-routes to MODE B (guided, from-scratch) when the JD
-# itself says "Permanent employment only" — never got the check. Same
-# by-construction once-only argument: compute at session creation for the
-# FIRST section only; every later section (send_message's advance branch)
-# never passes the flag.
+# Part E — full sessions never ask the notice period (ruling V-4, Hazelnut
+# build 3, 2026-10-22). Until then US265 folded an availability ask into the
+# first question of a session whose posting named an availability marker and
+# whose profile showed >= 2 open roles; these are that exact founder-charter
+# shape, now pinned to carry NO such ask on any session-creation path.
 # ---------------------------------------------------------------------------
 
 import uuid
@@ -478,10 +410,9 @@ def _spy_provider(question="Tell me about your background."):
 
 
 @pytest.mark.asyncio
-async def test_guided_session_first_section_carries_availability_instruction(sqlite_session):
-    """The FULL guided (MODE B, from-scratch) session's first section question
-    carries the availability instruction when the JD marker + >=2 open roles
-    both hold — the founder-charter scenario."""
+async def test_guided_session_first_section_never_asks_the_notice_period(sqlite_session):
+    """The founder-charter shape (availability marker + >= 2 open roles) that
+    used to fold the ask in: the first section question carries none."""
     from applire.services.session import create_session
     from applire.schemas.session import SessionCreateRequest
 
@@ -497,33 +428,8 @@ async def test_guided_session_first_section_carries_availability_instruction(sql
     await create_session(req, sqlite_session, provider)
 
     first_prompt = provider.acomplete.call_args_list[0].args[0]
-    assert "availability" in first_prompt.lower() or "notice period" in first_prompt.lower()
-    assert "valid" in first_prompt.lower()  # terminal-answer rule present
-
-
-@pytest.mark.asyncio
-async def test_guided_session_first_section_no_availability_without_marker(sqlite_session):
-    """Same >=2 open roles, but a JD with no availability/commitment marker —
-    the instruction must NOT appear."""
-    from applire.services.session import create_session
-    from applire.schemas.session import SessionCreateRequest
-
-    job = _availability_job(
-        raw_text="Senior Engineer role focused on backend systems and FastAPI.",
-        raw_text_hash=uuid.uuid4().hex,
-    )
-    profile = _profile_two_open_roles()
-    sqlite_session.add(job)
-    sqlite_session.add(profile)
-    await sqlite_session.commit()
-
-    req = SessionCreateRequest(job_id=job.id, mode="guided")
-    provider = _spy_provider()
-
-    await create_session(req, sqlite_session, provider)
-
-    first_prompt = provider.acomplete.call_args_list[0].args[0]
     assert "notice period" not in first_prompt.lower()
+    assert "availability opportunity" not in first_prompt.lower()
 
 
 @pytest.mark.asyncio
@@ -548,7 +454,7 @@ async def test_guided_session_later_section_never_recarries_availability(sqlite_
     create_result = await create_session(req, sqlite_session, create_provider)
 
     first_prompt = create_provider.acomplete.call_args_list[0].args[0]
-    assert "availability" in first_prompt.lower() or "notice period" in first_prompt.lower()
+    assert "notice period" not in first_prompt.lower()
 
     # Advance to the second section: the reconciler reports a real profile
     # change (addressed=True) so send_message's advance branch fires and

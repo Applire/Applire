@@ -87,7 +87,6 @@ from applire.services.interview.sufficiency import (
     concept_is_required,
     is_interview_sufficient,
 )
-from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import (
     assert_claimable_backed,
     reevaluate_gap_ledger_against_vault,
@@ -2562,18 +2561,10 @@ async def _create_targeted_session(
         first_choices = gate_entry["choices"]
     else:
         first_category = gap_categories.get(first_cluster_id)
-        # US265 — availability elicitation is folded into the FIRST real MODE A
-        # cluster question only: computed once here, never recomputed for any
-        # later cluster in this session, so "one availability question" holds
-        # by construction rather than a tracked flag.
-        include_availability = should_ask_availability(
-            job.raw_text, profile_record.profile_json
-        )
         q_data = await _cluster_question(
             state, profile_record.profile_json, provider, db,
             user_id=user_id,
             gap_category=first_category, lang=lang,
-            include_availability=include_availability,
         )
         first_question = q_data["question"]
         first_choices = q_data["choices"]
@@ -2689,13 +2680,6 @@ async def _create_guided_session(
         first_question = gate_entry["question"]
         first_choices = gate_entry["choices"]
     else:
-        # US265 — same one-shot check as the targeted path: computed once,
-        # here, for the FIRST section only. Every later section is asked via
-        # send_message's advance branch, which never passes this flag, so
-        # "one availability question" holds by construction.
-        include_availability = should_ask_availability(
-            job.raw_text, profile_record.profile_json
-        )
         q_data = await question_generator_with_profile(
             state,
             profile_record.profile_json,
@@ -2703,7 +2687,6 @@ async def _create_guided_session(
             gap_category=None,
             job_context=job_context,
             lang=lang,
-            include_availability=include_availability,
         )
         first_question = q_data["question"]
         first_choices = None
@@ -2823,7 +2806,6 @@ async def _create_micro_session(
         if refusal is not None:
             raise refusal
 
-    prior_asked = _prior_asked(cluster)
     micro_ceiling = derive_hard_ceiling(1)
     state: InterviewState = _build_state(
         mode="targeted",
@@ -2838,18 +2820,10 @@ async def _create_micro_session(
         micro_session=True,
     )
     state["questions_per_gap"] = _seed_questions_per_gap({target_cluster_id: cluster})
-    # US265 — the availability ask rides the cluster's OPENING question only:
-    # this session's first question, and only when no earlier door has asked
-    # this cluster before (its opening question then already carried it).
-    # Follow-ups never pass the flag.
-    include_availability = prior_asked == 0 and should_ask_availability(
-        job.raw_text, profile_record.profile_json
-    )
     q_data = await _cluster_question(
         state, profile_record.profile_json, provider, db,
         user_id=user_id,
         gap_category=gap_category, lang=lang,
-        include_availability=include_availability,
     )
     first_question = q_data["question"]
     first_choices = q_data["choices"]
