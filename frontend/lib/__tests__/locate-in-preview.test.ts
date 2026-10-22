@@ -76,6 +76,24 @@ describe("normAudit — the folds the audit applies", () => {
   });
 });
 
+const FOLD_VECTORS_PATH =
+  process.env.ATS_FOLD_VECTORS ?? path.resolve(__dirname, "../../../tests/files/ats_fold_vectors.json");
+const foldDoc: { vectors: Array<{ needle: string; variants: string[] }> } | null = fs.existsSync(FOLD_VECTORS_PATH)
+  ? JSON.parse(fs.readFileSync(FOLD_VECTORS_PATH, "utf-8"))
+  : null;
+
+describe("foldVariants — parity with the backend ats_audit._fold_variants (shared vector file)", () => {
+  it("reads a non-empty shared fold vector file", () => {
+    expect(foldDoc, `missing ${FOLD_VECTORS_PATH}`).not.toBeNull();
+    expect(foldDoc!.vectors.length).toBeGreaterThanOrEqual(20);
+  });
+  for (const v of foldDoc?.vectors ?? []) {
+    it(`folds ${JSON.stringify(v.needle)} to the Python variants`, () => {
+      expect(foldVariants(v.needle)).toEqual(v.variants);
+    });
+  }
+});
+
 describe("findHits — whole-token, fold variants, stem fallback", () => {
   it("finds a form at a word boundary only", () => {
     const text = normAudit("AI governance board; not AI-governanceX or sub-AI governance");
@@ -84,8 +102,35 @@ describe("findHits — whole-token, fold variants, stem fallback", () => {
     expect(hits.map((h) => text.slice(h.start, h.end))).toEqual(["ai governance", "ai governance"]);
   });
 
-  it("does not match inside a longer token", () => {
-    expect(findHits(normAudit("Vertriebsreporting"), [{ form: "Vertrieb" }])).toHaveLength(0);
+  it("does not match inside a longer token while a whole-token hit exists", () => {
+    const text = normAudit("Vertrieb und Vertriebsreporting");
+    const hits = findHits(text, [{ form: "Vertrieb" }]);
+    expect(hits.map((h) => text.slice(h.start, h.end))).toEqual(["vertrieb"]);
+  });
+
+  it("falls back to the audit's substring semantics when no whole-token hit exists", () => {
+    const text = normAudit("Erfahrung im Ärzteteam der Station");
+    const hits = findHits(text, [{ form: "Ärzte" }]);
+    expect(hits).toHaveLength(1);
+    expect(text.slice(hits[0].start, hits[0].end)).toBe("ärzte");
+  });
+
+  it("prefers the whole-token hit over a compound when both exist", () => {
+    const text = normAudit("Ärzte im Ärzteteam");
+    const hits = findHits(text, [{ form: "Ärzte" }]);
+    expect(hits.map((h) => text.slice(h.start, h.end))).toEqual(["ärzte"]);
+    expect(hits[0].start).toBe(0);
+  });
+
+  it("finds a suffix-pair counterpart as a whole token", () => {
+    const text = normAudit("Wir fordern die Zertifizierung");
+    const hits = findHits(text, [{ form: "Zertifizierungen" }]);
+    expect(hits.map((h) => text.slice(h.start, h.end))).toEqual(["zertifizierung"]);
+  });
+
+  it("finds a non-final adjective declension as a whole-token phrase", () => {
+    const text = normAudit("im industriellen Mittelstand tätig");
+    expect(findHits(text, [{ form: "industrieller Mittelstand" }])).toHaveLength(1);
   });
 
   it("tries the singular/plural fold like _fold_variants", () => {
