@@ -297,7 +297,8 @@
     "recheckingGaps": "Wird geprüft …",
     "recheckLockedHint": "Beantworte zuerst die offene Frage, dann kannst du neu prüfen.",
     "recheckFailed": "Die neue Prüfung hat nicht geklappt. Versuche es gleich noch einmal.",
-    "generateWithoutInterviewCost": "Ohne Interview bleiben die offenen Punkte oben ungeklärt – die Fakten dazu sammelt erst das Interview."
+    "generateWithoutInterviewCost": "Ohne Interview bleiben die offenen Punkte oben ungeklärt – die Fakten dazu sammelt erst das Interview.",
+    "coverageDeclinedTerms": "Laut deiner Angabe nicht vorhanden: {terms}"
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -335,7 +336,30 @@
       "nothingRecorded": "Von dem, was du gesagt hast, wurde nichts übernommen — sag es noch einmal in einem Satz, oder trag es im Profil ein.",
       "alreadyKnown": "Das steht so schon in deinem Profil.",
       "questionOnly": "Deine Frage ist angekommen — dazu wurde nichts geändert."
-    }
+    },
+    "questionNumber": "Frage {current}",
+    "currentTopic": "Thema: {label}",
+    "openRequirements": "{count, plural, =0 {Keine Anforderung mehr offen} one {# Anforderung offen} other {# Anforderungen offen}}",
+    "openRequirementsConfirm": "Noch {count, plural, one {# Anforderung ist} other {# Anforderungen sind}} offen. Möchtest du das Interview trotzdem beenden? Was du bisher gesagt hast, bleibt in deinem Profil.",
+    "endConfirm": "Möchtest du das Interview beenden? Was du bisher gesagt hast, bleibt in deinem Profil.",
+    "matchWithJob": "Übereinstimmung mit der Stelle",
+    "matchBeforeInterview": "Stand vor dem Interview",
+    "trackerHeading": "{count, plural, =0 {Nichts mehr offen} one {# offene Anforderung} other {# offene Anforderungen}} · {topics, plural, one {# Thema} other {# Themen}}",
+    "introEyebrow": "Interview",
+    "introEyebrowRole": "Interview · {role}",
+    "introTitle": "Bevor es losgeht",
+    "introWhyTitle": "Warum",
+    "introWhyBody": "Dein Lebenslauf zeigt noch nicht alles, was die Stelle verlangt. Wir fragen nur nach {count, plural, one {dieser # offenen Anforderung} other {diesen # offenen Anforderungen}} — Thema für Thema.",
+    "introWhyBodyNoneOpen": "Ein paar Anforderungen der Stelle sind nur wahrscheinlich belegt. Wir fragen kurz nach, damit dein Lebenslauf sie sicher nennen kann.",
+    "introHowLongTitle": "Wie lange",
+    "introHowLongBody": "Etwa {count} Fragen, meist {low}–{high} Minuten. Antworte in deinen Worten; Stichpunkte reichen.",
+    "introHowLongBodyNoEstimate": "Ein paar Fragen. Antworte in deinen Worten; Stichpunkte reichen.",
+    "introStopTitle": "Aufhören, wann du willst",
+    "introStopBody": "Mit „Ich bin fertig“ endest du jederzeit. Was du bis dahin gesagt hast, steht in deinem Profil und hilft auch bei späteren Bewerbungen.",
+    "introHonestTitle": "Ehrlich ist richtig",
+    "introHonestBody": "Trifft etwas nicht zu, sag es einfach. Ein Nein halten wir so fest — es wird nicht schöngeschrieben.",
+    "introStart": "Erste Frage zeigen",
+    "introBack": "Zurück zu den Lücken"
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",

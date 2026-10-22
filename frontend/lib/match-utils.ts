@@ -83,6 +83,9 @@ export interface LedgerChipEntry {
   concept: string;
   fit_weight: number; // 1.0 required / 0.5 nice_to_have / 0.0 keyword-only
   sources?: string[];
+  /** "direct" | "partial" | "gap" | "denied" (ADR-048) — read by
+   * {@link requirementCounts}. */
+  status?: string;
 }
 
 /**
@@ -418,4 +421,75 @@ export function clusterCoverageCounts(clusters: GapCluster[] | null | undefined)
     if (v.askable) askable += 1;
   }
   return { covered, askable };
+}
+
+// ---------------------------------------------------------------------------
+// Hazelnut build 3 (#789 "One thing, several gap counts", ruling F1-2) — ONE
+// open-requirement number on the gaps page, the interview header and the
+// interview sidebar.
+// ---------------------------------------------------------------------------
+
+/** The ledger row fields the requirement counts read (ADR-048
+ * `KeywordLedgerEntry`; `status` is "direct" | "partial" | "gap" | "denied"). */
+export interface LedgerStatusEntry {
+  concept: string;
+  fit_weight: number;
+  status?: string;
+}
+
+export interface RequirementCounts {
+  /** The job's requirements: ledger rows with `fit_weight > 0` (the
+   * "N Anforderungen erkannt" set of the posting read-back). */
+  total: number;
+  /** Shown by the profile (`direct`). */
+  shown: number;
+  /** Likely shown (`partial`) — its own class, never called a gap. */
+  likely: number;
+  /** THE gap count: not shown by the profile yet (`gap`). */
+  open: number;
+  /** The candidate said they do not have it (`denied`). */
+  declined: number;
+}
+
+/**
+ * The one requirement tally every surface shows. Source: the analysis row's
+ * `keyword_ledger` — its fit-weighted rows (`fit_weight > 0`) ARE the job's
+ * requirements, and a session turn updates their `status` in place, so a
+ * re-read of `GET /api/job/{id}/gaps` after each interview turn moves the
+ * number (lead G, 2026-10-22; `category_a/b/c` and `match_score` are only
+ * recomputed at completion / `POST /gaps/refresh`). A theme (gap cluster) is a
+ * GROUPING, never a count: clusters are built from a wider input (keyword-only
+ * ATS terms, #260 liabilities), so cluster members are not requirements.
+ * A legacy row without a status-bearing ledger falls back to the category
+ * lists (`category_c` = open).
+ */
+export function requirementCounts(
+  gaps:
+    | (GapCategories & { keyword_ledger?: (LedgerChipEntry & { status?: string })[] | null })
+    | null
+    | undefined,
+): RequirementCounts {
+  const fit = (gaps?.keyword_ledger ?? []).filter(
+    (e) => (e?.fit_weight ?? 0) > 0 && typeof e?.status === "string",
+  );
+  if (fit.length > 0) {
+    const n = (st: string) => fit.filter((e) => e.status === st).length;
+    return {
+      total: fit.length,
+      shown: n("direct"),
+      likely: n("partial"),
+      open: n("gap"),
+      declined: n("denied"),
+    };
+  }
+  const a = gaps?.category_a?.length ?? 0;
+  const b = gaps?.category_b?.length ?? 0;
+  const c = gaps?.category_c?.length ?? 0;
+  return { total: a + b + c, shown: a, likely: b, open: c, declined: 0 };
+}
+
+/** How many themes (gap clusters) can still be asked — the grouping the open
+ * requirements are shown in. */
+export function openThemeCount(clusters: GapCluster[] | null | undefined): number {
+  return clusterCoverageCounts(clusters).askable;
 }

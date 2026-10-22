@@ -297,7 +297,8 @@
     "recheckingGaps": "Checking …",
     "recheckLockedHint": "Finish the open question first, then you can re-check.",
     "recheckFailed": "The re-check did not go through. Please try again in a moment.",
-    "generateWithoutInterviewCost": "Without the interview, the open points above stay unresolved — the interview is where those facts come from."
+    "generateWithoutInterviewCost": "Without the interview, the open points above stay unresolved — the interview is where those facts come from.",
+    "coverageDeclinedTerms": "You said you don't have: {terms}"
   },
   "interview": {
     "loading": "Starting interview…",
@@ -335,7 +336,30 @@
       "nothingRecorded": "Nothing was recorded from what you said — say it again in one sentence, or enter it in your profile.",
       "alreadyKnown": "That is already in your profile, as stated.",
       "questionOnly": "Your question arrived — nothing was changed for it."
-    }
+    },
+    "questionNumber": "Question {current}",
+    "currentTopic": "Topic: {label}",
+    "openRequirements": "{count, plural, =0 {No requirement open} one {# requirement open} other {# requirements open}}",
+    "openRequirementsConfirm": "{count, plural, one {# requirement is} other {# requirements are}} still open. Do you want to end the interview anyway? What you said so far stays in your profile.",
+    "endConfirm": "Do you want to end the interview? What you said so far stays in your profile.",
+    "matchWithJob": "Match with the job",
+    "matchBeforeInterview": "Before the interview",
+    "trackerHeading": "{count, plural, =0 {Nothing open} one {# open requirement} other {# open requirements}} · {topics, plural, one {# topic} other {# topics}}",
+    "introEyebrow": "Interview",
+    "introEyebrowRole": "Interview · {role}",
+    "introTitle": "Before we start",
+    "introWhyTitle": "Why",
+    "introWhyBody": "Your CV does not show everything the job asks for yet. We only ask about {count, plural, one {this # open requirement} other {these # open requirements}} — one topic at a time.",
+    "introWhyBodyNoneOpen": "A few of the job's requirements are only likely covered. We ask briefly so your CV can state them with confidence.",
+    "introHowLongTitle": "How long",
+    "introHowLongBody": "About {count} questions, usually {low}–{high} minutes. Answer in your own words; bullet points are fine.",
+    "introHowLongBodyNoEstimate": "A few questions. Answer in your own words; bullet points are fine.",
+    "introStopTitle": "Stop whenever you like",
+    "introStopBody": "\"I'm done\" ends it at any time. What you said until then is in your profile and helps later applications too.",
+    "introHonestTitle": "Honest is right",
+    "introHonestBody": "If something doesn't apply, just say so. We record a no as a no — it never gets dressed up.",
+    "introStart": "Show the first question",
+    "introBack": "Back to the gaps"
   },
   "cv": {
     "generating": "Generating CV…",

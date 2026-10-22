@@ -28,6 +28,7 @@ import {
   scoreToPercent,
   type GapCluster,
 } from "../match-utils";
+import { requirementCounts } from "../match-utils";
 
 describe("gapCounts", () => {
   it("splits a gap analysis into the four displayed counts", () => {
@@ -414,5 +415,35 @@ describe("isGapRefusalCode", () => {
     expect(isGapRefusalCode("gap_already_covered")).toBe(true);
     expect(isGapRefusalCode("provider_unavailable")).toBe(false);
     expect(isGapRefusalCode(undefined)).toBe(false);
+  });
+});
+
+// Hazelnut b3 #789 (ruling F1-2) — ONE open-requirement number.
+describe("requirementCounts", () => {
+  it("counts the ledger's fit-weighted rows by status; keyword-only terms are not requirements", () => {
+    const c = requirementCounts({
+      keyword_ledger: [
+        { concept: "A", fit_weight: 1, status: "direct" },
+        { concept: "B", fit_weight: 0.5, status: "partial" },
+        { concept: "C", fit_weight: 1, status: "gap" },
+        { concept: "D", fit_weight: 1, status: "gap" },
+        { concept: "E", fit_weight: 1, status: "denied" },
+        { concept: "PP/MM", fit_weight: 0, status: "gap" },
+      ],
+      category_c: ["C"], // stale list: the ledger wins
+    });
+    expect(c).toEqual({ total: 5, shown: 1, likely: 1, open: 2, declined: 1 });
+  });
+
+  it("falls back to the category lists for a legacy row without ledger statuses", () => {
+    expect(
+      requirementCounts({
+        keyword_ledger: [{ concept: "A", fit_weight: 1 }],
+        category_a: ["A"],
+        category_b: ["B", "B2"],
+        category_c: ["C"],
+      }),
+    ).toEqual({ total: 4, shown: 1, likely: 2, open: 1, declined: 0 });
+    expect(requirementCounts(null)).toEqual({ total: 0, shown: 0, likely: 0, open: 0, declined: 0 });
   });
 });
