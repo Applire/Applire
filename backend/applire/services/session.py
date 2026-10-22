@@ -872,8 +872,9 @@ async def _ask_queued_confirmation(
     state["current_question"] = question
     state["current_choices"] = options
     state["messages"].append({"role": "assistant", "content": question})
-    state["questions_asked"] = state.get("questions_asked", 0) + 1
-    record.questions_asked = state["questions_asked"]
+    # RULING 787:L7 (founder 2026-10-22) — a confirmation is not gap
+    # elicitation: `questions_asked` (the ADR-080 budget AND the header count)
+    # does not move for it. See `_handle_interview_confirmation_answer`.
     record.state = state
     record.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -1123,8 +1124,14 @@ async def _handle_interview_confirmation_answer(
     current_gap = state["critical_gaps"][current_idx]
     if current_gap not in state.get("addressed_gaps", []):
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
-    state["questions_asked"] = state.get("questions_asked", 0) + 1
-    record.questions_asked = state["questions_asked"]
+    # RULING 787:L7 (founder 2026-10-22; Hazelnut b3 WP-V, UX audit Marcus
+    # Q7/Q8) — skill-merge confirmation / disambiguation turns no longer count
+    # against the interview's question budget: `questions_asked` counts gap
+    # elicitation only. Before, every answered confirmation advanced it, and
+    # ADR-080's ceiling `per_gap * n + 2` has a MEASURED +2 — so confirmations
+    # spent the terminal headroom and a third ended a fully-worked interview
+    # on `max_questions_reached`. The gap answer that raised the confirmation
+    # was already counted (send_message's own increment).
 
     return _with_receipt(
         await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang),
@@ -3342,6 +3349,27 @@ async def _upgrade_ledger_for_addressed_gap(
 
 
 async def send_message(
+    session_id: uuid.UUID,
+    message: str,
+    db: AsyncSession,
+    provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> SessionMessageResponse:
+    """One interview turn. Every response carries the session's
+    ``questions_asked`` (RULING 787:L7 — gap elicitation only), so the header
+    count reads the backend's number instead of counting turns client-side,
+    which would count a confirmation turn as a question."""
+    response = await _send_message_turn(session_id, message, db, provider, user_id=user_id)
+    if response.questions_asked is None:
+        uid = resolve_user_id(user_id, site="session.send_message")
+        record = await owned_row(db, InterviewSession, session_id, uid)
+        if record is not None:
+            response.questions_asked = record.questions_asked
+    return response
+
+
+async def _send_message_turn(
     session_id: uuid.UUID,
     message: str,
     db: AsyncSession,

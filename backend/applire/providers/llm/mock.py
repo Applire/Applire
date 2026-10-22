@@ -38,6 +38,8 @@ System prompt fingerprints:
                                    → batch skill estimation (aparse_json → dict, prompt-keyed)
   "experience field analyst"       → role field expectations    (aparse_json → dict, prompt-keyed)
   "verifying one narrow claim"     → ADR-061 stance adjudication (aparse_json → dict, prompt-keyed)
+  "you check bullet points of one person's professional profile"
+                                   → D-B3V6 import restatement check (aparse_json → {"items": []})
   "strict verification function"   → Oracle narrow entailment (#404 retrofit) (aparse_json → dict)
   "truthfulness oracle's equivalence judge" → ADR-068 bounded equivalence judgement
                                      (cross-language + restatement seams) (aparse_json → dict, prompt-keyed)
@@ -738,6 +740,12 @@ class MockLLMProvider(LLMProvider):
                 c.strip() for c in _re.split(r"(?<=[.!?])\s+", prompt) if c.strip()
             ]
             return {"claims": parts or [prompt.strip()]}
+
+        # D-B3V6 (ruling V-3 = A) — the import restatement check. The real
+        # shape with nothing restated: every new bullet is written, exactly
+        # what the mock stack's imports did before the check existed.
+        if "you check bullet points of one person's professional profile" in system_lower:
+            return {"items": []}
 
         # ADR-046 / US181-US182a — single-call profile reconciler. Returns a
         # representative op batch (one upsert_skill) so the interview loop's

@@ -27,7 +27,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   cloneEntry,
   makeEmptyPublication,
@@ -36,6 +36,7 @@ import {
   type ProfileSectionsResponse,
   type Publication,
 } from "@/lib/profile-entries";
+import { formatDisplayDate, type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
@@ -63,7 +64,6 @@ interface PublicationsEditorProps {
   onProfileUpdated: (profile: ProfileSectionsResponse) => void;
 }
 
-const YEAR_ONLY = /^\d{4}$/;
 
 export function PublicationsEditor({
   entries,
@@ -72,6 +72,7 @@ export function PublicationsEditor({
   onProfileUpdated,
 }: PublicationsEditorProps) {
   const t = useTranslations("profile");
+  const locale: DisplayLocale = useLocale() === "de" ? "de" : "en";
   const tCommon = useTranslations("common");
 
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -146,12 +147,6 @@ export function PublicationsEditor({
     if (inFlight.current) return;
     const { index } = dialog;
     const title = (dialog.draft.title ?? "").trim();
-    // A year alone is coerced to 1 January by the backend `date` field — a
-    // fabricated day nobody chose, exactly like CertificationsEditor's guard.
-    if (YEAR_ONLY.test(dialog.draft.published_date ?? "")) {
-      setValidationError(t("entryEditor.validationMonthRequired"));
-      return;
-    }
     if (!title) {
       setValidationError(t("entryEditor.validationRequired"));
       return;
@@ -289,7 +284,9 @@ export function PublicationsEditor({
                   )}
                   {[p.venue, p.published_date].some(nonEmptyText) && (
                     <span className="text-xs text-gray-500">
-                      {[p.venue, p.published_date].filter(nonEmptyText).join(" · ")}
+                      {[p.venue, nonEmptyText(p.published_date) ? formatDisplayDate(p.published_date, locale) : null]
+                        .filter(nonEmptyText)
+                        .join(" · ")}
                     </span>
                   )}
                 </div>

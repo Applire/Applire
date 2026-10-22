@@ -21,7 +21,11 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 vi.mock("next-intl", () => ({ useTranslations: () => Object.assign((key: string) => key, { has: () => true }) }));
 
 const getProfileChanges = vi.fn();
-vi.mock("@/lib/api/review", () => ({ getProfileChanges: () => getProfileChanges() }));
+const getReceiptSummary = vi.fn();
+vi.mock("@/lib/api/review", () => ({
+  getProfileChanges: () => getProfileChanges(),
+  getReceiptSummary: (sid?: string | null) => getReceiptSummary(sid),
+}));
 
 import { DecisionTrailReview } from "../DecisionTrailReview";
 
@@ -47,11 +51,17 @@ describe("DecisionTrailReview", () => {
     expect(screen.queryByText("from your answer")).toBeNull();         // interview row excluded
   });
 
-  it("interview mode shows only interview changes", async () => {
-    render(<DecisionTrailReview mode="interview" />);
-    await waitFor(() => expect(screen.getByTestId("what-changed-review")).toHaveAttribute("data-mode", "interview"));
-    expect(screen.getByText("from your answer")).toBeInTheDocument();
-    expect(screen.queryByText("merged at upload")).toBeNull();
+  it("interview mode renders the session's receipt summary, not the raw trail (ruling V-1 = A)", async () => {
+    getReceiptSummary.mockResolvedValue({
+      session_id: "s9", answers: 1, facts_total: 1,
+      groups: [{ section: "skills", count: 1, entities: [], preview: ["INTERVIEW_FACT"], more: 0 }],
+      top: [], facts: [{ key: "k", section: "skills", kind: "skill", action: "added", text: "INTERVIEW_FACT", also_in: [] }],
+    });
+    render(<DecisionTrailReview mode="interview" sessionId="s9" />);
+    await waitFor(() => expect(screen.getByTestId("receipt-summary")).toBeInTheDocument());
+    expect(getReceiptSummary).toHaveBeenCalledWith("s9");
+    expect(getProfileChanges).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("what-changed-review")).toBeNull();
   });
 
   it("extraction mode shows only what was read in (added) from the CV", async () => {
@@ -71,7 +81,10 @@ describe("DecisionTrailReview", () => {
     expect(screen.getByTestId("what-changed-skip")).toBeInTheDocument();  // skippable (ADR-040 §4)
   });
 
-  it("interview mode includes agent_interview changes; merge mode excludes them (US256)", async () => {
+  // US256's interview half (agent_interview counts as the interview's receipt)
+  // moved with the receipt to the backend producer — pinned in
+  // tests/unit/test_b3_receipt_summary.py::test_agent_interview_records_are_interview_receipts.
+  it("merge mode excludes agent_interview changes (US256)", async () => {
     getProfileChanges.mockResolvedValue({
       enrichmentHistory: [
         { source: "agent_interview", timestamp: "t1", changes: [{ section: "skills", field: "skills", action: "added", newValue: "AGENT_ROW", rationale: "from the agent claim" }] },
@@ -79,12 +92,6 @@ describe("DecisionTrailReview", () => {
       ],
       pendingConflicts: [],
     });
-    const { unmount } = render(<DecisionTrailReview mode="interview" />);
-    await waitFor(() => expect(screen.getByTestId("what-changed-review")).toHaveAttribute("data-mode", "interview"));
-    expect(screen.getByText("from the agent claim")).toBeInTheDocument();
-    expect(screen.queryByText("merged at upload")).toBeNull();
-    unmount();
-
     render(<DecisionTrailReview mode="merge" />);
     await waitFor(() => expect(screen.getByTestId("what-changed-review")).toHaveAttribute("data-mode", "merge"));
     expect(screen.getByText("merged at upload")).toBeInTheDocument();
@@ -93,9 +100,9 @@ describe("DecisionTrailReview", () => {
 
   it("forwards onFix (Branch G)", async () => {
     const onFix = vi.fn();
-    render(<DecisionTrailReview mode="interview" onFix={onFix} />);
-    await waitFor(() => screen.getByTestId("what-changed-fix"));
-    fireEvent.click(screen.getByTestId("what-changed-fix"));
+    render(<DecisionTrailReview mode="merge" onFix={onFix} />);
+    await waitFor(() => screen.getAllByTestId("what-changed-fix"));
+    fireEvent.click(screen.getAllByTestId("what-changed-fix")[0]);
     expect(onFix).toHaveBeenCalledOnce();
   });
 });

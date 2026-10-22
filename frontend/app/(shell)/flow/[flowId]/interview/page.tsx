@@ -807,7 +807,7 @@ export default function InterviewPage({
 
           {/* What we added from your answers — before generation (ADR-040, US148 / JF-M-5.2) */}
           <div className="mb-8" data-testid="interview-summary-section">
-            <DecisionTrailReview mode="interview" onFix={() => router.push("/profile")} />
+            <DecisionTrailReview mode="interview" sessionId={sessionId} onFix={() => router.push("/profile")} />
           </div>
 
           {/* CTAs */}

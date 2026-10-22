@@ -27,7 +27,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   cloneEntry,
   makeEmptyCertification,
@@ -35,6 +35,7 @@ import {
   type Certification,
   type ProfileSectionsResponse,
 } from "@/lib/profile-entries";
+import { formatDisplayDate, type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { PartialDateField } from "./PartialDateField";
 import { StatusBadge } from "./StatusBadge";
@@ -69,6 +70,7 @@ export function CertificationsEditor({
   onProfileUpdated,
 }: CertificationsEditorProps) {
   const t = useTranslations("profile");
+  const locale: DisplayLocale = useLocale() === "de" ? "de" : "en";
   const tCommon = useTranslations("common");
 
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -143,14 +145,6 @@ export function CertificationsEditor({
     if (inFlight.current) return;
     const { index } = dialog;
     const name = (dialog.draft.name ?? "").trim();
-    // A year alone is coerced to 1 January by the backend `date` field — a
-    // fabricated day nobody chose (adversarial finding 2026-08-26). Require the
-    // month whenever a year is given; "unknown" (null) stays allowed.
-    const yearOnly = /^\d{4}$/;
-    if (yearOnly.test(dialog.draft.date_obtained ?? "") || yearOnly.test(dialog.draft.expiry_date ?? "")) {
-      setValidationError(t("entryEditor.validationMonthRequired"));
-      return;
-    }
     if (!name) {
       setValidationError(t("entryEditor.validationRequired"));
       return;
@@ -271,7 +265,7 @@ export function CertificationsEditor({
           {entries.map((c, i) => {
             const rawLabel = nonEmptyText(c.name) ? c.name : null;
             const label = rawLabel ?? t("notProvided");
-            const when = c.date_obtained;
+            const when = nonEmptyText(c.date_obtained) ? formatDisplayDate(c.date_obtained, locale) : null;
             return (
               <li
                 key={nonEmptyText(c.id) ? c.id : i}

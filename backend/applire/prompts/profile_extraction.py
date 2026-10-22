@@ -160,8 +160,9 @@ STRICT EXTRACTION RULES — follow these before writing any output:
     Examples: "der GmbH mit 480 Mitarbeitenden" (employer headcount) → null; "a 28-bed ward"
     (facility capacity) → null; "Mentor two mid-level engineers" (mentees, no line responsibility)
     → null; "mit 38 Mitarbeitenden im Dreischichtbetrieb" (people the candidate led) → 38.
-13. PROFICIENCY SCALE: every skill "proficiency" MUST be exactly one of basic | intermediate |
-    advanced | expert. Map a graphical or numeric competency scale deterministically by the filled
+13. PROFICIENCY SCALE: a skill "proficiency" is set only when the source states or shows a level
+    for it — then exactly one of basic | intermediate | advanced | expert; when the source states
+    none, null (never a default "intermediate" — ADR-013/061 amended 2026-10-22). Map a graphical or numeric competency scale deterministically by the filled
     fraction of its maximum, so equal scale positions always yield the same proficiency level:
     full marks (5/5 dots, 10/10, ●●●●●) → "expert"; ~80% (4/5 dots, 8/10, ●●●●○) → "advanced";
     ~50-60% (3/5 dots, 6/10, ●●●○○) → "intermediate"; ≤40% (1-2/5 dots, ≤4/10) → "basic". Word
@@ -221,7 +222,7 @@ Schema:
     {
       "name": "Skill name",
       "category": "technical | soft | language | domain",
-      "proficiency": "basic | intermediate | advanced | expert — see PROFICIENCY SCALE rule",
+      "proficiency": "basic | intermediate | advanced | expert | null — see PROFICIENCY SCALE rule",
       "years_experience": "Integer years or null",
       "last_used": "ISO date YYYY-MM-DD or null"
     }

@@ -285,6 +285,8 @@
     "decisions": {
       "title": "{count, plural, one {# Entscheidung nötig, um dein Profil zu aktualisieren} other {# Entscheidungen nötig, um dein Profil zu aktualisieren}}",
       "body": "Deine Antwort berührt etwas, das dein Profil bereits sagt. Wähle, welche Fassung stimmt — das dauert einen Moment.",
+      "bodyImport": "Beim Zusammenführen deiner Unterlagen sind zwei Fassungen derselben Angabe aufgetaucht. Wähle, welche stimmt — das dauert einen Moment.",
+      "bodyMixed": "Etwas Neues berührt eine Angabe, die schon in deinem Profil steht. Wähle, welche Fassung stimmt — das dauert einen Moment.",
       "cta": "Jetzt entscheiden",
       "dismiss": "Ausblenden",
       "dismissAria": "Diesen Hinweis ausblenden",
@@ -866,7 +868,6 @@
       "statusUnconfirmed": "unbestätigt",
       "statusDenied": "verneint",
       "addAsConfirmed": "Als bestätigt hinzufügen",
-      "validationMonthRequired": "Bitte auch den Monat angeben — ein Jahr allein würde als 1. Januar gespeichert.",
       "validationYearsRange": "Jahre der Erfahrung: bitte 0–80 angeben."
     },
     "summaryEditor": {
@@ -934,6 +935,7 @@
       "fieldName": "Name *",
       "fieldCategory": "Kategorie",
       "fieldProficiency": "Niveau",
+      "proficiencyNotStated": "Nicht angegeben",
       "fieldYearsExperience": "Jahre Erfahrung",
       "categoryTechnical": "Technisch",
       "categorySoft": "Soft Skill",
@@ -995,6 +997,18 @@
       "fieldCause": "Bereich",
       "fieldLocation": "Ort",
       "fieldDescription": "Beschreibung"
+    },
+    "availability": {
+      "title": "Kündigungsfrist / frühester Start",
+      "recordedAt": "Stand: {date}",
+      "add": "Kündigungsfrist eintragen",
+      "edit": "Bearbeiten",
+      "label": "Wann kannst du frühestens anfangen?",
+      "placeholder": "z. B. 3 Monate zum Quartalsende",
+      "save": "Speichern",
+      "cancel": "Abbrechen",
+      "saveFailed": "Das hat nicht geklappt. Bitte versuch es noch einmal.",
+      "clearHint": "Leer speichern entfernt die Angabe."
     }
   },
   "health": {
@@ -1268,7 +1282,7 @@
     "analysing": "Analysiert…"
   },
   "profileImport": {
-    "title": "Profil aktualisieren",
+    "title": "Lebenslauf oder Stelle hinzufügen",
     "subtitle": "Lebenslauf als PDF, DOCX, TXT, MD oder Bild — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "subtitleNoImage": "Lebenslauf als PDF, DOCX, TXT oder MD — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "dropTitle": "Datei hier ablegen",
@@ -1299,7 +1313,7 @@
     "successCtaHint": "Dein Profil wurde aktualisiert. Sieh dir an, was sich geändert hat."
   },
   "profileUpdate": {
-    "chooserTitle": "Profil aktualisieren",
+    "chooserTitle": "Lebenslauf oder Stelle hinzufügen",
     "addRoleTitle": "Position hinzufügen",
     "importTitle": "Lebenslauf importieren",
     "chooser": {
@@ -1542,6 +1556,24 @@
     "titleDownload": "Bevor du herunterlädst – spiegelt das dich wider?",
     "subtitle": "Prüfe kurz, was Applire automatisch entschieden hat.",
     "empty": "Nichts zu prüfen.",
+    "summary": {
+      "lead": "{count, plural, one {Deine Antworten haben # neue Angabe in dein Profil gebracht.} other {Deine Antworten haben # neue Angaben in dein Profil gebracht.}} Prüf kurz die wichtigsten — alles Weitere steht unten.",
+      "points": "{count, plural, one {# neuer Punkt} other {# neue Punkte}}",
+      "tools": "{count, plural, one {# Werkzeug} other {# Werkzeuge}}",
+      "entities": "{count} Stationen",
+      "entityCount": "{label}: {count}",
+      "added": "{count} neu",
+      "more": "und {count} weitere",
+      "limits": "Grenzen, die du genannt hast",
+      "limitsCount": "{count} vermerkt",
+      "top": "Das Wichtigste",
+      "attribution": "— {where}",
+      "expand": "{count, plural, one {Die Angabe ansehen und korrigieren} other {Alle # Angaben ansehen und korrigieren}}",
+      "collapse": "Weniger anzeigen",
+      "alsoIn": "auch unter {section}",
+      "alsoAt": "auch bei {label}",
+      "fix": "Korrigieren"
+    },
     "fix": "Stimmt nicht? Korrigieren",
     "skip": "Überspringen",
     "confirmExtraction": "Sieht gut aus",
@@ -2307,7 +2339,12 @@
     "separatedDone": "Als eigener Eintrag hinzugefügt",
     "sameLanguage": "gleiche Sprache",
     "showAll": "Alle {count} anzeigen",
-    "separateFailed": "Das hat nicht geklappt. Bitte versuch es noch einmal."
+    "separateFailed": "Das hat nicht geklappt. Bitte versuch es noch einmal.",
+    "restatedTitle": "Schon in deinem Profil (anders formuliert) ({count})",
+    "restatedIntro": "Diese Punkte aus deiner Datei sagen dasselbe wie ein Punkt, der schon bei dieser Station steht. Wir haben sie nicht übernommen und nichts gelöscht. Steckt doch etwas Neues darin, tippe auf „Trotzdem übernehmen“.",
+    "restatedHeld": "Steht schon da: {text}",
+    "restatedApply": "Trotzdem übernehmen",
+    "restatedApplied": "Übernommen"
   },
   "profileAliases": {
     "label": "Auch bekannt als",

@@ -302,10 +302,12 @@ describe("CertificationsEditor", () => {
     expect(screen.getByTestId("certifications-add")).toBeInTheDocument();
   });
 
-  // Adversarial finding 2026-08-26 (major): a year alone is coerced to 1 January
-  // by the backend `date` field — the editor refuses year-only dates.
-  it("refuses a year-only date so no January is fabricated", async () => {
-    const fetchMock = vi.fn();
+  // ADR-013 amended 2026-10-20: the backend stores "2022" as "2022" (no padded
+  // January), so the editor accepts a year-only date and sends it as typed.
+  it("accepts a year-only date and sends it unpadded", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { certifications: [FULL_CERTIFICATION] } }),
+    );
     global.fetch = fetchMock as unknown as typeof fetch;
     renderEditor([FULL_CERTIFICATION]);
 
@@ -313,8 +315,16 @@ describe("CertificationsEditor", () => {
     fireEvent.change(screen.getByTestId("certification-date-obtained-month"), { target: { value: "" } });
     fireEvent.click(screen.getByTestId("certification-entry-save"));
 
-    expect(await screen.findByTestId("certification-entry-validation-error")).toHaveTextContent("month");
-    expect(fetchMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("certification-entry-validation-error")).not.toBeInTheDocument();
+    const sent = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)[0];
+    expect(sent.date_obtained).toBe("2023");
+  });
+
+  it("lists a year-only certification date as the year", () => {
+    renderEditor([{ ...FULL_CERTIFICATION, date_obtained: "2022", expiry_date: null }]);
+    expect(screen.getByText(/2022/)).toBeInTheDocument();
+    expect(screen.queryByText(/2022-01/)).not.toBeInTheDocument();
   });
 
   // Adversarial pass 2026-08-26 — F1 (blocker): a stale-conflict retry on

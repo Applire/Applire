@@ -285,6 +285,8 @@
     "decisions": {
       "title": "{count, plural, one {# decision needed to update your profile} other {# decisions needed to update your profile}}",
       "body": "Your answer touched something your profile already says. Pick which version is right — it takes a moment.",
+      "bodyImport": "Combining your documents turned up two versions of the same detail. Pick which one is right — it takes a moment.",
+      "bodyMixed": "Something new touches a detail your profile already has. Pick which version is right — it takes a moment.",
       "cta": "Decide now",
       "dismiss": "Dismiss",
       "dismissAria": "Dismiss this note",
@@ -866,7 +868,6 @@
       "statusUnconfirmed": "unconfirmed",
       "statusDenied": "denied",
       "addAsConfirmed": "Add as confirmed",
-      "validationMonthRequired": "Please add the month too — a year alone would be stored as 1 January.",
       "validationYearsRange": "Years of experience: please enter 0–80."
     },
     "summaryEditor": {
@@ -934,6 +935,7 @@
       "fieldName": "Name *",
       "fieldCategory": "Category",
       "fieldProficiency": "Proficiency",
+      "proficiencyNotStated": "Not stated",
       "fieldYearsExperience": "Years of experience",
       "categoryTechnical": "Technical",
       "categorySoft": "Soft skill",
@@ -995,6 +997,18 @@
       "fieldCause": "Cause",
       "fieldLocation": "Location",
       "fieldDescription": "Description"
+    },
+    "availability": {
+      "title": "Notice period / earliest start",
+      "recordedAt": "As of {date}",
+      "add": "Add your notice period",
+      "edit": "Edit",
+      "label": "When could you start at the earliest?",
+      "placeholder": "e.g. 3 months to the end of a quarter",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saveFailed": "That did not work. Please try again.",
+      "clearHint": "Saving it empty removes it."
     }
   },
   "health": {
@@ -1268,7 +1282,7 @@
     "analysing": "Analysing…"
   },
   "profileImport": {
-    "title": "Update Profile",
+    "title": "Add a CV or role",
     "subtitle": "Upload your CV as PDF, DOCX, TXT, MD or an image — or a LinkedIn export as ZIP. The format is detected automatically.",
     "subtitleNoImage": "Upload your CV as PDF, DOCX, TXT or MD — or a LinkedIn export as ZIP. The format is detected automatically.",
     "dropTitle": "Drop file here",
@@ -1299,7 +1313,7 @@
     "successCtaHint": "Your profile was updated. Take a look at what changed."
   },
   "profileUpdate": {
-    "chooserTitle": "Update profile",
+    "chooserTitle": "Add a CV or role",
     "addRoleTitle": "Add role",
     "importTitle": "Import CV",
     "chooser": {
@@ -1542,6 +1556,24 @@
     "titleDownload": "Before you download — does this reflect you?",
     "subtitle": "A quick look at what Applire decided automatically.",
     "empty": "Nothing to review.",
+    "summary": {
+      "lead": "{count, plural, one {Your answers added # new detail to your profile.} other {Your answers added # new details to your profile.}} Check the key ones — everything else is below.",
+      "points": "{count, plural, one {# new point} other {# new points}}",
+      "tools": "{count, plural, one {# tool} other {# tools}}",
+      "entities": "{count} positions",
+      "entityCount": "{label}: {count}",
+      "added": "{count} new",
+      "more": "and {count} more",
+      "limits": "Limits you named",
+      "limitsCount": "{count} noted",
+      "top": "The key points",
+      "attribution": "— {where}",
+      "expand": "{count, plural, one {See and correct the detail} other {See and correct all # details}}",
+      "collapse": "Show less",
+      "alsoIn": "also under {section}",
+      "alsoAt": "also at {label}",
+      "fix": "Correct"
+    },
     "fix": "Not right? Fix this",
     "skip": "Skip",
     "confirmExtraction": "Looks good",
@@ -2307,7 +2339,12 @@
     "separatedDone": "Added as its own entry",
     "sameLanguage": "same language",
     "showAll": "Show all {count}",
-    "separateFailed": "That did not work. Please try again."
+    "separateFailed": "That did not work. Please try again.",
+    "restatedTitle": "Already in your profile (worded differently) ({count})",
+    "restatedIntro": "These points from your file say the same as a point already listed for this role. We did not add them and deleted nothing. If one does say something new, tap “Add anyway”.",
+    "restatedHeld": "Already there: {text}",
+    "restatedApply": "Add anyway",
+    "restatedApplied": "Added"
   },
   "profileAliases": {
     "label": "Also known as",

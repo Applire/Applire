@@ -34,7 +34,7 @@
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { ProfileDecisionsCard } from "../ProfileDecisionsCard";
+import { ProfileDecisionsCard, decisionsOrigin } from "../ProfileDecisionsCard";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import type { HealthIssue, ProfileHealth } from "@/components/profile/HealthPanel";
 import { setStorageUserId } from "@/lib/auth/storage";
@@ -495,5 +495,38 @@ describe("gap-decisions-dismissed", () => {
   it("markDecisionDismissed is a no-op when the issue id is empty", () => {
     markDecisionDismissed("flow-1", "");
     expect(window.localStorage.length).toBe(0);
+  });
+
+  // Hazelnut b3 WP-V (UX audit, Felix): "Your answer touched…" right after an
+  // IMPORT, with no answer given. The copy follows the decisions' origin.
+  describe("copy by origin", () => {
+    const fromSource = (thread: HealthIssue["thread"], id: string, src: string): HealthIssue =>
+      thread === "conflict"
+        ? { ...issue(thread, id), incoming_source: src }
+        : { ...issue(thread, id), source_record_ref: src };
+
+    it("classifies import, answer and mixed origins", () => {
+      expect(decisionsOrigin([fromSource("confirmation", "c", "cv_upload")])).toBe("import");
+      expect(decisionsOrigin([fromSource("conflict", "a", "linkedin_import"), fromSource("confirmation", "b", "cv_paste")])).toBe("import");
+      expect(decisionsOrigin([fromSource("conflict", "a", "interview")])).toBe("answer");
+      expect(decisionsOrigin([fromSource("conflict", "a", "interview"), fromSource("conflict", "b", "cv_upload")])).toBe("mixed");
+      expect(decisionsOrigin([issue("conflict", "x")])).toBe("mixed");
+    });
+
+    it("says 'combining your documents' — never 'your answer' — after an import", async () => {
+      global.fetch = mockFetch({ issues: [fromSource("confirmation", "c1", "cv_upload")] }) as typeof fetch;
+      render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
+      await flushEffects();
+      const body = await screen.findByTestId("profile-decisions-body");
+      expect(body).toHaveTextContent(/Combining your documents/);
+      expect(body).not.toHaveTextContent(/Your answer/);
+    });
+
+    it("keeps 'your answer' for a decision an interview answer raised", async () => {
+      global.fetch = mockFetch({ issues: [fromSource("conflict", "k1", "interview")] }) as typeof fetch;
+      render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "de"));
+      await flushEffects();
+      expect(await screen.findByTestId("profile-decisions-body")).toHaveTextContent(/Deine Antwort/);
+    });
   });
 });

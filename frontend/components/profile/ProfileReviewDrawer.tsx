@@ -65,8 +65,23 @@ const KEEP_BOTH_INTENT =
  */
 export const PROFILE_LEVEL_SECTIONS = new Set(["professional_summary", "personal_info"]);
 
-export function keepBothApplies(issue?: { section?: string | null } | null): boolean {
-  return !PROFILE_LEVEL_SECTIONS.has(issue?.section ?? "");
+/**
+ * Hazelnut b3 WP-V (UX audit 2026-10-20, Felix): the gate was a DENYLIST of the
+ * two profile-level sections, so every other issue — including a SKILL
+ * confirmation ("'SQL' shares a word with skills already on your profile…",
+ * `section` null) — was offered "These are two separate roles — keep both".
+ * Now an ALLOWLIST: a given issue gets the escape only when it is a CONFLICT on
+ * a role-shaped entry. With no issue in hand (the generic profile-review walk)
+ * the F4/#73 behaviour is unchanged.
+ */
+export const ROLE_ENTRY_SECTIONS = new Set(["work_experience", "volunteer_activities"]);
+
+export function keepBothApplies(
+  issue?: { section?: string | null; thread?: string | null } | null,
+): boolean {
+  if (issue == null) return true;
+  if (issue.thread != null && issue.thread !== "conflict") return false;
+  return ROLE_ENTRY_SECTIONS.has(issue.section ?? "");
 }
 
 /**

@@ -108,10 +108,12 @@ describe("PublicationsEditor", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  // H2.3 — a year alone is coerced to 1 January by the backend `date` field —
-  // the editor refuses year-only dates, exactly like CertificationsEditor.
-  it("refuses a year-only published_date so no January is fabricated", async () => {
-    const fetchMock = vi.fn();
+  // ADR-013 amended 2026-10-20 (783:L65): published_date is a partial-date
+  // string at the stated precision, so a year alone is kept as the year.
+  it("accepts a year-only published_date and sends it unpadded", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { publications: [FULL_ENTRY] } }),
+    );
     global.fetch = fetchMock as unknown as typeof fetch;
     renderEditor([FULL_ENTRY]);
 
@@ -119,8 +121,10 @@ describe("PublicationsEditor", () => {
     fireEvent.change(screen.getByTestId("publication-published-date-month"), { target: { value: "" } });
     fireEvent.click(screen.getByTestId("publication-entry-save"));
 
-    expect(await screen.findByTestId("publication-entry-validation-error")).toHaveTextContent("month");
-    expect(fetchMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("publication-entry-validation-error")).not.toBeInTheDocument();
+    const sent = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)[0];
+    expect(sent.published_date).toBe("2023");
   });
 
   // H2.3 — a full "YYYY-MM" date is accepted and round-trips through the picker.

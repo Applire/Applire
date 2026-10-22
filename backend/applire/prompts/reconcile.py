@@ -275,6 +275,15 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   the junk at 1/20 but dropped the exception control to 11/15 (bare
   "Konsumgüter" denying what the same sentence affirms) and was not shipped.
   Records: ``Documents/Runs/Hazelnut/build-2/r2/f1-replay/``.
+* **24,366 (Hazelnut build 3 WP-V, 2026-10-22, ruling V-2 = A).** ``upsert_skill``'s
+  "proficiency MUST be one of …" becomes "ONLY a level the new information states
+  for this skill, then one of …; omit it otherwise" (+74 chars) — the same change
+  the extraction prompts got (``Skill.proficiency`` optional, default ``None``,
+  ADR-013/061 amended 2026-10-22). Why: the UX audit found every imported skill at
+  "Mittel"; a required field with a four-value enum makes the model pick one. The
+  extraction half is measured (two audit CVs, luna, thinking off: 23 of 24 skills
+  ``null``, the one level stated in the CV text); this reconcile line was not
+  replayed separately — it removes a demand, it adds none.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -379,7 +388,8 @@ Operations:
   "Arbeitssicherheitsmanagement").
   REQUIRED: name.
   category MUST be one of: "technical", "soft", "language", "domain".
-  proficiency MUST be one of: "basic", "intermediate", "advanced", "expert".
+  proficiency: ONLY a level the new information states for this skill, then one
+  of "basic", "intermediate", "advanced", "expert"; omit it otherwise.
   years_experience: ONLY a span the new information itself STATES about this
   skill ("15+ years in X" -> 15). Never count it from the entries' dates and
   never estimate it — omit the field when no span is stated. A span that

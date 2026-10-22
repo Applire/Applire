@@ -356,4 +356,34 @@ describe("SkillsEditor", () => {
     expect(keyWarning).toBe(false);
     errorSpy.mockRestore();
   });
+  // WP-V — a skill whose source stated no level carries null: no label on the
+  // chip, "not stated" selected in the editor, null survives an untouched save.
+  it("shows no level for a null-proficiency skill and keeps null on save", async () => {
+    const noLevel: Skill = { ...FULL_SKILL, proficiency: null };
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { skills: [noLevel] } }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor([noLevel]);
+
+    expect(screen.queryByText("Intermediate")).not.toBeInTheDocument();
+    expect(screen.queryByText("Advanced")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("skill-edit-0"));
+    expect((screen.getByTestId("skill-field-proficiency") as HTMLSelectElement).value).toBe("");
+    fireEvent.click(screen.getByTestId("skill-entry-save"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const sent = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)[0];
+    expect(sent.proficiency).toBeNull();
+  });
+
+  it("offers 'not stated' and a new skill defaults to it", async () => {
+    renderEditor([]);
+    fireEvent.click(screen.getByTestId("skills-add"));
+    const select = screen.getByTestId("skill-field-proficiency") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["", "basic", "intermediate", "advanced", "expert"]);
+    fireEvent.change(select, { target: { value: "" } });
+    expect(select.value).toBe("");
+  });
 });

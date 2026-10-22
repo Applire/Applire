@@ -195,7 +195,7 @@ Return a JSON object with these keys (use [] / null when absent — never omit a
   "certifications": [{"name","issuing_organization","date_obtained","expiry_date",
                       "credential_id","credential_url"}],
   "skills": [{"name","category":"technical|soft|language|domain",
-              "proficiency":"basic|intermediate|advanced|expert","years_experience","last_used"}],
+              "proficiency":"basic|intermediate|advanced|expert|null","years_experience","last_used"}],
   "languages": [{"language","level"}],
   "publications": [{"title","type":"publication|patent","co_authors","venue",
                     "published_date","doi","url","patent_number"}],
@@ -213,8 +213,9 @@ Rules:
   Systemintegration", "Technischer Fachwirt") — for these, put the whole title in "degree" and
   leave "field" null/empty. Only populate "field" for a degree whose title is generic on its own
   (e.g. "Bachelor of Science" + field "Informatik", "Diplom" + field "Betriebswirtschaftslehre").
-- PROFICIENCY: every skill proficiency MUST be exactly basic|intermediate|advanced|expert.
-  Map a numeric/graphical scale by filled fraction (full→expert, ~80%→advanced, ~50-60%→
+- PROFICIENCY: only when the source states or shows a level for the skill (a scale, a level
+  word) — then exactly basic|intermediate|advanced|expert; when it states none, null (never a
+  default "intermediate" — an unstated level is not a level, ADR-013/061 amended 2026-10-22). Map a numeric/graphical scale by filled fraction (full→expert, ~80%→advanced, ~50-60%→
   intermediate, ≤40%→basic); word scales: beginner→basic, professional working→intermediate,
   proficient/fluent/senior→advanced, native/expert→expert. German self-declaration words map the
   same way, do NOT guess your own English-scale equivalent: Anwender/Grundkenntnisse/Grundlagen→

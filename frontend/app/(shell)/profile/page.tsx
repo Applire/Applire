@@ -27,6 +27,7 @@ import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Card } from "@/components/ui/card";
 import { cn, displayValue } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
+import { AvailabilityCard, type AvailabilityValue } from "@/components/profile/AvailabilityCard";
 import { SignatureManager } from "@/components/profile/SignatureManager";
 import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
 import { ProfileImportView } from "@/components/profile/ProfileImportView";
@@ -140,8 +141,12 @@ interface ProfileResponse {
     volunteer_activities?: ProfileSection["volunteer_activities"];
     // ADR-055 (E046) — read-only in the UI; written via the reconciler/API.
     signature_stories?: Array<Record<string, unknown>>;
+    // D-B3V7 (rulings 787:L3 + V-4) — notice period / earliest start.
+    availability?: AvailabilityValue | null;
   };
   completeness: number;
+  // D-B3V7 (ruling V-4) — the dashboard reminder's condition.
+  availability_reminder?: "missing" | "stale" | null;
   merge_conflicts: Array<{
     conflict_id: string;
     section: string;
@@ -535,6 +540,18 @@ export default function ProfilePage() {
               the photo's GDPR Art. 9 consent gate has no twin here (ADR-088). */}
           <Card className="p-4">
             <SignatureManager />
+          </Card>
+
+          {/* D-B3V7 (rulings 787:L3 + V-4) — the notice period belongs to the
+              current contract: stored once, "Stand: <date>", pre-fills every
+              letter. The dashboard reminder links here. */}
+          <Card id="availability" className="p-4 scroll-mt-24">
+            <AvailabilityCard
+              value={profile?.profile.availability}
+              apiBase={API_BASE}
+              locale={uiLanguage}
+              onProfileUpdated={(updated) => setProfile(updated as unknown as ProfileResponse)}
+            />
           </Card>
 
           {/* #258 — free-text testimony intake ("anything else recruiters
