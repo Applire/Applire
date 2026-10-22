@@ -110,13 +110,15 @@ test.describe("Gaps page", () => {
     const cards = page.getByTestId("gap-cluster-card");
     await expect(cards.first()).toBeVisible();
 
-    // Category C cluster card — dot must use the critical token (not warning)
+    // Category C cluster card — an OPEN question is painted in the primary
+    // blue (#789, mock F1-1 b), never the failing-grade red, never warning.
     const catCCard = page.getByTestId("gap-cluster-card").filter({ hasText: "Container Orchestration" });
     await expect(catCCard).toBeVisible();
     const catCDot = catCCard.locator("span.rounded-full").first();
     const catCClass = await catCDot.getAttribute("class");
-    expect(catCClass).toContain("bg-critical");
+    expect(catCClass).toContain("bg-teal");
     expect(catCClass).not.toContain("bg-warning");
+    expect(catCClass).not.toContain("bg-critical");
 
     // Category B cluster card — dot must use the warning token (not critical)
     const catBCard = page.getByTestId("gap-cluster-card").filter({ hasText: "Database Operations" });
@@ -127,8 +129,8 @@ test.describe("Gaps page", () => {
     expect(catBClass).not.toContain("bg-critical");
 
     // The tokens actually paint (an undefined utility no-ops silently): the
-    // computed colours are the theme's critical #D94F4F / warning #E5A832.
-    expect(await catCDot.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(217, 79, 79)");
+    // computed colours are the theme's teal #3557BC / warning #E5A832.
+    expect(await catCDot.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(53, 87, 188)");
     expect(await catBDot.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(229, 168, 50)");
   });
 
@@ -140,10 +142,14 @@ test.describe("Gaps page", () => {
     // Match score display
     await expect(page.getByTestId("match-score-display")).toContainText("72%");
 
-    // Gaps section shows the canonical gap count = number of gap clusters (E037 F1:
-    // the heading matches the badge). The 4 Cat B+C skills collapse into 2 clusters.
+    // #789 (ruling F1-2): ONE requirement count, read from the analysis — the
+    // section names the open requirements and the topics they are grouped in.
+    // No ledger in this fixture → the category fallback: 2 open (Cat C) in
+    // 2 topics; the old "N gaps identified" heading is gone.
     await expect(page.getByTestId("gaps-section")).toBeVisible();
-    await expect(page.getByTestId("gaps-section")).toContainText("2 gaps identified");
+    await expect(page.getByTestId("gaps-section")).toContainText("What is still open");
+    await expect(page.getByTestId("gaps-section-lead")).toContainText("2 open requirements");
+    await expect(page.getByTestId("gaps-section")).not.toContainText("gaps identified");
   });
 
   test("Generate CV Now button advances flow and navigates to CV page", async ({ page }) => {
@@ -411,7 +417,7 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
         await expect(cardById(page, id)).not.toHaveClass(/cursor-pointer/);
       }
       // Covered badge from the record.
-      await expect(page.getByText("1 gap covered ✓")).toBeVisible();
+      await expect(page.getByText("1 topic settled ✓")).toBeVisible();
       if (pass === 0) await page.reload();
     }
   });
@@ -543,7 +549,7 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     await expect(open.getByTestId("gap-resolved")).toBeVisible();
     await expect(cardById(page, "cl-appended")).toBeVisible(); // the list was replaced, not only the score
     await expect(page.getByTestId("match-score-display")).toContainText("66%");
-    await expect(page.getByText("2 gaps covered ✓")).toBeVisible();
+    await expect(page.getByText("2 topics settled ✓")).toBeVisible();
     expect(refreshed).toBe(1);
 
     // Reload: the same record comes back from the server; the card closed by the
@@ -615,7 +621,9 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     await expect(cardById(page, "cl-yellow")).toHaveAttribute("data-tone", "yellow");
     expect(await edge("cl-yellow")).toBe("rgb(229, 168, 50)"); // warning token
     await expect(cardById(page, "cl-red")).toHaveAttribute("data-tone", "red");
-    expect(await edge("cl-red")).toBe("rgb(217, 79, 79)"); // critical token
+    // Ruling F1-1 A (2026-10-22): the worst-member rule stands; "open" is
+    // painted in the primary blue (teal token), no longer critical red.
+    expect(await edge("cl-red")).toBe("rgb(53, 87, 188)"); // teal token
     await expect(cardById(page, "cl-green")).toHaveAttribute("data-tone", "green");
     expect(await edge("cl-green")).toBe("rgb(45, 159, 111)"); // success token
     // Declined members never colour a card that has others.
@@ -631,7 +639,8 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     const bg = (id: string, term: string) => chip(id, term).evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(await bg("cl-red", "Docker")).toBe("rgb(200, 247, 224)"); // success-container
     expect(await bg("cl-red", "Podman")).toBe("rgb(254, 243, 199)"); // warning-container
-    expect(await bg("cl-red", "Nomad")).toBe("rgb(253, 232, 232)"); // critical-container
+    expect(await bg("cl-red", "Nomad")).toBe("rgb(255, 255, 255)"); // open: white, dashed blue border
+    expect(await chip("cl-red", "Nomad").evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe("dashed");
 
     // The pill colour follows the card: a partly covered card with a red member has a red pill.
     await expect(cardById(page, "cl-red").getByTestId("gap-partly-covered")).toHaveAttribute("data-tone", "red");

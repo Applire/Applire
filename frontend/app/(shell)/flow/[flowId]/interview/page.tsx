@@ -30,12 +30,16 @@ import { ProgressLinear } from "@/components/ui/progress";
 import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn, displayValue } from "@/lib/utils";
 import { describeConflict } from "@/lib/conflict-display";
-import { Archive, Contrast, Lock } from "lucide-react";
+import { Archive, Check, Clock, Contrast, HelpCircle, Lock, Square } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
 import {
   clusterView,
+  openThemeCount,
+  requirementCounts,
   type GapCluster,
+  type LedgerChipEntry,
+  type MemberState,
   type TurnClusterCoverage,
 } from "@/lib/match-utils";
 
@@ -56,6 +60,12 @@ interface GapAnalysisData {
   id: string;
   match_score: number;
   gap_clusters: GapCluster[];
+  // #789 (ruling F1-2) — the open-requirement count reads the same row the
+  // gaps page reads: the ledger's fit-weighted rows, updated per turn.
+  keyword_ledger?: LedgerChipEntry[];
+  category_a?: string[];
+  category_b?: string[];
+  category_c?: string[];
 }
 
 interface SessionCreateResponse {
@@ -144,6 +154,19 @@ type TrackerStatus =
 /** Decorative, aria-hidden — the status is also spoken via an sr-only label.
  * `spent`, `left_open` and `partly_covered` draw a lucide icon instead (a
  * text ◐ rendered as a barely visible sliver in the UI font). */
+/** Tracker chips — the gap card's member colours (ruling C-1), smaller. */
+const TRACKER_CHIP: Record<MemberState, string> = {
+  covered: "bg-success-container text-on-surface",
+  partial: "bg-warning-container text-on-surface",
+  gap: "bg-white border border-dashed border-teal text-on-surface",
+  declined: "bg-surface-container text-on-surface-variant line-through",
+  closed: "bg-surface-container text-on-surface-variant",
+};
+const MEMBER_ORDER: Record<MemberState, number> = { gap: 0, partial: 1, closed: 2, covered: 3, declined: 4 };
+/** Lead G — a posting term the match does not count: neutral, whatever its
+ * ledger state (the gap card's TERM chip, smaller). */
+const TRACKER_TERM_CHIP = "bg-surface-container text-on-surface-variant";
+
 const TRACKER_GLYPH: Record<Exclude<TrackerStatus, "spent" | "left_open" | "partly_covered">, string> = {
   resolved: "✓",
   current: "►",
@@ -239,8 +262,19 @@ function getReasonLabel(reason: string, t: ReturnType<typeof useTranslations>): 
 // Animated completion gauge (SVG circle)
 // ---------------------------------------------------------------------------
 
-function CompletenessGauge({ score }: { score: number }) {
-  const t = useTranslations("interview");
+function ScoreGauge({
+  score,
+  label,
+  note,
+  testId,
+}: {
+  score: number;
+  /** What the number IS — #789 "Interview sidebar ring": the match value is
+   * never labelled as profile completeness, and vice versa. */
+  label: string;
+  note?: string;
+  testId: string;
+}) {
   const [displayed, setDisplayed] = useState(0);
   const pct = Math.round(score * 100);
   const radius = 54;
@@ -262,7 +296,7 @@ function CompletenessGauge({ score }: { score: number }) {
   const filled = circumference * (1 - displayed / 100);
 
   return (
-    <div className="flex flex-col items-center gap-2" data-testid="completeness-gauge" data-pct={pct}>
+    <div className="flex flex-col items-center gap-2" data-testid={testId} data-pct={pct}>
       <svg width="128" height="128" viewBox="0 0 128 128">
         <circle cx="64" cy="64" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="10" />
         <circle
@@ -279,8 +313,88 @@ function CompletenessGauge({ score }: { score: number }) {
         {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
         <text x="64" y="68" textAnchor="middle" fontSize="22" fontWeight="700" fill="#1B4F72" fontFamily="Poppins, sans-serif">{displayed}%</text>
       </svg>
-      <p className="text-xs text-gray-500 font-body">{t("profileCompleteness")}</p>
+      <p className="text-xs font-semibold text-on-surface font-body text-center">{label}</p>
+      {note && <p className="-mt-1 text-xs text-on-surface-variant font-body text-center">{note}</p>}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Interview intro (#789 "drops straight into Q1", mock F1-1 c, COPY.md §C)
+// ---------------------------------------------------------------------------
+
+function InterviewIntro({
+  roleTitle,
+  openCount,
+  typicalQuestions,
+  onStart,
+  onBack,
+}: {
+  roleTitle: string | null;
+  openCount: number;
+  typicalQuestions: number | null;
+  onStart: () => void;
+  onBack: () => void;
+}) {
+  const t = useTranslations("interview");
+  const rows: { icon: React.ReactNode; title: string; body: string }[] = [
+    {
+      icon: <HelpCircle aria-hidden="true" className="h-4 w-4" />,
+      title: t("introWhyTitle"),
+      body:
+        openCount > 0 ? t("introWhyBody", { count: openCount }) : t("introWhyBodyNoneOpen"),
+    },
+    {
+      icon: <Clock aria-hidden="true" className="h-4 w-4" />,
+      title: t("introHowLongTitle"),
+      body: typicalQuestions
+        ? t("introHowLongBody", { count: typicalQuestions })
+        : t("introHowLongBodyNoEstimate"),
+    },
+    {
+      icon: <Square aria-hidden="true" className="h-4 w-4" />,
+      title: t("introStopTitle"),
+      body: t("introStopBody"),
+    },
+    {
+      icon: <Check aria-hidden="true" className="h-4 w-4" />,
+      title: t("introHonestTitle"),
+      body: t("introHonestBody"),
+    },
+  ];
+  return (
+    <Card data-testid="interview-intro" className="p-6 md:p-7">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
+        {roleTitle ? t("introEyebrowRole", { role: roleTitle }) : t("introEyebrow")}
+      </p>
+      <h2 className="font-heading text-xl font-bold text-on-surface mt-1 mb-5">{t("introTitle")}</h2>
+      <ul className="space-y-4 mb-6">
+        {rows.map((row) => (
+          <li key={row.title} className="flex gap-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-container text-primary">
+              {row.icon}
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-on-surface">{row.title}</p>
+              <p className="text-sm text-on-surface-variant">{row.body}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-col-reverse sm:flex-row sm:items-center gap-3">
+        <Button data-testid="interview-intro-start" size="lg" onClick={onStart}>
+          {t("introStart")}
+        </Button>
+        <button
+          type="button"
+          data-testid="interview-intro-back"
+          onClick={onBack}
+          className="text-sm text-on-surface-variant underline hover:no-underline"
+        >
+          {t("introBack")}
+        </button>
+      </div>
+    </Card>
   );
 }
 
@@ -426,9 +540,13 @@ export default function InterviewPage({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [estimatedQuestions, setEstimatedQuestions] = useState(5);
+  // #789 "drops straight into Q1" — the soft question estimate the intro
+  // names ("about N questions"); `estimatedQuestions` holds the hard ceiling.
+  const [typicalQuestions, setTypicalQuestions] = useState<number | null>(null);
+  // The intro card before the first question (mock F1-1 c): a fresh session
+  // only — a resumed session (or one past Q1) goes straight to its question.
+  const [introOpen, setIntroOpen] = useState(false);
   const [questionsAsked, setQuestionsAsked] = useState(1);
-  const [gapsTotal, setGapsTotal] = useState(0);
-  const [gapsRemaining, setGapsRemaining] = useState(0);
   const [resumed, setResumed] = useState(false);
   const [showResumeBanner, setShowResumeBanner] = useState(false);
   const [isCategoryB, setIsCategoryB] = useState(false);
@@ -512,8 +630,8 @@ export default function InterviewPage({
       // "~7" midpoint estimate so "Question X of …" cannot be honestly
       // overshot by a session that legitimately runs to the true ceiling.
       setEstimatedQuestions(sessionData.hard_ceiling || sessionData.estimated_questions || 5);
-      setGapsTotal(sessionData.gaps_total ?? 0);
-      setGapsRemaining(sessionData.gaps_remaining ?? 0);
+      setTypicalQuestions(sessionData.estimated_questions || null);
+      setIntroOpen(!sessionData.resumed && (sessionData.questions_asked ?? 1) <= 1);
       setMessages([{ role: "assistant", content: sessionData.question ?? sessionData.first_question }]);
       setChoices(sessionData.choices ?? null);
 
@@ -562,6 +680,17 @@ export default function InterviewPage({
     void initSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initSession is stable enough for mount-only; re-running would re-create sessions
   }, [flowId]);
+
+  async function refreshGapAnalysis() {
+    const jobId = flowState?.job_id;
+    if (!jobId) return;
+    try {
+      const r = await fetch(`${API_BASE}/api/job/${jobId}/gaps`);
+      if (r.ok) setGapAnalysis((await r.json()) as GapAnalysisData);
+    } catch {
+      // best-effort: the count keeps the last row it read
+    }
+  }
 
   // Fallback only: if the session response didn't supply a current_gap_id
   // (e.g. a degenerate/legacy session), default to the first cluster once gap
@@ -626,8 +755,10 @@ export default function InterviewPage({
       } else {
         const nextQ = data.question ?? "";
         setMessages((prev) => [...prev, { role: "assistant", content: nextQ }]);
-        setGapsRemaining(data.gaps_remaining ?? 0);
-        setQuestionsAsked((q) => q + 1);
+        // #787 L7 (V): the server counts gap questions only and sends the
+        // count on every turn — a confirmation / skill-merge turn does not
+        // move it. Count client-side only against an older server.
+        setQuestionsAsked((q) => data.questions_asked ?? q + 1);
 
         // Detect cultural sensitivity hint (category B) from question tone
         const lowerQ = nextQ.toLowerCase();
@@ -643,6 +774,10 @@ export default function InterviewPage({
 
         // Update choices
         setChoices(data.choices ?? null);
+
+        // #789 (ruling F1-2) — a turn updates the ledger rows in place; re-read
+        // the row so the one open-requirement count moves with the answers.
+        void refreshGapAnalysis();
 
         // Advance cluster tracker (issue #241 item 1) — driven by the server's
         // own current_gap_id / addressed_gap_ids, never by re-deriving progress
@@ -664,9 +799,10 @@ export default function InterviewPage({
           setCurrentClusterId(data.current_gap_id);
         }
 
-        if (data.completeness_score !== undefined) {
-          setMatchScore(data.completeness_score);
-        }
+        // #789 — the sidebar ring shows the MATCH value of the analysis the
+        // page loaded; a turn's `completeness_score` is profile completeness
+        // (a different number, and null on a non-final turn), so it never
+        // lands on this ring.
       }
     } catch (e: unknown) {
       // #256 — the backend confirmed a failed turn never partially commits
@@ -696,12 +832,19 @@ export default function InterviewPage({
     router.push(`/flow/${flowId}/cv`);
   }
 
-  const progressPct = Math.min(
-    Math.round((questionsAsked / Math.max(estimatedQuestions, 1)) * 100),
-    100,
-  );
-
-  const roleTitle = flowState?.job_summary?.role_title ?? "the target role";
+  // #789 (ruling F1-2) — ONE count, the same helper the gaps page reads: the
+  // row's open requirements (the ledger, re-read after every turn).
+  const openCount = requirementCounts(gapAnalysis).open;
+  const themeCount = openThemeCount(gapAnalysis?.gap_clusters);
+  const currentClusterLabel =
+    (currentClusterId && gapAnalysis?.gap_clusters.find((c) => c.id === currentClusterId)?.label) || null;
+  // Progress by topic, not by the hard question ceiling ("1 of up to 18"):
+  // the share of the page's topics this session has moved past.
+  const totalTopics = gapAnalysis?.gap_clusters.length ?? 0;
+  const progressPct =
+    totalTopics > 0
+      ? Math.min(Math.round((resolvedClusterIds.size / totalTopics) * 100), 100)
+      : Math.min(Math.round((questionsAsked / Math.max(estimatedQuestions, 1)) * 100), 100);
 
   // -------------------------------------------------------------------------
   // Loading
@@ -801,7 +944,11 @@ export default function InterviewPage({
           {/* Animated gauge */}
           {completion.completeness_score !== null && (
             <div className="flex justify-center mb-8">
-              <CompletenessGauge score={completion.completeness_score} />
+              <ScoreGauge
+                score={completion.completeness_score}
+                label={t("profileCompleteness")}
+                testId="completeness-gauge"
+              />
             </div>
           )}
 
@@ -879,14 +1026,40 @@ export default function InterviewPage({
             </div>
           )}
 
-          {/* Header */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-1">
-              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-              <p className="text-xs font-medium text-gray-500 font-body">{t("questionOf", { current: questionsAsked, total: estimatedQuestions })} — {t("closingGapsFor")} <span className="text-primary font-semibold">{roleTitle}</span></p>
-              {gapsTotal > 0 && (
-                <p className="text-xs text-gray-400 font-body">
-                  {t("gapsRemaining", { count: gapsRemaining })}
+          {introOpen ? (
+            <InterviewIntro
+              roleTitle={flowState?.job_summary?.role_title ?? null}
+              openCount={openCount}
+              typicalQuestions={typicalQuestions}
+              onStart={() => {
+                setIntroOpen(false);
+                // The question is already loaded behind the intro.
+                requestAnimationFrame(() => textareaRef.current?.focus());
+              }}
+              onBack={() => router.push(`/flow/${flowId}/gaps`)}
+            />
+          ) : (
+          <>
+          {/* Header — #789: one number (open requirements, ruling F1-2) and
+              the topic being asked, instead of "Frage 1 von bis zu 18" and a
+              fourth gap count. */}
+          <div className="mb-4" data-testid="interview-header">
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <p className="text-xs font-medium text-on-surface-variant font-body min-w-0">
+                <span data-testid="interview-question-number">{t("questionNumber", { current: questionsAsked })}</span>
+                {currentClusterLabel && (
+                  <>
+                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                    <span aria-hidden="true">{" · "}</span>
+                    <span data-testid="interview-current-topic">
+                      {t("currentTopic", { label: currentClusterLabel })}
+                    </span>
+                  </>
+                )}
+              </p>
+              {gapAnalysis && (
+                <p data-testid="interview-open-count" className="shrink-0 text-xs font-semibold text-primary font-body">
+                  {t("openRequirements", { count: openCount })}
                 </p>
               )}
             </div>
@@ -990,7 +1163,9 @@ export default function InterviewPage({
           {showDoneConfirm && (
             <div data-testid="done-confirm" className="mb-3 px-4 py-3 rounded-lg bg-amber/10 border border-amber/30">
               <p className="text-sm font-medium text-neutral-dark mb-2">
-                {t("gapsRemainingConfirm", { count: gapsRemaining })}
+                {openCount > 0
+                  ? t("openRequirementsConfirm", { count: openCount })
+                  : t("endConfirm")}
               </p>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => void sendAnswer("done")}>
@@ -1077,20 +1252,32 @@ export default function InterviewPage({
               </div>
             </div>
           </div>
+          </>
+          )}
         </div>
 
         {/* RIGHT PANEL — 35%, hidden on mobile */}
         <aside className="hidden md:flex md:w-[35%] flex-col border-l border-gray-200 bg-white overflow-y-auto p-6">
           {/* Match score gauge */}
+          {/* #789 — this ring is the analysis' MATCH value, labelled as such
+              (it used to read "Profilvollständigkeit"). */}
           {matchScore !== null && (
-            <CompletenessGauge score={matchScore} />
+            <ScoreGauge
+              score={matchScore}
+              label={t("matchWithJob")}
+              note={t("matchBeforeInterview")}
+              testId="match-gauge"
+            />
           )}
 
           {/* Cluster tracker */}
           {gapAnalysis && gapAnalysis.gap_clusters.length > 0 && (
             <div className="mt-6 space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                {t("roleRequirements")}
+              <p
+                data-testid="tracker-open-count"
+                className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-3"
+              >
+                {t("trackerHeading", { count: openCount, topics: themeCount })}
               </p>
               {gapAnalysis.gap_clusters.map((cluster) => {
                 const turn = turnCoverage[cluster.id] ?? null;
@@ -1104,13 +1291,32 @@ export default function InterviewPage({
                 // helper, `clusterView`); the glyph SHAPE carries the state.
                 const view = clusterView(cluster, turn);
                 const tone = TONE[view.tone];
+                const declinedTerms = view.members
+                  .filter((m) => m.state === "declined")
+                  .map((m) => m.term);
+                // Members, open ones first; a legacy row with no members
+                // falls back to the posting terms, shown neutrally.
+                // Lead G — a posting term (`requirement: false`) sorts after
+                // every requirement and is drawn neutrally, never as open.
+                const shownMembers: { term: string; state: MemberState; requirement: boolean }[] =
+                  view.members.length > 0
+                    ? [...view.members]
+                        .sort(
+                          (a, b) =>
+                            Number(a.requirement === false) - Number(b.requirement === false) ||
+                            MEMBER_ORDER[a.state] - MEMBER_ORDER[b.state],
+                        )
+                        .slice(0, 4)
+                    : cluster.jd_skills
+                        .slice(0, 3)
+                        .map((term) => ({ term, state: "closed" as MemberState, requirement: true }));
                 const srLabel =
                   status === "resolved" && typeof cluster.coverage === "string"
                     ? tGaps("coverageCovered")
                     : status === "partly_covered"
                       ? tGaps("coveragePartly")
                       : status === "declined"
-                        ? tGaps("coverageDeclined")
+                        ? tGaps("coverageDeclinedTerms", { terms: declinedTerms.join(", ") })
                         : status === "spent"
                           ? tGaps("trackerNoMoreQuestions")
                           : status === "left_open"
@@ -1148,14 +1354,32 @@ export default function InterviewPage({
                       <span className="truncate">{cluster.label}</span>
                       {srLabel && <span className="sr-only">{srLabel}</span>}
                     </div>
-                    {cluster.jd_skills.length > 0 && (
+                    {/* #789 — the chips are the cluster's MEMBERS with their own
+                        state (the gaps page's chips), never the raw posting
+                        terms: a declined topic no longer files a confirmed
+                        skill (ISO 9001 under the IFS/BRC denial) under
+                        "nicht vorhanden". */}
+                    {status === "declined" && declinedTerms.length > 0 && (
+                      <p data-testid="tracker-declined-terms" aria-hidden="true" className="mt-1 ml-5 text-[11px] text-on-surface-variant">
+                        {tGaps("coverageDeclinedTerms", { terms: declinedTerms.join(", ") })}
+                      </p>
+                    )}
+                    {shownMembers.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1 ml-5">
-                        {cluster.jd_skills.slice(0, 3).map((skill) => (
+                        {shownMembers.map((m) => (
                           <span
-                            key={skill}
-                            className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500"
+                            key={m.term}
+                            data-testid="tracker-member"
+                            data-state={m.state}
+                            data-requirement={m.requirement === false ? "false" : undefined}
+                            title={m.requirement === false ? tGaps("postingTermTitle") : undefined}
+                            className={cn(
+                              "relative rounded-full px-1.5 py-0.5 text-[10px]",
+                              m.requirement === false ? TRACKER_TERM_CHIP : TRACKER_CHIP[m.state],
+                            )}
                           >
-                            {skill}
+                            {m.term}
+                            {m.requirement === false && <span className="sr-only">{tGaps("postingTermSr")}</span>}
                           </span>
                         ))}
                       </div>

@@ -46,7 +46,7 @@ describe("GapClusterCard", () => {
     expect(card).toHaveAttribute("data-coverage", "open");
     expect(card).toHaveAttribute("data-tone", "red");
     expect(card).toHaveAttribute("data-askable", "true");
-    expect(card.className).toContain("border-l-critical");
+    expect(card.className).toContain("border-l-teal");
     expect(screen.queryByTestId("gap-resolved")).not.toBeInTheDocument();
     expect(screen.queryByTestId("gap-partly-covered")).not.toBeInTheDocument();
     expect(screen.queryByTestId("gap-likely-match")).not.toBeInTheDocument();
@@ -91,7 +91,7 @@ describe("GapClusterCard", () => {
     expect(byTerm("Docker")).toHaveAttribute("data-state", "covered");
     expect(byTerm("Docker")?.className).toContain("bg-success-container");
     expect(byTerm("Terraform")).toHaveAttribute("data-state", "gap");
-    expect(byTerm("Terraform")?.className).toContain("bg-critical-container");
+    expect(byTerm("Terraform")?.className).toContain("border-dashed");
     expect(byTerm("Ansible")).toHaveAttribute("data-state", "partial");
     expect(byTerm("Ansible")?.className).toContain("bg-warning-container");
     expect(byTerm("Scala")).toHaveAttribute("data-state", "declined");
@@ -137,7 +137,7 @@ describe("GapClusterCard", () => {
 
       const card = screen.getByTestId("gap-cluster-card");
       expect(card).toHaveAttribute("data-tone", "red");
-      expect(card.className).toContain("border-l-critical");
+      expect(card.className).toContain("border-l-teal");
     });
 
     it("5 covered → green", () => {
@@ -352,6 +352,39 @@ describe("GapClusterCard", () => {
   });
 });
 
+describe("GapClusterCard — lead G posting terms", () => {
+  it("shows a requirement:false member on its own neutral line, labelled as a term from the posting", () => {
+    const cluster = makeCluster({
+      gaps: ["Kubernetes", "EKS"],
+      member_statuses: [
+        { member: "Kubernetes", status: "gap" },
+        { member: "EKS", status: "gap", requirement: false },
+      ],
+    });
+    render(withIntl(<GapClusterCard cluster={cluster} view={clusterView(cluster)} />, "de"));
+
+    const line = screen.getByTestId("gap-posting-terms");
+    expect(line).toHaveTextContent("Begriff aus der Anzeige:");
+    const chips = screen.getAllByTestId("gap-member");
+    const eks = chips.find((c) => c.textContent?.startsWith("EKS"))!;
+    const k8s = chips.find((c) => c.textContent?.startsWith("Kubernetes"))!;
+    expect(line).toContainElement(eks);
+    expect(line).not.toContainElement(k8s);
+    expect(eks).toHaveAttribute("data-requirement", "false");
+    expect(eks.className).toContain("bg-surface-container");
+    expect(eks.className).not.toContain("border-dashed");
+    expect(eks).toHaveTextContent("keine gezählte Anforderung");
+    expect(eks).not.toHaveTextContent("(offen)");
+    expect(k8s.className).toContain("border-dashed");
+  });
+
+  it("no posting-term line when every member is a requirement", () => {
+    const cluster = makeCluster({ gaps: ["Kubernetes"], member_statuses: [{ member: "Kubernetes", status: "gap" }] });
+    render(withIntl(<GapClusterCard cluster={cluster} view={clusterView(cluster)} />));
+    expect(screen.queryByTestId("gap-posting-terms")).not.toBeInTheDocument();
+  });
+});
+
 describe("GapClusterCard — ruling K-1 (leave a gap open, pick it up again)", () => {
   it("offers 'Leave this gap open' only when the page passes the handler, and its click never reaches the card", () => {
     const cluster = makeCluster({ gaps: ["Terraform"] });
@@ -362,7 +395,7 @@ describe("GapClusterCard — ruling K-1 (leave a gap open, pick it up again)", (
       withIntl(<GapClusterCard cluster={cluster} view={view} onClick={onClick} onLeaveOpen={onLeaveOpen} />),
     );
     fireEvent.click(screen.getByTestId("gap-leave-open"));
-    expect(screen.getByTestId("gap-leave-open")).toHaveTextContent("Leave this gap open");
+    expect(screen.getByTestId("gap-leave-open")).toHaveTextContent("Leave it open for now");
     expect(onLeaveOpen).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
 

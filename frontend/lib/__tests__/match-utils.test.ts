@@ -28,6 +28,7 @@ import {
   scoreToPercent,
   type GapCluster,
 } from "../match-utils";
+import { requirementCounts } from "../match-utils";
 
 describe("gapCounts", () => {
   it("splits a gap analysis into the four displayed counts", () => {
@@ -195,7 +196,7 @@ describe("clusterView — a card's state comes from the server record only", () 
       }),
     );
     expect(v.coverage).toBe("partly_covered");
-    expect(v.members).toEqual([
+    expect(v.members.map(({ term, state }) => ({ term, state }))).toEqual([
       { term: "Terraform", state: "partial" },
       { term: "Kubernetes", state: "covered" },
     ]);
@@ -275,7 +276,7 @@ describe("clusterView — a card's state comes from the server record only", () 
         member_statuses: statuses([["Kubernetes", "covered"], ["Terraform", "declined"]]),
       }),
     );
-    expect(v.members).toEqual([
+    expect(v.members.map(({ term, state }) => ({ term, state }))).toEqual([
       { term: "Kubernetes", state: "covered" },
       { term: "Terraform", state: "declined" },
     ]);
@@ -289,7 +290,7 @@ describe("clusterView — a card's state comes from the server record only", () 
       budget_remaining: 1,
     });
     expect(v.coverage).toBe("partly_covered");
-    expect(v.members).toEqual([
+    expect(v.members.map(({ term, state }) => ({ term, state }))).toEqual([
       { term: "Kubernetes", state: "closed" },
       { term: "Terraform", state: "gap" },
     ]);
@@ -320,7 +321,7 @@ describe("clusterView — a card's state comes from the server record only", () 
     expect(v.coverage).toBe("open");
     expect(v.askable).toBe(true);
     expect(v.asked).toBe(0);
-    expect(v.members).toEqual([{ term: "Docker", state: "partial" }]);
+    expect(v.members.map(({ term, state }) => ({ term, state }))).toEqual([{ term: "Docker", state: "partial" }]);
     expect(v.tone).toBe("yellow");
     expect(clusterView({ ...legacy, category: "C" } as GapCluster).tone).toBe("red");
   });
@@ -365,6 +366,57 @@ describe("ruling C-1 — the card's colour is its WORST requirement", () => {
       ["Istio", "gap"],
       ["Kubernetes", "covered"],
     ]);
+  });
+});
+
+describe("lead G — a posting term (requirement: false) is not a requirement", () => {
+  it("never colours the card: a term in gap state beside covered requirements leaves it green", () => {
+    const v = clusterView(
+      cluster({
+        gaps: ["EKS"],
+        outcome: { asked: 1, covered: ["Kubernetes"], declined: [], session_ids: ["s1"] },
+        coverage: "partly_covered",
+        member_statuses: [
+          { member: "Kubernetes", status: "covered" },
+          { member: "EKS", status: "gap", requirement: false },
+        ],
+      }),
+    );
+    expect(v.tone).toBe("green");
+    expect(v.members.map((m) => [m.term, m.requirement])).toEqual([
+      ["EKS", false],
+      ["Kubernetes", true],
+    ]);
+  });
+
+  it("an absent flag (legacy row) is a requirement and still colours the card", () => {
+    const v = clusterView(
+      cluster({
+        gaps: ["EKS"],
+        outcome: { asked: 1, covered: ["Kubernetes"], declined: [], session_ids: ["s1"] },
+        coverage: "partly_covered",
+        member_statuses: statuses([["Kubernetes", "covered"], ["EKS", "gap"]]),
+      }),
+    );
+    expect(v.tone).toBe("red");
+    expect(v.members.every((m) => m.requirement)).toBe(true);
+  });
+
+  it("a member a turn adds keeps its term flag", () => {
+    const v = clusterView(
+      cluster({
+        gaps: [],
+        outcome: { asked: 1, covered: ["Helm"], declined: [], session_ids: ["s1"] },
+        coverage: "partly_covered",
+        member_statuses: [
+          { member: "Helm", status: "covered" },
+          { member: "Settlement", status: "gap", requirement: false },
+        ],
+      }),
+      { cluster_id: "c1", coverage: "partly_covered", open_concepts: ["Settlement"], budget_remaining: 1 },
+    );
+    expect(v.members.find((m) => m.term === "Settlement")?.requirement).toBe(false);
+    expect(v.tone).toBe("green");
   });
 });
 
@@ -414,5 +466,35 @@ describe("isGapRefusalCode", () => {
     expect(isGapRefusalCode("gap_already_covered")).toBe(true);
     expect(isGapRefusalCode("provider_unavailable")).toBe(false);
     expect(isGapRefusalCode(undefined)).toBe(false);
+  });
+});
+
+// Hazelnut b3 #789 (ruling F1-2) — ONE open-requirement number.
+describe("requirementCounts", () => {
+  it("counts the ledger's fit-weighted rows by status; keyword-only terms are not requirements", () => {
+    const c = requirementCounts({
+      keyword_ledger: [
+        { concept: "A", fit_weight: 1, status: "direct" },
+        { concept: "B", fit_weight: 0.5, status: "partial" },
+        { concept: "C", fit_weight: 1, status: "gap" },
+        { concept: "D", fit_weight: 1, status: "gap" },
+        { concept: "E", fit_weight: 1, status: "denied" },
+        { concept: "PP/MM", fit_weight: 0, status: "gap" },
+      ],
+      category_c: ["C"], // stale list: the ledger wins
+    });
+    expect(c).toEqual({ total: 5, shown: 1, likely: 1, open: 2, declined: 1 });
+  });
+
+  it("falls back to the category lists for a legacy row without ledger statuses", () => {
+    expect(
+      requirementCounts({
+        keyword_ledger: [{ concept: "A", fit_weight: 1 }],
+        category_a: ["A"],
+        category_b: ["B", "B2"],
+        category_c: ["C"],
+      }),
+    ).toEqual({ total: 4, shown: 1, likely: 2, open: 1, declined: 0 });
+    expect(requirementCounts(null)).toEqual({ total: 0, shown: 0, likely: 0, open: 0, declined: 0 });
   });
 });

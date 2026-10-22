@@ -94,6 +94,7 @@ export default function FlowLayout({
   }, [flowId, pathname, router]);
 
   const currentSegment = pathname.split("/").pop() ?? "";
+  const documentRoute = currentSegment === "cv" || currentSegment === "cover-letter";
 
   // Ruling UX-3 (M7): a passed step is "done" by position, except the
   // interview — skipped via "Generate CV Now", it is never drawn as finished.
@@ -109,17 +110,31 @@ export default function FlowLayout({
         mode="flow"
         steps={steps}
         trailingBadge={flowState?.job_summary?.role_title}
+        trailing={
+          documentRoute && flowState?.application_id ? (
+            <CancelApplicationButton applicationId={flowState.application_id} />
+          ) : undefined
+        }
       />
       {/* US222 (Branch I): the walk-away is reachable from EVERY flow step —
-          discreet, never competing with the step's primary actions. */}
+          discreet, never competing with the step's primary actions. On the
+          document routes (#789) it sits in the top bar from md up: as a strip
+          here it overlapped the refinement panel's tab row. */}
       {flowState?.application_id && (
-        <div className="w-full max-w-[960px] mx-auto px-5 pt-3 flex justify-end">
+        <div
+          data-testid="flow-cancel-strip"
+          className={cn(
+            "w-full max-w-[960px] mx-auto px-5 pt-3 flex justify-end",
+            documentRoute && "md:hidden",
+          )}
+        >
           <CancelApplicationButton applicationId={flowState.application_id} />
         </div>
       )}
-      <div className={cn(
+      {/* #789 a11y — the flow pages had no <main> landmark. */}
+      <main className={cn(
         "flex-1 w-full overflow-y-auto",
-        currentSegment === "cv" || currentSegment === "cover-letter"
+        documentRoute
           ? ""
           : "max-w-[960px] mx-auto px-5 py-8"
       )}>
@@ -128,7 +143,7 @@ export default function FlowLayout({
             {t("loading")}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

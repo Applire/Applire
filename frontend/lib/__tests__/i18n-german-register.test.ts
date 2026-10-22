@@ -140,6 +140,12 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   // attribution — no German word left to translate.
   "review.summary.entityCount",
   "review.summary.attribution",
+  // #789: the match card's title is two placeholders and a middle dot;
+  // "Interview" is the same word in both languages (step 4 and the intro eyebrow).
+  "gaps.matchRoleAtCompany",
+  "home.step4Title",
+  "interview.introEyebrow",
+  "interview.introEyebrowRole",
   // E056 UX pass: the merged target/fate chip is nothing but its two
   // placeholders and a middle dot — both halves are themselves catalog values,
   // so there is no German word left to translate here.

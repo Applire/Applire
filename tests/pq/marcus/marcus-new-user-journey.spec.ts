@@ -92,6 +92,11 @@ test.describe('Full Interview Mode', () => {
 
     // Loading spinner should disappear
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
 
     // Interview page and first question must be visible
     await expect(page.getByTestId('interview-page')).toBeVisible();
@@ -111,6 +116,11 @@ test.describe('Full Interview Mode', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
     await expect(page.getByTestId('interview-question')).toBeVisible();
 
     const firstQuestion = await page.getByTestId('interview-question').textContent();
@@ -144,6 +154,11 @@ test.describe('Full Interview Mode', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
 
     // Click "I'm done" button
     const doneButton = page.getByTestId('done-button');
@@ -165,6 +180,11 @@ test.describe('Full Interview Mode', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
 
     // Fast-path: click "I'm done" and confirm end
     await page.getByTestId('done-button').click();
@@ -190,6 +210,11 @@ test.describe('Full Interview Mode', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
 
     // End early to reach completion screen quickly
     await page.getByTestId('done-button').click();
@@ -214,6 +239,11 @@ test.describe('Full Interview Mode', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
     await expect(page.getByTestId('interview-question')).toBeVisible();
 
     // Intercept the next message and inject a gaps_resolved completion
@@ -252,6 +282,11 @@ test.describe('Full Interview Mode', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
     await expect(page.getByTestId('interview-question')).toBeVisible();
 
     // Intercept the next message and inject a max_questions_reached completion
@@ -290,6 +325,11 @@ test.describe('Full Interview Mode', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
     await expect(page.getByTestId('interview-question')).toBeVisible();
 
     // Badge must NOT be visible on the first question (isCategoryB starts as false)
@@ -610,6 +650,11 @@ test.describe('Session Resume', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
 
     // Answer one question so the session is *genuinely* in progress. Per issue
     // #44 the resume banner is gated on real progress (questions_asked > 1), not
@@ -641,6 +686,11 @@ test.describe('Session Resume', () => {
     // Navigate back to interview
     await page.goto(`/flow/${flowId}/interview`);
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
 
     // Resume banner should appear (session has genuine in-progress work, #44).
     await expect(page.getByTestId('resume-banner')).toBeVisible({ timeout: 10000 });
@@ -670,6 +720,11 @@ test.describe('Conflict Resolution', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
 
     // Intercept the next message POST and inject a conflict
     await page.route('**/api/session/*/message', async (route) => {
@@ -731,6 +786,11 @@ test.describe('Conflict Resolution', () => {
 
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+    // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+    await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+    if (await page.getByTestId('interview-intro-start').isVisible()) {
+      await page.getByTestId('interview-intro-start').click();
+    }
 
     // Inject conflict via route interception
     await page.route('**/api/session/*/message', async (route) => {

@@ -114,4 +114,10 @@ describe("MobileNavDrawer", () => {
     expect(screen.getByText("MM")).toBeInTheDocument();
     expect(screen.getByText("Max Mustermann")).toBeInTheDocument();
   });
+
+  it("shows an all-caps CV name in display casing", () => {
+    renderDrawer(true, vi.fn(), "ANNA-LENA MÜLLER");
+    expect(screen.getByText("Anna-Lena Müller")).toBeInTheDocument();
+    expect(screen.queryByText("ANNA-LENA MÜLLER")).toBeNull();
+  });
 });

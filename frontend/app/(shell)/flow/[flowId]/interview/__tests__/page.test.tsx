@@ -16,7 +16,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InterviewPage from "../page";
 import { GapClusterCard, TONE } from "@/components/gaps/GapClusterCard";
@@ -43,6 +43,22 @@ vi.mock("next-intl", () => ({
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
     params ? `${key}(${JSON.stringify(params)})` : key,
 }));
+
+/** #789 (mock F1-1 c) — a fresh session opens on the intro card; the question
+ * is loaded behind it. Tests that drive the question click through it. */
+async function passIntro() {
+  await waitFor(() => {
+    const settled =
+      screen.queryByTestId("interview-intro") ||
+      screen.queryByTestId("interview-question") ||
+      screen.queryByTestId("interview-start-failed") ||
+      screen.queryByTestId("completion-screen") ||
+      mockReplace.mock.calls.length > 0;
+    if (!settled) throw new Error("interview page not settled yet");
+  });
+  const start = screen.queryByTestId("interview-intro-start");
+  if (start) fireEvent.click(start);
+}
 
 // React 19 `use()` reads instrumented promises synchronously — avoids
 // Suspense plumbing in jsdom.
@@ -107,6 +123,7 @@ describe("InterviewPage flow-advance guard", () => {
     global.fetch = mockApi({ currentStep: "jd_analysis", advanceStatus: 409 }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
 
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/flow/f1"));
   });
@@ -115,6 +132,7 @@ describe("InterviewPage flow-advance guard", () => {
     global.fetch = mockApi({ currentStep: "interview", advanceStatus: 409 }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
 
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent(
@@ -128,6 +146,7 @@ describe("InterviewPage flow-advance guard", () => {
     global.fetch = mockApi({ currentStep: "gap_analysis", advanceStatus: 200 }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
 
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent(
@@ -218,6 +237,7 @@ describe("InterviewPage cluster tracker (#241 item 1)", () => {
     global.fetch = mockClusterApi([]) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
 
     await waitFor(() =>
       expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "current"),
@@ -239,6 +259,7 @@ describe("InterviewPage cluster tracker (#241 item 1)", () => {
     ]) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() =>
       expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "current"),
     );
@@ -275,6 +296,7 @@ describe("InterviewPage cluster tracker (#241 item 1)", () => {
     ]) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() =>
       expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "current"),
     );
@@ -359,6 +381,7 @@ describe("InterviewPage hard-ceiling completion (#245)", () => {
     global.fetch = mockCeilingApi({}, 12) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
 
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent(
@@ -368,7 +391,10 @@ describe("InterviewPage hard-ceiling completion (#245)", () => {
 
     // total:12 (the real hard_ceiling) — NOT total:7 (the soft midpoint
     // estimated_questions, which is what the founder-acceptance run overshot).
-    expect(document.body.textContent).toContain('questionOf({"current":1,"total":12})');
+    // #789 — the header names the question number and topic, never "1 of up
+    // to {hard_ceiling}" (the ceiling read as daunting, UX audit 2026-10-20).
+    expect(document.body.textContent).toContain('questionNumber({"current":1})');
+    expect(document.body.textContent).not.toContain("questionOf");
     expect(document.body.textContent).not.toContain('"total":7');
   });
 
@@ -384,6 +410,7 @@ describe("InterviewPage hard-ceiling completion (#245)", () => {
     }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent(
         "Tell me about a recent project.",
@@ -410,6 +437,7 @@ describe("InterviewPage hard-ceiling completion (#245)", () => {
     }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent("Tell me about a recent project."),
     );
@@ -431,6 +459,7 @@ describe("InterviewPage hard-ceiling completion (#245)", () => {
     }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent("Tell me about a recent project."),
     );
@@ -479,6 +508,7 @@ describe("InterviewPage hard-ceiling completion (#245)", () => {
     }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
 
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent(
@@ -489,7 +519,7 @@ describe("InterviewPage hard-ceiling completion (#245)", () => {
     // current:5 (the server's real questions_asked) — NOT current:1, the
     // pre-#259 reset every page refresh produced despite real server-side
     // progress.
-    expect(document.body.textContent).toContain('questionOf({"current":5,"total":12})');
+    expect(document.body.textContent).toContain('questionNumber({"current":5})');
     expect(document.body.textContent).not.toContain('"current":1,');
   });
 });
@@ -573,6 +603,7 @@ describe("InterviewPage failed-turn recovery (#256)", () => {
     }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?"),
     );
@@ -607,6 +638,7 @@ describe("InterviewPage failed-turn recovery (#256)", () => {
     }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?"),
     );
@@ -665,11 +697,13 @@ describe("InterviewPage failed-turn recovery (#256)", () => {
     }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
 
     const retryButton = await screen.findByTestId("retry-session-button");
     expect(document.body.textContent).not.toContain("raw provider text — must not render");
 
     await user.click(retryButton);
+    await passIntro();
 
     await waitFor(() =>
       expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?"),
@@ -802,6 +836,7 @@ describe("InterviewPage tracker reflects the server's own coverage record at loa
     }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
 
     await waitFor(() =>
       expect(screen.getByTestId("gap-cluster-c-current")).toHaveAttribute("data-status", "current"),
@@ -843,6 +878,7 @@ describe("InterviewPage tracker: a turn's cluster_coverage is not painted over a
     ]) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() =>
       expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "current"),
     );
@@ -874,6 +910,7 @@ describe("InterviewPage tracker: a turn's cluster_coverage is not painted over a
     ]) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() =>
       expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "current"),
     );
@@ -983,6 +1020,7 @@ describe("Ruling C-4 — the tracker and the gap card derive the same tone for t
     }) as unknown as typeof fetch;
 
     render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
     await waitFor(() => expect(screen.getByTestId("gap-cluster-t-red")).toBeInTheDocument());
 
     const expected: Record<string, string> = {
@@ -1012,5 +1050,279 @@ describe("Ruling C-4 — the tracker and the gap card derive the same tone for t
     expect(screen.getByTestId("gap-cluster-t-grey")).toHaveAttribute("data-status", "declined");
     expect(screen.getByTestId("gap-cluster-t-spent")).toHaveAttribute("data-status", "spent");
     expect(screen.getByTestId("gap-cluster-t-yellow")).toHaveAttribute("data-status", "partly_covered");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hazelnut build 3, #789 (UX audit 2026-10-20) — first contact with the
+// interview: an intro before Q1, ONE open-requirement number (ruling F1-2),
+// the match ring labelled as match, and a declined topic that names only
+// what was declined.
+// ---------------------------------------------------------------------------
+
+const LEDGER = (gapStatus: "gap" | "direct") => [
+  { concept: "Produktionsverantwortung", fit_weight: 1, status: gapStatus },
+  { concept: "MES", fit_weight: 1, status: "gap" },
+  { concept: "Lean", fit_weight: 1, status: "partial" },
+  { concept: "SAP", fit_weight: 1, status: "direct" },
+  { concept: "IFS/BRC", fit_weight: 1, status: "denied" },
+  // keyword-only ATS term: not a requirement, never counted
+  { concept: "PP/MM", fit_weight: 0, status: "gap" },
+];
+
+const F1_CLUSTERS: GapCluster[] = [
+  toneCluster("q1", "C", {
+    label: "Qualität und Standards",
+    coverage: "declined",
+    outcome: { asked: 1, covered: ["ISO 9001"], declined: ["IFS/BRC"], session_ids: ["s0"] },
+    member_statuses: ms([["IFS/BRC", "declined"], ["ISO 9001", "covered"]]),
+    jd_skills: ["IFS/BRC", "ISO 9001"],
+  }),
+  toneCluster("p1", "C", {
+    label: "Produktion",
+    coverage: "open",
+    gaps: ["PP/MM", "Produktionsverantwortung", "MES"],
+    outcome: { asked: 0, covered: [], declined: [], session_ids: [] },
+    // lead G: PP/MM is a posting TERM (fit_weight 0) — `requirement: false`
+    member_statuses: [
+      { member: "PP/MM", status: "gap", requirement: false },
+      ...ms([["Produktionsverantwortung", "gap"], ["MES", "gap"]]),
+    ],
+  }),
+];
+
+function mockF1Api(opts: {
+  resumed?: boolean;
+  questionsAsked?: number;
+  messageResponses?: Record<string, unknown>[];
+}) {
+  const queue = [...(opts.messageResponses ?? [])];
+  let gapsReads = 0;
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/flow/f1/state")) {
+      return {
+        ok: true,
+        json: async () => ({ job_id: "j1", current_step: "interview", job_summary: { role_title: "Leiter Operations" } }),
+      };
+    }
+    if (url.includes("/api/job/j1/gaps")) {
+      gapsReads += 1;
+      // the first read is the page load; every later read follows a turn
+      // that closed "Produktionsverantwortung" in the ledger
+      const ledger = LEDGER(gapsReads === 1 ? "gap" : "direct");
+      return {
+        ok: true,
+        json: async () => ({
+          id: "ga1",
+          match_score: 0.44,
+          gap_clusters: F1_CLUSTERS,
+          keyword_ledger: ledger,
+          category_c: ["Produktionsverantwortung", "MES"],
+        }),
+      };
+    }
+    if (url.includes("/api/session/s1/message")) {
+      const next = queue.shift();
+      if (!next) throw new Error("mockF1Api: no more queued message responses");
+      return { ok: true, json: async () => next };
+    }
+    if (url.includes("/api/session")) {
+      return {
+        ok: true,
+        json: async () => ({
+          session_id: "s1",
+          mode: "targeted",
+          first_question: "Wie verantwortest du die Produktion?",
+          question: "Wie verantwortest du die Produktion?",
+          estimated_questions: 12,
+          hard_ceiling: 18,
+          gaps_total: 2,
+          gaps_remaining: 2,
+          choices: null,
+          resumed: opts.resumed ?? false,
+          questions_asked: opts.questionsAsked ?? 1,
+          current_gap_id: "p1",
+          addressed_gap_ids: [],
+        }),
+      };
+    }
+    if (url.includes("/api/flow/f1/advance")) {
+      return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
+    }
+    throw new Error(`unexpected fetch: ${url} ${init?.method ?? "GET"}`);
+  });
+  return { fn, gapsReads: () => gapsReads };
+}
+
+describe("Hazelnut b3 #789 — interview intro, one count, match ring", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("a fresh session opens on the intro (why · how long · stop · honest); the question shows after Start", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+
+    const intro = await screen.findByTestId("interview-intro");
+    expect(screen.queryByTestId("interview-question")).not.toBeInTheDocument();
+    expect(intro.textContent).toContain("introWhyBody");
+    // the open count the intro names is the ledger's (2 gap rows, fit > 0)
+    expect(intro.textContent).toContain('introWhyBody({"count":2})');
+    expect(intro.textContent).toContain('introHowLongBody({"count":12})');
+    expect(intro.textContent).toContain("introStopBody");
+    expect(intro.textContent).toContain("introHonestBody");
+
+    fireEvent.click(screen.getByTestId("interview-intro-start"));
+    expect(screen.getByTestId("interview-question")).toHaveTextContent("Wie verantwortest du die Produktion?");
+    expect(screen.queryByTestId("interview-intro")).not.toBeInTheDocument();
+  });
+
+  it("a resumed session goes straight to its question (no intro)", async () => {
+    global.fetch = mockF1Api({ resumed: true, questionsAsked: 4 }).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await screen.findByTestId("interview-question");
+    expect(screen.queryByTestId("interview-intro")).not.toBeInTheDocument();
+  });
+
+  it("the back link returns to the gaps page", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    fireEvent.click(await screen.findByTestId("interview-intro-back"));
+    expect(mockPush).toHaveBeenCalledWith("/flow/f1/gaps");
+  });
+
+  it("header and sidebar show ONE number — the ledger's open requirements — and it moves after a turn", async () => {
+    const user = userEvent.setup();
+    const api = mockF1Api({
+      messageResponses: [
+        { complete: false, question: "Und MES?", gaps_remaining: 2, current_gap_id: "p1", addressed_gap_ids: [], completeness_score: null },
+      ],
+    });
+    global.fetch = api.fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-open-count")).toHaveTextContent('openRequirements({"count":2})'),
+    );
+    // never the session's theme counter, never "1 of up to 18"
+    expect(document.body.textContent).not.toContain("gapsRemaining");
+    expect(document.body.textContent).not.toContain("questionOf");
+    expect(screen.getByTestId("interview-current-topic")).toHaveTextContent('currentTopic({"label":"Produktion"})');
+    expect(screen.getByTestId("tracker-open-count")).toHaveTextContent('trackerHeading({"count":2,');
+
+    await sendAnswer(user, "Ich leite zwei Fertigungsbereiche.");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-open-count")).toHaveTextContent('openRequirements({"count":1})'),
+    );
+    expect(screen.getByTestId("tracker-open-count")).toHaveTextContent('trackerHeading({"count":1,');
+    expect(api.gapsReads()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("the sidebar ring is the MATCH value, labelled as match; a turn's completeness never lands on it", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockF1Api({
+      messageResponses: [
+        { complete: false, question: "Und MES?", gaps_remaining: 2, current_gap_id: "p1", addressed_gap_ids: [], completeness_score: 0.94 },
+      ],
+    }).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+
+    const ring = await screen.findByTestId("match-gauge");
+    expect(ring).toHaveAttribute("data-pct", "44");
+    expect(ring.textContent).toContain("matchWithJob");
+    expect(ring.textContent).not.toContain("profileCompleteness");
+    expect(screen.queryByTestId("completeness-gauge")).not.toBeInTheDocument();
+
+    await sendAnswer(user, "Ich leite zwei Fertigungsbereiche.");
+    await screen.findByText("Und MES?");
+    expect(screen.getByTestId("match-gauge")).toHaveAttribute("data-pct", "44");
+  });
+
+  it("a declined topic names only the declined term; a covered member of it shows as covered, not 'nicht vorhanden'", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+
+    const row = await screen.findByTestId("gap-cluster-q1");
+    expect(row).toHaveAttribute("data-status", "declined");
+    const declined = screen.getByTestId("tracker-declined-terms");
+    expect(declined.textContent).toContain('coverageDeclinedTerms({"terms":"IFS/BRC"})');
+    expect(declined.textContent).not.toContain("ISO 9001");
+    const chips = Array.from(row.querySelectorAll('[data-testid="tracker-member"]'));
+    const iso = chips.find((c) => c.textContent === "ISO 9001");
+    expect(iso).toHaveAttribute("data-state", "covered");
+    expect(chips.find((c) => c.textContent === "IFS/BRC")).toHaveAttribute("data-state", "declined");
+  });
+});
+
+describe("lead G — a posting term in the tracker", () => {
+  it("draws a requirement:false member neutrally, after the requirements, labelled as a posting term — and never counts it", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+
+    const row = await screen.findByTestId("gap-cluster-p1");
+    expect(row).toHaveAttribute("data-tone", "red");
+    const chips = Array.from(row.querySelectorAll('[data-testid="tracker-member"]'));
+    expect(chips.map((c) => c.textContent?.replace(/postingTermSr.*/, ""))).toEqual([
+      "Produktionsverantwortung",
+      "MES",
+      "PP/MM",
+    ]);
+    const term = chips[2];
+    expect(term).toHaveAttribute("data-requirement", "false");
+    expect(term.className).toContain("bg-surface-container");
+    expect(term.className).not.toContain("border-dashed");
+    expect(term.textContent).toContain("postingTermSr");
+    expect(term).toHaveAttribute("title", "postingTermTitle");
+    expect(chips[0]).not.toHaveAttribute("data-requirement");
+    // the ledger's fit_weight 0 row is not a requirement: 2 open, not 3
+    expect(screen.getByTestId("tracker-open-count")).toHaveTextContent('trackerHeading({"count":2,');
+  });
+});
+
+// #789 "numbers that agree": the interview's duration is ONE phrase on every
+// surface that names it — the first-run step, the gaps CTA hint, the intro.
+import deCatalog from "@/messages/de.json";
+import enCatalog from "@/messages/en.json";
+describe("#789 one interview duration across first contact", () => {
+  it.each([["de", deCatalog], ["en", enCatalog]] as const)("%s: first run, gaps hint and intro say the same 10–20", (_l, c) => {
+    const cat = c as unknown as Record<string, Record<string, string>>;
+    for (const v of [cat.home.step4Tag, cat.gaps.gapInterviewHintCount, cat.interview.introHowLongBody]) {
+      expect(v).toContain("10–20");
+    }
+  });
+});
+
+describe("#787 L7 — the question number is the server's gap-question count", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("a confirmation turn the server does not count leaves 'Frage N' where it was", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockClusterApi([
+      // a skill-merge confirmation turn: questions_asked unchanged (1)
+      { complete: false, question: "Is SAP PP the same as SAP?", current_gap_id: "c1", addressed_gap_ids: [], questions_asked: 1 },
+      { complete: false, question: "Tell me about Docker.", current_gap_id: "c2", addressed_gap_ids: ["c1"], questions_asked: 2 },
+    ]) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => screen.getByTestId("interview-question-number"));
+    expect(screen.getByTestId("interview-question-number").textContent).toContain('"current":1');
+
+    await sendAnswer(user, "Yes, three years.");
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toHaveTextContent("SAP PP"));
+    expect(screen.getByTestId("interview-question-number").textContent).toContain('"current":1');
+
+    await sendAnswer(user, "Same thing.");
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toHaveTextContent("Docker"));
+    expect(screen.getByTestId("interview-question-number").textContent).toContain('"current":2');
   });
 });

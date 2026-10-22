@@ -99,11 +99,16 @@ describe("/setup (US330, S-14)", () => {
     fireEvent.click(screen.getByTestId("setup-submit"));
   }
 
-  it("204 → signed in, to /", async () => {
+  it("204 → signed in, names the next step (invite people / start myself)", async () => {
     const fetchMock = routes(() => new Response(null, { status: 204 }));
     wrap(<SetupPage />, auth);
     await submitValid();
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(screen.getByTestId("setup-created")).toBeInTheDocument());
+    expect(assign).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("setup-invite"));
+    expect(assign).toHaveBeenCalledWith("/admin/users");
+    fireEvent.click(screen.getByTestId("setup-start"));
+    expect(assign).toHaveBeenCalledWith("/");
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toEqual({
       setup_token: "K7QF-2MXA-0000",
