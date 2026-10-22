@@ -179,6 +179,13 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Tobias Rosenbaum")).toBeInTheDocument();
   });
 
+  it("shows an all-caps CV name in display casing, initials unchanged", () => {
+    render(<AppSidebar userName="STEFAN BRANDT" />);
+    expect(screen.getByText("Stefan Brandt")).toBeInTheDocument();
+    expect(screen.queryByText("STEFAN BRANDT")).toBeNull();
+    expect(screen.getByText("SB")).toBeInTheDocument();
+  });
+
   it("hides the user strip when userName is null and nobody is known", () => {
     mockAuth = { user: null, isAdmin: false };
     render(<AppSidebar userName={null} />);
