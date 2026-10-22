@@ -259,3 +259,20 @@ def test_pin_predicate_protects_an_active_cv_skill_pin():
     pred = _ladder_pin_predicate([pin])
     assert pred("Golf") and not pred("Lean Management")
     assert _ladder_pin_predicate([]) is None
+
+
+@pytest.mark.asyncio
+async def test_the_page_length_finding_names_every_ladder_cut(db):
+    """Seam: generation's audit (``_update_ats_report`` fed the measurement) carries
+    the cuts into the page-length row — the founder's "name each cut"."""
+    from applire.services.cv import _update_ats_report
+
+    cv = await _seed(db, target_pages=2)
+    measured = await _measure(cv, db, target=2)
+    with patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html/>")):
+        await _update_ats_report(cv, db, measured=measured)
+    row = next(c for c in cv.ats_report["checks"] if c["id"] == "page-length")
+    assert "removed to fit the page limit" in row["details"]
+    assert "MES-Einführung" in row["details"]
+    assert row["details_params"]["ladder_cut_kinds"].startswith(DUPLICATE_PROJECT)
+    assert "Kosmetik-Verpackungen" in row["details_params"]["ladder_cuts"]

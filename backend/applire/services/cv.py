@@ -6068,12 +6068,17 @@ async def _update_ats_report(
         )
         from applire.services.cv_section_editor import apply_overrides_to_tailored
 
+        ladder_cuts = None
         if measured is not None:
             text = measured.text
             count = measured.page_count
             condensation_exhausted = measured.condensation_exhausted
             target = measured.target
             region = measured.region
+            if measured.ladder_cuts:
+                from applire.services.cv_page_ladder import merge_cuts
+
+                ladder_cuts = merge_cuts(list(measured.ladder_cuts))
         else:
             target = await _resolve_audit_target(record, db)
             region = DEFAULT_REGION
@@ -6133,6 +6138,7 @@ async def _update_ats_report(
             target=target,
             region=region,
             condensation_exhausted=condensation_exhausted,
+            ladder_cuts=ladder_cuts,
             vault_text_norm=vault_text_norm,
             vault_skill_forms=vault_skill_forms,
             pins=audit_pins,
