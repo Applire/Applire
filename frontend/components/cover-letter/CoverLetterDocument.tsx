@@ -25,12 +25,18 @@ interface CoverLetterDocumentProps {
   coverLetterId: string;
   /** Fires each time the preview document (re)loads — ADR-090 cl. 2 marks do not survive a reload. */
   onPreviewLoad?: () => void;
+  /**
+   * What the current letter was generated with. `null`/`undefined` = unknown
+   * (e.g. a letter from an earlier session) — then no hint is shown, never a
+   * guess.
+   */
+  generationInputs?: { availability?: string | null; motivation?: string | null } | null;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 const CV_WIDTH = 794; // A4 at 96 dpi
 
-export function CoverLetterDocument({ coverLetterId, onPreviewLoad }: CoverLetterDocumentProps) {
+export function CoverLetterDocument({ coverLetterId, onPreviewLoad, generationInputs }: CoverLetterDocumentProps) {
   const t = useTranslations("coverLetter");
   const containerRef = useRef<HTMLDivElement>(null);
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
@@ -73,10 +79,32 @@ export function CoverLetterDocument({ coverLetterId, onPreviewLoad }: CoverLette
   const scale = containerWidth > 0 ? Math.min(1, containerWidth / CV_WIDTH) : 1;
   const iframeHeight = CV_WIDTH * Math.sqrt(2); // A4 aspect ratio ≈ 1123px
 
+  // L-1: the writer never invents a notice period or a reason for the change,
+  // so a letter generated without them simply lacks both. One neutral line says so.
+  const noticeMissing = generationInputs != null && !generationInputs.availability?.trim();
+  const reasonMissing = generationInputs != null && !generationInputs.motivation?.trim();
+  const hintKey =
+    noticeMissing && reasonMissing
+      ? "previewHintBoth"
+      : noticeMissing
+        ? "previewHintNotice"
+        : reasonMissing
+          ? "previewHintReason"
+          : null;
+
   return (
+    <div className="flex flex-col w-full h-full">
+      {hintKey && (
+        <p
+          className="shrink-0 px-3 py-2 text-xs text-on-surface-variant bg-surface-container border-b border-outline-variant"
+          data-testid="cover-letter-preview-hint"
+        >
+          {t(hintKey)}
+        </p>
+      )}
     <div
       ref={containerRef}
-      className="relative w-full h-full overflow-hidden"
+      className="relative w-full flex-1 min-h-0 overflow-hidden"
     >
       {error ? (
         <div className="flex items-center justify-center h-full text-sm text-red-500">
@@ -103,6 +131,7 @@ export function CoverLetterDocument({ coverLetterId, onPreviewLoad }: CoverLette
           }}
         />
       )}
+    </div>
     </div>
   );
 }

@@ -135,7 +135,8 @@ describe("GenerateCoverLetterModal — recipient company prefill (#604)", () => 
     await waitFor(() =>
       expect(screen.getByTestId("cl-recipient-company")).toHaveValue("Vom Aufrufer GmbH"),
     );
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // (the profile read for the notice period is a separate, unconditional request)
+    expect(fetchSpy).not.toHaveBeenCalledWith(expect.stringContaining("/api/job/"));
   });
 
   it("does not overwrite a regenerate's stored recipient company", async () => {
@@ -152,7 +153,8 @@ describe("GenerateCoverLetterModal — recipient company prefill (#604)", () => 
     await waitFor(() =>
       expect(screen.getByTestId("cl-recipient-company")).toHaveValue("Beim letzten Mal GmbH"),
     );
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // (the profile read for the notice period is a separate, unconditional request)
+    expect(fetchSpy).not.toHaveBeenCalledWith(expect.stringContaining("/api/job/"));
   });
 
   it("leaves the field empty when the analysis knows no company", async () => {
@@ -184,5 +186,130 @@ describe("GenerateCoverLetterModal — recipient company prefill (#604)", () => 
     resolve(jobResponse("Rheinwerk Verpackungen GmbH"));
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     expect(field).toHaveValue("Selbst getippt AG");
+  });
+});
+
+// Founder ruling L-1 (Hazelnut build 3, #787): the two optional prose fields are
+// named for what a German reader expects in a letter — notice period and the
+// reason for the change — sit above the salary, and no longer promise that the
+// AI fills them in (the writer never invents these values, ruling D1-1).
+describe("GenerateCoverLetterModal — notice period and reason (L-1)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function profileWith(availability: { text: string } | null) {
+    return {
+      ok: true,
+      json: () => Promise.resolve({ profile: availability ? { availability } : {} }),
+    } as Response;
+  }
+
+  function mockFetch(profile: Response | Promise<Response>) {
+    return vi.spyOn(global, "fetch").mockImplementation((async (url: string) => {
+      if (String(url).includes("/api/profile")) return profile;
+      return { ok: true, json: () => Promise.resolve({ company_name: null }) } as Response;
+    }) as typeof fetch);
+  }
+
+  it("uses the new German labels and no AI promise", () => {
+    mockFetch(profileWith(null));
+    renderModal();
+    expect(screen.getByText("Kündigungsfrist / frühester Eintritt")).toBeTruthy();
+    expect(screen.getByText("Warum diese Stelle, warum der Wechsel?")).toBeTruthy();
+    expect(screen.queryByText(/KI generiert/)).toBeNull();
+    expect(screen.getByTestId("cl-motivation").getAttribute("placeholder")).not.toMatch(/KI|Leer lassen/);
+  });
+
+  it("uses the new English labels and no AI promise", () => {
+    mockFetch(profileWith(null));
+    render(withIntl(<GenerateCoverLetterModal {...BASE_PROPS} />, "en"));
+    expect(screen.getByText("Notice period / earliest start")).toBeTruthy();
+    expect(screen.getByText("Why this role, why the change?")).toBeTruthy();
+    expect(screen.getByTestId("cl-motivation").getAttribute("placeholder")).not.toMatch(/AI generates|Leave blank/);
+  });
+
+  it("puts notice period and reason above the salary", () => {
+    mockFetch(profileWith(null));
+    renderModal();
+    const order = ["cl-availability", "cl-motivation", "cl-salary"].map((id) => screen.getByTestId(id));
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("pre-fills the notice period from the profile and says so", async () => {
+    mockFetch(profileWith({ text: "3 Monate zum Quartalsende" }));
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId("cl-availability")).toHaveValue("3 Monate zum Quartalsende"));
+    expect(screen.getByText("aus deinem Profil")).toBeTruthy();
+  });
+
+  it("drops the profile hint as soon as the user edits the field", async () => {
+    mockFetch(profileWith({ text: "3 Monate zum Quartalsende" }));
+    renderModal();
+    await screen.findByText("aus deinem Profil");
+    fireEvent.change(screen.getByTestId("cl-availability"), { target: { value: "sofort" } });
+    expect(screen.queryByText("aus deinem Profil")).toBeNull();
+    expect(screen.getByTestId("cl-availability")).toHaveValue("sofort");
+  });
+
+  it("does not pre-fill when the application already has its own value", async () => {
+    const spy = mockFetch(profileWith({ text: "3 Monate zum Quartalsende" }));
+    render(
+      withIntl(
+        <GenerateCoverLetterModal {...BASE_PROPS} existingInputs={{ availability: "ab 1. Januar" }} />,
+        "de",
+      ),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("cl-availability")).toHaveValue("ab 1. Januar");
+    expect(screen.queryByText("aus deinem Profil")).toBeNull();
+    expect(spy).not.toHaveBeenCalledWith(expect.stringContaining("/api/profile"));
+  });
+
+  it("leaves the field empty and silent when the profile read fails", async () => {
+    const spy = mockFetch({ ok: false, status: 404, json: () => Promise.resolve({}) } as Response);
+    renderModal();
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.stringContaining("/api/profile")));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("cl-availability")).toHaveValue("");
+    expect(screen.queryByText("aus deinem Profil")).toBeNull();
+    expect(screen.queryByText("Unbekannter Fehler")).toBeNull();
+  });
+
+  it("does not overwrite what the user typed while the profile was loading", async () => {
+    let resolve!: (v: Response) => void;
+    mockFetch(new Promise<Response>((r) => { resolve = r; }));
+    renderModal();
+    fireEvent.change(screen.getByTestId("cl-availability"), { target: { value: "sofort" } });
+    resolve(profileWith({ text: "3 Monate" }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("cl-availability")).toHaveValue("sofort");
+    expect(screen.queryByText("aus deinem Profil")).toBeNull();
+  });
+
+  it("keeps the request body fields unchanged and reports what was submitted", async () => {
+    const onGenerated = vi.fn();
+    const spy = vi.spyOn(global, "fetch").mockImplementation((async (url: string) => {
+      if (String(url).includes("/api/cover-letter/generate")) {
+        return { ok: true, json: () => Promise.resolve({ cover_letter_id: "cl-9" }) } as Response;
+      }
+      if (String(url).includes("/api/profile")) return profileWith({ text: "3 Monate" });
+      return { ok: true, json: () => Promise.resolve({}) } as Response;
+    }) as typeof fetch);
+    render(withIntl(<GenerateCoverLetterModal {...BASE_PROPS} onGenerated={onGenerated} />, "de"));
+    await screen.findByText("aus deinem Profil");
+    fireEvent.change(screen.getByTestId("cl-motivation"), { target: { value: "Neuer Fokus" } });
+    fireEvent.click(screen.getByTestId("cl-modal-generate"));
+    await waitFor(() => expect(onGenerated).toHaveBeenCalled());
+    const call = spy.mock.calls.find((c) => String(c[0]).includes("/generate"))!;
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.availability).toBe("3 Monate");
+    expect(body.motivation).toBe("Neuer Fokus");
+    expect(Object.keys(body).sort()).toEqual(
+      ["availability", "job_id", "motivation", "recipient_company", "recipient_name", "salary", "tone"],
+    );
+    expect(onGenerated).toHaveBeenCalledWith("cl-9", expect.objectContaining({ availability: "3 Monate" }));
   });
 });

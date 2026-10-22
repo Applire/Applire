@@ -136,4 +136,41 @@ describe("CoverLetterDocument", () => {
       expect(iframe.style.transform).toBe("scale(1)");
     });
   });
+
+  describe("generation-input hint (L-1)", () => {
+    function renderWith(inputs: { availability?: string | null; motivation?: string | null } | null | undefined) {
+      vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
+      render(<CoverLetterDocument coverLetterId={CL_ID} generationInputs={inputs} />);
+    }
+
+    it("names both gaps when neither was given", () => {
+      renderWith({ availability: null, motivation: "  " });
+      expect(screen.getByTestId("cover-letter-preview-hint").textContent).toBe("previewHintBoth");
+    });
+
+    it("names only the notice period when only that is missing", () => {
+      renderWith({ availability: "", motivation: "Neuer Fokus" });
+      expect(screen.getByTestId("cover-letter-preview-hint").textContent).toBe("previewHintNotice");
+    });
+
+    it("names only the reason when only that is missing", () => {
+      renderWith({ availability: "3 Monate", motivation: null });
+      expect(screen.getByTestId("cover-letter-preview-hint").textContent).toBe("previewHintReason");
+    });
+
+    it("shows nothing when both were given", () => {
+      renderWith({ availability: "3 Monate", motivation: "Neuer Fokus" });
+      expect(screen.queryByTestId("cover-letter-preview-hint")).toBeNull();
+    });
+
+    it("shows nothing when the inputs are unknown", () => {
+      renderWith(null);
+      expect(screen.queryByTestId("cover-letter-preview-hint")).toBeNull();
+    });
+
+    it("shows nothing when no inputs prop is passed at all", () => {
+      renderWith(undefined);
+      expect(screen.queryByTestId("cover-letter-preview-hint")).toBeNull();
+    });
+  });
 });

@@ -571,10 +571,12 @@ export default function CoverLetterPage({
     setFineTuneNonce((n) => (n ?? 0) + 1);
   }
 
-  function handleGenerated(newClId: string) {
+  function handleGenerated(newClId: string, inputs?: object) {
     setShowModal(false);
     setClState((prev) =>
-      prev ? { ...prev, coverLetterId: newClId, status: "pending" } : prev
+      prev
+        ? { ...prev, coverLetterId: newClId, status: "pending", preGenInputs: (inputs as Record<string, unknown> | undefined) ?? null }
+        : prev
     );
     setPhase("generating");
     startPolling(newClId);
@@ -794,6 +796,7 @@ export default function CoverLetterPage({
           <CoverLetterDocument
             key={previewKey}
             coverLetterId={clState!.coverLetterId}
+            generationInputs={clState!.preGenInputs as { availability?: string | null; motivation?: string | null } | null}
             onPreviewLoad={() => setPreviewVersion((v) => v + 1)}
           />
         }
