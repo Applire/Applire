@@ -159,8 +159,7 @@ export function ReceiptSummaryReview({ sessionId, onFix }: ReceiptSummaryReviewP
               <li key={f.key}>
                 {f.text}
                 {f.detail && <span className="block text-on-surface-variant">{f.detail}</span>}
-                <span className="text-xs text-on-surface-variant">
-                  {" "}
+                <span className="ml-1 text-xs text-on-surface-variant">
                   {t("summary.attribution", {
                     where: f.entity_label ? rolePart(f.entity_label) : sectionName(f.section),
                   })}
