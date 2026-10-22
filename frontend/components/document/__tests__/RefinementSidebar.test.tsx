@@ -44,6 +44,16 @@ describe("RefinementSidebar", () => {
     expect(screen.getByText("gültig bis 29.9.2026")).toBeTruthy();
   });
 
+  it("#789: the retention date explains itself and the collapse control is a labelled panel button, not a tab chevron", () => {
+    render(withIntl(<RefinementSidebar {...BASE} validity={{ label: "Kept until 18/01/2027", level: "warning" }} />));
+    const badge = screen.getByTestId("sidebar-validity");
+    expect(badge.getAttribute("title")).toBe("After that this document is deleted automatically — your profile stays.");
+    expect(badge.className).not.toContain("uppercase");
+    const collapse = screen.getByTestId("sidebar-collapse-btn");
+    expect(collapse).toHaveAccessibleName("Collapse panel");
+    expect(collapse.getAttribute("role")).toBeNull();
+  });
+
   it("rounds a fractional match score to a whole percent", () => {
     render(withIntl(<RefinementSidebar {...BASE} matchScore={57.14285714285713} />));
     expect(screen.getByText("57%")).toBeTruthy();

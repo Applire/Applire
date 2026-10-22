@@ -1631,7 +1631,7 @@
     "matchScoreLabel": "Profile match",
     "panelCollapse": "Collapse panel",
     "panelExpand": "Expand panel",
-    "validUntil": "valid until {date}",
+    "validUntil": "Kept until {date}",
     "langNameDe": "German",
     "langNameEn": "English",
     "languageBadgeTitle": "Document language",
@@ -1655,7 +1655,8 @@
     "signatureUnavailableHint": "No signature on file.",
     "signatureUnavailableLink": "Add one in your profile",
     "signatureSaveError": "The setting could not be saved.",
-    "docxScopeCaption": "Word file: the checks cover the file as exported — changes you make in Word afterwards are not checked."
+    "docxScopeCaption": "Word file: the checks cover the file as exported — changes you make in Word afterwards are not checked.",
+    "validUntilHint": "After that this document is deleted automatically — your profile stays."
   },
   "commandBar": {
     "atsChecks": "Review",

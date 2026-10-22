@@ -1631,7 +1631,7 @@
     "matchScoreLabel": "Profil-Match",
     "panelCollapse": "Panel einklappen",
     "panelExpand": "Panel ausklappen",
-    "validUntil": "gültig bis {date}",
+    "validUntil": "Gespeichert bis {date}",
     "langNameDe": "Deutsch",
     "langNameEn": "Englisch",
     "languageBadgeTitle": "Dokumentsprache",
@@ -1655,7 +1655,8 @@
     "signatureUnavailableHint": "Keine Unterschrift hinterlegt.",
     "signatureUnavailableLink": "Im Profil hinzufügen",
     "signatureSaveError": "Die Einstellung konnte nicht gespeichert werden.",
-    "docxScopeCaption": "Word-Datei: Geprüft ist der Stand beim Export — was du danach in Word änderst, prüfen wir nicht."
+    "docxScopeCaption": "Word-Datei: Geprüft ist der Stand beim Export — was du danach in Word änderst, prüfen wir nicht.",
+    "validUntilHint": "Danach wird dieses Dokument automatisch gelöscht — dein Profil bleibt."
   },
   "commandBar": {
     "atsChecks": "Prüfung",
