@@ -209,7 +209,7 @@ export function GapClusterCard({
               read as a claim about the candidate. */}
           {cluster.jd_context && (
             <p data-testid="gap-jd-context" className="text-xs text-on-surface-variant mt-0.5">
-              <span className="font-semibold text-on-surface">{t("jdContextLabel")}</span>{" "}
+              <span className="mr-1 font-semibold text-on-surface">{t("jdContextLabel")}</span>
               {cluster.jd_context}
             </p>
           )}

@@ -138,6 +138,8 @@ export async function answerOnce(page: Page): Promise<void> {
     r.fulfill({ status: 200, contentType: "application/json", body: "[]" }),
   );
   await page.goto(`/flow/${FLOW_ID}/interview`);
+  // #789 — a fresh session opens on the intro (why / how long / stop / honest).
+  await page.getByTestId("interview-intro-start").click();
   await page.getByTestId("answer-textarea").fill(ANSWER);
   await page.getByTestId("send-button").click();
 }
