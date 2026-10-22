@@ -1270,7 +1270,7 @@
     "analysing": "Analysiert…"
   },
   "profileImport": {
-    "title": "Profil aktualisieren",
+    "title": "Lebenslauf oder Stelle hinzufügen",
     "subtitle": "Lebenslauf als PDF, DOCX, TXT, MD oder Bild — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "subtitleNoImage": "Lebenslauf als PDF, DOCX, TXT oder MD — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "dropTitle": "Datei hier ablegen",
@@ -1301,7 +1301,7 @@
     "successCtaHint": "Dein Profil wurde aktualisiert. Sieh dir an, was sich geändert hat."
   },
   "profileUpdate": {
-    "chooserTitle": "Profil aktualisieren",
+    "chooserTitle": "Lebenslauf oder Stelle hinzufügen",
     "addRoleTitle": "Position hinzufügen",
     "importTitle": "Lebenslauf importieren",
     "chooser": {

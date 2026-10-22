@@ -97,7 +97,7 @@ test.describe("Post-Hire Profile Refresh", () => {
     await page.goto("/profile/upload");
 
     // Both cards should be visible
-    await expect(page.getByRole("heading", { name: /Update profile/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Add a CV or role/i })).toBeVisible();
     await expect(page.getByText(/Upload a new CV/i)).toBeVisible();
     await expect(page.getByText(/I started a new role/i)).toBeVisible();
   });

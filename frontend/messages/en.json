@@ -1270,7 +1270,7 @@
     "analysing": "Analysing…"
   },
   "profileImport": {
-    "title": "Update Profile",
+    "title": "Add a CV or role",
     "subtitle": "Upload your CV as PDF, DOCX, TXT, MD or an image — or a LinkedIn export as ZIP. The format is detected automatically.",
     "subtitleNoImage": "Upload your CV as PDF, DOCX, TXT or MD — or a LinkedIn export as ZIP. The format is detected automatically.",
     "dropTitle": "Drop file here",
@@ -1301,7 +1301,7 @@
     "successCtaHint": "Your profile was updated. Take a look at what changed."
   },
   "profileUpdate": {
-    "chooserTitle": "Update profile",
+    "chooserTitle": "Add a CV or role",
     "addRoleTitle": "Add role",
     "importTitle": "Import CV",
     "chooser": {
