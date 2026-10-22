@@ -283,4 +283,12 @@ def test_sort_education_by_date_is_stable_and_keeps_every_row():
         {"degree": "E", "start_date": "2024-10", "end_date": None},
     ]
     assert [r["degree"] for r in sort_education_by_date(rows)] == ["E", "B", "D", "A", "C"]
+    # 786:L27 — mixed MM/YYYY and YYYY (edge 2026-08-29, CV 4121fa73).
+    mixed = [
+        {"degree": "a", "start_date": "10/2005", "end_date": "02/2011"},
+        {"degree": "b", "start_date": "09/2002", "end_date": "01/2005"},
+        {"degree": "c", "start_date": "1992", "end_date": "2001"},
+        {"degree": "d", "start_date": "2002", "end_date": "2005"},
+    ]
+    assert [r["degree"] for r in sort_education_by_date(mixed)] == ["a", "b", "d", "c"]  # a bare year keys as month 00
     assert sort_education_by_date([]) == []

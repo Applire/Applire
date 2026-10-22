@@ -162,7 +162,11 @@ class UnknownWorkEntryIdError(ValueError):
     misassignment this design removes), so generation fails instead."""
 
 
-_EDU_YEAR = re.compile(r"\s*(\d{4})(?:-(\d{1,2}))?")
+# A year with an optional month on either side: "2010", "2010-09", "09/2010",
+# "09.2010" (786:L27 — vault dates are not always normalised; a mixed MM/YYYY vs
+# YYYY section rendered in no order at all on edge 2026-08-29).
+_EDU_YEAR_FIRST = re.compile(r"\s*(\d{4})(?:[-/.](\d{1,2}))?\b")
+_EDU_MONTH_FIRST = re.compile(r"\s*(\d{1,2})[/.](\d{4})\b")
 
 
 def sort_education_by_date(entries: list) -> list:
@@ -177,9 +181,14 @@ def sort_education_by_date(entries: list) -> list:
         if not isinstance(e, dict):
             return (0, "0000-00")
         for fld in ("end_date", "start_date"):
-            m = _EDU_YEAR.match(str(e.get(fld) or ""))
+            raw = str(e.get(fld) or "")
+            m = _EDU_MONTH_FIRST.match(raw)
+            if m and 1 <= int(m.group(1)) <= 12:
+                return (1, f"{m.group(2)}-{int(m.group(1)):02d}")
+            m = _EDU_YEAR_FIRST.match(raw)
             if m:
-                return (1, f"{m.group(1)}-{int(m.group(2) or 0):02d}")
+                month = int(m.group(2) or 0)
+                return (1, f"{m.group(1)}-{month if month <= 12 else 0:02d}")
         return (0, "0000-00")
 
     return sorted(list(entries), key=_key, reverse=True)
