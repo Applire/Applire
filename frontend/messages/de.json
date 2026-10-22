@@ -646,7 +646,7 @@
     "statusInterviewing": "Interview",
     "statusGeneratingCV": "Lebenslauf wird erstellt",
     "statusCVReady": "Lebenslauf bereit",
-    "statusTracking": "Verfolgung",
+    "statusTracking": "Vorgemerkt",
     "statusApplied": "Beworben",
     "statusRejected": "Abgelehnt",
     "statusOffer": "Angebot",
@@ -671,7 +671,7 @@
     "chipInProgress": "In Bearbeitung",
     "chipCvReady": "Lebenslauf bereit",
     "chipInterrupted": "Unterbrochen",
-    "chipTracking": "Verfolgung",
+    "chipTracking": "Vorgemerkt",
     "actionResume": "Fortsetzen",
     "actionOpen": "Öffnen",
     "actionContinue": "Weiter",
@@ -695,7 +695,9 @@
     "cancelledSection": "Abgebrochene Bewerbungen ({count})",
     "cancelledRemovalDate": "Wird entfernt am {date}",
     "cancelledRestore": "Wiederherstellen",
-    "errorLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge den Text der Stellenanzeige ein."
+    "errorLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge den Text der Stellenanzeige ein.",
+    "chipCvAndLetterReady": "Lebenslauf + Anschreiben bereit",
+    "markAppliedAction": "Als beworben markieren"
   },
   "profile": {
     "title": "Mein Profil",

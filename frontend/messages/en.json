@@ -646,7 +646,7 @@
     "statusInterviewing": "Interviewing",
     "statusGeneratingCV": "Generating CV",
     "statusCVReady": "CV Ready",
-    "statusTracking": "Tracking",
+    "statusTracking": "Saved",
     "statusApplied": "Applied",
     "statusRejected": "Rejected",
     "statusOffer": "Offer",
@@ -671,7 +671,7 @@
     "chipInProgress": "In Progress",
     "chipCvReady": "CV Ready",
     "chipInterrupted": "Interrupted",
-    "chipTracking": "Tracking",
+    "chipTracking": "Saved",
     "actionResume": "Resume",
     "actionOpen": "Open",
     "actionContinue": "Continue",
@@ -695,7 +695,9 @@
     "cancelledSection": "Cancelled applications ({count})",
     "cancelledRemovalDate": "Will be removed on {date}",
     "cancelledRestore": "Restore",
-    "errorLinkedinOff": "This instance does not fetch LinkedIn pages. Paste the job posting text instead."
+    "errorLinkedinOff": "This instance does not fetch LinkedIn pages. Paste the job posting text instead.",
+    "chipCvAndLetterReady": "CV + letter ready",
+    "markAppliedAction": "Mark as applied"
   },
   "profile": {
     "title": "My Profile",

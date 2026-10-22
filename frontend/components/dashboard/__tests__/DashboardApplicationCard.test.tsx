@@ -317,4 +317,27 @@ describe("DashboardApplicationCard", () => {
     renderCard({ workflowStatus: "analyzing", userStatus: "applied" });
     expect(screen.queryByRole("button", { name: /^button$/i })).not.toBeInTheDocument();
   });
+
+  // ── #789: the next action after generating is "applied", not "hired" ─────
+
+  it("a fresh CV on a tracking application offers 'Mark as applied', never 'hired'", async () => {
+    const { patchApplicationStatus } = await import("@/lib/api/applications");
+    renderCard({ workflowStatus: "completed", userStatus: "tracking" });
+    expect(screen.queryByRole("button", { name: /^button$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("dashboard-card-mark-applied"));
+    expect(patchApplicationStatus).toHaveBeenCalledWith("app-1", "applied");
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("no next-step action on a terminal status", () => {
+    renderCard({ workflowStatus: "completed", userStatus: "rejected" });
+    expect(screen.queryByTestId("dashboard-card-mark-applied")).toBeNull();
+    expect(screen.queryByTestId("dashboard-card-mark-hired")).toBeNull();
+  });
+
+  it("the ready chip names both documents when the letter is ready too", () => {
+    renderCard({ workflowStatus: "completed", coverLetterReady: true });
+    expect(screen.getByText("chipCvAndLetterReady")).toBeInTheDocument();
+    expect(screen.queryByText("chipCvReady")).toBeNull();
+  });
 });
