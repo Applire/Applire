@@ -16,7 +16,7 @@ adjacent "ECS" (replay), "Stripe" bound to "PostgreSQL" (captured interview call
 2026-10-21). An id is the weakest channel the model writes, and a slip is not a
 rule gap a sentence can close.
 
-Two FACTS (ADR-062 cl. 1), never a judgement of whether two skills are the same:
+Three FACTS (ADR-062 cl. 1), never a judgement of whether two skills are the same:
 
 (a) ``target_mismatch`` — the op's ``existing`` (the name the model says it
     means, asked for since this amendment) equals neither the target's own name
@@ -41,7 +41,7 @@ DOCUMENT skill, which then takes the near-dupe / containment / new-entry path
 like any other skill; no alias, no receipt. Callers, one seam test each
 (``tests/unit/test_801_binding_guard.py``): this pre-pass on both import paths,
 ``apply._targeted_skill`` (every door), ``apply._apply_match_existing`` (every
-door, check (a) only — the op carries no category).
+door, checks (a) and (c) — the op carries no category).
 """
 from __future__ import annotations
 
