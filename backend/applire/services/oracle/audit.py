@@ -113,6 +113,12 @@ from applire.services.oracle.matchers import (
     match_figures,
     skills_near_duration,
 )
+from applire.services.oracle.credentials import (
+    detect_credentials,
+    fold as credential_fold,
+    kind_for_location as credential_kind_for_location,
+    unbacked_credentials,
+)
 from applire.services.oracle.matchers.vault import (
     RESTATEMENT_MIN_SHARED,
     duration_window_tokens,
@@ -1461,6 +1467,82 @@ async def verify_claim(
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
     idx = index or _claimable_index(profile)
+    verdict = await _verify_claim_identifiers(
+        claim,
+        profile,
+        provider,
+        idx=idx,
+        budget=budget,
+        letter_named_ids=letter_named_ids,
+        document_language=document_language,
+        judgement_sink=judgement_sink,
+        ledger_forms=ledger_forms,
+    )
+    return _apply_credential_rule(verdict, claim, idx, document_language)
+
+
+def _apply_credential_rule(
+    verdict: "ClaimVerdict | _SeamCandidate",
+    claim: Claim,
+    idx: VaultIndex,
+    document_language: str | None,
+) -> "ClaimVerdict | _SeamCandidate":
+    """E-2 (ADR-052 amended 2026-10-22, WP-T): a degree, regulated title or named
+    certification the claim ascribes to the candidate and the claimable vault never
+    names in any form is ``unbacked``/``grounding``.
+
+    Withdraws an endorsement or replaces "no close evidence" — it overrides only
+    ``grounded`` and ``unverifiable``; every red flag and ``not_applicable`` stands.
+    A claim deferred to the RESTATEMENT judge is decided here instead (a
+    deterministic red flag returns before any provider, ADR-052 §1): the judge
+    compares the claim with a vault unit and could endorse a title that unit never
+    names. The cross-language seam only arises on an other-language pair, which the
+    rule never checks. Never applied on a pair
+    whose vault may state evidence in another language (``holds_other_language``):
+    a German title against an English vault is not checked across languages.
+    """
+    if isinstance(verdict, _SeamCandidate):
+        if verdict.seam != "restatement":
+            return verdict
+    elif verdict.verdict not in ("grounded", "unverifiable"):
+        return verdict
+    if holds_other_language(idx, document_language):
+        return verdict
+    kind = credential_kind_for_location(claim.location)
+    if not detect_credentials(claim.text, kind=kind):
+        return verdict
+    vault_folded = credential_fold(" \n ".join(u.text for u in idx.units))
+    missing = unbacked_credentials(claim.text, kind=kind, vault_folded=vault_folded)
+    if not missing:
+        return verdict
+    names = ", ".join(m.matched for m in missing)
+    logger.info("ORACLE_CREDENTIAL_UNBACKED families=%r", [m.family for m in missing])
+    return ClaimVerdict(
+        verdict="unbacked",
+        checker="grounding",
+        detail=(
+            f"States the qualification {names!r}, which no entry in your profile names — "
+            "add it to your profile if you hold it, or take it out."
+        ),
+        detail_key="credentialUnbacked",
+        detail_params={"credential": names},
+    )
+
+
+async def _verify_claim_identifiers(
+    claim: Claim,
+    profile: Any,
+    provider: Any | None,
+    *,
+    idx: VaultIndex,
+    budget: _EntailmentBudget | None,
+    letter_named_ids: frozenset[str] | None,
+    document_language: str | None,
+    judgement_sink: "list[_SeamCandidate] | None",
+    ledger_forms: list[list[str]] | None,
+) -> "ClaimVerdict | _SeamCandidate":
+    """The #701 identifier rule over :func:`_verify_claim_unchecked` (see
+    :func:`verify_claim`)."""
     unmentioned = _unmentioned_identifiers(claim.text, idx)
     if not unmentioned:
         return await _verify_claim_unchecked(
@@ -1496,6 +1578,8 @@ async def verify_claim(
             f"Names {names} — a standard identifier your profile never mentions, "
             "so the claim's other figures cannot back it."
         ),
+        detail_key="identifierAbsent",
+        detail_params={"identifiers": names},
         figures=list(unmentioned),
     )
 

@@ -187,6 +187,12 @@ class ClaimVerdict(BaseModel):
     # figures instead of the whole claim. Empty for every other verdict and on
     # reports that predate the field.
     figures: list[str] = Field(default_factory=list)
+    # ADR-052 amended 2026-10-22 (WP-T, tier C): a stable key for the detail's
+    # sentence and its parameters, so a surface can say it in the user's
+    # language; ``detail`` stays the English text for every other reader. None on
+    # verdicts whose detail has no key yet and on older reports.
+    detail_key: str | None = None
+    detail_params: dict[str, str] = Field(default_factory=dict)
 
 
 class ClaimResult(BaseModel):
