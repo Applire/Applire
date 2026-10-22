@@ -285,6 +285,8 @@
     "decisions": {
       "title": "{count, plural, one {# decision needed to update your profile} other {# decisions needed to update your profile}}",
       "body": "Your answer touched something your profile already says. Pick which version is right — it takes a moment.",
+      "bodyImport": "Combining your documents turned up two versions of the same detail. Pick which one is right — it takes a moment.",
+      "bodyMixed": "Something new touches a detail your profile already has. Pick which version is right — it takes a moment.",
       "cta": "Decide now",
       "dismiss": "Dismiss",
       "dismissAria": "Dismiss this note",

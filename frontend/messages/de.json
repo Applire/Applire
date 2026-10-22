@@ -285,6 +285,8 @@
     "decisions": {
       "title": "{count, plural, one {# Entscheidung nötig, um dein Profil zu aktualisieren} other {# Entscheidungen nötig, um dein Profil zu aktualisieren}}",
       "body": "Deine Antwort berührt etwas, das dein Profil bereits sagt. Wähle, welche Fassung stimmt — das dauert einen Moment.",
+      "bodyImport": "Beim Zusammenführen deiner Unterlagen sind zwei Fassungen derselben Angabe aufgetaucht. Wähle, welche stimmt — das dauert einen Moment.",
+      "bodyMixed": "Etwas Neues berührt eine Angabe, die schon in deinem Profil steht. Wähle, welche Fassung stimmt — das dauert einen Moment.",
       "cta": "Jetzt entscheiden",
       "dismiss": "Ausblenden",
       "dismissAria": "Diesen Hinweis ausblenden",
