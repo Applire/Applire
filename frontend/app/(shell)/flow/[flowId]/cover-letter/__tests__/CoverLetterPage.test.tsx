@@ -120,6 +120,9 @@ function renderPage(flowId = "test-flow") {
 describe("CoverLetterPage — polling loop", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    // #789: the AI notice is once per set per browser SESSION — each test is
+    // a fresh session.
+    window.sessionStorage.clear();
   });
 
   it("shows ProgressWidget while status is generating", async () => {
@@ -259,6 +262,12 @@ describe("CoverLetterPage — polling loop", () => {
     await act(async () => { fireEvent.click(screen.getByTestId("predownload-download")); });
     await waitFor(() => expect(docxFetched).toBe(true));
     expect(pdfFetched).toBe(false);
+
+    // #789 (ruling F2-1, rec. A): once per document set per browser session —
+    // the next export of this set downloads straight away.
+    await act(async () => { fireEvent.click(screen.getByTestId("document-download-btn")); });
+    await waitFor(() => expect(pdfFetched).toBe(true));
+    expect(screen.queryByTestId("cl-download-review-overlay")).toBeNull();
   });
 
   it("issue #246 (NEW-5) — uses the server's Content-Disposition filename for the download, not a hardcoded German default", async () => {
