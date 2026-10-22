@@ -125,6 +125,8 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "adminNav.ariaLabel",
   "adminNav.monitoring",
   // Symbols, separators and pure ICU patterns
+  // #786 L-3: "{label}: {items}" — a pure ICU pattern, one cut kind and its items.
+  "cv.pageOverflowCutLine",
   "coverLetter.separator",
   "coverLetter.emDash",
   "coverLetter.breadcrumbSeparator",
