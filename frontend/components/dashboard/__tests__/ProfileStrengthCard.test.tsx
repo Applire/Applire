@@ -30,7 +30,7 @@ vi.mock("next/navigation", () => ({
 // Mock next-intl — ProfileStrengthCard uses useTranslations()
 // ---------------------------------------------------------------------------
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, p?: { section?: string }) => (p?.section ? `${key}:${p.section}` : key),
 }));
 
 function mockFetch(existsData: object, profileData: object) {
@@ -108,5 +108,47 @@ describe("ProfileStrengthCard", () => {
     render(<ProfileStrengthCard />);
     await waitFor(() => {}, { timeout: 200 });
     expect(document.querySelector(".animate-pulse")).toBeInTheDocument();
+  });
+
+  it("below 90 it keeps the 'add missing sections' hint", async () => {
+    mockFetch(
+      { completeness_score: 0.72 },
+      { profile: { work_experience: [{}], skills: [{}], education: [], personal_info: {} } }
+    );
+    render(<ProfileStrengthCard />);
+    await waitFor(() => expect(screen.getByTestId("profile-strength-hint")).toHaveTextContent("profileStrengthHint"));
+  });
+
+  it("at 90 or more it names the one missing section as optional, not as a nag", async () => {
+    mockFetch(
+      { completeness_score: 0.99 },
+      { profile: { work_experience: [{}], skills: [{}], education: [{}], personal_info: {} } }
+    );
+    render(<ProfileStrengthCard />);
+    await waitFor(() =>
+      expect(screen.getByTestId("profile-strength-hint")).toHaveTextContent("profileStrengthOptional:profileCheckSummary")
+    );
+    expect(screen.queryByText("profileStrengthHint")).toBeNull();
+  });
+
+  it("at 90 or more with nothing missing shows no hint at all", async () => {
+    mockFetch(
+      { completeness_score: 1 },
+      { profile: { work_experience: [{}], skills: [{}], education: [{}], personal_info: { summary: "x" } } }
+    );
+    render(<ProfileStrengthCard />);
+    await waitFor(() => expect(screen.getByText("100")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("profileCheckSummary")).toBeInTheDocument());
+    expect(screen.queryByTestId("profile-strength-hint")).toBeNull();
+  });
+
+  it("is compact below md: bar, hint and checklist are md-only, number + title + link stay", async () => {
+    mockFetch({ completeness_score: 0.5 }, { profile: { work_experience: [], skills: [], education: [], personal_info: {} } });
+    render(<ProfileStrengthCard />);
+    await waitFor(() => screen.getByText("50"));
+    expect(screen.getByTestId("profile-strength-hint").className).toContain("hidden md:block");
+    expect(screen.getByText("profileCheckSkills").closest("div.flex-col")?.className).toContain("hidden md:flex");
+    expect(screen.getByText("profileStrengthTitle")).toBeVisible();
+    expect(screen.getByText("profileCompleteButton")).toBeVisible();
   });
 });

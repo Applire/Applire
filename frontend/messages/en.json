@@ -686,6 +686,7 @@
     "relativeDaysAgo": "{d}d ago",
     "profileStrengthTitle": "Profile Strength",
     "profileStrengthHint": "Add missing sections to improve gap matching.",
+    "profileStrengthOptional": "Optional: add {section}",
     "profileCheckWorkExp": "Work Experience",
     "profileCheckSkills": "Skills",
     "profileCheckEducation": "Education",
