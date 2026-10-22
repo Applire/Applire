@@ -170,7 +170,6 @@
       "availability": {
         "required": false,
         "types": [
-          "null",
           "string"
         ]
       },
@@ -183,28 +182,24 @@
       "motivation": {
         "required": false,
         "types": [
-          "null",
           "string"
         ]
       },
       "recipient_company": {
         "required": false,
         "types": [
-          "null",
           "string"
         ]
       },
       "recipient_name": {
         "required": false,
         "types": [
-          "null",
           "string"
         ]
       },
       "salary": {
         "required": false,
         "types": [
-          "null",
           "string"
         ]
       },

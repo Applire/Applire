@@ -1676,26 +1676,29 @@ async def render_document(
 )
 async def generate_cover_letter(
     job_id: str,
-    recipient_name: str | None = None,
-    recipient_company: str | None = None,
-    salary: str | None = None,
-    availability: str | None = None,
-    motivation: str | None = None,
+    recipient_name: str = "",
+    recipient_company: str = "",
+    salary: str = "",
+    availability: str = "",
+    motivation: str = "",
     tone: CLTone = "formal",
 ) -> dict:
     # 788:L1 (Hazelnut build 3): the six REST inputs, additive and optional,
     # handed to the SAME request model the web form posts — no MCP-only path.
+    # Plain `str = ""` (empty = not given, mapped to None below) keeps the input
+    # schema inside the ADR-056 §4 surface budget (L-4): a nullable union costs
+    # ~30 schema chars per input.
     from pydantic import ValidationError
 
     jid = _parse_uuid(job_id, "job_id")
     try:
         request = CoverLetterGenerateRequest(
             job_id=jid,
-            recipient_name=recipient_name,
-            recipient_company=recipient_company,
-            salary=salary,
-            availability=availability,
-            motivation=motivation,
+            recipient_name=recipient_name.strip() or None,
+            recipient_company=recipient_company.strip() or None,
+            salary=salary.strip() or None,
+            availability=availability.strip() or None,
+            motivation=motivation.strip() or None,
             tone=tone,
         )
     except ValidationError as exc:
