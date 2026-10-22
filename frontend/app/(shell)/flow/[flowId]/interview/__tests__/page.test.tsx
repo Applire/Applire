@@ -1269,3 +1269,30 @@ describe("#789 one interview duration across first contact", () => {
     }
   });
 });
+
+describe("#787 L7 — the question number is the server's gap-question count", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("a confirmation turn the server does not count leaves 'Frage N' where it was", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockClusterApi([
+      // a skill-merge confirmation turn: questions_asked unchanged (1)
+      { complete: false, question: "Is SAP PP the same as SAP?", current_gap_id: "c1", addressed_gap_ids: [], questions_asked: 1 },
+      { complete: false, question: "Tell me about Docker.", current_gap_id: "c2", addressed_gap_ids: ["c1"], questions_asked: 2 },
+    ]) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => screen.getByTestId("interview-question-number"));
+    expect(screen.getByTestId("interview-question-number").textContent).toContain('"current":1');
+
+    await sendAnswer(user, "Yes, three years.");
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toHaveTextContent("SAP PP"));
+    expect(screen.getByTestId("interview-question-number").textContent).toContain('"current":1');
+
+    await sendAnswer(user, "Same thing.");
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toHaveTextContent("Docker"));
+    expect(screen.getByTestId("interview-question-number").textContent).toContain('"current":2');
+  });
+});

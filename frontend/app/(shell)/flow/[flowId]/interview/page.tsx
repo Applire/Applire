@@ -752,7 +752,10 @@ export default function InterviewPage({
       } else {
         const nextQ = data.question ?? "";
         setMessages((prev) => [...prev, { role: "assistant", content: nextQ }]);
-        setQuestionsAsked((q) => q + 1);
+        // #787 L7 (V): the server counts gap questions only and sends the
+        // count on every turn — a confirmation / skill-merge turn does not
+        // move it. Count client-side only against an older server.
+        setQuestionsAsked((q) => data.questions_asked ?? q + 1);
 
         // Detect cultural sensitivity hint (category B) from question tone
         const lowerQ = nextQ.toLowerCase();
