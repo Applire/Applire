@@ -417,7 +417,7 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
         await expect(cardById(page, id)).not.toHaveClass(/cursor-pointer/);
       }
       // Covered badge from the record.
-      await expect(page.getByText("1 gap covered ✓")).toBeVisible();
+      await expect(page.getByText("1 topic settled ✓")).toBeVisible();
       if (pass === 0) await page.reload();
     }
   });
@@ -549,7 +549,7 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     await expect(open.getByTestId("gap-resolved")).toBeVisible();
     await expect(cardById(page, "cl-appended")).toBeVisible(); // the list was replaced, not only the score
     await expect(page.getByTestId("match-score-display")).toContainText("66%");
-    await expect(page.getByText("2 gaps covered ✓")).toBeVisible();
+    await expect(page.getByText("2 topics settled ✓")).toBeVisible();
     expect(refreshed).toBe(1);
 
     // Reload: the same record comes back from the server; the card closed by the
@@ -621,7 +621,9 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     await expect(cardById(page, "cl-yellow")).toHaveAttribute("data-tone", "yellow");
     expect(await edge("cl-yellow")).toBe("rgb(229, 168, 50)"); // warning token
     await expect(cardById(page, "cl-red")).toHaveAttribute("data-tone", "red");
-    expect(await edge("cl-red")).toBe("rgb(217, 79, 79)"); // critical token
+    // Ruling F1-1 A (2026-10-22): the worst-member rule stands; "open" is
+    // painted in the primary blue (teal token), no longer critical red.
+    expect(await edge("cl-red")).toBe("rgb(53, 87, 188)"); // teal token
     await expect(cardById(page, "cl-green")).toHaveAttribute("data-tone", "green");
     expect(await edge("cl-green")).toBe("rgb(45, 159, 111)"); // success token
     // Declined members never colour a card that has others.
@@ -637,7 +639,8 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     const bg = (id: string, term: string) => chip(id, term).evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(await bg("cl-red", "Docker")).toBe("rgb(200, 247, 224)"); // success-container
     expect(await bg("cl-red", "Podman")).toBe("rgb(254, 243, 199)"); // warning-container
-    expect(await bg("cl-red", "Nomad")).toBe("rgb(253, 232, 232)"); // critical-container
+    expect(await bg("cl-red", "Nomad")).toBe("rgb(255, 255, 255)"); // open: white, dashed blue border
+    expect(await chip("cl-red", "Nomad").evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe("dashed");
 
     // The pill colour follows the card: a partly covered card with a red member has a red pill.
     await expect(cardById(page, "cl-red").getByTestId("gap-partly-covered")).toHaveAttribute("data-tone", "red");
