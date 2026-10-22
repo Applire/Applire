@@ -325,3 +325,77 @@ def test_a_pathological_cap_still_leaves_room_for_one_question():
     complete on its own opening question before the candidate can answer it."""
     assert derive_hard_ceiling(5, cap=1) == 2
     assert derive_hard_ceiling(0) >= 2
+
+
+# ---------------------------------------------------------------------------
+# Hazelnut b3 WP-V — answered confirmations are not charged to the ceiling
+# ---------------------------------------------------------------------------
+
+# UX audit 2026-10-20 (Marcus, session 45d2276b): the SAP gap's answer raised
+# two "'SAP PP' shares a word with … SAP" confirmations; each answer advanced
+# `questions_asked`. The ceiling is `per_gap * n + 2` and the +2 is a measured
+# correctness term (above), so answered confirmations spent the terminal
+# headroom and a third ended a fully-worked interview on
+# `max_questions_reached`. The ceiling now counts gap turns only;
+# `questions_asked` (the UI's "Frage x von y") still counts every answer.
+
+
+async def _walk_with_confirmations(db, job, n_confirmations, max_turns=200):
+    from applire.models.profile import authorized_profile_write
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services import session as S
+    from applire.services.profile.reconcile.ops import RequestConfirmation
+
+    provider = _mock_provider()
+    calls = {"n": 0}
+
+    async def _reconcile(db_, *, profile_record, **_kw):
+        calls["n"] += 1
+        turn = _unaddressed_turn(profile_record.profile_json)
+        if calls["n"] == 1:  # the first gap answer raises the merge questions
+            turn.pending_confirmations = [
+                RequestConfirmation(
+                    question=f"'SAP X{i}' shares a word with skills already on your profile (SAP).",
+                    options=["Add as a separate skill", "Merge into the existing skill"],
+                    context={"section": "skills"},
+                )
+                for i in range(n_confirmations)
+            ]
+        with authorized_profile_write():
+            profile_record.profile_json = turn.profile_dict
+        await db_.flush()
+        return turn
+
+    with patch(
+        "applire.services.session.reconcile_interview_turn",
+        new=AsyncMock(side_effect=_reconcile),
+    ), patch(
+        "applire.services.session._apply_interview_confirmation",
+        new=AsyncMock(return_value=True),
+    ):
+        created = await S.create_session(SessionCreateRequest(job_id=job.id), db, provider)
+        for _ in range(max_turns):
+            resp = await S.send_message(created.session_id, _answer(), db, provider)
+            if resp.complete:
+                return created, resp
+    raise AssertionError("session never completed")
+
+
+def _answer():
+    # One answer text serves both turn kinds: it is offered option 1 verbatim for
+    # a confirmation, and an honest (unaddressed) answer for a gap question.
+    return "Add as a separate skill"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("n_clusters", [1, 5, 8])
+async def test_confirmations_do_not_spend_the_gap_budget(sqlite_session, n_clusters):
+    job, _profile = await _seed(sqlite_session, n_clusters)
+    created, resp = await _walk_with_confirmations(sqlite_session, job, n_confirmations=3)
+    assert resp.reason == "gaps_resolved", (
+        f"{n_clusters} clusters + 3 confirmations ended on {resp.reason} "
+        f"(budget {created.hard_ceiling}, {resp.questions_asked} questions)"
+    )
+    assert not resp.gaps_unresolved
+    # the candidate's count still includes the three confirmations they answered
+    assert resp.questions_asked >= 1 + n_clusters * INTERVIEW_MAX_QUESTIONS_PER_GAP

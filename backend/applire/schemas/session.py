@@ -251,6 +251,9 @@ class InterviewState(TypedDict):
     hard_ceiling: int
     # Sprint 15 additions (optional — missing keys default to {} / [] / [])
     questions_per_gap: dict   # gap_str → questions asked so far for this gap
+    # Hazelnut b3 WP-V — answered interview confirmations; not charged to the
+    # ADR-080 hard ceiling (services.session ceiling check). Missing = 0.
+    confirmation_answers: int
     skipped_gaps: list[str]   # gaps resolved transitively via cross-gap answer
     full_gaps: list[str]      # full gap list from analysis; set for micro-sessions only
     na_gaps: list[str]        # gaps dismissed as N/A by the user (Mode C)
