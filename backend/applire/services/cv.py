@@ -2595,6 +2595,49 @@ def _guaranteed_vault_skills(
     return out
 
 
+def skill_jd_tier_fn(job_dict: dict, keyword_ledger: list[dict] | None):
+    """The #192 relevance rank of one skill tag against THIS job, as a function:
+    required (0) > nice-to-have (1) > keyword (2) > no JD relevance (3).
+
+    Extracted from :func:`_tailor_skills_to_jd` (Hazelnut build 3, 786:L9) so the
+    page ladder (:mod:`applire.services.cv_page_ladder`) ranks skill chips with the
+    SAME predicate the skills pass selected them with — one implementation
+    (ADR-066)."""
+    from applire.services.ats_audit import _NEAR_DUPE_JACCARD, skill_tokens
+
+    required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
+    req_toks = [t for t in (skill_tokens(x) for x in required) if t]
+    nice_toks = [t for t in (skill_tokens(x) for x in nice) if t]
+    kw_toks = [t for t in (skill_tokens(x) for x in keyword) if t]
+
+    def _relevant(st: frozenset[str], tt: frozenset[str]) -> bool:
+        # A skill maps to a JD term on equality/containment (JD 'React' ⊆ 'React Native')
+        # or strong token overlap — NOT a single shared common token ('MES systems' vs
+        # 'System Architecture' share only 'system', Jaccard 0.33 < 0.75 → no match).
+        if not st or not tt:
+            return False
+        if st <= tt or tt <= st:
+            return True
+        return len(st & tt) / len(st | tt) >= _NEAR_DUPE_JACCARD
+
+    def _matches(skill_toks: frozenset[str], term_toks: list[frozenset[str]]) -> bool:
+        return any(_relevant(skill_toks, t) for t in term_toks)
+
+    def _tier(skill: str) -> int:
+        st = skill_tokens(skill)
+        if not st:
+            return 3
+        if _matches(st, req_toks):
+            return 0
+        if _matches(st, nice_toks):
+            return 1
+        if _matches(st, kw_toks):
+            return 2
+        return 3
+
+    return _tier
+
+
 def _tailor_skills_to_jd(
     tailored: TailoredCVData,
     profile_json: dict,
@@ -2626,7 +2669,6 @@ def _tailor_skills_to_jd(
     only — nothing outside the master profile can enter. Pure; input unmutated.
     """
     from applire.services.ats_audit import (
-        _NEAR_DUPE_JACCARD,
         skill_tokens,
         skills_page_dupe,
     )
@@ -2645,35 +2687,7 @@ def _tailor_skills_to_jd(
     # from THE shared predicate, not a local copy of the status literal.
     profile_skills: list[str] = claimable_skill_names(profile_json)
 
-    required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
-    req_toks = [t for t in (skill_tokens(x) for x in required) if t]
-    nice_toks = [t for t in (skill_tokens(x) for x in nice) if t]
-    kw_toks = [t for t in (skill_tokens(x) for x in keyword) if t]
-
-    def _relevant(st: frozenset[str], tt: frozenset[str]) -> bool:
-        # A skill maps to a JD term on equality/containment (JD 'React' ⊆ 'React Native')
-        # or strong token overlap — NOT a single shared common token ('MES systems' vs
-        # 'System Architecture' share only 'system', Jaccard 0.33 < 0.75 → no match).
-        if not st or not tt:
-            return False
-        if st <= tt or tt <= st:
-            return True
-        return len(st & tt) / len(st | tt) >= _NEAR_DUPE_JACCARD
-
-    def _matches(skill_toks: frozenset[str], term_toks: list[frozenset[str]]) -> bool:
-        return any(_relevant(skill_toks, t) for t in term_toks)
-
-    def _tier(skill: str) -> int:
-        st = skill_tokens(skill)
-        if not st:
-            return 3
-        if _matches(st, req_toks):
-            return 0
-        if _matches(st, nice_toks):
-            return 1
-        if _matches(st, kw_toks):
-            return 2
-        return 3
+    _tier = skill_jd_tier_fn(job_dict, keyword_ledger)
 
     # Candidate pool = the writer's tags, PLUS any master-profile skill that maps to a
     # JD-required term but the writer dropped (defect #2). Profile spelling is used verbatim
@@ -4718,6 +4732,7 @@ async def _render_cv_background(
                 condense_ctx = CondenseContext(
                     budgets=budget, target=resolved_target_pages, pins=tuple(cv_pins),
                     condense=v2_terminal is None,
+                    skill_tier=skill_jd_tier_fn(job_dict, keyword_ledger),
                 )
                 try:
                     measured = await _measure_and_condense(record, db, condense_ctx)
@@ -5144,6 +5159,13 @@ class CondenseContext:
     # check finding fed into the terminal loop, never a deletion (W1-3 names the
     # exhaustion disposition). v1 keeps True — byte-identical.
     condense: bool = True
+    # #786 L9/L18 (founder design, Hazelnut build 3): the page ladder holds every
+    # delivery at <= target + 1 pages by cutting list-section volume in a fixed
+    # order (services.cv_page_ladder). Runs in BOTH pipelines — the founder's
+    # "never more than x+1" is not a v1/v2 property. ``skill_tier`` is the #192
+    # rank for THIS job (skill_jd_tier_fn); None skips the skills rung.
+    page_ladder: bool = True
+    skill_tier: Any = None
 
 
 def _log_render_budget_iteration(
@@ -5247,6 +5269,68 @@ class MeasuredRender:
     condensation_exhausted: bool
     target: int
     region: str
+    # #786 L9/L18: the page-ladder cuts this measurement's document carries
+    # (services.cv_page_ladder.LadderCut), in the order they were applied.
+    ladder_cuts: tuple = ()
+
+
+def _ladder_pin_predicate(pins: Sequence):
+    """ADR-077 cl. 4 for the page ladder: a skill or certification carrying an
+    active CV pin is never cut — the same containment fold as the skills pass."""
+    from applire.services.scope_requirements import _norm_quote
+
+    quotes = [
+        _norm_quote(p.quote) for p in pins
+        if not getattr(p, "stale", False) and "cv" in getattr(p, "targets", ())
+        and getattr(p, "entry_type", "") in ("skill", "certification", "language")
+    ]
+    quotes = [q for q in quotes if q]
+    if not quotes:
+        return None
+    return lambda text: any(q in _norm_quote(text) or _norm_quote(text) in q for q in quotes)
+
+
+async def _apply_page_ladder(
+    record: GeneratedCV,
+    db: AsyncSession,
+    condense_ctx: CondenseContext,
+    *,
+    text: str,
+    count: int,
+) -> tuple[str, int, list]:
+    """#786 L9/L18: cut list-section volume rung by rung until the render is at
+    most ``target + 1`` pages (services.cv_page_ladder). Re-renders after every
+    step and stops at the limit; the snapshot is rebuilt in the same breath as
+    each ``tailored_data`` write (amendment §2, as the condense loop does).
+    Returns the final (text, count, applied cuts)."""
+    from applire.services.ats_audit import extract_text_and_pages
+    from applire.services.cv_page_ladder import ladder_steps, merge_cuts
+    from applire.services.cv_section_editor import build_content_snapshot
+
+    limit = condense_ctx.target + 1
+    before = count
+    applied: list = []
+    for step in ladder_steps(
+        record.tailored_data, condense_ctx.skill_tier,
+        pinned=_ladder_pin_predicate(condense_ctx.pins),
+    ):
+        if count <= limit:
+            break
+        record.tailored_data = step.data
+        record.content_snapshot = build_content_snapshot(
+            TailoredCVData.model_validate(step.data)
+        )
+        applied.append(step.cut)
+        html = await get_cv_html(record.id, db, user_id=record.user_id)
+        pdf = await _html_to_pdf(html)
+        text, count = extract_text_and_pages(pdf)
+    logger.log(
+        logging.WARNING if count > limit else logging.INFO,
+        "PAGE_LADDER cv_id=%s target=%d pages_before=%d pages_after=%d cuts=%s",
+        record.id, condense_ctx.target, before, count,
+        [(c["kind"], len(c["items"])) for c in merge_cuts(applied)],
+    )
+    return text, count, applied
 
 
 async def _measure_and_condense(
@@ -5359,7 +5443,17 @@ async def _measure_and_condense(
                 condense_fired=True,
                 condensation_exhausted=condensation_exhausted,
             )
-    return MeasuredRender(text, count, condensation_exhausted, target, region)
+    # #786 L9/L18: never more than target + 1 pages — the ladder cuts list-section
+    # volume (never a bullet) once the bullet levers above are spent or disarmed.
+    cuts: list = []
+    if condense_ctx.page_ladder and count > target + 1:
+        text, count, cuts = await _apply_page_ladder(
+            record, db, condense_ctx, text=text, count=count
+        )
+        condensation_exhausted = count > target
+    return MeasuredRender(
+        text, count, condensation_exhausted, target, region, ladder_cuts=tuple(cuts)
+    )
 
 
 def _subject_hash(tailored_data: dict) -> str:

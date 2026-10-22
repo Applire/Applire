@@ -327,3 +327,67 @@ def _execute_by_entity(mock_cv, default_result, job_id):
         return result
 
     return _execute
+
+
+@pytest.mark.asyncio
+async def test_render_cv_background_arms_the_page_ladder_with_this_jobs_skill_rank():
+    """#786 L9/L18 (Hazelnut build 3): the generation path arms the page ladder and
+    hands it the #192 skill rank for THIS job — without the rank the skills rung
+    silently never fires (the seam the ladder's own tests cannot see)."""
+    ledger = [
+        {"concept": "Kubernetes", "surface_forms": ["Kubernetes"], "claimable": True,
+         "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "8y"},
+    ]
+    cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    mock_cv = MagicMock()
+    mock_cv.status = "pending"
+    mock_cv.target_pages = 2
+    mock_job = MagicMock()
+    mock_job.role_title = "Dev"
+    mock_job.required_skills = ["Kubernetes"]
+    mock_job.nice_to_have_skills = []
+    mock_job.keywords = []
+    mock_job.seniority_level = ""
+    mock_job.company_culture_signals = []
+    mock_job.language_requirement = ""
+    mock_profile = MagicMock()
+    mock_profile.profile_json = _profile_json()
+    mock_gap = MagicMock()
+    mock_gap.keyword_gaps = []
+    mock_gap.critical_gaps = []
+    mock_gap.keyword_ledger = ledger
+    mock_db = AsyncMock()
+    mock_db.get.side_effect = lambda model, id_: {
+        cv_id: mock_cv, job_id: mock_job, profile_id: mock_profile,
+    }[id_]
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_gap
+    mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
+
+    seen: list = []
+
+    async def spy_measure(record, db, ctx):
+        seen.append(ctx)
+        raise RuntimeError("stop here — the caller degrades to an unmeasured delivery")
+
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cv.get_provider", return_value=AsyncMock()), \
+         patch(
+             "applire.services.cv._tailor_cv_with_fallback",
+             new=AsyncMock(side_effect=lambda *a, **kw: _tailored_raw()),
+         ), \
+         patch("applire.services.cv.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+         patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda draft, *a, **kw: draft)), \
+         patch("applire.services.cv._measure_and_condense", new=spy_measure), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+         patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+        mock_session_local.return_value.__aenter__.return_value = mock_db
+        from applire.services.cv import _render_cv_background
+        await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+    assert seen, "_measure_and_condense was never reached"
+    ctx = seen[0]
+    assert ctx.page_ladder is True
+    assert callable(ctx.skill_tier)
+    assert ctx.skill_tier("Kubernetes") == 0
+    assert ctx.skill_tier("Kosmetik-Verpackungen") == 3
