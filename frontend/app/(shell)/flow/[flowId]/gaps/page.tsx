@@ -22,12 +22,11 @@ import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { use } from "react";
 import { useTranslations } from "next-intl";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScoreCircle } from "@/components/ui/score-circle";
-import { StatCard } from "@/components/ui/stat-card";
 import { JobEchoCard } from "@/components/gaps/JobEchoCard";
 import { DocumentLanguageControl } from "@/components/gaps/DocumentLanguageControl";
 import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
@@ -45,6 +44,8 @@ import {
   clusterView,
   gapCounts,
   isGapRefusalCode,
+  openThemeCount,
+  requirementCounts,
   scoreToPercent,
   type GapCluster,
   type GapRefusalCode,
@@ -90,11 +91,26 @@ interface FlowState {
   cover_letter_summary?: { cover_letter_id: string } | null;
 }
 
-interface ProfileStats {
+/** #789 "Summary tiles after import" — what the one profile line names,
+ * counted from the profile itself; a zero is left out, never shown big. */
+interface ProfileCounts {
   positions: number;
-  projects: number;
+  education: number;
+  skills: number;
   certifications: number;
-  data_points: number;
+  projects: number;
+}
+
+function profileCountsOf(profileData: unknown): ProfileCounts {
+  const p = ((profileData as { profile?: Record<string, unknown> } | null)?.profile ?? {}) as Record<string, unknown>;
+  const len = (k: string) => (Array.isArray(p[k]) ? (p[k] as unknown[]).length : 0);
+  return {
+    positions: len("work_experience"),
+    education: len("education"),
+    skills: len("skills"),
+    certifications: len("certifications"),
+    projects: len("projects"),
+  };
 }
 
 // Gap-Click micro-session state per cluster. There is no "resolved" status:
@@ -538,9 +554,7 @@ export default function GapsPage({
 
   const [gaps, setGaps] = useState<GapAnalysis | null>(null);
   const [flowState, setFlowState] = useState<FlowState | null>(null);
-  const [profileStats, setProfileStats] = useState<ProfileStats>({
-    positions: 0, projects: 0, certifications: 0, data_points: 0,
-  });
+  const [profileCounts, setProfileCounts] = useState<ProfileCounts | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
@@ -644,14 +658,7 @@ export default function GapsPage({
           try {
             const profileRes = await fetch(`${API_BASE}/api/profile`);
             if (profileRes.ok) {
-              const profileData = await profileRes.json();
-              const stats = profileData.stats ?? {};
-              setProfileStats({
-                positions: stats.positions ?? 0,
-                projects: stats.projects ?? 0,
-                certifications: stats.certifications ?? 0,
-                data_points: stats.data_points ?? 0,
-              });
+              setProfileCounts(profileCountsOf(await profileRes.json()));
             }
           } catch {
             // Keep defaults
@@ -724,14 +731,7 @@ export default function GapsPage({
         try {
           const profileRes = await fetch(`${API_BASE}/api/profile`);
           if (profileRes.ok) {
-            const profileData = await profileRes.json();
-            const stats = profileData.stats ?? {};
-            setProfileStats({
-              positions: stats.positions ?? 0,
-              projects: stats.projects ?? 0,
-              certifications: stats.certifications ?? 0,
-              data_points: stats.data_points ?? 0,
-            });
+            setProfileCounts(profileCountsOf(await profileRes.json()));
           }
         } catch {
           // Keep defaults
@@ -1152,13 +1152,31 @@ export default function GapsPage({
     );
   }
 
-  const roleTitle = flowState?.job_summary?.role_title ?? "the target role";
+  const roleTitle = flowState?.job_summary?.role_title ?? null;
   // One source for every gap count so the badge and the heading never disagree
   // (F1): `gaps` is the canonical gap number; `itemsToAddress` (partials + gaps)
   // still gates the section and the interview CTA. All of it is the server's
   // row (ADR-089 clause 8) — no client-side "resolved" set.
   const counts = gapCounts(gaps);
   const clusterCounts = clusterCoverageCounts(gaps?.gap_clusters);
+  // #789 (ruling F1-2) — ONE requirement tally for the bar, the section lead
+  // and the CTA hint; the interview reads the same helper from the same row.
+  const req = requirementCounts(gaps);
+  const themeCount = openThemeCount(gaps?.gap_clusters);
+  const companyName = jobEcho?.company_name ?? null;
+  const profileParts = profileCounts
+    ? (
+        [
+          ["profilePositions", profileCounts.positions],
+          ["profileEducation", profileCounts.education],
+          ["profileSkills", profileCounts.skills],
+          ["profileCertifications", profileCounts.certifications],
+          ["profileProjects", profileCounts.projects],
+        ] as const
+      )
+        .filter(([, n]) => n > 0)
+        .map(([key, n]) => t(key, { count: n }))
+    : [];
   // Ruling K-1 — the open list holds the cards that can still be asked;
   // closed ones sit in the folded Done section. Order is by severity only
   // (C before B), never by coverage: a card stays where it was while its
@@ -1206,51 +1224,48 @@ export default function GapsPage({
       <JdRecoveryBanner />
       <CvParseBanner />
       <InputWarningsBanner />
-      {/* Section 1: Master Profile Summary — ingestion runs only (cases 1+2).
-          A JD-only follow-up imported nothing; opening it with onboarding
-          chrome misread as a "CV merge report" (Spaghettieis UAT). */}
+      {/* #789 "Summary tiles after import" — ONE line instead of four big
+          tiles and a merge box: what the profile holds (zeros left out, no
+          "Datenpunkte"), and where to see what was combined. Ingestion runs
+          only (cases 1+2): a JD-only follow-up imported nothing. */}
       {isIngestionRun && (
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-success text-white">
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h2 className="font-heading text-xl font-bold text-neutral-dark">
-              {flowState?.user_type === "new" ? t("masterProfileCreated") : t("masterProfileUpdated")}
-            </h2>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard value={profileStats.positions} label={t("statPositions")} />
-            <StatCard value={profileStats.projects} label={t("statProjects")} />
-            <StatCard value={profileStats.certifications} label={t("statCertifications")} />
-            <StatCard value={profileStats.data_points} label={t("statDataPoints")} />
-          </div>
-        </div>
-      )}
-
-      {/* Section 1b: merge review moved out of the flow (#67) — slim pointer, only when a merge happened. */}
-      {hasMerge && (
-        <div className="mb-8" data-testid="profile-review-section">
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-4">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">{t("mergeMovedTitle")}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{t("mergeMovedBody")}</p>
-            </div>
-            <Button
+        <div
+          data-testid="profile-summary-line"
+          className="mb-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-on-surface"
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success text-white">
+            <Check aria-hidden="true" className="h-3.5 w-3.5" />
+          </span>
+          <span className="font-semibold">
+            {flowState?.user_type === "new" ? t("masterProfileCreated") : t("masterProfileUpdated")}
+          </span>
+          {profileParts.length > 0 && (
+            <span className="text-on-surface-variant">{profileParts.join(" · ")}</span>
+          )}
+          {hasMerge ? (
+            <span data-testid="profile-review-section" className="inline-flex flex-wrap items-center gap-x-2">
+              <span className="text-on-surface-variant">{t("mergeMovedShort")}</span>
+              <button
+                type="button"
+                data-testid="merge-review-link"
+                onClick={() => router.push("/profile#import-log")}
+                className="text-teal underline hover:no-underline"
+              >
+                {t("mergeMovedLink")}
+              </button>
+            </span>
+          ) : (
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
-              data-testid="merge-review-link"
-              onClick={() => router.push("/profile#import-log")}
+              data-testid="profile-summary-link"
+              onClick={() => router.push("/profile")}
+              className="text-teal underline hover:no-underline"
             >
-              {t("mergeMovedLink")}
-            </Button>
-          </div>
+              {t("profileSummaryLink")}
+            </button>
+          )}
         </div>
       )}
-
       {/* Section 1c: Parsed-JD echo — what we read from the job ad (US158, FMEA 4.3/4.4).
           Chips + count come from the ledger fit-slice so the echo total always
           equals the badge math below (#111); raw JD lists only pre-ledger. */}
@@ -1288,37 +1303,135 @@ export default function GapsPage({
           );
         })()}
 
-      {/* Section 2: Match Score — only when this flow analyses a job */}
+      {/* Section 2: the match card carries the decision (#789 "Gaps page is
+          5 viewports long", mock F1-1 b): the ONE requirement bar (ruling
+          F1-2) and the two decisive actions right under it — above the fold
+          on desktop; below md the same actions form the fixed bottom bar. */}
       {hasJob && gaps && (
-      <Card className="p-6 mb-8">
-        <div className="flex flex-col lg:flex-row items-center gap-6">
-          <ScoreCircle score={matchScore} size={100} />
-          <div className="flex-1 text-center lg:text-left">
-            <h3 className="font-heading text-lg font-bold text-neutral-dark mb-2">{roleTitle}</h3>
-            <p data-testid="match-score-display" className="text-sm text-gray-500 mb-4">
-              {t("matchScoreDisplay", { label: t("matchScore"), score: matchScore })}
+      <Card className="p-5 md:p-6 mb-8" data-testid="match-card">
+        <div className="flex flex-row items-center gap-4 md:gap-6">
+          <ScoreCircle score={matchScore} size={88} />
+          <div className="flex-1 min-w-0">
+            <h3 className="font-heading text-lg font-bold text-neutral-dark">
+              {roleTitle && companyName
+                ? t("matchRoleAtCompany", { role: roleTitle, company: companyName })
+                : (roleTitle ?? t("matchRoleFallback"))}
+            </h3>
+            <p data-testid="match-score-display" className="text-sm text-on-surface-variant mt-0.5">
+              {t("matchWithJob", { score: matchScore })}
             </p>
-            <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
-              {counts.directMatches > 0 && (
-                <Badge variant="success">{t("directMatchesBadge", { count: counts.directMatches })}</Badge>
-              )}
-              {counts.likelyMatches > 0 && (
-                <Badge variant="warning">{t("likelyMatchesBadge", { count: counts.likelyMatches })}</Badge>
-              )}
-              {counts.gaps > 0 && (
-                <Badge variant="critical">{t("gapsToAddress", { count: counts.gaps })}</Badge>
-              )}
-              {clusterCounts.covered > 0 && (
-                <Badge variant="success" data-testid="covered-badge">
-                  {t("resolvedBadge", { count: clusterCounts.covered })}
-                </Badge>
+            {req.total > 0 && (
+              <div data-testid="requirement-bar" className="mt-2.5">
+                <div className="flex h-2.5 overflow-hidden rounded-full bg-surface-container" aria-hidden="true">
+                  <span className="bg-success" style={{ width: `${(req.shown / req.total) * 100}%` }} />
+                  <span className="bg-warning" style={{ width: `${(req.likely / req.total) * 100}%` }} />
+                  <span className="bg-outline-variant" style={{ width: `${(req.declined / req.total) * 100}%` }} />
+                </div>
+                <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-on-surface">
+                  <span data-testid="req-shown" className="inline-flex items-center gap-1">
+                    <span aria-hidden="true" className="h-2 w-2 rounded-full bg-success" />
+                    {t("reqShown", { count: req.shown })}
+                  </span>
+                  {req.likely > 0 && (
+                    <span data-testid="req-likely" className="inline-flex items-center gap-1">
+                      <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
+                      {t("reqLikely", { count: req.likely })}
+                    </span>
+                  )}
+                  <span data-testid="req-open" className="inline-flex items-center gap-1 font-semibold">
+                    <span aria-hidden="true" className="h-2 w-2 rounded-full border border-teal bg-surface-container" />
+                    {t("reqOpen", { count: req.open })}
+                  </span>
+                  {req.declined > 0 && (
+                    <span data-testid="req-declined" className="inline-flex items-center gap-1 text-on-surface-variant">
+                      {t("reqDeclined", { count: req.declined })}
+                    </span>
+                  )}
+                  <span className="text-on-surface-variant">{t("reqOfTotal", { count: req.total })}</span>
+                  {clusterCounts.covered > 0 && (
+                    <span data-testid="covered-badge" className="text-success font-medium">
+                      {t("resolvedBadge", { count: clusterCounts.covered })}
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* The decision. Desktop: static, in the card. Below md: a FIXED
+            bottom bar (US225) holding only the decisions row (M4) and the two
+            actions side by side — the explanations stay in the scroll flow
+            just below, and explore/cancel moved to the end of the page. */}
+        <div
+          ref={decisionBarRef}
+          data-testid="gaps-decision-bar"
+          className={cn(
+            "fixed inset-x-0 bottom-0 z-30 px-4 pt-3",
+            "pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+            "bg-surface-dim/95 backdrop-blur-sm border-t border-gray-200",
+            "md:static md:z-auto md:mt-5 md:px-0 md:pt-5 md:pb-0",
+            "md:bg-transparent md:backdrop-blur-none md:border-t md:border-outline-variant/60",
+          )}
+        >
+          <div ref={setDecisionsSlot} data-testid="gaps-decisions-slot" className="md:hidden" />
+          <div className={cn("grid gap-3 md:gap-4 items-start", offerInterview ? "grid-cols-2" : "grid-cols-1")}>
+            {offerInterview && (
+              <div className="flex flex-col gap-1.5 min-w-0">
+                <Button
+                  variant={flowState?.user_type === "new" ? "primary" : "secondary"}
+                  size="lg"
+                  onClick={() => void advance("interview")}
+                  disabled={actionLoading}
+                  className="w-full h-12 px-3 md:px-6"
+                  data-testid="interview-button"
+                >
+                  {t("startInterview")}
+                </Button>
+                <p className="hidden md:block text-xs text-on-surface-variant">
+                  {req.open > 0
+                    ? t("gapInterviewHintCount", { count: req.open })
+                    : t("gapInterviewHint")}
+                </p>
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5 min-w-0">
+              <Button
+                variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
+                size="lg"
+                onClick={() => void advance("cv_generation")}
+                disabled={actionLoading}
+                className="w-full h-12 px-3 md:px-6"
+                data-testid="generate-cv-button"
+              >
+                <span className="md:hidden">{t("generateCVShort")}</span>
+                <span className="hidden md:inline">{t("generateCV")}</span>
+              </Button>
+              {/* Ruling UX-3 (M7): before skipping the interview, say what it
+                  costs — no new count, the open points are on this page. */}
+              {offerInterview && (
+                <p
+                  data-testid="generate-cv-skip-cost"
+                  className="hidden md:block text-xs text-on-surface-variant"
+                >
+                  {t("generateWithoutInterviewCost")}
+                </p>
               )}
             </div>
           </div>
         </div>
+        {/* Below md the two explanations sit in the flow, under the card's
+            numbers — the fixed bar carries only the buttons. */}
+        {offerInterview && (
+          <div data-testid="gaps-cta-hints-mobile" className="md:hidden mt-4 space-y-1.5 text-xs text-on-surface-variant">
+            <p>
+              {req.open > 0 ? t("gapInterviewHintCount", { count: req.open }) : t("gapInterviewHint")}
+            </p>
+            <p>{t("generateWithoutInterviewCost")}</p>
+          </div>
+        )}
       </Card>
       )}
-
       {/* ADR-090 clause 8 — a stored analysis older than the profile says so;
           it never re-runs by itself. */}
       {hasJob && gaps?.inputs_changed && (
@@ -1351,7 +1464,7 @@ export default function GapsPage({
         <div data-testid="gaps-section" className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-heading text-lg font-bold text-neutral-dark">
-              {t("gapsIdentified", { count: counts.gaps })}
+              {t("gapsSectionTitle")}
             </h3>
             {sessionOpen ? (
               <p data-testid="gaps-locked-hint" className="text-xs text-on-surface-variant">
@@ -1370,8 +1483,10 @@ export default function GapsPage({
           {gaps?.gap_clusters && gaps.gap_clusters.length > 0 ? (
               <div className="space-y-3">
                 {openClusters.length > 0 ? (
-                  <p className="text-xs text-gray-500 mb-3">
-                    {t("clustersToAddress", { count: clusterCounts.askable })}
+                  <p data-testid="gaps-section-lead" className="text-xs text-on-surface-variant mb-3">
+                    {req.open > 0
+                      ? t("gapsSectionLead", { count: req.open, topics: themeCount })
+                      : t("gapsSectionLeadNoneOpen", { count: req.likely, topics: themeCount })}
                   </p>
                 ) : (
                   <p
@@ -1554,28 +1669,6 @@ export default function GapsPage({
         </div>
       )}
 
-      {/* CTAs — the interview offer is GAP-driven (ADR-016 amended): anyone
-          with items to address gets the mitigation option. It leads for new
-          users; returning users keep Generate as the primary path (Emma
-          journey: "optional but tempting"), and a clean sweep goes straight
-          to generation.
-          US225: below md the whole decision cluster (interview/generate/
-          explore/cancel) becomes a FIXED bottom bar — "pursue or not" stays
-          within thumb reach at all times, not just once scrolled to the end.
-          A spacer (sized to the bar's real, content-dependent height via
-          ResizeObserver) keeps it from covering the match-score/gap cards
-          that sit earlier in the same scrollable column — position:sticky
-          was tried first and rejected: nested inside the flow layout's own
-          scrollable column, it pinned as soon as the page loaded, overlapping
-          the match-score card above it instead of waiting for real scroll.
-          md and up: unchanged inline layout. */}
-      {/* E056/ADR-077 cl. 6 — fact pins, met as an OFFER before generation
-          (COPY.md §B, mock/Main): the last card of the scroll flow, directly
-          above the decision cluster, so "is there anything that must be in
-          there?" is asked while the answer can still change the documents.
-          D-1: below md it stays in the scroll flow above the spacer — it never
-          joins the fixed bottom bar, which is reserved for the pursue-or-not
-          decision. */}
       {flowState?.application_id && (
         <PinnedFactsPanel
           variant="teaser"
@@ -1586,81 +1679,29 @@ export default function GapsPage({
         />
       )}
 
-      <div aria-hidden="true" className="md:hidden" style={{ height: decisionBarHeight }} />
-      <div
-        ref={decisionBarRef}
-        data-testid="gaps-decision-bar"
-        className={cn(
-          "fixed inset-x-0 bottom-0 z-30 px-5 pt-4",
-          "pb-[max(1rem,env(safe-area-inset-bottom))]",
-          "bg-surface-dim/95 backdrop-blur-sm border-t border-gray-200",
-          "md:static md:z-auto md:mx-0 md:mt-8 md:px-0 md:pt-0 md:pb-0",
-          "md:bg-transparent md:backdrop-blur-none md:border-t-0",
-        )}
-      >
-        <div ref={setDecisionsSlot} data-testid="gaps-decisions-slot" className="md:hidden" />
-        <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
-          {offerInterview && (
-            <div className="flex flex-col items-center w-full sm:w-auto">
-              <Button
-                variant={flowState?.user_type === "new" ? "primary" : "secondary"}
-                size="lg"
-                onClick={() => void advance("interview")}
-                disabled={actionLoading}
-                className="w-full sm:w-auto sm:min-w-[240px]"
-                data-testid="interview-button"
-              >
-                {t("startInterview")}
-              </Button>
-              <p className="text-xs italic text-gray-500 mt-2">
-                {t("gapInterviewHint")}
-              </p>
-            </div>
-          )}
-          {hasJob && (
-            <div className="flex flex-col items-center w-full sm:w-auto">
-              <Button
-                variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
-                size="lg"
-                onClick={() => void advance("cv_generation")}
-                disabled={actionLoading}
-                className="w-full sm:w-auto sm:min-w-[200px]"
-                data-testid="generate-cv-button"
-              >
-                {t("generateCV")}
-              </Button>
-              {/* Ruling UX-3 (M7): before skipping the interview, say what it
-                  costs — no new count, the open points are on this page. */}
-              {offerInterview && (
-                <p
-                  data-testid="generate-cv-skip-cost"
-                  className="text-xs italic text-gray-500 mt-2 max-w-[22rem] text-center"
-                >
-                  {t("generateWithoutInterviewCost")}
-                </p>
-              )}
-            </div>
-          )}
-          <a
-            href="/profile"
-            className="text-sm text-teal underline hover:no-underline"
-            onClick={(e) => { e.preventDefault(); router.push("/profile"); }}
-          >
-            {t("exploreProfile")}
-          </a>
-        </div>
 
+      {/* Tertiary actions — out of the decision bar (#789: they competed
+          with the two decisive CTAs), at the end of the page. */}
+      <div data-testid="gaps-tertiary-actions" className="mt-2 mb-6 flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a
+          href="/profile"
+          className="text-sm text-teal underline hover:no-underline"
+          onClick={(e) => { e.preventDefault(); router.push("/profile"); }}
+        >
+          {t("exploreProfile")}
+        </a>
         {/* US222 (Branch I): the honest walk-away at the match-score decision —
             a quiet tertiary action; the score may tell Emma this isn't worth it. */}
         {flowState?.application_id && (
-          <div className="flex justify-center mt-5">
-            <CancelApplicationButton
-              applicationId={flowState.application_id}
-              variant="inline"
-            />
-          </div>
+          <CancelApplicationButton applicationId={flowState.application_id} variant="inline" />
         )}
       </div>
+
+      {/* US225 — reserves the fixed bar's measured height at the end of the
+          flow below md, so the last card is never hidden under it. */}
+      {hasJob && gaps && (
+        <div aria-hidden="true" className="md:hidden" style={{ height: decisionBarHeight }} />
+      )}
     </div>
   );
 }

@@ -324,8 +324,13 @@ export function LiabilityPanel({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold text-neutral-dark text-sm">{l.concept}</p>
+                  {/* #789 — the evidence is WHERE the skill stands (a bare
+                      list entry), labelled so it does not read as "proven"
+                      under a header that says nothing proves it yet. */}
                   {l.evidence && (
-                    <p className="text-xs text-gray-500 mt-0.5">{l.evidence}</p>
+                    <p data-testid="liability-evidence" className="text-xs text-gray-500 mt-0.5">
+                      <span className="font-medium">{t("liabilityEvidenceLabel")}</span> {l.evidence}
+                    </p>
                   )}
                 </div>
                 {resolved ? (

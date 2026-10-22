@@ -46,7 +46,7 @@ describe("GapClusterCard", () => {
     expect(card).toHaveAttribute("data-coverage", "open");
     expect(card).toHaveAttribute("data-tone", "red");
     expect(card).toHaveAttribute("data-askable", "true");
-    expect(card.className).toContain("border-l-critical");
+    expect(card.className).toContain("border-l-teal");
     expect(screen.queryByTestId("gap-resolved")).not.toBeInTheDocument();
     expect(screen.queryByTestId("gap-partly-covered")).not.toBeInTheDocument();
     expect(screen.queryByTestId("gap-likely-match")).not.toBeInTheDocument();
@@ -91,7 +91,7 @@ describe("GapClusterCard", () => {
     expect(byTerm("Docker")).toHaveAttribute("data-state", "covered");
     expect(byTerm("Docker")?.className).toContain("bg-success-container");
     expect(byTerm("Terraform")).toHaveAttribute("data-state", "gap");
-    expect(byTerm("Terraform")?.className).toContain("bg-critical-container");
+    expect(byTerm("Terraform")?.className).toContain("border-dashed");
     expect(byTerm("Ansible")).toHaveAttribute("data-state", "partial");
     expect(byTerm("Ansible")?.className).toContain("bg-warning-container");
     expect(byTerm("Scala")).toHaveAttribute("data-state", "declined");
@@ -137,7 +137,7 @@ describe("GapClusterCard", () => {
 
       const card = screen.getByTestId("gap-cluster-card");
       expect(card).toHaveAttribute("data-tone", "red");
-      expect(card.className).toContain("border-l-critical");
+      expect(card.className).toContain("border-l-teal");
     });
 
     it("5 covered → green", () => {
@@ -362,7 +362,7 @@ describe("GapClusterCard — ruling K-1 (leave a gap open, pick it up again)", (
       withIntl(<GapClusterCard cluster={cluster} view={view} onClick={onClick} onLeaveOpen={onLeaveOpen} />),
     );
     fireEvent.click(screen.getByTestId("gap-leave-open"));
-    expect(screen.getByTestId("gap-leave-open")).toHaveTextContent("Leave this gap open");
+    expect(screen.getByTestId("gap-leave-open")).toHaveTextContent("Leave it open for now");
     expect(onLeaveOpen).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
 

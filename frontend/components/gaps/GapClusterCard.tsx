@@ -62,12 +62,15 @@ interface GapClusterCardProps {
  * that shows a gap (the interview tracker, ruling C-4) paints the same tone
  * with the same classes — one gap, one colour. */
 export const TONE: Record<CardTone, { border: string; dot: string; ring: string; pill: string; icon: string }> = {
+  // #789 (mock F1-1 b, rec. A — founder F1-1 pending): "open" is an open
+  // QUESTION, not a failing grade. The worst-member rule (C-1) is unchanged;
+  // the tone keeps its name, it is painted in the primary blue instead of red.
   red: {
-    border: "border-l-critical",
-    dot: "bg-critical",
-    ring: "hover:ring-critical",
-    pill: "bg-critical-container text-on-surface",
-    icon: "text-critical",
+    border: "border-l-teal",
+    dot: "bg-teal",
+    ring: "hover:ring-teal",
+    pill: "bg-primary-container text-on-surface",
+    icon: "text-teal",
   },
   yellow: {
     border: "border-l-warning",
@@ -97,7 +100,7 @@ export const TONE: Record<CardTone, { border: string; dot: string; ring: string;
 const CHIP: Record<MemberState, string> = {
   covered: "bg-success-container text-on-surface",
   partial: "bg-warning-container text-on-surface",
-  gap: "bg-critical-container text-on-surface",
+  gap: "bg-white border border-dashed border-teal text-on-surface",
   declined: "bg-surface-container text-on-surface-variant",
   closed: "bg-surface-container text-on-surface-variant opacity-70",
 };
@@ -201,8 +204,14 @@ export function GapClusterCard({
             <p className="font-semibold text-on-surface text-sm">{cluster.label}</p>
             {view.pill && <CoverageBadge pill={view.pill} tone={view.tone} />}
           </div>
+          {/* #789 — the sentence is the POSTING's expectation (lead G: the
+              clustering call never sees the profile); unlabelled, its "ich"
+              read as a claim about the candidate. */}
           {cluster.jd_context && (
-            <p className="text-xs text-on-surface-variant mt-0.5">{cluster.jd_context}</p>
+            <p data-testid="gap-jd-context" className="text-xs text-on-surface-variant mt-0.5">
+              <span className="font-semibold text-on-surface">{t("jdContextLabel")}</span>{" "}
+              {cluster.jd_context}
+            </p>
           )}
           {view.members.length > 0 && (
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
@@ -242,9 +251,8 @@ export function GapClusterCard({
               data-testid="gap-leave-open"
               disabled={actionBusy}
               onClick={onLeaveOpen}
-              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-outline-variant bg-white px-2.5 text-xs font-medium text-on-surface-variant hover:bg-surface-container disabled:opacity-60"
+              className="inline-flex min-h-8 items-center px-1 text-xs text-on-surface-variant underline hover:no-underline disabled:opacity-60"
             >
-              <Archive aria-hidden="true" className="h-3.5 w-3.5" />
               {t("leaveGapOpen")}
             </button>
           )}

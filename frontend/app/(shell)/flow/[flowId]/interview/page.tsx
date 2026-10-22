@@ -158,7 +158,7 @@ type TrackerStatus =
 const TRACKER_CHIP: Record<MemberState, string> = {
   covered: "bg-success-container text-on-surface",
   partial: "bg-warning-container text-on-surface",
-  gap: "bg-critical-container text-on-surface",
+  gap: "bg-white border border-dashed border-teal text-on-surface",
   declined: "bg-surface-container text-on-surface-variant line-through",
   closed: "bg-surface-container text-on-surface-variant",
 };
