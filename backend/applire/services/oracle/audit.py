@@ -1488,7 +1488,36 @@ async def verify_claim(
         judgement_sink=judgement_sink,
         ledger_forms=ledger_forms,
     )
-    return _apply_credential_rule(verdict, claim, idx, document_language)
+    final = _apply_credential_rule(verdict, claim, idx, document_language)
+    return _withdraw_overridden_candidate(verdict, final, judgement_sink)
+
+
+def _withdraw_overridden_candidate(
+    inner: "ClaimVerdict | _SeamCandidate",
+    final: "ClaimVerdict | _SeamCandidate",
+    judgement_sink: "list[_SeamCandidate] | None",
+) -> "ClaimVerdict | _SeamCandidate":
+    """ADR-052 amended 2026-10-23 (WP-FO): a rule above the pipeline that REPLACES a
+    deferred judgement candidate takes it back out of the batch.
+
+    :func:`audit_document` pairs the i-th candidate in ``judgement_sink`` with the
+    i-th claim whose ``verify_claim`` returned a candidate. A rule that answered
+    with a verdict instead (E-2's credential rule on a restatement candidate) left
+    its candidate in the sink with no result slot: the batch resolved one candidate
+    more than there were slots — ``IndexError`` (self-audit: report NULL; agent
+    door: internal error), or the next candidate's verdict patched onto the wrong
+    claim. One place, so every present and future override keeps the invariant
+    "candidate in the sink <=> pending slot"."""
+    if (
+        judgement_sink is not None
+        and isinstance(inner, _SeamCandidate)
+        and final is not inner
+    ):
+        for i, cand in enumerate(judgement_sink):
+            if cand is inner:
+                del judgement_sink[i]
+                break
+    return final
 
 
 def _apply_credential_rule(
