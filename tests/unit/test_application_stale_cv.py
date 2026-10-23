@@ -546,3 +546,97 @@ def test_every_cv_feeding_section_is_a_profile_section():
 
     assert CV_FEEDING_SECTIONS <= set(MasterProfileData.model_fields)
     assert "availability" not in CV_FEEDING_SECTIONS
+
+
+# ---------------------------------------------------------------------------
+# Ruling B3-12: a newly recorded limit gets its own hint, and it wins
+# ---------------------------------------------------------------------------
+
+
+def _denial(action: str = "added") -> dict:
+    return {"section": "metadata", "field": "denied_concepts", "action": action,
+            "new_value": "Kubernetes"}
+
+
+@pytest.mark.asyncio
+async def test_a_limit_recorded_after_the_cv_arms_the_limit_hint(db):
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_denial()]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
+    assert hint is not None
+    assert hint.reason == "new_limit"
+    assert hint.gained == []
+
+
+@pytest.mark.asyncio
+async def test_the_limit_wins_over_growth_in_one_hint(db):
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=3)), [_change("skills")]),
+        _enrichment_record(_iso(_NOW - timedelta(days=2)), [_denial()]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
+    assert hint.reason == "new_limit"
+    assert [(g.section, g.count) for g in hint.gained] == [("skills", 1)]
+
+
+@pytest.mark.asyncio
+async def test_growth_alone_stays_profile_grew_and_an_older_limit_does_not_count(db):
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=9)), [_denial()]),  # before the CV
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv.reason == "profile_grew"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["updated", "removed"])
+async def test_a_reconfirmed_escalated_or_removed_limit_is_not_a_new_one(db, action):
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_denial(action)]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv is None
+
+
+@pytest.mark.asyncio
+async def test_a_limit_after_a_dismissal_rearms_the_hint(db):
+    from applire.models.profile import MasterProfile
+    from sqlalchemy import select
+
+    from tests.support.profile_factory import set_profile_json
+
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+    await patch_application(
+        app.id, _STUB_USER_ID, PatchApplicationRequest(dismiss_stale_cv=True), db
+    )
+    profile = (await db.execute(select(MasterProfile))).scalar_one()
+    history = list(profile.profile_json["metadata"]["enrichment_history"])
+    history.append(_enrichment_record(
+        _iso(datetime.now(timezone.utc) + timedelta(seconds=1)), [_denial()],
+    ))
+    set_profile_json(profile, {**profile.profile_json, "metadata": {"enrichment_history": history}})
+    await db.commit()
+
+    hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
+    assert hint is not None and hint.reason == "new_limit"

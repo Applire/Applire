@@ -68,6 +68,11 @@ class StaleCVInfo(BaseModel):
     latest_cv_template: str
     profile_enriched_at: datetime
     gained: list[StaleCVGained]
+    # Ruling B3-12 (founder 2026-10-23): WHY the hint fires. "new_limit" when a
+    # denial (metadata.denied_concepts, action "added") was recorded after the
+    # newest ready CV — it wins over "profile_grew" because it names a risk:
+    # the CV may claim what the candidate has since ruled out. Additive.
+    reason: Literal["profile_grew", "new_limit"] = "profile_grew"
     # E042/US236 (ADR-051 amendment §4): the pinned/newest ready CV's
     # persisted target page count, so a one-click re-tailor can forward the
     # same target. None on legacy/pre-E042 rows.
