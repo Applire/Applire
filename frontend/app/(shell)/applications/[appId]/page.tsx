@@ -552,6 +552,7 @@ export default function ApplicationDetailPage() {
           {application.stale_cv && (
             <StaleCvBanner
               gained={application.stale_cv.gained}
+              reason={application.stale_cv.reason}
               canRetailor={!!application.flow_session_id}
               retailoring={retailoring}
               onRetailor={() => void handleRetailor()}

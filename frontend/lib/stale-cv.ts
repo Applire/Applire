@@ -35,6 +35,9 @@ export interface StaleCVInfo {
   latest_cv_template: string;
   profile_enriched_at: string;
   gained: StaleCVGained[];
+  // Ruling B3-12: why the hint fires — a limit recorded after the CV wins over
+  // growth (it names a risk). Absent on older backends → "profile_grew".
+  reason?: "profile_grew" | "new_limit";
   // E042/US239 (ADR-051 amendment §4): the pinned/newest ready CV's persisted
   // page target, so one-click re-tailor can forward the same target. null on
   // legacy/pre-E042 rows.

@@ -33,6 +33,7 @@ export type CardStatus = "in_progress" | "cv_ready" | "interrupted" | "tracking"
 const SOURCE_LINK_ICON = "open_in_new";
 const SENT_BADGE_ICON = "send";
 const STALE_CV_ICON = "trending_up";
+const STALE_CV_LIMIT_ICON = "info";
 
 export interface DashboardApplicationCardProps {
   applicationId: string;
@@ -254,13 +255,14 @@ export function DashboardApplicationCard({
         {staleCv && (
           <span
             data-testid="stale-cv-badge"
-            title={tDash("staleCvBadgeTitle")}
+            data-reason={staleCv.reason ?? "profile_grew"}
+            title={staleCv.reason === "new_limit" ? tDash("staleCvBadgeLimitTitle") : tDash("staleCvBadgeTitle")}
             className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary-container text-primary"
           >
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 12 }}>
-              {STALE_CV_ICON}
+              {staleCv.reason === "new_limit" ? STALE_CV_LIMIT_ICON : STALE_CV_ICON}
             </span>
-            {tDash("staleCvBadge")}
+            {staleCv.reason === "new_limit" ? tDash("staleCvBadgeLimit") : tDash("staleCvBadge")}
           </span>
         )}
         {sourceUrl && (
