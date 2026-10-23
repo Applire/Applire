@@ -45,15 +45,26 @@ _WORD_RE = re.compile(r"[a-zäöüß]+")
 _UMLAUT_RE = re.compile(r"[äöüß]")
 
 
-def detect_language(text: str) -> str:
-    """Classify *text* as 'de' or 'en'. Ties and empty input default to 'de'
-    (DACH-first platform; matches the previous fallback)."""
-    lowered = text.lower()
+def language_scores(text: str) -> tuple[int, int]:
+    """The detector's raw evidence for *text*: ``(german_score, english_score)``.
+
+    THE scoring of :func:`detect_language` (ADR-066 — one instrument), exposed so
+    the per-item predicate can tell "the other language won" from "nothing was
+    said either way" (a tie), which the 'de' default of :func:`detect_language`
+    hides."""
+    lowered = (text or "").lower()
     words = _WORD_RE.findall(lowered)
     de_score = sum(1 for w in words if w in _GERMAN_STOPWORDS)
     en_score = sum(1 for w in words if w in _ENGLISH_STOPWORDS)
     # Umlauts/ß are a strong German signal independent of stopword overlap.
     de_score += 2 * len(_UMLAUT_RE.findall(lowered))
+    return de_score, en_score
+
+
+def detect_language(text: str) -> str:
+    """Classify *text* as 'de' or 'en'. Ties and empty input default to 'de'
+    (DACH-first platform; matches the previous fallback)."""
+    de_score, en_score = language_scores(text)
     return "en" if en_score > de_score else "de"
 
 
@@ -97,7 +108,60 @@ def item_language_mismatch(
         return False
     if len(_ITEM_WORD_RE.findall(text)) < min_words:
         return False
+    # Hazelnut build 3, WP-FR (adversarial A-9 / delivery F3): a TIE is no
+    # evidence. `detect_language` resolves a tie to 'de' — right for routing a
+    # whole JD, wrong as a per-item verdict: an English item with no listed
+    # English function word ("I also mentor two mid-level engineers through
+    # weekly design reviews.") scores 0 : 0 and read as German, so in an ENGLISH
+    # document it was "not written in the document language". Measured on the D2
+    # offline corpus (1,219 docs): 314 / 1,854 English-CV items and 33 / 1,629
+    # English-letter sentences flagged at exactly 0 : 0, every one English. An
+    # item is foreign only when the OTHER language scores strictly higher — the
+    # rule German documents already had by the tie default, now for both.
+    de_score, en_score = item_language_scores(text)
+    if expected_language == "de":
+        return en_score > de_score
+    if expected_language == "en":
+        return de_score > en_score
     return detect_language(text) != expected_language
+
+
+#: German-only function words the per-item predicate counts IN ADDITION to the
+#: detector's list. Item-level only — :func:`detect_language` (JD routing, the
+#: vault's dominant language, the Oracle's per-unit language) keeps its list, so
+#: nothing outside the item predicate moves. None of these is an English word.
+_ITEM_GERMAN_FUNCTION_WORDS = frozenset(
+    "ich mich mir mein meine meinen meiner meinem meines ist sind zur zum habe "
+    "hatte sich auch dieses diese dieser diesem ihr ihnen ihrer ihre seit".split()
+)
+
+#: German-only derivational endings (Leitung, etabliert, monatliche, Fähigkeit,
+#: Wirtschaft, technische). A short German item often carries no function word at
+#: all ("Monatliches Vertriebsreporting in Excel aufgebaut."); without this the
+#: tie rule above would let it through an English document unnoticed. Words of
+#: six letters or more only, so short English words ("young", "lung") never count.
+_ITEM_GERMAN_SUFFIX_RE = re.compile(
+    r"(?:ung|ungen|iert|ierte|ierten|lich|liche|lichen|licher|liches|keit|keiten|"
+    r"heit|heiten|schaft|schaften|isch|ische|ischen|ischer)$"
+)
+_ACRONYM_RE = re.compile(r"\b[A-ZÄÖÜ]{2,}\b")
+
+
+def item_language_scores(text: str) -> tuple[int, int]:
+    """``(german, english)`` evidence for ONE delivered item (WP-FR, A-9).
+
+    :func:`language_scores` with three item-level refinements, measured on the D2
+    offline corpus: an ALL-CAPS token is an acronym, never a function word ("ALS"
+    is not "als"); the German side also counts German-only function words and
+    derivational endings, which keeps the true positives the tie rule would
+    otherwise lose."""
+    if not text:
+        return 0, 0
+    de_score, en_score = language_scores(_ACRONYM_RE.sub(" ", text))
+    words = _WORD_RE.findall(_ACRONYM_RE.sub(" ", text).lower())
+    de_score += sum(1 for w in words if w in _ITEM_GERMAN_FUNCTION_WORDS)
+    de_score += sum(1 for w in words if len(w) >= 6 and _ITEM_GERMAN_SUFFIX_RE.search(w))
+    return de_score, en_score
 
 
 def resolve_jd_language(job) -> str:
