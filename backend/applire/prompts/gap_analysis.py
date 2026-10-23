@@ -15,6 +15,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v8 (Hazelnut build 3 / WP-G, 2026-10-22): the OWN-WORDS rule names the case
+#   it never drew — the profile naming the SAME competence in other words ("Jahresabschluss
+#   (HGB)" for "Jahresabschluss-Reporting") is another NAME for it: list that wording among
+#   surface_forms and classify direct. Without it the model either said "direct" with only the
+#   JD's term as a form (ADR-061 clause 5 then healed the row to gap: 12 healed core rows over
+#   24 control replays of the 12 baseline-matrix prompts, luna/thinking off) or chose an
+#   adjacent "partial". Same 12 prompts, n=2, with the sentence: 4 healed rows (Katrin 6 -> 0).
+#   Lean-Produktion vs "Lean Management" stays "partial" in 4/6 replays either way — the model
+#   cites the old half of this rule ("the profile term is Lean Management, so adjacent"), on
+#   the sentence's own example; that residue is a category-C fact, not fixed by more words.
+#
 # Prompt version: v7 (ADR-048 amended, 2026-08-13 — #526, gate charter run 1):
 #   - THE PROFILE'S OWN WORDS rule: a "direct" now requires the CANDIDATE PROFILE to
 #     name the requirement's own term or one of its surface forms. This closes a seam,
@@ -170,7 +181,11 @@ Rules:
     DIFFERENTLY-NAMED capabilities (the posting asks for "Digitalisierung"; the profile says
     "MES-Einführung" and "Industrie-4.0-Roadmap"), that is case (a) ADJACENT above: classify it
     "partial" and set "adjacent_evidence" to the profile's own name(s) for those capabilities.
-    Never "direct". This is not a wording preference: a claim to a term the profile does not
+    Never "direct". The profile naming the SAME competence in its own wording is different:
+    "Lean Management (5S, SMED, KVP)" for "Lean-Produktion", "Jahresabschluss (HGB)" for
+    "Jahresabschluss-Reporting", "Backend engineer" for "Backend engineering" are other NAMES
+    for the requirement itself, not other capabilities — list that wording among its
+    "surface_forms" exactly as the profile writes it and classify "direct". This is not a wording preference: a claim to a term the profile does not
     contain is refused by a later check, and the requirement then reaches the CV and cover-letter
     writers carrying NO evidence at all — strictly worse for the candidate than the honest
     "partial" you could have given them. Judge whether the profile NAMES the thing; do not judge

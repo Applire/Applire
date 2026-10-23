@@ -67,6 +67,36 @@ const DECISION_THREADS = new Set(["conflict", "confirmation"]);
  */
 export const DEFAULT_AUTO_DISMISS_SECONDS = 30;
 
+/**
+ * Hazelnut b3 WP-V (UX audit 2026-10-20, Felix): the notice said "Your answer
+ * touched something your profile already says" right after an IMPORT, before
+ * any answer was given. The copy now follows where the open decisions came
+ * from: a conflict's `incoming_source`, a confirmation's `source_record_ref`
+ * (the record's `source`, `services/profile/health.py`).
+ */
+const IMPORT_SOURCES = new Set(["cv_upload", "cv_paste", "linkedin_import", "xing_import"]);
+const ANSWER_SOURCES = new Set(["interview", "agent_interview", "testimony"]);
+
+export type DecisionsOrigin = "import" | "answer" | "mixed";
+
+export function decisionsOrigin(issues: HealthIssue[]): DecisionsOrigin {
+  const origins = new Set(
+    issues.map((i) => {
+      const src = (i.thread === "conflict" ? i.incoming_source : i.source_record_ref) ?? "";
+      return IMPORT_SOURCES.has(src) ? "import" : ANSWER_SOURCES.has(src) ? "answer" : "other";
+    }),
+  );
+  if (origins.size === 1 && origins.has("import")) return "import";
+  if (origins.size === 1 && origins.has("answer")) return "answer";
+  return "mixed";
+}
+
+const BODY_KEY: Record<DecisionsOrigin, string> = {
+  import: "decisions.bodyImport",
+  answer: "decisions.body",
+  mixed: "decisions.bodyMixed",
+};
+
 export function decisionIssues(health: ProfileHealth | null): HealthIssue[] {
   if (!health?.issues) return [];
   return health.issues.filter((i) => DECISION_THREADS.has(i.thread));
@@ -236,7 +266,9 @@ export function ProfileDecisionsCard({
                   <X className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
-              <p className="mt-1 text-sm text-gray-600">{t("decisions.body")}</p>
+              <p data-testid="profile-decisions-body" className="mt-1 text-sm text-gray-600">
+                {t(BODY_KEY[decisionsOrigin(issues)])}
+              </p>
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <Button
                   data-testid="profile-decisions-open"

@@ -85,6 +85,9 @@ export interface ReviewItem {
   severity: ReviewSeverity;
   /** Producer-supplied detail, rendered verbatim. Never composed here. */
   detail?: string | null;
+  /** ADR-052 amended 2026-10-22: the Oracle detail's catalog key + params, carried verbatim. */
+  detailKey?: string | null;
+  detailParams?: Record<string, string> | null;
   /** For a cluster row: the gap id, so the surface can route to its existing handler. */
   clusterId?: string;
   /** For a check row: the check id, so the surface can label it via `ats.checks.*`. */
@@ -248,6 +251,8 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       producers: overlap ? ["ats", "oracle"] : ["ats"],
       severity: "critical",
       detail: claim?.verdict.detail ?? null,
+      detailKey: claim?.verdict.detail_key ?? null,
+      detailParams: claim?.verdict.detail_params ?? null,
       location: claim?.claim.location ?? null,
       targets,
       denials:
@@ -270,6 +275,8 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       producers: ["oracle"],
       severity: "critical",
       detail: c.verdict.detail ?? null,
+      detailKey: c.verdict.detail_key ?? null,
+      detailParams: c.verdict.detail_params ?? null,
       location: c.claim.location,
       targets: [{ form: c.claim.text }],
     });
@@ -549,7 +556,18 @@ export type VerdictState =
    * clean group 1 may not render as an unqualified all-clear while real
    * findings sit beneath it.
    */
-  | { kind: "clear_with_others"; others: number }
+  | {
+      kind: "clear_with_others";
+      others: number;
+      /**
+       * T-1 (ADR-081 cl. 4 amended 2026-10-22): of `others`, the rows that ask
+       * for a decision before sending (`decisionCount`) and the rest (`notes`).
+       * UX audit 2026-10-20 (Felix, Emma): an all-clear sentence on top of 32
+       * findings read as "done" — the headline now names what needs deciding.
+       */
+      decisions: number;
+      notes: number;
+    }
   /**
    * #789 line L60 (ADR-081 cl. 9 at the headline): group 1 is clean, but at
    * least one producer of the surface did not answer (`unchecked`, de-duplicated,
@@ -557,7 +575,7 @@ export type VerdictState =
    * that "findings below do not stand in the way" — with `others = 0` there are
    * none, and with `others > 0` the blind spot would be swallowed.
    */
-  | { kind: "clear_unchecked"; others: number; unchecked: ReviewProducer[] }
+  | { kind: "clear_unchecked"; others: number; decisions: number; notes: number; unchecked: ReviewProducer[] }
   /**
    * #759 — group 1 is clean, but a send-blocking check failed (`buildSendChecks`).
    * The sentence names it instead of calling the rest harmless.
@@ -582,9 +600,44 @@ export function verdictState(
   // real blind spot, and the sentence must not swallow the blind spot.
   const unchecked: ReviewProducer[] = [];
   for (const g of groups) for (const p of g.unknownProducers) if (!unchecked.includes(p)) unchecked.push(p);
-  if (unchecked.length > 0) return { kind: "clear_unchecked", others, unchecked };
-  if (others > 0) return { kind: "clear_with_others", others };
+  const decisions = decisionCount(groups);
+  const notes = others - decisions;
+  if (unchecked.length > 0) return { kind: "clear_unchecked", others, decisions, notes, unchecked };
+  if (others > 0) return { kind: "clear_with_others", others, decisions, notes };
   return { kind: "clear" };
+}
+
+/**
+ * T-1 (ADR-081 cl. 4 amended 2026-10-22): the rows BELOW group 1 that ask the
+ * candidate to decide something before sending — every group-2 row (a keyword
+ * the vault covers and the document leaves out: add it or not) and every
+ * FAILED craft check of group 4. Group 3 (honest gaps), passing-with-detail and
+ * not-applicable checks, critic advisories and late-landed signals are notes:
+ * worth knowing, nothing to decide. An unknown group contributes nothing
+ * (ADR-081 cl. 9 — never a number for a producer that did not run).
+ *
+ * The phone review button carries this number when group 1 is clean.
+ */
+export function decisionCount(groups: ReviewGroup[]): number {
+  return groups.reduce((n, g) => n + groupDecisionCount(g), 0);
+}
+
+/** Whether a row of `group` is one the T-1 headline counts as a decision. */
+export function isDecisionItem(group: ReviewGroup, item: ReviewItem): boolean {
+  if (group.id === 2) return true;
+  if (group.id === 4) return item.kind === "check" && item.severity === "critical";
+  return false;
+}
+
+/**
+ * One group's share of the headline's decision count — the SAME predicate, so
+ * the panel can mark on each group row exactly what the headline counts
+ * (Hazelnut build 3 re-probe N1: "2 points need your decision" over a panel
+ * that marked none of them).
+ */
+export function groupDecisionCount(group: ReviewGroup): number {
+  if (group.unknown) return 0;
+  return group.items.filter((it) => isDecisionItem(group, it)).length;
 }
 
 /* ---------------------------------------------------------- ADR-090 cl. 6 */
@@ -704,4 +757,45 @@ export function buildCrossDocument(
     return { item, status, decision };
   });
   return { unknown: false, rows, decided: rows.filter((r) => r.status !== "open").length };
+}
+
+/* ------------------------------------- B3-10 — "Aus Deiner Eingabe im Formular" */
+
+/** The Oracle checker of a letter sentence built from the letter form's input. */
+export const LETTER_FORM_CHECKER = "letter_form_input";
+
+/** One neutral row: a sentence the candidate's own form input backs. */
+export interface FormInputRow {
+  key: string;
+  text: string;
+  detail: string | null;
+  detailKey: string | null;
+  detailParams: Record<string, string> | null;
+}
+
+/**
+ * Ruling B3-10 / RULING FO-1 = A (2026-10-23): a letter sentence the Oracle marks
+ * `letter_form_input` (`not_applicable`) is the candidate's own statement for
+ * this letter. It gets a small neutral section below the group-1 list — no
+ * buttons, and it is NOT a group-1 item: never in the headline, never in the
+ * "k of n decided" bar (group 1 reads only `FLAG_VERDICTS`). One row per
+ * sentence (`normQuote` fold — a clause split repeats the sentence text).
+ */
+export function buildFormInputRows(truthReport: TruthfulnessReport): FormInputRow[] {
+  const rows: FormInputRow[] = [];
+  const seen = new Set<string>();
+  for (const c of truthReport?.claims ?? []) {
+    if (c.verdict.checker !== LETTER_FORM_CHECKER) continue;
+    const key = `form:${normQuote(c.claim.text) || c.claim.text}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      key,
+      text: c.claim.text,
+      detail: c.verdict.detail ?? null,
+      detailKey: c.verdict.detail_key ?? null,
+      detailParams: c.verdict.detail_params ?? null,
+    });
+  }
+  return rows;
 }

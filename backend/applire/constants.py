@@ -75,6 +75,25 @@ INTERVIEW_TARGET_MIN_GUIDED: int = 5
 # advance-decision block, and NOT a quality judgement: addressed/denied turns
 # always advance immediately regardless of this counter.
 # Set INTERVIEW_MAX_QUESTIONS_PER_GAP in environment to override (e.g. in docker-compose.yml).
+#: D-B3V7 (ruling V-4) — a recorded notice period older than this is "stale"
+#: and the dashboard reminds the candidate. A main-session default: the founder
+#: gave no number (2026-10-22).
+AVAILABILITY_STALE_AFTER_DAYS: int = 90
+
+#: MD3-4 (Hazelnut build 3 fix round) — the caps on the cover letter's free-text
+#: inputs, one source for every door: the REST request model and the MCP letter
+#: tool validate against it (over-cap = 422 / invalid input naming the field),
+#: and the letter form's ``maxLength`` mirrors the same two numbers
+#: (frontend comment points here). ``motivation`` is the long one ("Warum diese
+#: Stelle, warum der Wechsel?"); every other free-text input is a short line.
+LETTER_INPUT_MAX_CHARS: dict[str, int] = {
+    "recipient_name": 300,
+    "recipient_company": 300,
+    "salary": 300,
+    "availability": 300,
+    "motivation": 2000,
+}
+
 INTERVIEW_MAX_QUESTIONS_PER_GAP: int = int(
     os.environ.get("INTERVIEW_MAX_QUESTIONS_PER_GAP", "2")
 )

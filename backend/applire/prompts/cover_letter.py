@@ -167,7 +167,7 @@ Rules:
   Frau <Nachname>," / "Sehr geehrter Herr <Nachname>,", EN "Dear Ms <Surname>," / "Dear Mr
   <Surname>,"); if the gender cannot be read from the name or title, use the generic form.
   When no recipient is known, use the generic form ("Sehr geehrte Damen und Herren," /
-  "Dear Sir or Madam,"). The 3-4 body paragraphs below are counted AFTER the salutation.
+  "Dear Hiring Manager," — never the dated "Dear Sir or Madam,"). The 3-4 body paragraphs below are counted AFTER the salutation.
 - Body should have 3-4 paragraphs AFTER the salutation (see SALUTATION above): opening
   (interest + role), why-me (key achievements), company-fit, closing.
 - REQUIRED CLOSING PARAGRAPH (#272): the letter's LAST paragraph must be a genuine closing —
@@ -331,9 +331,10 @@ _V1_AVAILABILITY_RULE = "- Include Eintrittstermin in body only if availability 
 _V2_AVAILABILITY_RULE = (
     "- AVAILABILITY ONLY FROM INPUT: state when the candidate could start — availability, a\n"
     "  notice period (Kündigungsfrist), a start date (Eintrittstermin), \"flexible\" or\n"
-    "  \"immediate\" — ONLY when the user message gives an Eintrittstermin line or an\n"
-    "  AVAILABILITY TESTIMONY block, and then only as given. Without either, the letter says\n"
-    "  nothing about it: the closing needs interest and a call to action, nothing more.\n"
+    "  \"immediate\" — ONLY when the user message gives a Kündigungsfrist / frühester Eintritt\n"
+    "  line or an AVAILABILITY TESTIMONY block, and then only as given. Without either, the\n"
+    "  letter says nothing about it: the closing needs interest and a call to action, nothing\n"
+    "  more.\n"
 )
 
 _V1_OVERSTATE_ANCHOR = "never overstate the seniority/impact the candidate data supports.\n"
@@ -685,7 +686,19 @@ def build_cover_letter_prompt(
     if salary:
         lines.append(f"Gehaltswunsch (salary expectation): {salary}")
     if availability:
-        lines.append(f"Eintrittstermin (availability/notice period): {availability}")
+        # F10 (Hazelnut b3 fix round): the field is "Kündigungsfrist / frühester
+        # Eintritt" on the form (ruling L-1) and holds a notice period OR a date in
+        # the candidate's words. Labelled "Eintrittstermin" it was written as one:
+        # "Mein Eintrittstermin ist drei Monate zum Quartalsende." Replay of the
+        # captured first drafts (luna, thinking off, n=5 per arm, 2026-10-23): DE as
+        # labelled 1/5 that sentence, 4/5 "Mein Eintritt ist mit einer Kündigungsfrist
+        # … möglich"; EN 4/5 "I can start three months to the end of a quarter". With
+        # this label alone: DE 5/5 "Meine Kündigungsfrist beträgt …", EN 5/5 natural.
+        # (An extra phrasing rule measured no gain on top and was not kept.)
+        lines.append(
+            "Kündigungsfrist / frühester Eintritt (notice period or earliest start, "
+            f"the candidate's own words): {availability}"
+        )
     if motivation:
         lines.append(f"Personal motivation (incorporate naturally): {motivation}")
 

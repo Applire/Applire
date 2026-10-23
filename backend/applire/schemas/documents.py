@@ -24,6 +24,20 @@ from pydantic import BaseModel
 from applire.models.cv import CVGenerationStatus
 
 
+class LetterRef(BaseModel):
+    """#789 (Hazelnut build 3): the cover letter that belongs with a CV row.
+
+    My Documents listed only CVs, so a ready letter had no home on the page
+    named "Meine Dokumente". Read model, never stored: the newest live letter
+    for the same posting and owner, attached to that posting's newest CV row.
+    """
+
+    cover_letter_id: uuid.UUID
+    status: str
+    created_at: datetime
+    expires_at: datetime
+
+
 class DocumentItem(BaseModel):
     cv_id: uuid.UUID
     flow_id: uuid.UUID | None
@@ -35,6 +49,8 @@ class DocumentItem(BaseModel):
     expires_at: datetime
     # E044/US252 (ADR-054): 'pipeline' | 'agent' — drives the origin badge.
     origin: str = "pipeline"
+    # #789: the letter for this posting (on its newest CV row only). Additive.
+    cover_letter: LetterRef | None = None
 
     model_config = {"from_attributes": True}
 

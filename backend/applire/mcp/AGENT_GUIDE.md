@@ -115,6 +115,12 @@ before you judge or describe the document. `get_cover_letter_status`
 also carries `critic_report` (ADR-060 Pass B) — a cross-document coherence
 advisory when the letter states something your CV doesn't back at the same
 depth. Read-only, never mutates either document; null until the pass runs.
+Both status tools also carry `review_degradation`: the review steps of the
+writing loop that did not run (`[{check, stage, reason, attempt, count}]` —
+`stage: "review"` = the draft shipped un-reviewed, `"correction"` = findings were
+not acted on). `[]` = every step answered; `null` = not recorded (an older
+document, or one you authored). A non-empty list is worth telling the human:
+offer a regeneration or a careful read of that part.
 Its `cross_document` list folds the advisories that quote the same letter
 sentence into one item; `weight: "high"` means the letter states a fact the CV
 never mentions, with a figure, year or duration — the shape blind recruiters
@@ -187,7 +193,11 @@ the matching `artifact_id` when advancing.
 **The flow is a ledger you keep, not a tracker that watches you.** Calling
 `analyze_gaps`, `run_interview`, `submit_testimony`, `generate_cv` or any other
 tool directly never moves the flow: it stays where you last advanced it, and so
-do the application's `workflow_status` / `flow_current_step`. `advance_flow`
+does the application's `flow_current_step` (the resume pointer). The
+application's `workflow_status` is served from what exists — a ready CV reads
+`completed` even if the flow never moved — and `cover_letter_ready` /
+`workflow_running` say whether a letter is ready and whether Applire is still
+producing something (false = the next move is yours). `advance_flow`
 accepts only the next step in this order — `jd_analysis` → `cv_import` →
 `gap_analysis` → `interview` → `cv_generation` → `complete` (`cv_import` may be
 skipped by a returning user, `interview` after `gap_analysis`; a candidate with
@@ -216,6 +226,20 @@ answered with a `notices` entry on the response rather than dropped in
 silence, and the transition still succeeds. **There is no `cover_letter`
 step** — `generate_cover_letter` links the letter to the flow itself, so you
 never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
+
+**The letter's optional inputs** (`generate_cover_letter`) mirror the web form
+and carry the USER's own words — pass one only when the user stated it, never
+a guess: `recipient_name` (contact person), `recipient_company`, `salary`
+(salary expectation), `availability` (notice period / earliest start),
+`motivation` (why this role, why the change), `tone` (`formal` default,
+`professional`, `conversational`). The letter never invents a notice period, a
+start date or a reason for the change — left out, the letter does without.
+Caps: `motivation` up to 2,000 characters, every other text input up to 300;
+longer is refused with the field's name. `save_availability_to_profile`
+(default `false`): set it `true` only when the user asks for the notice period
+to be kept in their profile too — it then becomes the profile's
+`availability` (as on the web form's "also save in profile" box).
+Editing a generated letter's sections is UI-only.
 
 **À-la-carte (BYOI)** (you write; preferred when your model is strong):
 - `get_profile` — the full vault, your evidence base. Signature stories

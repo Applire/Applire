@@ -34,7 +34,9 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/components/cover-letter/CoverLetterDocument", () => ({
-  CoverLetterDocument: () => <div data-testid="cl-document" />,
+  CoverLetterDocument: ({ generationInputs }: { generationInputs?: unknown }) => (
+    <div data-testid="cl-document" data-inputs={JSON.stringify(generationInputs ?? null)} />
+  ),
 }));
 // Sidebar tab bodies are stubbed — the page renders them via the shared
 // RefinementSidebar shell (E038); we only exercise page-level behaviour here.
@@ -120,6 +122,9 @@ function renderPage(flowId = "test-flow") {
 describe("CoverLetterPage — polling loop", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    // #789: the AI notice is once per set per browser SESSION — each test is
+    // a fresh session.
+    window.sessionStorage.clear();
   });
 
   it("shows ProgressWidget while status is generating", async () => {
@@ -178,6 +183,35 @@ describe("CoverLetterPage — polling loop", () => {
     );
   });
 
+  it.each([
+    ["a stored form row reaches the preview", { availability: "", motivation: "Wechsel", tone: "formal" }, true],
+    ["an agent-authored row (no form inputs) reaches it as null", {}, false],
+  ])("787 L-1: %s", async (_name, stored, expectInputs) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return { ok: true, json: async () => FLOW_STATE_RESPONSE } as Response;
+      }
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "ready", letter_data: { header: { name: "Max" } }, pre_gen_inputs: stored,
+          }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    await act(async () => { renderPage(); });
+    const doc = await screen.findByTestId("cl-document", {}, { timeout: 5000 });
+    const passed = JSON.parse(doc.getAttribute("data-inputs") ?? "null");
+    if (expectInputs) {
+      expect(passed).toMatchObject({ availability: "", motivation: "Wechsel" });
+    } else {
+      expect(passed).toBeNull();
+    }
+  });
+
   it("shows the pre-download notice, then downloads on confirm (ADR-040 amended)", async () => {
     const { fireEvent } = await import("@testing-library/react");
     let pdfFetched = false;
@@ -214,6 +248,34 @@ describe("CoverLetterPage — polling loop", () => {
     // Confirming the notice proceeds with the download (nudge, not gate).
     await act(async () => { fireEvent.click(screen.getByTestId("predownload-download")); });
     await waitFor(() => expect(pdfFetched).toBe(true));
+  });
+
+  it("#789 (ruling F2-1): the set is the APPLICATION — a notice confirmed on its CV page is not shown again on its letter page", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const { markSeenThisSession } = await import("@/lib/session-once");
+    let pdfFetched = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return { ok: true, json: async () => ({ ...FLOW_STATE_RESPONSE, application_id: "app-77" }) } as Response;
+      }
+      if (url.includes("/pdf")) {
+        pdfFetched = true;
+        return { ok: true, headers: new Headers(), blob: async () => new Blob(["pdf"]) } as Response;
+      }
+      if (url.includes("/status")) {
+        return { ok: true, json: async () => ({ status: "ready", letter_data: { header: { name: "Max" } } }) } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    // What confirming the notice on the CV page of application app-77 left behind.
+    markSeenThisSession("predownload-notice", "app-77");
+
+    await act(async () => { renderPage(); });
+    await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
+    await act(async () => { fireEvent.click(screen.getByTestId("document-download-btn")); });
+    await waitFor(() => expect(pdfFetched).toBe(true));
+    expect(screen.queryByTestId("cl-download-review-overlay")).toBeNull();
   });
 
   it("US298 (E057 doors) — the .docx download is ALSO gated by the pre-download notice, and confirming downloads the docx (not the pdf)", async () => {
@@ -259,6 +321,12 @@ describe("CoverLetterPage — polling loop", () => {
     await act(async () => { fireEvent.click(screen.getByTestId("predownload-download")); });
     await waitFor(() => expect(docxFetched).toBe(true));
     expect(pdfFetched).toBe(false);
+
+    // #789 (ruling F2-1, rec. A): once per document set per browser session —
+    // the next export of this set downloads straight away.
+    await act(async () => { fireEvent.click(screen.getByTestId("document-download-btn")); });
+    await waitFor(() => expect(pdfFetched).toBe(true));
+    expect(screen.queryByTestId("cl-download-review-overlay")).toBeNull();
   });
 
   it("issue #246 (NEW-5) — uses the server's Content-Disposition filename for the download, not a hardcoded German default", async () => {

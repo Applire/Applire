@@ -26,7 +26,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   cloneEntry,
   formatEntryPeriod,
@@ -36,6 +36,7 @@ import {
   type ProfileSectionsResponse,
   type VolunteerActivity,
 } from "@/lib/profile-entries";
+import { type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { AliasChips } from "@/components/profile/AliasChips";
 import { PartialDateField } from "./PartialDateField";
@@ -75,6 +76,7 @@ export function VolunteerEditor({
   onProfileUpdated,
 }: VolunteerEditorProps) {
   const t = useTranslations("profile");
+  const locale: DisplayLocale = useLocale() === "de" ? "de" : "en";
   const tCommon = useTranslations("common");
 
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -273,7 +275,7 @@ export function VolunteerEditor({
       ) : (
         <div className="space-y-4">
           {entries.map((e, i) => {
-            const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current);
+            const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current, locale);
             const rawLabel = entryLabel(e);
             const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
             return (

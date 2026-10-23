@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, field_validator
 from applire.constants import MAX_TARGET_PAGES
 from applire.models.cv import CVGenerationStatus
 from applire.schemas.profile import FieldChange
+from applire.schemas.review_degradation import DegradedReviewStep
 
 # E044 (ADR-054): version tag of the public tailored-CV content contract served
 # via the MCP resource schema://cv. Bump on any breaking field change.
@@ -93,6 +94,10 @@ class CVStatusResponse(BaseModel):
     # status carrying its critic_report (ADR-060 clause 6). None = not yet
     # computed or pre-two-mount row.
     critic_report: Optional[dict] = None
+    # ADR-081 cl. 9 amended 2026-10-22 (#786): the review steps of the writing loop
+    # that did not run. None = not recorded (pre-0084 row, agent render); [] = every
+    # review step answered. Same value on REST and the MCP status tool (ADR-066).
+    review_degradation: Optional[list[DegradedReviewStep]] = None
     # E054/US289 (ADR-038 amendment clause 3b): the language PINNED at
     # generation time — the UI badges each document with it (FMEA JF-F-G2.2).
     # Surfaced as stored; a legacy NULL row stays None rather than gaining a
@@ -111,8 +116,46 @@ class CVStatusResponse(BaseModel):
     # "uploaded but toggled off", which the control needs to decide whether to
     # render itself or a disabled hint.
     signature_available: bool = False
+    # #786 L-3 (founder ruling 2026-10-22): the x+1 decision — the CV is longer
+    # than its target, the page ladder names what would have to go, and the
+    # person keeps the extra page or cuts. None = the CV fits its target.
+    page_overflow: Optional["CVPageOverflow"] = None
 
     model_config = {"from_attributes": True}
+
+
+class CVPageOverflowCut(BaseModel):
+    """One kind of cut the ladder proposes, with the items it removes (named, so
+    "Kürzen" says exactly what went)."""
+    kind: Literal[
+        "duplicate_project", "off_job_skills", "repeated_industry",
+        "oldest_certification", "oldest_education",
+    ]
+    items: list[str] = Field(default_factory=list)
+
+
+class CVPageOverflow(BaseModel):
+    """The x+1 decision on one CV (#786 L-3). ``choice`` null = not yet asked
+    back; ``cut_available`` = "Kürzen" can be applied to the CV as it stands (no
+    content change or section edit since the proposal); ``uncut_available`` = the
+    cut can be undone, also after a later edit (MD3-3: the cut items go back into
+    the current CV). ``actual`` = the page count as the CV stands now (refreshed by
+    every switch); ``full_pages`` = the count with nothing cut (A-3b, additive)."""
+    target: int
+    actual: int
+    full_pages: Optional[int] = None
+    proposed: list[CVPageOverflowCut] = Field(default_factory=list)
+    choice: Optional[Literal["keep", "cut"]] = None
+    cut_available: bool = False
+    uncut_available: bool = False
+
+
+class CVPageOverflowChoiceRequest(BaseModel):
+    """POST /api/cv/{cv_id}/page-overflow body."""
+    choice: Literal["keep", "cut"]
+
+
+CVStatusResponse.model_rebuild()
 
 
 class CVSignatureOverrideRequest(BaseModel):

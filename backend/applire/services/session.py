@@ -87,7 +87,6 @@ from applire.services.interview.sufficiency import (
     concept_is_required,
     is_interview_sufficient,
 )
-from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import (
     assert_claimable_backed,
     reevaluate_gap_ledger_against_vault,
@@ -467,16 +466,28 @@ async def _handle_confirmation_answer(
         )
     elif context.get("incoming_skill") and resolve_skill_decision(
         confirmation_entry, chosen
-    ) is None:
-        # #730 — the SKILL arm this route lacks (#674's open line: "a SKILL
+    ) is not None:
+        # Hazelnut build 3, WP-FR (delivery F12; closes #674's open line "a SKILL
         # confirmation answered on the standalone profile-review route resolves
-        # nothing"). That line stays open on purpose: this fix adds only what the
-        # refusal option needs, which is the REFUSAL half, not the write half.
-        # An answer naming none of the options must not spend the park here
-        # either, or the candidate's "neither" is swallowed by the bookkeeping
-        # resolve below and the ask is gone for good. `distinct`/`merge`
-        # answered here still write nothing — unchanged, and still the collector
-        # line.
+        # nothing"). Daniel answered "Add 'SQL' as a separate skill" here and the
+        # vault never gained SQL: the import's `_apply_upsert_skill` PARKS a
+        # family-3 ask without writing the incoming skill, and this route only
+        # ran the bookkeeping resolve below. The candidate's decision is now
+        # applied by the SAME applier the in-turn door uses (ADR-066 — one
+        # implementation; the dedupe waiver stays a call-path capability,
+        # `UserConfirmedSkill`, ADR-063 cl. 1). `keep` writes nothing there.
+        profile_record = await _load_profile(state["profile_id"], db)
+        await _apply_interview_confirmation(
+            db, profile_record, context, chosen,
+            session_id=str(record.id),
+            option_key=resolve_option_key(confirmation_entry, chosen),
+            keyed=bool(confirmation_entry.get("option_keys")),
+            pending_conf=confirmation_entry,
+        )
+    elif context.get("incoming_skill"):
+        # #730 — an answer naming none of the options must not spend the park
+        # here, or the candidate's "neither" is swallowed by the bookkeeping
+        # resolve below and the ask is gone for good.
         logger.warning(
             "profile-review confirmation: the answer names none of the options "
             "for incoming skill %r — re-asking, park left open (#730)",
@@ -873,8 +884,9 @@ async def _ask_queued_confirmation(
     state["current_question"] = question
     state["current_choices"] = options
     state["messages"].append({"role": "assistant", "content": question})
-    state["questions_asked"] = state.get("questions_asked", 0) + 1
-    record.questions_asked = state["questions_asked"]
+    # RULING 787:L7 (founder 2026-10-22) — a confirmation is not gap
+    # elicitation: `questions_asked` (the ADR-080 budget AND the header count)
+    # does not move for it. See `_handle_interview_confirmation_answer`.
     record.state = state
     record.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -1124,8 +1136,14 @@ async def _handle_interview_confirmation_answer(
     current_gap = state["critical_gaps"][current_idx]
     if current_gap not in state.get("addressed_gaps", []):
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
-    state["questions_asked"] = state.get("questions_asked", 0) + 1
-    record.questions_asked = state["questions_asked"]
+    # RULING 787:L7 (founder 2026-10-22; Hazelnut b3 WP-V, UX audit Marcus
+    # Q7/Q8) — skill-merge confirmation / disambiguation turns no longer count
+    # against the interview's question budget: `questions_asked` counts gap
+    # elicitation only. Before, every answered confirmation advanced it, and
+    # ADR-080's ceiling `per_gap * n + 2` has a MEASURED +2 — so confirmations
+    # spent the terminal headroom and a third ended a fully-worked interview
+    # on `max_questions_reached`. The gap answer that raised the confirmation
+    # was already counted (send_message's own increment).
 
     return _with_receipt(
         await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang),
@@ -2562,18 +2580,10 @@ async def _create_targeted_session(
         first_choices = gate_entry["choices"]
     else:
         first_category = gap_categories.get(first_cluster_id)
-        # US265 — availability elicitation is folded into the FIRST real MODE A
-        # cluster question only: computed once here, never recomputed for any
-        # later cluster in this session, so "one availability question" holds
-        # by construction rather than a tracked flag.
-        include_availability = should_ask_availability(
-            job.raw_text, profile_record.profile_json
-        )
         q_data = await _cluster_question(
             state, profile_record.profile_json, provider, db,
             user_id=user_id,
             gap_category=first_category, lang=lang,
-            include_availability=include_availability,
         )
         first_question = q_data["question"]
         first_choices = q_data["choices"]
@@ -2689,13 +2699,6 @@ async def _create_guided_session(
         first_question = gate_entry["question"]
         first_choices = gate_entry["choices"]
     else:
-        # US265 — same one-shot check as the targeted path: computed once,
-        # here, for the FIRST section only. Every later section is asked via
-        # send_message's advance branch, which never passes this flag, so
-        # "one availability question" holds by construction.
-        include_availability = should_ask_availability(
-            job.raw_text, profile_record.profile_json
-        )
         q_data = await question_generator_with_profile(
             state,
             profile_record.profile_json,
@@ -2703,7 +2706,6 @@ async def _create_guided_session(
             gap_category=None,
             job_context=job_context,
             lang=lang,
-            include_availability=include_availability,
         )
         first_question = q_data["question"]
         first_choices = None
@@ -2823,7 +2825,6 @@ async def _create_micro_session(
         if refusal is not None:
             raise refusal
 
-    prior_asked = _prior_asked(cluster)
     micro_ceiling = derive_hard_ceiling(1)
     state: InterviewState = _build_state(
         mode="targeted",
@@ -2838,18 +2839,10 @@ async def _create_micro_session(
         micro_session=True,
     )
     state["questions_per_gap"] = _seed_questions_per_gap({target_cluster_id: cluster})
-    # US265 — the availability ask rides the cluster's OPENING question only:
-    # this session's first question, and only when no earlier door has asked
-    # this cluster before (its opening question then already carried it).
-    # Follow-ups never pass the flag.
-    include_availability = prior_asked == 0 and should_ask_availability(
-        job.raw_text, profile_record.profile_json
-    )
     q_data = await _cluster_question(
         state, profile_record.profile_json, provider, db,
         user_id=user_id,
         gap_category=gap_category, lang=lang,
-        include_availability=include_availability,
     )
     first_question = q_data["question"]
     first_choices = q_data["choices"]
@@ -3368,6 +3361,27 @@ async def _upgrade_ledger_for_addressed_gap(
 
 
 async def send_message(
+    session_id: uuid.UUID,
+    message: str,
+    db: AsyncSession,
+    provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> SessionMessageResponse:
+    """One interview turn. Every response carries the session's
+    ``questions_asked`` (RULING 787:L7 — gap elicitation only), so the header
+    count reads the backend's number instead of counting turns client-side,
+    which would count a confirmation turn as a question."""
+    response = await _send_message_turn(session_id, message, db, provider, user_id=user_id)
+    if response.questions_asked is None:
+        uid = resolve_user_id(user_id, site="session.send_message")
+        record = await owned_row(db, InterviewSession, session_id, uid)
+        if record is not None:
+            response.questions_asked = record.questions_asked
+    return response
+
+
+async def _send_message_turn(
     session_id: uuid.UUID,
     message: str,
     db: AsyncSession,

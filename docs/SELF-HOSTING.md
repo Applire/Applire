@@ -64,6 +64,15 @@ curl -s -H "Authorization: Bearer apl_…" http://localhost/api/ops/health | gre
 docker compose logs backend | grep -i topology
 ```
 
+**Port 80 already taken?** Another web server on the same machine keeps nginx from starting (`bind: address already in use`). Set a free host port in `.env` and start again:
+
+```bash
+APPLIRE_HTTP_PORT=8080
+APPLIRE_BASE_URL=http://192.168.1.5:8080   # if you set a base URL, it carries the port too
+```
+
+Applire then answers on `http://<host>:8080`. Inside the stack nothing changes.
+
 `docker compose config` (no flags) prints the fully merged configuration — if you want to see exactly what the override added, look for `build:` blocks (only present when the override is applied) alongside the base `image:` directives.
 
 ## 3. Back up
@@ -294,6 +303,10 @@ curl -X POST -H "Authorization: Bearer apl_…" http://localhost/api/settings/up
 **Coming from a release older than `v0.37.0-beta`?** Step through `v0.37.2-beta` first. Profiles imported before the reconciliation engine could hold flat duplicate employers and orphaned projects, and the one-time `scripts/migrate_flat_duplicates.py` pass that folds them into the typed model only shipped in `v0.37.0-beta` … `v0.37.2-beta`. This is data hygiene, not a schema requirement — Alembic migrations still run automatically on any direct jump, it just leaves those duplicates sitting in your profile instead of cleaning them up.
 
 ## 11. Troubleshooting
+
+### A page shows "502 Bad Gateway" and nginx's log says nothing
+
+By default nginx logs only critical errors. Its full upstream error lines also print the request's query string, which can hold a 60-minute download link or a one-time sign-in code. To diagnose a 502/504, set `LOG_LEVEL=DEBUG` in `.env`, run `docker compose up -d`, reproduce the error and read `docker compose logs nginx backend`. Set it back afterwards: the links in those lines stay valid until they expire.
 
 ### Generations hang for minutes and then fail
 

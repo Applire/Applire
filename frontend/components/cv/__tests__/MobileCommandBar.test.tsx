@@ -15,24 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { render, screen, fireEvent, type RenderResult } from "@testing-library/react";
+import { act, render, screen, fireEvent, type RenderResult } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { MobileCommandBar } from "../MobileCommandBar";
-import type { ATSReport } from "../ATSChecksPanel";
-
-const REPORT: ATSReport = {
-  checks: [
-    { id: "contact-name", status: "pass" },
-    { id: "contact-email", status: "pass" },
-    { id: "work-1", status: "fail" },
-  ],
-  keywords: { present: ["react"], missing: ["docker"] },
-};
 
 function renderBar(overrides: Partial<React.ComponentProps<typeof MobileCommandBar>> = {}) {
   const props = {
-    atsReport: REPORT,
     atsPanel: <div data-testid="slot-ats">ats-panel</div>,
     fineTuneSurface: <div data-testid="slot-finetune">finetune-surface</div>,
     onDownloadPdf: vi.fn(),
@@ -50,7 +39,6 @@ function renderBar(overrides: Partial<React.ComponentProps<typeof MobileCommandB
  */
 function renderBarWithRerender(overrides: Partial<React.ComponentProps<typeof MobileCommandBar>> = {}) {
   const props = {
-    atsReport: REPORT,
     atsPanel: <div data-testid="slot-ats">ats-panel</div>,
     fineTuneSurface: <div data-testid="slot-finetune">finetune-surface</div>,
     onDownloadPdf: vi.fn(),
@@ -74,15 +62,11 @@ describe("MobileCommandBar", () => {
     expect(screen.getByTestId("command-download")).toBeTruthy();
   });
 
-  it("shows a pass-count badge reflecting passing checks", () => {
+  it("T-1: never shows a passed-check count — no badge without open findings or decisions", () => {
     renderBar();
-    // 2 of the 3 checks pass
-    expect(screen.getByTestId("command-ats-badge").textContent).toContain("2");
-  });
-
-  it("omits the badge when no ATS report is available", () => {
-    renderBar({ atsReport: null });
     expect(screen.queryByTestId("command-ats-badge")).toBeNull();
+    expect(screen.queryByTestId("command-ats-open-badge")).toBeNull();
+    expect(screen.queryByTestId("command-ats-decision-badge")).toBeNull();
   });
 
   it("wires the primary download action", () => {
@@ -191,22 +175,61 @@ describe("MobileCommandBar", () => {
       expect(badge.getAttribute("aria-label")).toBe(
         "3 places in the document are not covered by your profile."
       );
-      expect(screen.queryByTestId("command-ats-badge")).toBeNull();
+      expect(screen.queryByTestId("command-ats-decision-badge")).toBeNull();
     });
 
-    it("falls back to the pass badge when openCount is 0", () => {
-      renderBar({ openCount: 0 });
-      // Kills: a mutation that checks only `openCount !== null` (dropping
-      // `> 0`), which would show the critical badge at 0 instead of the pass
-      // badge.
-      expect(screen.queryByTestId("command-ats-open-badge")).toBeNull();
-      expect(screen.getByTestId("command-ats-badge").textContent).toContain("2");
+    it("T-1: the red open count pre-empts the amber decision count", () => {
+      renderBar({ openCount: 2, decisionCount: 5 });
+      expect(screen.getByTestId("command-ats-open-badge").textContent).toBe("2");
+      expect(screen.queryByTestId("command-ats-decision-badge")).toBeNull();
     });
 
-    it("falls back to the pass badge when openCount is null (default)", () => {
-      renderBar({ openCount: null });
+    it("T-1: shows the amber decision count when group 1 is clean", () => {
+      renderBar({ openCount: 0, decisionCount: 4 });
       expect(screen.queryByTestId("command-ats-open-badge")).toBeNull();
-      expect(screen.getByTestId("command-ats-badge").textContent).toContain("2");
+      const badge = screen.getByTestId("command-ats-decision-badge");
+      expect(badge.textContent).toBe("4");
+      expect(badge.getAttribute("aria-label")).toBe("4 points need your decision before you send it.");
+      expect(badge.className).toContain("bg-warning-container");
+    });
+
+    it("T-1: no badge at all when nothing is open and nothing needs a decision", () => {
+      renderBar({ openCount: 0, decisionCount: 0 });
+      expect(screen.queryByTestId("command-ats-open-badge")).toBeNull();
+      expect(screen.queryByTestId("command-ats-decision-badge")).toBeNull();
+    });
+  });
+
+  // #789 line (mobile Feinschliff draft loss): every way out of the Fine-tune
+  // sheet asks the page first; the sheet stays open until the page proceeds.
+  describe("onLeaveFineTune (unsaved draft guard)", () => {
+    const exits: [string, () => void][] = [
+      ["the close button", () => fireEvent.click(screen.getByTestId("command-sheet-close"))],
+      ["the backdrop", () => fireEvent.click(screen.getByTestId("command-sheet"))],
+      ["Escape", () => fireEvent.keyDown(window, { key: "Escape" })],
+    ];
+    it.each(exits)("asks the page before %s closes the Fine-tune sheet", (_name, exit) => {
+      let proceed: (() => void) | null = null;
+      const onLeaveFineTune = vi.fn((p: () => void) => {
+        proceed = p;
+      });
+      renderBar({ onLeaveFineTune });
+      fireEvent.click(screen.getByTestId("command-finetune"));
+      exit();
+      expect(onLeaveFineTune).toHaveBeenCalledOnce();
+      // Held: the editor (and its draft) is still mounted until the page proceeds.
+      expect(screen.getByTestId("slot-finetune")).toBeTruthy();
+      act(() => proceed!());
+      expect(screen.queryByTestId("slot-finetune")).toBeNull();
+    });
+
+    it("closes the review sheet without asking (no draft lives there)", () => {
+      const onLeaveFineTune = vi.fn();
+      renderBar({ onLeaveFineTune });
+      fireEvent.click(screen.getByTestId("command-ats"));
+      fireEvent.click(screen.getByTestId("command-sheet-close"));
+      expect(onLeaveFineTune).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("command-sheet")).toBeNull();
     });
   });
 });

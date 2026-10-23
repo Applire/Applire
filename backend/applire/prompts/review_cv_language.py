@@ -15,6 +15,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v4 (2026-10-22, #786 L43 / Hazelnut build 3 ruling — the pass no longer
+#   carries the US213 keyword-coverage demand: the "VERIFIED COVERAGE CHECK" exception, its
+#   waiver sentence and the refiner's "use the exact job-description keyword" line are gone,
+#   and services/cv.py::_review_cv_language no longer appends the block. Replay: see
+#   Runs/Hazelnut/build-3/l/report.md.)
 # Prompt version: v2 (2026-09-18, #724 — the pass gains the vault text that used
 #   to reach the page BEHIND it: restored ledger bullets, the per-role industry
 #   line, and vault project bullets. ADR-072/ADR-062/ADR-067 amended, founder
@@ -68,15 +73,8 @@ reaching you for exactly this reason. Treat them like any other item: they are
 translated, never re-written, never summarised, never dropped, and every fact in them —
 figures, dates, names, scope — survives the translation unchanged.
 
-Judge ONLY language — not quality, tone, grounding, or correctness of content.
-
-One exception rides on your input: a VERIFIED COVERAGE CHECK block may follow the
-draft, listing job-description keywords deterministically absent in every known
-surface form. These are word-choice issues in your domain: when the draft carries the
-listed concept in different wording (a synonym or a translation), reject and instruct
-the writer to use the exact required-language surface form given. If the concept is
-genuinely not in the document at all, WAIVE it in your feedback instead — inserting
-new content is outside this pass, and grounding outranks coverage.
+Judge ONLY language — not quality, tone, grounding, keyword coverage or correctness of
+content.
 
 Crucial boundary (this is where models slip):
 - Discipline, competency and skill PHRASES are ordinary language and MUST be in the
@@ -111,9 +109,7 @@ Crucial boundary (this is where models slip):
 WHAT IS BLOCKING IN THIS PASS: any item still in the wrong language, and a VERBATIM LABEL
 that has been expanded or "corrected" out of its acronym. In this pass every genuine
 language defect is blocking — that is the one thing you are here to catch. Use "minor" for
-a preference BETWEEN TWO CORRECT-LANGUAGE WORDINGS, and for nothing else. A concept the
-coverage block lists but the document genuinely does not contain is not an issue at all —
-waive it in your feedback, as instructed above.
+a preference BETWEEN TWO CORRECT-LANGUAGE WORDINGS, and for nothing else.
 
 """ + review_output_schema(
     issue_hint="one item still in the wrong language, named exactly — empty array if nothing found",
@@ -154,8 +150,6 @@ unfamiliar one — IS the name; copy it exactly and never expand it into its ful
 even while translating the label's ordinary descriptive words around it. If a previous
 draft already spelled one out (e.g. "Good Practice" for "GxP"), restore the acronym
 form — that is a correction, not a translation.
-When the feedback names an exact job-description keyword for a concept the draft already
-expresses, use that exact term as your wording for it — word choice, not new content.
 Output ONLY the corrected CV JSON in the exact same schema — no markdown, no commentary.
 """
 

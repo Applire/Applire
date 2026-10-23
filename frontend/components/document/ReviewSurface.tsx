@@ -42,9 +42,13 @@ import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
   buildCrossDocument,
   buildGroup1Rows,
+  buildFormInputRows,
   buildReviewGroups,
   buildSendChecks,
+  decisionCount,
+  groupDecisionCount,
   verdictState,
+  type FormInputRow,
   type Group1Row,
   type ReviewGroup,
   type ReviewItem,
@@ -67,6 +71,9 @@ import {
 import { countInText, type LocateTarget, type PreviewLocator } from "@/lib/locate-in-preview";
 import { changedPassages } from "@/lib/passage-diff";
 import { CrossDocumentSection } from "@/components/review/CrossDocumentSection";
+import { ReviewDegradationNote } from "./ReviewDegradationNote";
+import { oracleDetailText, type OracleDetailTranslator } from "@/lib/oracle-detail";
+import type { DegradedReviewStep } from "@/lib/review-degradation";
 
 /**
  * The document review surface (arc42 §5.3.29, ADR-081 as amended by ADR-090).
@@ -197,6 +204,14 @@ export interface ReviewSurfaceProps {
   onEditGapSection?: (gapId: string) => void;
   /** Not one of the four producers — rendered after the groups (the letter's unasked-requirements panel). */
   children?: ReactNode;
+  /**
+   * ADR-081 cl. 9 amended 2026-10-22 (#786, T-2): the writing loop's review
+   * steps that did not run (`review_degradation` from the status door).
+   * `null` = not recorded; a non-empty list renders a note above the verdict.
+   */
+  degradation?: DegradedReviewStep[] | null;
+  /** T-2: the existing regenerate path (behind the page's new-version confirmation). */
+  onRegenerate?: () => void;
 }
 
 type Busy = "add" | "takeout" | "undo" | null;
@@ -236,11 +251,14 @@ export function ReviewSurface({
   onResolveCluster,
   onEditGapSection,
   children,
+  degradation = null,
+  onRegenerate,
 }: ReviewSurfaceProps) {
   const t = useTranslations("documentReview");
   const tAts = useTranslations("ats");
   const tProfile = useTranslations("profile");
   const tErrors = useTranslations("errors");
+  const tOracle = useTranslations("oracleDetail");
   const locale = useLocale();
 
   const groups = useMemo(
@@ -256,6 +274,7 @@ export function ReviewSurface({
   );
   const group1 = groups.find((g) => g.id === 1)!;
   const rows = useMemo(() => buildGroup1Rows(group1.items, reviewState), [group1.items, reviewState]);
+  const formInputRows = useMemo(() => buildFormInputRows(truthReport), [truthReport]);
   const openRows = rows.filter((r) => r.status === "open");
   const decidedCount = rows.length - openRows.length;
 
@@ -713,7 +732,9 @@ export function ReviewSurface({
             </span>
           )}
           {!decided && row.item?.detail && (
-            <span className="text-xs text-on-surface-variant">{row.item.detail}</span>
+            <span data-testid="review-card-detail" className="text-xs text-on-surface-variant">
+              {itemOracleDetail(row.item, tOracle)}
+            </span>
           )}
         </div>
 
@@ -946,6 +967,8 @@ export function ReviewSurface({
       {/* ADR-081 cl. 9 / ADR-090 cl. 1: a blind group-1 producer is stated
           ABOVE the verdict and the list, never inside a collapse. */}
       <UnknownProducerNote group={group1} />
+      {/* #786 / T-2: a review step of the writing loop that did not run. */}
+      <ReviewDegradationNote steps={degradation} onRegenerate={onRegenerate} />
 
       <div className="flex flex-col gap-1.5">
         <p
@@ -958,15 +981,19 @@ export function ReviewSurface({
           {groupOneClear && openCrossRead > 0 ? tSignals("verdictClearCrossRead", { open: openCrossRead }) : null}
           {groupOneClear && crossReadUnknown ? tSignals("verdictClearCrossReadUnknown") : null}
           {verdict.kind === "clear" && openCrossRead === 0 && !crossReadUnknown && t("verdictClear")}
+          {/* T-1 (ADR-081 cl. 4 amended 2026-10-22): decisions first — the
+              headline names what needs deciding; the all-clear drops to the
+              normal-weight line below. */}
           {verdict.kind === "clear_with_others" &&
             openCrossRead === 0 &&
             !crossReadUnknown &&
-            t("verdictClearWithOthers", { count: verdict.others })}
+            (verdict.decisions > 0
+              ? t("verdictDecisions", { count: verdict.decisions })
+              : t("verdictNotesOnly", { count: verdict.notes }))}
           {verdict.kind === "clear_unchecked" &&
             openCrossRead === 0 &&
             !crossReadUnknown &&
-            t("verdictClearUnchecked", {
-              count: verdict.others,
+            t("verdictUncheckedHead", {
               producers: verdict.unchecked.map((p) => t(PRODUCER_LABEL_KEY[p])).join(", "),
             })}
           {verdict.kind === "clear_with_send_checks" && t("verdictClearWithSendCheck", { count: verdict.count })}
@@ -977,6 +1004,19 @@ export function ReviewSurface({
             {t("verdictSub")}
           </p>
         )}
+        {(verdict.kind === "clear_with_others" || verdict.kind === "clear_unchecked") &&
+          openCrossRead === 0 &&
+          !crossReadUnknown && (
+            <p data-testid="review-verdict-truth" className="text-sm leading-snug text-on-surface">
+              {t("verdictTruthLine", {
+                // The headline already names the decisions (clear_with_others)
+                // or the notes (notes-only); the truth line adds what it did not.
+                decisions: verdict.kind === "clear_unchecked" ? verdict.decisions : 0,
+                notes:
+                  verdict.kind === "clear_unchecked" || verdict.decisions > 0 ? verdict.notes : 0,
+              })}
+            </p>
+          )}
       </div>
 
       {/* "k of n decided" — n = open + decided. Withheld while a group-1
@@ -1076,6 +1116,8 @@ export function ReviewSurface({
         </ul>
       )}
 
+      <FormInputSection rows={formInputRows} tOracle={tOracle} />
+
       {/* #702 (ADR-060 amended 2026-10-07): the cross-document section sits
           between group 1 and the other findings — it is not "nothing that
           stands in the way of sending" (RULING R-1 pending: placement A). */}
@@ -1135,12 +1177,72 @@ export function ReviewSurface({
   );
 }
 
+/* ------------------------------------- B3-10 — "Aus Deiner Eingabe im Formular" */
+
+/**
+ * Ruling B3-10, RULING FO-1 = A: the sentences built from the letter form's input
+ * — the candidate's own statement for this letter. Neutral by design: an outline
+ * chip, no buttons (no profile write), outside group 1's headline and progress.
+ */
+function FormInputSection({
+  rows,
+  tOracle,
+}: {
+  rows: FormInputRow[];
+  tOracle: OracleDetailTranslator;
+}) {
+  const t = useTranslations("documentReview.formInput");
+  if (rows.length === 0) return null;
+  return (
+    <div data-testid="review-form-input" className="flex flex-col gap-1.5 border-t border-outline-variant pt-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">{t("title")}</h3>
+      <p className="text-xs text-on-surface-variant">{t("hint")}</p>
+      <ul className="flex flex-col">
+        {rows.map((r) => {
+          const detail = oracleDetailText(
+            { detail: r.detail, detail_key: r.detailKey, detail_params: r.detailParams },
+            tOracle,
+          );
+          return (
+            <li
+              key={r.key}
+              data-testid="review-form-input-row"
+              className="flex items-start gap-2.5 border-b border-surface-container px-1 py-2"
+            >
+              <span className="mt-0.5 shrink-0 rounded-full border border-outline-variant px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant">
+                {t("chip")}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm text-on-surface">{r.text}</span>
+                {detail && <span className="block text-xs text-on-surface-variant">{detail}</span>}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------- group counts */
 
 /**
  * ADR-081 cl. 6's visibility invariant: a non-zero group's count is on screen
  * without interaction, and an *unknown* group says so instead of showing a zero.
  */
+/** Re-probe N1: this group's share of the headline's decision count, on the row itself. */
+function GroupDecisions({ group }: { group: ReviewGroup }) {
+  const t = useTranslations("documentReview");
+  const n = groupDecisionCount(group);
+  if (n === 0) return null;
+  return (
+    <span data-testid={`review-group-decisions-${group.id}`} className="text-xs font-semibold text-on-surface">
+      <span aria-hidden="true" className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-warning align-middle" />
+      {t("groupDecisions", { count: n })}
+    </span>
+  );
+}
+
 function GroupCount({ group }: { group: ReviewGroup }) {
   const t = useTranslations("documentReview");
   if (group.unknown) {
@@ -1224,10 +1326,15 @@ function OtherFindings({
   const t = useTranslations("documentReview");
   const [openId, setOpenId] = useState<number | null>(null);
   const order = [2, 4, 3] as const; // the canvas' order: the two in-place groups, then the link out
+  const decisions = decisionCount(groups);
   return (
     <div className="flex flex-col gap-2 border-t border-outline-variant pt-2" data-testid="review-other">
       <span className="font-heading text-[13px] font-bold text-on-surface">{t("otherTitle")}</span>
-      <span className="text-xs text-on-surface-variant">{t("otherSub")}</span>
+      {/* Re-probe N1: the T-1 headline counts the decisions among these rows,
+          so the line under the title may not call all of them harmless. */}
+      <span data-testid="review-other-sub" className="text-xs text-on-surface-variant">
+        {decisions > 0 ? t("otherSubDecisions", { count: decisions }) : t("otherSub")}
+      </span>
       <ul className="flex flex-col gap-2">
         {order.map((id) => {
           const group = groups.find((g) => g.id === id)!;
@@ -1266,7 +1373,10 @@ function OtherFindings({
                 onClick={() => setOpenId(open ? null : id)}
                 className={rowClass}
               >
-                <span className="min-w-0 flex-1 text-[13px] text-on-surface">{t(GROUP_TITLE_KEY[id])}</span>
+                <span className="flex min-w-0 flex-1 flex-col py-1.5">
+                  <span className="text-[13px] text-on-surface">{t(GROUP_TITLE_KEY[id])}</span>
+                  <GroupDecisions group={group} />
+                </span>
                 <GroupCount group={group} />
                 {expandable && id !== 3 ? (
                   <ChevronDown
@@ -1323,7 +1433,8 @@ function ItemRow({
   onEditGapSection?: (gapId: string) => void;
 }) {
   const tSig = useTranslations("reviewSignals");
-  const detail = itemDetail(item, locale, tAts);
+  const tOracle = useTranslations("oracleDetail");
+  const detail = itemDetail(item, locale, tAts, tOracle);
   const doc = documentKind === "cv" ? "cv" : "letter";
   const label = item.kind === "check" && item.checkId ? tAts(`checks.${baseId(item.checkId)}`) : item.label;
 
@@ -1414,10 +1525,23 @@ function ItemRow({
   );
 }
 
-function itemDetail(item: ReviewItem, locale: string, tAts: ReturnType<typeof useTranslations<"ats">>): string | null {
+function itemDetail(
+  item: ReviewItem,
+  locale: string,
+  tAts: ReturnType<typeof useTranslations<"ats">>,
+  tOracle: OracleDetailTranslator,
+): string | null {
   if (item.kind === "advisory" && item.advisory) return localizedMessage(item.advisory.message, locale);
   if (item.kind === "check" && item.check) return checkDetail(item.check, tAts);
-  return item.detail ?? null;
+  return itemOracleDetail(item, tOracle);
+}
+
+/** ADR-052 amended 2026-10-22: an Oracle detail in the UI language when it carries a key. */
+function itemOracleDetail(item: ReviewItem, tOracle: OracleDetailTranslator): string | null {
+  return oracleDetailText(
+    { detail: item.detail, detail_key: item.detailKey, detail_params: item.detailParams },
+    tOracle,
+  );
 }
 
 /**

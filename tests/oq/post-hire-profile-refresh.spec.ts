@@ -70,6 +70,12 @@ const ADD_ROLE_RESPONSE = {
 };
 
 async function installMocks(page: Page) {
+  // Hazelnut b3 A-11: /profile/upload shows the chooser only to a person who
+  // HAS a profile (a profile-less one gets the first-run screen) — this is a
+  // returning user, said explicitly rather than left to the backend's state.
+  await page.route("**/api/profile/exists", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true }) }),
+  );
   await page.route("**/api/profile", async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({
@@ -97,7 +103,7 @@ test.describe("Post-Hire Profile Refresh", () => {
     await page.goto("/profile/upload");
 
     // Both cards should be visible
-    await expect(page.getByRole("heading", { name: /Update profile/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Add a CV or role/i })).toBeVisible();
     await expect(page.getByText(/Upload a new CV/i)).toBeVisible();
     await expect(page.getByText(/I started a new role/i)).toBeVisible();
   });

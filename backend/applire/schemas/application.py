@@ -68,6 +68,11 @@ class StaleCVInfo(BaseModel):
     latest_cv_template: str
     profile_enriched_at: datetime
     gained: list[StaleCVGained]
+    # Ruling B3-12 (founder 2026-10-23): WHY the hint fires. "new_limit" when a
+    # denial (metadata.denied_concepts, action "added") was recorded after the
+    # newest ready CV — it wins over "profile_grew" because it names a risk:
+    # the CV may claim what the candidate has since ruled out. Additive.
+    reason: Literal["profile_grew", "new_limit"] = "profile_grew"
     # E042/US236 (ADR-051 amendment §4): the pinned/newest ready CV's
     # persisted target page count, so a one-click re-tailor can forward the
     # same target. None on legacy/pre-E042 rows.
@@ -199,6 +204,15 @@ class ApplicationResponse(BaseModel):
     stale_cv_dismissed_at: datetime | None = None
     flow_session_id: uuid.UUID | None
     flow_current_step: str | None = None
+    # E12-788:L21 (founder 2026-10-22) — read model, enriched by the service
+    # from the artifacts that exist for this posting (never stored):
+    # `workflow_status` above is SERVED as the higher of the flow step's status
+    # and what the artifacts prove; `cover_letter_ready` says a letter is ready
+    # too; `workflow_running` says Applire is working on it right now (a CV,
+    # letter or gap analysis is being produced) — false means the next move is
+    # the user's.
+    cover_letter_ready: bool = False
+    workflow_running: bool = False
     created_at: datetime
     updated_at: datetime
     expires_at: datetime

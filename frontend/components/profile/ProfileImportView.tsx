@@ -41,8 +41,10 @@ import {
   type CVUploadResult,
   type ImportNotAppliedItem,
   type MatchReceiptItem,
+  type RestatedReceiptItem,
 } from "@/lib/import-cv";
 import { RecognisedMatches } from "@/components/profile/RecognisedMatches";
+import { RestatedBullets } from "@/components/profile/RestatedBullets";
 import { analyzeGapsAsync } from "@/lib/gap-analysis";
 import { STEP_ROUTE } from "@/lib/flow-routing";
 
@@ -120,6 +122,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   const [truncatedPercent, setTruncatedPercent] = useState<number | null>(null);
   // #717 — the merge's recognised pairs ("Schon in deinem Profil").
   const [matched, setMatched] = useState<MatchReceiptItem[]>([]);
+  const [restated, setRestated] = useState<RestatedReceiptItem[]>([]);
   const [history, setHistory] = useState<UploadHistoryItem[]>([]);
   const [gateInfo, setGateInfo] = useState<GateInfo | null>(null);
 
@@ -168,6 +171,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     setNotApplied([]);
     setTruncatedPercent(null);
     setMatched([]);
+    setRestated([]);
     setLoading(true);
     const isZip = file.name.toLowerCase().endsWith(".zip");
     try {
@@ -228,6 +232,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
         data.not_applied,
         data.matched,
         sourceTruncatedPercent(data.source_truncated),
+        data.restated,
       );
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return; // unmounted
@@ -249,11 +254,13 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     notAppliedItems?: ImportNotAppliedItem[],
     matchedItems?: MatchReceiptItem[],
     readPercent: number | null = null,
+    restatedItems?: RestatedReceiptItem[],
   ) {
     setCompletenessScore(completeness);
     setNotApplied(notAppliedItems ?? []);
     setTruncatedPercent(readPercent);
     setMatched(matchedItems ?? []);
+    setRestated(restatedItems ?? []);
     setUploadSuccess(true);
     refreshHistory();
     onImported?.();
@@ -288,6 +295,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
         _data.not_applied,
         _data.matched,
         readPercent,
+        _data.restated,
       );
     } else {
       refreshHistory();
@@ -571,6 +579,11 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
           {/* #717 — entries recognised as already in the profile, with undo. */}
           {uploadSuccess && !error && matched.length > 0 && (
             <RecognisedMatches matched={matched} onSeparated={() => onImported?.()} />
+          )}
+          {/* D-B3V6 (ruling V-3 = A) — second-source bullets held back as
+              restatements of a held bullet; "Trotzdem übernehmen" writes one. */}
+          {uploadSuccess && !error && restated.length > 0 && (
+            <RestatedBullets restated={restated} onApplied={() => onImported?.()} />
           )}
 
           {/* Upload error strip */}

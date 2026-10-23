@@ -21,7 +21,9 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from applire.constants import LETTER_INPUT_MAX_CHARS
 from applire.models.cover_letter import CoverLetterStatus
+from applire.schemas.review_degradation import DegradedReviewStep
 
 CLTemplate = Literal[
     "classic_german",
@@ -95,12 +97,20 @@ class LetterData(BaseModel):
 
 class CoverLetterGenerateRequest(BaseModel):
     job_id: uuid.UUID
-    recipient_name: Optional[str] = None
-    recipient_company: Optional[str] = None
-    salary: Optional[str] = None
-    availability: Optional[str] = None
-    motivation: Optional[str] = None
+    # MD3-4: free-text caps from ONE constant (constants.LETTER_INPUT_MAX_CHARS);
+    # over-cap → 422 whose ``loc`` names the field (REST) / invalid_input (MCP).
+    recipient_name: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["recipient_name"])
+    recipient_company: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["recipient_company"])
+    salary: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["salary"])
+    availability: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["availability"])
+    motivation: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["motivation"])
     tone: CLTone = "formal"
+    # B3-11 + MD3-5: the notice period typed for THIS letter is also written to
+    # profile.availability (source ``letter_form``) when it differs from the
+    # stored one. REST default true (the form sends it explicitly from its
+    # "Auch im Profil speichern" checkbox); the MCP tool defaults to false — an
+    # agent never starts writing the profile silently (ADR-095 additive).
+    save_availability_to_profile: bool = True
 
 
 class CoverLetterGenerateResponse(BaseModel):
@@ -119,6 +129,11 @@ class CoverLetterStatusResponse(BaseModel):
     error_message: Optional[str] = None
     expires_at: datetime
     letter_data: Optional[dict] = None  # populated only when status == ready
+    # 787 L-1 (Hazelnut build 3): the user's own generation inputs as stored
+    # (recipient, salary, availability, motivation, tone) — the preview says when
+    # the letter names no notice period / no reason of change, and the regenerate
+    # form starts from them. None when the row stores none (agent-authored letters).
+    pre_gen_inputs: Optional[dict] = None
     # NOTE C-4 (ADR-090 run): the saved section overrides ({"body": "..."}) —
     # `letter_data` stays RAW, so the editor needs these to start from the
     # effective body (else "Let me edit it" after a take-out writes the removed
@@ -132,6 +147,10 @@ class CoverLetterStatusResponse(BaseModel):
     # agent sees the advisory the moment it polls for readiness, same as a
     # human. Null until computed; see OutcomeCriticReport.reason for why.
     critic_report: Optional[dict] = None
+    # ADR-081 cl. 9 amended 2026-10-22 (#786): the review steps of the writing loop
+    # that did not run. None = not recorded (pre-0084 row, agent render); [] = every
+    # review step answered. Same value on REST and the MCP status tool (ADR-066).
+    review_degradation: Optional[list[DegradedReviewStep]] = None
     # E054/US289 (ADR-038 amendment clause 3b): the language pinned at
     # generation time — badge source (FMEA JF-F-G2.2). Stored value as-is;
     # legacy NULL rows stay None.

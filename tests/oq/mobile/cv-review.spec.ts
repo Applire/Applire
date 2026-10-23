@@ -176,12 +176,15 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     });
   });
 
-  test("ATS Checks opens the sheet with the pass-count badge and report", async ({ page }, testInfo) => {
+  test("ATS Checks opens the sheet with the decision badge and report", async ({ page }, testInfo) => {
     await page.goto(`/flow/${FLOW_ID}/cv`);
     await expect(page.getByTestId("mobile-command-bar")).toBeVisible({ timeout: 10000 });
 
-    // Badge reflects the 2 passing checks from the mock report.
-    await expect(page.getByTestId("command-ats-badge")).toHaveText("2", { timeout: 5000 });
+    // T-1 (ADR-081 cl. 7 amended 2026-10-22): nothing uncovered → the amber
+    // badge counts the points that need a decision (here the failed
+    // reading-order check), never the passed checks.
+    await expect(page.getByTestId("command-ats-decision-badge")).toHaveText("1", { timeout: 5000 });
+    await expect(page.getByTestId("command-ats-badge")).toHaveCount(0);
 
     await page.getByTestId("command-ats").tap();
     const sheet = page.getByTestId("command-sheet");
@@ -219,9 +222,11 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     await page.goto(`/flow/${FLOW_ID}/cv`);
     await expect(page.getByTestId("mobile-command-bar")).toBeVisible({ timeout: 10000 });
 
-    // The badge counts only the 2 genuine passes — a not_applicable check
-    // must never inflate it (the exact fold this task exists to prevent).
-    await expect(page.getByTestId("command-ats-badge")).toHaveText("2", { timeout: 5000 });
+    // T-1: no failed check and nothing to decide → no badge at all; a
+    // not_applicable check never becomes a count (the fold #637 prevents).
+    await expect(page.getByTestId("command-ats")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("command-ats-decision-badge")).toHaveCount(0);
+    await expect(page.getByTestId("command-ats-badge")).toHaveCount(0);
 
     await page.getByTestId("command-ats").tap();
     const sheet = page.getByTestId("command-sheet");
@@ -330,6 +335,40 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     await expect(sheet.getByText("Introduction")).toBeVisible({ timeout: 5000 });
 
     await page.getByTestId("command-sheet-close").tap();
+    await expect(sheet).toBeHidden({ timeout: 5000 });
+  });
+
+  // #789 line (mobile Feinschliff draft loss, ADR-081 cl. 7 amended 2026-10-22):
+  // closing the sheet with an unsaved section draft asks first — Stay keeps the
+  // draft in the open editor, Discard closes the sheet.
+  test("closing the Fine-tune sheet with an unsaved draft asks first", async ({ page }, testInfo) => {
+    await page.goto(`/flow/${FLOW_ID}/cv`);
+    await expect(page.getByTestId("mobile-command-bar")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("command-finetune").tap();
+    const sheet = page.getByTestId("command-sheet");
+    await expect(sheet).toBeVisible({ timeout: 5000 });
+    await sheet.getByText("Introduction").first().tap();
+    const textarea = page.getByTestId("section-textarea");
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+    await textarea.fill("Ein Entwurf, der nicht verloren gehen darf.");
+
+    await page.getByTestId("command-sheet-close").tap();
+    const dialog = page.getByTestId("edit-unsaved-dialog");
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await page.screenshot({ path: testInfo.outputPath("cv-finetune-unsaved-dialog.png") });
+    await testInfo.attach("cv-finetune-unsaved-dialog", {
+      path: testInfo.outputPath("cv-finetune-unsaved-dialog.png"),
+      contentType: "image/png",
+    });
+
+    await page.getByTestId("edit-unsaved-stay").tap();
+    await expect(dialog).toBeHidden();
+    await expect(sheet).toBeVisible();
+    await expect(textarea).toHaveValue("Ein Entwurf, der nicht verloren gehen darf.");
+
+    await page.getByTestId("command-sheet-close").tap();
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await page.getByTestId("edit-unsaved-discard").tap();
     await expect(sheet).toBeHidden({ timeout: 5000 });
   });
 

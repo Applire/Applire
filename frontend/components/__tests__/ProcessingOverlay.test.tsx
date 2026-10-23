@@ -341,9 +341,9 @@ describe("ProcessingOverlay — JD URL error handling", () => {
       )
     );
 
-    expect(screen.getByText("Uploading CV 1 of 3")).toBeInTheDocument();
-    expect(screen.getByText("Uploading CV 2 of 3")).toBeInTheDocument();
-    expect(screen.getByText("Uploading CV 3 of 3")).toBeInTheDocument();
+    expect(screen.getByText("Reading CV 1 of 3…")).toBeInTheDocument();
+    expect(screen.getByText("Reading CV 2 of 3…")).toBeInTheDocument();
+    expect(screen.getByText("Reading CV 3 of 3…")).toBeInTheDocument();
   });
 });
 
@@ -368,7 +368,7 @@ describe("ProcessingOverlay — step list reflects the actual run plan (#114 / b
 
     expect(screen.queryByText("Analyzing job description…")).not.toBeInTheDocument();
     expect(screen.queryByText("Detecting Gaps")).not.toBeInTheDocument();
-    expect(screen.getByText("Uploading CV")).toBeInTheDocument();
+    expect(screen.getByText("Reading CV…")).toBeInTheDocument();
     expect(screen.getByText("Building profile…")).toBeInTheDocument();
   });
 
@@ -997,5 +997,36 @@ describe("ProcessingOverlay — LinkedIn fetch switched off by the admin (#726)"
     ).toBeInTheDocument();
     expect(screen.queryByTestId("processing-error")).toBeNull();
     expect(mockPush).not.toHaveBeenCalled();
+  });
+});
+
+describe("ProcessingOverlay — completed steps show their done form (#789)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a finished step has no trailing ellipsis and uses the past-tense label", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/job/analyze")) {
+        return { ok: true, status: 200, json: async () => ({ id: "job-1", title: "QA" }) } as Response;
+      }
+      // everything else never settles: the run parks after the JD step
+      return new Promise<Response>(() => {});
+    });
+
+    render(
+      withIntl(
+        <ProcessingOverlay files={[mockFile]} jdMode="text" jdUrl="" jdText="Senior QA Engineer" onCancel={vi.fn()} />
+      )
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Job description analyzed")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Analyzing job description…")).not.toBeInTheDocument();
+    const done = document.querySelectorAll('[data-step-status="done"]');
+    expect(done.length).toBeGreaterThan(0);
+    done.forEach((el) => expect(el.textContent ?? "").not.toMatch(/(…|\.\.\.)$/));
   });
 });

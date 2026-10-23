@@ -17,11 +17,23 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
+import { markSeenThisSession, seenThisSession } from "@/lib/session-once";
+
+/**
+ * Hazelnut build 3 (#789, F2-1): the notice shows ONCE per document set (one
+ * application's CV + letter) per browser session. The page asks this before it
+ * opens the notice; a confirmed notice marks the set as seen. The .docx scope
+ * line additionally sits under the Word button on every export
+ * (`DocumentExportFooter`), so it is never lost when the notice is skipped.
+ */
+export function predownloadNoticeSeen(setKey: string | null | undefined): boolean {
+  return seenThisSession("predownload-notice", setKey);
+}
 
 /**
  * ADR-040 (amended 2026-07-04) — the pre-download notice.
@@ -50,6 +62,9 @@ export interface PreDownloadNoticeProps {
   format?: "pdf" | "docx";
   onConfirm: (dontShowAgain: boolean) => void;
   onCancel: () => void;
+  /** The document set this download belongs to (the flow id). A confirm marks
+   *  it seen for this session — see `predownloadNoticeSeen`. */
+  setKey?: string | null;
 }
 
 export function PreDownloadNotice({
@@ -57,22 +72,43 @@ export function PreDownloadNotice({
   format = "pdf",
   onConfirm,
   onCancel,
+  setKey,
 }: PreDownloadNoticeProps) {
   const t = useTranslations("predownload");
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  const titleId = useId();
+  const bodyId = useId();
 
   const showCheckbox = canSuppress;
+
+  // A modal answers Escape like its Cancel button (a11y, #789).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  function confirm() {
+    markSeenThisSession("predownload-notice", setKey);
+    onConfirm(showCheckbox ? dontShowAgain : false);
+  }
 
   return (
     <section
       data-testid="predownload-notice"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={bodyId}
       className="rounded-xl border border-outline-variant bg-white p-5 shadow-xl"
     >
       <div className="flex items-start gap-3">
         <AlertTriangle aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
         <div className="min-w-0">
-          <h3 className="text-base font-semibold text-on-surface">{t("title")}</h3>
-          <p className="mt-1 text-sm text-on-surface-variant">{t("warning")}</p>
+          <h3 id={titleId} className="text-base font-semibold text-on-surface">{t("title")}</h3>
+          <p id={bodyId} className="mt-1 text-sm text-on-surface-variant">{t("warning")}</p>
           {format === "docx" && (
             <p
               data-testid="predownload-docx-scope"
@@ -108,7 +144,8 @@ export function PreDownloadNotice({
           type="button"
           variant="primary"
           data-testid="predownload-download"
-          onClick={() => onConfirm(showCheckbox ? dontShowAgain : false)}
+          autoFocus
+          onClick={confirm}
         >
           {t("download")}
         </Button>

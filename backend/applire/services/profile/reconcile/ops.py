@@ -43,6 +43,7 @@ from applire.schemas.profile import (
     ImportNotApplied,
     MasterProfileData,
     MatchReceipt,
+    RestatedReceipt,
     render_localized_confirmation,
     ExtractionReview,
 )
@@ -148,6 +149,8 @@ class UpsertSkill(BaseModel):
     # (E2E-3: 6/10 translated duplicates with reasoning off). A missing or
     # unknown target behaves exactly as before.
     target: str | None = None
+    # #801 — the targeted skill's name as the model read it (see MatchExisting).
+    existing: str | None = None
     category: str | None = None
     proficiency: str | None = None
     # Existing ids or local refs of experiences that demonstrate the skill.
@@ -405,6 +408,11 @@ class MatchExisting(BaseModel):
     op: Literal["match_existing"] = "match_existing"
     target: str
     incoming: str
+    # #801 (ADR-046 amended 2026-10-22) — the target's name as the model read
+    # it off the profile. Optional on the op (an older or agent-built op still
+    # validates); when present, the committer refuses a binding whose target id
+    # names a different entry (`binding_guard.refusal`).
+    existing: str | None = None
 
 
 class RequestConfirmation(BaseModel):
@@ -988,6 +996,8 @@ class ApplyImportMerge(BaseModel):
     # #707 — the merge's `match_existing` receipts, riding the same path as
     # `not_applied` (only the intake computes them; empty for every other batch).
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: D-B3V6 (ruling V-3 = A) — bullets the restatement check held back.
+    restated: list[RestatedReceipt] = Field(default_factory=list)
     #: 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the ingest's extraction
     #: review outcome, riding the same path as ``reconciliation`` (only the
     #: intake knows it) onto the committer's ``EnrichmentRecord``.
@@ -1078,6 +1088,28 @@ _MODEL_EMITTABLE = (
 # Adapter-only ops. PR 3 added ``ReplaceSection``; PR 5 added ``ResolveField``
 # and ``ResolveConfirmation``; PR 6 added ``AddRole`` and ``CloseRole``; PR 7
 # added the metadata-writer family.
+class SetAvailability(BaseModel):
+    """D-B3V7 (ADR-063 amended 2026-10-22; rulings 787:L3 + V-4) — write the
+    candidate's notice period / earliest start. Adapter-only (a direct act or
+    a door's own decision, never model output). The applier stamps
+    ``recorded_at`` (today) and ``source`` (the batch's provenance source) and
+    clears a reminder dismissal; an empty ``text`` clears the value."""
+
+    op: Literal["set_availability"] = "set_availability"
+    text: str
+    #: B3-11: the door that typed the value when it differs from the batch's
+    #: provenance source (the letter form writes ``letter_form`` on the value
+    #: while its enrichment record stays a ``manual_edit`` by the candidate).
+    door: str | None = None
+
+
+class DismissAvailabilityReminder(BaseModel):
+    """D-B3V7 (ruling V-4) — the candidate closed the dashboard reminder.
+    Stamps ``availability.reminder_dismissed_at``; the value is untouched."""
+
+    op: Literal["dismiss_availability_reminder"] = "dismiss_availability_reminder"
+
+
 _ADAPTER_ONLY = (
     DemoteSkill,
     ApplyImportMerge,
@@ -1090,6 +1122,8 @@ _ADAPTER_ONLY = (
     MarkProbeAsked,
     EscalateDenialLevel,
     SeparateMatch,
+    SetAvailability,
+    DismissAvailabilityReminder,
 )
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]

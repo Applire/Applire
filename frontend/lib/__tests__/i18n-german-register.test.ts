@@ -125,6 +125,8 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "adminNav.ariaLabel",
   "adminNav.monitoring",
   // Symbols, separators and pure ICU patterns
+  // #786 L-3: "{label}: {items}" — a pure ICU pattern, one cut kind and its items.
+  "cv.pageOverflowCutLine",
   "coverLetter.separator",
   "coverLetter.emDash",
   "coverLetter.breadcrumbSeparator",
@@ -135,7 +137,16 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "match.emptyIcon",
   "match.strengthPrefix",
   "match.gapPrefix",
-  "gaps.matchScoreDisplay",
+  // Hazelnut b3 WP-V (V-1 receipt summary): a placeholder pair and a dash
+  // attribution — no German word left to translate.
+  "review.summary.entityCount",
+  "review.summary.attribution",
+  // #789: the match card's title is two placeholders and a middle dot;
+  // "Interview" is the same word in both languages (step 4 and the intro eyebrow).
+  "gaps.matchRoleAtCompany",
+  "home.step4Title",
+  "interview.introEyebrow",
+  "interview.introEyebrowRole",
   // E056 UX pass: the merged target/fate chip is nothing but its two
   // placeholders and a middle dot — both halves are themselves catalog values,
   // so there is no German word left to translate here.

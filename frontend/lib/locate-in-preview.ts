@@ -27,7 +27,10 @@
  * preview's text nodes for those forms under a PORT of the audit's own
  * normalisation (`_norm` in `backend/applire/services/ats_audit.py`: soft-hyphen
  * drop, NFKC, dash fold, whitespace collapse, lower, strip) with an index map
- * back to the DOM, whole-token, and highlights every hit.
+ * back to the DOM, and highlights every hit. Whole-token hits win; only when a
+ * target set has none does a substring pass run, because the audit itself
+ * matches substrings ("Ärzte" is present in "Ärzteteam") and a finding the
+ * audit reports must be markable.
  *
  * The port is pinned to the Python function by `tests/files/ats_norm_vectors.json`
  * (read by a Python test and by `lib/__tests__/locate-in-preview.test.ts`).
@@ -78,15 +81,102 @@ export function normAudit(s: string | null | undefined): string {
 const FOLD_MIN_STEM = 4;
 const VERB_SUFFIXES = ["ship", "ing", "ed", "es", "s"] as const;
 
-/** Port of `_fold_variants`: singular/plural of the final token. */
+/** Port of `_FOLD_SUFFIX_PAIRS` (#783 L35 / #787 L43): closed pairs, applied both ways. */
+const FOLD_SUFFIX_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ["y", "ies"],
+  ["ungen", "ung"],
+  ["ionen", "ion"],
+  ["täten", "tät"],
+  ["heiten", "heit"],
+  ["keiten", "keit"],
+  ["schaften", "schaft"],
+  ["ierungen", "ier"],
+  ["ierung", "ier"],
+  ["ktionen", "zier"],
+  ["ktion", "zier"],
+];
+
+/** Port of `_suffix_pair_variants`: the final token's counterparts, both ways. */
+function suffixPairVariants(last: string): string[] {
+  const out: string[] = [];
+  for (const [a, b] of FOLD_SUFFIX_PAIRS) {
+    for (const [src, dst] of [[a, b], [b, a]] as const) {
+      if (last.endsWith(src) && last.length - src.length >= FOLD_MIN_STEM) {
+        out.push(last.slice(0, last.length - src.length) + dst);
+      }
+    }
+  }
+  return out;
+}
+
+// Port of the non-final attributive-adjective fold (Bug #797 / F-C).
+const ADJ_DECLENSION_ENDINGS = ["en", "em", "er", "es", "e"] as const;
+const ADJ_STEM_SUFFIXES = ["ell", "isch", "lich", "ig", "al", "iv", "ar", "bar", "haft", "los", "sam"] as const;
+const ADJ_FOLD_MIN_STEM = 6;
+const ADJ_FOLD_MAX_TOKENS = 2;
+
+/** Port of `_adjective_declensions`. */
+function adjectiveDeclensions(token: string): string[] {
+  for (const ending of ADJ_DECLENSION_ENDINGS) {
+    if (!token.endsWith(ending)) continue;
+    const stem = token.slice(0, token.length - ending.length);
+    if (
+      stem.length >= ADJ_FOLD_MIN_STEM &&
+      /^\p{L}+$/u.test(stem) &&
+      ADJ_STEM_SUFFIXES.some((suf) => stem.endsWith(suf))
+    ) {
+      return ADJ_DECLENSION_ENDINGS.filter((e) => e !== ending).map((e) => stem + e);
+    }
+    return [];
+  }
+  return [];
+}
+
+/** Port of `_with_adjective_declensions`: the phrase itself first. */
+function withAdjectiveDeclensions(phrase: string): string[] {
+  const tokens = phrase.split(" ");
+  const slots = tokens
+    .slice(0, -1)
+    .map((t, i) => ({ i, alts: adjectiveDeclensions(t) }))
+    .filter((s) => s.alts.length > 0)
+    .slice(0, ADJ_FOLD_MAX_TOKENS);
+  let out: string[][] = [tokens];
+  for (const { i, alts } of slots) {
+    const extra: string[][] = [];
+    for (const t of out) {
+      for (const a of alts) extra.push([...t.slice(0, i), a, ...t.slice(i + 1)]);
+    }
+    out = out.concat(extra);
+  }
+  return out.map((t) => t.join(" "));
+}
+
+/**
+ * Port of `_fold_variants`, same variants in the same order: s-plural of the
+ * final token, the closed suffix pairs, then non-final adjective declensions.
+ * Pinned by `tests/files/ats_fold_vectors.json`.
+ */
 export function foldVariants(needleNorm: string): string[] {
   const variants = [needleNorm];
-  const parts = needleNorm.split(" ");
-  const last = parts[parts.length - 1] ?? "";
+  const cut = needleNorm.lastIndexOf(" ");
+  const head = cut < 0 ? "" : needleNorm.slice(0, cut);
+  const last = cut < 0 ? needleNorm : needleNorm.slice(cut + 1);
   if (last.endsWith("s") && last.length - 1 >= FOLD_MIN_STEM) {
     variants.push(needleNorm.slice(0, -1));
   } else if (!last.endsWith("s") && last.length >= FOLD_MIN_STEM && /\p{L}$/u.test(last)) {
     variants.push(needleNorm + "s");
+  }
+  const prefix = head ? head + " " : "";
+  for (const v of suffixPairVariants(last)) {
+    const candidate = prefix + v;
+    if (!variants.includes(candidate)) variants.push(candidate);
+  }
+  if (head) {
+    for (const v of [...variants]) {
+      for (const candidate of withAdjectiveDeclensions(v).slice(1)) {
+        if (!variants.includes(candidate)) variants.push(candidate);
+      }
+    }
   }
   return variants;
 }
@@ -107,10 +197,28 @@ function isWordAt(text: string, i: number): boolean {
 }
 
 /**
- * Every whole-token hit of the targets in an already-normalised text, sorted,
+ * Every hit of the targets in an already-normalised text, sorted,
  * non-overlapping (an earlier or longer hit wins).
+ *
+ * Whole-token hits are preferred. Only when the whole target set has none, a
+ * substring pass with the same variants runs — the audit's own
+ * `surface_present` semantics (ADR-090 cl. 2: a finding the audit reports must
+ * be markable, e.g. "Ärzte" inside "Ärzteteam").
  */
 export function findHits(textNorm: string, targets: LocateTarget[]): Hit[] {
+  const raw = collectHits(textNorm, targets, true);
+  if (raw.length === 0) raw.push(...collectHits(textNorm, targets, false));
+  raw.sort((a, b) => a.start - b.start || b.end - a.end);
+  const out: Hit[] = [];
+  for (const h of raw) {
+    const prev = out[out.length - 1];
+    if (prev && h.start < prev.end) continue;
+    out.push(h);
+  }
+  return out;
+}
+
+function collectHits(textNorm: string, targets: LocateTarget[], wholeToken: boolean): Hit[] {
   const raw: Hit[] = [];
   for (const target of targets) {
     const n = normAudit(target.form);
@@ -121,7 +229,7 @@ export function findHits(textNorm: string, targets: LocateTarget[]): Hit[] {
         const i = textNorm.indexOf(v, from);
         if (i < 0) break;
         const j = i + v.length;
-        if (!isWordAt(textNorm, i - 1) && !isWordAt(textNorm, j)) raw.push({ start: i, end: j });
+        if (!wholeToken || (!isWordAt(textNorm, i - 1) && !isWordAt(textNorm, j))) raw.push({ start: i, end: j });
         from = i + 1;
       }
     }
@@ -135,14 +243,7 @@ export function findHits(textNorm: string, targets: LocateTarget[]): Hit[] {
       }
     }
   }
-  raw.sort((a, b) => a.start - b.start || b.end - a.end);
-  const out: Hit[] = [];
-  for (const h of raw) {
-    const prev = out[out.length - 1];
-    if (prev && h.start < prev.end) continue;
-    out.push(h);
-  }
-  return out;
+  return raw;
 }
 
 /** Count the hits of the targets in a plain string (a section's content, a `before` passage). */

@@ -427,5 +427,5 @@ async def test_pipeline_door_supplies_missing_anrede_en_564(db):
     assert cl.status == "ready"
     paragraphs = cl.letter_data["body"]["paragraphs"]
     assert paragraphs[0] == cover_letter_labels("en")["salutation"]
-    assert paragraphs[0] == "Dear Sir or Madam,"
+    assert paragraphs[0] == "Dear Hiring Manager,"
     assert paragraphs[1] == _DRAFT_564_PARAGRAPHS[0]

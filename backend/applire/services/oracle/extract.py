@@ -1009,9 +1009,17 @@ def extract_claims_from_tailored(tailored_data: dict[str, Any]) -> list[Claim]:
     Covered surfaces: summary sentences, work/project bullets (incl. projects
     nested under positions, US187), standalone project bullets, and the skills
     list (each skill is a checkable claim — the #192 skill-dump lesson).
-    Certifications/education/languages are copied deterministically from the
-    vault by the pipeline (PQ F7 / ADR-040) and are not re-audited in v1. A role's
-    ``budget_managed`` line IS audited (#759): it can come back from a translation.
+    A role's ``budget_managed`` line IS audited (#759): it can come back from a
+    translation.
+
+    ADR-052 amended 2026-10-23 (ruling B3-9, adversarial A-1): every
+    ``certifications[i]`` name and ``education[i]`` degree is a claim of kind
+    ``entry``. The web pipeline copies both from the vault (PQ F7 / ADR-040,
+    ADR-067 cl. 3), which is why v1 left them out — but the agent door's
+    ``render_document`` content and a document outliving a vault edit do not copy:
+    a fabricated "Certified Public Accountant (CPA)" entry or a "Dr. rer. pol."
+    degree carried no verdict at all. The field of study is not part of the claim
+    (the v2 language pass translates it by design); languages stay unaudited.
     """
     data = tailored_data or {}
     claims: list[Claim] = []
@@ -1057,6 +1065,16 @@ def extract_claims_from_tailored(tailored_data: dict[str, Any]) -> list[Claim]:
     for si, skill in enumerate(data.get("skills") or []):
         if isinstance(skill, str) and len(skill.strip()) >= _MIN_CLAIM_CHARS:
             claims.append(Claim(text=skill.strip(), location=f"skills[{si}]", kind="skill"))
+
+    # B3-9: structured entries — no minimum length ("BA" is a degree).
+    for ci, cert in enumerate(data.get("certifications") or []):
+        name = cert.get("name") if isinstance(cert, dict) else None
+        if isinstance(name, str) and name.strip():
+            claims.append(Claim(text=name.strip(), location=f"certifications[{ci}]", kind="entry"))
+    for ei, edu in enumerate(data.get("education") or []):
+        degree = edu.get("degree") if isinstance(edu, dict) else None
+        if isinstance(degree, str) and degree.strip():
+            claims.append(Claim(text=degree.strip(), location=f"education[{ei}]", kind="entry"))
 
     return claims
 

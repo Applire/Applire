@@ -167,3 +167,23 @@ async def test_cover_letter_status_legacy_null_language_stays_none(db):
 
     result = await get_cover_letter_status(cl.id, db, "http://localhost:8001")
     assert result.document_language is None
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_status_carries_the_stored_form_inputs(db):
+    """787 L-1 (Hazelnut build 3): the letter page's preview hint ("names no notice
+    period") and the regenerate form read the user's own stored inputs from the
+    status response; a row that stored none (agent-authored) answers None."""
+    from applire.services.cover_letter import get_cover_letter_status
+
+    cl = _make_cl(document_language="de")
+    cl.pre_gen_inputs = {"availability": None, "motivation": "Wechsel ins Produkt", "tone": "formal"}
+    bare = _make_cl(document_language="de")
+    db.add_all([cl, bare])
+    await db.commit()
+
+    result = await get_cover_letter_status(cl.id, db, "http://localhost:8001")
+    assert result.pre_gen_inputs == {
+        "availability": None, "motivation": "Wechsel ins Produkt", "tone": "formal",
+    }
+    assert (await get_cover_letter_status(bare.id, db, "http://localhost:8001")).pre_gen_inputs is None

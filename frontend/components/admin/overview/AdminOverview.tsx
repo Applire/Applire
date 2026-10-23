@@ -21,6 +21,7 @@ import { useAdminDashboard, useAdminResource, useAdminUsage, useInstanceSettings
 import { AdminCard, AdminForbidden, CardLink, LoadFailed, Loading, SourceBadge, NONE } from "../common";
 import { AuditRowCompact } from "../audit/AuditRow";
 import { HealthStrip } from "./HealthStrip";
+import { formatVersion } from "@/lib/format-version";
 
 function Tile({ label, big, small, link, testId, tone }: { label: string; big: string; small?: React.ReactNode; link?: React.ReactNode; testId: string; tone?: "warning" }) {
   return (
@@ -219,7 +220,7 @@ export function AdminOverview() {
         <Tile
           testId="admin-overview-tile-version"
           label={t("versionTitle")}
-          big={d.health.version}
+          big={formatVersion(d.health.version)}
           small={t("versionProvider", { provider: [d.health.llm_provider, d.health.llm_model].filter(Boolean).join(" · ") })}
         />
       </div>

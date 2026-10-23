@@ -112,6 +112,24 @@ describe("DashboardApplicationCard", () => {
     expect(screen.getByTestId("stale-cv-badge")).toHaveTextContent("staleCvBadge");
   });
 
+  it("a newly recorded limit gets its own badge (B3-12)", () => {
+    renderCard({
+      staleCv: {
+        latest_cv_id: "cv-1",
+        latest_cv_created_at: "2026-07-01T10:00:00Z",
+        latest_cv_template: "classic_german",
+        profile_enriched_at: "2026-07-08T10:00:00Z",
+        gained: [{ section: "skills", count: 3 }],
+        target_pages: null,
+        reason: "new_limit",
+      },
+    });
+    const badge = screen.getByTestId("stale-cv-badge");
+    expect(badge).toHaveTextContent("staleCvBadgeLimit");
+    expect(badge.getAttribute("title")).toBe("staleCvBadgeLimitTitle");
+    expect(badge.getAttribute("data-reason")).toBe("new_limit");
+  });
+
   it("shows no stale badge when the hint is absent", () => {
     renderCard();
     expect(screen.queryByTestId("stale-cv-badge")).toBeNull();
@@ -316,5 +334,28 @@ describe("DashboardApplicationCard", () => {
   it("hides when CV is not yet ready", () => {
     renderCard({ workflowStatus: "analyzing", userStatus: "applied" });
     expect(screen.queryByRole("button", { name: /^button$/i })).not.toBeInTheDocument();
+  });
+
+  // ── #789: the next action after generating is "applied", not "hired" ─────
+
+  it("a fresh CV on a tracking application offers 'Mark as applied', never 'hired'", async () => {
+    const { patchApplicationStatus } = await import("@/lib/api/applications");
+    renderCard({ workflowStatus: "completed", userStatus: "tracking" });
+    expect(screen.queryByRole("button", { name: /^button$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("dashboard-card-mark-applied"));
+    expect(patchApplicationStatus).toHaveBeenCalledWith("app-1", "applied");
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("no next-step action on a terminal status", () => {
+    renderCard({ workflowStatus: "completed", userStatus: "rejected" });
+    expect(screen.queryByTestId("dashboard-card-mark-applied")).toBeNull();
+    expect(screen.queryByTestId("dashboard-card-mark-hired")).toBeNull();
+  });
+
+  it("the ready chip names both documents when the letter is ready too", () => {
+    renderCard({ workflowStatus: "completed", coverLetterReady: true });
+    expect(screen.getByText("chipCvAndLetterReady")).toBeInTheDocument();
+    expect(screen.queryByText("chipCvReady")).toBeNull();
   });
 });

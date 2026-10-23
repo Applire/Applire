@@ -35,6 +35,7 @@ from applire.schemas.profile import (
     FieldChange,
     MasterProfileData,
     PendingConfirmation,
+    RestatedReceipt,
     normalise_partial_date,
 )
 from applire.services.profile.merge import MergeResult
@@ -47,9 +48,11 @@ from applire.services.profile.reconcile.apply import (
 )
 from applire.services.profile.reconcile.dedupe import classify_certification_dupe
 from applire.services.profile.reconcile.alias_writer import record_bound_aliases
+from applire.services.profile.reconcile.binding_guard import refuse_false_skill_bindings
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.import_witness import compute_import_not_applied
 from applire.services.profile.reconcile.ops import CommitOp, RequestConfirmation
+from applire.services.profile.reconcile.restatement import hold_back_restatements
 from applire.services.profile.reconciliation import compute_merge_reconciliation
 from applire.services.skill_enrichment import enrich_skills_deterministic
 
@@ -135,7 +138,7 @@ async def _reconcile_import_batched(
     source: str,
     provider: LLMProvider,
     lang: str,
-) -> tuple[ApplyResult, list[RequestConfirmation], list[CommitOp], list[str]]:
+) -> tuple[ApplyResult, list[RequestConfirmation], list[CommitOp], list[str], list[RestatedReceipt]]:
     """Segmented fallback for a reconcile that truncated as one big call (ADR-047).
 
     Reconciles ``incoming`` one dependency-ordered slice at a time — ONE
@@ -160,9 +163,17 @@ async def _reconcile_import_batched(
     ambiguities: list[RequestConfirmation] = []
     all_ops: list[CommitOp] = []
     all_rejected_ops: list[str] = []
+    restated: list[RestatedReceipt] = []
     for slice_info in _slice_incoming(incoming):
         result = await reconcile(current, slice_info, source, provider, lang)
-        applied = apply_ops(current, result.ops, source)
+        # #801 (ADR-046 amended 2026-10-22) — refused skill bindings become
+        # ordinary upserts before anything reads the batch (same as the fast path).
+        slice_ops, _refused = refuse_false_skill_bindings(incoming, current, result.ops)
+        # D-B3V6 (ruling V-3 = A) — the restatement check, per slice, against
+        # the profile this slice is applied to (same function as the fast path).
+        to_apply, held_back = await hold_back_restatements(current, slice_ops, provider)
+        restated.extend(held_back)
+        applied = apply_ops(current, to_apply, source)
         current = applied.profile
         changes.extend(applied.changes)
         conflicts.extend(applied.conflicts)
@@ -173,12 +184,12 @@ async def _reconcile_import_batched(
         demotions.extend(applied.demotions)
         ambiguities.extend(result.ambiguities)
         ambiguities.extend(applied.pending_confirmations)
-        all_ops.extend(result.ops)
+        all_ops.extend(slice_ops)
         all_rejected_ops.extend(result.rejected_ops)
     accumulated = ApplyResult(
         profile=current, changes=changes, conflicts=conflicts, demotions=demotions
     )
-    return accumulated, ambiguities, all_ops, all_rejected_ops
+    return accumulated, ambiguities, all_ops, all_rejected_ops, restated
 
 
 def _union_certifications(
@@ -319,16 +330,28 @@ async def reconcile_import(
     segmentation engages only when the one big call does not fit."""
     try:
         result = await reconcile(existing, incoming, source, provider, lang)
-        applied = apply_ops(existing, result.ops, source)
+        # #801 (ADR-046 amended 2026-10-22) — a skill binding whose id names
+        # another entry than the op's `existing`, or that crosses
+        # technical/soft, is rewritten to an ordinary upsert of the document
+        # skill BEFORE anything reads the batch: the applier, the alias writer
+        # and the witness all see the rewritten list, so none binds through it.
+        model_ops, _refused = refuse_false_skill_bindings(incoming, existing, result.ops)
+        # D-B3V6 (ADR-046 + ADR-063 amended 2026-10-22, ruling V-3 = A) — one
+        # call names the new bullets that restate a held one; they are not
+        # written and are receipted. `emitted_ops` below stays the reconciler's
+        # own output (after the #801 rewrite), so the carried-predicate sees
+        # what it always saw.
+        to_apply, restated = await hold_back_restatements(existing, model_ops, provider)
+        applied = apply_ops(existing, to_apply, source)
         ambiguities = list(result.ambiguities) + list(applied.pending_confirmations)
-        emitted_ops: list = list(result.ops)
+        emitted_ops: list = list(model_ops)
         rejected_ops: list[str] = list(result.rejected_ops)
     except LLMTruncatedError:
         logger.warning(
             "reconcile: single-call merge hit the output cap; switching to segmented "
             "batched fallback instead of failing the import (ADR-047)"
         )
-        applied, ambiguities, emitted_ops, rejected_ops = await _reconcile_import_batched(
+        applied, ambiguities, emitted_ops, rejected_ops, restated = await _reconcile_import_batched(
             existing, incoming, source, provider, lang
         )
     # #190 — deterministic certification passthrough (defense in depth). Runs on
@@ -394,4 +417,5 @@ async def reconcile_import(
         pending_confirmations=pending_confirmations,
         not_applied=not_applied,
         matched=list(applied.matched),  # #707
+        restated=restated,  # D-B3V6
     )

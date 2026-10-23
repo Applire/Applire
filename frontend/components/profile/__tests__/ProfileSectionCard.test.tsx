@@ -76,7 +76,7 @@ describe("ProfileSectionCard — structured rendering (F8)", () => {
         "en",
       ),
     );
-    expect(screen.getByText(/2020-03 → present/)).toBeInTheDocument();
+    expect(screen.getByText(/Mar 2020 → present/)).toBeInTheDocument();
   });
 
   it("renders the end date for an ended position (is_current === false)", () => {
@@ -95,7 +95,7 @@ describe("ProfileSectionCard — structured rendering (F8)", () => {
         "en",
       ),
     );
-    expect(screen.getByText(/2018-06 → 2021-02/)).toBeInTheDocument();
+    expect(screen.getByText(/Jun 2018 → Feb 2021/)).toBeInTheDocument();
   });
 
   it("keeps the null-fallback: no end date and no marker still shows the present label", () => {
@@ -113,7 +113,7 @@ describe("ProfileSectionCard — structured rendering (F8)", () => {
         "en",
       ),
     );
-    expect(screen.getByText(/2022-01 → present/)).toBeInTheDocument();
+    expect(screen.getByText(/Jan 2022 → present/)).toBeInTheDocument();
   });
 
   it("renders skills as named chips with a proficiency label, hiding source/refs", () => {
@@ -274,7 +274,7 @@ describe("ProfileSectionCard — open-ended periods (#113d)", () => {
     render(
       withIntl(<ProfileSectionBody section="education" value={education} uiLanguage="en" />, "en"),
     );
-    expect(screen.getByText(/2023-09 → present/)).toBeInTheDocument();
+    expect(screen.getByText(/Sep 2023 → present/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("—");
   });
 
@@ -288,7 +288,7 @@ describe("ProfileSectionCard — open-ended periods (#113d)", () => {
         "en",
       ),
     );
-    expect(screen.getByText("2011-08")).toBeInTheDocument();
+    expect(screen.getByText("Aug 2011")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("—");
     expect(document.body.textContent).not.toContain("→");
   });
@@ -346,7 +346,7 @@ describe("ProfileSectionCard — projects (US292)", () => {
     );
     expect(screen.getByText("Internal Tooling Revamp")).toBeInTheDocument();
     expect(screen.getByText("Tech Lead")).toBeInTheDocument();
-    expect(screen.getByText(/2021-03 → present/)).toBeInTheDocument();
+    expect(screen.getByText(/Mar 2021 → present/)).toBeInTheDocument();
     expect(screen.getByText(/Rebuilt the internal deployment tooling/)).toBeInTheDocument();
     expect(screen.getByText(/Cut deploy time by 50%/)).toBeInTheDocument();
     expect(screen.getByText("Python")).toBeInTheDocument();
@@ -422,7 +422,7 @@ describe("ProfileSectionCard — volunteer activities (US292)", () => {
       ),
     );
     expect(screen.getByText("Ersthelfer @ Rotes Kreuz")).toBeInTheDocument();
-    expect(screen.getByText(/2019-06 → 2021-01/)).toBeInTheDocument();
+    expect(screen.getByText(/Jun 2019 → Jan 2021/)).toBeInTheDocument();
     expect(screen.getByText("Health")).toBeInTheDocument();
     expect(screen.getByText(/Weekend first-aid shifts/)).toBeInTheDocument();
     expect(screen.getByText(/Trained 12 new volunteers/)).toBeInTheDocument();
@@ -483,5 +483,63 @@ describe("ProfileSectionCard — personal_info extended contact fields (US292)",
     expect(screen.queryByText("LinkedIn")).not.toBeInTheDocument();
     expect(screen.queryByText("XING")).not.toBeInTheDocument();
     expect(screen.queryByText("Website")).not.toBeInTheDocument();
+  });
+  // WP-V — Felix's audit values: the vault stores the CV's words, the screen
+  // speaks the UI language.
+  it("shows Felix's languages in the UI language, stored text untouched", () => {
+    const langs = [
+      { language: "Deutsch", level: "Muttersprache" },
+      { language: "Englisch", level: "fließend, C1" },
+    ];
+    render(withIntl(<ProfileSectionBody section="languages" value={langs} uiLanguage="en" />, "en"));
+    expect(screen.getByText("German")).toBeInTheDocument();
+    expect(screen.getByText("Native")).toBeInTheDocument();
+    expect(screen.getByText("English")).toBeInTheDocument();
+    expect(screen.getByText("fluent, C1")).toBeInTheDocument();
+    expect(screen.queryByText("Deutsch")).not.toBeInTheDocument();
+    expect(langs[1].level).toBe("fließend, C1");
+  });
+
+  it("shows English-stored languages in German in the DE UI", () => {
+    const langs = [{ language: "English", level: "native" }];
+    render(withIntl(<ProfileSectionBody section="languages" value={langs} uiLanguage="de" />, "de"));
+    expect(screen.getByText("Englisch")).toBeInTheDocument();
+    expect(screen.getByText("Muttersprache")).toBeInTheDocument();
+  });
+
+  it("shows no level for a skill whose level was not stated", () => {
+    const skills = [
+      { name: "Kubernetes", proficiency: null },
+      { name: "Python" },
+    ];
+    render(withIntl(<ProfileSectionBody section="skills" value={skills} uiLanguage="en" />, "en"));
+    expect(screen.getByText("Kubernetes")).toBeInTheDocument();
+    expect(screen.queryByText("Intermediate")).not.toBeInTheDocument();
+    expect(screen.queryByText("Basic")).not.toBeInTheDocument();
+  });
+
+  it("shows certification dates at the stored precision", () => {
+    const certs = [
+      { name: "CKA", issuing_organization: "CNCF", date_obtained: "2022" },
+      { name: "AWS SAA", issuing_organization: "AWS", date_obtained: "2018-05" },
+    ];
+    render(withIntl(<ProfileSectionBody section="certifications" value={certs} uiLanguage="en" />, "en"));
+    expect(screen.getByText("CNCF · 2022")).toBeInTheDocument();
+    expect(screen.getByText("AWS · May 2018")).toBeInTheDocument();
+  });
+
+  it("shows work, education and project spans as localized month and year", () => {
+    render(
+      withIntl(
+        <ProfileSectionBody
+          section="work_experience"
+          value={[{ role: "Dev", company: "Acme", start_date: "2021-03", end_date: null }]}
+          uiLanguage="de"
+        />,
+        "de",
+      ),
+    );
+    expect(screen.getByText(/^März 2021 → /)).toBeInTheDocument();
+    expect(screen.queryByText(/2021-03/)).not.toBeInTheDocument();
   });
 });

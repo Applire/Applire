@@ -159,22 +159,23 @@ class TestUnrecognisedProficiencyFallsToBasic:
         assert Skill(name="X", proficiency="Verhandlungssicher").proficiency == "advanced"
         assert Skill(name="X", proficiency="EXPERT").proficiency == "expert"
 
-    # ── the path-1 boundary (#316 / Stracciatella) — must NOT move here ──
-    def test_explicit_none_still_lands_on_intermediate(self):
+    # ── the path-1 boundary (#316 / Stracciatella) — DECIDED by ruling V-2 = A
+    # (Hazelnut b3, ADR-013/061 amended 2026-10-22): silence is "not stated",
+    # `None`, never a manufactured "intermediate" (SF-FE.2 class). ──
+    def test_explicit_none_is_not_stated(self):
         from applire.schemas.profile import Skill
-        assert Skill(name="SAP", proficiency=None).proficiency == "intermediate"
+        assert Skill(name="SAP", proficiency=None).proficiency is None
 
-    def test_omitted_field_still_lands_on_intermediate(self):
+    def test_omitted_field_is_not_stated(self):
         from applire.schemas.profile import Skill
-        assert Skill(name="SAP").proficiency == "intermediate"
+        assert Skill(name="SAP").proficiency is None
 
     @pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
     def test_a_blank_string_is_silence_not_an_unrecognised_declaration(self, blank):
         """An empty slot is the page saying nothing, not the page saying
-        something we failed to read — it belongs to path 1, whose answer is
-        deferred. Falling it to "basic" would decide path 1 in this commit."""
+        something we failed to read — `None` (ruling V-2 = A), never "basic"."""
         from applire.schemas.profile import Skill
-        assert Skill(name="SAP", proficiency=blank).proficiency == "intermediate"
+        assert Skill(name="SAP", proficiency=blank).proficiency is None
 
     def test_unrecognised_declaration_reaches_the_vault_at_basic_end_to_end(self):
         """The #304 shape one layer out: a stated-but-unknown tier must reach

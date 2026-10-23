@@ -112,7 +112,7 @@ test.describe("Emma — Returning Power User: dashboard journey (PQ)", () => {
     const nav = page.getByRole("navigation");
     await expect(nav.getByRole("button", { name: /dashboard/i })).toBeVisible();
     await expect(nav.getByRole("button", { name: /profile|masterprofil/i }).first()).toBeVisible();
-    await expect(nav.getByRole("button", { name: /profil aktualisieren|update profile/i })).toBeVisible();
+    await expect(nav.getByRole("button", { name: /lebenslauf oder stelle hinzufügen|add a cv or role/i })).toBeVisible();
     await expect(nav.getByRole("button", { name: /documents|dokumente/i })).toBeVisible();
     await expect(nav.getByRole("button", { name: /settings|einstellungen/i })).toBeVisible();
   });
@@ -181,7 +181,7 @@ test.describe("Emma — Returning Power User: dashboard journey (PQ)", () => {
     await textarea.fill(secondJD);
 
     // Analyse button must become enabled
-    const analyseBtn = page.getByRole("button", { name: /analysieren|analyse/i });
+    const analyseBtn = page.getByRole("button", { name: /analysieren|analy[sz]e/i });
     await expect(analyseBtn).toBeEnabled({ timeout: 3000 });
 
     // A new flow starts via the flow index, which advances the state machine.

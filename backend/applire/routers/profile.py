@@ -51,6 +51,7 @@ from applire.schemas.profile import (
     MasterProfileResponse,
     PhotoCrop,
     ProfileChangesResponse,
+    ReceiptSummary,
     ProfileHealthResponse,
     SeparateMatchRequest,
     StagedResolveRequest,
@@ -71,6 +72,7 @@ from applire.services.profile.commit import StaleEditError, VaultWriteRevertedEr
 from applire.services.profile import (
     get_enrichment_history,
     get_profile_changes,
+    get_receipt_summary,
     get_profile_health,
     get_profile,
     patch_profile_section,
@@ -79,6 +81,10 @@ from applire.services.profile import (
     MatchNotSeparable,
     resolve_staged_extraction,
     separate_match,
+    apply_restated,
+    RestatedNotApplicable,
+    record_availability,
+    dismiss_availability_reminder,
     StagedExtractionAlreadyResolved,
     StagedExtractionNotFound,
 )
@@ -407,6 +413,79 @@ async def separate_match_endpoint(
         raise HTTPException(status_code=409, detail=exc.code)
 
 
+class AvailabilityRequest(BaseModel):
+    text: str
+
+
+@router.put(
+    "/availability",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def put_availability_endpoint(
+    body: AvailabilityRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """D-B3V7 (rulings 787:L3 + V-4) — set the notice period / earliest start
+    from My Profile (source ``manual_edit``); an empty text clears it."""
+    if len(body.text) > 500:
+        raise HTTPException(status_code=422, detail="text_too_long")
+    try:
+        return await record_availability(
+            db, text=body.text, source="manual_edit", user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
+
+
+@router.post(
+    "/availability/reminder/dismiss",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def dismiss_availability_reminder_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """D-B3V7 (ruling V-4) — close the dashboard reminder, server-side."""
+    try:
+        return await dismiss_availability_reminder(db, user_id=_uid(current_user))
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
+
+
+class ApplyRestatedRequest(BaseModel):
+    entity_id: str
+    field: Literal["responsibilities", "achievements"]
+    text: str
+
+
+@router.post(
+    "/restated/apply",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def apply_restated_endpoint(
+    body: ApplyRestatedRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """D-B3V6 (ruling V-3 = A) — "Trotzdem übernehmen": write one bullet the
+    import restatement check held back. 409 ``unknown`` when no restated
+    receipt on that entry names the text, ``entity_gone`` when the entry no
+    longer exists; 404 without a profile."""
+    try:
+        return await apply_restated(
+            db, entity_id=body.entity_id, field=body.field, text=body.text,
+            user_id=_uid(current_user),
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
+    except RestatedNotApplicable as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
+
+
 @router.post("/import", status_code=status.HTTP_410_GONE)
 async def import_profile(current_user: User = Depends(require_user)) -> JSONResponse:
     """RETIRED (ruling V-4 = A) — 410 Gone with a pointer to ``POST /import-jobs``.
@@ -635,6 +714,26 @@ async def get_profile_changes_endpoint(
     """US145 / ADR-040 — the "what changed & why" surface data: the decision trail
     plus pending conflicts, read from the Master Profile only (retention-independent)."""
     return await get_profile_changes(db, user_id=_uid(current_user))
+
+
+@router.get(
+    "/changes/summary",
+    response_model=ReceiptSummary,
+    status_code=status.HTTP_200_OK,
+)
+async def get_receipt_summary_endpoint(
+    session_id: str | None = Query(
+        default=None,
+        max_length=64,
+        description="The interview session to summarise; the latest one when omitted.",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> ReceiptSummary:
+    """ADR-040 amended 2026-10-22 (ruling V-1 = A) — the interview receipt as a
+    summary of one session: one fact per line, grouped per section, the key
+    points first. A view over the trail; the trail itself is unchanged."""
+    return await get_receipt_summary(db, session_id=session_id, user_id=_uid(current_user))
 
 
 @router.get(

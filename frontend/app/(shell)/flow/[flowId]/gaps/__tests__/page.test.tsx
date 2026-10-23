@@ -415,7 +415,10 @@ describe("ADR-089 cl. 8 — card state is the server's record", () => {
 
     // Badge + "to address" count from the record, not from clicks.
     expect(screen.getByTestId("covered-badge")).toHaveTextContent("gaps.resolvedBadge");
-    expect(screen.getByText("gaps.clustersToAddress")).toBeInTheDocument();
+    // #789 — the section names the open requirements and the topics they are
+    // grouped in (one number, ruling F1-2), never "N topics to address".
+    expect(screen.getByTestId("gaps-section-lead")).toHaveTextContent(/gaps\.gapsSectionLead/);
+    expect(screen.queryByText("gaps.clustersToAddress")).toBeNull();
   });
 
   it("keeps the gaps section (with the worked cards) when every cluster is finished", async () => {
@@ -556,7 +559,7 @@ describe("ruling K-1 — closed cards leave the open list", () => {
     serve({ row: analysis([cl("spent", { outcome: outcome(2), budget_remaining: 0 })]) });
     await renderPage();
     await waitFor(() => expect(screen.getByTestId("gaps-none-open")).toHaveTextContent("gaps.noOpenTopics"));
-    expect(screen.queryByText("gaps.clustersToAddress")).toBeNull();
+    expect(screen.queryByTestId("gaps-section-lead")).toBeNull();
   });
 });
 
@@ -646,7 +649,7 @@ describe("ADR-089 cl. 8 — the answer turn's response is read", () => {
     expect(card("new-one")).toBeInTheDocument(); // the list itself was replaced, not only the score
     expect(calls(fetchMock, (u, m) => u.endsWith("/api/job/j1/gaps/refresh") && m === "POST")).toHaveLength(1);
     await waitFor(() =>
-      expect(screen.getByTestId("match-score-display")).toHaveTextContent("gaps.matchScoreDisplay"),
+      expect(screen.getByTestId("match-score-display")).toHaveTextContent("gaps.matchWithJob"),
     );
     expect(within(card("k8s")).queryByTestId("gap-question")).not.toBeInTheDocument();
   });
@@ -992,5 +995,115 @@ describe("ADR-090 cl. 8 — a stale analysis says so and re-checks only on reque
     );
     expect(screen.getByTestId("gaps-stale-hint")).toBeInTheDocument();
     expect(screen.getByTestId("gaps-recheck")).not.toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hazelnut b3 #789 (UX audit 2026-10-20, mock F1-1 b) — one profile line, one
+// requirement bar from the ledger, the decision above the topics, the
+// posting's sentence labelled.
+// ---------------------------------------------------------------------------
+
+describe("#789 gaps page re-cut", () => {
+  function mockRecut(profile: Record<string, unknown[]>) {
+    const gaps = {
+      id: "ga1",
+      match_score: 0.44,
+      category_a: ["SAP"],
+      category_b: [],
+      category_c: ["MES"],
+      strengths: [],
+      gap_clusters: [
+        {
+          id: "cl-p", label: "Produktion", category: "C", gaps: ["MES"], jd_skills: ["MES"],
+          jd_context: "Die Stelle verantwortet die Produktion.",
+          outcome: { asked: 0, covered: [], declined: [], session_ids: [] },
+          coverage: "open", budget_remaining: 2,
+          member_statuses: [{ member: "MES", status: "gap" }],
+        },
+      ],
+      keyword_ledger: [
+        { concept: "SAP", fit_weight: 1, status: "direct" },
+        { concept: "Lean", fit_weight: 1, status: "partial" },
+        { concept: "MES", fit_weight: 1, status: "gap" },
+        { concept: "OEE", fit_weight: 1, status: "gap" },
+        { concept: "PP/MM", fit_weight: 0, status: "gap" },
+      ],
+    };
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/flow/f1/state")) {
+        return { ok: true, json: async () => ({
+          flow_id: "f1", job_id: "j1", user_type: "new", current_step: "gap_analysis",
+          available_actions: {}, job_summary: { role_title: "Leiter Operations" },
+          application_id: null, created_at: FLOW_CREATED_AT,
+        }) } as Response;
+      }
+      if (url.endsWith("/api/job/j1")) {
+        return { ok: true, json: async () => ({ role_title: "Leiter Operations", company_name: "Rheinwerk", required_skills: [], nice_to_have_skills: [] }) } as Response;
+      }
+      if (url.includes("/api/job/j1/gaps")) return { ok: true, json: async () => gaps } as Response;
+      if (url.includes("/api/profile/changes")) {
+        return { ok: true, json: async () => ({ enrichment_history: [], pending_conflicts: [] }) } as Response;
+      }
+      if (url.includes("/api/profile")) {
+        return { ok: true, json: async () => ({ profile, stats: { positions: 3, projects: 0, certifications: 0, data_points: 33 } }) } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+  }
+
+  it("one profile line: non-zero sections only, no data points, no big zero tiles", async () => {
+    mockRecut({ work_experience: [{}, {}, {}], education: [{}, {}, {}], skills: [{}], projects: [], certifications: [] });
+    await renderPage();
+    const line = await screen.findByTestId("profile-summary-line");
+    await waitFor(() => expect(line).toHaveTextContent("gaps.profilePositions"));
+    expect(line).toHaveTextContent("gaps.profileEducation");
+    expect(line).toHaveTextContent("gaps.profileSkills");
+    expect(line.textContent).not.toContain("gaps.profileProjects");
+    expect(line.textContent).not.toContain("gaps.profileCertifications");
+    expect(document.body.textContent).not.toContain("gaps.statDataPoints");
+    expect(document.body.textContent).not.toContain("gaps.statProjects");
+  });
+
+  it("the requirement bar partitions the ledger's fit-weighted rows; keyword-only terms are not counted", async () => {
+    mockRecut({});
+    await renderPage();
+    const bar = await screen.findByTestId("requirement-bar");
+    const segs = bar.querySelectorAll("div[aria-hidden] > span");
+    // 4 requirements (PP/MM is keyword-only): 1 shown, 1 likely, 0 declined
+    expect((segs[0] as HTMLElement).style.width).toBe("25%");
+    expect((segs[1] as HTMLElement).style.width).toBe("25%");
+    expect((segs[2] as HTMLElement).style.width).toBe("0%");
+    expect(screen.getByTestId("req-open")).toHaveTextContent("gaps.reqOpen");
+    expect(screen.getByTestId("req-likely")).toBeInTheDocument();
+    expect(screen.queryByTestId("req-declined")).toBeNull();
+    // the old competing counts are gone
+    expect(document.body.textContent).not.toContain("gaps.gapsIdentified");
+    expect(document.body.textContent).not.toContain("gaps.gapsToAddress");
+  });
+
+  it("the decision sits in the match card, above the topics; explore/cancel live at the end", async () => {
+    mockRecut({});
+    await renderPage();
+    const matchCard = await screen.findByTestId("match-card");
+    const bar = screen.getByTestId("gaps-decision-bar");
+    expect(matchCard.contains(bar)).toBe(true);
+    expect(bar.contains(screen.getByTestId("interview-button"))).toBe(true);
+    expect(bar.contains(screen.getByTestId("generate-cv-button"))).toBe(true);
+    const section = screen.getByTestId("gaps-section");
+    expect(bar.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const tertiary = screen.getByTestId("gaps-tertiary-actions");
+    expect(bar.contains(tertiary)).toBe(false);
+    expect(tertiary).toHaveTextContent("gaps.exploreProfile");
+    expect(section.compareDocumentPosition(tertiary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("the theme card labels the posting's sentence as what the role expects", async () => {
+    mockRecut({});
+    await renderPage();
+    const ctx = await screen.findByTestId("gap-jd-context");
+    expect(ctx).toHaveTextContent("gaps.jdContextLabel");
+    expect(ctx).toHaveTextContent("Die Stelle verantwortet die Produktion.");
   });
 });

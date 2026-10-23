@@ -296,6 +296,49 @@ def vault_sender(profile_json: dict[str, Any] | None, cv_data: dict[str, Any] | 
     }
 
 
+# Country names a recorded location may end with ("Frankfurt am Main, Germany").
+# The DIN 5008 ``Ort, Datum`` line names the place only.
+_COUNTRY_SEGMENTS = frozenset({
+    "germany", "deutschland", "de", "austria", "österreich", "oesterreich", "at",
+    "switzerland", "schweiz", "suisse", "svizzera", "ch", "liechtenstein", "li",
+})
+_POSTCODE = re.compile(r"^(?:[A-Z]{1,2}-)?\d{4,5}\s+")
+
+
+def date_line_place(location: str | None) -> str | None:
+    """The place of a DIN 5008 ``Ort, Datum`` line from a recorded location: the
+    last comma segment that is not a country, without a leading postcode —
+    "Frankfurt am Main, Germany" → "Frankfurt am Main", "Maximilianstraße 12,
+    80539 München" → "München". A cut of the recorded string, never a lookup;
+    ``None`` when nothing is left. Shared by the letter's date line and the CV's
+    closing line so both documents of one application name the same place
+    (bench 2026-10-22: "Frankfurt am Main, Germany, 22. Oktober 2026")."""
+    if not isinstance(location, str):
+        return None
+    segments = [seg.strip() for seg in location.split(",") if seg.strip()]
+    while len(segments) > 1 and segments[-1].casefold() in _COUNTRY_SEGMENTS:
+        segments.pop()
+    if not segments:
+        return None
+    place = _POSTCODE.sub("", segments[-1]).strip()
+    return place or None
+
+
+def sender_location(profile_json: dict[str, Any] | None, cv_data: dict[str, Any] | None) -> str | None:
+    """The sender's recorded place for the date line (ADR-094 cl. L2 amended
+    2026-10-22): the vault's ``personal_info.location``, else the tailored CV's
+    ``contact.location`` — the same value the CV's own ``Ort, Datum`` line prints.
+    A field read; ``None`` when neither records one (the line then has no place)."""
+    pi = (profile_json or {}).get("personal_info") if isinstance(profile_json, dict) else None
+    pi = pi if isinstance(pi, dict) else {}
+    contact = (cv_data or {}).get("contact") if isinstance(cv_data, dict) else None
+    contact = contact if isinstance(contact, dict) else {}
+    for v in (pi.get("location"), contact.get("location")):
+        if isinstance(v, str) and v.strip():
+            return date_line_place(v)
+    return None
+
+
 def apply_code_owned_fields(
     letter_data: dict[str, Any],
     *,
@@ -331,7 +374,12 @@ def apply_code_owned_fields(
     data["header"] = header
     signature = data.get("signature")
     signature = dict(signature) if isinstance(signature, dict) else {}
-    signature["name"] = sender.get("name") or ""
+    # Hazelnut build 3 (784 polish (b), ADR-094 cl. L2 amended): the sign-off
+    # name in display casing — a vault name transcribed in capitals from a CV
+    # header ("DANIEL KOVAČ") is signed "Daniel Kovač". Casing only.
+    from applire.utils.person_name import display_name
+
+    signature["name"] = display_name(sender.get("name") or "")
     data["signature"] = signature
     return data
 

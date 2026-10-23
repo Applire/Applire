@@ -77,6 +77,11 @@ async function setupCompleteJourney(page: Page): Promise<string> {
   await expect(page.getByTestId('interview-loading')).not.toBeVisible({
     timeout: 30000,
   });
+  // #789 — a fresh session opens on the intro before Q1; pass it when shown.
+  await page.getByTestId('interview-intro-start').or(page.getByTestId('interview-question')).first().waitFor({ timeout: 30000 });
+  if (await page.getByTestId('interview-intro-start').isVisible()) {
+    await page.getByTestId('interview-intro-start').click();
+  }
   await expect(page.getByTestId('interview-question')).toBeVisible();
 
   // Answer one question

@@ -436,10 +436,10 @@ async def test_first_analysis_initialises_the_per_gap_record(db):
     # Ruling C-1: the response carries each requirement's chip status,
     # derived from this row's own ledger.
     assert [m.model_dump() for m in by_id["cluster-k8s"].member_statuses] == [
-        {"member": "Kubernetes", "status": "partial"}
+        {"member": "Kubernetes", "status": "partial", "requirement": True}
     ]
     assert [m.model_dump() for m in by_id["cluster-iac"].member_statuses] == [
-        {"member": "Terraform", "status": "gap"}
+        {"member": "Terraform", "status": "gap", "requirement": True}
     ]
 
 

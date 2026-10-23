@@ -112,6 +112,12 @@ _FAIL_PATHS = frozenset(
 #: Settle paths where the loop ended without an outstanding blocking finding.
 _PASS_PATHS = frozenset({"approved", "minor_only"})
 
+#: WP-FR (F3): fail paths on which a verdict that rejected the draft but NAMED
+#: NOTHING reads as unknown rather than as an open finding. `generator_call_failed`
+#: and `review_malformed` keep their fail — they name their own reason (a call that
+#: failed), which is what #688's pin asks for.
+_EMPTY_REJECTION_UNKNOWN_PATHS = frozenset({"cycle_detected", "exhausted"})
+
 #: The loop ran and could not obtain a verdict at all — "unknown", not "clean" and not
 #: "broken document". A reviewer call that truncates or times out on attempt 1 leaves no
 #: verdict to report, and `review_and_refine`'s own contract is to ship the draft
@@ -386,6 +392,27 @@ class TerminalReviewOutcome:
         return (self.path or "") not in _CORRECTED_AFTER_VERDICT_PATHS
 
     @property
+    def verdict_was_clean(self) -> bool:
+        """The last verdict raised no blocking finding: it approved, or it raised
+        only minor observations (WP-FR, F3). Only meaningful once a verdict exists
+        (``rounds`` ≥ 1)."""
+        return (
+            self.rounds >= 1
+            and not self.blocking_issues
+            and (self.approved or bool(self.minor_issues))
+        )
+
+    @property
+    def verdict_named_nothing(self) -> bool:
+        """The last verdict rejected the draft without naming any issue at all."""
+        return (
+            self.rounds >= 1
+            and not self.approved
+            and not self.blocking_issues
+            and not self.minor_issues
+        )
+
+    @property
     def status(self) -> str:
         """The ADR-039 check status this outcome maps to.
 
@@ -414,6 +441,21 @@ class TerminalReviewOutcome:
             # whichever path this was.
             return "not_applicable"
         if self.path in _FAIL_PATHS:
+            # WP-FR (Hazelnut build 3, delivery F3): the status follows the VERDICT.
+            # A fail path is reached with no blocking finding when the last verdict
+            # approved (or raised only minor notes) and a deterministic CHECK
+            # reopened the round (E068 `checks_fn`, which opens a corrector round
+            # even after an approval) — then the corrector cycled, failed or was
+            # malformed. The reviewer found nothing to fix; the check reports
+            # itself (its own ATS row, or the delivered-draft note). Reporting
+            # "findings still open … (the verdict named no issue text)" said "not
+            # ready" with nothing to fix (Daniel's letter, 2026-10-22).
+            if self.verdict_was_clean:
+                return "pass"
+            # A rejection that named nothing on a cycle: there is no finding to
+            # call open — the result is unknown, not a fail with an empty list.
+            if self.path in _EMPTY_REJECTION_UNKNOWN_PATHS and self.verdict_named_nothing:
+                return "not_applicable"
             # Fail-safe in the reporting direction: an unrecognised blocking-path
             # settle with no issues recorded is still not evidence of a clean review.
             return "fail"
@@ -794,10 +836,31 @@ def _body(outcome: TerminalReviewOutcome) -> str:
             # delivered one) gets the same honest UNVERIFIED wording, not the
             # generic "result is unknown" fallback below.
             return _unverified_body(outcome)
+        if outcome.path in _FAIL_PATHS and outcome.verdict_named_nothing:
+            return (
+                f"The terminal review rejected the draft after {outcome.rounds} "
+                "round(s) without naming an issue, and the correction loop stopped "
+                f"({outcome.path}); its result is unknown — not clean, and nothing is "
+                "named to fix."
+            )
         return (
             "The terminal review ran but no verdict could be obtained "
             f"(settle path: {outcome.path}); its result is unknown, not clean."
         )
+    if status == "pass" and outcome.path in _FAIL_PATHS:
+        # WP-FR (F3): the verdict was clean; a deterministic code check reopened
+        # the round and the correction loop stopped. Name both halves.
+        head = (
+            "The terminal review raised no blocking finding. A code check reopened "
+            f"the draft and the correction loop stopped ({outcome.path}); that code "
+            "check reports its own result separately."
+        )
+        if outcome.minor_issues:
+            return (
+                f"{head} Observations recorded for your judgement (never acted on "
+                "automatically): " + "; ".join(outcome.minor_issues)
+            )
+        return head
     if status == "fail":
         head = {
             "exhausted": (

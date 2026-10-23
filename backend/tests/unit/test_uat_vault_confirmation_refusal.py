@@ -439,8 +439,9 @@ async def test_picking_add_separately_still_writes_the_skill(db_session, monkeyp
 @pytest.mark.asyncio
 async def test_the_refusal_re_asks_on_the_standalone_review_route(db_session, monkeypatch):
     """`_handle_confirmation_answer` is the OTHER resolution door (#686's
-    "Decide now" CTA). It has no skill WRITE arm — that stays #674's open line —
-    but an unmatched answer must not spend the park here either, or the
+    "Decide now" CTA). Its skill WRITE arm landed in Hazelnut build 3 (WP-FR,
+    F12 — `test_f12_standalone_skill_decision_applies.py`), and an unmatched
+    answer must not spend the park here either, or the
     candidate's "neither" is swallowed by the bookkeeping resolve."""
     import applire.services.session as session_mod
 

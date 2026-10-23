@@ -466,6 +466,40 @@ async def test_agent_authored_letter_persists_docx_ats_report(seeded):
     )
 
 
+@pytest.fixture
+def _vault_with_place(monkeypatch):
+    """Seed the vault with a recorded location (requested BEFORE ``seeded``)."""
+    import sys
+
+    mod = sys.modules[__name__]
+    base = mod._stub_profile_json
+
+    def with_place():
+        pj = base()
+        pj["personal_info"] = {"name": "Max Mustermann", "location": "Koblenz"}
+        return pj
+
+    monkeypatch.setattr(mod, "_stub_profile_json", with_place)
+
+
+@pytest.mark.asyncio
+async def test_agent_door_empty_date_is_filled_with_the_sender_place(_vault_with_place, seeded):
+    """Hazelnut build 3 (784 date-line line, ADR-094 cl. L2 amended): the agent
+    door's empty-date fill uses the same Ort, Datum helper as the pipeline — the
+    vault's own personal_info.location, never an invented place."""
+    from applire.services.cover_letter import render_agent_letter
+
+    with patch(
+        "applire.services.cover_letter_pdf.render_pdf",
+        new=AsyncMock(return_value=b"%PDF"),
+    ), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=_make_pdf_ats_report()), \
+         patch("applire.services.office_export.extract._audit_letter_text", return_value=_make_docx_ats_report()):
+        cl = await render_agent_letter(dict(AGENT_LETTER_CONTENT), seeded["job_id"], seeded["db"])
+
+    assert cl.letter_data["recipient"]["date"].startswith("Koblenz, ")
+
+
 @pytest.mark.asyncio
 async def test_agent_authored_letter_header_photo_url_rejected(seeded):
     """M5.4.2 (1) (2026-09-13, founder ruling): `AGENT_LETTER_CONTENT` above

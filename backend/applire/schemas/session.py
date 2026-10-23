@@ -165,6 +165,9 @@ class SessionMessageResponse(BaseModel):
     choices: list[str] | None = None
     # Populated when complete=True
     reason: Literal["gaps_resolved", "user_ended", "max_questions_reached"] | None = None
+    # RULING 787:L7 — set on EVERY turn since Hazelnut b3 (not only on
+    # completion): the gap questions asked so far; a confirmation turn does
+    # not count.
     questions_asked: int | None = None
     gaps_resolved: int | None = None
     gaps_unresolved: list[str] | None = None

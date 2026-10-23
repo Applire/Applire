@@ -20,13 +20,15 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { DocumentsTable, type DocumentItem } from "../DocumentsTable";
 
 vi.mock("next-intl", () => ({
+  useLocale: () => "en",
   useTranslations: () => (key: string, params?: Record<string, unknown>) => {
     if (params) return `${key}:${JSON.stringify(params)}`;
     return key;
   },
 }));
+const push = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push }),
 }));
 
 const FAR_FUTURE = new Date(Date.now() + 60 * 24 * 36e5).toISOString();
@@ -191,5 +193,36 @@ describe("DocumentsTable", () => {
       renderTable({ items: [{ ...EXPIRED_ITEM, status }], total: 1 });
       expect(screen.getByText(label)).toBeInTheDocument();
     });
+  });
+});
+
+describe("DocumentsTable — #789 the letter belongs on the page too", () => {
+  it("a row with a ready letter names it and opens it on its own page", () => {
+    push.mockClear();
+    const withLetter: DocumentItem[] = [
+      { ...ITEMS[0], cover_letter: { cover_letter_id: "cl-1", status: "ready", created_at: ITEMS[0].created_at, expires_at: FAR_FUTURE } },
+      ITEMS[1],
+    ];
+    renderTable({ items: withLetter, total: 2 });
+    const lines = screen.getAllByTestId("documents-letter");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].textContent).toContain("letterReady");
+    fireEvent.click(screen.getByTestId("documents-letter-open"));
+    expect(push).toHaveBeenCalledWith("/flow/flow-1/cover-letter");
+  });
+
+  it("a letter still being written has no open action", () => {
+    const generating: DocumentItem[] = [
+      { ...ITEMS[0], cover_letter: { cover_letter_id: "cl-1", status: "generating", created_at: ITEMS[0].created_at, expires_at: FAR_FUTURE } },
+    ];
+    renderTable({ items: generating, total: 1 });
+    expect(screen.getByTestId("documents-letter").textContent).toContain("letterGenerating");
+    expect(screen.queryByTestId("documents-letter-open")).toBeNull();
+  });
+
+  it("dates follow the UI language, not a hard-coded de-DE", () => {
+    const fixed: DocumentItem[] = [{ ...ITEMS[0], created_at: "2026-03-05T10:00:00Z" }];
+    renderTable({ items: fixed, total: 1 });
+    expect(screen.getByText(/generatedOn/).textContent).toContain("5 Mar 2026");
   });
 });

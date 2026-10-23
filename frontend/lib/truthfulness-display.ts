@@ -46,7 +46,8 @@ export type Verdict =
   | "not_applicable";
 
 export type TruthfulnessEvidence = {
-  kind: "profile_path" | "enrichment_record";
+  // "letter_form" (B3-10): `ref` is `pre_gen_inputs.<field>` of the letter — never a profile path.
+  kind: "profile_path" | "enrichment_record" | "letter_form";
   ref: string;
   excerpt?: string;
 };
@@ -58,6 +59,9 @@ export type TruthfulnessClaimResult = {
     checker: string;
     evidence: TruthfulnessEvidence[];
     detail?: string | null;
+    /** ADR-052 amended 2026-10-22: the detail's catalog key + params (`oracleDetail.*`). */
+    detail_key?: string | null;
+    detail_params?: Record<string, string> | null;
   };
 };
 

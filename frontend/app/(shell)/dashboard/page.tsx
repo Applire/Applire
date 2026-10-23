@@ -22,12 +22,15 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
+import { AvailabilityReminderCard } from "@/components/dashboard/AvailabilityReminderCard";
 import { ImportInProgressBanner } from "@/components/dashboard/ImportInProgressBanner";
 import { UpgradeNotice } from "@/components/dashboard/UpgradeNotice";
 import { InstanceSignal } from "@/components/dashboard/InstanceSignal";
 import { QuickTailorWidget } from "@/components/dashboard/QuickTailorWidget";
 import { ProfileStrengthCard } from "@/components/dashboard/ProfileStrengthCard";
 import { DashboardApplicationCard } from "@/components/dashboard/DashboardApplicationCard";
+import { FirstRunScreen } from "@/components/onboarding/FirstRunScreen";
+import { firstNameOf } from "@/lib/display-name";
 import { USER_STATUS_OPTIONS, countByUserStatus, splitCancelled } from "@/lib/user-status";
 import { patchApplicationStatus } from "@/lib/api/applications";
 import { cn } from "@/lib/utils";
@@ -50,6 +53,8 @@ interface Application {
   stale_cv?: StaleCVInfo | null;
   /** Removal date of a cancelled application (US222, ADR-005 short clock). */
   expires_at?: string | null;
+  /** E12-788:L21 read model — a letter is ready too (WP-F2). */
+  cover_letter_ready?: boolean;
 }
 
 export default function DashboardPage() {
@@ -58,6 +63,10 @@ export default function DashboardPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [userName, setUserName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // #789 (ruling F1-3) — a signed-in person without a profile gets the
+  // first-run screen HERE, in place: an empty dashboard (zero applications,
+  // a "0 %" profile card) told them nothing about where to start.
+  const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   // Pipeline filter (E039/US218) — null = all statuses.
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   // Bumped when background CV imports finish (PQ F1) — remounts the Profile
@@ -67,10 +76,18 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [appsRes, profileRes] = await Promise.all([
+        const [appsRes, profileRes, existsRes] = await Promise.all([
           fetch(`${API_BASE}/api/applications`),
           fetch(`${API_BASE}/api/profile`),
+          // A failed check never takes the applications down with it.
+          fetch(`${API_BASE}/api/profile/exists`).catch(() => null),
         ]);
+        if (existsRes?.ok) {
+          const d = await existsRes.json();
+          // Only an explicit "no" switches to first run — an unreadable answer
+          // keeps the dashboard (an outage must not look like a fresh start).
+          setHasProfile(d?.exists === false ? false : true);
+        }
         if (appsRes.ok) {
           const d = await appsRes.json();
           setApplications(d.items ?? []);
@@ -117,7 +134,8 @@ export default function DashboardPage() {
     }
   }
 
-  const firstName = userName?.split(" ")[0] ?? null;
+  // #789 polish g — "MARCUS" from an all-caps CV header greets as "Marcus".
+  const firstName = firstNameOf(userName);
   // US222: cancelled applications leave the active portfolio entirely — own
   // collapsed section below, excluded from counts, chips and the grid.
   const { active: activeApplications, cancelled: cancelledApplications } =
@@ -127,6 +145,22 @@ export default function DashboardPage() {
   const visibleApplications = statusFilter
     ? activeApplications.filter((a) => (a.user_status ?? "tracking") === statusFilter)
     : activeApplications;
+
+  if (hasProfile === false) {
+    return (
+      <div className="flex flex-col flex-1 overflow-hidden" data-testid="dashboard-first-run">
+        <AppTopbar mode="section" titleKey="shell.welcome" />
+        <div className="flex-1 overflow-y-auto">
+          {/* An import still running server-side (PQ F1) is said first — the
+              upload below is then for MORE files, not a second try. */}
+          <div className="px-4 pt-5 md:px-8">
+            <ImportInProgressBanner onAllDone={() => setHasProfile(null)} />
+          </div>
+          <FirstRunScreen />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -157,12 +191,20 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Top row: Quick Tailor + Profile Strength */}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 mb-6">
+        {/* Ruling V-4 (WP-F2): notice period missing / out of date —
+            below the greeting, as mocked (f2/COPY.md). */}
+        <AvailabilityReminderCard />
+
+        {/* #789 "Phone dashboard order": below md the applications a person
+            came back for come first; Quick Tailor + Profile Strength follow.
+            Desktop keeps the top row. */}
+        <div className="flex flex-col">
+        <div data-testid="dashboard-tools-row" className="order-2 mt-6 md:order-1 md:mt-0 md:mb-6 grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4">
           <QuickTailorWidget />
           <ProfileStrengthCard key={profileRefreshKey} />
         </div>
 
+        <section data-testid="dashboard-applications" className="order-1 md:order-2">
         {/* Active applications */}
         <div className="flex items-center justify-between mb-3.5">
           <h2 className="text-[15px] font-extrabold text-neutral-dark font-manrope">
@@ -246,6 +288,7 @@ export default function DashboardPage() {
                 submittedCvId={app.submitted_cv_id}
                 submittedCvCreatedAt={app.submitted_cv_created_at}
                 staleCv={app.stale_cv}
+                coverLetterReady={app.cover_letter_ready}
                 onStartFlow={() => handleStartFlow(app.id)}
                 onStatusChange={(s) => handleStatusChange(app.id, s)}
               />
@@ -297,6 +340,8 @@ export default function DashboardPage() {
             </div>
           </details>
         )}
+        </section>
+        </div>
       </main>
     </div>
   );

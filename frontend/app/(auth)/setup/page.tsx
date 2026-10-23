@@ -32,7 +32,7 @@ import {
 const LOGS_COMMAND = "docker compose logs backend";
 const CLI_COMMAND = "docker compose exec backend python -m applire.admin create-admin --email ";
 
-type Phase = "form" | "done" | "harness";
+type Phase = "form" | "created" | "done" | "harness";
 
 export default function SetupPage() {
   const t = useTranslations("auth");
@@ -81,7 +81,10 @@ export default function SetupPage() {
     try {
       const res = await postJson("/api/setup", { setup_token: code.trim(), email: email.trim(), password });
       if (res.status === 204 || res.ok) {
-        window.location.assign("/");
+        // Signed in now. Name the next step instead of dropping the admin on the
+        // candidate dashboard (polish c): invite people, or start on their own.
+        setPhase("created");
+        setWorking(false);
         return;
       }
       const errorCode = await readErrorCode(res);
@@ -95,6 +98,31 @@ export default function SetupPage() {
       setNetwork(true);
     }
     setWorking(false);
+  }
+
+  if (phase === "created") {
+    return (
+      <AuthCard testId="setup-created">
+        <AuthTitle>{t("setupCreatedTitle")}</AuthTitle>
+        <AuthSubtitle>{t("setupCreatedIntro")}</AuthSubtitle>
+        {/* Full navigation: the shell must re-read the session that setup just created. */}
+        <Button
+          className="mt-4 w-full"
+          data-testid="setup-invite"
+          onClick={() => window.location.assign("/admin/users")}
+        >
+          {t("setupInvitePeople")}
+        </Button>
+        <Button
+          variant="secondary"
+          className="mt-3 w-full"
+          data-testid="setup-start"
+          onClick={() => window.location.assign("/")}
+        >
+          {t("setupStartMyself")}
+        </Button>
+      </AuthCard>
+    );
   }
 
   if (phase === "done") {

@@ -286,7 +286,10 @@ def _assert_budget_html(html: str, *, budget_label: str) -> None:
 
     # w3 carries a unit -- it renders, verbatim.
     assert budget_label in hansen_slice, "a unit-bearing budget must still render"
-    assert "ca. 1,2 Mio. EUR" in hansen_slice, "the candidate's wording was reformatted"
+    # #786 NBSP (ADR-066): the figure is bound to its unit with U+00A0 — the
+    # candidate's words are otherwise untouched.
+    assert "ca. 1,2 Mio. EUR" in hansen_slice.replace("\u00a0", " "), "the candidate's wording was reformatted"
+    assert "1,2\u00a0Mio." in hansen_slice, "the figure must not break from its unit"
 
 
 @pytest.mark.asyncio

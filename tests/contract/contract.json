@@ -167,8 +167,55 @@
       }
     },
     "generate_cover_letter": {
+      "availability": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
       "job_id": {
         "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "motivation": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "recipient_company": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "recipient_name": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "salary": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "save_availability_to_profile": {
+        "required": false,
+        "types": [
+          "boolean"
+        ]
+      },
+      "tone": {
+        "enum": [
+          "\"conversational\"",
+          "\"formal\"",
+          "\"professional\""
+        ],
+        "required": false,
         "types": [
           "string"
         ]
@@ -536,6 +583,7 @@
     "ANTHROPIC_MODEL",
     "APPLIRE_AGENT_TOKEN",
     "APPLIRE_BASE_URL",
+    "APPLIRE_HTTP_PORT",
     "APPLIRE_TRUSTED_PROXY",
     "AUDIT_LOG_RETENTION_DAYS",
     "AUTH_PROVIDER",
@@ -696,6 +744,8 @@
     "0080",
     "0081",
     "0082",
-    "0083"
+    "0083",
+    "0084",
+    "0085"
   ]
 }

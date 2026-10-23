@@ -540,3 +540,23 @@ class TestReevaluateGapLedgerAgainstVault:
 
         assert reevaluate_gap_ledger_against_vault(None, {}) == ([], False)
         assert reevaluate_gap_ledger_against_vault([], {"work_experience": []}) == ([], False)
+
+
+class TestCvSummaryRegisterAndCombinedSkillEntries:
+    """#786 (Hazelnut build 3, WP-L): rule 5 asked for "third person" and got "Er
+    verbindet …" in 16/35 DE corpus CVs; the JD-REQUIRED block demanded every required
+    skill "once" while rule 7 forbade listing an acronym beside its expansion. Pins
+    the two wordings that the 2026-10-22 Luna replay measured (prompt v12.2)."""
+
+    def test_rule_5_asks_for_the_impersonal_register(self):
+        from applire.prompts.cv_tailoring import SYSTEM_PROMPT
+
+        low = SYSTEM_PROMPT.lower()
+        rule5 = low[low.find("5. summary."): low.find("6. claim strength.")]
+        assert "third person" not in rule5
+        assert "no pronoun, no name, no sentence about the document" in rule5
+
+    def test_required_skills_block_allows_one_entry_for_both_forms(self):
+        from applire.prompts.cv_tailoring import SYSTEM_PROMPT
+
+        assert "MES (Maschinen- und Betriebsdatenerfassung)" in SYSTEM_PROMPT

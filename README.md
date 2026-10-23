@@ -635,7 +635,7 @@ that runs the backend outside Docker on port 8001 sets
 | `generate_cv(job_id, target_pages?)` | Initiate async CV generation; optional `target_pages` pins the page count for this run; returns `cv_id`, `html_url`, `pdf_url` |
 | `get_cv_status(cv_id)` | Poll CV generation status (`pending` / `generating` / `ready` / `failed`) |
 | `get_cv_ats_report(cv_id)` | Persisted ATS audit report for a generated CV — named pass/fail checks + present/missing keywords, no aggregate score — plus `truthfulness`: the truthfulness check's verdict counts and `stop_and_fix` (the review panel lists an open finding — a flagged claim or an unbacked keyword; do not send before resolving it) |
-| `generate_cover_letter(job_id)` | Generate a cover letter (requires an existing flow session for the job); returns `cover_letter_id`, `html_url`, `pdf_url` |
+| `generate_cover_letter(job_id, recipient_name?, recipient_company?, salary?, availability?, motivation?, tone?)` | Generate a cover letter (requires an existing flow session for the job); the optional inputs are the user's own words, exactly as in the web form — the letter never invents a notice period or a reason for the change; returns `cover_letter_id`, `html_url`, `pdf_url` |
 | `get_cover_letter_status(cover_letter_id)` | Poll cover-letter generation status (`pending` / `generating` / `ready` / `failed`) |
 | `get_cover_letter_ats_report(cover_letter_id)` | Persisted ATS audit report for a generated cover letter, with the same `truthfulness` summary |
 

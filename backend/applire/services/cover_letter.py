@@ -56,6 +56,7 @@ from applire.models.profile import MasterProfile
 from applire import ownership
 from applire.services.cover_letter_positioning import letter_shape_ok
 from applire.services.owner_resolution import owned_row, resolve_user_id
+from applire.services.review_degradation import normalize_stored, review_degradation_record
 from applire.services.posting_labels import effective_posting_labels
 from applire.constants import (
     CV_GENERATION_MAX_TOKENS,
@@ -223,6 +224,11 @@ async def generate_cover_letter(
     if profile is None:
         raise LookupError("No profile found — complete the interview step first")
 
+    # B3-11 + MD3-5: the notice period typed for THIS letter also goes to the
+    # profile when the door asks for it and it differs from the stored value.
+    # Written in this transaction (the letter row's commit below carries it).
+    await _save_letter_availability_to_profile(request, profile, db, uid)
+
     # Build pre_gen_inputs for storage
     pre_gen_inputs = {
         "recipient_name": request.recipient_name,
@@ -303,6 +309,45 @@ async def generate_cover_letter(
     )
 
 
+def _availability_key(text: str | None) -> str:
+    return " ".join((text or "").split()).casefold()
+
+
+async def _save_letter_availability_to_profile(
+    request: CoverLetterGenerateRequest,
+    profile,
+    db: AsyncSession,
+    uid: uuid.UUID,
+) -> bool:
+    """B3-11 (founder 2026-10-23) + MD3-5: "Auch im Profil speichern".
+
+    When ``save_availability_to_profile`` is set and the letter's notice period
+    differs from ``profile.availability.text`` (whitespace/case-insensitive), it
+    is written through the one availability door (``record_availability`` →
+    ``SetAvailability``): ``recorded_at`` today, ``availability.source =
+    "letter_form"``, a reminder close cleared (a new value, ruling V-4). The same
+    value is NOT re-written — a pre-filled field sent back unchanged is no
+    re-confirmation, so it must not reset the 90-day staleness clock. Empty →
+    nothing (the letter form never clears the profile). Returns whether it wrote.
+    """
+    if not request.save_availability_to_profile:
+        return False
+    text = (request.availability or "").strip()
+    if not text:
+        return False
+    stored = (profile.profile_json or {}).get("availability") or {}
+    if _availability_key(text) == _availability_key(stored.get("text")):
+        return False
+    from applire.services.profile import record_availability
+
+    await record_availability(
+        db, text=text, source="manual_edit", door="letter_form",
+        user_id=uid, commit=False,
+    )
+    logger.info("LETTER_AVAILABILITY_SAVED user_id=%s", uid)
+    return True
+
+
 async def get_cover_letter_status(
     cl_id: uuid.UUID,
     db: AsyncSession,
@@ -340,14 +385,22 @@ async def get_cover_letter_status(
         status=cl.status,
         html_url=html_url,
         pdf_url=pdf_url,
-        error_message=cl.error_message,
+        # MD3-2 (WP-FR): a failed generation always carries an error_message.
+        error_message=cl.error_message or (
+            "The cover letter could not be generated. Generate it again."
+            if cl.status == CoverLetterStatus.failed.value
+            else None
+        ),
         expires_at=cl.expires_at,
         letter_data=letter_data,
         section_overrides=section_overrides,
+        pre_gen_inputs=dict(cl.pre_gen_inputs) if cl.pre_gen_inputs else None,
         origin=cl.origin,
         # #702: through the schema, so `cross_document` reaches the agent door
         # on legacy rows too (derived, never stored-and-trusted).
         critic_report=_critic_report_for_door(cl.critic_report),
+        # ADR-081 cl. 9 amended 2026-10-22 (#786, WP-T): the stored record as-is.
+        review_degradation=normalize_stored(cl.review_degradation),
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=cl.document_language,
         # F-4b: the stored per-document override (None/True/False) and the
@@ -916,18 +969,40 @@ async def get_cover_letter_by_job(
 
 
 def _default_color_context() -> dict:
+    """The letter's colours when no colour profile is set: the CV's own default
+    (``color_detection._default_context``), so the two documents of one application
+    read as one set (L-2 = A, Hazelnut build 3). Was a separate navy ``#1a1a2e``
+    against the CV's blue — and on ``tech_developer`` the name in ``--primary`` sat
+    dark-on-dark."""
+    from applire.services.color_detection import _default_context
+
+    c = _default_context()
     return {
-        "primary": "#1a1a2e",
-        "primary_tint": "#e8e8f0",
-        "surface": "#1a1a2e",
-        "surface_text": "#ffffff",
+        "primary": c.primary,
+        "primary_tint": c.primary_tint,
+        "surface": c.surface,
+        "surface_text": c.surface_text,
     }
 
 
-def _inject_letter_date(letter_data: dict, language: str, today: date | None = None) -> dict:
+def _inject_letter_date(
+    letter_data: dict, language: str, today: date | None = None, *, location: str | None = None
+) -> dict:
     """Set recipient.date from the system clock, overwriting any LLM value —
-    the model cannot know today's date and hallucinates one if asked."""
-    letter_data.setdefault("recipient", {})["date"] = format_letter_date(language, today)
+    the model cannot know today's date and hallucinates one if asked.
+
+    Hazelnut build 3 (784 date-line line, ADR-094 cl. L2 amended 2026-10-22): with
+    the sender's recorded ``location`` the line reads "Koblenz, 20. Oktober 2026"
+    (DIN 5008) — the same ``Ort, Datum`` helper the CV's closing line uses
+    (``signature.format_place_date``, ADR-066), so both documents of one
+    application date themselves identically. No location → the bare date."""
+    if location is not None:
+        from applire.services.signature import format_place_date
+
+        line = format_place_date(location, language, today)
+    else:
+        line = format_letter_date(language, today)
+    letter_data.setdefault("recipient", {})["date"] = line
     return letter_data
 
 
@@ -1000,7 +1075,7 @@ def _inject_salutation(letter_data: dict, language: str) -> dict:
     a missing salutation is a formal defect in both DE and EN business letters
     (flagged by an HR screener in the 2026-07-21 edge hiring-panel run). We only
     inject the generic, always-correct floor ("Sehr geehrte Damen und Herren," /
-    "Dear Sir or Madam,") — a capable agent is guided to author the named form
+    "Dear Hiring Manager,") — a capable agent is guided to author the named form
     itself, and injecting a guessed named/gendered Anrede risks getting it wrong.
     """
     from applire.templates.labels import cover_letter_labels
@@ -1275,12 +1350,14 @@ async def _render_cover_letter_body(
     # an audit tail cannot inherit it.
     from applire.providers.llm.usage import llm_usage_context
 
+    # ADR-081 cl. 9 amended 2026-10-22 (#786, WP-T): every fail-open exit of the
+    # writing loop's review steps reports to this record; persisted in the ready-commit.
     with llm_usage_context(
         stage="cover_letter",
         document_kind="cover_letter",
         document_id=cl_id,
         application_id=application_id,
-    ):
+    ), review_degradation_record() as degradation:
         async with AsyncSessionLocal() as db:
             try:
                 # Load cover letter record
@@ -1848,9 +1925,14 @@ async def _render_cover_letter_body(
                         # all — `grounding_source` is built once and handed to the reviewer
                         # and the corrector unchanged every round (§5.3.23), so every char
                         # of the audit trail was paid for on each of them.
+                        # A-10 (ADR-078 amended 2026-10-23): every entry left is
+                        # confirmed, so its `status: "confirmed"` says nothing — and
+                        # the reviewer/corrector carried it into the letter as
+                        # "Kubernetes is also a confirmed skill." Dropped here only.
                         "profile": (
                             prompt_profile_view(
-                                exclude_unconfirmed(profile.profile_json), derived_spans="hedge"
+                                exclude_unconfirmed(profile.profile_json), derived_spans="hedge",
+                                entry_status="drop_confirmed",
                             )
                             if profile is not None
                             else {}
@@ -2414,6 +2496,8 @@ async def _render_cover_letter_body(
                     )
                     verdict_hash = subject_hash(cl.letter_data)
 
+                # #786 (WP-T): the degraded review steps ride the ready-commit.
+                cl.review_degradation = degradation.as_json()
                 # Now flip to 'ready' — the report is already committed, so the frontend's
                 # single fetch always sees it.
                 cl.status = CoverLetterStatus.ready.value
@@ -2515,7 +2599,15 @@ def _compose_letter(
     letter_data = _apply_recipient_overrides(letter_data, pre_gen)
     # The letter date is system-injected — the model never sets it (the prior
     # date-hallucination fix, 2026-06-10).
-    letter_data = _inject_letter_date(letter_data, language, today)
+    # ADR-094 cl. L2 amended (Hazelnut build 3): the v2 date line carries the
+    # sender's recorded place — the vault's own location, never invented. v1 keeps
+    # the bare date (location=None).
+    from applire.services.letter_v2 import sender_location
+
+    letter_data = _inject_letter_date(
+        letter_data, language, today,
+        location=None if v1 else (sender_location(profile_json, cv_data) or ""),
+    )
     # #189: the sign-off is chrome — language-routed label + sender-name
     # backfill from the candidate's real name, so the letter is never unsigned.
     letter_data = _normalize_signature_closing(letter_data, language)
@@ -4293,6 +4385,9 @@ async def _update_ats_report_letter(
             profile_row.profile_json if profile_row else {},
             letter_data=audited,
             provider=get_provider(),
+            # B3-10 (WP-FO): what the candidate typed into THIS letter's form is
+            # their own statement for this letter — neutral, never vault evidence.
+            form_inputs=cl.pre_gen_inputs or None,
             # E054 clause 3a/3b: the record's PINNED language — never a fresh
             # resolve, which could diverge after a mid-run override flip.
             document_language=(
@@ -4700,7 +4795,14 @@ async def render_agent_letter(
     _application = await get_application_for_job(job_id, uid, db)
     language = resolve_document_language(_application, job)
     if not letter_data["recipient"].get("date"):
-        letter_data = _inject_letter_date(letter_data, language)
+        # Hazelnut build 3: the door's empty-date fill carries the sender's
+        # recorded place too (one helper, ADR-094 cl. L2 amended).
+        from applire.services.letter_v2 import sender_location
+
+        letter_data = _inject_letter_date(
+            letter_data, language,
+            location=sender_location(profile.profile_json or {}, None) or "",
+        )
     if not letter_data["signature"].get("closing"):
         letter_data = _normalize_signature_closing(letter_data, language)
     # #224/#564: a missing Anrede is a formal defect — inject the generic

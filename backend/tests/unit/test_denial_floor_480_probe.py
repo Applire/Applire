@@ -92,14 +92,30 @@ _BASE_VAULT = {
 }
 
 
-def _vault(*, skills=(), responsibilities=None) -> dict:
-    """A copy of the base vault with the probe's mutations applied."""
+def _vault(*, skills=(), responsibilities=None, written_by="manual_edit") -> dict:
+    """A copy of the base vault with the probe's mutations applied.
+
+    #480's bullet is EDITOR-typed: the section editor receipts it as a
+    ``manual_edit`` change on the trail, which is what the release corpus reads
+    (ADR-059 amended 2026-10-22, E-11 — only import-provenance prose releases).
+    ``written_by=None`` leaves the bullet unrecorded, i.e. the initial import's."""
     import copy
 
     out = copy.deepcopy(_BASE_VAULT)
     out["skills"].extend(skills)
     if responsibilities is not None:
+        before = list(out["work_experience"][0]["responsibilities"])
         out["work_experience"][0]["responsibilities"] = list(responsibilities)
+        if written_by is not None:
+            out["metadata"]["enrichment_history"] = [{
+                "source": written_by,
+                "timestamp": "2026-08-01T00:00:00Z",
+                "changes": [{
+                    "section": "work_experience", "field": "responsibilities",
+                    "action": "updated", "old_value": before,
+                    "new_value": list(responsibilities),
+                }],
+            }]
     return out
 
 
@@ -187,6 +203,18 @@ def test_the_vault_re_evaluation_thread_refuses_the_same_bullet():
     }
     out, _changed = reevaluate_gap_ledger_against_vault([row], vault)
     assert (out[0]["status"], bool(out[0]["claimable"])) == ("gap", False)
+
+
+def test_the_same_bullet_from_the_imported_cv_releases_the_bare_concept():
+    """E-11 (ADR-059 amended 2026-10-22, ruling G-2 = 1a): the line #480 draws
+    is the bullet's PROVENANCE, not prose as such. The candidate's own imported
+    CV naming bare "Kubernetes" outside the narrower denied compound "hands-on
+    Kubernetes operations" releases it — the editor-typed bullet above does not."""
+    vault = _vault(
+        responsibilities=["Ran the Kubernetes rollout for the platform group."],
+        written_by=None,
+    )
+    assert _rebuild(vault) == ("direct", True)
 
 
 @pytest.mark.asyncio

@@ -25,6 +25,8 @@ import { useCurrentUser } from "@/lib/auth/current-user";
 import { isNavItemActive, navItemsFor } from "./nav-items";
 import { avatarInitials } from "./avatar";
 import { useGuardedPush } from "@/components/document/useUnsavedDraftGuard";
+import { displayName } from "@/lib/display-name";
+import { formatVersion } from "@/lib/format-version";
 
 interface AppSidebarProps {
   userName?: string | null;
@@ -47,7 +49,7 @@ export function isDocumentRoute(pathname: string | null | undefined): boolean {
   return DOCUMENT_ROUTE_RE.test(pathname ?? "");
 }
 
-export function AppSidebar({ userName }: AppSidebarProps) {
+export function AppSidebar({ userName: rawUserName }: AppSidebarProps) {
   const pathname = usePathname();
   // M5 — every nav button goes past an open page's unsaved-draft guard.
   const navigate = useGuardedPush();
@@ -63,6 +65,8 @@ export function AppSidebar({ userName }: AppSidebarProps) {
 
   // US330: the e-mail sits under the profile name (G-2); with no profile yet
   // the e-mail alone is shown and the initial comes from it (no name ≠ vault).
+  // An all-caps CV header ("STEFAN BRANDT") is shown as "Stefan Brandt".
+  const userName = displayName(rawUserName);
   const initials = avatarInitials(userName, email);
   const items = navItemsFor(isAdmin);
 
@@ -224,7 +228,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
           data-testid="sidebar-version"
           className="text-[10px] text-center text-outline-variant"
         >
-          {process.env.NEXT_PUBLIC_APP_VERSION}
+          {formatVersion(process.env.NEXT_PUBLIC_APP_VERSION)}
         </p>
       </div>
     </aside>

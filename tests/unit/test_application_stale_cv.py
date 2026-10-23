@@ -467,3 +467,176 @@ async def test_dismiss_false_is_a_noop(db):
         db,
     )
     assert patched.stale_cv is not None
+
+
+# ---------------------------------------------------------------------------
+# Re-probe N3 (Hazelnut b3): only what a CV is written from is growth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_notice_period_saved_after_the_cv_offers_no_retailor(db):
+    """The letter form saves the notice period to the profile (B3-11) — an
+    enrichment record with one `availability` change. No CV renders it, so it
+    must not read as "Dein Profil ist gewachsen: availability +1"."""
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("availability", "updated")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv is None
+
+
+@pytest.mark.asyncio
+async def test_only_cv_feeding_sections_are_counted_and_name_the_head(db):
+    """Bookkeeping sections never reach the delta; the enrichment head is the
+    newest CV-feeding change, not a later notice-period save."""
+    skills_at = _NOW - timedelta(days=3)
+    db.add(_make_profile([
+        _enrichment_record(_iso(skills_at), [
+            _change("skills"), _change("metadata"), _change("_meta"), _change(""),
+            _change("professional_summary"),
+        ]),
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("availability")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
+    assert hint is not None
+    assert [(g.section, g.count) for g in hint.gained] == [
+        ("professional_summary", 1), ("skills", 1),
+    ]
+    assert hint.profile_enriched_at == skills_at
+
+
+@pytest.mark.asyncio
+async def test_a_dismissed_hint_stays_dismissed_after_a_notice_period_save(db):
+    from applire.models.profile import MasterProfile
+    from sqlalchemy import select
+
+    from tests.support.profile_factory import set_profile_json
+
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+    await patch_application(
+        app.id, _STUB_USER_ID, PatchApplicationRequest(dismiss_stale_cv=True), db
+    )
+    profile = (await db.execute(select(MasterProfile))).scalar_one()
+    history = list(profile.profile_json["metadata"]["enrichment_history"])
+    history.append(_enrichment_record(
+        _iso(datetime.now(timezone.utc) + timedelta(seconds=1)), [_change("availability")],
+    ))
+    set_profile_json(profile, {**profile.profile_json, "metadata": {"enrichment_history": history}})
+    await db.commit()
+
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv is None
+
+
+def test_every_cv_feeding_section_is_a_profile_section():
+    from applire.schemas.profile import MasterProfileData
+    from applire.services.application import CV_FEEDING_SECTIONS
+
+    assert CV_FEEDING_SECTIONS <= set(MasterProfileData.model_fields)
+    assert "availability" not in CV_FEEDING_SECTIONS
+
+
+# ---------------------------------------------------------------------------
+# Ruling B3-12: a newly recorded limit gets its own hint, and it wins
+# ---------------------------------------------------------------------------
+
+
+def _denial(action: str = "added") -> dict:
+    return {"section": "metadata", "field": "denied_concepts", "action": action,
+            "new_value": "Kubernetes"}
+
+
+@pytest.mark.asyncio
+async def test_a_limit_recorded_after_the_cv_arms_the_limit_hint(db):
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_denial()]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
+    assert hint is not None
+    assert hint.reason == "new_limit"
+    assert hint.gained == []
+
+
+@pytest.mark.asyncio
+async def test_the_limit_wins_over_growth_in_one_hint(db):
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=3)), [_change("skills")]),
+        _enrichment_record(_iso(_NOW - timedelta(days=2)), [_denial()]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
+    assert hint.reason == "new_limit"
+    assert [(g.section, g.count) for g in hint.gained] == [("skills", 1)]
+
+
+@pytest.mark.asyncio
+async def test_growth_alone_stays_profile_grew_and_an_older_limit_does_not_count(db):
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=9)), [_denial()]),  # before the CV
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv.reason == "profile_grew"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["updated", "removed"])
+async def test_a_reconfirmed_escalated_or_removed_limit_is_not_a_new_one(db, action):
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_denial(action)]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv is None
+
+
+@pytest.mark.asyncio
+async def test_a_limit_after_a_dismissal_rearms_the_hint(db):
+    from applire.models.profile import MasterProfile
+    from sqlalchemy import select
+
+    from tests.support.profile_factory import set_profile_json
+
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+    await patch_application(
+        app.id, _STUB_USER_ID, PatchApplicationRequest(dismiss_stale_cv=True), db
+    )
+    profile = (await db.execute(select(MasterProfile))).scalar_one()
+    history = list(profile.profile_json["metadata"]["enrichment_history"])
+    history.append(_enrichment_record(
+        _iso(datetime.now(timezone.utc) + timedelta(seconds=1)), [_denial()],
+    ))
+    set_profile_json(profile, {**profile.profile_json, "metadata": {"enrichment_history": history}})
+    await db.commit()
+
+    hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
+    assert hint is not None and hint.reason == "new_limit"

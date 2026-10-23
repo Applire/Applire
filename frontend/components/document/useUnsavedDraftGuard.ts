@@ -165,5 +165,31 @@ export function useUnsavedDraftGuard(dirty: boolean, onAttempt: (nav: GuardedNav
     release: () => {
       armed.current = false;
     },
+    /**
+     * The draft ends while the page stays (Hazelnut b3 MD3-1: the letter form
+     * is cancelled or submitted — it unmounts while its fields still differ,
+     * so the "dirty → false" pop above never runs). Pops the guard entry and
+     * resolves once the browser has traversed, so a navigation the caller
+     * starts next cannot be undone by the pop. Resolves at once when nothing
+     * is armed; a traversal that never reports resolves after 400 ms.
+     */
+    disarm: () =>
+      new Promise<void>((resolve) => {
+        if (!armed.current) {
+          resolve();
+          return;
+        }
+        armed.current = false;
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          window.removeEventListener("popstate", finish);
+          resolve();
+        };
+        window.addEventListener("popstate", finish);
+        window.setTimeout(finish, 400);
+        window.history.back();
+      }),
   };
 }

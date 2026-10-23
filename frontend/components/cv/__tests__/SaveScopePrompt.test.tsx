@@ -32,6 +32,17 @@ describe("SaveScopePrompt", () => {
     expect(screen.getByTestId("save-cv-only-btn")).toBeTruthy();
   });
 
+  it("#789: 'Just this CV' is the default — first, filled, focused; the profile write is secondary", () => {
+    render(withIntl(<SaveScopePrompt onConfirm={vi.fn()} onCancel={vi.fn()} />));
+    const cvOnly = screen.getByTestId("save-cv-only-btn");
+    const toProfile = screen.getByTestId("save-to-profile-btn");
+    expect(cvOnly.compareDocumentPosition(toProfile) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(cvOnly.className).toContain("bg-teal");
+    expect(toProfile.className).not.toContain("bg-teal");
+    expect(document.activeElement).toBe(cvOnly);
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Where should this change apply?");
+  });
+
   it("'Save to Profile' calls onConfirm with true", () => {
     const onConfirm = vi.fn();
     render(withIntl(<SaveScopePrompt onConfirm={onConfirm} onCancel={vi.fn()} />));

@@ -82,3 +82,59 @@ describe("DashboardPage (US224 mobile grid)", () => {
     expect(grid.className).toContain("md:grid-cols-2");
   });
 });
+
+// Hazelnut b3 #789 — first contact on the dashboard.
+vi.mock("@/components/onboarding/FirstRunScreen", () => ({
+  FirstRunScreen: () => <div data-testid="first-run" />,
+}));
+
+function mockProfile(opts: { exists: boolean | "unreadable"; name?: string }) {
+  global.fetch = vi.fn((url: string) => {
+    if (url.includes("/api/applications")) {
+      return Promise.resolve({ ok: true, json: async () => ({ items: opts.exists === false ? [] : APPLICATIONS }) });
+    }
+    if (url.includes("/api/profile/exists")) {
+      return opts.exists === "unreadable"
+        ? Promise.resolve({ ok: false, status: 503, json: async () => ({}) })
+        : Promise.resolve({ ok: true, json: async () => ({ exists: opts.exists }) });
+    }
+    if (url.includes("/api/profile")) {
+      return Promise.resolve({ ok: true, json: async () => ({ profile: { personal_info: { name: opts.name ?? null } } }) });
+    }
+    return Promise.resolve({ ok: false, json: async () => ({}) });
+  }) as unknown as typeof fetch;
+}
+
+describe("DashboardPage (#789 first contact)", () => {
+  it("a person without a profile gets the first-run screen in place (ruling F1-3)", async () => {
+    mockProfile({ exists: false });
+    render(withIntl(<DashboardPage />));
+    await waitFor(() => screen.getByTestId("dashboard-first-run"));
+    expect(screen.getByTestId("first-run")).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-applications")).toBeNull();
+  });
+
+  it("an unreadable profile check keeps the dashboard (an outage is not a fresh start)", async () => {
+    mockProfile({ exists: "unreadable" });
+    render(withIntl(<DashboardPage />));
+    await waitFor(() => screen.getByTestId("applications-grid"));
+    expect(screen.queryByTestId("dashboard-first-run")).toBeNull();
+  });
+
+  it("greets an all-caps CV name in display casing", async () => {
+    mockProfile({ exists: true, name: "MARCUS WEBER" });
+    render(withIntl(<DashboardPage />));
+    const greeting = () => screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent).join(" | ");
+    await waitFor(() => expect(greeting()).toContain("Marcus"));
+    expect(greeting()).not.toContain("MARCUS");
+  });
+
+  it("below md the applications come before the tools row", async () => {
+    mockProfile({ exists: true });
+    render(withIntl(<DashboardPage />));
+    await waitFor(() => screen.getByTestId("applications-grid"));
+    expect(screen.getByTestId("dashboard-applications").className).toContain("order-1");
+    expect(screen.getByTestId("dashboard-tools-row").className).toContain("order-2");
+    expect(screen.getByTestId("dashboard-tools-row").className).toContain("md:order-1");
+  });
+});

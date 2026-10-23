@@ -33,6 +33,33 @@ const mockPatch = vi.mocked(patchApplicationStatus);
 describe("MarkAppliedPrompt (E039/US218 — post-download natural moment)", () => {
   beforeEach(() => {
     mockPatch.mockClear();
+    window.sessionStorage.clear();
+  });
+
+  it("is a labelled modal dialog (a11y, #789)", () => {
+    render(<MarkAppliedPrompt applicationId="app-1" stampAppliedAt onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAccessibleName("markAppliedTitle");
+  });
+
+  it("asks once per application per session: a repeat closes itself unpainted (#789)", async () => {
+    const first = render(<MarkAppliedPrompt applicationId="app-1" stampAppliedAt onClose={() => {}} />);
+    expect(screen.getByTestId("mark-applied-prompt")).toBeInTheDocument();
+    first.unmount();
+
+    const onClose = vi.fn();
+    render(<MarkAppliedPrompt applicationId="app-1" stampAppliedAt onClose={onClose} />);
+    expect(screen.queryByTestId("mark-applied-prompt")).toBeNull();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(mockPatch).not.toHaveBeenCalled();
+  });
+
+  it("another application is still asked (the memory is per document set)", () => {
+    const first = render(<MarkAppliedPrompt applicationId="app-1" stampAppliedAt onClose={() => {}} />);
+    first.unmount();
+    render(<MarkAppliedPrompt applicationId="app-2" stampAppliedAt onClose={() => {}} />);
+    expect(screen.getByTestId("mark-applied-prompt")).toBeInTheDocument();
   });
 
   it("renders the prompt question", () => {

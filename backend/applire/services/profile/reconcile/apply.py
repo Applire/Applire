@@ -47,6 +47,7 @@ from applire.schemas.profile import (
     FieldChange,
     ImportNotApplied,
     MatchReceipt,
+    RestatedReceipt,
     Language,
     MasterProfileData,
     ProfileMetaBlock,
@@ -100,6 +101,8 @@ from applire.services.profile.reconcile.ops import (
     MatchExisting,
     ReplaceSection,
     SeparateMatch,
+    SetAvailability,
+    DismissAvailabilityReminder,
     RequestConfirmation,
     ResolveConfirmation,
     ResolveField,
@@ -156,7 +159,7 @@ def _promote_to_confirmed(entity: Any, op_status: str) -> bool:
     return True
 
 
-def _merge_declared_proficiency(existing: str, incoming: str | None) -> str:
+def _merge_declared_proficiency(existing: str | None, incoming: str | None) -> str | None:
     """ADR-061 clause 5 — a declared proficiency is a ceiling, not a floor.
 
     ``existing`` is the tier already recorded on the profile's skill. A prior
@@ -258,6 +261,8 @@ class ApplyResult(BaseModel):
     # #707 — `match_existing` receipts: recognised-as-present, nothing written.
     # Kept OFF `changes` on purpose (see `schemas.profile.MatchReceipt`).
     matched: list[MatchReceipt] = []
+    # D-B3V6 — second-source bullets held back as restatements (import only).
+    restated: list[RestatedReceipt] = []
     # 783:L41 — the ingest's extraction review outcome; set exclusively by
     # `ApplyImportMerge`, `None` for every other batch.
     extraction_review: ExtractionReview | None = None
@@ -459,10 +464,17 @@ def _coerce_to_field_type(model_or_instance: Any, field_name: str, value: Any) -
         return _SKIP
 
 
-def _append_dedup(existing: list[str], incoming: list[str]) -> bool:
-    """Case-insensitively append non-dup strings; return True if the list grew."""
+def _append_dedup(existing: list[str], incoming: list[str]) -> list[str]:
+    """Case-insensitively append non-dup strings; return the items appended.
+
+    The returned list is falsy when nothing was appended, so ``if
+    _append_dedup(...)`` keeps reading as "did the list grow". ADR-063 amended
+    2026-10-22 (D-B3V2): a merge receipt carries THESE items — before, it
+    carried the whole incoming list, so it claimed a write for items the entry
+    already held.
+    """
     seen = {_norm(x) for x in existing}
-    grew = False
+    appended: list[str] = []
     for item in incoming:
         if not isinstance(item, str):
             continue
@@ -470,8 +482,8 @@ def _append_dedup(existing: list[str], incoming: list[str]) -> bool:
         if key and key not in seen:
             existing.append(item)
             seen.add(key)
-            grew = True
-    return grew
+            appended.append(item)
+    return appended
 
 
 def _section_for(entity: Any) -> str:
@@ -548,6 +560,7 @@ def apply_ops(
     not_applied: list[ImportNotApplied] = []  # #615 — see ApplyResult.not_applied
     extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
+    restated: list[RestatedReceipt] = []  # D-B3V6 — see ApplyResult.restated
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
     ref_map: dict[str, ExperienceBase] = {}
@@ -688,6 +701,18 @@ def apply_ops(
             # resolved to None: no exception, no conflicts entry, no witness —
             # a silently discarded dispute. See resolve_any's own docstring.
             _apply_flag_conflict(op, resolve_any, source, conflicts)
+        elif isinstance(op, SetAvailability):
+            # D-B3V7 (ADR-063 amended 2026-10-22; rulings 787:L3 + V-4).
+            _apply_set_availability(op, new_profile, source, changes)
+        elif isinstance(op, DismissAvailabilityReminder):
+            # D-B3V7 (ruling V-4) — the server-side close of the reminder card.
+            from applire.services.profile.availability import today_utc
+            from applire.schemas.profile import Availability
+
+            current = new_profile.availability or Availability()
+            new_profile.availability = current.model_copy(
+                update={"reminder_dismissed_at": today_utc().isoformat()}
+            )
         elif isinstance(op, SeparateMatch):
             # #717 (ADR-063 amended 2026-10-07 cl. 4, ruling V-2) — the
             # candidate's "Nicht dasselbe". Raises when no receipt may be undone.
@@ -695,7 +720,7 @@ def apply_ops(
         elif isinstance(op, MatchExisting):
             # #707 (ADR-046 amended 2026-09-16) — the model's "already there":
             # a receipt on `matched`, never a change, never a write.
-            _apply_match_existing(op, resolve_any, matched)
+            _apply_match_existing(op, resolve_any, matched, new_profile.skills)
         elif isinstance(op, RequestConfirmation):
             pending.append(op)
         elif isinstance(op, ReplaceSection):
@@ -745,6 +770,7 @@ def apply_ops(
             new_profile = op.merged.model_copy(deep=True)
             changes.extend(op.changes)
             matched.extend(op.matched)  # #707 — the intake's bindings ride with it
+            restated.extend(op.restated)  # D-B3V6
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
             extraction_review = op.extraction_review
@@ -828,6 +854,7 @@ def apply_ops(
         reconciliation=reconciliation,
         not_applied=not_applied,
         matched=matched,
+        restated=restated,
         extraction_review=extraction_review,
     )
 
@@ -937,7 +964,13 @@ def _fill_empties(entity: Any, fields: dict[str, Any]) -> bool:
     return changed
 
 
-def _added(section: str, field: str, value: Any) -> FieldChange:
+def _entity_id_of(entity: Any) -> str | None:
+    """The receipt's ``entity_id`` (ADR-063 amended 2026-10-22, D-B3V2)."""
+    value = getattr(entity, "id", None)
+    return str(value) if value else None
+
+
+def _added(section: str, field: str, value: Any, *, entity: Any = None) -> FieldChange:
     return FieldChange(
         section=section,
         field=field,
@@ -945,10 +978,13 @@ def _added(section: str, field: str, value: Any) -> FieldChange:
         new_value=value,
         rationale=f"Added {field} to {section} via reconciliation.",
         rationale_key="reconcile_added",
+        entity_id=_entity_id_of(entity),
     )
 
 
-def _merged(section: str, field: str, old: Any, new: Any) -> FieldChange:
+def _merged(
+    section: str, field: str, old: Any, new: Any, *, entity: Any = None
+) -> FieldChange:
     return FieldChange(
         section=section,
         field=field,
@@ -957,10 +993,13 @@ def _merged(section: str, field: str, old: Any, new: Any) -> FieldChange:
         new_value=new,
         rationale=f"Merged {field} into existing {section} via reconciliation.",
         rationale_key="reconcile_merged",
+        entity_id=_entity_id_of(entity),
     )
 
 
-def _updated(section: str, field: str, old: Any, new: Any) -> FieldChange:
+def _updated(
+    section: str, field: str, old: Any, new: Any, *, entity: Any = None
+) -> FieldChange:
     return FieldChange(
         section=section,
         field=field,
@@ -969,6 +1008,7 @@ def _updated(section: str, field: str, old: Any, new: Any) -> FieldChange:
         new_value=new,
         rationale=f"Filled empty {field} on {section} via reconciliation.",
         rationale_key="reconcile_updated",
+        entity_id=_entity_id_of(entity),
     )
 
 
@@ -1656,7 +1696,9 @@ def _apply_resolve_confirmation(
             )
             continue
         if _append_dedup(getattr(entity, field), [text]):
-            changes.append(_merged(_section_for(entity), field, None, [text]))
+            changes.append(
+                _merged(_section_for(entity), field, None, [text], entity=entity)
+            )
         else:
             # Already on that entry: the candidate's decision is satisfied and
             # the vault is correct, but `changes` stays silent — so the receipt
@@ -1694,7 +1736,9 @@ def _apply_resolve_confirmation(
                 )
                 continue
             setattr(entity, field, coerced)
-            changes.append(_updated(_section_for(entity), field, current, coerced))
+            changes.append(
+                _updated(_section_for(entity), field, current, coerced, entity=entity)
+            )
         else:
             # Same refusal `_apply_set_field` makes: a populated scalar is a
             # dispute, and an attribution answer is not the act that settles it.
@@ -2188,7 +2232,7 @@ def _apply_upsert_work(
         )
         profile.work_experience.append(entry)
         ref_map[op.ref] = entry
-        changes.append(_added("work_experience", "company", entry.company))
+        changes.append(_added("work_experience", "company", entry.company, entity=entry))
         return
 
     # Merge into existing.
@@ -2210,7 +2254,9 @@ def _apply_upsert_work(
         and _norm(op.role) not in {_norm(a) for a in target.role_aliases}
     ):
         target.role_aliases.append(op.role)
-        changes.append(_merged("work_experience", "role_aliases", None, op.role))
+        changes.append(
+            _merged("work_experience", "role_aliases", None, op.role, entity=target)
+        )
     # ADR-046 amended 2026-10-07 (#716), writer (b) — the employer's other name
     # from a targeted upsert — lives in the IMPORT bridge
     # (`alias_writer.record_targeted_upsert_aliases`), never here: this applier
@@ -2224,7 +2270,11 @@ def _apply_upsert_work(
     if op.company:
         preferred = _prefer_mixed_case_spelling(target.company, op.company)
         if preferred != target.company:
-            changes.append(_updated("work_experience", "company", target.company, preferred))
+            changes.append(
+                _updated(
+                    "work_experience", "company", target.company, preferred, entity=target
+                )
+            )
             target.company = preferred
     # Fill only empties for the rest (never overwrite company/role).
     _fill_empties(
@@ -2313,7 +2363,7 @@ def _apply_upsert_project(
         )
         profile.projects.append(entry)
         ref_map[op.ref] = entry
-        changes.append(_added("projects", "name", entry.name))
+        changes.append(_added("projects", "name", entry.name, entity=entry))
         return
 
     ref_map[op.ref] = target
@@ -2424,7 +2474,9 @@ def _apply_upsert_volunteer(
         )
         profile.volunteer_activities.append(entry)
         ref_map[op.ref] = entry
-        changes.append(_added("volunteer_activities", "organization", entry.organization))
+        changes.append(
+            _added("volunteer_activities", "organization", entry.organization, entity=entry)
+        )
         return
 
     ref_map[op.ref] = target
@@ -2535,8 +2587,9 @@ def _apply_add_bullets(op, resolve, changes, pending, not_applied=None):
     ):
         if not incoming:
             continue
-        if _append_dedup(getattr(entity, field), incoming):
-            changes.append(_merged(section, field, None, incoming))
+        appended = _append_dedup(getattr(entity, field), incoming)
+        if appended:
+            changes.append(_merged(section, field, None, appended, entity=entity))
 
 
 def _apply_transcribed_years(existing: Skill, op) -> None:
@@ -2770,6 +2823,12 @@ def _targeted_skill(op, profile):
         s is not target and _norm(op.name) in _aliases.names_of(s, "name", "skills")
         for s in profile.skills
     ):
+        return None
+    # #801 (ADR-046 amended 2026-10-22) — nor a target the op's own `existing`
+    # does not name, nor one across technical/soft (facts; binding_guard).
+    from applire.services.profile.reconcile.binding_guard import skill_binding_refusal
+
+    if skill_binding_refusal(op.name, op.category, getattr(op, "existing", None), target):
         return None
     return target
 
@@ -3077,7 +3136,7 @@ def _match_receipt(section: str, entity: Any, incoming: str, basis: str = "model
     )
 
 
-def _apply_match_existing(op, resolve, matched):
+def _apply_match_existing(op, resolve, matched, skills=()):
     """#707 (ADR-046 amended 2026-09-16, clause 3) — record the model's binding
     of an incoming entry to an existing entity; write nothing.
 
@@ -3095,7 +3154,22 @@ def _apply_match_existing(op, resolve, matched):
             "binding for %r recorded nowhere (#707)", op.target, op.incoming,
         )
         return
-    receipt = _match_receipt(_section_for(entity), entity, op.incoming)
+    section = _section_for(entity)
+    if section == "skills":
+        # #801 (ADR-046 amended 2026-10-22) — the op names the entry it means;
+        # an id that names another skill is a slip, not a binding (checks (a)
+        # and (c); the op carries no category). The import door has already rewritten
+        # such an op (binding_guard.refuse_false_skill_bindings).
+        from applire.services.profile.reconcile.binding_guard import skill_binding_refusal
+
+        reason = skill_binding_refusal(op.incoming, None, getattr(op, "existing", None), entity, skills)
+        if reason is not None:
+            logger.warning(
+                "reconcile: match_existing %r -> %r refused (%s); no receipt (#801)",
+                op.incoming, getattr(entity, "name", None), reason,
+            )
+            return
+    receipt = _match_receipt(section, entity, op.incoming)
     receipt.entity_id = str(op.target)
     if _same_words(receipt.incoming, receipt.existing):
         # E2E-3 (b), 2026-10-08 — the model also matches word-for-word
@@ -3294,7 +3368,9 @@ def _apply_set_field(op, resolve, changes, not_applied=None):
     if value is _SKIP:
         return  # uncoercible — never setattr a type the schema would reject
     setattr(entity, op.field, value)
-    changes.append(_updated(_section_for(entity), op.field, current, value))
+    changes.append(
+        _updated(_section_for(entity), op.field, current, value, entity=entity)
+    )
 
 
 #: `personal_info` fields another writer OWNS — an import may neither write
@@ -3512,3 +3588,37 @@ def _apply_flag_conflict(op, resolve, source, conflicts):
             source=source,
         )
     )
+
+
+def _apply_set_availability(op, profile, source, changes) -> None:
+    """D-B3V7 — the notice period's one writer. Stamps ``recorded_at`` (today,
+    UTC) and ``source``; clears a reminder close (a new value is a new state,
+    ruling V-4); an empty text clears the value. A write of the same text
+    refreshes ``recorded_at`` — re-confirming an unchanged notice period is a
+    real act that makes it current again."""
+    from applire.schemas.profile import Availability
+    from applire.services.profile.availability import today_utc
+
+    text = (op.text or "").strip()
+    old = profile.availability.text if profile.availability else None
+    if not text and not (old or "").strip():
+        # A-7 (fix round): clearing a value that is not there is a no-op — it
+        # must not drop a reminder close (``reminder_dismissed_at``) with it.
+        return
+    if not text:
+        if old:
+            changes.append(FieldChange(
+                section="availability", field="text", action="removed",
+                old_value=old, new_value=None, rationale_key="availability_cleared",
+            ))
+        profile.availability = None
+        return
+    profile.availability = Availability(
+        text=text, recorded_at=today_utc().isoformat(), source=getattr(op, "door", None) or source,
+        reminder_dismissed_at=None,
+    )
+    changes.append(FieldChange(
+        section="availability", field="text",
+        action="updated" if old else "added",
+        old_value=old, new_value=text, rationale_key="availability_recorded",
+    ))

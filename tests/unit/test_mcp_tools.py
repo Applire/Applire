@@ -381,7 +381,7 @@ async def test_analyze_gaps_happy_path():
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider"),
-        patch("applire.mcp.server.gap_svc.analyze_gaps", AsyncMock(return_value=mock_result)),
+        patch("applire.mcp.server.gap_svc.analyze_or_refresh_gaps", AsyncMock(return_value=mock_result)),
     ):
         result = await analyze_gaps(job_id=job_id)
 
@@ -423,7 +423,7 @@ async def test_analyze_gaps_surfaces_keyword_liabilities_data_no_new_tool():
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider"),
-        patch("applire.mcp.server.gap_svc.analyze_gaps", AsyncMock(return_value=real_result)),
+        patch("applire.mcp.server.gap_svc.analyze_or_refresh_gaps", AsyncMock(return_value=real_result)),
     ):
         result = await analyze_gaps(job_id=job_id)
 
@@ -796,6 +796,85 @@ async def test_generate_cover_letter_happy_path():
     assert "cover_letter_id" in result
     assert "html_url" in result
     assert "pdf_url" in result
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_passes_the_six_form_inputs_through_call_tool():
+    """788:L1 (Hazelnut build 3): the agent door takes the web form's six optional
+    inputs and hands them to the SAME request model, through the protocol layer an
+    agent really hits (``mcp.call_tool`` — the tool's advertised input schema)."""
+    from applire.mcp.server import mcp
+
+    job_id = str(uuid.uuid4())
+    cm, _ = _mock_db()
+    svc = AsyncMock(return_value=_mock_result(
+        cover_letter_id=str(uuid.uuid4()), status="pending", html_url="h", pdf_url="p",
+    ))
+    args = {
+        "job_id": job_id,
+        "recipient_name": "Frau Dr. Weber",
+        "recipient_company": "Musterwerk GmbH",
+        "salary": "75.000 € p. a.",
+        "availability": "3 Monate zum Quartalsende",
+        "motivation": "Ich möchte vom Schichtbetrieb in die Werksleitung wechseln.",
+        "tone": "professional",
+    }
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.cover_letter_svc.generate_cover_letter", svc),
+    ):
+        await mcp.call_tool("generate_cover_letter", args)
+
+    request = svc.await_args.args[0]
+    assert str(request.job_id) == job_id
+    for key, value in args.items():
+        if key != "job_id":
+            assert getattr(request, key) == value, key
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_never_invents_an_absent_input():
+    """Only job_id given: every optional input reaches the service as None (tone
+    keeps the web form's default) — the door supplies no value of its own."""
+    from applire.mcp.server import mcp
+
+    cm, _ = _mock_db()
+    svc = AsyncMock(return_value=_mock_result(
+        cover_letter_id=str(uuid.uuid4()), status="pending", html_url="h", pdf_url="p",
+    ))
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.cover_letter_svc.generate_cover_letter", svc),
+    ):
+        await mcp.call_tool("generate_cover_letter", {"job_id": str(uuid.uuid4())})
+
+    request = svc.await_args.args[0]
+    for key in ("recipient_name", "recipient_company", "salary", "availability", "motivation"):
+        assert getattr(request, key) is None, key
+    assert request.tone == "formal"
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_schema_advertises_six_optional_inputs():
+    from applire.mcp.server import mcp
+
+    tool = next(t for t in await mcp.list_tools() if t.name == "generate_cover_letter")
+    props = tool.inputSchema["properties"]
+    assert {"recipient_name", "recipient_company", "salary", "availability",
+            "motivation", "tone"} <= set(props)
+    assert tool.inputSchema.get("required") == ["job_id"]
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_rejects_an_unknown_tone():
+    from applire.mcp.server import mcp
+
+    with pytest.raises(Exception):
+        await mcp.call_tool(
+            "generate_cover_letter", {"job_id": str(uuid.uuid4()), "tone": "flirty"}
+        )
 
 
 @pytest.mark.asyncio

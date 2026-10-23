@@ -46,7 +46,10 @@ from applire.models.application import (
 from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
+from applire.models.gap import GapAnalysis
+from applire.models.gap_job import GapAnalysisJob, GapJobStatus
 from applire.models.job import JobAnalysis
+from applire.models.session import InterviewSession
 from applire.schemas.application import (
     ApplicationListResponse,
     ApplicationResponse,
@@ -176,7 +179,11 @@ async def create_application(
 
     await db.commit()
     await db.refresh(app)
-    return ApplicationResponse.model_validate(app)
+    # A-6 (Hazelnut b3 fix round): the create door answers with the SERVED view
+    # (derived `workflow_status`, `cover_letter_ready`, `workflow_running`,
+    # `flow_current_step`) — the same one read as `list_applications` /
+    # `get_application` serve, never the stored column (E12-788:L21).
+    return await get_application(app.id, user_id, db)
 
 
 async def list_applications(
@@ -194,8 +201,8 @@ async def list_applications(
         )
         .order_by(Application.updated_at.desc())
     )
-    if workflow_status is not None:
-        stmt = stmt.where(Application.workflow_status == workflow_status.value)
+    # E12-788:L21: the workflow_status filter applies to the SERVED value
+    # (derived below), so it runs after the enrichment, not in SQL.
     if user_status is not None:
         stmt = stmt.where(Application.user_status == user_status.value)
     if q:
@@ -234,6 +241,9 @@ async def list_applications(
         items.append(data)
     await _enrich_submitted_cv_meta(items, db, user_id)
     await _enrich_stale_cv(items, db, user_id)
+    await _enrich_workflow_from_artifacts(items, db, user_id)
+    if workflow_status is not None:
+        items = [i for i in items if i.workflow_status == workflow_status]
     return ApplicationListResponse(items=items, total=len(items))
 
 
@@ -248,6 +258,7 @@ async def get_application(
             data.flow_current_step = flow.current_step
     await _enrich_submitted_cv_meta([data], db, user_id)
     await _enrich_stale_cv([data], db, user_id)
+    await _enrich_workflow_from_artifacts([data], db, user_id)
     return data
 
 
@@ -323,6 +334,7 @@ async def patch_application(
     data = ApplicationResponse.model_validate(app)
     await _enrich_submitted_cv_meta([data], db, user_id)
     await _enrich_stale_cv([data], db, user_id)
+    await _enrich_workflow_from_artifacts([data], db, user_id)
     return data
 
 
@@ -369,7 +381,7 @@ async def start_application_workflow(
     _touch(app)
     await db.commit()
     await db.refresh(app)
-    return ApplicationResponse.model_validate(app)
+    return await get_application(app.id, user_id, db)  # A-6: the served view
 
 
 async def sync_workflow_status(
@@ -410,6 +422,138 @@ async def sync_workflow_status(
         )
     )
 
+
+
+# --- E12-788:L21 (founder 2026-10-22): the SERVED workflow status --------------
+#
+# `workflow_status` is stored by `sync_workflow_status` from the flow step — a
+# ledger the agent's à-la-carte path never advances (`analyze_gaps` /
+# `generate_cv` without `advance_flow`), so a finished CV and letter sat under
+# "analyzing" for a whole run (Kaile probe 2026-09-20). The read model now
+# derives what the artifacts PROVE and serves the higher of the two. One
+# derivation for every reader (REST list/get/patch, MCP list/get —
+# ADR-058 door parity); the stored column and its writer are unchanged.
+# `flow_current_step` is NOT lifted: it is the flow's resume pointer and the
+# frontend routes on it.
+
+_WORKFLOW_RANK: dict[str, int] = {
+    WorkflowStatus.none.value: 0,
+    WorkflowStatus.analyzing.value: 1,
+    WorkflowStatus.interviewing.value: 2,
+    WorkflowStatus.cv_generating.value: 3,
+    WorkflowStatus.completed.value: 4,
+}
+_DOC_RUNNING = frozenset({"pending", "generating"})
+_GAP_JOB_RUNNING = frozenset({GapJobStatus.pending.value, GapJobStatus.processing.value})
+
+
+def _served_workflow_status(
+    stored: str,
+    *,
+    has_gap_analysis: bool = False,
+    has_interview: bool = False,
+    cv_statuses: frozenset[str] | set[str] = frozenset(),
+) -> str:
+    """The higher of the stored (flow-step) status and the artifact ladder.
+
+    Ladder: a gap analysis → analyzing · an interview session → interviewing ·
+    a CV being generated → cv_generating · a READY CV → completed. A failed or
+    expired CV proves nothing and does not lift; a letter alone does not lift
+    either ("completed" reads "CV ready"). Never lowers the stored value.
+    """
+    derived = WorkflowStatus.none.value
+    if has_gap_analysis:
+        derived = WorkflowStatus.analyzing.value
+    if has_interview:
+        derived = WorkflowStatus.interviewing.value
+    if cv_statuses & _DOC_RUNNING:
+        derived = WorkflowStatus.cv_generating.value
+    if "ready" in cv_statuses:
+        derived = WorkflowStatus.completed.value
+    if _WORKFLOW_RANK.get(derived, 0) > _WORKFLOW_RANK.get(stored, 0):
+        return derived
+    return stored
+
+
+async def _enrich_workflow_from_artifacts(
+    items: list[ApplicationResponse], db: AsyncSession, user_id: uuid.UUID
+) -> None:
+    """Fill the served `workflow_status`, `cover_letter_ready` and
+    `workflow_running` for a page of applications — five batched, owner-keyed
+    queries for the whole page (no N+1), live rows only."""
+    job_ids = {i.job_analysis_id for i in items}
+    if not job_ids:
+        return
+
+    async def _rows(stmt):
+        return (await db.execute(stmt)).all()
+
+    gap_jobs = {
+        r[0]
+        for r in await _rows(
+            select(GapAnalysis.job_analysis_id).where(
+                GapAnalysis.user_id == user_id,
+                GapAnalysis.job_analysis_id.in_(job_ids),
+                GapAnalysis.deleted_at.is_(None),
+            )
+        )
+    }
+    gap_running = {
+        r[0]
+        for r in await _rows(
+            select(GapAnalysisJob.job_analysis_id).where(
+                GapAnalysisJob.user_id == user_id,
+                GapAnalysisJob.job_analysis_id.in_(job_ids),
+                GapAnalysisJob.status.in_(_GAP_JOB_RUNNING),
+                GapAnalysisJob.deleted_at.is_(None),
+            )
+        )
+    }
+    interview_jobs = {
+        r[0]
+        for r in await _rows(
+            select(InterviewSession.job_analysis_id).where(
+                InterviewSession.user_id == user_id,
+                InterviewSession.job_analysis_id.in_(job_ids),
+                InterviewSession.deleted_at.is_(None),
+            )
+        )
+    }
+    cv_status: dict[uuid.UUID, set[str]] = {}
+    for job_id, st in await _rows(
+        select(GeneratedCV.job_analysis_id, GeneratedCV.status).where(
+            GeneratedCV.user_id == user_id,
+            GeneratedCV.job_analysis_id.in_(job_ids),
+            GeneratedCV.deleted_at.is_(None),
+        )
+    ):
+        cv_status.setdefault(job_id, set()).add(st)
+    letter_status: dict[uuid.UUID, set[str]] = {}
+    for job_id, st in await _rows(
+        select(GeneratedCoverLetter.job_analysis_id, GeneratedCoverLetter.status).where(
+            GeneratedCoverLetter.user_id == user_id,
+            GeneratedCoverLetter.job_analysis_id.in_(job_ids),
+            GeneratedCoverLetter.deleted_at.is_(None),
+        )
+    ):
+        letter_status.setdefault(job_id, set()).add(st)
+
+    for item in items:
+        jid = item.job_analysis_id
+        cvs = cv_status.get(jid, set())
+        letters = letter_status.get(jid, set())
+        item.workflow_status = WorkflowStatus(
+            _served_workflow_status(
+                item.workflow_status.value,
+                has_gap_analysis=jid in gap_jobs,
+                has_interview=jid in interview_jobs,
+                cv_statuses=cvs,
+            )
+        )
+        item.cover_letter_ready = "ready" in letters
+        item.workflow_running = bool(
+            jid in gap_running or (cvs & _DOC_RUNNING) or (letters & _DOC_RUNNING)
+        )
 
 async def mark_application_hired(
     application_id: uuid.UUID,
@@ -607,6 +751,40 @@ def _parse_trail_timestamp(value) -> datetime | None:
     return None
 
 
+#: Re-probe N3 (Hazelnut b3): the vault sections a tailored CV is written from
+#: (`MasterProfileData` content the CV writer reads). Only a change to one of
+#: these is "growth" for the re-tailor nudge. Fail-closed: a section not listed
+#: here (`availability` — the letter's notice period, saved from the letter
+#: form by B3-11 —, `metadata` bookkeeping such as pending confirmations or
+#: denials, `_meta` N/A marks, an empty section) never offers a re-tailor, and
+#: never reaches the nudge's copy as a raw field name. Every name here has a
+#: label in the frontend's `SECTION_LABEL_KEYS` (`lib/stale-cv.ts`).
+CV_FEEDING_SECTIONS: frozenset[str] = frozenset({
+    "personal_info",
+    "professional_summary",
+    "work_experience",
+    "education",
+    "certifications",
+    "skills",
+    "languages",
+    "projects",
+    "publications",
+    "volunteer_activities",
+    "signature_stories",
+})
+
+
+def _is_new_limit(change: dict) -> bool:
+    """B3-12: a NEWLY recorded denial — the candidate stated a limit. An
+    escalation, re-confirmation or probe bookkeeping is ``updated`` and does
+    not count; the limit itself was recorded earlier."""
+    return (
+        change.get("section") == "metadata"
+        and change.get("field") == "denied_concepts"
+        and change.get("action") == "added"
+    )
+
+
 async def _enrich_stale_cv(
     items: list[ApplicationResponse], db: AsyncSession, user_id: uuid.UUID
 ) -> None:
@@ -633,14 +811,22 @@ async def _enrich_stale_cv(
     if not profile_json:
         return
     trail = (profile_json.get("metadata") or {}).get("enrichment_history") or []
-    records: list[tuple[datetime, list[dict]]] = []
+    records: list[tuple[datetime, list[dict], int]] = []
     for rec in trail:
         ts = _parse_trail_timestamp(rec.get("timestamp"))
-        if ts is not None:
-            records.append((ts, rec.get("changes") or []))
+        if ts is None:
+            continue
+        raw = [c for c in (rec.get("changes") or []) if isinstance(c, dict)]
+        # N3: only the changes a CV is written from; a record with none of
+        # them (a notice period saved from the letter form) is not growth.
+        changes = [c for c in raw if c.get("section") in CV_FEEDING_SECTIONS]
+        # B3-12: a newly recorded limit arms its own hint.
+        limits = sum(1 for c in raw if _is_new_limit(c))
+        if changes or limits:
+            records.append((ts, changes, limits))
     if not records:
         return
-    enriched_at = max(ts for ts, _ in records)
+    enriched_at = max(ts for ts, _, _ in records)
 
     job_ids = {i.job_analysis_id for i in candidates}
     cv_result = await db.execute(
@@ -676,13 +862,14 @@ async def _enrich_stale_cv(
             continue
 
         section_counts: dict[str, int] = {}
-        for ts, changes in records:
+        new_limits = 0
+        for ts, changes, limits in records:
             if ts <= cv_created_at:
                 continue
+            new_limits += limits
             for change in changes:
-                section = (change or {}).get("section")
-                if section:
-                    section_counts[section] = section_counts.get(section, 0) + 1
+                section = change["section"]
+                section_counts[section] = section_counts.get(section, 0) + 1
         item.stale_cv = StaleCVInfo(
             latest_cv_id=latest.id,
             latest_cv_created_at=cv_created_at,
@@ -693,6 +880,8 @@ async def _enrich_stale_cv(
                 StaleCVGained(section=s, count=c)
                 for s, c in sorted(section_counts.items(), key=lambda kv: (-kv[1], kv[0]))
             ],
+            # B3-12: one hint; the limit wins when both are newer than the CV.
+            reason="new_limit" if new_limits else "profile_grew",
         )
 
 

@@ -113,7 +113,7 @@ from applire.schemas.application import (
     CreateApplicationRequest,
     PatchApplicationRequest,
 )
-from applire.schemas.cover_letter import CoverLetterGenerateRequest
+from applire.schemas.cover_letter import CLTone, CoverLetterGenerateRequest
 from applire.schemas.cv import GeneratedCVResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
 from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
@@ -1032,7 +1032,9 @@ async def analyze_gaps(job_id: str) -> dict:
         # MD-23: posting access is the door's check (ADR-092 cl. 5c).
         await _owned_job(db, jid)
         try:
-            result = await gap_svc.analyze_gaps(jid, db, provider, user_id=uid)
+            # 788:L24 (ADR-089/090 amended): the UI's path — first analysis
+            # once, then the answer-scoped refresh (per-requirement merge).
+            result = await gap_svc.analyze_or_refresh_gaps(jid, db, provider, user_id=uid)
         except LookupError as exc:
             raise not_found(str(exc))
         except ownership.OwnedNotFound:
@@ -1466,6 +1468,8 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
             report = await oracle_svc.audit_document(
                 "cover_letter", profile_json, letter_data=record.letter_data or {},
                 provider=get_provider(),
+                # B3-10: the letter's own form inputs, as the self-audit reads them.
+                form_inputs=getattr(record, "pre_gen_inputs", None) or None,
                 entailment=False,  # D2-4: the self-audit's setting (selfaudit.py)
             )
     except ownership.OwnedNotFound:
@@ -1667,14 +1671,44 @@ async def render_document(
 
 @agent_tool(
     description=(
-        "Generate a cover letter for the given job. Requires an existing flow "
-        "session (call start_flow first). Returns cover_letter_id, status, "
-        "html_url, and pdf_url. Editing a generated letter's sections is "
-        "UI-only."
+        "Generate a cover letter for a job (after start_flow). Returns "
+        "cover_letter_id, status, html_url, pdf_url. Optional inputs: the "
+        "user's own words only (AGENT_GUIDE.md)."
     )
 )
-async def generate_cover_letter(job_id: str) -> dict:
+async def generate_cover_letter(
+    job_id: str,
+    recipient_name: str = "",
+    recipient_company: str = "",
+    salary: str = "",
+    availability: str = "",
+    motivation: str = "",
+    tone: CLTone = "formal",
+    save_availability_to_profile: bool = False,
+) -> dict:
+    # 788:L1 (Hazelnut build 3): the six REST inputs, additive and optional,
+    # handed to the SAME request model the web form posts — no MCP-only path.
+    # Plain `str = ""` (empty = not given, mapped to None below) keeps the input
+    # schema inside the ADR-056 §4 surface budget (L-4): a nullable union costs
+    # ~30 schema chars per input.
+    from pydantic import ValidationError
+
     jid = _parse_uuid(job_id, "job_id")
+    try:
+        request = CoverLetterGenerateRequest(
+            job_id=jid,
+            recipient_name=recipient_name.strip() or None,
+            recipient_company=recipient_company.strip() or None,
+            salary=salary.strip() or None,
+            availability=availability.strip() or None,
+            motivation=motivation.strip() or None,
+            tone=tone,
+            # MD3-5: an agent writes the profile's notice period only when it
+            # asks to (default false); the caps (MD3-4) are the request model's.
+            save_availability_to_profile=save_availability_to_profile,
+        )
+    except ValidationError as exc:
+        raise invalid_input(str(exc))
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
@@ -1682,7 +1716,7 @@ async def generate_cover_letter(job_id: str) -> dict:
         await _owned_job(db, jid)
         try:
             result = await cover_letter_svc.generate_cover_letter(
-                CoverLetterGenerateRequest(job_id=jid),
+                request,
                 db,
                 provider,
                 base_url=settings.applire_base_url,

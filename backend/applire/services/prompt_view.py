@@ -179,11 +179,34 @@ def prompt_incoming_view(dump: Any) -> Any:
     return _strip_incoming(prompt_profile_view(dump))
 
 
+#: The entity lists ``exclude_unconfirmed`` reduces to claimable entries — after it,
+#: every entry left in them carries ``status: "confirmed"`` by construction.
+CONFIRMED_ONLY_SECTIONS: tuple[str, ...] = ("skills", "languages", "certifications")
+
+
+def _drop_confirmed_status(view: dict[str, Any]) -> dict[str, Any]:
+    """A-10 (Hazelnut b3 fix round, ADR-078 amended 2026-10-23 cl. 4): drop a
+    ``status`` that reads ``"confirmed"`` from the entries of
+    :data:`CONFIRMED_ONLY_SECTIONS`. Any other status value is kept."""
+    out = dict(view)
+    for section in CONFIRMED_ONLY_SECTIONS:
+        entries = out.get(section)
+        if not isinstance(entries, list):
+            continue
+        out[section] = [
+            {k: v for k, v in e.items() if not (k == "status" and v == "confirmed")}
+            if isinstance(e, dict) else e
+            for e in entries
+        ]
+    return out
+
+
 def prompt_profile_view(
     profile_json: Any,
     *,
     keep: frozenset[str] = PROMPT_FACING_METADATA_KEYS,
     derived_spans: str = "keep",
+    entry_status: str = "keep",
 ) -> Any:
     """Return a filtered COPY of ``profile_json`` for model consumption.
 
@@ -206,6 +229,17 @@ def prompt_profile_view(
     wording the letter may use for it), and drops an ``llm_estimated`` span
     (no dated evidence: the Oracle could never check it). A ``transcribed``
     span is the candidate's own number and is unchanged.
+
+    ``entry_status`` (A-10, ADR-078 amended 2026-10-23) is a third clause-4
+    narrowing: ``"keep"`` (default) leaves every entry's ``status``;
+    ``"drop_confirmed"`` — the letter review loop's ``grounding_source``, built
+    over ``exclude_unconfirmed`` so every skill/language/certification left IS
+    confirmed — drops the value that then says nothing. Rendered 52 times, the
+    reviewer read it as candidate material ("the candidate source lists
+    Kubernetes as a confirmed skill") and the corrector wrote it into the letter
+    ("Kubernetes is also a confirmed skill."): 5/5 replays as captured, 0/5 with
+    the status stripped, with no prompt rule added (adv log recs 160→161,
+    luna, thinking off, 2026-10-23).
 
     Tolerant of ``None`` and malformed shapes at every level: a prompt-input
     filter must never become a new way for generation to fail, so anything it
@@ -245,8 +279,25 @@ def prompt_profile_view(
             k: v for k, v in personal_info.items() if k not in PROMPT_EXCLUDED_PERSONAL_INFO_KEYS
         }
 
+    # D-B3V7 (rulings 787:L3 + V-4) — the notice period. Absent from the view
+    # while nothing is recorded (no `"availability": null` in every prompt), and
+    # only its CONTENT when set: the text and when it was recorded. Its source
+    # and the reminder-dismissal date are bookkeeping no model reads.
+    if "availability" in view:
+        availability = view.get("availability")
+        text = availability.get("text") if isinstance(availability, dict) else None
+        if isinstance(text, str) and text.strip():
+            view["availability"] = {
+                "text": text,
+                "recorded_at": availability.get("recorded_at"),
+            }
+        else:
+            del view["availability"]
+
     if derived_spans == "hedge":
         view = _hedge_derived_spans(view)
+    if entry_status == "drop_confirmed":
+        view = _drop_confirmed_status(view)
     return view
 
 

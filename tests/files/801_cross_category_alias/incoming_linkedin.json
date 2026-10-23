@@ -1,0 +1,154 @@
+{
+ "personal_info": {
+  "name": "Daniel Kovač",
+  "location": "Frankfurt am Main, Germany"
+ },
+ "professional_summary": {
+  "en": "I build backend systems that stay boring under load. Eight years of Python, a soft spot for well-modelled data, and a firm belief that latency budgets and honest post-mortems beat heroics. Currently keeping ~40k logistics users' shipments flowing at Cargonaut."
+ },
+ "work_experience": [
+  {
+   "role": "Senior Backend Engineer",
+   "location": "Frankfurt am Main",
+   "start_date": "2021-03",
+   "is_current": true,
+   "responsibilities": [
+    "Developed shipment-tracking platform services.",
+    "Owned CI/CD for four services.",
+    "Mentored two engineers."
+   ],
+   "achievements": [
+    "Redesigned the pricing model, reducing p95 latency from 1.8 seconds to 240 milliseconds."
+   ],
+   "technologies": [
+    "Python",
+    "Django",
+    "PostgreSQL",
+    "AWS"
+   ],
+   "company": "Cargonaut Logistics GmbH",
+   "industry_context": "Logistics",
+   "role_fact_projections": {}
+  },
+  {
+   "role": "Backend Engineer",
+   "location": "Berlin",
+   "start_date": "2017-06",
+   "end_date": "2021-02",
+   "is_current": false,
+   "responsibilities": [
+    "Developed Flask REST APIs for a B2B invoicing product.",
+    "Worked on the dunning workflow engine.",
+    "Integrated Stripe checkout.",
+    "Participated in on-call support and maintained the incident runbook."
+   ],
+   "achievements": [
+    "Supported a dunning workflow engine processing approximately 200k invoices per month."
+   ],
+   "technologies": [
+    "Flask",
+    "REST APIs",
+    "PostgreSQL",
+    "Stripe"
+   ],
+   "company": "Finleap Build GmbH",
+   "industry_context": "B2B invoicing and payments",
+   "role_fact_projections": {}
+  },
+  {
+   "role": "Working Student Software Engineering",
+   "location": "Darmstadt",
+   "start_date": "2015-10",
+   "end_date": "2017-05",
+   "is_current": false,
+   "company": "DATIS IT-Services",
+   "role_fact_projections": {}
+  }
+ ],
+ "education": [
+  {
+   "institution": "Technische Universität Darmstadt",
+   "degree": "B.Sc.",
+   "field": "Computer Science",
+   "end_date": "2016"
+  }
+ ],
+ "certifications": [
+  {
+   "name": "AWS Certified Solutions Architect – Associate",
+   "date_obtained": "2022"
+  },
+  {
+   "name": "ISTQB® Certified Tester Foundation Level",
+   "date_obtained": "2018"
+  }
+ ],
+ "skills": [
+  {
+   "name": "Python",
+   "category": "technical",
+   "proficiency": "advanced",
+   "years_experience": 8
+  },
+  {
+   "name": "Django",
+   "category": "technical",
+   "proficiency": "intermediate"
+  },
+  {
+   "name": "Flask",
+   "category": "technical",
+   "proficiency": "intermediate"
+  },
+  {
+   "name": "PostgreSQL",
+   "category": "technical",
+   "proficiency": "intermediate"
+  },
+  {
+   "name": "REST APIs",
+   "category": "technical",
+   "proficiency": "intermediate"
+  },
+  {
+   "name": "Incident Management",
+   "category": "domain",
+   "proficiency": "intermediate"
+  },
+  {
+   "name": "Contract Testing",
+   "category": "domain",
+   "proficiency": "intermediate"
+  },
+  {
+   "name": "Amazon Web Services (AWS)",
+   "category": "technical",
+   "proficiency": "intermediate"
+  },
+  {
+   "name": "GitLab CI/CD",
+   "category": "technical",
+   "proficiency": "intermediate"
+  },
+  {
+   "name": "SQL",
+   "category": "technical",
+   "proficiency": "intermediate"
+  },
+  {
+   "name": "Mentoring",
+   "category": "soft",
+   "proficiency": "intermediate"
+  }
+ ],
+ "languages": [
+  {
+   "language": "German",
+   "level": "Native or bilingual"
+  },
+  {
+   "language": "English",
+   "level": "Full professional"
+  }
+ ]
+}

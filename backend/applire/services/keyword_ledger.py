@@ -80,6 +80,29 @@ DENIAL_FLOOR_EVIDENCE = (
 )
 
 
+def join_evidence_parts(parts: list[str]) -> str:
+    """Join several members' evidence into one readable text (Hazelnut build 3 / WP-G).
+
+    The merged row's evidence is SHOWN — the gaps page's "Schlagworte" card and the
+    writers' ledger block both render it — and the old ``"; ".join`` glued whole
+    sentences into ``"…in der Fertigung.; SAP-Erfahrung…"`` (10 of 12 baseline-matrix
+    gap analyses carried the ``.;`` seam). Each part becomes a sentence of its own:
+    trailing separators are dropped, a part without closing punctuation gets a full
+    stop, and the parts are joined by a space. Pure formatting — no part is dropped,
+    reordered or reworded, so #434's every-member guarantee and
+    :func:`verified_adjacent_material` (span-based, punctuation-blind) are unaffected.
+    """
+    sentences: list[str] = []
+    for part in parts:
+        text = (part or "").strip().rstrip(";,").rstrip()
+        if not text:
+            continue
+        if text[-1] not in ".!?…\"'»“”":
+            text += "."
+        sentences.append(text)
+    return " ".join(sentences)
+
+
 def _norm(s: str) -> str:
     return (s or "").strip().casefold()
 
@@ -370,7 +393,7 @@ def _collapse_prefix_duplicates(
             if ev and _norm(ev) not in seen_evidence:
                 seen_evidence.add(_norm(ev))
                 evidence_parts.append(ev)
-        evidence = "; ".join(evidence_parts)
+        evidence = join_evidence_parts(evidence_parts)
         # ADR-048 amended 2026-08-13 (#526): start from the canonical entry and
         # OVERRIDE. This used to be a fixed key literal, which silently dropped
         # every field outside it — `adjacent_evidence` among them, so a JD naming
@@ -3687,14 +3710,32 @@ def assert_claimable_backed(
                     entry.get("evidence"), profile_literal_corpus(confirmed)
                 )
                 if material:
-                    gap_row["adjacent_evidence"] = material
+                    # ADR-061/ADR-074 amended 2026-10-22 (founder ruling G-1 = A,
+                    # Hazelnut build 3 / WP-G): the vault says the same thing in
+                    # its own words and the classifier cited them VERBATIM, so the
+                    # requirement is met — only the JD's term is not the vault's.
+                    # That is ADR-048's ADJACENT partial exactly: claimable, the
+                    # writers promote the profile's wording and never the JD's term
+                    # (`is_positioning_only`), half credit, "teilweise" — instead of
+                    # an "offen" the candidate's own CV contradicts. Measured on the
+                    # 12-run baseline matrix (luna): 9 healed core rows (Jahresab-
+                    # schluss-Reporting, Management-Reporting, Backend engineering,
+                    # Shift work, ...), 7 of them with verified material.
+                    healed.append({
+                        **entry,
+                        "status": "partial",
+                        "claimable": True,
+                        "evidence": material,
+                        "adjacent_evidence": material,
+                    })
                     logger.info(
-                        "assert_claimable_backed[%s]: %r keeps its vault-verified "
-                        "adjacent material through the demotion — not claimable, but "
-                        "positionable (ADR-074 amended)",
+                        "assert_claimable_backed[%s]: %r healed to an ADJACENT partial on "
+                        "vault-verified material %r (ADR-061/074 amended 2026-10-22)",
                         seam or "unnamed-seam",
                         entry.get("concept"),
+                        material,
                     )
+                    continue
             healed.append(gap_row)
     return healed, violations
 

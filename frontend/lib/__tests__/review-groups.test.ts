@@ -24,6 +24,7 @@ import {
   buildSendChecks,
   SEND_CHECK_IDS,
   verdictState,
+  decisionCount,
   type ReviewInputs,
 } from "../review-groups";
 import type { ReviewState } from "../api/document-review";
@@ -290,20 +291,48 @@ describe("verdictState — ADR-081 clause 4 and JF-F-K.1", () => {
     const groups = buildReviewGroups(
       inputs({ atsReport: ats({ missing_honest_gap: ["Kubernetes", "Terraform"] }) }),
     );
-    expect(verdictState(groups, 0)).toEqual({ kind: "clear_with_others", others: 2 });
+    expect(verdictState(groups, 0)).toEqual({ kind: "clear_with_others", others: 2, decisions: 0, notes: 2 });
   });
 
   it("qualifies the all-clear when another group is UNKNOWN, even with nothing else found", () => {
     const groups = buildReviewGroups(inputs({ criticReport: null }));
     // #789 line L60: names the blind producer — never "findings below" with none below.
-    expect(verdictState(groups, 0)).toEqual({ kind: "clear_unchecked", others: 0, unchecked: ["critic"] });
+    expect(verdictState(groups, 0)).toEqual({ kind: "clear_unchecked", others: 0, decisions: 0, notes: 0, unchecked: ["critic"] });
   });
 
   it("keeps the real count next to a blind producer, each producer named once", () => {
     const groups = buildReviewGroups(
       inputs({ criticReport: null, gapClusters: null, atsReport: ats({ missing_honest_gap: ["Terraform"] }) }),
     );
-    expect(verdictState(groups, 0)).toEqual({ kind: "clear_unchecked", others: 1, unchecked: ["clusters", "critic"] });
+    expect(verdictState(groups, 0)).toEqual({
+      kind: "clear_unchecked", others: 1, decisions: 0, notes: 1, unchecked: ["clusters", "critic"],
+    });
+  });
+
+  it("T-1: counts group-2 rows and FAILED craft checks as decisions, the rest as notes", () => {
+    const groups = buildReviewGroups(
+      inputs({
+        atsReport: ats(
+          { missing_claimable: ["Scrum", "Jira"], missing_honest_gap: ["SAP"] },
+          [
+            { id: "contact-name", status: "fail" },
+            { id: "page-count", status: "pass", details: "2 pages" },
+            { id: "photo", status: "not_applicable" },
+          ] as NonNullable<ATSReport>["checks"],
+        ),
+      }),
+    );
+    expect(decisionCount(groups)).toBe(3);
+    const v = verdictState(groups, 0);
+    expect(v).toMatchObject({ kind: "clear_with_others", decisions: 3 });
+    if (v.kind === "clear_with_others") expect(v.notes).toBe(v.others - 3);
+  });
+
+  it("T-1: an unknown group contributes no decision", () => {
+    const groups = buildReviewGroups(
+      inputs({ atsReport: null, truthReport: truth([]) }),
+    );
+    expect(decisionCount(groups)).toBe(0);
   });
 
   it("renders a plain all-clear only when every group ran and every group is empty", () => {

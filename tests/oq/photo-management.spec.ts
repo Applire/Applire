@@ -74,16 +74,35 @@ test.describe('Sprint 14: Profile Photo — CV flow photo prompt', () => {
       });
     });
 
+    // #789 (Hazelnut build 3): the step reads the remembered "no photo" from
+    // GET /api/settings and writes it with PATCH {dismiss_explainer} — both
+    // stubbed here, so the CI backend's settings row is never written (a real
+    // write would hide the prompt on the next project/retry).
+    const dismissals: unknown[] = [];
+    await page.route('**/api/settings', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        dismissals.push(route.request().postDataJSON());
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ dismissed_explainers: ['cv_photo_prompt'] }) });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ui_language: 'en', hide_predownload_notice: false, target_cv_pages: null, default_color_profile_id: null, default_accent_hex: null, dismissed_explainers: [] }),
+      });
+    });
+
     await page.goto(`/flow/${TEST_FLOW_ID}/cv`);
 
     // Photo prompt step should appear
     await expect(page.getByText('Add a profile photo?')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Upload photo')).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('Skip for now')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('photo-prompt-skip')).toContainText('Continue without a photo');
 
-    // Clicking Skip advances to template select
-    await page.getByText('Skip for now').click();
+    // Skipping advances to template select and remembers "no photo"
+    await page.getByTestId('photo-prompt-skip').click();
     await expect(page.getByText('Add a profile photo?')).not.toBeVisible();
+    await expect.poll(() => dismissals).toContainEqual({ dismiss_explainer: 'cv_photo_prompt' });
     // TemplateSelector renders after skip
     await expect(page.getByTestId('cv-page')).toBeVisible();
   });

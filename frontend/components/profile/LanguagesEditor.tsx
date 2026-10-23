@@ -27,7 +27,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   cloneEntry,
   makeEmptyLanguage,
@@ -35,6 +35,7 @@ import {
   type Language,
   type ProfileSectionsResponse,
 } from "@/lib/profile-entries";
+import { localizedLanguageLevel, localizedLanguageName, type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { AliasChips } from "@/components/profile/AliasChips";
 import { StatusBadge } from "./StatusBadge";
@@ -68,6 +69,7 @@ interface LanguagesEditorProps {
 
 export function LanguagesEditor({ entries, apiBase, profileUpdatedAt, onProfileUpdated }: LanguagesEditorProps) {
   const t = useTranslations("profile");
+  const locale: DisplayLocale = useLocale() === "de" ? "de" : "en";
   const tCommon = useTranslations("common");
 
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -258,7 +260,7 @@ export function LanguagesEditor({ entries, apiBase, profileUpdatedAt, onProfileU
       ) : (
         <div className="flex flex-wrap gap-2">
           {entries.map((l, i) => {
-            const rawLabel = nonEmptyText(l.language) ? l.language : null;
+            const rawLabel = nonEmptyText(l.language) ? localizedLanguageName(l.language, locale) : null;
             const label = rawLabel ?? t("notProvided");
             return (
               <div
@@ -266,7 +268,7 @@ export function LanguagesEditor({ entries, apiBase, profileUpdatedAt, onProfileU
                 className="flex items-center gap-1.5 rounded-full border border-outline-variant bg-white px-3 py-1"
               >
                 <span className="max-w-[16rem] truncate text-sm font-medium text-neutral-dark" title={label}>{label}</span>
-                {nonEmptyText(l.level) && <span className="text-xs text-gray-500">{l.level}</span>}
+                {nonEmptyText(l.level) && <span className="text-xs text-gray-500">{localizedLanguageLevel(l.level, locale)}</span>}
                 <StatusBadge status={l.status} />
                 <button
                   type="button"

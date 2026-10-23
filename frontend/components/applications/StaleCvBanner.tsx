@@ -29,9 +29,12 @@ import { formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
 // Non-user-facing Material Symbols identifier — JS const to avoid the JSX literal rule
 const GROWTH_ICON = "trending_up";
+const LIMIT_ICON = "info";
 
 export interface StaleCvBannerProps {
   gained: StaleCVGained[];
+  /** B3-12: a limit recorded after the CV — its own title and sentence. */
+  reason?: "profile_grew" | "new_limit";
   /** False when the application has no flow session to land the new version in. */
   canRetailor: boolean;
   /** True while the re-tailor POST is in flight — prevents double-clicks. */
@@ -42,6 +45,7 @@ export interface StaleCvBannerProps {
 
 export function StaleCvBanner({
   gained,
+  reason = "profile_grew",
   canRetailor,
   retailoring,
   onRetailor,
@@ -50,11 +54,13 @@ export function StaleCvBanner({
   const t = useTranslations("applications");
   const tProfile = useTranslations("profile");
   const gainedText = formatGained(gained, tProfile);
+  const limit = reason === "new_limit";
 
   return (
     <div
       className="p-4 rounded-lg bg-primary-container/40 border border-primary/30"
       data-testid="stale-cv-banner"
+      data-reason={reason}
     >
       <div className="flex items-start gap-3">
         <span
@@ -62,16 +68,18 @@ export function StaleCvBanner({
           aria-hidden="true"
           style={{ fontSize: 20 }}
         >
-          {GROWTH_ICON}
+          {limit ? LIMIT_ICON : GROWTH_ICON}
         </span>
         <div className="flex-1">
           <p className="text-sm font-bold text-on-surface font-manrope">
-            {t("staleCvTitle")}
+            {limit ? t("staleCvTitleLimit") : t("staleCvTitle")}
           </p>
           <p className="text-sm text-on-surface mt-1 mb-3" data-testid="stale-cv-body">
-            {gainedText
-              ? t("staleCvBody", { gained: gainedText })
-              : t("staleCvBodyPlain")}
+            {limit
+              ? t("staleCvBodyLimit")
+              : gainedText
+                ? t("staleCvBody", { gained: gainedText })
+                : t("staleCvBodyPlain")}
           </p>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Nudge order: the re-tailor offer comes first, dismissal second —

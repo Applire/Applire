@@ -427,6 +427,19 @@ describe("ProfileReviewDrawer", () => {
       expect(keepBothApplies({ section: "work_experience" })).toBe(true);
     });
 
+    it("is false for a skill confirmation (no role to keep — UX audit, Felix 'SQL')", () => {
+      expect(keepBothApplies({ section: null, thread: "confirmation" })).toBe(false);
+      expect(keepBothApplies({ section: "skills", thread: "conflict" })).toBe(false);
+    });
+
+    it("is false for an issue with no section", () => {
+      expect(keepBothApplies({ section: null })).toBe(false);
+    });
+
+    it("is true for a volunteer role conflict", () => {
+      expect(keepBothApplies({ section: "volunteer_activities", thread: "conflict" })).toBe(true);
+    });
+
     it("is true when no issue is passed", () => {
       expect(keepBothApplies(undefined)).toBe(true);
     });
@@ -472,6 +485,30 @@ describe("ProfileReviewDrawer", () => {
     await waitFor(() =>
       screen.getByRole("button", { name: /Keep current: Senior Engineer\./ }),
     );
+    expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
+  });
+
+  it("hides the 'keep both' affordance on a skill confirmation (UX audit, Felix 'SQL')", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question:
+        "'SQL' shares a word with skills already on your profile (SQL performance tuning) but may be a distinct skill.",
+      gaps_total: 1,
+      gaps_remaining: 1,
+      choices: ["Add 'SQL' as a separate skill", "Merge into the existing skill", "Neither — don't add it"],
+    });
+    const issue = {
+      id: "confirmation:c1",
+      thread: "confirmation" as const,
+      profile_mismatch_severity: "review" as const,
+      summary: "'SQL' shares a word with skills already on your profile",
+      field_ref: null,
+      source_record_ref: "cv_upload",
+    };
+    render(
+      withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={vi.fn()} />, "en"),
+    );
+    await waitFor(() => screen.getByRole("button", { name: /Add 'SQL' as a separate skill/ }));
     expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
   });
 

@@ -15,6 +15,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v12 (Hazelnut build 3 / WP-G, 2026-10-22): NOT A CONCEPT TERM names what
+#   the employer OFFERS — benefits, perks, working model, employment terms ("Hybrid work",
+#   "Learning budget", "ESOP"). They reached the keyword list (daniel run 3 of the 12-run
+#   baseline: "hybrid work", "learning budget"), became keyword-only ledger rows and were
+#   clustered into a "Workplace Development" theme on the gaps page — a benefit read as the
+#   candidate's gap (787:L6 remainder). Replayed on the 12 captured extraction prompts, n=3:
+#   0/36 outputs carry a benefit term. A second bullet (facts about the employer:
+#   "Unternehmensgruppe", "Geschäftsführung") was measured in the same replay and REMOVED:
+#   the model kept emitting its own examples at the baseline rate (2.5 per output both ways).
+#
 # Prompt version: v11 (UX audit M6 / ruling UX-1, Hazelnut build 2, 2026-10-20): WHAT
 #   THE KINDS MEAN said "team_size counts PEOPLE" — and a company's headcount, a
 #   product's users and a number of teams are people too. The 2026-10-20 audit
@@ -169,6 +179,10 @@ the interview agenda:
   - the employer's own product, platform, team or brand name — "KION GenAI Platform",
     "the XY Group". The role works ON it; the candidate brings the technologies it is
     BUILT from, and those are the concept terms to emit.
+  - what the employer OFFERS, and how the job is organised — benefits, perks and
+    employment terms: "Hybrid work", "Mobiles Arbeiten", "Learning budget",
+    "Weiterbildungsbudget", "ESOP", "Firmenwagen", "30 Tage Urlaub", "Full-time",
+    "unbefristet". They describe what the candidate GETS, not what they bring.
 Emit each concept ONCE across the whole list, even when the posting names it in two
 sections and even when the capitalisation differs — "Data science" and "Data Science"
 are one entry, not two.

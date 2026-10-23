@@ -62,12 +62,15 @@ interface GapClusterCardProps {
  * that shows a gap (the interview tracker, ruling C-4) paints the same tone
  * with the same classes — one gap, one colour. */
 export const TONE: Record<CardTone, { border: string; dot: string; ring: string; pill: string; icon: string }> = {
+  // #789 (mock F1-1 b, rec. A — founder F1-1 pending): "open" is an open
+  // QUESTION, not a failing grade. The worst-member rule (C-1) is unchanged;
+  // the tone keeps its name, it is painted in the primary blue instead of red.
   red: {
-    border: "border-l-critical",
-    dot: "bg-critical",
-    ring: "hover:ring-critical",
-    pill: "bg-critical-container text-on-surface",
-    icon: "text-critical",
+    border: "border-l-teal",
+    dot: "bg-teal",
+    ring: "hover:ring-teal",
+    pill: "bg-primary-container text-on-surface",
+    icon: "text-teal",
   },
   yellow: {
     border: "border-l-warning",
@@ -97,7 +100,7 @@ export const TONE: Record<CardTone, { border: string; dot: string; ring: string;
 const CHIP: Record<MemberState, string> = {
   covered: "bg-success-container text-on-surface",
   partial: "bg-warning-container text-on-surface",
-  gap: "bg-critical-container text-on-surface",
+  gap: "bg-white border border-dashed border-teal text-on-surface",
   declined: "bg-surface-container text-on-surface-variant",
   closed: "bg-surface-container text-on-surface-variant opacity-70",
 };
@@ -109,8 +112,33 @@ const PILL_TESTID: Record<CoveragePill, string> = {
   declined: "gap-declined",
 };
 
-function MemberChip({ term, state }: { term: string; state: MemberState }) {
+/** A posting term (lead G `requirement: false`): neutral, never "open" — the
+ * match does not count it, so it must not read as a missing requirement. */
+const TERM_CHIP = "bg-surface-container text-on-surface-variant";
+
+function MemberChip({
+  term,
+  state,
+  requirement = true,
+}: {
+  term: string;
+  state: MemberState;
+  requirement?: boolean;
+}) {
   const t = useTranslations("gaps");
+  if (!requirement) {
+    return (
+      <span
+        data-testid="gap-member"
+        data-state={state}
+        data-requirement="false"
+        className={cn("relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs", TERM_CHIP)}
+      >
+        {term}
+        <span className="sr-only">{t("postingTermSr")}</span>
+      </span>
+    );
+  }
   const sr =
     state === "covered"
       ? t("memberCoveredSr")
@@ -178,6 +206,9 @@ export function GapClusterCard({
 }: GapClusterCardProps) {
   const t = useTranslations("gaps");
   const colours = TONE[view.tone];
+  // A member without `requirement` (a view built by hand) is a requirement.
+  const requirementMembers = view.members.filter((m) => m.requirement !== false);
+  const postingTerms = view.members.filter((m) => m.requirement === false);
 
   return (
     <div
@@ -201,14 +232,32 @@ export function GapClusterCard({
             <p className="font-semibold text-on-surface text-sm">{cluster.label}</p>
             {view.pill && <CoverageBadge pill={view.pill} tone={view.tone} />}
           </div>
+          {/* #789 — the sentence is the POSTING's expectation (lead G: the
+              clustering call never sees the profile); unlabelled, its "ich"
+              read as a claim about the candidate. */}
           {cluster.jd_context && (
-            <p className="text-xs text-on-surface-variant mt-0.5">{cluster.jd_context}</p>
+            <p data-testid="gap-jd-context" className="text-xs text-on-surface-variant mt-0.5">
+              <span className="mr-1 font-semibold text-on-surface">{t("jdContextLabel")}</span>
+              {cluster.jd_context}
+            </p>
           )}
-          {view.members.length > 0 && (
+          {requirementMembers.length > 0 && (
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
               <span className="text-xs text-on-surface-variant">{t("clusterCardConstituentLabel")}</span>
-              {view.members.map((m) => (
+              {requirementMembers.map((m) => (
                 <MemberChip key={m.term} term={m.term} state={m.state} />
+              ))}
+            </div>
+          )}
+          {/* Lead G — posting terms the match does not count (fit_weight 0):
+              their own line, neutral, labelled as what they are. */}
+          {postingTerms.length > 0 && (
+            <div data-testid="gap-posting-terms" className="flex flex-wrap items-center gap-1 mt-1.5">
+              <span className="text-xs text-on-surface-variant">
+                {t("postingTermsLabel", { count: postingTerms.length })}
+              </span>
+              {postingTerms.map((m) => (
+                <MemberChip key={m.term} term={m.term} state={m.state} requirement={false} />
               ))}
             </div>
           )}
@@ -242,9 +291,8 @@ export function GapClusterCard({
               data-testid="gap-leave-open"
               disabled={actionBusy}
               onClick={onLeaveOpen}
-              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-outline-variant bg-white px-2.5 text-xs font-medium text-on-surface-variant hover:bg-surface-container disabled:opacity-60"
+              className="inline-flex min-h-8 items-center px-1 text-xs text-on-surface-variant underline hover:no-underline disabled:opacity-60"
             >
-              <Archive aria-hidden="true" className="h-3.5 w-3.5" />
               {t("leaveGapOpen")}
             </button>
           )}

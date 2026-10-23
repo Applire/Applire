@@ -105,6 +105,11 @@ class GeneratedCV(Base):
     # lists; every count derives from the report (services/review_state.py).
     # NULL = no decision yet. A regeneration is a new row and starts empty.
     review_state: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-081 cl. 9 amended 2026-10-22 (migration 0084, #786): the review steps of
+    # the writing loop that did not run — [{check, stage, reason, attempt, count}]
+    # (services/review_degradation.py). NULL = not recorded (pre-0084 row, agent
+    # render); [] = recorded, every review step answered. Written in the ready-commit.
+    review_degradation: Mapped[list | None] = mapped_column(_JSON, nullable=True)
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )
@@ -113,6 +118,12 @@ class GeneratedCV(Base):
     # consumers resolve NULL through resolve_target_pages(None, current_setting)
     # at use time (Task 1.3).
     target_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # #786 L-3 (founder ruling 2026-10-22, migration 0085): the x+1 decision. Set at
+    # generation when the delivered CV is longer than ``target_pages`` and the page
+    # ladder can still reach the target: the cuts that would do it, the data after
+    # them, and the person's choice ("keep" | "cut" | null). Remembered per CV; a
+    # regeneration is a new row and asks again only if needed. NULL = no overflow.
+    page_overflow: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     # E044/US250 (ADR-054): 'pipeline' = built-in LLM writer, 'agent' = content
     # authored by the caller via render_document — never presented as Applire-authored.
     origin: Mapped[str] = mapped_column(

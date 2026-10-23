@@ -60,6 +60,8 @@ interface Props {
   guided?: boolean;
 }
 
+type PlannedStep = ProgressStep & { doneLabel: string };
+
 export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guided = false }: Props) {
   const router = useRouter();
   const t = useTranslations("processing");
@@ -73,24 +75,38 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   // Index of the first upload step; all step arithmetic below shifts by this.
   const jdOffset = hasJdStep ? 1 : 0;
 
-  const [steps, setSteps] = useState<ProgressStep[]>(() =>
+  // Each step carries its running label and its finished form: a completed step
+  // never keeps the "…" of work in progress (#789). The POST of a CV is instant;
+  // the wait is the server READING it, so the label says "reading", not "uploading".
+  const [steps, setSteps] = useState<PlannedStep[]>(() =>
     guided
       ? [
-          { label: t("analyzingJD"), status: "pending" as const },
-          { label: t("preparingInterview"), status: "pending" as const },
+          { label: t("analyzingJD"), doneLabel: t("jdAnalyzed"), status: "pending" as const },
+          { label: t("preparingInterview"), doneLabel: t("interviewPrepared"), status: "pending" as const },
         ]
       : [
-          ...(hasJdStep ? [{ label: t("analyzingJD"), status: "pending" as const }] : []),
+          ...(hasJdStep
+            ? [{ label: t("analyzingJD"), doneLabel: t("jdAnalyzed"), status: "pending" as const }]
+            : []),
           ...files.map((_, i) => ({
             label:
               files.length === 1
-                ? t("uploadingCV")
-                : t("uploadingCVN", { n: i + 1, total: files.length }),
+                ? t("readingCV")
+                : t("readingCVN", { n: i + 1, total: files.length }),
+            doneLabel:
+              files.length === 1
+                ? t("cvRead")
+                : t("cvReadN", { n: i + 1, total: files.length }),
             status: "pending" as const,
           })),
-          { label: t("buildingProfile"), status: "pending" as const },
-          ...(hasJdStep ? [{ label: t("detectingGaps"), status: "pending" as const }] : []),
+          { label: t("buildingProfile"), doneLabel: t("profileBuilt"), status: "pending" as const },
+          ...(hasJdStep
+            ? [{ label: t("detectingGaps"), doneLabel: t("gapsDetected"), status: "pending" as const }]
+            : []),
         ]
+  );
+  const shownSteps: ProgressStep[] = steps.map((s) =>
+    s.status === "done" ? { label: s.doneLabel, status: s.status } : { label: s.label, status: s.status }
   );
 
   const [jdNote, setJdNote] = useState<string | null>(null);
@@ -629,7 +645,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
           </div>
         ) : (
           <div className="flex flex-col items-center">
-            <ProgressWidget steps={steps} title={t("title")} subtitle={t("subtitle")} />
+            <ProgressWidget steps={shownSteps} title={t("title")} subtitle={t("subtitle")} />
             {/* F8: heartbeat — an active step never reads as a silent hang. */}
             {working && (
               <p

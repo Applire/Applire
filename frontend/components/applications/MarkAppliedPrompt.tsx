@@ -17,9 +17,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslations } from "next-intl";
 import { patchApplicationStatus } from "@/lib/api/applications";
+import { markSeenThisSession, seenThisSession } from "@/lib/session-once";
 
 interface MarkAppliedPromptProps {
   applicationId: string;
@@ -39,10 +40,33 @@ interface MarkAppliedPromptProps {
  * a downloaded CV usually means the application is about to go out, so this
  * is the cheapest moment to keep the pipeline status truthful. A nudge, not
  * a gate — declining just closes it.
+ *
+ * Hazelnut build 3 (#789): asked ONCE per document set (this application) per
+ * browser session — the PDF, the .docx and the letter of one application are
+ * one sending, not three. A repeat mount closes itself without painting.
  */
 export function MarkAppliedPrompt({ applicationId, stampAppliedAt, submittedCvId, onClose }: MarkAppliedPromptProps) {
   const t = useTranslations("applications");
   const [saving, setSaving] = useState(false);
+  // Read once, at first render: a repeat must not flash the overlay.
+  const [alreadyAsked] = useState(() => seenThisSession("mark-applied-prompt", applicationId));
+  const titleId = useId();
+
+  useEffect(() => {
+    if (alreadyAsked) {
+      onClose();
+      return;
+    }
+    markSeenThisSession("mark-applied-prompt", applicationId);
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount
+  }, []);
+
+  if (alreadyAsked) return null;
 
   async function handleConfirm() {
     setSaving(true);
@@ -63,10 +87,13 @@ export function MarkAppliedPrompt({ applicationId, stampAppliedAt, submittedCvId
       data-testid="mark-applied-prompt"
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="max-w-sm w-full bg-white rounded-xl border border-outline-variant shadow-lg p-6"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="font-heading text-lg font-bold text-on-surface mb-2">
+        <h3 id={titleId} className="font-heading text-lg font-bold text-on-surface mb-2">
           {t("markAppliedTitle")}
         </h3>
         <p className="text-sm text-on-surface-variant mb-5">

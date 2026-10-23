@@ -11,9 +11,12 @@
        and failing the local extraction audit. No meaningful visual change. */
     body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; font-size: 10pt; line-height: 1.5; color: #111; background: #fff; font-variant-ligatures: none; }
     .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm 22mm 16mm 25mm; }
-    .header { border-bottom: 2px solid var(--primary); padding-bottom: 6px; margin-bottom: 10mm; display: flex; justify-content: space-between; align-items: flex-end; }
-    .header-name { font-size: 14pt; font-weight: 700; }
-    .header-contact { font-size: 8.5pt; color: #555; text-align: right; line-height: 1.5; }
+    /* Header = the CV twin's header (compact_pro.html.j2): 17pt bold name left, 8pt muted
+       contact line right (middot-separated, right-aligned), 2.5px accent rule. */
+    .header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2.5px solid var(--primary); padding-bottom: 6pt; margin-bottom: 10mm; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; line-height: 1.45; }
+    .header-name { font-size: 17pt; font-weight: bold; color: #1a1a1a; white-space: nowrap; flex-shrink: 0; margin-right: 12pt; }
+    .header-contact { text-align: right; font-size: 8pt; color: #555; line-height: 1.7; }
+    .header-contact span { white-space: nowrap; }
     .recipient { margin-bottom: 6mm; font-size: 9.5pt; }
     .date { text-align: right; margin-bottom: 5mm; color: #666; font-size: 9pt; }
     .subject { font-weight: 700; font-size: 10.5pt; margin-bottom: 6mm; }
@@ -23,7 +26,9 @@
        freed space still visible on page 1 — 4mm less air shrinks the
        atomic unit so it fits the remainder more often (see academic_letter
        for the full rationale; same fix, N templates — ADR-066). */
-    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 4mm; font-size: 9.5pt; }
+    .signature { break-inside: avoid; page-break-inside: avoid; break-before: avoid; page-break-before: avoid; margin-top: 4mm; font-size: 9.5pt; }
+    /* 786:L41 keep-with-signature: the last paragraph and the closing move as one unit, so a page break never leaves the closing alone. */
+    .body p:last-child { break-after: avoid; page-break-after: avoid; }
     .signature .closing { margin-bottom: 6mm; }
     .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; margin: 0 0 1mm; }
     .signature.has-signature .closing { margin-bottom: 2mm; }
@@ -46,7 +51,7 @@
 <div class="page">
   <div class="header">
     <div class="header-name">{{ letter.header.name }}</div>
-    <div class="header-contact">{% if letter.header.email %}{{ letter.header.email }}<br>{% endif %}{% if letter.header.phone %}{{ letter.header.phone }}<br>{% endif %}{% if letter.header.address %}{{ letter.header.address }}{% endif %}</div>
+    <div class="header-contact">{% if letter.header.address %}<span>{{ letter.header.address }}</span>{% endif %}{% if letter.header.email %} &nbsp;·&nbsp; <span>{{ letter.header.email }}</span>{% endif %}{% if letter.header.phone %} &nbsp;·&nbsp; <span>{{ letter.header.phone }}</span>{% endif %}</div>
   </div>
   <div class="recipient">{% if letter.recipient.name %}{{ letter.recipient.name }}<br>{% endif %}{% if letter.recipient.company %}{{ letter.recipient.company }}<br>{% endif %}{% if letter.recipient.address %}{{ letter.recipient.address }}{% endif %}</div>
   <div class="date">{{ letter.recipient.date }}</div>

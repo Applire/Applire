@@ -206,7 +206,13 @@ from typing import Any
 
 from applire.prompts import preamble as _prompt_context
 from applire.constants import REVIEW_VERDICT_MAX_TOKENS
-from applire.exceptions import LLMTimeoutError, LLMTruncatedError
+from applire.exceptions import (
+    LLMProviderError,
+    LLMProviderUnavailableError,
+    LLMTimeoutError,
+    LLMTruncatedError,
+    is_provider_outage,
+)
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import (
     log_review_call_failed,
@@ -227,6 +233,7 @@ from applire.services.terminal_review_outcome import (
     reviewer_round_unanswered,
 )
 from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
+from applire.services.review_degradation import record_review_degradation
 from applire.services.corrector_feedback import fold_issues_into_feedback
 from applire.services.load_bearing import stringify_draft
 from applire.services.review_compliance import (
@@ -922,10 +929,18 @@ async def review_and_refine(
                     max_tokens=reviewer_max_tokens,
                     disable_thinking=disable_thinking,
                 )
-            except (LLMTruncatedError, LLMTimeoutError) as exc:
+            except (
+                LLMTruncatedError, LLMTimeoutError, LLMProviderUnavailableError, LLMProviderError
+            ) as exc:
                 # The bounded verdict should never blow the cap; if it somehow does (or the
                 # call times out) ship the current draft un-reviewed rather than crash.
+                # MD3-2 (Hazelnut build 3, WP-FR, adversarial A-4): a provider OUTAGE
+                # (503 / unreachable) degrades the same way — it failed the whole
+                # generation before. A configuration error (401/402/404) still raises.
+                if isinstance(exc, LLMProviderError) and not is_provider_outage(exc):
+                    raise
                 log_review_call_failed(chain_id, "reviewer", attempt + 1, type(exc).__name__)
+                record_review_degradation(chain_id, "review", type(exc).__name__, attempt + 1)
                 logger.warning(
                     "review_and_refine: chain=%s reviewer call failed (%s) on attempt %d; "
                     "shipping current draft un-reviewed",
@@ -944,6 +959,7 @@ async def review_and_refine(
                 # exhaustion is. Only the parse error CLASS is logged, never the raw
                 # payload (PII-free, matches the truncation/timeout precedent above).
                 log_review_call_failed(chain_id, "reviewer", attempt + 1, type(exc).__name__)
+                record_review_degradation(chain_id, "review", type(exc).__name__, attempt + 1)
                 logger.warning(
                     "review_and_refine: chain=%s reviewer call returned malformed JSON "
                     "(%s) on attempt %d; shipping current draft un-reviewed",
@@ -1105,12 +1121,19 @@ async def review_and_refine(
                     disable_thinking=disable_thinking,
                     **schema_kwargs,
                 )
-            except (LLMTruncatedError, LLMTimeoutError) as exc:
+            except (
+                LLMTruncatedError, LLMTimeoutError, LLMProviderUnavailableError, LLMProviderError
+            ) as exc:
+                # MD3-2 (WP-FR, A-4): a corrector-seat outage keeps the last known-good
+                # draft like a timeout does; a configuration error still raises.
+                if isinstance(exc, LLMProviderError) and not is_provider_outage(exc):
+                    raise
                 # The refiner regenerates the document and can blow a small output cap.
                 # The pre-refinement draft was already validated (e.g. the segmented
                 # generation that produced it), so ship that rather than a truncated
                 # refinement or a crash (ADR-021 amended / ADR-047 cap-safety).
                 log_review_call_failed(chain_id, "generator", attempt + 1, type(exc).__name__)
+                record_review_degradation(chain_id, "correction", type(exc).__name__, attempt + 1)
                 logger.warning(
                     "review_and_refine: chain=%s refiner call truncated/timed out (%s) on "
                     "attempt %d; keeping last known-good draft. Last issues: %r",
@@ -1126,6 +1149,7 @@ async def review_and_refine(
                 # the pre-refinement (last known-good) draft ships, under its own
                 # `review_malformed` settle path rather than `generator_call_failed`.
                 log_review_call_failed(chain_id, "generator", attempt + 1, type(exc).__name__)
+                record_review_degradation(chain_id, "correction", type(exc).__name__, attempt + 1)
                 logger.warning(
                     "review_and_refine: chain=%s refiner call returned malformed JSON "
                     "(%s) on attempt %d; keeping last known-good draft. Last issues: %r",
@@ -1140,6 +1164,7 @@ async def review_and_refine(
                 # the next consumer crashed. Same fate as malformed JSON above: the draft
                 # that was reviewed this round (last known-good) ships; nothing is rewritten.
                 log_review_call_failed(chain_id, "generator", attempt + 1, "WrongShape")
+                record_review_degradation(chain_id, "correction", "WrongShape", attempt + 1)
                 logger.warning(
                     "review_and_refine: chain=%s refiner returned a draft of the wrong shape "
                     "on attempt %d; keeping last known-good draft",

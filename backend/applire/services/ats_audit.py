@@ -1759,6 +1759,25 @@ def _free_text_snippets(tailored: TailoredCVData) -> list[str]:
     return out
 
 
+def _name_ladder_cuts(checks: list, ladder_cuts: list) -> None:
+    """#786 L9/L18 (founder design): the page-length finding names every cut the
+    page ladder made (``services.cv_page_ladder``) — machine-readable in
+    ``details_params`` and spelled out in the EN ``details``."""
+    row = next((c for c in reversed(checks) if c.id == "page-length"), None)
+    if row is None:
+        return
+    spelled = "; ".join(f"{c['kind']}: {', '.join(c['items'])}" for c in ladder_cuts)
+    suffix = f"removed to fit the page limit — {spelled}"
+    row.details = f"{row.details}; {suffix}" if row.details else suffix
+    # details_params values are int | str (schemas.ats.ATSCheck): the cut list
+    # travels as one spelled string, the kinds as a comma-joined id list.
+    row.details_params = {
+        **(row.details_params or {}),
+        "ladder_cuts": spelled,
+        "ladder_cut_kinds": ",".join(c["kind"] for c in ladder_cuts),
+    }
+
+
 def _audit_cv_text(
     text: str,
     tailored: TailoredCVData,
@@ -1769,6 +1788,7 @@ def _audit_cv_text(
     target: int | None = None,
     region: str = DEFAULT_REGION,
     condensation_exhausted: bool = False,
+    ladder_cuts: list | None = None,
     vault_text_norm: str | None = None,
     vault_skill_forms: list[str] | None = None,
     pins: list | None = None,
@@ -2057,6 +2077,8 @@ def _audit_cv_text(
                 details_params={"pages": page_count, "region": region,
                                 "standard": standard, "max": maximum},
             ))
+        if ladder_cuts:
+            _name_ladder_cuts(checks, ladder_cuts)
 
     # ── E056/ADR-077 clauses 3+5: pin presence + the structured driver ──────
     # Measured HERE because `tailored` is the override-applied content every

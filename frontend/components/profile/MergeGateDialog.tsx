@@ -19,7 +19,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import type { ImportNotAppliedItem, MatchReceiptItem } from "@/lib/import-cv";
+import type { ImportNotAppliedItem, MatchReceiptItem, RestatedReceiptItem } from "@/lib/import-cv";
 
 // Empty string default lets Next.js rewrites handle /api/* routing in all environments
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -39,6 +39,8 @@ export interface StagedResolveResult {
   not_applied?: ImportNotAppliedItem[];
   /** #717 — the merge's recognised pairs. */
   matched?: MatchReceiptItem[];
+  /** D-B3V6 — bullets held back as restatements. */
+  restated?: RestatedReceiptItem[];
 }
 
 interface MergeGateDialogProps {

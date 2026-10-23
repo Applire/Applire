@@ -365,7 +365,7 @@ def test_v2_compose_changes_no_body_text():
     v2 = _compose(letter, "v2")
     assert v2["body"]["paragraphs"] == body  # no Anrede injected, no sign-off dropped
     v1 = _compose(letter, "v1")
-    assert v1["body"]["paragraphs"][0] == "Dear Sir or Madam,"
+    assert v1["body"]["paragraphs"][0] == "Dear Hiring Manager,"
     assert v1["body"]["paragraphs"][-1] != "Kind regards"
 
 
@@ -374,6 +374,65 @@ def test_v2_compose_sets_every_code_owned_field():
     assert out["header"]["address"] == "Stuttgart"
     assert out["signature"] == {"closing": "Kind regards", "name": "Katrin Hoffmann"}
     assert out["recipient"]["date"]
+
+
+def test_v2_compose_date_line_carries_the_sender_place():
+    """Hazelnut build 3 (784 date-line line, ADR-094 cl. L2 amended): DIN 5008 —
+    "Stuttgart, 10. Juni 2026", the place read from the vault's own location (the
+    same Ort, Datum helper the CV's closing line uses); v1 is unchanged."""
+    from datetime import date
+    from types import SimpleNamespace
+
+    from applire.services.cover_letter import _compose_letter
+
+    def compose(pipeline, pj, lang):
+        return _compose_letter(
+            copy.deepcopy(_draft(_GERMAN_BODY)), profile_json=pj, cv_data={},
+            profile=SimpleNamespace(profile_json=pj), pre_gen={}, language=lang,
+            today=date(2026, 6, 10), pipeline=pipeline,
+        )["recipient"]["date"]
+
+    assert compose("v2", _PROFILE_JSON, "de") == "Stuttgart, 10. Juni 2026"
+    assert compose("v2", _PROFILE_JSON, "en") == "Stuttgart, 10 June 2026"
+    no_place = copy.deepcopy(_PROFILE_JSON)
+    no_place["personal_info"]["location"] = None
+    assert compose("v2", no_place, "de") == "10. Juni 2026"  # never an invented place
+    assert compose("v1", _PROFILE_JSON, "de") == "10. Juni 2026"
+
+
+def test_v2_compose_signs_a_capitalised_vault_name_in_display_casing():
+    """Hazelnut build 3 (784 polish (b)): a vault name transcribed in capitals from
+    a CV header is signed in display casing — casing only; the header keeps the
+    template's own typography (it is not touched here)."""
+    pj = copy.deepcopy(_PROFILE_JSON)
+    pj["personal_info"]["name"] = "DANIEL KOVAČ"
+    from types import SimpleNamespace
+
+    from applire.services.cover_letter import _compose_letter
+
+    out = _compose_letter(
+        copy.deepcopy(_draft(_ENGLISH_BODY)), profile_json=pj, cv_data={},
+        profile=SimpleNamespace(profile_json=pj), pre_gen={}, language="en", pipeline="v2",
+    )
+    assert out["signature"]["name"] == "Daniel Kovač"
+    assert out["header"]["name"] == "DANIEL KOVAČ"
+
+
+@pytest.mark.parametrize("raw,shown", [
+    ("STEFAN BRANDT", "Stefan Brandt"),
+    ("ANNA-LENA VON DER HEIDE", "Anna-Lena von der Heide"),
+    ("SEAN O'BRIEN", "Sean O'Brien"),
+    ("JÖRG MÜLLER-LÜDENSCHEIDT", "Jörg Müller-Lüdenscheidt"),
+    ("Emma Schneider", "Emma Schneider"),   # already the candidate's own casing
+    ("McAllister", "McAllister"),
+    ("", ""),
+])
+def test_display_name_changes_casing_only(raw, shown):
+    from applire.utils.person_name import display_name
+
+    out = display_name(raw)
+    assert out == shown
+    assert out.casefold() == raw.casefold()
 
 
 def test_v1_compose_keeps_the_model_header():
@@ -1320,3 +1379,47 @@ def test_v2_letter_prompts_drop_the_availability_demand_and_v1_keeps_it():
     v2 = w.build_system_prompt("de", pipeline="v2")
     assert "AVAILABILITY ONLY FROM INPUT" in v2 and "Include Eintrittstermin in body only" not in v2
     assert "Include Eintrittstermin in body only if availability is provided." in w.SYSTEM_PROMPT
+
+
+def test_letter_default_colour_is_the_cv_default():
+    """L-2 = A (Hazelnut build 3): with no colour profile the letter renders in the
+    CV's default colours, so both documents of one application read as one set."""
+    from applire.services.color_detection import _default_context
+    from applire.services.cover_letter import _default_color_context
+
+    cv = _default_context()
+    assert _default_color_context() == {
+        "primary": cv.primary, "primary_tint": cv.primary_tint,
+        "surface": cv.surface, "surface_text": cv.surface_text,
+    }
+
+
+@pytest.mark.parametrize("recorded, place", [
+    ("Frankfurt am Main, Germany", "Frankfurt am Main"),
+    ("München, Deutschland", "München"),
+    ("Maximilianstraße 12, 80539 München", "München"),
+    ("8001 Zürich, Schweiz", "Zürich"),
+    ("Koblenz", "Koblenz"),
+    ("Germany", "Germany"),
+    ("  ", None),
+    (None, None),
+])
+def test_date_line_place_names_the_place_only(recorded, place):
+    """Bench 2026-10-22 (WP-L after-run): Daniel's German letter was dated
+    "Frankfurt am Main, Germany, 22. Oktober 2026" — DIN 5008 names the place."""
+    from applire.services.letter_v2 import date_line_place
+
+    assert date_line_place(recorded) == place
+
+
+def test_letter_and_cv_closing_name_the_same_place():
+    from datetime import date
+
+    from applire.services.cover_letter import _inject_letter_date
+    from applire.services.cv import format_place_date_for_cv
+    from applire.services.letter_v2 import sender_location
+
+    profile = {"personal_info": {"location": "Frankfurt am Main, Germany"}}
+    letter = _inject_letter_date({}, "de", date(2026, 10, 22), location=sender_location(profile, None))
+    assert letter["recipient"]["date"] == "Frankfurt am Main, 22. Oktober 2026"
+    assert format_place_date_for_cv("Frankfurt am Main, Germany", "de").startswith("Frankfurt am Main, ")
