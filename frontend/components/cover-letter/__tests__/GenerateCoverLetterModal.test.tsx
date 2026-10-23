@@ -476,14 +476,16 @@ describe("GenerateCoverLetterModal — unsent form guard (MD3-1)", () => {
     const back = vi.spyOn(window.history, "back").mockImplementation(() => {
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
+    // The page navigates inside onGenerated; the guard entry must be gone by then.
+    let backCallsAtHandOver = -1;
     const onGenerated = vi.fn(() => {
-      // The page navigates here; no draft guard may still hold it.
-      expect(back).toHaveBeenCalled();
+      backCallsAtHandOver = back.mock.calls.length;
     });
     render(withIntl(<GenerateCoverLetterModal {...BASE_PROPS} onGenerated={onGenerated} />, "de"));
     fireEvent.change(screen.getByTestId("cl-motivation"), { target: { value: "Neuer Fokus" } });
     await waitFor(() => expect(unloadPrevented()).toBe(true));
     fireEvent.click(screen.getByTestId("cl-modal-generate"));
     await waitFor(() => expect(onGenerated).toHaveBeenCalled());
+    expect(backCallsAtHandOver).toBe(1);
   });
 });
