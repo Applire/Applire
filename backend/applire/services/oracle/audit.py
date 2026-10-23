@@ -130,7 +130,7 @@ from applire.services.oracle.matchers.figures import (
     _identifier_spans,
     identifier_matches,
 )
-from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE
+from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE, _NARRATIVE_STOPWORDS
 from applire.services.oracle.stance import classify_stance
 
 logger = logging.getLogger(__name__)
@@ -227,7 +227,7 @@ class _EntailmentBudget:
 class _SeamCandidate:
     """One claim deferred to the batched judgement pass."""
 
-    seam: Literal["cross_language", "restatement"]
+    seam: Literal["cross_language", "restatement", "letter_form"]
     claim_text: str
     units: list[EvidenceUnit]
     # cross_language only: corresponds=false/uncertain -> this verdict stands
@@ -239,6 +239,9 @@ class _SeamCandidate:
     # (ADR-068 clause 3).
     unavailable_verdict: ClaimVerdict
     vault_language_label: str | None = None
+    # letter_form only (B3-10 follow-up): the neutral form mark a clean
+    # "corresponds" with a verified citation resolves to.
+    grant_verdict: ClaimVerdict | None = None
 
 
 def _find_citing_unit(quote: str | None, units: list[EvidenceUnit]) -> EvidenceUnit | None:
@@ -373,6 +376,20 @@ def _resolve_seam_candidate(
             return candidate.deny_verdict, False, None
         return candidate.unavailable_verdict, True, "malformed_item"
 
+    if candidate.seam == "letter_form":
+        # B3-10 follow-up: the judge only ever GRANTS the neutral form mark; a
+        # "no"/"uncertain" leaves the deterministic verdict (always the honest
+        # ``unverifiable`` — this seam is never opened on a red, ADR-068 cl. 3).
+        if corresponds is True:
+            if not citation_ok:
+                return candidate.unavailable_verdict, True, "citation_drop"
+            assert candidate.grant_verdict is not None
+            return candidate.grant_verdict, False, None
+        if corresponds is False or corresponds == "uncertain":
+            assert candidate.deny_verdict is not None
+            return candidate.deny_verdict, False, None
+        return candidate.unavailable_verdict, True, "malformed_item"
+
     # seam == "restatement" — both true/false/uncertain need a verified
     # citation (the model must always show which evidence it compared the
     # claim against, whichever way it answers).
@@ -445,7 +462,12 @@ async def _run_judgement_batches(
                 )
             continue
         calls_made += 1
-        items = [(c.claim_text, [u.text for u in c.units], c.seam) for c in batch]
+        # The letter-form seam asks the restatement question of the form text
+        # (the prompt's "restatement" mode, unchanged — ADR-068 cl. 6).
+        items = [
+            (c.claim_text, [u.text for u in c.units], "restatement" if c.seam == "letter_form" else c.seam)
+            for c in batch
+        ]
         prompt = build_judgement_user_prompt(items)
         try:
             response = await provider.aparse_json(
@@ -1503,7 +1525,10 @@ async def verify_claim(
         # B3-10 (ADR-061/048 amended 2026-10-23): what the candidate typed into
         # THIS letter's form is their own statement for this letter — evaluated
         # last, so it only ever replaces "no evidence" (never a contradiction).
-        final = _letter_form_verdict(claim, final, idx, form_index) or final
+        final = (
+            _letter_form_verdict(claim, final, idx, form_index, judgement_sink=judgement_sink)
+            or final
+        )
     return _withdraw_overridden_candidate(verdict, final, judgement_sink)
 
 
@@ -1563,6 +1588,60 @@ LETTER_FORM_STATEMENT_FIELDS = ("motivation", "availability", "salary")
 #: ``misattributed`` (the vault holds a conflicting fact).
 _FORM_REPLACEABLE = frozenset({"unbacked", "unverifiable"})
 
+#: B3-10 follow-up (re-probe 2026-10-23): the writer turns "3 Monate" into "drei
+#: Monate". Spelled-out counts are folded to digits on BOTH sides of the form
+#: comparison only (never in the vault pipeline). "ein/eine/one" are articles
+#: first and are not folded — a sentence that says "einen Monat" against a form
+#: "3 Monate" carries no number and is refused by the number rule below.
+_NUMBER_WORDS = {
+    "zwei": "2", "drei": "3", "vier": "4", "fünf": "5", "sechs": "6", "sieben": "7",
+    "acht": "8", "neun": "9", "zehn": "10", "elf": "11", "zwölf": "12",
+    "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7",
+    "eight": "8", "nine": "9", "ten": "10", "eleven": "11", "twelve": "12",
+}
+_NUMBER_WORD_RE = re.compile(r"\b(" + "|".join(_NUMBER_WORDS) + r")\b", re.IGNORECASE)
+_NUMBER_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)*")
+
+#: The words a writer frames a SHORT form answer with — the form's own question
+#: for that field (de + en). They count toward coverage, never as the fact: the
+#: answer's own content must still be in the sentence (``_FORM_SHORT_FIELDS``).
+_FORM_FIELD_FRAME = {
+    "availability": (
+        "kündigungsfrist frühester eintritt eintrittstermin eintrittsdatum verfügbar "
+        "verfügbarkeit notice period earliest start date available availability"
+    ),
+    "salary": (
+        "gehaltsvorstellung gehaltsvorstellungen gehalt jahresgehalt jahresbruttogehalt "
+        "brutto salary expectation expectations annual gross"
+    ),
+}
+#: A short factual answer (a period, a figure): every content token of the
+#: answer must appear in the sentence, and every number the sentence states must
+#: be one the answer states — the vault is no source for it.
+_FORM_SHORT_FIELDS = frozenset({"availability", "salary"})
+
+#: Below the deterministic floor, a sentence the form covers at least this far
+#: (and whose facts all hold) is asked of the restatement judge against the form
+#: text (ADR-062: sameness of meaning is the model's judgement). Only an honest
+#: ``unverifiable`` is ever escalated — never a red.
+_FORM_JUDGE_MIN_COVERAGE = 0.4
+
+
+def _fold_number_words(text: str) -> str:
+    return _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text or "")
+
+
+def _number_tokens(text: str) -> set[str]:
+    out: set[str] = set()
+    for raw in _NUMBER_TOKEN_RE.findall(_fold_number_words(text)):
+        digits = re.sub(r"[.,]", "", raw).lstrip("0")
+        out.add(digits or "0")
+    return out
+
+
+def _single_unit_index(path: str, text: str) -> VaultIndex:
+    return extend_vault_index(build_vault_index({}), [(path, text)])
+
 
 def build_letter_form_index(form_inputs: Any) -> VaultIndex | None:
     """The evidence set of B3-10: one unit per non-empty statement field of the
@@ -1581,53 +1660,60 @@ def build_letter_form_index(form_inputs: Any) -> VaultIndex | None:
     return extend_vault_index(build_vault_index({}), entries)
 
 
-def _letter_form_verdict(
-    claim: Claim,
-    verdict: "ClaimVerdict | _SeamCandidate",
-    idx: VaultIndex,
-    form_index: VaultIndex,
-) -> ClaimVerdict | None:
-    """ADR-061/048 amended 2026-10-23 (ruling B3-10 = delivery F1): a letter
-    sentence BUILT FROM the letter form's input is the candidate's own statement
-    for that letter — ``not_applicable`` / ``letter_form_input``, neutral, no
-    profile write (the frontend lists it under "Aus deiner Eingabe im Formular",
-    RULING FO-1 = A).
+def _form_coverage(claim_text: str, unit: EvidenceUnit, field: str) -> tuple[float, int]:
+    """(coverage, value hits): the share of the sentence's content tokens found in
+    the form answer plus its field's frame words, and how many were found in the
+    ANSWER itself — both after folding spelled-out counts. The instrument is the
+    one ``ground_text_claim`` uses (``skill_tokens`` minus the narrative stopwords,
+    ``surface_present``)."""
+    tokens = sorted(skill_tokens(_fold_number_words(claim_text)) - _NARRATIVE_STOPWORDS)
+    if not tokens:
+        return 0.0, 0
+    value_norm = _norm(_fold_number_words(unit.text))
+    frame_norm = _norm(_FORM_FIELD_FRAME.get(field, ""))
+    value_hits = sum(1 for t in tokens if surface_present(t, value_norm))
+    hits = sum(
+        1 for t in tokens
+        if surface_present(t, value_norm) or (frame_norm and surface_present(t, frame_norm))
+    )
+    return hits / len(tokens), value_hits
 
-    "Built from" is the grounding predicate the vault uses, pointed at the form:
-    one form field covers ≥ ``GROUNDED_MIN_COVERAGE`` of the sentence's content
-    tokens, and every figure, credential and standard identifier the sentence
-    names is in that form field or in the claimable vault. A writer sentence that
-    adds a figure or a title nobody typed stays graded (FO-2 = A: a posting figure
-    is exempt only through this rule). Applies only where the vault pipeline
-    found no evidence (``_FORM_REPLACEABLE``) or deferred to a judge."""
-    if isinstance(verdict, ClaimVerdict):
-        if verdict.verdict not in _FORM_REPLACEABLE:
-            return None
-        if (verdict.detail_key or "").startswith("tenure"):
-            return None
-    grounding = ground_text_claim(claim.text, form_index)
-    unit = grounding.best_unit
-    if (
-        unit is None
-        or grounding.content_tokens == 0
-        or grounding.best_coverage < GROUNDED_MIN_COVERAGE
-    ):
-        return None
-    unit_index = extend_vault_index(build_vault_index({}), [(unit.path, unit.text)])
-    figures = extract_figures(claim.text)
-    off_form = match_figures(figures, unit_index).unmatched
-    if off_form and match_figures(off_form, idx).unmatched:
-        return None
+
+def _form_facts_hold(claim: Claim, unit: EvidenceUnit, field: str, idx: VaultIndex) -> bool:
+    """Every fact the sentence states is in the form answer (or, for the free-text
+    motivation, in the claimable vault): figures, plain counts, ascribed
+    credentials and standard identifiers. A SHORT answer must also be in the
+    sentence whole — "drei Monate zum Monatsende" is not "3 Monate zum
+    Quartalsende"."""
+    claim_numbers = _number_tokens(claim.text)
+    form_numbers = _number_tokens(unit.text)
+    if field in _FORM_SHORT_FIELDS:
+        if not claim_numbers <= form_numbers:
+            return False
+        claim_norm = _norm(_fold_number_words(claim.text))
+        answer_tokens = skill_tokens(_fold_number_words(unit.text)) - _NARRATIVE_STOPWORDS
+        if not all(surface_present(t, claim_norm) for t in answer_tokens):
+            return False
+    else:
+        off_form = claim_numbers - form_numbers
+        if off_form and not off_form <= _number_tokens(" \n ".join(u.text for u in idx.units)):
+            return False
+    unit_index = _single_unit_index(unit.path, unit.text)
+    off_form_figures = match_figures(extract_figures(claim.text), unit_index).unmatched
+    if off_form_figures and (field in _FORM_SHORT_FIELDS or match_figures(off_form_figures, idx).unmatched):
+        return False
     kind = credential_kind_for_location(claim.location)
     if detect_credentials(claim.text, kind=kind):
         backing = credential_fold(" \n ".join([unit.text] + [u.text for u in idx.units]))
         if unbacked_credentials(claim.text, kind=kind, vault_folded=backing):
-            return None
+            return False
     for _span, ident in identifier_matches(claim.text):
         if not (_norm_ident(ident) in _norm_ident(unit.text) or _norm_ident(ident) in _norm_ident(idx.all_text_norm)):
-            return None
-    field = unit.path.split(".", 1)[1]
-    logger.info("ORACLE_LETTER_FORM_INPUT field=%s location=%s", field, claim.location)
+            return False
+    return True
+
+
+def _form_mark(unit: EvidenceUnit, field: str) -> ClaimVerdict:
     return ClaimVerdict(
         verdict="not_applicable",
         checker="letter_form_input",
@@ -1640,6 +1726,83 @@ def _letter_form_verdict(
         detail_key="fromLetterForm",
         detail_params={"field": field},
     )
+
+
+def _letter_form_verdict(
+    claim: Claim,
+    verdict: "ClaimVerdict | _SeamCandidate",
+    idx: VaultIndex,
+    form_index: VaultIndex,
+    *,
+    judgement_sink: "list[_SeamCandidate] | None" = None,
+) -> "ClaimVerdict | _SeamCandidate | None":
+    """ADR-061/048 amended 2026-10-23 (ruling B3-10 = delivery F1): a letter
+    sentence BUILT FROM the letter form's input is the candidate's own statement
+    for that letter — ``not_applicable`` / ``letter_form_input``, neutral, no
+    profile write (the frontend lists it under "Aus deiner Eingabe im Formular",
+    RULING FO-1 = A).
+
+    "Built from" (follow-up after the live re-probe, where the writer's
+    paraphrase never reached the near-verbatim floor):
+
+    * **deterministic** — one form field covers ≥ ``GROUNDED_MIN_COVERAGE`` of
+      the sentence's content tokens (spelled-out counts folded to digits; a
+      short answer's own question words count as frame);
+    * **judged** — below that floor but ≥ ``_FORM_JUDGE_MIN_COVERAGE``, an
+      ``unverifiable`` sentence is asked of the restatement judge against the
+      form text; only a cited "corresponds" grants the mark;
+    * either way **every fact holds** (:func:`_form_facts_hold`): no figure,
+      count, credential or identifier that neither the form (nor, for the
+      motivation, the vault) states. A writer sentence that adds one stays
+      graded (FO-2 = A).
+
+    Applies where the vault pipeline found no evidence (``_FORM_REPLACEABLE``),
+    deferred to a judge, or the sentence triage called the sentence no claim."""
+    if isinstance(verdict, ClaimVerdict):
+        triage_exempt = verdict.verdict == "not_applicable" and verdict.checker == "sentence_triage"
+        if verdict.verdict not in _FORM_REPLACEABLE and not triage_exempt:
+            return None
+        if (verdict.detail_key or "").startswith("tenure"):
+            return None
+    scored = []
+    for order, unit in enumerate(form_index.units):
+        field = unit.path.split(".", 1)[1]
+        coverage, value_hits = _form_coverage(claim.text, unit, field)
+        scored.append((-coverage, order, value_hits, unit, field))
+    # The best-covering field whose facts hold — a frame-word hit on the short
+    # availability answer must not shadow the motivation the sentence came from.
+    chosen = next(
+        (
+            (-neg, hits, unit, field)
+            for neg, _o, hits, unit, field in sorted(scored, key=lambda t: t[:2])
+            if -neg >= _FORM_JUDGE_MIN_COVERAGE and _form_facts_hold(claim, unit, field, idx)
+        ),
+        None,
+    )
+    if chosen is None:
+        return None
+    coverage, value_hits, unit, field = chosen
+    if coverage >= GROUNDED_MIN_COVERAGE:
+        logger.info("ORACLE_LETTER_FORM_INPUT field=%s via=coverage location=%s", field, claim.location)
+        return _form_mark(unit, field)
+    if (
+        judgement_sink is None
+        or not isinstance(verdict, ClaimVerdict)
+        or verdict.verdict != "unverifiable"
+        or value_hits < 2
+    ):
+        return None
+    candidate = _SeamCandidate(
+        seam="letter_form",
+        claim_text=claim.text,
+        units=[unit],
+        deny_verdict=verdict,
+        unavailable_verdict=verdict,
+        grant_verdict=_form_mark(unit, field),
+    )
+    logger.info("ORACLE_LETTER_FORM_INPUT field=%s via=judge_candidate location=%s", field, claim.location)
+    judgement_sink.append(candidate)
+    return candidate
 
 
 def _norm_ident(text: str) -> str:
@@ -2382,6 +2545,11 @@ async def audit_document(
     for claim_index, claim in enumerate(claims):
         exemption = triage_exemptions.get(claim_index)
         if exemption is not None:
+            if form_index is not None:
+                # B3-10 follow-up (re-probe 2026-10-23): a sentence triage calls
+                # "no claim" can still be BUILT FROM the form — it gets the mark
+                # too (deterministically only; both verdicts are not_applicable).
+                exemption = _letter_form_verdict(claim, exemption, index, form_index) or exemption
             results.append(ClaimResult(claim=claim, verdict=exemption))
             continue
         verdict = await verify_claim(
