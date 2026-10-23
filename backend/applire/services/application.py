@@ -751,6 +751,29 @@ def _parse_trail_timestamp(value) -> datetime | None:
     return None
 
 
+#: Re-probe N3 (Hazelnut b3): the vault sections a tailored CV is written from
+#: (`MasterProfileData` content the CV writer reads). Only a change to one of
+#: these is "growth" for the re-tailor nudge. Fail-closed: a section not listed
+#: here (`availability` — the letter's notice period, saved from the letter
+#: form by B3-11 —, `metadata` bookkeeping such as pending confirmations or
+#: denials, `_meta` N/A marks, an empty section) never offers a re-tailor, and
+#: never reaches the nudge's copy as a raw field name. Every name here has a
+#: label in the frontend's `SECTION_LABEL_KEYS` (`lib/stale-cv.ts`).
+CV_FEEDING_SECTIONS: frozenset[str] = frozenset({
+    "personal_info",
+    "professional_summary",
+    "work_experience",
+    "education",
+    "certifications",
+    "skills",
+    "languages",
+    "projects",
+    "publications",
+    "volunteer_activities",
+    "signature_stories",
+})
+
+
 async def _enrich_stale_cv(
     items: list[ApplicationResponse], db: AsyncSession, user_id: uuid.UUID
 ) -> None:
@@ -780,8 +803,16 @@ async def _enrich_stale_cv(
     records: list[tuple[datetime, list[dict]]] = []
     for rec in trail:
         ts = _parse_trail_timestamp(rec.get("timestamp"))
-        if ts is not None:
-            records.append((ts, rec.get("changes") or []))
+        if ts is None:
+            continue
+        # N3: only the changes a CV is written from; a record with none of
+        # them (a notice period saved from the letter form) is not growth.
+        changes = [
+            c for c in (rec.get("changes") or [])
+            if isinstance(c, dict) and c.get("section") in CV_FEEDING_SECTIONS
+        ]
+        if changes:
+            records.append((ts, changes))
     if not records:
         return
     enriched_at = max(ts for ts, _ in records)
@@ -824,9 +855,8 @@ async def _enrich_stale_cv(
             if ts <= cv_created_at:
                 continue
             for change in changes:
-                section = (change or {}).get("section")
-                if section:
-                    section_counts[section] = section_counts.get(section, 0) + 1
+                section = change["section"]
+                section_counts[section] = section_counts.get(section, 0) + 1
         item.stale_cv = StaleCVInfo(
             latest_cv_id=latest.id,
             latest_cv_created_at=cv_created_at,

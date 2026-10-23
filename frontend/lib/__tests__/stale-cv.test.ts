@@ -20,6 +20,10 @@
 // delta from the re-tailor click to the flow CV page where the new version lands.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+import de from "../../messages/de.json";
+import en from "../../messages/en.json";
 import {
   decodeGained,
   encodeGained,
@@ -36,15 +40,36 @@ const GAINED: StaleCVGained[] = [
 // Resolver stub: maps the profile-namespace key to a fake localized label.
 const resolve = (key: string) => ({ sectionSkills: "Fähigkeiten", sectionWorkExperience: "Berufserfahrung" }[key] ?? key);
 
+// The real DE catalog's profile namespace as the resolver.
+function withIntlResolve() {
+  const profile = (de as { profile: Record<string, string> }).profile;
+  return (key: string) => profile[key] ?? key;
+}
+
 describe("formatGained", () => {
   it("renders localized section labels with +count, comma-joined", () => {
     expect(formatGained(GAINED, resolve)).toBe("Fähigkeiten +3, Berufserfahrung +1");
   });
 
-  it("falls back to a humanized raw section for unknown sections", () => {
-    expect(formatGained([{ section: "volunteer_work", count: 2 }], resolve)).toBe(
-      "volunteer work +2",
-    );
+  it("never shows a raw field name: an unlabelled section is left out (re-probe N3)", () => {
+    expect(formatGained([{ section: "availability", count: 1 }], resolve)).toBe("");
+    expect(
+      formatGained([{ section: "availability", count: 1 }, { section: "skills", count: 2 }], resolve),
+    ).toBe("Fähigkeiten +2");
+  });
+
+  it("labels the trail's own section names (professional_summary, volunteer_activities …)", () => {
+    const de = withIntlResolve();
+    expect(
+      formatGained(
+        [
+          { section: "professional_summary", count: 1 },
+          { section: "volunteer_activities", count: 1 },
+          { section: "signature_stories", count: 1 },
+        ],
+        de,
+      ),
+    ).toBe("Berufliche Zusammenfassung +1, Ehrenamt +1, Signatur-Geschichten +1");
   });
 
   it("returns empty string for an empty delta", () => {
@@ -70,6 +95,25 @@ describe("encodeGained / decodeGained", () => {
 });
 
 describe("SECTION_LABEL_KEYS", () => {
+  it("has a catalog label for every section the backend counts as growth", () => {
+    const src = readFileSync(
+      resolvePath(__dirname, "../../../backend/applire/services/application.py"),
+      "utf-8",
+    );
+    const block = /CV_FEEDING_SECTIONS: frozenset\[str\] = frozenset\(\{([\s\S]*?)\}\)/.exec(src);
+    expect(block).not.toBeNull();
+    const sections = [...block![1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+    expect(sections.length).toBeGreaterThan(5);
+    for (const lang of [de, en]) {
+      const profile = (lang as { profile: Record<string, string> }).profile;
+      for (const s of sections) {
+        const key = SECTION_LABEL_KEYS[s];
+        expect(key, s).toBeDefined();
+        expect(profile[key], `${s} → ${key}`).toBeTruthy();
+      }
+    }
+  });
+
   it("maps the enrichment-trail sections onto profile-namespace keys", () => {
     expect(SECTION_LABEL_KEYS.skills).toBe("sectionSkills");
     expect(SECTION_LABEL_KEYS.work_experience).toBe("sectionWorkExperience");
