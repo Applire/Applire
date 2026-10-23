@@ -466,16 +466,28 @@ async def _handle_confirmation_answer(
         )
     elif context.get("incoming_skill") and resolve_skill_decision(
         confirmation_entry, chosen
-    ) is None:
-        # #730 — the SKILL arm this route lacks (#674's open line: "a SKILL
+    ) is not None:
+        # Hazelnut build 3, WP-FR (delivery F12; closes #674's open line "a SKILL
         # confirmation answered on the standalone profile-review route resolves
-        # nothing"). That line stays open on purpose: this fix adds only what the
-        # refusal option needs, which is the REFUSAL half, not the write half.
-        # An answer naming none of the options must not spend the park here
-        # either, or the candidate's "neither" is swallowed by the bookkeeping
-        # resolve below and the ask is gone for good. `distinct`/`merge`
-        # answered here still write nothing — unchanged, and still the collector
-        # line.
+        # nothing"). Daniel answered "Add 'SQL' as a separate skill" here and the
+        # vault never gained SQL: the import's `_apply_upsert_skill` PARKS a
+        # family-3 ask without writing the incoming skill, and this route only
+        # ran the bookkeeping resolve below. The candidate's decision is now
+        # applied by the SAME applier the in-turn door uses (ADR-066 — one
+        # implementation; the dedupe waiver stays a call-path capability,
+        # `UserConfirmedSkill`, ADR-063 cl. 1). `keep` writes nothing there.
+        profile_record = await _load_profile(state["profile_id"], db)
+        await _apply_interview_confirmation(
+            db, profile_record, context, chosen,
+            session_id=str(record.id),
+            option_key=resolve_option_key(confirmation_entry, chosen),
+            keyed=bool(confirmation_entry.get("option_keys")),
+            pending_conf=confirmation_entry,
+        )
+    elif context.get("incoming_skill"):
+        # #730 — an answer naming none of the options must not spend the park
+        # here, or the candidate's "neither" is swallowed by the bookkeeping
+        # resolve below and the ask is gone for good.
         logger.warning(
             "profile-review confirmation: the answer names none of the options "
             "for incoming skill %r — re-asking, park left open (#730)",

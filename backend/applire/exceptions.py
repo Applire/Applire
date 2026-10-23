@@ -103,6 +103,32 @@ class LLMProviderError(LLMError):
         super().__init__(f"{provider} call failed ({sdk_type}{status}).")
 
 
+#: SDK exception class names of an unclassified provider error that mean "the
+#: provider could not be reached" (no HTTP status by construction).
+_CONNECTION_SDK_TYPES = frozenset({
+    "APIConnectionError", "ConnectError", "ConnectTimeout", "ReadError",
+    "ReadTimeout", "RemoteProtocolError", "ServiceUnavailableError",
+})
+
+
+def is_provider_outage(exc: BaseException) -> bool:
+    """Is ``exc`` a provider OUTAGE — the provider could not serve this call right
+    now — rather than a configuration error? (Hazelnut build 3, WP-FR, MD3-2.)
+
+    True for :class:`LLMProviderUnavailableError` (a 5xx / the 200-with-no-choices
+    quirk) and for an unclassified :class:`LLMProviderError` with a 5xx status or a
+    connection-class SDK type. False for 401/402/404 and everything else: a
+    misconfigured key or model fails the next call too, so it must fail loudly.
+    """
+    if isinstance(exc, LLMProviderUnavailableError):
+        return True
+    if isinstance(exc, LLMProviderError):
+        if exc.status_code is not None:
+            return exc.status_code >= 500
+        return exc.sdk_type in _CONNECTION_SDK_TYPES
+    return False
+
+
 class OCRUnavailableError(RuntimeError):
     """The configured OCR backend cannot run on this instance (#789 L12).
 

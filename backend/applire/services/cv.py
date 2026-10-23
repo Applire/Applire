@@ -129,7 +129,7 @@ from applire.constants import (
     LLM_REVIEW_MAX_RETRIES,
     SEGMENT_MAX_TOKENS,
 )
-from applire.exceptions import LLMTimeoutError, LLMTruncatedError
+from applire.exceptions import LLMProviderUnavailableError, LLMTimeoutError, LLMTruncatedError
 
 
 def classify_generation_error(exc: BaseException, *, user_id: uuid.UUID | None = None) -> str:
@@ -145,7 +145,35 @@ def classify_generation_error(exc: BaseException, *, user_id: uuid.UUID | None =
         return "llm_truncated"
     if isinstance(exc, LLMTimeoutError):
         return "llm_timeout"
+    # MD3-2 (Hazelnut build 3, WP-FR): an outage of the WRITER call (the reviewer
+    # seats degrade instead, ADR-021) is its own retryable code, never the generic one.
+    if isinstance(exc, LLMProviderUnavailableError):
+        return "provider_unavailable"
     return "generation_failed"
+
+
+#: MD3-2 (WP-FR, adversarial A-4): the user-safe sentence a failed generation's
+#: status door carries in ``error_message`` — one per stable ``error_code``, never
+#: the raw exception text (ADR-047 §4: that stays in the row for ops). English, like
+#: every agent-door ``details``; the UI localises from ``error_code``.
+_GENERATION_ERROR_MESSAGES = {
+    "llm_truncated": (
+        "The AI provider's answer was cut off before the CV was complete. "
+        "Generate it again."
+    ),
+    "llm_timeout": "The AI provider did not answer in time. Generate the CV again.",
+    "provider_unavailable": (
+        "The AI provider could not be reached. Generate the CV again in a moment."
+    ),
+    "generation_failed": "The CV could not be generated. Generate it again.",
+}
+
+
+def generation_error_message(error_code: str | None, *, user_id: uuid.UUID | None = None) -> str:
+    """The status door's ``error_message`` for a failed CV (never ``None``)."""
+    return _GENERATION_ERROR_MESSAGES.get(
+        error_code or "generation_failed", _GENERATION_ERROR_MESSAGES["generation_failed"]
+    )
 
 
 def _record_generation_failure(record, exc: BaseException) -> None:
@@ -3541,6 +3569,12 @@ async def get_cv_status(
         error_code=(
             record.error_code or ("generation_failed" if status == CVGenerationStatus.failed else None)
         ),
+        # MD3-2: a failed generation always says what failed (user-safe, by code).
+        error_message=(
+            generation_error_message(record.error_code)
+            if status == CVGenerationStatus.failed
+            else None
+        ),
         expires_at=record.expires_at,
         # US289: the single-status door carries template too (the list already
         # did) — the CV page seeds regenerate-same-template from it on reload.
@@ -3652,6 +3686,11 @@ async def list_cvs_for_job(
                 # Machine code only; raw error_message stays internal (ADR-047 §4 / PQ F6).
                 error_code=(
                     r.error_code or ("generation_failed" if r.status == CVGenerationStatus.failed.value else None)
+                ),
+                error_message=(
+                    generation_error_message(r.error_code)
+                    if r.status == CVGenerationStatus.failed.value
+                    else None
                 ),
                 expires_at=r.expires_at,
                 template=r.template,
