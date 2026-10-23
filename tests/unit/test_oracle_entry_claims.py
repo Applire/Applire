@@ -101,6 +101,8 @@ def test_nothing_backs_the_entry(name):
     "ACCA",                                 # vault: CPA — one acronym family, three bodies
     "Master of Science",                    # vault: Master of Arts
     "Wirtschaftsprüfer (IHK)",              # a chamber qualifier is no name of its own
+    "Wirtschaftsprüfer (CPA)",              # main review of 03c6f117: a DOCUMENT bracket
+                                            # never rides on the vault's "CPA"
 ])
 def test_a_shared_family_is_not_the_same_entry(name):
     assert entry_backing(name, _ENTRIES).how is None
@@ -158,7 +160,8 @@ async def test_other_language_pair_leaves_an_unknown_name_open():
     """D2-1 guard: a translated entry name is not checked across languages; a
     known credential family is (the family table is language-neutral)."""
     cv = {"certifications": [{"name": "Gabelstaplerschein"}, {"name": "CPA"},
-                             {"name": "Zertifizierte Datenschutzbeauftragte"}]}
+                             {"name": "Zertifizierte Datenschutzbeauftragte"},
+                             {"name": "Industriekauffrau"}, {"name": "Kfz-Mechatronikermeister (HWK)"}]}
     vault = {**VAULT, "professional_summary": {"en": "Accountant working with auditors on closings.", "de": ""},
              "work_experience": [{**VAULT["work_experience"][0],
                                   "responsibilities": ["Monthly closings under HGB with the external auditors"]}]}
@@ -166,8 +169,12 @@ async def test_other_language_pair_leaves_an_unknown_name_open():
     assert _entry_verdicts(report.claims) == {
         "certifications[0]": ("unverifiable", None),
         "certifications[1]": ("unbacked", "credentialUnbacked"),
-        # an OPEN family names a phrase in one language — not checked across languages
+        # certified_x names a translatable phrase — not checked across languages
         "certifications[2]": ("unverifiable", None),
+        # a German chamber/trade title the vault never names stays red (main
+        # review of 03c6f117 — the guard must not fail open on these)
+        "certifications[3]": ("unbacked", "credentialUnbacked"),
+        "certifications[4]": ("unbacked", "credentialUnbacked"),
     }
 
 

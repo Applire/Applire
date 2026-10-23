@@ -245,7 +245,7 @@ def kind_for_location(location: str) -> DocumentKind:
 # document states outright — no frame, no hedge, no first person: the entry IS the
 # ascription. It is backed only when a CLAIMABLE vault entry (certification name,
 # education degree or one of its ``degree_aliases``) NAMES it: identity under the
-# entry fold, a ≥ 2-token shortening of a vault name, an acronym the other side
+# entry fold, a ≥ 2-token shortening of a vault name, an acronym the VAULT entry
 # gives in parentheses, or a fixed degree abbreviation. Never by "the same
 # credential family": a family groups DIFFERENT credentials (CPA/ACCA/CIMA,
 # "Industriemeister Metall"/"…Elektrotechnik", any "…kaufmann") — as an entry
@@ -258,6 +258,8 @@ _ENTRY_PAREN = re.compile(r"\(([^)]*)\)|\[([^\]]*)\]")
 #: A parenthetical that QUALIFIES the name (chamber, school type) is no name of
 #: its own: "(IHK)" must not make every IHK entry the same credential.
 _ENTRY_QUALIFIERS = frozenset({"ihk", "hwk", "fh", "th", "tu", "uas", "dhbw", "ba", "hs", "m w d"})
+#: Families whose match is a phrase a translation rewrites — not language-neutral.
+_ENTRY_TRANSLATABLE = frozenset({"certified_x"})
 #: Fixed abbreviation ↔ long form of the same degree (folded, punctuation-free).
 _ENTRY_SYNONYMS = {
     "mba": "master of business administration",
@@ -279,17 +281,25 @@ def _entry_key(text: str) -> str:
 
 
 def entry_keys(name: str) -> frozenset[str]:
-    """Folded identity forms of an entry name: as written; without its
+    """Folded identity forms of an entry name: as written, and without its
     parenthetical/bracketed part ("Industriemeister Metall (IHK)" ↔
-    "Industriemeister Metall"); and that part alone when it names the entry
-    rather than qualifying it ("Certified Public Accountant (CPA)" ↔ "CPA")."""
+    "Industriemeister Metall")."""
     name = name or ""
     keys = {_entry_key(name), _entry_key(_ENTRY_PAREN.sub(" ", name))}
-    for m in _ENTRY_PAREN.finditer(name):
+    return frozenset(k for k in keys if k)
+
+
+def _inner_keys(name: str) -> frozenset[str]:
+    """The parenthesised part of a VAULT entry when it names the entry rather
+    than qualifying it ("Certified Public Accountant (CPA)" → "cpa"). Vault side
+    only: on the document side a bracket would let "Wirtschaftsprüfer (CPA)" ride
+    on a vault "CPA" (main review of 03c6f117)."""
+    out = set()
+    for m in _ENTRY_PAREN.finditer(name or ""):
         inner = _entry_key(m.group(1) or m.group(2) or "")
         if len(inner) >= 2 and inner not in _ENTRY_QUALIFIERS:
-            keys.add(inner)
-    return frozenset(k for k in keys if k)
+            out.add(inner)
+    return frozenset(out)
 
 
 #: Entry-only family forms. "Dr. rer. pol." / "Dr.-Ing." name a doctorate as an
@@ -305,12 +315,13 @@ def entry_families(name: str) -> frozenset[str]:
     """The credential families an entry name carries (frame-free: the entry is
     the ascription). Read only to decide the other-language case: a name miss
     with a known, language-neutral family ("CPA", "MBA", "Dr.") stays red, one
-    without is left open. The OPEN families (``certified_x``, ``kaufmann_ihk``,
-    ``meister_kammer`` — backing forms ``None``) name a phrase in one language
-    ("Zertifizierter Scrum Master"), so they never count here."""
+    without is left open. ``certified_x`` names a translatable phrase
+    ("Zertifizierter Scrum Master" ↔ "Certified Scrum Master"), so it never
+    counts here; the German chamber/trade families do (an "Industriekauffrau" an
+    English vault never names is red — main review of 03c6f117)."""
     out: set[str] = {fam for fam, rx in _ENTRY_EXTRA if rx.search(name or "")}
-    for fam, rx, backing in _COMPILED:
-        if backing is None:
+    for fam, rx, _backing in _COMPILED:
+        if fam in _ENTRY_TRANSLATABLE:
             continue
         if rx.search(name or ""):
             out.add(fam)
@@ -344,7 +355,7 @@ def entry_backing(name: str, vault_entries: tuple[tuple[str, str], ...]) -> Entr
     doc_keys = entry_keys(name)
     fams = entry_families(name)
     for path, vname in vault_entries:
-        vkeys = entry_keys(vname)
+        vkeys = entry_keys(vname) | _inner_keys(vname)
         if doc_keys & vkeys or any(_shortening(d, v) for d in doc_keys for v in vkeys):
             return EntryBacking("name", path, fams)
     return EntryBacking(None, None, fams)
