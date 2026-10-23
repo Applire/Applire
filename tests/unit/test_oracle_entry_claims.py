@@ -37,7 +37,7 @@ VAULT = {
         "responsibilities": ["Monatsabschlüsse nach HGB, Abstimmung mit den Wirtschaftsprüfern"],
     }],
     "education": [{"institution": "Hochschule Mainz", "degree": "Diplom-Kauffrau (FH)", "field": "BWL",
-                   "degree_aliases": ["Dipl.-Kffr. (FH)"]}],
+                   "degree_aliases": ["Dipl.-Kffr. (FH)", "Diplom-Betriebswirtin (FH)"]}],
     "certifications": [
         {"name": "Industriemeister Metall (IHK)"},
         {"name": "Professional Scrum Master I (PSM I)"},
@@ -52,6 +52,7 @@ _ENTRIES = (
     ("certifications[2].name", "Master of Business Administration"),
     ("education[0].degree", "Diplom-Kauffrau (FH)"),
     ("education[0].degree_aliases[0]", "Dipl.-Kffr. (FH)"),
+    ("education[0].degree_aliases[1]", "Diplom-Betriebswirtin (FH)"),
     ("certifications[3].name", "Staplerschein (DGUV G 308)"),
     ("certifications[4].name", "ISO 9001"),
     ("certifications[5].name", "Certified Public Accountant (CPA)"),
@@ -72,7 +73,8 @@ _ENTRIES = (
     ("CPA", "certifications[5].name"),                             # the vault's own acronym
     ("Dr. rer. pol.", "education[1].degree"),                      # ditto, from a degree
     ("Diplom-Kauffrau (FH)", "education[0].degree"),
-    ("Dipl.-Kffr. (FH)", "education[0].degree_aliases[0]"),        # ADR-046 alias
+    ("Dipl.-Kffr. (FH)", "education[0].degree"),                   # fixed abbreviation
+    ("Diplom-Betriebswirtin (FH)", "education[0].degree_aliases[1]"),  # ADR-046 alias
     ("Staplerschein", "certifications[3].name"),                   # one token, qualifier dropped
 ])
 def test_a_vault_entry_backs_the_entry(name, path):
@@ -106,6 +108,60 @@ def test_nothing_backs_the_entry(name):
 ])
 def test_a_shared_family_is_not_the_same_entry(name):
     assert entry_backing(name, _ENTRIES).how is None
+
+
+#: Main's pricing request (2026-10-23): the paraphrases an agent or a user edit
+#: realistically writes against a vault entry. Name-only, no family: 27 of the 30
+#: priced pairs are backed; the 3 left red (a translated field of study, a
+#: different wording of the same exam) are a collector line, not a family rule.
+_GENUINE = [
+    ("Bachelor of Science Informatik", "B.Sc. Informatik"),
+    ("Bachelor of Science Informatik", "Bachelor Informatik"),
+    ("B.Sc. Informatik", "Bachelor of Science Informatik"),
+    ("Dipl.-Kfm.", "Diplom-Kaufmann"),
+    ("Diplom-Kaufmann", "Dipl.-Kfm."),
+    ("Diplom-Ingenieur (FH) Maschinenbau", "Dipl.-Ing. (FH) Maschinenbau"),
+    ("M.A.", "Master of Arts"),
+    ("Master of Arts", "M.A."),
+    ("M.A. Germanistik", "Master of Arts Germanistik"),
+    ("Master of Science Wirtschaftsinformatik", "M.Sc. Wirtschaftsinformatik"),
+    ("Master of Business Administration", "MBA"),
+    ("MBA", "Master of Business Administration (MBA)"),
+    ("Bachelor of Arts BWL, Universität Mannheim", "Bachelor of Arts BWL"),
+    ("Bachelor of Arts BWL", "Bachelor of Arts BWL, Universität Mannheim"),
+    ("PMP", "PMP (2019)"),
+    ("Project Management Professional (PMP)", "PMP"),
+    ("Project Management Professional (PMP)", "Project Management Professional"),
+    ("Ausbildung zur Industriekauffrau", "Industriekauffrau (IHK)"),
+    ("Industriekauffrau (IHK)", "Industriekauffrau"),
+    ("Industriekauffrau", "Ausbildung zur Industriekauffrau"),
+    ("AWS Certified Solutions Architect – Associate", "AWS Solutions Architect Associate"),
+    ("AWS Certified Solutions Architect – Associate", "AWS Certified Solutions Architect"),
+    ("Certified ScrumMaster (CSM)", "Certified Scrum Master"),
+    ("Professional Scrum Master I (PSM I)", "PSM I"),
+    ("Dr. rer. nat.", "Promotion (Dr. rer. nat.)"),
+    ("Promotion (Dr. rer. nat.) Chemie", "Dr. rer. nat."),
+    ("ITIL 4 Foundation", "ITIL Foundation"),
+]
+
+
+@pytest.mark.parametrize("vault, doc", _GENUINE)
+def test_a_genuine_paraphrase_is_backed_by_name(vault, doc):
+    assert entry_backing(doc, (("v", vault),)).how == "name"
+
+
+@pytest.mark.parametrize("vault, doc", [
+    ("Industriemeister Metall", "Industriemeister Elektrotechnik"),
+    ("Master of Arts", "Master of Science"),
+    ("M.A. Germanistik", "M.Sc. Germanistik"),
+    ("Professional Scrum Master I", "Professional Scrum Master II"),
+    ("ISO 9001", "ISO 9001 Lead Auditor"),
+    ("AWS Certified Solutions Architect – Associate", "AWS Certified Solutions Architect – Professional"),
+    ("Bachelor of Science Informatik", "Studium Informatik"),
+    ("Ausbildung zur Industriekauffrau", "Ausbildung zur Bürokauffrau"),
+])
+def test_the_widened_name_match_adds_no_claim(vault, doc):
+    assert entry_backing(doc, (("v", vault),)).how is None
 
 
 def test_entries_are_claims_of_their_own_kind():

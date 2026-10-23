@@ -253,7 +253,7 @@ def kind_for_location(location: str) -> DocumentKind:
 # 84b8b229, confirmed on 7 shapes before the fix).
 
 _ENTRY_STRIP = re.compile(r"[®™©]")
-_ENTRY_PUNCT = re.compile(r"[.,;:()\[\]{}\"'„“”‚‘’/]")
+_ENTRY_PUNCT = re.compile(r"[.,;:()\[\]{}\"'„“”‚‘’/]")  # dashes: fold() already maps them
 _ENTRY_PAREN = re.compile(r"\(([^)]*)\)|\[([^\]]*)\]")
 #: A parenthetical that QUALIFIES the name (chamber, school type) is no name of
 #: its own: "(IHK)" must not make every IHK entry the same credential.
@@ -273,18 +273,47 @@ _ENTRY_SYNONYMS = {
 }
 
 
+#: Abbreviation → long form at the START of a degree name ("B.Sc. Informatik" ↔
+#: "Bachelor of Science Informatik", "Dipl.-Kfm." ↔ "Diplom-Kaufmann"). Token-wise:
+#: the abbreviation is a fixed spelling of the same degree, never a family.
+_ENTRY_PREFIXES: tuple[tuple[tuple[str, ...], str], ...] = tuple(
+    (tuple(k.split()), v) for k, v in {
+        "b sc": "bachelor of science", "bsc": "bachelor of science",
+        "m sc": "master of science", "msc": "master of science",
+        "b a": "bachelor of arts", "m a": "master of arts",
+        "b eng": "bachelor of engineering", "m eng": "master of engineering",
+        "ll b": "bachelor of laws", "ll m": "master of laws",
+        "dipl kfm": "diplom kaufmann", "dipl kffr": "diplom kauffrau",
+        "dipl ing": "diplom ingenieur", "dipl inf": "diplom informatiker",
+        "dipl psych": "diplom psychologe", "dipl volksw": "diplom volkswirt",
+        "dipl betriebsw": "diplom betriebswirt",
+    }.items()
+)
+#: A leading phrase that only frames the qualification ("Ausbildung zur
+#: Industriekauffrau" ↔ "Industriekauffrau (IHK)", "Promotion (Dr. rer. nat.)").
+_ENTRY_WRAPPER = re.compile(r"^(?:ausbildung (?:zum|zur|als)|abschluss (?:als|zum|zur)|promotion|studium) (?=\S)")
+#: A comma tail naming the school or a year is no part of the credential's name.
+_ENTRY_TAIL = re.compile(r",\s*(?=[^,]*(?:universit|hochschule|college|school|akademie|\b(?:19|20)\d\d\b))[^,]*$", re.I)
+
+
 def _entry_key(text: str) -> str:
     s = fold(_ENTRY_STRIP.sub("", text or ""))
     s = _ENTRY_PUNCT.sub(" ", s)
     s = re.sub(r"\s+", " ", s).strip()
-    return _ENTRY_SYNONYMS.get(s, s)
+    s = _ENTRY_WRAPPER.sub("", s)
+    s = _ENTRY_SYNONYMS.get(s, s)
+    toks = s.split()
+    for abbr, long in _ENTRY_PREFIXES:
+        if tuple(toks[: len(abbr)]) == abbr:
+            return " ".join([long] + toks[len(abbr):])
+    return s
 
 
 def entry_keys(name: str) -> frozenset[str]:
     """Folded identity forms of an entry name: as written, and without its
     parenthetical/bracketed part ("Industriemeister Metall (IHK)" ↔
     "Industriemeister Metall")."""
-    name = name or ""
+    name = _ENTRY_TAIL.sub("", name or "")
     keys = {_entry_key(name), _entry_key(_ENTRY_PAREN.sub(" ", name))}
     return frozenset(k for k in keys if k)
 
@@ -329,14 +358,19 @@ def entry_families(name: str) -> frozenset[str]:
 
 
 def _shortening(doc_key: str, vault_key: str) -> bool:
-    """The document's key is a contiguous, ≥ 2-token run of a vault key ("Scrum
-    Master" of "Professional Scrum Master I"). One direction only: a document
-    entry LONGER than the vault's ("ISO 9001 Lead Auditor" over "ISO 9001") adds
-    a claim the vault never made."""
+    """The document's key keeps ≥ 2 of a vault key's tokens, in order, and adds
+    none ("Scrum Master" of "Professional Scrum Master I", "ITIL Foundation" of
+    "ITIL 4 Foundation"). Dropping words weakens a claim; adding one makes a new
+    claim, so one direction only: "ISO 9001 Lead Auditor" over "ISO 9001", or
+    "Professional Scrum Master II" over "… Master I", stays unbacked. Compound
+    spelling is folded first ("ScrumMaster" ↔ "Scrum Master")."""
+    if doc_key.replace(" ", "") == vault_key.replace(" ", ""):
+        return True
     d, v = doc_key.split(), vault_key.split()
     if len(d) < 2:
         return False
-    return any(v[i:i + len(d)] == d for i in range(len(v) - len(d) + 1))
+    it = iter(v)
+    return all(tok in it for tok in d)
 
 
 @dataclass(frozen=True)
