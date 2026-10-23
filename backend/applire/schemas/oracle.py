@@ -111,7 +111,10 @@ class Claim(BaseModel):
     # ``clause`` (#237): a narrative sentence decomposed into a smaller,
     # independently checkable fragment — the letter path's answer to the
     # F14 "one multi-fact sentence never clears the coverage floor" defect.
-    kind: Literal["sentence", "bullet", "skill", "clause"] = "sentence"
+    # ``entry`` (ADR-052 amended 2026-10-23, ruling B3-9): a CV's structured
+    # certification name or education degree, graded against the vault's ENTRIES
+    # (``audit._verify_entry_claim``) — additive.
+    kind: Literal["sentence", "bullet", "skill", "clause", "entry"] = "sentence"
     # The source WorkEntry.id of the position this claim is rendered under
     # (carried on TailoredWorkEntry.id since US187). None for role-agnostic
     # surfaces (summary, skills) and legacy/id-less tailored data — the

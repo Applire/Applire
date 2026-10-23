@@ -115,6 +115,7 @@ from applire.services.oracle.matchers import (
 )
 from applire.services.oracle.credentials import (
     detect_credentials,
+    entry_backing,
     fold as credential_fold,
     kind_for_location as credential_kind_for_location,
     unbacked_credentials,
@@ -1477,6 +1478,11 @@ async def verify_claim(
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
     idx = index or _claimable_index(profile)
+    if claim.kind == "entry":
+        # ADR-052 amended 2026-10-23 (B3-9): a structured certification/education
+        # entry is a name check against the vault's ENTRIES — a fact, decided
+        # here, before any pipeline path, seam or provider (ADR-062 cl. 1).
+        return _verify_entry_claim(claim, idx, document_language)
     verdict = await _verify_claim_identifiers(
         claim,
         profile,
@@ -1490,6 +1496,55 @@ async def verify_claim(
     )
     final = _apply_credential_rule(verdict, claim, idx, document_language)
     return _withdraw_overridden_candidate(verdict, final, judgement_sink)
+
+
+def _verify_entry_claim(
+    claim: Claim, idx: VaultIndex, document_language: str | None
+) -> ClaimVerdict:
+    """ADR-052 amended 2026-10-23 (ruling B3-9 = adversarial A-1): a CV's
+    certification name / education degree is ``grounded`` when a claimable vault
+    entry names it (identity under the entry fold, or a ≥ 2-token shortening of a
+    vault entry) or carries the same credential family; otherwise ``unbacked``
+    with the E-2 ``credentialUnbacked`` detail. Other-language pair (the D2-1
+    guard): a name miss with NO known family is ``unverifiable`` — an entry an
+    agent translated is not checked across languages; a known, unbacked family
+    stays red (the family table is language-neutral: "Dr.", "CPA", "MBA")."""
+    backing = entry_backing(claim.text, idx.credential_entries)
+    if backing.how is not None:
+        base = re.match(r"^\w+\[\d+\]", backing.path or "")
+        unit = next((u for u in idx.units if base and u.path == base.group(0)), None)
+        refs = [EvidenceRef(kind="profile_path", ref=backing.path or "", excerpt=(unit.text if unit else "")[:_EXCERPT_CHARS])]
+        return ClaimVerdict(
+            verdict="grounded",
+            checker="grounding",
+            evidence=refs,
+            detail=(
+                "A profile entry names this qualification."
+                if backing.how == "name"
+                else "A profile entry names a qualification of the same kind."
+            ),
+        )
+    if not backing.families and holds_other_language(idx, document_language):
+        return ClaimVerdict(
+            verdict="unverifiable",
+            checker="grounding",
+            detail=(
+                f"No profile entry is named {claim.text!r}, and part of the vault is "
+                "written in another language — an entry name is not checked across "
+                "languages, so this is left open rather than accused."
+            ),
+        )
+    logger.info("ORACLE_ENTRY_UNBACKED location=%s", claim.location)
+    return ClaimVerdict(
+        verdict="unbacked",
+        checker="grounding",
+        detail=(
+            f"States the qualification {claim.text!r}, which no entry in your profile names — "
+            "add it to your profile if you hold it, or take it out."
+        ),
+        detail_key="credentialUnbacked",
+        detail_params={"credential": claim.text},
+    )
 
 
 def _withdraw_overridden_candidate(

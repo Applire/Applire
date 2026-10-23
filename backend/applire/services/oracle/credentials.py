@@ -52,6 +52,8 @@ def fold(text: str) -> str:
 
 
 _G = r"(?:in)?"  # singular, m/f — a plural ("Steuerberatern") is never the candidate
+#: A-2 (WP-FO): a chamber qualifier after a title — "(IHK)", "(HWK)", "IHK"…
+_CHAMBER = r"\s*\(?\s*(?:ihk|hwk|handwerkskammer|industrie- und handelskammer)\b\)?"
 
 #: (family, claim regex — case-INsensitive, backing forms in folded vault text).
 #: ``None`` backing = the qualified noun after "certified/zertifizierte" must appear.
@@ -78,12 +80,26 @@ _FAMILIES: tuple[tuple[str, str, tuple[str, ...] | None], ...] = (
      r"\b(?:industrie|handwerks|elektro|metallbauer|feinwerk)meister" + _G + r"\b|\bmeister(?:brief|prüfung|titel)\b",
      ("industriemeister", "handwerksmeister", "elektromeister", "metallbauermeister", "feinwerkmeister",
       "meisterbrief", "meisterprüfung", "meistertitel", "meister")),
+    # A-2 (WP-FO, 2026-10-23): any trade's master title once a chamber names it
+    # ("Kfz-Mechatronikermeister (HWK)"). An open family: the trade's own title
+    # must appear in the vault — "Industriemeister" backs no Kfz master title.
+    ("meister_kammer", r"\b(?!(?:industrie|handwerks|elektro|metallbauer|feinwerk)meister)[\wäöüß-]+meister"
+     + _G + _CHAMBER, None),
     ("fachwirt", r"\b\w*fachwirt" + _G + r"\b", ("fachwirt",)),
-    ("betriebswirt_ihk", r"\b(?:staatlich geprüfte?r?|geprüfte?r?)\s+betriebswirt" + _G + r"\b", ("betriebswirt",)),
+    ("betriebswirt_ihk", r"\b(?:staatlich geprüfte?r?|geprüfte?r?|technische?r?)\s+betriebswirt" + _G + r"\b"
+     r"|\bbetriebswirt" + _G + _CHAMBER, ("betriebswirt",)),
+    # A-2 (WP-FO, 2026-10-23): chamber qualifications whose bare word is also a
+    # job title — counted only with the chamber named, backed only by a vault
+    # that names the chamber form too (a "Controllerin" job title backs nothing).
+    ("controller_ihk", r"\bcontroller" + _G + _CHAMBER + r"|\b(?:ihk[- ])?geprüfte?r?\s+controller" + _G + r"\b",
+     ("controller (ihk)", "controllerin (ihk)", "controller ihk", "controllerin ihk", "ihk controller",
+      "geprüfter controller", "geprüfte controllerin")),
+    ("kaufmann_ihk", r"\b[\wäöüß]+kauf(?:mann|frau)\b", None),
     ("techniker_sg", r"\bstaatlich geprüfte?r?\s+techniker" + _G + r"\b", ("techniker",)),
     ("fasi", r"\bfachkraft für arbeitssicherheit\b|\bsicherheitsfachkraft\b|\bsifa\b",
      ("fachkraft für arbeitssicherheit", "sicherheitsfachkraft", "sifa")),
-    ("ada", r"\bausbildereignung\w*|\bada[- ]schein\b", ("ausbildereignung", "ada schein", "ada")),
+    ("ada", r"\bausbildereignung\w*|\bada[- ]schein\b|\bausbilderschein\b|\bausbilder(?:in)?\s*\(aevo\)",
+     ("ausbildereignung", "ada schein", "ada", "ausbilderschein", "aevo")),
     ("pflegefachkraft",
      r"\b(?:pflegefach(?:kraft|frau|mann)|gesundheits- und krankenpfleger" + _G + r"|krankenschwester|"
      r"fachkrankenpfleger" + _G + r")\b",
@@ -112,6 +128,7 @@ _ACRONYMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("pmp", r"\b(?:PMP|PRINCE2|IPMA)\b", ("pmp", "prince2", "ipma")),
     ("security_cert", r"\b(?:CISSP|CISA|CISM|CEH|OSCP)\b", ("cissp", "cisa", "cism", "ceh", "oscp")),
     ("itil", r"\bITIL\b", ("itil",)),
+    ("ada_aevo", r"\bAEVO\b", ("aevo", "ausbildereignung", "ada schein", "ausbilderschein")),
     ("scrum_cert", r"\b(?:PSM(?: ?I{1,3})?|CSM|CSPO|PSPO)\b", ("psm", "csm", "cspo", "pspo", "scrum")),
     ("life_support", r"\b(?:ACLS|BLS|ALS|ILS|PALS)\b", ("life support", "acls", "bls", "als", "ils", "pals")),
 )
@@ -133,11 +150,13 @@ _HEDGE = re.compile(
 _TITLE_FAMILIES = frozenset({
     "bilanzbuchhalter", "steuerberater", "wirtschaftspruefer", "rechtsanwalt", "apotheker",
     "facharzt", "industriemeister", "fachwirt", "pflegefachkraft", "notfallsanitaeter",
-    "registered_nurse", "chartered_acc",
+    "registered_nurse", "chartered_acc", "controller_ihk", "kaufmann_ihk", "meister_kammer",
 })
 _FRAME = re.compile(
     r"(?:\b(?:ich bin|bin ich|bin|als|zum|zur|ausgebildete?r?|gelernte?r?|geprüfte?r?|examinierte?r?|"
-    r"staatlich (?:geprüfte?r?|anerkannte?r?)|i am an?|i'm an?|as an?|qualified|work(?:ed|ing)? as an?)"
+    r"staatlich (?:geprüfte?r?|anerkannte?r?)|i am an?|i'm an?|as an?|qualified|work(?:ed|ing)? as an?|"
+    # A-2 (WP-FO): "führe den Titel …", "trage die Berufsbezeichnung …", "the title of"
+    r"titel|berufsbezeichnung|bezeichnung|title(?: of)?)"
     r"\s+(?:[\w.-]+\s+){0,2})$",
     re.I,
 )
@@ -169,15 +188,19 @@ def detect_credentials(text: str, *, kind: DocumentKind) -> list[CredentialMenti
         return []
     out: list[CredentialMention] = []
     seen: set[str] = set()
-    for name, rx, _backing in _COMPILED:
+    for name, rx, backing in _COMPILED:
         if name in seen:
             continue
         for m in rx.finditer(text):
             if name in _TITLE_FAMILIES and not _ascribed(text, m.start(), kind):
                 continue
             out.append(CredentialMention(name, m.group(0).strip()))
-            seen.add(name)
-            break
+            if backing is not None:
+                # A closed family: one mention decides it (lenient family backing).
+                seen.add(name)
+                break
+            # An open family (``certified_x``, ``kaufmann_ihk`` — A-2, WP-FO): each
+            # mention names its own qualification and is backed on its own.
     return out
 
 
@@ -186,6 +209,15 @@ def is_backed(mention: CredentialMention, vault_folded: str) -> bool:
     for name, _rx, forms in _COMPILED:
         if name != mention.family:
             continue
+        if forms is None and name == "meister_kammer":
+            title = re.sub(r"(?:in)?\s*\(?\s*(?:ihk|hwk|handwerkskammer|industrie- und handelskammer)\)?\s*$", "",
+                           fold(mention.matched))
+            return title.strip() in vault_folded
+        if forms is None and name == "kaufmann_ihk":
+            # A-2: the trade's own stem must appear ("industriekauffrau" is backed by
+            # "Industriekaufmann", not by any other "…kaufmann").
+            stem = re.sub(r"(?:mann|frau)$", "", fold(mention.matched))
+            return stem in vault_folded
         if forms is None:  # certified_x: the qualified noun must appear
             m = re.search(r"\s+(.+)$", fold(mention.matched))
             noun = m.group(1) if m else fold(mention.matched)
@@ -205,3 +237,94 @@ def kind_for_location(location: str) -> DocumentKind:
     stricter letter register (first person required)."""
     head = (location or "").split("[", 1)[0].split(".", 1)[0]
     return "letter" if head in {"body", "text"} else "cv"
+
+
+# ── ADR-052 amended 2026-10-23 (ruling B3-9, WP-FO): structured ENTRY claims ──
+#
+# A CV's ``certifications[i].name`` / ``education[i].degree`` is a credential the
+# document states outright — no frame, no hedge, no first person: the entry IS the
+# ascription. It is backed when a CLAIMABLE vault entry (certification name,
+# education degree or one of its ``degree_aliases``) names it, or when both carry
+# the same credential family (the E-2 lenient backing, restricted to the vault's
+# ENTRY names — prose that merely mentions "Wirtschaftsprüfern" never backs a
+# "Wirtschaftsprüfer-Examen" entry).
+
+_ENTRY_STRIP = re.compile(r"[®™©]")
+_ENTRY_PUNCT = re.compile(r"[.,;:()\[\]{}\"'„“”‚‘’]")
+_ENTRY_PAREN = re.compile(r"\([^)]*\)|\[[^\]]*\]")
+#: The open "certified/licensed <X>" family matches any two following words: as
+#: an identity between two entry names it would equate unrelated certificates
+#: ("AWS Certified Developer" vs "AWS Certified Solutions Architect").
+_ENTRY_FAMILY_EXCLUDED = frozenset({"certified_x"})
+
+
+def _entry_key(text: str) -> str:
+    s = fold(_ENTRY_STRIP.sub("", text or ""))
+    s = _ENTRY_PUNCT.sub(" ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def entry_keys(name: str) -> frozenset[str]:
+    """Folded identity forms of an entry name: as written, and without any
+    parenthetical/bracketed qualifier ("Industriemeister Metall (IHK)" ↔
+    "Industriemeister Metall")."""
+    keys = {_entry_key(name), _entry_key(_ENTRY_PAREN.sub(" ", name or ""))}
+    return frozenset(k for k in keys if k)
+
+
+#: Entry-only family forms. "Dr. rer. pol." / "Dr.-Ing." name a doctorate as an
+#: entry; in PROSE the same token mostly names another person ("mit Dr. med.
+#: Weber"), so E-2's sentence detection deliberately does not read it.
+_ENTRY_EXTRA: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("doctorate", re.compile(
+        r"^\s*dr\.?\s*$|\bdr\.?\s?-?\s?(?:rer|phil|med|ing|jur|oec|habil|nat|pol|sc)\b", re.I)),
+)
+
+
+def entry_families(name: str) -> frozenset[str]:
+    """The credential families an entry name carries (frame-free: the entry is
+    the ascription)."""
+    out: set[str] = {fam for fam, rx in _ENTRY_EXTRA if rx.search(name or "")}
+    for fam, rx, _backing in _COMPILED:
+        if fam in _ENTRY_FAMILY_EXCLUDED:
+            continue
+        if rx.search(name or ""):
+            out.add(fam)
+    return frozenset(out)
+
+
+def _shortening(doc_key: str, vault_key: str) -> bool:
+    """The document's key is a contiguous, ≥ 2-token run of a vault key ("Scrum
+    Master" of "Professional Scrum Master I"). One direction only: a document
+    entry LONGER than the vault's ("ISO 9001 Lead Auditor" over "ISO 9001") adds
+    a claim the vault never made."""
+    d, v = doc_key.split(), vault_key.split()
+    if len(d) < 2:
+        return False
+    return any(v[i:i + len(d)] == d for i in range(len(v) - len(d) + 1))
+
+
+@dataclass(frozen=True)
+class EntryBacking:
+    #: ``"name"`` (identity / shortening of a vault entry), ``"family"`` (same
+    #: credential family as a vault entry) or ``None`` (nothing backs it).
+    how: str | None
+    #: The backing vault entry's path, e.g. ``certifications[2].name``.
+    path: str | None = None
+    #: The families the document entry carries (empty = none known).
+    families: frozenset[str] = frozenset()
+
+
+def entry_backing(name: str, vault_entries: tuple[tuple[str, str], ...]) -> EntryBacking:
+    """How (if at all) the claimable vault's entry names back a document entry."""
+    doc_keys = entry_keys(name)
+    fams = entry_families(name)
+    for path, vname in vault_entries:
+        vkeys = entry_keys(vname)
+        if doc_keys & vkeys or any(_shortening(d, v) for d in doc_keys for v in vkeys):
+            return EntryBacking("name", path, fams)
+    if fams:
+        for path, vname in vault_entries:
+            if fams <= entry_families(vname):
+                return EntryBacking("family", path, fams)
+    return EntryBacking(None, None, fams)

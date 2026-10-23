@@ -135,6 +135,11 @@ class VaultIndex:
     # Erfahrung im industriellen Mittelstand" without the vault-wide bare
     # number finding 4a removed.
     stated_tenure_windows: list[tuple[float, frozenset[str]]] = field(default_factory=list)
+    #: ADR-052 amended 2026-10-23 (ruling B3-9, WP-FO) — the claimable vault's
+    #: ENTRY names a CV's certification/education entry may match: ``(path, name)``
+    #: for every certification ``name``, education ``degree`` and ``degree_aliases``
+    #: item (ADR-046 #716). Read only by ``audit._verify_entry_claim``.
+    credential_entries: tuple[tuple[str, str], ...] = ()
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:
@@ -362,6 +367,7 @@ def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) ->
         transcribed_skill_years=dict(index.transcribed_skill_years),
         stated_skill_tenures=dict(index.stated_skill_tenures),
         stated_tenure_windows=list(index.stated_tenure_windows),
+        credential_entries=index.credential_entries,
     )
 
 
@@ -610,7 +616,19 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
             )
 
     all_text_norm = _norm(" ".join(u.text for u in units))
+    credential_entries: list[tuple[str, str]] = []
+    for i, c in enumerate(p.certifications):
+        if (c.name or "").strip():
+            credential_entries.append((f"certifications[{i}].name", c.name.strip()))
+    for i, e in enumerate(p.education):
+        if (e.degree or "").strip():
+            credential_entries.append((f"education[{i}].degree", e.degree.strip()))
+        for j, alias in enumerate(e.degree_aliases or []):
+            if isinstance(alias, str) and alias.strip():
+                credential_entries.append((f"education[{i}].degree_aliases[{j}]", alias.strip()))
+
     return VaultIndex(
+        credential_entries=tuple(credential_entries),
         units=units,
         all_text_norm=all_text_norm,
         skill_names=skill_names,
