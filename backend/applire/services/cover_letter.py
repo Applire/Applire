@@ -341,7 +341,12 @@ async def get_cover_letter_status(
         status=cl.status,
         html_url=html_url,
         pdf_url=pdf_url,
-        error_message=cl.error_message,
+        # MD3-2 (WP-FR): a failed generation always carries an error_message.
+        error_message=cl.error_message or (
+            "The cover letter could not be generated. Generate it again."
+            if cl.status == CoverLetterStatus.failed.value
+            else None
+        ),
         expires_at=cl.expires_at,
         letter_data=letter_data,
         section_overrides=section_overrides,
