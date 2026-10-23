@@ -154,6 +154,50 @@ async def test_the_fabricated_figure_beside_form_wording_stays_red():
     assert (v.verdict, v.detail_key) == ("unbacked", "figuresNoEvidence")
 
 
+# ── a wish is not a deed: the register of a motivation typed as a wish ────────
+
+#: Found while pricing this follow-up, live on the merged B3-10 rule (739569ec):
+#: the motivation's own words, turned from a wish into experience, cleared the
+#: coverage floor — a red figure became the neutral form mark.
+DEED_FROM_WISH = "Ich habe dauerhaft rund 120 Mitarbeitende geführt."
+DEED_FROM_WISH_K = ("Im Konzernabschluss habe ich bereits mehr Verantwortung übernommen und ein Team von sechs "
+                    "Personen geführt.")
+
+
+@pytest.mark.asyncio
+async def test_a_wish_restated_as_a_deed_keeps_its_red():
+    stub = _Stub(judge=True)
+    v = await _audit(DEED_FROM_WISH, provider=stub)
+    assert (v.verdict, v.detail_key) == ("unbacked", "figuresNoEvidence")
+    assert all(DEED_FROM_WISH not in p for p in stub.judge_prompts)  # a red is never judged
+
+
+@pytest.mark.asyncio
+async def test_an_unverifiable_deed_from_a_wish_goes_to_the_judge_not_the_floor():
+    stub = _Stub(judge=False)
+    v = await _audit(DEED_FROM_WISH_K, form=FORM_KATRIN, provider=stub)
+    assert (v.verdict, v.checker) == ("unverifiable", "grounding")
+    assert any(f"CLAIM: {DEED_FROM_WISH_K}" in p for p in stub.judge_prompts)
+
+
+@pytest.mark.asyncio
+async def test_a_wish_restated_as_a_wish_stays_a_coverage_case():
+    """The F1 shapes keep the register ("wäre", "möchte"): no judge call needed."""
+    stub = _Stub(judge=False)
+    v = await _audit(TRIAGED_120, provider=stub)
+    assert v.checker == "letter_form_input"
+    assert stub.judge_prompts == []
+
+
+@pytest.mark.asyncio
+async def test_a_short_answer_is_a_fact_not_a_wish():
+    """The register rule is the motivation's: a notice answer typed as "gerne ab
+    sofort" is the fact "ab sofort", and the letter may state it plainly."""
+    v = await _audit("Ich bin ab sofort verfügbar.", form=dict(FORM, availability="gerne ab sofort"),
+                     provider=_Stub(judge=False))
+    assert (v.checker, v.detail_params) == ("letter_form_input", {"field": "availability"})
+
+
 # ── below the floor: the restatement judge, asked of the form text ─────────────
 
 

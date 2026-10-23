@@ -1620,6 +1620,18 @@ _FORM_FIELD_FRAME = {
 #: be one the answer states — the vault is no source for it.
 _FORM_SHORT_FIELDS = frozenset({"availability", "salary"})
 
+#: The want/would register of a motivation answer (de + en). A motivation the
+#: candidate typed as a WISH ("wäre für mich der nächste Schritt", "möchte ein
+#: Team führen") is not their statement that they DID it: a sentence reusing its
+#: words without the register ("Ich habe rund 120 Mitarbeitende geführt") is no
+#: coverage case — whether it says the same is the judge's question (ADR-062),
+#: and only for an honest ``unverifiable``; a red stays red.
+_FORM_WANT_RE = re.compile(
+    r"\b(?:möchte|möchten|würde|würden|wäre|wären|will|wollen|künftig|zukünftig|gern|gerne|"
+    r"reizt|reizen|reizvoll|interessiert|interessieren|nächsten? schritt|ziel|anstreben|strebe|"
+    r"would|want|wants|wish|hope|aim|aims|aspire|keen|eager|looking to|like to|next step)\b"
+)
+
 #: Below the deterministic floor, a sentence the form covers at least this far
 #: (and whose facts all hold) is asked of the restatement judge against the form
 #: text (ADR-062: sameness of meaning is the model's judgement). Only an honest
@@ -1691,7 +1703,10 @@ def _form_facts_hold(claim: Claim, unit: EvidenceUnit, field: str, idx: VaultInd
         if not claim_numbers <= form_numbers:
             return False
         claim_norm = _norm(_fold_number_words(claim.text))
-        answer_tokens = skill_tokens(_fold_number_words(unit.text)) - _NARRATIVE_STOPWORDS
+        answer_tokens = {
+            t for t in skill_tokens(_fold_number_words(unit.text)) - _NARRATIVE_STOPWORDS
+            if not _FORM_WANT_RE.fullmatch(t)  # "gerne ab sofort" states "ab sofort"
+        }
         if not all(surface_present(t, claim_norm) for t in answer_tokens):
             return False
     else:
@@ -1748,9 +1763,11 @@ def _letter_form_verdict(
     * **deterministic** — one form field covers ≥ ``GROUNDED_MIN_COVERAGE`` of
       the sentence's content tokens (spelled-out counts folded to digits; a
       short answer's own question words count as frame);
-    * **judged** — below that floor but ≥ ``_FORM_JUDGE_MIN_COVERAGE``, an
-      ``unverifiable`` sentence is asked of the restatement judge against the
-      form text; only a cited "corresponds" grants the mark;
+    * **judged** — below that floor but ≥ ``_FORM_JUDGE_MIN_COVERAGE``, or
+      above it but WITHOUT the want/would register of a motivation typed as a
+      wish (``_FORM_WANT_RE``), an ``unverifiable`` sentence is asked of the
+      restatement judge against the form text; only a cited "corresponds"
+      grants the mark;
     * either way **every fact holds** (:func:`_form_facts_hold`): no figure,
       count, credential or identifier that neither the form (nor, for the
       motivation, the vault) states. A writer sentence that adds one stays
@@ -1782,7 +1799,12 @@ def _letter_form_verdict(
     if chosen is None:
         return None
     coverage, value_hits, unit, field = chosen
-    if coverage >= GROUNDED_MIN_COVERAGE:
+    register_kept = (
+        field in _FORM_SHORT_FIELDS
+        or not _FORM_WANT_RE.search(_norm(unit.text))
+        or bool(_FORM_WANT_RE.search(_norm(claim.text)))
+    )
+    if coverage >= GROUNDED_MIN_COVERAGE and register_kept:
         logger.info("ORACLE_LETTER_FORM_INPUT field=%s via=coverage location=%s", field, claim.location)
         return _form_mark(unit, field)
     if (
