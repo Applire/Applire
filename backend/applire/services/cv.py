@@ -169,7 +169,7 @@ _GENERATION_ERROR_MESSAGES = {
 }
 
 
-def generation_error_message(error_code: str | None) -> str:
+def generation_error_message(error_code: str | None, *, user_id: uuid.UUID | None = None) -> str:
     """The status door's ``error_message`` for a failed CV (never ``None``)."""
     return _GENERATION_ERROR_MESSAGES.get(
         error_code or "generation_failed", _GENERATION_ERROR_MESSAGES["generation_failed"]
