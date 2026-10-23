@@ -95,6 +95,7 @@ async def test_the_judge_answers_the_remaining_candidate_on_its_own_claim():
     assert v["body.paragraphs[1][0]"].detail_key == "credentialUnbacked"
     second = v["body.paragraphs[1][1]"]
     assert (second.verdict, second.checker) == ("unbacked", "restatement_judgement")
+    assert second.detail_key == "restatementBorrowed"  # said in the UI language (B3-10 bug-fix part)
 
 
 # ── the agent door, through mcp.call_tool (where it surfaced as an internal error)

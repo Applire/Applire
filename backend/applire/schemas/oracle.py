@@ -80,6 +80,12 @@ CheckerId = Literal[
     # polarity: a mis-classification exempts a real claim, so unavailability
     # of any kind audits the sentence instead of exempting it.
     "sentence_triage",
+    # ADR-061/048 amended 2026-10-23 (ruling B3-10, WP-FO): a letter sentence
+    # built from what the candidate typed into THAT letter's form
+    # (``pre_gen_inputs`` motivation / availability / salary) — the candidate's
+    # own statement for that letter, shown neutral ("aus deiner Eingabe im
+    # Formular") on a ``not_applicable`` verdict. Nothing reaches the vault.
+    "letter_form_input",
 ]
 
 Stance = Literal["aspirational", "achieved"]
@@ -96,7 +102,9 @@ class EvidenceRef(BaseModel):
     the provenance trail for *how* that evidence entered the vault.
     """
 
-    kind: Literal["profile_path", "enrichment_record"]
+    #: ``letter_form`` (B3-10, additive): ``ref`` is ``pre_gen_inputs.<field>`` of
+    #: the audited letter — never a profile path.
+    kind: Literal["profile_path", "enrichment_record", "letter_form"]
     ref: str
     excerpt: str = ""
 
