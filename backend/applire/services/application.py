@@ -774,6 +774,17 @@ CV_FEEDING_SECTIONS: frozenset[str] = frozenset({
 })
 
 
+def _is_new_limit(change: dict) -> bool:
+    """B3-12: a NEWLY recorded denial — the candidate stated a limit. An
+    escalation, re-confirmation or probe bookkeeping is ``updated`` and does
+    not count; the limit itself was recorded earlier."""
+    return (
+        change.get("section") == "metadata"
+        and change.get("field") == "denied_concepts"
+        and change.get("action") == "added"
+    )
+
+
 async def _enrich_stale_cv(
     items: list[ApplicationResponse], db: AsyncSession, user_id: uuid.UUID
 ) -> None:
@@ -800,22 +811,22 @@ async def _enrich_stale_cv(
     if not profile_json:
         return
     trail = (profile_json.get("metadata") or {}).get("enrichment_history") or []
-    records: list[tuple[datetime, list[dict]]] = []
+    records: list[tuple[datetime, list[dict], int]] = []
     for rec in trail:
         ts = _parse_trail_timestamp(rec.get("timestamp"))
         if ts is None:
             continue
+        raw = [c for c in (rec.get("changes") or []) if isinstance(c, dict)]
         # N3: only the changes a CV is written from; a record with none of
         # them (a notice period saved from the letter form) is not growth.
-        changes = [
-            c for c in (rec.get("changes") or [])
-            if isinstance(c, dict) and c.get("section") in CV_FEEDING_SECTIONS
-        ]
-        if changes:
-            records.append((ts, changes))
+        changes = [c for c in raw if c.get("section") in CV_FEEDING_SECTIONS]
+        # B3-12: a newly recorded limit arms its own hint.
+        limits = sum(1 for c in raw if _is_new_limit(c))
+        if changes or limits:
+            records.append((ts, changes, limits))
     if not records:
         return
-    enriched_at = max(ts for ts, _ in records)
+    enriched_at = max(ts for ts, _, _ in records)
 
     job_ids = {i.job_analysis_id for i in candidates}
     cv_result = await db.execute(
@@ -851,9 +862,11 @@ async def _enrich_stale_cv(
             continue
 
         section_counts: dict[str, int] = {}
-        for ts, changes in records:
+        new_limits = 0
+        for ts, changes, limits in records:
             if ts <= cv_created_at:
                 continue
+            new_limits += limits
             for change in changes:
                 section = change["section"]
                 section_counts[section] = section_counts.get(section, 0) + 1
@@ -867,6 +880,8 @@ async def _enrich_stale_cv(
                 StaleCVGained(section=s, count=c)
                 for s, c in sorted(section_counts.items(), key=lambda kv: (-kv[1], kv[0]))
             ],
+            # B3-12: one hint; the limit wins when both are newer than the CV.
+            reason="new_limit" if new_limits else "profile_grew",
         )
 
 

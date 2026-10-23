@@ -112,6 +112,24 @@ describe("DashboardApplicationCard", () => {
     expect(screen.getByTestId("stale-cv-badge")).toHaveTextContent("staleCvBadge");
   });
 
+  it("a newly recorded limit gets its own badge (B3-12)", () => {
+    renderCard({
+      staleCv: {
+        latest_cv_id: "cv-1",
+        latest_cv_created_at: "2026-07-01T10:00:00Z",
+        latest_cv_template: "classic_german",
+        profile_enriched_at: "2026-07-08T10:00:00Z",
+        gained: [{ section: "skills", count: 3 }],
+        target_pages: null,
+        reason: "new_limit",
+      },
+    });
+    const badge = screen.getByTestId("stale-cv-badge");
+    expect(badge).toHaveTextContent("staleCvBadgeLimit");
+    expect(badge.getAttribute("title")).toBe("staleCvBadgeLimitTitle");
+    expect(badge.getAttribute("data-reason")).toBe("new_limit");
+  });
+
   it("shows no stale badge when the hint is absent", () => {
     renderCard();
     expect(screen.queryByTestId("stale-cv-badge")).toBeNull();
