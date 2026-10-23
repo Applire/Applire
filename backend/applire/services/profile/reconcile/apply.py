@@ -3601,6 +3601,10 @@ def _apply_set_availability(op, profile, source, changes) -> None:
 
     text = (op.text or "").strip()
     old = profile.availability.text if profile.availability else None
+    if not text and not (old or "").strip():
+        # A-7 (fix round): clearing a value that is not there is a no-op — it
+        # must not drop a reminder close (``reminder_dismissed_at``) with it.
+        return
     if not text:
         if old:
             changes.append(FieldChange(
@@ -3610,7 +3614,7 @@ def _apply_set_availability(op, profile, source, changes) -> None:
         profile.availability = None
         return
     profile.availability = Availability(
-        text=text, recorded_at=today_utc().isoformat(), source=source,
+        text=text, recorded_at=today_utc().isoformat(), source=getattr(op, "door", None) or source,
         reminder_dismissed_at=None,
     )
     changes.append(FieldChange(

@@ -87,7 +87,28 @@ describe("PageOverflowCard", () => {
     render(withIntl(<PageOverflowCard cvId="cv-1" />));
     const done = await screen.findByTestId("cv-page-overflow-done");
     expect(done.getAttribute("data-choice")).toBe("cut");
-    // The CV changed since the cut — no switch offered.
+    // The CV changed since the cut — no switch offered, and the card says why.
+    expect(screen.queryByTestId("cv-page-overflow-switch")).toBeNull();
+    expect(screen.getByTestId("cv-page-overflow-undo-gone").textContent).toBe(
+      "This can no longer be undone: the CV has changed since the cut.",
+    );
+  });
+
+  it("an undo refused with 409 re-reads the state and says why, not a generic error (MD3-3)", async () => {
+    const cutState = { ...PROPOSAL, choice: "cut" as const, cut_available: false, uncut_available: true };
+    let statusReads = 0;
+    global.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return { ok: false, status: 409, json: async () => ({}) } as Response;
+      statusReads += 1;
+      const po = statusReads === 1 ? cutState : { ...cutState, uncut_available: false };
+      return { ok: true, status: 200, json: async () => ({ page_overflow: po }) } as Response;
+    }) as typeof fetch;
+    render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
+    fireEvent.click(await screen.findByTestId("cv-page-overflow-switch"));
+    expect((await screen.findByTestId("cv-page-overflow-undo-gone")).textContent).toBe(
+      "Rückgängig machen geht hier nicht mehr: Der Lebenslauf hat sich seit dem Kürzen geändert.",
+    );
+    expect(screen.queryByTestId("cv-page-overflow-error")).toBeNull();
     expect(screen.queryByTestId("cv-page-overflow-switch")).toBeNull();
   });
 
@@ -103,6 +124,22 @@ describe("PageOverflowCard", () => {
     fireEvent.click(await screen.findByTestId("cv-page-overflow-cut"));
     expect((await screen.findByTestId("cv-page-overflow-error")).textContent).toContain("That did not work");
     expect(screen.getByTestId("cv-page-overflow-card")).toBeTruthy();
+  });
+
+  it("after a cut the undo names the uncut count, not the cut CV's (A-3b)", async () => {
+    // The backend re-measures on every switch: after the cut `actual` is the cut
+    // CV's count (2); `full_pages` is what "keep" gives back (3).
+    mockFetch(PROPOSAL, { ...PROPOSAL, actual: 2, full_pages: 3, choice: "cut", cut_available: false, uncut_available: true });
+    render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
+    fireEvent.click(await screen.findByTestId("cv-page-overflow-cut"));
+    await screen.findByTestId("cv-page-overflow-done");
+    expect(screen.getByTestId("cv-page-overflow-switch").textContent).toBe("Doch 3 Seiten");
+  });
+
+  it("the kept line and the keep button name full_pages when the row carries it", async () => {
+    mockFetch({ ...PROPOSAL, actual: 3, full_pages: 3, choice: "keep" });
+    render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
+    expect((await screen.findByTestId("cv-page-overflow-done")).textContent).toContain("3 Seiten — so von dir gewählt.");
   });
 
   it("target 1 reads singular", async () => {

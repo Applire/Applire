@@ -179,7 +179,11 @@ async def create_application(
 
     await db.commit()
     await db.refresh(app)
-    return ApplicationResponse.model_validate(app)
+    # A-6 (Hazelnut b3 fix round): the create door answers with the SERVED view
+    # (derived `workflow_status`, `cover_letter_ready`, `workflow_running`,
+    # `flow_current_step`) — the same one read as `list_applications` /
+    # `get_application` serve, never the stored column (E12-788:L21).
+    return await get_application(app.id, user_id, db)
 
 
 async def list_applications(
@@ -377,7 +381,7 @@ async def start_application_workflow(
     _touch(app)
     await db.commit()
     await db.refresh(app)
-    return ApplicationResponse.model_validate(app)
+    return await get_application(app.id, user_id, db)  # A-6: the served view
 
 
 async def sync_workflow_status(

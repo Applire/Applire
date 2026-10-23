@@ -136,10 +136,14 @@ class CVPageOverflowCut(BaseModel):
 
 class CVPageOverflow(BaseModel):
     """The x+1 decision on one CV (#786 L-3). ``choice`` null = not yet asked
-    back; ``cut_available`` / ``uncut_available`` = the switch can be applied to
-    the CV as it stands (no content change or section edit since)."""
+    back; ``cut_available`` = "Kürzen" can be applied to the CV as it stands (no
+    content change or section edit since the proposal); ``uncut_available`` = the
+    cut can be undone, also after a later edit (MD3-3: the cut items go back into
+    the current CV). ``actual`` = the page count as the CV stands now (refreshed by
+    every switch); ``full_pages`` = the count with nothing cut (A-3b, additive)."""
     target: int
     actual: int
+    full_pages: Optional[int] = None
     proposed: list[CVPageOverflowCut] = Field(default_factory=list)
     choice: Optional[Literal["keep", "cut"]] = None
     cut_available: bool = False

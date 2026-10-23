@@ -163,6 +163,12 @@ async def client(db, monkeypatch):
         await session.commit()
 
     monkeypatch.setattr(cv, "_update_ats_report", _audit)
+
+    async def _measure(record, session):
+        return cv.MeasuredRender("", _pages(record.tailored_data), False, 2, "DACH")
+
+    # A-3b: every switch re-measures once (the fake counts pages from the data).
+    monkeypatch.setattr(cv, "_measure_current", _measure)
     app = FastAPI()
     app.include_router(cv_router)
     app.dependency_overrides[get_db] = lambda: db
@@ -272,7 +278,185 @@ async def test_status_carries_the_decision_without_the_data_copies(client, db, m
     assert r.status_code == 200, r.text
     po = r.json()["page_overflow"]
     assert po == {
-        "target": 2, "actual": 4,
+        "target": 2, "actual": 4, "full_pages": 4,
         "proposed": [{"kind": "oldest_certification", "items": ["Cert 2010", "Cert 2011", "Cert 2012", "Cert 2013"]}],
         "choice": None, "cut_available": True, "uncut_available": False,
     }
+
+
+# ---------------------------------------------------------------------------
+# MD3-3 / A-3 / A-3b (Hazelnut b3 fix round): undo after a later edit, the
+# empty proposal, the refreshed page count
+# ---------------------------------------------------------------------------
+
+
+def _rich() -> tuple[dict, dict]:
+    """A CV whose cut removed every ladder kind: a duplicate project, two off-job
+    skill chips, a repeated industry line, two certifications, one education entry."""
+    full = _data(3)
+    full.update({
+        "summary": "Leiter Controlling.",
+        "skills": ["SAP FI", "Kochen", "IFRS", "Segeln", "Power BI"],
+        "projects": [{"name": "S/4-Migration"}, {"name": "Konzernabschluss"}],
+        "work_history": [
+            {"company": "A GmbH", "role": "Leiter", "start_date": "2020", "bullets": ["a1"],
+             "industry_context": "Maschinenbau", "projects": [{"name": "S/4-Migration"}]},
+            {"company": "B AG", "role": "Referent", "start_date": "2015", "bullets": ["b1"],
+             "industry_context": "Maschinenbau"},
+        ],
+        "education": [
+            {"degree": "MBA", "institution": "X", "end_date": "2014"},
+            {"degree": "BSc", "institution": "Y", "end_date": "2010"},
+            {"degree": "Abitur", "institution": "Z", "end_date": "2006"},
+        ],
+    })
+    cut = copy.deepcopy(full)
+    cut["skills"] = ["SAP FI", "IFRS", "Power BI"]
+    cut["projects"] = [{"name": "Konzernabschluss"}]
+    cut["work_history"][1]["industry_context"] = None
+    cut["certifications"] = [{"name": "Cert 2012", "date_obtained": "2012"}]
+    cut["education"] = full["education"][:2]
+    return full, cut
+
+
+def test_reinsert_puts_every_kind_back_at_its_place_and_keeps_the_edit():
+    from applire.services.cv_page_ladder import reinsert_cuts
+
+    full, cut = _rich()
+    current = copy.deepcopy(cut)
+    current["summary"] = "Edited after the cut."
+    current["skills"].append("Tableau")  # the person added a chip
+    data, override, lost = reinsert_cuts(current, full, cut)
+    assert lost == [] and override is None
+    assert data["summary"] == "Edited after the cut."
+    assert data["skills"] == ["SAP FI", "Kochen", "IFRS", "Segeln", "Power BI", "Tableau"]
+    assert data["projects"] == full["projects"]
+    assert [w["industry_context"] for w in data["work_history"]] == ["Maschinenbau", "Maschinenbau"]
+    assert data["certifications"] == full["certifications"]
+    assert data["education"] == full["education"]
+    assert reinsert_cuts(cut, full, cut)[0] == full, "unedited: the exact data before the cut"
+
+
+def test_reinsert_into_an_edited_skills_list_and_never_twice():
+    from applire.services.cv_page_ladder import reinsert_cuts
+
+    full, cut = _rich()
+    _, override, _ = reinsert_cuts(cut, full, cut, skills_override=["IFRS", "SAP FI", "Segeln", "Excel"])
+    # "Segeln" was re-added by hand: kept once; "Kochen" goes after its predecessor.
+    assert override == ["IFRS", "SAP FI", "Kochen", "Segeln", "Excel"]
+
+
+def test_reinsert_names_an_industry_line_whose_role_is_gone():
+    from applire.services.cv_page_ladder import reinsert_cuts
+
+    full, cut = _rich()
+    current = copy.deepcopy(cut)
+    current["work_history"] = current["work_history"][:1]
+    _, _, lost = reinsert_cuts(current, full, cut)
+    assert lost == ["B AG: Maschinenbau"]
+
+
+def _cut_state(full: dict, cut: dict, **over):
+    from applire.models.cv import GeneratedCV
+    from applire.services.cv import _subject_hash
+    from applire.services.cv_section_editor import build_content_snapshot
+    from applire.schemas.cv import TailoredCVData
+
+    po = {
+        "target": 2, "actual": 2, "full_pages": 4,
+        "proposed": [{"kind": "off_job_skills", "items": ["Kochen", "Segeln"]}],
+        "choice": "cut", "basis_hash": _subject_hash(full), "cut_data": cut, "full_data": full,
+    }
+    fields = dict(id=uuid.uuid4(), job_analysis_id=uuid.uuid4(), profile_id=uuid.uuid4(),
+                  tailored_data=copy.deepcopy(cut), template="classic_german", status="ready",
+                  page_overflow=po,
+                  content_snapshot=build_content_snapshot(TailoredCVData.model_validate(cut)))
+    fields.update(over)
+    return GeneratedCV(**fields)
+
+
+@pytest.mark.asyncio
+async def test_undo_after_a_section_edit_reinserts_into_the_current_cv(client, db):
+    """A-3: "Kürzen", then an Einleitung edit, then "Doch 4 Seiten" answered 409 and
+    the cut items stayed gone. Now they go back and the edit stays."""
+    full, cut = _rich()
+    record = _cut_state(full, cut)
+    pos_id = record.content_snapshot["positions"][1]["id"]
+    record.section_overrides = {"introduction": "Mein eigener Text.", f"position::{pos_id}": "b1\nb2"}
+    db.add(record)
+    await db.commit()
+
+    status = await client.get(f"/api/cv/{record.id}/status")
+    assert status.json()["page_overflow"]["uncut_available"] is True
+    r = await client.post(f"/api/cv/{record.id}/page-overflow", json={"choice": "keep"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["choice"] == "keep" and body["full_pages"] == 4
+    assert body["actual"] == _pages(full), "re-measured on the restored CV"
+    await db.refresh(record)
+    assert record.tailored_data["skills"] == full["skills"]
+    assert record.tailored_data["work_history"][1]["industry_context"] == "Maschinenbau"
+    assert record.section_overrides["introduction"] == "Mein eigener Text."
+    assert record.content_snapshot["positions"][1]["id"] == pos_id, "the position edit keeps its role"
+    assert client.audits[-1]["skills"] == full["skills"]
+
+
+@pytest.mark.asyncio
+async def test_undo_after_a_skills_edit_puts_the_chips_into_the_edited_list(client, db):
+    full, cut = _rich()
+    record = _cut_state(full, cut, section_overrides={"skills": "IFRS\nSAP FI\nExcel"})
+    db.add(record)
+    await db.commit()
+    r = await client.post(f"/api/cv/{record.id}/page-overflow", json={"choice": "keep"})
+    assert r.status_code == 200, r.text
+    await db.refresh(record)
+    # each chip goes back right after its predecessor in the uncut list
+    assert record.section_overrides["skills"].split("\n") == ["IFRS", "Segeln", "SAP FI", "Kochen", "Excel"]
+
+
+@pytest.mark.asyncio
+async def test_undo_that_cannot_happen_is_409_naming_what_was_cut(client, db):
+    full, cut = _rich()
+    record = _cut_state(full, cut)
+    record.tailored_data = {**copy.deepcopy(cut), "work_history": cut["work_history"][:1]}
+    db.add(record)
+    await db.commit()
+    assert (await client.get(f"/api/cv/{record.id}/status")).json()["page_overflow"]["uncut_available"] is False
+    r = await client.post(f"/api/cv/{record.id}/page-overflow", json={"choice": "keep"})
+    assert r.status_code == 409
+    assert "Kochen, Segeln" in r.json()["detail"]
+    await db.refresh(record)
+    assert record.page_overflow["choice"] == "cut"
+
+
+@pytest.mark.asyncio
+async def test_cut_on_an_empty_proposal_says_there_is_nothing_to_cut(client, db):
+    record, full, _ = _cv_with_proposal()
+    po = dict(record.page_overflow, proposed=[], cut_data=None)
+    record.page_overflow = po
+    db.add(record)
+    await db.commit()
+    r = await client.post(f"/api/cv/{record.id}/page-overflow", json={"choice": "cut"})
+    assert r.status_code == 409
+    assert r.json()["detail"].startswith("nothing to cut")
+
+
+@pytest.mark.asyncio
+async def test_actual_follows_the_cv_after_a_cut_and_back(client, db):
+    record, _, _ = _cv_with_proposal()
+    db.add(record)
+    await db.commit()
+    cut = (await client.post(f"/api/cv/{record.id}/page-overflow", json={"choice": "cut"})).json()
+    assert (cut["actual"], cut["full_pages"]) == (2, 4)
+    back = (await client.post(f"/api/cv/{record.id}/page-overflow", json={"choice": "keep"})).json()
+    assert (back["actual"], back["full_pages"]) == (4, 4)
+
+
+@pytest.mark.asyncio
+async def test_measure_current_reads_the_rendered_page_count(monkeypatch, fake_render):
+    import applire.services.cv as cv
+
+    record = SimpleNamespace(id=uuid.uuid4(), user_id=None, tailored_data=_data(5), target_pages=2)
+    monkeypatch.setattr(cv, "_fake_record_data", lambda: copy.deepcopy(record.tailored_data), raising=False)
+    measured = await cv._measure_current(record, MagicMock())
+    assert measured.page_count == 4 and measured.target == 2

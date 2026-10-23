@@ -5413,6 +5413,7 @@ async def _propose_page_cut(
     record.page_overflow = {
         "target": target,
         "actual": measured.page_count,
+        "full_pages": measured.page_count,
         "proposed": proposed,
         "choice": None,
         "basis_hash": _subject_hash(full),
@@ -5426,10 +5427,42 @@ async def _propose_page_cut(
     )
 
 
+def _skills_override_lines(record: GeneratedCV) -> list[str] | None:
+    """The section editor's skills list when the person edited the skills section
+    (the render reads it instead of ``tailored_data["skills"]``), else None."""
+    raw = (record.section_overrides or {}).get("skills")
+    if not isinstance(raw, str):
+        return None
+    return [s.strip() for s in raw.split("\n") if s.strip()]
+
+
+def _page_undo_plan(record: GeneratedCV, po: dict) -> tuple[dict, list[str] | None, list[str]] | None:
+    """MD3-3: how "Kürzen" would be undone on the CV as it stands now.
+
+    The CV unchanged since the cut → the exact data before it (byte-identical).
+    The CV edited since → the cut items re-inserted into the CURRENT content
+    (``cv_page_ladder.reinsert_cuts``; a skills-section edit gets its chips back in
+    the edited list). Returns ``(data, skills_override, unrestorable)`` or None
+    when there is nothing to undo from (no cut, or a pre-fix row without the data)."""
+    from applire.services.cv_page_ladder import reinsert_cuts
+
+    if po.get("choice") != "cut" or not po.get("full_data") or not po.get("cut_data"):
+        return None
+    if not record.section_overrides and _subject_hash(record.tailored_data) == _subject_hash(po["cut_data"]):
+        return po["full_data"], None, []
+    return reinsert_cuts(
+        record.tailored_data or {}, po["full_data"], po["cut_data"],
+        skills_override=_skills_override_lines(record),
+    )
+
+
 def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = None) -> dict | None:
     """The x+1 decision as the CV page reads it — never the stored data copies.
-    ``cut_available`` / ``uncut_available``: the switch can be applied to the CV as
-    it stands now (same content as at the proposal, no section edit on top)."""
+    ``cut_available``: "Kürzen" can be applied to the CV as it stands (same content as
+    at the proposal, no section edit on top, a proposal that reaches the target).
+    ``uncut_available``: the cut can be undone — also after a later edit (MD3-3).
+    ``actual`` is the CV's page count as it stands now (refreshed by every switch);
+    ``full_pages`` the count with nothing cut — what "keep" gives (A-3b)."""
     po = record.page_overflow
     if not po:
         return None
@@ -5440,18 +5473,49 @@ def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = Non
         choice != "cut" and unedited and bool(po.get("cut_data"))
         and current == po.get("basis_hash")
     )
-    uncut_available = (
-        choice == "cut" and unedited and bool(po.get("full_data"))
-        and bool(po.get("cut_data")) and current == _subject_hash(po["cut_data"])
-    )
+    plan = _page_undo_plan(record, po)
+    uncut_available = plan is not None and not plan[2]
     return {
         "target": po.get("target"),
         "actual": po.get("actual"),
+        "full_pages": po.get("full_pages") or po.get("actual"),
         "proposed": po.get("proposed") or [],
         "choice": choice,
         "cut_available": cut_available,
         "uncut_available": uncut_available,
     }
+
+
+def _snapshot_keeping_ids(old: dict | None, tailored: TailoredCVData) -> dict:
+    """Rebuild the section editor's snapshot for new content WITHOUT re-minting the
+    position ids: a ``position::<id>`` override written before the switch must keep
+    pointing at its role (the page ladder never adds, drops or reorders roles)."""
+    from applire.services.cv_section_editor import build_content_snapshot
+
+    snap = build_content_snapshot(tailored)
+    old_positions = (old or {}).get("positions") or []
+    for pos in snap.get("positions") or []:
+        idx = pos.get("index")
+        if isinstance(idx, int) and idx < len(old_positions) and old_positions[idx].get("id"):
+            pos["id"] = old_positions[idx]["id"]
+    return snap
+
+
+async def _measure_current(record: GeneratedCV, db: AsyncSession) -> "MeasuredRender | None":
+    """Render the CV as it stands (overrides applied) once, for the page count the
+    card shows AND the re-audit (same audit-only shape as the section-editor door:
+    the row's target, the default region, no condense). None on a render failure —
+    the audit then renders by itself and the stored count is left as it was."""
+    from applire.services.ats_audit import extract_text_and_pages
+
+    try:
+        html = await get_cv_html(record.id, db, user_id=record.user_id)
+        text, count = extract_text_and_pages(await _html_to_pdf(html))
+        target = await _resolve_audit_target(record, db)
+    except Exception:
+        logger.exception("PAGE_OVERFLOW_MEASURE failed cv_id=%s", record.id)
+        return None
+    return MeasuredRender(text, count, False, target, DEFAULT_REGION)
 
 
 async def set_page_overflow_choice(
@@ -5464,13 +5528,15 @@ async def set_page_overflow_choice(
     """Apply the person's x+1 choice ("keep" | "cut") and remember it on the CV.
 
     "cut" swaps in the proposal's data — no LLM, the exact cuts the card named —
-    and keeps the full data so the choice can be changed back; "keep" after a cut
-    restores it. Either content swap rebuilds the snapshot and re-audits (the
-    page-length finding follows the new page count). Raises ``LookupError`` (404)
+    and keeps the full data so the choice can be changed back. "keep" after a cut
+    undoes it (MD3-3): the exact data before the cut when nothing changed since,
+    else the cut items re-inserted into the CURRENT CV (a later section edit stays);
+    409 only when that is impossible, and then the detail names what the cut
+    removed. Either content swap rebuilds the snapshot (position ids kept), re-renders
+    once for the page count (``actual``) and re-audits. Raises ``LookupError`` (404)
     or ``PageOverflowConflict`` (409)."""
     import copy
 
-    from applire.services.cv_section_editor import build_content_snapshot
     from applire.services.review_state import document_lock
 
     if choice not in ("keep", "cut"):
@@ -5488,15 +5554,28 @@ async def set_page_overflow_choice(
             return page_overflow_public(record)
         public = page_overflow_public(record)
         new_data: dict | None = None
+        new_skills: list[str] | None = None
         if choice == "cut":
+            if not po.get("cut_data"):
+                # A-3b: an empty proposal — the ladder cannot reach the target.
+                raise PageOverflowConflict(
+                    "nothing to cut: no cut brings this CV down to its page target"
+                )
             if not public["cut_available"]:
                 raise PageOverflowConflict("the CV changed since the proposal")
             po["full_data"] = record.tailored_data
+            po.setdefault("full_pages", po.get("actual"))
             new_data = po["cut_data"]
         elif po.get("choice") == "cut":
-            if not public["uncut_available"]:
-                raise PageOverflowConflict("the CV changed since it was cut")
-            new_data = po["full_data"]
+            plan = _page_undo_plan(record, po)
+            if plan is None or plan[2]:
+                removed = ", ".join(
+                    item for c in po.get("proposed") or [] for item in c.get("items") or []
+                )
+                raise PageOverflowConflict(
+                    f"the cut cannot be undone on this CV as it stands; it removed: {removed}"
+                )
+            new_data, new_skills, _ = plan
             po["full_data"] = None
         po["choice"] = choice
         record.page_overflow = po
@@ -5504,11 +5583,21 @@ async def set_page_overflow_choice(
         if new_data is None:
             await db.commit()
         else:
+            old_snapshot = record.content_snapshot
             record.tailored_data = copy.deepcopy(new_data)
-            record.content_snapshot = build_content_snapshot(
-                TailoredCVData.model_validate(new_data)
+            if new_skills is not None:
+                overrides = dict(record.section_overrides or {})
+                overrides["skills"] = "\n".join(new_skills)
+                record.section_overrides = overrides
+            record.content_snapshot = _snapshot_keeping_ids(
+                old_snapshot, TailoredCVData.model_validate(new_data)
             )
-            await _update_ats_report(record, db)
+            measured = await _measure_current(record, db)
+            if measured is not None:
+                po = dict(po)
+                po["actual"] = measured.page_count
+                record.page_overflow = po
+            await _update_ats_report(record, db, measured=measured)
         return page_overflow_public(record)
 
 

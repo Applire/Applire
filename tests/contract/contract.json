@@ -203,6 +203,12 @@
           "string"
         ]
       },
+      "save_availability_to_profile": {
+        "required": false,
+        "types": [
+          "boolean"
+        ]
+      },
       "tone": {
         "enum": [
           "\"conversational\"",

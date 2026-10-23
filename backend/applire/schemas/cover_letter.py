@@ -21,6 +21,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from applire.constants import LETTER_INPUT_MAX_CHARS
 from applire.models.cover_letter import CoverLetterStatus
 from applire.schemas.review_degradation import DegradedReviewStep
 
@@ -96,12 +97,20 @@ class LetterData(BaseModel):
 
 class CoverLetterGenerateRequest(BaseModel):
     job_id: uuid.UUID
-    recipient_name: Optional[str] = None
-    recipient_company: Optional[str] = None
-    salary: Optional[str] = None
-    availability: Optional[str] = None
-    motivation: Optional[str] = None
+    # MD3-4: free-text caps from ONE constant (constants.LETTER_INPUT_MAX_CHARS);
+    # over-cap → 422 whose ``loc`` names the field (REST) / invalid_input (MCP).
+    recipient_name: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["recipient_name"])
+    recipient_company: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["recipient_company"])
+    salary: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["salary"])
+    availability: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["availability"])
+    motivation: Optional[str] = Field(None, max_length=LETTER_INPUT_MAX_CHARS["motivation"])
     tone: CLTone = "formal"
+    # B3-11 + MD3-5: the notice period typed for THIS letter is also written to
+    # profile.availability (source ``letter_form``) when it differs from the
+    # stored one. REST default true (the form sends it explicitly from its
+    # "Auch im Profil speichern" checkbox); the MCP tool defaults to false — an
+    # agent never starts writing the profile silently (ADR-095 additive).
+    save_availability_to_profile: bool = True
 
 
 class CoverLetterGenerateResponse(BaseModel):

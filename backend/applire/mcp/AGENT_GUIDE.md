@@ -234,6 +234,11 @@ a guess: `recipient_name` (contact person), `recipient_company`, `salary`
 `motivation` (why this role, why the change), `tone` (`formal` default,
 `professional`, `conversational`). The letter never invents a notice period, a
 start date or a reason for the change — left out, the letter does without.
+Caps: `motivation` up to 2,000 characters, every other text input up to 300;
+longer is refused with the field's name. `save_availability_to_profile`
+(default `false`): set it `true` only when the user asks for the notice period
+to be kept in their profile too — it then becomes the profile's
+`availability` (as on the web form's "also save in profile" box).
 Editing a generated letter's sections is UI-only.
 
 **À-la-carte (BYOI)** (you write; preferred when your model is strong):

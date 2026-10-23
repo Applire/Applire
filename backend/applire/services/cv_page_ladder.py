@@ -190,3 +190,106 @@ def merge_cuts(cuts: list[LadderCut]) -> list[dict[str, Any]]:
         else:
             out.append(c.as_dict())
     return out
+
+
+# ---------------------------------------------------------------------------
+# Undo after a later edit (MD3-3, Hazelnut build 3 fix round, adversarial A-3)
+# ---------------------------------------------------------------------------
+
+
+def _edu_key(e: dict) -> str:
+    return f"{_norm(e.get('degree'))}|{_norm(e.get('institution'))}"
+
+
+def _merge_back(full: list, current: list, cut: list, key: Callable[[Any], str]) -> tuple[list, list]:
+    """Re-insert into ``current`` the elements of ``full`` the cut removed (in ``full``,
+    not in ``cut``), each right after the nearest element that precedes it in ``full``
+    and is still in ``current`` (at the front when none is). An element ``current``
+    already holds (the person re-added it) is not inserted twice. Returns the merged
+    list and the keys it re-inserted, in ``full`` order."""
+    cut_keys = {key(x) for x in cut}
+    out = list(current)
+    restored: list = []
+    for idx, item in enumerate(full):
+        k = key(item)
+        if k in cut_keys or any(key(x) == k for x in out):
+            continue
+        pos = 0
+        for prev in reversed(full[:idx]):
+            hits = [i for i, x in enumerate(out) if key(x) == key(prev)]
+            if hits:
+                pos = hits[-1] + 1
+                break
+        out.insert(pos, copy.deepcopy(item))
+        restored.append(k)
+    return out, restored
+
+
+def _role_key(w: dict) -> str:
+    return f"{_norm(w.get('company'))}|{_norm(w.get('role'))}"
+
+
+def reinsert_cuts(
+    current: dict,
+    full: dict,
+    cut: dict,
+    *,
+    skills_override: list[str] | None = None,
+) -> tuple[dict, list[str] | None, list[str]]:
+    """Put what the page ladder's cut removed back into the CURRENT CV (MD3-3).
+
+    ``full`` is the data before the cut and ``cut`` the data the cut produced; the
+    difference between them is exactly what "Kürzen" removed — the ladder's five
+    kinds: top-level projects, skill chips, a role's industry line, certifications,
+    education entries. Everything else in ``current`` (a later edit) is kept as it
+    is. Each list item goes back at its original position relative to its
+    neighbours; an industry line goes back to its role when that role is still
+    there and carries none. ``skills_override`` is the section editor's skills list
+    when the person edited the skills section — the chips then go back into THAT
+    list (the render reads the override, not ``tailored_data["skills"]``).
+
+    Returns ``(data, skills_override, unrestorable)``: the re-inserted data, the
+    updated override (None when none was given) and the items that could not go
+    back (a role that no longer exists). Pure — a fact operation (ADR-062 cl. 1).
+    """
+    data = copy.deepcopy(current)
+    unrestorable: list[str] = []
+
+    projects, _ = _merge_back(
+        full.get("projects") or [], data.get("projects") or [], cut.get("projects") or [],
+        lambda p: _norm(p.get("name")),
+    )
+    if projects or "projects" in data:
+        data["projects"] = projects
+
+    full_skills = [s for s in full.get("skills") or [] if isinstance(s, str)]
+    cut_skills = [s for s in cut.get("skills") or [] if isinstance(s, str)]
+    if skills_override is not None:
+        skills_override, _ = _merge_back(full_skills, list(skills_override), cut_skills, _norm)
+    else:
+        data["skills"], _ = _merge_back(full_skills, list(data.get("skills") or []), cut_skills, _norm)
+
+    for section, key in (("certifications", lambda c: _norm(c.get("name"))), ("education", _edu_key)):
+        merged, _ = _merge_back(
+            full.get(section) or [], data.get(section) or [], cut.get(section) or [], key,
+        )
+        if merged or section in data:
+            data[section] = merged
+
+    cut_roles = cut.get("work_history") or []
+    for i, w in enumerate(full.get("work_history") or []):
+        line = w.get("industry_context")
+        was_cut = (
+            line and i < len(cut_roles) and not cut_roles[i].get("industry_context")
+            and _role_key(cut_roles[i]) == _role_key(w)
+        )
+        if not was_cut:
+            continue
+        target = next(
+            (r for r in data.get("work_history") or [] if _role_key(r) == _role_key(w)), None,
+        )
+        if target is None:
+            unrestorable.append(f"{w.get('company') or w.get('role') or ''}: {line}")
+        elif not target.get("industry_context"):
+            target["industry_context"] = line
+    return data, skills_override, unrestorable
