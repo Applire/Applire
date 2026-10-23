@@ -243,7 +243,7 @@ export function GenerateCoverLetterModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
       data-testid="cover-letter-modal"
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 flex flex-col gap-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 flex flex-col gap-4 max-h-[calc(100dvh-2rem)] overflow-y-auto text-left">
         <div>
           <h2 className="text-lg font-bold">
             {isRegenerate ? t("regenerate") : t("generate")}
@@ -261,7 +261,7 @@ export function GenerateCoverLetterModal({
           </label>
           <div className="flex gap-2">
             <input
-              className="flex-1 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 min-w-0 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder={t("recipientNamePlaceholder")}
               value={recipientName}
               maxLength={LETTER_FIELD_MAX}
@@ -269,7 +269,7 @@ export function GenerateCoverLetterModal({
               data-testid="cl-recipient-name"
             />
             <input
-              className="flex-1 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 min-w-0 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder={t("recipientCompanyPlaceholder")}
               value={recipientCompany}
               maxLength={LETTER_FIELD_MAX}
