@@ -27,6 +27,8 @@ export type PageOverflowCutKind =
 export interface PageOverflow {
   target: number;
   actual: number;
+  /** Page count with nothing cut — what "keep" gives (A-3b). Older rows omit it. */
+  full_pages?: number;
   proposed: { kind: PageOverflowCutKind; items: string[] }[];
   choice: "keep" | "cut" | null;
   cut_available: boolean;
@@ -75,6 +77,9 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
   if (overflow.choice === null && overflow.proposed.length === 0) return null;
 
   const { target, actual } = overflow;
+  // A-3b: after a cut `actual` is the cut CV's count; every "keep" label names
+  // the count the person goes back to.
+  const full = overflow.full_pages ?? actual;
   const removed = overflow.proposed.flatMap((c) => c.items).join(", ");
 
   async function choose(choice: "keep" | "cut") {
@@ -116,7 +121,7 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
         <span>
           {cut
             ? t("pageOverflowCutDone", { target, items: removed })
-            : t("pageOverflowKeptDone", { actual })}
+            : t("pageOverflowKeptDone", { actual: full })}
         </span>
         {canSwitch && (
           <button
@@ -126,7 +131,7 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
             className="ml-1 font-semibold text-primary underline underline-offset-2 disabled:opacity-50"
             data-testid="cv-page-overflow-switch"
           >
-            {cut ? t("pageOverflowUndoCut", { actual }) : t("pageOverflowUndoKeep", { target })}
+            {cut ? t("pageOverflowUndoCut", { actual: full }) : t("pageOverflowUndoKeep", { target })}
           </button>
         )}
         {error}
@@ -165,7 +170,7 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
           className="rounded-lg bg-primary px-4 py-2 text-[13px] font-bold text-white hover:opacity-90 disabled:opacity-50"
           data-testid="cv-page-overflow-keep"
         >
-          {t("pageOverflowKeep", { actual })}
+          {t("pageOverflowKeep", { actual: full })}
         </button>
         <button
           type="button"

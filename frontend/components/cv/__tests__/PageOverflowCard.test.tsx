@@ -105,6 +105,22 @@ describe("PageOverflowCard", () => {
     expect(screen.getByTestId("cv-page-overflow-card")).toBeTruthy();
   });
 
+  it("after a cut the undo names the uncut count, not the cut CV's (A-3b)", async () => {
+    // The backend re-measures on every switch: after the cut `actual` is the cut
+    // CV's count (2); `full_pages` is what "keep" gives back (3).
+    mockFetch(PROPOSAL, { ...PROPOSAL, actual: 2, full_pages: 3, choice: "cut", cut_available: false, uncut_available: true });
+    render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
+    fireEvent.click(await screen.findByTestId("cv-page-overflow-cut"));
+    await screen.findByTestId("cv-page-overflow-done");
+    expect(screen.getByTestId("cv-page-overflow-switch").textContent).toBe("Doch 3 Seiten");
+  });
+
+  it("the kept line and the keep button name full_pages when the row carries it", async () => {
+    mockFetch({ ...PROPOSAL, actual: 3, full_pages: 3, choice: "keep" });
+    render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
+    expect((await screen.findByTestId("cv-page-overflow-done")).textContent).toContain("3 Seiten — so von dir gewählt.");
+  });
+
   it("target 1 reads singular", async () => {
     mockFetch({ ...PROPOSAL, target: 1, actual: 2 });
     render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
