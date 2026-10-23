@@ -746,3 +746,44 @@ export function buildCrossDocument(
   });
   return { unknown: false, rows, decided: rows.filter((r) => r.status !== "open").length };
 }
+
+/* ------------------------------------- B3-10 — "Aus Deiner Eingabe im Formular" */
+
+/** The Oracle checker of a letter sentence built from the letter form's input. */
+export const LETTER_FORM_CHECKER = "letter_form_input";
+
+/** One neutral row: a sentence the candidate's own form input backs. */
+export interface FormInputRow {
+  key: string;
+  text: string;
+  detail: string | null;
+  detailKey: string | null;
+  detailParams: Record<string, string> | null;
+}
+
+/**
+ * Ruling B3-10 / RULING FO-1 = A (2026-10-23): a letter sentence the Oracle marks
+ * `letter_form_input` (`not_applicable`) is the candidate's own statement for
+ * this letter. It gets a small neutral section below the group-1 list — no
+ * buttons, and it is NOT a group-1 item: never in the headline, never in the
+ * "k of n decided" bar (group 1 reads only `FLAG_VERDICTS`). One row per
+ * sentence (`normQuote` fold — a clause split repeats the sentence text).
+ */
+export function buildFormInputRows(truthReport: TruthfulnessReport): FormInputRow[] {
+  const rows: FormInputRow[] = [];
+  const seen = new Set<string>();
+  for (const c of truthReport?.claims ?? []) {
+    if (c.verdict.checker !== LETTER_FORM_CHECKER) continue;
+    const key = `form:${normQuote(c.claim.text) || c.claim.text}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      key,
+      text: c.claim.text,
+      detail: c.verdict.detail ?? null,
+      detailKey: c.verdict.detail_key ?? null,
+      detailParams: c.verdict.detail_params ?? null,
+    });
+  }
+  return rows;
+}

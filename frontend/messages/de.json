@@ -1884,6 +1884,11 @@
       "malformed": "die Antwort des KI-Anbieters war nicht lesbar",
       "shape": "die Antwort des KI-Anbieters war nicht lesbar",
       "error": "der KI-Anbieter war nicht erreichbar"
+    },
+    "formInput": {
+      "title": "Aus Deiner Eingabe im Formular",
+      "hint": "Diese Sätze stammen aus dem, was Du für dieses Anschreiben ins Formular geschrieben hast — Deine eigene Aussage für dieses Anschreiben. Applire prüft sie nicht gegen Dein Profil und übernimmt nichts davon ins Profil.",
+      "chip": "Formular"
     }
   },
   "upgradeNotice": {
@@ -2564,6 +2569,8 @@
     "misattributed": "Der Beleg dafür stammt aus einer anderen Station — die Aussage steht unter einer Rolle, zu der sie nicht gehört.",
     "skillNoEvidence": "„{skill}“ steht nirgends in Deinem Profil.",
     "figuresNoEvidence": "Für diese Zahl(en) gibt es in Deinem Profil keinen Beleg: {figures}.",
-    "inflatedAspirational": "Steht als erreichtes Ergebnis da, in Deinem Profil ist es aber ein Ziel, kein Ergebnis."
+    "inflatedAspirational": "Steht als erreichtes Ergebnis da, in Deinem Profil ist es aber ein Ziel, kein Ergebnis.",
+    "restatementBorrowed": "Die Zahl in diesem Satz belegt in Deinem Profil nur eine andere Station — der Satz gibt diesen Beleg nicht wieder.",
+    "fromLetterForm": "Aus Deiner Eingabe im Formular ({field, select, motivation {Warum diese Stelle} availability {Kündigungsfrist / frühester Eintritt} salary {Gehaltswunsch} other {Formular}}) — Deine eigene Aussage für dieses Anschreiben, nicht gegen Dein Profil geprüft."
   }
 }

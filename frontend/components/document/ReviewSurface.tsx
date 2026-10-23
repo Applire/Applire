@@ -42,9 +42,11 @@ import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
   buildCrossDocument,
   buildGroup1Rows,
+  buildFormInputRows,
   buildReviewGroups,
   buildSendChecks,
   verdictState,
+  type FormInputRow,
   type Group1Row,
   type ReviewGroup,
   type ReviewItem,
@@ -270,6 +272,7 @@ export function ReviewSurface({
   );
   const group1 = groups.find((g) => g.id === 1)!;
   const rows = useMemo(() => buildGroup1Rows(group1.items, reviewState), [group1.items, reviewState]);
+  const formInputRows = useMemo(() => buildFormInputRows(truthReport), [truthReport]);
   const openRows = rows.filter((r) => r.status === "open");
   const decidedCount = rows.length - openRows.length;
 
@@ -1111,6 +1114,8 @@ export function ReviewSurface({
         </ul>
       )}
 
+      <FormInputSection rows={formInputRows} tOracle={tOracle} />
+
       {/* #702 (ADR-060 amended 2026-10-07): the cross-document section sits
           between group 1 and the other findings — it is not "nothing that
           stands in the way of sending" (RULING R-1 pending: placement A). */}
@@ -1167,6 +1172,53 @@ export function ReviewSurface({
       {children}
       {phoneLocate}
     </section>
+  );
+}
+
+/* ------------------------------------- B3-10 — "Aus Deiner Eingabe im Formular" */
+
+/**
+ * Ruling B3-10, RULING FO-1 = A: the sentences built from the letter form's input
+ * — the candidate's own statement for this letter. Neutral by design: an outline
+ * chip, no buttons (no profile write), outside group 1's headline and progress.
+ */
+function FormInputSection({
+  rows,
+  tOracle,
+}: {
+  rows: FormInputRow[];
+  tOracle: OracleDetailTranslator;
+}) {
+  const t = useTranslations("documentReview.formInput");
+  if (rows.length === 0) return null;
+  return (
+    <div data-testid="review-form-input" className="flex flex-col gap-1.5 border-t border-outline-variant pt-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">{t("title")}</h3>
+      <p className="text-xs text-on-surface-variant">{t("hint")}</p>
+      <ul className="flex flex-col">
+        {rows.map((r) => {
+          const detail = oracleDetailText(
+            { detail: r.detail, detail_key: r.detailKey, detail_params: r.detailParams },
+            tOracle,
+          );
+          return (
+            <li
+              key={r.key}
+              data-testid="review-form-input-row"
+              className="flex items-start gap-2.5 border-b border-surface-container px-1 py-2"
+            >
+              <span className="mt-0.5 shrink-0 rounded-full border border-outline-variant px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant">
+                {t("chip")}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm text-on-surface">{r.text}</span>
+                {detail && <span className="block text-xs text-on-surface-variant">{detail}</span>}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

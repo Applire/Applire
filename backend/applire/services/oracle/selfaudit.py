@@ -54,6 +54,7 @@ async def build_self_audit_report(
     provider: Any | None = None,
     document_language: str | None = None,
     keyword_ledger: list[dict[str, Any]] | None = None,
+    form_inputs: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Truthfulness report as a JSONB-safe dict, or None on any failure.
 
@@ -69,6 +70,9 @@ async def build_self_audit_report(
     claimable surface-form groups, and only by the skill-chip grounding (see
     :func:`applire.services.oracle.audit.audit_document`). ``None`` keeps the
     vault-only behaviour.
+
+    ``form_inputs`` (ruling B3-10) is a letter's own ``pre_gen_inputs`` — see
+    :func:`applire.services.oracle.audit.audit_document`. Ignored for a CV.
     """
     try:
         if tailored_data is not None:
@@ -93,6 +97,7 @@ async def build_self_audit_report(
                 provider=provider,
                 document_language=document_language,
                 keyword_ledger=keyword_ledger,
+                form_inputs=form_inputs,
                 entailment=False,
             )
         else:

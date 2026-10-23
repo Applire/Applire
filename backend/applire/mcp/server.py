@@ -1468,6 +1468,8 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
             report = await oracle_svc.audit_document(
                 "cover_letter", profile_json, letter_data=record.letter_data or {},
                 provider=get_provider(),
+                # B3-10: the letter's own form inputs, as the self-audit reads them.
+                form_inputs=getattr(record, "pre_gen_inputs", None) or None,
                 entailment=False,  # D2-4: the self-audit's setting (selfaudit.py)
             )
     except ownership.OwnedNotFound:

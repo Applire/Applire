@@ -115,6 +115,7 @@ from applire.services.oracle.matchers import (
 )
 from applire.services.oracle.credentials import (
     detect_credentials,
+    entry_backing,
     fold as credential_fold,
     kind_for_location as credential_kind_for_location,
     unbacked_credentials,
@@ -122,6 +123,7 @@ from applire.services.oracle.credentials import (
 from applire.services.oracle.matchers.vault import (
     RESTATEMENT_MIN_SHARED,
     duration_window_tokens,
+    extend_vault_index,
 )
 from applire.services.oracle.matchers.figures import (
     _IDENTIFIER_PREFIX,
@@ -387,6 +389,8 @@ def _resolve_seam_candidate(
                 "this claim's own wording does not restate that evidence — "
                 "the figure appears borrowed from an unrelated fact."
             ),
+            # B3-10 bug-fix part (WP-FO): said in the UI language, not this English.
+            detail_key="restatementBorrowed",
         )
         return verdict, False, None
     if corresponds is True or corresponds == "uncertain":
@@ -1457,6 +1461,7 @@ async def verify_claim(
     document_language: str | None = None,
     judgement_sink: "list[_SeamCandidate] | None" = None,
     ledger_forms: list[list[str]] | None = None,
+    form_index: VaultIndex | None = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """Verdict for a single claim against the vault (ADR-052 §1).
 
@@ -1477,6 +1482,11 @@ async def verify_claim(
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
     idx = index or _claimable_index(profile)
+    if claim.kind == "entry":
+        # ADR-052 amended 2026-10-23 (B3-9): a structured certification/education
+        # entry is a name check against the vault's ENTRIES — a fact, decided
+        # here, before any pipeline path, seam or provider (ADR-062 cl. 1).
+        return _verify_entry_claim(claim, idx, document_language)
     verdict = await _verify_claim_identifiers(
         claim,
         profile,
@@ -1488,7 +1498,180 @@ async def verify_claim(
         judgement_sink=judgement_sink,
         ledger_forms=ledger_forms,
     )
-    return _apply_credential_rule(verdict, claim, idx, document_language)
+    final = _apply_credential_rule(verdict, claim, idx, document_language)
+    if form_index is not None:
+        # B3-10 (ADR-061/048 amended 2026-10-23): what the candidate typed into
+        # THIS letter's form is their own statement for this letter — evaluated
+        # last, so it only ever replaces "no evidence" (never a contradiction).
+        final = _letter_form_verdict(claim, final, idx, form_index) or final
+    return _withdraw_overridden_candidate(verdict, final, judgement_sink)
+
+
+def _verify_entry_claim(
+    claim: Claim, idx: VaultIndex, document_language: str | None
+) -> ClaimVerdict:
+    """ADR-052 amended 2026-10-23 (ruling B3-9 = adversarial A-1): a CV's
+    certification name / education degree is ``grounded`` when a claimable vault
+    entry NAMES it (:func:`credentials.entry_backing` — identity, a ≥ 2-token
+    shortening, a parenthesised acronym, a fixed degree abbreviation; never the
+    mere credential family); otherwise ``unbacked``
+    with the E-2 ``credentialUnbacked`` detail. Other-language pair (the D2-1
+    guard): a name miss with NO known family is ``unverifiable`` — an entry an
+    agent translated is not checked across languages; a known, unbacked family
+    stays red (the family table is language-neutral: "Dr.", "CPA", "MBA")."""
+    backing = entry_backing(claim.text, idx.credential_entries)
+    if backing.how is not None:
+        base = re.match(r"^\w+\[\d+\]", backing.path or "")
+        unit = next((u for u in idx.units if base and u.path == base.group(0)), None)
+        refs = [EvidenceRef(kind="profile_path", ref=backing.path or "", excerpt=(unit.text if unit else "")[:_EXCERPT_CHARS])]
+        return ClaimVerdict(
+            verdict="grounded",
+            checker="grounding",
+            evidence=refs,
+            detail="A profile entry names this qualification.",
+        )
+    if not backing.families and holds_other_language(idx, document_language):
+        return ClaimVerdict(
+            verdict="unverifiable",
+            checker="grounding",
+            detail=(
+                f"No profile entry is named {claim.text!r}, and part of the vault is "
+                "written in another language — an entry name is not checked across "
+                "languages, so this is left open rather than accused."
+            ),
+        )
+    logger.info("ORACLE_ENTRY_UNBACKED location=%s", claim.location)
+    return ClaimVerdict(
+        verdict="unbacked",
+        checker="grounding",
+        detail=(
+            f"States the qualification {claim.text!r}, which no entry in your profile names — "
+            "add it to your profile if you hold it, or take it out."
+        ),
+        detail_key="credentialUnbacked",
+        detail_params={"credential": claim.text},
+    )
+
+
+#: B3-10 — the letter form's free-text inputs that ARE the candidate's statement
+#: (the recipient fields and the tone are not statements about the candidate).
+LETTER_FORM_STATEMENT_FIELDS = ("motivation", "availability", "salary")
+
+#: The verdicts a form statement may replace: "no vault evidence" in either
+#: register. A stated-duration flag (``tenure*``) is a contradiction with the
+#: vault's dated record, not an absence — it stands; so do ``inflated`` /
+#: ``misattributed`` (the vault holds a conflicting fact).
+_FORM_REPLACEABLE = frozenset({"unbacked", "unverifiable"})
+
+
+def build_letter_form_index(form_inputs: Any) -> VaultIndex | None:
+    """The evidence set of B3-10: one unit per non-empty statement field of the
+    letter's ``pre_gen_inputs``, path ``pre_gen_inputs.<field>`` (``None`` when
+    the form holds no statement). Built on an EMPTY vault — the units never join
+    the vault index, so a form statement can never ground another document."""
+    if not isinstance(form_inputs, dict):
+        return None
+    entries = [
+        (f"pre_gen_inputs.{f}", form_inputs.get(f))
+        for f in LETTER_FORM_STATEMENT_FIELDS
+        if isinstance(form_inputs.get(f), str) and form_inputs.get(f).strip()
+    ]
+    if not entries:
+        return None
+    return extend_vault_index(build_vault_index({}), entries)
+
+
+def _letter_form_verdict(
+    claim: Claim,
+    verdict: "ClaimVerdict | _SeamCandidate",
+    idx: VaultIndex,
+    form_index: VaultIndex,
+) -> ClaimVerdict | None:
+    """ADR-061/048 amended 2026-10-23 (ruling B3-10 = delivery F1): a letter
+    sentence BUILT FROM the letter form's input is the candidate's own statement
+    for that letter — ``not_applicable`` / ``letter_form_input``, neutral, no
+    profile write (the frontend lists it under "Aus deiner Eingabe im Formular",
+    RULING FO-1 = A).
+
+    "Built from" is the grounding predicate the vault uses, pointed at the form:
+    one form field covers ≥ ``GROUNDED_MIN_COVERAGE`` of the sentence's content
+    tokens, and every figure, credential and standard identifier the sentence
+    names is in that form field or in the claimable vault. A writer sentence that
+    adds a figure or a title nobody typed stays graded (FO-2 = A: a posting figure
+    is exempt only through this rule). Applies only where the vault pipeline
+    found no evidence (``_FORM_REPLACEABLE``) or deferred to a judge."""
+    if isinstance(verdict, ClaimVerdict):
+        if verdict.verdict not in _FORM_REPLACEABLE:
+            return None
+        if (verdict.detail_key or "").startswith("tenure"):
+            return None
+    grounding = ground_text_claim(claim.text, form_index)
+    unit = grounding.best_unit
+    if (
+        unit is None
+        or grounding.content_tokens == 0
+        or grounding.best_coverage < GROUNDED_MIN_COVERAGE
+    ):
+        return None
+    unit_index = extend_vault_index(build_vault_index({}), [(unit.path, unit.text)])
+    figures = extract_figures(claim.text)
+    off_form = match_figures(figures, unit_index).unmatched
+    if off_form and match_figures(off_form, idx).unmatched:
+        return None
+    kind = credential_kind_for_location(claim.location)
+    if detect_credentials(claim.text, kind=kind):
+        backing = credential_fold(" \n ".join([unit.text] + [u.text for u in idx.units]))
+        if unbacked_credentials(claim.text, kind=kind, vault_folded=backing):
+            return None
+    for _span, ident in identifier_matches(claim.text):
+        if not (_norm_ident(ident) in _norm_ident(unit.text) or _norm_ident(ident) in _norm_ident(idx.all_text_norm)):
+            return None
+    field = unit.path.split(".", 1)[1]
+    logger.info("ORACLE_LETTER_FORM_INPUT field=%s location=%s", field, claim.location)
+    return ClaimVerdict(
+        verdict="not_applicable",
+        checker="letter_form_input",
+        evidence=[EvidenceRef(kind="letter_form", ref=unit.path, excerpt=unit.text[:_EXCERPT_CHARS])],
+        detail=(
+            "Built from what you typed into the letter form for this letter "
+            f"({field}) — your own statement for this letter. It is not checked "
+            "against your profile and is not added to it."
+        ),
+        detail_key="fromLetterForm",
+        detail_params={"field": field},
+    )
+
+
+def _norm_ident(text: str) -> str:
+    return re.sub(r"[\s/:-]+", " ", (text or "").lower()).strip()
+
+
+def _withdraw_overridden_candidate(
+    inner: "ClaimVerdict | _SeamCandidate",
+    final: "ClaimVerdict | _SeamCandidate",
+    judgement_sink: "list[_SeamCandidate] | None",
+) -> "ClaimVerdict | _SeamCandidate":
+    """ADR-052 amended 2026-10-23 (WP-FO): a rule above the pipeline that REPLACES a
+    deferred judgement candidate takes it back out of the batch.
+
+    :func:`audit_document` pairs the i-th candidate in ``judgement_sink`` with the
+    i-th claim whose ``verify_claim`` returned a candidate. A rule that answered
+    with a verdict instead (E-2's credential rule on a restatement candidate) left
+    its candidate in the sink with no result slot: the batch resolved one candidate
+    more than there were slots — ``IndexError`` (self-audit: report NULL; agent
+    door: internal error), or the next candidate's verdict patched onto the wrong
+    claim. One place, so every present and future override keeps the invariant
+    "candidate in the sink <=> pending slot"."""
+    if (
+        judgement_sink is not None
+        and isinstance(inner, _SeamCandidate)
+        and final is not inner
+    ):
+        for i, cand in enumerate(judgement_sink):
+            if cand is inner:
+                del judgement_sink[i]
+                break
+    return final
 
 
 def _apply_credential_rule(
@@ -1912,6 +2095,7 @@ async def _verify_claim_unchecked(
                         "Rendered as an achieved outcome, but the vault evidence "
                         "grounding this claim is aspirational (a target, not a result)."
                     ),
+                    detail_key="inflatedAspirational",
                 )
         # ── role attribution on the grounding path (#196) ───────────────────
         # The backing set is EVERY unit clearing the coverage floor
@@ -2072,8 +2256,14 @@ async def audit_document(
     document_language: str | None = None,
     entailment: bool = False,
     keyword_ledger: list[dict[str, Any]] | None = None,
+    form_inputs: dict[str, Any] | None = None,
 ) -> TruthfulnessReport:
     """Full-document audit → :class:`TruthfulnessReport` (ADR-052 §1).
+
+    ``form_inputs`` (ADR-061/048 amended 2026-10-23, ruling B3-10): the audited
+    letter's own ``pre_gen_inputs``. Read for a letter only — a sentence built
+    from them is the candidate's statement for THAT letter
+    (:func:`_letter_form_verdict`). ``None`` keeps vault-only grading.
 
     Exactly one of ``tailored_data`` / ``letter_data`` / ``text`` must be
     provided. The report NEVER blocks delivery in v1 (ADR-040 attestation
@@ -2184,6 +2374,8 @@ async def audit_document(
             )
             ledger_forms = None
 
+    form_index = build_letter_form_index(form_inputs) if letter_data is not None else None
+
     judgement_sink: list[_SeamCandidate] = []
     pending_result_indices: list[int] = []
     results: list[ClaimResult] = []
@@ -2202,6 +2394,7 @@ async def audit_document(
             document_language=document_language,
             judgement_sink=judgement_sink,
             ledger_forms=ledger_forms,
+            form_index=form_index,
         )
         if isinstance(verdict, _SeamCandidate):
             # The candidate's own fail-safe verdict is the placeholder — if

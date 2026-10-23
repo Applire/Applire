@@ -4385,6 +4385,9 @@ async def _update_ats_report_letter(
             profile_row.profile_json if profile_row else {},
             letter_data=audited,
             provider=get_provider(),
+            # B3-10 (WP-FO): what the candidate typed into THIS letter's form is
+            # their own statement for this letter — neutral, never vault evidence.
+            form_inputs=cl.pre_gen_inputs or None,
             # E054 clause 3a/3b: the record's PINNED language — never a fresh
             # resolve, which could diverge after a mid-run override flip.
             document_language=(

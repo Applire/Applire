@@ -80,6 +80,12 @@ CheckerId = Literal[
     # polarity: a mis-classification exempts a real claim, so unavailability
     # of any kind audits the sentence instead of exempting it.
     "sentence_triage",
+    # ADR-061/048 amended 2026-10-23 (ruling B3-10, WP-FO): a letter sentence
+    # built from what the candidate typed into THAT letter's form
+    # (``pre_gen_inputs`` motivation / availability / salary) — the candidate's
+    # own statement for that letter, shown neutral ("aus deiner Eingabe im
+    # Formular") on a ``not_applicable`` verdict. Nothing reaches the vault.
+    "letter_form_input",
 ]
 
 Stance = Literal["aspirational", "achieved"]
@@ -96,7 +102,9 @@ class EvidenceRef(BaseModel):
     the provenance trail for *how* that evidence entered the vault.
     """
 
-    kind: Literal["profile_path", "enrichment_record"]
+    #: ``letter_form`` (B3-10, additive): ``ref`` is ``pre_gen_inputs.<field>`` of
+    #: the audited letter — never a profile path.
+    kind: Literal["profile_path", "enrichment_record", "letter_form"]
     ref: str
     excerpt: str = ""
 
@@ -111,7 +119,10 @@ class Claim(BaseModel):
     # ``clause`` (#237): a narrative sentence decomposed into a smaller,
     # independently checkable fragment — the letter path's answer to the
     # F14 "one multi-fact sentence never clears the coverage floor" defect.
-    kind: Literal["sentence", "bullet", "skill", "clause"] = "sentence"
+    # ``entry`` (ADR-052 amended 2026-10-23, ruling B3-9): a CV's structured
+    # certification name or education degree, graded against the vault's ENTRIES
+    # (``audit._verify_entry_claim``) — additive.
+    kind: Literal["sentence", "bullet", "skill", "clause", "entry"] = "sentence"
     # The source WorkEntry.id of the position this claim is rendered under
     # (carried on TailoredWorkEntry.id since US187). None for role-agnostic
     # surfaces (summary, skills) and legacy/id-less tailored data — the
