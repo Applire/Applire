@@ -1863,6 +1863,8 @@
     "supportedStillListed": "Die Wortprüfung findet es nicht wörtlich — Deine Bestätigung zählt.",
     "otherTitle": "Weitere Hinweise",
     "otherSub": "Nichts davon steht dem Versand im Weg.",
+    "otherSubDecisions": "{count, plural, one {# davon braucht Deine Entscheidung, bevor Du sendest – die Gruppe ist markiert. Den Versand blockiert nichts davon.} other {# davon brauchen Deine Entscheidung, bevor Du sendest – die Gruppen sind markiert. Den Versand blockiert nichts davon.}}",
+    "groupDecisions": "{count, plural, one {# zu entscheiden} other {# zu entscheiden}}",
     "sendCheckTitle": "Vor dem Versand ansehen",
     "sendCheckSub": "So ist das Dokument nicht versandfertig. Bearbeite die Stellen selbst oder generiere neu.",
     "group3Link": "In der Lückenanalyse öffnen",
