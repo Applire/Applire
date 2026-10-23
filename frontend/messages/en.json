@@ -775,12 +775,12 @@
     "markAppliedAction": "Mark as applied",
     "availabilityReminder": {
       "missingTitle": "When could you start?",
-      "missingBody": "Employers almost always ask about your notice period. Add it to your profile once — then it is ready for every cover letter.",
+      "missingBody": "Employers almost always ask about your notice period. Add it to your profile once — then the cover letter form fills it in for you.",
       "missingAction": "Add it to my profile",
       "missingDismiss": "Not now",
       "staleTitle": "Is your notice period still right?",
-      "staleBody": "Added on {date}: “{value}”. If anything has changed, update it — it goes into every cover letter.",
-      "staleBodyNoValue": "If your notice period has changed, update it — it goes into every cover letter.",
+      "staleBody": "Added on {date}: “{value}”. If anything has changed, update it — the cover letter form fills it in for you.",
+      "staleBodyNoValue": "If your notice period has changed, update it — the cover letter form fills it in for you.",
       "staleAction": "Review it in my profile",
       "staleDismiss": "Still right",
       "region": "Notice period reminder"
