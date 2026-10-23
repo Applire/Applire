@@ -1920,9 +1920,14 @@ async def _render_cover_letter_body(
                         # all — `grounding_source` is built once and handed to the reviewer
                         # and the corrector unchanged every round (§5.3.23), so every char
                         # of the audit trail was paid for on each of them.
+                        # A-10 (ADR-078 amended 2026-10-23): every entry left is
+                        # confirmed, so its `status: "confirmed"` says nothing — and
+                        # the reviewer/corrector carried it into the letter as
+                        # "Kubernetes is also a confirmed skill." Dropped here only.
                         "profile": (
                             prompt_profile_view(
-                                exclude_unconfirmed(profile.profile_json), derived_spans="hedge"
+                                exclude_unconfirmed(profile.profile_json), derived_spans="hedge",
+                                entry_status="drop_confirmed",
                             )
                             if profile is not None
                             else {}
