@@ -1863,6 +1863,8 @@
     "supportedStillListed": "The word check does not find it word for word — your confirmation counts.",
     "otherTitle": "Other findings",
     "otherSub": "None of these stand in the way of sending the document.",
+    "otherSubDecisions": "{count, plural, one {# of these needs your decision before you send it — its group is marked. None of them blocks sending.} other {# of these need your decision before you send it — their groups are marked. None of them blocks sending.}}",
+    "groupDecisions": "{count, plural, one {# to decide} other {# to decide}}",
     "sendCheckTitle": "Look at this before you send it",
     "sendCheckSub": "The document is not ready to send as it is. Edit these places yourself or generate it again.",
     "group3Link": "Open in the gap analysis",

@@ -45,6 +45,8 @@ import {
   buildFormInputRows,
   buildReviewGroups,
   buildSendChecks,
+  decisionCount,
+  groupDecisionCount,
   verdictState,
   type FormInputRow,
   type Group1Row,
@@ -1228,6 +1230,19 @@ function FormInputSection({
  * ADR-081 cl. 6's visibility invariant: a non-zero group's count is on screen
  * without interaction, and an *unknown* group says so instead of showing a zero.
  */
+/** Re-probe N1: this group's share of the headline's decision count, on the row itself. */
+function GroupDecisions({ group }: { group: ReviewGroup }) {
+  const t = useTranslations("documentReview");
+  const n = groupDecisionCount(group);
+  if (n === 0) return null;
+  return (
+    <span data-testid={`review-group-decisions-${group.id}`} className="text-xs font-semibold text-on-surface">
+      <span aria-hidden="true" className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-warning align-middle" />
+      {t("groupDecisions", { count: n })}
+    </span>
+  );
+}
+
 function GroupCount({ group }: { group: ReviewGroup }) {
   const t = useTranslations("documentReview");
   if (group.unknown) {
@@ -1311,10 +1326,15 @@ function OtherFindings({
   const t = useTranslations("documentReview");
   const [openId, setOpenId] = useState<number | null>(null);
   const order = [2, 4, 3] as const; // the canvas' order: the two in-place groups, then the link out
+  const decisions = decisionCount(groups);
   return (
     <div className="flex flex-col gap-2 border-t border-outline-variant pt-2" data-testid="review-other">
       <span className="font-heading text-[13px] font-bold text-on-surface">{t("otherTitle")}</span>
-      <span className="text-xs text-on-surface-variant">{t("otherSub")}</span>
+      {/* Re-probe N1: the T-1 headline counts the decisions among these rows,
+          so the line under the title may not call all of them harmless. */}
+      <span data-testid="review-other-sub" className="text-xs text-on-surface-variant">
+        {decisions > 0 ? t("otherSubDecisions", { count: decisions }) : t("otherSub")}
+      </span>
       <ul className="flex flex-col gap-2">
         {order.map((id) => {
           const group = groups.find((g) => g.id === id)!;
@@ -1353,7 +1373,10 @@ function OtherFindings({
                 onClick={() => setOpenId(open ? null : id)}
                 className={rowClass}
               >
-                <span className="min-w-0 flex-1 text-[13px] text-on-surface">{t(GROUP_TITLE_KEY[id])}</span>
+                <span className="flex min-w-0 flex-1 flex-col py-1.5">
+                  <span className="text-[13px] text-on-surface">{t(GROUP_TITLE_KEY[id])}</span>
+                  <GroupDecisions group={group} />
+                </span>
                 <GroupCount group={group} />
                 {expandable && id !== 3 ? (
                   <ChevronDown
