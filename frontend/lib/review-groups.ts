@@ -619,13 +619,25 @@ export function verdictState(
  * The phone review button carries this number when group 1 is clean.
  */
 export function decisionCount(groups: ReviewGroup[]): number {
-  let n = 0;
-  for (const g of groups) {
-    if (g.unknown) continue;
-    if (g.id === 2) n += g.items.length;
-    else if (g.id === 4) n += g.items.filter((it) => it.kind === "check" && it.severity === "critical").length;
-  }
-  return n;
+  return groups.reduce((n, g) => n + groupDecisionCount(g), 0);
+}
+
+/** Whether a row of `group` is one the T-1 headline counts as a decision. */
+export function isDecisionItem(group: ReviewGroup, item: ReviewItem): boolean {
+  if (group.id === 2) return true;
+  if (group.id === 4) return item.kind === "check" && item.severity === "critical";
+  return false;
+}
+
+/**
+ * One group's share of the headline's decision count — the SAME predicate, so
+ * the panel can mark on each group row exactly what the headline counts
+ * (Hazelnut build 3 re-probe N1: "2 points need your decision" over a panel
+ * that marked none of them).
+ */
+export function groupDecisionCount(group: ReviewGroup): number {
+  if (group.unknown) return 0;
+  return group.items.filter((it) => isDecisionItem(group, it)).length;
 }
 
 /* ---------------------------------------------------------- ADR-090 cl. 6 */
