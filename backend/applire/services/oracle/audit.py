@@ -1503,8 +1503,9 @@ def _verify_entry_claim(
 ) -> ClaimVerdict:
     """ADR-052 amended 2026-10-23 (ruling B3-9 = adversarial A-1): a CV's
     certification name / education degree is ``grounded`` when a claimable vault
-    entry names it (identity under the entry fold, or a ≥ 2-token shortening of a
-    vault entry) or carries the same credential family; otherwise ``unbacked``
+    entry NAMES it (:func:`credentials.entry_backing` — identity, a ≥ 2-token
+    shortening, a parenthesised acronym, a fixed degree abbreviation; never the
+    mere credential family); otherwise ``unbacked``
     with the E-2 ``credentialUnbacked`` detail. Other-language pair (the D2-1
     guard): a name miss with NO known family is ``unverifiable`` — an entry an
     agent translated is not checked across languages; a known, unbacked family
@@ -1518,11 +1519,7 @@ def _verify_entry_claim(
             verdict="grounded",
             checker="grounding",
             evidence=refs,
-            detail=(
-                "A profile entry names this qualification."
-                if backing.how == "name"
-                else "A profile entry names a qualification of the same kind."
-            ),
+            detail="A profile entry names this qualification.",
         )
     if not backing.families and holds_other_language(idx, document_language):
         return ClaimVerdict(

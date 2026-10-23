@@ -54,6 +54,12 @@ _ENTRIES = (
     ("education[0].degree_aliases[0]", "Dipl.-Kffr. (FH)"),
     ("certifications[3].name", "Staplerschein (DGUV G 308)"),
     ("certifications[4].name", "ISO 9001"),
+    ("certifications[5].name", "Certified Public Accountant (CPA)"),
+    ("certifications[6].name", "Industriemeister Metall"),
+    ("certifications[7].name", "Industriekaufmann"),
+    ("certifications[8].name", "Handelsfachwirt (IHK)"),
+    ("education[1].degree", "Promotion (Dr. rer. pol.)"),
+    ("education[2].degree", "Master of Arts"),
 )
 
 
@@ -62,7 +68,9 @@ _ENTRIES = (
     ("Industriemeister Metall", "certifications[0].name"),         # qualifier dropped
     ("Professional Scrum Master I (PSM I)®", "certifications[1].name"),  # mark stripped
     ("Scrum Master", "certifications[1].name"),                    # ≥2-token shortening
-    ("MBA", "certifications[2].name"),                             # same family
+    ("MBA", "certifications[2].name"),                             # fixed abbreviation
+    ("CPA", "certifications[5].name"),                             # the vault's own acronym
+    ("Dr. rer. pol.", "education[1].degree"),                      # ditto, from a degree
     ("Diplom-Kauffrau (FH)", "education[0].degree"),
     ("Dipl.-Kffr. (FH)", "education[0].degree_aliases[0]"),        # ADR-046 alias
     ("Staplerschein", "certifications[3].name"),                   # one token, qualifier dropped
@@ -81,6 +89,20 @@ def test_a_vault_entry_backs_the_entry(name, path):
     "Professional Scrum Master II",        # a different level is not the vault's entry
 ])
 def test_nothing_backs_the_entry(name):
+    assert entry_backing(name, _ENTRIES[:5]).how is None
+
+
+@pytest.mark.parametrize("name", [
+    # Main's review of 84b8b229: a credential FAMILY groups different credentials.
+    # Each of these shared a family with a vault entry and read grounded.
+    "Industriemeister Elektrotechnik",      # vault: Industriemeister Metall
+    "Bürokauffrau",                         # vault: Industriekaufmann (open family)
+    "Steuerfachwirt (IHK)",                 # vault: Handelsfachwirt (IHK)
+    "ACCA",                                 # vault: CPA — one acronym family, three bodies
+    "Master of Science",                    # vault: Master of Arts
+    "Wirtschaftsprüfer (IHK)",              # a chamber qualifier is no name of its own
+])
+def test_a_shared_family_is_not_the_same_entry(name):
     assert entry_backing(name, _ENTRIES).how is None
 
 
@@ -135,7 +157,8 @@ async def test_audit_document_grades_every_entry(lang):
 async def test_other_language_pair_leaves_an_unknown_name_open():
     """D2-1 guard: a translated entry name is not checked across languages; a
     known credential family is (the family table is language-neutral)."""
-    cv = {"certifications": [{"name": "Gabelstaplerschein"}, {"name": "CPA"}]}
+    cv = {"certifications": [{"name": "Gabelstaplerschein"}, {"name": "CPA"},
+                             {"name": "Zertifizierte Datenschutzbeauftragte"}]}
     vault = {**VAULT, "professional_summary": {"en": "Accountant working with auditors on closings.", "de": ""},
              "work_experience": [{**VAULT["work_experience"][0],
                                   "responsibilities": ["Monthly closings under HGB with the external auditors"]}]}
@@ -143,6 +166,8 @@ async def test_other_language_pair_leaves_an_unknown_name_open():
     assert _entry_verdicts(report.claims) == {
         "certifications[0]": ("unverifiable", None),
         "certifications[1]": ("unbacked", "credentialUnbacked"),
+        # an OPEN family names a phrase in one language — not checked across languages
+        "certifications[2]": ("unverifiable", None),
     }
 
 

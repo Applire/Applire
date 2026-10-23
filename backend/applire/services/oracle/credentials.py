@@ -243,32 +243,52 @@ def kind_for_location(location: str) -> DocumentKind:
 #
 # A CV's ``certifications[i].name`` / ``education[i].degree`` is a credential the
 # document states outright — no frame, no hedge, no first person: the entry IS the
-# ascription. It is backed when a CLAIMABLE vault entry (certification name,
-# education degree or one of its ``degree_aliases``) names it, or when both carry
-# the same credential family (the E-2 lenient backing, restricted to the vault's
-# ENTRY names — prose that merely mentions "Wirtschaftsprüfern" never backs a
-# "Wirtschaftsprüfer-Examen" entry).
+# ascription. It is backed only when a CLAIMABLE vault entry (certification name,
+# education degree or one of its ``degree_aliases``) NAMES it: identity under the
+# entry fold, a ≥ 2-token shortening of a vault name, an acronym the other side
+# gives in parentheses, or a fixed degree abbreviation. Never by "the same
+# credential family": a family groups DIFFERENT credentials (CPA/ACCA/CIMA,
+# "Industriemeister Metall"/"…Elektrotechnik", any "…kaufmann") — as an entry
+# identity it would ground a fabricated entry beside any real one (main review of
+# 84b8b229, confirmed on 7 shapes before the fix).
 
 _ENTRY_STRIP = re.compile(r"[®™©]")
-_ENTRY_PUNCT = re.compile(r"[.,;:()\[\]{}\"'„“”‚‘’]")
-_ENTRY_PAREN = re.compile(r"\([^)]*\)|\[[^\]]*\]")
-#: The open "certified/licensed <X>" family matches any two following words: as
-#: an identity between two entry names it would equate unrelated certificates
-#: ("AWS Certified Developer" vs "AWS Certified Solutions Architect").
-_ENTRY_FAMILY_EXCLUDED = frozenset({"certified_x"})
+_ENTRY_PUNCT = re.compile(r"[.,;:()\[\]{}\"'„“”‚‘’/]")
+_ENTRY_PAREN = re.compile(r"\(([^)]*)\)|\[([^\]]*)\]")
+#: A parenthetical that QUALIFIES the name (chamber, school type) is no name of
+#: its own: "(IHK)" must not make every IHK entry the same credential.
+_ENTRY_QUALIFIERS = frozenset({"ihk", "hwk", "fh", "th", "tu", "uas", "dhbw", "ba", "hs", "m w d"})
+#: Fixed abbreviation ↔ long form of the same degree (folded, punctuation-free).
+_ENTRY_SYNONYMS = {
+    "mba": "master of business administration",
+    "bsc": "bachelor of science", "b sc": "bachelor of science",
+    "msc": "master of science", "m sc": "master of science",
+    "b a": "bachelor of arts", "m a": "master of arts",
+    "b eng": "bachelor of engineering", "m eng": "master of engineering",
+    "beng": "bachelor of engineering", "meng": "master of engineering",
+    "llb": "bachelor of laws", "ll b": "bachelor of laws", "llm": "master of laws", "ll m": "master of laws",
+    "phd": "doctor of philosophy", "ph d": "doctor of philosophy",
+}
 
 
 def _entry_key(text: str) -> str:
     s = fold(_ENTRY_STRIP.sub("", text or ""))
     s = _ENTRY_PUNCT.sub(" ", s)
-    return re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"\s+", " ", s).strip()
+    return _ENTRY_SYNONYMS.get(s, s)
 
 
 def entry_keys(name: str) -> frozenset[str]:
-    """Folded identity forms of an entry name: as written, and without any
-    parenthetical/bracketed qualifier ("Industriemeister Metall (IHK)" ↔
-    "Industriemeister Metall")."""
-    keys = {_entry_key(name), _entry_key(_ENTRY_PAREN.sub(" ", name or ""))}
+    """Folded identity forms of an entry name: as written; without its
+    parenthetical/bracketed part ("Industriemeister Metall (IHK)" ↔
+    "Industriemeister Metall"); and that part alone when it names the entry
+    rather than qualifying it ("Certified Public Accountant (CPA)" ↔ "CPA")."""
+    name = name or ""
+    keys = {_entry_key(name), _entry_key(_ENTRY_PAREN.sub(" ", name))}
+    for m in _ENTRY_PAREN.finditer(name):
+        inner = _entry_key(m.group(1) or m.group(2) or "")
+        if len(inner) >= 2 and inner not in _ENTRY_QUALIFIERS:
+            keys.add(inner)
     return frozenset(k for k in keys if k)
 
 
@@ -283,10 +303,14 @@ _ENTRY_EXTRA: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 def entry_families(name: str) -> frozenset[str]:
     """The credential families an entry name carries (frame-free: the entry is
-    the ascription)."""
+    the ascription). Read only to decide the other-language case: a name miss
+    with a known, language-neutral family ("CPA", "MBA", "Dr.") stays red, one
+    without is left open. The OPEN families (``certified_x``, ``kaufmann_ihk``,
+    ``meister_kammer`` — backing forms ``None``) name a phrase in one language
+    ("Zertifizierter Scrum Master"), so they never count here."""
     out: set[str] = {fam for fam, rx in _ENTRY_EXTRA if rx.search(name or "")}
-    for fam, rx, _backing in _COMPILED:
-        if fam in _ENTRY_FAMILY_EXCLUDED:
+    for fam, rx, backing in _COMPILED:
+        if backing is None:
             continue
         if rx.search(name or ""):
             out.add(fam)
@@ -306,8 +330,7 @@ def _shortening(doc_key: str, vault_key: str) -> bool:
 
 @dataclass(frozen=True)
 class EntryBacking:
-    #: ``"name"`` (identity / shortening of a vault entry), ``"family"`` (same
-    #: credential family as a vault entry) or ``None`` (nothing backs it).
+    #: ``"name"`` (a vault entry names it) or ``None`` (nothing backs it).
     how: str | None
     #: The backing vault entry's path, e.g. ``certifications[2].name``.
     path: str | None = None
@@ -316,15 +339,12 @@ class EntryBacking:
 
 
 def entry_backing(name: str, vault_entries: tuple[tuple[str, str], ...]) -> EntryBacking:
-    """How (if at all) the claimable vault's entry names back a document entry."""
+    """Whether (and by which entry) the claimable vault's entry names back a
+    document entry."""
     doc_keys = entry_keys(name)
     fams = entry_families(name)
     for path, vname in vault_entries:
         vkeys = entry_keys(vname)
         if doc_keys & vkeys or any(_shortening(d, v) for d in doc_keys for v in vkeys):
             return EntryBacking("name", path, fams)
-    if fams:
-        for path, vname in vault_entries:
-            if fams <= entry_families(vname):
-                return EntryBacking("family", path, fams)
     return EntryBacking(None, None, fams)
