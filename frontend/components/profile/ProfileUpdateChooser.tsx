@@ -17,13 +17,57 @@
 
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
+import { ImportInProgressBanner } from "@/components/dashboard/ImportInProgressBanner";
+import { FirstRunScreen } from "@/components/onboarding/FirstRunScreen";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
 export function ProfileUpdateChooser() {
   const t = useTranslations("profileUpdate.chooser");
   const tp = useTranslations("profileUpdate");
+  // Hazelnut b3 A-11 — the sidebar entry "Lebenslauf oder Stelle hinzufügen"
+  // lands here for everyone. A person without a profile has nothing that
+  // "changed" and no new role to add: they get the first-run screen in place,
+  // as /dashboard does (ruling F1-3). Unknown (loading) renders nothing rather
+  // than flashing the returning-user frame; a failed check falls back to it.
+  const [hasProfile, setHasProfile] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/profile/exists`);
+        const d = res.ok ? ((await res.json()) as { exists?: boolean }) : null;
+        if (!cancelled) setHasProfile(d?.exists === false ? false : true);
+      } catch {
+        if (!cancelled) setHasProfile(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (hasProfile === null) {
+    return <div className="flex-1" data-testid="profile-update-loading" />;
+  }
+
+  if (hasProfile === false) {
+    return (
+      <div className="flex flex-col flex-1 overflow-hidden" data-testid="profile-update-first-run">
+        <AppTopbar mode="section" titleKey="shell.welcome" />
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-4 pt-5 md:px-8">
+            <ImportInProgressBanner onAllDone={() => setHasProfile(true)} />
+          </div>
+          <FirstRunScreen />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -33,7 +77,7 @@ export function ProfileUpdateChooser() {
         backLabelKey="shell.profile"
         pageTitle={tp("chooserTitle")}
       />
-    <section className="mx-auto max-w-3xl px-6 py-10">
+    <section className="mx-auto max-w-3xl px-6 py-10" data-testid="profile-update-chooser">
       <p className="text-sm text-gray-500 mt-1">{t("subheading")}</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">

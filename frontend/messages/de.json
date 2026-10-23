@@ -388,7 +388,9 @@
     "introHonestTitle": "Ehrlich ist richtig",
     "introHonestBody": "Trifft etwas nicht zu, sag es einfach. Ein Nein halten wir so fest — es wird nicht schöngeschrieben.",
     "introStart": "Erste Frage zeigen",
-    "introBack": "Zurück zu den Lücken"
+    "introBack": "Zurück zu den Lücken",
+    "unsavedAnswerTitle": "Antwort noch nicht gesendet",
+    "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg."
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",
@@ -654,7 +656,12 @@
     "emDash": "–",
     "breadcrumbSeparator": "›",
     "regenerateHeading": "Neu generieren",
-    "regenerateHint": "Öffnet das Eingabeformular mit den bisherigen Angaben. Das neue Anschreiben ersetzt das aktuelle."
+    "regenerateHint": "Öffnet das Eingabeformular mit den bisherigen Angaben. Das neue Anschreiben ersetzt das aktuelle.",
+    "saveAvailabilityToProfile": "Auch im Profil speichern",
+    "saveAvailabilityToProfileHint": "Dann ist sie beim nächsten Anschreiben schon eingetragen.",
+    "motivationCount": "{count, number} / {max, number} Zeichen",
+    "unsavedFormTitle": "Angaben noch nicht verwendet",
+    "unsavedFormBody": "Du hast Angaben für dein Anschreiben eingetragen und noch kein Anschreiben damit erstellt. Wenn du die Seite jetzt verlässt, sind sie weg."
   },
   "settings": {
     "title": "Einstellungen",
@@ -761,9 +768,9 @@
     "profileCheckEducation": "Ausbildung",
     "profileCheckSummary": "Zusammenfassung",
     "profileCompleteButton": "Profil vervollständigen",
-    "sentBadge": "Gesendet · {date}",
-    "sentBadgeAriaLabel": "Eingereichte Version vom {date}",
-    "sentBadgePlain": "Gesendet",
+    "sentBadge": "Beworben · Version {date}",
+    "sentBadgeAriaLabel": "Version, mit der du dich beworben hast, vom {date}",
+    "sentBadgePlain": "Beworben",
     "staleCvBadge": "Profil gewachsen",
     "staleCvBadgeTitle": "Dein Profil ist seit dem letzten Lebenslauf dieser Bewerbung gewachsen",
     "statusCancelled": "Abgebrochen",
@@ -1260,8 +1267,8 @@
     "trackingUpdatedLine": "Aktualisiert {date}",
     "savedIndicator": "Gespeichert",
     "docGeneratingLabel": "Wird erstellt…",
-    "sentChipLabel": "Gesendet",
-    "markSentAction": "Als gesendet markieren",
+    "sentChipLabel": "Beworben",
+    "markSentAction": "Mit dieser Version beworben",
     "coverLetterDraftLink": "Entwurf ansehen",
     "documentsLoadFailed": "Unterlagen konnten nicht geladen werden.",
     "noDocumentsYet": "Noch keine Versionen.",

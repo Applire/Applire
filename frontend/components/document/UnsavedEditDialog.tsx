@@ -22,23 +22,28 @@ interface UnsavedEditDialogProps {
   onSave?: () => void;
   onDiscard: () => void;
   onStay: () => void;
+  /** Hazelnut b3 MD3-1 — a draft that is not a section (an unsent interview
+   * answer, the letter form) names itself; translated by the caller. */
+  title?: string;
+  body?: string;
 }
 
-export function UnsavedEditDialog({ open, sectionLabel, busy, failed, onSave, onDiscard, onStay }: UnsavedEditDialogProps) {
+export function UnsavedEditDialog({ open, sectionLabel, busy, failed, onSave, onDiscard, onStay, title, body }: UnsavedEditDialogProps) {
   const t = useTranslations("editTab");
   if (!open || typeof document === "undefined") return null;
+  const heading = title ?? t("unsavedTitle");
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={t("unsavedTitle")}
+      aria-label={heading}
       data-testid="edit-unsaved-dialog"
       className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/40 p-0 md:p-4"
     >
       <div className="bg-white rounded-t-2xl md:rounded-xl p-6 shadow-xl w-full md:max-w-md">
-        <h3 className="text-base font-bold text-on-surface mb-2">{t("unsavedTitle")}</h3>
+        <h3 className="text-base font-bold text-on-surface mb-2">{heading}</h3>
         <p className="text-sm text-on-surface-variant mb-4 leading-relaxed">
-          {t("unsavedBody", { section: sectionLabel ?? "" })}
+          {body ?? t("unsavedBody", { section: sectionLabel ?? "" })}
         </p>
         {failed && <p className="mb-3 text-[13px] font-semibold text-critical">{t("saveFailed")}</p>}
         <div className="flex flex-col gap-2">

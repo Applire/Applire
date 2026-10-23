@@ -33,6 +33,9 @@ import { describeConflict } from "@/lib/conflict-display";
 import { Archive, Check, Clock, Contrast, HelpCircle, Lock, Square } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
+import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
+import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
+import { markSeenThisSession, seenThisSession } from "@/lib/session-once";
 import {
   clusterView,
   openThemeCount,
@@ -570,6 +573,15 @@ export default function InterviewPage({
   // and the next question until the candidate answers again.
   const [lastReceipt, setLastReceipt] = useState<{ answer: string; reason: string } | null>(null);
 
+  // MD3-1 (adversarial A-5, build-2 F-B) — an answer typed and not yet sent
+  // is a draft: the sidebar, the back button and a reload ask first, the same
+  // guard the section editor has.
+  const [pendingNav, setPendingNav] = useState<GuardedNav | null>(null);
+  const draftGuard = useUnsavedDraftGuard(
+    answer.trim().length > 0 && !completion,
+    (nav) => setPendingNav(nav),
+  );
+
   // Split-screen state
   const [gapAnalysis, setGapAnalysis] = useState<GapAnalysisData | null>(null);
   const [resolvedClusterIds, setResolvedClusterIds] = useState<Set<string>>(new Set());
@@ -631,7 +643,14 @@ export default function InterviewPage({
       // overshot by a session that legitimately runs to the true ceiling.
       setEstimatedQuestions(sessionData.hard_ceiling || sessionData.estimated_questions || 5);
       setTypicalQuestions(sessionData.estimated_questions || null);
-      setIntroOpen(!sessionData.resumed && (sessionData.questions_asked ?? 1) <= 1);
+      // F13 — the intro is shown once per interview session in this browser
+      // session: a reload after "Erste Frage zeigen" (nothing answered yet, so
+      // the server does not call it resumed) lands on the current question.
+      setIntroOpen(
+        !sessionData.resumed &&
+          (sessionData.questions_asked ?? 1) <= 1 &&
+          !seenThisSession("interview-intro", sessionData.session_id),
+      );
       setMessages([{ role: "assistant", content: sessionData.question ?? sessionData.first_question }]);
       setChoices(sessionData.choices ?? null);
 
@@ -1033,6 +1052,7 @@ export default function InterviewPage({
               typicalQuestions={typicalQuestions}
               onStart={() => {
                 setIntroOpen(false);
+                markSeenThisSession("interview-intro", sessionId);
                 // The question is already loaded behind the intro.
                 requestAnimationFrame(() => textareaRef.current?.focus());
               }}
@@ -1393,6 +1413,26 @@ export default function InterviewPage({
       </div>
 
       <div ref={chatEndRef} />
+      <UnsavedEditDialog
+        open={pendingNav !== null}
+        sectionLabel={null}
+        title={t("unsavedAnswerTitle")}
+        body={t("unsavedAnswerBody")}
+        onStay={() => {
+          if (pendingNav?.kind === "back") draftGuard.rearmBack();
+          setPendingNav(null);
+          requestAnimationFrame(() => textareaRef.current?.focus());
+        }}
+        onDiscard={() => {
+          const nav = pendingNav;
+          setPendingNav(null);
+          if (!nav) return;
+          draftGuard.release();
+          if (nav.kind === "href") router.push(nav.href);
+          // The guard entry is already popped; one more step leaves the page.
+          else window.history.back();
+        }}
+      />
     </div>
   );
 }

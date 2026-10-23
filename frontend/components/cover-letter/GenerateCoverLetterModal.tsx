@@ -19,7 +19,10 @@
 
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
+import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
 
 type CLTone = "formal" | "professional" | "conversational";
 
@@ -51,6 +54,15 @@ export interface SubmittedInputs {
   tone: CLTone;
 }
 
+// Hazelnut b3 MD3-4 — the letter's free-text inputs are capped on REST, MCP
+// and here: motivation 2,000 characters, every other free-text input 300. The
+// SAME numbers live in `backend/applire/constants.py` LETTER_INPUT_MAX_CHARS
+// (recipient_name / recipient_company / salary / availability 300, motivation
+// 2000); an over-cap request answers 422 with detail[0].loc ["body", <field>],
+// so these must not drift.
+export const LETTER_MOTIVATION_MAX = 2000;
+export const LETTER_FIELD_MAX = 300;
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
 export function GenerateCoverLetterModal({
@@ -76,8 +88,32 @@ export function GenerateCoverLetterModal({
   const availabilityTouched = useRef(false);
   const [motivation, setMotivation] = useState(existingInputs?.motivation ?? "");
   const [tone, setTone] = useState<CLTone>(existingInputs?.tone ?? "formal");
+  // B3-11 — the notice period typed here is also saved to the profile unless
+  // the user unticks it (default ON); sent explicitly on every generate.
+  const [saveAvailabilityToProfile, setSaveAvailabilityToProfile] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // MD3-1 (adversarial A-5) — what the form opened with, including what the
+  // two lookups below fill in. A field the user changed away from it is an
+  // unsent draft: the sidebar, the back button and a reload ask first, the
+  // same guard the section editor has.
+  const [baseline, setBaseline] = useState(() => ({
+    recipientName: existingInputs?.recipient_name ?? prefillRecipientName ?? "",
+    recipientCompany: existingInputs?.recipient_company ?? prefillRecipientCompany ?? "",
+    salary: existingInputs?.salary ?? "",
+    availability: existingInputs?.availability ?? "",
+    motivation: existingInputs?.motivation ?? "",
+  }));
+  const dirty =
+    recipientName !== baseline.recipientName ||
+    recipientCompany !== baseline.recipientCompany ||
+    salary !== baseline.salary ||
+    availability !== baseline.availability ||
+    motivation !== baseline.motivation;
+  const router = useRouter();
+  const [pendingNav, setPendingNav] = useState<GuardedNav | null>(null);
+  const draftGuard = useUnsavedDraftGuard(dirty, (nav) => setPendingNav(nav));
 
   // Frontend collector #604 — the recipient-company field is labelled
   // "(aus Stellenanzeige)" and shipped empty even though the analysis already
@@ -104,7 +140,11 @@ export function GenerateCoverLetterModal({
         if (!res.ok) return;
         const data = (await res.json()) as { company_name?: string | null };
         const company = data.company_name?.trim();
-        if (!cancelled && company) setRecipientCompany((current) => current || company);
+        if (!cancelled && company) {
+          setRecipientCompany((current) => current || company);
+          // A looked-up value is not the user's draft.
+          setBaseline((b) => ({ ...b, recipientCompany: company }));
+        }
       } catch {
         /* the field simply stays empty — it is optional */
       }
@@ -134,6 +174,7 @@ export function GenerateCoverLetterModal({
         const text = data?.profile?.availability?.text?.trim();
         // Only into a still-empty field: anything the user typed meanwhile wins.
         if (!cancelled && text && !availabilityTouched.current) {
+          setBaseline((b) => ({ ...b, availability: text }));
           setAvailability(text);
           setAvailabilityFromProfile(true);
         }
@@ -169,7 +210,11 @@ export function GenerateCoverLetterModal({
       const res = await fetch(`${API_BASE}/api/cover-letter/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: jobId, ...inputs }),
+        body: JSON.stringify({
+          job_id: jobId,
+          ...inputs,
+          save_availability_to_profile: saveAvailabilityToProfile,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -182,6 +227,8 @@ export function GenerateCoverLetterModal({
         throw new Error(typeof detail === "string" && detail.trim() ? detail : "");
       }
       const data = await res.json();
+      // The inputs are used now — drop the draft guard before the page moves on.
+      await draftGuard.disarm();
       onGenerated((data as { cover_letter_id: string }).cover_letter_id, inputs);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "";
@@ -196,7 +243,7 @@ export function GenerateCoverLetterModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
       data-testid="cover-letter-modal"
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 flex flex-col gap-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 flex flex-col gap-4 max-h-[calc(100dvh-2rem)] overflow-y-auto text-left">
         <div>
           <h2 className="text-lg font-bold">
             {isRegenerate ? t("regenerate") : t("generate")}
@@ -214,16 +261,18 @@ export function GenerateCoverLetterModal({
           </label>
           <div className="flex gap-2">
             <input
-              className="flex-1 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 min-w-0 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder={t("recipientNamePlaceholder")}
               value={recipientName}
+              maxLength={LETTER_FIELD_MAX}
               onChange={(e) => setRecipientName(e.target.value)}
               data-testid="cl-recipient-name"
             />
             <input
-              className="flex-1 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 min-w-0 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder={t("recipientCompanyPlaceholder")}
               value={recipientCompany}
+              maxLength={LETTER_FIELD_MAX}
               onChange={(e) => setRecipientCompany(e.target.value)}
               data-testid="cl-recipient-company"
             />
@@ -240,6 +289,7 @@ export function GenerateCoverLetterModal({
             className="w-full border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder={t("availabilityPlaceholder")}
             value={availability}
+            maxLength={LETTER_FIELD_MAX}
             onChange={(e) => {
               availabilityTouched.current = true;
               setAvailability(e.target.value);
@@ -252,6 +302,19 @@ export function GenerateCoverLetterModal({
               {t("availabilityFromProfile")}
             </p>
           )}
+          <label className="mt-2 flex items-start gap-2 text-sm text-neutral-800 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+              checked={saveAvailabilityToProfile}
+              onChange={(e) => setSaveAvailabilityToProfile(e.target.checked)}
+              data-testid="cl-save-availability"
+            />
+            <span>
+              {t("saveAvailabilityToProfile")}
+              <span className="block text-xs text-neutral-500">{t("saveAvailabilityToProfileHint")}</span>
+            </span>
+          </label>
         </div>
 
         {/* Motivation */}
@@ -265,9 +328,13 @@ export function GenerateCoverLetterModal({
             rows={3}
             placeholder={t("motivationPlaceholder")}
             value={motivation}
+            maxLength={LETTER_MOTIVATION_MAX}
             onChange={(e) => setMotivation(e.target.value)}
             data-testid="cl-motivation"
           />
+          <p className="mt-0.5 text-right text-[11px] text-neutral-500" data-testid="cl-motivation-count">
+            {t("motivationCount", { count: motivation.length, max: LETTER_MOTIVATION_MAX })}
+          </p>
         </div>
 
         {/* Salary */}
@@ -280,6 +347,7 @@ export function GenerateCoverLetterModal({
             className="w-full border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder={t("salaryPlaceholder")}
             value={salary}
+            maxLength={LETTER_FIELD_MAX}
             onChange={(e) => setSalary(e.target.value)}
             data-testid="cl-salary"
           />
@@ -317,7 +385,12 @@ export function GenerateCoverLetterModal({
         <div className="flex gap-2 pt-1">
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              // Cancelling is the user's own choice — no question, but the
+              // guard's history entry goes with the form.
+              void draftGuard.disarm();
+              onClose();
+            }}
             disabled={loading}
             className="flex-1 border border-neutral-300 rounded py-2.5 text-sm hover:border-neutral-500 transition-colors disabled:opacity-50"
             data-testid="cl-modal-cancel"
@@ -335,6 +408,25 @@ export function GenerateCoverLetterModal({
           </button>
         </div>
       </div>
+      <UnsavedEditDialog
+        open={pendingNav !== null}
+        sectionLabel={null}
+        title={t("unsavedFormTitle")}
+        body={t("unsavedFormBody")}
+        onStay={() => {
+          if (pendingNav?.kind === "back") draftGuard.rearmBack();
+          setPendingNav(null);
+        }}
+        onDiscard={() => {
+          const nav = pendingNav;
+          setPendingNav(null);
+          if (!nav) return;
+          draftGuard.release();
+          if (nav.kind === "href") router.push(nav.href);
+          // The guard entry is already popped; one more step leaves the page.
+          else window.history.back();
+        }}
+      />
     </div>
   );
 }

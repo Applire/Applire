@@ -388,7 +388,9 @@
     "introHonestTitle": "Honest is right",
     "introHonestBody": "If something doesn't apply, just say so. We record a no as a no — it never gets dressed up.",
     "introStart": "Show the first question",
-    "introBack": "Back to the gaps"
+    "introBack": "Back to the gaps",
+    "unsavedAnswerTitle": "Answer not sent yet",
+    "unsavedAnswerBody": "You started an answer and have not sent it. If you leave this page now, it is lost."
   },
   "cv": {
     "generating": "Generating CV…",
@@ -654,7 +656,12 @@
     "emDash": "–",
     "breadcrumbSeparator": "›",
     "regenerateHeading": "Regenerate",
-    "regenerateHint": "Opens the input form with the previous entries. The new cover letter replaces the current one."
+    "regenerateHint": "Opens the input form with the previous entries. The new cover letter replaces the current one.",
+    "saveAvailabilityToProfile": "Also save to my profile",
+    "saveAvailabilityToProfileHint": "Then it is already filled in for your next letter.",
+    "motivationCount": "{count, number} / {max, number} characters",
+    "unsavedFormTitle": "Details not used yet",
+    "unsavedFormBody": "You entered details for your cover letter and have not created a letter with them yet. If you leave this page now, they are lost."
   },
   "settings": {
     "title": "Settings",
@@ -761,9 +768,9 @@
     "profileCheckEducation": "Education",
     "profileCheckSummary": "Summary",
     "profileCompleteButton": "Complete Profile",
-    "sentBadge": "Sent · {date}",
-    "sentBadgeAriaLabel": "Submitted version from {date}",
-    "sentBadgePlain": "Sent",
+    "sentBadge": "Applied · version {date}",
+    "sentBadgeAriaLabel": "Version you applied with, from {date}",
+    "sentBadgePlain": "Applied",
     "staleCvBadge": "Profile grew",
     "staleCvBadgeTitle": "Your profile has grown since this application's latest CV",
     "statusCancelled": "Cancelled",
@@ -1260,8 +1267,8 @@
     "trackingUpdatedLine": "Updated {date}",
     "savedIndicator": "Saved",
     "docGeneratingLabel": "Generating…",
-    "sentChipLabel": "Sent",
-    "markSentAction": "Mark as sent",
+    "sentChipLabel": "Applied",
+    "markSentAction": "Applied with this version",
     "coverLetterDraftLink": "View draft",
     "documentsLoadFailed": "Documents could not be loaded.",
     "noDocumentsYet": "No versions yet.",

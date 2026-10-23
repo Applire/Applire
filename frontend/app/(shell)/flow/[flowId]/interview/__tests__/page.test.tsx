@@ -16,9 +16,10 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InterviewPage from "../page";
+import { guardedNavigate } from "@/components/document/useUnsavedDraftGuard";
 import { GapClusterCard, TONE } from "@/components/gaps/GapClusterCard";
 import { clusterView, type GapCluster } from "@/lib/match-utils";
 
@@ -43,6 +44,12 @@ vi.mock("next-intl", () => ({
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
     params ? `${key}(${JSON.stringify(params)})` : key,
 }));
+
+// F13 — the intro's "seen" mark lives in sessionStorage; every test starts
+// in a fresh browser session.
+beforeEach(() => {
+  window.sessionStorage.clear();
+});
 
 /** #789 (mock F1-1 c) — a fresh session opens on the intro card; the question
  * is loaded behind it. Tests that drive the question click through it. */
@@ -1187,6 +1194,32 @@ describe("Hazelnut b3 #789 — interview intro, one count, match ring", () => {
     expect(screen.queryByTestId("interview-intro")).not.toBeInTheDocument();
   });
 
+  // F13 (delivery run) — a reload after "Erste Frage zeigen" landed on the
+  // intro again: nothing was answered yet, so the server does not call the
+  // session resumed. The intro is shown once per session per browser session.
+  it("F13: a reload after Start lands on the current question, not the intro", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    const first = render(<InterviewPage params={fulfilledParams("f1")} />);
+    fireEvent.click(await screen.findByTestId("interview-intro-start"));
+    first.unmount();
+
+    // The reload: same session, still unanswered (resumed: false, Q1).
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    expect(await screen.findByTestId("interview-question")).toHaveTextContent(
+      "Wie verantwortest du die Produktion?",
+    );
+    expect(screen.queryByTestId("interview-intro")).not.toBeInTheDocument();
+  });
+
+  it("F13: an intro left without Start shows again on the next visit", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    const first = render(<InterviewPage params={fulfilledParams("f1")} />);
+    await screen.findByTestId("interview-intro");
+    first.unmount();
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    expect(await screen.findByTestId("interview-intro")).toBeInTheDocument();
+  });
+
   it("the back link returns to the gaps page", async () => {
     global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
     render(<InterviewPage params={fulfilledParams("f1")} />);
@@ -1324,5 +1357,76 @@ describe("#787 L7 — the question number is the server's gap-question count", (
     await sendAnswer(user, "Same thing.");
     await waitFor(() => expect(screen.getByTestId("interview-question")).toHaveTextContent("Docker"));
     expect(screen.getByTestId("interview-question-number").textContent).toContain('"current":2');
+  });
+});
+
+// MD3-1 (adversarial A-5, build-2 F-B) — an unsent answer is a draft: the
+// shell nav, the browser back button and a reload ask first, the section
+// editor's guard.
+describe("Hazelnut b3 MD3-1 — unsent interview answer", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  function unloadPrevented(): boolean {
+    const e = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  }
+
+  async function typeDraft(text: string) {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    fireEvent.click(await screen.findByTestId("interview-intro-start"));
+    fireEvent.change(screen.getByTestId("answer-textarea"), { target: { value: text } });
+  }
+
+  it("no draft, no guard: reload and the shell nav pass", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    fireEvent.click(await screen.findByTestId("interview-intro-start"));
+    expect(unloadPrevented()).toBe(false);
+    const push = vi.fn();
+    guardedNavigate("/dashboard", push);
+    expect(push).toHaveBeenCalledWith("/dashboard");
+    expect(screen.queryByTestId("edit-unsaved-dialog")).not.toBeInTheDocument();
+  });
+
+  it("a typed answer holds a reload (beforeunload)", async () => {
+    await typeDraft("Ich habe die Linie 3 geführt");
+    await waitFor(() => expect(unloadPrevented()).toBe(true));
+  });
+
+  it("the shell nav asks; stay keeps the answer, discard follows the link", async () => {
+    await typeDraft("Ich habe die Linie 3 geführt");
+    const push = vi.fn();
+    act(() => guardedNavigate("/dashboard", push));
+    expect(push).not.toHaveBeenCalled();
+    const dialog = await screen.findByTestId("edit-unsaved-dialog");
+    expect(dialog.textContent).toContain("unsavedAnswerTitle");
+    expect(dialog.textContent).toContain("unsavedAnswerBody");
+    fireEvent.click(screen.getByTestId("edit-unsaved-stay"));
+    expect(screen.getByTestId("answer-textarea")).toHaveValue("Ich habe die Linie 3 geführt");
+    expect(mockPush).not.toHaveBeenCalled();
+
+    act(() => guardedNavigate("/dashboard", push));
+    fireEvent.click(await screen.findByTestId("edit-unsaved-discard"));
+    expect(mockPush).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("the browser back button asks (popstate on the guard entry)", async () => {
+    await typeDraft("Ich habe die Linie 3 geführt");
+    await waitFor(() => expect(unloadPrevented()).toBe(true));
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(await screen.findByTestId("edit-unsaved-dialog")).toBeInTheDocument();
+  });
+
+  it("a whitespace-only answer is not a draft", async () => {
+    await typeDraft("   ");
+    expect(unloadPrevented()).toBe(false);
   });
 });
