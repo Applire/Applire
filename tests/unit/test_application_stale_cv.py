@@ -467,3 +467,82 @@ async def test_dismiss_false_is_a_noop(db):
         db,
     )
     assert patched.stale_cv is not None
+
+
+# ---------------------------------------------------------------------------
+# Re-probe N3 (Hazelnut b3): only what a CV is written from is growth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_notice_period_saved_after_the_cv_offers_no_retailor(db):
+    """The letter form saves the notice period to the profile (B3-11) — an
+    enrichment record with one `availability` change. No CV renders it, so it
+    must not read as "Dein Profil ist gewachsen: availability +1"."""
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("availability", "updated")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv is None
+
+
+@pytest.mark.asyncio
+async def test_only_cv_feeding_sections_are_counted_and_name_the_head(db):
+    """Bookkeeping sections never reach the delta; the enrichment head is the
+    newest CV-feeding change, not a later notice-period save."""
+    skills_at = _NOW - timedelta(days=3)
+    db.add(_make_profile([
+        _enrichment_record(_iso(skills_at), [
+            _change("skills"), _change("metadata"), _change("_meta"), _change(""),
+            _change("professional_summary"),
+        ]),
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("availability")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+
+    hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
+    assert hint is not None
+    assert [(g.section, g.count) for g in hint.gained] == [
+        ("professional_summary", 1), ("skills", 1),
+    ]
+    assert hint.profile_enriched_at == skills_at
+
+
+@pytest.mark.asyncio
+async def test_a_dismissed_hint_stays_dismissed_after_a_notice_period_save(db):
+    from applire.models.profile import MasterProfile
+    from sqlalchemy import select
+
+    from tests.support.profile_factory import set_profile_json
+
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")]),
+    ]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+    await patch_application(
+        app.id, _STUB_USER_ID, PatchApplicationRequest(dismiss_stale_cv=True), db
+    )
+    profile = (await db.execute(select(MasterProfile))).scalar_one()
+    history = list(profile.profile_json["metadata"]["enrichment_history"])
+    history.append(_enrichment_record(
+        _iso(datetime.now(timezone.utc) + timedelta(seconds=1)), [_change("availability")],
+    ))
+    set_profile_json(profile, {**profile.profile_json, "metadata": {"enrichment_history": history}})
+    await db.commit()
+
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv is None
+
+
+def test_every_cv_feeding_section_is_a_profile_section():
+    from applire.schemas.profile import MasterProfileData
+    from applire.services.application import CV_FEEDING_SECTIONS
+
+    assert CV_FEEDING_SECTIONS <= set(MasterProfileData.model_fields)
+    assert "availability" not in CV_FEEDING_SECTIONS

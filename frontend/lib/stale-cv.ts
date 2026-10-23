@@ -41,32 +41,40 @@ export interface StaleCVInfo {
   target_pages: number | null;
 }
 
-/** Enrichment-trail section → `profile` namespace label key. */
+/**
+ * Enrichment-trail section → `profile` namespace label key. Covers every
+ * section the backend counts as growth (`CV_FEEDING_SECTIONS` in
+ * `services/application.py` — a vitest reads that set and checks each has a
+ * key here). `summary` stays for older trail records.
+ */
 export const SECTION_LABEL_KEYS: Record<string, string> = {
   personal_info: "sectionPersonalInfo",
+  professional_summary: "sectionSummary",
   summary: "sectionSummary",
   work_experience: "sectionWorkExperience",
   education: "sectionEducation",
   skills: "sectionSkills",
   languages: "sectionLanguages",
   certifications: "sectionCertifications",
+  projects: "sectionProjects",
+  publications: "sectionPublications",
+  volunteer_activities: "sectionVolunteer",
+  signature_stories: "sectionSignatureStories",
 };
 
 /**
  * "Fähigkeiten +3, Berufserfahrung +1" — `resolve` translates a
- * `profile`-namespace key; unmapped sections fall back to the raw name with
- * underscores humanized (never a missing-key artifact in the UI).
+ * `profile`-namespace key. A section without a label is left out (re-probe N3:
+ * "availability +1" reached the nudge as a raw field name); when nothing is
+ * left, the caller shows its plain sentence.
  */
 export function formatGained(
   gained: StaleCVGained[],
   resolve: (key: string) => string,
 ): string {
   return gained
-    .map((g) => {
-      const key = SECTION_LABEL_KEYS[g.section];
-      const label = key ? resolve(key) : g.section.replace(/_/g, " ");
-      return `${label} +${g.count}`;
-    })
+    .filter((g) => SECTION_LABEL_KEYS[g.section] !== undefined)
+    .map((g) => `${resolve(SECTION_LABEL_KEYS[g.section])} +${g.count}`)
     .join(", ");
 }
 

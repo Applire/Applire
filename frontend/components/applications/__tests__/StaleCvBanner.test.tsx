@@ -76,6 +76,13 @@ describe("StaleCvBanner", () => {
     );
   });
 
+  it("never names a raw field: an unlabelled section falls back to the plain body (re-probe N3)", () => {
+    renderBanner({ gained: [{ section: "availability", count: 1 }] });
+    const body = screen.getByTestId("stale-cv-body").textContent ?? "";
+    expect(body).toContain("staleCvBodyPlain");
+    expect(body).not.toContain("availability");
+  });
+
   it("offers re-tailor first and fires its callback", () => {
     renderBanner();
     const buttons = screen.getAllByRole("button");
