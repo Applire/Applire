@@ -224,6 +224,11 @@ async def generate_cover_letter(
     if profile is None:
         raise LookupError("No profile found — complete the interview step first")
 
+    # B3-11 + MD3-5: the notice period typed for THIS letter also goes to the
+    # profile when the door asks for it and it differs from the stored value.
+    # Written in this transaction (the letter row's commit below carries it).
+    await _save_letter_availability_to_profile(request, profile, db, uid)
+
     # Build pre_gen_inputs for storage
     pre_gen_inputs = {
         "recipient_name": request.recipient_name,
@@ -302,6 +307,45 @@ async def generate_cover_letter(
         pdf_url=f"{base_url}/api/cover-letter/{cl.id}/pdf",
         expires_at=cl.expires_at,
     )
+
+
+def _availability_key(text: str | None) -> str:
+    return " ".join((text or "").split()).casefold()
+
+
+async def _save_letter_availability_to_profile(
+    request: CoverLetterGenerateRequest,
+    profile,
+    db: AsyncSession,
+    uid: uuid.UUID,
+) -> bool:
+    """B3-11 (founder 2026-10-23) + MD3-5: "Auch im Profil speichern".
+
+    When ``save_availability_to_profile`` is set and the letter's notice period
+    differs from ``profile.availability.text`` (whitespace/case-insensitive), it
+    is written through the one availability door (``record_availability`` →
+    ``SetAvailability``): ``recorded_at`` today, ``availability.source =
+    "letter_form"``, a reminder close cleared (a new value, ruling V-4). The same
+    value is NOT re-written — a pre-filled field sent back unchanged is no
+    re-confirmation, so it must not reset the 90-day staleness clock. Empty →
+    nothing (the letter form never clears the profile). Returns whether it wrote.
+    """
+    if not request.save_availability_to_profile:
+        return False
+    text = (request.availability or "").strip()
+    if not text:
+        return False
+    stored = (profile.profile_json or {}).get("availability") or {}
+    if _availability_key(text) == _availability_key(stored.get("text")):
+        return False
+    from applire.services.profile import record_availability
+
+    await record_availability(
+        db, text=text, source="manual_edit", door="letter_form",
+        user_id=uid, commit=False,
+    )
+    logger.info("LETTER_AVAILABILITY_SAVED user_id=%s", uid)
+    return True
 
 
 async def get_cover_letter_status(

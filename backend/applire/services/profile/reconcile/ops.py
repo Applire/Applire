@@ -1097,6 +1097,10 @@ class SetAvailability(BaseModel):
 
     op: Literal["set_availability"] = "set_availability"
     text: str
+    #: B3-11: the door that typed the value when it differs from the batch's
+    #: provenance source (the letter form writes ``letter_form`` on the value
+    #: while its enrichment record stays a ``manual_edit`` by the candidate).
+    door: str | None = None
 
 
 class DismissAvailabilityReminder(BaseModel):

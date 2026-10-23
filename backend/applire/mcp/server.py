@@ -1682,6 +1682,7 @@ async def generate_cover_letter(
     availability: str = "",
     motivation: str = "",
     tone: CLTone = "formal",
+    save_availability_to_profile: bool = False,
 ) -> dict:
     # 788:L1 (Hazelnut build 3): the six REST inputs, additive and optional,
     # handed to the SAME request model the web form posts — no MCP-only path.
@@ -1700,6 +1701,9 @@ async def generate_cover_letter(
             availability=availability.strip() or None,
             motivation=motivation.strip() or None,
             tone=tone,
+            # MD3-5: an agent writes the profile's notice period only when it
+            # asks to (default false); the caps (MD3-4) are the request model's.
+            save_availability_to_profile=save_availability_to_profile,
         )
     except ValidationError as exc:
         raise invalid_input(str(exc))

@@ -779,11 +779,14 @@ async def record_availability(
     session_id: str | None = None,
     user_id: uuid.UUID | None = None,
     commit: bool = True,
+    door: str | None = None,
 ) -> MasterProfileResponse:
     """D-B3V7 (ADR-063 amended 2026-10-22; rulings 787:L3 + V-4) — write the
     notice period / earliest start through the one write door
     (``SetAvailability`` via ``commit_ops``). ``source`` is the provenance:
     ``manual_edit`` (My Profile), the letter form's door, or an agent's.
+    ``door`` (B3-11) stamps ``availability.source`` when it differs from the
+    provenance literal (``letter_form``).
     ``commit=False`` leaves the transaction to a caller that owns one."""
     from applire.services.profile.reconcile.ops import SetAvailability
 
@@ -792,7 +795,7 @@ async def record_availability(
         raise LookupError("No profile found")
     result = await commit_ops(
         db,
-        [SetAvailability(text=text)],
+        [SetAvailability(text=text, door=door)],
         CommitProvenance(source=source, intake="field_edit", session_id=session_id, actor="candidate"),
         record=record,
         grounding=None,
