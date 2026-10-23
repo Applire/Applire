@@ -15,10 +15,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
-import { GenerateCoverLetterModal } from "../GenerateCoverLetterModal";
+import {
+  GenerateCoverLetterModal,
+  LETTER_FIELD_MAX,
+  LETTER_MOTIVATION_MAX,
+} from "../GenerateCoverLetterModal";
+import { guardedNavigate } from "@/components/document/useUnsavedDraftGuard";
+
+const mockPush = vi.fn();
+const mockRouter = { push: mockPush, replace: vi.fn() };
+vi.mock("next/navigation", () => ({
+  useRouter: () => mockRouter,
+}));
 
 const BASE_PROPS = {
   jobId: "job-1",
@@ -308,8 +319,171 @@ describe("GenerateCoverLetterModal — notice period and reason (L-1)", () => {
     expect(body.availability).toBe("3 Monate");
     expect(body.motivation).toBe("Neuer Fokus");
     expect(Object.keys(body).sort()).toEqual(
-      ["availability", "job_id", "motivation", "recipient_company", "recipient_name", "salary", "tone"],
+      // B3-11: the form always sends the checkbox explicitly (FL↔FF contract).
+      ["availability", "job_id", "motivation", "recipient_company", "recipient_name", "salary",
+        "save_availability_to_profile", "tone"],
     );
     expect(onGenerated).toHaveBeenCalledWith("cl-9", expect.objectContaining({ availability: "3 Monate" }));
+  });
+});
+
+// B3-11 + MD3-4 — "Auch im Profil speichern" under the notice period (default
+// ON, sent explicitly) and the input caps, the same numbers as the backend's
+// LETTER_INPUT_MAX_CHARS (backend/applire/constants.py).
+describe("GenerateCoverLetterModal — save to profile (B3-11) and caps (MD3-4)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function mockGenerate() {
+    return vi.spyOn(global, "fetch").mockImplementation((async (url: string) => {
+      if (String(url).includes("/api/cover-letter/generate")) {
+        return { ok: true, json: () => Promise.resolve({ cover_letter_id: "cl-1" }) } as Response;
+      }
+      return { ok: true, json: () => Promise.resolve({}) } as Response;
+    }) as typeof fetch);
+  }
+
+  async function submittedBody(spy: ReturnType<typeof mockGenerate>, onGenerated: ReturnType<typeof vi.fn>) {
+    fireEvent.click(screen.getByTestId("cl-modal-generate"));
+    await waitFor(() => expect(onGenerated).toHaveBeenCalled());
+    const call = spy.mock.calls.find((c) => String(c[0]).includes("/generate"))!;
+    return JSON.parse((call[1] as RequestInit).body as string);
+  }
+
+  it("the checkbox sits under the notice period, ticked, and its label is German", () => {
+    mockGenerate();
+    renderModal();
+    const box = screen.getByTestId("cl-save-availability") as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(screen.getByText("Auch im Profil speichern")).toBeTruthy();
+    const order = ["cl-availability", "cl-save-availability", "cl-motivation"].map((id) => screen.getByTestId(id));
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("sends save_availability_to_profile: true by default", async () => {
+    const spy = mockGenerate();
+    const onGenerated = vi.fn();
+    render(withIntl(<GenerateCoverLetterModal {...BASE_PROPS} onGenerated={onGenerated} />, "de"));
+    fireEvent.change(screen.getByTestId("cl-availability"), { target: { value: "3 Monate zum Quartalsende" } });
+    const body = await submittedBody(spy, onGenerated);
+    expect(body.save_availability_to_profile).toBe(true);
+    expect(body.availability).toBe("3 Monate zum Quartalsende");
+  });
+
+  it("sends save_availability_to_profile: false when unticked", async () => {
+    const spy = mockGenerate();
+    const onGenerated = vi.fn();
+    render(withIntl(<GenerateCoverLetterModal {...BASE_PROPS} onGenerated={onGenerated} />, "en"));
+    expect(screen.getByText("Also save to my profile")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("cl-availability"), { target: { value: "available immediately" } });
+    fireEvent.click(screen.getByTestId("cl-save-availability"));
+    const body = await submittedBody(spy, onGenerated);
+    expect(body.save_availability_to_profile).toBe(false);
+  });
+
+  it("caps every free-text input: motivation 2,000, the rest 300", () => {
+    mockGenerate();
+    renderModal();
+    expect(LETTER_MOTIVATION_MAX).toBe(2000);
+    expect(LETTER_FIELD_MAX).toBe(300);
+    expect(screen.getByTestId("cl-motivation").getAttribute("maxLength")).toBe("2000");
+    for (const id of ["cl-recipient-name", "cl-recipient-company", "cl-availability", "cl-salary"]) {
+      expect(screen.getByTestId(id).getAttribute("maxLength")).toBe("300");
+    }
+  });
+
+  it("counts the motivation against its cap", () => {
+    mockGenerate();
+    renderModal();
+    fireEvent.change(screen.getByTestId("cl-motivation"), { target: { value: "Zahlungsverkehr" } });
+    expect(screen.getByTestId("cl-motivation-count").textContent).toBe("15 / 2.000 Zeichen");
+  });
+});
+
+// MD3-1 (adversarial A-5) — typed form inputs are a draft: the shell nav, the
+// back button and a reload ask first, as the section editor does.
+describe("GenerateCoverLetterModal — unsent form guard (MD3-1)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockPush.mockReset();
+  });
+
+  function unloadPrevented(): boolean {
+    const e = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  }
+
+  function mockQuiet(profileText: string | null = null) {
+    return vi.spyOn(global, "fetch").mockImplementation((async (url: string) => {
+      if (String(url).includes("/api/cover-letter/generate")) {
+        return { ok: true, json: () => Promise.resolve({ cover_letter_id: "cl-2" }) } as Response;
+      }
+      if (String(url).includes("/api/profile")) {
+        return {
+          ok: true,
+          json: () => Promise.resolve({ profile: profileText ? { availability: { text: profileText } } : {} }),
+        } as Response;
+      }
+      return { ok: true, json: () => Promise.resolve({ company_name: "NovaPay GmbH" }) } as Response;
+    }) as typeof fetch);
+  }
+
+  it("what the form filled in itself is not a draft", async () => {
+    mockQuiet("3 Monate zum Quartalsende");
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId("cl-availability")).toHaveValue("3 Monate zum Quartalsende"));
+    await waitFor(() => expect(screen.getByTestId("cl-recipient-company")).toHaveValue("NovaPay GmbH"));
+    expect(unloadPrevented()).toBe(false);
+    const push = vi.fn();
+    guardedNavigate("/dashboard", push);
+    expect(push).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("a typed motivation holds a reload and asks before the shell nav leaves", async () => {
+    mockQuiet();
+    renderModal();
+    fireEvent.change(screen.getByTestId("cl-motivation"), { target: { value: "Ich will in den Zahlungsverkehr." } });
+    await waitFor(() => expect(unloadPrevented()).toBe(true));
+    const push = vi.fn();
+    act(() => guardedNavigate("/dashboard", push));
+    expect(push).not.toHaveBeenCalled();
+    const dialog = await screen.findByTestId("edit-unsaved-dialog");
+    expect(dialog.textContent).toContain("Angaben noch nicht verwendet");
+    fireEvent.click(screen.getByTestId("edit-unsaved-stay"));
+    expect(screen.getByTestId("cl-motivation")).toHaveValue("Ich will in den Zahlungsverkehr.");
+    act(() => guardedNavigate("/dashboard", push));
+    fireEvent.click(await screen.findByTestId("edit-unsaved-discard"));
+    expect(mockPush).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("the back button asks (popstate on the guard entry)", async () => {
+    mockQuiet();
+    renderModal();
+    fireEvent.change(screen.getByTestId("cl-availability"), { target: { value: "sofort" } });
+    await waitFor(() => expect(unloadPrevented()).toBe(true));
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(await screen.findByTestId("edit-unsaved-dialog")).toBeInTheDocument();
+  });
+
+  it("generating uses the inputs: the guard is gone before the page moves on", async () => {
+    mockQuiet();
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    const onGenerated = vi.fn(() => {
+      // The page navigates here; no draft guard may still hold it.
+      expect(back).toHaveBeenCalled();
+    });
+    render(withIntl(<GenerateCoverLetterModal {...BASE_PROPS} onGenerated={onGenerated} />, "de"));
+    fireEvent.change(screen.getByTestId("cl-motivation"), { target: { value: "Neuer Fokus" } });
+    await waitFor(() => expect(unloadPrevented()).toBe(true));
+    fireEvent.click(screen.getByTestId("cl-modal-generate"));
+    await waitFor(() => expect(onGenerated).toHaveBeenCalled());
   });
 });

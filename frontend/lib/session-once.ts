@@ -16,7 +16,9 @@
  */
 import { userScopedKey } from "@/lib/auth/storage";
 
-export type OncePerSetKind = "predownload-notice" | "mark-applied-prompt";
+// "interview-intro" (Hazelnut b3 F13) — keyed by the interview session id: the
+// intro card is shown once, a reload goes straight to the current question.
+export type OncePerSetKind = "predownload-notice" | "mark-applied-prompt" | "interview-intro";
 
 function key(kind: OncePerSetKind, setId: string): string {
   return userScopedKey(`applire.once.${kind}.${setId}`);
