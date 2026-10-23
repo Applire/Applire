@@ -364,3 +364,32 @@ async def test_agent_door_pins_both_additive_fields_in_both_states(db):
     assert got["workflow_status"] == "cv_generating"
     # The flow's resume pointer is NOT lifted (ruling: served status only).
     assert got["flow_current_step"] == "jd_analysis"
+
+
+# ---------------------------------------------------------------------------
+# A-6 (Hazelnut b3 fix round) — the create door serves the same view as list
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_on_a_job_with_ready_documents_answers_the_served_status(db):
+    """Adversarial pass A-6: `create_application` on a job whose CV and letter
+    were already ready answered `workflow_status: none, cover_letter_ready:
+    false` while `list_applications` right after served `completed / true`."""
+    job = _job()
+    db.add(job)
+    await link_posting(db, job, _USER)
+    db.add(_cv(job.id))
+    db.add(_letter(job.id))
+    await db.commit()
+
+    created = await create_application(
+        _USER, CreateApplicationRequest(job_analysis_id=job.id), db
+    )
+    listed = (await list_applications(_USER, db)).items[0]
+    assert created.workflow_status == listed.workflow_status == WorkflowStatus.completed
+    assert created.cover_letter_ready is listed.cover_letter_ready is True
+    assert created.workflow_running is listed.workflow_running
+    # The stored column is still not written by a read.
+    stored = await db.get(Application, created.id)
+    assert stored.workflow_status == WorkflowStatus.none.value
