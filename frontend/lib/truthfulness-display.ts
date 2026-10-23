@@ -46,7 +46,8 @@ export type Verdict =
   | "not_applicable";
 
 export type TruthfulnessEvidence = {
-  kind: "profile_path" | "enrichment_record";
+  // "letter_form" (B3-10): `ref` is `pre_gen_inputs.<field>` of the letter — never a profile path.
+  kind: "profile_path" | "enrichment_record" | "letter_form";
   ref: string;
   excerpt?: string;
 };
