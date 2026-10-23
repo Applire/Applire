@@ -11,6 +11,11 @@ import { FLOW_ID as DOC_FLOW, CL_ID, JOB_ID, json, stubDocuments } from '../edit
 
 test.use({ authUser: { ...ADMIN_USER, ui_language: 'de' } });
 
+// The German assertions need the German UI: CI's stub-admin backend serves English settings otherwise.
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/settings', (r) => json(r, { ui_language: 'de', ui_language_explicit: true }));
+});
+
 test('interview: an unsent answer holds the phone nav drawer', async ({ page }) => {
   await stubInterview(page, nextTurn(null));
   await page.route('**/api/profile/enrichment-history**', (r) => json(r, []));

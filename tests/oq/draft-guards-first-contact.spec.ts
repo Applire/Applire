@@ -244,6 +244,11 @@ test.describe('B3-11 / MD3-4 — save to profile and the caps', () => {
 });
 
 test.describe('A-11 — first contact through "Lebenslauf oder Stelle hinzufügen"', () => {
+  // The German assertions need the German UI: CI's stub-admin backend serves English settings otherwise.
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/settings', (r) => json(r, { ui_language: 'de', ui_language_explicit: true }));
+  });
+
   test('a profile-less user sees the first-run screen, not the returning-user chooser', async ({ page }) => {
     await page.route('**/api/profile/exists', (r) => json(r, { exists: false }));
     await page.route('**/api/profile/import-jobs**', (r) => json(r, []));
