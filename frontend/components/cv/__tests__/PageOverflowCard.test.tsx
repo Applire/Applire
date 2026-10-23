@@ -87,7 +87,28 @@ describe("PageOverflowCard", () => {
     render(withIntl(<PageOverflowCard cvId="cv-1" />));
     const done = await screen.findByTestId("cv-page-overflow-done");
     expect(done.getAttribute("data-choice")).toBe("cut");
-    // The CV changed since the cut — no switch offered.
+    // The CV changed since the cut — no switch offered, and the card says why.
+    expect(screen.queryByTestId("cv-page-overflow-switch")).toBeNull();
+    expect(screen.getByTestId("cv-page-overflow-undo-gone").textContent).toBe(
+      "This can no longer be undone: the CV has changed since the cut.",
+    );
+  });
+
+  it("an undo refused with 409 re-reads the state and says why, not a generic error (MD3-3)", async () => {
+    const cutState = { ...PROPOSAL, choice: "cut" as const, cut_available: false, uncut_available: true };
+    let statusReads = 0;
+    global.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return { ok: false, status: 409, json: async () => ({}) } as Response;
+      statusReads += 1;
+      const po = statusReads === 1 ? cutState : { ...cutState, uncut_available: false };
+      return { ok: true, status: 200, json: async () => ({ page_overflow: po }) } as Response;
+    }) as typeof fetch;
+    render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
+    fireEvent.click(await screen.findByTestId("cv-page-overflow-switch"));
+    expect((await screen.findByTestId("cv-page-overflow-undo-gone")).textContent).toBe(
+      "Rückgängig machen geht hier nicht mehr: Der Lebenslauf hat sich seit dem Kürzen geändert.",
+    );
+    expect(screen.queryByTestId("cv-page-overflow-error")).toBeNull();
     expect(screen.queryByTestId("cv-page-overflow-switch")).toBeNull();
   });
 

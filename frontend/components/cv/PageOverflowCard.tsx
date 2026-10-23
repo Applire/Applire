@@ -93,6 +93,17 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ choice }),
       });
+      if (res.status === 409 && overflow.choice === "cut") {
+        // MD3-3: the switch is no longer possible on the CV as it stands (an edit
+        // since the cut left an item nowhere to go). Re-read the state so the
+        // card drops the switch and says why, instead of a generic error.
+        const fresh = await fetch(`${API_BASE}/api/cv/${cvId}/status`);
+        const data = fresh.ok ? ((await fresh.json()) as { page_overflow?: PageOverflow | null }) : null;
+        if (data?.page_overflow) {
+          setOverflow(data.page_overflow);
+          return;
+        }
+      }
       if (!res.ok) throw new Error(`page-overflow ${res.status}`);
       setOverflow((await res.json()) as PageOverflow);
       if (swapsContent) onContentChanged?.();
@@ -123,6 +134,11 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
             ? t("pageOverflowCutDone", { target, items: removed })
             : t("pageOverflowKeptDone", { actual: full })}
         </span>
+        {cut && !canSwitch && (
+          <span className="ml-1 text-on-surface-variant" data-testid="cv-page-overflow-undo-gone">
+            {t("pageOverflowUndoGone")}
+          </span>
+        )}
         {canSwitch && (
           <button
             type="button"

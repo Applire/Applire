@@ -574,6 +574,7 @@
     "pageOverflowUndoCut": "Doch {actual} Seiten",
     "pageOverflowKeptDone": "{actual} Seiten — so von dir gewählt.",
     "pageOverflowUndoKeep": "Doch auf {target, plural, one {# Seite} other {# Seiten}} kürzen",
+    "pageOverflowUndoGone": "Rückgängig machen geht hier nicht mehr: Der Lebenslauf hat sich seit dem Kürzen geändert.",
     "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal."
   },
   "saveScopePrompt": {
