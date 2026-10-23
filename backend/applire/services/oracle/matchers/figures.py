@@ -78,7 +78,16 @@ _MULT_RE = (
     + ")"
 )
 
-_PERCENT_RE = re.compile(r"[~≈]?\s*(\d+(?:[.,]\d+)?)\s*%")
+# Hazelnut build 3 fix round (WP-FO, ADR-052 amended 2026-10-23): the unit is a
+# percent whether written as the sign or spelled out — German letter prose writes
+# "von 87 auf 96 Prozent" while the vault says "87 %", and the two used to land
+# in different figure kinds (number vs percent), so a true figure read
+# "No vault evidence" (delivery run, Marcus letter: 2 of its 3 red rows). The
+# word forms need a word boundary: "Prozentpunkte" / "percentage points" state a
+# DIFFERENCE, not a share, and stay out. ``story_reach._PERCENT_WORD_RE`` normalised
+# the same three words locally for the same reason (2026-09-20); one unit set now.
+_PERCENT_UNIT = r"(?:%|(?i:prozent|percent|per\s+cent)\b)"
+_PERCENT_RE = re.compile(r"[~≈]?\s*(\d+(?:[.,]\d+)?)\s*" + _PERCENT_UNIT)
 
 # N-1 (re-probe on eebd534d, covered by RULING E-1): a number with a TIME or
 # DATA-SIZE unit is a figure of its own kind. "from 1.8s to 240ms" yielded
@@ -301,14 +310,14 @@ _GROUPED_RE = re.compile(r"^\d{1,3}(?:[.,]\d{3})+$")
 # and the preposition is what makes the two numbers one range construction.
 _PERCENT_RANGE_WORD_RE = re.compile(
     r"\b(?:von|from|zwischen|between)\s+(\d+(?:[.,]\d+)?)"
-    r"\s+(?:auf|bis|und|to|and)\s+\d+(?:[.,]\d+)?\s*%",
+    r"\s+(?:auf|bis|und|to|and)\s+\d+(?:[.,]\d+)?\s*" + _PERCENT_UNIT,
     re.IGNORECASE,
 )
 # Dash form: the leading number must be immediately range-joined ("61–73 %");
 # a % or digit right before the candidate start means it is not a bare range
 # start (either already unit-carrying or the tail of a larger number).
 _PERCENT_RANGE_DASH_RE = re.compile(
-    r"(?<![\d.,%])(\d+(?:[.,]\d+)?)\s*[-‒–—―−]\s*\d+(?:[.,]\d+)?\s*%"
+    r"(?<![\d.,%])(\d+(?:[.,]\d+)?)\s*[-‒–—―−]\s*\d+(?:[.,]\d+)?\s*" + _PERCENT_UNIT
 )
 # A year never receives the distributed unit ("von 2020 auf 25 %" is a
 # time-to-value phrasing, not a percentage range).
