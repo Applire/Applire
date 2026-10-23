@@ -59,25 +59,30 @@ text (:func:`figures_missing_from`) — via the module-local
 is UNTOUCHED (nobody's file; the Oracle keeps its own contract): test 1 below
 still pins that the raw, shared extractor does not unify these forms on its
 own. Test 2 is now the GUARD: it pins the FIXED, module-level behaviour.
+
+**Superseded in part (Hazelnut build 3 fix round, WP-FO, 2026-10-23, main ack):**
+the shared extractor now reads "Prozent"/"percent"/"per cent" as the "%" unit
+itself (two false figure reds on a delivered letter, 34 on the offline corpus).
+Test 1 therefore pins the docstring's claim as TRUE through the raw extractor;
+test 2 keeps guarding the module-level result, which no longer depends on
+``_normalize_percent_words`` (now a harmless idempotent pre-pass).
 """
 from applire.services.load_bearing import figures_present
 from applire.services.oracle.matchers.figures import extract_figures
 from applire.services.story_reach import StoryFigure, figures_missing_from
 
 
-def test_the_docstrings_own_claim_about_80_prozent_is_false():
-    """Ground truth, asserted with the real predicate: `80%` and `80 %`
-    extract to the same (kind, value) pair; `80 Prozent` does not."""
+def test_the_docstrings_own_claim_about_80_prozent_now_holds():
+    """Ground truth, asserted with the real predicate: `80%`, `80 %` and (since
+    WP-FO, 2026-10-23) `80 Prozent` extract to the same (kind, value) pair."""
     percent_sign = extract_figures("um 80% reduziert")
     percent_sign_spaced = extract_figures("um 80 % reduziert")
     prozent_word = extract_figures("um 80 Prozent reduziert")
 
     assert [(f.kind, f.value) for f in percent_sign] == [("percent", "80")]
     assert [(f.kind, f.value) for f in percent_sign_spaced] == [("percent", "80")]
-    assert [(f.kind, f.value) for f in prozent_word] != [("percent", "80")], (
-        "the module docstring claims '80 Prozent' extracts as the same figure "
-        "as '80%' — measured, it extracts as kind='number' instead, so the "
-        "claim does not hold"
+    assert [(f.kind, f.value) for f in prozent_word] == [("percent", "80")], (
+        "'80 Prozent' must extract as the same figure as '80%' (WP-FO)"
     )
 
 
@@ -126,12 +131,12 @@ def test_a_story_figure_stated_as_prozent_is_now_recognised_as_present():
         "STORY_DEMAND_LIMIT budget on a false demand."
     )
 
-    # The RAW, shared figures_present()/extract_figures() still do not unify
-    # the spelled-out form on their own (the Oracle's own contract, untouched)
-    # — "percent:80" is absent from the UN-normalised text.
+    # WP-FO (2026-10-23): the RAW, shared figures_present()/extract_figures()
+    # now unify the spelled-out form themselves — "percent:80" is present in the
+    # UN-normalised text, and the bare "number:80" reading is gone.
     present_keys = figures_present(document_text)
-    assert "percent:80" not in present_keys
-    assert "number:80" in present_keys
+    assert "percent:80" in present_keys
+    assert "number:80" not in present_keys
 
     # It is `figures_missing_from`'s OWN pre-normalisation that closes the gap
     # for this module's callers — confirmed directly against the normalised text.
