@@ -1550,7 +1550,7 @@
         "cv-claim_missing": "Your profile backs “{term}”, but the CV does not show it.",
         "cv-project_missing": "The role asks for “{term}”, and a project in your profile backs it – the CV does not show it.",
         "cv-project_not_mentioned": "This project from your profile is not in the CV: “{term}”.",
-        "cv-skill_untied": "“{term}” is in the skills list, but your profile does not back it.",
+        "cv-skill_untied": "“{term}” is in the skills list but is not a skill in your profile. If your profile backs it, say it in the bullet with the evidence.",
         "cv-skill_spelling": "“{term}” is spelled differently in the skills list than in your profile.",
         "cv-skills_cap": "The skills list is longer than planned – the least relevant entries: {terms}.",
         "cv-skill_duplicate": "The skills list names the same thing twice: {terms}.",

@@ -46,7 +46,12 @@ describe("R2-5 — the final-check card in the user's words", () => {
     expect(text).toContain("Weberit Kunststofftechnik GmbH: Das MES-Projekt steht doppelt.");
     expect(text).toContain("Im fertigen Lebenslauf außerdem offen:");
     expect(text).toContain("„Supply Chain“ belegt Dein Profil, im Lebenslauf fehlt es.");
-    expect(text).toContain("„Verpackungsindustrie“ steht in der Skill-Liste, Dein Profil belegt es aber nicht.");
+    // 790:73: the instrument knows "not a skill in the profile", never "not backed" —
+    // the Oracle grounds Marcus's "Verpackungsindustrie" on a responsibility line.
+    expect(text).toContain(
+      "„Verpackungsindustrie“ steht in der Skill-Liste, ist in Deinem Profil aber keine Fähigkeit. Belegt Dein Profil es, gehört es in den Stichpunkt mit dem Beleg.",
+    );
+    expect(text).not.toContain("belegt es aber nicht");
     expect(text).toContain("Bei Weberit Kunststofftechnik GmbH stehen mehr Stichpunkte als vorgesehen.");
     expect(text).toContain("Eine automatische Prüfung meldet hier noch etwas");
     expect(text).not.toMatch(/round\(s\)|cv\.|cv-|[0-9a-f]{8}-[0-9a-f]{4}-|an EN sentence|Over the per-role/);

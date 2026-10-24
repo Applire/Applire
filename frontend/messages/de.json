@@ -1550,7 +1550,7 @@
         "cv-claim_missing": "„{term}“ belegt Dein Profil, im Lebenslauf fehlt es.",
         "cv-project_missing": "„{term}“ verlangt die Stelle, und ein Projekt in Deinem Profil belegt es – im Lebenslauf steht es nicht.",
         "cv-project_not_mentioned": "Dieses Projekt aus Deinem Profil steht nicht im Lebenslauf: „{term}“.",
-        "cv-skill_untied": "„{term}“ steht in der Skill-Liste, Dein Profil belegt es aber nicht.",
+        "cv-skill_untied": "„{term}“ steht in der Skill-Liste, ist in Deinem Profil aber keine Fähigkeit. Belegt Dein Profil es, gehört es in den Stichpunkt mit dem Beleg.",
         "cv-skill_spelling": "„{term}“ ist in der Skill-Liste anders geschrieben als in Deinem Profil.",
         "cv-skills_cap": "Die Skill-Liste ist länger als vorgesehen – am wenigsten passt: {terms}.",
         "cv-skill_duplicate": "Die Skill-Liste nennt dasselbe doppelt: {terms}.",
