@@ -228,7 +228,9 @@ test.describe('Full Interview Mode', () => {
   });
 
   // 19.2 — completion reason: gaps_resolved
-  test('completion screen shows "Interview Complete — Gaps Closed!" for gaps_resolved reason', async ({ page }) => {
+  // R2-10: the headline follows the ONE open count — "every topic discussed"
+  // while requirements stay open, "no requirement open" only at zero.
+  test('completion screen shows the interview-complete headline for gaps_resolved reason', async ({ page }) => {
     await navigateToGapsPage(page);
 
     const interviewButton = page.getByTestId('interview-button');
@@ -267,7 +269,8 @@ test.describe('Full Interview Mode', () => {
     await page.getByTestId('send-button').click();
 
     await expect(page.getByTestId('completion-screen')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole('heading', { name: /Interview Complete.*Gaps Closed/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Interview complete — (every topic discussed|no requirement open)/i })).toBeVisible();
+    await expect(page.getByTestId('completion-open-count')).toBeVisible();
   });
 
   // 19.2 — completion reason: max_questions_reached

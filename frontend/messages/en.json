@@ -358,7 +358,7 @@
     "gapsResolved": "Gaps resolved",
     "generateCV": "Generate Tailored CV",
     "viewProfile": "View Updated Profile",
-    "reasonGapsResolved": "Interview Complete — Gaps Closed!",
+    "reasonGapsResolved": "Interview complete — every topic discussed",
     "reasonUserEnded": "Interview Ended",
     "reasonMaxReached": "Interview Limit Reached",
     "completionGapsResolved": "Great work! Your profile has been enriched.",
@@ -398,7 +398,10 @@
     "introStart": "Show the first question",
     "introBack": "Back to the gaps",
     "unsavedAnswerTitle": "Answer not sent yet",
-    "unsavedAnswerBody": "You started an answer and have not sent it. If you leave this page now, it is lost."
+    "unsavedAnswerBody": "You started an answer and have not sent it. If you leave this page now, it is lost.",
+    "reasonNoneOpen": "Interview complete — no requirement open",
+    "completionOpenRequirements": "{count, plural, one {# requirement is still open} other {# requirements are still open}}. Your answers are saved to your profile.",
+    "openRequirementsStat": "{count, plural, one {requirement still open} other {requirements still open}}"
   },
   "cv": {
     "generating": "Generating CV…",

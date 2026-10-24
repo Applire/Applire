@@ -358,7 +358,7 @@
     "gapsResolved": "Geschlossene Lücken",
     "generateCV": "Maßgeschneiderten Lebenslauf erstellen",
     "viewProfile": "Aktualisiertes Profil anzeigen",
-    "reasonGapsResolved": "Interview abgeschlossen — Lücken geschlossen!",
+    "reasonGapsResolved": "Interview abgeschlossen — alle Themen besprochen",
     "reasonUserEnded": "Interview beendet",
     "reasonMaxReached": "Fragelimit erreicht",
     "completionGapsResolved": "Gut gemacht! Dein Profil wurde angereichert.",
@@ -398,7 +398,10 @@
     "introStart": "Erste Frage zeigen",
     "introBack": "Zurück zu den Lücken",
     "unsavedAnswerTitle": "Antwort noch nicht gesendet",
-    "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg."
+    "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg.",
+    "reasonNoneOpen": "Interview abgeschlossen — keine Anforderung mehr offen",
+    "completionOpenRequirements": "{count, plural, one {# Anforderung ist noch offen} other {# Anforderungen sind noch offen}}. Deine Antworten sind in deinem Profil gespeichert.",
+    "openRequirementsStat": "{count, plural, one {Anforderung noch offen} other {Anforderungen noch offen}}"
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",
