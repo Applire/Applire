@@ -984,7 +984,11 @@ def _conflict_label(section: str, field: str, lang: str) -> str:
     entry = _SECTION_FIELD_LABEL.get((section, field))
     if entry:
         return entry.get(lang) or entry["en"]
-    return f"{section}.{field}".replace("_", " ")
+    # 789:201 — never the dotted key ("personal info.location"): the field in
+    # words with its section, from the shared mirror of the frontend catalogs.
+    from applire.services.profile.field_labels import field_label
+
+    return field_label(section, field, lang)
 
 
 def _conflict_source_label(source: str | None, lang: str) -> str:

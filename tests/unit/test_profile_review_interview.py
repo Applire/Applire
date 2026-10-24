@@ -70,7 +70,7 @@ class TestConflictClusterHelpers:
             existing_value="Max Muster",
             incoming_value="Markus Brandt",
         )
-        assert "name" in q["question"]
+        assert "Name (Personal details)" in q["question"]  # 789:201 — words, not the key
         assert "Max Muster" in q["question"]
         assert "Markus Brandt" in q["question"]
         # A correction offers exactly the two outcomes: keep / use-imported.
