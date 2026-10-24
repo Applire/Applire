@@ -116,6 +116,12 @@ def _conflict_issue(conflict: Conflict, profile: MasterProfileData) -> HealthIss
     )
 
 
+#: G-5 / ruling V-5 (c) — confirmation families the Health hub answers with
+#: the ask's own options (each answer is a complete act in the applier's
+#: ``_apply_resolve_confirmation``); every other family goes to the interview.
+_ANSWERED_IN_PLACE = frozenset({"denial_scope"})
+
+
 def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
     """#333 — a parked reconciler ambiguity, surfaced so the human can reach it.
 
@@ -139,6 +145,9 @@ def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
     attribution confirmations in ``reconcile/apply.py`` and
     ``reconcile/attribution.py``). Nothing to resolve here; left unchanged.
     """
+    context = confirmation.context if isinstance(confirmation.context, dict) else {}
+    kind = context.get("kind") if isinstance(context.get("kind"), str) else None
+    answerable = kind in _ANSWERED_IN_PLACE and bool(confirmation.options)
     return HealthIssue(
         id=f"confirmation:{confirmation.confirmation_id}",
         thread="confirmation",
@@ -148,6 +157,17 @@ def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
         source_record_ref=confirmation.source or None,
         # G-5 / #604 — the reader's language, not the English plain field.
         question_i18n=confirmation.question_i18n or None,
+        confirmation_id=confirmation.confirmation_id,
+        confirmation_kind=kind,
+        # V-5 (c): only a family whose answer is a complete act is answered in
+        # place; every other family keeps "Beheben" (the interview).
+        options=list(confirmation.options) if answerable else None,
+        options_i18n=(
+            list(confirmation.options_i18n)
+            if answerable and confirmation.options_i18n
+            and len(confirmation.options_i18n) == len(confirmation.options)
+            else None
+        ),
     )
 
 

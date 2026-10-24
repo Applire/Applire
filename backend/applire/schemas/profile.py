@@ -2093,6 +2093,16 @@ class StagedResolveResponse(BaseModel):
     not_applied_loss_count: int | None = None
 
 
+class ResolveConfirmationRequest(BaseModel):
+    """G-5 / ruling V-5 (c) — the candidate answers a parked confirmation from
+    the Health hub: ``chosen_option`` is one of the ask's plain ``options``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation_id: str = Field(min_length=1, max_length=200)
+    chosen_option: str = Field(min_length=1, max_length=1000)
+
+
 class WithdrawDenialRequest(BaseModel):
     """G-5 (ADR-059 amended 2026-10-24) — the denial the candidate withdraws,
     named exactly as My Profile lists it (``metadata.denied_concepts[].concept``)."""
@@ -2265,6 +2275,15 @@ class HealthIssue(BaseModel):
     #: reader's language instead of the English ``summary``. Null for a record
     #: persisted before #669.
     question_i18n: dict[str, str] | None = None
+    #: G-5 / ruling V-5 (c) — ``confirmation`` only: the parked ask's id, and
+    #: for a family the panel answers IN PLACE (``denial_scope``: the answer is
+    #: the act, no second dialog) its options, plain and per language, posted
+    #: back as ``POST /api/profile/confirmations/resolve``. Null options = the
+    #: family is answered in the profile-review interview ("Beheben").
+    confirmation_id: str | None = None
+    confirmation_kind: str | None = None
+    options: list[str] | None = None
+    options_i18n: list[dict[str, str]] | None = None
     span_years: int | None = None
     recomputed_years: int | None = None
 

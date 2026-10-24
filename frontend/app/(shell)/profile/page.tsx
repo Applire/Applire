@@ -423,6 +423,24 @@ export default function ProfilePage() {
     }
   };
 
+  // V-5 (c) — a `denial_scope` ask answered in the Health hub: the answer is
+  // the act ("Angabe zurücknehmen" withdraws the denial; no second dialog).
+  // 409 = already answered elsewhere: refresh and let the item disappear.
+  const handleAnswerConfirmation = async (issue: HealthIssue, option: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/api/profile/confirmations/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation_id: issue.confirmation_id, chosen_option: option }),
+      });
+      if (!res.ok && res.status !== 409) return false;
+      await loadProfile();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const completenessScore = profile?.completeness ?? 0;
 
   // #382 — the work entries whose budget figure states no unit, as decided by
@@ -514,6 +532,7 @@ export default function ProfilePage() {
               onResolve={handleResolve}
               onRecomputeSpan={handleRecomputeSpan}
               onAnswerBinding={handleAnswerBinding}
+              onAnswerConfirmation={handleAnswerConfirmation}
               onImprove={openEnrichForAll}
             />
           )}

@@ -96,6 +96,13 @@ export interface HealthIssue {
   // G-5 / #604 — a `confirmation` issue's question per language; the panel
   // renders the reader's own instead of the English `summary`.
   question_i18n?: Record<string, string> | null;
+  // G-5 / ruling V-5 (c) — a `confirmation` the panel answers IN PLACE (the
+  // `denial_scope` family): the ask's id and its options, plain and per
+  // language. Null options = answered in the interview ("Beheben").
+  confirmation_id?: string | null;
+  confirmation_kind?: string | null;
+  options?: string[] | null;
+  options_i18n?: Record<string, string>[] | null;
 }
 
 export interface ProfileHealth {
@@ -291,18 +298,23 @@ export function describeConflictIssue(
 }
 
 export type AnswerBinding = (issue: HealthIssue, same: boolean) => Promise<boolean>;
+/** V-5 (c) — answer a parked confirmation with one of its plain options;
+ *  resolves to false when the act failed. */
+export type AnswerConfirmation = (issue: HealthIssue, option: string) => Promise<boolean>;
 
 function IssueCard({
   issue,
   onResolve,
   onRecomputeSpan,
   onAnswerBinding,
+  onAnswerConfirmation,
   prominent,
 }: {
   issue: HealthIssue;
   onResolve: (issue: HealthIssue) => void;
   onRecomputeSpan?: (issue: HealthIssue) => Promise<void> | void;
   onAnswerBinding?: AnswerBinding;
+  onAnswerConfirmation?: AnswerConfirmation;
   prominent?: boolean;
 }) {
   const t = useTranslations("health");
@@ -321,6 +333,23 @@ function IssueCard({
   // a handler it degrades to the ordinary Resolve button.
   const isBinding = issue.thread === "suspect_binding";
   const canAnswerBinding = isBinding && !!onAnswerBinding;
+  // V-5 (c) — a `denial_scope` ask is answered with its own options; the
+  // answer IS the act (no second dialog). Without a handler: "Beheben".
+  const confirmationOptions =
+    issue.thread === "confirmation" && issue.options && issue.options.length > 0 ? issue.options : null;
+  const canAnswerConfirmation = !!confirmationOptions && !!onAnswerConfirmation;
+  const optionLabel = (i: number) =>
+    issue.options_i18n?.[i]?.[locale] ?? confirmationOptions?.[i] ?? "";
+  const handleConfirmation = async (option: string) => {
+    if (!onAnswerConfirmation || answering) return;
+    setAnswering(true);
+    setAnswerFailed(false);
+    try {
+      if (!(await onAnswerConfirmation(issue, option))) setAnswerFailed(true);
+    } finally {
+      setAnswering(false);
+    }
+  };
   const handleBinding = async (same: boolean) => {
     if (!onAnswerBinding || answering) return;
     setAnswering(true);
@@ -425,8 +454,27 @@ function IssueCard({
                 : issue.summary}
         </p>
       )}
-      <div className="mt-2 flex justify-end gap-2">
-        {canAnswerBinding ? (
+      {canAnswerConfirmation && answerFailed && (
+        <p className="text-xs text-critical mt-1" role="alert">
+          {t("suspectBindingFailed")}
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        {canAnswerConfirmation && confirmationOptions ? (
+          confirmationOptions.map((option, i) => (
+            <Button
+              key={option}
+              size="sm"
+              variant="outline"
+              className="h-auto min-h-8 whitespace-normal text-left"
+              data-testid="health-confirmation-option"
+              disabled={answering}
+              onClick={() => handleConfirmation(option)}
+            >
+              {optionLabel(i)}
+            </Button>
+          ))
+        ) : canAnswerBinding ? (
           <>
             <Button
               size="sm"
@@ -478,6 +526,7 @@ export function HealthPanel({
   onImprove,
   onRecomputeSpan,
   onAnswerBinding,
+  onAnswerConfirmation,
 }: {
   health: ProfileHealth;
   onResolve: (issue: HealthIssue) => void;
@@ -491,6 +540,9 @@ export function HealthPanel({
   // resolves to false when the act failed. Optional: without it that thread
   // falls back to the ordinary Resolve button.
   onAnswerBinding?: AnswerBinding;
+  // V-5 (c) — answer a `denial_scope` ask in place. Optional: without it the
+  // ask falls back to the ordinary Resolve button.
+  onAnswerConfirmation?: AnswerConfirmation;
 }) {
   const t = useTranslations("health");
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
@@ -547,6 +599,7 @@ export function HealthPanel({
               onResolve={onResolve}
               onRecomputeSpan={onRecomputeSpan}
               onAnswerBinding={onAnswerBinding}
+              onAnswerConfirmation={onAnswerConfirmation}
               prominent
             />
           ))}
@@ -562,6 +615,7 @@ export function HealthPanel({
               onResolve={onResolve}
               onRecomputeSpan={onRecomputeSpan}
               onAnswerBinding={onAnswerBinding}
+              onAnswerConfirmation={onAnswerConfirmation}
             />
           ))}
         </div>

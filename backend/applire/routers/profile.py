@@ -56,6 +56,7 @@ from applire.schemas.profile import (
     ReceiptSummary,
     ProfileHealthResponse,
     SeparateMatchRequest,
+    ResolveConfirmationRequest,
     WithdrawDenialRequest,
     StagedResolveRequest,
     StagedResolveResponse,
@@ -81,6 +82,7 @@ from applire.services.profile import (
     patch_profile_section,
     profile_exists,
     resolve_conflict,
+    resolve_confirmation,
     MatchNotSeparable,
     resolve_staged_extraction,
     separate_match,
@@ -478,6 +480,28 @@ async def withdraw_denial_endpoint(
         raise HTTPException(status_code=409, detail="denial_not_found")
     except LookupError:
         raise HTTPException(status_code=404, detail="No profile found")
+
+
+@router.post(
+    "/confirmations/resolve",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def resolve_confirmation_endpoint(
+    body: ResolveConfirmationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """G-5 / ruling V-5 (c) — the candidate answers a parked confirmation in
+    the Health hub (the ``denial_scope`` family: "Nein, der Lebenslauf stimmt:
+    Angabe zurücknehmen" IS the withdrawal). 409 ``confirmation_not_found`` =
+    no open ask by that id (already answered, or no profile); nothing written."""
+    try:
+        return await resolve_confirmation(
+            body.confirmation_id, body.chosen_option, db, user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=409, detail="confirmation_not_found")
 
 
 class AvailabilityRequest(BaseModel):

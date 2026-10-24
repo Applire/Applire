@@ -267,3 +267,64 @@ def test_the_model_can_never_emit_the_op():
     rejected: list[str] = []
     assert _parse_ops([{"op": "withdraw_denial", "concept": "Ansible"}], rejected=rejected) == []
     assert rejected == ["withdraw_denial"]
+
+
+# --- ruling V-5 (c): the Health hub answers a denial_scope ask in place ------
+
+
+def test_the_health_item_carries_the_asks_own_options_for_denial_scope_only():
+    from applire.schemas.profile import MasterProfileData
+    from applire.services.profile.health import assess_health
+
+    other = {**copy.deepcopy(_PARKED), "confirmation_id": "conf-other",
+             "context": {"kind": "near_duplicate_role"}}
+    seed = copy.deepcopy(_SEED)
+    seed["metadata"]["pending_confirmations"] = [copy.deepcopy(_PARKED), other]
+    issues = {i.confirmation_id: i for i in assess_health(MasterProfileData.model_validate(seed)).issues
+              if i.thread == "confirmation"}
+
+    scoped = issues[_CONF_ID]
+    assert scoped.confirmation_kind == "denial_scope"
+    assert scoped.options == _PARKED["options"]
+    assert scoped.options_i18n == _PARKED["options_i18n"]
+    # Every other family keeps "Beheben" (the interview): no options offered.
+    assert issues["conf-other"].options is None and issues["conf-other"].options_i18n is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "option, withdrawn",
+    [("No, the CV is right: withdraw my answer", True), ("Yes, my answer is right", False)],
+)
+async def test_the_health_answer_through_the_service_is_the_act(db_session, option, withdrawn):
+    from applire.services.profile import resolve_confirmation
+
+    seed = copy.deepcopy(_SEED)
+    seed["metadata"]["pending_confirmations"] = [copy.deepcopy(_PARKED)]
+    await _seed(db_session, seed)
+    response = await resolve_confirmation(_CONF_ID, option, db_session)
+
+    meta = response.profile.metadata
+    assert meta.pending_confirmations == []
+    assert (meta.denied_concepts == []) is withdrawn
+    ansible = next(s for s in response.profile.skills if s.name == "Ansible")
+    assert (ansible.status == "confirmed") is withdrawn
+
+
+@pytest.mark.asyncio
+async def test_an_answered_ask_is_not_found_the_second_time(db_session):
+    from applire.services.profile import resolve_confirmation
+
+    seed = copy.deepcopy(_SEED)
+    seed["metadata"]["pending_confirmations"] = [copy.deepcopy(_PARKED)]
+    await _seed(db_session, seed)
+    await resolve_confirmation(_CONF_ID, "Yes, my answer is right", db_session)
+    with pytest.raises(LookupError):
+        await resolve_confirmation(_CONF_ID, "No, the CV is right: withdraw my answer", db_session)
+
+
+def test_the_route_exists():
+    from applire.routers.profile import router
+
+    assert any(getattr(r, "path", "").endswith("/confirmations/resolve") and "POST" in r.methods
+               for r in router.routes)
