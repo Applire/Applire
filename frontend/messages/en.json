@@ -1904,6 +1904,8 @@
     "reMeantHeading": "You set these, and their meaning has changed:",
     "introducedIn": "since {version}, default: {defaultValue}",
     "changedIn": "changed in {version}",
+    "introducedInAhead": "from {version}, default: {defaultValue}",
+    "changedInAhead": "changed as of {version}",
     "emptyDefault": "empty",
     "moreInfo": "What changed is in the CHANGELOG under “Upgrade notes” and in docs/SELF-HOSTING.md.",
     "debugLogOn": "The LLM debug log is on: every prompt, CV data included, is written to files inside the container, with no size or age cap. Turn it off in production (LLM_DEBUG_LOG=false) and delete the files.",
