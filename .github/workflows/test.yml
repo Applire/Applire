@@ -36,8 +36,26 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-cov pytest-asyncio pytest-mock requests
 
+      # Browser binaries are cached (keyed on the pinned playwright version);
+      # the OS packages live outside ~/.cache and are always installed.
+      - name: Get Playwright version (backend)
+        id: pw-version
+        run: echo "version=$(python -c 'from importlib.metadata import version; print(version("playwright"))')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright Chromium (backend)
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-py-${{ runner.os }}-${{ steps.pw-version.outputs.version }}-chromium
+
       - name: Install Playwright Chromium (ATS round-trip renderer)
-        run: python -m playwright install --with-deps chromium
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            python -m playwright install-deps chromium
+          else
+            python -m playwright install --with-deps chromium
+          fi
 
       # poppler-utils supplies `pdftotext -bbox-layout`, the word-level geometry
       # probe tests/ats/test_page_geometry.py measures #621's page margins and
@@ -116,7 +134,9 @@ jobs:
   integration-and-e2e-tests:
     name: Integration & E2E Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 45, was 30: PR #802 passed in 29m43s (main ~24 min) and a run timed out
+    # during PQ on a slow browser download (785:220).
+    timeout-minutes: 45
     permissions:
       checks: write
       contents: read
@@ -164,8 +184,28 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # ~/.cache/ms-playwright is cached per @playwright/test version (785:220).
+      # The browser download took 7 min on one run (25 s normally) and that run
+      # timed out during PQ. On a hit only the OS packages (`install-deps`,
+      # not cacheable) are installed; on a miss the full install runs.
+      - name: Get Playwright version
+        id: pw-version
+        run: echo "version=$(node -p "require('./node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}-chromium-firefox
+
       - name: Install Playwright browsers
-        run: node_modules/.bin/playwright install --with-deps chromium firefox
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            node_modules/.bin/playwright install-deps chromium firefox
+          else
+            node_modules/.bin/playwright install --with-deps chromium firefox
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -174,7 +214,7 @@ jobs:
       # appeared exactly ONCE in the whole repository, in the cache step itself.
       # Nothing wrote to it and `docker compose up --build` never read it, so the
       # image build was cold on EVERY run: a control that could not fire. Measured
-      # 2026-09-04 on a job with `timeout-minutes: 30` and ~8 min of headroom, the
+      # 2026-09-04 on a job with `timeout-minutes: 30` (since raised to 45, 785:220) and ~8 min of headroom, the
       # build cost 2.9-8.6 min depending on the runner, and three consecutive runs
       # timed out during PQ with no test having failed. Replaced with a cache that
       # is actually wired to the build, via BuildKit's GitHub Actions backend.
