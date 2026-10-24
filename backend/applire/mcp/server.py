@@ -85,12 +85,26 @@ from sqlalchemy import select
 
 from applire.config import settings
 from applire.constants import MAX_TARGET_PAGES
-from applire.exceptions import LLMTruncatedError
+from applire.exceptions import LLMResponseParseError, LLMTruncatedError, ReconcileFailedError
 from applire import ownership
 from applire.mcp import identity as mcp_identity
 from applire.mcp.deps import get_db
 from applire.mcp.errors import _INVALID_INPUT as _INVALID_INPUT_CODE
 from applire.mcp.errors import internal, internal_unexpected, invalid_input, not_found, unauthorized
+
+#: R2-13 (P-1): a reconcile that failed after its retry stored nothing. The
+#: agent is told so, and told to resend — never handed a follow-up as if the
+#: answer had held nothing (I: HTTP 503 `answer_not_saved`; V: `not_saved`).
+_ANSWER_NOT_SAVED = (
+    "Your answer was not saved (the profile update failed) — resend the same "
+    "message to retry."
+)
+_IMPORT_NOT_SAVED = "The import was not saved — nothing was stored; retry the import."
+#: LLMResponseParseError is also a ValueError (json.JSONDecodeError): without
+#: its own arm the ValueError arm below would tell the agent its INPUT was bad.
+_REPLY_UNREADABLE = (
+    "The AI provider's reply could not be read — retry the same call."
+)
 from applire.services.profile.commit import StaleEditError, VaultWriteRevertedError
 from applire.models.application import UserStatus
 from applire.models.cover_letter import GeneratedCoverLetter
@@ -660,6 +674,10 @@ async def import_cv(
                     filename=filename or "import.pdf",
                     user_id=uid,
                 )
+            except ReconcileFailedError:
+                raise internal(_IMPORT_NOT_SAVED)
+            except LLMResponseParseError:
+                raise internal(_REPLY_UNREADABLE)
             except ValueError as exc:
                 raise invalid_input(str(exc))
             except VaultWriteRevertedError as exc:
@@ -681,6 +699,10 @@ async def import_cv(
                     filename=filename or "import.txt",
                     user_id=uid,
                 )
+            except ReconcileFailedError:
+                raise internal(_IMPORT_NOT_SAVED)
+            except LLMResponseParseError:
+                raise internal(_REPLY_UNREADABLE)
             except ValueError as exc:
                 raise invalid_input(str(exc))
             except VaultWriteRevertedError as exc:
@@ -1117,6 +1139,10 @@ async def send_message(session_id: str, message: str) -> dict:
             )
         except LookupError as exc:
             raise not_found(str(exc))
+        except ReconcileFailedError:
+            raise internal(_ANSWER_NOT_SAVED)
+        except LLMResponseParseError:
+            raise internal(_REPLY_UNREADABLE)
         except ValueError as exc:
             raise invalid_input(str(exc))
         except LLMTruncatedError as exc:
@@ -1215,6 +1241,10 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
             raise invalid_input(exc.message)
         except LookupError as exc:
             raise not_found(str(exc))
+        except ReconcileFailedError:
+            raise internal(_ANSWER_NOT_SAVED)
+        except LLMResponseParseError:
+            raise internal(_REPLY_UNREADABLE)
         except ValueError as exc:
             raise invalid_input(str(exc))
         except LLMTruncatedError as exc:
