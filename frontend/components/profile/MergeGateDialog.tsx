@@ -54,10 +54,14 @@ interface MergeGateDialogProps {
   onCancel: () => void;
 }
 
+/** R2-13 — the stable code a failed (not saved) merge answers with. */
+const NOT_SAVED = "not_saved";
+
 async function readApiError(res: Response): Promise<string> {
   try {
     const body = await res.json();
     const detail = body.detail;
+    if (detail && typeof detail === "object" && detail.error === NOT_SAVED) return NOT_SAVED;
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail))
       return detail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ");
@@ -92,7 +96,8 @@ export function MergeGateDialog({
       const data = (await res.json()) as StagedResolveResult;
       onResolved(action, data);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("resolveError"));
+      const message = e instanceof Error ? e.message : "";
+      setError(message === NOT_SAVED ? t("notSaved") : message || t("resolveError"));
       setBusy(null);
     }
   }

@@ -102,6 +102,7 @@
     "cvUploaded": "{count, plural, one {1 CV uploaded} other {# CVs uploaded}}",
     "profileUpdated": "{count, plural, one {Updated master profile with 1 new CV} other {Updated master profile with # new CVs}}",
     "uploadTryAgain": "We couldn't finish reading this CV in time — nothing was changed. Please try again.",
+    "uploadNotSaved": "We couldn't merge this CV into your profile this time — nothing was changed. Please try again.",
     "notAppliedNote": "{count, plural, one {1 entry from your CV did not merge automatically} other {# entries from your CV did not merge automatically}}: {labels}",
     "notAppliedMore": "+{count} more",
     "sourceTruncatedNote": "Only the first ≈ {percent}% of your file was read — check that all your positions came through.",
@@ -853,6 +854,7 @@
       "statusNeedsConfirmation": "A few details need your confirmation — check the profile Health hub.",
       "statusConflict": "This conflicts with something already in your profile — check the profile Health hub.",
       "statusError": "Couldn't process this: {detail}",
+      "statusNotSaved": "Your notes could not be saved — nothing was changed. Please send them again.",
       "notAppliedFigure": "Figure “{span}” appears in no entry that was saved.",
       "notAppliedOp": "One part of the response ({op}) had an invalid shape and was dropped."
     },
@@ -1331,6 +1333,7 @@
   "enrich": {
     "title": "Profile Enrichment",
     "loading": "Starting session…",
+    "notSaved": "Your answer could not be saved — please send it again.",
     "gaps": "Gaps to fill",
     "placeholder": "Type your answer… (Ctrl+Enter to send)",
     "skip": "Skip",
@@ -1757,6 +1760,7 @@
     "cancel": "Cancel",
     "resolving": "Processing…",
     "resolveError": "The action could not be completed.",
+    "notSaved": "We couldn't merge this CV into your profile this time — nothing was changed. Please try again.",
     "badge": "Needs review",
     "reviewAction": "Review"
   },

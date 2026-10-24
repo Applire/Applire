@@ -65,6 +65,8 @@ interface TestimonyResult {
   /** #370 — which spans of the submission did not literally land, and why. */
   not_applied?: NotAppliedItem[];
   detail?: string | null;
+  /** R2-13 — `"not_saved"`: the reconcile call failed after its retry; nothing was written. */
+  error_code?: string | null;
 }
 
 interface Props {
@@ -97,6 +99,9 @@ export function TestimonyIntake({ onSubmitted }: Props) {
       case "conflict":
         return t("testimony.statusConflict");
       case "error":
+        // R2-13 — a failed reconcile is named in the UI language, never by
+        // the backend's English `detail`.
+        if (r.error_code === "not_saved") return t("testimony.statusNotSaved");
         return t("testimony.statusError", { detail: r.detail ?? "" });
       default:
         return "";

@@ -199,6 +199,7 @@ describe("size limit and OCR error codes (#789 L12/L13)", () => {
     ["ocr_unavailable", "uploadNoOcr"],
     ["llm_truncated", "uploadTryAgain"],
     ["llm_timeout", "uploadTryAgain"],
+    ["not_saved", "uploadNotSaved"],
     ["invalid_document", "uploadFailed"],
     ["import_failed", "uploadFailed"],
     [null, "uploadFailed"],

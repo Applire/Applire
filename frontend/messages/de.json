@@ -102,6 +102,7 @@
     "cvUploaded": "{count, plural, one {1 Lebenslauf hochgeladen} other {# Lebensläufe hochgeladen}}",
     "profileUpdated": "{count, plural, one {Master-Profil mit 1 neuem Lebenslauf aktualisiert} other {Master-Profil mit # neuen Lebensläufen aktualisiert}}",
     "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut.",
+    "uploadNotSaved": "Wir konnten diesen Lebenslauf diesmal nicht in dein Profil übernehmen — es wurde nichts geändert. Bitte versuche es erneut.",
     "notAppliedNote": "{count, plural, one {1 Eintrag aus deinem Lebenslauf wurde nicht automatisch übernommen} other {# Einträge aus deinem Lebenslauf wurden nicht automatisch übernommen}}: {labels}",
     "notAppliedMore": "+{count} weitere",
     "sourceTruncatedNote": "Nur die ersten ≈ {percent} % Deiner Datei wurden gelesen – prüfe, ob alle Stationen übernommen sind.",
@@ -853,6 +854,7 @@
       "statusNeedsConfirmation": "Ein paar Details brauchen deine Bestätigung — im Profilzustand-Hub zu finden.",
       "statusConflict": "Das widerspricht etwas, das schon in deinem Profil steht — im Profilzustand-Hub zu finden.",
       "statusError": "Konnte nicht verarbeitet werden: {detail}",
+      "statusNotSaved": "Deine Angaben konnten nicht gespeichert werden — es wurde nichts geändert. Bitte sende sie noch einmal.",
       "notAppliedFigure": "Zahl „{span}“ steht in keinem übernommenen Eintrag.",
       "notAppliedOp": "Ein Teil der Antwort ({op}) hatte ein ungültiges Format und wurde verworfen."
     },
@@ -1331,6 +1333,7 @@
   "enrich": {
     "title": "Profil ergänzen",
     "loading": "Sitzung wird gestartet…",
+    "notSaved": "Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden.",
     "gaps": "Fehlende Angaben",
     "placeholder": "Antwort eingeben… (Strg+Enter zum Senden)",
     "skip": "Überspringen",
@@ -1757,6 +1760,7 @@
     "cancel": "Abbrechen",
     "resolving": "Wird verarbeitet …",
     "resolveError": "Die Aktion konnte nicht abgeschlossen werden.",
+    "notSaved": "Wir konnten diesen Lebenslauf diesmal nicht in dein Profil übernehmen — es wurde nichts geändert. Bitte versuche es erneut.",
     "badge": "Prüfung nötig",
     "reviewAction": "Prüfen"
   },

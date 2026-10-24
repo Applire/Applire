@@ -122,8 +122,10 @@ export class CVImportError extends Error {
  */
 export function importErrorMessageKey(
   code: string | null,
-): "uploadTooLarge" | "uploadNoOcr" | "uploadTryAgain" | "uploadFailed" {
+): "uploadTooLarge" | "uploadNoOcr" | "uploadTryAgain" | "uploadNotSaved" | "uploadFailed" {
   if (code === "file_too_large") return "uploadTooLarge";
+  // R2-13 — the merge call failed after its retry; nothing was changed.
+  if (code === "not_saved") return "uploadNotSaved";
   if (code === "ocr_unavailable") return "uploadNoOcr";
   if (code === "llm_truncated" || code === "llm_timeout") return "uploadTryAgain";
   return "uploadFailed";
