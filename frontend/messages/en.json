@@ -1895,7 +1895,8 @@
       "title": "From what you typed into the form",
       "hint": "These sentences come from what you typed into the form for this letter. They count as your own statement for this letter — they are not checked against your profile and are not added to it.",
       "chip": "Form"
-    }
+    },
+    "loading": "Loading the review …"
   },
   "upgradeNotice": {
     "title": "Something about your settings changed since your last start",

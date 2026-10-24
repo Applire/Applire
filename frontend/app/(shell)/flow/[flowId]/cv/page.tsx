@@ -196,6 +196,10 @@ export default function CVPage({
   // than as zero (clause 9) — an empty array is the different statement
   // "loaded, none found".
   const [gapClusters, setGapClusters] = useState<GapHintItem[] | null>(null);
+  // R2-8 (8), build 4 (WP-T hunk): the CV whose four review fetches have all
+  // settled. Until then a `null` report means "not loaded yet", not "did not
+  // run" — the surface shows a loading line, no verdict and no badge count.
+  const [reviewLoadedFor, setReviewLoadedFor] = useState<string | null>(null);
   // D-1: the CV's sections as the section editor gets them — labels and
   // override flags for the take-out result and the language switch.
   const [cvSections, setCvSections] = useState<SectionItem[]>([]);
@@ -445,10 +449,13 @@ export default function CVPage({
         // Non-fatal — the group renders *unknown*, which is the honest state.
       }
     }
-    void fetchAtsReport();
-    void fetchTruthReport();
-    void fetchCriticReport();
-    void fetchGapClusters();
+    const forCv = cvId;
+    void Promise.allSettled([
+      fetchAtsReport(),
+      fetchTruthReport(),
+      fetchCriticReport(),
+      fetchGapClusters(),
+    ]).then(() => setReviewLoadedFor(forCv));
   }, [cvId, phase, atsRefresh]);
 
   // D-1: after a review action rewrote the document, re-read the sections
@@ -803,12 +810,15 @@ export default function CVPage({
     // ADR-081 cl. 2 (E058/US300): the findings, grouped by the user's question.
     // Built once and reused by the desktop panel and the mobile sheet — ADR-050's
     // "mount the live component, never a forked panel" rule (cl. 7).
+    // R2-8 (8): see `reviewLoadedFor`.
+    const reviewLoading = reviewLoadedFor !== cvId;
     const renderReviewSurface = (layout: "panel" | "sheet") => (
       <ReviewSurface
         documentKind="cv"
         documentId={cvId}
         degradation={degradationFor?.cvId === cvId ? degradationFor.steps : null}
         onRegenerate={() => requestNewVersion(() => void handleGenerate(template))}
+        loading={reviewLoading}
         atsReport={atsReport}
         truthReport={truthReport}
         criticReport={criticReport}
@@ -864,7 +874,7 @@ export default function CVPage({
         label: tDoc("tabReview"),
         icon: <ClipboardCheck className="w-4 h-4" aria-hidden="true" />,
         badge:
-          group1Count > 0 ? (
+          !reviewLoading && group1Count > 0 ? (
             <span
               data-testid="tab-badge-review"
               className="inline-flex min-w-4 items-center justify-center rounded-full bg-critical-container px-1 text-[10px] font-bold text-critical"
@@ -1081,8 +1091,8 @@ export default function CVPage({
               onDownloadPdf={() => void requestDownload("pdf")}
               openFineTuneNonce={fineTuneNonce}
               suspended={mobileLocating}
-              openCount={atsReport || truthReport ? group1Count : null}
-              decisionCount={atsReport ? liveDecisionCount : null}
+              openCount={!reviewLoading && (atsReport || truthReport) ? group1Count : null}
+              decisionCount={!reviewLoading && atsReport ? liveDecisionCount : null}
               onLeaveFineTune={(proceed) => {
                 if (!editDraft.dirty) {
                   proceed();

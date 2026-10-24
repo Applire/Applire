@@ -212,6 +212,13 @@ export interface ReviewSurfaceProps {
   degradation?: DegradedReviewStep[] | null;
   /** T-2: the existing regenerate path (behind the page's new-version confirmation). */
   onRegenerate?: () => void;
+  /**
+   * R2-8 (8), build 4: the page's report fetches have not all settled yet. A
+   * `null` report means "did not run" (ADR-081 cl. 9) only once it has LOADED;
+   * before that, the surface says it is loading — no verdict, no count and no
+   * "Nicht geprüft" notice (the 1–3 s false flash, marcus-057).
+   */
+  loading?: boolean;
 }
 
 type Busy = "add" | "takeout" | "undo" | null;
@@ -253,6 +260,7 @@ export function ReviewSurface({
   children,
   degradation = null,
   onRegenerate,
+  loading = false,
 }: ReviewSurfaceProps) {
   const t = useTranslations("documentReview");
   const tAts = useTranslations("ats");
@@ -961,6 +969,18 @@ export function ReviewSurface({
       : null;
 
   /* ------------------------------------------------------------ render */
+
+  if (loading) {
+    // R2-8 (8): nothing is claimed before the reports are in — neither a verdict
+    // nor a degradation notice computed from a half-loaded state.
+    return (
+      <section data-testid="review-surface" aria-label={t("title")} aria-busy="true" className="flex flex-col gap-4 p-3">
+        <p data-testid="review-loading" role="status" className="text-sm text-on-surface-variant">
+          {t("loading")}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section data-testid="review-surface" aria-label={t("title")} className="flex flex-col gap-4 p-3">

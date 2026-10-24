@@ -1895,7 +1895,8 @@
       "title": "Aus Deiner Eingabe im Formular",
       "hint": "Diese Sätze stammen aus dem, was Du für dieses Anschreiben ins Formular geschrieben hast — Deine eigene Aussage für dieses Anschreiben. Applire prüft sie nicht gegen Dein Profil und übernimmt nichts davon ins Profil.",
       "chip": "Formular"
-    }
+    },
+    "loading": "Prüfung wird geladen …"
   },
   "upgradeNotice": {
     "title": "Seit deinem letzten Start hat sich an den Einstellungen etwas geändert",
