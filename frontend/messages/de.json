@@ -1188,7 +1188,13 @@
     },
     "notAppliedNoSection": "Ohne festen Abschnitt",
     "notAppliedGroupHeading": "{section} ({count})",
-    "notAppliedCallout": "Aus deinem Import nicht sicher übernommen: {labels} — prüfe, ob sie hier schon unter anderem Namen stehen, bevor du sie nachträgst."
+    "notAppliedCallout": "Aus deinem Import nicht sicher übernommen: {labels} — prüfe, ob sie hier schon unter anderem Namen stehen, bevor du sie nachträgst.",
+    "threadSuspectBinding": "Zuordnung",
+    "suspectBindingQuestion": "Ist <b>{incoming}</b> dasselbe wie <b>{existing}</b>?",
+    "suspectBindingNote": "Das wurde zusammengeführt, obwohl das eine eine fachliche und das andere eine persönliche Fähigkeit ist. Bitte kurz bestätigen.",
+    "suspectBindingSame": "Ja",
+    "suspectBindingSeparate": "Nein, getrennt führen",
+    "suspectBindingFailed": "Das hat nicht geklappt. Bitte versuche es noch einmal."
   },
   "profileReview": {
     "title": "Profil prüfen",

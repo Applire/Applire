@@ -1188,7 +1188,13 @@
     },
     "notAppliedNoSection": "Not tied to a section",
     "notAppliedGroupHeading": "{section} ({count})",
-    "notAppliedCallout": "Not confirmed as carried over from your import: {labels} — check whether they are already listed here under another name before adding them."
+    "notAppliedCallout": "Not confirmed as carried over from your import: {labels} — check whether they are already listed here under another name before adding them.",
+    "threadSuspectBinding": "Match",
+    "suspectBindingQuestion": "Is <b>{incoming}</b> the same as <b>{existing}</b>?",
+    "suspectBindingNote": "These were combined although one is a technical skill and the other a personal one. Please confirm.",
+    "suspectBindingSame": "Yes",
+    "suspectBindingSeparate": "No, keep them apart",
+    "suspectBindingFailed": "That didn't work. Please try again."
   },
   "profileReview": {
     "title": "Review profile",

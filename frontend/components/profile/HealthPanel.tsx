@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +43,11 @@ export type HealthThread =
   | "not_applied"
   // #764 — a transcribed skill duration no source states (the Oracle's
   // "laundered span"); fixed by one deterministic recompute, not a decision.
-  | "span_provenance";
+  | "span_provenance"
+  // FS-5 (Hazelnut build 4) — a recorded skill binding that crosses
+  // technical↔soft ("REST APIs" on "Mentoring"). Read-only; answered by the
+  // pair's own acts (confirm / #717 separate), never a decision popup.
+  | "suspect_binding";
 export type HealthSeverity = "info" | "review" | "critical";
 
 export interface HealthIssue {
@@ -86,6 +90,9 @@ export interface HealthIssue {
   skill_name?: string | null;
   span_years?: number | null;
   recomputed_years?: number | null;
+  // FS-5 — the name the document used for a `suspect_binding` pair; the
+  // target's name is `skill_name`, its id `skill_id`.
+  incoming_name?: string | null;
 }
 
 export interface ProfileHealth {
@@ -244,7 +251,7 @@ export function groupNotAppliedItems(
 // `span_provenance` is absent on purpose: its label lives in the
 // `profileHealth.launderedSpan` namespace (see IssueCard), not in `health`.
 const THREAD_LABEL: Record<
-  Exclude<HealthThread, "span_provenance">,
+  Exclude<HealthThread, "span_provenance" | "suspect_binding">,
   | "threadConflict"
   | "threadAccuracy"
   | "threadConfirmation"
@@ -280,26 +287,47 @@ export function describeConflictIssue(
   return describeConflict(issue, t, tProfile);
 }
 
+export type AnswerBinding = (issue: HealthIssue, same: boolean) => Promise<boolean>;
+
 function IssueCard({
   issue,
   onResolve,
   onRecomputeSpan,
+  onAnswerBinding,
   prominent,
 }: {
   issue: HealthIssue;
   onResolve: (issue: HealthIssue) => void;
   onRecomputeSpan?: (issue: HealthIssue) => Promise<void> | void;
+  onAnswerBinding?: AnswerBinding;
   prominent?: boolean;
 }) {
   const t = useTranslations("health");
   const tProfile = useTranslations("profile");
   const tSpan = useTranslations("profileHealth.launderedSpan");
   const [recomputing, setRecomputing] = useState(false);
+  const [answering, setAnswering] = useState(false);
+  const [answerFailed, setAnswerFailed] = useState(false);
   const conflict = describeConflictIssue(issue, t, tProfile);
   const isSpan = issue.thread === "span_provenance";
   // The one-click recompute needs a handler; without one the card degrades to
   // the ordinary Resolve button (and the server summary is not the sentence).
   const canRecompute = isSpan && !!onRecomputeSpan;
+  // FS-5 — a suspect binding is ONE question with the pair's two acts; without
+  // a handler it degrades to the ordinary Resolve button.
+  const isBinding = issue.thread === "suspect_binding";
+  const canAnswerBinding = isBinding && !!onAnswerBinding;
+  const handleBinding = async (same: boolean) => {
+    if (!onAnswerBinding || answering) return;
+    setAnswering(true);
+    setAnswerFailed(false);
+    try {
+      if (!(await onAnswerBinding(issue, same))) setAnswerFailed(true);
+    } finally {
+      setAnswering(false);
+    }
+  };
+  const bold = (chunks: ReactNode) => <b className="font-semibold">{chunks}</b>;
   const handleRecompute = async () => {
     if (!onRecomputeSpan || recomputing) return;
     setRecomputing(true);
@@ -323,7 +351,9 @@ function IssueCard({
         <span className="text-xs text-gray-500">
           {issue.thread === "span_provenance"
             ? tSpan("thread")
-            : t(THREAD_LABEL[issue.thread])}
+            : issue.thread === "suspect_binding"
+              ? t("threadSuspectBinding")
+              : t(THREAD_LABEL[issue.thread])}
         </span>
       </div>
       {/* #626: a `conflict` issue composes a localized heading (naming the
@@ -362,6 +392,22 @@ function IssueCard({
             recomputed: issue.recomputed_years ?? 0,
           })}
         </p>
+      ) : isBinding ? (
+        <div data-testid="health-issue-suspect-binding">
+          <p className="text-sm text-neutral-dark">
+            {t.rich("suspectBindingQuestion", {
+              incoming: issue.incoming_name ?? "",
+              existing: issue.skill_name ?? "",
+              b: bold,
+            })}
+          </p>
+          <p className="text-xs text-on-surface-variant mt-1">{t("suspectBindingNote")}</p>
+          {answerFailed && (
+            <p className="text-xs text-critical mt-1" role="alert">
+              {t("suspectBindingFailed")}
+            </p>
+          )}
+        </div>
       ) : (
         <p className="text-sm text-neutral-dark" data-testid="health-issue-summary">
           {issue.thread === "unit"
@@ -371,8 +417,29 @@ function IssueCard({
               : issue.summary}
         </p>
       )}
-      <div className="mt-2 flex justify-end">
-        {canRecompute ? (
+      <div className="mt-2 flex justify-end gap-2">
+        {canAnswerBinding ? (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="health-binding-same"
+              disabled={answering}
+              onClick={() => handleBinding(true)}
+            >
+              {t("suspectBindingSame")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="health-binding-separate"
+              disabled={answering}
+              onClick={() => handleBinding(false)}
+            >
+              {t("suspectBindingSeparate")}
+            </Button>
+          </>
+        ) : canRecompute ? (
           <Button
             size="sm"
             variant="outline"
@@ -402,6 +469,7 @@ export function HealthPanel({
   onResolve,
   onImprove,
   onRecomputeSpan,
+  onAnswerBinding,
 }: {
   health: ProfileHealth;
   onResolve: (issue: HealthIssue) => void;
@@ -411,6 +479,10 @@ export function HealthPanel({
   // US166 — launch the standalone Mode C (ADR-028) enrichment conversation in
   // context from the completeness block. Optional: growth, never blocking.
   onImprove?: () => void;
+  // FS-5 — answer a `suspect_binding` pair (true = same, false = separate);
+  // resolves to false when the act failed. Optional: without it that thread
+  // falls back to the ordinary Resolve button.
+  onAnswerBinding?: AnswerBinding;
 }) {
   const t = useTranslations("health");
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
@@ -466,6 +538,7 @@ export function HealthPanel({
               issue={issue}
               onResolve={onResolve}
               onRecomputeSpan={onRecomputeSpan}
+              onAnswerBinding={onAnswerBinding}
               prominent
             />
           ))}
@@ -480,6 +553,7 @@ export function HealthPanel({
               issue={issue}
               onResolve={onResolve}
               onRecomputeSpan={onRecomputeSpan}
+              onAnswerBinding={onAnswerBinding}
             />
           ))}
         </div>

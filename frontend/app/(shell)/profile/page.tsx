@@ -392,6 +392,27 @@ export default function ProfilePage() {
     }
   };
 
+  // FS-5 — a suspect binding is answered by the pair's own acts: "Ja" stamps
+  // the receipt confirmed (never asked again), "Nein" is the #717 undo, which
+  // also takes the merged evidence back. Either way the panel refreshes.
+  const handleAnswerBinding = async (issue: HealthIssue, same: boolean): Promise<boolean> => {
+    try {
+      const init: RequestInit = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity_id: issue.skill_id, incoming: issue.incoming_name }),
+      };
+      const res = same
+        ? await fetch(`${API_BASE}/api/profile/matches/confirm`, { ...init, method: "POST" })
+        : await fetch(`${API_BASE}/api/profile/matches/separate`, { ...init, method: "POST" });
+      if (!res.ok) return false;
+      await loadProfile();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const completenessScore = profile?.completeness ?? 0;
 
   // #382 — the work entries whose budget figure states no unit, as decided by
@@ -482,6 +503,7 @@ export default function ProfilePage() {
               health={health}
               onResolve={handleResolve}
               onRecomputeSpan={handleRecomputeSpan}
+              onAnswerBinding={handleAnswerBinding}
               onImprove={openEnrichForAll}
             />
           )}
