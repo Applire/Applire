@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
 interface LetterData {
@@ -26,6 +26,12 @@ interface LetterData {
   recipient?: { name?: string; company?: string };
   body?: { paragraphs?: string[] };
   signature?: { closing?: string; name?: string };
+}
+
+/** Hazelnut b4 (#789:189) — the page's unsaved-draft dialog saves the body through this. */
+export interface CoverLetterContentTabHandle {
+  /** Saves a dirty body; resolves true when saved or when there is nothing to save. */
+  saveBody: () => Promise<boolean>;
 }
 
 interface CoverLetterContentTabProps {
@@ -53,14 +59,14 @@ interface CoverLetterContentTabProps {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
-export function CoverLetterContentTab({
+export const CoverLetterContentTab = forwardRef<CoverLetterContentTabHandle, CoverLetterContentTabProps>(function CoverLetterContentTab({
   coverLetterId,
   letterData,
   onSectionSaved,
   openBodyNonce,
   initialBody,
   onDirtyChange,
-}: CoverLetterContentTabProps) {
+}, ref) {
   const t = useTranslations("coverLetter");
   const tc = useTranslations("common");
   const tEdit = useTranslations("editTab");
@@ -101,7 +107,7 @@ export function CoverLetterContentTab({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  async function handleSaveBody() {
+  async function handleSaveBody(): Promise<boolean> {
     setSaving(true);
     setSaveError(null);
     try {
@@ -114,12 +120,18 @@ export function CoverLetterContentTab({
       setSavedBody(bodyText);
       setBodyEditing(false);
       onSectionSaved();
+      return true;
     } catch {
       setSaveError(t("saveFailed"));
+      return false;
     } finally {
       setSaving(false);
     }
   }
+
+  useImperativeHandle(ref, () => ({
+    saveBody: async () => (dirty ? handleSaveBody() : true),
+  }));
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -151,7 +163,7 @@ export function CoverLetterContentTab({
           <div className="mt-2 flex gap-2">
             <button
               type="button"
-              onClick={handleSaveBody}
+              onClick={() => void handleSaveBody()}
               disabled={saving}
               className="flex-1 rounded-lg bg-primary py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
               data-testid="cl-save-body-btn"
@@ -176,4 +188,4 @@ export function CoverLetterContentTab({
       </div>
     </div>
   );
-}
+});

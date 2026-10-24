@@ -11,7 +11,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
-import { CoverLetterContentTab } from "../CoverLetterContentTab";
+import { createRef } from "react";
+import { act } from "@testing-library/react";
+import { CoverLetterContentTab, type CoverLetterContentTabHandle } from "../CoverLetterContentTab";
 
 const GENERATED = { body: { paragraphs: ["I built European e-commerce platforms.", "I led settlement."] } };
 const TAKEN_OUT = "I built platforms.\n\nI led settlement.";
@@ -73,5 +75,36 @@ describe("CoverLetterContentTab — #737", () => {
     expect(screen.getByTestId("cl-fixed-line").textContent).toBe(
       "Header, recipient and closing come from your profile and the job posting.",
     );
+  });
+
+  it("#789:189 — the handle's saveBody persists a dirty draft, and is a no-op true when clean", async () => {
+    const ref = createRef<CoverLetterContentTabHandle>();
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue({ ok: true, json: () => Promise.resolve({}) } as Response);
+    render(
+      withIntl(
+        <CoverLetterContentTab ref={ref} coverLetterId="c1" letterData={GENERATED} initialBody={TAKEN_OUT} onSectionSaved={vi.fn()} />,
+      ),
+    );
+    await expect(ref.current!.saveBody()).resolves.toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByTestId("cl-body-textarea"), { target: { value: "edited" } });
+    let ok = false;
+    await act(async () => { ok = await ref.current!.saveBody(); });
+    expect(ok).toBe(true);
+    expect(JSON.parse(String(fetchSpy.mock.calls[0][1]!.body))).toEqual({ section: "body", content: "edited" });
+  });
+
+  it("#789:189 — saveBody answers false when the save fails", async () => {
+    const ref = createRef<CoverLetterContentTabHandle>();
+    vi.spyOn(global, "fetch").mockResolvedValue({ ok: false, status: 500 } as Response);
+    render(
+      withIntl(
+        <CoverLetterContentTab ref={ref} coverLetterId="c1" letterData={GENERATED} initialBody={TAKEN_OUT} onSectionSaved={vi.fn()} />,
+      ),
+    );
+    fireEvent.change(screen.getByTestId("cl-body-textarea"), { target: { value: "edited" } });
+    let ok = true;
+    await act(async () => { ok = await ref.current!.saveBody(); });
+    expect(ok).toBe(false);
   });
 });

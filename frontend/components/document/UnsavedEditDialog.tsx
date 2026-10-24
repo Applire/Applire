@@ -18,7 +18,7 @@ interface UnsavedEditDialogProps {
   sectionLabel: string | null;
   busy?: boolean;
   failed?: boolean;
-  /** Absent → no "save and switch" (the letter body editor has no save handle). */
+  /** Absent → no "save and switch". */
   onSave?: () => void;
   onDiscard: () => void;
   onStay: () => void;

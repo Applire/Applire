@@ -22,7 +22,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { CoverLetterDocument } from "@/components/cover-letter/CoverLetterDocument";
-import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterContentTab";
+import { CoverLetterContentTab, type CoverLetterContentTabHandle } from "@/components/cover-letter/CoverLetterContentTab";
 import { LetterLookLine } from "@/components/document/LetterLookLine";
 import { EditContextStrip, type EditContext, type SaveReceipt } from "@/components/document/EditContextStrip";
 import { NewVersionDialog } from "@/components/document/NewVersionDialog";
@@ -166,6 +166,11 @@ export default function CoverLetterPage({
   // Adversarial finding 11: the body draft also holds back a reload / tab
   // close, every in-app link and the browser's back button.
   const draftGuard = useUnsavedDraftGuard(bodyDirty, (nav) => setPendingNav(nav));
+  // #789:189 — the dialog's Save goes through the body editor(s); desktop tab
+  // and phone sheet may both be mounted, each answers true when it has no draft.
+  const bodyEditorRefs = useRef<Partial<Record<"panel" | "sheet", CoverLetterContentTabHandle | null>>>({});
+  const [pendingNavBusy, setPendingNavBusy] = useState(false);
+  const [pendingNavFailed, setPendingNavFailed] = useState(false);
   const router = useRouter();
   // Remounts the body editor after a review action rewrote the letter, so it
   // never saves stale text over the rewrite.
@@ -716,6 +721,19 @@ export default function CoverLetterPage({
     }
   }
 
+  function proceedNav(nav: NonNullable<typeof pendingNav>) {
+    if (nav.kind === "sheet") nav.proceed();
+    else if (nav.kind === "tab") switchTab(nav.id);
+    else if (nav.kind === "href") {
+      draftGuard.release();
+      router.push(nav.href);
+    } else {
+      // The guard entry is already popped; one more step leaves the page.
+      draftGuard.release();
+      window.history.back();
+    }
+  }
+
   const editContextStrip = (
     <EditContextStrip
       context={editContext}
@@ -737,6 +755,9 @@ export default function CoverLetterPage({
     {editContextStrip}
     <CoverLetterContentTab
       key={`cl-content-${where}-${contentVersion}`}
+      ref={(h) => {
+        bodyEditorRefs.current[where] = h;
+      }}
       openBodyNonce={openBodyNonce}
       coverLetterId={clState!.coverLetterId}
       letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
@@ -935,7 +956,10 @@ export default function CoverLetterPage({
       <UnsavedEditDialog
         open={pendingNav !== null}
         sectionLabel={t("bodySection")}
+        busy={pendingNavBusy}
+        failed={pendingNavFailed}
         onStay={() => {
+          setPendingNavFailed(false);
           if (pendingNav?.kind === "back") draftGuard.rearmBack();
           setPendingNav(null);
         }}
@@ -943,19 +967,32 @@ export default function CoverLetterPage({
           // Remounting the editor returns it to the effective body (D-2).
           setContentVersion((v) => v + 1);
           setBodyDirty(false);
+          setPendingNavFailed(false);
           const nav = pendingNav;
           setPendingNav(null);
-          if (!nav) return;
-          if (nav.kind === "sheet") nav.proceed();
-          else if (nav.kind === "tab") switchTab(nav.id);
-          else if (nav.kind === "href") {
-            draftGuard.release();
-            router.push(nav.href);
-          } else {
-            // The guard entry is already popped; one more step leaves the page.
-            draftGuard.release();
-            window.history.back();
-          }
+          if (nav) proceedNav(nav);
+        }}
+        onSave={() => {
+          const nav = pendingNav;
+          setPendingNavBusy(true);
+          setPendingNavFailed(false);
+          const saveAll = async () => {
+            for (const handle of [bodyEditorRefs.current.panel, bodyEditorRefs.current.sheet]) {
+              if (handle && !(await handle.saveBody())) return false;
+            }
+            return true;
+          };
+          void saveAll()
+            .then((ok) => {
+              if (!ok) {
+                setPendingNavFailed(true);
+                return;
+              }
+              setBodyDirty(false);
+              setPendingNav(null);
+              if (nav) proceedNav(nav);
+            })
+            .finally(() => setPendingNavBusy(false));
         }}
       />
       <NewVersionDialog
