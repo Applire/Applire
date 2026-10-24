@@ -64,6 +64,12 @@ describe("flowStepHref", () => {
     ]);
   });
 
+  it("a DONE interview opens its summary (783:195)", () => {
+    expect(hrefs({ current_step: "cv_generation", interview_summary: { status: "complete" } })[2]).toBe(
+      "/flow/f1/interview",
+    );
+  });
+
   it("during the interview only the passed gap view links", () => {
     expect(hrefs({ current_step: "interview", interview_summary: { status: "active" } })).toEqual([
       undefined,

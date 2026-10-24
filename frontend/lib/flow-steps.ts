@@ -47,7 +47,8 @@ export function flowStepState(
  * when it is not a link. The gap view is the single human entry back into the
  * interview (ADR-016 amended 2026-10-24: `cv_generation`/`complete` →
  * `interview`), so both "2 Abgleich" and a skipped/taken "3 Interview" lead
- * there; the CV pill leads to the documents once they exist. A step not yet
+ * there — a DONE interview opens its own summary instead (783:195); the CV
+ * pill leads to the documents once they exist. A step not yet
  * reached is never a link (the layout guard would bounce it anyway).
  */
 export function flowStepHref(
@@ -61,7 +62,12 @@ export function flowStepHref(
   if (step === "gap_analysis") {
     return stepIndex(flow.current_step) > stepIndex("gap_analysis") ? `${base}/gaps` : undefined;
   }
-  if (step === "interview") return past ? `${base}/gaps` : undefined;
+  if (step === "interview") {
+    if (!past) return undefined;
+    // 783:195 (lead I): a DONE interview opens its reopenable summary; a
+    // skipped one leads to the gap view, the entry that can start it.
+    return flow.interview_summary?.status === "complete" ? `${base}/interview` : `${base}/gaps`;
+  }
   if (step === "cv_generation") return past ? `${base}/cv` : undefined;
   return undefined;
 }
