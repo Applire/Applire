@@ -333,7 +333,7 @@
     "gapsSectionLead": "{count, plural, one {# open requirement} other {# open requirements}}, grouped into {topics, plural, one {# topic} other {# topics}}. Open means your CV does not show it yet — not that you can't do it.",
     "gapsSectionLeadNoneOpen": "No requirement is open. {count, plural, one {# is} other {# are}} only likely covered — a quick confirmation makes them certain.",
     "jdContextLabel": "What the role expects:",
-    "liabilityEvidenceLabel": "In your profile:",
+    "liabilityEvidenceLabel": "In your profile at:",
     "reopenNote": "Your documents stay. If you take the interview now, your CV and cover letter stay saved as versions. Afterwards, “Re-tailor” creates new versions from your updated profile.",
     "reopenInterview": "Take the interview now",
     "reopenInterviewContinue": "Continue the interview",

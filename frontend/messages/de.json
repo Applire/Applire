@@ -333,7 +333,7 @@
     "gapsSectionLead": "{count, plural, one {# offene Anforderung} other {# offene Anforderungen}}, in {topics, plural, one {# Thema} other {# Themen}} gebündelt. Offen heißt: Dein Lebenslauf zeigt es noch nicht — nicht, dass du es nicht kannst.",
     "gapsSectionLeadNoneOpen": "Keine Anforderung ist offen. {count, plural, one {# ist} other {# sind}} nur wahrscheinlich belegt — ein kurzes Bestätigen macht sie sicher.",
     "jdContextLabel": "Was die Stelle erwartet:",
-    "liabilityEvidenceLabel": "Steht im Profil:",
+    "liabilityEvidenceLabel": "Steht im Profil bei:",
     "reopenNote": "Deine Unterlagen bleiben erhalten. Wenn du das Interview jetzt nachholst, bleiben Lebenslauf und Anschreiben als Versionen gespeichert. Danach erstellst du mit „Neu zuschneiden“ neue Fassungen aus deinem neuen Stand.",
     "reopenInterview": "Interview jetzt nachholen",
     "reopenInterviewContinue": "Interview fortsetzen",

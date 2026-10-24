@@ -85,6 +85,28 @@ describe("LiabilityPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("789:175: the evidence line names the vault entities, never the classifier's prose", () => {
+    render(
+      withIntl(
+        <LiabilityPanel
+          jobId="job-1"
+          liabilities={[
+            { concept: "RAG", evidence: "listed as expert in skills", evidence_owners: ["Acme GmbH"] },
+            { concept: "SQL", evidence: "listed as expert in skills" },
+          ]}
+          clusters={CLUSTERS}
+          apiBase=""
+          onDropped={() => {}}
+          onStoryAdded={() => {}}
+        />,
+        "de",
+      )
+    );
+    expect(screen.getByTestId("liability-card-RAG")).toHaveTextContent("Steht im Profil bei: Acme GmbH");
+    expect(document.body.textContent).not.toContain("listed as expert");
+    expect(screen.getAllByTestId("liability-evidence")).toHaveLength(1); // SQL: no owner, no line
+  });
+
   it("lists each liability concept with both exits", () => {
     render(
       withIntl(
