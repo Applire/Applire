@@ -63,3 +63,12 @@ describe("HealthPanel — denial_scope ask (V-5 c)", () => {
     expect(screen.getByTestId("health-resolve")).toBeTruthy();
   });
 });
+
+describe("HealthPanel — missing sections in words", () => {
+  it("names the missing sections in the reader's language, not by key", () => {
+    const h: ProfileHealth = { issues: [], completeness: { score: 0.5, gaps: ["education", "volunteer_activities"], field_gaps: [] } };
+    render(withIntl(<HealthPanel health={h} onResolve={vi.fn()} />, "de"));
+    expect(screen.getByText(/Ausbildung, Ehrenamtliche Tätigkeiten/)).toBeTruthy();
+    expect(screen.queryByText(/volunteer_activities/)).toBeNull();
+  });
+});

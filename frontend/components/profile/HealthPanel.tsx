@@ -545,6 +545,7 @@ export function HealthPanel({
   onAnswerConfirmation?: AnswerConfirmation;
 }) {
   const t = useTranslations("health");
+  const tSection = useTranslations("review.section");
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
 
   const critical = health.issues.filter((i) => i.profile_mismatch_severity === "critical");
@@ -625,7 +626,12 @@ export function HealthPanel({
         <div className="mt-3 flex items-center justify-between gap-2">
           {health.completeness.gaps.length > 0 && (
             <p className="text-xs text-gray-500">
-              {t("gapsLabel", { sections: health.completeness.gaps.join(", ") })}
+              {t("gapsLabel", {
+                // Section keys in the reader's words, never the raw key.
+                sections: health.completeness.gaps
+                  .map((g) => (tSection.has(g) ? tSection(g) : g))
+                  .join(", "),
+              })}
             </p>
           )}
           {/* US179: gate the enrich entry-point on field_gaps (role-aware work-entry
