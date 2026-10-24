@@ -2790,7 +2790,7 @@ def _ends_with_signoff(paragraph: str, name: str) -> bool:
     return False
 
 
-def terminal_patch_structure_defects(reviewed: dict, patch: dict) -> list[str]:
+def terminal_patch_structure_defects(reviewed: dict, patch: dict, *, user_id: "uuid.UUID | None" = None) -> list[str]:
     """The structural defects ``patch`` introduces against the ``reviewed``
     composition it was made from — ``[]`` when it introduces none (784:71).
 
