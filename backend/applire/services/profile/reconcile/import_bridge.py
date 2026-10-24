@@ -169,6 +169,10 @@ async def _reconcile_import_batched(
     all_rejected_ops: list[str] = []
     restated: list[RestatedReceipt] = []
     kept_separate: list[KeptSeparateReceipt] = []  # FS-6
+    # 783:190 — the slices' `match_existing` / binding receipts accumulate like
+    # every other receipt list; before, the segmented fallback dropped them, so
+    # a large import showed no recognised pairs and had no #717 undo.
+    matched: list = []
     for slice_info in _slice_incoming(incoming):
         result = await reconcile(current, slice_info, source, provider, lang)
         # #801 (ADR-046 amended 2026-10-22) — refused skill bindings become
@@ -188,12 +192,14 @@ async def _reconcile_import_batched(
         # ApplyResult.demotions) so the import's `added` summary keeps meaning
         # "what this document ADDED".
         demotions.extend(applied.demotions)
+        matched.extend(applied.matched)  # 783:190
         ambiguities.extend(result.ambiguities)
         ambiguities.extend(applied.pending_confirmations)
         all_ops.extend(slice_ops)
         all_rejected_ops.extend(result.rejected_ops)
     accumulated = ApplyResult(
-        profile=current, changes=changes, conflicts=conflicts, demotions=demotions
+        profile=current, changes=changes, conflicts=conflicts, demotions=demotions,
+        matched=matched,
     )
     return accumulated, ambiguities, all_ops, all_rejected_ops, restated, kept_separate
 
