@@ -1190,9 +1190,12 @@ async def _seed_with_denials(db):
     return ids
 
 
+# RULING L-1 = A (2026-10-24): only a KEY (required-tier) denial is owed, so the
+# owed fixture is a required row (was nice_to_have 0.5 — now a constraint only,
+# see test_seam_l1_a_nice_to_have_denial_is_a_constraint_only).
 _DEL3_LEDGER = [
-    {"concept": "IFS", "status": "denied", "claimable": False, "fit_weight": 0.5,
-     "surface_forms": ["IFS"], "sources": ["nice_to_have"], "evidence": ""},
+    {"concept": "IFS", "status": "denied", "claimable": False, "fit_weight": 1.0,
+     "surface_forms": ["IFS"], "sources": ["required"], "evidence": ""},
 ]
 
 
@@ -1223,6 +1226,32 @@ async def test_seam_del3_only_the_postings_denial_reaches_the_writer_obligation(
     entry = drafting["source"][k:drafting["source"].index('"instruction"', k)]
     assert '"required": true' in entry or _DEL3_OWED in entry
     assert _DEL3_OWED in entry and _DEL3_OTHER not in entry
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pipeline", ["v1", "v2"])
+async def test_seam_l1_a_nice_to_have_denial_is_a_constraint_only(db, monkeypatch, pipeline):
+    """RULING L-1 = A: a denial of a nice-to-have ("IFS/BRC von Vorteil") is never
+    owed by the letter — no REQUIRED block, no positioning entry; the statement
+    still reaches the writer as a never-disclosed constraint."""
+    monkeypatch.setenv("LETTER_PIPELINE", pipeline)
+    ledger = [dict(_DEL3_LEDGER[0], fit_weight=0.5, sources=["nice_to_have"])]
+
+    async def _ledger(*_a, **_k):
+        return copy.deepcopy(ledger)
+
+    with patch("applire.services.keyword_ledger.refresh_persist_and_rescore", side_effect=_ledger):
+        rec = await _run(db, await _seed_with_denials(db), payload=_draft(_GERMAN_BODY))
+    writer_prompt = rec["systems"][0][0]
+    assert "=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT" not in writer_prompt
+    con = writer_prompt.index("=== STATED LIMITS — CONSTRAINT ONLY")
+    con_block = writer_prompt[con:writer_prompt.find("\n\n===", con)]
+    assert _DEL3_OWED in con_block and _DEL3_OTHER in con_block
+    # the loop's source keeps the statements as a constraint, never as owed content
+    drafting = next(l for l in rec["loops"] if l["chain_id"] == "cover_letter")
+    k = drafting["source"].find('"stated_limits": {')
+    entry = drafting["source"][k:drafting["source"].index('"instruction"', k)] if k >= 0 else ""
+    assert '"required": true' not in entry
 
 
 @pytest.mark.asyncio

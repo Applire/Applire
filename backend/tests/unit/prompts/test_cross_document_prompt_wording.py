@@ -42,7 +42,10 @@ def test_cover_letter_system_prompt_has_stated_limit_and_hard_requirement_rules(
     # lacked without a recorded denial is de-emphasised by leaving it out.
     assert "silence" not in lower
     assert "leaves it out" in lower
-    assert "recorded denial names it" in lower
+    # RULING L-1 = A (2026-10-24): a gap is named only where a REQUIRED entry
+    # (a recorded denial of a key requirement) names it, in the fused form.
+    assert "only where a required: stated limits entry names it" in " ".join(lower.split())
+    assert "never a bare admission" in " ".join(lower.split())
 
 
 def test_build_cover_letter_prompt_threads_stated_limits_block():

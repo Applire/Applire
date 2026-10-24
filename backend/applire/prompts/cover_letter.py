@@ -216,17 +216,18 @@ Rules:
   write the withholding into the letter (DEL-1).
   (b) OBLIGATION: a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block lists the KEY
   requirements of THIS posting that the candidate DENIED in their own words. Each owes ONE
-  positioning decision on the ranked ladder of the next rule; a scoped claim
-  DISCHARGES the limit with no negation beside it. Where the gap IS named: gap first, transferring
+  positioning decision on the ranked ladder of the next rule; either
+  higher rung DISCHARGES the limit with no negation beside it. Where the gap IS named: gap first, transferring
   strength second, in the SAME SENTENCE, as their statement says it ("no IFS/BRC experience,
   but ten years of ISO-9001 audit practice") — never a standalone negative, least of all
   right after a sentence stating a strength (#732). ONE honest-gap paragraph, never a litany.
 - EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION, AND THE THREE ARE RANKED
   (#270, #732): take the HIGHEST rung TRUE of the candidate — (1) a scoped claim at exactly
   the rung their material reaches; (2) a transfer argument where an adjacent capability
-  carries over, the gap named in (b)'s fused form where their denial names it; (3) where
-  NEITHER holds, the letter LEAVES IT OUT — never a bare admission (RULING L-1). Rung (1)
-  DISCHARGES the requirement with no negation. A requirement
+  carries over — the gap named, if at all, only in (b)'s fused form and only where a REQUIRED:
+  STATED LIMITS entry names it; (3) where NEITHER holds, the letter LEAVES IT OUT — never a
+  bare admission (RULING L-1).
+  Rungs (1) and (2) DISCHARGE the requirement, with no separate negation. A requirement
   lacked WITHOUT a recorded denial is de-emphasised: the letter LEAVES IT OUT, never a
   sentence about what they cannot claim, name or prove (DEL-2).
 """
