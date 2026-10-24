@@ -53,6 +53,69 @@ if TYPE_CHECKING:  # pragma: no cover — annotation only; the runtime import is
 
 
 # ---------------------------------------------------------------------------
+# L-3 = A (789:193, founder 2026-10-24): certification / education entries as
+# editor sections. A red entry finding had no section to act on ("take out" and
+# "edit myself" only reached introduction, positions and skills). Each entry is
+# ONE line of positional fields joined by ``ENTRY_SEP``; the editor shows the
+# fields as single-line inputs, never a free-text area. An empty override takes
+# the entry off THIS CV (the vault keeps it).
+# ---------------------------------------------------------------------------
+
+ENTRY_SEP = " · "
+ENTRY_FIELDS: dict[str, tuple[str, ...]] = {
+    "certification": ("name", "issuing_organization", "date_obtained", "expiry_date"),
+    "education": ("degree", "field", "institution", "start_date", "end_date"),
+}
+_ENTRY_KEYS = {"certification": "certifications", "education": "education"}
+
+
+def entry_line(kind: str, entry: object, *, user_id: uuid.UUID | None = None) -> str:
+    """One entry as its section text: the fields in ``ENTRY_FIELDS`` order,
+    trailing empty fields dropped. (``user_id``: ADR-092 signature contract; pure.)"""
+    get = entry.get if isinstance(entry, dict) else (lambda f, _d=None: getattr(entry, f, None))
+    vals = [str(get(f) or "").strip() for f in ENTRY_FIELDS[kind]]
+    while vals and not vals[-1]:
+        vals.pop()
+    return ENTRY_SEP.join(vals)
+
+
+def parse_entry_line(kind: str, line: str, *, user_id: uuid.UUID | None = None) -> dict | None:
+    """The fields of one entry line; ``None`` for an empty line (= take it out)."""
+    text = (line or "").strip()
+    if not text:
+        return None
+    parts = [p.strip() for p in text.split(ENTRY_SEP.strip())]
+    fields = ENTRY_FIELDS[kind]
+    if len(parts) > len(fields):  # a separator typed inside the last field
+        parts = parts[: len(fields) - 1] + [" · ".join(parts[len(fields) - 1:])]
+    parts += [""] * (len(fields) - len(parts))
+    return dict(zip(fields, parts))
+
+
+def entry_section_kind(section_id: str, *, user_id: uuid.UUID | None = None) -> tuple[str, int] | None:
+    """``("certification", 2)`` for ``certification::2``; ``None`` otherwise."""
+    kind, sep, idx = section_id.partition("::")
+    if not sep or kind not in ENTRY_FIELDS or not idx.isdigit():
+        return None
+    return kind, int(idx)
+
+
+def snapshot_entry_lines(
+    content_snapshot: dict | None, tailored_data: dict | None, *, user_id: uuid.UUID | None = None
+) -> dict[str, list[str]]:
+    """Per entry kind, the generation-time lines: the snapshot's own, or — for a
+    snapshot stored before L-3 (``None``) — rebuilt lazily from tailored_data."""
+    out: dict[str, list[str]] = {}
+    for kind, key in _ENTRY_KEYS.items():
+        stored = (content_snapshot or {}).get(key)
+        if isinstance(stored, list):
+            out[kind] = [str(x) for x in stored]
+        else:
+            out[kind] = [entry_line(kind, e) for e in ((tailored_data or {}).get(key) or [])]
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Snapshot extraction
 # ---------------------------------------------------------------------------
 
@@ -88,6 +151,8 @@ def build_content_snapshot(tailored: TailoredCVData, *, user_id: uuid.UUID | Non
         introduction=tailored.summary,
         positions=positions,
         skills=list(tailored.skills),
+        certifications=[entry_line("certification", c) for c in tailored.certifications],
+        education=[entry_line("education", e) for e in tailored.education],
     )
     return snapshot.model_dump()
 
@@ -113,6 +178,7 @@ def apply_overrides_to_tailored(
 
     # Deep-copy so we don't mutate the original
     data = tailored.model_dump()
+    removed: dict[str, set[int]] = {}
 
     for section_id, content in section_overrides.items():
         if section_id == "introduction":
@@ -133,6 +199,23 @@ def apply_overrides_to_tailored(
                             b.strip() for b in content.split("\n") if b.strip()
                         ]
                     break
+
+        elif (ek := entry_section_kind(section_id)) is not None:
+            kind, idx = ek
+            entries = data.get(_ENTRY_KEYS[kind]) or []
+            if 0 <= idx < len(entries):
+                fields = parse_entry_line(kind, content)
+                if fields is None:
+                    removed.setdefault(kind, set()).add(idx)
+                else:
+                    if kind == "education" and not fields.get("end_date"):
+                        fields["end_date"] = None
+                    entries[idx].update(fields)
+
+    # L-3: entries taken out leave after every edit landed (indices stay valid).
+    for kind, idxs in removed.items():
+        key = _ENTRY_KEYS[kind]
+        data[key] = [e for i, e in enumerate(data.get(key) or []) if i not in idxs]
 
     return TailoredCVData.model_validate(data)
 
@@ -158,7 +241,8 @@ async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.U
     snapshot = ContentSnapshot.model_validate(record.content_snapshot)
     overrides: dict = record.section_overrides or {}
 
-    section_contents = _section_contents(snapshot, overrides)
+    entry_lines = snapshot_entry_lines(record.content_snapshot, record.tailored_data)
+    section_contents = _section_contents(snapshot, overrides, entry_lines)
 
     # Gap hints = ledger entry × live document coverage (ADR-019 amended, #117).
     # Derived fresh per request; covered entries are hidden, nothing persisted.
@@ -218,6 +302,20 @@ async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.U
         )
     )
 
+    # L-3: one section per certification / education entry (label = its name).
+    for kind, lines in entry_lines.items():
+        for i, line in enumerate(lines):
+            sid = f"{kind}::{i}"
+            sections.append(
+                SectionItem(
+                    section_id=sid,
+                    label=line.split(ENTRY_SEP)[0] or sid,
+                    content=overrides.get(sid, line),
+                    has_override=sid in overrides,
+                    gaps=gap_map.get(sid, []),
+                )
+            )
+
     return CVSectionsResponse(
         sections=sections,
         general_gaps=general_gaps,
@@ -258,12 +356,21 @@ async def patch_cv_section(
         for pos in record.content_snapshot.get("positions", []):
             valid_position_ids.add(f"position::{pos['id']}")
 
-    if section_id not in _VALID_STATIC_SECTION_IDS and section_id not in valid_position_ids:
+    entry_lines = snapshot_entry_lines(record.content_snapshot, record.tailored_data)
+    ek = entry_section_kind(section_id)
+    valid_entry = ek is not None and record.content_snapshot is not None and ek[1] < len(entry_lines[ek[0]])
+    if (
+        section_id not in _VALID_STATIC_SECTION_IDS
+        and section_id not in valid_position_ids
+        and not valid_entry
+    ):
         raise ValueError(f"Unknown section_id: {section_id!r}")
 
     # Snapshot the pre-edit section contents (for the resolved-hints diff below)
     snapshot_before = ContentSnapshot.model_validate(record.content_snapshot)
-    contents_before = _section_contents(snapshot_before, dict(record.section_overrides or {}))
+    contents_before = _section_contents(
+        snapshot_before, dict(record.section_overrides or {}), entry_lines
+    )
 
     # Write override
     overrides = dict(record.section_overrides or {})
@@ -351,6 +458,7 @@ def build_section_field_edit(
     content_snapshot: dict | None,
     lang: str,
     user_id: uuid.UUID | None = None,
+    tailored_data: dict | None = None,
 ) -> tuple[str, object] | None:
     """Intake adapter (ADR-063 clause 3): a CV-section edit → one ``FieldEdit``.
 
@@ -434,6 +542,44 @@ def build_section_field_edit(
             entries.append(dumped)
         return "work_experience", entries
 
+    ek = entry_section_kind(section_id)
+    if ek is not None:
+        # L-3 = A: an edited certification / education entry writes its fields
+        # onto the vault entry it was rendered from — matched by its generation-
+        # time line (certifications are a verbatim passthrough), else by its
+        # normalised name. Taking an entry off the CV (empty) never deletes it
+        # from the vault: the document is not the profile.
+        kind, idx = ek
+        fields = parse_entry_line(kind, content)
+        if fields is None:
+            return None
+        lines = snapshot_entry_lines(content_snapshot, tailored_data)[kind]
+        if idx >= len(lines):
+            return None
+        original = lines[idx]
+        key = _ENTRY_KEYS[kind]
+        vault = list(getattr(profile_data, key, None) or [])
+        name_field = ENTRY_FIELDS[kind][0]
+
+        def _n(x: object) -> str:
+            return " ".join(str(x or "").casefold().split())
+
+        target = next((e for e in vault if entry_line(kind, e) == original), None)
+        if target is None:
+            orig_name = _n(original.split(ENTRY_SEP)[0])
+            target = next((e for e in vault if _n(getattr(e, name_field, "")) == orig_name), None)
+        if target is None:
+            return None
+        out = []
+        for e in vault:
+            dumped = e.model_dump(mode="json")
+            if e is target:
+                for f, v in fields.items():
+                    if f in dumped:
+                        dumped[f] = v or None if f in ("end_date", "start_date", "expiry_date", "date_obtained") else v
+            out.append(dumped)
+        return key, out
+
     return None
 
 
@@ -515,6 +661,7 @@ async def _save_section_to_profile(
         profile_data=profile_data,
         content_snapshot=record.content_snapshot,
         lang=lang,
+        tailored_data=record.tailored_data,
     )
     if field_edit is None:
         return
@@ -530,7 +677,9 @@ async def _save_section_to_profile(
     )
 
 
-def _section_contents(snapshot: ContentSnapshot, overrides: dict) -> dict[str, str]:
+def _section_contents(
+    snapshot: ContentSnapshot, overrides: dict, entry_lines: dict[str, list[str]] | None = None
+) -> dict[str, str]:
     """Current per-section text: snapshot merged with overrides (override wins)."""
     contents: dict[str, str] = {
         "introduction": overrides.get("introduction", snapshot.introduction),
@@ -539,6 +688,10 @@ def _section_contents(snapshot: ContentSnapshot, overrides: dict) -> dict[str, s
     for pos in snapshot.positions:
         sid = f"position::{pos.id}"
         contents[sid] = overrides.get(sid, "\n".join(pos.bullets))
+    for kind, lines in (entry_lines or {}).items():
+        for i, line in enumerate(lines):
+            sid = f"{kind}::{i}"
+            contents[sid] = overrides.get(sid, line)
     return contents
 
 

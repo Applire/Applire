@@ -39,6 +39,38 @@ interface SectionItem {
   gaps: GapHintItem[];
 }
 
+// L-3 = A (789:193): a certification / education entry is one line of
+// positional fields joined by ENTRY_SEP (backend cv_section_editor.ENTRY_FIELDS);
+// the editor shows the fields as single-line inputs. An empty line takes the
+// entry off this CV.
+const ENTRY_SEP = " · ";
+const ENTRY_FIELDS = {
+  certification: ["name", "issuing_organization", "date_obtained", "expiry_date"],
+  education: ["degree", "field", "institution", "start_date", "end_date"],
+} as const;
+type EntryKind = keyof typeof ENTRY_FIELDS;
+
+export function entryKindOf(sectionId: string): EntryKind | null {
+  const kind = sectionId.split("::")[0];
+  return kind === "certification" || kind === "education" ? kind : null;
+}
+
+function splitEntry(kind: EntryKind, line: string): string[] {
+  const n = ENTRY_FIELDS[kind].length;
+  const parts = line.trim() ? line.split("·").map((p) => p.trim()) : [];
+  const head = parts.slice(0, n - 1);
+  const tail = parts.slice(n - 1).join(ENTRY_SEP);
+  const out = parts.length >= n ? [...head, tail] : parts;
+  while (out.length < n) out.push("");
+  return out;
+}
+
+function joinEntry(values: string[]): string {
+  const vals = values.map((v) => v.trim());
+  while (vals.length && !vals[vals.length - 1]) vals.pop();
+  return vals.join(ENTRY_SEP);
+}
+
 interface SectionEditorProps {
   cvId: string;
   section: SectionItem;
@@ -95,6 +127,8 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showPreviewStale, setShowPreviewStale] = useState(false);
   const [showScopePrompt, setShowScopePrompt] = useState(false);
+  // L-3: the line before a take-out in this session, so the entry can come back.
+  const [removedLine, setRemovedLine] = useState<string | null>(null);
 
   // Reset when section changes
   useEffect(() => {
@@ -103,6 +137,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
     setVisibleGaps(section.gaps);
     setSaveError(null);
     setShowPreviewStale(false);
+    setRemovedLine(null);
     onUnsavedChange(false);
   }, [section.section_id]);
 
@@ -210,6 +245,24 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
   }
 
   const hasUnsaved = content !== savedContent;
+  const entryKind = entryKindOf(section.section_id);
+
+  async function handleRemoveEntry() {
+    const before = savedContent;
+    if (await executeSave(false, "")) {
+      setContent("");
+      setRemovedLine(before);
+    }
+  }
+
+  async function handleRestoreEntry() {
+    if (removedLine === null) return;
+    const line = removedLine;
+    if (await executeSave(false, line)) {
+      setContent(line);
+      setRemovedLine(null);
+    }
+  }
 
   return (
     <div className="p-3 flex flex-col gap-2">
@@ -226,6 +279,53 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
           readable size — the monospace field fit ~30 characters per line.
           Phones keep the 180 px field: a taller one pushes the Save row
           behind the keyboard (OQ mobile cv-review, US228). */}
+      {entryKind !== null && content.trim() === "" && savedContent.trim() === "" ? (
+        <div className="flex flex-col gap-2" data-testid="section-entry-removed">
+          <p className="text-sm text-on-surface-variant">{t("entryRemoved")}</p>
+          {removedLine !== null && (
+            <button
+              type="button"
+              onClick={() => void handleRestoreEntry()}
+              disabled={saving}
+              data-testid="section-entry-restore"
+              className="self-start text-sm font-semibold text-teal underline disabled:opacity-40"
+            >
+              {t("entryRestore")}
+            </button>
+          )}
+        </div>
+      ) : entryKind !== null ? (
+        <div className="flex flex-col gap-2" data-testid="section-entry-fields">
+          {ENTRY_FIELDS[entryKind].map((field, i) => {
+            const values = splitEntry(entryKind, content);
+            return (
+              <label key={field} className="flex flex-col gap-1 text-xs text-on-surface-variant">
+                {t(`entryField.${field}`)}
+                <input
+                  type="text"
+                  value={values[i]}
+                  onChange={(e) => {
+                    const next = [...values];
+                    next[i] = e.target.value.replace(/·/g, "-");
+                    handleContentChange(joinEntry(next));
+                  }}
+                  data-testid={`section-entry-${field}`}
+                  className="w-full font-sans text-[15px] text-on-surface border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal"
+                />
+              </label>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => void handleRemoveEntry()}
+            disabled={saving || hasUnsaved}
+            data-testid="section-entry-remove"
+            className="self-start text-sm font-semibold text-critical underline disabled:opacity-40"
+          >
+            {t("entryRemove")}
+          </button>
+        </div>
+      ) : (
       <textarea
         ref={textareaRef}
         value={content}
@@ -234,6 +334,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
         placeholder={t("placeholder")}
         className="w-full min-h-[180px] md:min-h-[240px] resize-y font-sans text-[15px] leading-relaxed text-on-surface border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal"
       />
+      )}
 
       {saveError && (
         <p className="text-xs text-critical">{saveError}</p>

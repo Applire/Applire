@@ -578,7 +578,25 @@
     "pageOverflowUndoKeep": "Cut to {target, plural, one {# page} other {# pages}} after all",
     "pageOverflowUndoGone": "This can no longer be undone: the CV has changed since the cut.",
     "pageOverflowCutGone": "Cutting is no longer possible: the CV has changed since this suggestion.",
-    "pageOverflowError": "That did not work. Reload the page and try again."
+    "pageOverflowError": "That did not work. Reload the page and try again.",
+    "entryRemoved": "This entry is no longer on this CV. Your profile keeps it.",
+    "entryRestore": "Put it back",
+    "entryRemove": "Take it off this CV",
+    "entryField": {
+      "name": "Name",
+      "issuing_organization": "Issued by",
+      "date_obtained": "Obtained",
+      "expiry_date": "Valid until",
+      "degree": "Degree",
+      "field": "Field of study",
+      "institution": "Institution",
+      "start_date": "Start",
+      "end_date": "End"
+    },
+    "entrySectionLabel": {
+      "certification": "Certification: {name}",
+      "education": "Education: {name}"
+    }
   },
   "saveScopePrompt": {
     "saveToProfile": "Where should this change apply?",

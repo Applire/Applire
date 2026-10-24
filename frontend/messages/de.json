@@ -578,7 +578,25 @@
     "pageOverflowUndoKeep": "Doch auf {target, plural, one {# Seite} other {# Seiten}} kürzen",
     "pageOverflowUndoGone": "Rückgängig machen geht hier nicht mehr: Der Lebenslauf hat sich seit dem Kürzen geändert.",
     "pageOverflowCutGone": "Kürzen geht nicht mehr: Der Lebenslauf hat sich seit diesem Vorschlag geändert.",
-    "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal."
+    "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal.",
+    "entryRemoved": "Dieser Eintrag steht nicht mehr in diesem Lebenslauf. Dein Profil behält ihn.",
+    "entryRestore": "Wieder aufnehmen",
+    "entryRemove": "Aus diesem Lebenslauf nehmen",
+    "entryField": {
+      "name": "Bezeichnung",
+      "issuing_organization": "Ausstellende Stelle",
+      "date_obtained": "Erworben",
+      "expiry_date": "Gültig bis",
+      "degree": "Abschluss",
+      "field": "Fachrichtung",
+      "institution": "Einrichtung",
+      "start_date": "Beginn",
+      "end_date": "Ende"
+    },
+    "entrySectionLabel": {
+      "certification": "Zertifikat: {name}",
+      "education": "Ausbildung: {name}"
+    }
   },
   "saveScopePrompt": {
     "saveToProfile": "Wo soll die Änderung gelten?",

@@ -56,7 +56,7 @@ Kind = Literal["cv", "cover_letter"]
 _AUDITED: dict[tuple[str, str], str] = {}
 
 
-def content_fingerprint(kind: Kind, record) -> str:
+def content_fingerprint(kind: Kind, record, *, user_id: uuid.UUID | None = None) -> str:
     """Hash of every column an audit reads content from (CV: tailored_data,
     content_snapshot, section_overrides; letter: letter_data, section_overrides)."""
     import hashlib
@@ -73,7 +73,7 @@ def content_fingerprint(kind: Kind, record) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def note_audited(kind: Kind, record) -> None:
+def note_audited(kind: Kind, record, *, user_id: uuid.UUID | None = None) -> None:
     """Record that ``record``'s current content has a report computed from it."""
     if isinstance(getattr(record, "ats_report", None), dict):
         _AUDITED[(kind, str(record.id))] = content_fingerprint(kind, record)
@@ -81,7 +81,7 @@ def note_audited(kind: Kind, record) -> None:
         _AUDITED.pop((kind, str(record.id)), None)
 
 
-def audited_current(kind: Kind, record) -> bool:
+def audited_current(kind: Kind, record, *, user_id: uuid.UUID | None = None) -> bool:
     """True when the persisted report was computed from exactly this content."""
     if not isinstance(getattr(record, "ats_report", None), dict):
         return False
@@ -597,6 +597,14 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
                 for sid, text in await patchable_sections(kind, record, db)
                 if holds(text, wording)
             ]
+        # L-3 = A (789:193): a certification / education entry holding the wording
+        # leaves THIS CV whole (an empty entry override) — no model rewrite of a
+        # name line, and no protected-name refusal (nothing inside a name is
+        # rewritten). Undo writes the entry line back.
+        from applire.services.cv_section_editor import entry_section_kind
+
+        entry_targets = [t for t in targets if kind == "cv" and entry_section_kind(t[0]) is not None]
+        targets = [t for t in targets if t not in entry_targets]
         sections = [(sid, span) for sid, span, _f, _s, _e in targets]
         # WP-R belt (ruling R-1): refuse BEFORE any model call when a section to
         # be rewritten holds a job title / employer name containing the wording.
@@ -610,7 +618,9 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
                         "edit it yourself"
                     )
         language = await _document_language(kind, record, db)
-        changes: list[dict] = []
+        changes: list[dict] = [
+            {"section_id": sid, "before": full, "after": ""} for sid, _span, full, _s, _e in entry_targets
+        ]
         for section_id, section_text, full, start, end in targets:
             result = await rewrite_for_removal(
                 kind, record, section_id, section_text, wording, provider,
