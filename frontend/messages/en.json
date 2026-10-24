@@ -577,6 +577,7 @@
     "pageOverflowKeptDone": "{actual} pages — your choice.",
     "pageOverflowUndoKeep": "Cut to {target, plural, one {# page} other {# pages}} after all",
     "pageOverflowUndoGone": "This can no longer be undone: the CV has changed since the cut.",
+    "pageOverflowCutGone": "Cutting is no longer possible: the CV has changed since this suggestion.",
     "pageOverflowError": "That did not work. Reload the page and try again."
   },
   "saveScopePrompt": {
