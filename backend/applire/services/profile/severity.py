@@ -40,6 +40,8 @@ Architecture boundary (ADR-041 amended / epic Task 3):
 """
 from __future__ import annotations
 
+import re
+
 from typing import Literal
 
 from applire import constants
@@ -85,13 +87,46 @@ def classify_reconciliation(
     return "review"
 
 
+# 783:72 (founder E-12 walk, 2026-10-22; Hazelnut build 4) — the bullet-bearing
+# fields of a role/project/story. A FIGURE that differs between the two values
+# of one of them ("over 80 %" vs "over 60 %") is the number an interviewer asks
+# about, so it is a review item, not cosmetic.
+_ACHIEVEMENT_FIELDS = frozenset(
+    {"achievements", "responsibilities", "description", "outcome", "impact", "result"}
+)
+_FIGURE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _figures(value: object) -> set[str]:
+    if isinstance(value, (list, tuple)):
+        out: set[str] = set()
+        for item in value:
+            out |= _figures(item)
+        return out
+    if value is None:
+        return set()
+    return {m.replace(",", ".") for m in _FIGURE.findall(str(value))}
+
+
+def _figure_contradiction(conflict: Conflict) -> bool:
+    """Both values state a figure and the figures differ — a fact, read off the
+    two strings (ADR-062 cl. 1), never a judgement about what they mean."""
+    if conflict.field not in _ACHIEVEMENT_FIELDS:
+        return False
+    existing, incoming = _figures(conflict.existing_value), _figures(conflict.incoming_value)
+    return bool(existing) and bool(incoming) and existing != incoming
+
+
 def classify_conflict(conflict: Conflict) -> ProfileMismatchSeverity:
     """Severity for a post-merge conflict (ADR-013 ``master_profile.conflicts``).
 
     Date/title contradictions → ``review`` (reclassified from critical by
-    ADR-041 amended); cosmetic field differences → ``info``.
+    ADR-041 amended); a figure that differs inside an achievement → ``review``
+    (783:72); other field differences → ``info``.
     """
     if conflict.field in _REVIEW_CONFLICT_FIELDS:
+        return "review"
+    if _figure_contradiction(conflict):
         return "review"
     return "info"
 
