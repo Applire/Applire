@@ -1318,6 +1318,7 @@
     "retry": "Try Again"
   },
   "errors": {
+    "answerNotSaved": "Your answer could not be saved — please send it again.",
     "uploadAtLeastOne": "Please upload at least one CV to continue.",
     "exportFailed": "Export failed. Please try again.",
     "deletionFailed": "Deletion failed. Please try again.",
@@ -1333,7 +1334,6 @@
   "enrich": {
     "title": "Profile Enrichment",
     "loading": "Starting session…",
-    "notSaved": "Your answer could not be saved — please send it again.",
     "gaps": "Gaps to fill",
     "placeholder": "Type your answer… (Ctrl+Enter to send)",
     "skip": "Skip",

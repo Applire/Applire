@@ -110,7 +110,9 @@ export async function respondToEnrich(
   if (!res.ok) {
     if (res.status === 503) {
       const body = await res.json().catch(() => null);
-      if (body?.detail?.error === "not_saved") throw new EnrichAnswerNotSavedError();
+      // R2-13 — WP-I's turn shape (`error_code: "answer_not_saved"`,
+      // `turn_state: "not_saved"`) is the one the enrich door answers with.
+      if (body?.detail?.error_code === "answer_not_saved") throw new EnrichAnswerNotSavedError();
       throw new Error(translateApiError(503));
     }
     const errorMsg = await getApiErrorMessage(res);

@@ -415,3 +415,17 @@ def test_parse_ops_rejection_with_no_op_key_logs_unknown_at_warning(caplog) -> N
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert len(warnings) == 1
     assert "<unknown>" in warnings[0].message
+
+
+@pytest.mark.asyncio
+async def test_reconcile_timeout_is_not_retried_and_raises_reconcile_failed() -> None:
+    """RULING B4-4 — a timeout already spent the whole LLM_TIMEOUT: no retry,
+    ``ReconcileFailedError`` at once (chained), never an empty result."""
+    from applire.exceptions import LLMTimeoutError
+
+    exc = LLMTimeoutError("timed out after 180s")
+    provider = _CountingProvider([exc, {"ops": []}])
+    with pytest.raises(ReconcileFailedError) as info:
+        await reconcile(MasterProfileData(), "info", "interview", provider)
+    assert info.value.__cause__ is exc
+    assert provider.calls == 1

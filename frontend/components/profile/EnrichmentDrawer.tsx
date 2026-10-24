@@ -49,6 +49,7 @@ export interface EnrichmentDrawerProps {
 export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps) {
   const t = useTranslations("enrich");
   const tc = useTranslations("common");
+  const tErrors = useTranslations("errors");
   const [session, setSession] = useState<EnrichSession | null>(null);
   const [gaps, setGaps] = useState<GapItem[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -317,7 +318,7 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
               <div className="shrink-0 border-t border-gray-200 p-3 flex flex-col gap-2">
                 {notSaved && (
                   <p role="alert" data-testid="enrich-not-saved" className="text-sm text-critical">
-                    {t("notSaved")}
+                    {tErrors("answerNotSaved")}
                   </p>
                 )}
                 <textarea

@@ -1318,6 +1318,7 @@
     "retry": "Erneut versuchen"
   },
   "errors": {
+    "answerNotSaved": "Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden.",
     "uploadAtLeastOne": "Bitte lade mindestens einen Lebenslauf hoch, um fortzufahren.",
     "exportFailed": "Export fehlgeschlagen. Bitte versuche es erneut.",
     "deletionFailed": "Löschen fehlgeschlagen. Bitte versuche es erneut.",
@@ -1333,7 +1334,6 @@
   "enrich": {
     "title": "Profil ergänzen",
     "loading": "Sitzung wird gestartet…",
-    "notSaved": "Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden.",
     "gaps": "Fehlende Angaben",
     "placeholder": "Antwort eingeben… (Strg+Enter zum Senden)",
     "skip": "Überspringen",

@@ -216,12 +216,14 @@ describe("markGapNA", () => {
 });
 
 describe("respondToEnrich — R2-13 not saved", () => {
-  it("throws EnrichAnswerNotSavedError on a 503 not_saved", async () => {
+  it("throws EnrichAnswerNotSavedError on a 503 answer_not_saved", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 503,
       statusText: "Service Unavailable",
-      json: async () => ({ detail: { error: "not_saved", message: "Your answer could not be saved" } }),
+      json: async () => ({
+        detail: { error_code: "answer_not_saved", turn_state: "not_saved", message: "Your answer could not be saved" },
+      }),
     });
     await expect(respondToEnrich("s1", "six people")).rejects.toBeInstanceOf(EnrichAnswerNotSavedError);
   });

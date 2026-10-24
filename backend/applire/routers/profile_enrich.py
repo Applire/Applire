@@ -57,13 +57,6 @@ from applire.services.session import _to_confirmation_prompts, get_ui_language
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
 logger = logging.getLogger(__name__)
 
-#: R2-13 (Hazelnut build 4) — the stable code a "your answer was not saved"
-#: response carries (`detail.error`); the UI renders its own copy for it.
-NOT_SAVED_ERROR = "not_saved"
-_NOT_SAVED_MESSAGE = (
-    "Your answer could not be saved — please send it again. Nothing was changed."
-)
-
 
 def _uid(user: "User | None"):
     """The resolved caller's id. ``require_user`` always yields a user (and sets
@@ -381,7 +374,13 @@ async def respond_to_enrich(
         logger.warning("enrich respond: reconcile failed; answer not saved (session %s)", session_id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": NOT_SAVED_ERROR, "message": _NOT_SAVED_MESSAGE},
+            # WP-I's turn shape (session.py `answer_not_saved_detail`), inline
+            # here until integration; I's helper wins.
+            detail={
+                "error_code": "answer_not_saved",
+                "turn_state": "not_saved",
+                "message": "Your answer could not be saved — please send it again.",
+            },
         )
     updated_profile_data = turn.profile_dict
 

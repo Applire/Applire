@@ -39,7 +39,7 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from applire.constants import RECONCILE_MAX_TOKENS
-from applire.exceptions import LLMTruncatedError, ReconcileFailedError
+from applire.exceptions import LLMTimeoutError, LLMTruncatedError, ReconcileFailedError
 from applire.prompts.reconcile import (
     RECONCILE_SYSTEM_PROMPT,
     build_reconcile_prompt,
@@ -77,7 +77,8 @@ _OP_ADAPTER: TypeAdapter[ReconcileOp] = TypeAdapter(ReconcileOp)
 
 #: R2-13 (Hazelnut build 4) — one call plus ONE retry, then ReconcileFailedError.
 #: Truncation is not retried here (the provider already retried it on a larger
-#: budget, and the import door has its own segmented fallback for it).
+#: budget, and the import door has its own segmented fallback for it); a
+#: timeout is not retried either (RULING B4-4) — it fails at once.
 _RECONCILE_ATTEMPTS = 2
 
 
@@ -103,7 +104,9 @@ async def reconcile(
       before this propagates, so reaching here means the merge genuinely won't fit.
     * Every OTHER provider/transport/parse error — and a reply that is not a
       JSON object — is RETRIED ONCE (R2-13, Hazelnut build 4). If the retry fails
-      too, ``ReconcileFailedError`` is raised (chained to the last cause). This
+      too, ``ReconcileFailedError`` is raised (chained to the last cause). An
+      ``LLMTimeoutError`` raises ``ReconcileFailedError`` WITHOUT a retry
+      (RULING B4-4: the wait already spent the whole ``LLM_TIMEOUT``). This
       used to degrade to an empty result on the theory that "an additive merge
       that produced no ops is safe"; it is not: an empty result means "this
       answer held nothing new", so the interview asked a follow-up as if the
@@ -156,7 +159,11 @@ async def reconcile(
             failure = ReconcileFailedError(
                 f"reconcile reply was a JSON {type(data).__name__}, not an object"
             )
-        if attempt < _RECONCILE_ATTEMPTS:
+        # RULING B4-4 (Hazelnut build 4): a timeout already spent the full
+        # LLM_TIMEOUT budget — a retry would double the wait before the user
+        # hears "not saved". The user's resend is the retry.
+        retryable = not isinstance(failure, LLMTimeoutError)
+        if retryable and attempt < _RECONCILE_ATTEMPTS:
             logger.warning(
                 "reconcile: attempt %d failed (%s); retrying once (R2-13)",
                 attempt, type(failure).__name__,

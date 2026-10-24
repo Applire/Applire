@@ -350,7 +350,8 @@ async def test_enrich_respond_answers_503_not_saved_and_does_not_advance(async_d
             user,
         )
     assert info.value.status_code == 503
-    assert info.value.detail["error"] == "not_saved"
+    assert info.value.detail["error_code"] == "answer_not_saved"
+    assert info.value.detail["turn_state"] == "not_saved"
     assert provider.calls == 2
     assert len(asked) == questions_before  # no follow-up question generated
     await async_db.rollback()
