@@ -504,6 +504,31 @@ class ConfirmMatch(BaseModel):
     incoming: str
 
 
+class WithdrawDenial(BaseModel):
+    """The candidate withdraws one of their denials — ADAPTER-ONLY (G-5).
+
+    ADR-059 amended 2026-10-24, building the 2026-07-26 un-denial act (cl. 1–4):
+    the speaker decides, never the system. Reached only from an explicit
+    candidate act — My Profile's confirmed "Zurücknehmen", or the answer
+    ``cv_holds`` to a parked "Stimmt deine frühere Angabe noch?" item — and
+    never model-emittable: ``engine._parse_ops`` validates model JSON against
+    ``ReconcileOp`` alone, so a hallucinated ``{"op": "withdraw_denial"}`` is
+    dropped before it is an object (the guard ``DemoteSkill`` relies on).
+
+    **Reach: exactly one EXISTING ``metadata.denied_concepts`` record**, matched
+    by ``ats_audit._norm`` (the normaliser ``record_denials`` dedupes with). A
+    miss is a no-op — it never widens by containment and never mints. The
+    record moves verbatim to ``metadata.withdrawn_denials`` (mark, don't erase);
+    a vault skill the denial DECLARES and that sits at ``denied`` returns to
+    ``confirmed`` unless another active denial still declares it (ADR-061
+    amended 2026-08-08: nothing else leaves ``denied``). Receipts ride the
+    denial channel, never ``changes``.
+    """
+
+    op: Literal["withdraw_denial"] = "withdraw_denial"
+    concept: str
+
+
 class ReplaceSection(BaseModel):
     """A human replaces one whole section of the vault — ADAPTER-ONLY.
 
@@ -1140,6 +1165,7 @@ _ADAPTER_ONLY = (
     EscalateDenialLevel,
     SeparateMatch,
     ConfirmMatch,
+    WithdrawDenial,
     SetAvailability,
     DismissAvailabilityReminder,
 )

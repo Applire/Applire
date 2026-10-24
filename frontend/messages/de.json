@@ -1748,7 +1748,13 @@
       "role_closed": "Diese Position als beendet markiert.",
       "gap_marked_na": "Diese Lücke als „nicht zutreffend“ markiert.",
       "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert.",
-      "denial_noted": "Als selbst genannte Einschränkung vermerkt."
+      "denial_noted": "Als selbst genannte Einschränkung vermerkt.",
+      "denial_withdrawn": "Eine frühere Einschränkung hast du selbst zurückgenommen.",
+      "denial_withdrawn_skill": "Zählt wieder: Du hast die Einschränkung zurückgenommen, die das ausgeschlossen hatte.",
+      "match_separated": "Getrennt geführt: Du hast gesagt, dass das nicht dasselbe ist.",
+      "match_confirmed": "Du hast bestätigt, dass das dasselbe ist.",
+      "availability_recorded": "Deine Verfügbarkeit festgehalten.",
+      "availability_cleared": "Deine Verfügbarkeit entfernt."
     }
   },
   "mergeGate": {
@@ -2603,5 +2609,27 @@
     "inflatedAspirational": "Steht als erreichtes Ergebnis da, in Deinem Profil ist es aber ein Ziel, kein Ergebnis.",
     "restatementBorrowed": "Die Zahl in diesem Satz belegt in Deinem Profil nur eine andere Station — der Satz gibt diesen Beleg nicht wieder.",
     "fromLetterForm": "Aus Deiner Eingabe im Formular ({field, select, motivation {Warum diese Stelle} availability {Kündigungsfrist / frühester Eintritt} salary {Gehaltswunsch} other {Formular}}) — Deine eigene Aussage für dieses Anschreiben, nicht gegen Dein Profil geprüft."
+  },
+  "deniedConcepts": {
+    "title": "Was laut deinen Antworten nicht auf dich zutrifft",
+    "lead": "Diese Punkte zählen wir in Bewerbungen als nicht vorhanden. Wenn einer nicht stimmt, weil du dich vertan hast oder wir dich falsch verstanden haben, kannst du ihn zurücknehmen.",
+    "none": "Zurzeit schließt keine deiner Antworten etwas aus.",
+    "quoted": "„{statement}“",
+    "source": {
+      "interview": "Aus deinem Gespräch am {date}",
+      "agent_interview": "Aus einem Gespräch mit deinem Assistenten am {date}",
+      "testimony": "Aus einer Ergänzung zu deinem Profil am {date}"
+    },
+    "withdraw": "Zurücknehmen",
+    "withdrawnTitle": "Zurückgenommen ({count})",
+    "withdrawnLine": "{concept}, am {date}",
+    "dialogTitle": "„{concept}“ zurücknehmen?",
+    "dialogSaid": "Am {date} hast du gesagt: <i>„{statement}“</i> Deshalb zählen wir {concept} bisher als nicht vorhanden.",
+    "dialogSaidNoStatement": "Laut deiner früheren Antwort zählen wir {concept} bisher als nicht vorhanden.",
+    "dialogEffect": "Wenn du das zurücknimmst, gilt diese Angabe nicht mehr. {concept} zählt dann, soweit dein Lebenslauf oder deine Antworten es belegen.",
+    "dialogHistory": "Deine frühere Antwort bleibt im Verlauf deines Profils stehen. Du kannst {concept} später wieder ausschließen, indem du es in einem Gespräch sagst.",
+    "cancel": "Abbrechen",
+    "confirm": "Ja, zurücknehmen",
+    "failed": "Das hat nicht geklappt. Bitte versuche es noch einmal."
   }
 }

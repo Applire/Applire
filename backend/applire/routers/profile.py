@@ -56,6 +56,7 @@ from applire.schemas.profile import (
     ReceiptSummary,
     ProfileHealthResponse,
     SeparateMatchRequest,
+    WithdrawDenialRequest,
     StagedResolveRequest,
     StagedResolveResponse,
     UndoLastMergeResponse,
@@ -84,6 +85,8 @@ from applire.services.profile import (
     resolve_staged_extraction,
     separate_match,
     confirm_match,
+    withdraw_denial,
+    DenialNotFound,
     get_import_summary,
     apply_restated,
     RestatedNotApplicable,
@@ -454,6 +457,27 @@ async def confirm_match_endpoint(
         raise HTTPException(status_code=404, detail="No profile found")
     except MatchNotSeparable as exc:
         raise HTTPException(status_code=409, detail=exc.code)
+
+
+@router.post(
+    "/denials/withdraw",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def withdraw_denial_endpoint(
+    body: WithdrawDenialRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """G-5 (ADR-059 amended 2026-10-24) — the candidate withdraws one of their
+    denials after the confirm dialog. 404 = no profile; 409 ``denial_not_found``
+    = no active denial of that name (nothing written)."""
+    try:
+        return await withdraw_denial(db, concept=body.concept, user_id=_uid(current_user))
+    except DenialNotFound:
+        raise HTTPException(status_code=409, detail="denial_not_found")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
 
 
 class AvailabilityRequest(BaseModel):

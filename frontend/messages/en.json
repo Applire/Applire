@@ -1748,7 +1748,13 @@
       "role_closed": "Marked this role as ended.",
       "gap_marked_na": "Marked this gap as not applicable to you.",
       "denial_probe_asked": "Recorded that the follow-up about this limit has been asked — your stated limit itself is unchanged.",
-      "denial_noted": "Noted as a limit you told us about."
+      "denial_noted": "Noted as a limit you told us about.",
+      "denial_withdrawn": "You took back an earlier limit yourself.",
+      "denial_withdrawn_skill": "Counts again: you took back the limit that had ruled it out.",
+      "match_separated": "Kept apart: you said these are not the same.",
+      "match_confirmed": "You confirmed these are the same.",
+      "availability_recorded": "Recorded your availability.",
+      "availability_cleared": "Removed your availability."
     }
   },
   "mergeGate": {
@@ -2603,5 +2609,27 @@
     "inflatedAspirational": "Stated as an achieved result, but your profile records it as a target, not a result.",
     "restatementBorrowed": "The figure in this sentence is only backed by a different position in your profile, and the sentence does not restate that evidence.",
     "fromLetterForm": "From what you typed into the form ({field, select, motivation {Why this role} availability {Notice period / earliest start} salary {Salary expectation} other {form}}) — your own statement for this letter, not checked against your profile."
+  },
+  "deniedConcepts": {
+    "title": "What doesn't apply to you, by your own answers",
+    "lead": "We count these as not there in your applications. If one is wrong — you misspoke or we misread you — you can take it back.",
+    "none": "None of your answers rules anything out right now.",
+    "quoted": "“{statement}”",
+    "source": {
+      "interview": "From your conversation on {date}",
+      "agent_interview": "From a conversation with your assistant on {date}",
+      "testimony": "From an addition to your profile on {date}"
+    },
+    "withdraw": "Take back",
+    "withdrawnTitle": "Taken back ({count})",
+    "withdrawnLine": "{concept}, on {date}",
+    "dialogTitle": "Take back “{concept}”?",
+    "dialogSaid": "On {date} you said: <i>“{statement}”</i> So far we count {concept} as not there.",
+    "dialogSaidNoStatement": "By your earlier answer, we count {concept} as not there so far.",
+    "dialogEffect": "If you take this back, that answer no longer applies. {concept} then counts as far as your CV or your answers show it.",
+    "dialogHistory": "Your earlier answer stays in your profile's history. You can rule {concept} out again later by saying so in a conversation.",
+    "cancel": "Cancel",
+    "confirm": "Yes, take it back",
+    "failed": "That didn't work. Please try again."
   }
 }

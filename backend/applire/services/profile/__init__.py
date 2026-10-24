@@ -816,6 +816,49 @@ async def confirm_match(
     return _to_response(result.record)
 
 
+class DenialNotFound(Exception):
+    """G-5 — the named denial is not (or no longer) on the profile."""
+
+
+async def withdraw_denial(
+    db: AsyncSession,
+    *,
+    concept: str,
+    user_id: uuid.UUID | None = None,
+) -> MasterProfileResponse:
+    """G-5 (ADR-059 amended 2026-10-24) — the candidate's confirmed
+    "Zurücknehmen" on My Profile: one `WithdrawDenial` through the un-denial
+    intake (source ``manual_edit``, the candidate's act). The denial moves to
+    ``metadata.withdrawn_denials``; a skill it had retracted counts again.
+    :class:`DenialNotFound` when no active denial has that name (already
+    withdrawn in another tab, or never there) — nothing is written."""
+    from applire.services.ats_audit import _norm as ats_norm
+    from applire.services.profile.commit import UN_DENIAL_INTAKE
+    from applire.services.profile.reconcile.ops import WithdrawDenial
+
+    record = await _get_latest(db, user_id)
+    if not record:
+        raise LookupError("No profile found")
+    data = MasterProfileData.model_validate(record.profile_json)
+    key = ats_norm(concept)
+    if not key or not any(
+        ats_norm(d.concept) == key for d in (data.metadata.denied_concepts if data.metadata else [])
+    ):
+        raise DenialNotFound(concept)
+    result = await commit_ops(
+        db,
+        [WithdrawDenial(concept=concept)],
+        CommitProvenance(source="manual_edit", intake=UN_DENIAL_INTAKE, actor="candidate"),
+        record=record,
+        grounding=None,
+        snapshot=None,
+        llm_provider=None,
+    )
+    await db.commit()
+    await db.refresh(result.record)
+    return _to_response(result.record)
+
+
 async def record_availability(
     db: AsyncSession,
     *,

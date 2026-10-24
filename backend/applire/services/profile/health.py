@@ -146,6 +146,8 @@ def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
         summary=confirmation.question,
         field_ref=None,
         source_record_ref=confirmation.source or None,
+        # G-5 / #604 — the reader's language, not the English plain field.
+        question_i18n=confirmation.question_i18n or None,
     )
 
 

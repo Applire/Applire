@@ -104,6 +104,7 @@ from applire.services.profile.reconcile.ops import (
     ReplaceSection,
     SeparateMatch,
     ConfirmMatch,
+    WithdrawDenial,
     SetAvailability,
     DismissAvailabilityReminder,
     RequestConfirmation,
@@ -731,6 +732,10 @@ def apply_ops(
         elif isinstance(op, ConfirmMatch):
             # FS-6 (ruling V-4 = A) — the candidate's "Ja, dasselbe".
             _apply_confirm_match(op, new_profile, changes)
+        elif isinstance(op, WithdrawDenial):
+            # G-5 (ADR-059 amended 2026-10-24) — the explicit un-denial act.
+            # Receipts on the denial channel, never `changes`.
+            _apply_withdraw_denial(op.concept, new_profile, denials)
         elif isinstance(op, MatchExisting):
             # #707 (ADR-046 amended 2026-09-16) — the model's "already there":
             # a receipt on `matched`, never a change, never a write.
@@ -751,7 +756,8 @@ def apply_ops(
             new_profile = _apply_resolve_field(op, new_profile, changes)
         elif isinstance(op, ResolveConfirmation):
             _apply_resolve_confirmation(
-                op, new_profile, changes, not_applied, pending, resolve_any
+                op, new_profile, changes, not_applied, pending, resolve_any,
+                denials=denials,
             )
         elif isinstance(op, AddRole):
             # #480 PR 6 — the post-hire act. Un-adjudicated by design: see the
@@ -1626,6 +1632,7 @@ def _apply_resolve_confirmation(
     not_applied: list[ImportNotApplied],
     pending: list[RequestConfirmation],
     resolve_any: Callable[[str | None], Any | None],
+    denials: list[FieldChange] | None = None,
 ) -> None:
     """Record the chosen option, clear the parked ask, and — for the attribution
     family — WRITE what the answer places (design §4.5; ADR-063 am. 2026-09-18).
@@ -1698,6 +1705,19 @@ def _apply_resolve_confirmation(
             rationale_key="confirmation_resolved",
         )
     )
+
+    # ── G-5 — the denial-vs-CV item: its answer IS the un-denial act ─────────
+    # (ADR-059 amended 2026-10-24.) `cv_holds` — "the CV is right, take my
+    # earlier answer back" — withdraws exactly the denial the item names;
+    # `denial_holds` writes nothing (the floor already holds). The candidate's
+    # explicit choice on a question that names the denial is the confirmation
+    # cl. 3 requires; no model and no import ever reaches this branch.
+    context = entry.context or {}
+    if context.get("kind") == "denial_scope":
+        chosen = resolve_option_key(entry.model_dump(), op.chosen_option)
+        if chosen == "cv_holds" and denials is not None:
+            _apply_withdraw_denial(str(context.get("denial_concept") or ""), profile, denials)
+        return
 
     # ── Bug #723 — the attribution family's answer places its held content ───
     plan = plan_attribution_resolution(
@@ -1958,6 +1978,96 @@ def _apply_set_profile_meta(
             rationale_key="gap_marked_na",
         )
     )
+
+
+def _apply_withdraw_denial(
+    concept_text: str, profile: MasterProfileData, denials: list[FieldChange]
+) -> bool:
+    """G-5 — the candidate withdraws ONE denial (ADR-059 amended 2026-10-24,
+    building the 2026-07-26 un-denial act, cl. 1–4). See :class:`WithdrawDenial`.
+
+    * **one existing record, matched by ``ats_audit._norm``** (the normaliser
+      ``record_denials`` dedupes with); a miss is a no-op that returns False —
+      never containment, never a mint;
+    * **mark, don't erase:** the record moves verbatim to
+      ``metadata.withdrawn_denials`` with ``withdrawn_at``; the history reads
+      *denied at T1, withdrawn at T2*;
+    * **the skill comes back:** a vault skill at ``denied`` that the withdrawn
+      concept DECLARES (``declared_denial_matches`` — the demotion's own
+      emission rule) returns to ``confirmed``, the only status ``DemoteSkill``
+      demotes from — unless a REMAINING denial still declares it. This is the
+      one exit from ``denied`` (ADR-061 amended 2026-08-08); the commit's
+      persisted-status floor exempts exactly the skills receipted here.
+
+    Receipts land on ``denials`` (a statement about a denial, never
+    gap-addressing content — invariant 7)."""
+    from datetime import date as _date
+
+    from applire.schemas.profile import WithdrawnDenial
+    from applire.services.ats_audit import _norm as ats_norm
+    from applire.services.profile.reconcile.stance import declared_denial_matches
+
+    metadata = profile.metadata
+    if metadata is None:
+        return False
+    key = ats_norm(concept_text)
+    if not key:
+        return False
+    entry = next((d for d in metadata.denied_concepts if ats_norm(d.concept) == key), None)
+    if entry is None:
+        logger.info("apply_ops: withdraw_denial found no denial %r — no-op (G-5)", concept_text)
+        return False
+    today = _date.today().isoformat()
+    metadata.denied_concepts = [d for d in metadata.denied_concepts if d is not entry]
+    metadata.withdrawn_denials.append(
+        WithdrawnDenial(**entry.model_dump(), withdrawn_at=today)
+    )
+    denials.append(
+        FieldChange(
+            section="metadata",
+            field="denied_concepts",
+            action="removed",
+            old_value=entry.concept,
+            new_value=None,
+            rationale=f"Denial of '{entry.concept}' withdrawn by the candidate.",
+            rationale_key="denial_withdrawn",
+        )
+    )
+    remaining = [d.concept for d in metadata.denied_concepts if d.concept]
+    for skill in profile.skills:
+        if skill.status != "denied":
+            continue
+        if not declared_denial_matches(skill.name, [entry.concept]):
+            continue
+        if remaining and declared_denial_matches(skill.name, remaining):
+            continue
+        skill.status = "confirmed"
+        denials.append(
+            FieldChange(
+                section="skills",
+                field="status",
+                action="updated",
+                old_value="denied",
+                new_value="confirmed",
+                entity_id=getattr(skill, "id", None),
+                rationale=(
+                    f"{skill.name} counts again: the candidate withdrew the denial "
+                    f"of '{entry.concept}' that had retracted it."
+                ),
+                rationale_key="denial_withdrawn_skill",
+            )
+        )
+    return True
+
+
+def withdrawn_skill_ids(receipts: list[FieldChange]) -> set[str]:
+    """The skill ids a WithdrawDenial released in this batch — the ONE input the
+    commit's persisted-``denied`` floor exempts (G-5)."""
+    return {
+        c.entity_id
+        for c in receipts
+        if c.section == "skills" and c.rationale_key == "denial_withdrawn_skill" and c.entity_id
+    }
 
 
 def _apply_mark_probe_asked(

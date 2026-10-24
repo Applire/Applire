@@ -1433,6 +1433,19 @@ class DeniedConcept(BaseModel):
     probe_asked: bool = False
 
 
+class WithdrawnDenial(DeniedConcept):
+    """G-5 (Hazelnut build 4; ADR-059 amended 2026-10-24, building the
+    2026-07-26 un-denial act) — a denial the CANDIDATE withdrew. The record
+    moves here verbatim from ``denied_concepts`` (concept, statement, source,
+    date, level, probe flag stay the candidate's original testimony) and gains
+    the day it was withdrawn: mark, don't erase (cl. 4). Nothing reads this list
+    as a denial, so every floor, the letter's STATED LIMIT block and the Oracle
+    stop seeing it without a reader change. Only ``reconcile.apply.
+    _apply_withdraw_denial`` writes it."""
+
+    withdrawn_at: str  # ISO date (YYYY-MM-DD)
+
+
 def render_localized_confirmation(
     *,
     question: str,
@@ -1534,6 +1547,9 @@ class ProfileMetadata(BaseModel):
     # later analyze_gaps run cannot re-infer the denied concept via adjacency
     # (the ledger's deterministic override, services.keyword_ledger, reads this).
     denied_concepts: list[DeniedConcept] = Field(default_factory=list)
+    # G-5 (ADR-059 amended 2026-10-24) — denials the candidate withdrew; the
+    # history of a denial is never erased. See :class:`WithdrawnDenial`.
+    withdrawn_denials: list[WithdrawnDenial] = Field(default_factory=list)
 
 
 class ProfileMetaBlock(BaseModel):
@@ -2077,6 +2093,15 @@ class StagedResolveResponse(BaseModel):
     not_applied_loss_count: int | None = None
 
 
+class WithdrawDenialRequest(BaseModel):
+    """G-5 (ADR-059 amended 2026-10-24) — the denial the candidate withdraws,
+    named exactly as My Profile lists it (``metadata.denied_concepts[].concept``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    concept: str = Field(min_length=1, max_length=500)
+
+
 class SeparateMatchRequest(BaseModel):
     """#717 — "Nicht dasselbe": the recognised pair to undo, named as the
     import summary shows it (ADR-063 amended 2026-10-07, ruling V-2 = A)."""
@@ -2235,6 +2260,11 @@ class HealthIssue(BaseModel):
     #: FS-5 — ``suspect_binding`` only: the name the import combined INTO
     #: ``skill_name`` (the receipt's ``incoming``).
     incoming_name: str | None = None
+    #: G-5 / #604 — ``confirmation`` only: the parked question per language
+    #: (``PendingConfirmation.question_i18n``), so the panel asks it in the
+    #: reader's language instead of the English ``summary``. Null for a record
+    #: persisted before #669.
+    question_i18n: dict[str, str] | None = None
     span_years: int | None = None
     recomputed_years: int | None = None
 

@@ -60,9 +60,10 @@ integration test asserting the write survives the request.
 
 **What this module deliberately does NOT do yet:**
 
-* RELEASE a denial — the ADR-059 un-denial correction act is unbuilt and the
-  seam is reserved with a raise (:data:`UN_DENIAL_INTAKE`, #506); until it
-  lands, a denial floored here is permanent;
+* RELEASE a denial on its own — only the candidate's explicit un-denial act
+  does (ADR-059 amended 2026-10-24, G-5): a `WithdrawDenial` batch through
+  :data:`UN_DENIAL_INTAKE`, or the `cv_holds` answer to a parked item; every
+  other write keeps every floor;
 * snapshot coverage beyond the two import writers — `snapshot=MERGE` is real
   since PR 2, but widening it to any other intake stays BLOCKED (ADR-063
   amendment (5) / #339);
@@ -238,10 +239,10 @@ def _log_embedding_staleness_once() -> None:
     )
 
 
-#: The intake name reserved for the ADR-059 explicit un-denial correction act
-#: (2026-07-26 amendment, scheduled for the Finetuner release as #506). Naming
-#: it here is the whole point: the seam a future act will need is visible and
-#: RESERVED, so nobody quietly routes a release through an ordinary commit.
+#: The intake of the ADR-059 explicit un-denial correction act (2026-07-26
+#: amendment, #506; BUILT 2026-10-24, G-5). It carries `WithdrawDenial` ops and
+#: nothing else, and a `WithdrawDenial` travels through no other intake — so
+#: nobody routes a release through an ordinary commit.
 UN_DENIAL_INTAKE = "un_denial"
 
 
@@ -358,8 +359,10 @@ def _refloor_persisted_denials(profile: MasterProfileData) -> list[FieldChange]:
     considered and rejected: a state with no testimony behind it is #486's own
     error one level down.
 
-    **Release: none** (§3.4). Nothing here deletes a `DeniedConcept`, un-demotes
-    or consults an affirmation predicate — see :data:`UN_DENIAL_INTAKE`.
+    **Release: none here** (§3.4). Nothing here deletes a `DeniedConcept`,
+    un-demotes or consults an affirmation predicate. The one release is the
+    candidate's `WithdrawDenial` (:data:`UN_DENIAL_INTAKE`, G-5), which removes
+    the record BEFORE this runs.
 
     Mutates `profile` in place (through the shared applier) and returns the
     receipts, which the caller keeps OFF `changes` per invariant 7.
@@ -433,7 +436,9 @@ def _refuse_stale_basis(ops: Sequence[CommitOp], record: MasterProfile) -> None:
 
 
 def _refloor_persisted_denied_status(
-    profile: MasterProfileData, record: MasterProfile
+    profile: MasterProfileData,
+    record: MasterProfile,
+    released: set[str] | frozenset[str] = frozenset(),
 ) -> list[FieldChange]:
     """Invariant 2, second half (E055 / JF-F-H2.1, adversarial finding
     2026-08-26): a vault skill that is PERSISTED as ``denied`` stays denied
@@ -459,6 +464,10 @@ def _refloor_persisted_denied_status(
     receipts: list[FieldChange] = []
     for skill in profile.skills:
         if skill.status == "denied":
+            continue
+        if skill.id in released:
+            # G-5 (ADR-059 amended 2026-10-24) — released by THIS batch's
+            # explicit un-denial act (`WithdrawDenial`), the one exit.
             continue
         if skill.id in denied_ids or skill.name.casefold().strip() in denied_names:
             # Per ENTRY, not via the name-keyed demote applier: that one
@@ -582,27 +591,34 @@ async def commit_ops(
 
     Raises:
         NotImplementedError: an unhandled `SnapshotClass`, or an
-            `UN_DENIAL_INTAKE` intake — the reserved release seam (§3.4).
+            `UN_DENIAL_INTAKE` batch that is not purely `WithdrawDenial`, or a
+            `WithdrawDenial` outside that intake (G-5, ADR-059 amended 2026-10-24).
     """
     # Lazy: applire.services.profile imports this package's siblings.
     from applire.services.profile import _compute_embedding, _get_latest
     from applire.services.profile.snapshots import capture_pre_merge_snapshot
 
+    # G-5 (ADR-059 amended 2026-10-24) — the reserved seam is OPEN, for exactly
+    # one act: the un-denial intake carries `WithdrawDenial` ops and nothing
+    # else, and a `WithdrawDenial` arrives through no other intake. Refused
+    # before anything is read or written, so no half of a mixed batch lands.
+    # (The second sanctioned route — the candidate's `cv_holds` answer to a
+    # parked "Stimmt deine frühere Angabe noch?" item — runs inside the
+    # adapter-only `ResolveConfirmation` and never reaches this check.)
+    from applire.services.profile.reconcile.ops import WithdrawDenial
+
+    withdraws = [op for op in ops if isinstance(op, WithdrawDenial)]
     if provenance.intake == UN_DENIAL_INTAKE:
-        # ADR-059 §3.4, the RESERVED seam — refused before anything is read or
-        # written, so no half of an un-denial can land. `commit_ops` never
-        # deletes a `DeniedConcept`, never un-demotes, and never consults an
-        # affirmation predicate to release one: the 2026-07-26 explicit
-        # un-denial correction act is the only release path, and it is unbuilt.
-        # Until it lands, a denial floored at this seam is PERMANENT — the
-        # honest description, stated rather than discovered.
+        if not ops or len(withdraws) != len(ops) or grounding is not None:
+            raise NotImplementedError(
+                "the un-denial intake carries WithdrawDenial ops only (ADR-059 "
+                "amended 2026-10-24, building #506's explicit correction act); "
+                "an ordinary write may never ride it."
+            )
+    elif withdraws:
         raise NotImplementedError(
-            "commit_ops has no un-denial path: releasing a persisted denial "
-            "requires the explicit, confirmed, receipted correction act of "
-            "ADR-059 (amended 2026-07-26), which is scheduled for the "
-            "Finetuner release as #506. The seam is reserved here so that "
-            "nobody routes a release through an ordinary write in the "
-            "meantime. Failing loudly rather than silently not releasing."
+            "WithdrawDenial is the candidate's explicit un-denial act and travels "
+            "only through the un-denial intake (ADR-059 amended 2026-10-24)."
         )
 
     if snapshot is not None and snapshot is not SnapshotClass.MERGE:  # pragma: no cover
@@ -727,7 +743,14 @@ async def commit_ops(
     # It runs HERE, after the ops land and before the assignment, so it sees the
     # post-op profile including the denial `record_denials` just wrote above.
     refloored = _refloor_persisted_denials(profile)
-    refloored += _refloor_persisted_denied_status(profile, record)
+    # G-5 — the one exit from `denied`: a skill this batch's WithdrawDenial
+    # released (receipted on the denial channel) is exempt from the
+    # persisted-status floor; every other skill is floored as before.
+    from applire.services.profile.reconcile.apply import withdrawn_skill_ids
+
+    refloored += _refloor_persisted_denied_status(
+        profile, record, released=withdrawn_skill_ids(denial_changes)
+    )
 
     # ── Invariant 6 — deterministic skill enrichment (policy-gated) ──────────
     # `enrich_skills` IS the deterministic pass plus the LLM estimate for the

@@ -63,3 +63,22 @@ describe("HealthPanel — suspect_binding (FS-5)", () => {
     expect(onResolve).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("HealthPanel — confirmation in the reader's language (G-5 / #604)", () => {
+  it("renders question_i18n for the locale, the English summary only as fallback", () => {
+    const health: ProfileHealth = {
+      issues: [
+        {
+          id: "confirmation:c1",
+          thread: "confirmation",
+          profile_mismatch_severity: "review",
+          summary: "Is your earlier answer still right?",
+          question_i18n: { de: "Stimmt deine frühere Angabe noch?", en: "Is your earlier answer still right?" },
+        },
+      ],
+      completeness: { score: 1, gaps: [], field_gaps: [] },
+    };
+    render(withIntl(<HealthPanel health={health} onResolve={vi.fn()} />, "de"));
+    expect(screen.getByTestId("health-issue-summary").textContent).toBe("Stimmt deine frühere Angabe noch?");
+  });
+});

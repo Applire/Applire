@@ -105,7 +105,9 @@ def _raw_facts(change: FieldChange, profile: MasterProfileData) -> Iterable[Rece
     section, field = change.section, change.field
     if section == "metadata":
         if field == "denied_concepts":
-            for text in _items(change.new_value):
+            # G-5 — a withdrawn denial names its concept on `old_value`.
+            value = change.old_value if change.action == "removed" else change.new_value
+            for text in _items(value):
                 yield ReceiptFact(key="", section="limits", kind="limit", action=change.action, text=text)
         return  # every other metadata change is bookkeeping, not a fact
     if section == "signature_stories":

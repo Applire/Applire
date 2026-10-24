@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { useState, type ReactNode } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -93,6 +93,9 @@ export interface HealthIssue {
   // FS-5 — the name the document used for a `suspect_binding` pair; the
   // target's name is `skill_name`, its id `skill_id`.
   incoming_name?: string | null;
+  // G-5 / #604 — a `confirmation` issue's question per language; the panel
+  // renders the reader's own instead of the English `summary`.
+  question_i18n?: Record<string, string> | null;
 }
 
 export interface ProfileHealth {
@@ -306,6 +309,7 @@ function IssueCard({
   const tProfile = useTranslations("profile");
   const tSpan = useTranslations("profileHealth.launderedSpan");
   const [recomputing, setRecomputing] = useState(false);
+  const locale = useLocale();
   const [answering, setAnswering] = useState(false);
   const [answerFailed, setAnswerFailed] = useState(false);
   const conflict = describeConflictIssue(issue, t, tProfile);
@@ -377,7 +381,9 @@ function IssueCard({
           fixing `confirmation` needs a backend change too
           (`HealthIssue` carries no `question_i18n`/`options_i18n` for it, only
           `not_applied` got that treatment), which is why it is deferred
-          alongside `accuracy` rather than built here. */}
+          alongside `accuracy` rather than built here.
+          G-5 (Hazelnut build 4): `confirmation` now carries `question_i18n`
+          and renders the reader's language; `accuracy` still falls through. */}
       {conflict ? (
         <div data-testid="health-issue-conflict">
           <p className="text-sm font-medium text-neutral-dark">{conflict.heading}</p>
@@ -414,7 +420,9 @@ function IssueCard({
             ? t("unitBudgetIssue", { entry: issue.source_record_ref ?? "" })
             : issue.thread === "not_applied"
               ? describeNotApplied(issue, t, tProfile)
-              : issue.summary}
+              : issue.thread === "confirmation" && issue.question_i18n?.[locale]
+                ? issue.question_i18n[locale]
+                : issue.summary}
         </p>
       )}
       <div className="mt-2 flex justify-end gap-2">

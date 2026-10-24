@@ -32,6 +32,11 @@ import { SignatureManager } from "@/components/profile/SignatureManager";
 import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
 import { ProfileImportView } from "@/components/profile/ProfileImportView";
 import { ImportSummaryCard } from "@/components/profile/ImportSummaryCard";
+import {
+  DeniedConceptsCard,
+  type DeniedConceptItem,
+  type WithdrawnDenialItem,
+} from "@/components/profile/DeniedConceptsCard";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import { HealthPanel, type ProfileHealth, type HealthIssue } from "@/components/profile/HealthPanel";
@@ -144,6 +149,11 @@ interface ProfileResponse {
     signature_stories?: Array<Record<string, unknown>>;
     // D-B3V7 (rulings 787:L3 + V-4) — notice period / earliest start.
     availability?: AvailabilityValue | null;
+    // G-5 (ADR-059 amended 2026-10-24) — the denials My Profile lists.
+    metadata?: {
+      denied_concepts?: DeniedConceptItem[];
+      withdrawn_denials?: WithdrawnDenialItem[];
+    };
   };
   completeness: number;
   // D-B3V7 (ruling V-4) — the dashboard reminder's condition.
@@ -835,6 +845,15 @@ export default function ProfilePage() {
               </Card>
             );
           })}
+
+          {/* G-5 (ADR-059 amended 2026-10-24) — every denial, with "Zurücknehmen". */}
+          {profile && (
+            <DeniedConceptsCard
+              denied={profile.profile.metadata?.denied_concepts ?? []}
+              withdrawn={profile.profile.metadata?.withdrawn_denials ?? []}
+              onWithdrawn={loadProfile}
+            />
+          )}
 
           {/* R2-8 (9) (ruling V-2 = A) — "See what was combined" lands on the
               last import's summary (#import-summary); the Enrichment History
