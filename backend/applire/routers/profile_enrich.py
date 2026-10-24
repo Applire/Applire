@@ -50,7 +50,12 @@ from applire.services.interview_graph import (
 from applire.services.profile.commit import CommitProvenance, commit_ops
 from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
 from applire.services.profile.reconcile.ops import SetProfileMeta
-from applire.services.session import _to_confirmation_prompts, get_ui_language
+from applire.exceptions import ReconcileFailedError
+from applire.services.session import (
+    _to_confirmation_prompts,
+    answer_not_saved_detail,
+    get_ui_language,
+)
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
 
@@ -351,16 +356,27 @@ async def respond_to_enrich(
     # an ADR-059 receipt the LLM call had already paid for. #338 widened the
     # gate to `addressed or denial_recorded`; the committer removes the gate,
     # so a turn that produced neither still leaves a trail saying it happened.
-    turn = await reconcile_interview_turn(
-        db,
-        profile_record=profile_record,
-        gap=current_gap,
-        question=current_question,
-        answer=answer,
-        provider=provider,
-        session_id=str(session_id),
-        lang=lang,
-    )
+    try:
+        turn = await reconcile_interview_turn(
+            db,
+            profile_record=profile_record,
+            gap=current_gap,
+            question=current_question,
+            answer=answer,
+            provider=provider,
+            session_id=str(session_id),
+            lang=lang,
+        )
+    except ReconcileFailedError:
+        # R2-13 (P-1) — the answer was NOT merged: no next question, nothing
+        # committed, the optimistic transcript append undone in place (the
+        # list is shared with `session.state`). The UI keeps the text.
+        if state["messages"] and state["messages"][-1] == {"role": "user", "content": answer}:
+            state["messages"].pop()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=answer_not_saved_detail(),
+        )
     updated_profile_data = turn.profile_dict
 
     # Mark gap addressed if the reconciler applied at least one change.

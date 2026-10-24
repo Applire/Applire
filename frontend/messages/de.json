@@ -1326,6 +1326,7 @@
     "http503": "Dienst vorübergehend ausgelastet. Bitte warte und versuche es erneut.",
     "http502": "Verarbeitungsfehler. Bitte versuche ein anderes Format.",
     "providerUnavailable": "Der KI-Anbieter ist vorübergehend nicht erreichbar. Bitte warte und versuche es erneut.",
+    "answerNotSaved": "Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden.",
     "generic": "Ein Fehler ist aufgetreten ({status}). Bitte versuche es erneut."
   },
   "enrich": {

@@ -231,6 +231,19 @@ interface ApiErrorInfo {
   code?: string;
 }
 
+/** R2-13 — the backend's `error_code` for a turn whose answer was not saved. */
+const ANSWER_NOT_SAVED = "answer_not_saved";
+
+/** A failed turn carrying its parsed error, so the catch below can tell
+ * "not saved — the text goes back into the composer" from any other failure. */
+class TurnError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 async function parseApiError(res: Response): Promise<ApiErrorInfo> {
   let code: string | undefined;
   try {
@@ -247,6 +260,9 @@ async function parseApiError(res: Response): Promise<ApiErrorInfo> {
 
 function translateError(info: ApiErrorInfo, t: ReturnType<typeof useTranslations>): string {
   if (info.code === "provider_unavailable") return t("providerUnavailable");
+  // R2-13 (P-1) — the answer reached the server but could not be merged into
+  // the profile; nothing was saved and no follow-up was asked.
+  if (info.code === ANSWER_NOT_SAVED) return t("answerNotSaved");
   switch (info.status) {
     case 504: return t("http504");
     case 503: return t("http503");
@@ -747,7 +763,7 @@ export default function InterviewPage({
       });
       if (!res.ok) {
         const info = await parseApiError(res);
-        throw new Error(translateError(info, tErrors));
+        throw new TurnError(translateError(info, tErrors), info.code);
       }
       const data: MessageResponse = await res.json();
 
@@ -830,7 +846,17 @@ export default function InterviewPage({
       // safe to resend as-is. Drop the optimistic user bubble the retry will
       // re-add, rather than leaving a duplicate once it succeeds.
       setMessages((prev) => (prev.at(-1)?.role === "user" ? prev.slice(0, -1) : prev));
-      setRetryMessage(userMsg);
+      if (e instanceof TurnError && e.code === ANSWER_NOT_SAVED) {
+        // R2-13 (P-1) — "not saved" is not "changed nothing": the answer goes
+        // back into the composer, word for word, and the candidate sends it
+        // again (no follow-up was asked; the question on screen still stands).
+        // An edit the candidate typed meanwhile is never overwritten.
+        setAnswer((current) => (current.trim() ? current : userMsg));
+        setRetryMessage(null);
+        textareaRef.current?.focus();
+      } else {
+        setRetryMessage(userMsg);
+      }
       setError(e instanceof Error ? e.message : tErrors("failedToStart"));
     } finally {
       setSending(false);
@@ -1162,7 +1188,11 @@ export default function InterviewPage({
               guarantees a failed turn never partially commits, so this is
               always safe — see the interview service's resumability tests). */}
           {error && (
-            <div className="mb-3 px-3 py-2 rounded-lg bg-critical/10 border border-critical/20 flex items-center justify-between gap-3">
+            <div
+              data-testid="turn-error"
+              role="alert"
+              className="mb-3 px-3 py-2 rounded-lg bg-critical/10 border border-critical/20 flex items-center justify-between gap-3"
+            >
               <p className="text-sm text-critical">{error}</p>
               {retryMessage && (
                 <Button

@@ -31,6 +31,7 @@ from applire.exceptions import (
     LLMRateLimitError,
     LLMTimeoutError,
     LLMTruncatedError,
+    ReconcileFailedError,
 )
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
@@ -45,6 +46,7 @@ from applire.schemas.session import (
 from applire.services.gap import analyze_gaps_for_session
 from applire.services.job import get_job_for_user
 from applire.services.session import (
+    answer_not_saved_detail,
     GapNotAskableError,
     create_profile_review_session,
     create_session,
@@ -234,6 +236,14 @@ async def post_message(
     try:
         return await send_message(
             session_id, body.message.strip(), db, provider, user_id=user.id
+        )
+    except ReconcileFailedError:
+        # R2-13 — "not saved" is distinct from "changed nothing": the turn
+        # raised before its single commit, so nothing persisted and no
+        # follow-up was generated. 503 = retry the same message.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=answer_not_saved_detail(),
         )
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))

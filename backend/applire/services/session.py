@@ -48,6 +48,7 @@ from applire.constants import (
     INTERVIEW_TARGET_MIN_TARGETED,
     MODE_B_COMPLETENESS_THRESHOLD,
 )
+from applire.exceptions import ReconcileFailedError
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.utils.language_detection import resolve_jd_language
@@ -3360,6 +3361,19 @@ async def _upgrade_ledger_for_addressed_gap(
         gap.keyword_ledger = new_ledger
 
 
+def answer_not_saved_detail() -> dict:
+    """R2-13 (P-1, Hazelnut build 4) — the reconcile step failed after its
+    retry, so the candidate's answer was NOT merged and no follow-up was asked.
+    A structured body, never the provider text: the UI maps ``error_code`` to
+    its own copy and keeps the answer in the composer; the turn committed
+    nothing, so the same message can be resent unchanged."""
+    return {
+        "error_code": "answer_not_saved",
+        "turn_state": "not_saved",
+        "message": "Your answer could not be saved. Please send it again.",
+    }
+
+
 async def send_message(
     session_id: uuid.UUID,
     message: str,
@@ -3483,16 +3497,37 @@ async def _send_message_turn(
     # and never commits, so the vault write and the `session.state` writes below
     # stay ONE unit — and this function's own `db.commit()` is load-bearing:
     # dropping it is a silent no-write.
-    turn = await reconcile_interview_turn(
-        db,
-        profile_record=profile_record,
-        gap=cluster_label,
-        question=current_question,
-        answer=message,
-        provider=provider,
-        session_id=str(record.id),
-        lang=lang,
-    )
+    try:
+        turn = await reconcile_interview_turn(
+            db,
+            profile_record=profile_record,
+            gap=cluster_label,
+            question=current_question,
+            answer=message,
+            provider=provider,
+            session_id=str(record.id),
+            lang=lang,
+        )
+    except ReconcileFailedError:
+        # R2-13 (P-1, Hazelnut build 4) — the reconcile call failed after its
+        # retry: the answer was NOT merged. Before build 4 the engine returned
+        # an empty result here, the turn read as "the answer changed nothing",
+        # and the branch below asked a follow-up — the candidate moved on
+        # believing the answer was kept (founder UAT 2026-10-23). Now the turn
+        # is "not saved": no follow-up is generated, nothing is committed (the
+        # engine raises before `commit_ops`, and this function's single commit
+        # is never reached), and the door answers `answer_not_saved` so the UI
+        # keeps the text in the composer. `state["messages"]` shares its list
+        # with `record.state` (a shallow copy above), so the optimistic append
+        # is undone in place — a later commit on this db session (the agent
+        # door reuses it) must not persist an answer the vault never saw.
+        if state["messages"] and state["messages"][-1] == {"role": "user", "content": message}:
+            state["messages"].pop()
+        logger.warning(
+            "interview turn not saved: reconcile failed (session=%s, gap=%s)",
+            record.id, current_gap,
+        )
+        raise
     conflict_summaries = turn.conflict_summaries
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict

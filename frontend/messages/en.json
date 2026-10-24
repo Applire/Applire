@@ -1326,6 +1326,7 @@
     "http503": "Service temporarily busy. Please wait and retry.",
     "http502": "Processing error. Please try a different format.",
     "providerUnavailable": "The AI provider is temporarily unavailable. Please wait and retry.",
+    "answerNotSaved": "Your answer could not be saved — please send it again.",
     "generic": "An error occurred ({status}). Please try again."
   },
   "enrich": {
