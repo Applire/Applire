@@ -118,6 +118,9 @@ export function DossierDocumentsZone({
   function failedCvMessage(errorCode: string | null | undefined): string {
     if (errorCode === "llm_truncated") return tCv("generationFailedTruncated");
     if (errorCode === "llm_timeout") return tCv("generationFailedTimeout");
+    // 789:192 (B4-8): the writer call's provider outage (MD3-2) has its own
+    // retryable copy — it fell through to the generic "Generation failed."
+    if (errorCode === "provider_unavailable") return tCv("generationFailedUnavailable");
     return tCv("generationFailed");
   }
 
