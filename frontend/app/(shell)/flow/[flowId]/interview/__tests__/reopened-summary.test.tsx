@@ -66,6 +66,17 @@ describe("783:195 — reopening the interview summary", () => {
     expect(mockPush).toHaveBeenCalledWith("/flow/f1/cv");
   });
 
+  it("a flow past the interview WITHOUT a finished session goes to the flow index, starting nothing", async () => {
+    const fetchMock = api({ current_step: "cv_generation", interview_summary: null });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/flow/f1"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("reopened-summary-screen")).not.toBeInTheDocument();
+  });
+
   it("the rule: only a complete session on a flow past the interview step", () => {
     const done = { session_id: "s", status: "complete" };
     expect(reopenedSummarySessionId({ current_step: "cv_generation", interview_summary: done })).toBe("s");

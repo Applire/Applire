@@ -33,7 +33,7 @@ import { describeConflict } from "@/lib/conflict-display";
 import { Archive, Check, Clock, Contrast, HelpCircle, Lock, Square } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
-import { reopenedSummarySessionId } from "@/components/interview/reopened-summary";
+import { isPastInterview, reopenedSummarySessionId } from "@/components/interview/reopened-summary";
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
 import { markSeenThisSession, seenThisSession } from "@/lib/session-once";
@@ -631,6 +631,12 @@ export default function InterviewPage({
       const reopened = reopenedSummarySessionId(fs);
       if (reopened) {
         setReopenedSessionId(reopened);
+        return;
+      }
+      if (isPastInterview(fs)) {
+        // Skipped interview (no complete session): nothing to show and nothing
+        // to start — the flow index routes onward, as the layout guard did.
+        router.replace(`/flow/${flowId}`);
         return;
       }
 

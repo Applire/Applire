@@ -12,8 +12,12 @@ export interface ReopenFlowState {
   interview_summary?: { session_id: string; status?: string } | null;
 }
 
+export function isPastInterview(fs: ReopenFlowState): boolean {
+  return fs.current_step === "cv_generation" || fs.current_step === "complete";
+}
+
 export function reopenedSummarySessionId(fs: ReopenFlowState): string | null {
   const s = fs.interview_summary;
   if (!s || s.status !== "complete" || !s.session_id) return null;
-  return fs.current_step === "cv_generation" || fs.current_step === "complete" ? s.session_id : null;
+  return isPastInterview(fs) ? s.session_id : null;
 }

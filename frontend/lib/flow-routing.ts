@@ -42,6 +42,14 @@ const SIDE_ROUTES = new Set(["cover-letter"]);
 const GAP_VIEW_REVISIT_STEPS = new Set(["gap_analysis", "interview", "cv_generation", "complete"]);
 
 /**
+ * 783:195 (Hazelnut build 4): once the flow is past the interview, the
+ * interview route is a revisit route too — the page shows the finished
+ * session's summary, or sends a flow without one (skipped interview) back to
+ * the flow index itself, without starting a session.
+ */
+const INTERVIEW_REVISIT_STEPS = new Set(["cv_generation", "complete"]);
+
+/**
  * Normalises a URL segment to the flow step it should highlight in the stepper.
  * The cover-letter side route is a sub-artifact of the CV result screen, so it
  * lights the same 'cv_generation' node ("4 Lebenslauf") — otherwise the
@@ -74,6 +82,7 @@ export function resolveFlowRedirect(
   if (currentSegment === expectedSegment) return null;
   if (SIDE_ROUTES.has(currentSegment)) return null;
   if (currentSegment === "gaps" && GAP_VIEW_REVISIT_STEPS.has(currentStep)) return null;
+  if (currentSegment === "interview" && INTERVIEW_REVISIT_STEPS.has(currentStep)) return null;
 
   return expectedSegment ? `${base}/${expectedSegment}` : base;
 }
