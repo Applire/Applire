@@ -308,6 +308,19 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   4/5 and 3/5. The two other captures were 0/5 on every arm including today's (both
   were id slips, not related-skill judgements), and W1/W2 each lost the languages in
   2/5 stress runs (0/5 on today's). No wording dropped the rate on every case.
+* **25,383 (Hazelnut build 4 WP-V, 2026-10-24, R2-4).** Rule 7 gains the
+  concurrent-role clause (+803 chars): a role held ALONGSIDE the existing one at
+  the same employer is neither a synonym nor a promotion — target the existing
+  entry, ``role`` = the additional title, ``start_date`` = when IT began, never
+  the promotion question. Why: the UX audit's second concurrent role (round-2 log
+  rec 208, "Since September 2026 I've also been tech lead …") echoed the held
+  title, so no alias was written; rule 7 named synonyms and promotions only (B).
+  *Measured* (luna, thinking off, captured input, n=5): rec 208 alias 0/5 → 5/5
+  (all with start 2026-09; an intermediate wording without the worked example
+  reached 4/5); rec 199 5/5 → 5/5 (2026-08); held-out promotion still asks 4/5
+  (base 4/5); held-out synonym alias without a date 5/5 (base 5/5). The applier
+  records the date (``WorkEntry.dated_role_aliases``, ADR-013 note 2026-10-24).
+  Records: ``Documents/Runs/Hazelnut/build-4/v/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -587,6 +600,17 @@ Operations:
    not apply to it at all, whatever its dates: it IS the existing entry, target
    its `id` as usual (differing dates are rule 5's flag_conflict, never this
    question).
+   An ADDITIONAL role held ALONGSIDE the existing one at the same employer
+   ("also", "alongside my role", "zusätzlich", "neben meiner Rolle als ...")
+   is neither a synonym nor a promotion — the existing position goes on, so
+   never ask the promotion question for it. Emit upsert_work with "target" =
+   the existing entry's `id`, "role" = the ADDITIONAL title as stated (never
+   the existing title again, never left out) and "start_date" = when the
+   ADDITIONAL role began (never the existing entry's start date). Its duties go
+   in add_bullets on that same entry. Example: "Since September 2026 I've
+   also been tech lead of the X workstream" -> {"op": "upsert_work", "ref":
+   "w1", "target": <id>, "company": <employer>, "role": "tech lead of the X
+   workstream", "start_date": "2026-09"}.
 
 8. CURRENT POSITION. When the new information states that a role is ongoing /
    current ("this is my current position", "I still work there", "bis heute",

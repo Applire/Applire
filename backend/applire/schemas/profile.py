@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 import re
 from datetime import date, datetime, timezone
@@ -254,6 +255,19 @@ class ExperienceBase(BaseModel):
         return ""
 
 
+class DatedRoleAlias(BaseModel):
+    """R2-4 (Hazelnut build 4, ADR-013 note 2026-10-24) — an ADDITIONAL role
+    the candidate holds at this employer since a stated date ("also workstream
+    lead for X since 2026-08"). The role text is also in ``role_aliases``
+    (ADR-013 rule 1); this record adds WHEN it began and which bullets the same
+    write placed first for it, so the profile can show "auch <Rolle> seit
+    <Datum>" at the top of the entry."""
+
+    role: str
+    since: str
+    bullets: list[str] = Field(default_factory=list)
+
+
 class WorkEntry(ExperienceBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company: str = ""
@@ -283,9 +297,46 @@ class WorkEntry(ExperienceBase):
     def _coerce_company_aliases(cls, v: object) -> list:
         return _coerce_alias_list(v)
 
+    # R2-4 (Hazelnut build 4) — see DatedRoleAlias. Omitted while empty, like
+    # company_aliases, so a profile without one dumps byte-identically.
+    dated_role_aliases: list[DatedRoleAlias] = Field(default_factory=list)
+
+    @field_validator("dated_role_aliases", mode="before")
+    @classmethod
+    def _coerce_dated_role_aliases(cls, v: object) -> list:
+        # A malformed record must never reject the whole profile on load.
+        if not isinstance(v, list):
+            return []
+        return [
+            a for a in v
+            if isinstance(a, DatedRoleAlias)
+            or (
+                isinstance(a, dict)
+                and isinstance(a.get("role"), str) and a["role"].strip()
+                and isinstance(a.get("since"), str) and a["since"].strip()
+            )
+        ]
+
+    @model_validator(mode="after")
+    def _dated_alias_needs_its_alias(self) -> "WorkEntry":
+        # R2-4 — a dated record describes a role alias; removing the alias
+        # (the chip / line ✕, any door) removes its date with it.
+        if self.dated_role_aliases:
+            names = {
+                unicodedata.normalize("NFC", a).strip().casefold()
+                for a in self.role_aliases if isinstance(a, str)
+            }
+            self.dated_role_aliases = [
+                d for d in self.dated_role_aliases
+                if unicodedata.normalize("NFC", d.role).strip().casefold() in names
+            ]
+        return self
+
     @model_serializer(mode="wrap")
     def _omit_empty_company_aliases(self, handler: Any) -> Any:
-        return _omit_empty_alias_lists(handler(self), ("company_aliases",))
+        return _omit_empty_alias_lists(
+            handler(self), ("company_aliases", "dated_role_aliases")
+        )
 
     industry_context: str | None = None
     team_size: int | None = None

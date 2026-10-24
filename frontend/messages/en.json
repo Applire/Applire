@@ -2474,7 +2474,10 @@
     "label": "Also known as",
     "remove": "Remove “{alias}” as an alternate name",
     "removeFailed": "Removing did not work. Please try again.",
-    "labelFor": "{name} — also known as"
+    "labelFor": "{name} — also known as",
+    "alsoTag": "also",
+    "alsoSince": "<b>{role}</b> since {date}",
+    "since": "since {date}"
   },
   "reviewSignals": {
     "verdictClearCrossReadUnknown": "Every statement in the document is covered by your profile. Whether the cover letter and the CV agree was not checked — read them side by side before you send.",

@@ -58,6 +58,7 @@ from applire.schemas.profile import (
     USER_MANAGED_PERSONAL_INFO_FIELDS,
     VAULT_SECTIONS,
     VolunteerActivity,
+    DatedRoleAlias,
     WorkEntry,
     normalise_partial_date,
     ExtractionReview,
@@ -564,6 +565,9 @@ def apply_ops(
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
     ref_map: dict[str, ExperienceBase] = {}
+    # R2-4 — id(entry) → the DatedRoleAlias THIS batch recorded on it, so the
+    # same batch's add_bullets for that entry go first and are named on it.
+    dated_aliases: dict[int, Any] = {}
 
     def resolve(handle: str | None) -> ExperienceBase | None:
         """Resolve a target/parent/evidence handle to an entity, or None."""
@@ -641,6 +645,7 @@ def apply_ops(
             _apply_upsert_work(
                 op, new_profile, ref_map, changes, pending, source,
                 conflicts, user_confirmed_engagement, matched=matched,
+                dated_aliases=dated_aliases,
             )
         elif isinstance(op, UpsertProject):
             _apply_upsert_project(
@@ -653,7 +658,9 @@ def apply_ops(
                 conflicts, user_confirmed_engagement, matched=matched,
             )
         elif isinstance(op, AddBullets):
-            _apply_add_bullets(op, resolve, changes, pending, not_applied)
+            _apply_add_bullets(
+                op, resolve, changes, pending, not_applied, dated_aliases=dated_aliases
+            )
         elif isinstance(op, UpsertSkill):
             # #480 PR 7 — the bypass is keyed to the skill the candidate
             # actually answered about, so an answered confirmation can never
@@ -1295,10 +1302,16 @@ def _keep_alias_subset(section: str, before: Any, after: Any) -> Any:
     if not alias_fields or not isinstance(after, list):
         return after
     held: dict[str, dict[str, set[str]]] = {}
+    dated_held: dict[str, set[tuple[str, str]]] = {}
     for entry in before or []:
         if isinstance(entry, dict) and entry.get("id"):
             held[str(entry["id"])] = {
                 f: {_norm(a) for a in (entry.get(f) or []) if isinstance(a, str)} for f in alias_fields
+            }
+            dated_held[str(entry["id"])] = {
+                (_norm(d.get("role")), str(d.get("since") or ""))
+                for d in (entry.get("dated_role_aliases") or [])
+                if isinstance(d, dict)
             }
     result = []
     for entry in after:
@@ -1311,6 +1324,15 @@ def _keep_alias_subset(section: str, before: Any, after: Any) -> Any:
                         a for a in entry[f]
                         if isinstance(a, str) and _norm(a) in allowed.get(f, set())
                     ]
+            # R2-4 — a dated role alias is written by the applier only; the
+            # section door may drop one (removal), never add or re-date one.
+            if section == "work_experience" and isinstance(entry.get("dated_role_aliases"), list):
+                held_dated = dated_held.get(str(entry.get("id") or ""), set())
+                entry["dated_role_aliases"] = [
+                    d for d in entry["dated_role_aliases"]
+                    if isinstance(d, dict)
+                    and (_norm(d.get("role")), str(d.get("since") or "")) in held_dated
+                ]
         result.append(entry)
     return result
 
@@ -2098,7 +2120,7 @@ def _record_merge_divergence(op, entity, section, fields, conflicts) -> None:
 
 def _apply_upsert_work(
     op, profile, ref_map, changes, pending, source="",
-    conflicts=None, confirmed=None, matched=None,
+    conflicts=None, confirmed=None, matched=None, *, dated_aliases=None,
 ):
     target = None
     if op.target is not None:
@@ -2257,6 +2279,20 @@ def _apply_upsert_work(
         changes.append(
             _merged("work_experience", "role_aliases", None, op.role, entity=target)
         )
+        # R2-4 (ADR-013 note 2026-10-24) — an ADDITIONAL role with its own
+        # start date (reconcile rule 7, concurrent-role clause): keep WHEN it
+        # began, so the profile can say "auch <Rolle> seit <Datum>". A fact
+        # read off the op (a date that differs from the entry's own), never a
+        # judgement of what the title means (ADR-062 cl. 1).
+        since = normalise_partial_date(op.start_date)
+        if (
+            since
+            and since != normalise_partial_date(target.start_date)
+            and dated_aliases is not None
+        ):
+            record = DatedRoleAlias(role=op.role, since=since)
+            target.dated_role_aliases.append(record)
+            dated_aliases[id(target)] = record
     # ADR-046 amended 2026-10-07 (#716), writer (b) — the employer's other name
     # from a targeted upsert — lives in the IMPORT bridge
     # (`alias_writer.record_targeted_upsert_aliases`), never here: this applier
@@ -2525,7 +2561,7 @@ def _target_unresolved(op_type: str, text: str) -> ImportNotApplied:
     return ImportNotApplied(section=None, label=label, reason="target_unresolved")
 
 
-def _apply_add_bullets(op, resolve, changes, pending, not_applied=None):
+def _apply_add_bullets(op, resolve, changes, pending, not_applied=None, *, dated_aliases=None):
     entity = resolve(op.target)
     if entity is None:
         # #177 review: an AMBIGUOUS upsert in this same batch never populates
@@ -2580,6 +2616,9 @@ def _apply_add_bullets(op, resolve, changes, pending, not_applied=None):
             not_applied.append(_target_unresolved("add_bullets", first))
         return
     section = _section_for(entity)
+    # R2-4 — the bullets written for a dated role alias recorded in THIS batch
+    # go first in the entry ("its bullet first") and are named on the record.
+    dated = (dated_aliases or {}).get(id(entity))
     for field, incoming in (
         ("responsibilities", op.responsibilities),
         ("achievements", op.achievements),
@@ -2587,8 +2626,13 @@ def _apply_add_bullets(op, resolve, changes, pending, not_applied=None):
     ):
         if not incoming:
             continue
-        appended = _append_dedup(getattr(entity, field), incoming)
+        held = getattr(entity, field)
+        appended = _append_dedup(held, incoming)
         if appended:
+            if dated is not None and field != "technologies":
+                rest = held[: len(held) - len(appended)]
+                held[:] = [*appended, *rest]
+                dated.bullets.extend(appended)
             changes.append(_merged(section, field, None, appended, entity=entity))
 
 

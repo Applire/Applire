@@ -2474,7 +2474,10 @@
     "label": "Auch bekannt als",
     "remove": "„{alias}“ als weiteren Namen entfernen",
     "removeFailed": "Entfernen hat nicht geklappt. Bitte versuch es noch einmal.",
-    "labelFor": "{name} — auch bekannt als"
+    "labelFor": "{name} — auch bekannt als",
+    "alsoTag": "auch",
+    "alsoSince": "<b>{role}</b> seit {date}",
+    "since": "seit {date}"
   },
   "reviewSignals": {
     "verdictClearCrossReadUnknown": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Ob Anschreiben und Lebenslauf zusammenpassen, wurde nicht geprüft — lies beide nebeneinander, bevor Du sendest.",
