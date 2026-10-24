@@ -29,6 +29,10 @@ export interface ProfileReviewSession {
   gaps_total: number;
   gaps_remaining: number;
   choices: string[] | null;
+  /** R2-8 (7) — the vault section of the item this question is about. */
+  review_section?: string | null;
+  /** The critical-gaps entry the question is about ("conflict:…", "confirmation:…"). */
+  current_gap_id?: string | null;
 }
 
 export interface ProfileReviewMessageResult {
@@ -36,6 +40,10 @@ export interface ProfileReviewMessageResult {
   question: string | null;
   choices: string[] | null;
   gaps_remaining: number | null;
+  /** R2-8 (7) — the vault section of the item this question is about. */
+  review_section?: string | null;
+  /** The critical-gaps entry the question is about ("conflict:…", "confirmation:…"). */
+  current_gap_id?: string | null;
 }
 
 export async function startProfileReview(): Promise<ProfileReviewSession> {

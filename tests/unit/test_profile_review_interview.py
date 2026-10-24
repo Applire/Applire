@@ -559,6 +559,7 @@ def _make_profile_with_confirmations(*confirmations):
             "options": c["options"],
             "source": c.get("source", "cv:other.pdf"),
             "resolved": False,
+            **({"context": c["context"]} if "context" in c else {}),
         }
         for c in confirmations
     ]
@@ -671,3 +672,71 @@ class TestProfileReviewConfirmationSurfacing:
         assert resp.complete is False
         assert resp.question == conf["question"]
         assert resp.choices == conf["options"]
+
+
+class TestReviewSectionPerItem:
+    """R2-8 (7) (Hazelnut build 4, WP-V) — every profile-review question names
+    the vault section of the item it is about, so the drawer offers "keep both"
+    only on a role-entry conflict, also with no Health issue in hand
+    (emma-mobile-005: offered on a ``personal_info.location`` conflict). One
+    seam test per response site that sets it."""
+
+    @pytest.mark.asyncio
+    async def test_create_advance_reask_and_resume_report_the_items_section(self, sqlite_session):
+        from applire.services.session import create_profile_review_session, send_message
+
+        loc = _conflict(section="personal_info", field="location", existing="Köln", incoming="Bonn")
+        role = _conflict(section="work_experience", field="start_date", existing="2020-03", incoming="2023-01")
+        prof = _make_profile_with_conflicts(loc, role)
+        sqlite_session.add(prof)
+        await sqlite_session.commit()
+        provider = _mock_provider()
+
+        created = await create_profile_review_session(sqlite_session, provider)
+        assert created.review_section == "personal_info"
+        assert created.current_gap_id.startswith("conflict:")
+
+        # Unrecognised answer → the same item is re-asked, section unchanged.
+        reask = await send_message(created.session_id, "hmm", sqlite_session, provider)
+        assert reask.complete is False and "Bonn" in (reask.question or "")
+        assert reask.review_section == "personal_info"
+
+        resumed = await create_profile_review_session(sqlite_session, provider)
+        assert resumed.review_section == "personal_info"
+
+        nxt = await send_message(created.session_id, "keep the current one", sqlite_session, provider)
+        assert nxt.complete is False
+        assert nxt.review_section == "work_experience"
+
+    @pytest.mark.asyncio
+    async def test_a_confirmation_reask_reports_its_section(self, sqlite_session):
+        from applire.services.session import create_profile_review_session, send_message
+
+        conf = dict(_confirmation(), context={"section": "work_experience"})
+        prof = _make_profile_with_confirmations(conf)
+        sqlite_session.add(prof)
+        await sqlite_session.commit()
+        provider = _mock_provider()
+        created = await create_profile_review_session(sqlite_session, provider)
+        assert created.review_section == "work_experience"
+        assert created.current_gap_id.startswith("confirmation:")
+        # An empty answer re-asks the same confirmation (never guesses).
+        reask = await send_message(created.session_id, "   ", sqlite_session, provider)
+        assert reask.complete is False
+        assert reask.review_section == "work_experience"
+
+    def test_review_item_section_reads_conflict_and_confirmation_descriptors(self):
+        from applire.services.session import review_item_section
+
+        state = {
+            "conflict_clusters": {"conflict:a": {"section": "personal_info"}},
+            "confirmation_clusters": {
+                "confirmation:b": {"context": {"section": "work_experience"}},
+                "confirmation:c": {"context": {"kind": "denial_scope"}},
+            },
+        }
+        assert review_item_section(state, "conflict:a") == "personal_info"
+        assert review_item_section(state, "confirmation:b") == "work_experience"
+        assert review_item_section(state, "confirmation:c") is None
+        assert review_item_section(state, "gap-1") is None
+        assert review_item_section(state, None) is None
