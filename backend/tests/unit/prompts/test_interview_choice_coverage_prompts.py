@@ -248,3 +248,12 @@ def test_direct_caveat_still_present_later_too():
     # Belt and braces: the pre-existing later bullet is kept, not replaced.
     low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
     assert low.count("evidences it") >= 2
+
+
+def test_the_profile_clause_is_joined_with_the_pivot_and_listed_in_denied_terms():
+    # R2-2 rule arm run 1: "; zu X steht in meinem Profil noch nichts" carries no
+    # _PIVOT_MARKERS phrase, so the grounding filter dropped the honest chip.
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert 'joined with ", but" (German ", aber")' in flat
+    assert "never a semicolon, a dash or a new sentence" in flat
+    assert 'every concept it names is listed in "denied_terms"' in flat

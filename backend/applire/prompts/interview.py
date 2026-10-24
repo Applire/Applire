@@ -149,6 +149,11 @@
 #     may say what it does not cover", and the denied_terms rule's own example
 #     was "..., aber keine Erfahrung mit X oder Y" — the model moved the denial
 #     into the partial chip. denied_terms now means "named WITHOUT claiming".
+#     The clause is joined with ", but" / ", aber": the run-1 rule arm wrote
+#     "; zu X steht in meinem Profil noch nichts", which carries no
+#     _PIVOT_MARKERS phrase, so choice_grounding's declared-denied exemption
+#     (a fact precondition, #451) never applied and the honest chip dropped —
+#     delivered chips fell from ~8.7 to ~2.6 per run (report §Evidence).
 #   - _COVERED_IN_OTHER_WORDS_RULE (R2-9): a requirement the candidate denied
 #     is answered — never the target of a follow-up.
 
@@ -230,10 +235,13 @@ exception: the candidate already said that no themselves in the Recent conversat
 earlier exchanges below — a choice may restate their own words.
 - When a PARTIAL choice must mark what it does not cover, it says what the PROFILE does not \
 show yet — never what the candidate has not done: "..., but my profile does not yet document \
-X or Y" / "..., aber zu X und Y steht in meinem Profil noch nichts". Name exactly \
-those concepts, never a broader area, and never one the profile summary or the earlier \
-answers evidence in other words (a "Teamleiter" role is evidence of team leadership, a \
-"Scrum Master" skill of agile methods).
+X or Y" / "..., aber zu X und Y steht in meinem Profil noch nichts". That clause comes \
+LAST and is joined with ", but" (German ", aber") — never a semicolon, a dash or a new \
+sentence — and every concept it names is listed in "denied_terms": that join and that list \
+are how the system recognises the clause as naming without claiming. Name exactly those \
+concepts, never a broader area, and never one the profile summary or the earlier answers \
+evidence in other words (a "Teamleiter" role is evidence of team leadership, a "Scrum \
+Master" skill of agile methods).
 - Never offer a choice at the DENIAL level. (The "denial" level value stays in the schema for \
 a restated earlier no only.)
 - This coverage rule does NOT relax the truthfulness rules above — they are unchanged and still \
