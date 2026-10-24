@@ -216,22 +216,32 @@ class GapAnalysisResponse(BaseModel):
           keeps it: the record is written by the session turn and the
           recompute, never re-judged on read;
         * ``member_statuses`` for every cluster (ruling C-1,
-          ``member_statuses``) — the chip colours of the gaps page.
+          ``member_statuses``) — the chip colours of the gaps page;
+        * ``requirement_topic`` (R2-10) — False for a cluster with no counted
+          requirement among its members.
         """
         if not self.gap_clusters:
             return self
-        from applire.services.gap_coverage import derive_coverage, member_statuses
+        from applire.services.gap_coverage import (
+            derive_coverage,
+            is_requirement_topic,
+            member_statuses,
+        )
 
         from applire.schemas.gap_cluster import GapClusterMemberStatus
 
         ledger = [e.model_dump() for e in self.keyword_ledger]
         for cluster in self.gap_clusters:
-            raw = cluster.model_dump(exclude={"budget_remaining", "member_statuses"})
+            raw = cluster.model_dump(
+                exclude={"budget_remaining", "member_statuses", "requirement_topic"}
+            )
             if cluster.coverage is None:
                 cluster.coverage = derive_coverage(raw, ledger)
             cluster.member_statuses = [
                 GapClusterMemberStatus(**item) for item in member_statuses(raw, ledger)
             ]
+            # R2-10: a topic of posting terms only is not a topic.
+            cluster.requirement_topic = is_requirement_topic(raw, ledger)
         return self
 
 

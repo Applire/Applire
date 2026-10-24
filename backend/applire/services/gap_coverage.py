@@ -397,6 +397,30 @@ def member_is_requirement(member: str, keyword_ledger: list[dict[str, Any]] | No
     return any(float(row.get("fit_weight") or 0) > 0 for row in own)
 
 
+def is_requirement_topic(
+    cluster: dict[str, Any], keyword_ledger: list[dict[str, Any]] | None
+) -> bool:
+    """R2-10 (ruling F1-2: themes only GROUP the open requirements) — whether a
+    cluster holds at least one member that is a counted requirement
+    (:func:`member_is_requirement`, ``fit_weight > 0``).
+
+    Clustering input is wider than the requirement set (keyword-only ATS terms,
+    ``gap.askable_gap_inputs``), so a cluster can be made of posting terms only
+    — UX round 2 showed "Commerce Domain", "Messaging", "Digital Health und
+    Kliniken" as open topics with zero counted requirements. Such a cluster is
+    not a topic: it is not asked (:func:`is_askable` with a ledger) and the
+    response marks it ``requirement_topic = False`` so no surface counts it.
+
+    Without a ledger (a legacy row, a caller that holds none) the answer is
+    ``True`` — today's behaviour, never a silent drop. A fact about the ledger
+    (ADR-062 cl. 1)."""
+    if not isinstance(cluster, dict):
+        return False
+    if not keyword_ledger:
+        return True
+    return any(member_is_requirement(m, keyword_ledger) for m in all_members(cluster))
+
+
 def member_matches_ledger(member: str, keyword_ledger: list[dict[str, Any]] | None) -> bool:
     """True when at least one ledger row matches ``member`` (used to drop
     orphaned members on carry-forward, ADR-089 clause 4)."""
@@ -471,9 +495,15 @@ def is_left_open(cluster: dict[str, Any]) -> bool:
     return isinstance(cluster, dict) and _outcome_of(cluster)["left_open"]
 
 
-def is_askable(cluster: dict[str, Any], per_gap: int = INTERVIEW_MAX_QUESTIONS_PER_GAP) -> bool:
+def is_askable(
+    cluster: dict[str, Any],
+    per_gap: int = INTERVIEW_MAX_QUESTIONS_PER_GAP,
+    keyword_ledger: list[dict[str, Any]] | None = None,
+) -> bool:
     """Budget left AND coverage not ``covered``/``declined`` AND not left open
-    by hand (ruling K-1).
+    by hand (ruling K-1) AND — when the caller passes the row's ledger — at
+    least one member is a counted requirement (R2-10,
+    :func:`is_requirement_topic`: a topic of posting terms only is never asked).
 
     This is the one predicate every door asks (Gap-Click, the full interview's
     plan, ``resolve_gap``), so the left-open fact reaches all of them here.
@@ -488,6 +518,8 @@ def is_askable(cluster: dict[str, Any], per_gap: int = INTERVIEW_MAX_QUESTIONS_P
     if remaining_budget(cluster, per_gap) <= 0:
         return False
     if stored_or_derived_coverage(cluster) in ("covered", "declined"):
+        return False
+    if keyword_ledger is not None and not is_requirement_topic(cluster, keyword_ledger):
         return False
     return bool(_str_list(cluster.get("gaps")))
 

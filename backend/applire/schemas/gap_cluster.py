@@ -93,6 +93,11 @@ class GapClusterSchema(BaseModel):
     outcome: GapClusterOutcome = Field(default_factory=GapClusterOutcome)
     coverage: CoverageValue | None = None
     member_statuses: list[GapClusterMemberStatus] = Field(default_factory=list)
+    # R2-10 (ruling F1-2) — derived at response time from the row's own ledger
+    # (``gap_coverage.is_requirement_topic``), never persisted: False when no
+    # member is a counted requirement (a topic of posting terms only). Such a
+    # cluster is not asked and no surface counts or lists it as an open topic.
+    requirement_topic: bool = True
 
     @field_validator("outcome", mode="before")
     @classmethod
