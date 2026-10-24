@@ -159,7 +159,7 @@
     "masterProfileUpdated": "Dein Profil ist aktualisiert:",
     "cvParsedPartial": "{parsed} von {total} Lebensläufen wurden gelesen — die übrigen konnten nicht verarbeitet und nicht zum Profil hinzugefügt werden.",
     "jdEchoTitle": "Das haben wir aus der Stellenanzeige gelesen",
-    "jdEchoSubtitle": "Prüfe kurz, ob das zur Anzeige passt, bevor du das Interview startest.",
+    "jdEchoSubtitle": "Prüfe kurz, ob das zur Anzeige passt. Stimmt etwas nicht, passt auch der Abgleich darüber nicht.",
     "jdEchoRole": "Rolle",
     "jdEchoCompany": "Unternehmen",
     "jdEchoEducation": "Ausbildung",

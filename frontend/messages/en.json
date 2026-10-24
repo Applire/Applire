@@ -159,7 +159,7 @@
     "masterProfileUpdated": "Your profile is updated:",
     "cvParsedPartial": "{parsed} of {total} CVs were read — the rest couldn't be parsed and weren't added to your profile.",
     "jdEchoTitle": "What we read from the job ad",
-    "jdEchoSubtitle": "Check this matches the posting before you start the interview.",
+    "jdEchoSubtitle": "Check this matches the posting. If something is off, the match above is off too.",
     "jdEchoRole": "Role",
     "jdEchoCompany": "Company",
     "jdEchoEducation": "Education",
