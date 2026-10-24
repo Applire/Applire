@@ -225,3 +225,12 @@ def test_the_letter_terminal_door_passes_the_letter_language():
     src = inspect.getsource(cover_letter)
     i = src.index("def _terminal_base(")
     assert "document_language=cl.document_language" in src[i : i + 1500]
+
+
+def test_the_v2_cv_terminal_prompt_names_the_note_language_too():
+    from applire.prompts import review_cv_tailoring as cv
+
+    p = cv.build_v2_terminal_review_prompt(
+        "S", {"a": 1}, page_count=1, target=1, condensation_exhausted=False, document_language="en",
+    )
+    assert "NOTE LANGUAGE: write every issue's `note` in English." in p
