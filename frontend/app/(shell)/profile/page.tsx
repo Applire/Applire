@@ -31,6 +31,7 @@ import { AvailabilityCard, type AvailabilityValue } from "@/components/profile/A
 import { SignatureManager } from "@/components/profile/SignatureManager";
 import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
 import { ProfileImportView } from "@/components/profile/ProfileImportView";
+import { ImportSummaryCard } from "@/components/profile/ImportSummaryCard";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import { HealthPanel, type ProfileHealth, type HealthIssue } from "@/components/profile/HealthPanel";
@@ -813,8 +814,10 @@ export default function ProfilePage() {
             );
           })}
 
-          {/* Enrichment History — the relocated merge/import review (#67/#69).
-              The post-merge CTA on the import page deep-links here (#import-log). */}
+          {/* R2-8 (9) (ruling V-2 = A) — "See what was combined" lands on the
+              last import's summary (#import-summary); the Enrichment History
+              (#67/#69, #import-log) stays inside it as the folded technical log. */}
+          <ImportSummaryCard reloadKey={enrichmentHistory} onChanged={loadProfile}>
           {enrichmentHistory.length > 0 && (
             <Card id="import-log" className="p-4 mt-6 scroll-mt-24">
               <h3 className="font-heading text-base font-semibold text-neutral-dark mb-4">
@@ -896,6 +899,7 @@ export default function ProfilePage() {
               </div>
             </Card>
           )}
+          </ImportSummaryCard>
         </div>
       </main>
 

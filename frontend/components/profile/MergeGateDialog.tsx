@@ -19,7 +19,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import type { ImportNotAppliedItem, MatchReceiptItem, RestatedReceiptItem } from "@/lib/import-cv";
+import type { ImportNotAppliedItem, KeptSeparateItem, MatchReceiptItem, RestatedReceiptItem } from "@/lib/import-cv";
 
 // Empty string default lets Next.js rewrites handle /api/* routing in all environments
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -41,6 +41,8 @@ export interface StagedResolveResult {
   matched?: MatchReceiptItem[];
   /** D-B3V6 — bullets held back as restatements. */
   restated?: RestatedReceiptItem[];
+  /** FS-6 — bindings kept apart (#801 refusals). */
+  kept_separate?: KeptSeparateItem[];
 }
 
 interface MergeGateDialogProps {

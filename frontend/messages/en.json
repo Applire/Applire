@@ -2456,10 +2456,7 @@
     "deletedPerson": "deleted person"
   },
   "importSummary": {
-    "recognisedTitle": "Already in your profile ({count})",
-    "recognisedIntro": "These entries from your file are already in your profile, just under another name. We saved the new name as an alternate name. If a match is wrong, tap “Not the same”.",
     "showInProfile": "Show in profile",
-    "notSame": "Not the same",
     "separatedDone": "Added as its own entry",
     "sameLanguage": "same language",
     "showAll": "Show all {count}",
@@ -2468,7 +2465,22 @@
     "restatedIntro": "These points from your file say the same as a point already listed for this role. We did not add them and deleted nothing. If one does say something new, tap “Add anyway”.",
     "restatedHeld": "Already there: {text}",
     "restatedApply": "Add anyway",
-    "restatedApplied": "Added"
+    "restatedApplied": "Added",
+    "combinedTitle": "Combined with what you had ({count})",
+    "combinedIntro": "These items from the file are already in your profile under another name. We added to them instead of listing them twice.",
+    "pairQuestion": "Is <b>{incoming}</b> the same as <b>{existing}</b>?",
+    "pairYes": "Yes",
+    "pairNo": "No, keep them apart",
+    "pairConfirmed": "Confirmed as the same",
+    "keptSeparatelyTitle": "Kept separately ({count})",
+    "keptSeparately": "We did not combine <b>{incoming}</b> with <b>{existing}</b> — they are different things. Both are listed on their own in your profile.",
+    "lastImportTitle": "Your import of {date} — {file}",
+    "lastImportTitleNoFile": "Your import of {date}",
+    "lastImportLead": "We added {added, plural, one {# item} other {# items}} to your profile and recognised {matched, plural, one {# as already there} other {# as already there}}. Nothing was deleted.",
+    "groupCount": "{count, plural, one {# item} other {# items}}",
+    "notAppliedNote": "{count, plural, one {# item from the file did not reach your profile.} other {# items from the file did not reach your profile.}}",
+    "techLog": "Show technical log",
+    "loadFailed": "The summary could not be loaded."
   },
   "profileAliases": {
     "label": "Also known as",

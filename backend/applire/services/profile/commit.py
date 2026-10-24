@@ -763,6 +763,7 @@ async def commit_ops(
         # write, kept off `changes` on purpose (see `MatchReceipt`).
         matched=applied.matched,
         restated=applied.restated,  # D-B3V6
+        kept_separate=applied.kept_separate,  # FS-6
         # 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the import's
         # extraction review outcome; `None` for every non-import batch.
         extraction_review=applied.extraction_review,

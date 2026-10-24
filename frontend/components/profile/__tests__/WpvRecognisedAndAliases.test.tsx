@@ -44,15 +44,51 @@ describe("RecognisedMatches (#717)", () => {
         "de",
       ),
     );
-    expect(screen.getByText("Schon in deinem Profil (2)")).toBeInTheDocument();
+    expect(screen.getByText("Mit Vorhandenem zusammengeführt (2)")).toBeInTheDocument();
     expect(screen.getAllByTestId("recognised-match-row")).toHaveLength(2);
     expect(screen.getByText("Fähigkeiten")).toBeInTheDocument();
-    // a name-table pair is a fact: a tag, no undo
+    // FS-6 (ruling V-4 = A) — one question per pair: "Ist A dasselbe wie B?"
+    expect(screen.getByTestId("recognised-match-question")).toHaveTextContent(
+      "Ist Machine Learning dasselbe wie Maschinelles Lernen?",
+    );
+    expect(screen.getByTestId("recognised-match-yes")).toHaveTextContent("Ja");
+    expect(screen.getByTestId("recognised-match-separate")).toHaveTextContent("Nein, getrennt führen");
+    // a name-table pair is a fact: a note, no question
     expect(screen.getAllByTestId("recognised-match-separate")).toHaveLength(1);
     expect(screen.getByTestId("recognised-match-table")).toHaveTextContent("gleiche Sprache");
-    expect(screen.getAllByText("Im Profil zeigen")[0].closest("a")).toHaveAttribute(
-      "href",
-      "/profile#section-skills",
+  });
+
+  it("'Ja' posts to /matches/confirm and the question is answered", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onSeparated = vi.fn();
+    render(withIntl(<RecognisedMatches matched={[pair()]} onSeparated={onSeparated} />, "de"));
+    fireEvent.click(screen.getByTestId("recognised-match-yes"));
+    await waitFor(() => expect(screen.getByTestId("recognised-match-same")).toBeInTheDocument());
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/profile/matches/confirm");
+    expect(onSeparated).not.toHaveBeenCalled(); // nothing in the vault moved
+    expect(screen.queryByTestId("recognised-match-yes")).toBeNull();
+  });
+
+  it("an already confirmed pair asks no question", () => {
+    render(withIntl(<RecognisedMatches matched={[pair({ confirmed_at: "2026-10-24T08:00:00Z" })]} />));
+    expect(screen.getByTestId("recognised-match-same")).toBeInTheDocument();
+    expect(screen.queryByTestId("recognised-match-yes")).toBeNull();
+  });
+
+  it("lists bindings kept separately (#801 refusals)", () => {
+    render(
+      withIntl(
+        <RecognisedMatches
+          matched={[]}
+          keptSeparate={[{ section: "skills", entity_id: "s-ment", incoming: "REST APIs", existing: "Mentoring" }]}
+        />,
+        "de",
+      ),
+    );
+    expect(screen.getByText("Separat behalten (1)")).toBeInTheDocument();
+    expect(screen.getByTestId("kept-separately-row")).toHaveTextContent(
+      "REST APIs haben wir nicht mit Mentoring zusammengeführt",
     );
   });
 

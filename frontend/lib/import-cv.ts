@@ -53,6 +53,18 @@ export interface MatchReceiptItem {
   aliases_added?: Record<string, string>;
   incoming_entry?: Record<string, unknown> | null;
   undone_at?: string | null;
+  /** FS-6 — the candidate answered "Ja, dasselbe"; the question is not asked again. */
+  confirmed_at?: string | null;
+}
+
+/** FS-6 (ruling V-4 = A) — a binding the import's #801 guard refused: the
+ * incoming entry was kept as its own entry, not combined with `existing`. */
+export interface KeptSeparateItem {
+  section: string;
+  entity_id: string;
+  incoming: string;
+  existing: string;
+  reason?: string;
 }
 
 /** D-B3V6 (ruling V-3 = A) — a second-source bullet the import's restatement
@@ -86,6 +98,8 @@ export interface CVUploadResult {
   matched?: MatchReceiptItem[];
   /** D-B3V6 — bullets held back as restatements of a held bullet. */
   restated?: RestatedReceiptItem[];
+  /** FS-6 — bindings kept apart (#801 refusals). */
+  kept_separate?: KeptSeparateItem[];
   /** R3-2 = B — the source was longer than one import reads: only the first
    * `read_chars` of `total_chars` characters were extracted. `null` when not. */
   source_truncated?: SourceTruncation | null;

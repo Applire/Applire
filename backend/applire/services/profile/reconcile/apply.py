@@ -47,6 +47,7 @@ from applire.schemas.profile import (
     FieldChange,
     ImportNotApplied,
     MatchReceipt,
+    KeptSeparateReceipt,
     RestatedReceipt,
     Language,
     MasterProfileData,
@@ -102,6 +103,7 @@ from applire.services.profile.reconcile.ops import (
     MatchExisting,
     ReplaceSection,
     SeparateMatch,
+    ConfirmMatch,
     SetAvailability,
     DismissAvailabilityReminder,
     RequestConfirmation,
@@ -264,6 +266,7 @@ class ApplyResult(BaseModel):
     matched: list[MatchReceipt] = []
     # D-B3V6 — second-source bullets held back as restatements (import only).
     restated: list[RestatedReceipt] = []
+    kept_separate: list[KeptSeparateReceipt] = []  # FS-6
     # 783:L41 — the ingest's extraction review outcome; set exclusively by
     # `ApplyImportMerge`, `None` for every other batch.
     extraction_review: ExtractionReview | None = None
@@ -562,6 +565,7 @@ def apply_ops(
     extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
     restated: list[RestatedReceipt] = []  # D-B3V6 — see ApplyResult.restated
+    kept_separate: list[KeptSeparateReceipt] = []  # FS-6
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
     ref_map: dict[str, ExperienceBase] = {}
@@ -724,6 +728,9 @@ def apply_ops(
             # #717 (ADR-063 amended 2026-10-07 cl. 4, ruling V-2) — the
             # candidate's "Nicht dasselbe". Raises when no receipt may be undone.
             _apply_separate_match(op, new_profile, changes)
+        elif isinstance(op, ConfirmMatch):
+            # FS-6 (ruling V-4 = A) — the candidate's "Ja, dasselbe".
+            _apply_confirm_match(op, new_profile, changes)
         elif isinstance(op, MatchExisting):
             # #707 (ADR-046 amended 2026-09-16) — the model's "already there":
             # a receipt on `matched`, never a change, never a write.
@@ -778,6 +785,7 @@ def apply_ops(
             changes.extend(op.changes)
             matched.extend(op.matched)  # #707 — the intake's bindings ride with it
             restated.extend(op.restated)  # D-B3V6
+            kept_separate.extend(op.kept_separate)  # FS-6
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
             extraction_review = op.extraction_review
@@ -862,6 +870,7 @@ def apply_ops(
         not_applied=not_applied,
         matched=matched,
         restated=restated,
+        kept_separate=kept_separate,  # FS-6
         extraction_review=extraction_review,
     )
 
@@ -3389,6 +3398,42 @@ def _apply_separate_match(op, profile: MasterProfileData, changes: list[FieldCha
     now = datetime.now(timezone.utc)
     for r in pair:
         r.undone_at = now
+
+
+def find_confirmable_receipts(
+    profile: MasterProfileData, entity_id: str, incoming: str
+) -> list[MatchReceipt]:
+    """FS-6 — the receipts of this pair "Ja" may stamp: the NEWEST one decides
+    (same rule as :func:`find_separable_receipt`) — it must be neither undone
+    nor a language-name-table fact; then every open receipt of the pair."""
+    receipts = _pair_receipts(profile, entity_id, incoming)
+    if not receipts:
+        raise MatchNotSeparableError("unknown")
+    newest = receipts[0]
+    if newest.undone_at is not None:
+        raise MatchNotSeparableError("already_undone")
+    if newest.basis == "name_table":
+        raise MatchNotSeparableError("name_table")
+    return [r for r in receipts if r.undone_at is None and r.confirmed_at is None]
+
+
+def _apply_confirm_match(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """FS-6 (ruling V-4 = A) — see :class:`ConfirmMatch`. Bookkeeping only: one
+    ``metadata`` receipt line so the history says what the candidate answered."""
+    from datetime import datetime, timezone
+
+    open_receipts = find_confirmable_receipts(profile, op.entity_id, op.incoming)
+    if not open_receipts:
+        return  # already confirmed — idempotent
+    now = datetime.now(timezone.utc)
+    for r in open_receipts:
+        r.confirmed_at = now
+    changes.append(FieldChange(
+        section="metadata", field="matched", action="updated",
+        old_value=None, new_value=f"{op.incoming} = {open_receipts[0].existing}",
+        rationale=f"The candidate confirmed {op.incoming!r} is the same as {open_receipts[0].existing!r}.",
+        rationale_key="match_confirmed",
+    ))
 
 
 def _apply_set_field(op, resolve, changes, not_applied=None):

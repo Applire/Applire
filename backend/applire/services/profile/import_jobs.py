@@ -190,6 +190,7 @@ def _as_cv_upload_response(result: object) -> CVUploadResponse:
         not_applied_loss_count=result.not_applied_loss_count,
         matched=result.matched,
         restated=result.restated,  # D-B3V6
+        kept_separate=result.kept_separate,  # FS-6
         extraction_review=getattr(result, "extraction_review", None),  # 783:L41
     )
 

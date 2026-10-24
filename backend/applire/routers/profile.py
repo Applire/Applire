@@ -52,6 +52,7 @@ from applire.schemas.profile import (
     MasterProfileResponse,
     PhotoCrop,
     ProfileChangesResponse,
+    ImportReceiptSummary,
     ReceiptSummary,
     ProfileHealthResponse,
     SeparateMatchRequest,
@@ -82,6 +83,8 @@ from applire.services.profile import (
     MatchNotSeparable,
     resolve_staged_extraction,
     separate_match,
+    confirm_match,
+    get_import_summary,
     apply_restated,
     RestatedNotApplicable,
     record_availability,
@@ -431,6 +434,28 @@ async def separate_match_endpoint(
         raise HTTPException(status_code=409, detail=exc.code)
 
 
+@router.post(
+    "/matches/confirm",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def confirm_match_endpoint(
+    body: SeparateMatchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """FS-6 (ruling V-4 = A) — "Ja": a recognised pair IS the same entry; the
+    import summary stops asking. Same body and 409 codes as /matches/separate."""
+    try:
+        return await confirm_match(
+            db, entity_id=body.entity_id, incoming=body.incoming, user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
+    except MatchNotSeparable as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
+
+
 class AvailabilityRequest(BaseModel):
     text: str
 
@@ -752,6 +777,21 @@ async def get_receipt_summary_endpoint(
     summary of one session: one fact per line, grouped per section, the key
     points first. A view over the trail; the trail itself is unchanged."""
     return await get_receipt_summary(db, session_id=session_id, user_id=_uid(current_user))
+
+
+@router.get(
+    "/import-summary",
+    response_model=ImportReceiptSummary,
+    status_code=status.HTTP_200_OK,
+)
+async def get_import_summary_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> ImportReceiptSummary:
+    """R2-8 (9) (ruling V-2 = A) — the last import in the user's terms: what it
+    added, the pairs it recognised (FS-6 pair questions), what it kept apart
+    and what it held back. A view over the trail; read-only."""
+    return await get_import_summary(db, user_id=_uid(current_user))
 
 
 @router.get(

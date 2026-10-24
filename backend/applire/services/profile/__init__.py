@@ -90,6 +90,7 @@ from applire.schemas.profile import (
     MasterProfileData,
     MasterProfileResponse,
     MatchReceipt,
+    KeptSeparateReceipt,
     RestatedReceipt,
     PendingConfirmation,
     ProfileChangesResponse,
@@ -201,6 +202,7 @@ def _to_import_response(
     not_applied_loss_count: int | None = None,
     matched: list[MatchReceipt] | None = None,
     restated: list[RestatedReceipt] | None = None,
+    kept_separate: list[KeptSeparateReceipt] | None = None,  # FS-6
     extraction_review: "ExtractionReview | None" = None,
 ) -> ProfileImportResponse:
     """Same construction as :func:`_to_response`, plus the import fact (#615,
@@ -227,6 +229,7 @@ def _to_import_response(
         # doors' response, the same way `not_applied` does.
         matched=list(matched or []),
         restated=list(restated or []),  # D-B3V6
+        kept_separate=list(kept_separate or []),  # FS-6
         extraction_review=extraction_review,  # 783:L41
         # #367 — the same number under the name the import callers read.
         completeness_score=base.completeness,
@@ -310,6 +313,7 @@ def _enrichment_from_merge(merge_result, source, session_id: str | None = None) 
         not_applied=list(merge_result.not_applied),
         matched=list(getattr(merge_result, "matched", None) or []),  # #707
         restated=list(getattr(merge_result, "restated", None) or []),  # D-B3V6
+        kept_separate=list(getattr(merge_result, "kept_separate", None) or []),  # FS-6
     )
 
 
@@ -608,6 +612,7 @@ async def _import_from_text(
         not_applied_loss_count=outcome.merge.not_applied_loss_count,
         matched=outcome.merge.matched,
         restated=list(getattr(outcome.merge, "restated", None) or []),  # D-B3V6
+        kept_separate=list(getattr(outcome.merge, "kept_separate", None) or []),  # FS-6
         extraction_review=getattr(outcome, "extraction_review", None),
     )
 
@@ -758,6 +763,46 @@ async def separate_match(
         result = await commit_ops(
             db,
             [SeparateMatch(entity_id=entity_id, incoming=incoming)],
+            CommitProvenance(source="manual_edit", intake="field_edit", actor="candidate"),
+            record=record,
+            grounding=None,
+            snapshot=None,
+            llm_provider=None,
+        )
+    except MatchNotSeparableError as exc:
+        raise MatchNotSeparable(exc.code) from exc
+    await db.commit()
+    await db.refresh(result.record)
+    return _to_response(result.record)
+
+
+async def confirm_match(
+    db: AsyncSession,
+    *,
+    entity_id: str,
+    incoming: str,
+    user_id: uuid.UUID | None = None,
+) -> MasterProfileResponse:
+    """FS-6 (Hazelnut build 4, ruling V-4 = A) — "Ja" to "Ist A dasselbe wie
+    B?": one `ConfirmMatch` op through the committer (source ``manual_edit``,
+    the candidate's act), stamping the pair's receipts so the question is not
+    asked again. 409 codes as for :func:`separate_match`."""
+    from applire.services.profile.reconcile.apply import (
+        MatchNotSeparableError,
+        find_confirmable_receipts,
+    )
+    from applire.services.profile.reconcile.ops import ConfirmMatch
+
+    record = await _get_latest(db, user_id)
+    if not record:
+        raise LookupError("No profile found")
+    try:
+        find_confirmable_receipts(
+            MasterProfileData.model_validate(record.profile_json), entity_id, incoming
+        )
+        result = await commit_ops(
+            db,
+            [ConfirmMatch(entity_id=entity_id, incoming=incoming)],
             CommitProvenance(source="manual_edit", intake="field_edit", actor="candidate"),
             record=record,
             grounding=None,
@@ -940,6 +985,52 @@ async def get_receipt_summary(
         return ReceiptSummary()
     profile_data = MasterProfileData.model_validate(record.profile_json)
     return summarize_session_receipts(profile_data, session_id)
+
+
+async def get_import_summary(
+    db: AsyncSession, *, user_id: uuid.UUID | None = None
+) -> "ImportReceiptSummary":
+    """R2-8 (9) (Hazelnut build 4, ruling V-2 = A) — the last import in the
+    user's terms (``receipts.summarize_last_import``); read-only. The file name
+    is the owner's newest upload created up to 30 minutes before the record (a
+    fact joined on time; uploads expire after UPLOAD_TTL_DAYS, then it is
+    simply absent)."""
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from applire.models.uploads import UploadRecord
+    from applire.schemas.profile import ImportReceiptSummary
+    from applire.services.profile.receipts import summarize_last_import
+
+    record = await _get_latest(db, user_id)
+    if not record:
+        return ImportReceiptSummary()
+    profile_data = MasterProfileData.model_validate(record.profile_json)
+    summary = summarize_last_import(profile_data)
+    if summary.timestamp is None or summary.source != "cv_upload":
+        return summary
+    owner = record.user_id
+    stamp = summary.timestamp
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    rows = (
+        await db.execute(
+            select(UploadRecord.original_filename, UploadRecord.created_at)
+            .where(UploadRecord.user_id == owner)
+            .order_by(UploadRecord.created_at.desc())
+            .limit(20)
+        )
+    ).all()
+    for name, created in rows:
+        if created is None:
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if stamp - timedelta(minutes=30) <= created <= stamp + timedelta(seconds=5):
+            summary.file_name = name
+            break
+    return summary
 
 
 async def get_profile_health(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ProfileHealthResponse:
@@ -1595,6 +1686,7 @@ async def upload_cv(
         # "Schon in deinem Profil" reads the same receipt the history shows.
         matched=merge_outcome.matched,
         restated=list(getattr(merge_outcome, "restated", None) or []),  # D-B3V6
+        kept_separate=list(getattr(merge_outcome, "kept_separate", None) or []),  # FS-6
         # 783:L41 — the extraction review outcome of this import.
         extraction_review=outcome.extraction_review,
     )
@@ -1648,6 +1740,7 @@ class ApplyMergeOutcome:
     # not carry it to either caller.
     matched: list[MatchReceipt] = field(default_factory=list)
     restated: list[RestatedReceipt] = field(default_factory=list)  # D-B3V6
+    kept_separate: list[KeptSeparateReceipt] = field(default_factory=list)  # FS-6
 
 
 async def _apply_merge(
@@ -1708,6 +1801,7 @@ async def _apply_merge(
                     not_applied=enrichment.not_applied,
                     matched=enrichment.matched,  # #707
                     restated=enrichment.restated,  # D-B3V6
+                    kept_separate=enrichment.kept_separate,  # FS-6
                     extraction_review=extraction_review,  # 783:L41
                 )
             ],
@@ -1730,6 +1824,7 @@ async def _apply_merge(
             not_applied_loss_count=loss_count,
             matched=enrichment.matched,  # #674 line 72
             restated=enrichment.restated,  # D-B3V6
+            kept_separate=enrichment.kept_separate,  # FS-6
         )
 
     # First upload — the committer creates the profile (#480 PR 8), through the
@@ -1862,6 +1957,7 @@ async def resolve_staged_extraction(
             not_applied_loss_count=merge_outcome.not_applied_loss_count,
             matched=merge_outcome.matched,  # #717
             restated=list(getattr(merge_outcome, "restated", None) or []),  # D-B3V6
+            kept_separate=list(getattr(merge_outcome, "kept_separate", None) or []),  # FS-6
         )
 
     raise ValueError(f"unknown resolve action: {action!r}")

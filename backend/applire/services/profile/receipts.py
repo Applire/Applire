@@ -27,7 +27,9 @@ from typing import Any, Iterable
 from applire.schemas.profile import (
     EnrichmentRecord,
     FieldChange,
+    ImportReceiptSummary,
     MasterProfileData,
+    MatchReceipt,
     ReceiptEntityCount,
     ReceiptFact,
     ReceiptGroup,
@@ -154,6 +156,22 @@ def summarize_session_receipts(
 ) -> ReceiptSummary:
     """The receipt summary of one interview session (latest when ``None``)."""
     sid, records = _session_records(profile, session_id)
+    facts, groups, top = _summarize(profile, records)
+    return ReceiptSummary(
+        session_id=sid,
+        answers=len(records),
+        facts_total=len(facts),
+        groups=groups,
+        top=top,
+        facts=facts,
+    )
+
+
+def _summarize(
+    profile: MasterProfileData, records: list[EnrichmentRecord]
+) -> tuple[list[ReceiptFact], list[ReceiptGroup], list[ReceiptFact]]:
+    """One fact per written item across ``records``, grouped per section (the
+    interview receipt and the import summary share this — ADR-066)."""
     facts: list[ReceiptFact] = []
     by_key: dict[str, ReceiptFact] = {}
     for record in records:
@@ -199,11 +217,42 @@ def summarize_session_receipts(
     rank = {k: i for i, k in enumerate(_TOP_KINDS)}
     top = sorted((f for f in facts if f.kind in rank), key=lambda f: rank[f.kind])[:_TOP_LIMIT]
 
-    return ReceiptSummary(
-        session_id=sid,
-        answers=len(records),
-        facts_total=len(facts),
+    return facts, groups, top
+
+
+_IMPORT_SOURCES = frozenset({"cv_upload", "cv_paste", "linkedin_import", "xing_import"})
+
+
+def summarize_last_import(
+    profile: MasterProfileData, file_name: str | None = None
+) -> ImportReceiptSummary:
+    """R2-8 (9) (Hazelnut build 4, ruling V-2 = A) — the user-language summary
+    of the LAST import, where "See what was combined" lands (#import-summary):
+    what the merge wrote (one fact per item, grouped per section — the same
+    producer as the interview receipt), the pairs it recognised as already
+    present (FS-6: one question each unless answered or a language-table
+    fact), the bindings it kept apart, and the restatements it held back.
+    A VIEW of the stored record; the trail is never rewritten here."""
+    trail = profile.metadata.enrichment_history if profile.metadata else []
+    record = next((r for r in reversed(trail) if r.source in _IMPORT_SOURCES), None)
+    if record is None:
+        return ImportReceiptSummary()
+    facts, groups, _top = _summarize(profile, [record])
+    pairs: dict[tuple[str, str], MatchReceipt] = {}
+    for m in record.matched:
+        if m.undone_at is not None or _norm(m.incoming) == _norm(m.existing):
+            continue
+        pairs.setdefault((m.entity_id, _norm(m.incoming)), m)
+    return ImportReceiptSummary(
+        record_id=record.id,
+        timestamp=record.timestamp,
+        source=record.source,
+        file_name=file_name,
+        added_total=len(facts),
         groups=groups,
-        top=top,
         facts=facts,
+        matched=list(pairs.values()),
+        kept_separate=list(record.kept_separate),
+        restated=list(record.restated),
+        not_applied_total=len(record.not_applied),
     )

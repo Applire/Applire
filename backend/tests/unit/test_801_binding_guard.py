@@ -248,6 +248,11 @@ def _assert_801_refused(result):
     assert "REST APIs" in names or asked
     assert not any("REST APIs" in json.dumps(n.model_dump(mode="json"), ensure_ascii=False)
                    for n in result.not_applied)
+    # FS-6 (ruling V-4 = A) — the refusal is receipted, so the import summary
+    # can say "Separat behalten" (it was discarded as `_refused`).
+    assert [(k.incoming, k.entity_id, k.existing) for k in result.kept_separate] == [
+        ("REST APIs", _MENTORING, "Mentoring")
+    ]
     # the genuine pair of the same batch still binds and is aliased
     aws = next(s for s in merged.skills if s.name == "AWS")
     assert "Amazon Web Services (AWS)" in (aws.aliases or [])

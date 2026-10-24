@@ -43,6 +43,7 @@ from applire.schemas.profile import (
     ImportNotApplied,
     MasterProfileData,
     MatchReceipt,
+    KeptSeparateReceipt,
     RestatedReceipt,
     render_localized_confirmation,
     ExtractionReview,
@@ -484,6 +485,21 @@ class SeparateMatch(BaseModel):
     """
 
     op: Literal["separate_match"] = "separate_match"
+    entity_id: str
+    incoming: str
+
+
+class ConfirmMatch(BaseModel):
+    """The candidate says a recognised match is right — ADAPTER-ONLY (FS-6).
+
+    Hazelnut build 4, ruling V-4 = A: the import summary asks "Ist A dasselbe
+    wie B?" for each recognised pair; "Ja" stamps ``confirmed_at`` on every
+    receipt of the pair (same pair predicate as :class:`SeparateMatch`), so the
+    question is not asked again. Writes nothing in the vault sections. Never
+    model-emittable.
+    """
+
+    op: Literal["confirm_match"] = "confirm_match"
     entity_id: str
     incoming: str
 
@@ -998,6 +1014,7 @@ class ApplyImportMerge(BaseModel):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — bullets the restatement check held back.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the ingest's extraction
     #: review outcome, riding the same path as ``reconciliation`` (only the
     #: intake knows it) onto the committer's ``EnrichmentRecord``.
@@ -1122,6 +1139,7 @@ _ADAPTER_ONLY = (
     MarkProbeAsked,
     EscalateDenialLevel,
     SeparateMatch,
+    ConfirmMatch,
     SetAvailability,
     DismissAvailabilityReminder,
 )

@@ -939,6 +939,9 @@ class MatchReceipt(BaseModel):
     incoming_entry: dict[str, Any] | None = None
     #: set when the candidate said "Nicht dasselbe" (`SeparateMatch`).
     undone_at: datetime | None = None
+    #: FS-6 (ruling V-4 = A) — set when the candidate answered "Ja" to "Ist A
+    #: dasselbe wie B?" (`ConfirmMatch`); the pair question is not asked again.
+    confirmed_at: datetime | None = None
 
 
 class Availability(BaseModel):
@@ -983,6 +986,26 @@ class RestatedReceipt(BaseModel):
     field: Literal["responsibilities", "achievements"]
     text: str
     restates: str
+
+
+class KeptSeparateReceipt(BaseModel):
+    """FS-6 (Hazelnut build 4, ruling V-4 = A) — a skill binding the import's
+    #801 guard REFUSED (``binding_guard.refuse_false_skill_bindings``): the
+    reconciler named ``existing`` as the same skill as the document's
+    ``incoming``, the guard found it names another entry or crosses
+    technical/soft, and the incoming skill was kept as its own entry. The
+    receipt for a decision that kept two things apart, so the import summary
+    can say so ("Separat behalten"). Rides ``MergeResult.kept_separate`` →
+    ``ApplyImportMerge.kept_separate`` → ``EnrichmentRecord.kept_separate`` and
+    the import doors' response, exactly like :class:`RestatedReceipt`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    section: str = "skills"
+    entity_id: str
+    incoming: str
+    existing: str
+    reason: str = ""
 
 
 class ImportNotApplied(BaseModel):
@@ -1255,6 +1278,7 @@ class EnrichmentRecord(BaseModel):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the extraction review
     #: outcome of the import this record receipts; ``None`` on every
     #: non-import record and on records persisted before the field existed.
@@ -1330,6 +1354,27 @@ class ReceiptSummary(BaseModel):
     groups: list[ReceiptGroup] = Field(default_factory=list)
     top: list[ReceiptFact] = Field(default_factory=list)
     facts: list[ReceiptFact] = Field(default_factory=list)
+
+
+class ImportReceiptSummary(BaseModel):
+    """R2-8 (9) (Hazelnut build 4, ruling V-2 = A) — the last import, in the
+    user's terms (``services/profile/receipts.py::summarize_last_import``):
+    ``GET /api/profile/import-summary``. Empty (``record_id`` None) when the
+    trail holds no import."""
+
+    record_id: str | None = None
+    timestamp: datetime | None = None
+    source: str | None = None
+    #: The uploaded file the record belongs to, when one is known.
+    file_name: str | None = None
+    added_total: int = 0
+    groups: list[ReceiptGroup] = Field(default_factory=list)
+    facts: list[ReceiptFact] = Field(default_factory=list)
+    #: Recognised pairs, one per (entry, incoming name), not undone.
+    matched: list[MatchReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)
+    restated: list[RestatedReceipt] = Field(default_factory=list)
+    not_applied_total: int = 0
 
 
 class DeniedConcept(BaseModel):
@@ -1856,6 +1901,7 @@ class ProfileImportResponse(MasterProfileResponse):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: 783:L41 (ADR-021 amended 2026-10-20) — the extraction review outcome of
     #: this import; see :class:`ExtractionReview`.
     extraction_review: ExtractionReview | None = None
@@ -1935,6 +1981,7 @@ class CVUploadResponse(BaseModel):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`. Optional
     #: for the same reason: this class is persisted verbatim as a background
     #: import job's `result` (`CVImportStatusResponse`), and a job stored
@@ -2021,6 +2068,7 @@ class StagedResolveResponse(BaseModel):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`.
     not_applied_loss_count: int | None = None
 

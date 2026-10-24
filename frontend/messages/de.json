@@ -2456,10 +2456,7 @@
     "deletedPerson": "gelöschte Person"
   },
   "importSummary": {
-    "recognisedTitle": "Schon in deinem Profil ({count})",
-    "recognisedIntro": "Diese Einträge aus deiner Datei stehen bereits in deinem Profil, nur unter anderem Namen. Den neuen Namen haben wir als weitere Bezeichnung gespeichert. Stimmt eine Zuordnung nicht, tippe auf „Nicht dasselbe“.",
     "showInProfile": "Im Profil zeigen",
-    "notSame": "Nicht dasselbe",
     "separatedDone": "Als eigener Eintrag hinzugefügt",
     "sameLanguage": "gleiche Sprache",
     "showAll": "Alle {count} anzeigen",
@@ -2468,7 +2465,22 @@
     "restatedIntro": "Diese Punkte aus deiner Datei sagen dasselbe wie ein Punkt, der schon bei dieser Station steht. Wir haben sie nicht übernommen und nichts gelöscht. Steckt doch etwas Neues darin, tippe auf „Trotzdem übernehmen“.",
     "restatedHeld": "Steht schon da: {text}",
     "restatedApply": "Trotzdem übernehmen",
-    "restatedApplied": "Übernommen"
+    "restatedApplied": "Übernommen",
+    "combinedTitle": "Mit Vorhandenem zusammengeführt ({count})",
+    "combinedIntro": "Diese Angaben aus der Datei stehen schon in deinem Profil — unter anderem Namen. Wir haben sie dort ergänzt statt doppelt anzulegen.",
+    "pairQuestion": "Ist <b>{incoming}</b> dasselbe wie <b>{existing}</b>?",
+    "pairYes": "Ja",
+    "pairNo": "Nein, getrennt führen",
+    "pairConfirmed": "Als dasselbe bestätigt",
+    "keptSeparatelyTitle": "Separat behalten ({count})",
+    "keptSeparately": "<b>{incoming}</b> haben wir nicht mit <b>{existing}</b> zusammengeführt — das sind verschiedene Dinge. Beide stehen einzeln in deinem Profil.",
+    "lastImportTitle": "Dein Import vom {date} — {file}",
+    "lastImportTitleNoFile": "Dein Import vom {date}",
+    "lastImportLead": "Wir haben {added, plural, one {# Angabe} other {# Angaben}} in dein Profil übernommen und {matched, plural, one {# als schon vorhanden} other {# als schon vorhanden}} erkannt. Nichts wurde gelöscht.",
+    "groupCount": "{count, plural, one {# Angabe} other {# Angaben}}",
+    "notAppliedNote": "{count, plural, one {# Angabe aus der Datei ist nicht in deinem Profil angekommen.} other {# Angaben aus der Datei sind nicht in deinem Profil angekommen.}}",
+    "techLog": "Technisches Protokoll anzeigen",
+    "loadFailed": "Die Zusammenfassung konnte nicht geladen werden."
   },
   "profileAliases": {
     "label": "Auch bekannt als",
