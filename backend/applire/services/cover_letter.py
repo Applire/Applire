@@ -2904,8 +2904,14 @@ def terminal_patch_structure_defects(reviewed: dict, patch: dict, *, user_id: "u
         if merged:
             defects.append("closing_merged")
 
-    if has_closing_paragraph({"body": {"paragraphs": r_body}}) and not has_closing_paragraph(
-        {"body": {"paragraphs": p_body}}
+    # A closing is "lost" only where the reviewed letter HAD one of its own: a
+    # paragraph after salutation and body (>= 3). A two-paragraph letter's last
+    # paragraph is its body, and a patch that rewrites it (a corrector repairing a
+    # false sentence, test_664) is content, not structure.
+    if (
+        len(r_body) >= 3
+        and has_closing_paragraph({"body": {"paragraphs": r_body}})
+        and not has_closing_paragraph({"body": {"paragraphs": p_body}})
     ):
         defects.append("closing_lost")
     return defects

@@ -406,3 +406,21 @@ async def test_a_merging_patch_in_a_reviewed_round_is_left_to_the_next_review(db
     )
     assert len(captured) == 2, "the round-1 patch re-entered review"
     assert not [r for r in caplog.records if "LETTER_TERMINAL_PATCH_REJECTED" in r.getMessage()]
+
+
+def test_a_two_paragraph_letter_has_no_closing_to_lose():
+    """test_664's shape: salutation + ONE body paragraph. Its last paragraph is
+    the body, so a corrector that rewrites it (repairing a false sentence) is
+    content, not structure — the floor must keep that repair."""
+    from applire.services.cover_letter import terminal_patch_structure_defects
+
+    sig = {"closing": "Mit freundlichen Grüßen", "name": "Stefan Brandt"}
+    reviewed = {"body": {"paragraphs": [
+        "Sehr geehrte Damen und Herren,",
+        "Direkte Erfahrung mit Verbundverpackungen habe ich nicht. Qualitätsmanagement beanspruche ich nicht.",
+    ]}, "signature": sig}
+    patch = {"body": {"paragraphs": [
+        "Sehr geehrte Damen und Herren,",
+        "Als Bereichsverantwortlicher begleitete ich ISO-9001-Audits.",
+    ]}, "signature": sig}
+    assert terminal_patch_structure_defects(reviewed, patch) == []
