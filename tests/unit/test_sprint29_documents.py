@@ -319,3 +319,110 @@ async def test_list_documents_never_attaches_another_users_letter(db, monkeypatc
 
     result = await list_documents(user_id=_USER_A, db=db)
     assert result.items[0].cover_letter is None
+
+
+# ---------------------------------------------------------------------------
+# 789:187 (Hazelnut build 4) — a letter with no CV is listed and counted
+# ---------------------------------------------------------------------------
+
+
+async def _seed_letter_only(db, user_id, role_title, company_name, *, minutes=0):
+    """A posting with a live letter and no live CV: seed it as a CV posting,
+    then soft-delete the CV (the path the collector line saw)."""
+    cv = await _seed_cv(db, user_id, role_title, company_name)
+    letter = _letter_for(cv, user_id, minutes=minutes)
+    db.add(letter)
+    cv.deleted_at = datetime.now(timezone.utc)
+    await db.commit()
+    return cv, letter
+
+
+@pytest.mark.asyncio
+async def test_list_documents_lists_a_letter_without_a_cv_as_its_own_row(db):
+    from applire.services.documents import list_documents
+
+    cv, letter = await _seed_letter_only(db, _USER_A, "Werkleiter", "Nordlicht AG")
+    result = await list_documents(user_id=_USER_A, db=db)
+
+    assert result.total == 1
+    assert result.documents_total == 1
+    row = result.items[0]
+    assert row.kind == "cover_letter"
+    assert row.cv_id is None
+    assert row.cover_letter is not None and row.cover_letter.cover_letter_id == letter.id
+    assert row.role_title == "Werkleiter" and row.company_name == "Nordlicht AG"
+    assert row.flow_id is not None
+    assert row.status == "ready"
+
+
+@pytest.mark.asyncio
+async def test_documents_total_counts_the_letter_on_a_cv_row(db):
+    """"Dokumente gesamt" counted CV rows only: a CV with its letter is two documents."""
+    from applire.services.documents import list_documents
+
+    cv = await _seed_cv(db, _USER_A, "Leiter Operations", "Rheinwerk")
+    db.add(_letter_for(cv, _USER_A, minutes=1))
+    await db.commit()
+    await _seed_letter_only(db, _USER_A, "Werkleiter", "Nordlicht AG", minutes=2)
+    await _seed_cv(db, _USER_A, "Plant Manager", "Acme")
+
+    result = await list_documents(user_id=_USER_A, db=db)
+    assert result.total == 3  # rows: CV+letter, letter only, CV only
+    assert result.documents_total == 4
+    kinds = sorted(i.kind for i in result.items)
+    assert kinds == ["cover_letter", "cv", "cv"]
+
+
+@pytest.mark.asyncio
+async def test_letter_only_rows_merge_newest_first_and_paginate(db):
+    from datetime import timedelta
+
+    from applire.services.documents import list_documents
+
+    old_cv = await _seed_cv(db, _USER_A, "Role Old", "Co Old")
+    old_cv.created_at = datetime.now(timezone.utc) - timedelta(days=2)
+    await db.commit()
+    _cv, letter = await _seed_letter_only(db, _USER_A, "Role Letter", "Co Letter", minutes=10)
+    newest_cv = await _seed_cv(db, _USER_A, "Role New", "Co New")
+    newest_cv.created_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    await db.commit()
+
+    page1 = await list_documents(user_id=_USER_A, db=db, page=1, page_size=2)
+    assert [i.role_title for i in page1.items] == ["Role New", "Role Letter"]
+    assert page1.total == 3
+    page2 = await list_documents(user_id=_USER_A, db=db, page=2, page_size=2)
+    assert [i.role_title for i in page2.items] == ["Role Old"]
+
+
+@pytest.mark.asyncio
+async def test_a_letter_beside_a_live_cv_is_not_listed_twice(db):
+    from applire.services.documents import list_documents
+
+    cv = await _seed_cv(db, _USER_A, "QA Lead", "Bayer")
+    db.add(_letter_for(cv, _USER_A))
+    await db.commit()
+    result = await list_documents(user_id=_USER_A, db=db)
+    assert [i.kind for i in result.items] == ["cv"]
+    assert result.items[0].cover_letter is not None
+
+
+@pytest.mark.asyncio
+async def test_letter_only_row_never_shows_another_users_letter(db, monkeypatch):
+    """ADR-092 cl. 3, owner key held by the service itself (guard off)."""
+    from applire import ownership
+    from applire.services.documents import list_documents
+
+    monkeypatch.setattr(ownership, "GUARD_ENABLED", False)
+    await _seed_letter_only(db, _USER_B, "Fremd", "Andere GmbH")
+    result = await list_documents(user_id=_USER_A, db=db)
+    assert result.items == []
+    assert result.total == 0 and result.documents_total == 0
+
+
+@pytest.mark.asyncio
+async def test_letter_only_row_follows_the_status_filter(db):
+    from applire.services.documents import list_documents
+
+    await _seed_letter_only(db, _USER_A, "Werkleiter", "Nordlicht AG")
+    assert (await list_documents(user_id=_USER_A, db=db, status="ready")).total == 1
+    assert (await list_documents(user_id=_USER_A, db=db, status="generating")).total == 0

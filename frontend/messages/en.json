@@ -1626,7 +1626,8 @@
     "letterGenerating": "Cover letter in progress",
     "letterFailed": "Cover letter failed",
     "letterExpired": "Cover letter expired",
-    "letterOpen": "Open cover letter"
+    "letterOpen": "Open cover letter",
+    "typeLetter": "Cover letter"
   },
   "explainers": {
     "dontShowAgain": "Don't show this again",

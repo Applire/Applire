@@ -30,6 +30,9 @@ export default function DocumentsPage() {
   const t = useTranslations("documents");
   const [items, setItems] = useState<DocumentItem[]>([]);
   const [total, setTotal] = useState(0);
+  // 789:187: "Dokumente gesamt" counts documents (a CV with its letter is two);
+  // `total` stays the row count the pagination needs.
+  const [documentsTotal, setDocumentsTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [searchValue, setSearchValue] = useState("");
@@ -45,6 +48,7 @@ export default function DocumentsPage() {
           const d = await res.json();
           setItems(d.items ?? []);
           setTotal(d.total ?? 0);
+          setDocumentsTotal(d.documents_total ?? d.total ?? 0);
         }
       } catch {
         // non-fatal
@@ -79,7 +83,7 @@ export default function DocumentsPage() {
         {/* Stats strip */}
         <div className="grid grid-cols-2 gap-3.5 mb-5">
           {[
-            { icon: "description", label: t("totalDocs"),     value: total,         bg: "bg-teal-container",  iconColor: "var(--color-primary)" },
+            { icon: "description", label: t("totalDocs"),     value: documentsTotal,         bg: "bg-teal-container",  iconColor: "var(--color-primary)" },
             { icon: "schedule",    label: t("expiringCount"),  value: expiringCount, bg: "bg-amber-50",        iconColor: "#8b5000" },
           ].map(({ icon, label, value, bg, iconColor }) => (
             <div key={label} className="bg-white rounded-xl border-[1.5px] border-gray-200 px-4 py-3.5 flex items-center gap-3.5">

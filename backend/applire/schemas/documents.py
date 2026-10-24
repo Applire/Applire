@@ -18,6 +18,7 @@
 """My Documents — response schemas for GET /api/documents."""
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -39,7 +40,11 @@ class LetterRef(BaseModel):
 
 
 class DocumentItem(BaseModel):
-    cv_id: uuid.UUID
+    #: 789:187 (Hazelnut build 4, additive): ``"cover_letter"`` for a letter
+    #: whose posting has no live CV — then ``cv_id`` is ``None`` and
+    #: ``cover_letter`` names the letter itself.
+    kind: Literal["cv", "cover_letter"] = "cv"
+    cv_id: uuid.UUID | None
     flow_id: uuid.UUID | None
     role_title: str | None
     company_name: str | None
@@ -57,4 +62,8 @@ class DocumentItem(BaseModel):
 
 class DocumentListResponse(BaseModel):
     items: list[DocumentItem]
+    #: Rows across all pages (pagination).
     total: int
+    #: 789:187 (additive): documents across all pages — a CV row that carries
+    #: its letter counts two. ``None`` only from callers that predate it.
+    documents_total: int | None = None

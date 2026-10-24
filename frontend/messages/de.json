@@ -1626,7 +1626,8 @@
     "letterGenerating": "Anschreiben wird erstellt",
     "letterFailed": "Anschreiben fehlgeschlagen",
     "letterExpired": "Anschreiben abgelaufen",
-    "letterOpen": "Anschreiben öffnen"
+    "letterOpen": "Anschreiben öffnen",
+    "typeLetter": "Anschreiben"
   },
   "explainers": {
     "dontShowAgain": "Nicht mehr anzeigen",
