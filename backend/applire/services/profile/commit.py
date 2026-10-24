@@ -730,7 +730,7 @@ async def commit_ops(
     # question, never twice. Every intake: a new denial meets the CV here, and a
     # new import meets the old denials here. No vault write besides the question.
     park_denial_scope_confirmations(
-        profile.metadata, profile.model_dump(mode="json"), pre_op_json
+        profile.metadata, profile.model_dump(mode="json"), pre_op_json, when=now
     )
 
     # ── Invariant 2 — the persisted-denial re-floor ──────────────────────────

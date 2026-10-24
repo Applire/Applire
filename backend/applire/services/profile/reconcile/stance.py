@@ -1655,13 +1655,16 @@ def denial_scope_confirmation(hit: dict[str, str]) -> PendingConfirmation:
         d_de, d_en = _date_de(iso), _date_en(iso)
         said_de = f"Am {d_de} hast du gesagt" if d_de else "Du hast gesagt"
         said_en = f"On {d_en} you said" if d_en else "You said"
+        cv_iso = hit.get("cv_date") or ""
+        cv_de = f"In deinem Lebenslauf vom {_date_de(cv_iso)}" if _date_de(cv_iso) else "In deinem Lebenslauf"
+        cv_en = f"Your CV of {_date_en(cv_iso)}" if _date_en(cv_iso) else "Your CV"
         question_de = (
             f"Stimmt deine frühere Angabe noch? {said_de}, dass {denial} nicht auf dich "
-            f"zutrifft. In deinem Lebenslauf steht aber: „{shown}“."
+            f"zutrifft. {cv_de} steht aber: „{shown}“."
         )
         question_en = (
             f"Is your earlier answer still right? {said_en} that {denial} does not apply "
-            f"to you. Your CV says: “{shown}”."
+            f"to you. {cv_en} says: “{shown}”."
         )
         holds = {"de": "Ja, meine Angabe stimmt", "en": "Yes, my answer is right"}
     else:
@@ -1725,6 +1728,7 @@ def park_denial_scope_confirmations(
     metadata: ProfileMetadata | None,
     profile_json: dict[str, Any] | None,
     before_json: dict[str, Any] | None = None,
+    when: datetime | None = None,
 ) -> list[PendingConfirmation]:
     """Park one Health item per persisted denial the candidate's own CV
     contradicts (:func:`denial_cv_conflicts`, both kinds), never twice: a denial that
@@ -1739,7 +1743,8 @@ def park_denial_scope_confirmations(
     ``"head_noun"`` hits park against the whole CV (FS-7: the denial's scope is
     the question). Returns the newly parked records (also appended to
     ``metadata.pending_confirmations``). No vault write besides the parked
-    question; the floor is untouched."""
+    question; the floor is untouched. ``when`` (the write time) dates the
+    CV a literal hit quotes: its unit is new in this write."""
     if metadata is None:
         return []
     old_units = (
@@ -1758,6 +1763,8 @@ def park_denial_scope_confirmations(
         if key in asked:
             continue
         asked.add(key)
+        if hit.get("kind") == "literal" and when is not None:
+            hit = {**hit, "cv_date": when.date().isoformat()}
         conf = denial_scope_confirmation(hit)
         metadata.pending_confirmations.append(conf)
         parked.append(conf)

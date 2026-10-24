@@ -16,6 +16,7 @@ in the E-11 label packet carry such a head noun).
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -214,12 +215,14 @@ def test_the_builder_words_a_literal_contradiction_with_v5_copy():
 
     c = denial_scope_confirmation(
         {"kind": "literal", "denial_concept": "SAP PP", "bare_term": "sap pp",
-         "cv_label": "SAP PP (Fertigungsaufträge, Stücklisten)", "denial_date": "2026-10-12"}
+         "cv_label": "SAP PP (Fertigungsaufträge, Stücklisten)", "denial_date": "2026-10-12",
+         "cv_date": "2026-10-24"}
     )
     q_de, opts_de = c.rendered("de")
     assert q_de == (
         "Stimmt deine frühere Angabe noch? Am 12.10.2026 hast du gesagt, dass SAP PP nicht auf "
-        "dich zutrifft. In deinem Lebenslauf steht aber: „SAP PP (Fertigungsaufträge, Stücklisten)“."
+        "dich zutrifft. In deinem Lebenslauf vom 24.10.2026 steht aber: "
+        "„SAP PP (Fertigungsaufträge, Stücklisten)“."
     )
     assert opts_de == ["Ja, meine Angabe stimmt", "Nein, der Lebenslauf stimmt: Angabe zurücknehmen"]
     assert c.rendered("en")[0].startswith("Is your earlier answer still right? On 12 Oct 2026 you said")
@@ -393,6 +396,8 @@ async def test_seam_an_answered_question_is_not_re_parked_on_the_next_import():
             (item,) = _parked(record)
             assert item["context"]["conflict_kind"] == "literal"
             assert item["context"]["cv_label"] == "Vertrieb"
+            today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+            assert f"In deinem Lebenslauf vom {today} steht aber: „Vertrieb“." in item["question_i18n"]["de"]
 
             # V's resolution on denial_holds: the item is removed, the answer remembered.
             pj = copy.deepcopy(record.profile_json)
