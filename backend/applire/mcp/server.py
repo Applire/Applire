@@ -640,7 +640,7 @@ def _marked(payload, kind: str):
     description=(
         "Seed or extend the Master Profile from a CV. Provide file_base64 "
         "(base64 PDF, <=10 MB) or text (extracted CV text). Call once per CV "
-        "to merge several. Returns a summary, never the raw profile. If the "
+        "to merge several. If the "
         "pre-merge integrity gate HOLDS it, nothing is merged: gated=true with "
         "a staged_id — put the choice to the human, then resolve_held_merge."
     )
@@ -883,7 +883,7 @@ def _held_merge_summary(record, account_name: str | None) -> dict:
     description=(
         "Read Master Profile health: severity-tagged integrity issues, a "
         "completeness score with field-level gaps, and every import the "
-        "pre-merge gate is HOLDING. Deterministic, no LLM. field_gaps is the "
+        "pre-merge gate is HOLDING. field_gaps is the "
         "no-JD review agenda (guide)."
     )
 )
@@ -912,7 +912,7 @@ async def get_profile_health() -> dict:
     description=(
         "Undo the last Master Profile merge (restores the pre-merge snapshot). "
         "Single-level and idempotent: nothing left to undo returns "
-        "restored=false. Tell the user when discarded_later_edits is true."
+        "restored=false. Relay discarded_later_edits (guide)."
     )
 )
 async def undo_last_merge() -> dict:
@@ -980,7 +980,7 @@ async def resolve_held_merge(staged_id: str, decision: str) -> dict:
         "first (max 20/call). Optional `gap` = "
         "EXACT concept string from analyze_gaps (requires job_id). Ambiguous/"
         "conflicting claims are parked in the profile Health hub, reported "
-        "per claim. Denials are recorded (denial_recorded), never dropped."
+        "per claim."
     )
 )
 async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
@@ -1121,8 +1121,7 @@ async def run_interview(job_id: str | None = None) -> dict:
         "Send a message in an active interview session. "
         "Returns the next question, or {complete: true} when finished. "
         "Reply 'done' to end. If 'pending_confirmations' is present, reply "
-        "with one of the listed 'options' VERBATIM; never paraphrase, and an "
-        "answer that is none of them changes nothing (guide)."
+        "with one of the listed 'options' VERBATIM (guide)."
     )
 )
 async def send_message(session_id: str, message: str) -> dict:
@@ -1160,9 +1159,8 @@ async def send_message(session_id: str, message: str) -> dict:
     description=(
         "Resolve ONE gap cluster in a single call — the agent-channel form of "
         "the UI's targeted gap fill. Pass job_id, a gap_id from analyze_gaps' "
-        "gap_clusters, and the candidate's own testimony. Returns {gap_id, "
-        "question_asked, status, profile_completeness, coverage, open_concepts, "
-        "budget_remaining, follow_up_question?}. Stateless (see guide)."
+        "gap_clusters, and the candidate's own testimony. Returns the gap's "
+        "status, coverage and remaining budget. Stateless (see guide)."
     )
 )
 async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
@@ -1328,7 +1326,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
 @agent_tool(
     description=(
         "Generate a tailored CV for the given job; blocks until done. "
-        "Returns cv_id, html_url, and pdf_url. 'ready' is not 'verified': "
+        "'ready' is not 'verified': "
         "read get_cv_ats_report. Optional target_pages pins the page count "
         f"for this generation ({DEFAULT_REGION}: "
         f"{REGION_NORMS[DEFAULT_REGION].cv_standard_pages} standard, "
@@ -1427,8 +1425,7 @@ def _cv_readback(record: GeneratedCV) -> dict | None:
     description=(
         "Get the persisted ATS audit report for a generated CV. Returns "
         "{document_id, status, report, review_state, truthfulness}; report is "
-        "null while pending — named checks + keyword presence, no aggregate "
-        "score."
+        "null while pending."
     )
 )
 async def get_cv_ats_report(cv_id: str) -> dict:
@@ -1517,8 +1514,7 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
         "inflated | misattributed | unbacked | unverifiable, with evidence "
         "refs. Pass EXACTLY ONE of document_id (generated CV/letter — "
         "persisted report) or document_text (raw text; no position anchors, "
-        "misattribution skipped). Verifies document-vault consistency only — "
-        "the vault is self-attested."
+        "misattribution skipped)."
     )
 )
 async def audit_document(
@@ -1787,8 +1783,7 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
     description=(
         "Get the persisted ATS audit report for a generated cover letter. "
         "Returns {document_id, status, report, review_state, truthfulness}; "
-        "report is null while pending — named checks + keyword presence, no "
-        "aggregate score."
+        "report is null while pending."
     )
 )
 async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:
@@ -1893,7 +1888,7 @@ def _parse_user_status(raw: str, field: str) -> UserStatus:
 @agent_tool(
     description=(
         "List the user's application pipeline. "
-        f"Optional status_filter: {_USER_STATUS_VALUES}."
+        "Optional status_filter: a user_status (see update_application)."
     )
 )
 async def list_applications(status_filter: str | None = None) -> list[dict]:
@@ -1992,9 +1987,8 @@ async def create_application(
     description=(
         "Update user-managed fields (omitted ones stay unchanged). "
         f"user_status: one of {_USER_STATUS_VALUES}. deadline: ISO 8601. "
-        "submitted_cv_id/submitted_cover_letter_id: the sent document. "
-        "dismiss_stale_cv=true mutes the stale hint. language_override: "
-        "de/en/auto. add_fact_pin / remove_fact_pin: see guide."
+        "submitted_*_id: the sent document. dismiss_stale_cv, "
+        "language_override (de/en/auto), add_fact_pin / remove_fact_pin: see guide."
     )
 )
 async def update_application(

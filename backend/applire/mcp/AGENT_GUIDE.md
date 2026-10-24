@@ -141,6 +141,8 @@ work — nothing about whether its review passed. Two separate checks say that,
 both on the ATS report: the **`terminal-review`** check (`report.checks[]`, id
 `terminal-review`) is the writing loop's own last LLM reviewer verdict, and
 `truthfulness` (below) is the deterministic audit against the vault. Read both.
+The report holds named checks plus keyword presence and no aggregate score; it
+is `null` while the review is pending.
 `terminal-review` has three states:
 
 - `pass` — the reviewer approved the document that was delivered. `details` may
