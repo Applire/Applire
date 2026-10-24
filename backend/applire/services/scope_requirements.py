@@ -500,9 +500,13 @@ def render_scope_positioning_block(
         "Each line below is labelled exactly what it is (#562): \"typed vault value\" is the",
         "candidate's own recorded figure, NOT independently verified; only \"attested in the",
         "vault\" is a verified quote — never call a typed value \"attested\".",
-        "For a CV: a bullet grounded in a value below belongs in its matching role, its",
-        "figure kept verbatim. For a cover letter: fold ONE honest, specific statement of",
-        "this scale into the positioning/motivation content.",
+        "For a CV: EVERY line below is carried in its matching role, its figure kept",
+        "verbatim. An \"attested in the vault\" line is a DIFFERENT fact from the typed",
+        "team size beside it (e.g. a whole site covered as deputy) — it gets its own",
+        "statement in that role, never dropped because the typed value already answers",
+        "the scale question: a fact the letter states and the CV omits reads to the",
+        "reader as a contradiction (786:242). For a cover letter: fold ONE honest,",
+        "specific statement of this scale into the positioning/motivation content.",
         "",
     ]
     return "\n".join(header + items)
