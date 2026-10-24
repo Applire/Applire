@@ -207,7 +207,8 @@ test.describe('#737 — cover letter', () => {
     await panel(page).getByTestId('cl-body-textarea').fill('Entwurf');
     await page.getByTestId('sidebar-tab-review').click();
     await expect(page.getByTestId('edit-unsaved-dialog')).toContainText('Anschreiben-Text');
-    await expect(page.getByTestId('edit-unsaved-save')).toHaveCount(0);
+    // 789:189: the letter's dialog offers Save, like the CV's (was: no Save)
+    await expect(page.getByTestId('edit-unsaved-save')).toBeVisible();
     await page.getByTestId('edit-unsaved-stay').click();
     await expect(panel(page).getByTestId('cl-body-textarea')).toHaveValue('Entwurf');
     await page.getByTestId('sidebar-tab-review').click();
@@ -215,6 +216,19 @@ test.describe('#737 — cover letter', () => {
     await expect(page.getByTestId('sidebar-tab-review')).toHaveAttribute('aria-selected', 'true');
     await page.getByTestId('sidebar-tab-edit').click();
     await expect(panel(page).getByTestId('cl-body-textarea')).toHaveValue(EDITED_LETTER_BODY);
+  });
+
+  test('789:189 — Save in the letter dialog saves the draft and then switches', async ({ page }) => {
+    const server = await stubDocuments(page, 'de', { letterBodyEdited: true });
+    await page.goto(LETTER);
+    await page.getByTestId('sidebar-tab-edit').click();
+    await panel(page).getByTestId('cl-body-textarea').fill('Entwurf');
+    await page.getByTestId('sidebar-tab-review').click();
+    await page.getByTestId('edit-unsaved-save').click();
+    await expect.poll(() => server.patches.length).toBe(1);
+    expect(JSON.stringify(server.patches[0].body)).toContain('Entwurf');
+    await expect(page.getByTestId('edit-unsaved-dialog')).toHaveCount(0);
+    await expect(page.getByTestId('sidebar-tab-review')).toHaveAttribute('aria-selected', 'true');
   });
 
   test('regenerating a letter with an edited body asks first', async ({ page }) => {
