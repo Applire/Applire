@@ -246,3 +246,50 @@ def test_a_generic_first_word_opens_no_clause():
     # the name without legal form still anchors
     m2 = _masked("Deutsche Bahn betreibt Fernverkehr in Europa, was mich reizt.", names)
     assert "fernverkehr" not in m2
+
+
+# ── #803 belt (founder ruling T-2 = B): the employer-sentence population ─────
+
+
+def test_803_belt_marcus_round2_term_in_a_sentence_naming_the_employer_is_neutral():
+    """ux-audit-2 marcus-071: "Konsumgüter" sits after a "weil Sie …" clause the mask
+    cannot reach. It stays listed (take-out + edit), in the neutral population."""
+    t = _norm("Die Rheinwerk Verpackungen GmbH spricht mich an, weil Sie Verpackungen für "
+              "Konsumgüter fertigen. Ich habe zwölf Jahre eine Fertigung geleitet.")
+    cov = _keyword_coverage(t, ["Konsumgüter"], [_gap("Konsumgüter")], non_claim=_RHEINWERK)
+    assert cov.present_unsupported == ["Konsumgüter"]
+    assert cov.present_unsupported_employer_sentence == ["Konsumgüter"]
+
+
+def test_803_belt_a_second_occurrence_outside_the_employer_sentence_keeps_the_red_row():
+    t = _norm("Die Rheinwerk Verpackungen GmbH spricht mich an, weil Sie Konsumgüter fertigen. "
+              "Ich habe zehn Jahre Konsumgüter produziert.")
+    cov = _keyword_coverage(t, ["Konsumgüter"], [_gap("Konsumgüter")], non_claim=_RHEINWERK)
+    assert cov.present_unsupported == ["Konsumgüter"]
+    assert cov.present_unsupported_employer_sentence == []
+
+
+def test_803_belt_a_claim_in_a_sentence_without_the_employer_is_never_neutral():
+    t = _norm("Bei der Rheinwerk Verpackungen GmbH reizt mich die Aufgabe. Damit bringe ich "
+              "Erfahrung mit der Digitalisierung der Fertigung mit.")
+    cov = _keyword_coverage(
+        t, ["Digitalisierung der Fertigung"], [_gap("Digitalisierung der Fertigung")],
+        non_claim=_RHEINWERK,
+    )
+    assert cov.present_unsupported_employer_sentence == []
+
+
+def test_803_belt_the_known_cost_a_claim_inside_the_employer_sentence_goes_neutral():
+    """The ruled trade (T-2 = B): a genuine claim written into the employer's own
+    sentence loses its one-click add but stays listed with take-out + edit."""
+    t = _norm("NovaPay runs settlement rails, and I have run settlement systems for five years.")
+    cov = _keyword_coverage(t, ["Settlement"], [_gap("Settlement")], non_claim=_NOVAPAY)
+    assert cov.present_unsupported == ["Settlement"]
+    assert cov.present_unsupported_employer_sentence == ["Settlement"]
+
+
+def test_803_belt_is_letters_only():
+    cv_names = non_claim_names(None, ["Rheinwerk Verpackungen GmbH"])  # no employer_clause
+    t = _norm("Rheinwerk Verpackungen GmbH: Konsumgüter-Linie aufgebaut.")
+    cov = _keyword_coverage(t, ["Konsumgüter"], [_gap("Konsumgüter")], non_claim=cv_names)
+    assert cov.present_unsupported_employer_sentence == []

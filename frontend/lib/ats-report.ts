@@ -134,6 +134,10 @@ export type ATSReport = {
     // the candidate's own recorded denials covers, those denials. The review card
     // shows them and offers no add-to-profile handle. Absent = legacy report / none.
     present_unsupported_denials?: Record<string, string[]>;
+    // #803 belt (founder ruling T-2 = B, build 4): letter terms whose every
+    // occurrence sits in a sentence naming the employer — listed, but neutral:
+    // no add-to-profile exit, not counted in the group-1 headline.
+    present_unsupported_employer_sentence?: string[];
     // E048/US266 (#249 option b): EVERY claimable Keyword Ledger entry's surface
     // forms (concept name included), regardless of presence in the document.
     claimable_concepts?: string[];

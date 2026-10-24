@@ -1709,6 +1709,17 @@ def _keyword_coverage(
     # off that row is its `status`, which the ledger already carries
     # (`keyword_ledger._VALID_STATUS`) and already reports separately in the
     # DO-NOT-CLAIM block. Read-only on the ledger — no ledger semantics change here.
+    # #803 belt (founder ruling T-2 = B, 2026-10-24, ADR-090 amended): on a
+    # LETTER, a still-flagged term whose every occurrence sits in a sentence that
+    # names the employer is most likely about the employer ("… spricht mich an,
+    # weil Sie … fertigen"), not a claim — the clause mask cannot reach every
+    # such sentence shape. It stays a group-1 row (take-out and edit stay) but
+    # neutral: no add-to-profile exit and not counted in the headline.
+    present_unsupported_employer_sentence = (
+        _employer_sentence_terms(text_norm, present_unsupported, non_claim, ledger)
+        if non_claim and non_claim.employer_clause
+        else []
+    )
     present_denied = [
         k for k in present
         if any(
@@ -1736,7 +1747,33 @@ def _keyword_coverage(
         present_other_language=present_other_language,
         present_denied_matches={k: matches_by_kw[k] for k in present_denied},
         present_unsupported_denials=present_unsupported_denials,
+        present_unsupported_employer_sentence=present_unsupported_employer_sentence,
     )
+
+
+#: Sentence ends on the normalised letter text (``_norm`` keeps punctuation).
+_LETTER_SENTENCE_END_RE = re.compile(r"(?<=[.!?…])\s+|\s*" + re.escape(_CORPUS_FRAGMENT_BOUNDARY) + r"\s*")
+
+
+def _employer_sentence_terms(
+    text_norm: str,
+    terms: list[str],
+    non_claim: NonClaimNames,
+    ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """#803 belt — the flagged ``terms`` that occur ONLY in sentences naming the
+    employer. A sentence names the employer when :func:`_name_intervals` finds one
+    of ``non_claim.employers`` in it. A term is in that population when its
+    claim-text matches (the same masked text the flag read) find nothing in the
+    other sentences."""
+    if not terms or not non_claim.employers:
+        return []
+    sentences = [x for x in _LETTER_SENTENCE_END_RE.split(text_norm) if x and x.strip()]
+    other = [x for x in sentences if not _name_intervals(x, non_claim.employers)]
+    if len(other) == len(sentences):
+        return []  # no sentence names the employer
+    rest = (" " + _CORPUS_FRAGMENT_BOUNDARY + " ").join(mask_non_claim_spans(x, non_claim) for x in other)
+    return [k for k in terms if not keyword_matches(k, rest, ledger)]
 
 
 def _other_language_check(checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> None:

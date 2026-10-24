@@ -178,6 +178,11 @@ class ATSKeywordCoverage(BaseModel):
     # denial instead; the add-evidence door refuses it (409 `finding_denied`).
     # Additive, `{}` = none / legacy report.
     present_unsupported_denials: dict[str, list[str]] = {}
+    # #803 belt (founder ruling T-2 = B, build 4): LETTER ``present_unsupported``
+    # terms whose every occurrence sits in a sentence naming the employer. Still
+    # listed (take-out + edit stay); the review shows them neutral — no add exit,
+    # not counted in the group-1 headline. Empty on CVs and older reports.
+    present_unsupported_employer_sentence: list[str] = []
 
 
 class PinnedFactReportEntry(BaseModel):

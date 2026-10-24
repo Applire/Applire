@@ -125,6 +125,11 @@ export interface ReviewItem {
    * Non-empty → the card shows them and offers no add-to-profile handle.
    */
   denials?: string[];
+  /**
+   * #803 belt (T-2 = B): the term occurs only in sentences naming the employer.
+   * The row stays (take-out + edit) but is neutral and never counted.
+   */
+  employerSentence?: boolean;
 }
 
 export interface ReviewGroup {
@@ -209,6 +214,7 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
   const terms = atsReport?.keywords.present_unsupported ?? [];
   const matches = atsReport?.keywords.present_unsupported_matches;
   const denialsByTerm = atsReport?.keywords.present_unsupported_denials;
+  const employerSentence = new Set(atsReport?.keywords.present_unsupported_employer_sentence ?? []);
   const claimable = claimableConceptSet(atsReport?.keywords.claimable_concepts);
   const claims = truthReport ? flaggedClaims(truthReport.claims ?? [], claimable) : [];
 
@@ -249,7 +255,8 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       label: term,
       kind: "term",
       producers: overlap ? ["ats", "oracle"] : ["ats"],
-      severity: "critical",
+      severity: employerSentence.has(term) && !overlap ? "neutral" : "critical",
+      employerSentence: employerSentence.has(term) && !overlap,
       detail: claim?.verdict.detail ?? null,
       detailKey: claim?.verdict.detail_key ?? null,
       detailParams: claim?.verdict.detail_params ?? null,
@@ -667,7 +674,15 @@ function keyFold(findingKey: string): string {
  * decision closes a finding the report still lists.
  */
 export function openGroup1Count(items: ReviewItem[], state: ReviewState | null | undefined): number {
-  return buildGroup1Rows(items, state).filter((r) => r.status === "open").length;
+  return countedOpenRows(buildGroup1Rows(items, state)).length;
+}
+
+/**
+ * The open rows the headline and the badges count — #803 belt (T-2 = B): an
+ * employer-sentence row is listed and walkable, but never counted.
+ */
+export function countedOpenRows(rows: Group1Row[]): Group1Row[] {
+  return rows.filter((r) => r.status === "open" && !r.item?.employerSentence);
 }
 
 /**

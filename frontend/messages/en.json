@@ -1893,6 +1893,7 @@
     "cardPosition": "{index} OF {total}",
     "cardMatched": "Your document says “{wording}” in {count, plural, one {# place} other {# places}}. Nothing in your profile backs it.",
     "cardDenied": "You told us about a limit here yourself: “{denials}”. That is why Applire does not offer to add it to your profile. Take it out or edit the passage.",
+    "cardEmployerSentence": "“{term}” only appears in sentences about the company you are applying to – most likely it describes their business, not your experience. If it reads like your own experience there after all, take it out or edit the passage.",
     "cardMatchedJoin": "”, “",
     "actionShowWhere": "Show me where",
     "actionAddToProfile": "It’s true, add it to my profile",

@@ -42,6 +42,7 @@ import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
   buildCrossDocument,
   buildGroup1Rows,
+  countedOpenRows,
   buildFormInputRows,
   buildReviewGroups,
   buildSendChecks,
@@ -544,7 +545,8 @@ export function ReviewSurface({
   // verdict and shown in its own block — never counted among the findings that
   // "do not stand in the way of sending".
   const sendChecks = useMemo(() => buildSendChecks(atsReport), [atsReport]);
-  const verdict = verdictState(groups, openRows.length, sendChecks.length);
+  // #803 belt (T-2 = B): an employer-sentence row is listed, never counted.
+  const verdict = verdictState(groups, countedOpenRows(rows).length, sendChecks.length);
   // #702 RULING R-1 = A (condition): while a cross-document item is undecided,
   // the all-clear headline must not say the rest "does not stand in the way of
   // sending" — the card above "Weitere Hinweise" says otherwise.
@@ -592,7 +594,8 @@ export function ReviewSurface({
     const canTakeOut = !isStemOnly(row.item?.targets);
     // Build-2 delivery F2 (SF-REVIEW.18): never offer to write into the profile a
     // term the candidate's own recorded denial covers — the card shows the denial.
-    const canAdd = !(row.item?.denials && row.item.denials.length > 0);
+    // #803 belt (T-2 = B): nor a term that only sits in sentences about the employer.
+    const canAdd = !(row.item?.denials && row.item.denials.length > 0) && !row.item?.employerSentence;
     const columns = 1 + Number(canAdd) + Number(canTakeOut);
     const wrap =
       variant === "stack" ? "flex flex-col gap-2" : `grid ${GRID_COLS[columns]} gap-1.5`;
@@ -739,6 +742,11 @@ export function ReviewSurface({
           {notMarkable && (
             <span data-testid="review-locate-not-found" className="text-[13px] leading-snug text-on-surface-variant">
               {t("locateNotFound")}
+            </span>
+          )}
+          {!decided && row.item?.employerSentence && (
+            <span data-testid="review-card-employer-sentence" className="text-[13px] leading-snug text-on-surface">
+              {t("cardEmployerSentence", { term: row.label })}
             </span>
           )}
           {!decided && row.item?.denials && row.item.denials.length > 0 && (
@@ -1105,6 +1113,8 @@ export function ReviewSurface({
                       <Check className="h-[18px] w-[18px] text-success" strokeWidth={2.4} />
                     ) : isCurrent ? (
                       <span className="h-2 w-2 rounded-full bg-primary" />
+                    ) : r.item?.employerSentence ? (
+                      <span data-testid="review-row-neutral" className="h-2 w-2 rounded-full border-[1.5px] border-on-surface-variant" />
                     ) : (
                       <span className="h-2 w-2 rounded-full border-[1.5px] border-critical" />
                     )}
