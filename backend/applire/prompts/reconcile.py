@@ -321,6 +321,26 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   (base 4/5); held-out synonym alias without a date 5/5 (base 5/5). The applier
   records the date (``WorkEntry.dated_role_aliases``, ADR-013 note 2026-10-24).
   Records: ``Documents/Runs/Hazelnut/build-4/v/``.
+* **26,035 (Hazelnut build 4 WP-V, 2026-10-24, R2-11).** add_bullets: the
+  NOT-A-SECOND-TIME rule also holds with no figure and for a fact merged into one
+  bullet or split over two (held-out example), and a bullet is a CV line, not a
+  quote (no "I"/"my"/"we"; an entry with an end_date takes the past tense);
+  upsert_skill REQUIRED: the name is the new information's own word, never a term
+  only the question or the gap label uses (+652 chars). Why: the UX audit's
+  round-2 log wrote "… is my daily work" under a 2017–2021 role (prompt silent)
+  and a skill named after the question's term (rule 9 ignored). *Measured* (luna,
+  thinking off, captured input). Arm 1 used the captured quote as its tense
+  example, n=6 on the fail cases: closed-role voice 6/6 → 0/6 with the fact kept
+  6/6; the quoted "daily work" 6/6 → 2/6; question-term skill 4/6 → 2/6; controls
+  unchanged (new fact beside a restated one kept 3/3, a restated mentoring
+  answer ``already_known`` 3/3, the PSD2/BaFin denials kept 6/6). The shipped
+  wording swaps that example for a held-out one, n=3: voice 0/3 (fact kept
+  3/3), quote 0/3 (2/3 still present tense), question-term 1/3, new-fact
+  control kept 3/3, denials kept 3/3. A stricter wording ("a bullet for that
+  clause only") lost the restated fact in 2/3 runs and was not shipped.
+  Residuals (prompt silent, collector): a denial of the wrapper word ("regulated
+  environments"), an anaphor denial ("the model itself"). Records:
+  ``Documents/Runs/Hazelnut/build-4/v/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -405,7 +425,14 @@ Operations:
   "Reduced quote-calculation p95 latency from 1.8 s to 240 ms through query
   optimisation"; the answer says "I cut the quote calculation's p95 latency
   from 1.8 seconds to 240 ms by optimising the queries" — already there, no
-  bullet.
+  bullet. The same holds with no figure, and when the target already states
+  the fact merged into one bullet or split over two: the target holds "Built
+  the invoice-dunning workflow with retry schedules and email reminders"; the
+  answer says "As I said, I built the dunning flow, the retries and the
+  reminder emails" — already there, not one bullet and not two.
+  A bullet is a CV line, not a quote: no "I", "my" or "we", and an entry with
+  an end_date takes the past tense ("Led the release train", never "I lead the
+  release train").
   Add only what is new; when nothing in the answer is new, "ops" is empty with
   "empty_reason": "already_known".
 
@@ -424,7 +451,8 @@ Operations:
   figure belongs in the bullet that states it; record a skill only for the
   capability the new information says the person has ("OEE-Analyse",
   "Arbeitssicherheitsmanagement").
-  REQUIRED: name.
+  REQUIRED: name. The name is the new information's own word for the
+  capability, never a term only the question or the gap label uses.
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency: ONLY a level the new information states for this skill, then one
   of "basic", "intermediate", "advanced", "expert"; omit it otherwise.
