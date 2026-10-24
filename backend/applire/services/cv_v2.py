@@ -464,6 +464,7 @@ def v2_checks(
     #    condense_to_budget uses.
     if ctx.budget is not None:
         over = []
+        over_companies: list[str] = []
         for w in composed.work_history:
             rb = ctx.budget.roles.get(w.id)
             if rb is None:
@@ -471,9 +472,11 @@ def v2_checks(
             n = len(w.bullets) + sum(len(p.bullets) for p in w.projects)
             if n > rb.max_bullets:
                 over.append(f"{w.id} ({w.company}): {n} bullets, budget {rb.max_bullets}")
+                over_companies.append(w.company)
         if over:
             findings.append(CheckFinding(
                 check="cv.role_budget",
+                subjects=tuple(over_companies),
                 text=(
                     "Over the per-role bullet budget (role + nested project bullets): "
                     + "; ".join(over)
@@ -505,6 +508,7 @@ def v2_checks(
         ]
         findings.append(CheckFinding(
             check="cv.recorded_name",
+            subjects=tuple(got for _loc, got, _s, _n in notes.names_not_recorded[:_MAX_ITEMS_PER_FINDING]),
             text=(
                 "; ".join(parts)
                 + ". Pick the recorded form that is in the document language when one "
@@ -541,6 +545,7 @@ def v2_checks(
     if named:
         findings.append(CheckFinding(
             check="cv.identifier_not_in_profile",
+            subjects=tuple(named),
             text=identifier_finding_text(named, stated),
         ))
 
@@ -568,6 +573,7 @@ def v2_checks(
     if empty:
         findings.append(CheckFinding(
             check="cv.empty_project",
+            subjects=tuple(empty),
             text=f"Projects without a single bullet: {_fmt(empty)}. Give each one bullet or leave it out.",
         ))
 
@@ -601,6 +607,7 @@ def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> 
         return []
     return [CheckFinding(
         check="cv.claim_missing",
+        subjects=tuple(dict.fromkeys(c.concept for cands in candidates.values() for c in cands)),
         text=(
             "; ".join(parts[:_MAX_ITEMS_PER_FINDING])
             + (f" (+{len(parts) - _MAX_ITEMS_PER_FINDING} more)" if len(parts) > _MAX_ITEMS_PER_FINDING else "")
@@ -647,6 +654,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
 
     out: list[CheckFinding] = []
     parts: list[str] = []
+    missing_concepts: list[str] = []
     if ctx.keyword_ledger:
         try:
             under = verified_narrative_underclaim(doc, ctx.keyword_ledger, structured_document=doc)
@@ -659,6 +667,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
             if hit is None:
                 continue
             desc = str(hit.get("description") or "").strip()
+            missing_concepts.append(c.concept)
             parts.append(
                 f"“{c.concept}” is required by the posting and no bullet states it — the vault "
                 f"project “{hit.get('name')}” ({hit.get('id')}, {_where(hit)}) is its evidence"
@@ -667,6 +676,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
     if parts:
         out.append(CheckFinding(
             check="cv.project_missing",
+            subjects=tuple(missing_concepts[:_MAX_ITEMS_PER_FINDING]),
             text=(
                 "; ".join(parts[:_MAX_ITEMS_PER_FINDING])
                 + ". Write that project into the CV (as a project of its role, one or two "
@@ -692,6 +702,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
         if unmentioned:
             out.append(CheckFinding(
                 check="cv.project_not_mentioned",
+                subjects=tuple(unmentioned),
                 text=(
                     f"Vault projects neither on the CV nor mentioned: {_fmt(unmentioned)}. "
                     "Include the ones that are evidence for this job; leaving out an "
@@ -765,6 +776,7 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
     if untied:
         out.append(CheckFinding(
             check="cv.skill_untied",
+            subjects=tuple(untied),
             text=(
                 f"Skills entries with no tie to the profile (a posting phrase, not a "
                 f"competence the profile records): {_fmt(untied)}. Remove them from the "
@@ -776,6 +788,7 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
     if respelled:
         out.append(CheckFinding(
             check="cv.skill_spelling",
+            subjects=tuple(b for b, _a in respelled[:_MAX_ITEMS_PER_FINDING]),
             text=(
                 "Skills entries that alter a name the profile records: "
                 + "; ".join(f"“{b}” — the profile's name is “{a}”" for b, a in respelled[:_MAX_ITEMS_PER_FINDING])
@@ -786,6 +799,7 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
     if over_cap:
         out.append(CheckFinding(
             check="cv.skills_cap",
+            subjects=tuple(over_cap),
             text=(
                 f"The skills list is over its cap of {cv_mod.CV_MAX_SKILLS} entries; the "
                 f"least relevant to this posting are {_fmt(over_cap)}. Drop entries until "
@@ -796,6 +810,7 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
     if dupes:
         out.append(CheckFinding(
             check="cv.skill_duplicate",
+            subjects=tuple(dupes),
             blocking=False,
             text=(
                 f"These skills entries repeat another entry on the page (one is contained "
@@ -806,6 +821,7 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
     if narrated:
         out.append(CheckFinding(
             check="cv.skill_named_in_bullet",
+            subjects=tuple(narrated),
             blocking=False,
             text=(
                 f"Named in a bullet but absent from the skills list: {_fmt(narrated)}. Add "
@@ -947,21 +963,26 @@ class V2Terminal:
         logger.info("CV_V2_DELIVERED_CHECKS open=%s", [f.check for f in open_])
         if not open_:
             return outcome
-        note = "Code checks still open on the delivered CV (shipped and reported): " + "; ".join(
-            f"{f.check}: {f.text[:140]}" for f in open_[:4]
-        ) + (f" (+{len(open_) - 4} more)" if len(open_) > 4 else "")
+        # R2-5 (build 4, WP-T hunk): one structured note per open check, so the
+        # review card says each in the UI language; ``details`` folds them into the
+        # same EN sentence as before (``terminal_review_outcome._note_texts``).
+        from applire.services.terminal_review_outcome import TerminalNote, TerminalReviewOutcome
+
+        new_notes = tuple(
+            TerminalNote(kind="code", key=f.check, text=f.text, subjects=tuple(f.subjects))
+            for f in open_
+        )
         if outcome is None:
             # No terminal verdict ran (review layer off, or a stubbed loop): the row stays
             # "unknown" (path None → not_applicable) and still names the open facts.
-            from applire.services.terminal_review_outcome import TerminalReviewOutcome
-
             return TerminalReviewOutcome(
                 chain_id="cv_terminal_review", path=None, approved=False,
-                blocking_issues=(), minor_issues=(), rounds=0, notes=(note,),
+                blocking_issues=(), minor_issues=(), rounds=0, notes=new_notes,
             )
-        if note in outcome.notes:
+        fresh = tuple(n for n in new_notes if n not in outcome.notes)
+        if not fresh:
             return outcome
-        return dataclasses.replace(outcome, notes=outcome.notes + (note,))
+        return dataclasses.replace(outcome, notes=outcome.notes + fresh)
 
     def on_checks_settle(self, report) -> None:
         self.open_findings = list(report.open_findings)

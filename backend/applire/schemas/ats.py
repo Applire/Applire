@@ -36,6 +36,31 @@ class CheckSignal(BaseModel):
     weight: Literal["open", "landed"]
 
 
+class CheckNote(BaseModel):
+    """R2-5 (founder ruling 2026-10-24, Hazelnut build 4; ADR-081 cl. 4 / ADR-052
+    amended) — one item the ``terminal-review`` card lists, as DATA the UI says in
+    its own language. ``details`` keeps the EN diagnostic for the agent door and
+    legacy readers; the review surface reads these instead, so no check id, UUID,
+    round count or English reaches the DE UI.
+
+    * ``finding`` — a point the final reviewer raised (``text`` = its words;
+      ``plain`` = the reviewer's own one-sentence note for the candidate, in the
+      document's language, when it supplied one).
+    * ``code`` — a deterministic check still open on the delivered document;
+      ``key`` is the check id (``cv.role_budget``, ``letter.figure`` …) and
+      ``subjects`` the names it is about (an employer, a skill) — never prose.
+    * ``note`` — something the delivery pipeline did or found (``key``:
+      ``letter.limit_cut``, ``letter.limit_kept``, ``letter.missing_terms``).
+    """
+
+    kind: Literal["finding", "code", "note"]
+    key: Optional[str] = None
+    subjects: list[str] = []
+    count: Optional[int] = None
+    text: str = ""
+    plain: Optional[str] = None
+
+
 class ATSCheck(BaseModel):
     id: str                      # stable machine id, e.g. "contact-name", "work-2", "reading-order"
     # E057/ADR-079 clause 4: a THIRD status, `not_applicable`, for a check that
@@ -68,6 +93,9 @@ class ATSCheck(BaseModel):
     # #703: structured signals (see CheckSignal). None on every check that has none —
     # every pre-#703 report shape is unchanged.
     signals: Optional[list[CheckSignal]] = None
+    # R2-5 (build 4): the terminal-review card's items as data (see CheckNote).
+    # None on every other check and on every report persisted before it.
+    notes: Optional[list[CheckNote]] = None
 
 
 class KeywordMatch(BaseModel):

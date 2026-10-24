@@ -74,6 +74,8 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 
+import re
+
 import logging
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Sequence
@@ -345,6 +347,28 @@ def with_repeated_demands(
 
 
 @dataclass(frozen=True)
+class TerminalNote:
+    """R2-5 (founder ruling 2026-10-24, Hazelnut build 4) — a structured note on
+    the terminal-review row, the data twin of a ``notes`` string.
+
+    ``kind`` / ``key`` / ``subjects`` follow :class:`applire.schemas.ats.CheckNote`:
+    ``code`` = a deterministic check open on the delivered document (``key`` = the
+    check id, ``subjects`` = the names it is about); ``note`` = something the
+    delivery pipeline did (``letter.limit_cut`` …); ``finding`` = a reviewer's
+    point carried as a note (the shortened letter's advisory round). ``text`` is
+    the EN diagnostic the ``details`` string and the agent door keep."""
+
+    kind: str
+    key: str | None
+    text: str
+    subjects: tuple[str, ...] = ()
+
+
+def note_text(note: "str | TerminalNote") -> str:
+    return note.text if isinstance(note, TerminalNote) else note
+
+
+@dataclass(frozen=True)
 class TerminalReviewOutcome:
     """A terminal review's settle, reduced to what the report needs.
 
@@ -368,7 +392,9 @@ class TerminalReviewOutcome:
     #: remedy, not the finding), always reaches ``details`` so the candidate is
     #: told what was removed from their letter and why. Defaults to empty, so
     #: every existing producer and the whole CV side stay byte-identical.
-    notes: tuple[str, ...] = ()
+    #: R2-5 (build 4): a note may be a :class:`TerminalNote` — the same statement
+    #: as data, so the review surface can say it in the user's language.
+    notes: tuple["str | TerminalNote", ...] = ()
     #: F-4 — the measured facts about what the DELIVERY did with this verdict's
     #: findings. ``None`` = not measured by this producer; the status then falls back to
     #: :data:`_CORRECTED_AFTER_VERDICT_PATHS`, so every existing producer keeps working.
@@ -747,9 +773,57 @@ def _repeated_demand_sentence(outcome: TerminalReviewOutcome) -> str:
     return "Asked for again and again while writing: " + "; ".join(parts) + "."
 
 
+#: R2-5: the EN sentence a group of structured notes reads as in ``details`` —
+#: the strings these producers wrote before the notes became data.
+_CODE_NOTES_HEAD = {
+    "cv": "Code checks still open on the delivered CV (shipped and reported): ",
+    "letter": (
+        "Checks the review could not resolve before delivery (nothing was removed or "
+        "rewritten for you): "
+    ),
+}
+_POST_CONDENSE_HEAD = (
+    "The reviewer's notes on the shortened letter — check these (advisory, not "
+    "verified; the letter was not revised after shortening): "
+)
+
+
+def _note_texts(notes: tuple["str | TerminalNote", ...]) -> tuple[str, ...]:
+    """The EN form of ``notes`` for ``details``: plain strings as written; the
+    structured notes folded into the sentences they always read as."""
+    out: list[str] = []
+    cv_code: list[TerminalNote] = []
+    letter_code: list[TerminalNote] = []
+    post: list[TerminalNote] = []
+    post_at: int | None = None
+    for n in notes:
+        if isinstance(n, TerminalNote) and n.kind == "code":
+            (letter_code if (n.key or "").startswith("letter.") else cv_code).append(n)
+        elif isinstance(n, TerminalNote) and n.key == "letter.post_condense":
+            if post_at is None:
+                post_at = len(out)  # the group reads where it first appeared
+                out.append("")
+            post.append(n)
+        else:
+            out.append(note_text(n))
+    if post_at is not None:
+        out[post_at] = _POST_CONDENSE_HEAD + " | ".join(n.text for n in post)
+    if cv_code:
+        out.append(
+            _CODE_NOTES_HEAD["cv"]
+            + "; ".join(f"{n.key}: {n.text[:140]}" for n in cv_code[:4])
+            + (f" (+{len(cv_code) - 4} more)" if len(cv_code) > 4 else "")
+        )
+    if letter_code:
+        out.append(_CODE_NOTES_HEAD["letter"] + " ".join(
+            f"[{(n.key or '').removeprefix('letter.')}] {n.text}" for n in letter_code
+        ))
+    return tuple(out)
+
+
 def _all_notes(outcome: TerminalReviewOutcome) -> tuple[str, ...]:
     sentence = _repeated_demand_sentence(outcome)
-    return outcome.notes + ((sentence,) if sentence else ())
+    return _note_texts(outcome.notes) + ((sentence,) if sentence else ())
 
 
 def _with_notes(body: str, notes: tuple[str, ...]) -> str:
@@ -925,10 +999,14 @@ def build_terminal_review_check(
     """
     del document  # both documents share the id and the vocabulary; kept for call-site clarity
     if outcome is not None:
+        key, count = _state_key(outcome)
         return ATSCheck(
             id=TERMINAL_REVIEW_CHECK_ID,
             status=outcome.status,
             details=_details(outcome),
+            details_key=key,
+            details_params={"count": count},
+            notes=_check_notes(outcome),
             **_repeated_demand_fields(outcome),
         )
     if previous:
@@ -945,7 +1023,114 @@ def build_terminal_review_check(
             "No terminal-review outcome is recorded for this document, so its verdict is "
             "unknown — not clean."
         ),
+        details_key="terminal-review-not-run",
+        details_params={"count": 0},
+        notes=[],
     )
+
+
+# ── R2-5 (founder ruling 2026-10-24): the card in the user's words ───────────
+#
+# The EN ``details`` above is the agent door's and the legacy reader's text and
+# stays as it is. The review surface reads the state key, a count and the items
+# below, and says them in the UI language — no round count, check id, UUID or
+# field path reaches it (ux-audit-2 B-2: marcus-059/061, felix-018/055).
+
+#: One lead sentence per state; the frontend catalog holds the words
+#: (``ats.checkDetails.<key>``), this module only decides which one applies.
+TERMINAL_REVIEW_DETAIL_KEYS = frozenset({
+    "terminal-review-unverified",
+    "terminal-review-unverified-clean",
+    "terminal-review-open",
+    "terminal-review-unnamed",
+    "terminal-review-incomplete",
+    "terminal-review-not-run",
+    "terminal-review-clean-code-open",
+    "terminal-review-observations",
+    "terminal-review-clean",
+})
+
+#: A finding the deterministic checks fed into the loop reads "[cv.role_budget] …"
+#: (``reviewer.CheckFinding.as_issue``) — a code fact, not a reviewer's words.
+_CHECK_ISSUE_RE = re.compile(
+    r"^\[(?P<key>[a-z]+\.[a-z_]+)\]\s*(?:\(judge it: act only if it holds\)\s*)?(?P<text>.*)$",
+    re.DOTALL,
+)
+
+#: Bounds on the card's lists — the ``details`` string has its own bound.
+_NOTES_MAX_PER_KIND = 6
+_NOTE_TEXT_MAX = 400
+
+
+def _state_key(outcome: TerminalReviewOutcome) -> tuple[str, int]:
+    """Which lead sentence the card opens with, and the count it names. Mirrors the
+    branches of :func:`_body` one to one."""
+    status = outcome.status
+    blocking = len(outcome.blocking_issues)
+    if status == "not_applicable":
+        if outcome.path is None:
+            return "terminal-review-not-run", 0
+        if not outcome.findings_stand_against_delivered:
+            if blocking:
+                return "terminal-review-unverified", blocking
+            return "terminal-review-unverified-clean", 0
+        if outcome.path in _FAIL_PATHS and outcome.verdict_named_nothing:
+            return "terminal-review-unnamed", 0
+        return "terminal-review-incomplete", 0
+    code_open = sum(1 for n in outcome.notes if isinstance(n, TerminalNote) and n.kind == "code")
+    if status == "pass" and (outcome.path in _FAIL_PATHS or code_open):
+        return "terminal-review-clean-code-open", code_open
+    if status == "fail":
+        if not outcome.blocking_issues:
+            return "terminal-review-unnamed", 0
+        if outcome.path in ("generator_call_failed", "review_malformed"):
+            return "terminal-review-incomplete", blocking
+        return "terminal-review-open", blocking
+    if outcome.minor_issues:
+        return "terminal-review-observations", len(outcome.minor_issues)
+    return "terminal-review-clean", 0
+
+
+def _finding_note(text: str) -> dict[str, Any]:
+    m = _CHECK_ISSUE_RE.match(text.strip())
+    if m:
+        return {"kind": "code", "key": m.group("key"), "text": m.group("text")[:_NOTE_TEXT_MAX]}
+    return {"kind": "finding", "text": text[:_NOTE_TEXT_MAX]}
+
+
+def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
+    """The card's items: the verdict's findings (the blocking ones; the minor ones
+    when nothing blocked), then the pipeline's notes. Repeated demands are not
+    repeated here — they ride ``signals`` and have their own rows (#703)."""
+    raw = outcome.blocking_issues or (
+        outcome.minor_issues if outcome.status == "pass" else ()
+    )
+    findings = [_finding_note(t) for t in raw if t and t.strip()]
+    pipeline: list[dict[str, Any]] = []
+    for n in outcome.notes:
+        if isinstance(n, TerminalNote):
+            pipeline.append({
+                "kind": n.kind if n.kind in ("finding", "code", "note") else "note",
+                "key": n.key,
+                "subjects": list(n.subjects),
+                "text": n.text[:_NOTE_TEXT_MAX],
+            })
+        elif n and n.strip():
+            # A producer that still writes a plain string: shown as a generic
+            # note (the UI never prints its English text in another language).
+            pipeline.append({"kind": "note", "key": None, "text": n[:_NOTE_TEXT_MAX]})
+    # A code fact the loop raised AND the delivered-draft check still reports is
+    # one item: the delivered draft's (it carries the subjects and is the truth
+    # about what ships).
+    delivered_keys = {x["key"] for x in pipeline if x["kind"] == "code"}
+    findings = [x for x in findings if not (x["kind"] == "code" and x.get("key") in delivered_keys)]
+    out: list[dict[str, Any]] = []
+    for kind in ("finding", "code", "note"):
+        group = [x for x in findings + pipeline if x["kind"] == kind]
+        out.extend(group[:_NOTES_MAX_PER_KIND])
+        if len(group) > _NOTES_MAX_PER_KIND:
+            out.append({"kind": kind, "key": "more", "count": len(group) - _NOTES_MAX_PER_KIND})
+    return out
 
 
 def _repeated_demand_fields(outcome: TerminalReviewOutcome) -> dict[str, Any]:

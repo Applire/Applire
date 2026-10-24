@@ -273,6 +273,10 @@ class CheckFinding:
     #: round runs, but it never opens a round by itself, so a finding the model rightly
     #: declines cannot spin the loop to exhaustion (SF-WRITE.45).
     blocking: bool = True
+    #: R2-5 (build 4): the names this fact is about (an employer, a skill, a
+    #: concept) — data for the review card, which says the finding in the UI
+    #: language instead of printing ``text``. Never read by the loop.
+    subjects: tuple[str, ...] = ()
 
     def as_issue(self) -> ReviewIssue:
         if self.blocking:

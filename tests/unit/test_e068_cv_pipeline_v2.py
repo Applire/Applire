@@ -1408,6 +1408,8 @@ def _outcome():
 
 
 def test_delivered_draft_open_findings_reach_the_terminal_review_row():
+    from applire.services.terminal_review_outcome import note_text
+
     """Finding 6: the unreviewed last corrector shipped 6 bullets vs a budget of 5 and
     nothing reported it. The checks run once on the SHIPPED draft; open blocking
     findings become a note on the ATS `terminal-review` row — no rewrite, no round."""
@@ -1417,8 +1419,15 @@ def test_delivered_draft_open_findings_reach_the_terminal_review_row():
     term = cv_v2.V2Terminal(ctx=_ctx(budget=_budget(**{W1: 1})))
     composed = term.compose(prose, _vault(), None)
     out = term.report_delivered(_outcome(), prose, composed.model_dump(mode="json"))
-    assert any("cv.role_budget" in n for n in out.notes)
-    assert "cv.role_budget" in build_terminal_review_check(out).details
+    assert any("cv.role_budget" in note_text(n) or getattr(n, "key", None) == "cv.role_budget"
+               for n in out.notes)
+    check = build_terminal_review_check(out)
+    assert "cv.role_budget" in check.details
+    # R2-5 (build 4): the same fact as data for the review card — the check id and
+    # the employer, never the role's UUID.
+    code = [n for n in check.notes if n.kind == "code"]
+    assert [n.key for n in code] == ["cv.role_budget"]
+    assert code[0].subjects == ["Nivalo GmbH"]
     assert composed.work_history[0].bullets == prose["work"][0]["bullets"], "nothing rewritten"
 
 
@@ -1430,7 +1439,7 @@ def test_delivered_draft_clean_or_without_outcome_is_unchanged():
     assert term.report_delivered(o, prose, composed) is o
     assert term.report_delivered(None, prose, composed) is None
     no_verdict = cv_v2.V2Terminal(ctx=_ctx(budget=_budget(**{W1: 1}))).report_delivered(None, prose, composed)
-    assert no_verdict.status == "not_applicable" and "cv.role_budget" in no_verdict.notes[0]
+    assert no_verdict.status == "not_applicable" and no_verdict.notes[0].key == "cv.role_budget"
 
 
 @pytest.mark.asyncio
