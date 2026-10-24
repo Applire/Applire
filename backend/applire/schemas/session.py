@@ -92,6 +92,9 @@ class SessionCreateResponse(BaseModel):
     # follow-up reports what that follow-up asks about (see
     # SessionMessageResponse.follow_up_concepts). None otherwise.
     follow_up_concepts: list[str] | None = None
+    # R2-8 (7) (Hazelnut build 4) — profile review only: the vault section of
+    # the conflict/confirmation item this question is about (None otherwise).
+    review_section: str | None = None
 
 
 class ConflictSummary(BaseModel):
@@ -201,6 +204,8 @@ class SessionMessageResponse(BaseModel):
     # when there is no current gap (should not occur on a non-complete turn).
     current_gap_id: str | None = None
     addressed_gap_ids: list[str] | None = None
+    # R2-8 (7) — see SessionCreateResponse.review_section.
+    review_section: str | None = None
     # ADR-089 — the per-gap record this turn wrote (see ClusterCoverage). On a
     # follow-up turn `complete` is False and `question`/`choices` carry the
     # follow-up exactly like any other next question.
