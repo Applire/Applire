@@ -73,9 +73,25 @@ VALID_TRANSITIONS: dict[str, list[str]] = {
     "cv_import":     ["gap_analysis"],
     "gap_analysis":  ["interview", "cv_generation"],   # returning users may skip interview
     "interview":     ["cv_generation"],
-    "cv_generation": ["complete"],
-    "complete":      [],
+    # R2-3 (ADR-016 amended 2026-10-24): the only back-edges, both INTO the
+    # interview. A candidate who skipped it ("Lebenslauf jetzt erstellen") and
+    # generated CV + letter may take it later; the documents stay recorded on
+    # the flow as versions and "Neu zuschneiden" after the interview makes new
+    # ones. Before this, `complete` was terminal and the gaps page's interview
+    # CTA ran into a 409 (UX round 2, felix-028…030).
+    "cv_generation": ["complete", "interview"],
+    "complete":      ["interview"],
 }
+
+#: Steps a flow may go BACK from into the interview (R2-3). Derived from the
+#: graph so the reopen action advertised in ``available_actions`` can never
+#: name an edge ``VALID_TRANSITIONS`` refuses.
+REOPEN_STEPS: frozenset[str] = frozenset(
+    step
+    for step, targets in VALID_TRANSITIONS.items()
+    if "interview" in targets
+    and step not in ("jd_analysis", "gap_analysis")
+)
 
 # Steps that RECORD an artifact_id when advanced into — field name on FlowSession.
 #
@@ -617,7 +633,10 @@ def _compute_actions(
     if step == "interview":
         return {"next": "cv_generation"}
     if step == "cv_generation":
-        return {"next": "complete"}
+        return {"next": "complete", "reopen": "interview"}
+    if step in REOPEN_STEPS:
+        # R2-3: `complete` has no forward step; the interview stays reachable.
+        return {"reopen": "interview"}
     return {}
 
 
