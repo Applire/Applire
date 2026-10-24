@@ -62,15 +62,84 @@ def test_clause_stops_at_the_first_person_word():
     assert "my b2b invoicing, subscription billing" in m
 
 
-def test_clause_stops_at_a_comma():
-    """adv #4 (main-session ruling 2026-09-26): a comma ends the clause. Priced on
-    the captured rows: the review-recut letter's list comma ("checkout, settlement
-    and payout rails") brings `Settlement` back — 10 of the 11 rows still clear."""
+def test_a_list_comma_inside_the_employer_clause_does_not_stop_it():
+    """#803 (Bug, R2-7; ADR-090 amended 2026-10-24): adv #4's comma stop cut the
+    employer's own enumeration, so "settlement" and "payout rails" stayed in group 1
+    with an add-to-profile exit. A comma that continues an enumeration to its
+    coordinator keeps the clause open (8 of 10 captured employer-sentence rows clear)."""
     t = ("NovaPay’s platform for European e-commerce merchants across checkout, settlement and "
          "payout rails interests me.")
     m = _masked(t, _NOVAPAY)
     assert "european e commerce" not in m
-    assert "settlement and payout rails" in m
+    assert "settlement" not in m and "payout rails" not in m
+    assert m.endswith("me.")
+
+
+def test_803_felix_round2_sentence_masks_the_whole_enumeration():
+    """The round-2 Felix letter (felix-024): four employer terms, all in one list."""
+    t = ("NovaPay’s work on checkout, settlement, and payout rails for European e-commerce "
+         "merchants particularly interests me, and I would welcome the opportunity.")
+    m = _masked(t, _NOVAPAY)
+    for gone in ("settlement", "payout rails", "e commerce"):
+        assert gone not in m, gone
+    assert "i would welcome the opportunity" in m
+
+
+def test_803_list_after_an_operates_verb_and_before_the_candidates_clause():
+    t = ("NovaPay operates checkout, settlement, and payout rails for European e-commerce "
+         "merchants, and I would welcome the opportunity to contribute to these workflows.")
+    m = _masked(t, _NOVAPAY)
+    assert "settlement" not in m and "payout rails" not in m
+    assert "i would welcome the opportunity to contribute to these workflows" in m
+
+
+def test_803_a_comma_straight_after_the_name_still_stops():
+    """adv #4 stays: nothing of the employer's was said before the comma."""
+    t = "For NovaPay, seven years of Kubernetes and Kafka operations are what I bring."
+    m = _masked(t, _NOVAPAY)
+    assert "seven years of kubernetes and kafka operations" in m
+
+
+def test_803_a_comma_after_the_possessive_alone_still_stops():
+    t = "NovaPay’s, seven years of Kubernetes and Kafka operations are what I bring."
+    m = _masked(t, _NOVAPAY)
+    assert "seven years of kubernetes and kafka operations" in m
+
+
+def test_803_a_comma_with_no_enumeration_after_it_stops():
+    t = "NovaPay builds payment rails, seven years of Kafka taught me to value idempotency."
+    m = _masked(t, _NOVAPAY)
+    assert "seven years of kafka taught" in m
+
+
+def test_803_comma_and_opens_a_new_clause_outside_an_enumeration():
+    """", and …" continues only an enumeration the clause is already in."""
+    t = "I admire NovaPay’s payments team, and have run Kafka consumers for seven years."
+    m = _masked(t, _NOVAPAY)
+    assert "have run kafka consumers for seven years" in m
+
+
+def test_803_the_list_comma_still_stops_at_the_first_person_word():
+    t = "NovaPay ships checkout, settlement and payouts, and my Kafka work fits that."
+    m = _masked(t, _NOVAPAY)
+    assert "settlement" not in m
+    assert "my kafka work fits that" in m
+
+
+def test_803_a_german_enumeration_runs_to_und():
+    t = ("Die Rheinwerk Verpackungen GmbH fertigt Kunststoffverpackungen, Verbundverpackungen und "
+         "Folien für Konsumgüter, und ich bringe Spritzguss-Erfahrung mit.")
+    m = _masked(t, _RHEINWERK)
+    assert "verbundverpackungen" not in m and "konsumgüter" not in m
+    assert "ich bringe spritzguss erfahrung mit" in m
+
+
+def test_803_flagged_term_in_the_employer_list_is_not_unsupported():
+    letter = _norm("NovaPay’s work on checkout, settlement, and payout rails interests me.")
+    cov = _keyword_coverage(letter, ["Settlement", "Payout rails"], [_gap("Settlement"), _gap("Payout rails")],
+                            non_claim=_NOVAPAY)
+    assert set(cov.present) == {"Settlement", "Payout rails"}
+    assert cov.present_unsupported == []
 
 
 def test_clause_stops_at_a_salutation_so_the_opening_claim_survives():

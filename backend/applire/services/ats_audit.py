@@ -1472,11 +1472,72 @@ def _employer_clause_intervals(
     )
     spans: list[tuple[int, int]] = []
     for m in pattern.finditer(text_norm):
-        end_m = _clause_end_re().search(text_norm, m.end())
-        end = end_m.start() if end_m else len(text_norm)
+        end = _employer_clause_end(text_norm, m.end())
         if end > m.start():
             spans.append((m.start(), end))
     return spans
+
+
+#: #803 (R2-7): an ITEM of an enumeration — one to four words, no punctuation.
+_LIST_ITEM = r"[^\s,.;:!?␞]+(?:\s+[^\s,.;:!?␞]+){0,3}"
+#: #803: what follows a LIST comma — up to three more items, then the coordinator
+#: ("checkout, settlement, and payout rails", "Konsumgüter, Lebensmittel und …").
+_LIST_CONTINUATION_RE = re.compile(
+    rf"\s*(?:(?:{_LIST_ITEM})\s*,\s*){{0,3}}(?:{_LIST_ITEM}\s*,?\s*)?"
+    r"(?:and|und|or|oder|sowie|as well as)\b"
+)
+#: #803: a possessive right after the employer's name ("NovaPay’s", "NovaPay's").
+_POSSESSIVE_RE = re.compile(r"[’']?s\b")
+#: #803: the coordinator straight after a comma (", and payout rails").
+_COORDINATOR_NEXT_RE = re.compile(r"\s*(?:and|und|or|oder|sowie|as well as)\b")
+
+
+def _is_list_comma(text_norm: str, anchor_end: int, comma_at: int, *, in_list: bool = False) -> bool:
+    """#803 (Bug, R2-7; ADR-090 amended 2026-10-24): is the comma at ``comma_at`` a
+    LIST comma inside the employer clause, so the clause runs on?
+
+    adv #4's comma stop stays the default — "for NovaPay, seven years of Kubernetes
+    …" is the candidate speaking. But the stop also cut the employer's own
+    enumeration of its business ("NovaPay’s work on checkout, settlement, and payout
+    rails for European e-commerce merchants …"), which left "settlement", "payout
+    rails" and "e-commerce" in group 1 with an add-to-profile exit: 8 of the 10
+    employer-sentence rows still flagged on the captured letters (measured,
+    WP-T build 4). A comma continues the clause only when ALL hold:
+
+    1. the employer clause already said something before it — at least one word
+       between the name (a possessive "’s" does not count) and the comma; a comma
+       straight after the name is adv #4's case and still stops;
+    2. what follows is an enumeration that reaches its coordinator (and / und / or /
+       oder / sowie) within up to four short items;
+    3. a comma followed DIRECTLY by the coordinator (", and …") continues only an
+       enumeration this clause is already in — "NovaPay’s team, and would be pleased
+       to …" is a new clause, "checkout, settlement, and payout rails" is not.
+    """
+    between = text_norm[anchor_end:comma_at].strip()
+    if _POSSESSIVE_RE.match(between):
+        between = _POSSESSIVE_RE.sub("", between, count=1).strip()
+    if not between:
+        return False
+    if _COORDINATOR_NEXT_RE.match(text_norm, comma_at + 1):
+        return in_list
+    return bool(_LIST_CONTINUATION_RE.match(text_norm, comma_at + 1))
+
+
+def _employer_clause_end(text_norm: str, anchor_end: int) -> int:
+    """Where the employer clause opened at ``anchor_end`` stops (R-2, adv #4, #803)."""
+    pos = anchor_end
+    in_list = False
+    while True:
+        end_m = _clause_end_re().search(text_norm, pos)
+        if end_m is None:
+            return len(text_norm)
+        if end_m.group(0) == "," and _is_list_comma(
+            text_norm, anchor_end, end_m.start(), in_list=in_list
+        ):
+            in_list = True
+            pos = end_m.end()
+            continue
+        return end_m.start()
 
 
 def mask_non_claim_spans(text_norm: str, names: NonClaimNames | None) -> str:
