@@ -145,6 +145,7 @@ def test_conflict_when_the_imported_cv_names_the_bare_term():
             "denial_concept": "eigene Erfahrung mit Vertrieb",
             "bare_term": "vertrieb",
             "cv_label": "Vertrieb von Verpackungslösungen an Lebensmittelkunden.",
+            "denial_date": "",
         }
     ]
 
@@ -189,7 +190,7 @@ def test_malformed_input():
     assert head_noun_scope_conflicts({"metadata": None}) == []
 
 
-def test_the_builder_parks_a_language_independent_record_with_denial_holds_only():
+def test_the_builder_parks_a_language_independent_record_with_both_answers():
     from applire.services.profile.reconcile.stance import (
         CV_HOLDS,
         DENIAL_HOLDS,
@@ -200,10 +201,29 @@ def test_the_builder_parks_a_language_independent_record_with_denial_holds_only(
     c = denial_scope_confirmation(hit)
     assert c.source == "denial_scope" and c.context["kind"] == "denial_scope"
     assert c.context["denial_concept"] == "eigene Erfahrung mit Vertrieb"
-    assert c.option_keys == [DENIAL_HOLDS] and CV_HOLDS not in c.option_keys  # G-5: cv_holds HELD
+    assert c.option_keys == [DENIAL_HOLDS, CV_HOLDS]  # G-5: cv_holds = V's WithdrawDenial
+    assert c.context["conflict_kind"] == "head_noun"
     q_de, opts_de = c.rendered("de")
-    assert "„Vertrieb B2B.“" in q_de and opts_de == ["Ja, das stimmt so"]
-    assert c.rendered("en")[1] == ["Yes, that's right"]
+    assert "„Vertrieb B2B“" in q_de
+    assert opts_de == ["Ja, das stimmt so", "Nein, der Lebenslauf stimmt: Angabe zurücknehmen"]
+    assert c.rendered("en")[1] == ["Yes, that's right", "No, the CV is right: take my answer back"]
+
+
+def test_the_builder_words_a_literal_contradiction_with_v5_copy():
+    from applire.services.profile.reconcile.stance import denial_scope_confirmation
+
+    c = denial_scope_confirmation(
+        {"kind": "literal", "denial_concept": "SAP PP", "bare_term": "sap pp",
+         "cv_label": "SAP PP (Fertigungsaufträge, Stücklisten)", "denial_date": "2026-10-12"}
+    )
+    q_de, opts_de = c.rendered("de")
+    assert q_de == (
+        "Stimmt deine frühere Angabe noch? Am 12.10.2026 hast du gesagt, dass SAP PP nicht auf "
+        "dich zutrifft. In deinem Lebenslauf steht aber: „SAP PP (Fertigungsaufträge, Stücklisten)“."
+    )
+    assert opts_de == ["Ja, meine Angabe stimmt", "Nein, der Lebenslauf stimmt: Angabe zurücknehmen"]
+    assert c.rendered("en")[0].startswith("Is your earlier answer still right? On 12 Oct 2026 you said")
+    assert c.context["conflict_kind"] == "literal"
 
 
 def test_parking_is_once_per_denial_even_after_an_answer():
@@ -281,7 +301,7 @@ async def test_seam_commit_ops_parks_the_health_item_when_a_head_noun_denial_mee
             ]
             assert len(parked) == 1
             assert parked[0]["context"]["cv_label"] == "Vertrieb von Verpackungslösungen an Lebensmittelkunden."
-            assert parked[0]["option_keys"] == ["denial_holds"]
+            assert parked[0]["option_keys"] == ["denial_holds", "cv_holds"]
     finally:
         await engine.dispose()
 
@@ -305,3 +325,16 @@ def test_the_general_detector_is_word_bounded():
     from applire.services.profile.reconcile.stance import denial_cv_conflicts
 
     assert denial_cv_conflicts(_hv(["Vertrieb"], bullets=["Vertriebsunterstützung im Innendienst."])) == []
+
+
+def test_parking_covers_a_literal_contradiction_too():
+    from applire.schemas.profile import DeniedConcept, ProfileMetadata
+    from applire.services.profile.reconcile.stance import park_denial_scope_confirmations
+
+    v = _hv(["Vertrieb"], bullets=["Vertrieb im Außendienst."])
+    v["metadata"]["denied_concepts"][0]["date"] = "2026-10-12"
+    md = ProfileMetadata(denied_concepts=[DeniedConcept(concept="Vertrieb", statement="", source="interview", date="2026-10-12")])
+    (c,) = park_denial_scope_confirmations(md, v)
+    assert c.context["conflict_kind"] == "literal"
+    assert "Am 12.10.2026" in c.rendered("de")[0]
+    assert c.rendered("de")[0].endswith("„Vertrieb im Außendienst“.")  # no doubled full stop

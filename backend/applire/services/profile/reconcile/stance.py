@@ -1429,14 +1429,21 @@ def denial_release_units(profile_json: dict[str, Any] | None) -> list[str]:
     return labels
 
 
-def _persisted_denials(profile_json: dict[str, Any]) -> list[str]:
+def _persisted_denial_records(profile_json: dict[str, Any]) -> list[tuple[str, str]]:
+    """``(concept, date)`` per persisted denial; ``date`` is "" when absent."""
     metadata = profile_json.get("metadata") or {}
     raw = metadata.get("denied_concepts") if isinstance(metadata, dict) else None
-    denials = [
-        d.get("concept") if isinstance(d, dict) else getattr(d, "concept", None)
-        for d in raw or []
-    ]
-    return [d for d in denials if isinstance(d, str) and d.strip()]
+    out: list[tuple[str, str]] = []
+    for d in raw or []:
+        concept = d.get("concept") if isinstance(d, dict) else getattr(d, "concept", None)
+        date = d.get("date") if isinstance(d, dict) else getattr(d, "date", None)
+        if isinstance(concept, str) and concept.strip():
+            out.append((concept, date if isinstance(date, str) else ""))
+    return out
+
+
+def _persisted_denials(profile_json: dict[str, Any]) -> list[str]:
+    return [concept for concept, _ in _persisted_denial_records(profile_json)]
 
 
 def denial_cv_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, str]]:
@@ -1444,7 +1451,8 @@ def denial_cv_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, s
     (:func:`denial_release_units`: attested labels + imported bullets) names.
 
     Two kinds, one record each per denial —
-    ``{"kind", "denial_concept", "bare_term", "cv_label"}``:
+    ``{"kind", "denial_concept", "bare_term", "cv_label", "denial_date"}``
+    (``denial_date`` = the ``DeniedConcept.date``, "" when absent):
 
     * ``"head_noun"`` (FS-7, ADR-059 amended 2026-10-24): the denial declares
       ``bare_term`` only through its generic head noun ("payment-institution
@@ -1461,12 +1469,13 @@ def denial_cv_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, s
     """
     if not isinstance(profile_json, dict):
         return []
-    denials = _persisted_denials(profile_json)
+    records = _persisted_denial_records(profile_json)
+    denials = [concept for concept, _ in records]
     if not denials:
         return []
     units = denial_release_units(profile_json)
     out: list[dict[str, str]] = []
-    for denial in denials:
+    for denial, denial_date in records:
         bare = head_noun_term(denial)
         if bare:
             kind = "head_noun"
@@ -1479,7 +1488,13 @@ def denial_cv_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, s
             label = next((u for u in units if _bounded_present(denial, _norm(u))), None)
         if label is not None:
             out.append(
-                {"kind": kind, "denial_concept": denial, "bare_term": bare, "cv_label": label}
+                {
+                    "kind": kind,
+                    "denial_concept": denial,
+                    "bare_term": bare,
+                    "cv_label": label,
+                    "denial_date": denial_date,
+                }
             )
     return out
 
@@ -1582,35 +1597,78 @@ def imported_prose_units(profile_json: dict[str, Any] | None) -> list[str]:
 DENIAL_SCOPE_SOURCE = "denial_scope"
 #: The answer that keeps the denial (no vault write: the floor already holds).
 DENIAL_HOLDS = "denial_holds"
-#: The answer that would reverse it — the ADR-059 2026-07-26 un-denial act.
-#: HELD (founder, G-5, 2026-10-24): defined so the resolution branch and the
-#: record share one key, but NOT offered until the ruling lands.
+#: The answer that reverses it — V's WithdrawDenial (the general un-denial act,
+#: founder G-5 2026-10-24): never automatic, only this answer or "Zurücknehmen".
 CV_HOLDS = "cv_holds"
-DENIAL_SCOPE_OPTION_KEYS: tuple[str, ...] = (DENIAL_HOLDS,)
+DENIAL_SCOPE_OPTION_KEYS: tuple[str, ...] = (DENIAL_HOLDS, CV_HOLDS)
+
+
+def _date_de(iso: str) -> str:
+    try:
+        y, m, d = iso[:10].split("-")
+        return f"{int(d):02d}.{int(m):02d}.{y}"
+    except ValueError:
+        return ""
+
+
+_MONTHS_EN = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _date_en(iso: str) -> str:
+    try:
+        y, m, d = iso[:10].split("-")
+        return f"{int(d)} {_MONTHS_EN[int(m) - 1]} {y}"
+    except (ValueError, IndexError):
+        return ""
 
 
 def denial_scope_confirmation(hit: dict[str, str]) -> PendingConfirmation:
-    """THE builder of the FS-7 Health item, from one
-    :func:`head_noun_scope_conflicts` record. Called by the denial recording
-    path (:func:`park_denial_scope_confirmations`) and by the CV-import intake,
-    so both park the same question. Stored language-independent (ADR-063 #669):
-    ``question_i18n``/``options_i18n`` render per reader; ``option_keys`` is what
-    the answer resolves on. Pure."""
+    """THE builder of the CV-contradicts-a-denial Health item, from one
+    :func:`denial_cv_conflicts` record — both kinds (founder G-5, 2026-10-24):
+
+    * ``"head_noun"`` (FS-7): "Laut deiner Angabe trifft … nicht zu … Stimmt das so?"
+    * ``"literal"`` (V-5 copy, ``Runs/…/v/mock/v5-undenial-de.html``): "Stimmt deine
+      frühere Angabe noch? Am … hast du gesagt, dass … nicht auf dich zutrifft …"
+
+    Two answers, ``option_keys`` = (:data:`DENIAL_HOLDS`, :data:`CV_HOLDS`): the
+    first keeps the denial (no vault write), the second is V's WithdrawDenial
+    act. Called by the denial recording path
+    (:func:`park_denial_scope_confirmations`) and by the CV-import intake, so both
+    park the same question. Stored language-independent (ADR-063 #669). Pure."""
     denial = hit["denial_concept"]
     label = hit["cv_label"]
-    question_de = (
-        f"Laut deiner Angabe trifft „{denial}“ auf dich nicht zu. In deinem Lebenslauf "
-        f"steht aber: „{label}“. Wir zählen es deshalb weiter als nicht vorhanden. "
-        "Stimmt das so?"
-    )
-    question_en = (
-        f"By your own answer, “{denial}” does not apply to you. Your CV says: "
-        f"“{label}”. So we keep counting it as not there. Is that right?"
-    )
+    shown = label.rstrip().rstrip(".") or label  # the sentence supplies its own stop
+    kind = hit.get("kind") or "head_noun"
+    iso = hit.get("denial_date") or ""
+    if kind == "literal":
+        d_de, d_en = _date_de(iso), _date_en(iso)
+        said_de = f"Am {d_de} hast du gesagt" if d_de else "Du hast gesagt"
+        said_en = f"On {d_en} you said" if d_en else "You said"
+        question_de = (
+            f"Stimmt deine frühere Angabe noch? {said_de}, dass {denial} nicht auf dich "
+            f"zutrifft. In deinem Lebenslauf steht aber: „{shown}“."
+        )
+        question_en = (
+            f"Is your earlier answer still right? {said_en} that {denial} does not apply "
+            f"to you. Your CV says: “{shown}”."
+        )
+        holds = {"de": "Ja, meine Angabe stimmt", "en": "Yes, my answer is right"}
+    else:
+        question_de = (
+            f"Laut deiner Angabe trifft „{denial}“ auf dich nicht zu. In deinem Lebenslauf "
+            f"steht aber: „{shown}“. Wir zählen es deshalb weiter als nicht vorhanden. "
+            "Stimmt das so?"
+        )
+        question_en = (
+            f"By your own answer, “{denial}” does not apply to you. Your CV says: "
+            f"“{shown}”. So we keep counting it as not there. Is that right?"
+        )
+        holds = {"de": "Ja, das stimmt so", "en": "Yes, that's right"}
     options = {
-        DENIAL_HOLDS: {
-            "de": "Ja, das stimmt so",
-            "en": "Yes, that's right",
+        DENIAL_HOLDS: holds,
+        CV_HOLDS: {
+            "de": "Nein, der Lebenslauf stimmt: Angabe zurücknehmen",
+            "en": "No, the CV is right: take my answer back",
         },
     }
     keys = list(DENIAL_SCOPE_OPTION_KEYS)
@@ -1619,6 +1677,7 @@ def denial_scope_confirmation(hit: dict[str, str]) -> PendingConfirmation:
         options=[options[k]["en"] for k in keys],
         context={
             "kind": DENIAL_SCOPE_SOURCE,
+            "conflict_kind": kind,
             "denial_concept": denial,
             "bare_term": hit["bare_term"],
             "cv_label": label,
@@ -1633,8 +1692,8 @@ def denial_scope_confirmation(hit: dict[str, str]) -> PendingConfirmation:
 def park_denial_scope_confirmations(
     metadata: ProfileMetadata | None, profile_json: dict[str, Any] | None
 ) -> list[PendingConfirmation]:
-    """Park one FS-7 Health item per head-noun denial the candidate's own CV
-    contradicts (:func:`head_noun_scope_conflicts`), never twice: a denial that
+    """Park one Health item per persisted denial the candidate's own CV
+    contradicts (:func:`denial_cv_conflicts`, both kinds), never twice: a denial that
     already has a ``denial_scope`` confirmation — open OR answered — is skipped,
     so an answered question is not asked again. Returns the newly parked
     records (also appended to ``metadata.pending_confirmations``). No vault
@@ -1647,7 +1706,7 @@ def park_denial_scope_confirmations(
         if c.source == DENIAL_SCOPE_SOURCE
     }
     parked: list[PendingConfirmation] = []
-    for hit in head_noun_scope_conflicts(profile_json):
+    for hit in denial_cv_conflicts(profile_json):
         key = _norm(hit["denial_concept"])
         if key in asked:
             continue
