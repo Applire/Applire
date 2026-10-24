@@ -2277,10 +2277,23 @@ def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, A
         f"work-entry or project bullet: {named}.{more} A skills-list entry alone reads to a "
         "hiring reviewer as an unmet requirement."
     )
+    # R2-5 (build 4): the same statement as data — the review card says it in the
+    # UI language (``ats.checkDetails.narrative-evidence-*``). Concept names are
+    # the ledger's own labels, locale-neutral data.
+    tag_only = [c.concept for c in shown if c.tag_only]
+    absent = [c.concept for c in shown if not c.tag_only]
     return ATSCheck(
         id=NARRATIVE_EVIDENCE_CHECK_ID,
         status="fail",
         details=details if len(details) <= 1200 else details[:1199].rstrip() + "…",
+        details_key="narrative-evidence-underclaim",
+        details_params={
+            "tagOnly": ", ".join(tag_only),
+            "tagOnlyCount": len(tag_only),
+            "absent": ", ".join(absent),
+            "absentCount": len(absent),
+            "more": len(rest),
+        },
         driver={"concepts": len(missing)},
     )
 

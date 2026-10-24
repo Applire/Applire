@@ -131,13 +131,37 @@ function open(group: number) {
   if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
 }
 
+describe("R2-5 — the surface renders the keyed final-check card, not the EN details", () => {
+  it("DE: Schlussprüfung with the lead sentence and the German code line; no check id or round count", () => {
+    const keyed: ATSCheck = {
+      ...TERMINAL_REVIEW_FAIL,
+      status: "fail",
+      details_key: "terminal-review-open",
+      details_params: { count: 1 },
+      notes: [
+        { kind: "finding", text: TERMINAL_REVIEW_FAIL.details ?? "", plain: "Bei Weberit ist 5S nicht als Aufgabe belegt." },
+        { kind: "code", key: "cv.role_budget", subjects: ["Weberit Kunststofftechnik GmbH"], text: "Over the per-role bullet budget" },
+      ],
+    };
+    render(withIntl(<ReviewSurface {...base({ atsReport: ats([keyed]) })} />, "de"));
+    open(4);
+    const group = screen.getByTestId("review-group-4");
+    expect(within(group).getByText("Schlussprüfung")).toBeTruthy();
+    const card = within(group).getByTestId("terminal-review-detail");
+    expect(card.textContent).toContain("Unsere Schlussprüfung hat einen Hinweis zu diesem Dokument");
+    expect(card.textContent).toContain("Bei Weberit ist 5S nicht als Aufgabe belegt.");
+    expect(card.textContent).toContain("Bei Weberit Kunststofftechnik GmbH stehen mehr Stichpunkte als vorgesehen.");
+    expect(group.textContent ?? "").not.toMatch(/round\(s\)|cv\.role_budget|exhausted its retries/);
+  });
+});
+
 describe("#671 — group 4 renders the terminal review's details", () => {
   it("renders the FAIL details verbatim on the CV surface", () => {
     render(withIntl(<ReviewSurface {...base({ atsReport: ats([TERMINAL_REVIEW_FAIL]) })} />));
     open(4);
     const group = screen.getByTestId("review-group-4");
-    // The label comes from `ats.checks.terminal-review`, not from the raw id.
-    expect(within(group).getByText("Final document review")).toBeTruthy();
+    // The label comes from `ats.checks.terminal-review`, not from the raw id (R2-5: "Final check").
+    expect(within(group).getByText("Final check")).toBeTruthy();
     expect(
       within(group).getByText(/exhausted its retries with findings still open/),
     ).toBeTruthy();

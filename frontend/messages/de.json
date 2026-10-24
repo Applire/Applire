@@ -1500,7 +1500,7 @@
       "skills-near-dupe": "Keine ähnlichen Skills",
       "page-length": "Seitenlänge",
       "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug",
-      "terminal-review": "Abschlussprüfung des Dokuments",
+      "terminal-review": "Schlussprüfung",
       "narrative-evidence": "Belege im Werdegang statt nur als Skill",
       "document-language": "Dokument durchgehend in einer Sprache",
       "keyword-other-language": "Nicht sprachübergreifend geprüfte Begriffe"
@@ -1516,7 +1516,20 @@
       "document-language-not-applicable": "Nicht anwendbar — für dieses Dokument wurde keine Sprache angegeben",
       "document-language-mixed": "{count, plural, one {# Stelle ist} other {# Stellen sind}} nicht auf {language, select, de {Deutsch} en {Englisch} other {{language}}} geschrieben: {examples}",
       "keyword-other-language": "Nicht sprachübergreifend geprüft — Dein Profil enthält Text in einer anderen Sprache, und diese Prüfung vergleicht nur den Wortlaut. Prüfe {count, plural, one {diesen Begriff} other {diese Begriffe}} selbst: {terms}",
-      "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
+      "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}",
+      "terminal-review-unverified": "Unsere Schlussprüfung hatte {count, plural, one {einen Hinweis} other {# Hinweise}}, die wir nach der letzten Änderung nicht erneut prüfen konnten – lies sie selbst:",
+      "terminal-review-unverified-clean": "Unsere Schlussprüfung fand nichts. Danach wurde das Dokument noch einmal geändert, und diese Fassung haben wir nicht erneut geprüft – lies sie vor dem Versand einmal selbst.",
+      "terminal-review-open": "Unsere Schlussprüfung hat {count, plural, one {einen Hinweis} other {# Hinweise}} zu diesem Dokument, die beim Schreiben nicht behoben wurden – lies sie selbst:",
+      "terminal-review-unnamed": "Unsere Schlussprüfung war mit dem Dokument nicht zufrieden, hat aber nicht gesagt, warum. Lies es vor dem Versand einmal selbst.",
+      "terminal-review-incomplete": "Unsere Schlussprüfung konnte nicht zu Ende laufen. Lies das Dokument vor dem Versand einmal selbst.",
+      "terminal-review-not-run": "Die Schlussprüfung ist für dieses Dokument nicht gelaufen – ob alles passt, wissen wir nicht. Lies es vor dem Versand einmal selbst.",
+      "terminal-review-clean-code-open": "Unsere Schlussprüfung fand nichts. Eine automatische Prüfung meldet aber noch etwas:",
+      "terminal-review-observations": "Unsere Schlussprüfung fand nichts, das Du ändern musst. Zur Ansicht:",
+      "terminal-review-clean": "Unsere Schlussprüfung fand nichts.",
+      "narrative-evidence-tag-only": "Dein Profil belegt diese Anforderungen der Stelle, im Lebenslauf stehen sie aber nur in der Skill-Liste – in keiner Station und keinem Projekt: {terms}. Ein Skill ohne Beleg liest sich für Personaler oft wie eine nicht erfüllte Anforderung.",
+      "narrative-evidence-absent": "Dein Profil belegt diese Anforderungen der Stelle, im Lebenslauf fehlen sie ganz: {terms}.",
+      "narrative-evidence-absent-also": "Ganz fehlen: {terms}.",
+      "narrative-evidence-more": "… und {count} weitere."
     },
     "pinnedFacts": {
       "title": "Festgelegte Fakten",
@@ -1525,6 +1538,45 @@
       "removedByTruthFloor": "durch Wahrheits-Prüfung entfernt",
       "driverLine": "Länge u. a. durch {count, plural, one {einen festgelegten Fakt} other {# festgelegte Fakten}} bedingt",
       "ledgerConflict": "— Nicht-behaupten-Begriff: {terms}"
+    },
+    "terminalReview": {
+      "codeHeadingCv": "Im fertigen Lebenslauf außerdem offen:",
+      "codeHeadingLetter": "Im fertigen Anschreiben außerdem offen:",
+      "more": "… und {count} weitere.",
+      "findingGeneric": "Ein Hinweis der Schlussprüfung – sieh Dir das Dokument an dieser Stelle selbst an.",
+      "code": {
+        "cv-claim_missing": "„{term}“ belegt Dein Profil, im Lebenslauf fehlt es.",
+        "cv-project_missing": "„{term}“ verlangt die Stelle, und ein Projekt in Deinem Profil belegt es – im Lebenslauf steht es nicht.",
+        "cv-project_not_mentioned": "Dieses Projekt aus Deinem Profil steht nicht im Lebenslauf: „{term}“.",
+        "cv-skill_untied": "„{term}“ steht in der Skill-Liste, Dein Profil belegt es aber nicht.",
+        "cv-skill_spelling": "„{term}“ ist in der Skill-Liste anders geschrieben als in Deinem Profil.",
+        "cv-skills_cap": "Die Skill-Liste ist länger als vorgesehen – am wenigsten passt: {terms}.",
+        "cv-skill_duplicate": "Die Skill-Liste nennt dasselbe doppelt: {terms}.",
+        "cv-skill_named_in_bullet": "„{term}“ steht in einem Stichpunkt, aber nicht in der Skill-Liste.",
+        "cv-role_budget": "Bei {term} stehen mehr Stichpunkte als vorgesehen.",
+        "cv-page_length": "Der Lebenslauf ist länger als die Zielseitenzahl.",
+        "cv-recorded_name": "„{term}“ ist nicht der Name, den Dein Profil dafür führt.",
+        "cv-identifier_not_in_profile": "„{term}“ steht so nicht in Deinem Profil – prüfe die Schreibweise.",
+        "cv-empty_project": "Das Projekt „{term}“ hat keinen einzigen Stichpunkt.",
+        "cv-level_code_changed": "Eine Sprachstufe steht anders da als in Deinem Profil.",
+        "cv-vault_field_missing": "Ein Eintrag aus Deinem Profil fehlt im Lebenslauf.",
+        "letter-page_length": "Das Anschreiben ist länger als eine Seite.",
+        "letter-salutation": "Die Anrede fehlt oder steht nicht allein in der ersten Zeile.",
+        "letter-signoff": "Der Gruß steht doppelt – die Vorlage setzt ihn selbst.",
+        "letter-closing": "Der letzte Absatz ist kein echter Schluss (Interesse und Einladung zum Gespräch).",
+        "letter-figure": "Die Zahl „{term}“ gehört in Deinem Profil zu einer anderen Station als im Satz.",
+        "letter-limit": "Das Anschreiben sagt, Dir fehle „{term}“ – das hast Du uns so nie gesagt.",
+        "letter-names": "„{term}“ ist nicht der Name, den Dein Profil dafür führt.",
+        "letter-identifier": "„{term}“ steht so nicht in Deinem Profil – prüfe die Schreibweise.",
+        "letter-availability": "Das Anschreiben nennt einen Eintrittstermin, den Du nicht angegeben hast.",
+        "generic": "Eine automatische Prüfung meldet hier noch etwas – sieh Dir die Stelle im Dokument an."
+      },
+      "note": {
+        "letter-limit_cut": "Wir haben einen Satz aus dem Anschreiben entfernt: Er sagte, Dir fehle etwas, das Du uns nie so gesagt hast. Entfernt: {terms}",
+        "letter-limit_kept": "Das Anschreiben sagt, Dir fehle etwas, das Du uns nie so gesagt hast. Wir konnten den Satz nicht entfernen, ohne das Anschreiben zu leeren – prüfe ihn selbst: {terms}",
+        "letter-missing_terms": "Begriffe der Stelle, die Dein Profil belegt, die das gekürzte Anschreiben aber nicht nutzt: {terms}.",
+        "generic": "Beim Fertigstellen ist noch etwas aufgefallen – sieh Dir das Dokument einmal selbst an."
+      }
     }
   },
   "truthfulness": {

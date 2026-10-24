@@ -2768,11 +2768,11 @@ def _letter_v2_findings(
             owners = ", ".join(f.get("foreign_owner_labels") or []) or "another position"
             out.append(LetterFinding(
                 "figure",
-                subjects=(str(f["raw"]),),
                 f"Figure '{f['raw']}' is recorded in the candidate's profile only under "
                 f"{owners}, and this sentence does not name that employer. Re-anchor the "
                 "claim to the employer it belongs to, or drop the borrowed figure and keep "
                 f'the rest. Sentence: "{f["sentence"]}"',
+                subjects=(str(f["raw"]),),
             ))
     except Exception:  # pragma: no cover - a check never breaks generation
         logger.warning("letter v2: figure findings failed", exc_info=True)

@@ -1500,7 +1500,7 @@
       "skills-near-dupe": "No near-duplicate skills",
       "page-length": "Page length",
       "skills-weak-vault-tie": "Skills with only a weak profile link",
-      "terminal-review": "Final document review",
+      "terminal-review": "Final check",
       "narrative-evidence": "Evidence in the work history, not only as a skill",
       "document-language": "Document written in a single language",
       "keyword-other-language": "Terms not checked across languages"
@@ -1516,7 +1516,20 @@
       "document-language-not-applicable": "Not applicable — no language was stated for this document",
       "document-language-mixed": "{count, plural, one {# place is} other {# places are}} not written in {language, select, de {German} en {English} other {{language}}}: {examples}",
       "keyword-other-language": "Not checked across languages — your profile contains text in another language, and this check compares wording only. Check {count, plural, one {this term} other {these terms}} yourself: {terms}",
-      "skills-weak-vault-tie": "{count, plural, one {# skill is} other {# skills are}} tied to your profile only by a single shared word — worth a second look before sending: {skills}"
+      "skills-weak-vault-tie": "{count, plural, one {# skill is} other {# skills are}} tied to your profile only by a single shared word — worth a second look before sending: {skills}",
+      "terminal-review-unverified": "Our final check had {count, plural, one {one note} other {# notes}} we could not re-check after the last edit – read them yourself:",
+      "terminal-review-unverified-clean": "Our final check found nothing. The document was changed once more after that, and we did not re-check that version – read it once yourself before you send it.",
+      "terminal-review-open": "Our final check has {count, plural, one {one note} other {# notes}} on this document that writing did not resolve – read them yourself:",
+      "terminal-review-unnamed": "Our final check was not satisfied with the document but did not say why. Read it once yourself before you send it.",
+      "terminal-review-incomplete": "Our final check could not finish. Read the document once yourself before you send it.",
+      "terminal-review-not-run": "The final check did not run for this document, so we do not know whether everything fits. Read it once yourself before you send it.",
+      "terminal-review-clean-code-open": "Our final check found nothing. An automatic check still flags something, though:",
+      "terminal-review-observations": "Our final check found nothing you need to change. For your judgement:",
+      "terminal-review-clean": "Our final check found nothing.",
+      "narrative-evidence-tag-only": "Your profile backs these requirements of the role, but the CV shows them only in the skills list – in no role and no project: {terms}. To a recruiter, a skill without evidence often reads like a requirement you do not meet.",
+      "narrative-evidence-absent": "Your profile backs these requirements of the role, but the CV does not show them at all: {terms}.",
+      "narrative-evidence-absent-also": "Missing entirely: {terms}.",
+      "narrative-evidence-more": "… and {count} more."
     },
     "pinnedFacts": {
       "title": "Pinned facts",
@@ -1525,6 +1538,45 @@
       "removedByTruthFloor": "removed by the truthfulness check",
       "driverLine": "Length partly driven by {count, plural, one {# pinned fact} other {# pinned facts}}",
       "ledgerConflict": "— do-not-claim term: {terms}"
+    },
+    "terminalReview": {
+      "codeHeadingCv": "Also open in the finished CV:",
+      "codeHeadingLetter": "Also open in the finished letter:",
+      "more": "… and {count} more.",
+      "findingGeneric": "A note from the final check – look at that part of the document yourself.",
+      "code": {
+        "cv-claim_missing": "Your profile backs “{term}”, but the CV does not show it.",
+        "cv-project_missing": "The role asks for “{term}”, and a project in your profile backs it – the CV does not show it.",
+        "cv-project_not_mentioned": "This project from your profile is not in the CV: “{term}”.",
+        "cv-skill_untied": "“{term}” is in the skills list, but your profile does not back it.",
+        "cv-skill_spelling": "“{term}” is spelled differently in the skills list than in your profile.",
+        "cv-skills_cap": "The skills list is longer than planned – the least relevant entries: {terms}.",
+        "cv-skill_duplicate": "The skills list names the same thing twice: {terms}.",
+        "cv-skill_named_in_bullet": "“{term}” is in a bullet but not in the skills list.",
+        "cv-role_budget": "{term} has more bullets than planned.",
+        "cv-page_length": "The CV is longer than its target page count.",
+        "cv-recorded_name": "“{term}” is not the name your profile records for it.",
+        "cv-identifier_not_in_profile": "“{term}” is not written like this in your profile – check the spelling.",
+        "cv-empty_project": "The project “{term}” has no bullet at all.",
+        "cv-level_code_changed": "A language level reads differently than in your profile.",
+        "cv-vault_field_missing": "An entry from your profile is missing from the CV.",
+        "letter-page_length": "The letter is longer than one page.",
+        "letter-salutation": "The salutation is missing or not alone on the first line.",
+        "letter-signoff": "The sign-off appears twice – the template prints it itself.",
+        "letter-closing": "The last paragraph is not a real closing (interest and an invitation to talk).",
+        "letter-figure": "In your profile, the figure “{term}” belongs to a different role than the sentence names.",
+        "letter-limit": "The letter says you lack “{term}” – you never told us that.",
+        "letter-names": "“{term}” is not the name your profile records for it.",
+        "letter-identifier": "“{term}” is not written like this in your profile – check the spelling.",
+        "letter-availability": "The letter names a start date you did not give.",
+        "generic": "An automatic check still flags something here – look at that part of the document."
+      },
+      "note": {
+        "letter-limit_cut": "We removed a sentence from the letter: it said you lack something you never told us. Removed: {terms}",
+        "letter-limit_kept": "The letter says you lack something you never told us. We could not remove the sentence without emptying the letter – check it yourself: {terms}",
+        "letter-missing_terms": "Terms from the role your profile backs that the shortened letter does not use: {terms}.",
+        "generic": "Something else came up while finishing the document – read it once yourself."
+      }
     }
   },
   "truthfulness": {

@@ -51,7 +51,7 @@ import type {
   CrossDocumentItem,
   OutcomeCriticReport,
 } from "@/components/cv/CriticAdvisoryPanel";
-import { baseId, type ATSCheck, type ATSReport, type CheckSignal } from "./ats-report";
+import { baseId, isSilentPass, type ATSCheck, type ATSReport, type CheckSignal } from "./ats-report";
 import type { ReviewAction, ReviewDecision, ReviewState } from "./api/document-review";
 import type { LocateTarget } from "./locate-in-preview";
 import { normQuote } from "./norm-quote";
@@ -425,9 +425,10 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
   const checks: ATSCheck[] = atsReport?.checks ?? [];
   // #759: a failed send-blocking check is NOT craft — see `buildSendChecks`.
   const failed = checks.filter((c) => c.status === "fail" && !isSendCheck(c));
-  const advisory = checks.filter((c) => c.status === "pass" && c.details);
+  // R2-5: a clean terminal-review pass is counted as passed, never an advisory row.
+  const advisory = checks.filter((c) => c.status === "pass" && !isSilentPass(c));
   const notApplicable = checks.filter((c) => c.status === "not_applicable");
-  const passedChecks = checks.filter((c) => c.status === "pass" && !c.details).length;
+  const passedChecks = checks.filter((c) => isSilentPass(c)).length;
 
   const items: ReviewItem[] = [
     ...failed.map((c) => ({

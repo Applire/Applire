@@ -72,6 +72,7 @@ import { countInText, type LocateTarget, type PreviewLocator } from "@/lib/locat
 import { changedPassages } from "@/lib/passage-diff";
 import { CrossDocumentSection } from "@/components/review/CrossDocumentSection";
 import { ReviewDegradationNote } from "./ReviewDegradationNote";
+import { TerminalReviewDetail, hasTerminalReviewCard } from "./TerminalReviewDetail";
 import { oracleDetailText, type OracleDetailTranslator } from "@/lib/oracle-detail";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 
@@ -1491,7 +1492,13 @@ function ItemRow({
               : tSig("signalLanded", { count: item.signal.rounds, doc })}
           </span>
         )}
-        {detail && <span className="block text-xs text-on-surface-variant">{detail}</span>}
+        {item.kind === "check" && hasTerminalReviewCard(item.check) ? (
+          <span className="block text-xs text-on-surface-variant">
+            <TerminalReviewDetail check={item.check} documentKind={documentKind} />
+          </span>
+        ) : (
+          detail && <span className="block text-xs text-on-surface-variant">{detail}</span>
+        )}
         <span className="mt-0.5 flex flex-wrap items-center gap-1">
           <span className="rounded-full border border-outline-variant px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant">
             {item.kind === "signal" ? tSig("kindSignal") : t(KIND_LABEL_KEY[item.kind])}
@@ -1571,10 +1578,36 @@ function itemOracleDetail(item: ReviewItem, tOracle: OracleDetailTranslator): st
 }
 
 /**
+ * R2-5 (build 4) — the narrative-evidence row in the UI language: the
+ * "only in the skills list" sentence, then the "missing entirely" one, then the
+ * rest count. `null` = not this check, or a legacy report without the key.
+ */
+function narrativeEvidenceDetail(c: ATSCheck, tAts: ReturnType<typeof useTranslations<"ats">>): string | null {
+  const p = c.details_params;
+  if (c.details_key !== "narrative-evidence-underclaim" || !p) return null;
+  const tagOnly = String(p.tagOnly ?? "");
+  const absent = String(p.absent ?? "");
+  const more = Number(p.more ?? 0);
+  const parts: string[] = [];
+  if (tagOnly) parts.push(tAts("checkDetails.narrative-evidence-tag-only", { terms: tagOnly }));
+  if (absent) {
+    parts.push(
+      tagOnly
+        ? tAts("checkDetails.narrative-evidence-absent-also", { terms: absent })
+        : tAts("checkDetails.narrative-evidence-absent", { terms: absent }),
+    );
+  }
+  if (more > 0) parts.push(tAts("checkDetails.narrative-evidence-more", { count: more }));
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/**
  * The ATS auditor's own detail line — the key/params rule from
  * `lib/ats-report.ts`, the same rule `ATSChecksPanel` uses.
  */
 function checkDetail(c: ATSCheck, tAts: ReturnType<typeof useTranslations<"ats">>): string | null {
+  const narrative = narrativeEvidenceDetail(c, tAts);
+  if (narrative !== null) return narrative;
   if (usesLocalizedDetail(c)) return tAts(`checkDetails.${c.details_key}`, c.details_params ?? undefined);
   return c.details ?? null;
 }
