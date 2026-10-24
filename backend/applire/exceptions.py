@@ -22,6 +22,8 @@ Providers translate vendor-specific errors (openai.RateLimitError, httpx 429, et
 into these unified types so routers never import SDK-specific exceptions.
 """
 
+import json
+
 
 class LLMError(Exception):
     """Base class for all LLM provider errors."""
@@ -76,7 +78,7 @@ class LLMTruncatedError(LLMError):
     """
 
 
-class LLMResponseParseError(LLMError):
+class LLMResponseParseError(LLMError, json.JSONDecodeError):
     """The provider answered, but the reply is not one usable JSON object.
 
     Hazelnut build 4, R2-13 (P-1). Raised by a provider's ``aparse_json`` when
@@ -85,7 +87,17 @@ class LLMResponseParseError(LLMError):
     fence after the first object is NOT this error: the shared parse helper
     accepts the first object and logs the discarded tail. ``str(exc)`` is a
     short static description; the raw reply goes to the LLM debug log only.
+
+    Also a ``json.JSONDecodeError`` (WP-O, ADR-009 amended 2026-10-24): six
+    call sites catch that type around ``aparse_json`` (``prompts/preamble.py``
+    reads ``exc.doc`` / ``exc.msg``), and a parse failure they caught before
+    must still reach them. ``doc`` is the reply text, ``pos`` where reading
+    failed; ``str(exc)`` is the static message plus that position — never the
+    reply. One-argument construction (``LLMResponseParseError("…")``) works.
     """
+
+    def __init__(self, msg: str, doc: str = "", pos: int = 0) -> None:
+        json.JSONDecodeError.__init__(self, msg, doc, pos)
 
 
 class ReconcileFailedError(LLMError):

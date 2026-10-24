@@ -23,7 +23,6 @@ For OpenRouter specifically, use OpenRouterProvider (openrouter.py).
 """
 
 import asyncio
-import json
 from typing import Any
 
 import openai
@@ -38,6 +37,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.json_reply import parse_json_reply
 from applire.providers.llm.reasoning import finalise_completion
 from applire.providers.llm.usage import note_usage
 
@@ -162,12 +162,9 @@ class OpenAIProvider(LLMProvider):
             if wrapped is None:
                 raise
             raise wrapped from None
-        # Strip markdown code fences (common with local models)
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        return json.loads(content.strip())
+        # R2-13: one tolerant parse for every provider (first JSON value; a
+        # non-JSON tail is discarded, a second JSON value raises).
+        return parse_json_reply(content, provider="OpenAI", model=self._model)
 
     @_retry
     async def _complete(self, messages: list, temperature: float, max_tokens: int) -> str:

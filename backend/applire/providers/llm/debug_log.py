@@ -21,7 +21,10 @@ Gated by ``settings.llm_debug_log`` (default ``False`` → OFF in production). W
 enabled, the provider factory wraps the chosen provider in :class:`_LoggingProvider`
 so that every ``acomplete`` / ``aparse_json`` call appends ONE JSON line to
 ``<llm_debug_log_dir>/<YYYY-MM-DD>.jsonl`` capturing the system prompt, user prompt,
-call parameters, the raw response, latency, and any error.
+call parameters, the raw response, latency, and any error. On a JSON parse
+failure (``LLMResponseParseError``) ``response`` holds the raw reply text, and a
+successful parse that discarded trailing prose records it as ``discarded_tail``
+(R2-13, ADR-009 amended 2026-10-24).
 
 This is a debugging aid for *us* — it records full prompt/response content, which
 includes CV PII, so it must stay OFF in production. We don't need this depth there;
@@ -59,7 +62,9 @@ from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from applire.config import settings
+from applire.exceptions import LLMResponseParseError
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.json_reply import take_discarded_tail
 from applire.providers.llm.reasoning import take_trace
 
 # Per-task pipeline-stage label (e.g. "cv_extraction", "reconcile"). ContextVars are
@@ -480,11 +485,19 @@ class _LoggingProvider(LLMProvider):
         start = time.monotonic()
         result: Any = None
         error: str | None = None
+        # A tail left over from an earlier call in this task must not be
+        # attributed to this one.
+        take_discarded_tail()
         try:
             result = await fn(prompt, **kwargs)
             return result
         except Exception as exc:  # re-raised in finally's caller; we only observe it
             error = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, LLMResponseParseError):
+                # R2-13 (P-1): the raw reply that could not be read. Before
+                # build 4 this record kept `response: None`, so the founder's
+                # failed reconcile reply was gone for good.
+                result = exc.doc
             raise
         finally:
             _record(
@@ -511,6 +524,9 @@ class _LoggingProvider(LLMProvider):
                 # the caller got never contained it, and `llm_usage` counts it
                 # without storing it. Absent (None) when the model emitted none.
                 reasoning=_truncate(take_trace()),
+                # R2-13: the non-JSON text the parse discarded after the first
+                # JSON value (absent/None when nothing was discarded).
+                discarded_tail=_truncate(take_discarded_tail()),
             )
 
 
