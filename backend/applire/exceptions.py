@@ -76,6 +76,28 @@ class LLMTruncatedError(LLMError):
     """
 
 
+class LLMResponseParseError(LLMError):
+    """The provider answered, but the reply is not one usable JSON object.
+
+    Hazelnut build 4, R2-13 (P-1). Raised by a provider's ``aparse_json`` when
+    the reply cannot be read as JSON, or when a SECOND JSON object follows the
+    first (half an answer is never kept unseen). Trailing prose or a closing
+    fence after the first object is NOT this error: the shared parse helper
+    accepts the first object and logs the discarded tail. ``str(exc)`` is a
+    short static description; the raw reply goes to the LLM debug log only.
+    """
+
+
+class ReconcileFailedError(LLMError):
+    """A reconcile call failed after its retry: the new information was NOT merged.
+
+    Hazelnut build 4, R2-13 (P-1). Never mask a failed reconcile as an empty
+    merge: an empty ``ReconcileResult`` means "the answer held nothing new",
+    this error means "the answer was not saved". Callers surface it (the
+    interview turn says so and asks for no follow-up; an import says so).
+    """
+
+
 class LLMProviderError(LLMError):
     """A provider call failed in a way the provider module does not classify.
 
