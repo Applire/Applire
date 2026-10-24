@@ -530,6 +530,25 @@ export function requirementCounts(
   return { total: a + b + c, shown: a, likely: b, open: c, declined: 0 };
 }
 
+/**
+ * R2-10 (ruling F1-2) — the open requirements BY NAME: exactly the rows
+ * `requirementCounts(...).open` counts (fit-weighted ledger rows at status
+ * `gap`; legacy rows: `category_c`). The review surface's group 3 lists these,
+ * so its number is the gaps page's number.
+ */
+export function openRequirementConcepts(
+  gaps:
+    | (GapCategories & { keyword_ledger?: (LedgerChipEntry & { status?: string })[] | null })
+    | null
+    | undefined,
+): string[] {
+  const fit = (gaps?.keyword_ledger ?? []).filter(
+    (e) => (e?.fit_weight ?? 0) > 0 && typeof e?.status === "string",
+  );
+  if (fit.length > 0) return fit.filter((e) => e.status === "gap").map((e) => e.concept);
+  return [...(gaps?.category_c ?? [])];
+}
+
 /** How many themes (gap clusters) can still be asked — the grouping the open
  * requirements are shown in. */
 export function openThemeCount(clusters: GapCluster[] | null | undefined): number {

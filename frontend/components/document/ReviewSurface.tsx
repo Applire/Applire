@@ -171,6 +171,12 @@ export interface ReviewSurfaceProps {
    * CV, so the producer does not apply and is removed from groups 2 and 3.
    */
   hasClusterProducer?: boolean;
+  /**
+   * R2-10 (F1-2, lead G hunk): the job's open requirements by name — group 3's
+   * population and count, the gaps page's number. `undefined` = not supplied
+   * (legacy grouping); `null` = the gap row did not load (*unknown*).
+   */
+  openRequirements?: string[] | null;
   /** ADR-090 cl. 6 — the persisted per-document decisions. `null` = none. */
   reviewState?: ReviewState | null;
   /**
@@ -238,6 +244,7 @@ export function ReviewSurface({
   criticReport,
   gapClusters,
   hasClusterProducer = true,
+  openRequirements,
   reviewState = null,
   cvEditHref = null,
   onRefresh,
@@ -269,8 +276,9 @@ export function ReviewSurface({
         criticReport,
         gapClusters,
         hasClusterProducer,
+        openRequirements,
       }),
-    [atsReport, truthReport, criticReport, gapClusters, hasClusterProducer],
+    [atsReport, truthReport, criticReport, gapClusters, hasClusterProducer, openRequirements],
   );
   const group1 = groups.find((g) => g.id === 1)!;
   const rows = useMemo(() => buildGroup1Rows(group1.items, reviewState), [group1.items, reviewState]);

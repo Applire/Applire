@@ -54,6 +54,7 @@ import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/Pr
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { openGroup1Count, buildReviewGroups, decisionCount } from "@/lib/review-groups";
+import { openRequirementConcepts } from "@/lib/match-utils";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
   markEdited,
@@ -196,6 +197,9 @@ export default function CVPage({
   // than as zero (clause 9) — an empty array is the different statement
   // "loaded, none found".
   const [gapClusters, setGapClusters] = useState<GapHintItem[] | null>(null);
+  // R2-10 (F1-2, lead G hunk): the job's open requirements — review group 3
+  // shows the gaps page's number. `undefined` until read / no gap row.
+  const [openRequirements, setOpenRequirements] = useState<string[] | null | undefined>(undefined);
   // D-1: the CV's sections as the section editor gets them — labels and
   // override flags for the take-out result and the language switch.
   const [cvSections, setCvSections] = useState<SectionItem[]>([]);
@@ -445,11 +449,28 @@ export default function CVPage({
         // Non-fatal — the group renders *unknown*, which is the honest state.
       }
     }
+    // R2-10: the same row the gaps page counts (a GET — never a recompute).
+    async function fetchOpenRequirements() {
+      const jobId = flowState?.job_id;
+      if (!jobId) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/job/${jobId}/gaps`);
+        if (res.status === 404) return; // no gap row: keep the legacy grouping
+        if (!res.ok) {
+          setOpenRequirements(null);
+          return;
+        }
+        setOpenRequirements(openRequirementConcepts(await res.json()));
+      } catch {
+        setOpenRequirements(null); // group 3 renders *unknown*, never zero
+      }
+    }
     void fetchAtsReport();
     void fetchTruthReport();
     void fetchCriticReport();
     void fetchGapClusters();
-  }, [cvId, phase, atsRefresh]);
+    void fetchOpenRequirements();
+  }, [cvId, phase, atsRefresh, flowState?.job_id]);
 
   // D-1: after a review action rewrote the document, re-read the sections
   // (labels, override flags) — NOT the reports: the action's response already
@@ -813,6 +834,7 @@ export default function CVPage({
         truthReport={truthReport}
         criticReport={criticReport}
         gapClusters={gapClusters}
+        openRequirements={openRequirements}
         reviewState={reviewState}
         onRefresh={applyReviewRefresh}
         locator={CV_LOCATOR}
@@ -852,6 +874,7 @@ export default function CVPage({
       truthReport,
       criticReport,
       gapClusters,
+      openRequirements,
     });
     const group1Live = liveGroups.find((g) => g.id === 1)!;
     const group1Count = openGroup1Count(group1Live.items, reviewState);

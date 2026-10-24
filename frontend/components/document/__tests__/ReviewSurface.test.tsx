@@ -161,6 +161,14 @@ describe("ADR-090 cl. 1 — one layout, no mode switch", () => {
     expect(within(card).getByTestId("review-action-edit").textContent).toBe("Let me edit it");
   });
 
+  it("R2-10: the group-3 count is the gaps page's open-requirement count, not the ATS keyword misses", () => {
+    renderSurface({
+      atsReport: { ...MATCHED_ATS, keywords: { ...MATCHED_ATS!.keywords, missing_honest_gap: ["E-commerce", "Messaging", "Settlement"] } },
+      openRequirements: ["FastAPI", "Apache Kafka"],
+    });
+    expect(screen.getByTestId("review-group-count-3").textContent).toBe("2");
+  });
+
   it("the group-3 row links to the gap view", () => {
     renderSurface();
     expect(screen.getByTestId("review-group3-link").getAttribute("href")).toBe("/flow/f1/gaps");
