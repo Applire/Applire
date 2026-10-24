@@ -308,7 +308,6 @@ async def _ask_or_complete_at(
         choices=next_choices,
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
-        review_section=review_item_section(state, _current_gap_id(state)),
     )
 
 
@@ -370,23 +369,6 @@ def _conflict_entry(state: InterviewState, cluster_id: str) -> dict | None:
     if not is_conflict_cluster(cluster_id):
         return None
     return (state.get("conflict_clusters") or {}).get(cluster_id)
-
-
-def review_item_section(state: InterviewState, cluster_id: str | None) -> str | None:
-    """R2-8 (7) (Hazelnut build 4, WP-V) — the vault section of the profile-review
-    item ``cluster_id`` names: a conflict's own ``section``, a confirmation's
-    ``context.section``; None for anything else. A FACT read off the stored
-    descriptor, so the review drawer offers "two separate roles — keep both"
-    only on a role entry, also when it was opened without a Health issue."""
-    if not cluster_id:
-        return None
-    conflict = _conflict_entry(state, cluster_id)
-    if conflict is not None:
-        return conflict.get("section") or None
-    confirmation = _confirmation_entry(state, cluster_id)
-    if confirmation is not None:
-        return (confirmation.get("context") or {}).get("section") or None
-    return None
 
 
 def _confirmation_entry(state: InterviewState, cluster_id: str) -> dict | None:
@@ -455,7 +437,6 @@ async def _handle_confirmation_answer(
             complete=False, question=question, gaps_remaining=gaps_remaining, choices=options,
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
-            review_section=review_item_section(state, _current_gap_id(state)),
         )
 
     # Adversarial finding (2026-09-09, WP-adv-vault) — founder ruling V-5's
@@ -1255,7 +1236,6 @@ async def _handle_conflict_answer(
             complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices,
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
-            review_section=review_item_section(state, _current_gap_id(state)),
         )
 
     resolution = "existing" if decision == "existing" else "incoming"
@@ -1587,7 +1567,6 @@ async def create_profile_review_session(
         gaps_remaining=len(review_ids),
         choices=first_choices,
         current_gap_id=review_ids[0],
-        review_section=review_item_section(state, review_ids[0]),
     )
 
 
@@ -2389,7 +2368,6 @@ def _resumed_response(
         resumed=answered,
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
-        review_section=review_item_section(state, _current_gap_id(state)),
         # #259 run-4 finding 9 — the real server-tracked count, so a page
         # refresh restores "N of up to M" instead of resetting to "1 of…".
         questions_asked=real_questions_asked,
