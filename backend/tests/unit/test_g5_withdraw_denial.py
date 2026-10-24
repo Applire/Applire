@@ -7,9 +7,10 @@ Pinned here:
 * the record moves VERBATIM to ``metadata.withdrawn_denials`` (mark, don't
   erase) and the trail gains one ``denial_withdrawn`` receipt, kept off
   ``changes``;
-* a skill the denial retracted returns to ``confirmed`` and SURVIVES the
-  commit's persisted-``denied`` floor — unless another active denial still
-  declares it;
+* a skill the denial retracted returns to ``unconfirmed`` (revoking is not
+  claiming — ADR-059 cl. 2, ruling V-5b = A) and SURVIVES the commit's
+  persisted-``denied`` floor — unless another active denial still declares it;
+  the next ordinary write that names it re-confirms it;
 * a miss writes nothing; the un-denial intake carries ``WithdrawDenial`` only,
   and ``WithdrawDenial`` travels through no other intake;
 * re-denying afterwards writes a fresh record;
@@ -141,7 +142,7 @@ async def test_the_retracted_skill_counts_again_and_survives_the_floor(db_sessio
     record = await _seed(db_session)
     result = await commit_ops(db_session, [WithdrawDenial(concept="Ansible")], _prov(), record=record)
 
-    assert _skill(record, "Ansible")["status"] == "confirmed"
+    assert _skill(record, "Ansible")["status"] == "unconfirmed"  # unproven, never claimable
     assert result.refloored == []  # the persisted-status floor exempted exactly it
     assert any(
         c.rationale_key == "denial_withdrawn_skill" and c.entity_id == "s-ans"
@@ -234,7 +235,9 @@ async def test_re_denying_after_a_withdrawal_writes_a_fresh_record(db_session):
     meta = record.profile_json["metadata"]
     assert [d["statement"] for d in meta["denied_concepts"]] == ["No, really, I never touched Ansible."]
     assert [d["statement"] for d in meta["withdrawn_denials"]] == ["I have never used Ansible."]
-    assert _skill(record, "Ansible")["status"] == "denied"  # floored again by the new denial
+    # The demotion acts on a CONFIRMED skill only; the withdrawn one is still
+    # unproven (V-5b), backs no claim, and the new denial floors the ledger.
+    assert _skill(record, "Ansible")["status"] == "unconfirmed"
 
 
 @pytest.mark.asyncio
@@ -258,7 +261,7 @@ async def test_the_health_item_answer_is_the_act(db_session, answer, withdrawn):
     meta = record.profile_json["metadata"]
     assert meta["pending_confirmations"] == []
     assert (meta["denied_concepts"] == []) is withdrawn
-    assert (_skill(record, "Ansible")["status"] == "confirmed") is withdrawn
+    assert (_skill(record, "Ansible")["status"] == "unconfirmed") is withdrawn
 
 
 def test_the_model_can_never_emit_the_op():
@@ -308,7 +311,7 @@ async def test_the_health_answer_through_the_service_is_the_act(db_session, opti
     assert meta.pending_confirmations == []
     assert (meta.denied_concepts == []) is withdrawn
     ansible = next(s for s in response.profile.skills if s.name == "Ansible")
-    assert (ansible.status == "confirmed") is withdrawn
+    assert (ansible.status == "unconfirmed") is withdrawn
 
 
 @pytest.mark.asyncio
@@ -328,3 +331,38 @@ def test_the_route_exists():
 
     assert any(getattr(r, "path", "").endswith("/confirmations/resolve") and "POST" in r.methods
                for r in router.routes)
+
+
+@pytest.mark.asyncio
+async def test_the_next_ordinary_write_re_confirms_the_withdrawn_skill(db_session):
+    record = await _seed(db_session)
+    await commit_ops(db_session, [WithdrawDenial(concept="Ansible")], _prov(), record=record)
+    assert _skill(record, "Ansible")["status"] == "unconfirmed"
+    await commit_ops(
+        db_session,
+        [UpsertSkill(name="Ansible", category="technical", status="confirmed")],
+        CommitProvenance(source="cv_upload", intake="cv_import", session_id=str(uuid.uuid4())),
+        record=record,
+    )
+    assert _skill(record, "Ansible")["status"] == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_denial_holds_records_the_answered_question_for_lead_g(db_session, monkeypatch):
+    from applire.services.profile.reconcile import stance
+
+    calls: list = []
+    monkeypatch.setattr(
+        stance, "record_denial_scope_answer",
+        lambda metadata, context: calls.append((metadata is not None, context)), raising=False,
+    )
+    seed = copy.deepcopy(_SEED)
+    seed["metadata"]["pending_confirmations"] = [copy.deepcopy(_PARKED)]
+    record = await _seed(db_session, seed)
+    await commit_ops(
+        db_session,
+        [ResolveConfirmation(confirmation_id=_CONF_ID, chosen_option="Ja, meine Angabe stimmt")],
+        _prov("profile_review"),
+        record=record,
+    )
+    assert calls == [(True, _PARKED["context"])]

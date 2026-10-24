@@ -1717,6 +1717,16 @@ def _apply_resolve_confirmation(
         chosen = resolve_option_key(entry.model_dump(), op.chosen_option)
         if chosen == "cv_holds" and denials is not None:
             _apply_withdraw_denial(str(context.get("denial_concept") or ""), profile, denials)
+        elif chosen == "denial_holds":
+            # Lead G's writer (feat/hazelnut-b4-g 980d8d11): remember the
+            # answered question, so the next import does not park it again —
+            # the item itself is gone from pending_confirmations. Looked up by
+            # name until both branches meet in the build-4 merge.
+            from applire.services.profile.reconcile import stance as _stance
+
+            record_answer = getattr(_stance, "record_denial_scope_answer", None)
+            if record_answer is not None:
+                record_answer(profile.metadata, dict(context))
         return
 
     # ── Bug #723 — the attribution family's answer places its held content ───
@@ -1992,12 +2002,15 @@ def _apply_withdraw_denial(
     * **mark, don't erase:** the record moves verbatim to
       ``metadata.withdrawn_denials`` with ``withdrawn_at``; the history reads
       *denied at T1, withdrawn at T2*;
-    * **the skill comes back:** a vault skill at ``denied`` that the withdrawn
+    * **revoking is not claiming** (ADR-059 2026-07-26 cl. 2; founder ruling
+      V-5b = A, 2026-10-24): a vault skill at ``denied`` that the withdrawn
       concept DECLARES (``declared_denial_matches`` — the demotion's own
-      emission rule) returns to ``confirmed``, the only status ``DemoteSkill``
-      demotes from — unless a REMAINING denial still declares it. This is the
-      one exit from ``denied`` (ADR-061 amended 2026-08-08); the commit's
-      persisted-status floor exempts exactly the skills receipted here.
+      emission rule) returns to ``unconfirmed`` — unproven, it backs no claim
+      (ADR-061 cl. 3) — unless a REMAINING denial still declares it. The next
+      ordinary write that names it re-confirms it through the promote-only
+      merge. This is the one exit from ``denied`` (ADR-061 amended
+      2026-08-08); the commit's persisted-status floor exempts exactly the
+      skills receipted here.
 
     Receipts land on ``denials`` (a statement about a denial, never
     gap-addressing content — invariant 7)."""
@@ -2041,18 +2054,19 @@ def _apply_withdraw_denial(
             continue
         if remaining and declared_denial_matches(skill.name, remaining):
             continue
-        skill.status = "confirmed"
+        skill.status = "unconfirmed"
         denials.append(
             FieldChange(
                 section="skills",
                 field="status",
                 action="updated",
                 old_value="denied",
-                new_value="confirmed",
+                new_value="unconfirmed",
                 entity_id=getattr(skill, "id", None),
                 rationale=(
-                    f"{skill.name} counts again: the candidate withdrew the denial "
-                    f"of '{entry.concept}' that had retracted it."
+                    f"{skill.name} is no longer ruled out: the candidate withdrew the "
+                    f"denial of '{entry.concept}'. It counts again once a CV or an "
+                    "answer states it."
                 ),
                 rationale_key="denial_withdrawn_skill",
             )
