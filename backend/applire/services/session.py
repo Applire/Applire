@@ -3528,6 +3528,17 @@ async def _send_message_turn(
             record.id, current_gap,
         )
         raise
+    # R2-6 (4) (Hazelnut build 4) — the turn receipt decides by `changes` FIRST:
+    # "nothing was recorded" only when the turn's record changed nothing. The
+    # Felix crypto turn (UX re-audit 2, felix-051) committed 3× `denied_concepts`
+    # AND a `no_write` item for the denial's own explanation sentence; the UI
+    # rendered the `not_applied` half and asked the candidate to repeat a "no"
+    # the vault already held. `turn.changes` is the committed record's change
+    # list (positive content + denials + demotions + re-floors): when it holds
+    # anything, the answer WAS recorded, and every response site below carries
+    # no receipt. The persisted `not_applied` item itself is the committer's.
+    if turn.changes and turn.no_write_receipt is not None:
+        turn.no_write_receipt = None
     conflict_summaries = turn.conflict_summaries
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict
