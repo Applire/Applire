@@ -36,6 +36,7 @@ from applire.auth.deps import require_user
 from applire.constants import MAX_CV_UPLOAD_BYTES
 from applire.models.user import User
 from applire.db.session import get_db
+from applire.exceptions import ReconcileFailedError
 from applire.ocr import get_ocr_extractor, image_import_available
 from applire.ocr.base import CVImageExtractor
 from applire.providers import get_provider
@@ -111,6 +112,14 @@ def _uid(user: "User | None"):
 _TRUNCATION_USER_MESSAGE = (
     "We couldn't fully merge this CV into your profile this time. "
     "Nothing was changed — please try uploading it again."
+)
+
+# R2-13 (Hazelnut build 4) — the reconcile call that merges a CV failed after
+# its one retry (`ReconcileFailedError`). Nothing was changed; the same action
+# can be repeated. `detail.error` carries the stable code the UI localizes.
+_NOT_SAVED_USER_MESSAGE = (
+    "We couldn't merge this CV into your profile this time. "
+    "Nothing was changed — please try again."
 )
 
 # Clean, user-appropriate message for an LLM timeout on upload/import (ADR-047 §4).
@@ -358,6 +367,15 @@ async def resolve_staged_extraction_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except StagedExtractionAlreadyResolved as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ReconcileFailedError:
+        # R2-13 — the merge was not saved; the staged item stays held (it is
+        # marked resolved only after the merge commits), so "merge" can be
+        # pressed again.
+        logger.warning("staged resolve %s: reconcile failed; nothing merged", staged_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "not_saved", "message": _NOT_SAVED_USER_MESSAGE},
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 

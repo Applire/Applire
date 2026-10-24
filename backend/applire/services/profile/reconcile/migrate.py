@@ -117,10 +117,11 @@ async def reshape_profile(
 ) -> ReshapeOutcome:
     """Reshape one profile's flat duplicates into the typed model via the engine.
 
-    PURE: operates on the engine's deep copy, never persists. The engine
-    degrades to empty ops on LLM noise, so a provider failure alone still
-    yields a no-op ``ReshapeOutcome`` (``changed=False``) — but this is no
-    longer guaranteed non-raising end to end (ADR-063 amended 2026-08-28,
+    PURE: operates on the engine's deep copy, never persists. A provider
+    failure raises ``ReconcileFailedError`` after the engine's one retry
+    (R2-13, Hazelnut build 4 — it used to degrade to a no-op outcome, which
+    read as "nothing to reshape"); it propagates uncaught, like the
+    ``VaultWriteRevertedError`` case (ADR-063 amended 2026-08-28,
     #597): ``apply_ops`` now raises ``VaultWriteRevertedError`` instead of
     silently reverting when its own defence-in-depth reload gate trips on a
     schema-rejecting op result. Not translated here, unlike the doors named

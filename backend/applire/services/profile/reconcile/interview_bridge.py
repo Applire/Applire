@@ -151,6 +151,12 @@ async def reconcile_interview_turn(
     `if receipt_changes:`, so a turn that changed nothing left no trace it had
     happened; it is unconditional now. And the completeness recompute, which
     was import-only, now runs on every turn (ADR-063 amendment (4)).
+
+    R2-13 (Hazelnut build 4): a failed reconcile call raises
+    ``ReconcileFailedError`` out of this function BEFORE ``commit_ops`` — the
+    answer was not saved, and the caller says so (the interview turn's
+    ``not_saved`` state; the profile-enrich door's 503 ``not_saved``). It is
+    never committed as an empty, "changed nothing" turn.
     """
     before = MasterProfileData.model_validate(profile_record.profile_json)
     new_info = {"gap": gap, "question": question, "answer": answer}

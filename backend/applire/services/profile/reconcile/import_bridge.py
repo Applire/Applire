@@ -316,12 +316,17 @@ async def reconcile_import(
     Drop-in for the lexical ``merge_profiles``: one ``reconcile`` call + one
     deterministic ``apply_ops``, returning the existing ``MergeResult`` shape.
 
-    Degrades to empty ops on generic LLM noise (``apply_ops`` is pure and
-    ``compute_merge_reconciliation`` is deterministic), but DELIBERATELY lets a
-    ``LLMTruncatedError`` propagate: a truncated reconcile means the op batch was
-    cut off, so silently applying the partial set would drop a whole CV's content.
-    The upload/import caller catches it and fails that file cleanly rather than
-    persisting a half-merge (see routers/profile.py).
+    A FAILED reconcile call (``ReconcileFailedError``: the engine's one retry
+    failed too — R2-13, Hazelnut build 4) propagates: before build 4 the engine
+    degraded it to empty ops, and this import then "merged" nothing while the
+    witness reported the whole document as not applied. Nothing is committed
+    before the caller's ``commit_ops``, so the import job fails that file with
+    the stable code ``not_saved`` (``import_jobs.classify_import_error``) and
+    the profile is untouched; on the segmented path a failing slice fails the
+    whole file the same way (no half-merge). ``LLMTruncatedError`` from the
+    single call also propagates out of the engine: a truncated reconcile means
+    the op batch was cut off, so silently applying the partial set would drop a
+    whole CV's content.
 
     US190 (ADR-047 §1): a truncated *single* call no longer fails the merge — it
     switches to the segmented fallback (``_reconcile_import_batched``) instead of

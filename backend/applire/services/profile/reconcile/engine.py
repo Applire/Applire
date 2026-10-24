@@ -23,9 +23,12 @@
 (``apply.py``) consumes the result; wiring into the interview / CV / ingest paths
 is a later task (US184).
 
-Parsing is DEFENSIVE: a single op that fails validation is dropped, the rest are
-kept; a wholly-unusable payload yields an empty ``ReconcileResult``. The engine
-never raises on LLM noise.
+Parsing is DEFENSIVE at the op level: a single op that fails validation is
+dropped, the rest are kept. A FAILED CALL is not noise (Hazelnut build 4, R2-13,
+P-1): a provider/transport/parse error, or a reply that is not a JSON object, is
+retried ONCE and then raised as ``ReconcileFailedError`` — never returned as an
+empty ``ReconcileResult``, which every caller reads as "the answer held nothing
+new" (the interview then asked a follow-up and the founder's answer was gone).
 """
 from __future__ import annotations
 
@@ -36,7 +39,7 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from applire.constants import RECONCILE_MAX_TOKENS
-from applire.exceptions import LLMTruncatedError
+from applire.exceptions import LLMTruncatedError, ReconcileFailedError
 from applire.prompts.reconcile import (
     RECONCILE_SYSTEM_PROMPT,
     build_reconcile_prompt,
@@ -72,6 +75,11 @@ _EMPTY_REASONS: frozenset[str] = frozenset(typing.get_args(EmptyReason))
 # crosses this seam (SF-VAULT.10, #480 PR 1).
 _OP_ADAPTER: TypeAdapter[ReconcileOp] = TypeAdapter(ReconcileOp)
 
+#: R2-13 (Hazelnut build 4) — one call plus ONE retry, then ReconcileFailedError.
+#: Truncation is not retried here (the provider already retried it on a larger
+#: budget, and the import door has its own segmented fallback for it).
+_RECONCILE_ATTEMPTS = 2
+
 
 async def reconcile(
     profile: MasterProfileData,
@@ -93,9 +101,17 @@ async def reconcile(
       caller fails that upload cleanly rather than persisting a half-merge. The
       provider already retried once with a larger budget (``retry_on_truncation``)
       before this propagates, so reaching here means the merge genuinely won't fit.
-    * Every OTHER provider/transport/parse error still degrades to an empty result
-      (unchanged intent): an additive merge that produced no ops is safe — the
-      existing profile is untouched — so transient LLM noise never 500s the upload.
+    * Every OTHER provider/transport/parse error — and a reply that is not a
+      JSON object — is RETRIED ONCE (R2-13, Hazelnut build 4). If the retry fails
+      too, ``ReconcileFailedError`` is raised (chained to the last cause). This
+      used to degrade to an empty result on the theory that "an additive merge
+      that produced no ops is safe"; it is not: an empty result means "this
+      answer held nothing new", so the interview asked a follow-up as if the
+      answer were content-free and the answer was lost (P-1, founder instance,
+      2026-10-23: ``JSONDecodeError: Extra data`` on ``gpt-6-luna``). Every
+      caller now says "not saved" in its own receipt shape (interview turn
+      state ``not_saved``, testimony / claim ``status: "error"``, import job
+      ``error_code``), and none of them 500s.
     """
     # 783:L79 (ADR-078 amended 2026-10-20, the ADR-094 cl. 6 instrument): the
     # model addresses existing entities by short handles (`id_w1`, `id_s3`)
@@ -110,27 +126,50 @@ async def reconcile(
         provider,
         ShortIdMap.from_profile(profile.model_dump(mode="json"), namespace="id_"),
     )
-    try:
-        with llm_log_stage("reconcile"):
-            data = await llm.aparse_json(
-                build_reconcile_prompt(profile, new_info, source),
-                system=RECONCILE_SYSTEM_PROMPT,
-                temperature=0.1,
-                max_tokens=RECONCILE_MAX_TOKENS,
-                # M-3 — the op union as a SCHEMA, not only as prose, when the
-                # operator has turned it on. `None` keeps today's JSON mode exactly.
-                json_schema=_structured_output_schema(),
+    prompt = build_reconcile_prompt(profile, new_info, source)
+    data: Any = None
+    for attempt in range(1, _RECONCILE_ATTEMPTS + 1):
+        try:
+            with llm_log_stage("reconcile"):
+                data = await llm.aparse_json(
+                    prompt,
+                    system=RECONCILE_SYSTEM_PROMPT,
+                    temperature=0.1,
+                    max_tokens=RECONCILE_MAX_TOKENS,
+                    # M-3 — the op union as a SCHEMA, not only as prose, when the
+                    # operator has turned it on. `None` keeps today's JSON mode exactly.
+                    json_schema=_structured_output_schema(),
+                )
+        except LLMTruncatedError:
+            # Data loss — never mask as an empty merge. Let the caller surface it
+            # (the provider already retried once on a larger budget; the import
+            # door switches to its segmented fallback on this error).
+            logger.warning("reconcile: output truncated on the token budget; propagating (data loss)")
+            raise
+        except Exception as exc:  # noqa: BLE001 — classified below, never swallowed
+            failure: BaseException = exc
+        else:
+            if isinstance(data, dict):
+                break
+            # A JSON array / string / number is not a reconcile payload: the
+            # call failed as surely as an unparseable reply did.
+            failure = ReconcileFailedError(
+                f"reconcile reply was a JSON {type(data).__name__}, not an object"
             )
-    except LLMTruncatedError:
-        # Data loss — never mask as an empty merge. Let the caller surface it.
-        logger.warning("reconcile: output truncated on the token budget; propagating (data loss)")
-        raise
-    except Exception:  # noqa: BLE001 — never let other LLM/transport errors escape
-        logger.exception("reconcile: provider.aparse_json failed; returning empty result")
-        return ReconcileResult()
-
-    if not isinstance(data, dict):
-        return ReconcileResult()
+        if attempt < _RECONCILE_ATTEMPTS:
+            logger.warning(
+                "reconcile: attempt %d failed (%s); retrying once (R2-13)",
+                attempt, type(failure).__name__,
+            )
+            continue
+        logger.error(
+            "reconcile: failed after %d attempts (%s); raising ReconcileFailedError — "
+            "the new information was NOT merged (R2-13)",
+            attempt, type(failure).__name__,
+        )
+        raise ReconcileFailedError(
+            "The reconcile call failed twice; nothing was merged."
+        ) from failure
 
     # #370 — capture WHICH raw ops failed schema validation (not just drop
     # them), so the testimony write-loss witness can report an `op_rejected`

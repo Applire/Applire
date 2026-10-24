@@ -17,6 +17,7 @@
 
 """Profile enrichment endpoints — Mode C interview sessions (no JD required)."""
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -28,6 +29,7 @@ from applire.auth.deps import require_user
 from applire.models.user import User
 from applire.constants import INTERVIEW_SESSION_TTL_DAYS
 from applire.db.session import get_db
+from applire.exceptions import ReconcileFailedError
 from applire.models.profile import MasterProfile
 from applire.services.profile.owner import resolve_owner
 from applire.models.session import InterviewSession
@@ -53,6 +55,14 @@ from applire.services.profile.reconcile.ops import SetProfileMeta
 from applire.services.session import _to_confirmation_prompts, get_ui_language
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
+logger = logging.getLogger(__name__)
+
+#: R2-13 (Hazelnut build 4) — the stable code a "your answer was not saved"
+#: response carries (`detail.error`); the UI renders its own copy for it.
+NOT_SAVED_ERROR = "not_saved"
+_NOT_SAVED_MESSAGE = (
+    "Your answer could not be saved — please send it again. Nothing was changed."
+)
 
 
 def _uid(user: "User | None"):
@@ -351,16 +361,28 @@ async def respond_to_enrich(
     # an ADR-059 receipt the LLM call had already paid for. #338 widened the
     # gate to `addressed or denial_recorded`; the committer removes the gate,
     # so a turn that produced neither still leaves a trail saying it happened.
-    turn = await reconcile_interview_turn(
-        db,
-        profile_record=profile_record,
-        gap=current_gap,
-        question=current_question,
-        answer=answer,
-        provider=provider,
-        session_id=str(session_id),
-        lang=lang,
-    )
+    try:
+        turn = await reconcile_interview_turn(
+            db,
+            profile_record=profile_record,
+            gap=current_gap,
+            question=current_question,
+            answer=answer,
+            provider=provider,
+            session_id=str(session_id),
+            lang=lang,
+        )
+    except ReconcileFailedError:
+        # R2-13 (Hazelnut build 4) — the reconcile call failed after its one
+        # retry. Nothing was committed (the bridge raises before `commit_ops`,
+        # and this request never reaches `db.commit()`), so the gap does not
+        # advance and no follow-up is generated: the answer was NOT saved and
+        # the same text can be sent again. A stable code, not a 500.
+        logger.warning("enrich respond: reconcile failed; answer not saved (session %s)", session_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": NOT_SAVED_ERROR, "message": _NOT_SAVED_MESSAGE},
+        )
     updated_profile_data = turn.profile_dict
 
     # Mark gap addressed if the reconciler applied at least one change.

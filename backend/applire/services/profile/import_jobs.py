@@ -45,6 +45,7 @@ from applire.exceptions import (
     OCRUnavailableError,
     LLMTimeoutError,
     LLMTruncatedError,
+    ReconcileFailedError,
 )
 from applire.models.import_job import CVImportJob, CVImportStatus
 from applire.ocr import get_ocr_extractor
@@ -95,6 +96,17 @@ def classify_import_error(exc: BaseException) -> str:
         return "ocr_unavailable"
     if isinstance(exc, LLMTruncatedError):
         return "llm_truncated"
+    if isinstance(exc, ReconcileFailedError):
+        # R2-13 (Hazelnut build 4) — the merge call failed after its one retry;
+        # nothing was written. A timeout / rate limit underneath keeps its own
+        # code (the operator's dashboard reads it); anything else (an
+        # unreadable reply, an outage) is `not_saved`.
+        cause = exc.__cause__
+        if isinstance(cause, LLMTimeoutError):
+            return "llm_timeout"
+        if isinstance(cause, LLMRateLimitError):
+            return "rate_limited"
+        return "not_saved"
     if isinstance(exc, LLMTimeoutError):
         return "llm_timeout"
     if isinstance(exc, LLMRateLimitError):

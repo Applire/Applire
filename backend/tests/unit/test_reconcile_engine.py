@@ -18,11 +18,17 @@
 """Unit tests for the ADR-046 single-call reconciler (US181)."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 
-from applire.exceptions import LLMError, LLMTruncatedError
+from applire.exceptions import (
+    LLMError,
+    LLMResponseParseError,
+    LLMTruncatedError,
+    ReconcileFailedError,
+)
 from applire.prompts.reconcile import (
     RECONCILE_SYSTEM_PROMPT,
     build_reconcile_prompt,
@@ -135,13 +141,42 @@ async def test_reconcile_drops_malformed_op_keeps_valid() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reconcile_garbage_payload_yields_empty_result() -> None:
-    for payload in ([], "totally garbage", {"unexpected": "shape"}, None, 42):
-        provider = _StubProvider(payload)
-        result = await reconcile(MasterProfileData(), "info", "manual", provider)
-        assert isinstance(result, ReconcileResult)
-        assert result.ops == []
-        assert result.ambiguities == []
+async def test_reconcile_object_without_ops_yields_empty_result() -> None:
+    """A JSON OBJECT with no usable ops is a valid (empty) answer — not a failure."""
+    provider = _StubProvider({"unexpected": "shape"})
+    result = await reconcile(MasterProfileData(), "info", "manual", provider)
+    assert isinstance(result, ReconcileResult)
+    assert result.ops == []
+    assert result.ambiguities == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_non_object_payload_retries_once_then_raises() -> None:
+    """R2-13 — a reply that is not a JSON object (array, string, null, number)
+    is a FAILED call: retried once, then ``ReconcileFailedError``; never the
+    empty result every caller reads as "this answer held nothing new"."""
+    for payload in ([], "totally garbage", None, 42):
+        provider = _CountingProvider([payload, payload])
+        with pytest.raises(ReconcileFailedError):
+            await reconcile(MasterProfileData(), "info", "manual", provider)
+        assert provider.calls == 2, payload
+
+
+class _CountingProvider:
+    """Returns (or raises) one queued item per call; counts calls, keeps prompts."""
+
+    def __init__(self, items: list[Any]) -> None:
+        self.items = list(items)
+        self.calls = 0
+        self.prompts: list[str] = []
+
+    async def aparse_json(self, prompt: str, **kwargs: Any) -> Any:
+        self.calls += 1
+        self.prompts.append(prompt)
+        item = self.items.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
 
 
 class _RaisingProvider:
@@ -172,15 +207,75 @@ async def test_reconcile_propagates_truncation_not_empty() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reconcile_generic_error_still_degrades_to_empty() -> None:
-    """Non-truncation provider/transport errors keep the old behaviour:
-    degrade to an empty result, never escape (unchanged intent)."""
-    for exc in (RuntimeError("transport boom"), LLMError("vendor noise"), ValueError("x")):
-        provider = _RaisingProvider(exc)
-        result = await reconcile(MasterProfileData(), "info", "cv_upload", provider)
-        assert isinstance(result, ReconcileResult)
-        assert result.ops == []
-        assert result.ambiguities == []
+async def test_reconcile_generic_error_retries_once_then_raises_reconcile_failed() -> None:
+    """R2-13 (Hazelnut build 4) — a non-truncation provider/transport/parse
+    error is retried ONCE, then raised as ``ReconcileFailedError`` chained to
+    the cause. It used to degrade to an empty result, which the interview read
+    as "changed nothing" and followed up on (P-1: the answer was lost)."""
+    for exc in (
+        RuntimeError("transport boom"),
+        LLMError("vendor noise"),
+        ValueError("x"),
+        json.JSONDecodeError("Extra data", "{} trailing", 3),
+        LLMResponseParseError("second JSON object after the first"),
+    ):
+        provider = _CountingProvider([exc, exc])
+        with pytest.raises(ReconcileFailedError) as info:
+            await reconcile(MasterProfileData(), "info", "cv_upload", provider)
+        assert info.value.__cause__ is exc
+        assert provider.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_reconcile_retry_succeeds_on_second_attempt() -> None:
+    """One failed attempt, then a good reply: the second reply's ops are used."""
+    good = {
+        "ops": [{"op": "upsert_skill", "name": "Kafka", "category": "technical"}],
+        "ambiguities": [],
+    }
+    provider = _CountingProvider([RuntimeError("blip"), good])
+    result = await reconcile(MasterProfileData(), "I use Kafka daily.", "interview", provider)
+    assert provider.calls == 2
+    assert [getattr(op, "name", None) for op in result.ops] == ["Kafka"]
+    # Same prompt both times — the retry is a plain re-ask, not a new turn.
+    assert provider.prompts[0] == provider.prompts[1]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_trailing_text_reply_through_strict_parse_is_never_empty() -> None:
+    """R2-13 seam, engine half: the founder-model reply shape (a JSON object
+    with text after it) through a provider whose parse is still the strict
+    ``json.loads`` (pre-O). Whatever the parse does, the engine must never
+    return the empty "nothing new" result: either the ops land (O's tolerant
+    helper) or ``ReconcileFailedError`` is raised."""
+    raw = (
+        '{"ops": [{"op": "upsert_skill", "name": "DORA", "category": "technical"}],'
+        ' "ambiguities": []}\nI added DORA as a skill.'
+    )
+
+    class _StrictParseProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def aparse_json(self, prompt: str, **kwargs: Any) -> Any:
+            self.calls += 1
+            return json.loads(raw)  # JSONDecodeError: Extra data
+
+    provider = _StrictParseProvider()
+    with pytest.raises(ReconcileFailedError) as info:
+        await reconcile(MasterProfileData(), "DORA lead since 2026-08", "interview", provider)
+    assert isinstance(info.value.__cause__, json.JSONDecodeError)
+    assert provider.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_reconcile_truncation_is_not_retried_by_the_engine() -> None:
+    """Truncation propagates on the FIRST attempt (the provider already retried
+    it on a larger budget; the import door has its own segmented fallback)."""
+    provider = _CountingProvider([LLMTruncatedError("cut"), {"ops": []}])
+    with pytest.raises(LLMTruncatedError):
+        await reconcile(MasterProfileData(), "info", "cv_upload", provider)
+    assert provider.calls == 1
 
 
 @pytest.mark.asyncio
