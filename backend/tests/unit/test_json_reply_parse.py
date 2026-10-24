@@ -107,11 +107,29 @@ def test_the_error_is_also_a_json_decode_error_carrying_the_reply():
     assert "Kafka" not in str(exc)  # str() carries no reply content
 
 
-def test_the_info_line_names_the_discard_without_its_text(caplog):
-    caplog.set_level(logging.INFO, logger="applire.providers.llm.json_reply")
-    take_discarded_tail()
-    parse_json_reply(_TRAILING, provider="Requesty", model="m")
-    lines = [r.getMessage() for r in caplog.records if "LLM_JSON_TAIL_DISCARDED" in r.getMessage()]
+class _Capture(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(logging.INFO)
+        self.lines: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lines.append(record.getMessage())
+
+
+def test_the_info_line_names_the_discard_without_its_text():
+    # A handler on the module logger itself: another test may stop the
+    # `applire` logger propagating to the root (caplog's handler).
+    log = logging.getLogger("applire.providers.llm.json_reply")
+    cap, old_level = _Capture(), log.level
+    log.addHandler(cap)
+    log.setLevel(logging.INFO)
+    try:
+        take_discarded_tail()
+        parse_json_reply(_TRAILING, provider="Requesty", model="m")
+    finally:
+        log.removeHandler(cap)
+        log.setLevel(old_level)
+    lines = [m for m in cap.lines if "LLM_JSON_TAIL_DISCARDED" in m]
     assert len(lines) == 1
     assert "provider=Requesty" in lines[0] and "tail_kind=prose" in lines[0]
     assert "alias" not in lines[0] and "merged" not in lines[0]  # PII boundary
