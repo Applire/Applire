@@ -444,8 +444,27 @@ _COVERED_IN_OTHER_WORDS_RULE = (
 )
 
 
+def _recorded_denials_fact(recorded_denials: list[str] | None) -> str:
+    """R2-9 (felix Q2): the no's the vault recorded from that last answer, in
+    the candidate's own words — a FACT handed to the judgement above. Whether
+    "settlement or payout rails" covers "Payment settlement" is the model's call
+    (ADR-062 cl. 1); a deterministic matcher missed exactly that paraphrase."""
+    terms = [str(t).strip() for t in (recorded_denials or []) if str(t or "").strip()]
+    if not terms:
+        return ""
+    quoted = ", ".join(f'"{t}"' for t in terms)
+    return (
+        f" From that answer the profile recorded these as things the candidate "
+        f"has NOT done: {quoted}. A listed requirement one of them covers is "
+        "answered, even when the answer also describes adjacent work around it: "
+        "it goes into covered_by_answer and is never asked about again, not "
+        "even as \"beyond that, have you ...\"."
+    )
+
+
 def _already_asked_instruction(
-    has_earlier: bool, follow_up_focus: list[str] | None
+    has_earlier: bool, follow_up_focus: list[str] | None,
+    recorded_denials: list[str] | None = None,
 ) -> str:
     """The rule that rides with an earlier exchange (ADR-089 clauses 2/6)."""
     if follow_up_focus:
@@ -462,7 +481,8 @@ def _already_asked_instruction(
         lead = (
             "\n\nFOLLOW-UP on this cluster: the candidate's last answer (see the "
             "Recent conversation) covered part of it. Still open by a literal "
-            f"reading: {focus}. {_COVERED_IN_OTHER_WORDS_RULE} Then "
+            f"reading: {focus}.{_recorded_denials_fact(recorded_denials)} "
+            f"{_COVERED_IN_OTHER_WORDS_RULE} Then "
             "ask ONE follow-up question aimed at exactly the requirements NOT in "
             "covered_by_answer, naming them — never ask again about what an "
             "earlier answer already covered. If every listed requirement is "
@@ -488,6 +508,7 @@ def build_question_prompt(
     quant_concepts: list[str] | None = None,
     prior_exchanges: list[dict] | None = None,
     follow_up_focus: list[str] | None = None,
+    recorded_denials: list[str] | None = None,
 ) -> str:
     history = ""
     if recent_messages:
@@ -629,7 +650,7 @@ def build_question_prompt(
     cluster_context = fence(cluster_body, header="GAP CLUSTER")
 
     earlier = _earlier_exchanges_block(prior_exchanges)
-    already_asked = _already_asked_instruction(bool(earlier), follow_up_focus)
+    already_asked = _already_asked_instruction(bool(earlier), follow_up_focus, recorded_denials)
     declined_line = ""
     if declined_members:
         # ADR-084 (Form A, inline): member names are the posting's own terms.

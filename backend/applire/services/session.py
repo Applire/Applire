@@ -4123,6 +4123,12 @@ async def _ask_partial_coverage_follow_up(
         clusters_by_id[current_gap] = {**clusters_by_id[current_gap], "gaps": list(open_members)}
         state["gap_clusters_by_id"] = clusters_by_id
 
+    # R2-9 (felix Q2): the no's this turn recorded travel with the focus as a
+    # fact, so the drafting judgement can close a member the candidate denied
+    # in other words ("settlement or payout rails" vs "Payment settlement").
+    turn_denials = [str(d) for d in (getattr(turn, "denied_concepts", None) or []) if d]
+    extra = {"recorded_denials": turn_denials} if turn_denials else {}
+
     async def _draft(focus: list[str]) -> dict:
         return await _cluster_question(
             state,
@@ -4134,6 +4140,7 @@ async def _ask_partial_coverage_follow_up(
             gap_category=gap_category,
             lang=lang,
             follow_up_focus=list(focus),
+            **extra,
         )
 
     q_data, remaining, question = await _judged_draft(_draft, list(open_members), current_gap)

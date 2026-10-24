@@ -88,3 +88,92 @@ async def test_control_a_counted_requirement_still_earns_its_follow_up(db):
 
     assert resp.question == "And auditability?"
     assert writer.calls[-1]["follow_up_focus"] == ["Auditability"]
+
+
+# ---------------------------------------------------------------------------
+# felix Q2 — the turn's recorded no's travel to the follow-up judgement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_turns_recorded_denials_reach_the_follow_up_draft(db):
+    """Round 2: the answer said "I haven't built settlement or payout rails
+    myself"; the vault recorded that no, and the follow-up asked about
+    "Payment settlement" and "Payout flows" anyway (the literal matcher missed
+    the paraphrase). The recorded no is now handed to the drafting call as a
+    fact; the judgement of what it covers is the model's (replay: 5/5 closed
+    vs 0/5 on the old prompt, report §Evidence)."""
+    job, _profile, _ = await _seed(db, clusters=[
+        _cluster(_INFRA, "Payments", ["Checkout", "Payment settlement", "Payout flows"]),
+    ], ledger=[_row("Checkout"), _row("Payment settlement"), _row("Payout flows")])
+    writer = _writer("Tell me about payments.", "And settlement?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    await _answer(
+        db, created.session_id,
+        "Checkout at Acme daily. I haven't built settlement or payout rails myself.",
+        _writing_bridge(add_skills=["Checkout"], deny=["settlement or payout rails"]), writer,
+    )
+
+    follow_up = writer.calls[-1]
+    assert follow_up["follow_up_focus"] == ["Payment settlement", "Payout flows"], (
+        "fixture check: the deterministic matcher really misses the paraphrase"
+    )
+    assert follow_up["recorded_denials"] == ["settlement or payout rails"]
+
+
+@pytest.mark.asyncio
+async def test_control_a_turn_without_a_no_passes_no_denials(db):
+    job, _profile, _ = await _seed(db)
+    writer = _writer("Tell me about Kubernetes and Terraform.", "And Terraform?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    await _answer(db, created.session_id, "Kubernetes in production at Acme.",
+                  _writing_bridge(add_skills=["Kubernetes"]), writer)
+
+    assert "recorded_denials" not in writer.calls[-1]
+
+
+def test_the_follow_up_prompt_states_the_recorded_denials_as_a_fact():
+    from applire.prompts.interview import build_question_prompt
+
+    cluster = {"id": "c", "label": "Payments", "gaps": ["Payment settlement"], "jd_skills": [],
+               "jd_context": ""}
+    msgs = [{"role": "assistant", "content": "Payments?"},
+            {"role": "user", "content": "I haven't built settlement rails."}]
+    with_fact = build_question_prompt(cluster, {}, msgs, follow_up_focus=["Payment settlement"],
+                                      recorded_denials=["settlement rails"])
+    without = build_question_prompt(cluster, {}, msgs, follow_up_focus=["Payment settlement"])
+
+    assert 'has NOT done: "settlement rails"' in with_fact
+    assert "never asked about again" in with_fact
+    assert "has NOT done" not in without
+
+
+@pytest.mark.asyncio
+async def test_the_question_generator_renders_the_recorded_denials_into_the_draft_prompt():
+    """The middle seam: ``question_generator_with_profile`` passes the no's to
+    the prompt builder (the session tests above double the generator)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from applire.services.interview_graph import question_generator_with_profile
+
+    state = {
+        "mode": "targeted", "critical_gaps": ["c"], "current_gap_index": 0,
+        "gap_clusters_by_id": {"c": {"id": "c", "label": "Payments",
+                                     "gaps": ["Payment settlement"], "jd_skills": [],
+                                     "jd_context": ""}},
+        "messages": [{"role": "assistant", "content": "Payments?"},
+                     {"role": "user", "content": "I haven't built settlement rails."}],
+    }
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(return_value={
+        "question": "", "choices": None, "covered_by_answer": ["Payment settlement"],
+    })
+    out = await question_generator_with_profile(
+        state, {}, provider, follow_up_focus=["Payment settlement"],
+        recorded_denials=["settlement rails"],
+    )
+
+    prompt = provider.aparse_json.await_args.args[0]
+    assert 'has NOT done: "settlement rails"' in prompt
+    assert out["question"] == ""
+    assert out["follow_up_remaining"] == []
