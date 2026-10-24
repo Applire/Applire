@@ -319,6 +319,40 @@ async def test_create_flow_new_user(db, user_and_job):
 
 
 @pytest.mark.asyncio
+async def test_f1_resume_after_the_tab_closed_mid_import_continues_to_gap_analysis(db, user_and_job):
+    """F-1 (founder 2026-10-24, build-3 delivery F5): a first-run flow is created
+    with no profile (user_type "new" → next cv_import). The tab closes while the
+    import runs; the import finishes server-side. On resume the flow index page
+    reads the state: it must continue to the gap analysis as if the tab had
+    stayed open — the live path advances whenever >=1 CV parsed, at ANY
+    completeness — not send the candidate back to upload the CV again."""
+    from applire.services.flow.orchestrator import get_flow_state
+
+    _, job = user_and_job
+    created = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    assert created.user_type == "new" and created.available_actions == {"next": "cv_import"}
+
+    # The import finished server-side: a THIN profile (far below MODE_B).
+    db.add(make_master_profile(profile_json={"skills": [{"name": "Python", "category": "technical"}]}))
+    await db.commit()
+
+    state = await get_flow_state(created.flow_id, db, user_id=_STUB_USER_ID)
+    assert state.current_step == "jd_analysis"
+    assert state.user_type == "new"  # the frozen label is not rewritten
+    assert state.available_actions == {"next": "gap_analysis"}
+
+
+@pytest.mark.asyncio
+async def test_f1_no_profile_yet_still_goes_to_the_import(db, user_and_job):
+    from applire.services.flow.orchestrator import get_flow_state
+
+    _, job = user_and_job
+    created = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    state = await get_flow_state(created.flow_id, db, user_id=_STUB_USER_ID)
+    assert state.available_actions == {"next": "cv_import"}
+
+
+@pytest.mark.asyncio
 async def test_create_flow_returning_user(db, user_and_job):
     _, job = user_and_job
 

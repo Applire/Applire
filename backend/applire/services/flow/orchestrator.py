@@ -603,6 +603,29 @@ async def _has_open_gate(db: AsyncSession, user_id: uuid.UUID | None = None) -> 
     return bool(await list_open_gates(db, user_id=uid))
 
 
+def _resumed_actions(flow: FlowSession, has_profile: bool) -> dict[str, str]:
+    """F-1 (founder 2026-10-24, build-3 delivery F5) — the actions a READ hands
+    out. ``available_actions`` is stored when the step is entered; at
+    ``jd_analysis`` that froze ``user_type="new"`` → ``cv_import`` for a first-run
+    flow. When the tab closed mid-import and the import finished server-side,
+    the resume (flow index page) sent the candidate back to the upload. The
+    live path (processing overlay ``finishPipeline``) advances to the gap
+    analysis whenever >=1 CV parsed, at ANY completeness — so a resume does the
+    same: at ``jd_analysis`` on a flow with a job, a live owner profile → next =
+    ``gap_analysis``. Deliberately NOT :func:`_resolve_user_type` (that says
+    "returning" only at completeness >= MODE_B). ``user_type`` stays as
+    recorded; nothing is written on a read."""
+    actions = dict(flow.available_actions or {})
+    if (
+        flow.current_step == "jd_analysis"
+        and flow.job_id is not None
+        and has_profile
+        and actions.get("next") == "cv_import"
+    ):
+        actions["next"] = "gap_analysis"
+    return actions
+
+
 def _compute_actions(
     step: str,
     user_type: str,
@@ -747,7 +770,7 @@ async def _build_state_response(
         application_id=flow.application_id,
         user_type=flow.user_type,
         current_step=flow.current_step,
-        available_actions=flow.available_actions,
+        available_actions=_resumed_actions(flow, profile_record is not None),
         job_summary=job_summary,
         profile_completeness=profile_completeness,
         gap_summary=gap_summary,
