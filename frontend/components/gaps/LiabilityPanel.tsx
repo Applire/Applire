@@ -74,6 +74,11 @@ interface ItemState {
   receipt: string | null;
 }
 
+/** 789:175 — the owner names after the label: a leading space, " · " between. */
+function ownersLine(owners: string[]): string {
+  return ` ${owners.join(" · ")}`;
+}
+
 const EMPTY_ITEM: ItemState = {
   status: "idle",
   sessionId: null,
@@ -342,8 +347,8 @@ export function LiabilityPanel({
                       UI; without an owner the line is left out. */}
                   {(l.evidence_owners?.length ?? 0) > 0 && (
                     <p data-testid="liability-evidence" className="text-xs text-gray-500 mt-0.5">
-                      <span className="font-medium">{t("liabilityEvidenceLabel")}</span>{" "}
-                      {l.evidence_owners!.join(" · ")}
+                      <span className="font-medium">{t("liabilityEvidenceLabel")}</span>
+                      {ownersLine(l.evidence_owners!)}
                     </p>
                   )}
                 </div>
