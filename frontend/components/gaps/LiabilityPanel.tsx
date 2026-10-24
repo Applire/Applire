@@ -117,10 +117,14 @@ async function refusalCodeOf(res: Response): Promise<GapRefusalCode | null> {
   }
 }
 
-async function apiErrorMessage(res: Response): Promise<string> {
+async function apiErrorMessage(res: Response, notSavedMessage?: string): Promise<string> {
   try {
     const body = await res.json();
-    return typeof body.detail === "string" ? body.detail : res.statusText || `HTTP ${res.status}`;
+    if (typeof body.detail === "string") return body.detail;
+    // R2-13 (Lead I's 503 shape, lead G hunk): a turn the server could not
+    // save — the localized `errors.answerNotSaved`, never the English message.
+    if (notSavedMessage && body.detail?.error_code === "answer_not_saved") return notSavedMessage;
+    return res.statusText || `HTTP ${res.status}`;
   } catch {
     return res.statusText || `HTTP ${res.status}`;
   }
@@ -153,6 +157,7 @@ export function LiabilityPanel({
 }) {
   const t = useTranslations("gaps");
   const tc = useTranslations("common");
+  const tErrors = useTranslations("errors");
   const [items, setItems] = useState<Record<string, ItemState>>({});
 
   const active = Object.values(items).some(
@@ -241,7 +246,7 @@ export function LiabilityPanel({
       // ADR-089 E2: a micro-session closed elsewhere answers 409 — say so in
       // the UI language, keep the draft.
       if (res.status === 409) throw new Error(t("sessionClosedElsewhere"));
-      if (!res.ok) throw new Error(await apiErrorMessage(res));
+      if (!res.ok) throw new Error(await apiErrorMessage(res, tErrors("answerNotSaved")));
       const data = (await res.json()) as TurnResponse;
       if (!data.complete) {
         // A follow-up (ADR-089 clause 2) or a confirmation — asked here, in the

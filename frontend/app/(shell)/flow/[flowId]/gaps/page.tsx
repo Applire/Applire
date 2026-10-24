@@ -163,11 +163,24 @@ interface SessionTurnResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function apiErrorMessage(res: Response): Promise<string> {
+/** R2-13 (Lead I's 503 shape): a turn the server could not save answers
+ * `detail: {error_code: "answer_not_saved", turn_state: "not_saved", message}`.
+ * The caller passes the localized `errors.answerNotSaved`; the English
+ * `message` and the status text never reach the page (lead G hunk). */
+const ANSWER_NOT_SAVED = "answer_not_saved";
+
+async function apiErrorMessage(res: Response, notSavedMessage?: string): Promise<string> {
   try {
     const body = await res.json();
     const detail = body.detail;
     if (typeof detail === "string") return detail;
+    if (
+      notSavedMessage &&
+      detail &&
+      typeof detail === "object" &&
+      (detail as { error_code?: unknown }).error_code === ANSWER_NOT_SAVED
+    )
+      return notSavedMessage;
     if (Array.isArray(detail))
       return detail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ");
     return res.statusText || `HTTP ${res.status}`;
@@ -556,6 +569,7 @@ export default function GapsPage({
   const [decisionsToken, setDecisionsToken] = useState(0);
   const router = useRouter();
   const t = useTranslations("gaps");
+  const tErrors = useTranslations("errors");
 
   const [gaps, setGaps] = useState<GapAnalysis | null>(null);
   const [flowState, setFlowState] = useState<FlowState | null>(null);
@@ -1007,7 +1021,8 @@ export default function GapsPage({
       // so in the UI language and keep the draft — never the raw English
       // backend detail.
       if (res.status === 409) throw new Error(t("sessionClosedElsewhere"));
-      if (!res.ok) throw new Error(await apiErrorMessage(res));
+      // R2-13: "not saved" (503) — localized, the draft stays in the box.
+      if (!res.ok) throw new Error(await apiErrorMessage(res, tErrors("answerNotSaved")));
       data = (await res.json()) as SessionTurnResponse;
     } catch (e: unknown) {
       updateGapState(clusterId, {

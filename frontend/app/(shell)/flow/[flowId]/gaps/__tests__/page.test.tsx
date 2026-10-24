@@ -776,6 +776,24 @@ describe("ADR-089 E2 — a micro-session closed elsewhere", () => {
   });
 });
 
+describe("R2-13 — a turn the server could not save", () => {
+  it("a 503 answer_not_saved says errors.answerNotSaved in the UI language and keeps the draft", async () => {
+    serve({
+      row: analysis([cl("a")]),
+      turns: [{ detail: { error_code: "answer_not_saved", turn_state: "not_saved", message: "Your answer was not saved." } }],
+      turnStatus: [503],
+    });
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("a")));
+    await waitFor(() => expect(within(card("a")).getByTestId("gap-question")).toBeInTheDocument());
+    await answer("a", "My typed answer.");
+    await waitFor(() => expect(within(card("a")).getByText("errors.answerNotSaved")).toBeInTheDocument());
+    expect(screen.queryByText("Your answer was not saved.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Service Unavailable/)).not.toBeInTheDocument();
+    expect(within(card("a")).getByTestId("gap-answer-textarea")).toHaveValue("My typed answer.");
+  });
+});
+
 describe("ruling B-3 — a click on a cluster waiting on a follow-up resumes it", () => {
   it("shows the waiting follow-up with its header, from the row's open members", async () => {
     const fetchMock = serve({
