@@ -1503,7 +1503,8 @@
       "terminal-review": "Final check",
       "narrative-evidence": "Evidence in the work history, not only as a skill",
       "document-language": "Document written in a single language",
-      "keyword-other-language": "Terms not checked across languages"
+      "keyword-other-language": "Terms not checked across languages",
+      "employer-repetition": "Repeated company name"
     },
     "checkDetails": {
       "page-length-target": "{pages} pages — meets your chosen target of {target}; the {region} norm is {standard} pages",
@@ -1529,7 +1530,8 @@
       "narrative-evidence-tag-only": "Your profile backs these requirements of the role, but the CV shows them only in the skills list – in no role and no project: {terms}. To a recruiter, a skill without evidence often reads like a requirement you do not meet.",
       "narrative-evidence-absent": "Your profile backs these requirements of the role, but the CV does not show them at all: {terms}.",
       "narrative-evidence-absent-also": "Missing entirely: {terms}.",
-      "narrative-evidence-more": "… and {count} more."
+      "narrative-evidence-more": "… and {count} more.",
+      "employer-repetition": "“{employer}” opens {count} sentences in paragraph {paragraph}{more, plural, =0 {} one { (and in one more paragraph)} other { (and in # more paragraphs)}}. Repeated that often, the name reads as machine-written — a back-reference such as “there” reads more naturally."
     },
     "pinnedFacts": {
       "title": "Pinned facts",

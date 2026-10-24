@@ -1503,7 +1503,8 @@
       "terminal-review": "Schlussprüfung",
       "narrative-evidence": "Belege im Werdegang statt nur als Skill",
       "document-language": "Dokument durchgehend in einer Sprache",
-      "keyword-other-language": "Nicht sprachübergreifend geprüfte Begriffe"
+      "keyword-other-language": "Nicht sprachübergreifend geprüfte Begriffe",
+      "employer-repetition": "Wiederholter Firmenname"
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht deinem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
@@ -1529,7 +1530,8 @@
       "narrative-evidence-tag-only": "Dein Profil belegt diese Anforderungen der Stelle, im Lebenslauf stehen sie aber nur in der Skill-Liste – in keiner Station und keinem Projekt: {terms}. Ein Skill ohne Beleg liest sich für Personaler oft wie eine nicht erfüllte Anforderung.",
       "narrative-evidence-absent": "Dein Profil belegt diese Anforderungen der Stelle, im Lebenslauf fehlen sie ganz: {terms}.",
       "narrative-evidence-absent-also": "Ganz fehlen: {terms}.",
-      "narrative-evidence-more": "… und {count} weitere."
+      "narrative-evidence-more": "… und {count} weitere.",
+      "employer-repetition": "„{employer}“ steht in Absatz {paragraph} am Anfang von {count} Sätzen{more, plural, =0 {} one { (und in einem weiteren Absatz)} other { (und in # weiteren Absätzen)}}. So oft wiederholt wirkt der Name maschinell geschrieben — ein Rückbezug wie „dort“ liest sich natürlicher."
     },
     "pinnedFacts": {
       "title": "Festgelegte Fakten",

@@ -4347,7 +4347,7 @@ async def _update_ats_report_letter(
         ledger = await _latest_keyword_ledger(db, cl.job_analysis_id, user_id=cl.user_id)
         # #249 run-4: same shared-predicate guard as the CV path — a keyword with a
         # literal vault tie never lands in present_unsupported (one vocabulary).
-        from applire.services.ats_audit import grounding_vault_index
+        from applire.services.ats_audit import grounding_vault_index, profile_employer_names
         from applire.services.keyword_ledger import profile_literal_corpus
 
         profile_row = await db.get(MasterProfile, cl.profile_id)
@@ -4396,6 +4396,8 @@ async def _update_ats_report_letter(
             # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim
             # (the audit adds the letter's own recipient.company).
             non_claim=non_claim_names_for_job(job, await _label_application(db, cl)),
+            # 786:47 (WP-T hunk): the employer-name repetition advisory.
+            employer_names=profile_employer_names(profile_row.profile_json if profile_row else None),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)

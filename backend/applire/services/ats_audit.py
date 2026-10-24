@@ -1776,6 +1776,80 @@ def _employer_sentence_terms(
     return [k for k in terms if not keyword_matches(k, rest, ledger)]
 
 
+#: 786:47 (founder 2026-10-22, Hazelnut build 4) — the employer-name repetition
+#: tell, as a deterministic letter finding (ADR-082: repetition is DETECTED by the
+#: audit, never repaired by a pass). The 2026-08-19 ship-gate letter opened eight
+#: body sentences with "Bei der Schwarzwald Präzision GmbH" and both blind panel
+#: reviewers called it machine-written; the #565 credit bar is "≤ 1 sentence-initial
+#: employer mention per paragraph". A mention is sentence-initial when at most
+#: this many words precede it ("Bei der …", "At …", "Dort bei …").
+EMPLOYER_REPETITION_CHECK_ID = "employer-repetition"
+_EMPLOYER_OPENING_LEAD_WORDS = 3
+_EMPLOYER_OPENINGS_PER_PARAGRAPH = 1
+
+
+def _is_salutation(paragraph: str) -> bool:
+    p = paragraph.strip()
+    return p.endswith(",") and len(p.split()) <= 8
+
+
+def employer_openings(
+    paragraphs: Sequence[str], employer_names: Sequence[str | None]
+) -> list[tuple[int, str, int]]:
+    """786:47 — ``(paragraph number, employer as given, openings)`` for every body
+    paragraph in which one employer opens more sentences than the #565 bar allows.
+
+    Paragraph numbers count body paragraphs only (a leading salutation line is not
+    one). One count per sentence per employer; every form of a name (with and
+    without its legal form, :func:`non_claim_names`) counts as that employer."""
+    employers: list[tuple[str, tuple[str, ...]]] = []
+    seen: set[str] = set()
+    for e in employer_names or ():
+        forms = non_claim_names(None, [e]).employers
+        if not forms or forms[0] in seen:
+            continue
+        seen.add(forms[0])
+        employers.append(((e or "").strip(), forms))
+    if not employers:
+        return []
+    out: list[tuple[int, str, int]] = []
+    body = [p for p in paragraphs if isinstance(p, str) and _norm(p)]
+    if body and _is_salutation(body[0]):
+        body = body[1:]
+    for number, paragraph in enumerate(body, start=1):
+        sentences = [x for x in _LETTER_SENTENCE_END_RE.split(_norm(paragraph)) if x and x.strip()]
+        for display, forms in employers:
+            openings = 0
+            for sentence in sentences:
+                spans = _name_intervals(sentence, forms)
+                if spans and len(sentence[: min(a for a, _ in spans)].split()) <= _EMPLOYER_OPENING_LEAD_WORDS:
+                    openings += 1
+            if openings > _EMPLOYER_OPENINGS_PER_PARAGRAPH:
+                out.append((number, display, openings))
+    return out
+
+
+def _employer_repetition_check(
+    checks: list[ATSCheck], paragraphs: Sequence[str], employer_names: Sequence[str | None]
+) -> None:
+    """786:47 — an ADVISORY row (``pass`` with details, like ``skills-weak-vault-tie``):
+    the letter reads, nothing is wrong with a fact; the person decides. Emitted only
+    when it fires. ``details_params`` stay locale-neutral (the name, two numbers)."""
+    hits = employer_openings(paragraphs, employer_names)
+    if not hits:
+        return
+    number, employer, count = max(hits, key=lambda h: h[2])
+    checks.append(ATSCheck(
+        id=EMPLOYER_REPETITION_CHECK_ID,
+        status="pass",
+        details="; ".join(
+            f"'{e}' opens {c} sentences in paragraph {n}" for n, e, c in hits
+        ) + " — a name repeated at sentence starts reads as machine-written; a back-reference reads naturally",
+        details_key=EMPLOYER_REPETITION_CHECK_ID,
+        details_params={"employer": employer, "paragraph": number, "count": count, "more": len(hits) - 1},
+    ))
+
+
 def _other_language_check(checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> None:
     """#790 line L10 (D2-1 = A) — the neutral row for ``present_other_language``.
 
@@ -2401,6 +2475,7 @@ def _audit_letter_text(
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
     document_language: str | None = None,
+    employer_names: Sequence[str | None] | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -2525,6 +2600,11 @@ def _audit_letter_text(
         document_language=document_language,
     )
     _other_language_check(checks, coverage)
+    # 786:47: the candidate's own employers (the caller's) and the recipient.
+    if employer_names is not None:
+        _employer_repetition_check(
+            checks, paragraphs, [*employer_names, recipient.get("company")]
+        )
     report = _finish("cover_letter", checks, coverage)
     if pin_entries is not None:
         report.pinned_facts = pin_entries
@@ -2544,8 +2624,13 @@ def audit_cover_letter(
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
     document_language: str | None = None,
+    employer_names: Sequence[str | None] | None = None,
 ) -> ATSReport:
     """Audit a rendered cover letter PDF against the structured letter data and keywords.
+
+    ``employer_names`` (786:47): the candidate's employers from the profile; with
+    them (and the recipient's company) the ``employer-repetition`` advisory runs.
+    ``None`` keeps the pre-change report.
 
     ``ledger`` (ADR-048/US203) splits each MISSING keyword into *missing-claimable* vs
     *missing-honest-gap*.
@@ -2564,8 +2649,19 @@ def audit_cover_letter(
         pins=pins, truth_floor_hits=truth_floor_hits,
         terminal_review=terminal_review, previous_report=previous_report,
         vault_index=vault_index, non_claim=non_claim,
-        document_language=document_language,
+        document_language=document_language, employer_names=employer_names,
     )
+
+
+def profile_employer_names(profile_json: dict[str, Any] | None) -> list[str]:
+    """786:47 — the employers the profile names (``work_experience[].company``),
+    the names a letter anchors its claims on. Empty without a profile."""
+    out: list[str] = []
+    for w in (profile_json or {}).get("work_experience") or []:
+        c = (w or {}).get("company") if isinstance(w, dict) else None
+        if isinstance(c, str) and c.strip() and c.strip() not in out:
+            out.append(c.strip())
+    return out
 
 
 def grounding_vault_index(profile_json: dict[str, Any] | None) -> Any:
