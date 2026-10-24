@@ -1429,43 +1429,70 @@ def denial_release_units(profile_json: dict[str, Any] | None) -> list[str]:
     return labels
 
 
-def head_noun_scope_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, str]]:
-    """FS-7 (ADR-059 amended 2026-10-24) — the persisted denials that declare a
-    bare term ONLY through their generic head noun ("payment-institution
-    experience" → "payment institution") while the candidate's own release corpus
-    (:func:`denial_release_units`: attested labels + imported bullets) names that
-    bare term outside every denial. The floor holds (the head noun declares the
-    term); this is the contradiction the Health item asks the candidate about.
-
-    One record per denial: ``{"denial_concept", "bare_term", "cv_label"}``, where
-    ``cv_label`` is the FIRST unit naming the term, in the vault's own wording.
-    ``bare_term`` is ``_norm``-ed. Pure, ``None``/malformed tolerant.
-    """
-    if not isinstance(profile_json, dict):
-        return []
+def _persisted_denials(profile_json: dict[str, Any]) -> list[str]:
     metadata = profile_json.get("metadata") or {}
     raw = metadata.get("denied_concepts") if isinstance(metadata, dict) else None
     denials = [
         d.get("concept") if isinstance(d, dict) else getattr(d, "concept", None)
         for d in raw or []
     ]
-    denials = [d for d in denials if isinstance(d, str) and d.strip()]
+    return [d for d in denials if isinstance(d, str) and d.strip()]
+
+
+def denial_cv_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, str]]:
+    """Every persisted denial the candidate's own release corpus
+    (:func:`denial_release_units`: attested labels + imported bullets) names.
+
+    Two kinds, one record each per denial —
+    ``{"kind", "denial_concept", "bare_term", "cv_label"}``:
+
+    * ``"head_noun"`` (FS-7, ADR-059 amended 2026-10-24): the denial declares
+      ``bare_term`` only through its generic head noun ("payment-institution
+      experience" → "payment institution"), and a unit names that term OUTSIDE
+      every denial wording.
+    * ``"literal"``: a unit names the denied term itself at a word boundary
+      ("Vertrieb" denied, a bullet "Vertrieb von …"). ``bare_term`` is the
+      ``_norm``-ed denial.
+
+    ``cv_label`` is the FIRST such unit, in the vault's own wording. The floor
+    holds either way; this only finds the contradiction a Health item asks
+    about. Word-boundary matched, so a German compound ("Vertriebserfahrung")
+    is not found — recorded residue. Pure, ``None``/malformed tolerant.
+    """
+    if not isinstance(profile_json, dict):
+        return []
+    denials = _persisted_denials(profile_json)
     if not denials:
         return []
     units = denial_release_units(profile_json)
     out: list[dict[str, str]] = []
     for denial in denials:
         bare = head_noun_term(denial)
-        if not bare:
-            continue
-        label = next(
-            (u for u in units if _independently_affirmed(bare, denials, _norm(u))),
-            None,
-        )
-        if label is None:
-            continue
-        out.append({"denial_concept": denial, "bare_term": bare, "cv_label": label})
+        if bare:
+            kind = "head_noun"
+            label = next(
+                (u for u in units if _independently_affirmed(bare, denials, _norm(u))),
+                None,
+            )
+        else:
+            kind, bare = "literal", _norm(denial)
+            label = next((u for u in units if _bounded_present(denial, _norm(u))), None)
+        if label is not None:
+            out.append(
+                {"kind": kind, "denial_concept": denial, "bare_term": bare, "cv_label": label}
+            )
     return out
+
+
+def head_noun_scope_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, str]]:
+    """FS-7 — the ``"head_noun"`` records of :func:`denial_cv_conflicts`, without
+    the ``kind`` key: the denials that declare a bare term ONLY through their
+    generic head noun while the candidate's own CV names that term. Pure."""
+    return [
+        {k: v for k, v in hit.items() if k != "kind"}
+        for hit in denial_cv_conflicts(profile_json)
+        if hit["kind"] == "head_noun"
+    ]
 
 
 #: ``EnrichmentRecord.source`` values whose prose is the candidate's OWN document

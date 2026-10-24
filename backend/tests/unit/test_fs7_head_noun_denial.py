@@ -284,3 +284,24 @@ async def test_seam_commit_ops_parks_the_health_item_when_a_head_noun_denial_mee
             assert parked[0]["option_keys"] == ["denial_holds"]
     finally:
         await engine.dispose()
+
+
+def test_the_general_detector_also_finds_a_literal_denial_the_cv_names():
+    from applire.services.profile.reconcile.stance import denial_cv_conflicts
+
+    v = _hv(["Vertrieb", "eigene Erfahrung mit Einkauf"], bullets=["Vertrieb im Außendienst.", "Einkauf von Rohstoffen."])
+    hits = denial_cv_conflicts(v)
+    assert [(h["kind"], h["denial_concept"], h["cv_label"]) for h in hits] == [
+        ("literal", "Vertrieb", "Vertrieb im Außendienst."),
+        ("head_noun", "eigene Erfahrung mit Einkauf", "Einkauf von Rohstoffen."),
+    ]
+    # the FS-7 view keeps only the head-noun half
+    from applire.services.profile.reconcile.stance import head_noun_scope_conflicts
+
+    assert [h["denial_concept"] for h in head_noun_scope_conflicts(v)] == ["eigene Erfahrung mit Einkauf"]
+
+
+def test_the_general_detector_is_word_bounded():
+    from applire.services.profile.reconcile.stance import denial_cv_conflicts
+
+    assert denial_cv_conflicts(_hv(["Vertrieb"], bullets=["Vertriebsunterstützung im Innendienst."])) == []
