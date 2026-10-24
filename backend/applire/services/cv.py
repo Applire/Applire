@@ -6175,6 +6175,10 @@ async def _terminal_review(
     # (ADR-082 clauses 1-3 for the deterministic layer).
     _redundancy_fn = redundancy_signal_issues_fn(
         structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+        # 786:81: the bullet a demand produced is exempt from the redundancy finding
+        # for the rest of this terminal review. Read at call time: `_terminal_signal_
+        # issues` runs the under-claim signal FIRST, so this round's demand is in.
+        demanded_groups_fn=lambda: demanded_cell["groups"],
     )
 
     def _terminal_signal_issues(draft: dict) -> list:
