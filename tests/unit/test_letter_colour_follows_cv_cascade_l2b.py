@@ -137,3 +137,64 @@ async def test_docx_render_uses_the_cv_cascade(db, name):
     cl = await _build(db, spec)
     prepared = await _prepare_cover_letter_docx_render(cl, db)
     assert prepared[2] == (expected or DEFAULT_ACCENT)
+
+
+# ── 784:98: the executive letter prints its CV twin's role line ─────────────
+# 784:98 — the executive letter's header is its CV twin's header (ruling L-2,
+# build 3), and the CV prints the role line under the name
+# (``executive.html.j2`` ``.header-title`` = ``work_history[0].role``). The letter's
+# own header data has no role, so the line comes from the CV its flow pairs it
+# with; without a live paired CV no line is printed (never an invented one).
+
+
+async def _pair(db, cl, *, role="Produktionsleiter", deleted=False):
+    from datetime import datetime, timezone
+
+    from applire.models.cv import GeneratedCV
+    from applire.models.flow import FlowSession
+
+    cv = GeneratedCV(
+        id=uuid.uuid4(), job_analysis_id=cl.job_analysis_id, profile_id=cl.profile_id,
+        user_id=HARNESS_USER_ID, template="executive", status="ready",
+        tailored_data={"work_history": [{"role": role, "company": "Weberit"}]},
+    )
+    if deleted:
+        cv.deleted_at = datetime.now(timezone.utc)
+    db.add(cv)
+    await db.commit()
+    db.add(FlowSession(
+        id=uuid.uuid4(), user_id=HARNESS_USER_ID, job_id=cl.job_analysis_id,
+        current_step="cover_letter", generated_cv_id=cv.id, generated_cover_letter_id=cl.id,
+    ))
+    await db.commit()
+
+
+async def _render(db, cl):
+    from applire.services.cover_letter import get_cover_letter_html
+
+    cl.template = "executive"
+    await db.commit()
+    return await get_cover_letter_html(cl.id, db, user_id=HARNESS_USER_ID)
+
+
+@pytest.mark.asyncio
+async def test_the_executive_letter_prints_its_cv_twins_role_line(db):
+    cl = await _letter(db)
+    await _pair(db, cl)
+    html = await _render(db, cl)
+    assert '<div class="header-title">Produktionsleiter</div>' in html
+
+
+@pytest.mark.asyncio
+async def test_no_paired_cv_means_no_role_line(db):
+    cl = await _letter(db)
+    html = await _render(db, cl)
+    assert 'class="header-title"' not in html
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_paired_cv_lends_no_role_line(db):
+    cl = await _letter(db)
+    await _pair(db, cl, deleted=True)
+    html = await _render(db, cl)
+    assert 'class="header-title"' not in html

@@ -559,7 +559,30 @@ async def get_cover_letter_html(
         labels=labels,
         subject=subject,
         signature_image=signature_image,
+        cv_role_line=await _twin_cv_role_line(cl, db),
     )
+
+
+async def _twin_cv_role_line(cl: "GeneratedCoverLetter", db: AsyncSession) -> str | None:
+    """784:98 (ruling L-2, build 3: a letter twin takes its CV's header): the role
+    line the paired CV prints under the name — ``work_history[0].role`` of the CV
+    the letter's flow records. ``None`` when no live paired CV exists (an older
+    regeneration, a deleted CV); the template then prints no line."""
+    flow = (
+        await db.execute(
+            select(FlowSession).where(
+                FlowSession.generated_cover_letter_id == cl.id,
+                FlowSession.user_id == cl.user_id,
+                FlowSession.deleted_at.is_(None),
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    if flow is None or flow.generated_cv_id is None:
+        return None
+    cv = await owned_row(db, GeneratedCV, flow.generated_cv_id, cl.user_id)
+    work = ((getattr(cv, "tailored_data", None) or {}).get("work_history")) or []
+    role = (work[0] or {}).get("role") if work and isinstance(work[0], dict) else None
+    return role.strip() if isinstance(role, str) and role.strip() else None
 
 
 # ---------------------------------------------------------------------------
