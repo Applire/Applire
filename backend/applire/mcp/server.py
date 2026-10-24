@@ -1826,7 +1826,8 @@ async def start_flow(job_id: str | None = None) -> dict:
 
 @agent_tool(
     description=(
-        "Advance a flow to the next step. artifact_id is recorded at "
+        "Advance a flow to the next step (a completed flow may also return to "
+        "interview, see guide). artifact_id is recorded at "
         "gap_analysis→gap_analysis_id, interview→interview_session_id, "
         "cv_generation/complete→generated_cv_id (required except at "
         "cv_generation); elsewhere it returns a notice. See the guide."

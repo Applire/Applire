@@ -204,7 +204,11 @@ accepts only the next step in this order — `jd_analysis` → `cv_import` →
 `gap_analysis` → `interview` → `cv_generation` → `complete` (`cv_import` may be
 skipped by a returning user, `interview` after `gap_analysis`; a candidate with
 no CV goes `jd_analysis` → `interview`). A refusal names the current step and
-the allowed ones. So after an à-la-carte run, step it forward in order with the
+the allowed ones. One exception goes backwards: a completed flow (`cv_generation`
+or `complete`) may return to `interview` — `advance_flow(step="interview")` (web:
+`POST /api/flow/{id}/advance`) reopens it, the existing documents stay as versions,
+and the interview's completion returns the flow to `cv_generation`. So after an
+à-la-carte run, step it forward in order with the
 ids you already hold (table below); a step you skipped cannot be jumped over.
 
 **Which artifact id goes with which step.** Four steps record one, and each
