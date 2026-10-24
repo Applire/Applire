@@ -1950,6 +1950,48 @@ def _name_ladder_cuts(checks: list, ladder_cuts: list) -> None:
     }
 
 
+#: 786:237 — the page-length outcomes a "keep" choice decides (over the target).
+_PAGE_LENGTH_OVER_TARGET_KEYS = frozenset({
+    "page-length-target-missed", "page-length-exhausted", "page-length-exceeds", "page-length-senior",
+})
+
+
+def kept_page_length_check(check: ATSCheck, pages_kept_at: int | None) -> ATSCheck:
+    """786:237 — ``check`` (a CV ``page-length`` row) as DECIDED when a "keep"
+    covered its length, else unchanged. One predicate for the audit and for the
+    keep-without-new-data door, which updates the stored report without a render."""
+    params = check.details_params or {}
+    pages, target = params.get("pages"), params.get("target", params.get("standard"))
+    if (
+        pages_kept_at is None
+        or check.id != "page-length"
+        or check.details_key not in _PAGE_LENGTH_OVER_TARGET_KEYS
+        or not isinstance(pages, int)
+        or pages > pages_kept_at
+    ):
+        return check
+    return ATSCheck(
+        id="page-length", status="pass",
+        details=f"{pages} pages — you chose to keep them (target {target})",
+        details_key="page-length-kept",
+        details_params={"pages": pages, "target": target},
+    )
+
+
+def decide_kept_page_length(report: dict | None, pages_kept_at: int | None) -> dict | None:
+    """786:237 — the stored CV report with its page-length row decided (see
+    :func:`kept_page_length_check`); ``None``/unchanged when nothing applies."""
+    if not report or pages_kept_at is None:
+        return report
+    out = dict(report)
+    out["checks"] = [
+        kept_page_length_check(ATSCheck.model_validate(c), pages_kept_at).model_dump()
+        if isinstance(c, dict) and c.get("id") == "page-length" else c
+        for c in report.get("checks") or []
+    ]
+    return out
+
+
 def _audit_cv_text(
     text: str,
     tailored: TailoredCVData,
@@ -1969,6 +2011,7 @@ def _audit_cv_text(
     document_language: str | None = None,
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
+    pages_kept_at: int | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -2249,6 +2292,12 @@ def _audit_cv_text(
                 details_params={"pages": page_count, "region": region,
                                 "standard": standard, "max": maximum},
             ))
+        # 786:237 (Hazelnut build 4): the person chose "keep" on the x+1 card
+        # (``page_overflow.choice``, L-3) — the over-target length is DECIDED.
+        # ``pages_kept_at`` is the length that choice covered (``full_pages``);
+        # a CV that grew past it after the choice is a new length, not decided.
+        if checks and checks[-1].id == "page-length":
+            checks[-1] = kept_page_length_check(checks[-1], pages_kept_at)
         if ladder_cuts:
             _name_ladder_cuts(checks, ladder_cuts)
 

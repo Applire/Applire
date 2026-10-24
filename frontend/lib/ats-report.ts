@@ -157,6 +157,8 @@ export const LOCALIZED_DETAIL_KEYS = new Set([
   // could not hit — a genuine miss, never dressed up as senior-profile advice.
   "page-length-target-missed",
   "page-length-senior",
+  // 786:237: the person chose "keep" on the x+1 card — the length is decided.
+  "page-length-kept",
   "page-length-exhausted",
   "page-length-exceeds",
   "page-length-letter",
