@@ -578,7 +578,10 @@
     "pageOverflowKeptDone": "{actual} pages — your choice.",
     "pageOverflowUndoKeep": "Cut to {target, plural, one {# page} other {# pages}} after all",
     "pageOverflowUndoGone": "This can no longer be undone: the CV has changed since the cut.",
-    "pageOverflowError": "That did not work. Reload the page and try again."
+    "pageOverflowError": "That did not work. Reload the page and try again.",
+    "assistSavedToProfile": "Added to your profile: {items}",
+    "assistNothingNewForProfile": "Your answer held nothing new for your profile.",
+    "assistProfileSaveFailed": "Your answer could not be added to your profile. The text is still in your CV; please try again later."
   },
   "saveScopePrompt": {
     "saveToProfile": "Where should this change apply?",

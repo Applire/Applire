@@ -578,7 +578,10 @@
     "pageOverflowKeptDone": "{actual} Seiten — so von dir gewählt.",
     "pageOverflowUndoKeep": "Doch auf {target, plural, one {# Seite} other {# Seiten}} kürzen",
     "pageOverflowUndoGone": "Rückgängig machen geht hier nicht mehr: Der Lebenslauf hat sich seit dem Kürzen geändert.",
-    "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal."
+    "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal.",
+    "assistSavedToProfile": "In dein Profil übernommen: {items}",
+    "assistNothingNewForProfile": "Für dein Profil war in deiner Antwort nichts Neues.",
+    "assistProfileSaveFailed": "Deine Antwort konnte nicht in dein Profil übernommen werden. Im Lebenslauf steht der Text trotzdem; versuche es später noch einmal."
   },
   "saveScopePrompt": {
     "saveToProfile": "Wo soll die Änderung gelten?",

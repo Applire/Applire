@@ -94,6 +94,25 @@ class AssistAnswerRequest(BaseModel):
     answer: str
 
 
+class AssistAcceptRequest(BaseModel):
+    """783:60 (ruling V-3 = A) — the candidate pressed "Übernehmen". Only the
+    session is named: the ANSWER the vault receives is the one the server
+    stored with the session, never text the client sends, and never the
+    generated suggestion (a paraphrase is not a source)."""
+
+    session_id: str = Field(min_length=1, max_length=100)
+
+
+class AssistAcceptResponse(BaseModel):
+    """What the accepted answer wrote to the profile ("In dein Profil
+    übernommen: …"). ``added`` = the new facts in the candidate's words as the
+    vault holds them; empty with ``no_write_receipt`` when nothing was new."""
+
+    added: list[str] = Field(default_factory=list)
+    denied_concepts: list[str] = Field(default_factory=list)
+    no_write_receipt: str | None = None
+
+
 class AssistAnswerResponse(BaseModel):
     suggestion: str
     #: Sentences the ADR-040 grounding triage withheld because neither the vault nor the
