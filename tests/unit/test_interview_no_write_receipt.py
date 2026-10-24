@@ -580,6 +580,7 @@ async def test_receipt_on_partial_coverage_follow_up(db):
 
 
 @pytest.mark.asyncio
+@patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
 async def test_receipt_on_denial_probe(db):
     """`_ask_denial_probe` — a denial-only turn on a JD-required concept."""
     job, _profile = await _seed_clusters(db)

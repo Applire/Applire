@@ -3047,6 +3047,17 @@ async def _mark_probe_asked(
     return profile_record.profile_json
 
 
+#: Founder ruling I-4 (Hazelnut build 4, 2026-10-24; R2-9, ADR-064 amended):
+#: the denial transfer probe is RETIRED. A direct "no" advances the topic — no
+#: probe, no partial-coverage follow-up on the denied members, no retry; the
+#: answer's own "but I did Y" is still recorded by the reconciler. Round 2
+#: (felix Q9): the probe's "anything near what you just said no to" read as
+#: being asked the same thing again. The selection/asking path below stays as
+#: dormant code (a session with a probe already on screen still resolves its
+#: answer through ``probing_concept``) until the next prompt sweep deletes it.
+_DENIAL_TRANSFER_PROBE_ENABLED = False
+
+
 async def _select_denial_probe_concept(
     state: InterviewState,
     turn,
@@ -3793,7 +3804,8 @@ async def _send_message_turn(
     # Python) trigger; only the follow-up's WORDING is the model's (Task 3).
     # ADR-089 clause 2 precedence: probe > partial coverage > no change. ---
     if (
-        not addressed
+        _DENIAL_TRANSFER_PROBE_ENABLED
+        and not addressed
         and denial_recorded
         and probing_concept is None
         and not resolving_confirmation
