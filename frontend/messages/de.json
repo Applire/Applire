@@ -2634,6 +2634,21 @@
     "figuresNoEvidence": "Für diese Zahl(en) gibt es in Deinem Profil keinen Beleg: {figures}.",
     "inflatedAspirational": "Steht als erreichtes Ergebnis da, in Deinem Profil ist es aber ein Ziel, kein Ergebnis.",
     "restatementBorrowed": "Die Zahl in diesem Satz belegt in Deinem Profil nur eine andere Station — der Satz gibt diesen Beleg nicht wieder.",
-    "fromLetterForm": "Aus Deiner Eingabe im Formular ({field, select, motivation {Warum diese Stelle} availability {Kündigungsfrist / frühester Eintritt} salary {Gehaltswunsch} other {Formular}}) — Deine eigene Aussage für dieses Anschreiben, nicht gegen Dein Profil geprüft."
+    "fromLetterForm": "Aus Deiner Eingabe im Formular ({field, select, motivation {Warum diese Stelle} availability {Kündigungsfrist / frühester Eintritt} salary {Gehaltswunsch} other {Formular}}) — Deine eigene Aussage für dieses Anschreiben, nicht gegen Dein Profil geprüft.",
+    "triageEmployerFact": "Eine Aussage über das Unternehmen oder die Stelle, nicht über Dich — daher nicht gegen Dein Profil geprüft.",
+    "triageLetterForm": "Briefform oder Höflichkeit (Anrede, Interesse, Motivation, Verfügbarkeit) — behauptet nichts, was Dein Profil belegen müsste.",
+    "triageCandidateLimit": "Eine ehrliche Grenze, die Du selbst nennst — es gibt nichts Positives, das Dein Profil belegen müsste.",
+    "crossLanguageUnconfirmed": "Dieser Satz ist in einer anderen Sprache als Dein Profil. Wir konnten nicht sicher prüfen, ob er Deinen Profileintrag wiedergibt — deshalb nur ein Hinweis, kein Vorwurf.",
+    "entailmentNarrow": "Die automatischen Prüfungen konnten das nicht eindeutig entscheiden; das Ergebnis stammt aus einer engen Inhaltsprüfung.",
+    "figuresTrace": "Alle Zahlen sind in Deinem Profil belegt.",
+    "noCheckableContent": "Nichts Prüfbares — eine allgemeine oder formelhafte Aussage.",
+    "noCloseEvidence": "In Deinem Profil steht nichts, das nah genug daran ist, um es sicher zu prüfen.",
+    "attributionUnresolved": "Der einzige Beleg in Deinem Profil gehört zu einer bestimmten Station, aber der Satz nennt keinen Arbeitgeber — welcher Station er gehört, lässt sich nicht sicher prüfen.",
+    "crossLanguageEquivalent": "Gibt einen Eintrag Deines Profils gleichwertig in einer anderen Sprache wieder.",
+    "qualificationNamed": "Ein Eintrag in Deinem Profil nennt diese Qualifikation.",
+    "otherLanguageNotChecked": "Kein Eintrag in Deinem Profil heißt so, und ein Teil Deines Profils ist in einer anderen Sprache — über Sprachen hinweg prüfen wir Namen nicht, deshalb bleibt das offen statt als Fehler markiert.",
+    "honestDenial": "Eine ehrliche Verneinung oder eine Aufgabe, die jemand anderes erledigt hat — keine Aussage über Dich, die Dein Profil belegen müsste.",
+    "figuresFromStatedLimit": "Die Zahl stammt aus einer Grenze, die Du selbst angegeben hast — eine ehrliche Wiedergabe, keine neue Behauptung.",
+    "groundedUnion": "Belegt durch mehrere Einträge Deines Profils zusammen."
   }
 }

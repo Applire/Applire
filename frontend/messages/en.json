@@ -2634,6 +2634,21 @@
     "figuresNoEvidence": "Your profile has no evidence for these figure(s): {figures}.",
     "inflatedAspirational": "Stated as an achieved result, but your profile records it as a target, not a result.",
     "restatementBorrowed": "The figure in this sentence is only backed by a different position in your profile, and the sentence does not restate that evidence.",
-    "fromLetterForm": "From what you typed into the form ({field, select, motivation {Why this role} availability {Notice period / earliest start} salary {Salary expectation} other {form}}) — your own statement for this letter, not checked against your profile."
+    "fromLetterForm": "From what you typed into the form ({field, select, motivation {Why this role} availability {Notice period / earliest start} salary {Salary expectation} other {form}}) — your own statement for this letter, not checked against your profile.",
+    "triageEmployerFact": "A statement about the company or the role, not about you — so it is not checked against your profile.",
+    "triageLetterForm": "Letter form or courtesy (greeting, interest, motivation, availability) — it claims nothing your profile would need to back.",
+    "triageCandidateLimit": "An honest limit you state yourself — there is nothing positive your profile would need to back.",
+    "crossLanguageUnconfirmed": "This sentence is in a different language from your profile. We could not confirm that it restates your profile entry — so it is a note, not an accusation.",
+    "entailmentNarrow": "The automatic checks could not decide this; the result comes from a narrow content check.",
+    "figuresTrace": "Every figure is backed by your profile.",
+    "noCheckableContent": "Nothing to check — a general or formulaic statement.",
+    "noCloseEvidence": "Nothing in your profile is close enough to check this reliably.",
+    "attributionUnresolved": "The only evidence in your profile belongs to one position, but the sentence names no employer — which position it belongs to cannot be checked reliably.",
+    "crossLanguageEquivalent": "Restates an entry of your profile in another language.",
+    "qualificationNamed": "An entry in your profile names this qualification.",
+    "otherLanguageNotChecked": "No entry in your profile has this name, and part of your profile is in another language — names are not checked across languages, so this stays open rather than marked as wrong.",
+    "honestDenial": "An honest denial or a task someone else did — nothing about you that your profile would need to back.",
+    "figuresFromStatedLimit": "The figure comes from a limit you stated yourself — an honest restatement, not a new claim.",
+    "groundedUnion": "Backed by several entries of your profile together."
   }
 }
