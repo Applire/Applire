@@ -33,6 +33,7 @@ import { describeConflict } from "@/lib/conflict-display";
 import { Archive, Check, Clock, Contrast, HelpCircle, Lock, Square } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
+import { reopenedSummarySessionId } from "@/components/interview/reopened-summary";
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
 import { markSeenThisSession, seenThisSession } from "@/lib/session-once";
@@ -56,8 +57,9 @@ interface FlowState {
   job_id: string;
   current_step: string;
   job_summary?: { role_title: string; required_skills?: string[] } | null;
-  interview_summary?: { session_id: string; mode: string } | null;
+  interview_summary?: { session_id: string; mode: string; status?: string; questions_asked?: number } | null;
 }
+
 
 interface GapAnalysisData {
   id: string;
@@ -607,6 +609,8 @@ export default function InterviewPage({
   const [turnCoverage, setTurnCoverage] = useState<Record<string, TurnClusterCoverage>>({});
   const [choices, setChoices] = useState<string[] | null>(null);
   const [matchScore, setMatchScore] = useState<number | null>(null);
+  // 783:195 — the finished interview's session, when the page is reopened later.
+  const [reopenedSessionId, setReopenedSessionId] = useState<string | null>(null);
 
   // #256 — extracted from the mount effect so the "couldn't start the
   // interview" screen below can call it again from a Retry button. Before
@@ -624,6 +628,11 @@ export default function InterviewPage({
       if (!fsRes.ok) throw new Error(tErrors("flowNotFound"));
       const fs: FlowState = await fsRes.json();
       setFlowState(fs);
+      const reopened = reopenedSummarySessionId(fs);
+      if (reopened) {
+        setReopenedSessionId(reopened);
+        return;
+      }
 
       // Fetch gap analysis for cluster tracker
       fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`)
@@ -933,6 +942,45 @@ export default function InterviewPage({
             {tCommon("retry")}
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 783:195 — the finished interview's summary, reopened after the flow moved on
+  // -------------------------------------------------------------------------
+
+  if (reopenedSessionId) {
+    return (
+      <div data-testid="reopened-summary-screen" className="max-w-2xl mx-auto animate-fade-in">
+        <Card className="p-8">
+          <h2 className="font-heading text-2xl font-bold text-neutral-dark mb-2 text-center">
+            {t("reopenedSummaryTitle")}
+          </h2>
+          <p className="text-sm text-gray-500 font-body mb-6 text-center">
+            {t("reopenedSummaryLead")}
+          </p>
+          <div className="mb-8" data-testid="interview-summary-section">
+            <DecisionTrailReview mode="interview" sessionId={reopenedSessionId} onFix={() => router.push("/profile")} />
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button
+              data-testid="back-to-cv-button"
+              size="lg"
+              onClick={() => router.push(`/flow/${flowId}/cv`)}
+              className="min-w-[220px]"
+            >
+              {t("backToCV")}
+            </Button>
+            <Link
+              href="/profile"
+              data-testid="view-profile-link"
+              className="inline-flex items-center justify-center text-sm text-teal underline hover:no-underline px-4 py-2"
+            >
+              {t("viewProfile")}
+            </Link>
+          </div>
+        </Card>
       </div>
     );
   }

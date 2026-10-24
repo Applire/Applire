@@ -390,7 +390,10 @@
     "introStart": "Erste Frage zeigen",
     "introBack": "Zurück zu den Lücken",
     "unsavedAnswerTitle": "Antwort noch nicht gesendet",
-    "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg."
+    "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg.",
+    "reopenedSummaryTitle": "Deine Interview-Zusammenfassung",
+    "reopenedSummaryLead": "Was wir aus deinen Antworten in dein Profil übernommen haben. Das Interview ist abgeschlossen; du kannst es dir hier jederzeit wieder ansehen.",
+    "backToCV": "Zurück zum Lebenslauf"
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",

@@ -390,7 +390,10 @@
     "introStart": "Show the first question",
     "introBack": "Back to the gaps",
     "unsavedAnswerTitle": "Answer not sent yet",
-    "unsavedAnswerBody": "You started an answer and have not sent it. If you leave this page now, it is lost."
+    "unsavedAnswerBody": "You started an answer and have not sent it. If you leave this page now, it is lost.",
+    "reopenedSummaryTitle": "Your interview summary",
+    "reopenedSummaryLead": "What we added to your profile from your answers. The interview is finished; you can come back to this page any time.",
+    "backToCV": "Back to the CV"
   },
   "cv": {
     "generating": "Generating CV…",
