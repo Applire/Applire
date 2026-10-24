@@ -56,11 +56,14 @@ export function RecognisedMatches({
   async function answer(key: string, item: MatchReceiptItem, same: boolean) {
     setRows((r) => ({ ...r, [key]: "busy" }));
     try {
-      const res = await fetch(`${API_BASE}/api/profile/matches/${same ? "confirm" : "separate"}`, {
+      const init: RequestInit = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entity_id: item.entity_id, incoming: item.incoming }),
-      });
+      };
+      const res = same
+        ? await fetch(`${API_BASE}/api/profile/matches/confirm`, { ...init, method: "POST" })
+        : await fetch(`${API_BASE}/api/profile/matches/separate`, { ...init, method: "POST" });
       if (!res.ok) throw new Error(String(res.status));
       setRows((r) => ({ ...r, [key]: same ? "same" : "separated" }));
       if (!same) onSeparated?.();

@@ -939,6 +939,10 @@ class MatchReceipt(BaseModel):
     incoming_entry: dict[str, Any] | None = None
     #: set when the candidate said "Nicht dasselbe" (`SeparateMatch`).
     undone_at: datetime | None = None
+    #: FS-5 (ADR-046 amended 2026-10-24) — the evidence refs THIS binding added
+    #: to the target (a targeted / alias skill upsert's merge); "Nicht dasselbe"
+    #: takes them back. Empty on receipts written before it existed.
+    refs_added: list[str] = Field(default_factory=list)
     #: FS-6 (ruling V-4 = A) — set when the candidate answered "Ja" to "Ist A
     #: dasselbe wie B?" (`ConfirmMatch`); the pair question is not asked again.
     confirmed_at: datetime | None = None
@@ -2120,8 +2124,13 @@ class HealthIssue(BaseModel):
     # it and it equals the role-date derivation — the fingerprint of a span
     # laundered across the import seam before the 2026-10-07 fix. It carries
     # its own one-click action (recompute), never a decision to pick between.
+    # ``suspect_binding`` (FS-5, Hazelnut build 4, ADR-046 amended 2026-10-24):
+    # a skill pair an import combined across technical↔soft (the #801 guard's
+    # category test, run read-only over the recorded receipts) — one question
+    # "Ist A dasselbe wie B?" with the existing Ja / Nein-getrennt acts.
     thread: Literal[
-        "conflict", "accuracy", "confirmation", "unit", "not_applied", "span_provenance"
+        "conflict", "accuracy", "confirmation", "unit", "not_applied", "span_provenance",
+        "suspect_binding",
     ]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     # A server-built, English-only fallback (kept for any consumer #626
@@ -2223,6 +2232,9 @@ class HealthIssue(BaseModel):
     #    what phase 1's arithmetic gives today. ``None`` on every other thread.
     skill_id: str | None = None
     skill_name: str | None = None
+    #: FS-5 — ``suspect_binding`` only: the name the import combined INTO
+    #: ``skill_name`` (the receipt's ``incoming``).
+    incoming_name: str | None = None
     span_years: int | None = None
     recomputed_years: int | None = None
 

@@ -2739,9 +2739,14 @@ def _apply_upsert_skill(
     # incoming name exactly (a fact: "Java" never folds into JavaScript while
     # "Java" is its own entry).
     targeted = _targeted_skill(op, profile) if user_confirmed is None else None
+    # FS-5 (ADR-046 amended 2026-10-24) — the receipt of THIS op's binding, so
+    # the refs the merge below adds to the target are recorded on it and
+    # "Nicht dasselbe" can take them back.
+    binding_receipt: MatchReceipt | None = None
     if targeted is not None:
         if matched is not None and not _same_words(op.name, targeted.name):
-            matched.append(_match_receipt("skills", targeted, op.name))
+            binding_receipt = _match_receipt("skills", targeted, op.name)
+            matched.append(binding_receipt)
         near = [targeted]
     else:
         near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
@@ -2754,7 +2759,8 @@ def _apply_upsert_skill(
         if alias_skill is not None:
             near = [alias_skill]
             if matched is not None:
-                matched.append(_match_receipt("skills", alias_skill, op.name, "alias"))
+                binding_receipt = _match_receipt("skills", alias_skill, op.name, "alias")
+                matched.append(binding_receipt)
 
     # #187 — the user has RESOLVED a deferred dedupe confirmation for this skill.
     # Apply their choice directly and never re-emit the confirmation: the guards
@@ -2836,7 +2842,9 @@ def _apply_upsert_skill(
 
     if len(near) == 1:
         existing = near[0]
-        _append_dedup(existing.experience_refs, evidence_ids)
+        refs_added = _append_dedup(existing.experience_refs, evidence_ids)
+        if binding_receipt is not None and binding_receipt.entity_id == getattr(existing, "id", None):
+            binding_receipt.refs_added = list(refs_added)
         if op.proficiency:
             # ADR-061 clause 5 — ceiling, not floor (see _merge_declared_proficiency).
             existing.proficiency = _merge_declared_proficiency(
@@ -3386,6 +3394,41 @@ def _apply_separate_match(op, profile: MasterProfileData, changes: list[FieldCha
         for f in keys
         if str(getattr(entry, f, "") or "").strip()
     ) or receipt.incoming
+    # FS-5 (ADR-046 amended 2026-10-24) — the evidence THIS binding merged into
+    # the target goes back with the name: off the target (unless another open
+    # binding of it also added the ref), onto the separated entry.
+    refs_back: list[str] = []
+    for r in pair:
+        refs_back.extend(x for x in r.refs_added if x not in refs_back)
+    if target is not None and refs_back and hasattr(target, "experience_refs"):
+        still_claimed = {
+            x
+            for rec in (profile.metadata.enrichment_history if profile.metadata else [])
+            for other in rec.matched
+            if other.entity_id == receipt.entity_id and other.undone_at is None
+            and all(other is not mine for mine in pair)
+            for x in other.refs_added
+        }
+        taken = [x for x in refs_back if x in target.experience_refs and x not in still_claimed]
+        if taken:
+            target.experience_refs = [x for x in target.experience_refs if x not in taken]
+            changes.append(FieldChange(
+                section=section, field="experience_refs", action="removed",
+                old_value=list(taken), new_value=None, entity_id=receipt.entity_id,
+                rationale="Removed the evidence the false match had added: the candidate said it is not the same entry.",
+                rationale_key="match_separated",
+            ))
+        # onto the separated entry — or onto the entry of that exact name when
+        # one is already there (the undo then appends nothing).
+        holder = entry
+        if already_there:
+            holder = next(
+                (e for e in entries
+                 if tuple(_norm(getattr(e, f, "") or "") for f in keys) == own_key),
+                entry,
+            )
+        if hasattr(holder, "experience_refs"):
+            _append_dedup(holder.experience_refs, refs_back)
     if not already_there:
         entries.append(entry)
         changes.append(FieldChange(
