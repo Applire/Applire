@@ -29,6 +29,8 @@
     .body p:last-child { break-after: avoid; page-break-after: avoid; }
     .signature .closing { margin-bottom: 8mm; }
     .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; margin: 0 0 1mm; }
+    /* 789:36 (E-12 walk, founder 2026-10-22): a light backing plate under the signature image — a dark-ink signature reads on the dark page; the ink itself is never filtered. */
+    .signature-image { background: #f8fafc; padding: 1.5mm 3mm; border-radius: 1.5mm; }
     .signature.has-signature .closing { margin-bottom: 2mm; }
     /* #621 — the visual margin now lives in @page (Chromium's paged-media
        engine re-applies it on every page); .page's own padding/size, which
