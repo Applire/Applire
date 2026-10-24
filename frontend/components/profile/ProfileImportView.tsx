@@ -21,7 +21,8 @@ import { useEffect, useRef, useState } from "react";
 import { CV_UPLOAD_ACCEPT } from "@/components/ui/dropzone";
 import { acceptWithoutImages, useImportCapabilities } from "@/lib/import-capabilities";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import {
@@ -101,6 +102,7 @@ type UploadPhase = "idle" | "uploading" | "merging" | "importing" | "analysing";
 
 export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImportViewProps) {
   const t = useTranslations("profileImport");
+  const locale = useLocale();
   const tp = useTranslations("profileUpdate");
   const tg = useTranslations("mergeGate");
   const tproc = useTranslations("processing");
@@ -674,7 +676,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
                           </p>
                         ) : (
                           <p className="text-[10px] text-on-surface-variant mt-0.5">
-                            {new Date(item.created_at).toLocaleDateString()}
+                            {formatUiDate(item.created_at, locale)}
                             {item.completeness_score !== null && (
                               <>
                                 {" · "}{Math.round(item.completeness_score * 100)}{" %"}

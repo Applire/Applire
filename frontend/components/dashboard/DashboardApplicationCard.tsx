@@ -20,7 +20,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { markApplicationHired } from "@/lib/profile-roles";
 import { patchApplicationStatus } from "@/lib/api/applications";
@@ -109,6 +110,7 @@ export function DashboardApplicationCard({
 }: DashboardApplicationCardProps) {
   const router = useRouter();
   const tDash = useTranslations("dashboard");
+  const locale = useLocale();
   const status = deriveCardStatus(workflowStatus, updatedAt);
   // #789: "LEBENSLAUF BEREIT" while the letter is ready too undersold the set.
   const chip =
@@ -236,7 +238,7 @@ export function DashboardApplicationCard({
             title={
               submittedCvCreatedAt
                 ? tDash("sentBadgeAriaLabel", {
-                    date: new Date(submittedCvCreatedAt).toLocaleDateString(),
+                    date: formatUiDate(submittedCvCreatedAt, locale),
                   })
                 : undefined
             }
@@ -247,7 +249,7 @@ export function DashboardApplicationCard({
             </span>
             {submittedCvCreatedAt
               ? tDash("sentBadge", {
-                  date: new Date(submittedCvCreatedAt).toLocaleDateString(),
+                  date: formatUiDate(submittedCvCreatedAt, locale),
                 })
               : tDash("sentBadgePlain")}
           </span>

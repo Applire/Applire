@@ -22,6 +22,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { formatUiDate } from "@/lib/format-date";
 
 export interface DocumentItem {
   cv_id: string;
@@ -66,11 +67,7 @@ function daysUntilExpiry(expiresAt: string): number {
 
 // #789: the date follows the UI language (was a hard-coded "de-DE").
 function formatDate(iso: string, locale: string): string {
-  return new Date(iso).toLocaleDateString(locale === "de" ? "de-DE" : "en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return formatUiDate(iso, locale, { day: "numeric", month: "short", year: "numeric" });
 }
 
 // Material Symbols identifier — not user-facing text.

@@ -29,6 +29,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
     params ? `${key}:${Object.values(params).join(",")}` : key,
+  useLocale: () => "de",
 }));
 
 vi.mock("@/lib/api/applications", () => ({

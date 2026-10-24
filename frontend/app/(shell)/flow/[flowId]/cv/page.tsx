@@ -20,7 +20,8 @@
 
 import { useCallback, useRef } from "react";
 import { use, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { useRouter } from "next/navigation";
 import { TemplateSelector } from "@/components/cv/TemplateSelector";
 import { TargetPagesSelect } from "@/components/cv/TargetPagesSelect";
@@ -110,6 +111,7 @@ export default function CVPage({
   const { flowId } = use(params);
   const router = useRouter();
   const t = useTranslations("cv");
+  const locale = useLocale();
   const tDoc = useTranslations("document");
   const tProfile = useTranslations("profile");
   const tEdit = useTranslations("editTab");
@@ -665,7 +667,7 @@ export default function CVPage({
       ? {
           label: isExpired
             ? t("expired")
-            : tDoc("validUntil", { date: new Date(flowState.cv_summary.expires_at).toLocaleDateString() }),
+            : tDoc("validUntil", { date: formatUiDate(flowState.cv_summary.expires_at, locale) }),
           level: (isExpired ? "critical" : "warning") as "critical" | "warning",
         }
       : null;
