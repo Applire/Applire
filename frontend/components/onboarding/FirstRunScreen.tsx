@@ -32,13 +32,16 @@ import { useImportCapabilities } from "@/lib/import-capabilities";
 
 type JdMode = "url" | "text";
 
-/** The five steps of a first application (mock F1-1 a). Step 4 is optional. */
+/** The five steps of a first application (mock F1-1 a). Step 4 is optional.
+ * 789:178: below md the bodies are hidden, and with them the durations of steps
+ * 1 and 3 — `phoneTag` carries that duration as a chip on phone only (desktop
+ * keeps it in the body, as mocked). */
 const STEPS = [
-  { n: 1, title: "step1Title", body: "step1Body", tag: null },
-  { n: 2, title: "step2Title", body: "step2Body", tag: null },
-  { n: 3, title: "step3Title", body: "step3Body", tag: null },
-  { n: 4, title: "step4Title", body: "step4Body", tag: "step4Tag" },
-  { n: 5, title: "step5Title", body: "step5Body", tag: "step5Tag" },
+  { n: 1, title: "step1Title", body: "step1Body", tag: null, phoneTag: "step1PhoneTag" },
+  { n: 2, title: "step2Title", body: "step2Body", tag: null, phoneTag: null },
+  { n: 3, title: "step3Title", body: "step3Body", tag: null, phoneTag: "step3PhoneTag" },
+  { n: 4, title: "step4Title", body: "step4Body", tag: "step4Tag", phoneTag: null },
+  { n: 5, title: "step5Title", body: "step5Body", tag: "step5Tag", phoneTag: null },
 ] as const;
 
 /**
@@ -139,6 +142,14 @@ export function FirstRunScreen({ importReady = true }: { importReady?: boolean }
                 {s.tag && (
                   <span className="shrink-0 rounded-full bg-primary-container px-2 py-0.5 text-[11px] font-semibold text-teal md:mt-1.5 md:inline-block">
                     {t(s.tag)}
+                  </span>
+                )}
+                {s.phoneTag && (
+                  <span
+                    data-testid="first-run-step-phone-tag"
+                    className="shrink-0 rounded-full bg-primary-container px-2 py-0.5 text-[11px] font-semibold text-teal md:hidden"
+                  >
+                    {t(s.phoneTag)}
                   </span>
                 )}
               </li>
