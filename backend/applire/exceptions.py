@@ -98,6 +98,19 @@ class ReconcileFailedError(LLMError):
     """
 
 
+def answer_not_saved_detail() -> dict:
+    """R2-13 (P-1, Hazelnut build 4) — the reconcile step failed after its
+    retry, so the candidate's answer was NOT merged and no follow-up was asked.
+    A structured body, never the provider text: the UI maps ``error_code`` to
+    its own copy and keeps the answer in the composer; the turn committed
+    nothing, so the same message can be resent unchanged."""
+    return {
+        "error_code": "answer_not_saved",
+        "turn_state": "not_saved",
+        "message": "Your answer could not be saved. Please send it again.",
+    }
+
+
 class LLMProviderError(LLMError):
     """A provider call failed in a way the provider module does not classify.
 

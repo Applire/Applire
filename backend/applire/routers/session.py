@@ -45,8 +45,8 @@ from applire.schemas.session import (
 )
 from applire.services.gap import analyze_gaps_for_session
 from applire.services.job import get_job_for_user
+from applire.exceptions import answer_not_saved_detail
 from applire.services.session import (
-    answer_not_saved_detail,
     GapNotAskableError,
     create_profile_review_session,
     create_session,

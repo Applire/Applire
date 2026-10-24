@@ -50,10 +50,9 @@ from applire.services.interview_graph import (
 from applire.services.profile.commit import CommitProvenance, commit_ops
 from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
 from applire.services.profile.reconcile.ops import SetProfileMeta
-from applire.exceptions import ReconcileFailedError
+from applire.exceptions import ReconcileFailedError, answer_not_saved_detail
 from applire.services.session import (
     _to_confirmation_prompts,
-    answer_not_saved_detail,
     get_profile_conversation_language,
 )
 
