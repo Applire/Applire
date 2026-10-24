@@ -1180,6 +1180,11 @@ async def _handle_interview_confirmation_answer(
     state.pop("pending_interview_confirmation_queue", None)
 
     current_gap = state["critical_gaps"][current_idx]
+    follow_up = await _ask_deferred_follow_up(
+        record, state, db, provider, current_gap, current_idx, profile_record, lang, applied,
+    )
+    if follow_up is not None:
+        return _with_receipt(follow_up, receipt)
     if current_gap not in state.get("addressed_gaps", []):
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
     # RULING 787:L7 (founder 2026-10-22; Hazelnut b3 WP-V, UX audit Marcus
@@ -1194,6 +1199,66 @@ async def _handle_interview_confirmation_answer(
     return _with_receipt(
         await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang),
         receipt,
+    )
+
+
+async def _ask_deferred_follow_up(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_gap: str,
+    current_idx: int,
+    profile_record: MasterProfile,
+    lang: str,
+    applied: bool,
+) -> SessionMessageResponse | None:
+    """783:179 — the partial-coverage follow-up a gap answer earned while a
+    confirmation was asked first. The gate is the one the answer's own turn
+    passed (`open_members`, parked as facts), re-read against the per-gap
+    record NOW: a gap the candidate left open meanwhile (ruling K-1), a spent
+    budget or members no longer open on the record are not asked. ``None`` =
+    nothing owed; the caller advances as before."""
+    deferred = state.pop("deferred_follow_up", None)
+    if not isinstance(deferred, dict) or deferred.get("gap") != current_gap:
+        return None
+    job_id = state.get("job_id")
+    if not job_id:
+        return None
+    row = (
+        await db.execute(
+            select(GapAnalysis)
+            .where(
+                GapAnalysis.job_analysis_id == uuid.UUID(str(job_id)),
+                GapAnalysis.user_id == record.user_id,
+                GapAnalysis.deleted_at.is_(None),
+            )
+            .order_by(GapAnalysis.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    cluster = gap_coverage.cluster_by_id(row.gap_clusters, current_gap) if row is not None else None
+    if (
+        cluster is None
+        or gap_coverage.is_left_open(cluster)
+        or gap_coverage.remaining_budget(cluster, INTERVIEW_MAX_QUESTIONS_PER_GAP) <= 0
+    ):
+        return None
+    still_open = {ats_norm(str(m)) for m in (cluster.get("gaps") or [])}
+    open_members = [m for m in deferred.get("open_members") or [] if ats_norm(str(m)) in still_open]
+    if not open_members:
+        return None
+    from types import SimpleNamespace
+
+    turn = SimpleNamespace(
+        denied_concepts=list(deferred.get("recorded_denials") or []),
+        conflict_summaries=None, denial_recorded=False, no_write_receipt=None,
+        addressed=applied,
+    )
+    questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
+    return await _ask_partial_coverage_follow_up(
+        record, state, db, provider, current_gap, current_idx, open_members,
+        profile_record.profile_json, turn, questions_for_gap, lang, _coverage_of(cluster),
     )
 
 
@@ -3780,6 +3845,16 @@ async def _send_message_turn(
     # position, DE<->EN employer); it asks. Surface that before advancing —
     # unless this turn is itself resolving a prior confirmation (#187). ---
     if turn.pending_confirmations and not resolving_confirmation:
+        # 783:179 — the confirmation is asked FIRST, but the follow-up this
+        # answer earned is owed after it: park the facts the follow-up gate
+        # read on this turn; `_handle_interview_confirmation_answer` asks it
+        # once the confirmation (and its queue) is resolved.
+        if recorded_cluster is not None and addressed and open_members and not left_open_now:
+            state["deferred_follow_up"] = {
+                "gap": current_gap,
+                "open_members": list(open_members),
+                "recorded_denials": [str(d) for d in (turn.denied_concepts or []) if d],
+            }
         return _with_coverage(
             await _ask_confirmation(record, state, db, turn, current_gap, current_idx),
             cluster_coverage,
