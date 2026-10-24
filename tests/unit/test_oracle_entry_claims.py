@@ -186,9 +186,9 @@ CV = {
     ],
 }
 _EXPECTED = {
-    "certifications[0]": ("grounded", None),
+    "certifications[0]": ("grounded", "qualificationNamed"),
     "certifications[1]": ("unbacked", "credentialUnbacked"),   # unconfirmed entry backs nothing
-    "education[0]": ("grounded", None),                         # translated field: not the claim
+    "education[0]": ("grounded", "qualificationNamed"),                      # translated field: not the claim
     "education[1]": ("unbacked", "credentialUnbacked"),
 }
 
@@ -223,10 +223,10 @@ async def test_other_language_pair_leaves_an_unknown_name_open():
                                   "responsibilities": ["Monthly closings under HGB with the external auditors"]}]}
     report = await audit_document("cv", vault, tailored_data=cv, provider=None, document_language="de")
     assert _entry_verdicts(report.claims) == {
-        "certifications[0]": ("unverifiable", None),
+        "certifications[0]": ("unverifiable", "otherLanguageNotChecked"),
         "certifications[1]": ("unbacked", "credentialUnbacked"),
         # certified_x names a translatable phrase — not checked across languages
-        "certifications[2]": ("unverifiable", None),
+        "certifications[2]": ("unverifiable", "otherLanguageNotChecked"),
         # a German chamber/trade title the vault never names stays red (main
         # review of 03c6f117 — the guard must not fail open on these)
         "certifications[3]": ("unbacked", "credentialUnbacked"),
@@ -365,3 +365,43 @@ async def test_door_mcp_audit_document(seeded):
         out = await mcp.call_tool("audit_document", {"document_id": str(cv_id)})
     blocks = out[0] if isinstance(out, tuple) else out
     assert _entry_verdicts(json.loads(blocks[0].text)["claims"]) == _EXPECTED
+
+
+# ── 790:69 (Hazelnut build 4): a degree's field of study in English ↔ German ──
+# fo report §2: 3 of 30 genuine pairs stayed red; the table takes 2 (re-priced
+# 2026-10-24: 1 of 30 red, the Staatsexamen wording) and 0 of 12 different
+# degrees turn green.
+
+import pytest as _pytest_790_69
+
+from applire.services.oracle.credentials import entry_backing as _eb_790_69
+
+_V_INFORMATIK = (("education[0].degree", "Bachelor of Science Informatik"),)
+
+
+@_pytest_790_69.mark.parametrize("doc", [
+    "B.Sc. Computer Science",
+    "Bachelor of Science in Computer Science",
+    "B.Sc. Informatik",
+])
+def test_a_translated_field_of_study_names_the_same_degree(doc):
+    assert _eb_790_69(doc, _V_INFORMATIK).how == "name"
+
+
+@_pytest_790_69.mark.parametrize("vault,doc", [
+    ("Bachelor of Science Informatik", "B.Sc. Wirtschaftsinformatik"),
+    ("Bachelor of Science Informatik", "B.Sc. Business Informatics"),
+    ("B.Sc. Informatik", "Master of Science Computer Science"),
+    ("Diplom-Ingenieur Maschinenbau", "Dipl.-Ing. Electrical Engineering"),
+    ("Bachelor of Science Informatik", "B.Sc. Computer Science and Mathematics"),
+    ("Staatsexamen Rechtswissenschaften", "Zweites juristisches Staatsexamen"),
+])
+def test_a_different_field_or_level_stays_unbacked(vault, doc):
+    assert _eb_790_69(doc, (("x", vault),)).how is None
+
+
+def test_the_table_reads_only_inside_a_degree_name():
+    from applire.services.oracle.credentials import _entry_key
+
+    assert _entry_key("Computer Science Fundamentals") == "computer science fundamentals"
+    assert _entry_key("Bachelor of Science in Computer Science") == "bachelor of science informatik"
