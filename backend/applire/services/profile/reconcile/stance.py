@@ -218,15 +218,96 @@ def _bounded_present(form: str, text_norm: str) -> bool:
     return any(_word_present(v, text_norm) for v in _fold_variants(n))
 
 
+#: FS-7 (ADR-059 amended 2026-10-24) — the CLOSED list of generic head nouns
+#: that make a denial declare its bare term. Lexical (ADR-062 cl. 1): a new
+#: head noun is a code change with a test, never a runtime list. Forms are
+#: ``_norm``-ed (lower case, hyphens folded to spaces).
+_HEAD_NOUNS_TRAILING: tuple[str, ...] = (
+    "experience", "experiences", "knowledge", "skills", "skill", "expertise",
+    "background", "know how",
+)
+_HEAD_NOUNS_LEADING: tuple[str, ...] = (
+    "erfahrung", "erfahrungen", "kenntnisse", "kenntnis", "wissen", "know how",
+    "expertise", "experience", "knowledge", "background",
+)
+#: Only quantity/ownership words may precede a leading head noun; a NARROWING
+#: qualifier ("praktische", "hands-on", "direkte", "formal") never strips.
+_HEAD_FRAME_QUALIFIERS: tuple[str, ...] = ("eigene", "eigenen", "keine", "own", "no", "any")
+_HEAD_FRAME_PREPOSITIONS: tuple[str, ...] = (
+    "mit", "in", "im", "von", "zu", "zum", "zur", "with", "of", "on",
+)
+_TRAILING_HEAD_RE = re.compile(
+    r"^(?P<term>.+?) (?:" + "|".join(re.escape(h) for h in _HEAD_NOUNS_TRAILING) + r")$"
+)
+_LEADING_HEAD_RE = re.compile(
+    r"^(?:(?:" + "|".join(_HEAD_FRAME_QUALIFIERS) + r") )?"
+    r"(?:" + "|".join(re.escape(h) for h in _HEAD_NOUNS_LEADING) + r") "
+    r"(?:" + "|".join(_HEAD_FRAME_PREPOSITIONS) + r") (?P<term>.+)$"
+)
+
+
+def head_noun_term(denial: str) -> str | None:
+    """FS-7 — the bare term a denial phrased as term + generic head noun
+    declares, or ``None`` (ADR-059 amended 2026-10-24).
+
+    "payment-institution experience" → "payment institution";
+    "eigene Erfahrung mit Vertrieb" → "vertrieb"; "audit-trail background" →
+    "audit trail". Only when the denial is EXACTLY such a frame; a narrowing
+    qualifier stays in the term ("formal SBAR experience" → "formal sbar", never
+    bare "sbar"), and a denial that IS a head noun declares nothing. Returned
+    ``_norm``-ed. Pure.
+    """
+    d = _norm(denial or "")
+    if not d:
+        return None
+    for rx in (_LEADING_HEAD_RE, _TRAILING_HEAD_RE):
+        m = rx.match(d)
+        if m:
+            term = m.group("term").strip()
+            if term and term not in _HEAD_NOUNS_TRAILING and term not in _HEAD_NOUNS_LEADING:
+                return term
+    return None
+
+
+def _declared_forms(denial: str) -> tuple[str, ...]:
+    """The forms a denial DECLARES: itself, plus its FS-7 bare term."""
+    bare = head_noun_term(denial)
+    return (denial, bare) if bare else (denial,)
+
+
 def _declares(denial: str, token_forms: frozenset[str]) -> bool:
     """The DECLARED branch, alone: the denied term itself names the token (or a
     broader term the token falls under — "Azure" declares "Microsoft Azure",
     "Kubernetes" declares "K8s" via the token's alias form).
 
+    FS-7 (ADR-059 amended 2026-10-24): a denial phrased as term + generic head
+    noun ("payment-institution experience", "eigene Erfahrung mit Vertrieb")
+    also declares its bare term (:func:`head_noun_term`) — a lexical fact, so
+    the bare term is floored absolutely instead of being read as a narrower
+    compound that the candidate's CV could release.
+
     Never the compound-containment branch below. See
     :func:`declared_denial_matches` for why the two are separable.
     """
-    return any(_bounded_present(denial, tf) for tf in token_forms)
+    return any(_bounded_present(form, tf) for form in _declared_forms(denial) for tf in token_forms)
+
+
+def declared_only_by_head_noun(token: str, denials: list[str]) -> list[str]:
+    """FS-7 — the denials that declare ``token`` ONLY through their head-noun
+    frame (the literal denial does not name it). These are the matches whose
+    floor a CV naming the term would have released before 2026-10-24: the
+    contradiction the Health question asks about. Longest first. Pure."""
+    token_norm = _norm(token)
+    if not token_norm:
+        return []
+    forms = _alias_forms(token_norm)
+    out = [
+        d for d in denials
+        if _norm(d)
+        and not any(_bounded_present(d, tf) for tf in forms)
+        and _declares(d, forms)
+    ]
+    return sorted(out, key=lambda d: len(_norm(d)), reverse=True)
 
 
 def declared_denial_matches(token: str, denials: list[str]) -> list[str]:
