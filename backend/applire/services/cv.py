@@ -1733,6 +1733,53 @@ def _suppress_duplicate_project_bullets(work_history: list[dict]) -> None:
             w["projects"] = surviving
 
 
+_QUAL_NORM_RE = re.compile(r"[^\w]+", re.UNICODE)
+
+
+def _qualification_forms(*parts: str) -> set[str]:
+    """Normalised spellings of one qualification: the name alone and the name with
+    its awarding body, punctuation folded ("Industriemeister Metall (IHK)" ==
+    "Industriemeister Metall" + "IHK")."""
+    def norm(x: str) -> str:
+        return " ".join(_QUAL_NORM_RE.sub(" ", (x or "").casefold()).split())
+
+    name, *bodies = parts
+    forms = {norm(name)}
+    forms |= {norm(f"{name} {b}") for b in bodies if b}
+    return {f for f in forms if f}
+
+
+def _year(value) -> str:
+    m = re.search(r"(19|20)\d{2}", str(value or ""))
+    return m.group(0) if m else ""
+
+
+def _certification_is_an_education_entry(cert: dict, education: Sequence) -> bool:
+    """786:240 (panel + delivery F10, build 3): the vault can record one
+    qualification twice — "Industriemeister Metall (IHK)" as a certification AND as
+    an education entry (degree "Industriemeister Metall", institution "IHK") — and
+    the CV then printed it in Ausbildung and Zertifizierungen. A lexical identity
+    fact (ADR-062 cl. 1): the same normalised name (alone or with its awarding body)
+    and, where both carry a year, the same year. The education entry keeps it; no
+    fact leaves the page."""
+    if not education:
+        return False
+    c_forms = _qualification_forms(cert.get("name") or "", cert.get("issuing_organization") or "")
+    c_year = _year(cert.get("date_obtained"))
+    for e in education:
+        degree = getattr(e, "degree", "") or ""
+        if not degree:
+            continue
+        e_forms = _qualification_forms(degree, getattr(e, "institution", "") or "")
+        if not (c_forms & e_forms):
+            continue
+        e_year = _year(getattr(e, "end_date", None))
+        if c_year and e_year and c_year != e_year:
+            continue
+        return True
+    return False
+
+
 def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
     """Deterministically copy the Master Profile's certifications verbatim into
     ``tailored.certifications`` (PQ F7 / ADR-040 truthfulness).
@@ -1753,7 +1800,7 @@ def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> Tailo
 
     source_certs = [
         c for c in (profile_json.get("certifications") or [])
-        if entry_is_claimable(c)
+        if entry_is_claimable(c) and not _certification_is_an_education_entry(c, tailored.education)
     ]
     if not source_certs:
         return tailored
