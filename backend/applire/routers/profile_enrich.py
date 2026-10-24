@@ -54,7 +54,7 @@ from applire.exceptions import ReconcileFailedError
 from applire.services.session import (
     _to_confirmation_prompts,
     answer_not_saved_detail,
-    get_ui_language,
+    get_profile_conversation_language,
 )
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
@@ -205,7 +205,7 @@ async def _next_question_or_done(
         return None, True
 
     state["current_gap_index"] = idx
-    lang = await get_ui_language(db, user_id=session.user_id)
+    lang = await get_profile_conversation_language(db, profile_data, user_id=session.user_id)
     q_data = await question_generator_with_profile(state, profile_data, provider, lang=lang)
     question = q_data["question"]
     state["current_question"] = question
@@ -271,7 +271,7 @@ async def start_enrich_session(
         "na_gaps": [],
     }
 
-    lang = await get_ui_language(db, user_id=profile_record.user_id)
+    lang = await get_profile_conversation_language(db, profile_data, user_id=profile_record.user_id)
     q_data = await question_generator_with_profile(state, profile_data, provider, lang=lang)
     first_question = q_data["question"]
     state["current_question"] = first_question
@@ -346,7 +346,9 @@ async def respond_to_enrich(
     current_question = state["current_question"]
 
     # Reconcile answer via the ADR-046 engine (single pass — no separate review step)
-    lang = await get_ui_language(db, user_id=profile_record.user_id)
+    lang = await get_profile_conversation_language(
+        db, profile_record.profile_json, user_id=profile_record.user_id
+    )
     # ADR-063 (#480 PR 2) — the bridge writes through `commit_ops`, which
     # flushes and leaves the transaction here. The write is now UNCONDITIONAL,
     # which subsumes #338: `addressed` is deliberately `bool(changes)` EXCLUDING

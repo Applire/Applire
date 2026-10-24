@@ -177,6 +177,51 @@ async def get_conversation_language(
     return "en"
 
 
+def _profile_source_text(profile: dict | None) -> str:
+    """The profile text that came from the candidate's own source documents:
+    role titles, employers' bullets, education and project text — never the
+    summary (extraction writes it in BOTH languages) and never skill names
+    (posting terms read as English)."""
+    p = profile or {}
+    parts: list[str] = []
+    for w in p.get("work_experience") or []:
+        if isinstance(w, dict):
+            parts.append(str(w.get("role") or ""))
+            parts.extend(str(x) for x in (w.get("responsibilities") or []) if x)
+            parts.extend(str(x) for x in (w.get("achievements") or []) if x)
+    for e in p.get("education") or []:
+        if isinstance(e, dict):
+            parts.extend(str(e.get(k) or "") for k in ("degree", "field_of_study", "description"))
+    for pr in p.get("projects") or []:
+        if isinstance(pr, dict):
+            parts.append(str(pr.get("description") or ""))
+    return " ".join(x for x in parts if x.strip())
+
+
+async def get_profile_conversation_language(
+    db: AsyncSession, profile: dict | None, *, user_id: uuid.UUID | None = None
+) -> str:
+    """787:46 (Hazelnut build 4, founder ruling E-12 2026-10-22) — the language
+    of a PROFILE-scoped conversation (Mode C enrichment): an explicitly chosen
+    ``ui_language`` wins; without one, the language the profile's source
+    documents are written in (``detect_language`` — the shared fact, ADR-066);
+    'en' only when the profile carries no source text at all. The profile-wide
+    sibling of :func:`get_conversation_language` (Mode C has no JD to route on).
+    """
+    uid = resolve_user_id(user_id, site="session.get_profile_conversation_language")
+    row = (
+        await db.execute(select(UserSettings).where(UserSettings.user_id == uid))
+    ).scalar_one_or_none()
+    if row is not None and row.ui_language:
+        return row.ui_language
+    text = _profile_source_text(profile)
+    if not text.strip():
+        return "en"
+    from applire.utils.language_detection import detect_language
+
+    return detect_language(text)
+
+
 # ---------------------------------------------------------------------------
 # US163 — deferred integrity gate injection (ADR-041 amended)
 # ---------------------------------------------------------------------------
