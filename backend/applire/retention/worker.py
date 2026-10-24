@@ -84,7 +84,12 @@ from applire.models.user import ROLE_ADMIN, User
 
 logger = logging.getLogger(__name__)
 
-_STALE_CV_JOB_MINUTES = 10        # pending/generating → failed after this long
+#: pending/generating → failed after this long (789:14, Hazelnut build 4, measured).
+#: Captured LLM debug logs (95 days, 195 CV / 159 letter generations, first-to-last
+#: call of one generation): CV p50 85 s, p99 616 s, max 819 s; letter p99 464 s.
+#: Bound = CV p99 x 3, rounded up to whole minutes (616 s x 3 = 30.8 min). The old
+#: unmeasured 10 min sat BELOW the CV p99 and could fail a slow live generation.
+_STALE_CV_JOB_MINUTES = 31
 
 
 async def _purge_uploads(db: AsyncSession) -> int:
@@ -567,7 +572,7 @@ async def _tombstone_inactive_applications(db: AsyncSession, *, cancelled_only: 
 
 
 async def _reap_stale_cv_jobs(db: AsyncSession) -> int:
-    """Mark CV generation jobs stuck in pending/generating for > 10 minutes as failed.
+    """Mark CV generation jobs stuck in pending/generating past the bound as failed.
 
     Prevents ghost jobs when the BackgroundTasks process crashes mid-render.
     """
@@ -817,7 +822,7 @@ async def _purge_cancelled_documents(db: AsyncSession) -> tuple[int, int, int]:
 
 
 async def _reap_stale_cl_jobs(db: AsyncSession) -> int:
-    """Mark cover letter generation jobs stuck > 10 minutes in pending/generating as failed."""
+    """Mark cover letter generation jobs stuck in pending/generating past the bound as failed."""
     from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
 
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=_STALE_CV_JOB_MINUTES)
@@ -998,6 +1003,26 @@ async def run() -> None:
         # Every other rule ran; the run is still not a clean one — the ops probe
         # reads "last run failed" and the process exits non-zero (785:L69).
         raise RetentionRulesFailed(error)
+
+
+async def run_stale_jobs() -> dict:
+    """Only the two stale-job reapers (789:14): ``python -m applire.retention --stale-jobs``.
+
+    The full sweep runs once a day; a dead generation would show "Generating…"
+    for up to a day. The retention container therefore also runs THIS between
+    sweeps (every 10 min, docker-compose.yml), so a dead row turns ``failed``
+    within the bound plus one interval. Not a retention run: it writes no
+    ``retention_runs`` row (the ops layer's "last run" stays the daily sweep)
+    and it is not suspendable — stale-job reaping is not a personal-data TTL.
+    """
+    with ownership.unscoped("retention"):
+        async with AsyncSessionLocal() as db:
+            report = {
+                "stale_cv_jobs_failed": await _reap_stale_cv_jobs(db),
+                "stale_cl_jobs_failed": await _reap_stale_cl_jobs(db),
+            }
+    print(json.dumps({"stale_jobs": report}), flush=True)
+    return report
 
 
 async def _sweep() -> dict:

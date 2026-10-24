@@ -611,6 +611,8 @@ Everything else, including provider base URLs, timeouts and the retention period
 - the orphan-file scan;
 - the audit-log and usage-record age limits.
 
+**A generation that died.** If the backend restarts or crashes while it writes a CV or cover letter, that document would stay "Generating…" forever. The `retention` service therefore also checks every 10 minutes, between its nightly runs, for a CV or letter that has been generating for more than 31 minutes, and marks it failed. The page then offers to generate it again. 31 minutes is three times the slowest generation we measured (about 10 minutes). This check is not part of the GDPR clean-up, and `RETENTION_ENABLED` does not switch it off.
+
 While it is off, the administration dashboard shows a permanent notice, and every nightly run records that it skipped and why. Switching it back on catches up in the next nightly run: everything past its retention period is then deleted at once. If other people keep their data on your instance, read Section 18 before you switch it off.
 
 ## 18. You are the controller of other people's data
