@@ -338,3 +338,82 @@ def test_parking_covers_a_literal_contradiction_too():
     assert c.context["conflict_kind"] == "literal"
     assert "Am 12.10.2026" in c.rendered("de")[0]
     assert c.rendered("de")[0].endswith("„Vertrieb im Außendienst“.")  # no doubled full stop
+
+
+@pytest.mark.asyncio
+async def test_seam_an_answered_question_is_not_re_parked_on_the_next_import():
+    """V's resolution REMOVES the answered item from pending_confirmations; the
+    answered key (metadata.denial_scope_answered) keeps the next import from
+    asking again. A withdrawn denial (cv_holds) cannot re-park: it is gone."""
+    import copy
+    import uuid
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from applire.db.session import Base
+    from applire.models.profile import MasterProfile, ProfileSnapshot, authorized_profile_write
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.ops import AddBullets, UpsertSkill
+    from applire.services.profile.reconcile.stance import denial_scope_key
+
+    seed = {
+        "personal_info": {"full_name": "Erika Muster", "email": "erika@example.invalid"},
+        "work_experience": [
+            {"id": "w1", "company": "Rheinwerk GmbH", "role": "Key Account Managerin",
+             "start_date": "2018-01", "end_date": "2023-12",
+             "responsibilities": ["Key Accounts im Maschinenbau."]}
+        ],
+        "skills": [],
+        "metadata": {
+            "completeness_score": 0.0, "created_via": "cv_upload",
+            "created_at": "2020-01-01T00:00:00Z", "last_updated": "2020-01-01T00:00:00Z",
+            "denied_concepts": [{"concept": "Vertrieb", "statement": "Vertrieb nie.", "source": "interview", "date": "2026-10-12"}],
+        },
+    }
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=[MasterProfile.__table__, ProfileSnapshot.__table__]))
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    def _parked(rec):
+        return [c for c in rec.profile_json["metadata"].get("pending_confirmations") or [] if c.get("source") == "denial_scope"]
+
+    try:
+        async with factory() as db:
+            with authorized_profile_write():
+                record = MasterProfile(profile_json=copy.deepcopy(seed))
+            db.add(record)
+            await db.commit()
+            prov = CommitProvenance(source="cv_upload", intake="cv_import", session_id=str(uuid.uuid4()))
+            # An unrelated import: nothing names the denied term, nothing parks.
+            await commit_ops(db, [UpsertSkill(name="SAP SD", category="technical", status="confirmed")], prov)
+            assert _parked(record) == []
+            # An import that NAMES the denied term meets the old denial: the item parks.
+            await commit_ops(db, [UpsertSkill(name="Vertrieb", category="soft", status="confirmed")], prov)
+            (item,) = _parked(record)
+            assert item["context"]["conflict_kind"] == "literal"
+            assert item["context"]["cv_label"] == "Vertrieb"
+
+            # V's resolution on denial_holds: the item is removed, the answer remembered.
+            pj = copy.deepcopy(record.profile_json)
+            pj["metadata"]["pending_confirmations"] = []
+            pj["metadata"]["denial_scope_answered"] = [denial_scope_key(item["context"])]
+            with authorized_profile_write():
+                record.profile_json = pj
+            await db.commit()
+            # A later import names the term in NEW prose: same question, already answered.
+            await commit_ops(db, [AddBullets(target="w1", responsibilities=["Vertrieb im Außendienst."])], prov)
+            assert "Vertrieb im Außendienst." in record.profile_json["work_experience"][0]["responsibilities"]
+            assert _parked(record) == [], "an answered question is never asked again"
+
+            # cv_holds: V withdraws the denial — nothing left to contradict.
+            pj = copy.deepcopy(record.profile_json)
+            pj["metadata"]["denied_concepts"] = []
+            pj["metadata"]["denial_scope_answered"] = []
+            with authorized_profile_write():
+                record.profile_json = pj
+            await db.commit()
+            await commit_ops(db, [AddBullets(target="w1", responsibilities=["Vertrieb Export."])], prov)
+            assert _parked(record) == []
+    finally:
+        await engine.dispose()

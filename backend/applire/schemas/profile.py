@@ -1434,6 +1434,13 @@ class ProfileMetadata(BaseModel):
     # later analyze_gaps run cannot re-infer the denied concept via adjacency
     # (the ledger's deterministic override, services.keyword_ledger, reads this).
     denied_concepts: list[DeniedConcept] = Field(default_factory=list)
+    # G-5 / FS-7 (Hazelnut build 4, Lead G; additive) — the CV-contradicts-a-denial
+    # Health items the candidate ANSWERED "my answer stands" (denial_holds),
+    # keyed by stance.denial_scope_key. The resolution removes the item from
+    # pending_confirmations, so this is what keeps the next import from asking
+    # the same question again. A withdrawn denial (cv_holds) needs no entry: it
+    # is gone from denied_concepts and cannot re-park.
+    denial_scope_answered: list[str] = Field(default_factory=list)
 
 
 class ProfileMetaBlock(BaseModel):

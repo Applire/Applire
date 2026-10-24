@@ -725,10 +725,13 @@ async def commit_ops(
                 when=now,
             )
         )
-        # FS-7 (ADR-059 amended 2026-10-24) — a denial phrased as term + generic
-        # head noun floors the bare term; where the candidate's own CV names that
-        # term, park ONE Health question (never twice). No vault write besides it.
-        park_denial_scope_confirmations(profile.metadata, profile.model_dump(mode="json"))
+    # FS-7 / G-5 (ADR-059 amended 2026-10-24) — a recorded denial the candidate's
+    # own CV contradicts (head-noun scope or the literal term) parks ONE Health
+    # question, never twice. Every intake: a new denial meets the CV here, and a
+    # new import meets the old denials here. No vault write besides the question.
+    park_denial_scope_confirmations(
+        profile.metadata, profile.model_dump(mode="json"), pre_op_json
+    )
 
     # ── Invariant 2 — the persisted-denial re-floor ──────────────────────────
     # It runs HERE, after the ops land and before the assignment, so it sees the

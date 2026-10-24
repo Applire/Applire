@@ -1446,7 +1446,9 @@ def _persisted_denials(profile_json: dict[str, Any]) -> list[str]:
     return [concept for concept, _ in _persisted_denial_records(profile_json)]
 
 
-def denial_cv_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, str]]:
+def denial_cv_conflicts(
+    profile_json: dict[str, Any] | None, literal_skip: set[str] | frozenset[str] = frozenset()
+) -> list[dict[str, str]]:
     """Every persisted denial the candidate's own release corpus
     (:func:`denial_release_units`: attested labels + imported bullets) names.
 
@@ -1465,7 +1467,9 @@ def denial_cv_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, s
     ``cv_label`` is the FIRST such unit, in the vault's own wording. The floor
     holds either way; this only finds the contradiction a Health item asks
     about. Word-boundary matched, so a German compound ("Vertriebserfahrung")
-    is not found — recorded residue. Pure, ``None``/malformed tolerant.
+    is not found — recorded residue. ``literal_skip`` = ``_norm``-ed units a
+    ``"literal"`` hit may not quote (the units that were there before the write,
+    :func:`park_denial_scope_confirmations`). Pure, ``None``/malformed tolerant.
     """
     if not isinstance(profile_json, dict):
         return []
@@ -1485,7 +1489,14 @@ def denial_cv_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, s
             )
         else:
             kind, bare = "literal", _norm(denial)
-            label = next((u for u in units if _bounded_present(denial, _norm(u))), None)
+            label = next(
+                (
+                    u
+                    for u in units
+                    if _norm(u) not in literal_skip and _bounded_present(denial, _norm(u))
+                ),
+                None,
+            )
         if label is not None:
             out.append(
                 {
@@ -1689,25 +1700,61 @@ def denial_scope_confirmation(hit: dict[str, str]) -> PendingConfirmation:
     )
 
 
+def denial_scope_key(item: dict[str, Any] | None) -> str:
+    """The identity of one CV-contradicts-a-denial question — a detector hit or
+    a parked item's ``context``: ``"<denial>|<bare term>"``, both ``_norm``-ed."""
+    if not isinstance(item, dict):
+        return ""
+    denial = _norm(str(item.get("denial_concept") or ""))
+    bare = _norm(str(item.get("bare_term") or ""))
+    return f"{denial}|{bare}" if denial else ""
+
+
+def record_denial_scope_answer(metadata: ProfileMetadata | None, context: dict[str, Any] | None) -> None:
+    """Called by the confirmation resolution on ``denial_holds`` (V's
+    ``_apply_resolve_confirmation``): remember the answered question so
+    :func:`park_denial_scope_confirmations` never parks it again, although the
+    resolution removes the item from ``pending_confirmations``."""
+    key = denial_scope_key(context)
+    if metadata is None or not key or key in metadata.denial_scope_answered:
+        return
+    metadata.denial_scope_answered.append(key)
+
+
 def park_denial_scope_confirmations(
-    metadata: ProfileMetadata | None, profile_json: dict[str, Any] | None
+    metadata: ProfileMetadata | None,
+    profile_json: dict[str, Any] | None,
+    before_json: dict[str, Any] | None = None,
 ) -> list[PendingConfirmation]:
     """Park one Health item per persisted denial the candidate's own CV
     contradicts (:func:`denial_cv_conflicts`, both kinds), never twice: a denial that
-    already has a ``denial_scope`` confirmation — open OR answered — is skipped,
-    so an answered question is not asked again. Returns the newly parked
-    records (also appended to ``metadata.pending_confirmations``). No vault
-    write besides the parked question; the floor is untouched."""
+    already has a ``denial_scope`` confirmation — open OR answered
+    (``metadata.denial_scope_answered``) — is skipped.
+
+    ``before_json`` = the vault before this write. A ``"literal"`` hit parks
+    only when its unit is NEW in this write — an import that names the denied
+    term (V-5: "Stimmt deine frühere Angabe noch?"). A unit that was already
+    there when the candidate denied it is what the denial answered, and the
+    floor demotes it; asking "still right?" in the same breath would be noise.
+    ``"head_noun"`` hits park against the whole CV (FS-7: the denial's scope is
+    the question). Returns the newly parked records (also appended to
+    ``metadata.pending_confirmations``). No vault write besides the parked
+    question; the floor is untouched."""
     if metadata is None:
         return []
+    old_units = (
+        {_norm(u) for u in denial_release_units(before_json)} if before_json is not None else set()
+    )
+    # Open items AND answered ones (denial_scope_answered survives the
+    # resolution, which removes the item from pending_confirmations).
     asked = {
-        _norm(str((c.context or {}).get("denial_concept") or ""))
+        denial_scope_key(c.context or {})
         for c in metadata.pending_confirmations
         if c.source == DENIAL_SCOPE_SOURCE
-    }
+    } | set(metadata.denial_scope_answered)
     parked: list[PendingConfirmation] = []
-    for hit in denial_cv_conflicts(profile_json):
-        key = _norm(hit["denial_concept"])
+    for hit in denial_cv_conflicts(profile_json, literal_skip=old_units):
+        key = denial_scope_key(hit)
         if key in asked:
             continue
         asked.add(key)
