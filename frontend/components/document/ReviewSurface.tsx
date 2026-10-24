@@ -1046,6 +1046,15 @@ export function ReviewSurface({
             {t("verdictSub")}
           </p>
         )}
+        {/* 789:199 (as ruled T-1, build 3): a send-check headline leads with the
+            count, like the decisions headline — the all-clear moves to this
+            normal-weight line, so a green sentence never leads above an amber
+            "the final review did not run" note. */}
+        {verdict.kind === "clear_with_send_checks" && (
+          <p data-testid="review-verdict-truth" className="text-sm leading-snug text-on-surface">
+            {t("verdictTruthLine", { decisions: 0, notes: 0 })}
+          </p>
+        )}
         {(verdict.kind === "clear_with_others" || verdict.kind === "clear_unchecked") &&
           openCrossRead === 0 &&
           !crossReadUnknown && (

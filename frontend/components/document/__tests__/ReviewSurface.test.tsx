@@ -917,6 +917,14 @@ describe("#759 — a failed document-language check is not 'nothing stands in th
     expect(verdict).not.toMatch(/does not stand in the way/);
   });
 
+  it("789:199 — the headline leads with the count; the all-clear is the normal-weight line below", () => {
+    renderSurface({ atsReport: ats({}, [MIXED]), gapClusters: [] });
+    expect(screen.getByTestId("review-verdict").textContent).toBe("1 finding needs a look before you send it.");
+    expect(screen.getByTestId("review-verdict-truth").textContent).toBe(
+      "Nothing is made up: every statement in the document is covered by your profile.",
+    );
+  });
+
   it("the failed check is no longer a group-4 row", () => {
     renderSurface({ atsReport: ats({}, [MIXED, { id: "page-length-0", status: "fail", details: "3 Seiten" }]), gapClusters: [] });
     fireEvent.click(screen.getByTestId("review-group-toggle-4"));

@@ -1865,7 +1865,7 @@
     "verdictNotesOnly": "{count, plural, one {There is # note below you should know before you send it.} other {There are # notes below you should know before you send it.}}",
     "verdictUncheckedHead": "Not checked: {producers} — look over that part yourself before you send it.",
     "verdictTruthLine": "Nothing is made up: every statement in the document is covered by your profile.{decisions, plural, =0 {} one { # point needs your decision.} other { # points need your decision.}}{notes, plural, =0 {} one { Plus # note.} other { Plus # notes.}}",
-    "verdictClearWithSendCheck": "Every statement in the document is covered by your profile — but {count, plural, one {# finding needs} other {# findings need}} a look before you send it.",
+    "verdictClearWithSendCheck": "{count, plural, one {# finding needs} other {# findings need}} a look before you send it.",
     "verdictUnknown": "Whether every statement is covered was not checked for this document.",
     "group1Title": "In the document, but not in your profile",
     "group2Title": "Missing although your profile covers it",

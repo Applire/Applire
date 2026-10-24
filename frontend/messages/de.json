@@ -1865,7 +1865,7 @@
     "verdictNotesOnly": "{count, plural, one {Weiter unten steht # Hinweis, den Du vor dem Versand kennen solltest.} other {Weiter unten stehen # Hinweise, die Du vor dem Versand kennen solltest.}}",
     "verdictUncheckedHead": "Nicht geprüft: {producers} — sieh Dir diesen Teil selbst an, bevor Du sendest.",
     "verdictTruthLine": "Erfunden ist nichts: Jede Aussage im Dokument ist durch Dein Profil gedeckt.{decisions, plural, =0 {} one { # Punkt braucht Deine Entscheidung.} other { # Punkte brauchen Deine Entscheidung.}}{notes, plural, =0 {} one { Dazu kommt # Hinweis.} other { Dazu kommen # Hinweise.}}",
-    "verdictClearWithSendCheck": "Jede Aussage im Dokument ist durch Dein Profil gedeckt — aber {count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
+    "verdictClearWithSendCheck": "{count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
     "verdictUnknown": "Ob jede Aussage gedeckt ist, wurde für dieses Dokument nicht geprüft.",
     "group1Title": "Im Dokument, aber nicht in Deinem Profil",
     "group2Title": "Fehlt, obwohl Dein Profil es deckt",
