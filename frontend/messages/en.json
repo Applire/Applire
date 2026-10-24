@@ -1886,6 +1886,7 @@
     "group2HandlesTitle": "Four handles that already exist:",
     "group2HandlePages": "Raise the page target — in Settings as your default length, or before generating.",
     "group2HandlePin": "Pin the fact behind it — a pinned fact is never cut, even if the document gets longer. You will find it on the Actions tab.",
+    "group2OpenPins": "Go to the pinned facts",
     "group2HandleRegenerate": "Regenerate — the selection is made afresh each time.",
     "group2HandleEditor": "Edit the section yourself — click an item above and you land on the Edit tab with that section open. What goes in is written by you.",
     "verdictSub": "Check each one. Keep it if it is true, take it out if it is not.",

@@ -840,6 +840,16 @@ export default function CVPage({
           void gapId;
           router.push("/profile");
         }}
+        onOpenPins={() => {
+          // 789:26 (founder 2026-10-22): group 2's pin handle, a GROUP-level
+          // link — the pin panel lives on Aktionen (#737); nothing pre-filled.
+          guardedNav({ kind: "tab", id: "actions" });
+          window.setTimeout(() => {
+            document
+              .querySelector('[data-testid="pinned-facts-title"]')
+              ?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+          }, 0);
+        }}
         onEditGapSection={(gapId) => {
           // #667 / ADR-081 cl. 3 amended 2026-09-11 — the fourth handle. Move
           // the user to *Bearbeiten* and hand ContentTab the gap; ContentTab

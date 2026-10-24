@@ -204,6 +204,12 @@ export interface ReviewSurfaceProps {
   onResolveCluster?: (gapId: string) => void;
   /** #667 — a claimable gap cluster in group 2 lands in the section editor. */
   onEditGapSection?: (gapId: string) => void;
+  /**
+   * 789:26 (founder 2026-10-22, build 4) — group 2's "pin the fact behind it"
+   * handle opens the page's pin panel. GROUP-level navigation, nothing
+   * pre-filled: no finding row links a pin as its remedy (ADR-081 cl. 3).
+   */
+  onOpenPins?: () => void;
   /** Not one of the four producers — rendered after the groups (the letter's unasked-requirements panel). */
   children?: ReactNode;
   /**
@@ -259,6 +265,7 @@ export function ReviewSurface({
   gapAnalysisHref = null,
   onResolveCluster,
   onEditGapSection,
+  onOpenPins,
   children,
   degradation = null,
   onRegenerate,
@@ -1187,6 +1194,7 @@ export function ReviewSurface({
       <OtherFindings
         groups={groups}
         gapAnalysisHref={gapAnalysisHref}
+        onOpenPins={onOpenPins}
         renderItem={(item, group) => (
           <ItemRow
             key={item.key}
@@ -1354,10 +1362,12 @@ function SendChecks({
 function OtherFindings({
   groups,
   gapAnalysisHref,
+  onOpenPins,
   renderItem,
 }: {
   groups: ReviewGroup[];
   gapAnalysisHref: string | null;
+  onOpenPins?: () => void;
   renderItem: (item: ReviewItem, group: ReviewGroup) => ReactNode;
 }) {
   const t = useTranslations("documentReview");
@@ -1436,7 +1446,7 @@ function OtherFindings({
               </div>
               {open && (
                 <div className="mt-1 rounded-xl border border-outline-variant px-1 pb-2 pt-1">
-                  {id === 2 && <Group2Trade />}
+                  {id === 2 && <Group2Trade onOpenPins={onOpenPins} />}
                   <ul>{group.items.map((item) => renderItem(item, group))}</ul>
                 </div>
               )}
@@ -1628,7 +1638,7 @@ function checkDetail(c: ATSCheck, tAts: ReturnType<typeof useTranslations<"ats">
  * coverage loop tried, and an insertion pass is barred by ADR-076. ADR-090
  * amends clause 3 for group 1 only, in the removal direction.
  */
-function Group2Trade() {
+function Group2Trade({ onOpenPins }: { onOpenPins?: () => void }) {
   const t = useTranslations("documentReview");
   return (
     <div data-testid="review-group2-trade" className="mx-2 mb-2 rounded-lg bg-surface-container px-3 py-2">
@@ -1636,7 +1646,22 @@ function Group2Trade() {
       <p className="mt-1 text-xs font-medium text-on-surface-variant">{t("group2HandlesTitle")}</p>
       <ul className="mt-0.5 list-disc pl-4 text-xs text-on-surface-variant">
         <li data-testid="review-group2-handle-pages">{t("group2HandlePages")}</li>
-        <li data-testid="review-group2-handle-pin">{t("group2HandlePin")}</li>
+        <li data-testid="review-group2-handle-pin">
+          {t("group2HandlePin")}
+          {onOpenPins && (
+            <>
+              {" "}
+              <button
+                type="button"
+                data-testid="review-group2-open-pins"
+                onClick={() => onOpenPins()}
+                className="font-semibold text-primary underline underline-offset-2 hover:text-primary/80"
+              >
+                {t("group2OpenPins")}
+              </button>
+            </>
+          )}
+        </li>
         <li data-testid="review-group2-handle-regenerate">{t("group2HandleRegenerate")}</li>
         <li data-testid="review-group2-handle-editor">{t("group2HandleEditor")}</li>
       </ul>

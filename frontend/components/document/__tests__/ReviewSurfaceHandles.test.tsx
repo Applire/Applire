@@ -231,6 +231,32 @@ describe("#671 — group 4 renders the terminal review's details", () => {
   });
 });
 
+describe("789:26 — group 2's pin handle is a GROUP-level link to the pin panel", () => {
+  it("one link under the handle list opens the pins; no row carries it (ADR-081 cl. 3)", () => {
+    const onOpenPins = vi.fn();
+    render(
+      withIntl(
+        <ReviewSurface {...base({ atsReport: ats([], { missing_claimable: ["SAP PP", "OEE"] }), onOpenPins })} />,
+        "de",
+      ),
+    );
+    open(2);
+    const links = screen.getAllByTestId("review-group2-open-pins");
+    expect(links).toHaveLength(1);
+    expect(links[0].textContent).toBe("Zu den festgelegten Fakten");
+    expect(within(screen.getByTestId("review-group2-handle-pin")).getByTestId("review-group2-open-pins")).toBeTruthy();
+    fireEvent.click(links[0]);
+    expect(onOpenPins).toHaveBeenCalledTimes(1);
+    expect(onOpenPins).toHaveBeenCalledWith(); // nothing pre-filled
+  });
+
+  it("without the handler the handle stays plain text", () => {
+    render(withIntl(<ReviewSurface {...base({ atsReport: ats([], { missing_claimable: ["SAP PP"] }) })} />));
+    open(2);
+    expect(screen.queryByTestId("review-group2-open-pins")).toBeNull();
+  });
+});
+
 describe("#667 — the section editor is a fourth handle", () => {
   const CLAIMABLE_CLUSTER = { id: "gap-7", label: "SAP PP", kind: "claimable" as const };
 

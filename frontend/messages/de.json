@@ -1886,6 +1886,7 @@
     "group2HandlesTitle": "Vier Hebel, die es schon gibt:",
     "group2HandlePages": "Seitenziel anheben — in den Einstellungen als Standardlänge oder vor dem Generieren.",
     "group2HandlePin": "Den Fakt dahinter festlegen — ein festgelegter Fakt wird nie weggekürzt, auch wenn das Dokument dadurch länger wird. Zu finden im Reiter Aktionen.",
+    "group2OpenPins": "Zu den festgelegten Fakten",
     "group2HandleRegenerate": "Neu generieren — die Auswahl fällt jedes Mal neu.",
     "group2HandleEditor": "Den Abschnitt selbst bearbeiten — klicke auf einen Punkt oben, dann landest Du im Reiter Bearbeiten mit genau diesem Abschnitt geöffnet. Was dort steht, schreibst Du.",
     "verdictSub": "Prüfe jede Stelle. Behalte sie, wenn sie stimmt, nimm sie heraus, wenn nicht.",
