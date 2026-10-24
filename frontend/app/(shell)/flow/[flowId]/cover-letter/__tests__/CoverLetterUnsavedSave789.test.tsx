@@ -55,6 +55,8 @@ vi.mock("@/components/cover-letter/CoverLetterContentTab", () => ({
             onDirtyChange?.(true);
           }}
         />
+        {/* a plain anchor on purpose: the draft guard intercepts document link clicks */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a href="/flow/other/cv" data-testid="leave-link">leave</a>
       </div>
     );
