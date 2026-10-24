@@ -1451,3 +1451,62 @@ async def test_supported_on_a_term_a_recorded_denial_covers_returns_409_finding_
     )
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["error"] == "finding_denied"
+
+
+# ---------------------------------------------------------------------------
+# 786:232 — `edited` does not re-audit content the background re-audit already
+# audited (the section PATCH's own re-audit ran under the same lock first).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cv_edited_skips_the_reaudit_when_the_report_describes_this_content_786_232(db):
+    from applire.models.cv import GeneratedCV
+
+    cleared = _ats_report("cv", [])
+    cleared["keywords"]["missing_honest_gap"] = [_KUBERNETES]
+    cv_id = await seed_cv(db, introduction="Kenntnisse in Docker.", ats_report=cleared)
+    ra.note_audited("cv", await db.get(GeneratedCV, cv_id))  # what the background re-audit records
+    client = _client(db)
+    fake_reaudit = FakeReaudit([(cleared, None)])
+
+    with patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(f"/api/cv/{cv_id}/review/edited", json={"finding_key": _KEY})
+
+    assert response.status_code == 200, response.text
+    assert fake_reaudit.calls == 0, "the same content must not be audited twice"
+    assert [d["action"] for d in response.json()["review_state"]["decisions"]] == ["edited"]
+
+
+@pytest.mark.asyncio
+async def test_cv_edited_reaudits_when_the_content_changed_after_the_audit_786_232(db):
+    from applire.models.cv import GeneratedCV
+
+    cv_id = await seed_cv(
+        db, introduction="Kenntnisse in Kubernetes.",
+        ats_report=_ats_report("cv", [_KUBERNETES], _MATCHES),
+    )
+    record = await db.get(GeneratedCV, cv_id)
+    ra.note_audited("cv", record)
+    record.section_overrides = {"introduction": "Kenntnisse in Docker."}  # a later save
+    await db.commit()
+    client = _client(db)
+    fake_reaudit = FakeReaudit([(_ats_report("cv", []), None)])
+
+    with patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(f"/api/cv/{cv_id}/review/edited", json={"finding_key": _KEY})
+
+    assert response.status_code == 200, response.text
+    assert fake_reaudit.calls == 1
+
+
+def test_a_failed_audit_never_counts_as_audited_786_232():
+    rec = SimpleNamespace(id=uuid.uuid4(), ats_report=None, tailored_data={"a": 1},
+                          content_snapshot=None, section_overrides=None)
+    ra.note_audited("cv", rec)
+    assert ra.audited_current("cv", rec) is False
+    rec.ats_report = {"score": 1}
+    ra.note_audited("cv", rec)
+    assert ra.audited_current("cv", rec) is True
+    rec.tailored_data = {"a": 2}
+    assert ra.audited_current("cv", rec) is False

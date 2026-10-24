@@ -45,6 +45,49 @@ logger = logging.getLogger(__name__)
 Kind = Literal["cv", "cover_letter"]
 
 
+# 786:232 — a section save from a finding ran the full re-audit TWICE: the section
+# PATCH schedules the background re-audit (``_update_ats_report_by_id``, under
+# ``document_lock``), and ``edited`` then waited for that lock and re-audited the
+# same, unchanged content again (ux-audit-2 log: outcome-critic pairs 49 s and 31 s
+# apart for one save). Each completed audit notes the content fingerprint it audited;
+# ``edited`` skips its own re-audit when the report already describes the current
+# content. In-process only: a miss (restart, another worker) re-audits — the
+# pre-786:232 behaviour, never a stale report.
+_AUDITED: dict[tuple[str, str], str] = {}
+
+
+def content_fingerprint(kind: Kind, record) -> str:
+    """Hash of every column an audit reads content from (CV: tailored_data,
+    content_snapshot, section_overrides; letter: letter_data, section_overrides)."""
+    import hashlib
+    import json
+
+    cols = (
+        ("tailored_data", "content_snapshot", "section_overrides")
+        if kind == "cv"
+        else ("letter_data", "section_overrides")
+    )
+    payload = json.dumps(
+        [getattr(record, c, None) for c in cols], sort_keys=True, default=str, ensure_ascii=False
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def note_audited(kind: Kind, record) -> None:
+    """Record that ``record``'s current content has a report computed from it."""
+    if isinstance(getattr(record, "ats_report", None), dict):
+        _AUDITED[(kind, str(record.id))] = content_fingerprint(kind, record)
+    else:
+        _AUDITED.pop((kind, str(record.id)), None)
+
+
+def audited_current(kind: Kind, record) -> bool:
+    """True when the persisted report was computed from exactly this content."""
+    if not isinstance(getattr(record, "ats_report", None), dict):
+        return False
+    return _AUDITED.get((kind, str(record.id))) == content_fingerprint(kind, record)
+
+
 class FindingNotListed(LookupError):
     """The finding_key names no finding the current report lists (→ 409)."""
 
@@ -142,6 +185,7 @@ async def reaudit(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | 
 
         await _update_ats_report_letter(record, db)
     await db.refresh(record)
+    note_audited(kind, record)
 
 
 def findings_of(record, *, user_id: uuid.UUID | None = None) -> list[rs.GroupOneFinding]:
@@ -667,7 +711,8 @@ async def edited(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, u
         # re-audited in the background, so "listed right now" is too strict;
         # "listed now, decided before, or a term the report still knows" is not.
         known = before is not None or prior is not None or _term_known_to_report(record, key)
-        await reaudit(kind, record, db)
+        if not audited_current(kind, record):
+            await reaudit(kind, record, db)
         still = rs.find_listed(findings_of(record), key) is not None
         if not still and known:
             if prior is not None and before is None:

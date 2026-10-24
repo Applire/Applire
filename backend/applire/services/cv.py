@@ -6722,6 +6722,9 @@ async def _update_ats_report_by_id(cv_id: uuid.UUID, *, user_id: uuid.UUID | Non
                 record = None
             if record is not None:
                 await _update_ats_report(record, db)
+                from applire.services.review_actions import note_audited
+
+                note_audited("cv", record)  # 786:232 — `edited` need not audit it again
 
 
 async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> "ATSReportResponse":
