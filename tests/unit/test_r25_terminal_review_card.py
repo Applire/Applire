@@ -129,3 +129,99 @@ def test_a_persisted_report_without_the_new_fields_still_validates():
     legacy = {"id": "terminal-review", "status": "fail", "details": "The terminal review exhausted…"}
     check = ATSCheck.model_validate(legacy)
     assert check.notes is None and check.details_key is None
+
+
+# ── T-1 = A: the reviewer's plain note reaches the card, never the corrector ──
+
+
+def test_normalize_issues_reads_the_plain_note_and_keeps_identity_on_text():
+    from applire.services.review_issues import ReviewIssue, normalize_issues
+
+    issues = normalize_issues([
+        {"severity": "blocking", "issue": "work_history index 0: X is unsupported.", "note": "  Bei Weberit ist X nicht belegt. "},
+        {"severity": "minor", "issue": "Tighten the summary."},
+        "a bare string issue",
+    ])
+    assert [i.note for i in issues] == ["Bei Weberit ist X nicht belegt.", "", ""]
+    # the note is not part of an issue's identity (every comparison is unchanged)
+    assert issues[0] == ReviewIssue(text="work_history index 0: X is unsupported.", severity="blocking")
+
+
+def test_the_corrector_feedback_never_carries_the_note():
+    from applire.services.review_issues import normalize_issues
+    from applire.services.reviewer import fold_issues_into_feedback
+
+    issues = normalize_issues([{"severity": "blocking", "issue": "X is unsupported.", "note": "PLAIN-NOTE-MARKER"}])
+    assert "PLAIN-NOTE-MARKER" not in fold_issues_into_feedback("Fix X.", issues)
+
+
+def test_the_settle_carries_the_notes_to_the_card():
+    from applire.services.review_issues import ReviewSettle
+    from applire.services.terminal_review_outcome import settle_to_outcome
+
+    settle = ReviewSettle(
+        path="cycle_detected", approved=False,
+        blocking_issues=("work_history index 0: X is unsupported.", "Y is repeated."),
+        minor_issues=(), rounds=2, settled={},
+        plain_notes=(("work_history index 0: X is unsupported.", "Bei Weberit ist X nicht belegt."),),
+    )
+    check = build_terminal_review_check(settle_to_outcome(settle, chain_id="cv_terminal_review"))
+    findings = [n for n in check.notes if n.kind == "finding"]
+    assert [(n.text[:20], n.plain) for n in findings] == [
+        ("work_history index 0", "Bei Weberit ist X nicht belegt."),
+        ("Y is repeated.", None),
+    ]
+
+
+def test_the_fold_of_two_invocations_keeps_both_sides_notes():
+    a = _o("cycle_detected", blocking=("A",))
+    b = _o("cycle_detected", blocking=("B",))
+    a = TerminalReviewOutcome(**{**a.__dict__, "plain_notes": (("A", "a"),)})
+    b = TerminalReviewOutcome(**{**b.__dict__, "plain_notes": (("B", "b"),)})
+    assert set(a.worse_of(b).plain_notes) == {("A", "a"), ("B", "b")}
+
+
+def test_only_the_terminal_doors_ask_for_the_note():
+    from applire.prompts import review_cover_letter as letter, review_cv_tailoring as cv
+
+    assert '"note"' in cv.TERMINAL_REVIEW_SYSTEM_PROMPT and '"note"' in cv.V2_TERMINAL_REVIEW_SYSTEM_PROMPT
+    assert '"note"' in letter.TERMINAL_REVIEW_SYSTEM_PROMPT and '"note"' in letter.V2_TERMINAL_REVIEW_SYSTEM_PROMPT
+    assert '"note"' not in cv.REVIEW_SYSTEM_PROMPT and '"note"' not in letter.REVIEW_SYSTEM_PROMPT
+    # the note sits right after the issue it restates (the replayed order)
+    s = cv.TERMINAL_REVIEW_SYSTEM_PROMPT
+    assert s.index('"issue"') < s.index('"note"') < s.index('"location"')
+
+
+def test_the_terminal_user_prompts_name_the_note_language():
+    """Replay 2026-10-24: with the language left to inference the reviewer wrote
+    German notes for 7 of 7 English-letter issues; naming it in the user prompt
+    gave 81 of 81 in the document's language (n=25). Both doors, seam-tested."""
+    from applire.prompts import review_cover_letter as letter, review_cv_tailoring as cv
+    from applire.prompts.review_severity import note_language_line
+
+    assert note_language_line(None) == ""
+    assert "German" in note_language_line("de") and "du" in note_language_line("de")
+    assert "English" in note_language_line("en") and "du" not in note_language_line("en")
+    lp = letter.build_terminal_review_prompt(
+        "S", {"a": 1}, page_count=1, letter_pages=1, word_count=3, word_budget=4,
+        condense_exhausted=False, document_language="en",
+    )
+    assert "NOTE LANGUAGE: write every issue's `note` in English." in lp
+    assert "NOTE LANGUAGE" not in letter.build_terminal_review_prompt(
+        "S", {"a": 1}, page_count=1, letter_pages=1, word_count=3, word_budget=4,
+        condense_exhausted=False,
+    )
+    cp = cv.build_terminal_review_prompt(
+        "S", {"a": 1}, page_count=1, target=1, condensation_exhausted=False, document_language="de",
+    )
+    assert "NOTE LANGUAGE: write every issue's `note` in German and address the candidate as du." in cp
+
+
+def test_the_letter_terminal_door_passes_the_letter_language():
+    """The call site in cover_letter.py hands the letter's pinned language on."""
+    import inspect
+    from applire.services import cover_letter
+
+    src = inspect.getsource(cover_letter)
+    i = src.index("def _terminal_base(")
+    assert "document_language=cl.document_language" in src[i : i + 1500]

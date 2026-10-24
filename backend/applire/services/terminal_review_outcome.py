@@ -362,6 +362,8 @@ class TerminalNote:
     key: str | None
     text: str
     subjects: tuple[str, ...] = ()
+    #: T-1 = A: the reviewer's plain note for the candidate (``finding`` only).
+    plain: str | None = None
 
 
 def note_text(note: "str | TerminalNote") -> str:
@@ -399,6 +401,9 @@ class TerminalReviewOutcome:
     #: findings. ``None`` = not measured by this producer; the status then falls back to
     #: :data:`_CORRECTED_AFTER_VERDICT_PATHS`, so every existing producer keeps working.
     correction: CorrectionFacts | None = None
+    #: R2-5 (T-1 = A): ``(issue text, plain note)`` from the last verdict — the
+    #: reviewer's own one-sentence note for the candidate. Read by the card only.
+    plain_notes: tuple[tuple[str, str], ...] = ()
     #: #703 — terms the delivery's loop demanded in ≥ 2 rounds (see :class:`DemandRecord`).
     #: A statement about the delivery, never about one verdict: it never affects
     #: :attr:`status`, and :meth:`worse_of` keeps whichever side carries it.
@@ -525,6 +530,7 @@ class TerminalReviewOutcome:
                     notes=tuple(dict.fromkeys(winner.notes + loser.notes)),
                     correction=winner.correction,
                     repeated_demands=self.repeated_demands or other.repeated_demands,
+                    plain_notes=tuple(dict.fromkeys(winner.plain_notes + loser.plain_notes)),
                 )
         order = {"fail": 2, "not_applicable": 1, "pass": 0}
 
@@ -553,6 +559,7 @@ class TerminalReviewOutcome:
             notes=tuple(dict.fromkeys(keep.notes + drop.notes)),
             correction=keep.correction,
             repeated_demands=self.repeated_demands or other.repeated_demands,
+            plain_notes=tuple(dict.fromkeys(keep.plain_notes + drop.plain_notes)),
         )
 
 
@@ -670,6 +677,7 @@ def settle_to_outcome(
         minor_issues=settle.minor_issues,
         rounds=settle.rounds,
         correction=correction,
+        plain_notes=tuple(getattr(settle, "plain_notes", ()) or ()),
     )
 
 
@@ -1091,11 +1099,12 @@ def _state_key(outcome: TerminalReviewOutcome) -> tuple[str, int]:
     return "terminal-review-clean", 0
 
 
-def _finding_note(text: str) -> dict[str, Any]:
+def _finding_note(text: str, plain: dict[str, str]) -> dict[str, Any]:
     m = _CHECK_ISSUE_RE.match(text.strip())
     if m:
         return {"kind": "code", "key": m.group("key"), "text": m.group("text")[:_NOTE_TEXT_MAX]}
-    return {"kind": "finding", "text": text[:_NOTE_TEXT_MAX]}
+    note = (plain.get(text) or "").strip()
+    return {"kind": "finding", "text": text[:_NOTE_TEXT_MAX], "plain": note[:_NOTE_TEXT_MAX] or None}
 
 
 def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
@@ -1105,7 +1114,8 @@ def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
     raw = outcome.blocking_issues or (
         outcome.minor_issues if outcome.status == "pass" else ()
     )
-    findings = [_finding_note(t) for t in raw if t and t.strip()]
+    plain = dict(outcome.plain_notes)
+    findings = [_finding_note(t, plain) for t in raw if t and t.strip()]
     pipeline: list[dict[str, Any]] = []
     for n in outcome.notes:
         if isinstance(n, TerminalNote):
@@ -1114,6 +1124,7 @@ def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
                 "key": n.key,
                 "subjects": list(n.subjects),
                 "text": n.text[:_NOTE_TEXT_MAX],
+                "plain": (n.plain or "")[:_NOTE_TEXT_MAX] or None,
             })
         elif n and n.strip():
             # A producer that still writes a plain string: shown as a generic

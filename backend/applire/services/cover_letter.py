@@ -3320,8 +3320,8 @@ async def _terminal_review_letter(
             from applire.services.terminal_review_outcome import TerminalNote
 
             post_condense_notes.extend(
-                TerminalNote(kind="finding", key="letter.post_condense", text=t)
-                for t in reviewer_texts
+                TerminalNote(kind="finding", key="letter.post_condense", text=i.text, plain=i.note or None)
+                for i in issues
             )
         try:
             from applire.services.keyword_ledger import verified_missing_claimable
@@ -3548,6 +3548,8 @@ async def _terminal_review_letter(
             # rewrite is already spent or unavailable (section overrides /
             # render failure) — stated for honest context, never a mandate.
             condense_exhausted=over_norm,
+            # R2-5 (T-1 = A, WP-T hunk): the language of each issue's plain note.
+            document_language=cl.document_language,
         )
 
     _wrapped = wrap_reviewer(_terminal_base)
