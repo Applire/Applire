@@ -2203,7 +2203,17 @@ async def _record_cluster_turn(
     # follow-up (the pre-ledger behaviour: advance).
     if row.keyword_ledger:
         named = _members_named_by(answer, members, row.keyword_ledger)
-        open_members = [m for m in members if facts.get(m) == "open" and m not in named]
+        # R2-9 (Hazelnut build 4, felix Q7): a posting term the match does not
+        # count (`requirement: false`, a ledger fact — G's
+        # `member_is_requirement`) never earns a follow-up of its own. Round 2
+        # spent a question on "Auditability" right after the candidate had
+        # answered the topic, while the sidebar called it "a term from the
+        # posting, not a counted requirement".
+        open_members = [
+            m for m in members
+            if facts.get(m) == "open" and m not in named
+            and gap_coverage.member_is_requirement(m, row.keyword_ledger)
+        ]
     else:
         open_members = []
     if recorded is None:

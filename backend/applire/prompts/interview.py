@@ -140,6 +140,18 @@
 #     language pass. Replay-verified: the captured run-17 turn-1 generation
 #     emits denied_terms with the exact constituent names.
 
+# R2-2 changes (Hazelnut build 4, founder ruling 2026-10-24: PROMPT RULE ONLY):
+#   - _CHOICE_COVERAGE_RULES: no choice states a limit the candidate never gave
+#     ("NO INVENTED LIMIT"); the DENIAL level is no longer offered; a PARTIAL
+#     choice marks an uncovered concept as "not yet documented in my profile".
+#     Root cause of the round-2 regression (felix-042/045, marcus-032): V-7 had
+#     removed the denial CHIP on Category C but told the model "a PARTIAL choice
+#     may say what it does not cover", and the denied_terms rule's own example
+#     was "..., aber keine Erfahrung mit X oder Y" — the model moved the denial
+#     into the partial chip. denied_terms now means "named WITHOUT claiming".
+#   - _COVERED_IN_OTHER_WORDS_RULE (R2-9): a requirement the candidate denied
+#     is answered — never the target of a follow-up.
+
 import json
 
 from applire.services.choice_grounding import constituent_evidence
@@ -203,47 +215,43 @@ def language_name(lang: str) -> str:
 # where partial-versus-denial is the entire point cannot have a subtly
 # different rule text. Extracted once so the two can never drift apart.
 _CHOICE_COVERAGE_RULES = """\
-Choice coverage rules (ADR-064, amended 2026-08-05 / #347 — the choices must span the levels \
-the evidence allows, not several flavours of "yes"):
-- Where the question admits 2-3 choices, they must span the levels: one at the DIRECT level \
+Choice coverage rules (ADR-064, amended 2026-08-05 / #347; R2-2, founder ruling 2026-10-24 — \
+the choices span the levels the evidence allows, not several flavours of "yes"):
+- Where the question admits 2-3 choices, they span two levels: one at the DIRECT level \
 — ONLY WHEN THE CANDIDATE PROFILE SUMMARY BELOW ACTUALLY EVIDENCES IT (the candidate has this \
-experience themselves); if it does not, omit DIRECT — one at the PARTIAL level (adjacent, \
-transferable, or partial exposure), and one DENIAL under the mirror condition below.
-- The DENIAL choice carries the same evidence condition as the DIRECT choice, mirrored: offer \
-it ONLY when at least one of the question's constituent concepts has NO evidence in the \
-candidate profile summary below and none in the candidate's earlier answers in this \
-conversation. Evidence in ANY wording counts, not only the concept's literal name: a \
-"Teamleiter" role is evidence of team leadership, a "Scrum Master" skill of agile methods \
-(787 M2) — never deny what the profile states in other words. Scope it to exactly those unevidenced concepts, naming them ("I haven't worked \
-with X or Y") — never paraphrase them into a broader area ("I haven't worked with that field \
-at all"), so the candidate sees precisely what selecting it would deny. A denial choice must \
-NEVER deny, name, or sweep over a concept the profile summary or the candidate's earlier \
-answers evidence.
-- If EVERY constituent concept is evidenced, offer NO denial choice: the spanning set is then \
-DIRECT + PARTIAL, and there is nothing honest left for a denial to say. When the question context \
-below says to offer NO denial choice (a Category C question, founder ruling V-7), that \
-instruction wins over the spanning rule: DIRECT + PARTIAL only.
-- A denial choice that IS offered is NEVER softened into a hedge. "I haven't worked with X" \
-is a denial. "I have limited exposure to X" is NOT a denial — that is a partial-level claim \
-dressed as a denial. Keep the denial choice honest and unambiguous, never watered down to \
-sound more agreeable.
+experience themselves); if it does not, omit DIRECT — and one or two at the PARTIAL level \
+(adjacent, transferable, or partial exposure the profile shows).
+- NO INVENTED LIMIT (R2-2): no choice, at any level, says that the candidate lacks, has not \
+done, has not used or has no experience with something ("I have not used X", "not X \
+directly", "keine Erfahrung mit X", "noch nie", "nicht mit X gearbeitet"). The profile not \
+mentioning X means UNKNOWN, never no — and one click on such a choice would record a "no" the \
+candidate never gave. A candidate who lacks something types that in their own words. The ONE \
+exception: the candidate already said that no themselves in the Recent conversation or the \
+earlier exchanges below — a choice may restate their own words.
+- When a PARTIAL choice must mark what it does not cover, it says what the PROFILE does not \
+show yet — never what the candidate has not done: "..., but my profile does not yet document \
+X or Y" / "..., aber zu X und Y steht in meinem Profil noch nichts". Name exactly \
+those concepts, never a broader area, and never one the profile summary or the earlier \
+answers evidence in other words (a "Teamleiter" role is evidence of team leadership, a \
+"Scrum Master" skill of agile methods).
+- Never offer a choice at the DENIAL level. (The "denial" level value stays in the schema for \
+a restated earlier no only.)
 - This coverage rule does NOT relax the truthfulness rules above — they are unchanged and still \
 bind without exception. A DIRECT-level choice may only be offered when the candidate profile \
 summary below actually evidences it. So on a genuine gap (the profile shows NO evidence for the \
-concept), the DIRECT level is simply not available to offer, and the correct spanning set for \
-that concept is PARTIAL + DENIAL only — never invent a DIRECT-level "yes" just to fill the \
-third slot.
+concept), the DIRECT level is simply not available to offer, and the choices for that concept \
+are PARTIAL only — never invent a DIRECT-level "yes" just to fill a slot.
 - VOICE (787:L72): every choice is the CANDIDATE's own answer, in the first person — a \
 statement the candidate could send unchanged. A choice never instructs or asks the candidate \
 ("bitte ergänze Zeitraum und Ergebnis", "beschreibe ein Beispiel", "please describe ..." — \
 inviting detail is the QUESTION's job, never a choice's) and never promises detail instead of \
 stating it ("das kann ich genauer beschreiben", "I can share how ..."). What a choice cannot \
 state from the profile it leaves out; the candidate adds it after selecting the choice.
-- Every choice also declares "denied_terms": the constituent concepts THIS choice explicitly \
-denies, copied exactly as the concept names appear in the question context ([] when the choice \
-denies none). A PARTIAL choice that honestly bridges ("..., aber keine Erfahrung mit X oder Y") \
-lists X and Y; a DENIAL choice lists every concept it denies; a DIRECT choice lists []. Like \
-"level", this is a statement of fact about the choice you just drafted, not an extra rule.
+- Every choice also declares "denied_terms": the constituent concepts THIS choice names \
+WITHOUT claiming them, copied exactly as the concept names appear in the question context ([] \
+when it names none). A PARTIAL choice that says "..., but my profile does not yet document X \
+or Y" lists X and Y; a DIRECT choice lists []. Like "level", this is a statement of fact about \
+the choice you just drafted, not an extra rule.
 - Every choice you draft must declare its own level in its "level" field — "direct", "partial", \
 or "denial" — matching exactly what you just reasoned about above for that choice. This is a \
 statement of fact about the choice you are drafting, not an extra rule: state it truthfully."""
@@ -276,12 +284,12 @@ NARRATIVE, not just the noun.
 - EXPLORATORY (gap_type=C) clusters can absorb several constituent gaps, and a cluster is \
 Category C as soon as ANY ONE of them is unevidenced — so some of its OTHER named gaps or \
 skills may actually appear in the candidate profile summary below. Check each constituent gap \
-individually: for one the profile genuinely shows NO evidence, choices must be an honesty frame \
-that denies THAT concept and bridges to related experience the profile does show (e.g. "I \
-haven't worked with X directly, but ..."). For one the profile DOES evidence (even partially), \
-lead with that real evidence honestly instead of denying it — do not blanket-deny the whole \
-cluster just because it is Category C. Never draft an affirmative claim for a concept the \
-profile shows no evidence for.
+individually: for one the profile genuinely shows NO evidence, a choice leads with the related \
+experience the profile does show and marks the concept as not yet in the profile (e.g. "I \
+built X-adjacent Y at Z, but my profile does not yet document X") — never as something the \
+candidate has not done. For one the profile DOES evidence (even partially), lead with that \
+real evidence honestly. Never draft an affirmative claim for a concept the profile shows no \
+evidence for.
 - The candidate's earlier answers in this conversation are evidence exactly like the profile \
 summary: never draft a choice, at ANY level, that contradicts something the candidate already \
 said in the Recent conversation below.
@@ -425,10 +433,14 @@ _COVERED_IN_OTHER_WORDS_RULE = (
     "differently, another language — is covered. A related but different "
     "skill, a clearly lower level or smaller scope than the requirement names "
     "(assisted where it asks for led; a team of 5 where it asks for about 50), "
-    "or a bare mention without substance is NOT covered. Add the key "
+    "or a bare mention without substance is NOT covered. A requirement the "
+    "candidate DENIED — in that answer or earlier in the conversation, in any "
+    "wording (\"I haven't built billing or invoicing systems myself\" denies "
+    "\"Billing systems\" and \"Invoice processing\") — is answered too: a no "
+    "is an answer, and it is never asked again (R2-9). Add the key "
     "\"covered_by_answer\" to the JSON object: the requirements from the list "
-    "above that the answer covered, copied exactly as written there ([] when "
-    "none)."
+    "above that the answer covered OR denied, copied exactly as written there "
+    "([] when none)."
 )
 
 
@@ -563,10 +575,11 @@ def build_question_prompt(
                 if signal and unevidenced else ""
             )
             denial_fact = (
-                f"{literal} On this question (Category C) offer NO denial choice: "
-                "a candidate who lacks something types that in their own words. "
-                "Draft DIRECT and PARTIAL choices only; a PARTIAL choice may say what "
-                "it does not cover, never a concept the profile states in other words."
+                f"{literal} Offer NO denial choice: a candidate who lacks something "
+                "types that in their own words. Draft DIRECT and PARTIAL choices only; "
+                "a PARTIAL choice may say that the profile does not yet document a "
+                "concept — never that the candidate lacks it — and never for a "
+                "concept the profile states in other words."
             )
         elif not signal:
             denial_fact = ""
@@ -579,12 +592,12 @@ def build_question_prompt(
             denial_fact = (
                 " Constituent concepts with no word-for-word mention in the profile "
                 f"summary: {', '.join(unevidenced)}. That is a literal check, not a "
-                "verdict. Before a denial choice names one of them, look for it in "
-                "the profile summary in OTHER words — a role title, a skill, a "
-                "bullet. A concept the profile states in other words is evidenced: "
-                "it goes into a DIRECT or PARTIAL choice and never into a denial. "
-                "A denial names only the concepts left over; when none are left, "
-                "offer no denial."
+                "verdict: look for each in the profile summary in OTHER words — a "
+                "role title, a skill, a bullet. A concept the profile states in "
+                "other words is evidenced and goes into a DIRECT or PARTIAL choice. "
+                "Offer NO denial choice; a PARTIAL choice may say that the profile "
+                "does not yet document the concepts left over — never that the "
+                "candidate lacks them."
             )
         else:
             denial_fact = (
