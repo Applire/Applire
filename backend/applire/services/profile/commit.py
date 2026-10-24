@@ -101,7 +101,10 @@ from applire.services.profile.reconcile.apply import (
 )
 from applire.services.profile.reconcile.import_bridge import _to_pending_confirmation
 from applire.services.profile.reconcile.ops import CommitOp, RequestConfirmation
-from applire.services.profile.reconcile.stance import record_denials
+from applire.services.profile.reconcile.stance import (
+    park_denial_scope_confirmations,
+    record_denials,
+)
 from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
 
 if TYPE_CHECKING:  # pragma: no cover — import cost only
@@ -722,6 +725,10 @@ async def commit_ops(
                 when=now,
             )
         )
+        # FS-7 (ADR-059 amended 2026-10-24) — a denial phrased as term + generic
+        # head noun floors the bare term; where the candidate's own CV names that
+        # term, park ONE Health question (never twice). No vault write besides it.
+        park_denial_scope_confirmations(profile.metadata, profile.model_dump(mode="json"))
 
     # ── Invariant 2 — the persisted-denial re-floor ──────────────────────────
     # It runs HERE, after the ops land and before the assignment, so it sees the

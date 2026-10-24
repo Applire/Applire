@@ -83,6 +83,7 @@ from applire.schemas.profile import (
     DeniedConcept,
     FieldChange,
     MasterProfileData,
+    PendingConfirmation,
     ProfileMetadata,
 )
 from applire.services.ats_audit import _fold_variants, _norm, surface_present
@@ -1378,6 +1379,16 @@ def denial_release_corpus(profile_json: dict[str, Any] | None) -> str:
     """
     if not isinstance(profile_json, dict):
         return ""
+    return _norm(_LABEL_SEPARATOR.join(denial_release_units(profile_json)))
+
+
+def denial_release_units(profile_json: dict[str, Any] | None) -> list[str]:
+    """The un-normalised units :func:`denial_release_corpus` is built from — one
+    attested label or imported bullet each, in vault order. Exists so a reader
+    that must SHOW the unit (the FS-7 Health question) quotes the vault's own
+    wording; the release predicate reads only the joined corpus. Pure."""
+    if not isinstance(profile_json, dict):
+        return []
 
     labels: list[str] = []
 
@@ -1415,7 +1426,46 @@ def denial_release_corpus(profile_json: dict[str, Any] | None) -> str:
     for unit in imported_prose_units(profile_json):
         _add(unit)
 
-    return _norm(_LABEL_SEPARATOR.join(labels))
+    return labels
+
+
+def head_noun_scope_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, str]]:
+    """FS-7 (ADR-059 amended 2026-10-24) — the persisted denials that declare a
+    bare term ONLY through their generic head noun ("payment-institution
+    experience" → "payment institution") while the candidate's own release corpus
+    (:func:`denial_release_units`: attested labels + imported bullets) names that
+    bare term outside every denial. The floor holds (the head noun declares the
+    term); this is the contradiction the Health item asks the candidate about.
+
+    One record per denial: ``{"denial_concept", "bare_term", "cv_label"}``, where
+    ``cv_label`` is the FIRST unit naming the term, in the vault's own wording.
+    ``bare_term`` is ``_norm``-ed. Pure, ``None``/malformed tolerant.
+    """
+    if not isinstance(profile_json, dict):
+        return []
+    metadata = profile_json.get("metadata") or {}
+    raw = metadata.get("denied_concepts") if isinstance(metadata, dict) else None
+    denials = [
+        d.get("concept") if isinstance(d, dict) else getattr(d, "concept", None)
+        for d in raw or []
+    ]
+    denials = [d for d in denials if isinstance(d, str) and d.strip()]
+    if not denials:
+        return []
+    units = denial_release_units(profile_json)
+    out: list[dict[str, str]] = []
+    for denial in denials:
+        bare = head_noun_term(denial)
+        if not bare:
+            continue
+        label = next(
+            (u for u in units if _independently_affirmed(bare, denials, _norm(u))),
+            None,
+        )
+        if label is None:
+            continue
+        out.append({"denial_concept": denial, "bare_term": bare, "cv_label": label})
+    return out
 
 
 #: ``EnrichmentRecord.source`` values whose prose is the candidate's OWN document
@@ -1498,6 +1548,87 @@ def imported_prose_units(profile_json: dict[str, Any] | None) -> list[str]:
                     if isinstance(text, str) and text.strip() and text.strip() not in written_elsewhere:
                         units.append(text.strip())
     return units
+
+
+#: FS-7 Health item (ADR-059 amended 2026-10-24) — the parked question's
+#: ``source`` and ``context.kind``: one identity for the parking and the resolution.
+DENIAL_SCOPE_SOURCE = "denial_scope"
+#: The answer that keeps the denial (no vault write: the floor already holds).
+DENIAL_HOLDS = "denial_holds"
+#: The answer that would reverse it — the ADR-059 2026-07-26 un-denial act.
+#: HELD (founder, G-5, 2026-10-24): defined so the resolution branch and the
+#: record share one key, but NOT offered until the ruling lands.
+CV_HOLDS = "cv_holds"
+DENIAL_SCOPE_OPTION_KEYS: tuple[str, ...] = (DENIAL_HOLDS,)
+
+
+def denial_scope_confirmation(hit: dict[str, str]) -> PendingConfirmation:
+    """THE builder of the FS-7 Health item, from one
+    :func:`head_noun_scope_conflicts` record. Called by the denial recording
+    path (:func:`park_denial_scope_confirmations`) and by the CV-import intake,
+    so both park the same question. Stored language-independent (ADR-063 #669):
+    ``question_i18n``/``options_i18n`` render per reader; ``option_keys`` is what
+    the answer resolves on. Pure."""
+    denial = hit["denial_concept"]
+    label = hit["cv_label"]
+    question_de = (
+        f"Laut deiner Angabe trifft „{denial}“ auf dich nicht zu. In deinem Lebenslauf "
+        f"steht aber: „{label}“. Wir zählen es deshalb weiter als nicht vorhanden. "
+        "Stimmt das so?"
+    )
+    question_en = (
+        f"By your own answer, “{denial}” does not apply to you. Your CV says: "
+        f"“{label}”. So we keep counting it as not there. Is that right?"
+    )
+    options = {
+        DENIAL_HOLDS: {
+            "de": "Ja, das stimmt so",
+            "en": "Yes, that's right",
+        },
+    }
+    keys = list(DENIAL_SCOPE_OPTION_KEYS)
+    return PendingConfirmation(
+        question=question_en,
+        options=[options[k]["en"] for k in keys],
+        context={
+            "kind": DENIAL_SCOPE_SOURCE,
+            "denial_concept": denial,
+            "bare_term": hit["bare_term"],
+            "cv_label": label,
+        },
+        source=DENIAL_SCOPE_SOURCE,
+        question_i18n={"de": question_de, "en": question_en},
+        options_i18n=[dict(options[k]) for k in keys],
+        option_keys=keys,
+    )
+
+
+def park_denial_scope_confirmations(
+    metadata: ProfileMetadata | None, profile_json: dict[str, Any] | None
+) -> list[PendingConfirmation]:
+    """Park one FS-7 Health item per head-noun denial the candidate's own CV
+    contradicts (:func:`head_noun_scope_conflicts`), never twice: a denial that
+    already has a ``denial_scope`` confirmation — open OR answered — is skipped,
+    so an answered question is not asked again. Returns the newly parked
+    records (also appended to ``metadata.pending_confirmations``). No vault
+    write besides the parked question; the floor is untouched."""
+    if metadata is None:
+        return []
+    asked = {
+        _norm(str((c.context or {}).get("denial_concept") or ""))
+        for c in metadata.pending_confirmations
+        if c.source == DENIAL_SCOPE_SOURCE
+    }
+    parked: list[PendingConfirmation] = []
+    for hit in head_noun_scope_conflicts(profile_json):
+        key = _norm(hit["denial_concept"])
+        if key in asked:
+            continue
+        asked.add(key)
+        conf = denial_scope_confirmation(hit)
+        metadata.pending_confirmations.append(conf)
+        parked.append(conf)
+    return parked
 
 
 def demote_ops_for_denials(

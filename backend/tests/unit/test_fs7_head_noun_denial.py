@@ -29,6 +29,9 @@ from applire.services.profile.reconcile.stance import (  # noqa: E402
     containment_release_form,
     declared_denial_matches,
     declared_only_by_head_noun,
+    denial_release_corpus,
+    denial_release_units,
+    head_noun_scope_conflicts,
     head_noun_term,
 )
 
@@ -117,3 +120,167 @@ def test_seam_a_narrowing_qualifier_still_lets_the_imported_cv_release():
     vault = _vault("Structured SBAR handover on every shift change", "formal SBAR experience")
     out, _changed = reevaluate_gap_ledger_against_vault([row], vault)
     assert out[0]["claimable"] is True
+
+
+# --- FS-7 Health item detector (the contradiction the founder asked to surface) ---
+
+
+def _hv(denials, *, bullets=(), skills=()):
+    return {
+        "skills": [{"name": n, "status": "confirmed"} for n in skills],
+        "work_experience": [
+            {"role": "Account Manager", "company": "Acme GmbH", "responsibilities": list(bullets)}
+        ],
+        "metadata": {"denied_concepts": [{"concept": d} for d in denials]},
+    }
+
+
+def test_conflict_when_the_imported_cv_names_the_bare_term():
+    v = _hv(
+        ["eigene Erfahrung mit Vertrieb"],
+        bullets=["Vertrieb von Verpackungslösungen an Lebensmittelkunden."],
+    )
+    assert head_noun_scope_conflicts(v) == [
+        {
+            "denial_concept": "eigene Erfahrung mit Vertrieb",
+            "bare_term": "vertrieb",
+            "cv_label": "Vertrieb von Verpackungslösungen an Lebensmittelkunden.",
+        }
+    ]
+
+
+def test_conflict_from_an_attested_skill_label():
+    v = _hv(["payment-institution experience"], skills=["Payment institution onboarding"])
+    (hit,) = head_noun_scope_conflicts(v)
+    assert hit["bare_term"] == "payment institution"
+    assert hit["cv_label"] == "Payment institution onboarding"
+
+
+def test_no_conflict_when_the_cv_is_silent_or_the_denial_has_no_head_noun():
+    assert head_noun_scope_conflicts(_hv(["eigene Erfahrung mit Vertrieb"], bullets=["Einkauf."])) == []
+    # a plain denial declares its term literally — no head-noun-only scope to ask about
+    assert head_noun_scope_conflicts(_hv(["Vertrieb"], bullets=["Vertrieb im Außendienst."])) == []
+
+
+def test_no_conflict_when_the_term_only_appears_inside_the_denial_wording():
+    v = _hv(
+        ["agile methodology experience"],
+        bullets=["Keine agile methodology experience; Wasserfall-Projekte."],
+    )
+    assert head_noun_scope_conflicts(v) == []
+
+
+def test_an_unconfirmed_skill_or_interview_prose_raises_nothing():
+    v = _hv(["eigene Erfahrung mit Vertrieb"])
+    v["skills"] = [{"name": "Vertrieb", "status": "unconfirmed"}]
+    assert head_noun_scope_conflicts(v) == []
+
+
+def test_units_rebuild_the_release_corpus_exactly():
+    v = _hv(["x"], bullets=["Vertrieb B2B.", "Kundenpflege."], skills=["SAP SD"])
+    from applire.services.ats_audit import _norm
+
+    assert denial_release_corpus(v) == _norm(" | ".join(denial_release_units(v)))
+
+
+def test_malformed_input():
+    assert head_noun_scope_conflicts(None) == []
+    assert head_noun_scope_conflicts({"metadata": {"denied_concepts": "nope"}}) == []
+    assert head_noun_scope_conflicts({"metadata": None}) == []
+
+
+def test_the_builder_parks_a_language_independent_record_with_denial_holds_only():
+    from applire.services.profile.reconcile.stance import (
+        CV_HOLDS,
+        DENIAL_HOLDS,
+        denial_scope_confirmation,
+    )
+
+    hit = {"denial_concept": "eigene Erfahrung mit Vertrieb", "bare_term": "vertrieb", "cv_label": "Vertrieb B2B."}
+    c = denial_scope_confirmation(hit)
+    assert c.source == "denial_scope" and c.context["kind"] == "denial_scope"
+    assert c.context["denial_concept"] == "eigene Erfahrung mit Vertrieb"
+    assert c.option_keys == [DENIAL_HOLDS] and CV_HOLDS not in c.option_keys  # G-5: cv_holds HELD
+    q_de, opts_de = c.rendered("de")
+    assert "„Vertrieb B2B.“" in q_de and opts_de == ["Ja, das stimmt so"]
+    assert c.rendered("en")[1] == ["Yes, that's right"]
+
+
+def test_parking_is_once_per_denial_even_after_an_answer():
+    from applire.schemas.profile import DeniedConcept, ProfileMetadata
+    from applire.services.profile.reconcile.stance import park_denial_scope_confirmations
+
+    v = _hv(["eigene Erfahrung mit Vertrieb"], bullets=["Vertrieb von Verpackungslösungen."])
+    md = ProfileMetadata(denied_concepts=[DeniedConcept(concept="eigene Erfahrung mit Vertrieb", statement="", source="interview", date="2026-10-24")])
+    first = park_denial_scope_confirmations(md, v)
+    assert len(first) == 1 and len(md.pending_confirmations) == 1
+    md.pending_confirmations[0].resolved = True
+    md.pending_confirmations[0].chosen_option = "Ja, das stimmt so"
+    assert park_denial_scope_confirmations(md, v) == []
+    assert len(md.pending_confirmations) == 1
+    assert park_denial_scope_confirmations(None, v) == []
+
+
+# --- Seam: the commit path's denial hunk parks the Health item ---
+
+
+@pytest.mark.asyncio
+async def test_seam_commit_ops_parks_the_health_item_when_a_head_noun_denial_meets_the_cv():
+    import copy
+    import uuid
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from applire.db.session import Base
+    from applire.models.profile import MasterProfile, ProfileSnapshot, authorized_profile_write
+    from applire.services.profile.commit import CommitProvenance, TurnGrounding, commit_ops
+
+    seed = {
+        "personal_info": {"full_name": "Erika Muster", "email": "erika@example.invalid"},
+        "work_experience": [
+            {
+                "id": "w1",
+                "company": "Rheinwerk GmbH",
+                "role": "Key Account Managerin",
+                "start_date": "2018-01",
+                "end_date": "2023-12",
+                "responsibilities": ["Vertrieb von Verpackungslösungen an Lebensmittelkunden."],
+            }
+        ],
+        "skills": [],
+        "metadata": {
+            "completeness_score": 0.0,
+            "created_via": "cv_upload",
+            "created_at": "2020-01-01T00:00:00Z",
+            "last_updated": "2020-01-01T00:00:00Z",
+        },
+    }
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: Base.metadata.create_all(c, tables=[MasterProfile.__table__, ProfileSnapshot.__table__])
+        )
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as db:
+            with authorized_profile_write():
+                record = MasterProfile(profile_json=copy.deepcopy(seed))
+            db.add(record)
+            await db.commit()
+            prov = CommitProvenance(source="testimony", intake="testimony", session_id=str(uuid.uuid4()))
+            grounding = TurnGrounding(
+                text="Eigene Erfahrung mit Vertrieb habe ich nicht.",
+                denials=["eigene Erfahrung mit Vertrieb"],
+            )
+            await commit_ops(db, [], prov, grounding=grounding)
+            # The same denial again: the question is never parked twice.
+            await commit_ops(db, [], prov, grounding=grounding)
+            parked = [
+                c for c in record.profile_json["metadata"].get("pending_confirmations") or []
+                if c.get("source") == "denial_scope"
+            ]
+            assert len(parked) == 1
+            assert parked[0]["context"]["cv_label"] == "Vertrieb von Verpackungslösungen an Lebensmittelkunden."
+            assert parked[0]["option_keys"] == ["denial_holds"]
+    finally:
+        await engine.dispose()
