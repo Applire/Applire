@@ -276,6 +276,16 @@ export function GapClusterCard({
               ))}
             </div>
           )}
+          {/* 787:95 — a renamed JD term folded into this finished card: listed
+              here, so it is not a new card and does not reopen this one. */}
+          {(view.folded?.length ?? 0) > 0 && (
+            <div data-testid="gap-folded-members" className="flex flex-wrap items-center gap-1 mt-1.5">
+              <span className="text-xs text-on-surface-variant">{t("foldedMembersLabel")}</span>
+              {view.folded!.map((m) => (
+                <MemberChip key={m.term} term={m.term} state={m.state} requirement={m.requirement} />
+              ))}
+            </div>
+          )}
           {view.budgetSpent && (
             <p
               data-testid="gap-budget-spent"

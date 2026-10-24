@@ -200,7 +200,13 @@ export interface GapCluster {
     requirement?: boolean;
     /** G-4 — `declined` only through a related denial's floor (never named). */
     floored?: boolean;
+    /** 787:95 — a member folded into this FINISHED card (see `folded`). */
+    folded?: boolean;
   }[];
+  /** 787:95 — concepts a recompute found to be this topic under a renamed JD
+   * term while the card was already finished: shown on the card, never in
+   * `gaps`, never colouring or reopening it. Absent on older rows. */
+  folded?: string[];
   /** R2-10 (ruling F1-2), derived at response time: `false` = no member is a
    * counted requirement (a topic of posting terms only) — never listed or
    * counted as a topic. Absent (legacy row / older backend) = `true`. */
@@ -330,6 +336,9 @@ export interface ClusterView {
   members: ClusterMember[];
   tone: CardTone;
   pill: CoveragePill | null;
+  /** 787:95 — members folded into this finished card, with their own chip
+   * state; outside `members`, so they never colour or reopen the card. */
+  folded?: ClusterMember[];
   /** G-4 — a `declined` card whose declined requirements are ALL floored (ruled
    * out by an answer, never named): the pill says so instead of "laut deiner
    * Angabe". */
@@ -469,6 +478,13 @@ export function clusterView(
     tone,
     pill,
     ruledOut,
+    folded: (cluster.folded ?? [])
+      .filter((term) => typeof term === "string" && term.trim() !== "")
+      .map((term) => ({
+        term,
+        state: facts.get(normMember(term)) ?? "gap",
+        requirement: !terms.has(normMember(term)),
+      })),
     askable,
     budgetSpent: !finished && !hasBudget,
     leftOpen,

@@ -403,6 +403,17 @@ def member_statuses(
         if not recorded and _is_floored_only(member, _rows_for(member, keyword_ledger), denials):
             item["floored"] = True
         out.append(item)
+    # 787:95 — a member folded into a finished card: its own chip status, marked
+    # so no surface lets it colour or reopen the card.
+    for member in folded_members(cluster):
+        out.append(
+            {
+                "member": member,
+                "status": _member_status(member, keyword_ledger, denials),
+                "requirement": member_is_requirement(member, keyword_ledger),
+                "folded": True,
+            }
+        )
     return out
 
 
@@ -669,7 +680,14 @@ def refresh_cluster_from_ledger(
     """
     if not isinstance(cluster, dict):
         return None
-    return _split_against_ledger(cluster, keyword_ledger, denied_concepts, drop_orphans=True)
+    refreshed = _split_against_ledger(cluster, keyword_ledger, denied_concepts, drop_orphans=True)
+    if refreshed is not None and "folded" in refreshed:
+        # 787:95 — a folded member follows the same orphan rule as a member.
+        refreshed["folded"] = [
+            m for m in folded_members(refreshed)
+            if not keyword_ledger or member_matches_ledger(m, keyword_ledger)
+        ]
+    return refreshed
 
 
 def resplit_cluster(
@@ -701,6 +719,66 @@ def initialise_cluster_record(
     if split is None:  # a memberless cluster: keep it as the model sent it
         return {**fresh, "gaps": [], "coverage": "open"}
     return split
+
+
+def folded_members(cluster: dict[str, Any]) -> list[str]:
+    """787:95 — the members FOLDED into a finished card on a recompute
+    (:func:`fold_into_carried`): shown on the card, never in its ``gaps``, so
+    the card stays in "Erledigt" (founder default until ruled, 2026-10-24).
+    Not part of :func:`all_members` — the record's split is untouched."""
+    if not isinstance(cluster, dict):
+        return []
+    return _dedupe(_str_list(cluster.get("folded")))
+
+
+def is_finished(cluster: dict[str, Any]) -> bool:
+    """The card sits in "Erledigt": covered, declined, or left open by hand."""
+    return is_left_open(cluster) or stored_or_derived_coverage(cluster) in ("covered", "declined")
+
+
+def fold_target(
+    concept: str,
+    carried: list[dict[str, Any]],
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """787:95 rule (a), a FACT (ADR-062 cl. 1): the carried cluster a leftover
+    concept belongs to, or ``None``. The concept's OWN ledger rows
+    (:func:`_own_rows`, else every row speaking for it) name it in other words
+    — their concept + ``surface_forms``; when one of those names matches a
+    carried cluster's member (``_matches``, the ledger builder's matcher), the
+    concept is that topic again under a renamed JD term, not a new topic."""
+    rows = _rows_for(concept, keyword_ledger)
+    own = _own_rows(concept, rows) or rows
+    names = {_norm(n) for row in own for n in _row_names(row)} - {_norm(concept)}
+    names.discard("")
+    if not names:
+        return None
+    for cluster in carried:
+        members = [_norm(m) for m in all_members(cluster) + folded_members(cluster)]
+        if any(_matches(n, m) for n in names for m in members if m):
+            return cluster
+    return None
+
+
+def fold_into(
+    cluster: dict[str, Any],
+    concept: str,
+    keyword_ledger: list[dict[str, Any]] | None,
+    denied_concepts: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """PURE. ``concept`` joins ``cluster`` (787:95). An open card takes it as a
+    member and is re-split (:func:`resplit_cluster`); a FINISHED card
+    (:func:`is_finished`) records it in ``folded`` only, so the card is not
+    reopened by a concept nobody asked about (founder default, 2026-10-24)."""
+    key = _norm(concept)
+    if not key or key in {_norm(m) for m in all_members(cluster) + folded_members(cluster)}:
+        return copy.deepcopy(cluster)
+    if is_finished(cluster):
+        new = copy.deepcopy(cluster)
+        new["folded"] = folded_members(cluster) + [concept]
+        return new
+    grown = {**copy.deepcopy(cluster), "gaps": _str_list(cluster.get("gaps")) + [concept]}
+    return resplit_cluster(grown, keyword_ledger, denied_concepts)
 
 
 def cluster_by_id(clusters: Any, cluster_id: str) -> dict[str, Any] | None:

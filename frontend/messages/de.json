@@ -342,7 +342,8 @@
     "interviewOpenFailed": "Das Interview konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal.",
     "cvAdvanceFailed": "Der Lebenslauf-Schritt konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal.",
     "memberRuledOutSr": "(durch deine Antwort ausgeschlossen)",
-    "coverageRuledOut": "Durch deine Antwort ausgeschlossen"
+    "coverageRuledOut": "Durch deine Antwort ausgeschlossen",
+    "foldedMembersLabel": "Später zu diesem Thema dazugekommen:"
   },
   "interview": {
     "loading": "Interview wird gestartet…",

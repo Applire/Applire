@@ -474,3 +474,26 @@ describe("G-4 — a requirement floored by the candidate's answer", () => {
     expect(chips[1]).not.toHaveAttribute("data-floored");
   });
 });
+
+describe("787:95 — a folded member on a finished card", () => {
+  it("is listed on the card and neither colours nor reopens it", () => {
+    const done = makeCluster({
+      gaps: [],
+      coverage: "covered",
+      outcome: { asked: 1, covered: ["Verpackungsindustrie"], declined: [], session_ids: [] },
+      folded: ["Kunststoffverpackungen"],
+      member_statuses: [
+        { member: "Verpackungsindustrie", status: "covered" },
+        { member: "Kunststoffverpackungen", status: "gap", folded: true },
+      ],
+    });
+    const view = clusterView(done);
+    expect(view.members.map((m) => m.term)).toEqual(["Verpackungsindustrie"]);
+    expect(view.tone).toBe("green");
+    expect(view.askable).toBe(false);
+    render(withIntl(<GapClusterCard cluster={done} view={view} />, "de"));
+    const line = screen.getByTestId("gap-folded-members");
+    expect(line).toHaveTextContent("Später zu diesem Thema dazugekommen:");
+    expect(line).toHaveTextContent("Kunststoffverpackungen");
+  });
+});

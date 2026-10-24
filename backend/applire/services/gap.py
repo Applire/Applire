@@ -54,6 +54,9 @@ from applire.services.gap_coverage import (
     AnswerScope,
     all_members,
     cluster_by_id,
+    fold_into,
+    fold_target,
+    folded_members,
     initialise_cluster_record,
     is_left_open,
     refresh_cluster_from_ledger,
@@ -689,6 +692,7 @@ async def _cluster_concepts(
     *,
     category_b: list[str],
     category_c: list[str],
+    existing_topics: list[dict] | None = None,
 ) -> list[dict]:
     """The clustering LLM call over the given askable concepts, validated and
     reconciled (#675 line 60). Returns the clusters; persists nothing.
@@ -713,6 +717,11 @@ async def _cluster_concepts(
             required_skills=list(job.required_skills or []),
             nice_to_have_skills=list(job.nice_to_have_skills or []),
             lang=lang,
+            existing_topics=[
+                {"id": t.get("id"), "label": t.get("label"), "members": all_members(t)}
+                for t in existing_topics or []
+                if isinstance(t, dict) and t.get("id")
+            ],
         ),
         system=CLUSTERING_SYSTEM_PROMPT,
         temperature=0.1,
@@ -1129,6 +1138,10 @@ def _jd_lists_unchanged(job: JobAnalysis, previous: GapAnalysis | None) -> bool:
     return True
 
 
+def _str_list_safe(value: Any) -> list[str]:
+    return [v for v in value or [] if isinstance(v, str) and v.strip()] if isinstance(value, list) else []
+
+
 def _unique_cluster_ids(clusters: list[dict], taken: set[str]) -> list[dict]:
     """Appended clusters never reuse a carried cluster's id (the id is the
     record's identity, ADR-089 clause 4)."""
@@ -1188,7 +1201,9 @@ async def _carry_forward_clusters(
     for cluster in carried:
         cluster["category"] = _derived_category(all_members(cluster), c_members)
 
-    carried_members = [_norm_gap(m) for c in carried for m in all_members(c)]
+    carried_members = [
+        _norm_gap(m) for c in carried for m in all_members(c) + folded_members(c)
+    ]
 
     def _held(concept: str) -> bool:
         key = _norm_gap(concept)
@@ -1196,14 +1211,51 @@ async def _carry_forward_clusters(
 
     leftover_c = [g for g in askable_c if not _held(g)]
     leftover_b = [g for g in (record.category_b or []) if not _held(g)]
+
+    # 787:95 rule (a) — a leftover whose OWN ledger row names a carried member
+    # in other words is that topic under a renamed JD term: fold it into the
+    # carried card (a finished card records it as folded, never reopens).
+    def _fold(concepts: list[str]) -> list[str]:
+        rest: list[str] = []
+        for g in concepts:
+            target = fold_target(g, carried, ledger)
+            if target is None:
+                rest.append(g)
+                continue
+            i = carried.index(target)
+            carried[i] = fold_into(target, g, ledger, denied_concepts)
+            logger.info("carry_forward: %r folded into carried cluster %r (787:95 rule a)", g, target.get("id"))
+        return rest
+
+    leftover_c = _fold(leftover_c)
+    leftover_b = _fold(leftover_b)
     appended: list[dict] = []
     if leftover_c or leftover_b:
         fresh = await _cluster_concepts(
-            record, job, provider, db, category_b=leftover_b, category_c=leftover_c
+            record, job, provider, db, category_b=leftover_b, category_c=leftover_c,
+            existing_topics=carried,
         )
+        # 787:95 rule (b) — the model filed a leftover under an EXISTING topic id
+        # (the carried topics are in its prompt): fold those members into that
+        # card instead of minting a renamed twin.
+        # The id AND the label must be the carried topic's (the prompt asks for
+        # both, copied): a bare id collision is an accidental twin, renamed below.
+        carried_ids = {c["id"]: i for i, c in enumerate(carried)}
+        new_clusters: list[dict] = []
+        for c in fresh:
+            cid = str(c.get("id") or "")
+            if cid in carried_ids and _norm_gap(str(c.get("label") or "")) == _norm_gap(
+                str(carried[carried_ids[cid]].get("label") or "")
+            ):
+                i = carried_ids[cid]
+                for g in _str_list_safe(c.get("gaps")):
+                    carried[i] = fold_into(carried[i], g, ledger, denied_concepts)
+                logger.info("carry_forward: fresh cluster filed under carried id %r (787:95 rule b)", cid)
+            else:
+                new_clusters.append(c)
         appended = [
             initialise_cluster_record(c, ledger, denied_concepts)
-            for c in _unique_cluster_ids(fresh, {c["id"] for c in carried})
+            for c in _unique_cluster_ids(new_clusters, {c["id"] for c in carried})
         ]
     return carried + appended
 

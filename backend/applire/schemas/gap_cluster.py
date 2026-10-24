@@ -17,7 +17,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_serializer
 
 #: The keys the CLUSTERING MODEL writes. Everything else on a persisted cluster
 #: (``outcome``, ``coverage``) is Applire's record (ADR-089 clause 3) and is
@@ -60,6 +60,19 @@ class GapClusterMemberStatus(BaseModel):
     # (keyword_ledger.is_denial_floored): the candidate's answer ruled it out,
     # but they never named it, so the chip must not say they did.
     floored: bool = False
+    # 787:95 (ADR-095: additive) — a member folded into a FINISHED card on a
+    # recompute (GapClusterSchema.folded): shown, never colours or reopens it.
+    folded: bool = False
+
+    @model_serializer(mode="wrap")
+    def _flags_only_when_set(self, handler):
+        # The two G-4 / 787:95 flags are published only when True, so a chip
+        # that carries neither reads exactly as it did before (ADR-095: additive).
+        data = handler(self)
+        for flag in ("floored", "folded"):
+            if isinstance(data, dict) and data.get(flag) is False:
+                data.pop(flag)
+        return data
 
 
 class GapClusterSchema(BaseModel):
@@ -103,6 +116,12 @@ class GapClusterSchema(BaseModel):
     # member is a counted requirement (a topic of posting terms only). Such a
     # cluster is not asked and no surface counts or lists it as an open topic.
     requirement_topic: bool = True
+    # 787:95 (Hazelnut build 4 / WP-G; ADR-095: additive, persisted) — concepts a
+    # recompute found to be THIS topic under a renamed JD term
+    # (gap_coverage.fold_target) while the card was already finished. They sit
+    # here, never in ``gaps``, so the card stays in "Erledigt" (founder default
+    # until ruled, 2026-10-24); the gaps page shows them on the card.
+    folded: list[str] = Field(default_factory=list)
 
     @field_validator("outcome", mode="before")
     @classmethod

@@ -15,8 +15,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v3
-# Used by: services/gap.py (cluster_gaps)
+# Prompt version: v4
+# Used by: services/gap.py (cluster_gaps, _carry_forward_clusters)
+#
+# v4 (Hazelnut build 4 / WP-G, 2026-10-24, line 787:95): on a recompute the call clusters only
+# the concepts no carried topic holds, and it never saw those topics, so a concept the posting
+# merely renamed ("Kunststoffverpackungen" for a carried "Verpackungsindustrie") came back as a
+# brand-new card (Nougat K-1 delivery, 8 -> 9 clusters). The carried topics are now listed as
+# EXISTING TOPICS and a gap may be filed under one by its id; services/gap.py folds such a
+# cluster into the carried card. No block (a first analysis) = v3 behaviour.
 #
 # v3 (Hazelnut build 3 / WP-G, 2026-10-22): jd_context is a third-person sentence about the
 # POSTING. v2 asked for a "first-person role perspective" and the model wrote it as the
@@ -68,6 +75,11 @@ Fertigung digitalisiert wird." / "The role expects hands-on Kafka experience bec
 events are processed as streams." It is shown to the candidate as what the role expects, so it \
 never speaks as or to anyone: no first or second person (no ich/wir/du/Sie, no I/we/you), and it \
 never says whether the candidate has or lacks anything.
+- EXISTING TOPICS: when the user message lists existing topics, they are clusters the \
+candidate already sees. A gap that belongs to one of them (the same subject, even in other \
+words) goes into a cluster with that topic's EXACT "id" and "label" copied from the list; only \
+gaps that fit no existing topic get a new cluster with a new id. Never copy an existing \
+topic's members into "gaps" - only the input gaps.
 - Target 5-12 clusters; never more clusters than input gaps
 - Every input gap must appear in exactly one cluster
 - Respond ONLY with a valid JSON object of the form {"clusters": [ ... ]} - no markdown, no explanations"""
@@ -79,6 +91,7 @@ def build_clustering_prompt(
     required_skills: list[str],
     nice_to_have_skills: list[str],
     lang: str = "de",
+    existing_topics: list[dict] | None = None,
 ) -> str:
     # #3 (ADR-038): the gaps page is conversational — jd_context follows the candidate's
     # UI language, not the JD's. An explicit directive is more reliable than "the JD's language".
@@ -98,7 +111,13 @@ def build_clustering_prompt(
             + "\n\nRequired skills from JD:\n"
             + json.dumps(required_skills, ensure_ascii=False)
             + "\n\nNice-to-have skills from JD:\n"
-            + json.dumps(nice_to_have_skills, ensure_ascii=False),
+            + json.dumps(nice_to_have_skills, ensure_ascii=False)
+            + (
+                "\n\nEXISTING TOPICS (file a gap under one of these ids when it belongs there):\n"
+                + json.dumps(existing_topics, ensure_ascii=False)
+                if existing_topics
+                else ""
+            ),
             header="GAPS AND JD SKILLS TO CLUSTER",
         )
         + "\n\n"
