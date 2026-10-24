@@ -34,9 +34,23 @@ interface ChecklistItem {
   done: boolean;
 }
 
+/**
+ * R2-10 (lead G hunk): the summary lives in `professional_summary.{de,en}`
+ * (`MasterProfileData`), not in `personal_info` — the card read a field the
+ * schema does not have, so every strong profile was told "Optional: add
+ * Summary" next to its summary (round 2, felix-031).
+ */
+function hasSummary(profile: Record<string, unknown>): boolean {
+  const ps = profile.professional_summary as Record<string, unknown> | string | null | undefined;
+  if (typeof ps === "string") return ps.trim().length > 0;
+  if (ps && typeof ps === "object") {
+    return Object.values(ps).some((v) => typeof v === "string" && v.trim().length > 0);
+  }
+  return false;
+}
+
 function buildChecklist(profile: Record<string, unknown> | null): ChecklistItem[] {
   if (!profile) return [];
-  const pi = (profile.personal_info as Record<string, unknown>) ?? {};
   const work = (profile.work_experience as unknown[]) ?? [];
   const skills = (profile.skills as unknown[]) ?? [];
   const edu = (profile.education as unknown[]) ?? [];
@@ -44,7 +58,7 @@ function buildChecklist(profile: Record<string, unknown> | null): ChecklistItem[
     { labelKey: "profileCheckWorkExp", done: work.length > 0 },
     { labelKey: "profileCheckSkills",  done: skills.length > 0 },
     { labelKey: "profileCheckEducation", done: edu.length > 0 },
-    { labelKey: "profileCheckSummary", done: !!(pi.summary as string) },
+    { labelKey: "profileCheckSummary", done: hasSummary(profile) },
   ];
 }
 
