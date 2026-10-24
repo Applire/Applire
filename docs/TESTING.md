@@ -84,7 +84,6 @@ tests/
 │   ├── cv-section-editor.spec.ts
 │   ├── gaps-page.spec.ts
 │   ├── jd-url-error.spec.ts
-│   ├── match-page.spec.ts
 │   ├── photo-management.spec.ts
 │   ├── profile-enrichment.spec.ts
 │   ├── upload-flow.spec.ts

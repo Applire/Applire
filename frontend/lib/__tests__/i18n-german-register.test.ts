@@ -134,9 +134,6 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "shell.topbarUserInitial",
   "shell.backArrowLabel",
   "admin.schemeEditor.iconNewScheme",
-  "match.emptyIcon",
-  "match.strengthPrefix",
-  "match.gapPrefix",
   // Hazelnut b3 WP-V (V-1 receipt summary): a placeholder pair and a dash
   // attribution — no German word left to translate.
   "review.summary.entityCount",
