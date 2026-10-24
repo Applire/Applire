@@ -18,7 +18,6 @@
 """Ollama local LLM provider — zero cloud dependencies (ADR 009)."""
 
 import asyncio
-import json
 from typing import Any
 
 import httpx
@@ -27,6 +26,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation, unclassified_provider_error
+from applire.providers.llm.json_reply import parse_json_reply
 from applire.providers.llm.reasoning import finalise_completion, note_trace
 from applire.providers.llm.usage import note_usage
 
@@ -166,7 +166,8 @@ class OllamaProvider(LLMProvider):
             if wrapped is None:
                 raise
             raise wrapped from None
-        return json.loads(raw)
+        # R2-13: one tolerant parse for every provider.
+        return parse_json_reply(raw, provider="Ollama", model=self._model)
 
     @_retry
     async def _complete(self, messages: list, temperature: float, max_tokens: int) -> str:

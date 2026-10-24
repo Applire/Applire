@@ -1904,6 +1904,8 @@
     "reMeantHeading": "Diese Werte setzt du, und ihre Bedeutung hat sich geändert:",
     "introducedIn": "seit {version}, Standard: {defaultValue}",
     "changedIn": "geändert in {version}",
+    "introducedInAhead": "ab {version}, Standard: {defaultValue}",
+    "changedInAhead": "geändert ab {version}",
     "emptyDefault": "leer",
     "moreInfo": "Was sich geändert hat, steht im CHANGELOG unter „Upgrade notes“ und in docs/SELF-HOSTING.md.",
     "debugLogOn": "Das LLM-Debug-Protokoll ist eingeschaltet: Jede Anfrage wird samt Lebenslauf-Daten in Dateien im Container geschrieben, ohne Größen- oder Altersgrenze. Im Produktivbetrieb ausschalten (LLM_DEBUG_LOG=false) und die Dateien löschen.",

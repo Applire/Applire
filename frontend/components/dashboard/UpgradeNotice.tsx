@@ -63,6 +63,25 @@ function before(a: readonly number[], b: readonly number[]): boolean {
   return false;
 }
 
+/**
+ * FS-9 (founder 2026-10-23): is `version` AHEAD of the running build `running`?
+ * The settings registry tags a setting with the NEXT release by convention, so a
+ * pre-release build (0.44.0-beta) lists "APPLIRE_HTTP_PORT … 1.0.0" — "seit 1.0.0"
+ * would say it already happened. Semver order: a pre-release (any suffix after
+ * X.Y.Z: `-beta`, PEP 440 `b0`, `rc1`) is before its release.
+ */
+export function isAhead(version: string | undefined, running: string | undefined): boolean {
+  const v = releaseTuple(version);
+  const r = releaseTuple(running);
+  if (v === null || r === null) return false;
+  if (before(r, v)) return true;
+  if (before(v, r)) return false;
+  const suffix = (s: string | undefined) =>
+    (s ?? "").trim().replace(/^v?\d+\.\d+\.\d+/, "").replace(/^\+.*/, "");
+  // Same X.Y.Z: ahead only when the running build is a pre-release of it.
+  return suffix(running) !== "" && suffix(version) === "";
+}
+
 /** True when this upgrade went from a pre-accounts release to one with accounts. */
 export function crossesMultiUser(from: string, to: string): boolean {
   const f = releaseTuple(from);
@@ -194,7 +213,7 @@ export function UpgradeNotice() {
                       <li key={item.env_var} className="text-[12px] text-neutral-dark">
                         <code className="font-mono font-bold">{item.env_var}</code>
                         <span className="text-on-surface-variant ml-1">
-                          {t("introducedIn", {
+                          {t(isAhead(item.introduced_in, notice.to) ? "introducedInAhead" : "introducedIn", {
                             version: item.introduced_in ?? "",
                             defaultValue: item.default || t("emptyDefault"),
                           })}
@@ -215,7 +234,7 @@ export function UpgradeNotice() {
                       <li key={item.env_var} className="text-[12px] text-neutral-dark">
                         <code className="font-mono font-bold">{item.env_var}</code>
                         <span className="text-on-surface-variant ml-1">
-                          {t("changedIn", {
+                          {t(isAhead(item.semantics_changed_in, notice.to) ? "changedInAhead" : "changedIn", {
                             version: item.semantics_changed_in ?? "",
                           })}
                         </span>

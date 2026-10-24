@@ -18,7 +18,6 @@
 """Mistral AI provider — EU-hosted default (ADR 009)."""
 
 import asyncio
-import json
 from typing import Any
 
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
@@ -34,6 +33,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.json_reply import parse_json_reply
 from applire.providers.llm.reasoning import finalise_completion
 from applire.providers.llm.usage import note_usage
 
@@ -156,7 +156,8 @@ class MistralProvider(LLMProvider):
             if wrapped is None:
                 raise
             raise wrapped from None
-        return json.loads(raw)
+        # R2-13: one tolerant parse for every provider.
+        return parse_json_reply(raw, provider="Mistral", model=self._model)
 
     @_retry
     async def _complete(self, messages: list, temperature: float, max_tokens: int) -> str:

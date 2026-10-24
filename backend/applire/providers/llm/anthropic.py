@@ -36,7 +36,6 @@ Env vars consumed (see applire/config.py):
 """
 
 import asyncio
-import json
 import logging
 import time
 from typing import Any
@@ -50,6 +49,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import LLMProvider, raise_if_truncated, unclassified_provider_error
+from applire.providers.llm.json_reply import parse_json_reply
 from applire.providers.llm.reasoning import finalise_completion, note_trace
 from applire.providers.llm.usage import note_usage
 
@@ -160,12 +160,10 @@ class AnthropicProvider(LLMProvider):
             if wrapped is None:
                 raise
             raise wrapped from None
-        raw = ("{" + text).strip()
-        # Drop any trailing prose / code fence after the JSON object.
-        end = raw.rfind("}")
-        if end != -1:
-            raw = raw[: end + 1]
-        return json.loads(raw)
+        # R2-13: the reply continues the prefilled "{"; one tolerant parse for
+        # every provider (first JSON value; a non-JSON tail is discarded, a
+        # second JSON value raises — the old cut at the LAST "}" kept neither).
+        return parse_json_reply("{" + text, provider="Anthropic", model=self._model)
 
     @_retry
     async def _create(

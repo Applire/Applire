@@ -33,7 +33,6 @@ Env vars consumed (see applire/config.py):
 """
 
 import asyncio
-import json
 import logging
 import time
 from typing import Any
@@ -55,6 +54,7 @@ from applire.providers.llm.base import (
     retry_on_truncation,
 )
 from applire.providers.llm.latches import ProcessLatch
+from applire.providers.llm.json_reply import parse_json_reply
 from applire.providers.llm.reasoning import finalise_completion
 from applire.providers.llm.usage import note_usage
 
@@ -319,12 +319,9 @@ class OpenRouterProvider(LLMProvider):
             if wrapped is None:
                 raise
             raise wrapped from None
-        # Strip markdown code fences some models emit
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        return json.loads(content.strip())
+        # R2-13: one tolerant parse for every provider (first JSON value; a
+        # non-JSON tail is discarded, a second JSON value raises).
+        return parse_json_reply(content, provider="OpenRouter", model=self._model)
 
     def _extra_body(self, disable_thinking: bool | None = None) -> dict | None:
         # Per-call override wins; otherwise the provider's configured default.

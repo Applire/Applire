@@ -182,7 +182,10 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
-    command: sh -c "while true; do python -m applire.retention; sleep 86400; done"
+    # The full sweep once a day; between sweeps, every 10 min, only the two
+    # stale-generation reapers, so a dead CV/letter generation turns "failed"
+    # within ~41 min instead of a day (789:14; 144 x 600 s = 86400 s).
+    command: sh -c "while true; do python -m applire.retention; n=0; while [ $$n -lt 144 ]; do sleep 600; python -m applire.retention --stale-jobs; n=$$((n+1)); done; done"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

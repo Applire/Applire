@@ -128,7 +128,7 @@ The engine's boundary rules:
 
 ### ADR-005 / ADR-017 — GDPR Retention Worker
 
-**Decision:** A dedicated `retention` service in Docker Compose runs `python -m applire.retention` daily and enforces these TTL rules:
+**Decision:** A dedicated `retention` service in Docker Compose runs `python -m applire.retention` daily and enforces these TTL rules. Between the daily runs it also runs `python -m applire.retention --stale-jobs` every 10 minutes, which marks a CV or letter generation stuck in `pending`/`generating` for more than 31 minutes as `failed`. The 31 minutes are three times the measured p99 generation time; this check is not a personal-data TTL, writes no run record and is never suspended (amended 2026-10-24).
 
 | Entity | TTL | Action |
 |---|---|---|
@@ -211,6 +211,8 @@ All TTL values are configurable via environment variables in `applire/constants.
 **Why direct SDKs over LangChain:** LLM execution stays on our own provider SDKs — never LangChain's model layer (and after ADR-049 superseded ADR-045's graph substrate, no LangChain-family dependency exists at all). This reduces the dependency surface and keeps the provider contract narrow and testable.
 
 **Temperature defaults:** `0.3` for free-text completion (`acomplete`), `0.1` for structured JSON parsing (`aparse_json`).
+
+**One tolerant JSON read for every provider (amended 2026-10-24, Hazelnut build 4).** Every provider's `aparse_json` reads its reply through one helper (`providers/llm/json_reply.py`). It strips an opening code fence and decodes the **first** JSON value. Text after it that is not JSON (a note, a closing fence) is discarded: an always-on log line records only its length and kind, never its text, and the text itself goes only to the debug log. A second JSON value after the first, or no JSON value at the start, raises `LLMResponseParseError`, so half an answer is never kept unseen. That error is also a `json.JSONDecodeError`, so existing handlers keep catching it. With the debug log on, a failed read records the raw reply. Until this change, a model that appended a sentence to its answer lost the whole step: on one instance, an interview answer.
 
 **Truncation is a hard error (no silent half-output):** when a model stops because it hit the token budget (`finish_reason='length'`, Anthropic `stop_reason='max_tokens'`, Ollama `done_reason='length'`), providers raise `LLMTruncatedError` rather than return a partial result. This guarantees a CV or cover letter can never be persisted as valid-but-incomplete JSON closed early under budget pressure — it fails loud and retryable.
 

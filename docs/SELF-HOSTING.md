@@ -244,7 +244,7 @@ Two ways to get the setting wrong without any message:
 
 ## 9. Disk and pruning
 
-**How much disk and RAM to plan.** Plan on about 8 GB of free disk and 2 GB of RAM (4 GB of RAM if several people share the instance). The four images take about 5.2 GB once pulled: the backend about 4 GB (it carries the Chromium that renders PDFs; the `retention` service reuses the same image), PostgreSQL about 0.6 GB, the frontend about 0.4 GB, nginx about 0.1 GB. An update pulls new images and leaves the old ones until you prune them (below). The running stack idles near 0.5 GB of RAM; every PDF render starts a headless Chromium on top of that. A local model with Ollama needs more of both.
+**How much disk and RAM to plan.** Plan on about 8 GB of free disk and 2 GB of RAM (4 GB of RAM if several people share the instance). The first pull downloads about 1.3 GB (compressed: backend 1.06 GB, PostgreSQL 0.16 GB, frontend 0.08 GB, nginx 0.03 GB); unpacked, the four images take about 5.2 GB: the backend about 4 GB (it carries the Chromium that renders PDFs; the `retention` service reuses the same image), PostgreSQL about 0.6 GB, the frontend about 0.4 GB, nginx about 0.1 GB. An update pulls new images and leaves the old ones until you prune them (below). The running stack idles near 0.5 GB of RAM; every PDF render starts a headless Chromium on top of that: measured in the backend image, about 0.2 GB more while one render runs and about 0.4 GB for three at once, released when the render ends. A local model with Ollama needs more of both.
 
 Three named volumes hold everything durable: `postgres_data`, `ollama_data` (only used with `docker compose --profile ollama up`), and `applire_uploads`.
 
@@ -610,6 +610,8 @@ Everything else, including provider base URLs, timeouts and the retention period
 - background-job housekeeping;
 - the orphan-file scan;
 - the audit-log and usage-record age limits.
+
+**A generation that died.** If the backend restarts or crashes while it writes a CV or cover letter, that document would stay "Generating…" forever. The `retention` service therefore also checks every 10 minutes, between its nightly runs, for a CV or letter that has been generating for more than 31 minutes, and marks it failed. The page then offers to generate it again. 31 minutes is three times the slowest generation we measured (about 10 minutes). This check is not part of the GDPR clean-up, and `RETENTION_ENABLED` does not switch it off.
 
 While it is off, the administration dashboard shows a permanent notice, and every nightly run records that it skipped and why. Switching it back on catches up in the next nightly run: everything past its retention period is then deleted at once. If other people keep their data on your instance, read Section 18 before you switch it off.
 

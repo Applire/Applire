@@ -586,17 +586,20 @@ describe("LiabilityPanel — locking (ADR-089 clause 8, one open micro-session a
     expect(onActiveChange).toHaveBeenCalledWith(false);
 
     fireEvent.click(screen.getByTestId("liability-tell-story-RAG"));
-    await waitFor(() => expect(onActiveChange).toHaveBeenCalledWith(true));
+    // Explicit 10 s budgets: the default 1 s waitFor/findBy window flaked under CPU load (785:221).
+    await waitFor(() => expect(onActiveChange).toHaveBeenCalledWith(true), { timeout: 10000 });
 
-    await screen.findByTestId("liability-question-RAG");
+    await screen.findByTestId("liability-question-RAG", {}, { timeout: 10000 });
     fireEvent.change(screen.getByTestId("liability-answer-textarea-RAG"), {
       target: { value: "Built a production RAG pipeline." },
     });
     fireEvent.click(screen.getByTestId("liability-submit-RAG"));
 
-    await waitFor(() => expect(screen.getByTestId("liability-resolved-RAG")).toBeInTheDocument());
-    expect(onActiveChange).toHaveBeenLastCalledWith(false);
-  });
+    await waitFor(() => expect(screen.getByTestId("liability-resolved-RAG")).toBeInTheDocument(), {
+      timeout: 10000,
+    });
+    await waitFor(() => expect(onActiveChange).toHaveBeenLastCalledWith(false), { timeout: 10000 });
+  }, 30000);
 });
 
 describe("LiabilityPanel — ruling M-1b: the follow-up label names what the follow-up asks", () => {

@@ -2,7 +2,7 @@
 
 Covers the two new TTL rules added in iter17:
   - _tombstone_inactive_applications: soft-delete when expires_at < now
-  - _reap_stale_cv_jobs: mark pending/generating CVs failed after 10 min
+  - _reap_stale_cv_jobs: mark pending/generating CVs failed after 31 min (789:14, measured)
 
 Uses the same ORM + SQLite approach as iter15/iter16 tests.
 JSONB columns use .with_variant(JSON(), "sqlite") so Base.metadata.create_all
@@ -236,7 +236,7 @@ async def test_reap_stale_pending_cv_marked_failed(db, user_and_job, profile):
     stale = await _seed_cv(
         db, job.id, profile.id,
         status=CVGenerationStatus.pending,
-        created_at=_ago(minutes=15),
+        created_at=_ago(minutes=45),
     )
 
     reaped = await _reap_stale_cv_jobs(db)
@@ -256,7 +256,7 @@ async def test_reap_stale_generating_cv_marked_failed(db, user_and_job, profile)
     stale = await _seed_cv(
         db, job.id, profile.id,
         status=CVGenerationStatus.generating,
-        created_at=_ago(minutes=20),
+        created_at=_ago(minutes=40),
     )
 
     reaped = await _reap_stale_cv_jobs(db)
@@ -290,7 +290,7 @@ async def test_reap_cv_jobs_spares_ready(db, user_and_job, profile):
     await _seed_cv(
         db, job.id, profile.id,
         status=CVGenerationStatus.ready,
-        created_at=_ago(minutes=30),
+        created_at=_ago(minutes=45),
     )
 
     reaped = await _reap_stale_cv_jobs(db)
@@ -305,7 +305,7 @@ async def test_reap_cv_jobs_spares_already_failed(db, user_and_job, profile):
     await _seed_cv(
         db, job.id, profile.id,
         status=CVGenerationStatus.failed,
-        created_at=_ago(minutes=30),
+        created_at=_ago(minutes=45),
     )
 
     reaped = await _reap_stale_cv_jobs(db)
@@ -320,7 +320,7 @@ async def test_reap_cv_jobs_skips_soft_deleted(db, user_and_job, profile):
     await _seed_cv(
         db, job.id, profile.id,
         status=CVGenerationStatus.pending,
-        created_at=_ago(minutes=30),
+        created_at=_ago(minutes=45),
         deleted_at=_ago(minutes=5),
     )
 
@@ -344,7 +344,7 @@ async def test_reap_cv_jobs_selects_only_stale(db, user_and_job, profile):
     db.add(job2)
     await db.commit()
 
-    stale = await _seed_cv(db, job.id, profile.id, status=CVGenerationStatus.pending, created_at=_ago(minutes=15))
+    stale = await _seed_cv(db, job.id, profile.id, status=CVGenerationStatus.pending, created_at=_ago(minutes=45))
     fresh = await _seed_cv(db, job2.id, profile.id, status=CVGenerationStatus.pending, created_at=_now() - timedelta(minutes=2))
 
     reaped = await _reap_stale_cv_jobs(db)

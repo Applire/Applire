@@ -20,14 +20,20 @@ context: ``unscoped("retention")`` (ADR-092 cl. 7/8). ``run()`` sets it too
 (around ``_sweep``); setting it here as well covers the run-record write."""
 
 import asyncio
+import sys
 
 from applire import ownership
-from applire.retention.worker import run
+from applire.retention.worker import run, run_stale_jobs
 
 
 async def _main() -> None:
     with ownership.unscoped("retention"):
-        await run()
+        # 789:14: `--stale-jobs` runs only the two stale-generation reapers
+        # (between the daily sweeps); no argument = the full daily sweep.
+        if "--stale-jobs" in sys.argv[1:]:
+            await run_stale_jobs()
+        else:
+            await run()
 
 
 asyncio.run(_main())
