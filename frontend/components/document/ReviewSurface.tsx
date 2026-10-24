@@ -525,6 +525,12 @@ export function ReviewSurface({
       case "conflict":
         return tProfile("testimony.statusConflict");
       case "error":
+        // R2-13 (Lead V's contract): a reconcile that failed after its retry says
+        // "not saved" in the user's language, never the English detail. The key
+        // is V's (profile namespace); until it is merged the generic line stays.
+        if (o.error_code === "not_saved" && tProfile.has("testimony.statusNotSaved")) {
+          return tProfile("testimony.statusNotSaved");
+        }
         return tProfile("testimony.statusError", { detail: o.detail ?? "" });
       default:
         return "";

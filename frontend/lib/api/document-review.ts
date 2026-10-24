@@ -66,6 +66,8 @@ export interface TestimonyOutcome {
   changes?: unknown[];
   not_applied?: Array<{ span: string; kind: "figure" | "op"; reason: string }>;
   detail?: string | null;
+  /** R2-13 (build 4): `not_saved` = the reconcile failed after its retry; nothing was written. */
+  error_code?: string | null;
 }
 
 export interface SectionChange {

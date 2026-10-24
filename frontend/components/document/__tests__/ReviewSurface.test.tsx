@@ -19,6 +19,7 @@
 import React from "react";
 import { render, screen, fireEvent, within, waitFor, act, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import enMessages from "@/messages/en.json";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { ReviewSurface, type ReviewSurfaceProps } from "../ReviewSurface";
 import type { ATSReport } from "@/lib/ats-report";
@@ -704,6 +705,31 @@ describe("ADR-090 cl. 4 — It's true, add it to my profile", () => {
     await waitFor(() => expect(screen.getByTestId("review-testimony-result")).toBeTruthy());
     expect(screen.getByTestId("review-testimony-result").getAttribute("data-status")).toBe("needs_confirmation");
     expect(screen.getByTestId("review-card").getAttribute("data-status")).toBe("open");
+  });
+
+  it("R2-13: a testimony that was not saved says so in the UI language, never the English detail", async () => {
+    api.addEvidence.mockResolvedValue({
+      testimony: { status: "error", error_code: "not_saved", detail: "ReconcileFailedError: provider reply unparsable", changes: [] },
+      report: MATCHED_ATS,
+      truthfulness: null,
+      review_state: null,
+    });
+    renderSurface({ atsReport: MATCHED_ATS });
+    fireEvent.click(screen.getByTestId("review-action-add"));
+    fireEvent.change(await screen.findByTestId("review-add-text"), { target: { value: "x" } });
+    fireEvent.click(screen.getByTestId("review-add-submit"));
+    await waitFor(() => expect(screen.getByTestId("review-testimony-result")).toBeTruthy());
+    const text = screen.getByTestId("review-testimony-result").textContent ?? "";
+    // Lead V owns `profile.testimony.statusNotSaved`; until it is merged the
+    // generic error line stands (and then the detail is the only signal).
+    const notSaved = (enMessages as { profile: { testimony: Record<string, string> } }).profile.testimony
+      .statusNotSaved;
+    if (notSaved) {
+      expect(text).toBe(notSaved);
+      expect(text).not.toContain("ReconcileFailedError");
+    } else {
+      expect(text).toContain("ReconcileFailedError");
+    }
   });
 
   it("Cancel closes the box without a request", async () => {
