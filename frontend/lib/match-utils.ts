@@ -191,6 +191,24 @@ export interface GapCluster {
    * fit_weight 0, folded into clustering by US204) — shown as a term from the
    * posting, never as an open requirement. Absent (legacy row) = `true`. */
   member_statuses: { member: string; status: MemberStatus; requirement?: boolean }[];
+  /** R2-10 (ruling F1-2), derived at response time: `false` = no member is a
+   * counted requirement (a topic of posting terms only) — never listed or
+   * counted as a topic. Absent (legacy row / older backend) = `true`. */
+  requirement_topic?: boolean;
+}
+
+/**
+ * R2-10 — the clusters that ARE topics: at least one member is a counted
+ * requirement. Themes only GROUP the open requirements (F1-2), so a cluster of
+ * posting terms only ("Commerce Domain" from "E-commerce" in the company blurb)
+ * is not a topic on any surface — the gaps page list, its counts, the
+ * interview's tracker. The server answers the question
+ * (`gap_coverage.is_requirement_topic`); the page never re-derives it.
+ */
+export function requirementTopics<T extends { requirement_topic?: boolean }>(
+  clusters: T[] | null | undefined,
+): T[] {
+  return (clusters ?? []).filter((c) => c.requirement_topic !== false);
 }
 
 /** `SessionMessageResponse.cluster_coverage` (contract item 4) — the record a
@@ -439,7 +457,7 @@ export function clusterCoverageCounts(clusters: GapCluster[] | null | undefined)
 } {
   let covered = 0;
   let askable = 0;
-  for (const c of clusters ?? []) {
+  for (const c of requirementTopics(clusters)) {
     const v = clusterView(c);
     if (v.coverage === "covered") covered += 1;
     if (v.askable) askable += 1;

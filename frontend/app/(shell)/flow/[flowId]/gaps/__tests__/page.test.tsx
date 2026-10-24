@@ -1196,3 +1196,25 @@ describe("R2-3 — the gap view on a finished application", () => {
     expect(screen.getByTestId("generate-cv-skip-cost")).toBeInTheDocument();
   });
 });
+
+// R2-10 (ruling F1-2) — a topic of posting terms only is never a card.
+describe("R2-10 — topics are requirements", () => {
+  it("does not list a cluster the server marks requirement_topic=false", async () => {
+    mockApis({
+      userType: "returning",
+      jobId: "j1",
+      categoryC: ["Kafka"],
+      clusters: [
+        { id: "cl-k", label: "Kafka", category: "C", gaps: ["Kafka"], jd_skills: ["Kafka"], jd_context: "" },
+        {
+          id: "cl-c", label: "Commerce Domain", category: "C", gaps: ["E-commerce"],
+          jd_skills: ["E-commerce"], jd_context: "", requirement_topic: false,
+        },
+      ],
+    });
+    await renderPage();
+    const labels = screen.getAllByTestId("gap-cluster-card").map((el) => el.textContent ?? "");
+    expect(labels.some((l) => l.includes("Kafka"))).toBe(true);
+    expect(labels.some((l) => l.includes("Commerce Domain"))).toBe(false);
+  });
+});

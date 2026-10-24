@@ -28,7 +28,7 @@ import {
   scoreToPercent,
   type GapCluster,
 } from "../match-utils";
-import { requirementCounts } from "../match-utils";
+import { openThemeCount, requirementCounts, requirementTopics } from "../match-utils";
 
 describe("gapCounts", () => {
   it("splits a gap analysis into the four displayed counts", () => {
@@ -457,6 +457,20 @@ describe("clusterCoverageCounts", () => {
       cluster({ id: "d", coverage: "declined", gaps: [] }),
     ]);
     expect(counts).toEqual({ covered: 1, askable: 1 });
+  });
+});
+
+// R2-10 (ruling F1-2) — a cluster of posting terms only is not a topic.
+describe("requirementTopics", () => {
+  it("drops a cluster the server marks requirement_topic=false from every count and list", () => {
+    const clusters = [
+      cluster({ id: "k8s" }),
+      cluster({ id: "commerce", requirement_topic: false }),
+      cluster({ id: "legacy" }), // no flag (older backend) = a topic
+    ];
+    expect(requirementTopics(clusters).map((c) => c.id)).toEqual(["k8s", "legacy"]);
+    expect(openThemeCount(clusters)).toBe(2);
+    expect(clusterCoverageCounts(clusters)).toEqual({ covered: 0, askable: 2 });
   });
 });
 

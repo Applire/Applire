@@ -40,6 +40,7 @@ import {
   clusterView,
   openThemeCount,
   requirementCounts,
+  requirementTopics,
   type GapCluster,
   type LedgerChipEntry,
   type MemberState,
@@ -859,7 +860,9 @@ export default function InterviewPage({
     (currentClusterId && gapAnalysis?.gap_clusters.find((c) => c.id === currentClusterId)?.label) || null;
   // Progress by topic, not by the hard question ceiling ("1 of up to 18"):
   // the share of the page's topics this session has moved past.
-  const totalTopics = gapAnalysis?.gap_clusters.length ?? 0;
+  // R2-10 (lead G hunk): a cluster of posting terms only is not a topic.
+  const topicClusters = requirementTopics(gapAnalysis?.gap_clusters);
+  const totalTopics = topicClusters.length;
   const progressPct =
     totalTopics > 0
       ? Math.min(Math.round((resolvedClusterIds.size / totalTopics) * 100), 100)
@@ -1291,7 +1294,7 @@ export default function InterviewPage({
           )}
 
           {/* Cluster tracker */}
-          {gapAnalysis && gapAnalysis.gap_clusters.length > 0 && (
+          {gapAnalysis && topicClusters.length > 0 && (
             <div className="mt-6 space-y-2">
               <p
                 data-testid="tracker-open-count"
@@ -1299,7 +1302,7 @@ export default function InterviewPage({
               >
                 {t("trackerHeading", { count: openCount, topics: themeCount })}
               </p>
-              {gapAnalysis.gap_clusters.map((cluster) => {
+              {topicClusters.map((cluster) => {
                 const turn = turnCoverage[cluster.id] ?? null;
                 const status = trackerStatus(cluster, {
                   current: cluster.id === currentClusterId,

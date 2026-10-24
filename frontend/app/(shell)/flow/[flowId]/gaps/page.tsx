@@ -45,6 +45,7 @@ import {
   gapCounts,
   isGapRefusalCode,
   openThemeCount,
+  requirementTopics,
   requirementCounts,
   scoreToPercent,
   type GapCluster,
@@ -1182,7 +1183,8 @@ export default function GapsPage({
   // (C before B), never by coverage: a card stays where it was while its
   // state changes, so re-entry shows the same list the user left (ADR-089
   // clause 4).
-  const orderedClusters = [...(gaps?.gap_clusters ?? [])].sort((a, b) => {
+  // R2-10: a cluster of posting terms only is not a topic — never listed.
+  const orderedClusters = [...requirementTopics(gaps?.gap_clusters)].sort((a, b) => {
     if (a.category === "C" && b.category !== "C") return -1;
     if (a.category !== "C" && b.category === "C") return 1;
     return 0;
@@ -1507,7 +1509,7 @@ export default function GapsPage({
       {/* Section 3: Cluster-based gap display. Also shown when every cluster
           is finished: a worked cluster stays in the list with its coverage so
           the user sees what was worked (ADR-089 clause 4). */}
-      {hasJob && (counts.itemsToAddress > 0 || (gaps?.gap_clusters?.length ?? 0) > 0) && (
+      {hasJob && (counts.itemsToAddress > 0 || orderedClusters.length > 0) && (
         <div data-testid="gaps-section" className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-heading text-lg font-bold text-neutral-dark">
@@ -1527,7 +1529,7 @@ export default function GapsPage({
           {/* Cluster-based gap display — ruling K-1: the open list holds the
               cards that can still be asked; closed ones sit in a folded Done
               section below. */}
-          {gaps?.gap_clusters && gaps.gap_clusters.length > 0 ? (
+          {orderedClusters.length > 0 ? (
               <div className="space-y-3">
                 {openClusters.length > 0 ? (
                   <p data-testid="gaps-section-lead" className="text-xs text-on-surface-variant mb-3">
