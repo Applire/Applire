@@ -861,7 +861,7 @@ def build_stated_limits_entry(
     """
     from applire.services.cross_document import select_jd_relevant_limits
 
-    limits = select_jd_relevant_limits(denied_concepts, keyword_ledger)
+    limits = select_jd_relevant_limits(denied_concepts, key_requirement_ledger(keyword_ledger))
     if not limits:
         return None
     return {
@@ -869,22 +869,47 @@ def build_stated_limits_entry(
         "required": True,
         "instruction": (
             "REQUIRED content (ADR-075). These are the candidate's own words about "
-            "concepts THIS posting asks about and they have denied. Each one gets an "
+            "KEY requirements of THIS posting that they have denied. Each one gets an "
             "explicit positioning decision in the body: name the gap in the "
             "candidate's own terms, then the adjacent strength that transfers — all "
             "folded into ONE honest paragraph, never a litany, never an apology. "
+            "Where the statement offers NO transferring strength, the letter leaves "
+            "that limit out: a bare admission is never the decision (RULING L-1). "
             "The gap and that strength belong in ONE sentence, the way the "
             "candidate's own statement says it (#732): a standalone negative "
             "sentence, with the strength relegated to a later sentence or a generic "
             "list, is this content HALF-delivered, and worst of all directly after a "
             "sentence stating a strength. "
-            "Silence on a limit listed here is not one of the options. The inverse "
+            "Silence on a listed limit whose statement carries a transfer argument "
+            "is not one of the options. The inverse "
             "is equally binding: never state a limit that is NOT listed here. "
             "Everything the Keyword Ledger marks claimable stays fully claimable, "
             "and disclaiming it would throw away the candidate's own best evidence. "
             + _STATED_LIMITS_CONSTRAINT
         ),
     }
+
+
+def key_requirement_ledger(
+    keyword_ledger: list[dict] | None,
+) -> list[dict]:
+    """RULING L-1 = A (founder 2026-10-24, ADR-075 amended): the letter names a
+    recorded gap only where the posting's KEY requirement is that gap — the
+    required tier (``keyword_ledger.REQUIRED_WEIGHT``). A denial of a nice-to-have
+    or keyword-only concept (IFS/BRC "von Vorteil", "BaFin exposure", a keyword
+    such as "Payment institution") is never volunteered: it is dropped from the
+    ``denied`` rows this view hands :func:`cross_document.select_jd_relevant_limits`,
+    so it lands in the never-disclosed CONSTRAINT ONLY block instead of the
+    REQUIRED one. Every other row passes through unchanged; pure."""
+    from applire.services.keyword_ledger import REQUIRED_WEIGHT
+
+    def _key(entry: dict) -> bool:
+        if not isinstance(entry, dict) or entry.get("status") != "denied":
+            return True
+        weight = entry.get("fit_weight")
+        return isinstance(weight, (int, float)) and float(weight) >= REQUIRED_WEIGHT
+
+    return [e for e in (keyword_ledger or []) if _key(e)]
 
 
 async def patch_cover_letter_section(
@@ -1561,13 +1586,13 @@ async def _render_cover_letter_body(
                 # about, as a never-disclosed constraint; the owed ones reach the
                 # writer through `required_limits_block` alone.
                 stated_limits_block = render_stated_limits_block(
-                    letter_constraint_only_limits(denied_concepts, keyword_ledger),
+                    letter_constraint_only_limits(denied_concepts, key_requirement_ledger(keyword_ledger)),
                     for_letter=True,
                 )
                 # ADR-075 / #532 — the affirmative half, selected deterministically
                 # from THIS job's ledger; empty string when nothing is owed.
                 required_limits_block = render_required_limits_block(
-                    select_jd_relevant_limits(denied_concepts, keyword_ledger)
+                    select_jd_relevant_limits(denied_concepts, key_requirement_ledger(keyword_ledger))
                 )
 
                 # #270(c): unmet JD hard requirements (claimable: false, required) that need

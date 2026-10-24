@@ -613,8 +613,9 @@ def render_required_limits_block(limits: list[str]) -> str:
         "Each statement below is the candidate's own wording about a concept THIS "
         "posting asks for and they have denied. Every one of them needs ONE positioning "
         "decision in the body, taken on the RANKED ladder (ADR-075 amended 2026-09-20): "
-        "a scoped claim at the highest rung that is true, else a transfer argument, and "
-        "a NAMED GAP only where neither exists. A scoped claim or a transfer argument "
+        "a scoped claim at the highest rung that is true, else a transfer argument; where "
+        "the statement offers NEITHER, the letter LEAVES THE LIMIT OUT — never a bare "
+        "admission (RULING L-1). A scoped claim or a transfer argument "
         "DISCHARGES the limit — it needs no negation beside it, and adding one anyway is "
         "the defect, not the discipline.",
         "Where the gap IS named, it comes first and the strength that transfers second, "

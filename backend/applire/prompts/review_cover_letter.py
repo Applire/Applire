@@ -251,8 +251,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
    must appear, never extended; flag a missing one by key with its text.
    ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE honest
    positioning decision in one paragraph — the gap in the candidate's own terms plus the
-   adjacent strength. BOTH directions are findings: silence on a listed limit, and a
-   limit the letter states that the entry does NOT list (check 1). Withholding detail
+   adjacent strength. BOTH directions are findings: silence on a listed limit that has a
+   transfer (L-1), and a limit the letter states that the entry does NOT list (check 1). Withholding detail
    ("kann ich nicht nennen") is no limit: writing it in IS a finding (DEL-1). A requirement
    lacked WITHOUT a recorded denial owes no sentence; never demand one (DEL-2).
    HALF-DELIVERY IS THE THIRD DIRECTION (#732): the transferring strength stands in the
@@ -506,7 +506,8 @@ Rules:
   posting asks about and the candidate has denied in their own words: each owes ONE
   honest positioning decision — the gap in their terms, then the adjacent strength that
   transfers — folded into the SAME honest-gap paragraph, never a litany. Never state a
-  limit the entry does not list, and never soften or delete one it does: an unprompted
+  limit the entry does not list, and never soften or delete one it states with its
+  transferring strength (a bare admission with none is removed — RULING L-1): an unprompted
   admission of a gap is the single thing blind readers name as the reason to trust a
   letter. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
   text pinned by the candidate — keep each pinned fact stated (verbatim in
