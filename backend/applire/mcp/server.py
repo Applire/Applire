@@ -141,6 +141,7 @@ from applire.services import gap as gap_svc
 from applire.services import job as job_svc
 from applire.services import posting_labels
 from applire.services import oracle as oracle_svc
+from applire.utils.language_detection import resolve_jd_language
 from applire.services import profile as profile_svc
 from applire.services import session as session_svc
 from applire.services.flow import orchestrator as flow_svc
@@ -1458,9 +1459,13 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
     ``False``, so one document could carry two different reports depending on
     the channel that asked. Both now grade deterministically plus the two
     bounded judgement seams only.
-    ``document_language`` is not mirrored here either — that seam's parity is
-    a separate question with its own cost profile, and nothing in this
-    defect's evidence touches it.
+    ``document_language`` is mirrored too (788:106): the record's PINNED
+    language, falling back to the JD's detected one, exactly as the
+    generation-time self-audit derives it (``cv._update_ats_report`` /
+    ``cover_letter._update_ats_report``) — without it the cross-language
+    judgement seam stayed off on this door. A letter is audited with its
+    ``section_overrides`` applied, as the self-audit does, so the report
+    describes the text the candidate actually sees.
     """
     if record.truthfulness_report:
         return {"document_id": str(record.id), **record.truthfulness_report}
@@ -1483,18 +1488,33 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
                 "skill chips against the vault alone",
                 record.id,
             )
+    # 788:106: the self-audit's own derivation (record's pinned language, else
+    # the JD's; job-less -> None keeps the seam off, fail-open).
+    document_language = getattr(record, "document_language", None)
+    if not document_language:
+        try:
+            job = await db.get(JobAnalysis, record.job_analysis_id)
+            document_language = resolve_jd_language(job) if job else None
+        except Exception:
+            document_language = None
     try:
         if kind == "cv":
             report = await oracle_svc.audit_document(
                 "cv", profile_json, tailored_data=record.tailored_data or {},
                 provider=get_provider(),
+                document_language=document_language,
                 keyword_ledger=keyword_ledger,
                 entailment=False,  # D2-4: the self-audit's setting (selfaudit.py)
             )
         else:
             report = await oracle_svc.audit_document(
-                "cover_letter", profile_json, letter_data=record.letter_data or {},
+                "cover_letter", profile_json,
+                letter_data=cover_letter_svc._apply_section_overrides(
+                    record.letter_data or {},
+                    getattr(record, "section_overrides", None) or {},
+                ),
                 provider=get_provider(),
+                document_language=document_language,
                 # B3-10: the letter's own form inputs, as the self-audit reads them.
                 form_inputs=getattr(record, "pre_gen_inputs", None) or None,
                 entailment=False,  # D2-4: the self-audit's setting (selfaudit.py)
