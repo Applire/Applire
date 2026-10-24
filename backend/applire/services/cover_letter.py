@@ -510,20 +510,7 @@ async def get_cover_letter_html(
     if require_ready and cl.status != CoverLetterStatus.ready.value:
         raise ValueError(f"Cover letter not ready (status={cl.status})")
 
-    color_ctx = _default_color_context()
-    if cl.color_profile_id is not None:
-        from applire.models.color_profile import ColorProfile
-        cp_result = await db.execute(
-            select(ColorProfile).where(ColorProfile.id == cl.color_profile_id)
-        )
-        cp = cp_result.scalar_one_or_none()
-        if cp is not None:
-            color_ctx = {
-                "primary": cp.primary,
-                "primary_tint": cp.primary_tint,
-                "surface": cp.surface,
-                "surface_text": cp.surface_text,
-            }
+    color_ctx = await _letter_color_context(cl, db)
 
     letter_data = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
     template_file = _TEMPLATE_FILES.get(cl.template, "lebenslauf_letter.html.j2")
@@ -681,24 +668,9 @@ async def _prepare_cover_letter_docx_render(
     letter_dict = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
     letter = _coerce_stored_letter_data(letter_dict)
 
-    # Same manual colour resolution get_cover_letter_html uses — NOT
-    # services.color_detection.resolve_color_context, which is typed for
-    # GeneratedCV and is not used by any existing cover-letter code path;
-    # this file already has its own (get_cover_letter_html's) convention.
-    color_ctx = _default_color_context()
-    if cl.color_profile_id is not None:
-        from applire.models.color_profile import ColorProfile
-        cp_result = await db.execute(
-            select(ColorProfile).where(ColorProfile.id == cl.color_profile_id)
-        )
-        cp = cp_result.scalar_one_or_none()
-        if cp is not None:
-            color_ctx = {
-                "primary": cp.primary,
-                "primary_tint": cp.primary_tint,
-                "surface": cp.surface,
-                "surface_text": cp.surface_text,
-            }
+    # Same colour resolution as get_cover_letter_html: the CV's own cascade
+    # (784:97 / L-2b, via _letter_color_context).
+    color_ctx = await _letter_color_context(cl, db)
 
     # Same PINNED-language-first fallback as get_cover_letter_html (E054
     # clause 3b) — duplicated rather than factored out, to keep this
@@ -966,6 +938,22 @@ async def get_cover_letter_by_job(
     return await get_cover_letter_status(
         flow.generated_cover_letter_id, db, base_url, user_id=uid
     )
+
+
+async def _letter_color_context(cl: "GeneratedCoverLetter", db: AsyncSession) -> dict:
+    """The letter's colours, resolved through the CV's own cascade (ADR-066: one
+    implementation — ``color_detection.resolve_color_context``): the letter row's
+    profile (copied from its CV), else the company's detected colour, else the
+    owner's default colour, else the system default (L-2b, Hazelnut build 4)."""
+    from applire.services.color_detection import resolve_color_context
+
+    c = await resolve_color_context(cl, db, user_id=cl.user_id)
+    return {
+        "primary": c.primary,
+        "primary_tint": c.primary_tint,
+        "surface": c.surface,
+        "surface_text": c.surface_text,
+    }
 
 
 def _default_color_context() -> dict:
