@@ -55,6 +55,11 @@ class GapClusterMemberStatus(BaseModel):
     # so the interview can ask about them). The gaps page labels such a chip as
     # a term from the posting instead of presenting it as a missing requirement.
     requirement: bool = True
+    # G-4 (founder, Hazelnut build 4; ADR-095: additive) — True when the member
+    # is ``declined`` only because a RELATED denial's ADR-059 floor covers it
+    # (keyword_ledger.is_denial_floored): the candidate's answer ruled it out,
+    # but they never named it, so the chip must not say they did.
+    floored: bool = False
 
 
 class GapClusterSchema(BaseModel):

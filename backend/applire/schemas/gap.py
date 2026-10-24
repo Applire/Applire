@@ -107,6 +107,21 @@ class KeywordLedgerEntry(BaseModel):
     # published it on 0 of 42, because an undeclared key is stripped by
     # `GapAnalysisResponse.model_validate` on every response.
     jd_phrase: str | None = None
+    # G-4 (founder, Hazelnut build 4; ADR-095: additive) — DERIVED, never read
+    # from a stored row: True on a row the ADR-059 containment floor wrote
+    # (keyword_ledger.is_denial_floored). Surfaces count it in the declined
+    # bucket ("ruled out by your answer"), never as an open requirement; the
+    # floor itself (no credit, never claimed) is unchanged.
+    floored_by_denial: bool = False
+
+    @model_validator(mode="after")
+    def _derive_floored_by_denial(self) -> "KeywordLedgerEntry":
+        from applire.services.keyword_ledger import is_denial_floored
+
+        self.floored_by_denial = is_denial_floored(
+            {"status": self.status, "evidence": self.evidence}
+        )
+        return self
 
     @model_validator(mode="after")
     def _denial_level_only_when_denied(self) -> "KeywordLedgerEntry":

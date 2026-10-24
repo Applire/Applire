@@ -86,6 +86,10 @@ export interface LedgerChipEntry {
   /** "direct" | "partial" | "gap" | "denied" (ADR-048) — read by
    * {@link requirementCounts}. */
   status?: string;
+  /** G-4 — derived by the server: a `gap` row the ADR-059 floor wrote because
+   * the candidate's own "no" covers it. Counted in the declined bucket, never
+   * as open. */
+  floored_by_denial?: boolean;
 }
 
 /**
@@ -190,7 +194,13 @@ export interface GapCluster {
    * = a posting TERM the match does not count (a keyword-only ledger row,
    * fit_weight 0, folded into clustering by US204) — shown as a term from the
    * posting, never as an open requirement. Absent (legacy row) = `true`. */
-  member_statuses: { member: string; status: MemberStatus; requirement?: boolean }[];
+  member_statuses: {
+    member: string;
+    status: MemberStatus;
+    requirement?: boolean;
+    /** G-4 — `declined` only through a related denial's floor (never named). */
+    floored?: boolean;
+  }[];
   /** R2-10 (ruling F1-2), derived at response time: `false` = no member is a
    * counted requirement (a topic of posting terms only) — never listed or
    * counted as a topic. Absent (legacy row / older backend) = `true`. */
@@ -308,6 +318,9 @@ export interface ClusterMember {
   term: string;
   state: MemberState;
   requirement: boolean;
+  /** G-4 — declined by the candidate's answer through a related denial; the
+   * chip must not say they named it. */
+  floored?: boolean;
 }
 
 export interface ClusterView {
@@ -317,6 +330,10 @@ export interface ClusterView {
   members: ClusterMember[];
   tone: CardTone;
   pill: CoveragePill | null;
+  /** G-4 — a `declined` card whose declined requirements are ALL floored (ruled
+   * out by an answer, never named): the pill says so instead of "laut deiner
+   * Angabe". */
+  ruledOut?: boolean;
   /** Budget left AND coverage not covered/declined AND not left open by hand
    * (`gap_coverage.is_askable`). */
   askable: boolean;
@@ -369,9 +386,11 @@ export function clusterView(
   const budget = clusterBudgetRemaining(cluster, turn);
   const facts = new Map<string, MemberStatus>();
   const terms = new Set<string>();
+  const floored = new Set<string>();
   for (const entry of cluster.member_statuses ?? []) {
     if (entry && typeof entry.member === "string") {
       facts.set(normMember(entry.member), entry.status);
+      if (entry.floored === true) floored.add(normMember(entry.member));
       // Only an explicit `false` makes a posting term; absent = requirement.
       if (entry.requirement === false) terms.add(normMember(entry.member));
     }
@@ -400,11 +419,15 @@ export function clusterView(
     return fact === "covered" || fact === "declined" ? fact : "closed";
   };
 
-  const members: ClusterMember[] = allClusterMembers(cluster).map((term) => ({
-    term,
-    state: stateOf(normMember(term)),
-    requirement: !terms.has(normMember(term)),
-  }));
+  const members: ClusterMember[] = allClusterMembers(cluster).map((term) => {
+    const state = stateOf(normMember(term));
+    return {
+      term,
+      state,
+      requirement: !terms.has(normMember(term)),
+      ...(state === "declined" && floored.has(normMember(term)) ? { floored: true } : {}),
+    };
+  });
   if (turn) {
     const known = new Set(members.map((m) => normMember(m.term)));
     for (const term of turn.open_concepts) {
@@ -432,6 +455,10 @@ export function clusterView(
             : "partly"
           : null;
 
+  const declinedReqs = members.filter((m) => m.requirement && m.state === "declined");
+  const ruledOut =
+    pill === "declined" && declinedReqs.length > 0 && declinedReqs.every((m) => m.floored === true);
+
   const finished = coverage === "covered" || coverage === "declined";
   const hasBudget = budget === null ? true : budget > 0;
   const leftOpen = !finished && hasBudget && cluster.outcome?.left_open === true;
@@ -441,6 +468,7 @@ export function clusterView(
     members,
     tone,
     pill,
+    ruledOut,
     askable,
     budgetSpent: !finished && !hasBudget,
     leftOpen,
@@ -516,12 +544,14 @@ export function requirementCounts(
   );
   if (fit.length > 0) {
     const n = (st: string) => fit.filter((e) => e.status === st).length;
+    // G-4 — a row floored by the candidate's own "no" is handled, not open.
+    const floored = fit.filter((e) => e.status === "gap" && e.floored_by_denial === true).length;
     return {
       total: fit.length,
       shown: n("direct"),
       likely: n("partial"),
-      open: n("gap"),
-      declined: n("denied"),
+      open: n("gap") - floored,
+      declined: n("denied") + floored,
     };
   }
   const a = gaps?.category_a?.length ?? 0;
@@ -545,7 +575,8 @@ export function openRequirementConcepts(
   const fit = (gaps?.keyword_ledger ?? []).filter(
     (e) => (e?.fit_weight ?? 0) > 0 && typeof e?.status === "string",
   );
-  if (fit.length > 0) return fit.filter((e) => e.status === "gap").map((e) => e.concept);
+  if (fit.length > 0)
+    return fit.filter((e) => e.status === "gap" && e.floored_by_denial !== true).map((e) => e.concept);
   return [...(gaps?.category_c ?? [])];
 }
 

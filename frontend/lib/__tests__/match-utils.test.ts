@@ -512,3 +512,25 @@ describe("requirementCounts", () => {
     expect(requirementCounts(null)).toEqual({ total: 0, shown: 0, likely: 0, open: 0, declined: 0 });
   });
 });
+
+describe("G-4 — a floored row is handled, not open", () => {
+  const ledger = [
+    { concept: "Payout flows", fit_weight: 1, status: "gap", floored_by_denial: true },
+    { concept: "Payment settlement", fit_weight: 1, status: "gap" },
+    { concept: "Stripe", fit_weight: 1, status: "direct" },
+    { concept: "Crypto", fit_weight: 0.5, status: "denied" },
+  ];
+  it("requirementCounts moves it from open to declined", () => {
+    expect(requirementCounts({ keyword_ledger: ledger })).toEqual({
+      total: 4,
+      shown: 1,
+      likely: 0,
+      open: 1,
+      declined: 2,
+    });
+  });
+  it("openRequirementConcepts (review group 3) leaves it out", async () => {
+    const { openRequirementConcepts } = await import("../match-utils");
+    expect(openRequirementConcepts({ keyword_ledger: ledger })).toEqual(["Payment settlement"]);
+  });
+});

@@ -107,6 +107,19 @@ def _norm(s: str) -> str:
     return (s or "").strip().casefold()
 
 
+def is_denial_floored(entry: dict[str, Any] | None) -> bool:
+    """G-4 (founder, Hazelnut build 4): a row the ADR-059 containment floor
+    wrote — ``gap``, not claimable, :data:`DENIAL_FLOOR_EVIDENCE` — because the
+    candidate's own "no" covers it. The floor is unchanged (no credit, never
+    claimed); every SURFACE counts the row as handled by the candidate's answer
+    (the declined bucket), never as open. A fact about the row (ADR-062 cl. 1)."""
+    return (
+        isinstance(entry, dict)
+        and entry.get("status") == "gap"
+        and entry.get("evidence") == DENIAL_FLOOR_EVIDENCE
+    )
+
+
 def _matches(a_norm: str, b_norm: str) -> bool:
     """Exact or substring (either direction) — mirrors compute_match_score()."""
     if not a_norm or not b_norm:

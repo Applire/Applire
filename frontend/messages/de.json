@@ -340,7 +340,9 @@
     "goToDocuments": "Zu meinen Unterlagen",
     "goToDocumentsHint": "Lebenslauf und Anschreiben ansehen, so wie sie sind.",
     "interviewOpenFailed": "Das Interview konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal.",
-    "cvAdvanceFailed": "Der Lebenslauf-Schritt konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal."
+    "cvAdvanceFailed": "Der Lebenslauf-Schritt konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal.",
+    "memberRuledOutSr": "(durch deine Antwort ausgeschlossen)",
+    "coverageRuledOut": "Durch deine Antwort ausgeschlossen"
   },
   "interview": {
     "loading": "Interview wird gestartet…",

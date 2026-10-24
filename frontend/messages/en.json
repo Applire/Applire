@@ -340,7 +340,9 @@
     "goToDocuments": "Go to my documents",
     "goToDocumentsHint": "See your CV and cover letter as they are.",
     "interviewOpenFailed": "The interview could not be opened just now. Please reload the page and try again.",
-    "cvAdvanceFailed": "The CV step could not be opened just now. Please reload the page and try again."
+    "cvAdvanceFailed": "The CV step could not be opened just now. Please reload the page and try again.",
+    "memberRuledOutSr": "(ruled out by your answer)",
+    "coverageRuledOut": "Ruled out by your answer"
   },
   "interview": {
     "loading": "Starting interview…",

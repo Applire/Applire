@@ -91,6 +91,7 @@ from applire.services.keyword_ledger import (
     _denied_concept_entries,
     _matches,
     _norm,
+    is_denial_floored,
     keyword_liabilities,
 )
 from applire.services.profile.reconcile.stance import declared_denial_matches
@@ -222,12 +223,27 @@ def _denial_terms(denied_concepts: list[dict[str, Any]] | list[str] | None) -> l
 
 def _is_declined(member: str, rows: list[dict[str, Any]], denials: list[str]) -> bool:
     """A recorded denial of THIS member: a persisted denial that declares it
-    (the ledger floor's assert-half matcher, #486), or a row of its own name the
-    ledger already wrote as ``denied``."""
+    (the ledger floor's assert-half matcher, #486), or rows of its own name the
+    ledger already wrote as ``denied`` — or, G-4 (founder, Hazelnut build 4),
+    FLOORED by a related denial (:func:`keyword_ledger.is_denial_floored`): the
+    candidate's own "no" handled it, so it is not open and not asked again."""
     if denials and declared_denial_matches(member, denials):
         return True
     own = _own_rows(member, rows)
-    return bool(own) and all(row.get("status") == "denied" for row in own)
+    return bool(own) and all(
+        row.get("status") == "denied" or is_denial_floored(row) for row in own
+    )
+
+
+def _is_floored_only(member: str, rows: list[dict[str, Any]], denials: list[str]) -> bool:
+    """G-4 — declined only because its own rows are denial-FLOORED (the
+    candidate never named the member): the chip must not say they did."""
+    if denials and declared_denial_matches(member, denials):
+        return False
+    own = _own_rows(member, rows)
+    return bool(own) and any(is_denial_floored(row) for row in own) and all(
+        row.get("status") == "denied" or is_denial_floored(row) for row in own
+    )
 
 
 def _is_anchored(row: dict[str, Any], member: str) -> bool:
@@ -332,8 +348,10 @@ def classify_members(
        (``stance.declared_denial_matches`` over ``denied_concepts`` — the
        matcher the ledger floor uses before it asserts ``status="denied"``,
        #486), or a ledger row of the member's own name already ``denied``. A
-       member only CONTAINED in a denied compound is not declined: its ledger
-       row (floored ``gap`` or released) decides, like every other member.
+       member only CONTAINED in a denied compound is not declined by the
+       predicate: its ledger row decides — and since G-4 (founder, Hazelnut
+       build 4) a FLOORED own row (``keyword_ledger.is_denial_floored``) counts
+       as declined too (the candidate's "no" handled it; a released row is open).
     2. ``covered`` — a ledger row matching the member (``keyword_ledger._matches``
        over ``concept`` + ``surface_forms``) has ``status == "direct"``.
        When several rows match, ALL deciding rows must be ``direct`` (the #207
@@ -372,16 +390,20 @@ def member_statuses(
         return []
     recorded_declined = {_norm(m) for m in _outcome_of(cluster)["declined"]}
     denials = _denial_terms(denied_concepts)
-    return [
-        {
+    out: list[dict[str, Any]] = []
+    for member in all_members(cluster):
+        recorded = _norm(member) in recorded_declined
+        item: dict[str, Any] = {
             "member": member,
-            "status": "declined"
-            if _norm(member) in recorded_declined
-            else _member_status(member, keyword_ledger, denials),
+            "status": "declined" if recorded else _member_status(member, keyword_ledger, denials),
             "requirement": member_is_requirement(member, keyword_ledger),
         }
-        for member in all_members(cluster)
-    ]
+        # G-4 — declined by a related denial's FLOOR, not by naming it. The key
+        # is present only when True (GapClusterMemberStatus.floored defaults False).
+        if not recorded and _is_floored_only(member, _rows_for(member, keyword_ledger), denials):
+            item["floored"] = True
+        out.append(item)
+    return out
 
 
 def member_is_requirement(member: str, keyword_ledger: list[dict[str, Any]] | None) -> bool:
@@ -521,7 +543,15 @@ def is_askable(
         return False
     if keyword_ledger is not None and not is_requirement_topic(cluster, keyword_ledger):
         return False
-    return bool(_str_list(cluster.get("gaps")))
+    open_members = _str_list(cluster.get("gaps"))
+    if keyword_ledger:
+        # G-4 / R2-9 — a member the row's OWN ledger now reads as declined (a
+        # denial FLOOR written after the record was split) is not asked again,
+        # even before a recompute re-splits the stored record.
+        open_members = [
+            m for m in open_members if _member_status(m, keyword_ledger, []) != "declined"
+        ]
+    return bool(open_members)
 
 
 def _with_split(
