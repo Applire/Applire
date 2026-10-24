@@ -179,12 +179,42 @@ def log_review_cycle_detected(chain_id: str, attempt: int, max_retries: int) -> 
     )
 
 
+def _failed_call_detail() -> str:
+    """The PII-free message of the exception being handled, or "" (786:231).
+
+    ``log_review_call_failed`` is called from inside the caller's ``except``
+    block, so ``sys.exc_info()`` is the failed call's exception. Only messages
+    that are static by contract are logged: our own ``LLMError`` types (ADR-009:
+    a short, static, human-safe description — e.g. "Requesty call timed out
+    after 180s") and ``json.JSONDecodeError`` (a position, no content;
+    ``LLMResponseParseError`` keeps the reply on ``.doc``, never in ``str()``).
+    Anything else logs its class only, as before.
+    """
+    import sys
+
+    from applire.exceptions import LLMError
+    from applire.redaction import scrub_secrets
+
+    exc = sys.exc_info()[1]
+    if not isinstance(exc, (LLMError, json.JSONDecodeError)):
+        return ""
+    try:
+        return scrub_secrets(str(exc))[:200]
+    except Exception:  # noqa: BLE001 — a log line must never raise
+        return ""
+
+
 def log_review_call_failed(chain_id: str, role: str, attempt: int, error_type: str) -> None:
     """A reviewer or refiner call itself failed (truncated/timed out) mid-loop —
-    distinct from exhaustion: the loop could not even complete this attempt (#264)."""
+    distinct from exhaustion: the loop could not even complete this attempt (#264).
+
+    786:231: also logs the failed call's PII-free message and the effective
+    ``LLM_TIMEOUT`` (each provider attempt is ``asyncio.wait_for(timeout=LLM_TIMEOUT)``),
+    so a ~90 s timeout under ``LLM_TIMEOUT=180`` can be attributed after the fact."""
     _review_logger.warning(
-        "REVIEW_CALL_FAILED chain=%s role=%s attempt=%d error=%s — shipping current draft",
-        chain_id, role, attempt, error_type,
+        "REVIEW_CALL_FAILED chain=%s role=%s attempt=%d error=%s detail=%r llm_timeout=%ss "
+        "— shipping current draft",
+        chain_id, role, attempt, error_type, _failed_call_detail(), settings.llm_timeout,
     )
 
 
