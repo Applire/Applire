@@ -235,7 +235,7 @@ APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp
 ### Prerequisites
 
 - **Docker & Docker Compose**
-- **About 8 GB of free disk space and 2 GB of RAM** (allow 4 GB of RAM if several people share the instance). The four images take about 5.2 GB once pulled: the backend alone is about 4 GB because it carries the Chromium that renders your PDFs, plus about 0.6 GB for PostgreSQL, 0.4 GB for the frontend and 0.1 GB for nginx. An update keeps the old images until you prune them ([docs/SELF-HOSTING.md](docs/SELF-HOSTING.md#9-disk-and-pruning)). The stack idles near 0.5 GB of RAM; every PDF render starts a headless Chromium on top of that. Running a local model with Ollama needs more of both.
+- **About 8 GB of free disk space and 2 GB of RAM** (allow 4 GB of RAM if several people share the instance). The first `docker compose pull` downloads about 1.3 GB (compressed; the backend about 1.1 GB of it), and the four images take about 5.2 GB once unpacked: the backend alone is about 4 GB because it carries the Chromium that renders your PDFs, plus about 0.6 GB for PostgreSQL, 0.4 GB for the frontend and 0.1 GB for nginx. An update keeps the old images until you prune them ([docs/SELF-HOSTING.md](docs/SELF-HOSTING.md#9-disk-and-pruning)). The stack idles near 0.5 GB of RAM; every PDF render starts a headless Chromium on top of that, about 0.2 GB more while it runs (about 0.4 GB for three renders at once). Running a local model with Ollama needs more of both.
 - **An LLM provider of your choice** (bring your own key): Mistral, Requesty, OpenRouter, Anthropic, OpenAI (or any OpenAI-compatible endpoint), or Ollama (local/free, no key needed)
 
 ### Self-hosting (no clone required)
