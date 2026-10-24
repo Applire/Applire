@@ -543,6 +543,65 @@ async def test_final_floor_keeps_in_norm_corrector_change_547(db):
         "an in-norm post-condense corrector change ships, not reverted"
 
 
+def _structured_letter_784(marker: str) -> dict:
+    letter = _letter(marker)
+    letter["body"]["paragraphs"] = [
+        "Sehr geehrte Damen und Herren,",
+        marker + " eröffnet den Brief.",
+        "Ein Absatz über die Arbeit, mit zwei Sätzen. Er bleibt im Körper des Briefs.",
+        "Gern erläutere ich Ihnen im persönlichen Gespräch, was ich mitbringe. "
+        "Über Ihre Einladung freue ich mich sehr.",
+    ]
+    return letter
+
+
+def _floor_merge_784(draft: dict) -> dict:
+    body = dict(draft["body"])
+    p = list(body["paragraphs"])
+    body["paragraphs"] = p[:-2] + [p[-2] + " " + p[-1]]
+    return {**draft, "body": body}
+
+
+@pytest.mark.asyncio
+async def test_final_floor_round_patch_that_merges_the_closing_is_rejected_784(db, caplog):
+    """784:71 seam 2 (v1 final floor): the floor's own review round ships its
+    corrector patch unreviewed — a patch that merges body and closing keeps the
+    reviewed condensed draft (fail-closed), under its own selection label."""
+    from applire.services.cover_letter import MeasuredLetter
+
+    caplog.set_level(logging.INFO, logger="applire.services.cover_letter")
+    ids = await _seed(db)
+    cl = ids[2]
+    measured_seed = MeasuredLetter(page_count=2, letter_pages=1, word_count=320, word_budget=300)
+    measures = [
+        MeasuredLetter(page_count=2, letter_pages=1, word_count=250, word_budget=300),
+        MeasuredLetter(page_count=1, letter_pages=1, word_count=150, word_budget=300),
+        MeasuredLetter(page_count=1, letter_pages=1, word_count=145, word_budget=300),
+    ]
+    result, _ = await _invoke_terminal_review(
+        db, cl,
+        draft=_structured_letter_784("SEED-784"),
+        condense_payloads=[
+            _structured_letter_784("LOOP-CONDENSE-784"),
+            _structured_letter_784("FLOOR-CONDENSE-784"),
+        ],
+        measures=measures,
+        measured_seed=measured_seed,
+        script=[_identity, _floor_merge_784],
+    )
+    assert result.final_floor_fired is True
+    assert result.final_floor_selection == "kept_condensed_patch_rejected"
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    delivered = (await db.get(GeneratedCoverLetter, cl.id)).letter_data["body"]["paragraphs"]
+    assert delivered[-1].startswith("Gern erläutere ich"), "the reviewed closing ships alone"
+    assert any("FLOOR-CONDENSE-784" in p for p in delivered)
+    assert any(
+        "LETTER_TERMINAL_PATCH_REJECTED" in r.getMessage() and "site=final_floor" in r.getMessage()
+        for r in caplog.records
+    )
+
+
 # === 5. the floor's three skip reasons =====================================
 
 

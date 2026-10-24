@@ -2742,6 +2742,139 @@ def _letter_format_findings(letter_data: dict) -> list[LetterFinding]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# 784:71 (E-12 walk, founder 2026-10-22): the structural check on the terminal
+# corrector patch that ships UNREVIEWED. The terminal loop's last patch (the
+# re-entry bound reached, or v1's final-floor review round) is never read by a
+# reviewer again, and one replay run's last patch merged the closing into the
+# body paragraph. Measured on 474 logged letter corrector exchanges (reviewed
+# draft = the prompt's PREVIOUS OUTPUT, patch = the reply; 2026-07-27..10-23,
+# luna + mistral-medium): 12 prepended body content to the closing paragraph
+# (2.5 %), each a genuine merge on reading; 4 added a sign-off paragraph.
+# Facts only (ADR-062 cl. 1): sentence positions, word counts, the known
+# sign-off forms — never "is this a good closing". Fail-closed: a defect keeps
+# the reviewed composition the patch was made from.
+# ---------------------------------------------------------------------------
+
+#: Sentence boundary: terminal punctuation, whitespace, then an upper-case
+#: letter, a digit or an opening quote/bracket ("z. B. die" never splits).
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-ZÄÖÜ0-9\"„“(])")
+#: Two sentences are "the same sentence, edited" from this token-set overlap
+#: (Jaccard). The 474-pair scan: an edited closing opener scores >= 0.6, a
+#: rewritten one falls below and the check stays silent (fail-open on a
+#: closing the corrector rewrote — that is not a merge it can prove).
+_SAME_SENTENCE_JACCARD = 0.6
+
+
+def _sentences(text: str) -> list[str]:
+    return [s for s in _SENTENCE_SPLIT.split((text or "").strip()) if s]
+
+
+def _token_set(text: str) -> set[str]:
+    return set(re.findall(r"\w+", (text or "").lower(), flags=re.UNICODE))
+
+
+def _jaccard(a: str, b: str) -> float:
+    ta, tb = _token_set(a), _token_set(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _body_without_signoff(letter_data: dict) -> list[str]:
+    body = letter_data.get("body") if isinstance(letter_data, dict) else None
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    if not isinstance(paragraphs, list):
+        return []
+    found = _trailing_signoff(letter_data)
+    kept = found[0][: -found[1]] if found is not None else paragraphs
+    return [p for p in kept if isinstance(p, str) and p.strip()]
+
+
+def _ends_with_signoff(paragraph: str, name: str) -> bool:
+    """A sign-off formula closing a paragraph that holds prose before it ("…
+    Gespräch. Mit freundlichen Grüßen Max Prober") — the template prints the
+    sign-off itself, so this is a second one inside the body."""
+    norm = _salutation_norm(paragraph)
+    for form in _SIGNOFF_FORMS:
+        if norm.endswith(" " + form) or (name and norm.endswith(f" {form} {name}")):
+            return True
+    return False
+
+
+def terminal_patch_structure_defects(reviewed: dict, patch: dict) -> list[str]:
+    """The structural defects ``patch`` introduces against the ``reviewed``
+    composition it was made from — ``[]`` when it introduces none (784:71).
+
+    Both arguments are COMPOSED letters (the delivered artefact's shape). A
+    defect the reviewed draft already carries is not counted: the check asks
+    what the unreviewed patch broke, and the fail-closed fate is the reviewed
+    draft itself. Families:
+
+    * ``signature`` — the signature block changed (sign-off label or name), or
+      a sign-off now stands in the body (its own last paragraph, or closing a
+      prose paragraph);
+    * ``salutation`` — the reviewed letter opened with the Anrede alone; the
+      patch has none, or runs it into the opening sentence;
+    * ``closing_merged`` — body and closing are no longer separate: the reviewed
+      closing paragraph's first sentence now sits AFTER other sentences in its
+      paragraph, or the body collapsed below salutation + body + closing;
+    * ``closing_lost`` — the reviewed letter ended with a genuine closing
+      paragraph (``has_closing_paragraph``) and the patch does not.
+    """
+    from applire.services.cover_letter_positioning import has_closing_paragraph
+
+    defects: list[str] = []
+    r_sig = reviewed.get("signature") if isinstance(reviewed, dict) else None
+    p_sig = patch.get("signature") if isinstance(patch, dict) else None
+    r_sig = r_sig if isinstance(r_sig, dict) else {}
+    p_sig = p_sig if isinstance(p_sig, dict) else {}
+    name = _salutation_norm(r_sig.get("name") or "")
+    r_body = _body_without_signoff(reviewed)
+    p_body = _body_without_signoff(patch)
+
+    signature_changed = (
+        (r_sig.get("closing") or "") != (p_sig.get("closing") or "")
+        or (r_sig.get("name") or "") != (p_sig.get("name") or "")
+    )
+    signoff_in_body = (
+        _trailing_signoff(patch) is not None and _trailing_signoff(reviewed) is None
+    ) or (
+        bool(p_body) and _ends_with_signoff(p_body[-1], name)
+        and not (r_body and _ends_with_signoff(r_body[-1], name))
+    )
+    if signature_changed or signoff_in_body:
+        defects.append("signature")
+
+    r_paragraphs = (reviewed.get("body") or {}).get("paragraphs") or []
+    p_paragraphs = (patch.get("body") or {}).get("paragraphs") or []
+    r_salutation_alone = _has_salutation(reviewed) and _inline_salutation(r_paragraphs) is None
+    p_salutation_alone = _has_salutation(patch) and _inline_salutation(p_paragraphs) is None
+    if r_salutation_alone and not p_salutation_alone:
+        defects.append("salutation")
+
+    if len(r_body) >= 3:
+        merged = len(p_body) < 3
+        anchor_sentences = _sentences(r_body[-1])
+        if not merged and anchor_sentences:
+            anchor = anchor_sentences[0]
+            best: tuple[float, int] | None = None
+            for paragraph in p_body:
+                for index, sentence in enumerate(_sentences(paragraph)):
+                    score = _jaccard(anchor, sentence)
+                    if best is None or score > best[0]:
+                        best = (score, index)
+            merged = best is not None and best[0] >= _SAME_SENTENCE_JACCARD and best[1] > 0
+        if merged:
+            defects.append("closing_merged")
+
+    if has_closing_paragraph({"body": {"paragraphs": r_body}}) and not has_closing_paragraph(
+        {"body": {"paragraphs": p_body}}
+    ):
+        defects.append("closing_lost")
+    return defects
+
+
 def _letter_v2_findings(
     letter_data: dict,
     *,
@@ -3576,6 +3709,22 @@ async def _terminal_review_letter(
     def _record_settle(settle) -> None:
         outcome_cell["raw"].append((settle, reviewed_cell["draft"]))
 
+    def _reject_unreviewed_patch(reviewed: dict, patch: dict, *, site: str) -> bool:
+        """784:71 — True when the corrector ``patch`` that would ship UNREVIEWED
+        breaks the letter's structure against the ``reviewed`` draft it was made
+        from (:func:`terminal_patch_structure_defects`, on both compositions).
+        The caller then keeps ``reviewed`` — fail-closed to the last reviewed
+        draft; its verdict is the one on the delivered letter's report."""
+        defects = terminal_patch_structure_defects(_subject_of(reviewed), _subject_of(patch))
+        if defects:
+            logger.warning(
+                "LETTER_TERMINAL_PATCH_REJECTED cl_id=%s site=%s defects=%s — the "
+                "unreviewed corrector patch breaks the letter structure; the last "
+                "reviewed draft ships (784:71)",
+                cl.id, site, ",".join(defects),
+            )
+        return bool(defects)
+
     def _fold_terminal_outcome(delivered_draft: dict) -> "TerminalReviewOutcome | None":
         from applire.services.terminal_review_outcome import settle_to_outcome
 
@@ -3706,6 +3855,12 @@ async def _terminal_review_letter(
         if _canon(settled) == _canon(current):
             # The verdict covers exactly the composition already sitting on
             # the record — the delivered letter.
+            break
+        if rounds > LETTER_TERMINAL_REENTRY_MAX and _reject_unreviewed_patch(
+            current, settled, site="reentry_bound"
+        ):
+            # 784:71: this patch would ship unreviewed and breaks the letter's
+            # structure — the reviewed composition already on the record ships.
             break
         # A terminal corrector round changed the draft → re-compose, persist,
         # re-render, re-measure, and let the CHANGED letter re-enter review
@@ -3910,7 +4065,12 @@ async def _terminal_review_letter(
                     checks_fn=_v2_checks,
                     on_settle=_record_settle,
                 )
-                if _canon(settled) != _canon(current):
+                # 784:71: the floor round's patch ships unreviewed — a structural
+                # defect keeps the reviewed condensed draft.
+                floor_patch_rejected = _canon(settled) != _canon(
+                    current
+                ) and _reject_unreviewed_patch(current, settled, site="final_floor")
+                if _canon(settled) != _canon(current) and not floor_patch_rejected:
                     current = settled
                     await _apply(current)
                     m2 = measure_cell["measured"]
@@ -4144,6 +4304,8 @@ async def _terminal_review_letter(
                             )
                     else:
                         final_floor_selection = "kept_corrector"
+                elif floor_patch_rejected:
+                    final_floor_selection = "kept_condensed_patch_rejected"
                 else:
                     # The review round settled on the condensed draft
                     # unchanged (approved, or every settle path returned it
