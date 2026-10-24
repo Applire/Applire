@@ -110,7 +110,7 @@
   },
   "flow": {
     "stepProfile": "1 Profil",
-    "stepGaps": "2 Lücken",
+    "stepGaps": "2 Abgleich",
     "stepInterview": "3 Interview",
     "stepCV": "4 Lebenslauf",
     "loading": "Lade …",
@@ -140,6 +140,7 @@
     "cancelDialogConfirm": "Bewerbung abbrechen",
     "cancelDialogBusy": "Wird abgebrochen …",
     "stepSkipped": "{label} – übersprungen",
+    "stepSkippedReopen": "{label} – übersprungen, jetzt nachholen",
     "stepSkippedSr": " (übersprungen)"
   },
   "gaps": {
@@ -332,7 +333,14 @@
     "gapsSectionLead": "{count, plural, one {# offene Anforderung} other {# offene Anforderungen}}, in {topics, plural, one {# Thema} other {# Themen}} gebündelt. Offen heißt: Dein Lebenslauf zeigt es noch nicht — nicht, dass du es nicht kannst.",
     "gapsSectionLeadNoneOpen": "Keine Anforderung ist offen. {count, plural, one {# ist} other {# sind}} nur wahrscheinlich belegt — ein kurzes Bestätigen macht sie sicher.",
     "jdContextLabel": "Was die Stelle erwartet:",
-    "liabilityEvidenceLabel": "Steht im Profil:"
+    "liabilityEvidenceLabel": "Steht im Profil:",
+    "reopenNote": "Deine Unterlagen bleiben erhalten. Wenn du das Interview jetzt nachholst, bleiben Lebenslauf und Anschreiben als Versionen gespeichert. Danach erstellst du mit „Neu zuschneiden“ neue Fassungen aus deinem neuen Stand.",
+    "reopenInterview": "Interview jetzt nachholen",
+    "reopenInterviewContinue": "Interview fortsetzen",
+    "goToDocuments": "Zu meinen Unterlagen",
+    "goToDocumentsHint": "Lebenslauf und Anschreiben ansehen, so wie sie sind.",
+    "interviewOpenFailed": "Das Interview konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal.",
+    "cvAdvanceFailed": "Der Lebenslauf-Schritt konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal."
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -1282,6 +1290,10 @@
     "duplicateOpenExisting": "Vorhandene Bewerbung öffnen (analysiert am {date})",
     "duplicateContinueNew": "Als neue Bewerbung fortfahren",
     "duplicateDismiss": "Schließen",
+    "duplicateSameTitle": "Diese Stelle kennst du schon",
+    "duplicateSameBody": "Das ist dieselbe Anzeige, die du am {date} analysiert hast ({company} – {role}). Für eine Anzeige führen wir eine Bewerbung – du kannst sie öffnen oder dort das Interview führen.",
+    "duplicateOpenSame": "Vorhandene Bewerbung öffnen",
+    "duplicateInterviewExisting": "Interview zu dieser Bewerbung führen",
     "staleCvTitle": "Dein Profil ist gewachsen",
     "staleCvBody": "Seit dieser Lebenslauf-Version hat dein Profil dazugewonnen: {gained}. Jetzt neu zuschneiden?",
     "staleCvBodyPlain": "Dein Profil ist seit dieser Lebenslauf-Version gewachsen. Jetzt neu zuschneiden?",

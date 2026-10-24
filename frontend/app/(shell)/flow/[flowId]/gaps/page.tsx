@@ -79,6 +79,10 @@ interface GapAnalysis {
 interface FlowState {
   job_id: string | null;
   user_type: "new" | "returning";
+  /** R2-3: past `gap_analysis` the CTAs reopen the interview / open the documents. */
+  current_step?: string;
+  /** R2-3: an interview already taken reads "continue", a skipped one "take it now". */
+  interview_summary?: { status: string } | null;
   available_actions: Record<string, string>;
   gap_summary?: { gap_analysis_id: string } | null;
   job_summary?: { role_title: string } | null;
@@ -558,6 +562,9 @@ export default function GapsPage({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
+  // R2-3: a refused move is said next to the buttons, in the UI language —
+  // never the server's `allowed_transitions` text, never below the fold.
+  const [advanceError, setAdvanceError] = useState("");
   // #67: the slim merge-review pointer needs the trail; whether it shows is
   // derived below, scoped to THIS flow's imports (Spaghettieis UAT).
   const [profileTrail, setProfileTrail] = useState<ProfileChanges | null>(null);
@@ -1059,6 +1066,14 @@ export default function GapsPage({
   async function advance(target: "interview" | "cv_generation") {
     if (!gaps) return;
     setError("");
+    setAdvanceError("");
+    // R2-3 (ADR-016 amended 2026-10-24): past the gaps step the documents
+    // already exist — the second action OPENS them instead of advancing (an
+    // advance from `complete` to `cv_generation` is refused by the graph).
+    if (target === "cv_generation" && pastGapsStep) {
+      router.push(`/flow/${flowId}/cv`);
+      return;
+    }
     setActionLoading(true);
     try {
       if (target === "interview") {
@@ -1067,28 +1082,18 @@ export default function GapsPage({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ job_id: flowState?.job_id }),
         });
-        if (!sessionRes.ok) {
-          const errData = await sessionRes.json();
-          throw new Error(
-            typeof errData.detail === "string" ? errData.detail : "Failed to create interview session"
-          );
-        }
+        if (!sessionRes.ok) throw new Error(t("interviewOpenFailed"));
         const sessionData = await sessionRes.json();
         const sessionId = sessionData.id || sessionData.session_id;
 
+        // R2-3: on a finished flow this is the reopen edge (complete →
+        // interview); the recorded CV and letter stay on the flow.
         const advRes = await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ step: target, artifact_id: sessionId }),
         });
-        if (!advRes.ok) {
-          const errData = await advRes.json();
-          throw new Error(
-            errData.detail?.allowed_transitions
-              ? `Invalid step. Allowed: ${errData.detail.allowed_transitions.join(", ")}`
-              : typeof errData.detail === "string" ? errData.detail : "Error"
-          );
-        }
+        if (!advRes.ok) throw new Error(t("interviewOpenFailed"));
         router.push(`/flow/${flowId}/interview`);
       } else {
         // cv_generation does not require an artifact_id — the CV is generated
@@ -1099,16 +1104,11 @@ export default function GapsPage({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ step: "cv_generation" }),
         });
-        if (!advRes.ok) {
-          const errData = await advRes.json().catch(() => ({}));
-          throw new Error(
-            typeof errData.detail === "string" ? errData.detail : "Failed to advance to CV"
-          );
-        }
+        if (!advRes.ok) throw new Error(t("cvAdvanceFailed"));
         router.push(`/flow/${flowId}/cv`);
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error");
+      setAdvanceError(e instanceof Error && e.message ? e.message : t("interviewOpenFailed"));
     } finally {
       setActionLoading(false);
     }
@@ -1207,6 +1207,11 @@ export default function GapsPage({
   // The interview offer is gap-driven, never user-type-driven: gaps detected →
   // the user gets the mitigation option; a clean sweep goes straight to CV.
   const offerInterview = hasJob && counts.itemsToAddress > 0;
+  // R2-3: documents exist once the flow is past the gaps step (skip → CV →
+  // letter leaves it `complete`); the interview is then a reopen, not a start.
+  const pastGapsStep =
+    flowState?.current_step === "cv_generation" || flowState?.current_step === "complete";
+  const interviewTaken = Boolean(flowState?.interview_summary);
 
   return (
     <div data-testid="gap-analysis-page" className="max-w-4xl mx-auto">
@@ -1340,18 +1345,32 @@ export default function GapsPage({
           )}
         >
           <div ref={setDecisionsSlot} data-testid="gaps-decisions-slot" className="md:hidden" />
+          {/* R2-3 (ruling G-1): on a finished application the interview is a
+              reopen — say first that the documents stay. */}
+          {pastGapsStep && offerInterview && (
+            <p
+              data-testid="gaps-reopen-note"
+              className="mb-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs md:text-sm text-on-surface"
+            >
+              {t("reopenNote")}
+            </p>
+          )}
           <div className={cn("grid gap-3 md:gap-4 items-start", offerInterview ? "grid-cols-2" : "grid-cols-1")}>
             {offerInterview && (
               <div className="flex flex-col gap-1.5 min-w-0">
                 <Button
-                  variant={flowState?.user_type === "new" ? "primary" : "secondary"}
+                  variant={pastGapsStep || flowState?.user_type === "new" ? "primary" : "secondary"}
                   size="lg"
                   onClick={() => void advance("interview")}
                   disabled={actionLoading}
                   className="w-full h-12 px-3 md:px-6"
                   data-testid="interview-button"
                 >
-                  {t("startInterview")}
+                  {pastGapsStep
+                    ? interviewTaken
+                      ? t("reopenInterviewContinue")
+                      : t("reopenInterview")
+                    : t("startInterview")}
                 </Button>
                 <p className="hidden md:block text-xs text-on-surface-variant">
                   {req.open > 0
@@ -1362,19 +1381,34 @@ export default function GapsPage({
             )}
             <div className="flex flex-col gap-1.5 min-w-0">
               <Button
-                variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
+                variant={
+                  pastGapsStep
+                    ? offerInterview ? "secondary" : "primary"
+                    : flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"
+                }
                 size="lg"
                 onClick={() => void advance("cv_generation")}
                 disabled={actionLoading}
                 className="w-full h-12 px-3 md:px-6"
                 data-testid="generate-cv-button"
               >
-                <span className="md:hidden">{t("generateCVShort")}</span>
-                <span className="hidden md:inline">{t("generateCV")}</span>
+                {pastGapsStep ? (
+                  t("goToDocuments")
+                ) : (
+                  <>
+                    <span className="md:hidden">{t("generateCVShort")}</span>
+                    <span className="hidden md:inline">{t("generateCV")}</span>
+                  </>
+                )}
               </Button>
+              {pastGapsStep && (
+                <p data-testid="go-to-documents-hint" className="hidden md:block text-xs text-on-surface-variant">
+                  {t("goToDocumentsHint")}
+                </p>
+              )}
               {/* Ruling UX-3 (M7): before skipping the interview, say what it
                   costs — no new count, the open points are on this page. */}
-              {offerInterview && (
+              {offerInterview && !pastGapsStep && (
                 <p
                   data-testid="generate-cv-skip-cost"
                   className="hidden md:block text-xs text-on-surface-variant"
@@ -1384,6 +1418,17 @@ export default function GapsPage({
               )}
             </div>
           </div>
+          {/* R2-3: a refused move is said HERE, beside the buttons, in the UI
+              language — never the server's allowed-transitions text. */}
+          {advanceError && (
+            <p
+              role="alert"
+              data-testid="gaps-advance-error"
+              className="mt-2 rounded-lg bg-critical/10 px-3 py-2 text-sm text-critical"
+            >
+              {advanceError}
+            </p>
+          )}
         </div>
         {/* Below md the two explanations sit in the flow, under the card's
             numbers — the fixed bar carries only the buttons. */}
@@ -1392,7 +1437,7 @@ export default function GapsPage({
             <p>
               {req.open > 0 ? t("gapInterviewHintCount", { count: req.open }) : t("gapInterviewHint")}
             </p>
-            <p>{t("generateWithoutInterviewCost")}</p>
+            <p>{pastGapsStep ? t("goToDocumentsHint") : t("generateWithoutInterviewCost")}</p>
           </div>
         )}
       </Card>

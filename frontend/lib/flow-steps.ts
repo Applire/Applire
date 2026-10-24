@@ -41,3 +41,27 @@ export function flowStepState(
   if (step === "interview" && flow.interview_summary?.status !== "complete") return "skipped";
   return "done";
 }
+
+/**
+ * R2-3 (ruling G-1): where a PASSED stepper pill links to, or ``undefined``
+ * when it is not a link. The gap view is the single human entry back into the
+ * interview (ADR-016 amended 2026-10-24: `cv_generation`/`complete` →
+ * `interview`), so both "2 Abgleich" and a skipped/taken "3 Interview" lead
+ * there; the CV pill leads to the documents once they exist. A step not yet
+ * reached is never a link (the layout guard would bounce it anyway).
+ */
+export function flowStepHref(
+  flowId: string,
+  step: (typeof FLOW_STEP_ORDER)[number],
+  flow: FlowStepInput | null,
+): string | undefined {
+  if (!flow) return undefined;
+  const past = flow.current_step === "cv_generation" || flow.current_step === "complete";
+  const base = `/flow/${flowId}`;
+  if (step === "gap_analysis") {
+    return stepIndex(flow.current_step) > stepIndex("gap_analysis") ? `${base}/gaps` : undefined;
+  }
+  if (step === "interview") return past ? `${base}/gaps` : undefined;
+  if (step === "cv_generation") return past ? `${base}/cv` : undefined;
+  return undefined;
+}

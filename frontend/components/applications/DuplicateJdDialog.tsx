@@ -50,8 +50,19 @@ export function DuplicateJdDialog({
   const locale = useLocale();
 
   const date = new Date(hint.analyzed_at).toLocaleDateString(locale);
-  const body =
-    hint.company_name || hint.role_title
+  // R2-3 / 789:184: the SAME analysis (identical posting) cannot become a
+  // second application — one posting, one application, one flow — so "continue
+  // as new" would only reopen the old, finished flow. The second choice then
+  // names what it does: the interview on that application (ADR-016 amended
+  // 2026-10-24 lets a finished flow go back to it).
+  const sameposting = hint.matched_on === "job";
+  const body = sameposting
+    ? t("duplicateSameBody", {
+        date,
+        company: hint.company_name ?? "—",
+        role: hint.role_title ?? "—",
+      })
+    : hint.company_name || hint.role_title
       ? t("duplicateBody", {
           date,
           company: hint.company_name ?? "—",
@@ -76,7 +87,9 @@ export function DuplicateJdDialog({
             {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
             <span aria-hidden="true" className="material-symbols-outlined text-primary text-[22px]" style={{ fontVariationSettings: "'FILL' 1" }}>content_copy</span>
           </div>
-          <h3 className="text-base font-bold text-on-surface pt-1.5">{t("duplicateTitle")}</h3>
+          <h3 className="text-base font-bold text-on-surface pt-1.5">
+            {sameposting ? t("duplicateSameTitle") : t("duplicateTitle")}
+          </h3>
         </div>
         <p data-testid="duplicate-jd-body" className="text-sm text-on-surface-variant mb-5 leading-relaxed">
           {body}
@@ -89,7 +102,7 @@ export function DuplicateJdDialog({
             onClick={onOpenExisting}
             className="w-full bg-primary text-white font-semibold py-2.5 rounded-lg text-sm hover:opacity-90"
           >
-            {t("duplicateOpenExisting", { date })}
+            {sameposting ? t("duplicateOpenSame") : t("duplicateOpenExisting", { date })}
           </button>
           <button
             type="button"
@@ -97,7 +110,7 @@ export function DuplicateJdDialog({
             onClick={onContinueNew}
             className="w-full border border-outline-variant text-on-surface font-semibold py-2.5 rounded-lg text-sm hover:bg-surface-container-low"
           >
-            {t("duplicateContinueNew")}
+            {sameposting ? t("duplicateInterviewExisting") : t("duplicateContinueNew")}
           </button>
         </div>
 

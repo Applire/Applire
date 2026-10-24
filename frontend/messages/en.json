@@ -110,7 +110,7 @@
   },
   "flow": {
     "stepProfile": "1 Profile",
-    "stepGaps": "2 Gaps",
+    "stepGaps": "2 Match",
     "stepInterview": "3 Interview",
     "stepCV": "4 CV",
     "loading": "Loading…",
@@ -140,6 +140,7 @@
     "cancelDialogConfirm": "Cancel application",
     "cancelDialogBusy": "Cancelling…",
     "stepSkipped": "{label} — skipped",
+    "stepSkippedReopen": "{label} — skipped, take it now",
     "stepSkippedSr": " (skipped)"
   },
   "gaps": {
@@ -332,7 +333,14 @@
     "gapsSectionLead": "{count, plural, one {# open requirement} other {# open requirements}}, grouped into {topics, plural, one {# topic} other {# topics}}. Open means your CV does not show it yet — not that you can't do it.",
     "gapsSectionLeadNoneOpen": "No requirement is open. {count, plural, one {# is} other {# are}} only likely covered — a quick confirmation makes them certain.",
     "jdContextLabel": "What the role expects:",
-    "liabilityEvidenceLabel": "In your profile:"
+    "liabilityEvidenceLabel": "In your profile:",
+    "reopenNote": "Your documents stay. If you take the interview now, your CV and cover letter stay saved as versions. Afterwards, “Re-tailor” creates new versions from your updated profile.",
+    "reopenInterview": "Take the interview now",
+    "reopenInterviewContinue": "Continue the interview",
+    "goToDocuments": "Go to my documents",
+    "goToDocumentsHint": "See your CV and cover letter as they are.",
+    "interviewOpenFailed": "The interview could not be opened just now. Please reload the page and try again.",
+    "cvAdvanceFailed": "The CV step could not be opened just now. Please reload the page and try again."
   },
   "interview": {
     "loading": "Starting interview…",
@@ -1282,6 +1290,10 @@
     "duplicateOpenExisting": "Open existing application (analyzed {date})",
     "duplicateContinueNew": "Continue as new",
     "duplicateDismiss": "Close",
+    "duplicateSameTitle": "You already have this job",
+    "duplicateSameBody": "This is the same posting you analyzed on {date} ({company} – {role}). One posting means one application – you can open it or take the interview there.",
+    "duplicateOpenSame": "Open the existing application",
+    "duplicateInterviewExisting": "Take the interview for this application",
     "staleCvTitle": "Your profile has grown",
     "staleCvBody": "Since this CV version your profile gained: {gained}. Re-tailor now?",
     "staleCvBodyPlain": "Your profile has grown since this CV version. Re-tailor now?",

@@ -60,6 +60,11 @@ interface ApiConfig {
   categoryC?: string[];
   clusters?: object[];
   changes?: object;
+  /** R2-3: the flow's step (default gap_analysis) and its interview, if any. */
+  currentStep?: string;
+  interviewSummary?: { status: string } | null;
+  /** R2-3: status the advance POST answers (default 200). */
+  advanceStatus?: number;
 }
 
 function mockApis(cfg: ApiConfig) {
@@ -91,7 +96,8 @@ function mockApis(cfg: ApiConfig) {
           flow_id: "f1",
           job_id: cfg.jobId,
           user_type: cfg.userType,
-          current_step: "gap_analysis",
+          current_step: cfg.currentStep ?? "gap_analysis",
+          interview_summary: cfg.interviewSummary ?? null,
           available_actions: {},
           job_summary: cfg.jobId ? { role_title: "Engineer" } : null,
           application_id: null,
@@ -112,6 +118,20 @@ function mockApis(cfg: ApiConfig) {
     }
     if (cfg.jobId && url.includes(`/api/job/${cfg.jobId}/gaps`)) {
       return { ok: true, json: async () => gaps } as Response;
+    }
+    if (url.endsWith("/api/session")) {
+      return { ok: true, json: async () => ({ id: "s1" }) } as Response;
+    }
+    if (url.includes("/api/flow/f1/advance")) {
+      const status = cfg.advanceStatus ?? 200;
+      return {
+        ok: status < 400,
+        status,
+        json: async () =>
+          status === 409
+            ? { detail: { current_step: "complete", target_step: "interview", allowed_transitions: [] } }
+            : {},
+      } as Response;
     }
     if (url.includes("/api/profile/changes")) {
       return {
@@ -1105,5 +1125,74 @@ describe("#789 gaps page re-cut", () => {
     const ctx = await screen.findByTestId("gap-jd-context");
     expect(ctx).toHaveTextContent("gaps.jdContextLabel");
     expect(ctx).toHaveTextContent("Die Stelle verantwortet die Produktion.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R2-3 (ruling G-1, ADR-016 amended 2026-10-24) — a finished flow reopens the
+// interview from the gap view; the documents stay; nothing reads as engineer text.
+// ---------------------------------------------------------------------------
+
+describe("R2-3 — the gap view on a finished application", () => {
+  it("offers 'take the interview now' + 'go to my documents' with the documents-stay note", async () => {
+    mockApis({ userType: "returning", jobId: "j1", categoryC: ["Kafka"], currentStep: "complete" });
+    await renderPage();
+
+    expect(screen.getByTestId("gaps-reopen-note").textContent).toBe("gaps.reopenNote");
+    expect(screen.getByTestId("interview-button").textContent).toBe("gaps.reopenInterview");
+    expect(screen.getByTestId("generate-cv-button").textContent).toBe("gaps.goToDocuments");
+    // The M7 skip cost line is about skipping — it does not belong here.
+    expect(screen.queryByTestId("generate-cv-skip-cost")).not.toBeInTheDocument();
+  });
+
+  it("names a reopened interview 'continue' when one was already taken", async () => {
+    mockApis({
+      userType: "returning", jobId: "j1", categoryC: ["Kafka"],
+      currentStep: "complete", interviewSummary: { status: "complete" },
+    });
+    await renderPage();
+    expect(screen.getByTestId("interview-button").textContent).toBe("gaps.reopenInterviewContinue");
+  });
+
+  it("'go to my documents' opens the CV page WITHOUT an advance (complete → cv_generation is refused)", async () => {
+    mockApis({ userType: "returning", jobId: "j1", categoryC: ["Kafka"], currentStep: "complete" });
+    await renderPage();
+    fireEvent.click(screen.getByTestId("generate-cv-button"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/f1/cv"));
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(calls.some((u) => u.includes("/advance"))).toBe(false);
+  });
+
+  it("the interview reopen advances into 'interview' with the session id and opens the interview", async () => {
+    mockApis({ userType: "returning", jobId: "j1", categoryC: ["Kafka"], currentStep: "complete" });
+    await renderPage();
+    fireEvent.click(screen.getByTestId("interview-button"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/f1/interview"));
+    const adv = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find((c) =>
+      String(c[0]).includes("/advance"),
+    );
+    expect(JSON.parse((adv![1] as RequestInit).body as string)).toEqual({ step: "interview", artifact_id: "s1" });
+  });
+
+  it("a refused advance is said beside the buttons in the UI language — never 'Invalid step. Allowed:'", async () => {
+    mockApis({
+      userType: "returning", jobId: "j1", categoryC: ["Kafka"],
+      currentStep: "complete", advanceStatus: 409,
+    });
+    await renderPage();
+    fireEvent.click(screen.getByTestId("interview-button"));
+    const err = await screen.findByTestId("gaps-advance-error");
+    expect(err.textContent).toBe("gaps.interviewOpenFailed");
+    expect(screen.getByTestId("gaps-decision-bar").contains(err)).toBe(true);
+    expect(document.body.textContent).not.toContain("Invalid step");
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("before the CV step the page keeps 'start the interview' and the skip cost line", async () => {
+    mockApis({ userType: "returning", jobId: "j1", categoryC: ["Kafka"] });
+    await renderPage();
+    expect(screen.getByTestId("interview-button").textContent).toBe("gaps.startInterview");
+    expect(screen.queryByTestId("gaps-reopen-note")).not.toBeInTheDocument();
+    expect(screen.getByTestId("generate-cv-skip-cost")).toBeInTheDocument();
   });
 });
