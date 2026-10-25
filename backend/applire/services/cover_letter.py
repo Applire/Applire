@@ -915,6 +915,8 @@ def build_stated_limits_entry(
 
 def key_requirement_ledger(
     keyword_ledger: list[dict] | None,
+    *,
+    user_id: "uuid.UUID | None" = None,
 ) -> list[dict]:
     """RULING L-1 = A (founder 2026-10-24, ADR-075 amended): the letter names a
     recorded gap only where the posting's KEY requirement is that gap — the
