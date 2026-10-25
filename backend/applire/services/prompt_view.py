@@ -81,6 +81,10 @@ PROMPT_EXCLUDED_METADATA_KEYS: frozenset[str] = frozenset(
         "created_via",
         "last_updated",
         "application_count",
+        # G-5 (ADR-059 amended 2026-10-24): denials the candidate took back.
+        # History for the profile view only; a prompt reading them would treat
+        # a withdrawn limit as a live one.
+        "withdrawn_denials",
     }
 )
 

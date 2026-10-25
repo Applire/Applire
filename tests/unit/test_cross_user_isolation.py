@@ -78,6 +78,7 @@ REST_BODIES: dict[tuple[str, str], dict] = {
     ("POST", "/api/flow/{flow_id}/advance"): {"step": "gap_analysis"},
     ("POST", "/api/cv/{cv_id}/sections/{section_id}/assist"): {"gap_id": "cluster-1"},
     ("PATCH", "/api/cv/{cv_id}/sections/{section_id}/assist"): {"session_id": str(uuid.UUID(int=9)), "answer": "Yes."},
+    ("POST", "/api/cv/{cv_id}/sections/{section_id}/assist/accept"): {"session_id": str(uuid.UUID(int=9))},
     ("PATCH", "/api/cv/{cv_id}/sections/{section_id:path}"): {"content": "Changed by B."},
     ("PATCH", "/api/cover-letter/{cl_id}/section"): {"section": "body", "content": "Changed by B."},
     ("POST", "/api/cv/{doc_id}/review/add-evidence"): {**_FK, "text": "Evidence."},
