@@ -50,6 +50,8 @@ interface FlowStep {
   labelKey: IntlKey;
   /** "skipped" (M7): passed without being done — drawn like "pending". */
   state: "done" | "active" | "pending" | "skipped";
+  /** R2-3 (G-1): a passed step the person may go back to renders as a link. */
+  href?: string;
 }
 
 interface FlowMode {
@@ -139,23 +141,52 @@ export function AppTopbar(props: AppTopbarProps) {
             // step stays reachable within 390px instead of relying solely on
             // the horizontal scroll for every pill.
             <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto">
-              {props.steps.map((s) => (
-                <span
-                  key={s.key}
-                  ref={s.state === "active" ? activeStepRef : undefined}
-                  className={cn(
-                    "px-2 md:px-3 py-0.5 md:py-1 rounded-full text-[11px] md:text-[12px] font-semibold whitespace-nowrap shrink-0",
-                    s.state === "done"   && "bg-success text-white",
-                    s.state === "active" && "bg-primary text-white",
-                    (s.state === "pending" || s.state === "skipped") && "bg-surface-container text-gray-500",
-                  )}
-                  data-state={s.state}
-                  title={s.state === "skipped" ? t("flow.stepSkipped", { label: t(s.labelKey) }) : undefined}
-                >
-                  {t(s.labelKey)}
-                  {s.state === "skipped" && <span className="sr-only">{t("flow.stepSkippedSr")}</span>}
-                </span>
-              ))}
+              {props.steps.map((s) => {
+                const pillClass = cn(
+                  "px-2 md:px-3 py-0.5 md:py-1 rounded-full text-[11px] md:text-[12px] font-semibold whitespace-nowrap shrink-0",
+                  s.state === "done"   && "bg-success text-white",
+                  s.state === "active" && "bg-primary text-white",
+                  (s.state === "pending" || s.state === "skipped") && "bg-surface-container text-gray-500",
+                );
+                const content = (
+                  <>
+                    {t(s.labelKey)}
+                    {s.state === "skipped" && <span className="sr-only">{t("flow.stepSkippedSr")}</span>}
+                  </>
+                );
+                // R2-3 (ruling G-1): a passed step the person may go back to
+                // (the gap view, a skipped interview) is a link; the skipped
+                // one is drawn outlined so it reads as "still to do".
+                if (s.href && s.state !== "active") {
+                  return (
+                    <Link
+                      key={s.key}
+                      href={s.href}
+                      data-state={s.state}
+                      data-testid={`flow-step-link-${s.key}`}
+                      title={s.state === "skipped" ? t("flow.stepSkippedReopen", { label: t(s.labelKey) }) : undefined}
+                      className={cn(
+                        pillClass,
+                        "underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary",
+                        s.state === "skipped" && "bg-white text-primary border border-dashed border-primary",
+                      )}
+                    >
+                      {content}
+                    </Link>
+                  );
+                }
+                return (
+                  <span
+                    key={s.key}
+                    ref={s.state === "active" ? activeStepRef : undefined}
+                    className={pillClass}
+                    data-state={s.state}
+                    title={s.state === "skipped" ? t("flow.stepSkipped", { label: t(s.labelKey) }) : undefined}
+                  >
+                    {content}
+                  </span>
+                );
+              })}
               {props.trailingBadge && (
                 <span
                   className="hidden md:inline-block ml-2 px-2.5 py-1 rounded-full text-[12px] text-gray-600 bg-gray-100 max-w-[260px] truncate shrink-0"

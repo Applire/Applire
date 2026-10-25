@@ -159,6 +159,20 @@ async function stubBackend(page: Page, opts: StubOptions = {}) {
     sections === null ? r.fulfill({ status: 500, body: '' }) : json(r, sections),
   );
   await page.route(`**/api/application/**`, (r) => json(r, {}));
+  // R2-10 (F1-2): the job's gap row — review group 3 shows ITS open count
+  // (fit-weighted rows at status gap), never the ATS posting-keyword misses.
+  await page.route('**/api/job/*/gaps', (r) =>
+    json(r, {
+      category_a: [], category_b: [], category_c: [],
+      gap_clusters: [],
+      keyword_ledger: [
+        { concept: 'FastAPI', fit_weight: 1, status: 'gap', surface_forms: ['FastAPI'] },
+        { concept: 'Apache Kafka', fit_weight: 1, status: 'gap', surface_forms: ['Apache Kafka'] },
+        { concept: 'E-commerce', fit_weight: 0, status: 'gap', surface_forms: ['E-commerce'] },
+        { concept: 'Python', fit_weight: 1, status: 'direct', surface_forms: ['Python'] },
+      ],
+    }),
+  );
 }
 
 async function previewHeight(page: Page): Promise<number> {
@@ -537,5 +551,7 @@ test.describe('E058/ADR-090 — a stubbed end-to-end review flow', () => {
 
     // (g) — group 3 links out to the gap view (ruling C-1).
     await expect(page.getByTestId('review-group3-link')).toHaveAttribute('href', `/flow/${FLOW_ID}/gaps`);
+    // R2-10: its number is the gaps page's — 2 open requirements, not the ATS misses.
+    await expect(page.getByTestId('review-group-count-3')).toHaveText('2');
   });
 });

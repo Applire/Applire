@@ -83,6 +83,7 @@ from applire.schemas.profile import (
     DeniedConcept,
     FieldChange,
     MasterProfileData,
+    PendingConfirmation,
     ProfileMetadata,
 )
 from applire.services.ats_audit import _fold_variants, _norm, surface_present
@@ -218,15 +219,96 @@ def _bounded_present(form: str, text_norm: str) -> bool:
     return any(_word_present(v, text_norm) for v in _fold_variants(n))
 
 
+#: FS-7 (ADR-059 amended 2026-10-24) — the CLOSED list of generic head nouns
+#: that make a denial declare its bare term. Lexical (ADR-062 cl. 1): a new
+#: head noun is a code change with a test, never a runtime list. Forms are
+#: ``_norm``-ed (lower case, hyphens folded to spaces).
+_HEAD_NOUNS_TRAILING: tuple[str, ...] = (
+    "experience", "experiences", "knowledge", "skills", "skill", "expertise",
+    "background", "know how",
+)
+_HEAD_NOUNS_LEADING: tuple[str, ...] = (
+    "erfahrung", "erfahrungen", "kenntnisse", "kenntnis", "wissen", "know how",
+    "expertise", "experience", "knowledge", "background",
+)
+#: Only quantity/ownership words may precede a leading head noun; a NARROWING
+#: qualifier ("praktische", "hands-on", "direkte", "formal") never strips.
+_HEAD_FRAME_QUALIFIERS: tuple[str, ...] = ("eigene", "eigenen", "keine", "own", "no", "any")
+_HEAD_FRAME_PREPOSITIONS: tuple[str, ...] = (
+    "mit", "in", "im", "von", "zu", "zum", "zur", "with", "of", "on",
+)
+_TRAILING_HEAD_RE = re.compile(
+    r"^(?P<term>.+?) (?:" + "|".join(re.escape(h) for h in _HEAD_NOUNS_TRAILING) + r")$"
+)
+_LEADING_HEAD_RE = re.compile(
+    r"^(?:(?:" + "|".join(_HEAD_FRAME_QUALIFIERS) + r") )?"
+    r"(?:" + "|".join(re.escape(h) for h in _HEAD_NOUNS_LEADING) + r") "
+    r"(?:" + "|".join(_HEAD_FRAME_PREPOSITIONS) + r") (?P<term>.+)$"
+)
+
+
+def head_noun_term(denial: str) -> str | None:
+    """FS-7 — the bare term a denial phrased as term + generic head noun
+    declares, or ``None`` (ADR-059 amended 2026-10-24).
+
+    "payment-institution experience" → "payment institution";
+    "eigene Erfahrung mit Vertrieb" → "vertrieb"; "audit-trail background" →
+    "audit trail". Only when the denial is EXACTLY such a frame; a narrowing
+    qualifier stays in the term ("formal SBAR experience" → "formal sbar", never
+    bare "sbar"), and a denial that IS a head noun declares nothing. Returned
+    ``_norm``-ed. Pure.
+    """
+    d = _norm(denial or "")
+    if not d:
+        return None
+    for rx in (_LEADING_HEAD_RE, _TRAILING_HEAD_RE):
+        m = rx.match(d)
+        if m:
+            term = m.group("term").strip()
+            if term and term not in _HEAD_NOUNS_TRAILING and term not in _HEAD_NOUNS_LEADING:
+                return term
+    return None
+
+
+def _declared_forms(denial: str) -> tuple[str, ...]:
+    """The forms a denial DECLARES: itself, plus its FS-7 bare term."""
+    bare = head_noun_term(denial)
+    return (denial, bare) if bare else (denial,)
+
+
 def _declares(denial: str, token_forms: frozenset[str]) -> bool:
     """The DECLARED branch, alone: the denied term itself names the token (or a
     broader term the token falls under — "Azure" declares "Microsoft Azure",
     "Kubernetes" declares "K8s" via the token's alias form).
 
+    FS-7 (ADR-059 amended 2026-10-24): a denial phrased as term + generic head
+    noun ("payment-institution experience", "eigene Erfahrung mit Vertrieb")
+    also declares its bare term (:func:`head_noun_term`) — a lexical fact, so
+    the bare term is floored absolutely instead of being read as a narrower
+    compound that the candidate's CV could release.
+
     Never the compound-containment branch below. See
     :func:`declared_denial_matches` for why the two are separable.
     """
-    return any(_bounded_present(denial, tf) for tf in token_forms)
+    return any(_bounded_present(form, tf) for form in _declared_forms(denial) for tf in token_forms)
+
+
+def declared_only_by_head_noun(token: str, denials: list[str]) -> list[str]:
+    """FS-7 — the denials that declare ``token`` ONLY through their head-noun
+    frame (the literal denial does not name it). These are the matches whose
+    floor a CV naming the term would have released before 2026-10-24: the
+    contradiction the Health question asks about. Longest first. Pure."""
+    token_norm = _norm(token)
+    if not token_norm:
+        return []
+    forms = _alias_forms(token_norm)
+    out = [
+        d for d in denials
+        if _norm(d)
+        and not any(_bounded_present(d, tf) for tf in forms)
+        and _declares(d, forms)
+    ]
+    return sorted(out, key=lambda d: len(_norm(d)), reverse=True)
 
 
 def declared_denial_matches(token: str, denials: list[str]) -> list[str]:
@@ -1297,6 +1379,16 @@ def denial_release_corpus(profile_json: dict[str, Any] | None) -> str:
     """
     if not isinstance(profile_json, dict):
         return ""
+    return _norm(_LABEL_SEPARATOR.join(denial_release_units(profile_json)))
+
+
+def denial_release_units(profile_json: dict[str, Any] | None) -> list[str]:
+    """The un-normalised units :func:`denial_release_corpus` is built from — one
+    attested label or imported bullet each, in vault order. Exists so a reader
+    that must SHOW the unit (the FS-7 Health question) quotes the vault's own
+    wording; the release predicate reads only the joined corpus. Pure."""
+    if not isinstance(profile_json, dict):
+        return []
 
     labels: list[str] = []
 
@@ -1334,7 +1426,99 @@ def denial_release_corpus(profile_json: dict[str, Any] | None) -> str:
     for unit in imported_prose_units(profile_json):
         _add(unit)
 
-    return _norm(_LABEL_SEPARATOR.join(labels))
+    return labels
+
+
+def _persisted_denial_records(profile_json: dict[str, Any]) -> list[tuple[str, str]]:
+    """``(concept, date)`` per persisted denial; ``date`` is "" when absent."""
+    metadata = profile_json.get("metadata") or {}
+    raw = metadata.get("denied_concepts") if isinstance(metadata, dict) else None
+    out: list[tuple[str, str]] = []
+    for d in raw or []:
+        concept = d.get("concept") if isinstance(d, dict) else getattr(d, "concept", None)
+        date = d.get("date") if isinstance(d, dict) else getattr(d, "date", None)
+        if isinstance(concept, str) and concept.strip():
+            out.append((concept, date if isinstance(date, str) else ""))
+    return out
+
+
+def _persisted_denials(profile_json: dict[str, Any]) -> list[str]:
+    return [concept for concept, _ in _persisted_denial_records(profile_json)]
+
+
+def denial_cv_conflicts(
+    profile_json: dict[str, Any] | None, literal_skip: set[str] | frozenset[str] = frozenset()
+) -> list[dict[str, str]]:
+    """Every persisted denial the candidate's own release corpus
+    (:func:`denial_release_units`: attested labels + imported bullets) names.
+
+    Two kinds, one record each per denial —
+    ``{"kind", "denial_concept", "bare_term", "cv_label", "denial_date"}``
+    (``denial_date`` = the ``DeniedConcept.date``, "" when absent):
+
+    * ``"head_noun"`` (FS-7, ADR-059 amended 2026-10-24): the denial declares
+      ``bare_term`` only through its generic head noun ("payment-institution
+      experience" → "payment institution"), and a unit names that term OUTSIDE
+      every denial wording.
+    * ``"literal"``: a unit names the denied term itself at a word boundary
+      ("Vertrieb" denied, a bullet "Vertrieb von …"). ``bare_term`` is the
+      ``_norm``-ed denial.
+
+    ``cv_label`` is the FIRST such unit, in the vault's own wording. The floor
+    holds either way; this only finds the contradiction a Health item asks
+    about. Word-boundary matched, so a German compound ("Vertriebserfahrung")
+    is not found — recorded residue. ``literal_skip`` = ``_norm``-ed units a
+    ``"literal"`` hit may not quote (the units that were there before the write,
+    :func:`park_denial_scope_confirmations`). Pure, ``None``/malformed tolerant.
+    """
+    if not isinstance(profile_json, dict):
+        return []
+    records = _persisted_denial_records(profile_json)
+    denials = [concept for concept, _ in records]
+    if not denials:
+        return []
+    units = denial_release_units(profile_json)
+    out: list[dict[str, str]] = []
+    for denial, denial_date in records:
+        bare = head_noun_term(denial)
+        if bare:
+            kind = "head_noun"
+            label = next(
+                (u for u in units if _independently_affirmed(bare, denials, _norm(u))),
+                None,
+            )
+        else:
+            kind, bare = "literal", _norm(denial)
+            label = next(
+                (
+                    u
+                    for u in units
+                    if _norm(u) not in literal_skip and _bounded_present(denial, _norm(u))
+                ),
+                None,
+            )
+        if label is not None:
+            out.append(
+                {
+                    "kind": kind,
+                    "denial_concept": denial,
+                    "bare_term": bare,
+                    "cv_label": label,
+                    "denial_date": denial_date,
+                }
+            )
+    return out
+
+
+def head_noun_scope_conflicts(profile_json: dict[str, Any] | None) -> list[dict[str, str]]:
+    """FS-7 — the ``"head_noun"`` records of :func:`denial_cv_conflicts`, without
+    the ``kind`` key: the denials that declare a bare term ONLY through their
+    generic head noun while the candidate's own CV names that term. Pure."""
+    return [
+        {k: v for k, v in hit.items() if k != "kind"}
+        for hit in denial_cv_conflicts(profile_json)
+        if hit["kind"] == "head_noun"
+    ]
 
 
 #: ``EnrichmentRecord.source`` values whose prose is the candidate's OWN document
@@ -1417,6 +1601,174 @@ def imported_prose_units(profile_json: dict[str, Any] | None) -> list[str]:
                     if isinstance(text, str) and text.strip() and text.strip() not in written_elsewhere:
                         units.append(text.strip())
     return units
+
+
+#: FS-7 Health item (ADR-059 amended 2026-10-24) — the parked question's
+#: ``source`` and ``context.kind``: one identity for the parking and the resolution.
+DENIAL_SCOPE_SOURCE = "denial_scope"
+#: The answer that keeps the denial (no vault write: the floor already holds).
+DENIAL_HOLDS = "denial_holds"
+#: The answer that reverses it — V's WithdrawDenial (the general un-denial act,
+#: founder G-5 2026-10-24): never automatic, only this answer or "Zurücknehmen".
+CV_HOLDS = "cv_holds"
+DENIAL_SCOPE_OPTION_KEYS: tuple[str, ...] = (DENIAL_HOLDS, CV_HOLDS)
+
+
+def _date_de(iso: str) -> str:
+    try:
+        y, m, d = iso[:10].split("-")
+        return f"{int(d):02d}.{int(m):02d}.{y}"
+    except ValueError:
+        return ""
+
+
+_MONTHS_EN = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _date_en(iso: str) -> str:
+    try:
+        y, m, d = iso[:10].split("-")
+        return f"{int(d)} {_MONTHS_EN[int(m) - 1]} {y}"
+    except (ValueError, IndexError):
+        return ""
+
+
+def denial_scope_confirmation(hit: dict[str, str]) -> PendingConfirmation:
+    """THE builder of the CV-contradicts-a-denial Health item, from one
+    :func:`denial_cv_conflicts` record — both kinds (founder G-5, 2026-10-24):
+
+    * ``"head_noun"`` (FS-7): "Laut deiner Angabe trifft … nicht zu … Stimmt das so?"
+    * ``"literal"`` (V-5 copy, ``Runs/…/v/mock/v5-undenial-de.html``): "Stimmt deine
+      frühere Angabe noch? Am … hast du gesagt, dass … nicht auf dich zutrifft …"
+
+    Two answers, ``option_keys`` = (:data:`DENIAL_HOLDS`, :data:`CV_HOLDS`): the
+    first keeps the denial (no vault write), the second is V's WithdrawDenial
+    act. Called by the denial recording path
+    (:func:`park_denial_scope_confirmations`) and by the CV-import intake, so both
+    park the same question. Stored language-independent (ADR-063 #669). Pure."""
+    denial = hit["denial_concept"]
+    label = hit["cv_label"]
+    shown = label.rstrip().rstrip(".") or label  # the sentence supplies its own stop
+    kind = hit.get("kind") or "head_noun"
+    iso = hit.get("denial_date") or ""
+    if kind == "literal":
+        d_de, d_en = _date_de(iso), _date_en(iso)
+        said_de = f"Am {d_de} hast du gesagt" if d_de else "Du hast gesagt"
+        said_en = f"On {d_en} you said" if d_en else "You said"
+        cv_iso = hit.get("cv_date") or ""
+        cv_de = f"In deinem Lebenslauf vom {_date_de(cv_iso)}" if _date_de(cv_iso) else "In deinem Lebenslauf"
+        cv_en = f"Your CV of {_date_en(cv_iso)}" if _date_en(cv_iso) else "Your CV"
+        question_de = (
+            f"Stimmt deine frühere Angabe noch? {said_de}, dass {denial} nicht auf dich "
+            f"zutrifft. {cv_de} steht aber: „{shown}“."
+        )
+        question_en = (
+            f"Is your earlier answer still right? {said_en} that {denial} does not apply "
+            f"to you. {cv_en} says: “{shown}”."
+        )
+        holds = {"de": "Ja, meine Angabe stimmt", "en": "Yes, my answer is right"}
+    else:
+        question_de = (
+            f"Laut deiner Angabe trifft „{denial}“ auf dich nicht zu. In deinem Lebenslauf "
+            f"steht aber: „{shown}“. Wir zählen es deshalb weiter als nicht vorhanden. "
+            "Stimmt das so?"
+        )
+        question_en = (
+            f"By your own answer, “{denial}” does not apply to you. Your CV says: "
+            f"“{shown}”. So we keep counting it as not there. Is that right?"
+        )
+        holds = {"de": "Ja, das stimmt so", "en": "Yes, that's right"}
+    options = {
+        DENIAL_HOLDS: holds,
+        CV_HOLDS: {
+            "de": "Nein, der Lebenslauf stimmt: Angabe zurücknehmen",
+            "en": "No, the CV is right: take my answer back",
+        },
+    }
+    keys = list(DENIAL_SCOPE_OPTION_KEYS)
+    return PendingConfirmation(
+        question=question_en,
+        options=[options[k]["en"] for k in keys],
+        context={
+            "kind": DENIAL_SCOPE_SOURCE,
+            "conflict_kind": kind,
+            "denial_concept": denial,
+            "bare_term": hit["bare_term"],
+            "cv_label": label,
+        },
+        source=DENIAL_SCOPE_SOURCE,
+        question_i18n={"de": question_de, "en": question_en},
+        options_i18n=[dict(options[k]) for k in keys],
+        option_keys=keys,
+    )
+
+
+def denial_scope_key(item: dict[str, Any] | None) -> str:
+    """The identity of one CV-contradicts-a-denial question — a detector hit or
+    a parked item's ``context``: ``"<denial>|<bare term>"``, both ``_norm``-ed."""
+    if not isinstance(item, dict):
+        return ""
+    denial = _norm(str(item.get("denial_concept") or ""))
+    bare = _norm(str(item.get("bare_term") or ""))
+    return f"{denial}|{bare}" if denial else ""
+
+
+def record_denial_scope_answer(metadata: ProfileMetadata | None, context: dict[str, Any] | None) -> None:
+    """Called by the confirmation resolution on ``denial_holds`` (V's
+    ``_apply_resolve_confirmation``): remember the answered question so
+    :func:`park_denial_scope_confirmations` never parks it again, although the
+    resolution removes the item from ``pending_confirmations``."""
+    key = denial_scope_key(context)
+    if metadata is None or not key or key in metadata.denial_scope_answered:
+        return
+    metadata.denial_scope_answered.append(key)
+
+
+def park_denial_scope_confirmations(
+    metadata: ProfileMetadata | None,
+    profile_json: dict[str, Any] | None,
+    before_json: dict[str, Any] | None = None,
+    when: datetime | None = None,
+) -> list[PendingConfirmation]:
+    """Park one Health item per persisted denial the candidate's own CV
+    contradicts (:func:`denial_cv_conflicts`, both kinds), never twice: a denial that
+    already has a ``denial_scope`` confirmation — open OR answered
+    (``metadata.denial_scope_answered``) — is skipped.
+
+    ``before_json`` = the vault before this write. A ``"literal"`` hit parks
+    only when its unit is NEW in this write — an import that names the denied
+    term (V-5: "Stimmt deine frühere Angabe noch?"). A unit that was already
+    there when the candidate denied it is what the denial answered, and the
+    floor demotes it; asking "still right?" in the same breath would be noise.
+    ``"head_noun"`` hits park against the whole CV (FS-7: the denial's scope is
+    the question). Returns the newly parked records (also appended to
+    ``metadata.pending_confirmations``). No vault write besides the parked
+    question; the floor is untouched. ``when`` (the write time) dates the
+    CV a literal hit quotes: its unit is new in this write."""
+    if metadata is None:
+        return []
+    old_units = (
+        {_norm(u) for u in denial_release_units(before_json)} if before_json is not None else set()
+    )
+    # Open items AND answered ones (denial_scope_answered survives the
+    # resolution, which removes the item from pending_confirmations).
+    asked = {
+        denial_scope_key(c.context or {})
+        for c in metadata.pending_confirmations
+        if c.source == DENIAL_SCOPE_SOURCE
+    } | set(metadata.denial_scope_answered)
+    parked: list[PendingConfirmation] = []
+    for hit in denial_cv_conflicts(profile_json, literal_skip=old_units):
+        key = denial_scope_key(hit)
+        if key in asked:
+            continue
+        asked.add(key)
+        if hit.get("kind") == "literal" and when is not None:
+            hit = {**hit, "cv_date": when.date().isoformat()}
+        conf = denial_scope_confirmation(hit)
+        metadata.pending_confirmations.append(conf)
+        parked.append(conf)
+    return parked
 
 
 def demote_ops_for_denials(

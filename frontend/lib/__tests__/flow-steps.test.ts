@@ -5,7 +5,7 @@
 
 /** Ruling UX-3 (M7) — a skipped interview is never drawn as done. */
 import { describe, expect, it } from "vitest";
-import { FLOW_STEP_ORDER, flowStepState } from "../flow-steps";
+import { FLOW_STEP_ORDER, flowStepHref, flowStepState } from "../flow-steps";
 
 const states = (flow: Parameters<typeof flowStepState>[1], segment: string) =>
   FLOW_STEP_ORDER.map((s) => flowStepState(s, flow, segment));
@@ -47,5 +47,40 @@ describe("flowStepState", () => {
 
   it("before the flow state loaded nothing is done", () => {
     expect(states(null, "gaps")).toEqual(["pending", "active", "pending", "pending"]);
+  });
+});
+
+/** R2-3 (ruling G-1): which passed pill links where. */
+describe("flowStepHref", () => {
+  const hrefs = (flow: Parameters<typeof flowStepHref>[2]) =>
+    FLOW_STEP_ORDER.map((s) => flowStepHref("f1", s, flow));
+
+  it("a finished flow: gaps + the (skipped) interview lead to the gap view, the CV to the documents", () => {
+    expect(hrefs({ current_step: "complete", interview_summary: null })).toEqual([
+      undefined,
+      "/flow/f1/gaps",
+      "/flow/f1/gaps",
+      "/flow/f1/cv",
+    ]);
+  });
+
+  it("a DONE interview opens its summary (783:195)", () => {
+    expect(hrefs({ current_step: "cv_generation", interview_summary: { status: "complete" } })[2]).toBe(
+      "/flow/f1/interview",
+    );
+  });
+
+  it("during the interview only the passed gap view links", () => {
+    expect(hrefs({ current_step: "interview", interview_summary: { status: "active" } })).toEqual([
+      undefined,
+      "/flow/f1/gaps",
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("nothing links before the gap analysis exists, or without a flow", () => {
+    expect(hrefs({ current_step: "cv_import" })).toEqual([undefined, undefined, undefined, undefined]);
+    expect(hrefs(null)).toEqual([undefined, undefined, undefined, undefined]);
   });
 });

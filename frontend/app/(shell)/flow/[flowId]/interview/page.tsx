@@ -41,6 +41,7 @@ import {
   clusterView,
   openThemeCount,
   requirementCounts,
+  requirementTopics,
   type GapCluster,
   type LedgerChipEntry,
   type MemberState,
@@ -273,8 +274,16 @@ function translateError(info: ApiErrorInfo, t: ReturnType<typeof useTranslations
   }
 }
 
-function getReasonLabel(reason: string, t: ReturnType<typeof useTranslations>): string {
-  if (reason === "gaps_resolved") return t("reasonGapsResolved");
+function getReasonLabel(
+  reason: string,
+  t: ReturnType<typeof useTranslations>,
+  openCount: number,
+): string {
+  // R2-10 (lead G hunk): "gaps_resolved" means the PLAN of topics is walked,
+  // not that every requirement is shown — the headline names the topics, and
+  // only an empty open count may say nothing is open (round 2: "Gaps Closed!"
+  // next to 5–7 open requirements).
+  if (reason === "gaps_resolved") return openCount === 0 ? t("reasonNoneOpen") : t("reasonGapsResolved");
   if (reason === "user_ended") return t("reasonUserEnded");
   return t("reasonMaxReached");
 }
@@ -796,6 +805,9 @@ export default function InterviewPage({
       }
 
       if (data.complete) {
+        // R2-10: the completion recompute moved the ledger — re-read the row
+        // so the completion screen shows the SAME open count as the gaps page.
+        void refreshGapAnalysis();
         setCompletion({
           reason: data.reason ?? "gaps_resolved",
           questions_asked: data.questions_asked ?? questionsAsked,
@@ -900,7 +912,9 @@ export default function InterviewPage({
     (currentClusterId && gapAnalysis?.gap_clusters.find((c) => c.id === currentClusterId)?.label) || null;
   // Progress by topic, not by the hard question ceiling ("1 of up to 18"):
   // the share of the page's topics this session has moved past.
-  const totalTopics = gapAnalysis?.gap_clusters.length ?? 0;
+  // R2-10 (lead G hunk): a cluster of posting terms only is not a topic.
+  const topicClusters = requirementTopics(gapAnalysis?.gap_clusters);
+  const totalTopics = topicClusters.length;
   const progressPct =
     totalTopics > 0
       ? Math.min(Math.round((resolvedClusterIds.size / totalTopics) * 100), 100)
@@ -1019,11 +1033,13 @@ export default function InterviewPage({
               )}
             </div>
             <h2 className="font-heading text-2xl font-bold text-neutral-dark mb-2">
-              {getReasonLabel(completion.reason, t)}
+              {getReasonLabel(completion.reason, t, openCount)}
             </h2>
             <p className="text-sm text-gray-500 font-body">
               {completion.reason === "gaps_resolved"
-                ? t("completionGapsResolved")
+                ? openCount > 0
+                  ? t("completionOpenRequirements", { count: openCount })
+                  : t("completionGapsResolved")
                 : t("completionOther")}
             </p>
           </div>
@@ -1034,9 +1050,14 @@ export default function InterviewPage({
               <p className="text-3xl font-bold font-heading text-primary">{completion.questions_asked}</p>
               <p className="text-xs text-gray-500 font-body mt-1">{t("questionsAnswered")}</p>
             </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold font-heading text-success">{completion.gaps_resolved}</p>
-              <p className="text-xs text-gray-500 font-body mt-1">{t("gapsResolved")}</p>
+            {/* R2-10 (lead G hunk): the one open count (F1-2), never the
+                number of topics walked ("7 Geschlossene Lücken" next to 5
+                open requirements in round 2). */}
+            <div className="text-center" data-testid="completion-open-count">
+              <p className={cn("text-3xl font-bold font-heading", openCount > 0 ? "text-primary" : "text-success")}>
+                {openCount}
+              </p>
+              <p className="text-xs text-gray-500 font-body mt-1">{t("openRequirementsStat", { count: openCount })}</p>
             </div>
           </div>
 
@@ -1375,7 +1396,7 @@ export default function InterviewPage({
           )}
 
           {/* Cluster tracker */}
-          {gapAnalysis && gapAnalysis.gap_clusters.length > 0 && (
+          {gapAnalysis && topicClusters.length > 0 && (
             <div className="mt-6 space-y-2">
               <p
                 data-testid="tracker-open-count"
@@ -1383,7 +1404,7 @@ export default function InterviewPage({
               >
                 {t("trackerHeading", { count: openCount, topics: themeCount })}
               </p>
-              {gapAnalysis.gap_clusters.map((cluster) => {
+              {topicClusters.map((cluster) => {
                 const turn = turnCoverage[cluster.id] ?? null;
                 const status = trackerStatus(cluster, {
                   current: cluster.id === currentClusterId,

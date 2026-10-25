@@ -76,6 +76,8 @@ PROMPT_EXCLUDED_METADATA_KEYS: frozenset[str] = frozenset(
         "enrichment_history",
         "pending_conflicts",
         "pending_confirmations",
+        # G-5: the answered CV-contradicts-a-denial questions' keys (bookkeeping).
+        "denial_scope_answered",
         "completeness_score",
         "created_at",
         "created_via",

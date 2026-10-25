@@ -15,6 +15,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v13 (Hazelnut build 4 / WP-G, 2026-10-24, founder rulings G-2 = C, G-2c):
+#   ALTERNATIVES — "A oder B / A or B / A bzw. B" between two NAMED tools is ONE requirement
+#   "A / B" (either satisfies it), each alternative also a keyword. Not a choice: "or
+#   comparable", and nothing inside an idealerweise/preferred qualifier. Example lists stay
+#   as v12. 4 cases x 3 on openai/gpt-5.6-luna vs v12: "FastAPI / Django" 3/3, classified
+#   direct 3/3 (Daniel match .42 -> .45, open 14.0 -> 12.3); 0 new sentence-like rows; SAP
+#   PP/MM stays two nice-to-haves 3/3; Kafka stays "Apache Kafka" 3/3. An untightened
+#   variant made "Apache Kafka / comparable event streaming" and merged "SAP PP / SAP MM".
+#
 # Prompt version: v12 (Hazelnut build 3 / WP-G, 2026-10-22): NOT A CONCEPT TERM names what
 #   the employer OFFERS — benefits, perks, working model, employment terms ("Hybrid work",
 #   "Learning budget", "ESOP"). They reached the keyword list (daniel run 3 of the 12-run
@@ -206,6 +215,22 @@ the level the posting states for it (SAP → required_skills: the posting requir
 itself), and the optional qualifier becomes its OWN concept term in nice_to_have_skills
 ("SAP PP", "SAP MM"). Never delete the qualifier's information, and never move the base
 concept down a level because its qualifier is optional — only the qualifier is optional.
+
+ALTERNATIVES (one requirement, either one satisfies it): when the posting offers a CHOICE
+between named alternatives for one requirement — "A oder B", "A or B", "A bzw. B" — emit the
+choice as ONE entry at the level the posting states, the alternatives joined by " / ", and
+put each alternative into "keywords" as well. "5+ years of backend engineering with Python
+(FastAPI or Django)" → required_skills: "Python", "FastAPI / Django"; keywords: "FastAPI",
+"Django". Never two separate requirements for one choice: a candidate with either one meets
+it. This is about a CHOICE only — an example list ("Lean-Produktion (Shopfloor-Management,
+KVP, OEE)", "z. B. LucaNet") and a plain enumeration ("Produktion, Instandhaltung und
+Arbeitsvorbereitung") are extracted exactly as the rules above say.
+A choice is ONLY between NAMED tools or technologies on both sides. "Kafka or comparable
+event streaming", "SAP oder vergleichbares ERP", "or similar" is NOT a choice: extract the
+named tool alone ("Apache Kafka") exactly as before. Never merge inside a preferred
+qualifier — "idealerweise", "wünschenswert", "preferably", "ideally", "a plus", "nice to
+have": "SAP, idealerweise PP/MM" stays "SAP" plus the nice-to-have entries "SAP PP" and
+"SAP MM", never one merged entry.
 
 SCOPE REQUIREMENTS (quantified bars — team size, budget ONLY): when the posting states a
 NUMBER for the scope of the role — "Gesamtverantwortung ... (ca. 120 Mitarbeitende)",

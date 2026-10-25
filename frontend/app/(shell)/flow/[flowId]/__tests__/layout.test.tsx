@@ -42,7 +42,8 @@ function renderWith(interview_summary: unknown) {
   );
 }
 
-const pill = (label: string) => screen.getByText(label).closest("span[data-state]");
+// R2-3 (G-1): a passed/skipped pill the person may go back to is a link (<a>).
+const pill = (label: string) => screen.getByText(label).closest("[data-state]");
 
 describe("FlowLayout stepper (M7)", () => {
   it("Generate CV Now without an interview: '3 Interview' is skipped, not done", async () => {
@@ -50,6 +51,10 @@ describe("FlowLayout stepper (M7)", () => {
     await waitFor(() => expect(pill("flow.stepInterview")).toHaveAttribute("data-state", "skipped"));
     expect(pill("flow.stepGaps")).toHaveAttribute("data-state", "done");
     expect(pill("flow.stepCV")).toHaveAttribute("data-state", "active");
+    // R2-3: the skipped interview and the passed gap view lead back to the gaps page.
+    expect(pill("flow.stepInterview")).toHaveAttribute("href", "/flow/f1/gaps");
+    expect(pill("flow.stepGaps")).toHaveAttribute("href", "/flow/f1/gaps");
+    expect(pill("flow.stepCV")?.tagName).toBe("SPAN");
   });
 
   it("after a completed interview '3 Interview' is done", async () => {

@@ -26,7 +26,7 @@ import { AppTopbar } from "@/components/shell/AppTopbar";
 import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
 import { cn } from "@/lib/utils";
 import { resolveFlowRedirect } from "@/lib/flow-routing";
-import { flowStepState } from "@/lib/flow-steps";
+import { flowStepHref, flowStepState } from "@/lib/flow-steps";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -102,6 +102,7 @@ export default function FlowLayout({
     key: step,
     labelKey,
     state: flowStepState(step, flowState, currentSegment),
+    href: flowStepHref(flowId, step, flowState),
   }));
 
   return (

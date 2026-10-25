@@ -47,7 +47,12 @@ import {
 export interface LiabilityEntry {
   concept: string;
   surface_forms?: string[];
+  /** The classifier's reason — model prose in the profile's/posting's
+   * language. Never rendered (789:175: it leaked English into the German UI). */
   evidence?: string;
+  /** #525 — the vault entities (employer, project) the claim sits under:
+   * names, language-neutral, so they may stand in any UI language. */
+  evidence_owners?: string[];
 }
 
 type ItemStatus = "idle" | "loading" | "question" | "sending" | "resolved" | "dropped";
@@ -67,6 +72,11 @@ interface ItemState {
   /** #763 (ruling ADV-1) — the last answer wrote nothing: the receipt's
    * reason, shown instead of a success line. */
   receipt: string | null;
+}
+
+/** 789:175 — the owner names after the label: a leading space, " · " between. */
+function ownersLine(owners: string[]): string {
+  return ` ${owners.join(" · ")}`;
 }
 
 const EMPTY_ITEM: ItemState = {
@@ -117,10 +127,14 @@ async function refusalCodeOf(res: Response): Promise<GapRefusalCode | null> {
   }
 }
 
-async function apiErrorMessage(res: Response): Promise<string> {
+async function apiErrorMessage(res: Response, notSavedMessage?: string): Promise<string> {
   try {
     const body = await res.json();
-    return typeof body.detail === "string" ? body.detail : res.statusText || `HTTP ${res.status}`;
+    if (typeof body.detail === "string") return body.detail;
+    // R2-13 (Lead I's 503 shape, lead G hunk): a turn the server could not
+    // save — the localized `errors.answerNotSaved`, never the English message.
+    if (notSavedMessage && body.detail?.error_code === "answer_not_saved") return notSavedMessage;
+    return res.statusText || `HTTP ${res.status}`;
   } catch {
     return res.statusText || `HTTP ${res.status}`;
   }
@@ -153,6 +167,7 @@ export function LiabilityPanel({
 }) {
   const t = useTranslations("gaps");
   const tc = useTranslations("common");
+  const tErrors = useTranslations("errors");
   const [items, setItems] = useState<Record<string, ItemState>>({});
 
   const active = Object.values(items).some(
@@ -241,7 +256,7 @@ export function LiabilityPanel({
       // ADR-089 E2: a micro-session closed elsewhere answers 409 — say so in
       // the UI language, keep the draft.
       if (res.status === 409) throw new Error(t("sessionClosedElsewhere"));
-      if (!res.ok) throw new Error(await apiErrorMessage(res));
+      if (!res.ok) throw new Error(await apiErrorMessage(res, tErrors("answerNotSaved")));
       const data = (await res.json()) as TurnResponse;
       if (!data.complete) {
         // A follow-up (ADR-089 clause 2) or a confirmation — asked here, in the
@@ -324,12 +339,16 @@ export function LiabilityPanel({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold text-neutral-dark text-sm">{l.concept}</p>
-                  {/* #789 — the evidence is WHERE the skill stands (a bare
-                      list entry), labelled so it does not read as "proven"
-                      under a header that says nothing proves it yet. */}
-                  {l.evidence && (
+                  {/* #789 — the evidence is WHERE the skill stands, labelled so
+                      it does not read as "proven" under a header that says
+                      nothing proves it yet. 789:175 (lead G): only the vault's
+                      own entity NAMES — the classifier's reason is model prose in
+                      the posting's language and leaked English into the German
+                      UI; without an owner the line is left out. */}
+                  {(l.evidence_owners?.length ?? 0) > 0 && (
                     <p data-testid="liability-evidence" className="text-xs text-gray-500 mt-0.5">
-                      <span className="font-medium">{t("liabilityEvidenceLabel")}</span> {l.evidence}
+                      <span className="font-medium">{t("liabilityEvidenceLabel")}</span>
+                      {ownersLine(l.evidence_owners!)}
                     </p>
                   )}
                 </div>

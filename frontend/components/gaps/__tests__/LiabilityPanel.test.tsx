@@ -85,6 +85,28 @@ describe("LiabilityPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("789:175: the evidence line names the vault entities, never the classifier's prose", () => {
+    render(
+      withIntl(
+        <LiabilityPanel
+          jobId="job-1"
+          liabilities={[
+            { concept: "RAG", evidence: "listed as expert in skills", evidence_owners: ["Acme GmbH"] },
+            { concept: "SQL", evidence: "listed as expert in skills" },
+          ]}
+          clusters={CLUSTERS}
+          apiBase=""
+          onDropped={() => {}}
+          onStoryAdded={() => {}}
+        />,
+        "de",
+      )
+    );
+    expect(screen.getByTestId("liability-card-RAG")).toHaveTextContent("Steht im Profil bei: Acme GmbH");
+    expect(document.body.textContent).not.toContain("listed as expert");
+    expect(screen.getAllByTestId("liability-evidence")).toHaveLength(1); // SQL: no owner, no line
+  });
+
   it("lists each liability concept with both exits", () => {
     render(
       withIntl(
@@ -176,6 +198,36 @@ describe("LiabilityPanel", () => {
     await waitFor(() => expect(onStoryAdded).toHaveBeenCalledWith("RAG"));
     expect(screen.getByTestId("liability-resolved-RAG")).toBeInTheDocument();
     expect(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][0])).toBe("/api/session/sess-1/message");
+  });
+
+  it("R2-13: a 503 'answer_not_saved' turn shows errors.answerNotSaved, never the status text, and keeps the draft", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(jsonResponse({ session_id: "sess-1", question: "Tell me about RAG." }))
+      .mockResolvedValueOnce({
+        ok: false, status: 503, statusText: "Service Unavailable",
+        json: async () => ({
+          detail: { error_code: "answer_not_saved", turn_state: "not_saved", message: "Your answer was not saved." },
+        }),
+      } as Response);
+    const onStoryAdded = vi.fn();
+    render(
+      withIntl(
+        <LiabilityPanel jobId="job-1" liabilities={[{ concept: "RAG" }]} clusters={CLUSTERS}
+          apiBase="" onDropped={() => {}} onStoryAdded={onStoryAdded} />
+      )
+    );
+    fireEvent.click(screen.getByTestId("liability-tell-story-RAG"));
+    await screen.findByTestId("liability-question-RAG");
+    fireEvent.change(screen.getByTestId("liability-answer-textarea-RAG"), { target: { value: "My RAG story." } });
+    fireEvent.click(screen.getByTestId("liability-submit-RAG"));
+
+    // The catalog key is Lead I's (errors.answerNotSaved); until it lands the
+    // provider renders the key path — either way, not the server's English.
+    await waitFor(() => expect(screen.getByText(/answerNotSaved|not saved/i)).toBeInTheDocument());
+    expect(screen.queryByText("Service Unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByText("Your answer was not saved.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("liability-answer-textarea-RAG")).toHaveValue("My RAG story.");
+    expect(onStoryAdded).not.toHaveBeenCalled();
   });
 
   it("dropping the keyword calls the downgrade endpoint, hides the card, and calls onDropped", async () => {

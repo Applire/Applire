@@ -86,13 +86,36 @@ describe("ProfileStrengthCard", () => {
   });
 
   it("shows Zusammenfassung as done when summary present", async () => {
+    // R2-10: the REAL shape — professional_summary.{de,en}, not personal_info.
     mockFetch(
       { completeness_score: 0.8 },
-      { profile: { work_experience: [], skills: [], education: [], personal_info: { summary: "I am great." } } }
+      { profile: { work_experience: [], skills: [], education: [], personal_info: {}, professional_summary: { de: null, en: "I am great." } } }
     );
     render(<ProfileStrengthCard />);
     await waitFor(() => expect(screen.getByText("profileCheckSummary")).toBeInTheDocument());
     expect(screen.getByText("profileCheckSummary").className).toContain("text-white/75");
+  });
+
+  it("R2-10: a profile WITH a summary is never told to add one (felix-031)", async () => {
+    mockFetch(
+      { completeness_score: 0.93 },
+      { profile: { work_experience: [{}], skills: [{}], education: [{}], personal_info: { name: "D" }, professional_summary: { de: "Backend-Entwickler mit 8 Jahren Erfahrung.", en: null } } }
+    );
+    render(<ProfileStrengthCard />);
+    await waitFor(() => expect(screen.getByText("93")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("profileCheckSummary")).toBeInTheDocument());
+    expect(screen.queryByTestId("profile-strength-hint")).toBeNull();
+  });
+
+  it("R2-10: an empty summary object still counts as missing", async () => {
+    mockFetch(
+      { completeness_score: 0.95 },
+      { profile: { work_experience: [{}], skills: [{}], education: [{}], personal_info: {}, professional_summary: { de: " ", en: null } } }
+    );
+    render(<ProfileStrengthCard />);
+    await waitFor(() =>
+      expect(screen.getByTestId("profile-strength-hint")).toHaveTextContent("profileStrengthOptional:profileCheckSummary")
+    );
   });
 
   it("Complete Profile button navigates to /profile", async () => {
@@ -134,7 +157,7 @@ describe("ProfileStrengthCard", () => {
   it("at 90 or more with nothing missing shows no hint at all", async () => {
     mockFetch(
       { completeness_score: 1 },
-      { profile: { work_experience: [{}], skills: [{}], education: [{}], personal_info: { summary: "x" } } }
+      { profile: { work_experience: [{}], skills: [{}], education: [{}], personal_info: {}, professional_summary: { de: "x", en: null } } }
     );
     render(<ProfileStrengthCard />);
     await waitFor(() => expect(screen.getByText("100")).toBeInTheDocument());

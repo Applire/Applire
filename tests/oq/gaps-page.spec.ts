@@ -275,8 +275,10 @@ test.describe("Gaps page", () => {
 
     await page.getByTestId("generate-cv-button").click();
 
-    await expect(page.getByTestId("error-message")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("error-message")).toContainText("Invalid step transition");
+    // R2-3: a refused advance is said beside the buttons in the UI language —
+    // the server's detail text is never shown to the person.
+    await expect(page.getByTestId("gaps-advance-error")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("gaps-advance-error")).not.toContainText("Invalid step");
   });
 });
 

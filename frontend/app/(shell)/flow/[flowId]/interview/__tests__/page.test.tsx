@@ -1478,3 +1478,77 @@ describe("Hazelnut b3 MD3-1 — unsent interview answer", () => {
     expect(unloadPrevented()).toBe(false);
   });
 });
+
+// R2-10 (ruling F1-2, lead G hunk): the completion screen says what the ONE
+// open count says — never "Gaps Closed!" next to open requirements (round 2:
+// Marcus "Lücken geschlossen!" + "7 Geschlossene Lücken" with 5 of 12 open).
+describe("R2-10 — the completion screen agrees with the open count", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  function withLedger(open: number) {
+    const ledger = [
+      { concept: "Python", fit_weight: 1, status: "direct", surface_forms: ["Python"] },
+      ...Array.from({ length: open }, (_, i) => ({
+        concept: `Req${i}`, fit_weight: 1, status: "gap", surface_forms: [`Req${i}`],
+      })),
+      // A keyword-only posting term is not a requirement — never counted.
+      { concept: "E-commerce", fit_weight: 0, status: "gap", surface_forms: ["E-commerce"] },
+    ];
+    const base = mockCeilingApi({
+      complete: true,
+      reason: "gaps_resolved",
+      questions_asked: 11,
+      gaps_resolved: 7,
+      completeness_score: 0.8,
+    });
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/job/j1/gaps")) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: "ga1", match_score: 0.5, category_a: [], category_b: [], category_c: [],
+            gap_clusters: [], keyword_ledger: ledger,
+          }),
+        };
+      }
+      return base(input, init);
+    });
+  }
+
+  it("with requirements still open: names the topics, shows the open count, never 'closed'", async () => {
+    const user = userEvent.setup();
+    global.fetch = withLedger(5) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    await sendAnswer(user, "Done.");
+
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("reasonGapsResolved");
+    await waitFor(() =>
+      expect(screen.getByTestId("completion-open-count").textContent).toContain("5"),
+    );
+    expect(document.body.textContent).toContain('completionOpenRequirements({"count":5})');
+    expect(document.body.textContent).not.toContain("gapsResolved");
+    expect(screen.queryByText("7")).not.toBeInTheDocument(); // topics walked is not shown as "closed"
+  });
+
+  it("with nothing open: says no requirement is open", async () => {
+    const user = userEvent.setup();
+    global.fetch = withLedger(0) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    await sendAnswer(user, "Done.");
+
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("reasonNoneOpen"),
+    );
+    expect(screen.getByTestId("completion-open-count").textContent).toContain("0");
+  });
+});

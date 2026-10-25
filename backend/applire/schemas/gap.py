@@ -107,6 +107,21 @@ class KeywordLedgerEntry(BaseModel):
     # published it on 0 of 42, because an undeclared key is stripped by
     # `GapAnalysisResponse.model_validate` on every response.
     jd_phrase: str | None = None
+    # G-4 (founder, Hazelnut build 4; ADR-095: additive) — DERIVED, never read
+    # from a stored row: True on a row the ADR-059 containment floor wrote
+    # (keyword_ledger.is_denial_floored). Surfaces count it in the declined
+    # bucket ("ruled out by your answer"), never as an open requirement; the
+    # floor itself (no credit, never claimed) is unchanged.
+    floored_by_denial: bool = False
+
+    @model_validator(mode="after")
+    def _derive_floored_by_denial(self) -> "KeywordLedgerEntry":
+        from applire.services.keyword_ledger import is_denial_floored
+
+        self.floored_by_denial = is_denial_floored(
+            {"status": self.status, "evidence": self.evidence}
+        )
+        return self
 
     @model_validator(mode="after")
     def _denial_level_only_when_denied(self) -> "KeywordLedgerEntry":
@@ -251,22 +266,32 @@ class GapAnalysisResponse(BaseModel):
           keeps it: the record is written by the session turn and the
           recompute, never re-judged on read;
         * ``member_statuses`` for every cluster (ruling C-1,
-          ``member_statuses``) — the chip colours of the gaps page.
+          ``member_statuses``) — the chip colours of the gaps page;
+        * ``requirement_topic`` (R2-10) — False for a cluster with no counted
+          requirement among its members.
         """
         if not self.gap_clusters:
             return self
-        from applire.services.gap_coverage import derive_coverage, member_statuses
+        from applire.services.gap_coverage import (
+            derive_coverage,
+            is_requirement_topic,
+            member_statuses,
+        )
 
         from applire.schemas.gap_cluster import GapClusterMemberStatus
 
         ledger = [e.model_dump() for e in self.keyword_ledger]
         for cluster in self.gap_clusters:
-            raw = cluster.model_dump(exclude={"budget_remaining", "member_statuses"})
+            raw = cluster.model_dump(
+                exclude={"budget_remaining", "member_statuses", "requirement_topic"}
+            )
             if cluster.coverage is None:
                 cluster.coverage = derive_coverage(raw, ledger)
             cluster.member_statuses = [
                 GapClusterMemberStatus(**item) for item in member_statuses(raw, ledger)
             ]
+            # R2-10: a topic of posting terms only is not a topic.
+            cluster.requirement_topic = is_requirement_topic(raw, ledger)
         return self
 
 

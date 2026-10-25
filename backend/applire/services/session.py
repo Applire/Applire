@@ -2599,7 +2599,11 @@ async def _create_targeted_session(
     askable_ids = [
         cid
         for cid in cluster_ids
-        if gap_coverage.is_askable(clusters_by_id[cid], INTERVIEW_MAX_QUESTIONS_PER_GAP)
+        # R2-10: the row's ledger rides along, so a topic of posting terms
+        # only (no counted requirement) is never planned.
+        if gap_coverage.is_askable(
+            clusters_by_id[cid], INTERVIEW_MAX_QUESTIONS_PER_GAP, gap_analysis.keyword_ledger or []
+        )
     ]
     if len(askable_ids) != len(cluster_ids):
         logger.info(

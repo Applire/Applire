@@ -51,6 +51,7 @@ import UnaskedRequirementsPanel, {
 import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { openGroup1Count, buildReviewGroups, decisionCount } from "@/lib/review-groups";
+import { openRequirementConcepts } from "@/lib/match-utils";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
   markEdited,
@@ -140,6 +141,8 @@ export default function CoverLetterPage({
   // report column on this letter — it cannot drift past a post-interview
   // recompute, and it clears itself once the candidate is asked and answers.
   const [unasked, setUnasked] = useState<UnaskedRequirement[]>([]);
+  // R2-10 (F1-2, lead G hunk): review group 3 = the job's open requirements.
+  const [openRequirements, setOpenRequirements] = useState<string[] | null | undefined>(undefined);
   // ADR-090 cl. 6: the per-document review decisions (rides on the ATS-report response).
   const [reviewState, setReviewState] = useState<ReviewState | null>(null);
   // ADR-090 cl. 2: bumps on every preview (re)load — marks do not survive one.
@@ -348,10 +351,17 @@ export default function CoverLetterPage({
       if (!clState?.jobId) return;
       try {
         const res = await fetch(`${API_BASE}/api/job/${clState.jobId}/gaps`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          // R2-10: a missing row keeps the legacy grouping; a failed read is *unknown*.
+          if (res.status !== 404) setOpenRequirements(null);
+          return;
+        }
         const data: { unasked_requirements?: UnaskedRequirement[] } = await res.json();
         setUnasked(data.unasked_requirements ?? []);
+        // R2-10 (F1-2, lead G hunk): the same row the gaps page counts.
+        setOpenRequirements(openRequirementConcepts(data as Parameters<typeof openRequirementConcepts>[0]));
       } catch {
+        setOpenRequirements(null);
         // Non-fatal — the panel simply doesn't render. The omission itself is
         // recorded server-side on the always-on LETTER_UNASKED_REQUIREMENTS line
         // regardless of whether this fetch succeeds.
@@ -694,6 +704,7 @@ export default function CoverLetterPage({
       criticReport={criticReport}
       gapClusters={[]}
       hasClusterProducer={false}
+      openRequirements={openRequirements}
       reviewState={reviewState}
       onRefresh={applyReviewRefresh}
       locator={CL_LOCATOR}
@@ -762,6 +773,7 @@ export default function CoverLetterPage({
     criticReport,
     gapClusters: [],
     hasClusterProducer: false,
+    openRequirements,
   });
   const group1Live = liveGroups.find((g) => g.id === 1)!;
   // T-1: the phone badge's amber number when group 1 is clean.

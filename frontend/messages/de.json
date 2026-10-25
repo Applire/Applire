@@ -113,7 +113,7 @@
   },
   "flow": {
     "stepProfile": "1 Profil",
-    "stepGaps": "2 Lücken",
+    "stepGaps": "2 Abgleich",
     "stepInterview": "3 Interview",
     "stepCV": "4 Lebenslauf",
     "loading": "Lade …",
@@ -143,7 +143,8 @@
     "cancelDialogConfirm": "Bewerbung abbrechen",
     "cancelDialogBusy": "Wird abgebrochen …",
     "stepSkipped": "{label} – übersprungen",
-    "stepSkippedSr": " (übersprungen)"
+    "stepSkippedSr": " (übersprungen)",
+    "stepSkippedReopen": "{label} – übersprungen, jetzt nachholen"
   },
   "gaps": {
     "title": "Lückenanalyse",
@@ -161,7 +162,7 @@
     "masterProfileUpdated": "Dein Profil ist aktualisiert:",
     "cvParsedPartial": "{parsed} von {total} Lebensläufen wurden gelesen — die übrigen konnten nicht verarbeitet und nicht zum Profil hinzugefügt werden.",
     "jdEchoTitle": "Das haben wir aus der Stellenanzeige gelesen",
-    "jdEchoSubtitle": "Prüfe kurz, ob das zur Anzeige passt, bevor du das Interview startest.",
+    "jdEchoSubtitle": "Prüfe kurz, ob das zur Anzeige passt. Stimmt etwas nicht, passt auch der Abgleich darüber nicht.",
     "jdEchoRole": "Rolle",
     "jdEchoCompany": "Unternehmen",
     "jdEchoEducation": "Ausbildung",
@@ -335,7 +336,17 @@
     "gapsSectionLead": "{count, plural, one {# offene Anforderung} other {# offene Anforderungen}}, in {topics, plural, one {# Thema} other {# Themen}} gebündelt. Offen heißt: Dein Lebenslauf zeigt es noch nicht — nicht, dass du es nicht kannst.",
     "gapsSectionLeadNoneOpen": "Keine Anforderung ist offen. {count, plural, one {# ist} other {# sind}} nur wahrscheinlich belegt — ein kurzes Bestätigen macht sie sicher.",
     "jdContextLabel": "Was die Stelle erwartet:",
-    "liabilityEvidenceLabel": "Steht im Profil:"
+    "liabilityEvidenceLabel": "Steht im Profil bei:",
+    "reopenNote": "Deine Unterlagen bleiben erhalten. Wenn du das Interview jetzt nachholst, bleiben Lebenslauf und Anschreiben als Versionen gespeichert. Danach erstellst du mit „Neu zuschneiden“ neue Fassungen aus deinem neuen Stand.",
+    "reopenInterview": "Interview jetzt nachholen",
+    "reopenInterviewContinue": "Interview fortsetzen",
+    "goToDocuments": "Zu meinen Unterlagen",
+    "goToDocumentsHint": "Lebenslauf und Anschreiben ansehen, so wie sie sind.",
+    "interviewOpenFailed": "Das Interview konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal.",
+    "cvAdvanceFailed": "Der Lebenslauf-Schritt konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal.",
+    "memberRuledOutSr": "(durch deine Antwort ausgeschlossen)",
+    "coverageRuledOut": "Durch deine Antwort ausgeschlossen",
+    "foldedMembersLabel": "Später zu diesem Thema dazugekommen:"
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -353,7 +364,7 @@
     "gapsResolved": "Geschlossene Lücken",
     "generateCV": "Maßgeschneiderten Lebenslauf erstellen",
     "viewProfile": "Aktualisiertes Profil anzeigen",
-    "reasonGapsResolved": "Interview abgeschlossen — Lücken geschlossen!",
+    "reasonGapsResolved": "Interview abgeschlossen — alle Themen besprochen",
     "reasonUserEnded": "Interview beendet",
     "reasonMaxReached": "Fragelimit erreicht",
     "completionGapsResolved": "Gut gemacht! Dein Profil wurde angereichert.",
@@ -396,7 +407,10 @@
     "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg.",
     "reopenedSummaryTitle": "Deine Interview-Zusammenfassung",
     "reopenedSummaryLead": "Was wir aus deinen Antworten in dein Profil übernommen haben. Das Interview ist abgeschlossen; du kannst es dir hier jederzeit wieder ansehen.",
-    "backToCV": "Zurück zum Lebenslauf"
+    "backToCV": "Zurück zum Lebenslauf",
+    "reasonNoneOpen": "Interview abgeschlossen — keine Anforderung mehr offen",
+    "completionOpenRequirements": "{count, plural, one {# Anforderung ist noch offen} other {# Anforderungen sind noch offen}}. Deine Antworten sind in deinem Profil gespeichert.",
+    "openRequirementsStat": "{count, plural, one {Anforderung noch offen} other {Anforderungen noch offen}}"
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",
@@ -1309,7 +1323,11 @@
     "staleCvDismiss": "Ausblenden",
     "staleCvRetailorFailed": "Der Lebenslauf konnte nicht neu zugeschnitten werden. Bitte versuche es erneut.",
     "cancelledBanner": "Diese Bewerbung ist abgebrochen und wird am {date} endgültig entfernt — inklusive der erzeugten Dokumente. Bis dahin kannst du sie wiederherstellen.",
-    "cancelledBannerNoDate": "Diese Bewerbung ist abgebrochen und wird nach Ablauf einer Frist endgültig entfernt. Bis dahin kannst du sie wiederherstellen."
+    "cancelledBannerNoDate": "Diese Bewerbung ist abgebrochen und wird nach Ablauf einer Frist endgültig entfernt. Bis dahin kannst du sie wiederherstellen.",
+    "duplicateSameTitle": "Diese Stelle kennst du schon",
+    "duplicateSameBody": "Das ist dieselbe Anzeige, die du am {date} analysiert hast ({company} – {role}). Für eine Anzeige führen wir eine Bewerbung – du kannst sie öffnen oder dort das Interview führen.",
+    "duplicateOpenSame": "Vorhandene Bewerbung öffnen",
+    "duplicateInterviewExisting": "Interview zu dieser Bewerbung führen"
   },
   "import": {
     "title": "Lebenslauf importieren"

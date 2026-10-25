@@ -120,10 +120,12 @@ function MemberChip({
   term,
   state,
   requirement = true,
+  floored = false,
 }: {
   term: string;
   state: MemberState;
   requirement?: boolean;
+  floored?: boolean;
 }) {
   const t = useTranslations("gaps");
   if (!requirement) {
@@ -147,7 +149,9 @@ function MemberChip({
         : state === "gap"
           ? t("memberGapSr")
           : state === "declined"
-            ? t("memberDeclinedSr")
+            ? floored
+              ? t("memberRuledOutSr")
+              : t("memberDeclinedSr")
             : null;
   // `relative` anchors the absolutely positioned sr-only label to the chip.
   // Without it the label anchors outside the page's scroll column, stays put
@@ -156,6 +160,7 @@ function MemberChip({
     <span
       data-testid="gap-member"
       data-state={state}
+      {...(floored ? { "data-floored": "true" } : {})}
       className={cn("relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs", CHIP[state])}
     >
       {state === "covered" && <Check aria-hidden="true" className="h-3 w-3 text-success" />}
@@ -166,7 +171,15 @@ function MemberChip({
   );
 }
 
-function CoverageBadge({ pill, tone }: { pill: CoveragePill; tone: CardTone }) {
+function CoverageBadge({
+  pill,
+  tone,
+  ruledOut = false,
+}: {
+  pill: CoveragePill;
+  tone: CardTone;
+  ruledOut?: boolean;
+}) {
   const t = useTranslations("gaps");
   const colours = TONE[tone];
   const label =
@@ -176,7 +189,9 @@ function CoverageBadge({ pill, tone }: { pill: CoveragePill; tone: CardTone }) {
         ? t("coveragePartly")
         : pill === "likely"
           ? t("coverageLikely")
-          : t("coverageDeclined");
+          : ruledOut
+            ? t("coverageRuledOut")
+            : t("coverageDeclined");
   return (
     <span
       data-testid={PILL_TESTID[pill]}
@@ -230,7 +245,7 @@ export function GapClusterCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <p className="font-semibold text-on-surface text-sm">{cluster.label}</p>
-            {view.pill && <CoverageBadge pill={view.pill} tone={view.tone} />}
+            {view.pill && <CoverageBadge pill={view.pill} tone={view.tone} ruledOut={view.ruledOut === true} />}
           </div>
           {/* #789 — the sentence is the POSTING's expectation (lead G: the
               clustering call never sees the profile); unlabelled, its "ich"
@@ -245,7 +260,7 @@ export function GapClusterCard({
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
               <span className="text-xs text-on-surface-variant">{t("clusterCardConstituentLabel")}</span>
               {requirementMembers.map((m) => (
-                <MemberChip key={m.term} term={m.term} state={m.state} />
+                <MemberChip key={m.term} term={m.term} state={m.state} floored={m.floored === true} />
               ))}
             </div>
           )}
@@ -258,6 +273,16 @@ export function GapClusterCard({
               </span>
               {postingTerms.map((m) => (
                 <MemberChip key={m.term} term={m.term} state={m.state} requirement={false} />
+              ))}
+            </div>
+          )}
+          {/* 787:95 — a renamed JD term folded into this finished card: listed
+              here, so it is not a new card and does not reopen this one. */}
+          {(view.folded?.length ?? 0) > 0 && (
+            <div data-testid="gap-folded-members" className="flex flex-wrap items-center gap-1 mt-1.5">
+              <span className="text-xs text-on-surface-variant">{t("foldedMembersLabel")}</span>
+              {view.folded!.map((m) => (
+                <MemberChip key={m.term} term={m.term} state={m.state} requirement={m.requirement} />
               ))}
             </div>
           )}

@@ -113,7 +113,7 @@
   },
   "flow": {
     "stepProfile": "1 Profile",
-    "stepGaps": "2 Gaps",
+    "stepGaps": "2 Match",
     "stepInterview": "3 Interview",
     "stepCV": "4 CV",
     "loading": "Loading…",
@@ -143,7 +143,8 @@
     "cancelDialogConfirm": "Cancel application",
     "cancelDialogBusy": "Cancelling…",
     "stepSkipped": "{label} — skipped",
-    "stepSkippedSr": " (skipped)"
+    "stepSkippedSr": " (skipped)",
+    "stepSkippedReopen": "{label} — skipped, take it now"
   },
   "gaps": {
     "title": "Gap Analysis",
@@ -161,7 +162,7 @@
     "masterProfileUpdated": "Your profile is updated:",
     "cvParsedPartial": "{parsed} of {total} CVs were read — the rest couldn't be parsed and weren't added to your profile.",
     "jdEchoTitle": "What we read from the job ad",
-    "jdEchoSubtitle": "Check this matches the posting before you start the interview.",
+    "jdEchoSubtitle": "Check this matches the posting. If something is off, the match above is off too.",
     "jdEchoRole": "Role",
     "jdEchoCompany": "Company",
     "jdEchoEducation": "Education",
@@ -335,7 +336,17 @@
     "gapsSectionLead": "{count, plural, one {# open requirement} other {# open requirements}}, grouped into {topics, plural, one {# topic} other {# topics}}. Open means your CV does not show it yet — not that you can't do it.",
     "gapsSectionLeadNoneOpen": "No requirement is open. {count, plural, one {# is} other {# are}} only likely covered — a quick confirmation makes them certain.",
     "jdContextLabel": "What the role expects:",
-    "liabilityEvidenceLabel": "In your profile:"
+    "liabilityEvidenceLabel": "In your profile at:",
+    "reopenNote": "Your documents stay. If you take the interview now, your CV and cover letter stay saved as versions. Afterwards, “Re-tailor” creates new versions from your updated profile.",
+    "reopenInterview": "Take the interview now",
+    "reopenInterviewContinue": "Continue the interview",
+    "goToDocuments": "Go to my documents",
+    "goToDocumentsHint": "See your CV and cover letter as they are.",
+    "interviewOpenFailed": "The interview could not be opened just now. Please reload the page and try again.",
+    "cvAdvanceFailed": "The CV step could not be opened just now. Please reload the page and try again.",
+    "memberRuledOutSr": "(ruled out by your answer)",
+    "coverageRuledOut": "Ruled out by your answer",
+    "foldedMembersLabel": "Added to this topic later:"
   },
   "interview": {
     "loading": "Starting interview…",
@@ -353,7 +364,7 @@
     "gapsResolved": "Gaps resolved",
     "generateCV": "Generate Tailored CV",
     "viewProfile": "View Updated Profile",
-    "reasonGapsResolved": "Interview Complete — Gaps Closed!",
+    "reasonGapsResolved": "Interview complete — every topic discussed",
     "reasonUserEnded": "Interview Ended",
     "reasonMaxReached": "Interview Limit Reached",
     "completionGapsResolved": "Great work! Your profile has been enriched.",
@@ -396,7 +407,10 @@
     "unsavedAnswerBody": "You started an answer and have not sent it. If you leave this page now, it is lost.",
     "reopenedSummaryTitle": "Your interview summary",
     "reopenedSummaryLead": "What we added to your profile from your answers. The interview is finished; you can come back to this page any time.",
-    "backToCV": "Back to the CV"
+    "backToCV": "Back to the CV",
+    "reasonNoneOpen": "Interview complete — no requirement open",
+    "completionOpenRequirements": "{count, plural, one {# requirement is still open} other {# requirements are still open}}. Your answers are saved to your profile.",
+    "openRequirementsStat": "{count, plural, one {requirement still open} other {requirements still open}}"
   },
   "cv": {
     "generating": "Generating CV…",
@@ -1309,7 +1323,11 @@
     "staleCvDismiss": "Dismiss",
     "staleCvRetailorFailed": "The CV could not be re-tailored. Please try again.",
     "cancelledBanner": "This application is cancelled and will be permanently removed on {date} — including its generated documents. You can restore it until then.",
-    "cancelledBannerNoDate": "This application is cancelled and will be permanently removed after a grace period. You can restore it until then."
+    "cancelledBannerNoDate": "This application is cancelled and will be permanently removed after a grace period. You can restore it until then.",
+    "duplicateSameTitle": "You already have this job",
+    "duplicateSameBody": "This is the same posting you analyzed on {date} ({company} – {role}). One posting means one application – you can open it or take the interview there.",
+    "duplicateOpenSame": "Open the existing application",
+    "duplicateInterviewExisting": "Take the interview for this application"
   },
   "import": {
     "title": "Import CV"

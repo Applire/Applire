@@ -524,3 +524,52 @@ describe("#759 — a failed document-language check stands in the way of sending
     expect(verdictState(groups, 1, 1)).toEqual({ kind: "findings", count: 1 });
   });
 });
+
+// R2-10 (ruling F1-2) — group 3 shows the gaps page's number. Round 2: the
+// review said 23 (Felix) / 6 (Emma) where the gaps page said 13 / 0, because
+// group 3 read the ATS posting-keyword list (mostly fit_weight-0 terms).
+describe("R2-10 — group 3 is the job's open requirements when supplied", () => {
+  it("lists exactly the open requirements, never the ATS posting-keyword misses", () => {
+    const groups = buildReviewGroups(
+      inputs({
+        atsReport: ats({ missing_honest_gap: ["E-commerce", "Messaging", "Settlement"] }),
+        gapClusters: [{ id: "g1", label: "Commerce Domain", kind: "honest" }],
+        openRequirements: ["FastAPI", "Apache Kafka"],
+      }),
+    );
+    const g3 = byId(groups, 3);
+    expect(g3.items.map((i) => i.label)).toEqual(["FastAPI", "Apache Kafka"]);
+    expect(g3.unknown).toBe(false);
+  });
+
+  it("zero open requirements is zero, even with ATS misses (Emma: 6 vs 0)", () => {
+    const g3 = byId(
+      buildReviewGroups(inputs({ atsReport: ats({ missing_honest_gap: ["Patients", "Payers"] }), openRequirements: [] })),
+      3,
+    );
+    expect(g3.items).toHaveLength(0);
+    expect(g3.unknown).toBe(false);
+  });
+
+  it("a gap row that did not load renders unknown, never zero (ADR-081 cl. 9)", () => {
+    const g3 = byId(buildReviewGroups(inputs({ openRequirements: null })), 3);
+    expect(g3.unknown).toBe(true);
+    expect(g3.items).toHaveLength(0);
+  });
+
+  it("is the same set requirementCounts().open counts", async () => {
+    const { openRequirementConcepts, requirementCounts } = await import("../match-utils");
+    const row = {
+      category_a: [], category_b: [], category_c: [],
+      keyword_ledger: [
+        { concept: "FastAPI", fit_weight: 1, status: "gap" },
+        { concept: "PSD2", fit_weight: 0.5, status: "gap" },
+        { concept: "E-commerce", fit_weight: 0, status: "gap" },
+        { concept: "Python", fit_weight: 1, status: "direct" },
+        { concept: "Payout flows", fit_weight: 1, status: "partial" },
+      ],
+    };
+    expect(openRequirementConcepts(row)).toEqual(["FastAPI", "PSD2"]);
+    expect(openRequirementConcepts(row)).toHaveLength(requirementCounts(row).open);
+  });
+});

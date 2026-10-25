@@ -73,9 +73,25 @@ VALID_TRANSITIONS: dict[str, list[str]] = {
     "cv_import":     ["gap_analysis"],
     "gap_analysis":  ["interview", "cv_generation"],   # returning users may skip interview
     "interview":     ["cv_generation"],
-    "cv_generation": ["complete"],
-    "complete":      [],
+    # R2-3 (ADR-016 amended 2026-10-24): the only back-edges, both INTO the
+    # interview. A candidate who skipped it ("Lebenslauf jetzt erstellen") and
+    # generated CV + letter may take it later; the documents stay recorded on
+    # the flow as versions and "Neu zuschneiden" after the interview makes new
+    # ones. Before this, `complete` was terminal and the gaps page's interview
+    # CTA ran into a 409 (UX round 2, felix-028…030).
+    "cv_generation": ["complete", "interview"],
+    "complete":      ["interview"],
 }
+
+#: Steps a flow may go BACK from into the interview (R2-3). Derived from the
+#: graph so the reopen action advertised in ``available_actions`` can never
+#: name an edge ``VALID_TRANSITIONS`` refuses.
+REOPEN_STEPS: frozenset[str] = frozenset(
+    step
+    for step, targets in VALID_TRANSITIONS.items()
+    if "interview" in targets
+    and step not in ("jd_analysis", "gap_analysis")
+)
 
 # Steps that RECORD an artifact_id when advanced into — field name on FlowSession.
 #
@@ -587,6 +603,29 @@ async def _has_open_gate(db: AsyncSession, user_id: uuid.UUID | None = None) -> 
     return bool(await list_open_gates(db, user_id=uid))
 
 
+def _resumed_actions(flow: FlowSession, has_profile: bool) -> dict[str, str]:
+    """F-1 (founder 2026-10-24, build-3 delivery F5) — the actions a READ hands
+    out. ``available_actions`` is stored when the step is entered; at
+    ``jd_analysis`` that froze ``user_type="new"`` → ``cv_import`` for a first-run
+    flow. When the tab closed mid-import and the import finished server-side,
+    the resume (flow index page) sent the candidate back to the upload. The
+    live path (processing overlay ``finishPipeline``) advances to the gap
+    analysis whenever >=1 CV parsed, at ANY completeness — so a resume does the
+    same: at ``jd_analysis`` on a flow with a job, a live owner profile → next =
+    ``gap_analysis``. Deliberately NOT :func:`_resolve_user_type` (that says
+    "returning" only at completeness >= MODE_B). ``user_type`` stays as
+    recorded; nothing is written on a read."""
+    actions = dict(flow.available_actions or {})
+    if (
+        flow.current_step == "jd_analysis"
+        and flow.job_id is not None
+        and has_profile
+        and actions.get("next") == "cv_import"
+    ):
+        actions["next"] = "gap_analysis"
+    return actions
+
+
 def _compute_actions(
     step: str,
     user_type: str,
@@ -617,7 +656,10 @@ def _compute_actions(
     if step == "interview":
         return {"next": "cv_generation"}
     if step == "cv_generation":
-        return {"next": "complete"}
+        return {"next": "complete", "reopen": "interview"}
+    if step in REOPEN_STEPS:
+        # R2-3: `complete` has no forward step; the interview stays reachable.
+        return {"reopen": "interview"}
     return {}
 
 
@@ -728,7 +770,7 @@ async def _build_state_response(
         application_id=flow.application_id,
         user_type=flow.user_type,
         current_step=flow.current_step,
-        available_actions=flow.available_actions,
+        available_actions=_resumed_actions(flow, profile_record is not None),
         job_summary=job_summary,
         profile_completeness=profile_completeness,
         gap_summary=gap_summary,

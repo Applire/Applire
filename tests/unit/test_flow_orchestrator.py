@@ -199,7 +199,9 @@ def test_valid_transitions_completeness():
 
 
 def test_valid_transitions_terminal():
-    assert VALID_TRANSITIONS["complete"] == []
+    # R2-3 (ADR-016 amended 2026-10-24): `complete` has no forward step; its
+    # one edge is the reopened interview.
+    assert VALID_TRANSITIONS["complete"] == ["interview"]
 
 
 def test_valid_transitions_new_user_path():
@@ -288,11 +290,13 @@ def test_compute_actions_interview():
 
 
 def test_compute_actions_cv_generation():
-    assert _compute_actions("cv_generation", "new") == {"next": "complete"}
+    # R2-3: the interview stays reachable after the CV step.
+    assert _compute_actions("cv_generation", "new") == {"next": "complete", "reopen": "interview"}
 
 
 def test_compute_actions_complete():
-    assert _compute_actions("complete", "new") == {}
+    # R2-3: `complete` has no forward step, but the interview can be reopened.
+    assert _compute_actions("complete", "new") == {"reopen": "interview"}
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +316,40 @@ async def test_create_flow_new_user(db, user_and_job):
     assert response.current_step == "jd_analysis"
     assert response.available_actions == {"next": "cv_import"}
     assert response.job_summary.role_title == "Senior Python Engineer"
+
+
+@pytest.mark.asyncio
+async def test_f1_resume_after_the_tab_closed_mid_import_continues_to_gap_analysis(db, user_and_job):
+    """F-1 (founder 2026-10-24, build-3 delivery F5): a first-run flow is created
+    with no profile (user_type "new" → next cv_import). The tab closes while the
+    import runs; the import finishes server-side. On resume the flow index page
+    reads the state: it must continue to the gap analysis as if the tab had
+    stayed open — the live path advances whenever >=1 CV parsed, at ANY
+    completeness — not send the candidate back to upload the CV again."""
+    from applire.services.flow.orchestrator import get_flow_state
+
+    _, job = user_and_job
+    created = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    assert created.user_type == "new" and created.available_actions == {"next": "cv_import"}
+
+    # The import finished server-side: a THIN profile (far below MODE_B).
+    db.add(make_master_profile(profile_json={"skills": [{"name": "Python", "category": "technical"}]}))
+    await db.commit()
+
+    state = await get_flow_state(created.flow_id, db, user_id=_STUB_USER_ID)
+    assert state.current_step == "jd_analysis"
+    assert state.user_type == "new"  # the frozen label is not rewritten
+    assert state.available_actions == {"next": "gap_analysis"}
+
+
+@pytest.mark.asyncio
+async def test_f1_no_profile_yet_still_goes_to_the_import(db, user_and_job):
+    from applire.services.flow.orchestrator import get_flow_state
+
+    _, job = user_and_job
+    created = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    state = await get_flow_state(created.flow_id, db, user_id=_STUB_USER_ID)
+    assert state.available_actions == {"next": "cv_import"}
 
 
 @pytest.mark.asyncio
@@ -629,7 +667,7 @@ async def test_advance_flow_invalid_transition_raises(db, user_and_job):
 
 @pytest.mark.asyncio
 async def test_advance_flow_from_complete_raises(db, user_and_job):
-    """No transitions are allowed from the terminal 'complete' step."""
+    """From 'complete' every step except the reopened interview is refused (R2-3)."""
     _, job = user_and_job
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
     flow_id = flow_resp.flow_id
@@ -648,7 +686,8 @@ async def test_advance_flow_from_complete_raises(db, user_and_job):
         await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
 
     assert exc_info.value.current == "complete"
-    assert exc_info.value.allowed == []
+    # R2-3: the interview is the ONLY way out of `complete`.
+    assert exc_info.value.allowed == ["interview"]
 
 
 @pytest.mark.asyncio
@@ -867,3 +906,128 @@ async def test_complete_interview_flow_not_on_interview_step_unchanged(db, user_
 
     await db.refresh(flow)
     assert flow.current_step == "cv_generation"  # untouched
+
+
+# ---------------------------------------------------------------------------
+# R2-3 (ADR-016 amended 2026-10-24) — a finished flow may go back to the interview
+# ---------------------------------------------------------------------------
+
+
+async def _skip_to_complete(db, job):
+    """The UX round-2 Felix path: gaps → "Create my CV now" (skip) → CV → complete,
+    plus a cover letter linked to the flow. Returns (flow_id, gap, cv, letter_id)."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    flow_id = flow_resp.flow_id
+    gap = await _make_gap_analysis(db, job)
+    cv = await _make_generated_cv(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)  # the skip
+    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv.id), db)
+    from datetime import timedelta
+    letter = GeneratedCoverLetter(
+        id=uuid.uuid4(),
+        job_analysis_id=job.id,
+        profile_id=uuid.uuid4(),
+        letter_data={},
+        template="classic_german",
+        status="ready",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=90),
+    )
+    db.add(letter)
+    flow = await db.get(FlowSession, flow_id)
+    flow.generated_cover_letter_id = letter.id
+    await db.commit()
+    return flow_id, gap, cv, letter.id
+
+
+@pytest.mark.asyncio
+async def test_complete_flow_reopens_into_interview_and_keeps_documents(db, user_and_job):
+    """R2-3: skip → CV → letter leaves the flow `complete`; the interview can be
+    taken afterwards and every recorded document stays on the flow (versions)."""
+    _, job = user_and_job
+    flow_id, gap, cv, letter_id = await _skip_to_complete(db, job)
+    interview = await _make_interview_session(db, job)
+
+    state = await advance_flow(
+        flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db
+    )
+
+    assert state.current_step == "interview"
+    flow = await db.get(FlowSession, flow_id)
+    assert flow.interview_session_id == interview.id
+    assert flow.generated_cv_id == cv.id
+    assert flow.generated_cover_letter_id == letter_id
+    assert flow.gap_analysis_id == gap.id
+    assert flow.completed_at is not None  # the first completion stays recorded
+    # The read path still reports the documents while the interview runs.
+    assert state.cv_summary is not None and state.cv_summary.cv_id == cv.id
+    assert state.cover_letter_summary is not None
+
+
+@pytest.mark.asyncio
+async def test_cv_generation_flow_reopens_into_interview(db, user_and_job):
+    """R2-3: a flow parked at cv_generation (skip, CV page open) may also go back."""
+    _, job = user_and_job
+    flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    gap = await _make_gap_analysis(db, job)
+    await advance_flow(flow_resp.flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    await advance_flow(flow_resp.flow_id, AdvanceFlowRequest(step="cv_generation"), db)
+    interview = await _make_interview_session(db, job)
+
+    state = await advance_flow(
+        flow_resp.flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db
+    )
+    assert state.current_step == "interview"
+
+
+@pytest.mark.asyncio
+async def test_reopen_still_requires_the_interview_artifact(db, user_and_job):
+    """R2-3 widens the graph, not the artifact gate: no session id → 422 shape."""
+    _, job = user_and_job
+    flow_id, *_ = await _skip_to_complete(db, job)
+    with pytest.raises(ArtifactRequiredError):
+        await advance_flow(flow_id, AdvanceFlowRequest(step="interview"), db)
+    flow = await db.get(FlowSession, flow_id)
+    assert flow.current_step == "complete"
+
+
+@pytest.mark.asyncio
+async def test_reopen_is_the_only_back_edge(db, user_and_job):
+    """Only `interview` is reachable backwards — never gap_analysis or cv_import."""
+    _, job = user_and_job
+    flow_id, gap, *_ = await _skip_to_complete(db, job)
+    with pytest.raises(InvalidTransitionError) as exc_info:
+        await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    assert exc_info.value.allowed == ["interview"]
+
+
+@pytest.mark.asyncio
+async def test_reopened_interview_completion_returns_to_cv_generation(db, user_and_job):
+    """After the reopened interview the existing completion hook moves the flow to
+    cv_generation, where the CV page finds the recorded CV ("Neu zuschneiden" then
+    makes a new version) — nothing is regenerated or dropped."""
+    _, job = user_and_job
+    flow_id, _gap, cv, letter_id = await _skip_to_complete(db, job)
+    interview = await _make_interview_session(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db)
+
+    interview.status = "complete"
+    await db.commit()
+    await advance_flow_on_interview_complete(interview.id, db)
+
+    flow = await db.get(FlowSession, flow_id)
+    assert flow.current_step == "cv_generation"
+    assert flow.generated_cv_id == cv.id
+    assert flow.generated_cover_letter_id == letter_id
+    assert flow.available_actions == {"next": "complete", "reopen": "interview"}
+
+
+@pytest.mark.asyncio
+async def test_complete_advertises_the_reopen_action(db, user_and_job):
+    """An agent reading get_flow_state at `complete` learns the edge exists."""
+    _, job = user_and_job
+    flow_id, *_ = await _skip_to_complete(db, job)
+    flow = await db.get(FlowSession, flow_id)
+    assert flow.available_actions == {"reopen": "interview"}

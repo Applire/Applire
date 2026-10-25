@@ -102,7 +102,10 @@ from applire.services.profile.reconcile.apply import (
 )
 from applire.services.profile.reconcile.import_bridge import _to_pending_confirmation
 from applire.services.profile.reconcile.ops import CommitOp, RequestConfirmation
-from applire.services.profile.reconcile.stance import record_denials
+from applire.services.profile.reconcile.stance import (
+    park_denial_scope_confirmations,
+    record_denials,
+)
 from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
 
 if TYPE_CHECKING:  # pragma: no cover — import cost only
@@ -738,6 +741,13 @@ async def commit_ops(
                 when=now,
             )
         )
+    # FS-7 / G-5 (ADR-059 amended 2026-10-24) — a recorded denial the candidate's
+    # own CV contradicts (head-noun scope or the literal term) parks ONE Health
+    # question, never twice. Every intake: a new denial meets the CV here, and a
+    # new import meets the old denials here. No vault write besides the question.
+    park_denial_scope_confirmations(
+        profile.metadata, profile.model_dump(mode="json"), pre_op_json, when=now
+    )
 
     # ── Invariant 2 — the persisted-denial re-floor ──────────────────────────
     # It runs HERE, after the ops land and before the assignment, so it sees the
