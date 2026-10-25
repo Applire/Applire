@@ -47,10 +47,12 @@
     "stepLabel": "Schritt {n}",
     "step1Title": "Lebenslauf hochladen",
     "step1Body": "Einer reicht. Das Lesen dauert 1–2 Minuten je Datei.",
+    "step1PhoneTag": "1–2 Min. je Datei",
     "step2Title": "Stellenanzeige einfügen",
     "step2Body": "Link oder Text der Stelle, die dich interessiert.",
     "step3Title": "Lücken ansehen",
     "step3Body": "Was die Stelle verlangt und dein Lebenslauf noch nicht zeigt. Ein paar Minuten Lesen.",
+    "step3PhoneTag": "wenige Min.",
     "step4Title": "Interview",
     "step4Body": "Fragen nur zu den offenen Punkten. Jederzeit beendbar.",
     "step4Tag": "optional · 10–20 Min.",
@@ -471,6 +473,7 @@
     "generationFailed": "Generierung fehlgeschlagen.",
     "generationFailedTruncated": "Dein Lebenslauf ließ sich nicht in einem Durchgang erstellen — er ist dem aktuellen KI-Modell vielleicht zu umfangreich. Bitte versuche es erneut.",
     "generationFailedTimeout": "Die Erstellung deines Lebenslaufs hat zu lange gedauert. Bitte versuche es gleich noch einmal.",
+    "generationFailedUnavailable": "Der KI-Anbieter war gerade nicht erreichbar. Bitte versuche es gleich noch einmal.",
     "retryGeneration": "Erneut versuchen →",
     "photoStepTitle": "Profilfoto hinzufügen?",
     "photoStepHint": "Deutsche Arbeitgeber erwarten typischerweise ein professionelles Foto im Lebenslauf. Optional, aber empfohlen für DACH-Bewerbungen.",
@@ -1453,21 +1456,9 @@
     }
   },
   "match": {
-    "title": "Stellenanzeigen",
-    "loading": "Stellen werden geladen…",
-    "emptyIcon": "📋",
-    "emptyHeading": "Noch keine Stellen analysiert",
-    "emptyBody": "Füge eine Stellenbeschreibung auf der Startseite ein, um sie zu analysieren und hier zu sehen.",
-    "emptyAction": "Erste Stelle hinzufügen →",
-    "matchScore": "Übereinstimmung",
-    "strengthPrefix": "✓ {label}",
-    "gapPrefix": "✗ {label}",
     "bandStrongFit": "Starke Übereinstimmung",
     "bandModerateFit": "Mittlere Übereinstimmung",
-    "bandNeedsWork": "Geringe Übereinstimmung",
-    "runGapAnalysis": "Lückenanalyse starten →",
-    "errorLoadFailed": "Stellen konnten nicht geladen werden. Bitte erneut versuchen.",
-    "errorBackendUnreachable": "Server nicht erreichbar. Läuft das Backend?"
+    "bandNeedsWork": "Geringe Übereinstimmung"
   },
   "ats": {
     "title": "ATS-Prüfungen",
@@ -1635,7 +1626,8 @@
     "letterGenerating": "Anschreiben wird erstellt",
     "letterFailed": "Anschreiben fehlgeschlagen",
     "letterExpired": "Anschreiben abgelaufen",
-    "letterOpen": "Anschreiben öffnen"
+    "letterOpen": "Anschreiben öffnen",
+    "typeLetter": "Anschreiben"
   },
   "explainers": {
     "dontShowAgain": "Nicht mehr anzeigen",
@@ -2266,6 +2258,8 @@
     "reasonTimeout": "Der KI-Anbieter hat nicht rechtzeitig geantwortet",
     "reasonTruncated": "Die Antwort des KI-Anbieters war abgeschnitten",
     "reasonRateLimited": "Der KI-Anbieter hat Anfragen gedrosselt",
+    "reasonProviderUnavailable": "Der KI-Anbieter war nicht erreichbar",
+    "reasonNotSaved": "Die Übernahme ins Profil ist fehlgeschlagen, nichts wurde gespeichert",
     "reasonUnauthorised": "Der KI-Anbieter hat den Schlüssel abgewiesen",
     "reasonOther": "Fehlercode {code}",
     "failedHint": "Häufen sich Zeitüberschreitungen, liegt es oft am Anbieter. Du kannst ihn unter Einstellungen wechseln.",

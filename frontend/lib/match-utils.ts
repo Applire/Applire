@@ -16,20 +16,10 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Utilities for the /match job ranking page, and the gaps screen's reading of
- * a gap analysis (counts, and the ADR-089 per-cluster coverage record).
+ * The gaps screen's reading of a gap analysis (counts, and the ADR-089
+ * per-cluster coverage record). The /match job ranking page and its JobCard
+ * were retired in Hazelnut build 4 (789:95); `GET /api/jobs/match` stays.
  */
-
-/** Score thresholds for colour-coding the combined-score bar. */
-export const SCORE_GREEN_THRESHOLD = 0.7;
-export const SCORE_AMBER_THRESHOLD = 0.4;
-
-/** Return the Tailwind colour token for a combined score in [0, 1]. */
-export function scoreColor(score: number): "success" | "warning" | "critical" {
-  if (score >= SCORE_GREEN_THRESHOLD) return "success";
-  if (score >= SCORE_AMBER_THRESHOLD) return "warning";
-  return "critical";
-}
 
 /**
  * A [0, 1] match score as a whole percentage — with `null` as the ONLY fallback.
@@ -49,18 +39,6 @@ export function scoreToPercent(
   fallback: number,
 ): number {
   return score == null ? fallback : Math.round(score * 100);
-}
-
-/** Format a [0, 1] score as a percentage string e.g. "72%". */
-export function formatScore(score: number): string {
-  return `${Math.round(score * 100)}%`;
-}
-
-/** Return the hex / Tailwind class used for the progress bar fill. */
-export function scoreBarClass(score: number): string {
-  if (score >= SCORE_GREEN_THRESHOLD) return "bg-success";
-  if (score >= SCORE_AMBER_THRESHOLD) return "bg-warning";
-  return "bg-critical";
 }
 
 /** The three category lists a gap analysis exposes to the gaps screen. */

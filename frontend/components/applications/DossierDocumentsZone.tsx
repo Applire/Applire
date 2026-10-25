@@ -19,7 +19,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { Bot, CheckCircle2, FileText, Loader2, AlertTriangle, Send, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -85,6 +86,7 @@ export function DossierDocumentsZone({
   onPinChange,
 }: DossierDocumentsZoneProps) {
   const t = useTranslations("applications");
+  const locale = useLocale();
   const tCv = useTranslations("cv");
   const tDocs = useTranslations("documents");
 
@@ -116,6 +118,9 @@ export function DossierDocumentsZone({
   function failedCvMessage(errorCode: string | null | undefined): string {
     if (errorCode === "llm_truncated") return tCv("generationFailedTruncated");
     if (errorCode === "llm_timeout") return tCv("generationFailedTimeout");
+    // 789:192 (B4-8): the writer call's provider outage (MD3-2) has its own
+    // retryable copy — it fell through to the generic "Generation failed."
+    if (errorCode === "provider_unavailable") return tCv("generationFailedUnavailable");
     return tCv("generationFailed");
   }
 
@@ -206,7 +211,7 @@ export function DossierDocumentsZone({
             const isGenerating = cv.status === "pending" || cv.status === "generating";
             const isFailed = cv.status === "failed";
             const dateLabel = cv.created_at
-              ? t("versionFrom", { date: new Date(cv.created_at).toLocaleDateString() })
+              ? t("versionFrom", { date: formatUiDate(cv.created_at, locale) })
               : "";
             const templateKey = cv.template ? TEMPLATE_NAME_KEYS[cv.template] : undefined;
             // Unknown/legacy template ids fall back to the raw id string.

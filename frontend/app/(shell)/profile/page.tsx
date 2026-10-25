@@ -41,6 +41,7 @@ import {
   type UiLanguage,
 } from "@/components/profile/ProfileSectionCard";
 import { useLocale } from "@/lib/providers/locale-provider";
+import { formatUiDate } from "@/lib/format-date";
 import {
   budgetUnitIssueLabels,
   countWorkEntryGaps,
@@ -849,7 +850,7 @@ export default function ProfilePage() {
                           })()}
                         </span>
                       )}
-                      <span>{new Date(record.timestamp).toLocaleDateString()}</span>
+                      <span>{formatUiDate(record.timestamp, locale)}</span>
                     </div>
                     {record.changes.map((change, cIdx) => {
                       const oldStr = stringifyValue(change.old_value);

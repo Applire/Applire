@@ -226,3 +226,45 @@ describe("DocumentsTable — #789 the letter belongs on the page too", () => {
     expect(screen.getByText(/generatedOn/).textContent).toContain("5 Mar 2026");
   });
 });
+
+describe("DocumentsTable — 789:187 a letter with no CV is listed", () => {
+  const LETTER_ONLY: DocumentItem = {
+    kind: "cover_letter",
+    cv_id: null,
+    flow_id: "flow-9",
+    role_title: "Werkleiter",
+    company_name: "Nordlicht AG",
+    template: "classic_german",
+    status: "ready",
+    created_at: new Date().toISOString(),
+    expires_at: FAR_FUTURE,
+    cover_letter: {
+      cover_letter_id: "cl-9",
+      status: "ready",
+      created_at: new Date().toISOString(),
+      expires_at: FAR_FUTURE,
+    },
+  };
+
+  it("renders the letter as its own row that opens the letter page", () => {
+    push.mockClear();
+    renderTable({ items: [LETTER_ONLY], total: 1 });
+    const row = screen.getByTestId("documents-row");
+    expect(row).toHaveAttribute("data-kind", "cover_letter");
+    expect(screen.getByText("Werkleiter")).toBeInTheDocument();
+    expect(screen.getByText("typeLetter")).toBeInTheDocument();
+    // the letter is the row, not a second line under it
+    expect(screen.queryByTestId("documents-letter")).toBeNull();
+    fireEvent.click(screen.getByTestId("documents-table-open-btn"));
+    expect(push).toHaveBeenCalledWith("/flow/flow-9/cover-letter");
+  });
+
+  it("CV rows keep their template label and open the CV", () => {
+    push.mockClear();
+    renderTable({ items: [ITEMS[0], LETTER_ONLY], total: 2 });
+    const rows = screen.getAllByTestId("documents-row");
+    expect(rows.map((r) => r.getAttribute("data-kind"))).toEqual(["cv", "cover_letter"]);
+    fireEvent.click(screen.getAllByTestId("documents-table-open-btn")[0]);
+    expect(push).toHaveBeenCalledWith("/flow/flow-1/cv");
+  });
+});

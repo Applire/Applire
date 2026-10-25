@@ -39,7 +39,7 @@ async def get_documents(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
 ) -> DocumentListResponse:
-    """List all generated CVs for the current user, newest first."""
+    """List the current user's generated CVs, and letters without a CV (789:187), newest first."""
     user = current_user
     return await list_documents(
         user_id=user.id,

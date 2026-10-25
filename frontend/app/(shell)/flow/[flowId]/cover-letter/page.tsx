@@ -20,7 +20,8 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { CoverLetterDocument } from "@/components/cover-letter/CoverLetterDocument";
 import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterContentTab";
 import { LetterLookLine } from "@/components/document/LetterLookLine";
@@ -104,6 +105,7 @@ export default function CoverLetterPage({
 }) {
   const { flowId } = use(params);
   const t = useTranslations("coverLetter");
+  const locale = useLocale();
   const tc = useTranslations("common");
   const tDoc = useTranslations("document");
 
@@ -660,7 +662,7 @@ export default function CoverLetterPage({
   const validity =
     clState?.expiresAt != null
       ? {
-          label: tDoc("validUntil", { date: new Date(clState.expiresAt).toLocaleDateString() }),
+          label: tDoc("validUntil", { date: formatUiDate(clState.expiresAt, locale) }),
           level: "warning" as const,
         }
       : null;

@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -79,7 +80,7 @@ export function AvailabilityReminderCard() {
   }
 
   const formattedDate = recordedAt
-    ? new Date(recordedAt).toLocaleDateString(locale === "de" ? "de-DE" : "en-GB", {
+    ? formatUiDate(recordedAt, locale, {
         day: "numeric",
         month: "long",
         year: "numeric",

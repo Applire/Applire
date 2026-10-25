@@ -80,7 +80,7 @@ describe("AddRoleView — jd_paste mode", () => {
     const { AddRoleView: View } = await import("../AddRoleView");
     render(withIntl(<View openRoles={[]} />, "en"));
     expect(screen.getByLabelText(/Paste the job description/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Analyse/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Analyze/i })).toBeInTheDocument();
   });
 });
 

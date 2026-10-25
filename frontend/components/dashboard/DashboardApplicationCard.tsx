@@ -20,7 +20,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { markApplicationHired } from "@/lib/profile-roles";
 import { patchApplicationStatus } from "@/lib/api/applications";
@@ -109,6 +110,7 @@ export function DashboardApplicationCard({
 }: DashboardApplicationCardProps) {
   const router = useRouter();
   const tDash = useTranslations("dashboard");
+  const locale = useLocale();
   const status = deriveCardStatus(workflowStatus, updatedAt);
   // #789: "LEBENSLAUF BEREIT" while the letter is ready too undersold the set.
   const chip =
@@ -200,7 +202,7 @@ export function DashboardApplicationCard({
       )}
       onClick={() => router.push(`/applications/${applicationId}`)}
     >
-      <div className="flex items-start justify-between mb-2.5">
+      <div className="flex items-start justify-between gap-2 mb-2.5">
         <div
           className={cn(
             "w-[34px] h-[34px] rounded-lg flex items-center justify-center text-[14px] font-extrabold font-manrope",
@@ -212,14 +214,21 @@ export function DashboardApplicationCard({
         >
           {initial}
         </div>
-        <div className="flex items-center gap-1.5">
+        {/* 789:188: at 412 px the status select and "Lebenslauf + Anschreiben
+            bereit" do not fit beside the initial; the chip used to break over
+            two lines. The pair now wraps as whole chips (the chip moves under
+            the select, right-aligned) and a chip never breaks inside. */}
+        <div data-testid="card-chips" className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
           {/* Pipeline status control (E039/US218, extracted E041/US231) — editable right on the card */}
           <UserStatusChipSelect
             value={userStatusValue}
             onChange={(next) => void handleStatusChange(next)}
             stopClickPropagation
           />
-          <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide", chip.className)}>
+          <span
+            data-testid="card-progress-chip"
+            className={cn("whitespace-nowrap text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide", chip.className)}
+          >
             {tDash(chip.labelKey)}
           </span>
         </div>
@@ -236,7 +245,7 @@ export function DashboardApplicationCard({
             title={
               submittedCvCreatedAt
                 ? tDash("sentBadgeAriaLabel", {
-                    date: new Date(submittedCvCreatedAt).toLocaleDateString(),
+                    date: formatUiDate(submittedCvCreatedAt, locale),
                   })
                 : undefined
             }
@@ -247,7 +256,7 @@ export function DashboardApplicationCard({
             </span>
             {submittedCvCreatedAt
               ? tDash("sentBadge", {
-                  date: new Date(submittedCvCreatedAt).toLocaleDateString(),
+                  date: formatUiDate(submittedCvCreatedAt, locale),
                 })
               : tDash("sentBadgePlain")}
           </span>

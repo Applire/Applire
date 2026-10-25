@@ -130,6 +130,28 @@ describe("GenerationProgress", () => {
     });
   });
 
+  it("789:192: shows the provider-outage message when error_code is provider_unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        cv_id: "test-cv-id",
+        status: "failed",
+        error_code: "provider_unavailable",
+        expires_at: "2026-05-01T00:00:00Z",
+      }),
+    } as Response);
+
+    render(withIntl(<GenerationProgress {...DEFAULT_PROPS} />));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("The AI provider could not be reached. Please try again in a moment."),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Generation failed.")).not.toBeInTheDocument();
+  });
+
   it("falls back to the generic failure message for an unknown error_code", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,

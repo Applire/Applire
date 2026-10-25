@@ -169,6 +169,22 @@ describe("DossierDocumentsZone (US232 — full version recall)", () => {
     expect(within(row).queryByTestId("dossier-doc-mark-sent")).not.toBeInTheDocument();
   });
 
+  it("789:192: a provider outage names the provider and asks to retry, not the generic failure", async () => {
+    await renderZone({
+      application: baseApplication(),
+      cvItems: [{ ...THREE_CVS[2], error_code: "provider_unavailable" }],
+    });
+    expect(await screen.findByText("The AI provider could not be reached. Please try again in a moment.")).toBeInTheDocument();
+    expect(screen.queryByText("Generation failed.")).not.toBeInTheDocument();
+  });
+
+  it("789:174: the version date follows the UI language, not the browser", async () => {
+    await renderZone({ application: baseApplication(), cvItems: [THREE_CVS[1]] });
+    const row = await screen.findByTestId("dossier-doc-row");
+    expect(row.textContent).toContain("10/07/2026");
+    expect(row.textContent).not.toContain("7/10/2026");
+  });
+
   it("pinned ready row is highlighted with a sent chip and an unpin action; others offer Mark as sent", async () => {
     await renderZone({
       application: baseApplication({ submitted_cv_id: "cv-newest", submitted_cv_created_at: "2026-07-10T09:00:00Z" }),
