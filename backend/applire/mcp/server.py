@@ -1160,8 +1160,9 @@ async def send_message(session_id: str, message: str) -> dict:
     description=(
         "Resolve ONE gap cluster in a single call — the agent-channel form of "
         "the UI's targeted gap fill. Pass job_id, a gap_id from analyze_gaps' "
-        "gap_clusters, and the candidate's own testimony. Returns the gap's "
-        "status, coverage and remaining budget. Stateless (see guide)."
+        "gap_clusters, and the candidate's own testimony. Returns {status, "
+        "coverage, open_concepts, budget_remaining, follow_up_question?}. "
+        "Stateless (see guide)."
     )
 )
 async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:

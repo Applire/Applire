@@ -88,7 +88,8 @@ describe("DashboardApplicationCard", () => {
     const badge = screen.getByTestId("sent-badge");
     // Version identity = the pin's creation date, rendered via the sentBadge key
     expect(badge).toHaveTextContent(
-      `sentBadge:${new Date("2026-07-05T10:00:00Z").toLocaleDateString()}`,
+      // useLocale is mocked to "de" — formatUiDate renders the German short date.
+      "sentBadge:5.7.2026",
     );
   });
 
