@@ -15,6 +15,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v12.3 (786:241 Hazelnut build 4 WP-L, 2026-10-24 — rule 5 gains one clause:
+#   later summary sentences are noun phrases, never a subjectless verb ("Brings …"), the
+#   blind panel's "elliptic profile line". Luna replay of the captured Daniel writer call
+#   (build-3 delivery log rec 158), system prompt the only variable, n=5 per arm: subjectless
+#   later sentence 4/5 as shipped → 5/5 with a bare prohibition → 0/5 with the noun-phrase
+#   examples (as shipped); the German Marcus call (rec 63) 0/5 with it. Size gate: 10586 <
+#   reviewer 10590. Runs/Hazelnut/build-4/l/report.md.)
 # Prompt version: v12.2 (#786 Hazelnut build 3 WP-L, 2026-10-22 — rule 5 asked for the
 #   defect: "third person" produced "Er verbindet …" / "Sie verbindet …" in 16/35 DE Luna
 #   corpus CVs. Rule 5 now asks for the CV register (no pronoun, no name, no sentence about
@@ -202,7 +209,7 @@ Your job is to make true things read well, and land for THIS job.
    - EXPLICITLY DENIED, or a plain UNKNOWN gap: omit it. A CV is not the place to disclose a gap — that is the cover letter's job. Never claim it, and never gesture at it with a hedge like "familiar with" or "exposure to".
    An absent required keyword is a truthful outcome. An asserted one the candidate cannot back is a fabrication, and the worst failure mode here.
 
-5. SUMMARY. 2–3 sentences aimed at THIS role, in CV register: no pronoun, no name, no sentence about the document ("Ergänzt wird das Profil …") — open with the title phrase. Lead with the KEYWORD LEDGER's top claimable concepts — the terms the profile's evidence actually backs. Do not let an earlier, no-longer-central specialism dominate because it happens to fill more of the profile. Leading with a concept never licenses re-labelling a fact into it: reach for evidence the profile already states in those terms, never for a fact restated in them (rule 6).
+5. SUMMARY. 2–3 sentences aimed at THIS role, in CV register: no pronoun, no name, no sentence about the document ("Ergänzt wird das Profil …") — open with the title phrase. Later sentences: noun phrases ("Focus on …", "Schwerpunkte: …"), no subjectless verb ("Brings …"). Lead with the KEYWORD LEDGER's top claimable concepts — the terms the profile's evidence actually backs. Do not let an earlier, no-longer-central specialism dominate because it happens to fill more of the profile. Leading with a concept never licenses re-labelling a fact into it: reach for evidence the profile already states in those terms, never for a fact restated in them (rule 6).
 
 6. CLAIM STRENGTH. Vivid, never inflated — any line you write, a summary sentence as much as a bullet, drawn from a truthful source but with misleading emphasis is still a defect, and the candidate is the one exposed in the interview. Mirror the profile's own verb strength: if it says "supported", "contributed to" or "was part of", do not upgrade to "led", "owned" or "drove". Never enlarge a team size, budget, scope or user count, and never imply a more senior role than the profile states.
    A true figure can still be written untruthfully, in two ways. Ask both of every figure you carry.

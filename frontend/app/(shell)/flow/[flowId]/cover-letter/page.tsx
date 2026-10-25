@@ -23,7 +23,7 @@ import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { formatUiDate } from "@/lib/format-date";
 import { CoverLetterDocument } from "@/components/cover-letter/CoverLetterDocument";
-import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterContentTab";
+import { CoverLetterContentTab, type CoverLetterContentTabHandle } from "@/components/cover-letter/CoverLetterContentTab";
 import { LetterLookLine } from "@/components/document/LetterLookLine";
 import { EditContextStrip, type EditContext, type SaveReceipt } from "@/components/document/EditContextStrip";
 import { NewVersionDialog } from "@/components/document/NewVersionDialog";
@@ -43,6 +43,7 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { ProgressWidget } from "@/components/ui/progress-widget";
 import { buildClProgressSteps } from "./cover-letter-utils";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
+import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import UnaskedRequirementsPanel, {
@@ -85,6 +86,8 @@ interface CLState {
   preGenInputs: Record<string, unknown> | null;
   jobId: string | null;
   applicationId: string | null;
+  /** 786:165: the application's CV — the pin panel measures its fates too. */
+  cvId: string | null;
   roleTitle: string | null;
   matchScore: number | null;
   expiresAt: string | null;
@@ -171,6 +174,11 @@ export default function CoverLetterPage({
   // Adversarial finding 11: the body draft also holds back a reload / tab
   // close, every in-app link and the browser's back button.
   const draftGuard = useUnsavedDraftGuard(bodyDirty, (nav) => setPendingNav(nav));
+  // #789:189 — the dialog's Save goes through the body editor(s); desktop tab
+  // and phone sheet may both be mounted, each answers true when it has no draft.
+  const bodyEditorRefs = useRef<Partial<Record<"panel" | "sheet", CoverLetterContentTabHandle | null>>>({});
+  const [pendingNavBusy, setPendingNavBusy] = useState(false);
+  const [pendingNavFailed, setPendingNavFailed] = useState(false);
   const router = useRouter();
   // Remounts the body editor after a review action rewrote the letter, so it
   // never saves stale text over the rewrite.
@@ -217,7 +225,7 @@ export default function CoverLetterPage({
         application_id?: string | null;
         job_summary?: { role_title?: string };
         gap_summary?: { match_score?: number };
-        cv_summary?: { expires_at?: string };
+        cv_summary?: { cv_id?: string; expires_at?: string };
       };
 
       const clSummary = flowData.cover_letter_summary;
@@ -234,6 +242,7 @@ export default function CoverLetterPage({
           preGenInputs: null,
           jobId: flowData.job_id ?? null,
           applicationId: flowData.application_id ?? null,
+          cvId: flowData.cv_summary?.cv_id ?? null,
           roleTitle: flowData.job_summary?.role_title ?? null,
           matchScore: null,
           expiresAt: null,
@@ -280,6 +289,7 @@ export default function CoverLetterPage({
             : null,
         jobId: flowData.job_id ?? null,
         applicationId: flowData.application_id ?? null,
+        cvId: flowData.cv_summary?.cv_id ?? null,
         roleTitle: flowData.job_summary?.role_title ?? null,
         // gap_summary.match_score is a 0–1 fraction; the sidebar expects 0–100.
         matchScore:
@@ -733,6 +743,19 @@ export default function CoverLetterPage({
     }
   }
 
+  function proceedNav(nav: NonNullable<typeof pendingNav>) {
+    if (nav.kind === "sheet") nav.proceed();
+    else if (nav.kind === "tab") switchTab(nav.id);
+    else if (nav.kind === "href") {
+      draftGuard.release();
+      router.push(nav.href);
+    } else {
+      // The guard entry is already popped; one more step leaves the page.
+      draftGuard.release();
+      window.history.back();
+    }
+  }
+
   const editContextStrip = (
     <EditContextStrip
       context={editContext}
@@ -754,6 +777,9 @@ export default function CoverLetterPage({
     {editContextStrip}
     <CoverLetterContentTab
       key={`cl-content-${where}-${contentVersion}`}
+      ref={(h) => {
+        bodyEditorRefs.current[where] = h;
+      }}
       openBodyNonce={openBodyNonce}
       coverLetterId={clState!.coverLetterId}
       letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
@@ -818,7 +844,22 @@ export default function CoverLetterPage({
           onRegenerateCoverLetter={requestRegenerate}
           // ADR-081 cl. 3 (amended, #737 / RULING E-1 = A): pin fates live on
           // Aktionen beside the regeneration they feed, outside the finding groups.
-          pins={<ATSChecksPanel report={atsReport} variant="pins" />}
+          pins={
+            <>
+              {/* 786:165 (E-12 walk, founder 2026-10-22): principle-11 parity —
+                  the letter's Aktionen offers the same application-scoped pin
+                  panel the CV's Aktionen and the gaps page do. */}
+              {clState?.applicationId && (
+                <PinnedFactsPanel
+                  applicationId={clState.applicationId}
+                  apiBase={API_BASE}
+                  cvId={clState.cvId}
+                  coverLetterId={clState.coverLetterId || null}
+                />
+              )}
+              <ATSChecksPanel report={atsReport} variant="pins" />
+            </>
+          }
           languageSwitch={
             clState?.applicationId ? (
               <DocumentLanguageSwitch
@@ -938,7 +979,10 @@ export default function CoverLetterPage({
       <UnsavedEditDialog
         open={pendingNav !== null}
         sectionLabel={t("bodySection")}
+        busy={pendingNavBusy}
+        failed={pendingNavFailed}
         onStay={() => {
+          setPendingNavFailed(false);
           if (pendingNav?.kind === "back") draftGuard.rearmBack();
           setPendingNav(null);
         }}
@@ -946,19 +990,32 @@ export default function CoverLetterPage({
           // Remounting the editor returns it to the effective body (D-2).
           setContentVersion((v) => v + 1);
           setBodyDirty(false);
+          setPendingNavFailed(false);
           const nav = pendingNav;
           setPendingNav(null);
-          if (!nav) return;
-          if (nav.kind === "sheet") nav.proceed();
-          else if (nav.kind === "tab") switchTab(nav.id);
-          else if (nav.kind === "href") {
-            draftGuard.release();
-            router.push(nav.href);
-          } else {
-            // The guard entry is already popped; one more step leaves the page.
-            draftGuard.release();
-            window.history.back();
-          }
+          if (nav) proceedNav(nav);
+        }}
+        onSave={() => {
+          const nav = pendingNav;
+          setPendingNavBusy(true);
+          setPendingNavFailed(false);
+          const saveAll = async () => {
+            for (const handle of [bodyEditorRefs.current.panel, bodyEditorRefs.current.sheet]) {
+              if (handle && !(await handle.saveBody())) return false;
+            }
+            return true;
+          };
+          void saveAll()
+            .then((ok) => {
+              if (!ok) {
+                setPendingNavFailed(true);
+                return;
+              }
+              setBodyDirty(false);
+              setPendingNav(null);
+              if (nav) proceedNav(nav);
+            })
+            .finally(() => setPendingNavBusy(false));
         }}
       />
       <NewVersionDialog

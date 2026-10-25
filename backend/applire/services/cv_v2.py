@@ -597,12 +597,31 @@ def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> 
         logger.exception("v2 check detector select_restore_candidates raised; finding skipped")
         return []
     companies = {w.id: w.company for w in composed.work_history}
-    parts = [
-        f"claimable concept “{c.concept}” is absent from the CV — the vault says: "
-        f"“{c.vault_text}”, under {eid} ({companies.get(eid, '')})"
-        for eid, cands in candidates.items()
-        for c in cands
-    ]
+
+    def _carrying_phrase(c) -> str:
+        """786:241: the surface form the vault sentence itself carries — the
+        phrase that satisfies this check in running text (the label alone was
+        pasted capitalised mid-sentence: "Provided Backend service operations")."""
+        from applire.services.ats_audit import _norm, surface_present
+
+        vb = _norm(c.vault_text)
+        for e in ctx.keyword_ledger or []:
+            if not isinstance(e, dict) or e.get("concept") != c.concept:
+                continue
+            for f in e.get("surface_forms") or []:
+                if f and f != c.concept and surface_present(f, vb):
+                    return f
+        return ""
+
+    parts = []
+    for eid, cands in candidates.items():
+        for c in cands:
+            phrase = _carrying_phrase(c)
+            parts.append(
+                f"claimable concept “{c.concept}” is absent from the CV — the vault says: "
+                f"“{c.vault_text}”, under {eid} ({companies.get(eid, '')})"
+                + (f"; the vault's own phrase “{phrase}” carries it" if phrase else "")
+            )
     if not parts:
         return []
     return [CheckFinding(
@@ -611,9 +630,12 @@ def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> 
         text=(
             "; ".join(parts[:_MAX_ITEMS_PER_FINDING])
             + (f" (+{len(parts) - _MAX_ITEMS_PER_FINDING} more)" if len(parts) > _MAX_ITEMS_PER_FINDING else "")
-            + ". Write each into that role as one bullet in the document language, naming "
-            "the concept as the posting does; if the role is at its bullet budget, replace "
-            "its weakest bullet instead of adding."
+            + ". Write each into that role as one bullet in the document language, stating "
+            "what the vault sentence says the candidate did, in ordinary running text (the "
+            "vault's own phrase, where one is named, carries the concept): the quoted concept "
+            "name is a label, not a phrase to paste — never insert it capitalised "
+            "mid-sentence (786:241); "
+            "if the role is at its bullet budget, replace its weakest bullet instead of adding."
         ),
     )]
 

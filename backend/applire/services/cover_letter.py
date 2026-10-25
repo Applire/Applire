@@ -510,20 +510,7 @@ async def get_cover_letter_html(
     if require_ready and cl.status != CoverLetterStatus.ready.value:
         raise ValueError(f"Cover letter not ready (status={cl.status})")
 
-    color_ctx = _default_color_context()
-    if cl.color_profile_id is not None:
-        from applire.models.color_profile import ColorProfile
-        cp_result = await db.execute(
-            select(ColorProfile).where(ColorProfile.id == cl.color_profile_id)
-        )
-        cp = cp_result.scalar_one_or_none()
-        if cp is not None:
-            color_ctx = {
-                "primary": cp.primary,
-                "primary_tint": cp.primary_tint,
-                "surface": cp.surface,
-                "surface_text": cp.surface_text,
-            }
+    color_ctx = await _letter_color_context(cl, db)
 
     letter_data = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
     template_file = _TEMPLATE_FILES.get(cl.template, "lebenslauf_letter.html.j2")
@@ -572,7 +559,30 @@ async def get_cover_letter_html(
         labels=labels,
         subject=subject,
         signature_image=signature_image,
+        cv_role_line=await _twin_cv_role_line(cl, db),
     )
+
+
+async def _twin_cv_role_line(cl: "GeneratedCoverLetter", db: AsyncSession) -> str | None:
+    """784:98 (ruling L-2, build 3: a letter twin takes its CV's header): the role
+    line the paired CV prints under the name — ``work_history[0].role`` of the CV
+    the letter's flow records. ``None`` when no live paired CV exists (an older
+    regeneration, a deleted CV); the template then prints no line."""
+    flow = (
+        await db.execute(
+            select(FlowSession).where(
+                FlowSession.generated_cover_letter_id == cl.id,
+                FlowSession.user_id == cl.user_id,
+                FlowSession.deleted_at.is_(None),
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    if flow is None or flow.generated_cv_id is None:
+        return None
+    cv = await owned_row(db, GeneratedCV, flow.generated_cv_id, cl.user_id)
+    work = ((getattr(cv, "tailored_data", None) or {}).get("work_history")) or []
+    role = (work[0] or {}).get("role") if work and isinstance(work[0], dict) else None
+    return role.strip() if isinstance(role, str) and role.strip() else None
 
 
 # ---------------------------------------------------------------------------
@@ -681,24 +691,9 @@ async def _prepare_cover_letter_docx_render(
     letter_dict = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
     letter = _coerce_stored_letter_data(letter_dict)
 
-    # Same manual colour resolution get_cover_letter_html uses — NOT
-    # services.color_detection.resolve_color_context, which is typed for
-    # GeneratedCV and is not used by any existing cover-letter code path;
-    # this file already has its own (get_cover_letter_html's) convention.
-    color_ctx = _default_color_context()
-    if cl.color_profile_id is not None:
-        from applire.models.color_profile import ColorProfile
-        cp_result = await db.execute(
-            select(ColorProfile).where(ColorProfile.id == cl.color_profile_id)
-        )
-        cp = cp_result.scalar_one_or_none()
-        if cp is not None:
-            color_ctx = {
-                "primary": cp.primary,
-                "primary_tint": cp.primary_tint,
-                "surface": cp.surface,
-                "surface_text": cp.surface_text,
-            }
+    # Same colour resolution as get_cover_letter_html: the CV's own cascade
+    # (784:97 / L-2b, via _letter_color_context).
+    color_ctx = await _letter_color_context(cl, db)
 
     # Same PINNED-language-first fallback as get_cover_letter_html (E054
     # clause 3b) — duplicated rather than factored out, to keep this
@@ -889,7 +884,7 @@ def build_stated_limits_entry(
     """
     from applire.services.cross_document import select_jd_relevant_limits
 
-    limits = select_jd_relevant_limits(denied_concepts, keyword_ledger)
+    limits = select_jd_relevant_limits(denied_concepts, key_requirement_ledger(keyword_ledger))
     if not limits:
         return None
     return {
@@ -897,22 +892,49 @@ def build_stated_limits_entry(
         "required": True,
         "instruction": (
             "REQUIRED content (ADR-075). These are the candidate's own words about "
-            "concepts THIS posting asks about and they have denied. Each one gets an "
+            "KEY requirements of THIS posting that they have denied. Each one gets an "
             "explicit positioning decision in the body: name the gap in the "
             "candidate's own terms, then the adjacent strength that transfers — all "
             "folded into ONE honest paragraph, never a litany, never an apology. "
+            "Where the statement offers NO transferring strength, the letter leaves "
+            "that limit out: a bare admission is never the decision (RULING L-1). "
             "The gap and that strength belong in ONE sentence, the way the "
             "candidate's own statement says it (#732): a standalone negative "
             "sentence, with the strength relegated to a later sentence or a generic "
             "list, is this content HALF-delivered, and worst of all directly after a "
             "sentence stating a strength. "
-            "Silence on a limit listed here is not one of the options. The inverse "
+            "Silence on a listed limit whose statement carries a transfer argument "
+            "is not one of the options. The inverse "
             "is equally binding: never state a limit that is NOT listed here. "
             "Everything the Keyword Ledger marks claimable stays fully claimable, "
             "and disclaiming it would throw away the candidate's own best evidence. "
             + _STATED_LIMITS_CONSTRAINT
         ),
     }
+
+
+def key_requirement_ledger(
+    keyword_ledger: list[dict] | None,
+    *,
+    user_id: "uuid.UUID | None" = None,
+) -> list[dict]:
+    """RULING L-1 = A (founder 2026-10-24, ADR-075 amended): the letter names a
+    recorded gap only where the posting's KEY requirement is that gap — the
+    required tier (``keyword_ledger.REQUIRED_WEIGHT``). A denial of a nice-to-have
+    or keyword-only concept (IFS/BRC "von Vorteil", "BaFin exposure", a keyword
+    such as "Payment institution") is never volunteered: it is dropped from the
+    ``denied`` rows this view hands :func:`cross_document.select_jd_relevant_limits`,
+    so it lands in the never-disclosed CONSTRAINT ONLY block instead of the
+    REQUIRED one. Every other row passes through unchanged; pure."""
+    from applire.services.keyword_ledger import REQUIRED_WEIGHT
+
+    def _key(entry: dict) -> bool:
+        if not isinstance(entry, dict) or entry.get("status") != "denied":
+            return True
+        weight = entry.get("fit_weight")
+        return isinstance(weight, (int, float)) and float(weight) >= REQUIRED_WEIGHT
+
+    return [e for e in (keyword_ledger or []) if _key(e)]
 
 
 async def patch_cover_letter_section(
@@ -966,6 +988,22 @@ async def get_cover_letter_by_job(
     return await get_cover_letter_status(
         flow.generated_cover_letter_id, db, base_url, user_id=uid
     )
+
+
+async def _letter_color_context(cl: "GeneratedCoverLetter", db: AsyncSession) -> dict:
+    """The letter's colours, resolved through the CV's own cascade (ADR-066: one
+    implementation — ``color_detection.resolve_color_context``): the letter row's
+    profile (copied from its CV), else the company's detected colour, else the
+    owner's default colour, else the system default (L-2b, Hazelnut build 4)."""
+    from applire.services.color_detection import resolve_color_context
+
+    c = await resolve_color_context(cl, db, user_id=cl.user_id)
+    return {
+        "primary": c.primary,
+        "primary_tint": c.primary_tint,
+        "surface": c.surface,
+        "surface_text": c.surface_text,
+    }
 
 
 def _default_color_context() -> dict:
@@ -1573,13 +1611,13 @@ async def _render_cover_letter_body(
                 # about, as a never-disclosed constraint; the owed ones reach the
                 # writer through `required_limits_block` alone.
                 stated_limits_block = render_stated_limits_block(
-                    letter_constraint_only_limits(denied_concepts, keyword_ledger),
+                    letter_constraint_only_limits(denied_concepts, key_requirement_ledger(keyword_ledger)),
                     for_letter=True,
                 )
                 # ADR-075 / #532 — the affirmative half, selected deterministically
                 # from THIS job's ledger; empty string when nothing is owed.
                 required_limits_block = render_required_limits_block(
-                    select_jd_relevant_limits(denied_concepts, keyword_ledger)
+                    select_jd_relevant_limits(denied_concepts, key_requirement_ledger(keyword_ledger))
                 )
 
                 # #270(c): unmet JD hard requirements (claimable: false, required) that need
@@ -2744,6 +2782,145 @@ def _letter_format_findings(letter_data: dict) -> list[LetterFinding]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# 784:71 (E-12 walk, founder 2026-10-22): the structural check on the terminal
+# corrector patch that ships UNREVIEWED. The terminal loop's last patch (the
+# re-entry bound reached, or v1's final-floor review round) is never read by a
+# reviewer again, and one replay run's last patch merged the closing into the
+# body paragraph. Measured on 474 logged letter corrector exchanges (reviewed
+# draft = the prompt's PREVIOUS OUTPUT, patch = the reply; 2026-07-27..10-23,
+# luna + mistral-medium): 12 prepended body content to the closing paragraph
+# (2.5 %), each a genuine merge on reading; 4 added a sign-off paragraph.
+# Facts only (ADR-062 cl. 1): sentence positions, word counts, the known
+# sign-off forms — never "is this a good closing". Fail-closed: a defect keeps
+# the reviewed composition the patch was made from.
+# ---------------------------------------------------------------------------
+
+#: Sentence boundary: terminal punctuation, whitespace, then an upper-case
+#: letter, a digit or an opening quote/bracket ("z. B. die" never splits).
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-ZÄÖÜ0-9\"„“(])")
+#: Two sentences are "the same sentence, edited" from this token-set overlap
+#: (Jaccard). The 474-pair scan: an edited closing opener scores >= 0.6, a
+#: rewritten one falls below and the check stays silent (fail-open on a
+#: closing the corrector rewrote — that is not a merge it can prove).
+_SAME_SENTENCE_JACCARD = 0.6
+
+
+def _sentences(text: str) -> list[str]:
+    return [s for s in _SENTENCE_SPLIT.split((text or "").strip()) if s]
+
+
+def _token_set(text: str) -> set[str]:
+    return set(re.findall(r"\w+", (text or "").lower(), flags=re.UNICODE))
+
+
+def _jaccard(a: str, b: str) -> float:
+    ta, tb = _token_set(a), _token_set(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _body_without_signoff(letter_data: dict) -> list[str]:
+    body = letter_data.get("body") if isinstance(letter_data, dict) else None
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    if not isinstance(paragraphs, list):
+        return []
+    found = _trailing_signoff(letter_data)
+    kept = found[0][: -found[1]] if found is not None else paragraphs
+    return [p for p in kept if isinstance(p, str) and p.strip()]
+
+
+def _ends_with_signoff(paragraph: str, name: str) -> bool:
+    """A sign-off formula closing a paragraph that holds prose before it ("…
+    Gespräch. Mit freundlichen Grüßen Max Prober") — the template prints the
+    sign-off itself, so this is a second one inside the body."""
+    norm = _salutation_norm(paragraph)
+    for form in _SIGNOFF_FORMS:
+        if norm.endswith(" " + form) or (name and norm.endswith(f" {form} {name}")):
+            return True
+    return False
+
+
+def terminal_patch_structure_defects(reviewed: dict, patch: dict, *, user_id: "uuid.UUID | None" = None) -> list[str]:
+    """The structural defects ``patch`` introduces against the ``reviewed``
+    composition it was made from — ``[]`` when it introduces none (784:71).
+
+    Both arguments are COMPOSED letters (the delivered artefact's shape). A
+    defect the reviewed draft already carries is not counted: the check asks
+    what the unreviewed patch broke, and the fail-closed fate is the reviewed
+    draft itself. Families:
+
+    * ``signature`` — the signature block changed (sign-off label or name), or
+      a sign-off now stands in the body (its own last paragraph, or closing a
+      prose paragraph);
+    * ``salutation`` — the reviewed letter opened with the Anrede alone; the
+      patch has none, or runs it into the opening sentence;
+    * ``closing_merged`` — body and closing are no longer separate: the reviewed
+      closing paragraph's first sentence now sits AFTER other sentences in its
+      paragraph, or the body collapsed below salutation + body + closing;
+    * ``closing_lost`` — the reviewed letter ended with a genuine closing
+      paragraph (``has_closing_paragraph``) and the patch does not.
+    """
+    from applire.services.cover_letter_positioning import has_closing_paragraph
+
+    defects: list[str] = []
+    r_sig = reviewed.get("signature") if isinstance(reviewed, dict) else None
+    p_sig = patch.get("signature") if isinstance(patch, dict) else None
+    r_sig = r_sig if isinstance(r_sig, dict) else {}
+    p_sig = p_sig if isinstance(p_sig, dict) else {}
+    name = _salutation_norm(r_sig.get("name") or "")
+    r_body = _body_without_signoff(reviewed)
+    p_body = _body_without_signoff(patch)
+
+    signature_changed = (
+        (r_sig.get("closing") or "") != (p_sig.get("closing") or "")
+        or (r_sig.get("name") or "") != (p_sig.get("name") or "")
+    )
+    signoff_in_body = (
+        _trailing_signoff(patch) is not None and _trailing_signoff(reviewed) is None
+    ) or (
+        bool(p_body) and _ends_with_signoff(p_body[-1], name)
+        and not (r_body and _ends_with_signoff(r_body[-1], name))
+    )
+    if signature_changed or signoff_in_body:
+        defects.append("signature")
+
+    r_paragraphs = (reviewed.get("body") or {}).get("paragraphs") or []
+    p_paragraphs = (patch.get("body") or {}).get("paragraphs") or []
+    r_salutation_alone = _has_salutation(reviewed) and _inline_salutation(r_paragraphs) is None
+    p_salutation_alone = _has_salutation(patch) and _inline_salutation(p_paragraphs) is None
+    if r_salutation_alone and not p_salutation_alone:
+        defects.append("salutation")
+
+    if len(r_body) >= 3:
+        merged = len(p_body) < 3
+        anchor_sentences = _sentences(r_body[-1])
+        if not merged and anchor_sentences:
+            anchor = anchor_sentences[0]
+            best: tuple[float, int] | None = None
+            for paragraph in p_body:
+                for index, sentence in enumerate(_sentences(paragraph)):
+                    score = _jaccard(anchor, sentence)
+                    if best is None or score > best[0]:
+                        best = (score, index)
+            merged = best is not None and best[0] >= _SAME_SENTENCE_JACCARD and best[1] > 0
+        if merged:
+            defects.append("closing_merged")
+
+    # A closing is "lost" only where the reviewed letter HAD one of its own: a
+    # paragraph after salutation and body (>= 3). A two-paragraph letter's last
+    # paragraph is its body, and a patch that rewrites it (a corrector repairing a
+    # false sentence, test_664) is content, not structure.
+    if (
+        len(r_body) >= 3
+        and has_closing_paragraph({"body": {"paragraphs": r_body}})
+        and not has_closing_paragraph({"body": {"paragraphs": p_body}})
+    ):
+        defects.append("closing_lost")
+    return defects
+
+
 def _letter_v2_findings(
     letter_data: dict,
     *,
@@ -3611,6 +3788,22 @@ async def _terminal_review_letter(
     def _record_settle(settle) -> None:
         outcome_cell["raw"].append((settle, reviewed_cell["draft"]))
 
+    def _reject_unreviewed_patch(reviewed: dict, patch: dict, *, site: str) -> bool:
+        """784:71 — True when the corrector ``patch`` that would ship UNREVIEWED
+        breaks the letter's structure against the ``reviewed`` draft it was made
+        from (:func:`terminal_patch_structure_defects`, on both compositions).
+        The caller then keeps ``reviewed`` — fail-closed to the last reviewed
+        draft; its verdict is the one on the delivered letter's report."""
+        defects = terminal_patch_structure_defects(_subject_of(reviewed), _subject_of(patch))
+        if defects:
+            logger.warning(
+                "LETTER_TERMINAL_PATCH_REJECTED cl_id=%s site=%s defects=%s — the "
+                "unreviewed corrector patch breaks the letter structure; the last "
+                "reviewed draft ships (784:71)",
+                cl.id, site, ",".join(defects),
+            )
+        return bool(defects)
+
     def _fold_terminal_outcome(delivered_draft: dict) -> "TerminalReviewOutcome | None":
         from applire.services.terminal_review_outcome import settle_to_outcome
 
@@ -3741,6 +3934,12 @@ async def _terminal_review_letter(
         if _canon(settled) == _canon(current):
             # The verdict covers exactly the composition already sitting on
             # the record — the delivered letter.
+            break
+        if rounds > LETTER_TERMINAL_REENTRY_MAX and _reject_unreviewed_patch(
+            current, settled, site="reentry_bound"
+        ):
+            # 784:71: this patch would ship unreviewed and breaks the letter's
+            # structure — the reviewed composition already on the record ships.
             break
         # A terminal corrector round changed the draft → re-compose, persist,
         # re-render, re-measure, and let the CHANGED letter re-enter review
@@ -3945,7 +4144,12 @@ async def _terminal_review_letter(
                     checks_fn=_v2_checks,
                     on_settle=_record_settle,
                 )
-                if _canon(settled) != _canon(current):
+                # 784:71: the floor round's patch ships unreviewed — a structural
+                # defect keeps the reviewed condensed draft.
+                floor_patch_rejected = _canon(settled) != _canon(
+                    current
+                ) and _reject_unreviewed_patch(current, settled, site="final_floor")
+                if _canon(settled) != _canon(current) and not floor_patch_rejected:
                     current = settled
                     await _apply(current)
                     m2 = measure_cell["measured"]
@@ -4179,6 +4383,8 @@ async def _terminal_review_letter(
                             )
                     else:
                         final_floor_selection = "kept_corrector"
+                elif floor_patch_rejected:
+                    final_floor_selection = "kept_condensed_patch_rejected"
                 else:
                     # The review round settled on the condensed draft
                     # unchanged (approved, or every settle path returned it

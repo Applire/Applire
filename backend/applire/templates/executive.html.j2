@@ -269,7 +269,12 @@
 
     @media print {
       .page { width: auto; min-height: auto; margin: 0; }
-      .header { padding: 0 0 14mm 0; }
+      /* Band text inset (Hazelnut b4, 786:236): the band is inset by the @page margin,
+         so with 0 inner padding its text touched the band's top/left/right edges
+         (name 0.1 mm from the left edge, contact 1.1 mm from the top). 5/8 mm matches
+         executive_letter's band; the band's total height stays 14 mm (5 + 9), so
+         page-1 capacity is unchanged. */
+      .header { padding: 5mm 8mm 9mm 8mm; }
       .body { padding: 14mm 0 0 0; }
     }
   </style>

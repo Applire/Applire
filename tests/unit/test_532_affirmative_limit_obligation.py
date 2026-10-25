@@ -151,7 +151,10 @@ def test_the_positioning_entry_is_required_and_affirmative():
     entry = build_stated_limits_entry(DENIED, LEDGER)
     assert entry is not None
     assert entry["required"] is True
-    assert entry["limits"] == select_jd_relevant_limits(DENIED, LEDGER)
+    # RULING L-1 = A: the entry carries only the KEY-requirement denials
+    from applire.services.cover_letter import key_requirement_ledger
+
+    assert entry["limits"] == select_jd_relevant_limits(DENIED, key_requirement_ledger(LEDGER))
     low = _flat(entry["instruction"])
     # the affirmative half
     assert "positioning decision" in low
@@ -207,7 +210,10 @@ def test_the_writer_owes_a_positioning_decision_to_a_denied_concept_at_any_tier(
     but scoped to a `required` JD concept, and IFS/BRC were `nice_to_have`."""
     low = _flat(writer.SYSTEM_PROMPT)
     assert "denied" in low
-    assert "any requirement tier" in low or "required or nice-to-have" in low
+    # RULING L-1 = A (2026-10-24) narrowed "any requirement tier" to the KEY
+    # requirements: the tier cut is code (`key_requirement_ledger`), the writer
+    # is told the block holds key requirements only.
+    assert "key requirements of this posting" in low
     assert "positioning decision" in low
 
 
@@ -261,7 +267,8 @@ def test_the_affirmative_block_is_rendered_only_when_something_is_owed():
     assert "silence on one of these is not one of the options" not in low
     assert "ranked ladder" in low
     assert "discharges the limit" in low
-    assert "a named gap only where neither exists" in low
+    # RULING L-1 = A: with neither rung true the limit is LEFT OUT (was: a named gap)
+    assert "leaves the limit out" in low and "a named gap only where neither exists" not in low
     assert "never state a limit that is not listed here" in low
     assert "Mit IFS habe ich keine Erfahrung." in block
 
@@ -309,5 +316,5 @@ def test_the_generation_path_builds_the_block_from_the_jobs_own_ledger():
 
     src = inspect.getsource(svc._render_cover_letter_body)  # ADR-092: the body behind the owner-context entry
     assert "render_required_limits_block(" in src
-    assert "select_jd_relevant_limits(denied_concepts, keyword_ledger)" in src
+    assert "select_jd_relevant_limits(denied_concepts, key_requirement_ledger(keyword_ledger))" in src
     assert "required_limits_block=required_limits_block," in src

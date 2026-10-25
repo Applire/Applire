@@ -1163,6 +1163,20 @@ def test_claim_missing_finding_names_concept_vault_sentence_and_role_id():
         "no verbatim append: the corrector writes it"
 
 
+def test_claim_missing_finding_names_the_vault_phrase_that_carries_a_label_concept_786_241():
+    """786:241: a concept named by a LABEL ("Backend service operations") was pasted
+    capitalised mid-sentence; the finding now names the vault sentence's own surface
+    form that satisfies the check, and never asks to name the concept as a label."""
+    ledger = [{
+        "concept": "Linienbetrieb", "surface_forms": ["Linienbetrieb", "Kanban für die Montagelinie"],
+        "claimable": True, "status": "direct", "sources": ["required"], "fit_weight": 1.0,
+        "evidence": "vault evidence",
+    }]
+    f = _by_check(_checks(_prose(), _kanban_vault(), keyword_ledger=ledger))["cv.claim_missing"]
+    assert "“Kanban für die Montagelinie” carries it" in f.text
+    assert "naming the concept as the posting does" not in f.text
+
+
 def test_claim_missing_finding_is_silent_when_the_draft_carries_the_concept():
     prose = _prose()
     prose["work"][1]["bullets"].append("Steuerte die Linie per Kanban.")

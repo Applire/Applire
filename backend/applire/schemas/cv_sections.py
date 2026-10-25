@@ -45,6 +45,13 @@ class ContentSnapshot(BaseModel):
     introduction: str
     positions: list[SnapshotPosition]
     skills: list[str]
+    # L-3 = A (789:193, founder 2026-10-24): one line per certification / education
+    # entry (``services.cv_section_editor.entry_line``), section ids
+    # ``certification::<i>`` / ``education::<i>`` (i = index in tailored_data).
+    # ``None`` = a snapshot stored before these existed: rebuilt lazily from
+    # tailored_data at read time (``cv_section_editor.snapshot_entry_lines``).
+    certifications: list[str] | None = None
+    education: list[str] | None = None
 
 
 class GapHintItem(BaseModel):

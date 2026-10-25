@@ -601,7 +601,26 @@
     "pageOverflowError": "That did not work. Reload the page and try again.",
     "assistSavedToProfile": "Added to your profile: {items}",
     "assistNothingNewForProfile": "Your answer held nothing new for your profile.",
-    "assistProfileSaveFailed": "Your answer could not be added to your profile. The text is still in your CV; please try again later."
+    "assistProfileSaveFailed": "Your answer could not be added to your profile. The text is still in your CV; please try again later.",
+    "pageOverflowCutGone": "Cutting is no longer possible: the CV has changed since this suggestion.",
+    "entryRemoved": "This entry is no longer on this CV. Your profile keeps it.",
+    "entryRestore": "Put it back",
+    "entryRemove": "Take it off this CV",
+    "entryField": {
+      "name": "Name",
+      "issuing_organization": "Issued by",
+      "date_obtained": "Obtained",
+      "expiry_date": "Valid until",
+      "degree": "Degree",
+      "field": "Field of study",
+      "institution": "Institution",
+      "start_date": "Start",
+      "end_date": "End"
+    },
+    "entrySectionLabel": {
+      "certification": "Certification: {name}",
+      "education": "Education: {name}"
+    }
   },
   "saveScopePrompt": {
     "saveToProfile": "Where should this change apply?",

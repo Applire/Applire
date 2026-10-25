@@ -104,10 +104,36 @@ def _issue_text(loc_a: str, text_a: str, loc_b: str, text_b: str) -> str:
     )
 
 
+def _demand_answer_texts(
+    document: Any, demanded_groups: Sequence[Sequence[str]]
+) -> frozenset[str]:
+    """786:81 — the delivered bullets that ANSWER an under-claim demand: per demanded
+    concept group, the EARLIEST delivered bullet that carries it (render order, the
+    writer's own relevance order — the same partition ``bullet_cuts.
+    demanded_exempt_indices`` draws for the cap, #666). A demand fires only while no
+    bullet states the concept, so its earliest carrier is the bullet the demand
+    produced."""
+    from applire.services.ats_audit import delivered_bullets
+    from applire.services.bullet_cuts import _concepts_carried
+
+    groups = [list(g) for g in demanded_groups if g]
+    if not groups:
+        return frozenset()
+    answers: set[str] = set()
+    found: set[int] = set()
+    for _where, text in delivered_bullets(document):
+        for gi in _concepts_carried(text, groups):
+            if gi not in found:
+                found.add(gi)
+                answers.add(text)
+    return frozenset(answers)
+
+
 def redundancy_signal_issues(
     document: Any | None,
     *,
     limit: int = REDUNDANCY_ISSUE_LIMIT,
+    demanded_groups: Sequence[Sequence[str]] = (),
 ) -> list[ReviewIssue]:
     """The delivered document's redundant bullet pairs as ``ReviewIssue``s.
 
@@ -127,6 +153,16 @@ def redundancy_signal_issues(
         return []
     try:
         pairs = redundant_bullet_pairs(document)
+        # 786:81 (E-12 walk, founder 2026-10-22): a bullet added for an ADR-076 cl. 5
+        # under-claim demand is exempt from this finding for the rest of the loop. The
+        # two signals demanded opposite things about the SAME bullet one round apart
+        # (2026-09-17 chain run, recs 18 -> 20: round 1 asked for the Lean bullet,
+        # round 2 named it redundant, the corrector deleted it, the CV shipped
+        # `narrative-evidence: fail`). The ATS `duplicate-bullets` row still reports
+        # the pair — detection is unchanged, only the loop's demand yields.
+        answers = _demand_answer_texts(document, demanded_groups) if demanded_groups else frozenset()
+        if answers:
+            pairs = [p for p in pairs if p[1] not in answers and p[3] not in answers]
     except Exception:  # noqa: BLE001 — a signal may never break the loop
         return []
     return [
@@ -139,6 +175,7 @@ def redundancy_signal_issues_fn(
     structured_document_fn: Callable[[dict[str, Any]], Any | None],
     *,
     limit: int = REDUNDANCY_ISSUE_LIMIT,
+    demanded_groups_fn: Callable[[], Sequence[Sequence[str]]] | None = None,
 ) -> Callable[[dict[str, Any]], Sequence[ReviewIssue]]:
     """Bind the composition step for ``review_and_refine``'s ``signal_issues_fn``.
 
@@ -146,6 +183,10 @@ def redundancy_signal_issues_fn(
     on the CV terminal chain that is a cache hit on the very composition the reviewer
     was just shown, because the loop evaluates the signal on the same ``current_draft``.
     Recomputed per round, so a pair the corrector has since merged stops being demanded.
+
+    ``demanded_groups_fn`` (786:81) returns the concept groups the under-claim signal
+    has demanded so far in this loop (the CV chain's ``demanded_cell``, accumulated
+    across rounds — #666); the bullets answering them are exempt from the pairs.
     """
 
     def fn(draft: dict[str, Any]) -> Sequence[ReviewIssue]:
@@ -153,6 +194,7 @@ def redundancy_signal_issues_fn(
             document = structured_document_fn(draft)
         except Exception:  # noqa: BLE001
             return []
-        return redundancy_signal_issues(document, limit=limit)
+        demanded = demanded_groups_fn() if demanded_groups_fn is not None else ()
+        return redundancy_signal_issues(document, limit=limit, demanded_groups=demanded)
 
     return fn

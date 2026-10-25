@@ -158,6 +158,7 @@ async def seed_cv(
     ats_report: dict | None = None,
     truthfulness_report: dict | None = None,
     review_state: dict | None = None,
+    certifications: list[dict] | None = None,
 ) -> uuid.UUID:
     from applire.models.cv import GeneratedCV
 
@@ -183,6 +184,8 @@ async def seed_cv(
         }],
         "skills": skills,
     }
+    if certifications is not None:
+        tailored_data["certifications"] = certifications
     cv_id = uuid.uuid4()
     db.add(GeneratedCV(
         id=cv_id, job_analysis_id=job_id, profile_id=profile_id,
@@ -1451,3 +1454,144 @@ async def test_supported_on_a_term_a_recorded_denial_covers_returns_409_finding_
     )
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["error"] == "finding_denied"
+
+
+# ---------------------------------------------------------------------------
+# 786:232 — `edited` does not re-audit content the background re-audit already
+# audited (the section PATCH's own re-audit ran under the same lock first).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cv_edited_skips_the_reaudit_when_the_report_describes_this_content_786_232(db):
+    from applire.models.cv import GeneratedCV
+
+    cleared = _ats_report("cv", [])
+    cleared["keywords"]["missing_honest_gap"] = [_KUBERNETES]
+    cv_id = await seed_cv(db, introduction="Kenntnisse in Docker.", ats_report=cleared)
+    ra.note_audited("cv", await db.get(GeneratedCV, cv_id))  # what the background re-audit records
+    client = _client(db)
+    fake_reaudit = FakeReaudit([(cleared, None)])
+
+    with patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(f"/api/cv/{cv_id}/review/edited", json={"finding_key": _KEY})
+
+    assert response.status_code == 200, response.text
+    assert fake_reaudit.calls == 0, "the same content must not be audited twice"
+    assert [d["action"] for d in response.json()["review_state"]["decisions"]] == ["edited"]
+
+
+@pytest.mark.asyncio
+async def test_cv_edited_reaudits_when_the_content_changed_after_the_audit_786_232(db):
+    from applire.models.cv import GeneratedCV
+
+    cv_id = await seed_cv(
+        db, introduction="Kenntnisse in Kubernetes.",
+        ats_report=_ats_report("cv", [_KUBERNETES], _MATCHES),
+    )
+    record = await db.get(GeneratedCV, cv_id)
+    ra.note_audited("cv", record)
+    record.section_overrides = {"introduction": "Kenntnisse in Docker."}  # a later save
+    await db.commit()
+    client = _client(db)
+    fake_reaudit = FakeReaudit([(_ats_report("cv", []), None)])
+
+    with patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(f"/api/cv/{cv_id}/review/edited", json={"finding_key": _KEY})
+
+    assert response.status_code == 200, response.text
+    assert fake_reaudit.calls == 1
+
+
+def test_a_failed_audit_never_counts_as_audited_786_232():
+    rec = SimpleNamespace(id=uuid.uuid4(), ats_report=None, tailored_data={"a": 1},
+                          content_snapshot=None, section_overrides=None)
+    ra.note_audited("cv", rec)
+    assert ra.audited_current("cv", rec) is False
+    rec.ats_report = {"score": 1}
+    ra.note_audited("cv", rec)
+    assert ra.audited_current("cv", rec) is True
+    rec.tailored_data = {"a": 2}
+    assert ra.audited_current("cv", rec) is False
+
+
+
+# ---------------------------------------------------------------------------
+# L-3 = A (789:193) — a finding standing in a certification entry is taken out of
+# the CV as a whole entry: no model rewrite, an empty entry override, undo-able.
+# The seeded snapshot predates L-3 (no `certifications` key): lazy rebuild.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cv_take_out_removes_a_certification_entry_without_a_rewrite_789_193(db):
+    cert = {"name": "Kubernetes Administrator (CKA)", "issuing_organization": "CNCF",
+            "date_obtained": "2021", "expiry_date": ""}
+    cv_id = await seed_cv(
+        db, introduction="Erfahrener Entwickler.", certifications=[cert],
+        ats_report=_ats_report("cv", [_KUBERNETES], _MATCHES),
+    )
+    client = _client(db)
+    fake_rewrite = FakeRewrite({})
+    fake_reaudit = FakeReaudit([(_ats_report("cv", []), None)])
+
+    with patch.object(ra, "_rewriter", lambda: fake_rewrite), \
+         patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(f"/api/cv/{cv_id}/review/take-out", json={"finding_key": _KEY})
+
+    assert response.status_code == 200, response.text
+    line = "Kubernetes Administrator (CKA) · CNCF · 2021"
+    assert fake_rewrite.calls == [], "an entry line never reaches the model rewrite"
+    assert response.json()["changes"] == [{"section_id": "certification::0", "before": line, "after": ""}]
+
+    from applire.models.cv import GeneratedCV
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv_section_editor import apply_overrides_to_tailored
+
+    record = await db.get(GeneratedCV, cv_id)
+    await db.refresh(record)
+    assert record.section_overrides["certification::0"] == ""
+    rendered = apply_overrides_to_tailored(
+        TailoredCVData.model_validate(record.tailored_data), record.content_snapshot, record.section_overrides
+    )
+    assert rendered.certifications == []
+    assert record.review_state["decisions"][0]["undo"]["sections"] == [
+        {"section_id": "certification::0", "before": line}
+    ]
+
+    with patch.object(ra, "reaudit", new=FakeReaudit([(_ats_report("cv", [_KUBERNETES], _MATCHES), None)])):
+        undone = client.post(f"/api/cv/{cv_id}/review/undo", json={"finding_key": _KEY})
+    assert undone.status_code == 200, undone.text
+    await db.refresh(record)
+    rendered = apply_overrides_to_tailored(
+        TailoredCVData.model_validate(record.tailored_data), record.content_snapshot, record.section_overrides
+    )
+    assert [c.name for c in rendered.certifications] == ["Kubernetes Administrator (CKA)"]
+
+
+@pytest.mark.asyncio
+async def test_cv_sections_list_certification_entries_for_an_old_snapshot_789_193(db):
+    cert = {"name": "PMP", "issuing_organization": "PMI", "date_obtained": "2019"}
+    cv_id = await seed_cv(db, certifications=[cert])
+    client = _client(db)
+    response = client.get(f"/api/cv/{cv_id}/sections")
+    assert response.status_code == 200, response.text
+    by_id = {s["section_id"]: s for s in response.json()["sections"]}
+    assert by_id["certification::0"]["content"] == "PMP · PMI · 2019"
+    assert by_id["certification::0"]["label"] == "PMP"
+
+    import applire.services.cv as cv_module
+
+    async def _no_background_audit(*_a, **_k):
+        return None
+
+    with patch.object(cv_module, "_update_ats_report_by_id", _no_background_audit):
+        patched = client.patch(
+            f"/api/cv/{cv_id}/sections/certification::0",
+            json={"content": "PMP · PMI · 2020", "save_to_profile": False},
+        )
+        assert patched.status_code == 200, patched.text
+        assert "2020" in patched.json()["html"]
+        assert client.patch(
+            f"/api/cv/{cv_id}/sections/certification::1", json={"content": "x", "save_to_profile": False},
+        ).status_code in (400, 404, 422)

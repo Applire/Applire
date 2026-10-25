@@ -1141,8 +1141,9 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
             "EXPLICITLY DENIED BY THE CANDIDATE (they were asked and stated they do NOT "
             "have these). Never claim them, and never soften or walk back the denial. "
             "Unlike the list above these are the candidate's OWN stated position, so a "
-            "cover letter MAY name one honestly and follow it with what they do bring "
-            "instead — a CV simply omits them:",
+            "cover letter MAY name one honestly — ONLY where a REQUIRED: STATED LIMITS "
+            "block lists it, with what they do bring in the same sentence (RULING L-1); "
+            "otherwise the letter, like a CV, simply omits them:",
         ]
         for concept in denied:
             lines.append(f"  - {concept}")

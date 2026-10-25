@@ -227,6 +227,10 @@
     .signature-block { break-inside: avoid; page-break-inside: avoid; margin-top: 8mm; }
     .signature-block .signature-place-date { margin-bottom: 2mm; }
     .signature-block .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; }
+    /* 789:36 (E-12 walk, founder 2026-10-22): a light backing plate under the
+       signature image, so a dark-ink signature reads on the dark page. No filter
+       on the image itself — the candidate's own ink stays as uploaded. */
+    .signature-block .signature-image { background: #f8fafc; padding: 1.5mm 3mm; border-radius: 1.5mm; }
 
     /* #621 — the visual margin now lives in @page (Chromium's paged-media
        engine re-applies it on every page); .page's own padding/size, which
