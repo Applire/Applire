@@ -116,14 +116,15 @@ test.describe("#717 — recognised entries on the import summary", () => {
 
     const card = page.getByTestId("recognised-matches");
     await expect(card).toBeVisible();
-    await expect(card.getByText("Schon in deinem Profil (7)")).toBeVisible();
+    // V-2 (Hazelnut b4): the import summary card names the combined pairs and asks per pair.
+    await expect(card.getByText("Mit Vorhandenem zusammengeführt (7)")).toBeVisible();
     await expect(card.getByTestId("recognised-match-row")).toHaveCount(5);
     await expect(card.getByTestId("recognised-match-table")).toHaveCount(2);
     await card.getByTestId("recognised-matches-show-all").click();
     await expect(card.getByTestId("recognised-match-row")).toHaveCount(7);
 
     const row = card.getByTestId("recognised-match-row").filter({ hasText: "Machine Learning" });
-    await row.getByRole("button", { name: "Nicht dasselbe" }).click();
+    await row.getByRole("button", { name: "Nein, getrennt führen" }).click();
     await expect(row.getByTestId("recognised-match-done")).toHaveText(/Als eigener Eintrag hinzugefügt/);
     expect(JSON.parse(separated[0])).toEqual({ entity_id: "s-ml", incoming: "Machine Learning" });
   });

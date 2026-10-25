@@ -350,8 +350,10 @@ test.describe('E058 — group 2 names the trade and offers nothing', () => {
     await expect(page.getByTestId('review-group2-handle-pages')).toBeVisible();
     await expect(page.getByTestId('review-group2-handle-pin')).toBeVisible();
     await expect(page.getByTestId('review-group2-handle-regenerate')).toBeVisible();
-    // The group's only control is its own collapse toggle.
-    await expect(page.getByTestId('review-group-2').locator('button')).toHaveCount(1);
+    // The group's controls are its own collapse toggle and the pin handle's
+    // link to the Aktionen tab's pin panel (789:26) — no action on the trade.
+    await expect(page.getByTestId('review-group2-open-pins')).toBeVisible();
+    await expect(page.getByTestId('review-group-2').locator('button')).toHaveCount(2);
     await expect(page.getByTestId('review-group-2').locator('a')).toHaveCount(0);
   });
 });
