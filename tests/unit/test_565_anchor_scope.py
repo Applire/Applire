@@ -274,7 +274,8 @@ def test_the_letter_reviewer_ratchets_are_not_raised_by_the_rescope():
     # ratchet moved 2026-09-20 — see the entry in
     # test_532_affirmative_limit_obligation.py::test_the_letter_reviewer_ratchets_still_hold
     assert len(reviewer.REVIEW_SYSTEM_PROMPT) < 13_450, len(reviewer.REVIEW_SYSTEM_PROMPT)
-    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_850, len(
+    # terminal door moved 16,850 -> 17,000 on 2026-10-24 (R2-5 plain note, T-1 = A) — same file
+    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 17_000, len(
         reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT
     )
 

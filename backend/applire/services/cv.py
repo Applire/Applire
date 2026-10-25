@@ -5620,6 +5620,11 @@ async def set_page_overflow_choice(
         record.page_overflow = po
         logger.info("PAGE_OVERFLOW_CHOICE cv_id=%s choice=%s", record.id, choice)
         if new_data is None:
+            # 786:237 (WP-T hunk): no new data, no re-audit — the stored report's
+            # page-length row says the decision.
+            from applire.services.ats_audit import decide_kept_page_length
+
+            record.ats_report = decide_kept_page_length(record.ats_report, _pages_kept_at(po))
             await db.commit()
         else:
             old_snapshot = record.content_snapshot
@@ -6303,6 +6308,15 @@ async def _terminal_review(
     )
 
 
+def _pages_kept_at(page_overflow: dict | None) -> int | None:
+    """786:237 (WP-T hunk) — the page count a "keep" choice covered, else None."""
+    po = page_overflow if isinstance(page_overflow, dict) else None
+    if not po or po.get("choice") != "keep":
+        return None
+    n = po.get("full_pages") or po.get("actual")
+    return n if isinstance(n, int) and n > 0 else None
+
+
 async def _update_ats_report(
     record: GeneratedCV,
     db: AsyncSession,
@@ -6458,6 +6472,8 @@ async def _update_ats_report(
             vault_index=grounding_vault_index(profile_json),  # ADR-090 cl. 4
             # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim.
             non_claim=non_claim_names_for_job(job, label_app),
+            # 786:237 (WP-T hunk): a "keep" on the x+1 card decides the length.
+            pages_kept_at=_pages_kept_at(getattr(record, "page_overflow", None)),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)

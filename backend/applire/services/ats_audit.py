@@ -1472,11 +1472,72 @@ def _employer_clause_intervals(
     )
     spans: list[tuple[int, int]] = []
     for m in pattern.finditer(text_norm):
-        end_m = _clause_end_re().search(text_norm, m.end())
-        end = end_m.start() if end_m else len(text_norm)
+        end = _employer_clause_end(text_norm, m.end())
         if end > m.start():
             spans.append((m.start(), end))
     return spans
+
+
+#: #803 (R2-7): an ITEM of an enumeration — one to four words, no punctuation.
+_LIST_ITEM = r"[^\s,.;:!?␞]+(?:\s+[^\s,.;:!?␞]+){0,3}"
+#: #803: what follows a LIST comma — up to three more items, then the coordinator
+#: ("checkout, settlement, and payout rails", "Konsumgüter, Lebensmittel und …").
+_LIST_CONTINUATION_RE = re.compile(
+    rf"\s*(?:(?:{_LIST_ITEM})\s*,\s*){{0,3}}(?:{_LIST_ITEM}\s*,?\s*)?"
+    r"(?:and|und|or|oder|sowie|as well as)\b"
+)
+#: #803: a possessive right after the employer's name ("NovaPay’s", "NovaPay's").
+_POSSESSIVE_RE = re.compile(r"[’']?s\b")
+#: #803: the coordinator straight after a comma (", and payout rails").
+_COORDINATOR_NEXT_RE = re.compile(r"\s*(?:and|und|or|oder|sowie|as well as)\b")
+
+
+def _is_list_comma(text_norm: str, anchor_end: int, comma_at: int, *, in_list: bool = False) -> bool:
+    """#803 (Bug, R2-7; ADR-090 amended 2026-10-24): is the comma at ``comma_at`` a
+    LIST comma inside the employer clause, so the clause runs on?
+
+    adv #4's comma stop stays the default — "for NovaPay, seven years of Kubernetes
+    …" is the candidate speaking. But the stop also cut the employer's own
+    enumeration of its business ("NovaPay’s work on checkout, settlement, and payout
+    rails for European e-commerce merchants …"), which left "settlement", "payout
+    rails" and "e-commerce" in group 1 with an add-to-profile exit: 8 of the 10
+    employer-sentence rows still flagged on the captured letters (measured,
+    WP-T build 4). A comma continues the clause only when ALL hold:
+
+    1. the employer clause already said something before it — at least one word
+       between the name (a possessive "’s" does not count) and the comma; a comma
+       straight after the name is adv #4's case and still stops;
+    2. what follows is an enumeration that reaches its coordinator (and / und / or /
+       oder / sowie) within up to four short items;
+    3. a comma followed DIRECTLY by the coordinator (", and …") continues only an
+       enumeration this clause is already in — "NovaPay’s team, and would be pleased
+       to …" is a new clause, "checkout, settlement, and payout rails" is not.
+    """
+    between = text_norm[anchor_end:comma_at].strip()
+    if _POSSESSIVE_RE.match(between):
+        between = _POSSESSIVE_RE.sub("", between, count=1).strip()
+    if not between:
+        return False
+    if _COORDINATOR_NEXT_RE.match(text_norm, comma_at + 1):
+        return in_list
+    return bool(_LIST_CONTINUATION_RE.match(text_norm, comma_at + 1))
+
+
+def _employer_clause_end(text_norm: str, anchor_end: int) -> int:
+    """Where the employer clause opened at ``anchor_end`` stops (R-2, adv #4, #803)."""
+    pos = anchor_end
+    in_list = False
+    while True:
+        end_m = _clause_end_re().search(text_norm, pos)
+        if end_m is None:
+            return len(text_norm)
+        if end_m.group(0) == "," and _is_list_comma(
+            text_norm, anchor_end, end_m.start(), in_list=in_list
+        ):
+            in_list = True
+            pos = end_m.end()
+            continue
+        return end_m.start()
 
 
 def mask_non_claim_spans(text_norm: str, names: NonClaimNames | None) -> str:
@@ -1648,6 +1709,17 @@ def _keyword_coverage(
     # off that row is its `status`, which the ledger already carries
     # (`keyword_ledger._VALID_STATUS`) and already reports separately in the
     # DO-NOT-CLAIM block. Read-only on the ledger — no ledger semantics change here.
+    # #803 belt (founder ruling T-2 = B, 2026-10-24, ADR-090 amended): on a
+    # LETTER, a still-flagged term whose every occurrence sits in a sentence that
+    # names the employer is most likely about the employer ("… spricht mich an,
+    # weil Sie … fertigen"), not a claim — the clause mask cannot reach every
+    # such sentence shape. It stays a group-1 row (take-out and edit stay) but
+    # neutral: no add-to-profile exit and not counted in the headline.
+    present_unsupported_employer_sentence = (
+        _employer_sentence_terms(text_norm, present_unsupported, non_claim, ledger)
+        if non_claim and non_claim.employer_clause
+        else []
+    )
     present_denied = [
         k for k in present
         if any(
@@ -1675,7 +1747,107 @@ def _keyword_coverage(
         present_other_language=present_other_language,
         present_denied_matches={k: matches_by_kw[k] for k in present_denied},
         present_unsupported_denials=present_unsupported_denials,
+        present_unsupported_employer_sentence=present_unsupported_employer_sentence,
     )
+
+
+#: Sentence ends on the normalised letter text (``_norm`` keeps punctuation).
+_LETTER_SENTENCE_END_RE = re.compile(r"(?<=[.!?…])\s+|\s*" + re.escape(_CORPUS_FRAGMENT_BOUNDARY) + r"\s*")
+
+
+def _employer_sentence_terms(
+    text_norm: str,
+    terms: list[str],
+    non_claim: NonClaimNames,
+    ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """#803 belt — the flagged ``terms`` that occur ONLY in sentences naming the
+    employer. A sentence names the employer when :func:`_name_intervals` finds one
+    of ``non_claim.employers`` in it. A term is in that population when its
+    claim-text matches (the same masked text the flag read) find nothing in the
+    other sentences."""
+    if not terms or not non_claim.employers:
+        return []
+    sentences = [x for x in _LETTER_SENTENCE_END_RE.split(text_norm) if x and x.strip()]
+    other = [x for x in sentences if not _name_intervals(x, non_claim.employers)]
+    if len(other) == len(sentences):
+        return []  # no sentence names the employer
+    rest = (" " + _CORPUS_FRAGMENT_BOUNDARY + " ").join(mask_non_claim_spans(x, non_claim) for x in other)
+    return [k for k in terms if not keyword_matches(k, rest, ledger)]
+
+
+#: 786:47 (founder 2026-10-22, Hazelnut build 4) — the employer-name repetition
+#: tell, as a deterministic letter finding (ADR-082: repetition is DETECTED by the
+#: audit, never repaired by a pass). The 2026-08-19 ship-gate letter opened eight
+#: body sentences with "Bei der Schwarzwald Präzision GmbH" and both blind panel
+#: reviewers called it machine-written; the #565 credit bar is "≤ 1 sentence-initial
+#: employer mention per paragraph". A mention is sentence-initial when at most
+#: this many words precede it ("Bei der …", "At …", "Dort bei …").
+EMPLOYER_REPETITION_CHECK_ID = "employer-repetition"
+_EMPLOYER_OPENING_LEAD_WORDS = 3
+_EMPLOYER_OPENINGS_PER_PARAGRAPH = 1
+
+
+def _is_salutation(paragraph: str) -> bool:
+    p = paragraph.strip()
+    return p.endswith(",") and len(p.split()) <= 8
+
+
+def employer_openings(
+    paragraphs: Sequence[str], employer_names: Sequence[str | None]
+) -> list[tuple[int, str, int]]:
+    """786:47 — ``(paragraph number, employer as given, openings)`` for every body
+    paragraph in which one employer opens more sentences than the #565 bar allows.
+
+    Paragraph numbers count body paragraphs only (a leading salutation line is not
+    one). One count per sentence per employer; every form of a name (with and
+    without its legal form, :func:`non_claim_names`) counts as that employer."""
+    employers: list[tuple[str, tuple[str, ...]]] = []
+    seen: set[str] = set()
+    for e in employer_names or ():
+        forms = non_claim_names(None, [e]).employers
+        if not forms or forms[0] in seen:
+            continue
+        seen.add(forms[0])
+        employers.append(((e or "").strip(), forms))
+    if not employers:
+        return []
+    out: list[tuple[int, str, int]] = []
+    body = [p for p in paragraphs if isinstance(p, str) and _norm(p)]
+    if body and _is_salutation(body[0]):
+        body = body[1:]
+    for number, paragraph in enumerate(body, start=1):
+        sentences = [x for x in _LETTER_SENTENCE_END_RE.split(_norm(paragraph)) if x and x.strip()]
+        for display, forms in employers:
+            openings = 0
+            for sentence in sentences:
+                spans = _name_intervals(sentence, forms)
+                if spans and len(sentence[: min(a for a, _ in spans)].split()) <= _EMPLOYER_OPENING_LEAD_WORDS:
+                    openings += 1
+            if openings > _EMPLOYER_OPENINGS_PER_PARAGRAPH:
+                out.append((number, display, openings))
+    return out
+
+
+def _employer_repetition_check(
+    checks: list[ATSCheck], paragraphs: Sequence[str], employer_names: Sequence[str | None]
+) -> None:
+    """786:47 — an ADVISORY row (``pass`` with details, like ``skills-weak-vault-tie``):
+    the letter reads, nothing is wrong with a fact; the person decides. Emitted only
+    when it fires. ``details_params`` stay locale-neutral (the name, two numbers)."""
+    hits = employer_openings(paragraphs, employer_names)
+    if not hits:
+        return
+    number, employer, count = max(hits, key=lambda h: h[2])
+    checks.append(ATSCheck(
+        id=EMPLOYER_REPETITION_CHECK_ID,
+        status="pass",
+        details="; ".join(
+            f"'{e}' opens {c} sentences in paragraph {n}" for n, e, c in hits
+        ) + " — a name repeated at sentence starts reads as machine-written; a back-reference reads naturally",
+        details_key=EMPLOYER_REPETITION_CHECK_ID,
+        details_params={"employer": employer, "paragraph": number, "count": count, "more": len(hits) - 1},
+    ))
 
 
 def _other_language_check(checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> None:
@@ -1778,6 +1950,48 @@ def _name_ladder_cuts(checks: list, ladder_cuts: list) -> None:
     }
 
 
+#: 786:237 — the page-length outcomes a "keep" choice decides (over the target).
+_PAGE_LENGTH_OVER_TARGET_KEYS = frozenset({
+    "page-length-target-missed", "page-length-exhausted", "page-length-exceeds", "page-length-senior",
+})
+
+
+def kept_page_length_check(check: ATSCheck, pages_kept_at: int | None) -> ATSCheck:
+    """786:237 — ``check`` (a CV ``page-length`` row) as DECIDED when a "keep"
+    covered its length, else unchanged. One predicate for the audit and for the
+    keep-without-new-data door, which updates the stored report without a render."""
+    params = check.details_params or {}
+    pages, target = params.get("pages"), params.get("target", params.get("standard"))
+    if (
+        pages_kept_at is None
+        or check.id != "page-length"
+        or check.details_key not in _PAGE_LENGTH_OVER_TARGET_KEYS
+        or not isinstance(pages, int)
+        or pages > pages_kept_at
+    ):
+        return check
+    return ATSCheck(
+        id="page-length", status="pass",
+        details=f"{pages} pages — you chose to keep them (target {target})",
+        details_key="page-length-kept",
+        details_params={"pages": pages, "target": target},
+    )
+
+
+def decide_kept_page_length(report: dict | None, pages_kept_at: int | None) -> dict | None:
+    """786:237 — the stored CV report with its page-length row decided (see
+    :func:`kept_page_length_check`); ``None``/unchanged when nothing applies."""
+    if not report or pages_kept_at is None:
+        return report
+    out = dict(report)
+    out["checks"] = [
+        kept_page_length_check(ATSCheck.model_validate(c), pages_kept_at).model_dump()
+        if isinstance(c, dict) and c.get("id") == "page-length" else c
+        for c in report.get("checks") or []
+    ]
+    return out
+
+
 def _audit_cv_text(
     text: str,
     tailored: TailoredCVData,
@@ -1797,6 +2011,7 @@ def _audit_cv_text(
     document_language: str | None = None,
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
+    pages_kept_at: int | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -2077,6 +2292,12 @@ def _audit_cv_text(
                 details_params={"pages": page_count, "region": region,
                                 "standard": standard, "max": maximum},
             ))
+        # 786:237 (Hazelnut build 4): the person chose "keep" on the x+1 card
+        # (``page_overflow.choice``, L-3) — the over-target length is DECIDED.
+        # ``pages_kept_at`` is the length that choice covered (``full_pages``);
+        # a CV that grew past it after the choice is a new length, not decided.
+        if checks and checks[-1].id == "page-length":
+            checks[-1] = kept_page_length_check(checks[-1], pages_kept_at)
         if ladder_cuts:
             _name_ladder_cuts(checks, ladder_cuts)
 
@@ -2216,10 +2437,23 @@ def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, A
         f"work-entry or project bullet: {named}.{more} A skills-list entry alone reads to a "
         "hiring reviewer as an unmet requirement."
     )
+    # R2-5 (build 4): the same statement as data — the review card says it in the
+    # UI language (``ats.checkDetails.narrative-evidence-*``). Concept names are
+    # the ledger's own labels, locale-neutral data.
+    tag_only = [c.concept for c in shown if c.tag_only]
+    absent = [c.concept for c in shown if not c.tag_only]
     return ATSCheck(
         id=NARRATIVE_EVIDENCE_CHECK_ID,
         status="fail",
         details=details if len(details) <= 1200 else details[:1199].rstrip() + "…",
+        details_key="narrative-evidence-underclaim",
+        details_params={
+            "tagOnly": ", ".join(tag_only),
+            "tagOnlyCount": len(tag_only),
+            "absent": ", ".join(absent),
+            "absentCount": len(absent),
+            "more": len(rest),
+        },
         driver={"concepts": len(missing)},
     )
 
@@ -2290,6 +2524,7 @@ def _audit_letter_text(
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
     document_language: str | None = None,
+    employer_names: Sequence[str | None] | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -2414,6 +2649,11 @@ def _audit_letter_text(
         document_language=document_language,
     )
     _other_language_check(checks, coverage)
+    # 786:47: the candidate's own employers (the caller's) and the recipient.
+    if employer_names is not None:
+        _employer_repetition_check(
+            checks, paragraphs, [*employer_names, recipient.get("company")]
+        )
     report = _finish("cover_letter", checks, coverage)
     if pin_entries is not None:
         report.pinned_facts = pin_entries
@@ -2433,8 +2673,13 @@ def audit_cover_letter(
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
     document_language: str | None = None,
+    employer_names: Sequence[str | None] | None = None,
 ) -> ATSReport:
     """Audit a rendered cover letter PDF against the structured letter data and keywords.
+
+    ``employer_names`` (786:47): the candidate's employers from the profile; with
+    them (and the recipient's company) the ``employer-repetition`` advisory runs.
+    ``None`` keeps the pre-change report.
 
     ``ledger`` (ADR-048/US203) splits each MISSING keyword into *missing-claimable* vs
     *missing-honest-gap*.
@@ -2453,8 +2698,19 @@ def audit_cover_letter(
         pins=pins, truth_floor_hits=truth_floor_hits,
         terminal_review=terminal_review, previous_report=previous_report,
         vault_index=vault_index, non_claim=non_claim,
-        document_language=document_language,
+        document_language=document_language, employer_names=employer_names,
     )
+
+
+def profile_employer_names(profile_json: dict[str, Any] | None) -> list[str]:
+    """786:47 — the employers the profile names (``work_experience[].company``),
+    the names a letter anchors its claims on. Empty without a profile."""
+    out: list[str] = []
+    for w in (profile_json or {}).get("work_experience") or []:
+        c = (w or {}).get("company") if isinstance(w, dict) else None
+        if isinstance(c, str) and c.strip() and c.strip() not in out:
+            out.append(c.strip())
+    return out
 
 
 def grounding_vault_index(profile_json: dict[str, Any] | None) -> Any:

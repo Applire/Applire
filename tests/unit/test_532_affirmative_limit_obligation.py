@@ -227,8 +227,9 @@ def test_the_writer_rule_does_not_reopen_adr_074():
 
 def test_the_letter_reviewer_ratchets_still_hold():
     # 2026-09-20 (#732, #731): the letter's prose door moves 12,900 -> 13,450 and its terminal door 16,300 -> 16,850 ONCE, for #732's named BLOCKING half-delivery finding in check 4 and the check-5 scoping that keeps it from contradicting the admit-and-affirm protection. The merge attempt the ratchet asks for was made and it PAID: a check-1 mirror bullet for #731 (1,245 chars) was written, measured at 0/5 on the real provider, and DELETED again rather than kept (ADR-062 deletion over repair), and the writer's separate SHAPE-OF-A-NAMED-GAP rule (764 chars) was folded into the STATED LIMITS (b) rule it duplicates. Measured BEFORE the ceiling moved, luna, reviewer isolated on the founder-UAT draft shape, n=5 per arm: the unfused-shape finding raised 0/5 -> 5/5, all blocking; at the delivery point, n=2 before / n=3 after, delivered gap sentences carrying their own transfer clause 0 of 3 -> 5 of 5, disclosures 3 -> 5 (never fewer), and the blind hiring manager moved from NO to YES naming the fused form as the reason. Mapped to SF-WRITE (new row, id assigned at integration).
+    # 2026-10-24 (R2-5, founder ruling T-1 = A, Hazelnut build 4): moved ONCE for the terminal doors' per-issue `note` field (+~150 chars, the same point in the candidate's words for the review card; the corrector never reads it). Replayed before the move on 5 captured round-2 terminal records (3 CV, 2 letter), luna thinking off, n=5: verdict parity held (approvals 1/25 vs 1/25, blocking counts inside the arm-A range), finish=stop 25/25, 81/81 notes in the document's language once the user prompt names it, 0 field paths.
     assert len(reviewer.REVIEW_SYSTEM_PROMPT) < 13_450, len(reviewer.REVIEW_SYSTEM_PROMPT)
-    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_850, len(
+    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 17_000, len(
         reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT
     )
 

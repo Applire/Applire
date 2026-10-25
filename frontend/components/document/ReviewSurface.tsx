@@ -42,6 +42,7 @@ import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
   buildCrossDocument,
   buildGroup1Rows,
+  countedOpenRows,
   buildFormInputRows,
   buildReviewGroups,
   buildSendChecks,
@@ -72,6 +73,7 @@ import { countInText, type LocateTarget, type PreviewLocator } from "@/lib/locat
 import { changedPassages } from "@/lib/passage-diff";
 import { CrossDocumentSection } from "@/components/review/CrossDocumentSection";
 import { ReviewDegradationNote } from "./ReviewDegradationNote";
+import { TerminalReviewDetail, hasTerminalReviewCard } from "./TerminalReviewDetail";
 import { oracleDetailText, type OracleDetailTranslator } from "@/lib/oracle-detail";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 
@@ -202,6 +204,12 @@ export interface ReviewSurfaceProps {
   onResolveCluster?: (gapId: string) => void;
   /** #667 — a claimable gap cluster in group 2 lands in the section editor. */
   onEditGapSection?: (gapId: string) => void;
+  /**
+   * 789:26 (founder 2026-10-22, build 4) — group 2's "pin the fact behind it"
+   * handle opens the page's pin panel. GROUP-level navigation, nothing
+   * pre-filled: no finding row links a pin as its remedy (ADR-081 cl. 3).
+   */
+  onOpenPins?: () => void;
   /** Not one of the four producers — rendered after the groups (the letter's unasked-requirements panel). */
   children?: ReactNode;
   /**
@@ -212,6 +220,13 @@ export interface ReviewSurfaceProps {
   degradation?: DegradedReviewStep[] | null;
   /** T-2: the existing regenerate path (behind the page's new-version confirmation). */
   onRegenerate?: () => void;
+  /**
+   * R2-8 (8), build 4: the page's report fetches have not all settled yet. A
+   * `null` report means "did not run" (ADR-081 cl. 9) only once it has LOADED;
+   * before that, the surface says it is loading — no verdict, no count and no
+   * "Nicht geprüft" notice (the 1–3 s false flash, marcus-057).
+   */
+  loading?: boolean;
 }
 
 type Busy = "add" | "takeout" | "undo" | null;
@@ -250,9 +265,11 @@ export function ReviewSurface({
   gapAnalysisHref = null,
   onResolveCluster,
   onEditGapSection,
+  onOpenPins,
   children,
   degradation = null,
   onRegenerate,
+  loading = false,
 }: ReviewSurfaceProps) {
   const t = useTranslations("documentReview");
   const tAts = useTranslations("ats");
@@ -517,6 +534,12 @@ export function ReviewSurface({
       case "conflict":
         return tProfile("testimony.statusConflict");
       case "error":
+        // R2-13 (Lead V's contract): a reconcile that failed after its retry says
+        // "not saved" in the user's language, never the English detail. The key
+        // is V's (profile namespace); until it is merged the generic line stays.
+        if (o.error_code === "not_saved" && tProfile.has("testimony.statusNotSaved")) {
+          return tProfile("testimony.statusNotSaved");
+        }
         return tProfile("testimony.statusError", { detail: o.detail ?? "" });
       default:
         return "";
@@ -529,7 +552,8 @@ export function ReviewSurface({
   // verdict and shown in its own block — never counted among the findings that
   // "do not stand in the way of sending".
   const sendChecks = useMemo(() => buildSendChecks(atsReport), [atsReport]);
-  const verdict = verdictState(groups, openRows.length, sendChecks.length);
+  // #803 belt (T-2 = B): an employer-sentence row is listed, never counted.
+  const verdict = verdictState(groups, countedOpenRows(rows).length, sendChecks.length);
   // #702 RULING R-1 = A (condition): while a cross-document item is undecided,
   // the all-clear headline must not say the rest "does not stand in the way of
   // sending" — the card above "Weitere Hinweise" says otherwise.
@@ -577,7 +601,8 @@ export function ReviewSurface({
     const canTakeOut = !isStemOnly(row.item?.targets);
     // Build-2 delivery F2 (SF-REVIEW.18): never offer to write into the profile a
     // term the candidate's own recorded denial covers — the card shows the denial.
-    const canAdd = !(row.item?.denials && row.item.denials.length > 0);
+    // #803 belt (T-2 = B): nor a term that only sits in sentences about the employer.
+    const canAdd = !(row.item?.denials && row.item.denials.length > 0) && !row.item?.employerSentence;
     const columns = 1 + Number(canAdd) + Number(canTakeOut);
     const wrap =
       variant === "stack" ? "flex flex-col gap-2" : `grid ${GRID_COLS[columns]} gap-1.5`;
@@ -724,6 +749,11 @@ export function ReviewSurface({
           {notMarkable && (
             <span data-testid="review-locate-not-found" className="text-[13px] leading-snug text-on-surface-variant">
               {t("locateNotFound")}
+            </span>
+          )}
+          {!decided && row.item?.employerSentence && (
+            <span data-testid="review-card-employer-sentence" className="text-[13px] leading-snug text-on-surface">
+              {t("cardEmployerSentence", { term: row.label })}
             </span>
           )}
           {!decided && row.item?.denials && row.item.denials.length > 0 && (
@@ -962,6 +992,18 @@ export function ReviewSurface({
 
   /* ------------------------------------------------------------ render */
 
+  if (loading) {
+    // R2-8 (8): nothing is claimed before the reports are in — neither a verdict
+    // nor a degradation notice computed from a half-loaded state.
+    return (
+      <section data-testid="review-surface" aria-label={t("title")} aria-busy="true" className="flex flex-col gap-4 p-3">
+        <p data-testid="review-loading" role="status" className="text-sm text-on-surface-variant">
+          {t("loading")}
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section data-testid="review-surface" aria-label={t("title")} className="flex flex-col gap-4 p-3">
       {/* ADR-081 cl. 9 / ADR-090 cl. 1: a blind group-1 producer is stated
@@ -1002,6 +1044,15 @@ export function ReviewSurface({
         {verdict.kind === "findings" && (
           <p data-testid="review-verdict-sub" className="text-sm leading-snug text-on-surface-variant">
             {t("verdictSub")}
+          </p>
+        )}
+        {/* 789:199 (as ruled T-1, build 3): a send-check headline leads with the
+            count, like the decisions headline — the all-clear moves to this
+            normal-weight line, so a green sentence never leads above an amber
+            "the final review did not run" note. */}
+        {verdict.kind === "clear_with_send_checks" && (
+          <p data-testid="review-verdict-truth" className="text-sm leading-snug text-on-surface">
+            {t("verdictTruthLine", { decisions: 0, notes: 0 })}
           </p>
         )}
         {(verdict.kind === "clear_with_others" || verdict.kind === "clear_unchecked") &&
@@ -1078,6 +1129,8 @@ export function ReviewSurface({
                       <Check className="h-[18px] w-[18px] text-success" strokeWidth={2.4} />
                     ) : isCurrent ? (
                       <span className="h-2 w-2 rounded-full bg-primary" />
+                    ) : r.item?.employerSentence ? (
+                      <span data-testid="review-row-neutral" className="h-2 w-2 rounded-full border-[1.5px] border-on-surface-variant" />
                     ) : (
                       <span className="h-2 w-2 rounded-full border-[1.5px] border-critical" />
                     )}
@@ -1150,6 +1203,7 @@ export function ReviewSurface({
       <OtherFindings
         groups={groups}
         gapAnalysisHref={gapAnalysisHref}
+        onOpenPins={onOpenPins}
         renderItem={(item, group) => (
           <ItemRow
             key={item.key}
@@ -1317,10 +1371,12 @@ function SendChecks({
 function OtherFindings({
   groups,
   gapAnalysisHref,
+  onOpenPins,
   renderItem,
 }: {
   groups: ReviewGroup[];
   gapAnalysisHref: string | null;
+  onOpenPins?: () => void;
   renderItem: (item: ReviewItem, group: ReviewGroup) => ReactNode;
 }) {
   const t = useTranslations("documentReview");
@@ -1399,7 +1455,7 @@ function OtherFindings({
               </div>
               {open && (
                 <div className="mt-1 rounded-xl border border-outline-variant px-1 pb-2 pt-1">
-                  {id === 2 && <Group2Trade />}
+                  {id === 2 && <Group2Trade onOpenPins={onOpenPins} />}
                   <ul>{group.items.map((item) => renderItem(item, group))}</ul>
                 </div>
               )}
@@ -1465,7 +1521,13 @@ function ItemRow({
               : tSig("signalLanded", { count: item.signal.rounds, doc })}
           </span>
         )}
-        {detail && <span className="block text-xs text-on-surface-variant">{detail}</span>}
+        {item.kind === "check" && hasTerminalReviewCard(item.check) ? (
+          <span className="block text-xs text-on-surface-variant">
+            <TerminalReviewDetail check={item.check} documentKind={documentKind} />
+          </span>
+        ) : (
+          detail && <span className="block text-xs text-on-surface-variant">{detail}</span>
+        )}
         <span className="mt-0.5 flex flex-wrap items-center gap-1">
           <span className="rounded-full border border-outline-variant px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant">
             {item.kind === "signal" ? tSig("kindSignal") : t(KIND_LABEL_KEY[item.kind])}
@@ -1545,10 +1607,36 @@ function itemOracleDetail(item: ReviewItem, tOracle: OracleDetailTranslator): st
 }
 
 /**
+ * R2-5 (build 4) — the narrative-evidence row in the UI language: the
+ * "only in the skills list" sentence, then the "missing entirely" one, then the
+ * rest count. `null` = not this check, or a legacy report without the key.
+ */
+function narrativeEvidenceDetail(c: ATSCheck, tAts: ReturnType<typeof useTranslations<"ats">>): string | null {
+  const p = c.details_params;
+  if (c.details_key !== "narrative-evidence-underclaim" || !p) return null;
+  const tagOnly = String(p.tagOnly ?? "");
+  const absent = String(p.absent ?? "");
+  const more = Number(p.more ?? 0);
+  const parts: string[] = [];
+  if (tagOnly) parts.push(tAts("checkDetails.narrative-evidence-tag-only", { terms: tagOnly }));
+  if (absent) {
+    parts.push(
+      tagOnly
+        ? tAts("checkDetails.narrative-evidence-absent-also", { terms: absent })
+        : tAts("checkDetails.narrative-evidence-absent", { terms: absent }),
+    );
+  }
+  if (more > 0) parts.push(tAts("checkDetails.narrative-evidence-more", { count: more }));
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/**
  * The ATS auditor's own detail line — the key/params rule from
  * `lib/ats-report.ts`, the same rule `ATSChecksPanel` uses.
  */
 function checkDetail(c: ATSCheck, tAts: ReturnType<typeof useTranslations<"ats">>): string | null {
+  const narrative = narrativeEvidenceDetail(c, tAts);
+  if (narrative !== null) return narrative;
   if (usesLocalizedDetail(c)) return tAts(`checkDetails.${c.details_key}`, c.details_params ?? undefined);
   return c.details ?? null;
 }
@@ -1559,7 +1647,7 @@ function checkDetail(c: ATSCheck, tAts: ReturnType<typeof useTranslations<"ats">
  * coverage loop tried, and an insertion pass is barred by ADR-076. ADR-090
  * amends clause 3 for group 1 only, in the removal direction.
  */
-function Group2Trade() {
+function Group2Trade({ onOpenPins }: { onOpenPins?: () => void }) {
   const t = useTranslations("documentReview");
   return (
     <div data-testid="review-group2-trade" className="mx-2 mb-2 rounded-lg bg-surface-container px-3 py-2">
@@ -1567,7 +1655,22 @@ function Group2Trade() {
       <p className="mt-1 text-xs font-medium text-on-surface-variant">{t("group2HandlesTitle")}</p>
       <ul className="mt-0.5 list-disc pl-4 text-xs text-on-surface-variant">
         <li data-testid="review-group2-handle-pages">{t("group2HandlePages")}</li>
-        <li data-testid="review-group2-handle-pin">{t("group2HandlePin")}</li>
+        <li data-testid="review-group2-handle-pin">
+          {t("group2HandlePin")}
+          {onOpenPins && (
+            <>
+              {" "}
+              <button
+                type="button"
+                data-testid="review-group2-open-pins"
+                onClick={() => onOpenPins()}
+                className="font-semibold text-primary underline underline-offset-2 hover:text-primary/80"
+              >
+                {t("group2OpenPins")}
+              </button>
+            </>
+          )}
+        </li>
         <li data-testid="review-group2-handle-regenerate">{t("group2HandleRegenerate")}</li>
         <li data-testid="review-group2-handle-editor">{t("group2HandleEditor")}</li>
       </ul>

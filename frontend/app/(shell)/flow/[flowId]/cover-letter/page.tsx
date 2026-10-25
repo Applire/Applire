@@ -129,6 +129,9 @@ export default function CoverLetterPage({
   const [truthReport, setTruthReport] = useState<TruthfulnessReport>(null);
   // ADR-060/E049 49.6: outcome critic advisory report (Pass B, cross-document mount).
   const [criticReport, setCriticReport] = useState<OutcomeCriticReport>(null);
+  // R2-8 (8), build 4 (WP-T hunk): the letter whose review fetches have all
+  // settled — before that, `null` reports mean "not loaded yet", not "did not run".
+  const [reviewLoadedFor, setReviewLoadedFor] = useState<string | null>(null);
   // #786 / T-2: the writing loop's review steps that did not run (status door).
   const [reviewDegradation, setReviewDegradation] = useState<DegradedReviewStep[] | null>(null);
   // ADR-074 (#526): JD hard requirements Applire holds nothing on and never
@@ -354,10 +357,13 @@ export default function CoverLetterPage({
         // regardless of whether this fetch succeeds.
       }
     }
-    void fetchAtsReport();
-    void fetchTruthReport();
-    void fetchCriticReport();
-    void fetchUnaskedRequirements();
+    const forLetter = clState.coverLetterId;
+    void Promise.allSettled([
+      fetchAtsReport(),
+      fetchTruthReport(),
+      fetchCriticReport(),
+      fetchUnaskedRequirements(),
+    ]).then(() => setReviewLoadedFor(forLetter));
   }, [phase, clState?.coverLetterId, clState?.jobId]);
 
   function startPolling(clId: string) {
@@ -674,9 +680,12 @@ export default function CoverLetterPage({
   // would claim it failed).
   // D-4 (ADR-050 amendment): built per layout so the phone's command-bar sheet
   // mounts the SAME live surface, not a forked panel.
+  // R2-8 (8): see `reviewLoadedFor`.
+  const reviewLoading = reviewLoadedFor !== (clState?.coverLetterId ?? null);
   const renderReviewSurface = (layout: "panel" | "sheet") => (
     <ReviewSurface
       documentKind="cover-letter"
+      loading={reviewLoading}
       documentId={clState?.coverLetterId ?? null}
       degradation={reviewDegradation}
       onRegenerate={requestRegenerate}
@@ -765,7 +774,7 @@ export default function CoverLetterPage({
       label: tDoc("tabReview"),
       icon: <ClipboardCheck className="w-4 h-4" aria-hidden="true" />,
       badge:
-        group1Count > 0 ? (
+        !reviewLoading && group1Count > 0 ? (
           <span
             data-testid="tab-badge-review"
             className="inline-flex min-w-4 items-center justify-center rounded-full bg-critical-container px-1 text-[10px] font-bold text-critical"
@@ -877,8 +886,8 @@ export default function CoverLetterPage({
             onDownloadPdf={() => void requestDownload("pdf")}
             openFineTuneNonce={fineTuneNonce}
             suspended={mobileLocating}
-            openCount={atsReport || truthReport ? group1Count : null}
-            decisionCount={atsReport ? liveDecisionCount : null}
+            openCount={!reviewLoading && (atsReport || truthReport) ? group1Count : null}
+            decisionCount={!reviewLoading && atsReport ? liveDecisionCount : null}
             onLeaveFineTune={(proceed) => {
               if (!bodyDirty) {
                 proceed();

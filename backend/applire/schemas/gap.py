@@ -131,6 +131,29 @@ class KeywordLedgerEntry(BaseModel):
         return self
 
 
+def _asked_cluster_concepts(clusters) -> set[str]:
+    """R2-6 (5): the concepts (casefolded) of every gap cluster the interview asked
+    about (``outcome.asked > 0``) or recorded a decline on — its open members, its
+    JD skills, and what it covered or declined."""
+    out: set[str] = set()
+    for c in clusters or []:
+        outcome = getattr(c, "outcome", None)
+        if outcome is None:
+            continue
+        declined = list(getattr(outcome, "declined", None) or [])
+        if not (getattr(outcome, "asked", 0) or 0) and not declined:
+            continue
+        for name in [
+            *(getattr(c, "gaps", None) or []),
+            *(getattr(c, "jd_skills", None) or []),
+            *(getattr(outcome, "covered", None) or []),
+            *declined,
+        ]:
+            if isinstance(name, str) and name.strip():
+                out.add(name.strip().casefold())
+    return out
+
+
 class GapAnalysisResponse(BaseModel):
     id: uuid.UUID
     job_analysis_id: uuid.UUID
@@ -200,8 +223,20 @@ class GapAnalysisResponse(BaseModel):
             KeywordLedgerEntry(**e) for e in _compute(entries)
         ]
         # ADR-074 — same derivation discipline, same single source.
+        # R2-6 (5) (founder ruling 2026-10-24, build 4): "never asked" is a claim
+        # about US, so it is checked against what the interview actually did. A
+        # row a gap cluster ASKED about or recorded a decline on is not "never
+        # asked" (Felix, round 2: "Payment settlement" listed as never asked after
+        # two questions on the "Payment Settlement & Payouts" gap). A row a stated
+        # limit covers already leaves the set by the ledger floor itself
+        # (``is_unasked_requirement`` needs ``evidence == ""``; the floor writes
+        # ``DENIAL_FLOOR_EVIDENCE``). The letter's own Restfall (ADR-074) keeps
+        # the ledger predicate — this filter is the candidate-facing notice only.
+        asked = _asked_cluster_concepts(self.gap_clusters)
         self.unasked_requirements = [
-            KeywordLedgerEntry(**e) for e in unasked_hard_requirements(entries)
+            KeywordLedgerEntry(**e)
+            for e in unasked_hard_requirements(entries)
+            if (e.get("concept") or "").strip().casefold() not in asked
         ]
         return self
 

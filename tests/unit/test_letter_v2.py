@@ -19,6 +19,8 @@ The model writes, code checks. Pinned here:
 
 Fixtures are synthetic (``controlling_emma_de``-shaped, no real person).
 """
+from applire.services.terminal_review_outcome import _note_texts  # R2-5: notes are data now
+
 import copy
 import sys
 import uuid
@@ -747,7 +749,7 @@ async def test_seam_v2_delivers_unrepaired_text_with_a_report_note(db, v2):
     assert cl.letter_data["body"]["paragraphs"] == _GERMAN_BODY[1:]  # nothing injected
     assert cl.letter_data["header"]["address"] == "Stuttgart"
     outcome = rec["audit"]["terminal_review"]
-    notes = " ".join(outcome.notes) if outcome is not None else ""
+    notes = " ".join(_note_texts(outcome.notes)) if outcome is not None else ""
     assert "[salutation]" in notes
 
 
@@ -785,7 +787,7 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
     assert all(t.startswith("[letter.") for t in outcome.blocking_issues)
     assert any(t.startswith("[letter.page_length]") for t in outcome.blocking_issues)
     assert any("reviewer's notes on the shortened letter" in n and "dropped the HGB closing claim" in n
-               for n in outcome.notes)
+               for n in _note_texts(outcome.notes))
     cl = await db.get(GeneratedCoverLetter, ids[2].id)
     assert cl.letter_data["body"]["paragraphs"] == condensed["body"]["paragraphs"]
 
@@ -914,7 +916,7 @@ async def test_seam_v2_a_non_member_name_reaches_the_loop_and_ships_unrewritten(
     cl = await db.get(GeneratedCoverLetter, ids[2].id)
     assert cl.letter_data["body"]["paragraphs"] == _SHORT_NAME_BODY  # never rewritten
     outcome = rec["audit"]["terminal_review"]
-    assert "[names]" in " ".join(outcome.notes if outcome is not None else [])
+    assert "[names]" in " ".join(_note_texts(outcome.notes) if outcome is not None else [])
 
 
 def test_letter_name_findings_decide_membership_by_w1s_norm_name():
@@ -1070,11 +1072,11 @@ async def test_seam_v2_w3_3c_reviewer_findings_alone_never_fail_the_row(db, v2):
                          pages_seq="fits_after_final_condense", review_verdict=verdict,
                          settle_exhausted=True)
     outcome = rec["audit"]["terminal_review"]
-    post = [n for n in outcome.notes if "reviewer's notes on the shortened letter" in n]
+    post = [n for n in _note_texts(outcome.notes) if "reviewer's notes on the shortened letter" in n]
     assert post, outcome.notes
     assert outcome.status == "pass" and outcome.blocking_issues == ()  # an advisory PASS row
     assert "Figure '2019' is unanchored." in post[0]
-    assert any("does not use: SAP S/4HANA." in n for n in outcome.notes)
+    assert any("does not use: SAP S/4HANA." in n for n in _note_texts(outcome.notes))
     # the earlier terminal round's verdict read a draft that no longer ships
     assert "an earlier round's finding" not in " ".join(outcome.blocking_issues)
     assert outcome.path == "minor_only"

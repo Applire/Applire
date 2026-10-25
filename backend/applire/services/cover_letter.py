@@ -2666,6 +2666,8 @@ class LetterFinding:
 
     family: str  # salutation | signoff | closing | figure | limit | names
     text: str
+    #: R2-5 (build 4): the names the finding is about — data for the review card.
+    subjects: tuple[str, ...] = ()
 
 
 def _v2_coerce_paragraphs(letter_data: dict) -> dict:
@@ -2770,18 +2772,19 @@ def _letter_v2_findings(
                 f"{owners}, and this sentence does not name that employer. Re-anchor the "
                 "claim to the employer it belongs to, or drop the borrowed figure and keep "
                 f'the rest. Sentence: "{f["sentence"]}"',
+                subjects=(str(f["raw"]),),
             ))
     except Exception:  # pragma: no cover - a check never breaks generation
         logger.warning("letter v2: figure findings failed", exc_info=True)
     for limit in ungrounded_limits(letter_data, keyword_ledger, denied_concepts):
-        out.append(LetterFinding("limit", limit.issue_text()))
+        out.append(LetterFinding("limit", limit.issue_text(), subjects=(limit.concept,)))
     try:
         # RULING W2-3: an employer/institution named in the body must be a
         # recorded name (stored or alias); a non-member is a BLOCKING finding.
         from applire.services.letter_v2 import letter_name_findings
 
         for m in letter_name_findings(letter_data, profile_json or {}):
-            out.append(LetterFinding("names", m.text()))
+            out.append(LetterFinding("names", m.text(), subjects=(m.span,)))
     except Exception:  # pragma: no cover - a check never breaks generation
         logger.warning("letter v2: name findings failed", exc_info=True)
     # 786:L136: a standard/regulation identifier the vault never states — the CV's
@@ -2795,7 +2798,9 @@ def _letter_v2_findings(
         profile_json,
     )
     if named:
-        out.append(LetterFinding("identifier", identifier_finding_text(named, stated)))
+        out.append(LetterFinding(
+            "identifier", identifier_finding_text(named, stated), subjects=tuple(named),
+        ))
     if not availability_given:
         from applire.services.letter_v2 import availability_finding_text, availability_sentences
 
@@ -2862,6 +2867,18 @@ def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, 
         return out
 
     return fn
+
+
+def _v2_delivery_notes(findings: list[LetterFinding]) -> tuple:
+    """R2-5 (build 4, WP-T hunk): the same statement as :func:`_v2_delivery_note`,
+    one structured ``code`` note per finding — the review card says each in the UI
+    language, ``details`` folds them back into the EN sentence."""
+    from applire.services.terminal_review_outcome import TerminalNote
+
+    return tuple(
+        TerminalNote(kind="code", key=f"letter.{f.family}", text=f.text, subjects=f.subjects)
+        for f in findings
+    )
 
 
 def _v2_delivery_note(findings: list[LetterFinding]) -> str | None:
@@ -3256,7 +3273,7 @@ async def _terminal_review_letter(
     )
     _v2_checks = None
 
-    post_condense_notes: list[str] = []
+    post_condense_notes: list = []
 
     async def _v2_review_only(d: dict) -> None:
         """RULING W3-3a: ONE reviewer call over ``d``, no corrector. Its verdict is
@@ -3298,10 +3315,13 @@ async def _terminal_review_letter(
         code_blocking = tuple(f"[{f.check}] {f.text}" for f in findings if f.blocking)
         reviewer_texts = tuple(i.text for i in issues)
         if reviewer_texts:
-            post_condense_notes.append(
-                "The reviewer's notes on the shortened letter — check these (advisory, "
-                "not verified; the letter was not revised after shortening): "
-                + " | ".join(reviewer_texts)
+            # R2-5 (build 4, WP-T hunk): one structured reviewer note per text; the
+            # EN ``details`` keeps the header (``_note_texts``).
+            from applire.services.terminal_review_outcome import TerminalNote
+
+            post_condense_notes.extend(
+                TerminalNote(kind="finding", key="letter.post_condense", text=i.text, plain=i.note or None)
+                for i in issues
             )
         try:
             from applire.services.keyword_ledger import verified_missing_claimable
@@ -3313,10 +3333,17 @@ async def _terminal_review_letter(
         except Exception:  # pragma: no cover - a report line never fails a letter
             missing = []
         if missing:
-            post_condense_notes.append(
-                "Job-posting terms your record supports that the shortened letter does not "
-                "use: " + ", ".join(missing) + "."
-            )
+            from applire.services.terminal_review_outcome import TerminalNote
+
+            post_condense_notes.append(TerminalNote(
+                kind="note",
+                key="letter.missing_terms",
+                subjects=tuple(missing),
+                text=(
+                    "Job-posting terms your record supports that the shortened letter does "
+                    "not use: " + ", ".join(missing) + "."
+                ),
+            ))
         # The delivered letter is THIS draft, and this verdict read it: the earlier
         # terminal rounds' verdicts read drafts that no longer ship, and folding them
         # in made the row say "revised and not re-reviewed" about a letter that was
@@ -3402,7 +3429,7 @@ async def _terminal_review_letter(
             # Ruling W2-2: findings, never deletions. What the loop left open is
             # named on the delivered letter's terminal-review check.
             outcome = _fold_terminal_outcome(delivered)
-            note = _v2_delivery_note(
+            delivery_notes = _v2_delivery_notes(
                 _letter_v2_findings(
                     delivered,
                     profile_json=profile.profile_json if profile else {},
@@ -3411,7 +3438,7 @@ async def _terminal_review_letter(
                     availability_given=availability_given,
                 )
             )
-            extra = tuple(post_condense_notes) + ((note,) if note else ())
+            extra = tuple(post_condense_notes) + delivery_notes
             if extra:
                 from applire.services.terminal_review_outcome import TerminalReviewOutcome
 
@@ -3452,7 +3479,10 @@ async def _terminal_review_letter(
         if findings:
             limit_cuts = tuple(dict.fromkeys(f.sentence for f in findings))
             concepts = ", ".join(sorted({f.concept for f in findings}))
+            from applire.services.terminal_review_outcome import TerminalNote
+
             if cut is not delivered:
+                note_key = "letter.limit_cut"
                 note = (
                     "One sentence was REMOVED from the delivered letter before it was "
                     "rendered: it stated that you lack "
@@ -3465,6 +3495,7 @@ async def _terminal_review_letter(
                 measure_cell["measured"] = m
                 current = cut
             else:
+                note_key = "letter.limit_kept"
                 note = (
                     "The delivered letter states that you lack "
                     f"{concepts}, and nothing you told Applire says so. It could not be "
@@ -3472,6 +3503,8 @@ async def _terminal_review_letter(
                     "reported here instead: "
                     + " ".join(f'"{q}"' for q in limit_cuts)
                 )
+            # R2-5 (build 4, WP-T hunk): the same note as data — the sentences.
+            note = TerminalNote(kind="note", key=note_key, text=note, subjects=tuple(limit_cuts))
             from applire.services.terminal_review_outcome import TerminalReviewOutcome
 
             if outcome is None:
@@ -3515,6 +3548,8 @@ async def _terminal_review_letter(
             # rewrite is already spent or unavailable (section overrides /
             # render failure) — stated for honest context, never a mandate.
             condense_exhausted=over_norm,
+            # R2-5 (T-1 = A, WP-T hunk): the language of each issue's plain note.
+            document_language=cl.document_language,
         )
 
     _wrapped = wrap_reviewer(_terminal_base)
@@ -4312,7 +4347,7 @@ async def _update_ats_report_letter(
         ledger = await _latest_keyword_ledger(db, cl.job_analysis_id, user_id=cl.user_id)
         # #249 run-4: same shared-predicate guard as the CV path — a keyword with a
         # literal vault tie never lands in present_unsupported (one vocabulary).
-        from applire.services.ats_audit import grounding_vault_index
+        from applire.services.ats_audit import grounding_vault_index, profile_employer_names
         from applire.services.keyword_ledger import profile_literal_corpus
 
         profile_row = await db.get(MasterProfile, cl.profile_id)
@@ -4361,6 +4396,8 @@ async def _update_ats_report_letter(
             # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim
             # (the audit adds the letter's own recipient.company).
             non_claim=non_claim_names_for_job(job, await _label_application(db, cl)),
+            # 786:47 (WP-T hunk): the employer-name repetition advisory.
+            employer_names=profile_employer_names(profile_row.profile_json if profile_row else None),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
