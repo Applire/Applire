@@ -27,13 +27,24 @@ def _prompt(category="B"):
 def test_the_hint_states_a_literal_check_never_a_verdict():
     out = _prompt()
     assert "Still unevidenced" not in out and "only valid scope for a denial" not in out
-    assert "That is a literal check, not a verdict." in out
+    assert "That is a literal check, not a verdict:" in out
     # Category C (ruling V-7) carries the same literal-check statement, and no denial.
     c = _prompt("C")
     assert "Still unevidenced" not in c and "That is a literal check, not a verdict" in c
-    assert "offer NO denial choice" in c
+    assert "Offer NO denial choice" in c
+    # R2-2 / I-3: Category B (unevidenced concepts) offers no denial choice either,
+    # and a PARTIAL chip marks the leftover concepts as "not yet in the profile".
+    assert "Offer NO denial choice" in out
+    assert "does not yet document the concepts left over" in out
+    assert "never that the candidate lacks them" in out
     assert "No word-for-word mention yet: Produktionsverantwortung" in c
 
 
 def test_the_coverage_rule_counts_evidence_in_any_wording():
-    assert "Evidence in ANY wording counts" in _CHOICE_COVERAGE_RULES
+    flat = " ".join(_CHOICE_COVERAGE_RULES.split())
+    # R2-2: the evidence-in-any-wording sentence survives the rewrite; the
+    # "Evidence in ANY wording counts" phrase became the Teamleiter / Scrum Master
+    # parenthesis inside the PARTIAL bullet.
+    assert 'a "Teamleiter" role is evidence of team leadership' in flat
+    assert 'a "Scrum Master" skill of agile methods' in flat
+    assert "never one the profile summary or the earlier answers evidence in other words" in flat

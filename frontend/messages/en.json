@@ -392,7 +392,10 @@
     "introStart": "Show the first question",
     "introBack": "Back to the gaps",
     "unsavedAnswerTitle": "Answer not sent yet",
-    "unsavedAnswerBody": "You started an answer and have not sent it. If you leave this page now, it is lost."
+    "unsavedAnswerBody": "You started an answer and have not sent it. If you leave this page now, it is lost.",
+    "reopenedSummaryTitle": "Your interview summary",
+    "reopenedSummaryLead": "What we added to your profile from your answers. The interview is finished; you can come back to this page any time.",
+    "backToCV": "Back to the CV"
   },
   "cv": {
     "generating": "Generating CV…",
@@ -1329,6 +1332,7 @@
     "http503": "Service temporarily busy. Please wait and retry.",
     "http502": "Processing error. Please try a different format.",
     "providerUnavailable": "The AI provider is temporarily unavailable. Please wait and retry.",
+    "answerNotSaved": "Your answer could not be saved — please send it again.",
     "generic": "An error occurred ({status}). Please try again."
   },
   "enrich": {

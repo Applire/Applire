@@ -2418,6 +2418,7 @@ class TestSendMessage:
     # -----------------------------------------------------------------
 
     @pytest.mark.asyncio
+    @patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
     async def test_direct_denial_of_required_concept_triggers_transfer_probe(
         self, sqlite_session
     ):
@@ -2468,6 +2469,7 @@ class TestSendMessage:
         assert "GCP certification" in kwargs["follow_up_hint"]
 
     @pytest.mark.asyncio
+    @patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
     async def test_hyphen_variant_cluster_gap_still_matches_the_denied_concept(
         self, sqlite_session
     ):
@@ -2567,6 +2569,7 @@ class TestSendMessage:
         assert result.addressed_gap_ids == ["GCP certification"]
 
     @pytest.mark.asyncio
+    @patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
     async def test_second_denial_on_probe_turn_sets_partial_and_advances(self, sqlite_session):
         """The probe is terminal: a SECOND denial on its own answer bumps the
         concept's DURABLE denial_level to 'partial' (elicitation exhausted —
@@ -2651,6 +2654,7 @@ class TestSendMessage:
         assert escalation_records[0]["source"] == "interview"
 
     @pytest.mark.asyncio
+    @patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
     async def test_probe_answer_denying_a_different_concept_never_corrupts_original(
         self, sqlite_session
     ):
@@ -2835,6 +2839,7 @@ class TestSendMessage:
         assert result.addressed_gap_ids == ["GCP certification"]
 
     @pytest.mark.asyncio
+    @patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
     async def test_evidence_on_probe_turn_advances_and_leaves_denial_untouched(
         self, sqlite_session
     ):
@@ -2942,6 +2947,7 @@ class TestSendMessage:
         assert result.addressed_gap_ids == ["GCP certification"]
 
     @pytest.mark.asyncio
+    @patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
     async def test_unproductive_probe_answer_never_lets_a_second_probe_fire(
         self, sqlite_session, monkeypatch
     ):
@@ -4608,6 +4614,7 @@ class TestARetractionReversesTheLedgerUpgrade:
         assert cicd["evidence"] == ""
 
     @pytest.mark.asyncio
+    @patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
     async def test_a_denial_that_triggers_a_transfer_probe_still_reverses_now(
         self, sqlite_session
     ):
@@ -4827,6 +4834,7 @@ class TestDenialRecordedOnTurnResponses:
         assert result.denial_recorded is True
 
     @pytest.mark.asyncio
+    @patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
     async def test_denial_probe_turn_carries_denial_recorded(self, sqlite_session):
         """The ADR-064 transfer probe is issued ON the denial turn — that
         response, too, must report the denial as recorded."""

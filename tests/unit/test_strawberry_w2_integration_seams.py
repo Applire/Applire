@@ -114,7 +114,9 @@ class _Stop(Exception):
 def _lang_spy():
     seen: dict = {}
 
-    async def _spy(db, *, user_id=None):
+    async def _spy(db, *args, user_id=None):
+        # 787:46: the Mode C doors read get_profile_conversation_language(db,
+        # profile, user_id=...) — the same owner kwarg, one positional more.
         seen["user_id"] = user_id
         raise _Stop
 
@@ -131,7 +133,7 @@ async def test_enrich_next_question_reads_the_session_owners_language():
         state={"critical_gaps": ["a", "b"], "addressed_gaps": [], "na_gaps": [], "skipped_gaps": [], "current_gap_index": 0},
     )
     seen, spy = _lang_spy()
-    with patch.object(r, "get_ui_language", new=spy), ownership.owner_context(uuid.uuid4()):
+    with patch.object(r, "get_profile_conversation_language", new=spy), ownership.owner_context(uuid.uuid4()):
         with pytest.raises(_Stop):
             await r._next_question_or_done(session, {}, MagicMock(), MagicMock())
     assert seen["user_id"] == owner
@@ -148,7 +150,7 @@ async def test_enrich_start_reads_the_profile_owners_language():
     with patch.object(r, "_load_profile", new=AsyncMock(return_value=record)), \
          patch.object(r, "_active_enrich_session", new=AsyncMock(return_value=None)), \
          patch.object(r, "gap_detector_mode_c", return_value=["Zertifikate"]), \
-         patch.object(r, "get_ui_language", new=spy), ownership.owner_context(uuid.uuid4()):
+         patch.object(r, "get_profile_conversation_language", new=spy), ownership.owner_context(uuid.uuid4()):
         with pytest.raises(_Stop):
             await r.start_enrich_session(
                 EnrichStartRequest(), db=MagicMock(), provider=MagicMock(),
@@ -171,7 +173,7 @@ async def test_enrich_respond_reads_the_profile_owners_language():
     seen, spy = _lang_spy()
     with patch.object(r, "_load_session", new=AsyncMock(return_value=session)), \
          patch.object(r, "_load_profile", new=AsyncMock(return_value=record)), \
-         patch.object(r, "get_ui_language", new=spy), ownership.owner_context(uuid.uuid4()):
+         patch.object(r, "get_profile_conversation_language", new=spy), ownership.owner_context(uuid.uuid4()):
         with pytest.raises(_Stop):
             await r.respond_to_enrich(
                 uuid.uuid4(), EnrichRespondRequest(answer="Ich habe ein PMP-Zertifikat."),

@@ -561,7 +561,11 @@ async def test_receipt_on_gaps_resolved_completion(db):
 
 @pytest.mark.asyncio
 async def test_receipt_on_partial_coverage_follow_up(db):
-    """`_ask_partial_coverage_follow_up` — the vault changed, a member is open."""
+    """`_ask_partial_coverage_follow_up` — the vault changed, a member is open.
+
+    R2-6 (4) (Hazelnut build 4): the receipt decides by ``changes`` first. This
+    branch runs only on a turn that WROTE (``addressed``), so it never carries a
+    "nothing was recorded" receipt — even when the bridge reports one."""
     job, _profile = await _seed_clusters(db)
     writer = _question_writer("Tell me about Kubernetes and Terraform.", "And Terraform?")
     created = await _gap_click(db, job, _INFRA, writer)
@@ -572,10 +576,11 @@ async def test_receipt_on_partial_coverage_follow_up(db):
     assert resp.complete is False
     assert resp.question == "And Terraform?"
     assert resp.cluster_coverage.coverage == "partly_covered"
-    assert resp.no_write_receipt == _RECEIPT
+    assert resp.no_write_receipt is None
 
 
 @pytest.mark.asyncio
+@patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: the retired probe, dormant path
 async def test_receipt_on_denial_probe(db):
     """`_ask_denial_probe` — a denial-only turn on a JD-required concept."""
     job, _profile = await _seed_clusters(db)

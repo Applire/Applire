@@ -392,7 +392,10 @@
     "introStart": "Erste Frage zeigen",
     "introBack": "Zurück zu den Lücken",
     "unsavedAnswerTitle": "Antwort noch nicht gesendet",
-    "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg."
+    "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg.",
+    "reopenedSummaryTitle": "Deine Interview-Zusammenfassung",
+    "reopenedSummaryLead": "Was wir aus deinen Antworten in dein Profil übernommen haben. Das Interview ist abgeschlossen; du kannst es dir hier jederzeit wieder ansehen.",
+    "backToCV": "Zurück zum Lebenslauf"
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",
@@ -1329,6 +1332,7 @@
     "http503": "Dienst vorübergehend ausgelastet. Bitte warte und versuche es erneut.",
     "http502": "Verarbeitungsfehler. Bitte versuche ein anderes Format.",
     "providerUnavailable": "Der KI-Anbieter ist vorübergehend nicht erreichbar. Bitte warte und versuche es erneut.",
+    "answerNotSaved": "Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden.",
     "generic": "Ein Fehler ist aufgetreten ({status}). Bitte versuche es erneut."
   },
   "enrich": {

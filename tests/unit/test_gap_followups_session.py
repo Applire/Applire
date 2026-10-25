@@ -378,8 +378,29 @@ async def test_mixed_turn_declines_one_member_and_follows_up_on_the_other(db):
 
 
 @pytest.mark.asyncio
+async def test_a_direct_no_advances_with_no_probe_and_no_follow_up(db):
+    """Founder ruling I-4 (R2-9, ADR-064 amended 2026-10-24): the transfer probe
+    is retired — a direct "no" on a required concept advances the topic: no
+    probe, no partial-coverage follow-up on the denied member, no retry."""
+    job, _profile, _ = await _seed(db)
+    writer = _writer("Tell me about Kubernetes and Terraform.", "Any container orchestration?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(db, created.session_id, "I have never used Kubernetes or Terraform.",
+                         _writing_bridge(deny=["Kubernetes", "Terraform"]), writer)
+
+    assert len(writer.calls) == 1, "nothing further is asked on the topic"
+    assert not any(c.get("denial_probe") for c in writer.calls)
+    assert resp.denial_recorded is True
+    assert resp.complete is True
+    persisted = await _latest_cluster(db, job.id, _INFRA)
+    assert persisted["outcome"]["declined"] == ["Kubernetes", "Terraform"]
+
+
+@pytest.mark.asyncio
+@patch("applire.services.session._DENIAL_TRANSFER_PROBE_ENABLED", True)  # I-4: dormant path
 async def test_denial_only_turn_on_a_required_concept_still_gets_the_probe_first(db):
-    """ADR-064's transfer probe outranks every other follow-up."""
+    """ADR-064's transfer probe outranks every other follow-up (dormant since
+    ruling I-4; kept green while the code exists)."""
     job, _profile, _ = await _seed(db)
     writer = _writer("Tell me about Kubernetes and Terraform.", "Any container orchestration?")
     created = await _gap_click(db, job, _INFRA, writer)

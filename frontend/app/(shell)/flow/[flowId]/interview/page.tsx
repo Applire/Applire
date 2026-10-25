@@ -33,6 +33,7 @@ import { describeConflict } from "@/lib/conflict-display";
 import { Archive, Check, Clock, Contrast, HelpCircle, Lock, Square } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
+import { isPastInterview, reopenedSummarySessionId } from "@/components/interview/reopened-summary";
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
 import { markSeenThisSession, seenThisSession } from "@/lib/session-once";
@@ -56,8 +57,9 @@ interface FlowState {
   job_id: string;
   current_step: string;
   job_summary?: { role_title: string; required_skills?: string[] } | null;
-  interview_summary?: { session_id: string; mode: string } | null;
+  interview_summary?: { session_id: string; mode: string; status?: string; questions_asked?: number } | null;
 }
+
 
 interface GapAnalysisData {
   id: string;
@@ -231,6 +233,19 @@ interface ApiErrorInfo {
   code?: string;
 }
 
+/** R2-13 — the backend's `error_code` for a turn whose answer was not saved. */
+const ANSWER_NOT_SAVED = "answer_not_saved";
+
+/** A failed turn carrying its parsed error, so the catch below can tell
+ * "not saved — the text goes back into the composer" from any other failure. */
+class TurnError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 async function parseApiError(res: Response): Promise<ApiErrorInfo> {
   let code: string | undefined;
   try {
@@ -247,6 +262,9 @@ async function parseApiError(res: Response): Promise<ApiErrorInfo> {
 
 function translateError(info: ApiErrorInfo, t: ReturnType<typeof useTranslations>): string {
   if (info.code === "provider_unavailable") return t("providerUnavailable");
+  // R2-13 (P-1) — the answer reached the server but could not be merged into
+  // the profile; nothing was saved and no follow-up was asked.
+  if (info.code === ANSWER_NOT_SAVED) return t("answerNotSaved");
   switch (info.status) {
     case 504: return t("http504");
     case 503: return t("http503");
@@ -591,6 +609,8 @@ export default function InterviewPage({
   const [turnCoverage, setTurnCoverage] = useState<Record<string, TurnClusterCoverage>>({});
   const [choices, setChoices] = useState<string[] | null>(null);
   const [matchScore, setMatchScore] = useState<number | null>(null);
+  // 783:195 — the finished interview's session, when the page is reopened later.
+  const [reopenedSessionId, setReopenedSessionId] = useState<string | null>(null);
 
   // #256 — extracted from the mount effect so the "couldn't start the
   // interview" screen below can call it again from a Retry button. Before
@@ -608,6 +628,17 @@ export default function InterviewPage({
       if (!fsRes.ok) throw new Error(tErrors("flowNotFound"));
       const fs: FlowState = await fsRes.json();
       setFlowState(fs);
+      const reopened = reopenedSummarySessionId(fs);
+      if (reopened) {
+        setReopenedSessionId(reopened);
+        return;
+      }
+      if (isPastInterview(fs)) {
+        // Skipped interview (no complete session): nothing to show and nothing
+        // to start — the flow index routes onward, as the layout guard did.
+        router.replace(`/flow/${flowId}`);
+        return;
+      }
 
       // Fetch gap analysis for cluster tracker
       fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`)
@@ -747,7 +778,7 @@ export default function InterviewPage({
       });
       if (!res.ok) {
         const info = await parseApiError(res);
-        throw new Error(translateError(info, tErrors));
+        throw new TurnError(translateError(info, tErrors), info.code);
       }
       const data: MessageResponse = await res.json();
 
@@ -830,7 +861,17 @@ export default function InterviewPage({
       // safe to resend as-is. Drop the optimistic user bubble the retry will
       // re-add, rather than leaving a duplicate once it succeeds.
       setMessages((prev) => (prev.at(-1)?.role === "user" ? prev.slice(0, -1) : prev));
-      setRetryMessage(userMsg);
+      if (e instanceof TurnError && e.code === ANSWER_NOT_SAVED) {
+        // R2-13 (P-1) — "not saved" is not "changed nothing": the answer goes
+        // back into the composer, word for word, and the candidate sends it
+        // again (no follow-up was asked; the question on screen still stands).
+        // An edit the candidate typed meanwhile is never overwritten.
+        setAnswer((current) => (current.trim() ? current : userMsg));
+        setRetryMessage(null);
+        textareaRef.current?.focus();
+      } else {
+        setRetryMessage(userMsg);
+      }
       setError(e instanceof Error ? e.message : tErrors("failedToStart"));
     } finally {
       setSending(false);
@@ -907,6 +948,45 @@ export default function InterviewPage({
             {tCommon("retry")}
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 783:195 — the finished interview's summary, reopened after the flow moved on
+  // -------------------------------------------------------------------------
+
+  if (reopenedSessionId) {
+    return (
+      <div data-testid="reopened-summary-screen" className="max-w-2xl mx-auto animate-fade-in">
+        <Card className="p-8">
+          <h2 className="font-heading text-2xl font-bold text-neutral-dark mb-2 text-center">
+            {t("reopenedSummaryTitle")}
+          </h2>
+          <p className="text-sm text-gray-500 font-body mb-6 text-center">
+            {t("reopenedSummaryLead")}
+          </p>
+          <div className="mb-8" data-testid="interview-summary-section">
+            <DecisionTrailReview mode="interview" sessionId={reopenedSessionId} onFix={() => router.push("/profile")} />
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button
+              data-testid="back-to-cv-button"
+              size="lg"
+              onClick={() => router.push(`/flow/${flowId}/cv`)}
+              className="min-w-[220px]"
+            >
+              {t("backToCV")}
+            </Button>
+            <Link
+              href="/profile"
+              data-testid="view-profile-link"
+              className="inline-flex items-center justify-center text-sm text-teal underline hover:no-underline px-4 py-2"
+            >
+              {t("viewProfile")}
+            </Link>
+          </div>
+        </Card>
       </div>
     );
   }
@@ -1162,7 +1242,11 @@ export default function InterviewPage({
               guarantees a failed turn never partially commits, so this is
               always safe — see the interview service's resumability tests). */}
           {error && (
-            <div className="mb-3 px-3 py-2 rounded-lg bg-critical/10 border border-critical/20 flex items-center justify-between gap-3">
+            <div
+              data-testid="turn-error"
+              role="alert"
+              className="mb-3 px-3 py-2 rounded-lg bg-critical/10 border border-critical/20 flex items-center justify-between gap-3"
+            >
               <p className="text-sm text-critical">{error}</p>
               {retryMessage && (
                 <Button

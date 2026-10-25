@@ -634,6 +634,54 @@ describe("InterviewPage failed-turn recovery (#256)", () => {
     );
   });
 
+  it("R2-13: an answer the server could not save goes back into the composer, with the not-saved notice and no follow-up", async () => {
+    const user = userEvent.setup();
+    const answerText = "Since March I am also Team Lead Payments at Acme.";
+    global.fetch = mockRetryApi({
+      messageResponses: [
+        {
+          ok: false,
+          status: 503,
+          body: {
+            detail: {
+              error_code: "answer_not_saved",
+              turn_state: "not_saved",
+              message: "Your answer could not be saved. Please send it again.",
+            },
+          },
+        },
+        { ok: true, body: { complete: false, question: "Tell me about Kubernetes.", gaps_remaining: 1 } },
+      ],
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?"),
+    );
+
+    await sendAnswer(user, answerText);
+
+    // The notice is the UI's own copy for the code, never the backend message.
+    await waitFor(() => expect(screen.getByTestId("turn-error")).toHaveTextContent("answerNotSaved"));
+    expect(document.body.textContent).not.toContain("Please send it again");
+    // The text is back in the composer, word for word, and editable.
+    const textarea = screen.getByTestId("answer-textarea") as HTMLTextAreaElement;
+    expect(textarea.value).toBe(answerText);
+    expect(textarea).not.toBeDisabled();
+    // Not-saved is not a generic failure: the composer IS the retry, no second button.
+    expect(screen.queryByTestId("retry-answer-button")).not.toBeInTheDocument();
+    // The question on screen still stands — no follow-up was asked.
+    expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?");
+
+    // Sending again is an ordinary turn.
+    await user.click(screen.getByTestId("send-button"));
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("Tell me about Kubernetes."),
+    );
+    expect(screen.queryByTestId("turn-error")).not.toBeInTheDocument();
+  });
+
   it("never renders a raw Python exception string leaked as a bare-string detail (defense in depth, any status)", async () => {
     const user = userEvent.setup();
     const rawExceptionText = "'NoneType' object is not subscriptable";
