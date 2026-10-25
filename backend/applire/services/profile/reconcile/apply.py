@@ -47,6 +47,7 @@ from applire.schemas.profile import (
     FieldChange,
     ImportNotApplied,
     MatchReceipt,
+    KeptSeparateReceipt,
     RestatedReceipt,
     Language,
     MasterProfileData,
@@ -58,6 +59,7 @@ from applire.schemas.profile import (
     USER_MANAGED_PERSONAL_INFO_FIELDS,
     VAULT_SECTIONS,
     VolunteerActivity,
+    DatedRoleAlias,
     WorkEntry,
     normalise_partial_date,
     ExtractionReview,
@@ -101,6 +103,8 @@ from applire.services.profile.reconcile.ops import (
     MatchExisting,
     ReplaceSection,
     SeparateMatch,
+    ConfirmMatch,
+    WithdrawDenial,
     SetAvailability,
     DismissAvailabilityReminder,
     RequestConfirmation,
@@ -263,6 +267,7 @@ class ApplyResult(BaseModel):
     matched: list[MatchReceipt] = []
     # D-B3V6 — second-source bullets held back as restatements (import only).
     restated: list[RestatedReceipt] = []
+    kept_separate: list[KeptSeparateReceipt] = []  # FS-6
     # 783:L41 — the ingest's extraction review outcome; set exclusively by
     # `ApplyImportMerge`, `None` for every other batch.
     extraction_review: ExtractionReview | None = None
@@ -561,9 +566,13 @@ def apply_ops(
     extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
     restated: list[RestatedReceipt] = []  # D-B3V6 — see ApplyResult.restated
+    kept_separate: list[KeptSeparateReceipt] = []  # FS-6
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
     ref_map: dict[str, ExperienceBase] = {}
+    # R2-4 — id(entry) → the DatedRoleAlias THIS batch recorded on it, so the
+    # same batch's add_bullets for that entry go first and are named on it.
+    dated_aliases: dict[int, Any] = {}
 
     def resolve(handle: str | None) -> ExperienceBase | None:
         """Resolve a target/parent/evidence handle to an entity, or None."""
@@ -641,6 +650,7 @@ def apply_ops(
             _apply_upsert_work(
                 op, new_profile, ref_map, changes, pending, source,
                 conflicts, user_confirmed_engagement, matched=matched,
+                dated_aliases=dated_aliases,
             )
         elif isinstance(op, UpsertProject):
             _apply_upsert_project(
@@ -653,7 +663,9 @@ def apply_ops(
                 conflicts, user_confirmed_engagement, matched=matched,
             )
         elif isinstance(op, AddBullets):
-            _apply_add_bullets(op, resolve, changes, pending, not_applied)
+            _apply_add_bullets(
+                op, resolve, changes, pending, not_applied, dated_aliases=dated_aliases
+            )
         elif isinstance(op, UpsertSkill):
             # #480 PR 7 — the bypass is keyed to the skill the candidate
             # actually answered about, so an answered confirmation can never
@@ -717,6 +729,13 @@ def apply_ops(
             # #717 (ADR-063 amended 2026-10-07 cl. 4, ruling V-2) — the
             # candidate's "Nicht dasselbe". Raises when no receipt may be undone.
             _apply_separate_match(op, new_profile, changes)
+        elif isinstance(op, ConfirmMatch):
+            # FS-6 (ruling V-4 = A) — the candidate's "Ja, dasselbe".
+            _apply_confirm_match(op, new_profile, changes)
+        elif isinstance(op, WithdrawDenial):
+            # G-5 (ADR-059 amended 2026-10-24) — the explicit un-denial act.
+            # Receipts on the denial channel, never `changes`.
+            _apply_withdraw_denial(op.concept, new_profile, denials)
         elif isinstance(op, MatchExisting):
             # #707 (ADR-046 amended 2026-09-16) — the model's "already there":
             # a receipt on `matched`, never a change, never a write.
@@ -737,7 +756,8 @@ def apply_ops(
             new_profile = _apply_resolve_field(op, new_profile, changes)
         elif isinstance(op, ResolveConfirmation):
             _apply_resolve_confirmation(
-                op, new_profile, changes, not_applied, pending, resolve_any
+                op, new_profile, changes, not_applied, pending, resolve_any,
+                denials=denials,
             )
         elif isinstance(op, AddRole):
             # #480 PR 6 — the post-hire act. Un-adjudicated by design: see the
@@ -771,6 +791,7 @@ def apply_ops(
             changes.extend(op.changes)
             matched.extend(op.matched)  # #707 — the intake's bindings ride with it
             restated.extend(op.restated)  # D-B3V6
+            kept_separate.extend(op.kept_separate)  # FS-6
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
             extraction_review = op.extraction_review
@@ -855,6 +876,7 @@ def apply_ops(
         not_applied=not_applied,
         matched=matched,
         restated=restated,
+        kept_separate=kept_separate,  # FS-6
         extraction_review=extraction_review,
     )
 
@@ -1295,10 +1317,16 @@ def _keep_alias_subset(section: str, before: Any, after: Any) -> Any:
     if not alias_fields or not isinstance(after, list):
         return after
     held: dict[str, dict[str, set[str]]] = {}
+    dated_held: dict[str, set[tuple[str, str]]] = {}
     for entry in before or []:
         if isinstance(entry, dict) and entry.get("id"):
             held[str(entry["id"])] = {
                 f: {_norm(a) for a in (entry.get(f) or []) if isinstance(a, str)} for f in alias_fields
+            }
+            dated_held[str(entry["id"])] = {
+                (_norm(d.get("role")), str(d.get("since") or ""))
+                for d in (entry.get("dated_role_aliases") or [])
+                if isinstance(d, dict)
             }
     result = []
     for entry in after:
@@ -1311,6 +1339,15 @@ def _keep_alias_subset(section: str, before: Any, after: Any) -> Any:
                         a for a in entry[f]
                         if isinstance(a, str) and _norm(a) in allowed.get(f, set())
                     ]
+            # R2-4 — a dated role alias is written by the applier only; the
+            # section door may drop one (removal), never add or re-date one.
+            if section == "work_experience" and isinstance(entry.get("dated_role_aliases"), list):
+                held_dated = dated_held.get(str(entry.get("id") or ""), set())
+                entry["dated_role_aliases"] = [
+                    d for d in entry["dated_role_aliases"]
+                    if isinstance(d, dict)
+                    and (_norm(d.get("role")), str(d.get("since") or "")) in held_dated
+                ]
         result.append(entry)
     return result
 
@@ -1595,6 +1632,7 @@ def _apply_resolve_confirmation(
     not_applied: list[ImportNotApplied],
     pending: list[RequestConfirmation],
     resolve_any: Callable[[str | None], Any | None],
+    denials: list[FieldChange] | None = None,
 ) -> None:
     """Record the chosen option, clear the parked ask, and — for the attribution
     family — WRITE what the answer places (design §4.5; ADR-063 am. 2026-09-18).
@@ -1667,6 +1705,29 @@ def _apply_resolve_confirmation(
             rationale_key="confirmation_resolved",
         )
     )
+
+    # ── G-5 — the denial-vs-CV item: its answer IS the un-denial act ─────────
+    # (ADR-059 amended 2026-10-24.) `cv_holds` — "the CV is right, take my
+    # earlier answer back" — withdraws exactly the denial the item names;
+    # `denial_holds` writes nothing (the floor already holds). The candidate's
+    # explicit choice on a question that names the denial is the confirmation
+    # cl. 3 requires; no model and no import ever reaches this branch.
+    context = entry.context or {}
+    if context.get("kind") == "denial_scope":
+        chosen = resolve_option_key(entry.model_dump(), op.chosen_option)
+        if chosen == "cv_holds" and denials is not None:
+            _apply_withdraw_denial(str(context.get("denial_concept") or ""), profile, denials)
+        elif chosen == "denial_holds":
+            # Lead G's writer (feat/hazelnut-b4-g 980d8d11): remember the
+            # answered question, so the next import does not park it again —
+            # the item itself is gone from pending_confirmations. Looked up by
+            # name until both branches meet in the build-4 merge.
+            from applire.services.profile.reconcile import stance as _stance
+
+            record_answer = getattr(_stance, "record_denial_scope_answer", None)
+            if record_answer is not None:
+                record_answer(profile.metadata, dict(context))
+        return
 
     # ── Bug #723 — the attribution family's answer places its held content ───
     plan = plan_attribution_resolution(
@@ -1929,6 +1990,100 @@ def _apply_set_profile_meta(
     )
 
 
+def _apply_withdraw_denial(
+    concept_text: str, profile: MasterProfileData, denials: list[FieldChange]
+) -> bool:
+    """G-5 — the candidate withdraws ONE denial (ADR-059 amended 2026-10-24,
+    building the 2026-07-26 un-denial act, cl. 1–4). See :class:`WithdrawDenial`.
+
+    * **one existing record, matched by ``ats_audit._norm``** (the normaliser
+      ``record_denials`` dedupes with); a miss is a no-op that returns False —
+      never containment, never a mint;
+    * **mark, don't erase:** the record moves verbatim to
+      ``metadata.withdrawn_denials`` with ``withdrawn_at``; the history reads
+      *denied at T1, withdrawn at T2*;
+    * **revoking is not claiming** (ADR-059 2026-07-26 cl. 2; founder ruling
+      V-5b = A, 2026-10-24): a vault skill at ``denied`` that the withdrawn
+      concept DECLARES (``declared_denial_matches`` — the demotion's own
+      emission rule) returns to ``unconfirmed`` — unproven, it backs no claim
+      (ADR-061 cl. 3) — unless a REMAINING denial still declares it. The next
+      ordinary write that names it re-confirms it through the promote-only
+      merge. This is the one exit from ``denied`` (ADR-061 amended
+      2026-08-08); the commit's persisted-status floor exempts exactly the
+      skills receipted here.
+
+    Receipts land on ``denials`` (a statement about a denial, never
+    gap-addressing content — invariant 7)."""
+    from datetime import date as _date
+
+    from applire.schemas.profile import WithdrawnDenial
+    from applire.services.ats_audit import _norm as ats_norm
+    from applire.services.profile.reconcile.stance import declared_denial_matches
+
+    metadata = profile.metadata
+    if metadata is None:
+        return False
+    key = ats_norm(concept_text)
+    if not key:
+        return False
+    entry = next((d for d in metadata.denied_concepts if ats_norm(d.concept) == key), None)
+    if entry is None:
+        logger.info("apply_ops: withdraw_denial found no denial %r — no-op (G-5)", concept_text)
+        return False
+    today = _date.today().isoformat()
+    metadata.denied_concepts = [d for d in metadata.denied_concepts if d is not entry]
+    metadata.withdrawn_denials.append(
+        WithdrawnDenial(**entry.model_dump(), withdrawn_at=today)
+    )
+    denials.append(
+        FieldChange(
+            section="metadata",
+            field="denied_concepts",
+            action="removed",
+            old_value=entry.concept,
+            new_value=None,
+            rationale=f"Denial of '{entry.concept}' withdrawn by the candidate.",
+            rationale_key="denial_withdrawn",
+        )
+    )
+    remaining = [d.concept for d in metadata.denied_concepts if d.concept]
+    for skill in profile.skills:
+        if skill.status != "denied":
+            continue
+        if not declared_denial_matches(skill.name, [entry.concept]):
+            continue
+        if remaining and declared_denial_matches(skill.name, remaining):
+            continue
+        skill.status = "unconfirmed"
+        denials.append(
+            FieldChange(
+                section="skills",
+                field="status",
+                action="updated",
+                old_value="denied",
+                new_value="unconfirmed",
+                entity_id=getattr(skill, "id", None),
+                rationale=(
+                    f"{skill.name} is no longer ruled out: the candidate withdrew the "
+                    f"denial of '{entry.concept}'. It counts again once a CV or an "
+                    "answer states it."
+                ),
+                rationale_key="denial_withdrawn_skill",
+            )
+        )
+    return True
+
+
+def withdrawn_skill_ids(receipts: list[FieldChange]) -> set[str]:
+    """The skill ids a WithdrawDenial released in this batch — the ONE input the
+    commit's persisted-``denied`` floor exempts (G-5)."""
+    return {
+        c.entity_id
+        for c in receipts
+        if c.section == "skills" and c.rationale_key == "denial_withdrawn_skill" and c.entity_id
+    }
+
+
 def _apply_mark_probe_asked(
     op: MarkProbeAsked, profile: MasterProfileData, denials: list[FieldChange]
 ) -> None:
@@ -2098,7 +2253,7 @@ def _record_merge_divergence(op, entity, section, fields, conflicts) -> None:
 
 def _apply_upsert_work(
     op, profile, ref_map, changes, pending, source="",
-    conflicts=None, confirmed=None, matched=None,
+    conflicts=None, confirmed=None, matched=None, *, dated_aliases=None,
 ):
     target = None
     if op.target is not None:
@@ -2257,6 +2412,20 @@ def _apply_upsert_work(
         changes.append(
             _merged("work_experience", "role_aliases", None, op.role, entity=target)
         )
+        # R2-4 (ADR-013 note 2026-10-24) — an ADDITIONAL role with its own
+        # start date (reconcile rule 7, concurrent-role clause): keep WHEN it
+        # began, so the profile can say "auch <Rolle> seit <Datum>". A fact
+        # read off the op (a date that differs from the entry's own), never a
+        # judgement of what the title means (ADR-062 cl. 1).
+        since = normalise_partial_date(op.start_date)
+        if (
+            since
+            and since != normalise_partial_date(target.start_date)
+            and dated_aliases is not None
+        ):
+            record = DatedRoleAlias(role=op.role, since=since)
+            target.dated_role_aliases.append(record)
+            dated_aliases[id(target)] = record
     # ADR-046 amended 2026-10-07 (#716), writer (b) — the employer's other name
     # from a targeted upsert — lives in the IMPORT bridge
     # (`alias_writer.record_targeted_upsert_aliases`), never here: this applier
@@ -2525,7 +2694,7 @@ def _target_unresolved(op_type: str, text: str) -> ImportNotApplied:
     return ImportNotApplied(section=None, label=label, reason="target_unresolved")
 
 
-def _apply_add_bullets(op, resolve, changes, pending, not_applied=None):
+def _apply_add_bullets(op, resolve, changes, pending, not_applied=None, *, dated_aliases=None):
     entity = resolve(op.target)
     if entity is None:
         # #177 review: an AMBIGUOUS upsert in this same batch never populates
@@ -2580,6 +2749,9 @@ def _apply_add_bullets(op, resolve, changes, pending, not_applied=None):
             not_applied.append(_target_unresolved("add_bullets", first))
         return
     section = _section_for(entity)
+    # R2-4 — the bullets written for a dated role alias recorded in THIS batch
+    # go first in the entry ("its bullet first") and are named on the record.
+    dated = (dated_aliases or {}).get(id(entity))
     for field, incoming in (
         ("responsibilities", op.responsibilities),
         ("achievements", op.achievements),
@@ -2587,8 +2759,13 @@ def _apply_add_bullets(op, resolve, changes, pending, not_applied=None):
     ):
         if not incoming:
             continue
-        appended = _append_dedup(getattr(entity, field), incoming)
+        held = getattr(entity, field)
+        appended = _append_dedup(held, incoming)
         if appended:
+            if dated is not None and field != "technologies":
+                rest = held[: len(held) - len(appended)]
+                held[:] = [*appended, *rest]
+                dated.bullets.extend(appended)
             changes.append(_merged(section, field, None, appended, entity=entity))
 
 
@@ -2686,9 +2863,14 @@ def _apply_upsert_skill(
     # incoming name exactly (a fact: "Java" never folds into JavaScript while
     # "Java" is its own entry).
     targeted = _targeted_skill(op, profile) if user_confirmed is None else None
+    # FS-5 (ADR-046 amended 2026-10-24) — the receipt of THIS op's binding, so
+    # the refs the merge below adds to the target are recorded on it and
+    # "Nicht dasselbe" can take them back.
+    binding_receipt: MatchReceipt | None = None
     if targeted is not None:
         if matched is not None and not _same_words(op.name, targeted.name):
-            matched.append(_match_receipt("skills", targeted, op.name))
+            binding_receipt = _match_receipt("skills", targeted, op.name)
+            matched.append(binding_receipt)
         near = [targeted]
     else:
         near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
@@ -2701,7 +2883,8 @@ def _apply_upsert_skill(
         if alias_skill is not None:
             near = [alias_skill]
             if matched is not None:
-                matched.append(_match_receipt("skills", alias_skill, op.name, "alias"))
+                binding_receipt = _match_receipt("skills", alias_skill, op.name, "alias")
+                matched.append(binding_receipt)
 
     # #187 — the user has RESOLVED a deferred dedupe confirmation for this skill.
     # Apply their choice directly and never re-emit the confirmation: the guards
@@ -2783,7 +2966,9 @@ def _apply_upsert_skill(
 
     if len(near) == 1:
         existing = near[0]
-        _append_dedup(existing.experience_refs, evidence_ids)
+        refs_added = _append_dedup(existing.experience_refs, evidence_ids)
+        if binding_receipt is not None and binding_receipt.entity_id == getattr(existing, "id", None):
+            binding_receipt.refs_added = list(refs_added)
         if op.proficiency:
             # ADR-061 clause 5 — ceiling, not floor (see _merge_declared_proficiency).
             existing.proficiency = _merge_declared_proficiency(
@@ -3333,6 +3518,41 @@ def _apply_separate_match(op, profile: MasterProfileData, changes: list[FieldCha
         for f in keys
         if str(getattr(entry, f, "") or "").strip()
     ) or receipt.incoming
+    # FS-5 (ADR-046 amended 2026-10-24) — the evidence THIS binding merged into
+    # the target goes back with the name: off the target (unless another open
+    # binding of it also added the ref), onto the separated entry.
+    refs_back: list[str] = []
+    for r in pair:
+        refs_back.extend(x for x in r.refs_added if x not in refs_back)
+    if target is not None and refs_back and hasattr(target, "experience_refs"):
+        still_claimed = {
+            x
+            for rec in (profile.metadata.enrichment_history if profile.metadata else [])
+            for other in rec.matched
+            if other.entity_id == receipt.entity_id and other.undone_at is None
+            and all(other is not mine for mine in pair)
+            for x in other.refs_added
+        }
+        taken = [x for x in refs_back if x in target.experience_refs and x not in still_claimed]
+        if taken:
+            target.experience_refs = [x for x in target.experience_refs if x not in taken]
+            changes.append(FieldChange(
+                section=section, field="experience_refs", action="removed",
+                old_value=list(taken), new_value=None, entity_id=receipt.entity_id,
+                rationale="Removed the evidence the false match had added: the candidate said it is not the same entry.",
+                rationale_key="match_separated",
+            ))
+        # onto the separated entry — or onto the entry of that exact name when
+        # one is already there (the undo then appends nothing).
+        holder = entry
+        if already_there:
+            holder = next(
+                (e for e in entries
+                 if tuple(_norm(getattr(e, f, "") or "") for f in keys) == own_key),
+                entry,
+            )
+        if hasattr(holder, "experience_refs"):
+            _append_dedup(holder.experience_refs, refs_back)
     if not already_there:
         entries.append(entry)
         changes.append(FieldChange(
@@ -3345,6 +3565,42 @@ def _apply_separate_match(op, profile: MasterProfileData, changes: list[FieldCha
     now = datetime.now(timezone.utc)
     for r in pair:
         r.undone_at = now
+
+
+def find_confirmable_receipts(
+    profile: MasterProfileData, entity_id: str, incoming: str
+) -> list[MatchReceipt]:
+    """FS-6 — the receipts of this pair "Ja" may stamp: the NEWEST one decides
+    (same rule as :func:`find_separable_receipt`) — it must be neither undone
+    nor a language-name-table fact; then every open receipt of the pair."""
+    receipts = _pair_receipts(profile, entity_id, incoming)
+    if not receipts:
+        raise MatchNotSeparableError("unknown")
+    newest = receipts[0]
+    if newest.undone_at is not None:
+        raise MatchNotSeparableError("already_undone")
+    if newest.basis == "name_table":
+        raise MatchNotSeparableError("name_table")
+    return [r for r in receipts if r.undone_at is None and r.confirmed_at is None]
+
+
+def _apply_confirm_match(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """FS-6 (ruling V-4 = A) — see :class:`ConfirmMatch`. Bookkeeping only: one
+    ``metadata`` receipt line so the history says what the candidate answered."""
+    from datetime import datetime, timezone
+
+    open_receipts = find_confirmable_receipts(profile, op.entity_id, op.incoming)
+    if not open_receipts:
+        return  # already confirmed — idempotent
+    now = datetime.now(timezone.utc)
+    for r in open_receipts:
+        r.confirmed_at = now
+    changes.append(FieldChange(
+        section="metadata", field="matched", action="updated",
+        old_value=None, new_value=f"{op.incoming} = {open_receipts[0].existing}",
+        rationale=f"The candidate confirmed {op.incoming!r} is the same as {open_receipts[0].existing!r}.",
+        rationale_key="match_confirmed",
+    ))
 
 
 def _apply_set_field(op, resolve, changes, not_applied=None):

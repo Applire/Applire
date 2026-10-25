@@ -104,6 +104,7 @@
     "cvUploaded": "{count, plural, one {1 CV uploaded} other {# CVs uploaded}}",
     "profileUpdated": "{count, plural, one {Updated master profile with 1 new CV} other {Updated master profile with # new CVs}}",
     "uploadTryAgain": "We couldn't finish reading this CV in time — nothing was changed. Please try again.",
+    "uploadNotSaved": "We couldn't merge this CV into your profile this time — nothing was changed. Please try again.",
     "notAppliedNote": "{count, plural, one {1 entry from your CV did not merge automatically} other {# entries from your CV did not merge automatically}}: {labels}",
     "notAppliedMore": "+{count} more",
     "sourceTruncatedNote": "Only the first ≈ {percent}% of your file was read — check that all your positions came through.",
@@ -583,7 +584,10 @@
     "pageOverflowKeptDone": "{actual} pages — your choice.",
     "pageOverflowUndoKeep": "Cut to {target, plural, one {# page} other {# pages}} after all",
     "pageOverflowUndoGone": "This can no longer be undone: the CV has changed since the cut.",
-    "pageOverflowError": "That did not work. Reload the page and try again."
+    "pageOverflowError": "That did not work. Reload the page and try again.",
+    "assistSavedToProfile": "Added to your profile: {items}",
+    "assistNothingNewForProfile": "Your answer held nothing new for your profile.",
+    "assistProfileSaveFailed": "Your answer could not be added to your profile. The text is still in your CV; please try again later."
   },
   "saveScopePrompt": {
     "saveToProfile": "Where should this change apply?",
@@ -859,6 +863,7 @@
       "statusNeedsConfirmation": "A few details need your confirmation — check the profile Health hub.",
       "statusConflict": "This conflicts with something already in your profile — check the profile Health hub.",
       "statusError": "Couldn't process this: {detail}",
+      "statusNotSaved": "Your notes could not be saved — nothing was changed. Please send them again.",
       "notAppliedFigure": "Figure “{span}” appears in no entry that was saved.",
       "notAppliedOp": "One part of the response ({op}) had an invalid shape and was dropped."
     },
@@ -1192,7 +1197,13 @@
     },
     "notAppliedNoSection": "Not tied to a section",
     "notAppliedGroupHeading": "{section} ({count})",
-    "notAppliedCallout": "Not confirmed as carried over from your import: {labels} — check whether they are already listed here under another name before adding them."
+    "notAppliedCallout": "Not confirmed as carried over from your import: {labels} — check whether they are already listed here under another name before adding them.",
+    "threadSuspectBinding": "Match",
+    "suspectBindingQuestion": "Is <b>{incoming}</b> the same as <b>{existing}</b>?",
+    "suspectBindingNote": "These were combined although one is a technical skill and the other a personal one. Please confirm.",
+    "suspectBindingSame": "Yes",
+    "suspectBindingSeparate": "No, keep them apart",
+    "suspectBindingFailed": "That didn't work. Please try again."
   },
   "profileReview": {
     "title": "Review profile",
@@ -1322,6 +1333,7 @@
     "retry": "Try Again"
   },
   "errors": {
+    "answerNotSaved": "Your answer could not be saved — please send it again.",
     "uploadAtLeastOne": "Please upload at least one CV to continue.",
     "exportFailed": "Export failed. Please try again.",
     "deletionFailed": "Deletion failed. Please try again.",
@@ -1735,7 +1747,13 @@
       "role_closed": "Marked this role as ended.",
       "gap_marked_na": "Marked this gap as not applicable to you.",
       "denial_probe_asked": "Recorded that the follow-up about this limit has been asked — your stated limit itself is unchanged.",
-      "denial_noted": "Noted as a limit you told us about."
+      "denial_noted": "Noted as a limit you told us about.",
+      "denial_withdrawn": "You took back an earlier limit yourself.",
+      "denial_withdrawn_skill": "No longer ruled out: you took back the limit. It counts again once a CV or an answer states it.",
+      "match_separated": "Kept apart: you said these are not the same.",
+      "match_confirmed": "You confirmed these are the same.",
+      "availability_recorded": "Recorded your availability.",
+      "availability_cleared": "Removed your availability."
     }
   },
   "mergeGate": {
@@ -1753,6 +1771,7 @@
     "cancel": "Cancel",
     "resolving": "Processing…",
     "resolveError": "The action could not be completed.",
+    "notSaved": "We couldn't merge this CV into your profile this time — nothing was changed. Please try again.",
     "badge": "Needs review",
     "reviewAction": "Review"
   },
@@ -2452,10 +2471,7 @@
     "deletedPerson": "deleted person"
   },
   "importSummary": {
-    "recognisedTitle": "Already in your profile ({count})",
-    "recognisedIntro": "These entries from your file are already in your profile, just under another name. We saved the new name as an alternate name. If a match is wrong, tap “Not the same”.",
     "showInProfile": "Show in profile",
-    "notSame": "Not the same",
     "separatedDone": "Added as its own entry",
     "sameLanguage": "same language",
     "showAll": "Show all {count}",
@@ -2464,13 +2480,31 @@
     "restatedIntro": "These points from your file say the same as a point already listed for this role. We did not add them and deleted nothing. If one does say something new, tap “Add anyway”.",
     "restatedHeld": "Already there: {text}",
     "restatedApply": "Add anyway",
-    "restatedApplied": "Added"
+    "restatedApplied": "Added",
+    "combinedTitle": "Combined with what you had ({count})",
+    "combinedIntro": "These items from the file are already in your profile under another name. We added to them instead of listing them twice.",
+    "pairQuestion": "Is <b>{incoming}</b> the same as <b>{existing}</b>?",
+    "pairYes": "Yes",
+    "pairNo": "No, keep them apart",
+    "pairConfirmed": "Confirmed as the same",
+    "keptSeparatelyTitle": "Kept separately ({count})",
+    "keptSeparately": "We did not combine <b>{incoming}</b> with <b>{existing}</b> — they are different things. Both are listed on their own in your profile.",
+    "lastImportTitle": "Your import of {date} — {file}",
+    "lastImportTitleNoFile": "Your import of {date}",
+    "lastImportLead": "We added {added, plural, one {# item} other {# items}} to your profile and recognised {matched, plural, one {# as already there} other {# as already there}}. Nothing was deleted.",
+    "groupCount": "{count, plural, one {# item} other {# items}}",
+    "notAppliedNote": "{count, plural, one {# item from the file did not reach your profile.} other {# items from the file did not reach your profile.}}",
+    "techLog": "Show technical log",
+    "loadFailed": "The summary could not be loaded."
   },
   "profileAliases": {
     "label": "Also known as",
     "remove": "Remove “{alias}” as an alternate name",
     "removeFailed": "Removing did not work. Please try again.",
-    "labelFor": "{name} — also known as"
+    "labelFor": "{name} — also known as",
+    "alsoTag": "also",
+    "alsoSince": "<b>{role}</b> since {date}",
+    "since": "since {date}"
   },
   "reviewSignals": {
     "verdictClearCrossReadUnknown": "Every statement in the document is covered by your profile. Whether the cover letter and the CV agree was not checked — read them side by side before you send.",
@@ -2578,5 +2612,27 @@
     "inflatedAspirational": "Stated as an achieved result, but your profile records it as a target, not a result.",
     "restatementBorrowed": "The figure in this sentence is only backed by a different position in your profile, and the sentence does not restate that evidence.",
     "fromLetterForm": "From what you typed into the form ({field, select, motivation {Why this role} availability {Notice period / earliest start} salary {Salary expectation} other {form}}) — your own statement for this letter, not checked against your profile."
+  },
+  "deniedConcepts": {
+    "title": "What doesn't apply to you, by your own answers",
+    "lead": "We count these as not there in your applications. If one is wrong — you misspoke or we misread you — you can take it back.",
+    "none": "None of your answers rules anything out right now.",
+    "quoted": "“{statement}”",
+    "source": {
+      "interview": "From your conversation on {date}",
+      "agent_interview": "From a conversation with your assistant on {date}",
+      "testimony": "From an addition to your profile on {date}"
+    },
+    "withdraw": "Take back",
+    "withdrawnTitle": "Taken back ({count})",
+    "withdrawnLine": "{concept}, on {date}",
+    "dialogTitle": "Take back “{concept}”?",
+    "dialogSaid": "On {date} you said: <i>“{statement}”</i> So far we count {concept} as not there.",
+    "dialogSaidNoStatement": "By your earlier answer, we count {concept} as not there so far.",
+    "dialogEffect": "If you take this back, that answer no longer applies. {concept} counts again once a CV or an answer of yours states it.",
+    "dialogHistory": "Your earlier answer stays in your profile's history. You can rule {concept} out again later by saying so in a conversation.",
+    "cancel": "Cancel",
+    "confirm": "Yes, take it back",
+    "failed": "That didn't work. Please try again."
   }
 }

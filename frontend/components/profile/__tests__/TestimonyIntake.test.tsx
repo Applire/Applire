@@ -106,6 +106,33 @@ describe("TestimonyIntake", () => {
     expect(list.textContent).toContain("1350000");
   });
 
+  it("names a not-saved submission in the UI language and keeps the text (R2-13)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      res({
+        submission_id: "s3",
+        status: "error",
+        error_code: "not_saved",
+        detail: "Your testimony was not saved — the AI reply could not be read.",
+        changes: [],
+        confirmations: [],
+        conflicts: [],
+      }),
+    );
+
+    render(<TestimonyIntake />);
+    fireEvent.change(screen.getByTestId("testimony-textarea"), {
+      target: { value: "I run Kafka in production." },
+    });
+    fireEvent.click(screen.getByText("testimony.submit"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("testimony-result")).toHaveAttribute("data-status", "error"),
+    );
+    // the catalog key, never the backend's English detail
+    expect(screen.getByTestId("testimony-result").textContent).toBe("testimony.statusNotSaved");
+    expect(screen.getByTestId("testimony-textarea")).toHaveValue("I run Kafka in production.");
+  });
+
   it("reports a denial as denial_recorded, not a silent no-op", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       res({

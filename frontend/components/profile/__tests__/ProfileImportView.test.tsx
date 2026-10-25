@@ -290,7 +290,7 @@ describe("ProfileImportView", () => {
     expect(mockPush).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("review-merge-cta"));
-    expect(mockPush).toHaveBeenCalledWith("/profile#import-log");
+    expect(mockPush).toHaveBeenCalledWith("/profile#import-summary");
   });
 
   // F3 (#72): a raw pydantic/UUID validation message must never reach the user.
@@ -672,7 +672,7 @@ describe("ProfileImportView", () => {
     expect(mockPush).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("review-merge-cta"));
-    expect(mockPush).toHaveBeenCalledWith("/profile#import-log");
+    expect(mockPush).toHaveBeenCalledWith("/profile#import-summary");
   });
 
   it("R3-2 = B: keeps the read-share note through the gate dialog's merge (re-probe N1)", async () => {

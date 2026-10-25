@@ -35,6 +35,8 @@ from applire.schemas.oracle import TruthfulnessReportResponse
 from applire.schemas.outcome_critic import OutcomeCriticReportResponse
 from applire.schemas.cv import CVGenerateRequest, CVGenerateResponse, CVPageOverflow, CVPageOverflowChoiceRequest, CVProfileDiffResponse, CVSignatureOverrideRequest, CVSignatureOverrideResponse, CVStatusResponse
 from applire.schemas.cv_sections import (
+    AssistAcceptRequest,
+    AssistAcceptResponse,
     AssistAnswerRequest,
     AssistAnswerResponse,
     AssistStartRequest,
@@ -48,7 +50,13 @@ from applire.schemas.cv_sections import (
 from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_critic_report, get_cv_docx, get_cv_html, get_cv_pdf, get_cv_status, get_cv_truthfulness_report, get_docx_filename, get_pdf_filename, list_cvs_for_job, set_cv_signature_override
 from applire.services.cv import PageOverflowConflict, set_page_overflow_choice
 from applire.services.cv_diff import get_cv_profile_diff
-from applire.services.cv_assist import rewrite_section, start_assist_session, submit_assist_answer
+from applire.exceptions import ReconcileFailedError
+from applire.services.cv_assist import (
+    accept_assist_answer,
+    rewrite_section,
+    start_assist_session,
+    submit_assist_answer,
+)
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
 
 router = APIRouter(prefix="/api/cv", tags=["cv"])
@@ -339,6 +347,44 @@ async def patch_section_assist(
         raise
     except Exception as exc:
         raise internal_server_error(exc, where="cv.patch_section_assist")
+
+
+@router.post(
+    "/{cv_id}/sections/{section_id}/assist/accept",
+    response_model=AssistAcceptResponse,
+)
+async def post_section_assist_accept(
+    cv_id: uuid.UUID,
+    section_id: str,
+    body: AssistAcceptRequest,
+    db: AsyncSession = Depends(get_db),
+    provider: LLMProvider = Depends(_get_provider),
+    _auth: User = Depends(require_user),
+) -> AssistAcceptResponse:
+    """783:60 (ruling V-3 = A) — "Übernehmen": the session's ANSWER goes to
+    the profile as testimony (intake ``cv_assist``). 422 = unknown session or
+    no answer yet; 404 = no CV / no profile; 503 ``answer_not_saved`` = the
+    reconcile call failed, nothing was written, send it again (R2-13)."""
+    try:
+        return await accept_assist_answer(
+            cv_id, section_id, body.session_id, provider, db, user_id=_auth.id
+        )
+    except ReconcileFailedError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": "answer_not_saved",
+                "message": "Your answer could not be saved to your profile — please try again.",
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise internal_server_error(exc, where="cv.post_section_assist_accept")
 
 
 @router.post(

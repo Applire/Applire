@@ -104,6 +104,7 @@
     "cvUploaded": "{count, plural, one {1 Lebenslauf hochgeladen} other {# Lebensläufe hochgeladen}}",
     "profileUpdated": "{count, plural, one {Master-Profil mit 1 neuem Lebenslauf aktualisiert} other {Master-Profil mit # neuen Lebensläufen aktualisiert}}",
     "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut.",
+    "uploadNotSaved": "Wir konnten diesen Lebenslauf diesmal nicht in dein Profil übernehmen — es wurde nichts geändert. Bitte versuche es erneut.",
     "notAppliedNote": "{count, plural, one {1 Eintrag aus deinem Lebenslauf wurde nicht automatisch übernommen} other {# Einträge aus deinem Lebenslauf wurden nicht automatisch übernommen}}: {labels}",
     "notAppliedMore": "+{count} weitere",
     "sourceTruncatedNote": "Nur die ersten ≈ {percent} % Deiner Datei wurden gelesen – prüfe, ob alle Stationen übernommen sind.",
@@ -583,7 +584,10 @@
     "pageOverflowKeptDone": "{actual} Seiten — so von dir gewählt.",
     "pageOverflowUndoKeep": "Doch auf {target, plural, one {# Seite} other {# Seiten}} kürzen",
     "pageOverflowUndoGone": "Rückgängig machen geht hier nicht mehr: Der Lebenslauf hat sich seit dem Kürzen geändert.",
-    "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal."
+    "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal.",
+    "assistSavedToProfile": "In dein Profil übernommen: {items}",
+    "assistNothingNewForProfile": "Für dein Profil war in deiner Antwort nichts Neues.",
+    "assistProfileSaveFailed": "Deine Antwort konnte nicht in dein Profil übernommen werden. Im Lebenslauf steht der Text trotzdem; versuche es später noch einmal."
   },
   "saveScopePrompt": {
     "saveToProfile": "Wo soll die Änderung gelten?",
@@ -859,6 +863,7 @@
       "statusNeedsConfirmation": "Ein paar Details brauchen deine Bestätigung — im Profilzustand-Hub zu finden.",
       "statusConflict": "Das widerspricht etwas, das schon in deinem Profil steht — im Profilzustand-Hub zu finden.",
       "statusError": "Konnte nicht verarbeitet werden: {detail}",
+      "statusNotSaved": "Deine Angaben konnten nicht gespeichert werden — es wurde nichts geändert. Bitte sende sie noch einmal.",
       "notAppliedFigure": "Zahl „{span}“ steht in keinem übernommenen Eintrag.",
       "notAppliedOp": "Ein Teil der Antwort ({op}) hatte ein ungültiges Format und wurde verworfen."
     },
@@ -1192,7 +1197,13 @@
     },
     "notAppliedNoSection": "Ohne festen Abschnitt",
     "notAppliedGroupHeading": "{section} ({count})",
-    "notAppliedCallout": "Aus deinem Import nicht sicher übernommen: {labels} — prüfe, ob sie hier schon unter anderem Namen stehen, bevor du sie nachträgst."
+    "notAppliedCallout": "Aus deinem Import nicht sicher übernommen: {labels} — prüfe, ob sie hier schon unter anderem Namen stehen, bevor du sie nachträgst.",
+    "threadSuspectBinding": "Zuordnung",
+    "suspectBindingQuestion": "Ist <b>{incoming}</b> dasselbe wie <b>{existing}</b>?",
+    "suspectBindingNote": "Das wurde zusammengeführt, obwohl das eine eine fachliche und das andere eine persönliche Fähigkeit ist. Bitte kurz bestätigen.",
+    "suspectBindingSame": "Ja",
+    "suspectBindingSeparate": "Nein, getrennt führen",
+    "suspectBindingFailed": "Das hat nicht geklappt. Bitte versuche es noch einmal."
   },
   "profileReview": {
     "title": "Profil prüfen",
@@ -1322,6 +1333,7 @@
     "retry": "Erneut versuchen"
   },
   "errors": {
+    "answerNotSaved": "Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden.",
     "uploadAtLeastOne": "Bitte lade mindestens einen Lebenslauf hoch, um fortzufahren.",
     "exportFailed": "Export fehlgeschlagen. Bitte versuche es erneut.",
     "deletionFailed": "Löschen fehlgeschlagen. Bitte versuche es erneut.",
@@ -1735,7 +1747,13 @@
       "role_closed": "Diese Position als beendet markiert.",
       "gap_marked_na": "Diese Lücke als „nicht zutreffend“ markiert.",
       "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert.",
-      "denial_noted": "Als selbst genannte Einschränkung vermerkt."
+      "denial_noted": "Als selbst genannte Einschränkung vermerkt.",
+      "denial_withdrawn": "Eine frühere Einschränkung hast du selbst zurückgenommen.",
+      "denial_withdrawn_skill": "Nicht mehr ausgeschlossen: Du hast die Einschränkung zurückgenommen. Es zählt wieder, sobald ein Lebenslauf oder eine Antwort es belegt.",
+      "match_separated": "Getrennt geführt: Du hast gesagt, dass das nicht dasselbe ist.",
+      "match_confirmed": "Du hast bestätigt, dass das dasselbe ist.",
+      "availability_recorded": "Deine Verfügbarkeit festgehalten.",
+      "availability_cleared": "Deine Verfügbarkeit entfernt."
     }
   },
   "mergeGate": {
@@ -1753,6 +1771,7 @@
     "cancel": "Abbrechen",
     "resolving": "Wird verarbeitet …",
     "resolveError": "Die Aktion konnte nicht abgeschlossen werden.",
+    "notSaved": "Wir konnten diesen Lebenslauf diesmal nicht in dein Profil übernehmen — es wurde nichts geändert. Bitte versuche es erneut.",
     "badge": "Prüfung nötig",
     "reviewAction": "Prüfen"
   },
@@ -2452,10 +2471,7 @@
     "deletedPerson": "gelöschte Person"
   },
   "importSummary": {
-    "recognisedTitle": "Schon in deinem Profil ({count})",
-    "recognisedIntro": "Diese Einträge aus deiner Datei stehen bereits in deinem Profil, nur unter anderem Namen. Den neuen Namen haben wir als weitere Bezeichnung gespeichert. Stimmt eine Zuordnung nicht, tippe auf „Nicht dasselbe“.",
     "showInProfile": "Im Profil zeigen",
-    "notSame": "Nicht dasselbe",
     "separatedDone": "Als eigener Eintrag hinzugefügt",
     "sameLanguage": "gleiche Sprache",
     "showAll": "Alle {count} anzeigen",
@@ -2464,13 +2480,31 @@
     "restatedIntro": "Diese Punkte aus deiner Datei sagen dasselbe wie ein Punkt, der schon bei dieser Station steht. Wir haben sie nicht übernommen und nichts gelöscht. Steckt doch etwas Neues darin, tippe auf „Trotzdem übernehmen“.",
     "restatedHeld": "Steht schon da: {text}",
     "restatedApply": "Trotzdem übernehmen",
-    "restatedApplied": "Übernommen"
+    "restatedApplied": "Übernommen",
+    "combinedTitle": "Mit Vorhandenem zusammengeführt ({count})",
+    "combinedIntro": "Diese Angaben aus der Datei stehen schon in deinem Profil — unter anderem Namen. Wir haben sie dort ergänzt statt doppelt anzulegen.",
+    "pairQuestion": "Ist <b>{incoming}</b> dasselbe wie <b>{existing}</b>?",
+    "pairYes": "Ja",
+    "pairNo": "Nein, getrennt führen",
+    "pairConfirmed": "Als dasselbe bestätigt",
+    "keptSeparatelyTitle": "Separat behalten ({count})",
+    "keptSeparately": "<b>{incoming}</b> haben wir nicht mit <b>{existing}</b> zusammengeführt — das sind verschiedene Dinge. Beide stehen einzeln in deinem Profil.",
+    "lastImportTitle": "Dein Import vom {date} — {file}",
+    "lastImportTitleNoFile": "Dein Import vom {date}",
+    "lastImportLead": "Wir haben {added, plural, one {# Angabe} other {# Angaben}} in dein Profil übernommen und {matched, plural, one {# als schon vorhanden} other {# als schon vorhanden}} erkannt. Nichts wurde gelöscht.",
+    "groupCount": "{count, plural, one {# Angabe} other {# Angaben}}",
+    "notAppliedNote": "{count, plural, one {# Angabe aus der Datei ist nicht in deinem Profil angekommen.} other {# Angaben aus der Datei sind nicht in deinem Profil angekommen.}}",
+    "techLog": "Technisches Protokoll anzeigen",
+    "loadFailed": "Die Zusammenfassung konnte nicht geladen werden."
   },
   "profileAliases": {
     "label": "Auch bekannt als",
     "remove": "„{alias}“ als weiteren Namen entfernen",
     "removeFailed": "Entfernen hat nicht geklappt. Bitte versuch es noch einmal.",
-    "labelFor": "{name} — auch bekannt als"
+    "labelFor": "{name} — auch bekannt als",
+    "alsoTag": "auch",
+    "alsoSince": "<b>{role}</b> seit {date}",
+    "since": "seit {date}"
   },
   "reviewSignals": {
     "verdictClearCrossReadUnknown": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Ob Anschreiben und Lebenslauf zusammenpassen, wurde nicht geprüft — lies beide nebeneinander, bevor Du sendest.",
@@ -2578,5 +2612,27 @@
     "inflatedAspirational": "Steht als erreichtes Ergebnis da, in Deinem Profil ist es aber ein Ziel, kein Ergebnis.",
     "restatementBorrowed": "Die Zahl in diesem Satz belegt in Deinem Profil nur eine andere Station — der Satz gibt diesen Beleg nicht wieder.",
     "fromLetterForm": "Aus Deiner Eingabe im Formular ({field, select, motivation {Warum diese Stelle} availability {Kündigungsfrist / frühester Eintritt} salary {Gehaltswunsch} other {Formular}}) — Deine eigene Aussage für dieses Anschreiben, nicht gegen Dein Profil geprüft."
+  },
+  "deniedConcepts": {
+    "title": "Was laut deinen Antworten nicht auf dich zutrifft",
+    "lead": "Diese Punkte zählen wir in Bewerbungen als nicht vorhanden. Wenn einer nicht stimmt, weil du dich vertan hast oder wir dich falsch verstanden haben, kannst du ihn zurücknehmen.",
+    "none": "Zurzeit schließt keine deiner Antworten etwas aus.",
+    "quoted": "„{statement}“",
+    "source": {
+      "interview": "Aus deinem Gespräch am {date}",
+      "agent_interview": "Aus einem Gespräch mit deinem Assistenten am {date}",
+      "testimony": "Aus einer Ergänzung zu deinem Profil am {date}"
+    },
+    "withdraw": "Zurücknehmen",
+    "withdrawnTitle": "Zurückgenommen ({count})",
+    "withdrawnLine": "{concept}, am {date}",
+    "dialogTitle": "„{concept}“ zurücknehmen?",
+    "dialogSaid": "Am {date} hast du gesagt: <i>„{statement}“</i> Deshalb zählen wir {concept} bisher als nicht vorhanden.",
+    "dialogSaidNoStatement": "Laut deiner früheren Antwort zählen wir {concept} bisher als nicht vorhanden.",
+    "dialogEffect": "Wenn du das zurücknimmst, gilt diese Angabe nicht mehr. {concept} zählt dann wieder, sobald du es in einem Lebenslauf oder einer Antwort belegst.",
+    "dialogHistory": "Deine frühere Antwort bleibt im Verlauf deines Profils stehen. Du kannst {concept} später wieder ausschließen, indem du es in einem Gespräch sagst.",
+    "cancel": "Abbrechen",
+    "confirm": "Ja, zurücknehmen",
+    "failed": "Das hat nicht geklappt. Bitte versuche es noch einmal."
   }
 }

@@ -116,6 +116,12 @@ def _conflict_issue(conflict: Conflict, profile: MasterProfileData) -> HealthIss
     )
 
 
+#: G-5 / ruling V-5 (c) — confirmation families the Health hub answers with
+#: the ask's own options (each answer is a complete act in the applier's
+#: ``_apply_resolve_confirmation``); every other family goes to the interview.
+_ANSWERED_IN_PLACE = frozenset({"denial_scope"})
+
+
 def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
     """#333 — a parked reconciler ambiguity, surfaced so the human can reach it.
 
@@ -139,6 +145,9 @@ def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
     attribution confirmations in ``reconcile/apply.py`` and
     ``reconcile/attribution.py``). Nothing to resolve here; left unchanged.
     """
+    context = confirmation.context if isinstance(confirmation.context, dict) else {}
+    kind = context.get("kind") if isinstance(context.get("kind"), str) else None
+    answerable = kind in _ANSWERED_IN_PLACE and bool(confirmation.options)
     return HealthIssue(
         id=f"confirmation:{confirmation.confirmation_id}",
         thread="confirmation",
@@ -146,6 +155,19 @@ def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
         summary=confirmation.question,
         field_ref=None,
         source_record_ref=confirmation.source or None,
+        # G-5 / #604 — the reader's language, not the English plain field.
+        question_i18n=confirmation.question_i18n or None,
+        confirmation_id=confirmation.confirmation_id,
+        confirmation_kind=kind,
+        # V-5 (c): only a family whose answer is a complete act is answered in
+        # place; every other family keeps "Beheben" (the interview).
+        options=list(confirmation.options) if answerable else None,
+        options_i18n=(
+            list(confirmation.options_i18n)
+            if answerable and confirmation.options_i18n
+            and len(confirmation.options_i18n) == len(confirmation.options)
+            else None
+        ),
     )
 
 
@@ -225,6 +247,57 @@ def _span_provenance_issues(profile: MasterProfileData) -> list[HealthIssue]:
         )
         for span in laundered_spans(profile)
     ]
+
+
+_EXCLUSIVE_CATEGORIES = frozenset({"technical", "soft"})
+
+
+def _suspect_binding_issues(profile: MasterProfileData) -> list[HealthIssue]:
+    """FS-5 (Hazelnut build 4, founder 2026-10-23; ADR-046 amended 2026-10-24) —
+    a READ-ONLY check over the recorded skill bindings: a receipt whose
+    incoming entry (as the document stated it) and its target sit on opposite
+    sides of technical↔soft — the #801 guard's category test, which bindings
+    written before the guard never met (the audit vault: "REST APIs" on
+    Mentoring). One ``review`` issue per pair, never a write; answered by the
+    existing acts ("Ja" stamps ``confirmed_at``, "Nein" is the #717 undo), so
+    an answered or undone pair no longer shows."""
+    skills = {s.id: s for s in profile.skills if getattr(s, "id", None)}
+    trail = profile.metadata.enrichment_history if profile.metadata else []
+    seen: set[tuple[str, str]] = set()
+    issues: list[HealthIssue] = []
+    for record in reversed(trail):
+        for receipt in record.matched:
+            if receipt.section != "skills" or receipt.basis == "name_table":
+                continue
+            key = (receipt.entity_id, receipt.incoming.strip().casefold())
+            if key in seen:
+                continue
+            seen.add(key)  # the NEWEST receipt of a pair decides
+            if receipt.undone_at is not None or receipt.confirmed_at is not None:
+                continue
+            target = skills.get(receipt.entity_id)
+            incoming_category = (receipt.incoming_entry or {}).get("category")
+            target_category = getattr(target, "category", None)
+            if (
+                target is None
+                or incoming_category not in _EXCLUSIVE_CATEGORIES
+                or target_category not in _EXCLUSIVE_CATEGORIES
+                or incoming_category == target_category
+            ):
+                continue
+            issues.append(HealthIssue(
+                id=f"suspect_binding:{receipt.entity_id}:{key[1]}",
+                thread="suspect_binding",
+                profile_mismatch_severity="review",
+                summary=f"Is {receipt.incoming} the same as {target.name}?",
+                field_ref="skills.name",
+                source_record_ref=record.id,
+                section="skills",
+                skill_id=receipt.entity_id,
+                skill_name=target.name,
+                incoming_name=receipt.incoming,
+            ))
+    return issues
 
 
 def _reconciliation_loss(reconciliation: dict[str, dict[str, int]] | None) -> int:
@@ -429,6 +502,7 @@ def assess_health(
     """
     issues: list[HealthIssue] = _unit_issues(profile)
     issues.extend(_span_provenance_issues(profile))
+    issues.extend(_suspect_binding_issues(profile))  # FS-5
 
     metadata = profile.metadata
     if metadata is not None:

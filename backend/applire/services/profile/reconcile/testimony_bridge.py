@@ -37,7 +37,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.exceptions import LLMTruncatedError
+from applire.exceptions import LLMTruncatedError, ReconcileFailedError
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.profile import MasterProfileData, ProfileMetadata
 from applire.schemas.testimony import NotApplied, TestimonyResult
@@ -102,7 +102,9 @@ async def submit_testimony(
     Raises `LookupError` when no profile exists yet (mirrors `agent_bridge`).
     A truncated reconcile call is reported as an honest `status: "error"`
     result rather than raised or silently swallowed — nothing is persisted for
-    that submission (no partial-dossier merge; ADR-047 data-loss guard).
+    that submission (no partial-dossier merge; ADR-047 data-loss guard). A
+    failed one (`ReconcileFailedError`, R2-13) likewise: `status: "error"`,
+    `error_code: "not_saved"`.
     """
     # Lazy imports: applire.services.profile imports this package's siblings.
     from applire.services.profile import _get_latest
@@ -130,6 +132,20 @@ async def submit_testimony(
             or (
                 "Testimony was too long to reconcile in one pass — split it "
                 "into shorter sections and submit again."
+            ),
+        )
+    except ReconcileFailedError:
+        # R2-13 (Hazelnut build 4) — the reconcile call failed after its one
+        # retry. Nothing was written; say so, never report "no change" (which
+        # reads as "your text held nothing new"). Same in-band error idiom as
+        # the truncation branch above, plus a machine code for the UI.
+        return TestimonyResult(
+            submission_id=submission_id,
+            status="error",
+            error_code="not_saved",
+            detail=(
+                "Your testimony was not saved — the AI reply could not be read. "
+                "Nothing was changed; please submit the same text again."
             ),
         )
 

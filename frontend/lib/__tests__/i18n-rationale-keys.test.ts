@@ -43,6 +43,15 @@ const BACKEND_RATIONALE_KEYS = [
   // #669 / vault collector #602 — reconcile/stance.py's "Noted limit: …"
   "denial_noted",
   "denial_probe_asked",
+  // G-5 (ADR-059 amended 2026-10-24) — reconcile/apply.py::_apply_withdraw_denial
+  "denial_withdrawn",
+  "denial_withdrawn_skill",
+  // #717 / FS-6 — reconcile/apply.py's separate / confirm acts
+  "match_separated",
+  "match_confirmed",
+  // D-B3V7 — reconcile/apply.py::_apply_set_availability
+  "availability_recorded",
+  "availability_cleared",
   "gap_marked_na",
   "manual_section_added",
   "manual_section_removed",

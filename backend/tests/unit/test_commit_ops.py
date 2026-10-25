@@ -891,6 +891,29 @@ async def test_merge_snapshot_carries_the_merge_statistics_onto_the_receipt(
 
 
 @pytest.mark.asyncio
+async def test_fs6_kept_separate_receipt_lands_on_the_merge_record(db_session, seeded):
+    """FS-6 (ruling V-4 = A) — a binding the #801 guard refused rides
+    ApplyImportMerge onto the record, so the import summary can say
+    "Separat behalten"."""
+    from applire.schemas.profile import KeptSeparateReceipt, MasterProfileData
+    from applire.services.profile.reconcile.ops import ApplyImportMerge
+
+    merged = MasterProfileData.model_validate({k: v for k, v in _SEED.items() if k != "metadata"})
+    receipt = KeptSeparateReceipt(entity_id="s-ment", incoming="REST APIs", existing="Mentoring")
+    result = await commit_ops(
+        db_session,
+        [ApplyImportMerge(merged=merged, changes=[], kept_separate=[receipt])],
+        CommitProvenance(source="cv_upload", intake="import", actor="candidate"),
+        snapshot=SnapshotClass.MERGE,
+        enrichment=EnrichPolicy.SKIP,
+    )
+    await db_session.commit()
+    assert result.enrichment_record.kept_separate == [receipt]
+    stored = seeded.profile_json["metadata"]["enrichment_history"][-1]
+    assert stored["kept_separate"][0]["incoming"] == "REST APIs"
+
+
+@pytest.mark.asyncio
 async def test_a_non_merge_write_leaves_the_reconciliation_field_empty(db_session, seeded):
     result = await commit_ops(
         db_session, [UpsertSkill(name="Terraform", category="technical")], _provenance()

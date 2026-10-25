@@ -174,6 +174,31 @@ describe("MergeGateDialog", () => {
     expect(screen.queryByText("titleNotCv")).not.toBeInTheDocument();
   });
 
+  it("names a not-saved merge (503 not_saved) in the UI language and offers the buttons again (R2-13)", async () => {
+    const onResolved = vi.fn();
+    global.fetch = makeFetchMock(
+      { detail: { error: "not_saved", message: "We couldn't merge this CV into your profile this time." } },
+      false,
+      503,
+    );
+    render(
+      <MergeGateDialog
+        gate="name_divergence"
+        stagedId="staged-42"
+        accountName="Max Muster"
+        cvName="Markus Brandt"
+        onResolved={onResolved}
+        onCancel={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("gate-merge-btn"));
+
+    await waitFor(() => expect(screen.getByText("notSaved")).toBeInTheDocument());
+    expect(onResolved).not.toHaveBeenCalled();
+    expect(screen.getByTestId("gate-merge-btn")).not.toBeDisabled();
+  });
+
   it("POSTs action=merge to the resolve endpoint and calls onResolved", async () => {
     const onResolved = vi.fn();
     global.fetch = makeFetchMock({ action: "merge", profile_id: "p1", completeness_score: 0.9 });

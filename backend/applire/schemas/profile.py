@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 import re
 from datetime import date, datetime, timezone
@@ -254,6 +255,19 @@ class ExperienceBase(BaseModel):
         return ""
 
 
+class DatedRoleAlias(BaseModel):
+    """R2-4 (Hazelnut build 4, ADR-013 note 2026-10-24) — an ADDITIONAL role
+    the candidate holds at this employer since a stated date ("also workstream
+    lead for X since 2026-08"). The role text is also in ``role_aliases``
+    (ADR-013 rule 1); this record adds WHEN it began and which bullets the same
+    write placed first for it, so the profile can show "auch <Rolle> seit
+    <Datum>" at the top of the entry."""
+
+    role: str
+    since: str
+    bullets: list[str] = Field(default_factory=list)
+
+
 class WorkEntry(ExperienceBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company: str = ""
@@ -283,9 +297,46 @@ class WorkEntry(ExperienceBase):
     def _coerce_company_aliases(cls, v: object) -> list:
         return _coerce_alias_list(v)
 
+    # R2-4 (Hazelnut build 4) — see DatedRoleAlias. Omitted while empty, like
+    # company_aliases, so a profile without one dumps byte-identically.
+    dated_role_aliases: list[DatedRoleAlias] = Field(default_factory=list)
+
+    @field_validator("dated_role_aliases", mode="before")
+    @classmethod
+    def _coerce_dated_role_aliases(cls, v: object) -> list:
+        # A malformed record must never reject the whole profile on load.
+        if not isinstance(v, list):
+            return []
+        return [
+            a for a in v
+            if isinstance(a, DatedRoleAlias)
+            or (
+                isinstance(a, dict)
+                and isinstance(a.get("role"), str) and a["role"].strip()
+                and isinstance(a.get("since"), str) and a["since"].strip()
+            )
+        ]
+
+    @model_validator(mode="after")
+    def _dated_alias_needs_its_alias(self) -> "WorkEntry":
+        # R2-4 — a dated record describes a role alias; removing the alias
+        # (the chip / line ✕, any door) removes its date with it.
+        if self.dated_role_aliases:
+            names = {
+                unicodedata.normalize("NFC", a).strip().casefold()
+                for a in self.role_aliases if isinstance(a, str)
+            }
+            self.dated_role_aliases = [
+                d for d in self.dated_role_aliases
+                if unicodedata.normalize("NFC", d.role).strip().casefold() in names
+            ]
+        return self
+
     @model_serializer(mode="wrap")
     def _omit_empty_company_aliases(self, handler: Any) -> Any:
-        return _omit_empty_alias_lists(handler(self), ("company_aliases",))
+        return _omit_empty_alias_lists(
+            handler(self), ("company_aliases", "dated_role_aliases")
+        )
 
     industry_context: str | None = None
     team_size: int | None = None
@@ -888,6 +939,13 @@ class MatchReceipt(BaseModel):
     incoming_entry: dict[str, Any] | None = None
     #: set when the candidate said "Nicht dasselbe" (`SeparateMatch`).
     undone_at: datetime | None = None
+    #: FS-5 (ADR-046 amended 2026-10-24) — the evidence refs THIS binding added
+    #: to the target (a targeted / alias skill upsert's merge); "Nicht dasselbe"
+    #: takes them back. Empty on receipts written before it existed.
+    refs_added: list[str] = Field(default_factory=list)
+    #: FS-6 (ruling V-4 = A) — set when the candidate answered "Ja" to "Ist A
+    #: dasselbe wie B?" (`ConfirmMatch`); the pair question is not asked again.
+    confirmed_at: datetime | None = None
 
 
 class Availability(BaseModel):
@@ -932,6 +990,26 @@ class RestatedReceipt(BaseModel):
     field: Literal["responsibilities", "achievements"]
     text: str
     restates: str
+
+
+class KeptSeparateReceipt(BaseModel):
+    """FS-6 (Hazelnut build 4, ruling V-4 = A) — a skill binding the import's
+    #801 guard REFUSED (``binding_guard.refuse_false_skill_bindings``): the
+    reconciler named ``existing`` as the same skill as the document's
+    ``incoming``, the guard found it names another entry or crosses
+    technical/soft, and the incoming skill was kept as its own entry. The
+    receipt for a decision that kept two things apart, so the import summary
+    can say so ("Separat behalten"). Rides ``MergeResult.kept_separate`` →
+    ``ApplyImportMerge.kept_separate`` → ``EnrichmentRecord.kept_separate`` and
+    the import doors' response, exactly like :class:`RestatedReceipt`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    section: str = "skills"
+    entity_id: str
+    incoming: str
+    existing: str
+    reason: str = ""
 
 
 class ImportNotApplied(BaseModel):
@@ -1204,6 +1282,7 @@ class EnrichmentRecord(BaseModel):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the extraction review
     #: outcome of the import this record receipts; ``None`` on every
     #: non-import record and on records persisted before the field existed.
@@ -1281,6 +1360,27 @@ class ReceiptSummary(BaseModel):
     facts: list[ReceiptFact] = Field(default_factory=list)
 
 
+class ImportReceiptSummary(BaseModel):
+    """R2-8 (9) (Hazelnut build 4, ruling V-2 = A) — the last import, in the
+    user's terms (``services/profile/receipts.py::summarize_last_import``):
+    ``GET /api/profile/import-summary``. Empty (``record_id`` None) when the
+    trail holds no import."""
+
+    record_id: str | None = None
+    timestamp: datetime | None = None
+    source: str | None = None
+    #: The uploaded file the record belongs to, when one is known.
+    file_name: str | None = None
+    added_total: int = 0
+    groups: list[ReceiptGroup] = Field(default_factory=list)
+    facts: list[ReceiptFact] = Field(default_factory=list)
+    #: Recognised pairs, one per (entry, incoming name), not undone.
+    matched: list[MatchReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)
+    restated: list[RestatedReceipt] = Field(default_factory=list)
+    not_applied_total: int = 0
+
+
 class DeniedConcept(BaseModel):
     """#231 — an explicit denial the candidate gave testimony for ("I did not
     personally configure the embedding models…"), persisted so it survives
@@ -1331,6 +1431,19 @@ class DeniedConcept(BaseModel):
     date: str  # ISO date (YYYY-MM-DD) — the day the denial was recorded
     denial_level: Literal["direct", "partial"] = "direct"
     probe_asked: bool = False
+
+
+class WithdrawnDenial(DeniedConcept):
+    """G-5 (Hazelnut build 4; ADR-059 amended 2026-10-24, building the
+    2026-07-26 un-denial act) — a denial the CANDIDATE withdrew. The record
+    moves here verbatim from ``denied_concepts`` (concept, statement, source,
+    date, level, probe flag stay the candidate's original testimony) and gains
+    the day it was withdrawn: mark, don't erase (cl. 4). Nothing reads this list
+    as a denial, so every floor, the letter's STATED LIMIT block and the Oracle
+    stop seeing it without a reader change. Only ``reconcile.apply.
+    _apply_withdraw_denial`` writes it."""
+
+    withdrawn_at: str  # ISO date (YYYY-MM-DD)
 
 
 def render_localized_confirmation(
@@ -1434,6 +1547,9 @@ class ProfileMetadata(BaseModel):
     # later analyze_gaps run cannot re-infer the denied concept via adjacency
     # (the ledger's deterministic override, services.keyword_ledger, reads this).
     denied_concepts: list[DeniedConcept] = Field(default_factory=list)
+    # G-5 (ADR-059 amended 2026-10-24) — denials the candidate withdrew; the
+    # history of a denial is never erased. See :class:`WithdrawnDenial`.
+    withdrawn_denials: list[WithdrawnDenial] = Field(default_factory=list)
 
 
 class ProfileMetaBlock(BaseModel):
@@ -1805,6 +1921,7 @@ class ProfileImportResponse(MasterProfileResponse):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: 783:L41 (ADR-021 amended 2026-10-20) — the extraction review outcome of
     #: this import; see :class:`ExtractionReview`.
     extraction_review: ExtractionReview | None = None
@@ -1884,6 +2001,7 @@ class CVUploadResponse(BaseModel):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`. Optional
     #: for the same reason: this class is persisted verbatim as a background
     #: import job's `result` (`CVImportStatusResponse`), and a job stored
@@ -1970,8 +2088,28 @@ class StagedResolveResponse(BaseModel):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`.
     not_applied_loss_count: int | None = None
+
+
+class ResolveConfirmationRequest(BaseModel):
+    """G-5 / ruling V-5 (c) — the candidate answers a parked confirmation from
+    the Health hub: ``chosen_option`` is one of the ask's plain ``options``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation_id: str = Field(min_length=1, max_length=200)
+    chosen_option: str = Field(min_length=1, max_length=1000)
+
+
+class WithdrawDenialRequest(BaseModel):
+    """G-5 (ADR-059 amended 2026-10-24) — the denial the candidate withdraws,
+    named exactly as My Profile lists it (``metadata.denied_concepts[].concept``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    concept: str = Field(min_length=1, max_length=500)
 
 
 class SeparateMatchRequest(BaseModel):
@@ -2021,8 +2159,13 @@ class HealthIssue(BaseModel):
     # it and it equals the role-date derivation — the fingerprint of a span
     # laundered across the import seam before the 2026-10-07 fix. It carries
     # its own one-click action (recompute), never a decision to pick between.
+    # ``suspect_binding`` (FS-5, Hazelnut build 4, ADR-046 amended 2026-10-24):
+    # a skill pair an import combined across technical↔soft (the #801 guard's
+    # category test, run read-only over the recorded receipts) — one question
+    # "Ist A dasselbe wie B?" with the existing Ja / Nein-getrennt acts.
     thread: Literal[
-        "conflict", "accuracy", "confirmation", "unit", "not_applied", "span_provenance"
+        "conflict", "accuracy", "confirmation", "unit", "not_applied", "span_provenance",
+        "suspect_binding",
     ]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     # A server-built, English-only fallback (kept for any consumer #626
@@ -2124,6 +2267,23 @@ class HealthIssue(BaseModel):
     #    what phase 1's arithmetic gives today. ``None`` on every other thread.
     skill_id: str | None = None
     skill_name: str | None = None
+    #: FS-5 — ``suspect_binding`` only: the name the import combined INTO
+    #: ``skill_name`` (the receipt's ``incoming``).
+    incoming_name: str | None = None
+    #: G-5 / #604 — ``confirmation`` only: the parked question per language
+    #: (``PendingConfirmation.question_i18n``), so the panel asks it in the
+    #: reader's language instead of the English ``summary``. Null for a record
+    #: persisted before #669.
+    question_i18n: dict[str, str] | None = None
+    #: G-5 / ruling V-5 (c) — ``confirmation`` only: the parked ask's id, and
+    #: for a family the panel answers IN PLACE (``denial_scope``: the answer is
+    #: the act, no second dialog) its options, plain and per language, posted
+    #: back as ``POST /api/profile/confirmations/resolve``. Null options = the
+    #: family is answered in the profile-review interview ("Beheben").
+    confirmation_id: str | None = None
+    confirmation_kind: str | None = None
+    options: list[str] | None = None
+    options_i18n: list[dict[str, str]] | None = None
     span_years: int | None = None
     recomputed_years: int | None = None
 

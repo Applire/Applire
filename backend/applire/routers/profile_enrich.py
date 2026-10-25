@@ -17,6 +17,7 @@
 
 """Profile enrichment endpoints — Mode C interview sessions (no JD required)."""
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -28,6 +29,7 @@ from applire.auth.deps import require_user
 from applire.models.user import User
 from applire.constants import INTERVIEW_SESSION_TTL_DAYS
 from applire.db.session import get_db
+from applire.exceptions import ReconcileFailedError
 from applire.models.profile import MasterProfile
 from applire.services.profile.owner import resolve_owner
 from applire.models.session import InterviewSession
@@ -57,6 +59,7 @@ from applire.services.session import (
 )
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
+logger = logging.getLogger(__name__)
 
 
 def _uid(user: "User | None"):
@@ -369,6 +372,7 @@ async def respond_to_enrich(
             lang=lang,
         )
     except ReconcileFailedError:
+        logger.warning("enrich respond: reconcile failed; answer not saved (session %s)", session_id)
         # R2-13 (P-1) — the answer was NOT merged: no next question, nothing
         # committed, the optimistic transcript append undone in place (the
         # list is shared with `session.state`). The UI keeps the text.

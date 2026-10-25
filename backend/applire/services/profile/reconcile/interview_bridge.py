@@ -138,6 +138,8 @@ async def reconcile_interview_turn(
     provider: LLMProvider,
     session_id: str,
     lang: str = "en",
+    record_source: str = _SOURCE,
+    intake: str = "interview",
 ) -> InterviewTurnResult:
     """Reconcile one interview answer into the vault. ONE write path.
 
@@ -151,6 +153,18 @@ async def reconcile_interview_turn(
     `if receipt_changes:`, so a turn that changed nothing left no trace it had
     happened; it is unconditional now. And the completeness recompute, which
     was import-only, now runs on every turn (ADR-063 amendment (4)).
+
+    R2-13 (Hazelnut build 4): a failed reconcile call raises
+    ``ReconcileFailedError`` out of this function BEFORE ``commit_ops`` — the
+    answer was not saved, and the caller says so (the interview turn's
+    ``not_saved`` state; the profile-enrich door's 503 ``not_saved``). It is
+    never committed as an empty, "changed nothing" turn.
+
+    783:60 (Hazelnut build 4, ruling V-3 = A): the CV assist's accepted answer
+    rides this same door — the turn is interview-shaped (an Applire-authored
+    gap + question, the candidate's answer) so the reconciler and its stance
+    guards read it exactly as an interview turn; only the durable record
+    differs (``record_source="testimony"``, ``intake="cv_assist"``).
     """
     before = MasterProfileData.model_validate(profile_record.profile_json)
     new_info = {"gap": gap, "question": question, "answer": answer}
@@ -160,8 +174,8 @@ async def reconcile_interview_turn(
         db,
         result.ops,
         CommitProvenance(
-            source=_SOURCE,
-            intake="interview",
+            source=record_source,
+            intake=intake,
             session_id=session_id,
             actor="candidate",
         ),

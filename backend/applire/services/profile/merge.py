@@ -36,6 +36,7 @@ from applire.schemas.profile import (
     FieldChange,
     ImportNotApplied,
     MatchReceipt,
+    KeptSeparateReceipt,
     RestatedReceipt,
     MasterProfileData,
     PendingConfirmation,
@@ -65,6 +66,7 @@ class MergeResult:
     matched: list[MatchReceipt] = field(default_factory=list)  # #707 — `match_existing` receipts
     # D-B3V6 (ruling V-3 = A) — second-source bullets held back as restatements.
     restated: list[RestatedReceipt] = field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = field(default_factory=list)  # FS-6
     # E037 PQ #4 — import-time reconciler ambiguities (N-option questions). Carried
     # on their own channel rather than coerced into the 2-value `conflicts` shape,
     # so they surface as a clean question + per-option buttons in the profile-review

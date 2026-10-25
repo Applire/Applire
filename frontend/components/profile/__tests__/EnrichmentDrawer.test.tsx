@@ -28,9 +28,14 @@ vi.mock("@/lib/api/enrich", () => ({
   // real guard logic — the drawer branches on this
   isEnrichNoGaps: (r: unknown) =>
     typeof r === "object" && r !== null && "noGaps" in r,
+  EnrichAnswerNotSavedError: class EnrichAnswerNotSavedError extends Error {},
 }));
 
-import { startEnrichSession, respondToEnrich } from "@/lib/api/enrich";
+import {
+  startEnrichSession,
+  respondToEnrich,
+  EnrichAnswerNotSavedError,
+} from "@/lib/api/enrich";
 
 const startMock = vi.mocked(startEnrichSession);
 const respondMock = vi.mocked(respondToEnrich);
@@ -74,6 +79,33 @@ describe("EnrichmentDrawer", () => {
       ).toBeInTheDocument(),
     );
     expect(screen.getByRole("textbox")).toBeInTheDocument();
+  });
+
+  // R2-13 — a failed reconcile: the answer was NOT saved. The chat stays, the
+  // notice names it in the UI language, and the typed text is back in the
+  // composer so it can be sent again unchanged.
+  it.each([
+    ["de", /Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden/],
+    ["en", /Your answer could not be saved — please send it again/],
+  ])("keeps the answer in the composer and says it was not saved (%s)", async (locale, copy) => {
+    startMock.mockResolvedValueOnce({
+      session_id: "sess-1",
+      first_question: "How big was your team?",
+      gaps: [{ id: "g1", label: "team_size", status: "active" }],
+      estimated_questions: 3,
+    });
+    respondMock.mockRejectedValueOnce(new EnrichAnswerNotSavedError("not_saved"));
+    render(withIntl(<EnrichmentDrawer open onClose={vi.fn()} />, locale as "de" | "en"));
+
+    await waitFor(() => expect(screen.getByText("How big was your team?")).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Six people since 2024." } });
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", ctrlKey: true });
+
+    await waitFor(() => expect(screen.getByTestId("enrich-not-saved")).toBeInTheDocument());
+    expect(screen.getByTestId("enrich-not-saved").textContent).toMatch(copy);
+    expect(screen.getByRole("textbox")).toHaveValue("Six people since 2024.");
+    // the question is still on screen (no error page replaced the chat)
+    expect(screen.getByText("How big was your team?")).toBeInTheDocument();
   });
 
   it("shows the no-gaps message in German under the de locale", async () => {

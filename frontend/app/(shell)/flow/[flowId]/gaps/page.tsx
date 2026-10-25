@@ -1248,7 +1248,7 @@ export default function GapsPage({
               <button
                 type="button"
                 data-testid="merge-review-link"
-                onClick={() => router.push("/profile#import-log")}
+                onClick={() => router.push("/profile#import-summary")}
                 className="text-teal underline hover:no-underline"
               >
                 {t("mergeMovedLink")}

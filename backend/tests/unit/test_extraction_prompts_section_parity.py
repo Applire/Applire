@@ -283,6 +283,10 @@ _INTERNAL_FIELDS: dict[str, frozenset[str] | None] = {
     "organization_aliases": frozenset({"volunteer_activities"}),
     "institution_aliases": frozenset({"education"}),
     "degree_aliases": frozenset({"education"}),
+    # R2-4 (Hazelnut build 4, ADR-013 note 2026-10-24) — the applier records a
+    # dated role alias when a targeted upsert_work names an additional role
+    # with its own start date; an extraction never targets a vault entry.
+    "dated_role_aliases": frozenset({"work_experience"}),
 }
 
 

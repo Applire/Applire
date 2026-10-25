@@ -30,7 +30,7 @@ import uuid
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.exceptions import LLMTruncatedError
+from applire.exceptions import LLMTruncatedError, ReconcileFailedError
 from applire.models.gap import GapAnalysis
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.claims import (
@@ -150,8 +150,8 @@ async def submit_agent_claims(
     Raises LookupError for missing profile/job, ValueError for gap-contract
     violations (mapped to -32001/-32602 at the MCP layer). Each claim's write
     is assigned and FLUSHED by `commit_ops`; this door commits ONCE at the end,
-    so the batch is still one transaction. A truncated reconcile fails only its
-    own claim.
+    so the batch is still one transaction. A truncated or failed
+    (`ReconcileFailedError`, R2-13) reconcile fails only its own claim.
     """
     # Lazy imports: applire.services.profile imports this package's siblings.
     from applire.ownership import OwnedNotFound
@@ -201,6 +201,22 @@ async def submit_agent_claims(
                     index=index,
                     status="error",
                     detail=str(exc) or "LLM output truncated — restate the claim",
+                )
+            )
+            continue
+        except ReconcileFailedError:
+            # R2-13 (Hazelnut build 4) — the reconcile call failed after its one
+            # retry: THIS claim was not saved (never "no_change"); the batch goes
+            # on, and `current` stays at its pre-claim state for the next claim.
+            results.append(
+                ClaimResult(
+                    index=index,
+                    status="error",
+                    error_code="not_saved",
+                    detail=(
+                        "This claim was not saved — the AI reply could not be "
+                        "read. Nothing was changed; restate the same claim to retry."
+                    ),
                 )
             )
             continue

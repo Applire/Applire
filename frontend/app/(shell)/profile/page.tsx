@@ -31,6 +31,12 @@ import { AvailabilityCard, type AvailabilityValue } from "@/components/profile/A
 import { SignatureManager } from "@/components/profile/SignatureManager";
 import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
 import { ProfileImportView } from "@/components/profile/ProfileImportView";
+import { ImportSummaryCard } from "@/components/profile/ImportSummaryCard";
+import {
+  DeniedConceptsCard,
+  type DeniedConceptItem,
+  type WithdrawnDenialItem,
+} from "@/components/profile/DeniedConceptsCard";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import { HealthPanel, type ProfileHealth, type HealthIssue } from "@/components/profile/HealthPanel";
@@ -144,6 +150,11 @@ interface ProfileResponse {
     signature_stories?: Array<Record<string, unknown>>;
     // D-B3V7 (rulings 787:L3 + V-4) — notice period / earliest start.
     availability?: AvailabilityValue | null;
+    // G-5 (ADR-059 amended 2026-10-24) — the denials My Profile lists.
+    metadata?: {
+      denied_concepts?: DeniedConceptItem[];
+      withdrawn_denials?: WithdrawnDenialItem[];
+    };
   };
   completeness: number;
   // D-B3V7 (ruling V-4) — the dashboard reminder's condition.
@@ -392,6 +403,45 @@ export default function ProfilePage() {
     }
   };
 
+  // FS-5 — a suspect binding is answered by the pair's own acts: "Ja" stamps
+  // the receipt confirmed (never asked again), "Nein" is the #717 undo, which
+  // also takes the merged evidence back. Either way the panel refreshes.
+  const handleAnswerBinding = async (issue: HealthIssue, same: boolean): Promise<boolean> => {
+    try {
+      const init: RequestInit = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity_id: issue.skill_id, incoming: issue.incoming_name }),
+      };
+      const res = same
+        ? await fetch(`${API_BASE}/api/profile/matches/confirm`, { ...init, method: "POST" })
+        : await fetch(`${API_BASE}/api/profile/matches/separate`, { ...init, method: "POST" });
+      if (!res.ok) return false;
+      await loadProfile();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // V-5 (c) — a `denial_scope` ask answered in the Health hub: the answer is
+  // the act ("Angabe zurücknehmen" withdraws the denial; no second dialog).
+  // 409 = already answered elsewhere: refresh and let the item disappear.
+  const handleAnswerConfirmation = async (issue: HealthIssue, option: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/api/profile/confirmations/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation_id: issue.confirmation_id, chosen_option: option }),
+      });
+      if (!res.ok && res.status !== 409) return false;
+      await loadProfile();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const completenessScore = profile?.completeness ?? 0;
 
   // #382 — the work entries whose budget figure states no unit, as decided by
@@ -482,6 +532,8 @@ export default function ProfilePage() {
               health={health}
               onResolve={handleResolve}
               onRecomputeSpan={handleRecomputeSpan}
+              onAnswerBinding={handleAnswerBinding}
+              onAnswerConfirmation={handleAnswerConfirmation}
               onImprove={openEnrichForAll}
             />
           )}
@@ -814,8 +866,19 @@ export default function ProfilePage() {
             );
           })}
 
-          {/* Enrichment History — the relocated merge/import review (#67/#69).
-              The post-merge CTA on the import page deep-links here (#import-log). */}
+          {/* G-5 (ADR-059 amended 2026-10-24) — every denial, with "Zurücknehmen". */}
+          {profile && (
+            <DeniedConceptsCard
+              denied={profile.profile.metadata?.denied_concepts ?? []}
+              withdrawn={profile.profile.metadata?.withdrawn_denials ?? []}
+              onWithdrawn={loadProfile}
+            />
+          )}
+
+          {/* R2-8 (9) (ruling V-2 = A) — "See what was combined" lands on the
+              last import's summary (#import-summary); the Enrichment History
+              (#67/#69, #import-log) stays inside it as the folded technical log. */}
+          <ImportSummaryCard reloadKey={enrichmentHistory} onChanged={loadProfile}>
           {enrichmentHistory.length > 0 && (
             <Card id="import-log" className="p-4 mt-6 scroll-mt-24">
               <h3 className="font-heading text-base font-semibold text-neutral-dark mb-4">
@@ -897,6 +960,7 @@ export default function ProfilePage() {
               </div>
             </Card>
           )}
+          </ImportSummaryCard>
         </div>
       </main>
 

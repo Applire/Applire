@@ -19,7 +19,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import type { ImportNotAppliedItem, MatchReceiptItem, RestatedReceiptItem } from "@/lib/import-cv";
+import type { ImportNotAppliedItem, KeptSeparateItem, MatchReceiptItem, RestatedReceiptItem } from "@/lib/import-cv";
 
 // Empty string default lets Next.js rewrites handle /api/* routing in all environments
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -41,6 +41,8 @@ export interface StagedResolveResult {
   matched?: MatchReceiptItem[];
   /** D-B3V6 — bullets held back as restatements. */
   restated?: RestatedReceiptItem[];
+  /** FS-6 — bindings kept apart (#801 refusals). */
+  kept_separate?: KeptSeparateItem[];
 }
 
 interface MergeGateDialogProps {
@@ -54,10 +56,14 @@ interface MergeGateDialogProps {
   onCancel: () => void;
 }
 
+/** R2-13 — the stable code a failed (not saved) merge answers with. */
+const NOT_SAVED = "not_saved";
+
 async function readApiError(res: Response): Promise<string> {
   try {
     const body = await res.json();
     const detail = body.detail;
+    if (detail && typeof detail === "object" && detail.error === NOT_SAVED) return NOT_SAVED;
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail))
       return detail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ");
@@ -92,7 +98,8 @@ export function MergeGateDialog({
       const data = (await res.json()) as StagedResolveResult;
       onResolved(action, data);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("resolveError"));
+      const message = e instanceof Error ? e.message : "";
+      setError(message === NOT_SAVED ? t("notSaved") : message || t("resolveError"));
       setBusy(null);
     }
   }

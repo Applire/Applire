@@ -43,6 +43,7 @@ from applire.schemas.profile import (
     ImportNotApplied,
     MasterProfileData,
     MatchReceipt,
+    KeptSeparateReceipt,
     RestatedReceipt,
     render_localized_confirmation,
     ExtractionReview,
@@ -486,6 +487,46 @@ class SeparateMatch(BaseModel):
     op: Literal["separate_match"] = "separate_match"
     entity_id: str
     incoming: str
+
+
+class ConfirmMatch(BaseModel):
+    """The candidate says a recognised match is right — ADAPTER-ONLY (FS-6).
+
+    Hazelnut build 4, ruling V-4 = A: the import summary asks "Ist A dasselbe
+    wie B?" for each recognised pair; "Ja" stamps ``confirmed_at`` on every
+    receipt of the pair (same pair predicate as :class:`SeparateMatch`), so the
+    question is not asked again. Writes nothing in the vault sections. Never
+    model-emittable.
+    """
+
+    op: Literal["confirm_match"] = "confirm_match"
+    entity_id: str
+    incoming: str
+
+
+class WithdrawDenial(BaseModel):
+    """The candidate withdraws one of their denials — ADAPTER-ONLY (G-5).
+
+    ADR-059 amended 2026-10-24, building the 2026-07-26 un-denial act (cl. 1–4):
+    the speaker decides, never the system. Reached only from an explicit
+    candidate act — My Profile's confirmed "Zurücknehmen", or the answer
+    ``cv_holds`` to a parked "Stimmt deine frühere Angabe noch?" item — and
+    never model-emittable: ``engine._parse_ops`` validates model JSON against
+    ``ReconcileOp`` alone, so a hallucinated ``{"op": "withdraw_denial"}`` is
+    dropped before it is an object (the guard ``DemoteSkill`` relies on).
+
+    **Reach: exactly one EXISTING ``metadata.denied_concepts`` record**, matched
+    by ``ats_audit._norm`` (the normaliser ``record_denials`` dedupes with). A
+    miss is a no-op — it never widens by containment and never mints. The
+    record moves verbatim to ``metadata.withdrawn_denials`` (mark, don't erase);
+    a vault skill the denial DECLARES and that sits at ``denied`` returns to
+    ``confirmed`` unless another active denial still declares it (ADR-061
+    amended 2026-08-08: nothing else leaves ``denied``). Receipts ride the
+    denial channel, never ``changes``.
+    """
+
+    op: Literal["withdraw_denial"] = "withdraw_denial"
+    concept: str
 
 
 class ReplaceSection(BaseModel):
@@ -998,6 +1039,7 @@ class ApplyImportMerge(BaseModel):
     matched: list[MatchReceipt] = Field(default_factory=list)
     #: D-B3V6 (ruling V-3 = A) — bullets the restatement check held back.
     restated: list[RestatedReceipt] = Field(default_factory=list)
+    kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)  # FS-6
     #: 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the ingest's extraction
     #: review outcome, riding the same path as ``reconciliation`` (only the
     #: intake knows it) onto the committer's ``EnrichmentRecord``.
@@ -1122,6 +1164,8 @@ _ADAPTER_ONLY = (
     MarkProbeAsked,
     EscalateDenialLevel,
     SeparateMatch,
+    ConfirmMatch,
+    WithdrawDenial,
     SetAvailability,
     DismissAvailabilityReminder,
 )

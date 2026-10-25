@@ -180,17 +180,19 @@ async def test_idempotent_clean_profile_no_changes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_empty_ops_on_provider_noise_is_a_noop() -> None:
-    """Engine degrades to empty ops on garbage → reshape is a no-op (never raises)."""
+async def test_provider_garbage_raises_reconcile_failed_not_a_silent_noop() -> None:
+    """R2-13 (Hazelnut build 4): a non-object reply is a FAILED call — the engine
+    retries once and raises ``ReconcileFailedError``; reshape propagates it
+    instead of reporting "nothing to reshape" (it used to degrade to a no-op)."""
+    from applire.exceptions import ReconcileFailedError
+
     profile = MasterProfileData(
         work_experience=[WorkEntry(company="X", role="Y")]
     )
     provider = _StubProvider("not-json-at-all")
 
-    outcome = await reshape_profile(profile, provider, source="migration")
-
-    assert outcome.changed is False
-    assert outcome.profile.model_dump(mode="json") == profile.model_dump(mode="json")
+    with pytest.raises(ReconcileFailedError):
+        await reshape_profile(profile, provider, source="migration")
 
 
 # ── Truthfulness (ADR-040) ────────────────────────────────────────────────────

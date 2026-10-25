@@ -78,10 +78,19 @@ export const ROLE_ENTRY_SECTIONS = new Set(["work_experience", "volunteer_activi
 
 export function keepBothApplies(
   issue?: { section?: string | null; thread?: string | null } | null,
+  current?: { section?: string | null; gapId?: string | null } | null,
 ): boolean {
-  if (issue == null) return true;
-  if (issue.thread != null && issue.thread !== "conflict") return false;
-  return ROLE_ENTRY_SECTIONS.has(issue.section ?? "");
+  // R2-8 (7) (Hazelnut build 4, UX audit 2 emma-mobile-005): with no issue in
+  // hand the drawer offered the escape on EVERY item — a `personal_info.location`
+  // conflict included — and with one it judged the clicked issue, not the item
+  // on screen. The item the question is about decides now (the backend reports
+  // `review_section` + `current_gap_id` per question): a CONFLICT on a role
+  // entry only; a confirmation carries its own "separate" option; unknown → no.
+  if (issue != null && issue.thread != null && issue.thread !== "conflict") return false;
+  const gapId = current?.gapId ?? null;
+  if (gapId != null && !gapId.startsWith("conflict:")) return false;
+  const section = current?.section ?? (issue != null ? issue.section : null);
+  return ROLE_ENTRY_SECTIONS.has(section ?? "");
 }
 
 /**
@@ -179,6 +188,8 @@ export function ProfileReviewDrawer({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [choices, setChoices] = useState<string[] | null>(null);
+  // R2-8 (7) — the item the current question is about (see keepBothApplies).
+  const [currentItem, setCurrentItem] = useState<{ section: string | null; gapId: string | null } | null>(null);
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
@@ -210,6 +221,7 @@ export function ProfileReviewDrawer({
         }
         setMessages([{ role: "assistant", content: s.first_question }]);
         setChoices(s.choices);
+        setCurrentItem({ section: s.review_section ?? null, gapId: s.current_gap_id ?? null });
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Error"))
       .finally(() => setLoading(false));
@@ -255,6 +267,7 @@ export function ProfileReviewDrawer({
           ]);
         }
         setChoices(result.choices);
+        setCurrentItem({ section: result.review_section ?? null, gapId: result.current_gap_id ?? null });
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Error");
       } finally {
@@ -395,7 +408,7 @@ export function ProfileReviewDrawer({
                   ))}
                   {/* F4 (#73): escape the either/or framing — keep both as two roles.
                       #685: not for a profile-level dispute — see keepBothApplies. */}
-                  {keepBothApplies(issue) && (
+                  {keepBothApplies(issue, currentItem) && (
                     <>
                       <Button
                         data-testid="profile-review-keep-both"
