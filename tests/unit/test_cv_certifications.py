@@ -269,3 +269,65 @@ def test_template_certifications_label_localised(template_file, jinja_env, color
     # Case-insensitive: tech_developer lowercases all section labels by design.
     assert "zertifizierungen" in html_de.lower(), f"{template_file}: German certifications label missing"
     assert "certifications" in html_en.lower(), f"{template_file}: English certifications label missing"
+
+
+# ---------------------------------------------------------------------------
+# 786:240: one qualification recorded as a certification AND an education entry
+# prints once (in education) — a lexical identity fact, both generation paths.
+# ---------------------------------------------------------------------------
+
+_MEISTER_PROFILE = {
+    "certifications": [
+        {"name": "Industriemeister Metall (IHK)", "issuing_organization": "IHK",
+         "date_obtained": "2010", "status": "confirmed"},
+        {"name": "REFA-Grundschein Arbeitsorganisation", "date_obtained": "2013", "status": "confirmed"},
+    ],
+    "education": [
+        {"id": "e1", "degree": "Industriemeister Metall", "institution": "IHK", "end_date": "2010"},
+        {"id": "e2", "degree": "Ausbildung Industriemechaniker", "institution": "Rasselstein", "end_date": "2004"},
+    ],
+}
+
+
+def _tailored_with_education(education):
+    from applire.schemas.cv import TailoredCVData, TailoredContact, TailoredEducationEntry
+
+    return TailoredCVData(
+        contact=TailoredContact(name="Marcus"),
+        education=[TailoredEducationEntry(**{k: v for k, v in e.items() if k != "id"}) for e in education],
+    )
+
+
+def test_a_certification_that_is_an_education_entry_prints_once_786_240():
+    from applire.services.cv import _apply_certifications
+
+    out = _apply_certifications(_tailored_with_education(_MEISTER_PROFILE["education"]), _MEISTER_PROFILE)
+    assert [c.name for c in out.certifications] == ["REFA-Grundschein Arbeitsorganisation"]
+    assert [e.degree for e in out.education][0] == "Industriemeister Metall"
+
+
+def test_a_different_year_keeps_both_786_240():
+    from applire.services.cv import _apply_certifications
+
+    edu = [{"degree": "Industriemeister Metall", "institution": "IHK", "end_date": "2008"}]
+    out = _apply_certifications(_tailored_with_education(edu), _MEISTER_PROFILE)
+    assert "Industriemeister Metall (IHK)" in [c.name for c in out.certifications]
+
+
+def test_a_name_that_only_shares_words_keeps_both_786_240():
+    from applire.services.cv import _apply_certifications
+
+    edu = [{"degree": "Industriemeister", "institution": "", "end_date": "2010"}]
+    out = _apply_certifications(_tailored_with_education(edu), _MEISTER_PROFILE)
+    assert "Industriemeister Metall (IHK)" in [c.name for c in out.certifications]
+
+
+def test_v2_compose_prints_the_qualification_once_786_240():
+    """Seam: the v2 compose (cv_v2) builds education from the vault, then joins
+    certifications through the same function."""
+    from applire.services.cv_v2 import compose_v2
+
+    profile = dict(_MEISTER_PROFILE, personal_info={"name": "Marcus"}, work_experience=[], skills=[])
+    tailored = compose_v2({"work": [], "education": [], "skills": [], "summary": "x"}, profile)
+    assert [c.name for c in tailored.certifications] == ["REFA-Grundschein Arbeitsorganisation"]
+    assert "Industriemeister Metall" in [e.degree for e in tailored.education]

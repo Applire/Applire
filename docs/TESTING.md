@@ -84,7 +84,6 @@ tests/
 │   ├── cv-section-editor.spec.ts
 │   ├── gaps-page.spec.ts
 │   ├── jd-url-error.spec.ts
-│   ├── match-page.spec.ts
 │   ├── photo-management.spec.ts
 │   ├── profile-enrichment.spec.ts
 │   ├── upload-flow.spec.ts
@@ -210,6 +209,20 @@ start if a backend's JSON comes back:
 cd frontend && BACKEND_URL=http://127.0.0.1:9 NEXT_PUBLIC_API_URL= npx next dev -p 3156 &
 E2E_BASE_URL=http://localhost:3156 E2E_STUBBED_ONLY=1 npx playwright test --project=chromium tests/oq/auth-shell.spec.ts
 ```
+
+A cold `next dev` compiles each route on its first hit, which can exceed the 10 s expect/navigation
+timeouts: one cold run went red on `/admin/overview`, `/flow/<id>/interview`, `/dashboard` and
+`/manifest.webmanifest`, all green on a warm re-run. Warm the routes before `playwright test`
+(any HTTP status counts as compiled; this loop waits for the server to answer at all):
+
+```bash
+for p in /login /dashboard /profile /admin/overview \
+         /flow/00000000-0000-0000-0000-000000000000/interview /manifest.webmanifest; do
+  curl -s -o /dev/null --max-time 120 --retry 5 --retry-connrefused --retry-delay 2 "http://localhost:3156$p"
+done
+```
+
+CI is unaffected: it serves a production build, where nothing compiles on first hit.
 
 `next.config.ts` keeps its `localhost:8001` default (`cd frontend && npm run dev` against a local
 backend, and every Docker image passes `BACKEND_URL` at build). Do not run `npm run build` while a

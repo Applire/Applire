@@ -22,7 +22,7 @@ import { countInText, type LocateTarget } from "@/lib/locate-in-preview";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { SectionEditor, type SectionEditorHandle } from "./SectionEditor";
+import { SectionEditor, entryKindOf, type SectionEditorHandle } from "./SectionEditor";
 import { KaileChat } from "./KaileChat";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -174,7 +174,10 @@ export const ContentTab = forwardRef<ContentTabHandle, ContentTabProps>(function
 
   const sectionLabel = (section: SectionItem): string => {
     const key = STATIC_SECTION_LABEL_KEYS[section.section_id];
-    return key ? t(key) : section.label;
+    if (key) return t(key);
+    // L-3 (789:193): an entry section names its kind before the entry's name.
+    const entryKind = entryKindOf(section.section_id);
+    return entryKind ? t(`entrySectionLabel.${entryKind}`, { name: section.label }) : section.label;
   };
 
   const [mode, setMode] = useState<"browse" | "edit">("browse");

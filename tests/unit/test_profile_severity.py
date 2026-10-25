@@ -153,3 +153,44 @@ def test_escalate_ignores_none_triggers():
 
 def test_severity_values_are_the_three_canonical_tiers():
     assert sev.SEVERITY_ORDER == {"info": 0, "review": 1, "critical": 2}
+
+
+# ─── 783:72 — a figure contradiction inside an achievement ────────────────────
+
+def _bullet_conflict(existing, incoming, field="achievements") -> Conflict:
+    return Conflict(
+        section="work_experience", field=field,
+        existing_value=existing, incoming_value=incoming, source="cv_upload",
+    )
+
+
+def test_a_differing_figure_inside_an_achievement_is_review():
+    """The F-10 shape: ARA efficiency "over 80 %" vs "over 60 %" across two CVs."""
+    c = _bullet_conflict(
+        "Raised ARA efficiency to over 80 % within two years",
+        "Raised ARA efficiency to over 60 % within two years",
+    )
+    assert sev.classify_conflict(c) == "review"
+    assert sev.classify_conflict(
+        _bullet_conflict(["Cut cost by 1,5 M EUR"], ["Cut cost by 2 M EUR"], "responsibilities")
+    ) == "review"
+
+
+def test_wording_only_achievement_conflicts_stay_info():
+    # Same figures, different words — cosmetic.
+    assert sev.classify_conflict(
+        _bullet_conflict("Raised efficiency to over 80 %", "Improved efficiency to more than 80 %")
+    ) == "info"
+    # Only one side states a figure — no contradiction between figures.
+    assert sev.classify_conflict(
+        _bullet_conflict("Raised efficiency markedly", "Raised efficiency to 80 %")
+    ) == "info"
+    # Decimal comma and point are the same figure.
+    assert sev.classify_conflict(_bullet_conflict("1,5 M EUR saved", "1.5 M EUR saved")) == "info"
+
+
+def test_a_figure_difference_outside_an_achievement_field_is_unchanged():
+    assert sev.classify_conflict(
+        Conflict(section="personal_info", field="phone", existing_value="0151 1",
+                 incoming_value="0151 2", source="cv_upload")
+    ) == "info"

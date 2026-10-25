@@ -36,6 +36,7 @@ from applire.auth.deps import require_user
 from applire.constants import MAX_CV_UPLOAD_BYTES
 from applire.models.user import User
 from applire.db.session import get_db
+from applire.exceptions import ReconcileFailedError
 from applire.ocr import get_ocr_extractor, image_import_available
 from applire.ocr.base import CVImageExtractor
 from applire.providers import get_provider
@@ -51,9 +52,12 @@ from applire.schemas.profile import (
     MasterProfileResponse,
     PhotoCrop,
     ProfileChangesResponse,
+    ImportReceiptSummary,
     ReceiptSummary,
     ProfileHealthResponse,
     SeparateMatchRequest,
+    ResolveConfirmationRequest,
+    WithdrawDenialRequest,
     StagedResolveRequest,
     StagedResolveResponse,
     UndoLastMergeResponse,
@@ -78,9 +82,14 @@ from applire.services.profile import (
     patch_profile_section,
     profile_exists,
     resolve_conflict,
+    resolve_confirmation,
     MatchNotSeparable,
     resolve_staged_extraction,
     separate_match,
+    confirm_match,
+    withdraw_denial,
+    DenialNotFound,
+    get_import_summary,
     apply_restated,
     RestatedNotApplicable,
     record_availability,
@@ -111,6 +120,14 @@ def _uid(user: "User | None"):
 _TRUNCATION_USER_MESSAGE = (
     "We couldn't fully merge this CV into your profile this time. "
     "Nothing was changed — please try uploading it again."
+)
+
+# R2-13 (Hazelnut build 4) — the reconcile call that merges a CV failed after
+# its one retry (`ReconcileFailedError`). Nothing was changed; the same action
+# can be repeated. `detail.error` carries the stable code the UI localizes.
+_NOT_SAVED_USER_MESSAGE = (
+    "We couldn't merge this CV into your profile this time. "
+    "Nothing was changed — please try again."
 )
 
 # Clean, user-appropriate message for an LLM timeout on upload/import (ADR-047 §4).
@@ -358,6 +375,15 @@ async def resolve_staged_extraction_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except StagedExtractionAlreadyResolved as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ReconcileFailedError:
+        # R2-13 — the merge was not saved; the staged item stays held (it is
+        # marked resolved only after the merge commits), so "merge" can be
+        # pressed again.
+        logger.warning("staged resolve %s: reconcile failed; nothing merged", staged_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "not_saved", "message": _NOT_SAVED_USER_MESSAGE},
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
@@ -411,6 +437,71 @@ async def separate_match_endpoint(
         raise HTTPException(status_code=404, detail="No profile found")
     except MatchNotSeparable as exc:
         raise HTTPException(status_code=409, detail=exc.code)
+
+
+@router.post(
+    "/matches/confirm",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def confirm_match_endpoint(
+    body: SeparateMatchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """FS-6 (ruling V-4 = A) — "Ja": a recognised pair IS the same entry; the
+    import summary stops asking. Same body and 409 codes as /matches/separate."""
+    try:
+        return await confirm_match(
+            db, entity_id=body.entity_id, incoming=body.incoming, user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
+    except MatchNotSeparable as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
+
+
+@router.post(
+    "/denials/withdraw",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def withdraw_denial_endpoint(
+    body: WithdrawDenialRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """G-5 (ADR-059 amended 2026-10-24) — the candidate withdraws one of their
+    denials after the confirm dialog. 404 = no profile; 409 ``denial_not_found``
+    = no active denial of that name (nothing written)."""
+    try:
+        return await withdraw_denial(db, concept=body.concept, user_id=_uid(current_user))
+    except DenialNotFound:
+        raise HTTPException(status_code=409, detail="denial_not_found")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
+
+
+@router.post(
+    "/confirmations/resolve",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def resolve_confirmation_endpoint(
+    body: ResolveConfirmationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """G-5 / ruling V-5 (c) — the candidate answers a parked confirmation in
+    the Health hub (the ``denial_scope`` family: "Nein, der Lebenslauf stimmt:
+    Angabe zurücknehmen" IS the withdrawal). 409 ``confirmation_not_found`` =
+    no open ask by that id (already answered, or no profile); nothing written."""
+    try:
+        return await resolve_confirmation(
+            body.confirmation_id, body.chosen_option, db, user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=409, detail="confirmation_not_found")
 
 
 class AvailabilityRequest(BaseModel):
@@ -734,6 +825,21 @@ async def get_receipt_summary_endpoint(
     summary of one session: one fact per line, grouped per section, the key
     points first. A view over the trail; the trail itself is unchanged."""
     return await get_receipt_summary(db, session_id=session_id, user_id=_uid(current_user))
+
+
+@router.get(
+    "/import-summary",
+    response_model=ImportReceiptSummary,
+    status_code=status.HTTP_200_OK,
+)
+async def get_import_summary_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> ImportReceiptSummary:
+    """R2-8 (9) (ruling V-2 = A) — the last import in the user's terms: what it
+    added, the pairs it recognised (FS-6 pair questions), what it kept apart
+    and what it held back. A view over the trail; read-only."""
+    return await get_import_summary(db, user_id=_uid(current_user))
 
 
 @router.get(

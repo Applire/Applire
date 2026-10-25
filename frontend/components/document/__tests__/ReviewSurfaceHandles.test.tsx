@@ -131,13 +131,37 @@ function open(group: number) {
   if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
 }
 
+describe("R2-5 — the surface renders the keyed final-check card, not the EN details", () => {
+  it("DE: Schlussprüfung with the lead sentence and the German code line; no check id or round count", () => {
+    const keyed: ATSCheck = {
+      ...TERMINAL_REVIEW_FAIL,
+      status: "fail",
+      details_key: "terminal-review-open",
+      details_params: { count: 1 },
+      notes: [
+        { kind: "finding", text: TERMINAL_REVIEW_FAIL.details ?? "", plain: "Bei Weberit ist 5S nicht als Aufgabe belegt." },
+        { kind: "code", key: "cv.role_budget", subjects: ["Weberit Kunststofftechnik GmbH"], text: "Over the per-role bullet budget" },
+      ],
+    };
+    render(withIntl(<ReviewSurface {...base({ atsReport: ats([keyed]) })} />, "de"));
+    open(4);
+    const group = screen.getByTestId("review-group-4");
+    expect(within(group).getByText("Schlussprüfung")).toBeTruthy();
+    const card = within(group).getByTestId("terminal-review-detail");
+    expect(card.textContent).toContain("Unsere Schlussprüfung hat einen Hinweis zu diesem Dokument");
+    expect(card.textContent).toContain("Bei Weberit ist 5S nicht als Aufgabe belegt.");
+    expect(card.textContent).toContain("Bei Weberit Kunststofftechnik GmbH stehen mehr Stichpunkte als vorgesehen.");
+    expect(group.textContent ?? "").not.toMatch(/round\(s\)|cv\.role_budget|exhausted its retries/);
+  });
+});
+
 describe("#671 — group 4 renders the terminal review's details", () => {
   it("renders the FAIL details verbatim on the CV surface", () => {
     render(withIntl(<ReviewSurface {...base({ atsReport: ats([TERMINAL_REVIEW_FAIL]) })} />));
     open(4);
     const group = screen.getByTestId("review-group-4");
-    // The label comes from `ats.checks.terminal-review`, not from the raw id.
-    expect(within(group).getByText("Final document review")).toBeTruthy();
+    // The label comes from `ats.checks.terminal-review`, not from the raw id (R2-5: "Final check").
+    expect(within(group).getByText("Final check")).toBeTruthy();
     expect(
       within(group).getByText(/exhausted its retries with findings still open/),
     ).toBeTruthy();
@@ -204,6 +228,32 @@ describe("#671 — group 4 renders the terminal review's details", () => {
     const group = screen.getByTestId("review-group-4");
     expect(within(group).getByText(/8 JD-required concepts/)).toBeTruthy();
     expect(within(group).getByText(/3 pages against a 2-page target/)).toBeTruthy();
+  });
+});
+
+describe("789:26 — group 2's pin handle is a GROUP-level link to the pin panel", () => {
+  it("one link under the handle list opens the pins; no row carries it (ADR-081 cl. 3)", () => {
+    const onOpenPins = vi.fn();
+    render(
+      withIntl(
+        <ReviewSurface {...base({ atsReport: ats([], { missing_claimable: ["SAP PP", "OEE"] }), onOpenPins })} />,
+        "de",
+      ),
+    );
+    open(2);
+    const links = screen.getAllByTestId("review-group2-open-pins");
+    expect(links).toHaveLength(1);
+    expect(links[0].textContent).toBe("Zu den festgelegten Fakten");
+    expect(within(screen.getByTestId("review-group2-handle-pin")).getByTestId("review-group2-open-pins")).toBeTruthy();
+    fireEvent.click(links[0]);
+    expect(onOpenPins).toHaveBeenCalledTimes(1);
+    expect(onOpenPins).toHaveBeenCalledWith(); // nothing pre-filled
+  });
+
+  it("without the handler the handle stays plain text", () => {
+    render(withIntl(<ReviewSurface {...base({ atsReport: ats([], { missing_claimable: ["SAP PP"] }) })} />));
+    open(2);
+    expect(screen.queryByTestId("review-group2-open-pins")).toBeNull();
   });
 });
 

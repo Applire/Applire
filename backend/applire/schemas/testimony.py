@@ -175,3 +175,9 @@ class TestimonyResult(BaseModel):
     #: not a `_derive_status` input for the same reason.
     matched: list[MatchReceipt] = Field(default_factory=list)
     detail: str | None = None
+    #: R2-13 (Hazelnut build 4, additive) — a stable machine code beside the
+    #: English ``detail`` when ``status == "error"``, so a UI renders the
+    #: failure in its own language. ``"not_saved"``: the reconcile call failed
+    #: after its retry (``ReconcileFailedError``) and NOTHING was written —
+    #: the same text can be submitted again unchanged. ``None`` otherwise.
+    error_code: str | None = None

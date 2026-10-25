@@ -25,7 +25,7 @@
  * |---|------------------------------------------------------|-----------------------------------------------------------|
  * | 1 | What is in the document my vault does not cover?      | `keywords.present_unsupported` + Oracle-flagged claims     |
  * | 2 | What is missing although my vault covers it?          | `keywords.missing_claimable` residue (+ claimable clusters)|
- * | 3 | What is missing, and my vault does not cover it?      | `keywords.missing_honest_gap` + gap-analysis clusters      |
+ * | 3 | What is missing, and my vault does not cover it?      | the job's open requirements (R2-10, F1-2) — legacy: `keywords.missing_honest_gap` + clusters |
  * | 4 | Is the craft sound?                                   | ATS structure checks + critic advisories                   |
  *
  * **This module reads; it does not compute.** Every population above is the
@@ -51,7 +51,7 @@ import type {
   CrossDocumentItem,
   OutcomeCriticReport,
 } from "@/components/cv/CriticAdvisoryPanel";
-import { baseId, type ATSCheck, type ATSReport, type CheckSignal } from "./ats-report";
+import { baseId, isSilentPass, type ATSCheck, type ATSReport, type CheckSignal } from "./ats-report";
 import type { ReviewAction, ReviewDecision, ReviewState } from "./api/document-review";
 import type { LocateTarget } from "./locate-in-preview";
 import { normQuote } from "./norm-quote";
@@ -125,6 +125,11 @@ export interface ReviewItem {
    * Non-empty → the card shows them and offers no add-to-profile handle.
    */
   denials?: string[];
+  /**
+   * #803 belt (T-2 = B): the term occurs only in sentences naming the employer.
+   * The row stays (take-out + edit) but is neutral and never counted.
+   */
+  employerSentence?: boolean;
 }
 
 export interface ReviewGroup {
@@ -169,6 +174,17 @@ export interface ReviewInputs {
    * Defaults to `true`.
    */
   hasClusterProducer?: boolean;
+  /**
+   * R2-10 (ruling F1-2, lead G hunk): the job's OPEN requirements — the gap
+   * row's ledger rows with `fit_weight > 0` and status `gap`
+   * (`openRequirementConcepts`), the same set the gaps page counts. When
+   * given, group 3 IS this list: one number on every surface. The ATS
+   * `missing_honest_gap` list is a different population (posting keywords,
+   * mostly `fit_weight 0` — round 2: 23 here vs 13 on the gaps page, 6 vs 0)
+   * and stays on the ATS panel. `undefined` = not supplied (legacy shape);
+   * `null` = the gap row did not load → group 3 renders *unknown* (cl. 9).
+   */
+  openRequirements?: string[] | null;
 }
 
 /** #702: the advisory kinds the cross-document section owns. */
@@ -209,6 +225,7 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
   const terms = atsReport?.keywords.present_unsupported ?? [];
   const matches = atsReport?.keywords.present_unsupported_matches;
   const denialsByTerm = atsReport?.keywords.present_unsupported_denials;
+  const employerSentence = new Set(atsReport?.keywords.present_unsupported_employer_sentence ?? []);
   const claimable = claimableConceptSet(atsReport?.keywords.claimable_concepts);
   const claims = truthReport ? flaggedClaims(truthReport.claims ?? [], claimable) : [];
 
@@ -249,7 +266,8 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       label: term,
       kind: "term",
       producers: overlap ? ["ats", "oracle"] : ["ats"],
-      severity: "critical",
+      severity: employerSentence.has(term) && !overlap ? "neutral" : "critical",
+      employerSentence: employerSentence.has(term) && !overlap,
       detail: claim?.verdict.detail ?? null,
       detailKey: claim?.verdict.detail_key ?? null,
       detailParams: claim?.verdict.detail_params ?? null,
@@ -364,7 +382,17 @@ function buildGroup2(inputs: ReviewInputs): ReviewItem[] {
  * gap-analysis cluster); they are NOT fused into one list (ADR-081 cl. 2).
  */
 function buildGroup3(inputs: ReviewInputs): ReviewItem[] {
-  const { atsReport, gapClusters } = inputs;
+  const { atsReport, gapClusters, openRequirements } = inputs;
+  if (openRequirements !== undefined) {
+    // R2-10: the open requirements, verbatim from the gap row (F1-2).
+    return (openRequirements ?? []).map((concept) => ({
+      key: `hg-req-${normQuote(concept) || concept}`,
+      label: concept,
+      kind: "term" as const,
+      producers: ["clusters"] as ReviewProducer[],
+      severity: "info" as const,
+    }));
+  }
   const terms = atsReport?.keywords.missing_honest_gap ?? [];
   const clusters = dedupeClusters(gapClusters ?? []).filter((g) => g.kind !== "claimable");
   return [
@@ -425,9 +453,10 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
   const checks: ATSCheck[] = atsReport?.checks ?? [];
   // #759: a failed send-blocking check is NOT craft — see `buildSendChecks`.
   const failed = checks.filter((c) => c.status === "fail" && !isSendCheck(c));
-  const advisory = checks.filter((c) => c.status === "pass" && c.details);
+  // R2-5: a clean terminal-review pass is counted as passed, never an advisory row.
+  const advisory = checks.filter((c) => c.status === "pass" && !isSilentPass(c));
   const notApplicable = checks.filter((c) => c.status === "not_applicable");
-  const passedChecks = checks.filter((c) => c.status === "pass" && !c.details).length;
+  const passedChecks = checks.filter((c) => isSilentPass(c)).length;
 
   const items: ReviewItem[] = [
     ...failed.map((c) => ({
@@ -518,12 +547,24 @@ export function buildReviewGroups(inputs: ReviewInputs): ReviewGroup[] {
   const specs: Array<{ id: 1 | 2 | 3 | 4; producers: ReviewProducer[]; items: ReviewItem[]; passedChecks: number }> = [
     { id: 1, producers: ["ats", "oracle"], items: buildGroup1(inputs), passedChecks: 0 },
     { id: 2, producers: clusterProducers, items: buildGroup2(inputs), passedChecks: 0 },
-    { id: 3, producers: clusterProducers, items: buildGroup3(inputs), passedChecks: 0 },
+    {
+      id: 3,
+      // R2-10: with the open requirements supplied, the gap row is group 3's
+      // only producer — its liveness is `openRequirements !== null`.
+      producers: inputs.openRequirements !== undefined ? ["clusters"] : clusterProducers,
+      items: buildGroup3(inputs),
+      passedChecks: 0,
+    },
     { id: 4, producers: ["ats", "critic"], items: g4.items, passedChecks: g4.passedChecks },
   ];
 
   return specs.map((s) => {
-    const unknownProducers = unknownOf(s.producers, dead);
+    const unknownProducers =
+      s.id === 3 && inputs.openRequirements !== undefined
+        ? inputs.openRequirements === null
+          ? (["clusters"] as ReviewProducer[])
+          : []
+        : unknownOf(s.producers, dead);
     return {
       id: s.id,
       items: s.items,
@@ -666,7 +707,15 @@ function keyFold(findingKey: string): string {
  * decision closes a finding the report still lists.
  */
 export function openGroup1Count(items: ReviewItem[], state: ReviewState | null | undefined): number {
-  return buildGroup1Rows(items, state).filter((r) => r.status === "open").length;
+  return countedOpenRows(buildGroup1Rows(items, state)).length;
+}
+
+/**
+ * The open rows the headline and the badges count — #803 belt (T-2 = B): an
+ * employer-sentence row is listed and walkable, but never counted.
+ */
+export function countedOpenRows(rows: Group1Row[]): Group1Row[] {
+  return rows.filter((r) => r.status === "open" && !r.item?.employerSentence);
 }
 
 /**

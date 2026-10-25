@@ -78,7 +78,7 @@ describe("DossierJourneyZone (US233; #789 — one re-entry action, a truthful sp
     expect(screen.queryByText(/gap_analysis/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/jd_analysis/i)).not.toBeInTheDocument();
     expect(screen.getByText(/profile/i)).toBeInTheDocument();
-    expect(screen.getByText(/gaps/i)).toBeInTheDocument();
+    expect(screen.getByText(/match/i)).toBeInTheDocument(); // 789:184: the step reads "Match", not "Gaps"
     expect(screen.getByText(/interview/i)).toBeInTheDocument();
     expect(screen.getByText(/cv/i)).toBeInTheDocument();
   });

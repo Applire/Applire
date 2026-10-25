@@ -11,6 +11,8 @@ describe("failed jobs", () => {
     expect(failedReason("llm_timeout")).toEqual({ key: "reasonTimeout" });
     expect(failedReason("llm_truncated")).toEqual({ key: "reasonTruncated" });
     expect(failedReason("rate_limited")).toEqual({ key: "reasonRateLimited" });
+    expect(failedReason("provider_unavailable")).toEqual({ key: "reasonProviderUnavailable" });
+    expect(failedReason("not_saved")).toEqual({ key: "reasonNotSaved" }); // R2-13 import door
     expect(failedReason("gap_failed")).toEqual({ key: "reasonOther", params: { code: "gap_failed" } });
     expect(failedReason(null)).toBeNull(); // cover letters carry no code (contract §5.1)
   });

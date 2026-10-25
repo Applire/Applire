@@ -29,6 +29,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
     params ? `${key}:${Object.values(params).join(",")}` : key,
+  useLocale: () => "de",
 }));
 
 vi.mock("@/lib/api/applications", () => ({
@@ -87,7 +88,8 @@ describe("DashboardApplicationCard", () => {
     const badge = screen.getByTestId("sent-badge");
     // Version identity = the pin's creation date, rendered via the sentBadge key
     expect(badge).toHaveTextContent(
-      `sentBadge:${new Date("2026-07-05T10:00:00Z").toLocaleDateString()}`,
+      // useLocale is mocked to "de" — formatUiDate renders the German short date.
+      "sentBadge:5.7.2026",
     );
   });
 
@@ -147,6 +149,12 @@ describe("DashboardApplicationCard", () => {
   });
 
   // ── Status derivation ────────────────────────────────────────────────────
+
+  it("789:188: the progress chip never breaks inside; the chip pair wraps whole", () => {
+    renderCard({ workflowStatus: "completed" });
+    expect(screen.getByTestId("card-progress-chip").className).toContain("whitespace-nowrap");
+    expect(screen.getByTestId("card-chips").className).toContain("flex-wrap");
+  });
 
   it("shows 'CV Ready' chip for completed workflow", () => {
     renderCard({ workflowStatus: "completed" });

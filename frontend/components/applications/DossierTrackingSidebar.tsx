@@ -18,7 +18,8 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { Check } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -152,6 +153,7 @@ function useFieldAutosave({
  */
 export function DossierTrackingSidebar({ application, onSaved, onError }: DossierTrackingSidebarProps) {
   const t = useTranslations("applications");
+  const locale = useLocale();
   const reportError = () => onError(t("saveFailed"));
 
   const deadline = useFieldAutosave({
@@ -188,11 +190,11 @@ export function DossierTrackingSidebar({ application, onSaved, onError }: Dossie
   });
 
   const footerParts = [
-    t("trackingCreatedLine", { date: new Date(application.created_at).toLocaleDateString() }),
+    t("trackingCreatedLine", { date: formatUiDate(application.created_at, locale) }),
     application.applied_at
-      ? t("trackingAppliedLine", { date: new Date(application.applied_at).toLocaleDateString() })
+      ? t("trackingAppliedLine", { date: formatUiDate(application.applied_at, locale) })
       : null,
-    t("trackingUpdatedLine", { date: new Date(application.updated_at).toLocaleDateString() }),
+    t("trackingUpdatedLine", { date: formatUiDate(application.updated_at, locale) }),
   ]
     .filter(Boolean)
     .join(" · ");

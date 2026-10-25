@@ -116,6 +116,15 @@ describe("PageOverflowCard", () => {
     mockFetch({ ...PROPOSAL, cut_available: false });
     render(withIntl(<PageOverflowCard cvId="cv-1" />));
     expect(((await screen.findByTestId("cv-page-overflow-cut")) as HTMLButtonElement).disabled).toBe(true);
+    // #789:190 — and the card says why.
+    expect((await screen.findByTestId("cv-page-overflow-cut-gone")).textContent).toContain("no longer possible");
+  });
+
+  it("no explanation line while cutting is available", async () => {
+    mockFetch(PROPOSAL);
+    render(withIntl(<PageOverflowCard cvId="cv-1" />));
+    await screen.findByTestId("cv-page-overflow-cut");
+    expect(screen.queryByTestId("cv-page-overflow-cut-gone")).toBeNull();
   });
 
   it("a refused choice shows the error and keeps the card", async () => {

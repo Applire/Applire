@@ -38,9 +38,9 @@ import {
   type WorkEntry,
 } from "@/lib/profile-entries";
 import { trimStringList } from "@/lib/profile-entries";
-import { type DisplayLocale } from "@/lib/profileDisplay";
+import { formatDisplayDate, type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
-import { AliasChips } from "@/components/profile/AliasChips";
+import { AliasChips, DatedRoleAliasLines, datedRoleAliasesOf } from "@/components/profile/AliasChips";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -80,6 +80,7 @@ export function WorkExperienceEditor({
   const t = useTranslations("profile");
   const locale: DisplayLocale = useLocale() === "de" ? "de" : "en";
   const tCommon = useTranslations("common");
+  const tAliases = useTranslations("profileAliases");
 
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -280,7 +281,16 @@ export function WorkExperienceEditor({
           {entries.map((e, i) => {
             const role = e.role || "";
             const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current, locale);
-            const bullets = [...(e.achievements ?? []), ...(e.responsibilities ?? [])].filter(nonEmptyText);
+            // R2-4 — a bullet written for a dated additional role goes first
+            // and carries its "seit <Datum>" tag (mock V-1).
+            const dated = datedRoleAliasesOf(e);
+            const sinceOf = new Map<string, string>();
+            for (const d of dated) for (const b of d.bullets ?? []) sinceOf.set(b, d.since);
+            const allBullets = [...(e.achievements ?? []), ...(e.responsibilities ?? [])].filter(nonEmptyText);
+            const bullets = [
+              ...allBullets.filter((b) => sinceOf.has(b)),
+              ...allBullets.filter((b) => !sinceOf.has(b)),
+            ];
             const rawLabel = entryLabel(e);
             const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
             return (
@@ -323,12 +333,23 @@ export function WorkExperienceEditor({
                     {[e.company, nonEmptyText(e.location) ? e.location : null].filter(Boolean).join(" · ")}
                   </p>
                 )}
+                <DatedRoleAliasLines entries={entries} index={i} apiBase={apiBase} profileUpdatedAt={profileUpdatedAt} onProfileUpdated={onProfileUpdated} formatSince={(since) => formatDisplayDate(since, locale)} />
                 <AliasChips section="work_experience" entries={entries} index={i} apiBase={apiBase} profileUpdatedAt={profileUpdatedAt} onProfileUpdated={onProfileUpdated} />
                 {bullets.length > 0 && (
                   <ul className="mt-1.5 list-disc pl-4 space-y-0.5 text-sm text-gray-700">
-                    {bullets.map((b, bi) => (
-                      <li key={bi}>{b}</li>
-                    ))}
+                    {bullets.map((b, bi) => {
+                      const since = sinceOf.get(b);
+                      return (
+                        <li key={bi} data-testid={since ? "dated-role-bullet" : undefined}>
+                          {since && (
+                            <span className="mr-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                              {tAliases("since", { date: formatDisplayDate(since, locale) })}
+                            </span>
+                          )}
+                          {b}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

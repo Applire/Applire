@@ -53,6 +53,7 @@ from applire.prompts.cv_assist import (
 )
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.cv_sections import (
+    AssistAcceptResponse,
     AssistAnswerResponse,
     AssistStartResponse,
     ContentSnapshot,
@@ -169,6 +170,10 @@ async def submit_assist_answer(
     # The candidate's own ANSWER is part of the evidence set — it is testimony they gave
     # seconds ago, and grounding this suggestion against the vault alone would withhold
     # almost everything the feature exists to produce (ADR-040 amendment clause 1).
+    # 783:60 (ruling V-3 = A) — the answer is kept server-side: "Übernehmen"
+    # sends it to the vault, and only this text, never the client's or the
+    # suggestion's.
+    session["answer"] = answer
     kept, withheld = await _ground_suggestion(
         suggestion,
         db,
@@ -178,6 +183,79 @@ async def submit_assist_answer(
         owner=owner,
     )
     return AssistAnswerResponse(suggestion=kept, withheld_count=withheld)
+
+
+async def accept_assist_answer(
+    cv_id: uuid.UUID,
+    section_id: str,
+    session_id: str,
+    provider: LLMProvider,
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> AssistAcceptResponse:
+    """783:60 (Hazelnut build 4, ruling V-3 = A) — the candidate accepted the
+    suggestion: their ANSWER (never the generated suggestion — a paraphrase is
+    not a source, ADR-061/048) goes to the vault through the interview-shaped
+    reconcile door as testimony ``{gap, question, answer}``, intake
+    ``cv_assist``, through ``commit_ops``. The suggestion still goes into the
+    CV section through the existing section edit, as before.
+
+    One write per session: the session is consumed. A failed reconcile raises
+    ``ReconcileFailedError`` before anything is committed (R2-13) and the
+    session stays, so the same accept can be sent again.
+
+    Raises:
+        ValueError: unknown session, a session of another CV/section/user, or
+            a session with no answer yet.
+        LookupError: the owner has no profile.
+    """
+    from applire.services.profile import _get_latest
+    from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
+    from applire.services.session import get_ui_language
+
+    owner = resolve_owner(user_id, site="cv_assist.accept_assist_answer")
+    await owned_cv(db, cv_id, owner)
+    session = _sessions.get(session_id)
+    if (
+        not session
+        or session.get("user_id") != str(owner)
+        or session["cv_id"] != str(cv_id)
+        or session["section_id"] != section_id
+        or not str(session.get("answer") or "").strip()
+    ):
+        raise ValueError(f"Invalid session_id: {session_id!r}")
+
+    record = await _get_latest(db, owner)
+    if record is None:
+        raise LookupError("No profile found")
+    lang = await get_ui_language(db, user_id=owner)
+    turn = await reconcile_interview_turn(
+        db,
+        profile_record=record,
+        gap=session["gap_id"],
+        question=session["question"],
+        answer=session["answer"],
+        provider=provider,
+        session_id=session_id,
+        lang=lang,
+        record_source="testimony",
+        intake="cv_assist",
+    )
+    # The door owns its transaction (ADR-063 cl. 6).
+    await db.commit()
+    _sessions.pop(session_id, None)
+
+    added: list[str] = []
+    for change in turn.changes:
+        value = change.new_value
+        if change.action != "removed" and isinstance(value, str) and value.strip() and value not in added:
+            added.append(value)
+    return AssistAcceptResponse(
+        added=added,
+        denied_concepts=list(turn.denied_concepts),
+        no_write_receipt=turn.no_write_receipt,
+    )
 
 
 async def rewrite_section(

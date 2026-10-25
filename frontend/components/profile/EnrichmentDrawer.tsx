@@ -29,6 +29,7 @@ import {
   type PendingConfirmation,
   isEnrichNoGaps,
   markGapNA,
+  EnrichAnswerNotSavedError,
   respondToEnrich,
   skipGap,
   startEnrichSession,
@@ -48,10 +49,13 @@ export interface EnrichmentDrawerProps {
 export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps) {
   const t = useTranslations("enrich");
   const tc = useTranslations("common");
+  const tErrors = useTranslations("errors");
   const [session, setSession] = useState<EnrichSession | null>(null);
   const [gaps, setGaps] = useState<GapItem[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [answer, setAnswer] = useState("");
+  // R2-13 — the last answer was not saved (shown above the composer; the chat stays).
+  const [notSaved, setNotSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [noGaps, setNoGaps] = useState(false);
@@ -123,6 +127,7 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
     const text = (override ?? answer).trim();
     if (!session || !text) return;
     setAnswer("");
+    setNotSaved(false);
     setLoading(true);
     setPendingConfirmations([]);
     try {
@@ -132,7 +137,12 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
         setPendingConfirmations(result.pending_confirmations);
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error");
+      // R2-13 — nothing was saved: the typed answer goes back into the
+      // composer so it can be sent again unchanged (a typed-out answer is
+      // never lost to a failed call).
+      if (override === undefined) setAnswer(text);
+      if (e instanceof EnrichAnswerNotSavedError) setNotSaved(true);
+      else setError(e instanceof Error ? e.message : "Error");
     } finally {
       setLoading(false);
     }
@@ -306,6 +316,11 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
 
               {/* Input area */}
               <div className="shrink-0 border-t border-gray-200 p-3 flex flex-col gap-2">
+                {notSaved && (
+                  <p role="alert" data-testid="enrich-not-saved" className="text-sm text-critical">
+                    {tErrors("answerNotSaved")}
+                  </p>
+                )}
                 <textarea
                   data-testid="enrich-answer-textarea"
                   className="w-full resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-neutral-dark placeholder:text-gray-400 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20 min-h-[72px]"

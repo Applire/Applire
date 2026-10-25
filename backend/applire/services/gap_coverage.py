@@ -91,6 +91,7 @@ from applire.services.keyword_ledger import (
     _denied_concept_entries,
     _matches,
     _norm,
+    is_denial_floored,
     keyword_liabilities,
 )
 from applire.services.profile.reconcile.stance import declared_denial_matches
@@ -222,12 +223,27 @@ def _denial_terms(denied_concepts: list[dict[str, Any]] | list[str] | None) -> l
 
 def _is_declined(member: str, rows: list[dict[str, Any]], denials: list[str]) -> bool:
     """A recorded denial of THIS member: a persisted denial that declares it
-    (the ledger floor's assert-half matcher, #486), or a row of its own name the
-    ledger already wrote as ``denied``."""
+    (the ledger floor's assert-half matcher, #486), or rows of its own name the
+    ledger already wrote as ``denied`` — or, G-4 (founder, Hazelnut build 4),
+    FLOORED by a related denial (:func:`keyword_ledger.is_denial_floored`): the
+    candidate's own "no" handled it, so it is not open and not asked again."""
     if denials and declared_denial_matches(member, denials):
         return True
     own = _own_rows(member, rows)
-    return bool(own) and all(row.get("status") == "denied" for row in own)
+    return bool(own) and all(
+        row.get("status") == "denied" or is_denial_floored(row) for row in own
+    )
+
+
+def _is_floored_only(member: str, rows: list[dict[str, Any]], denials: list[str]) -> bool:
+    """G-4 — declined only because its own rows are denial-FLOORED (the
+    candidate never named the member): the chip must not say they did."""
+    if denials and declared_denial_matches(member, denials):
+        return False
+    own = _own_rows(member, rows)
+    return bool(own) and any(is_denial_floored(row) for row in own) and all(
+        row.get("status") == "denied" or is_denial_floored(row) for row in own
+    )
 
 
 def _is_anchored(row: dict[str, Any], member: str) -> bool:
@@ -332,8 +348,10 @@ def classify_members(
        (``stance.declared_denial_matches`` over ``denied_concepts`` — the
        matcher the ledger floor uses before it asserts ``status="denied"``,
        #486), or a ledger row of the member's own name already ``denied``. A
-       member only CONTAINED in a denied compound is not declined: its ledger
-       row (floored ``gap`` or released) decides, like every other member.
+       member only CONTAINED in a denied compound is not declined by the
+       predicate: its ledger row decides — and since G-4 (founder, Hazelnut
+       build 4) a FLOORED own row (``keyword_ledger.is_denial_floored``) counts
+       as declined too (the candidate's "no" handled it; a released row is open).
     2. ``covered`` — a ledger row matching the member (``keyword_ledger._matches``
        over ``concept`` + ``surface_forms``) has ``status == "direct"``.
        When several rows match, ALL deciding rows must be ``direct`` (the #207
@@ -372,16 +390,31 @@ def member_statuses(
         return []
     recorded_declined = {_norm(m) for m in _outcome_of(cluster)["declined"]}
     denials = _denial_terms(denied_concepts)
-    return [
-        {
+    out: list[dict[str, Any]] = []
+    for member in all_members(cluster):
+        recorded = _norm(member) in recorded_declined
+        item: dict[str, Any] = {
             "member": member,
-            "status": "declined"
-            if _norm(member) in recorded_declined
-            else _member_status(member, keyword_ledger, denials),
+            "status": "declined" if recorded else _member_status(member, keyword_ledger, denials),
             "requirement": member_is_requirement(member, keyword_ledger),
         }
-        for member in all_members(cluster)
-    ]
+        # G-4 — declined by a related denial's FLOOR, not by naming it. The key
+        # is present only when True (GapClusterMemberStatus.floored defaults False).
+        if not recorded and _is_floored_only(member, _rows_for(member, keyword_ledger), denials):
+            item["floored"] = True
+        out.append(item)
+    # 787:95 — a member folded into a finished card: its own chip status, marked
+    # so no surface lets it colour or reopen the card.
+    for member in folded_members(cluster):
+        out.append(
+            {
+                "member": member,
+                "status": _member_status(member, keyword_ledger, denials),
+                "requirement": member_is_requirement(member, keyword_ledger),
+                "folded": True,
+            }
+        )
+    return out
 
 
 def member_is_requirement(member: str, keyword_ledger: list[dict[str, Any]] | None) -> bool:
@@ -395,6 +428,30 @@ def member_is_requirement(member: str, keyword_ledger: list[dict[str, Any]] | No
     rows = _rows_for(member, keyword_ledger)
     own = _own_rows(member, rows) or rows
     return any(float(row.get("fit_weight") or 0) > 0 for row in own)
+
+
+def is_requirement_topic(
+    cluster: dict[str, Any], keyword_ledger: list[dict[str, Any]] | None
+) -> bool:
+    """R2-10 (ruling F1-2: themes only GROUP the open requirements) — whether a
+    cluster holds at least one member that is a counted requirement
+    (:func:`member_is_requirement`, ``fit_weight > 0``).
+
+    Clustering input is wider than the requirement set (keyword-only ATS terms,
+    ``gap.askable_gap_inputs``), so a cluster can be made of posting terms only
+    — UX round 2 showed "Commerce Domain", "Messaging", "Digital Health und
+    Kliniken" as open topics with zero counted requirements. Such a cluster is
+    not a topic: it is not asked (:func:`is_askable` with a ledger) and the
+    response marks it ``requirement_topic = False`` so no surface counts it.
+
+    Without a ledger (a legacy row, a caller that holds none) the answer is
+    ``True`` — today's behaviour, never a silent drop. A fact about the ledger
+    (ADR-062 cl. 1)."""
+    if not isinstance(cluster, dict):
+        return False
+    if not keyword_ledger:
+        return True
+    return any(member_is_requirement(m, keyword_ledger) for m in all_members(cluster))
 
 
 def member_matches_ledger(member: str, keyword_ledger: list[dict[str, Any]] | None) -> bool:
@@ -471,9 +528,15 @@ def is_left_open(cluster: dict[str, Any]) -> bool:
     return isinstance(cluster, dict) and _outcome_of(cluster)["left_open"]
 
 
-def is_askable(cluster: dict[str, Any], per_gap: int = INTERVIEW_MAX_QUESTIONS_PER_GAP) -> bool:
+def is_askable(
+    cluster: dict[str, Any],
+    per_gap: int = INTERVIEW_MAX_QUESTIONS_PER_GAP,
+    keyword_ledger: list[dict[str, Any]] | None = None,
+) -> bool:
     """Budget left AND coverage not ``covered``/``declined`` AND not left open
-    by hand (ruling K-1).
+    by hand (ruling K-1) AND — when the caller passes the row's ledger — at
+    least one member is a counted requirement (R2-10,
+    :func:`is_requirement_topic`: a topic of posting terms only is never asked).
 
     This is the one predicate every door asks (Gap-Click, the full interview's
     plan, ``resolve_gap``), so the left-open fact reaches all of them here.
@@ -489,7 +552,17 @@ def is_askable(cluster: dict[str, Any], per_gap: int = INTERVIEW_MAX_QUESTIONS_P
         return False
     if stored_or_derived_coverage(cluster) in ("covered", "declined"):
         return False
-    return bool(_str_list(cluster.get("gaps")))
+    if keyword_ledger is not None and not is_requirement_topic(cluster, keyword_ledger):
+        return False
+    open_members = _str_list(cluster.get("gaps"))
+    if keyword_ledger:
+        # G-4 / R2-9 — a member the row's OWN ledger now reads as declined (a
+        # denial FLOOR written after the record was split) is not asked again,
+        # even before a recompute re-splits the stored record.
+        open_members = [
+            m for m in open_members if _member_status(m, keyword_ledger, []) != "declined"
+        ]
+    return bool(open_members)
 
 
 def _with_split(
@@ -607,7 +680,14 @@ def refresh_cluster_from_ledger(
     """
     if not isinstance(cluster, dict):
         return None
-    return _split_against_ledger(cluster, keyword_ledger, denied_concepts, drop_orphans=True)
+    refreshed = _split_against_ledger(cluster, keyword_ledger, denied_concepts, drop_orphans=True)
+    if refreshed is not None and "folded" in refreshed:
+        # 787:95 — a folded member follows the same orphan rule as a member.
+        refreshed["folded"] = [
+            m for m in folded_members(refreshed)
+            if not keyword_ledger or member_matches_ledger(m, keyword_ledger)
+        ]
+    return refreshed
 
 
 def resplit_cluster(
@@ -639,6 +719,66 @@ def initialise_cluster_record(
     if split is None:  # a memberless cluster: keep it as the model sent it
         return {**fresh, "gaps": [], "coverage": "open"}
     return split
+
+
+def folded_members(cluster: dict[str, Any]) -> list[str]:
+    """787:95 — the members FOLDED into a finished card on a recompute
+    (:func:`fold_into_carried`): shown on the card, never in its ``gaps``, so
+    the card stays in "Erledigt" (founder default until ruled, 2026-10-24).
+    Not part of :func:`all_members` — the record's split is untouched."""
+    if not isinstance(cluster, dict):
+        return []
+    return _dedupe(_str_list(cluster.get("folded")))
+
+
+def is_finished(cluster: dict[str, Any]) -> bool:
+    """The card sits in "Erledigt": covered, declined, or left open by hand."""
+    return is_left_open(cluster) or stored_or_derived_coverage(cluster) in ("covered", "declined")
+
+
+def fold_target(
+    concept: str,
+    carried: list[dict[str, Any]],
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """787:95 rule (a), a FACT (ADR-062 cl. 1): the carried cluster a leftover
+    concept belongs to, or ``None``. The concept's OWN ledger rows
+    (:func:`_own_rows`, else every row speaking for it) name it in other words
+    — their concept + ``surface_forms``; when one of those names matches a
+    carried cluster's member (``_matches``, the ledger builder's matcher), the
+    concept is that topic again under a renamed JD term, not a new topic."""
+    rows = _rows_for(concept, keyword_ledger)
+    own = _own_rows(concept, rows) or rows
+    names = {_norm(n) for row in own for n in _row_names(row)} - {_norm(concept)}
+    names.discard("")
+    if not names:
+        return None
+    for cluster in carried:
+        members = [_norm(m) for m in all_members(cluster) + folded_members(cluster)]
+        if any(_matches(n, m) for n in names for m in members if m):
+            return cluster
+    return None
+
+
+def fold_into(
+    cluster: dict[str, Any],
+    concept: str,
+    keyword_ledger: list[dict[str, Any]] | None,
+    denied_concepts: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """PURE. ``concept`` joins ``cluster`` (787:95). An open card takes it as a
+    member and is re-split (:func:`resplit_cluster`); a FINISHED card
+    (:func:`is_finished`) records it in ``folded`` only, so the card is not
+    reopened by a concept nobody asked about (founder default, 2026-10-24)."""
+    key = _norm(concept)
+    if not key or key in {_norm(m) for m in all_members(cluster) + folded_members(cluster)}:
+        return copy.deepcopy(cluster)
+    if is_finished(cluster):
+        new = copy.deepcopy(cluster)
+        new["folded"] = folded_members(cluster) + [concept]
+        return new
+    grown = {**copy.deepcopy(cluster), "gaps": _str_list(cluster.get("gaps")) + [concept]}
+    return resplit_cluster(grown, keyword_ledger, denied_concepts)
 
 
 def cluster_by_id(clusters: Any, cluster_id: str) -> dict[str, Any] | None:

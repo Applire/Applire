@@ -474,3 +474,23 @@ async def test_cover_letter_pdf_reads_the_owners_letter(world, monkeypatch):
     with pytest.raises(LookupError):
         await cover_letter_pdf.render_pdf(uuid.uuid4(), user_id=world["b"]["user"])
     assert seen["user_id"] == world["b"]["user"]
+
+
+@pytest.mark.asyncio
+async def test_the_background_reaudit_marks_its_content_audited_786_232(world, monkeypatch):
+    """786:232 seam: the section editor's background re-audit records the content it
+    audited, so the `review/edited` call that follows does not audit it again."""
+    from applire.services import cv as cv_svc
+    from applire.services import review_actions as ra
+
+    async def _fake_audit(record, db, **_k):
+        record.ats_report = {"score": 90}
+
+    monkeypatch.setattr(cv_svc, "_update_ats_report", _fake_audit)
+    monkeypatch.setattr(cv_svc, "AsyncSessionLocal", world["factory"])
+    await cv_svc._update_ats_report_by_id(world["b"]["cv"], user_id=world["b"]["user"])
+    with ownership.unscoped("tooling"):
+        async with world["factory"]() as s:
+            rec = await s.get(GeneratedCV, world["b"]["cv"])
+            rec.ats_report = {"score": 90}
+            assert ra.audited_current("cv", rec) is True

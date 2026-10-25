@@ -400,11 +400,12 @@ sees the finished document, so all of them get answered here.
 """
 
 
-def _schema_and_closer(*, structural_fields: bool) -> str:
+def _schema_and_closer(*, structural_fields: bool, plain_note: bool = False) -> str:
     return review_output_schema(
         issue_hint="specific issue with work_history index and description — empty array if nothing found",
         feedback_hint="concise instruction for the tailoring agent to correct the BLOCKING issues — empty string if there are none",
         structural_fields=structural_fields,
+        plain_note=plain_note,
     ) + """
 
 Keep `feedback` concise and *referential*: name the offending location (work_history index,
@@ -446,7 +447,7 @@ TERMINAL_REVIEW_SYSTEM_PROMPT = (
     + _TERMINAL_CHECKS
     + _TERMINAL_BLOCKING_CHECKS
     + _MANDATE_TERMINAL
-    + _schema_and_closer(structural_fields=True)
+    + _schema_and_closer(structural_fields=True, plain_note=True)
 )
 
 
@@ -519,10 +520,13 @@ def build_terminal_review_prompt(
             "language, and never ask for profile text to be inserted verbatim in "
             "another language.\n\n"
         )
+    from applire.prompts.review_severity import note_language_line
+
     return (
         "Terminal review: the document below is the COMPOSED artifact exactly as it "
         "will be delivered (see SHAPE NOTE — TERMINAL ROUND).\n\n"
         f"{language_note}"
+        f"{note_language_line(document_language)}"
         f"CANDIDATE PROFILE (source of truth):\n{source_material}\n\n"
         f"COMPOSED CV (the delivered document):\n"
         f"{json.dumps(composed_json, ensure_ascii=False, indent=2)}\n\n"
@@ -626,7 +630,7 @@ V2_TERMINAL_REVIEW_SYSTEM_PROMPT = (
     + _TERMINAL_CHECKS
     + _TERMINAL_BLOCKING_CHECKS
     + _MANDATE_TERMINAL
-    + _schema_and_closer(structural_fields=True)
+    + _schema_and_closer(structural_fields=True, plain_note=True)
 )
 
 _V1_LENGTH_SENTENCE = (

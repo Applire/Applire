@@ -36,7 +36,8 @@ const HINT: DuplicateOfHint = {
   company_name: "DataCraft GmbH",
   role_title: "Senior Data Analyst",
   analyzed_at: "2026-07-05T10:00:00Z",
-  matched_on: "job",
+  // A SIMILAR posting (another analysis row): "continue as new" is real here.
+  matched_on: "source_url",
 };
 
 describe("DuplicateJdDialog", () => {
@@ -91,6 +92,23 @@ describe("DuplicateJdDialog", () => {
     fireEvent.click(screen.getByTestId("duplicate-jd-continue-new"));
     expect(onContinueNew).toHaveBeenCalledTimes(1);
     expect(onOpenExisting).not.toHaveBeenCalled();
+  });
+
+  // R2-3 / 789:184 — the SAME analysis cannot become a second application; the
+  // second choice names what it does: the interview on the existing one.
+  it("on the identical posting offers the interview instead of 'continue as new'", () => {
+    renderDialog({ ...HINT, matched_on: "job" });
+    expect(screen.getByRole("heading").textContent).toBe("duplicateSameTitle");
+    expect(screen.getByTestId("duplicate-jd-body").textContent).toContain("duplicateSameBody");
+    expect(screen.getByTestId("duplicate-jd-continue-new").textContent).toBe("duplicateInterviewExisting");
+    expect(screen.getByTestId("duplicate-jd-open-existing").textContent).toBe("duplicateOpenSame");
+    fireEvent.click(screen.getByTestId("duplicate-jd-continue-new"));
+    expect(onContinueNew).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps 'continue as new' for a similar posting (a different analysis)", () => {
+    renderDialog({ ...HINT, matched_on: "text" });
+    expect(screen.getByTestId("duplicate-jd-continue-new").textContent).toBe("duplicateContinueNew");
   });
 
   it("can be dismissed without picking either option (never blocks)", () => {

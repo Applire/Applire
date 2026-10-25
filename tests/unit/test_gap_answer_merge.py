@@ -746,3 +746,53 @@ def test_the_pairing_owner_rule_agrees_with_the_builders_credit_in_every_list_or
         for concept in expected.values():
             row = next(r for r in ledger if r["concept"] == concept)
             assert row["fit_weight"] == 1.0, f"list order {order}: {concept} lost its slot"
+
+
+# --- 787:95 — a renamed JD term folds into its carried topic ---------------
+
+
+@pytest.mark.asyncio
+async def test_787_95_rule_b_a_leftover_filed_under_a_carried_topic_folds_into_it(db):
+    provider = _Scripted()
+    job, profile, r1 = await _first(db, provider)
+    await _change_profile(
+        db, profile, skills=("Python", "Kubernetes"),
+        bullets=["Built Python services", "Operated Kubernetes clusters for staging"],
+    )
+    provider.classifications.append(
+        [cls("Python", "direct"), cls("Docker", "gap"), cls("Kubernetes", "partial"), cls("Terraform", "gap")]
+    )
+    # The model files Docker under the carried "Orchestration" topic (id + label copied).
+    provider.clusters.append([clu("cluster-k8s", ["Docker"], "Orchestration")])
+    r2 = await analyze_gaps(job.id, db, provider, answer_scope=AnswerScope())
+    assert [c.id for c in r2.gap_clusters] == ["cluster-iac", "cluster-k8s"], "no new card"
+    k8s = r2.gap_clusters[1]
+    assert "Docker" in k8s.gaps
+    assert "EXISTING TOPICS" in provider.cluster_prompts[-1]
+    assert '"cluster-k8s"' in provider.cluster_prompts[-1]
+
+
+@pytest.mark.asyncio
+async def test_787_95_a_finished_card_records_the_fold_and_stays_finished(db):
+    provider = _Scripted()
+    job, profile, r1 = await _first(db, provider)
+    row1 = (await db.execute(select(GapAnalysis).where(GapAnalysis.id == r1.id))).scalar_one()
+    clusters = copy.deepcopy(row1.gap_clusters)
+    k8s = next(c for c in clusters if c["id"] == "cluster-k8s")
+    k8s["outcome"] = {"asked": 1, "covered": [], "declined": [], "session_ids": ["s-1"], "left_open": True}
+    row1.gap_clusters = clusters
+    await db.commit()
+    await _change_profile(
+        db, profile, skills=("Python", "Kubernetes"),
+        bullets=["Built Python services", "Operated Kubernetes clusters for staging"],
+    )
+    provider.classifications.append(
+        [cls("Python", "direct"), cls("Docker", "gap"), cls("Kubernetes", "partial"), cls("Terraform", "gap")]
+    )
+    provider.clusters.append([clu("cluster-k8s", ["Docker"], "Orchestration")])
+    r2 = await analyze_gaps(job.id, db, provider, answer_scope=AnswerScope())
+    k8s2 = next(c for c in r2.gap_clusters if c.id == "cluster-k8s")
+    assert "Docker" not in k8s2.gaps and k8s2.folded == ["Docker"]
+    assert k8s2.outcome.left_open is True
+    chip = next(m for m in k8s2.member_statuses if m.member == "Docker")
+    assert chip.folded is True

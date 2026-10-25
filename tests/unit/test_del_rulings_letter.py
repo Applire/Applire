@@ -150,7 +150,12 @@ def test_the_unaddressed_block_no_longer_offers_a_named_gap_de_emphasis():
 ], ids=["v1", "v2"])
 def test_the_writer_ladder_names_a_gap_only_from_a_recorded_denial(text):
     flat = _flat(text)
-    assert "only where NEITHER holds AND their own recorded denial names it" in flat
+    # RULING L-1 = A (2026-10-24): the gap is named only in rung 2's fused form
+    # and only where the candidate's denial names it; with neither a scoped claim
+    # nor a transfer the letter leaves it out (was: a named gap as rung 3).
+    assert "the gap named, if at all, only in (b)'s fused form and only where a REQUIRED: STATED LIMITS entry names it" in flat
+    assert "the letter LEAVES IT OUT — never a bare admission" in flat
+    assert "only where NEITHER holds AND their own recorded denial names it" not in flat
     assert "the letter LEAVES IT OUT" in flat
     assert "Silence is still never an option" not in flat
 

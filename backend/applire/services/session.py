@@ -48,6 +48,7 @@ from applire.constants import (
     INTERVIEW_TARGET_MIN_TARGETED,
     MODE_B_COMPLETENESS_THRESHOLD,
 )
+from applire.exceptions import ReconcileFailedError
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.utils.language_detection import resolve_jd_language
@@ -174,6 +175,51 @@ async def get_conversation_language(
         if job is not None:
             return resolve_jd_language(job)
     return "en"
+
+
+def _profile_source_text(profile: dict | None) -> str:
+    """The profile text that came from the candidate's own source documents:
+    role titles, employers' bullets, education and project text — never the
+    summary (extraction writes it in BOTH languages) and never skill names
+    (posting terms read as English)."""
+    p = profile or {}
+    parts: list[str] = []
+    for w in p.get("work_experience") or []:
+        if isinstance(w, dict):
+            parts.append(str(w.get("role") or ""))
+            parts.extend(str(x) for x in (w.get("responsibilities") or []) if x)
+            parts.extend(str(x) for x in (w.get("achievements") or []) if x)
+    for e in p.get("education") or []:
+        if isinstance(e, dict):
+            parts.extend(str(e.get(k) or "") for k in ("degree", "field_of_study", "description"))
+    for pr in p.get("projects") or []:
+        if isinstance(pr, dict):
+            parts.append(str(pr.get("description") or ""))
+    return " ".join(x for x in parts if x.strip())
+
+
+async def get_profile_conversation_language(
+    db: AsyncSession, profile: dict | None, *, user_id: uuid.UUID | None = None
+) -> str:
+    """787:46 (Hazelnut build 4, founder ruling E-12 2026-10-22) — the language
+    of a PROFILE-scoped conversation (Mode C enrichment): an explicitly chosen
+    ``ui_language`` wins; without one, the language the profile's source
+    documents are written in (``detect_language`` — the shared fact, ADR-066);
+    'en' only when the profile carries no source text at all. The profile-wide
+    sibling of :func:`get_conversation_language` (Mode C has no JD to route on).
+    """
+    uid = resolve_user_id(user_id, site="session.get_profile_conversation_language")
+    row = (
+        await db.execute(select(UserSettings).where(UserSettings.user_id == uid))
+    ).scalar_one_or_none()
+    if row is not None and row.ui_language:
+        return row.ui_language
+    text = _profile_source_text(profile)
+    if not text.strip():
+        return "en"
+    from applire.utils.language_detection import detect_language
+
+    return detect_language(text)
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +354,7 @@ async def _ask_or_complete_at(
         choices=next_choices,
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        review_section=_review_item_section(state, _current_gap_id(state)),
     )
 
 
@@ -369,6 +416,23 @@ def _conflict_entry(state: InterviewState, cluster_id: str) -> dict | None:
     if not is_conflict_cluster(cluster_id):
         return None
     return (state.get("conflict_clusters") or {}).get(cluster_id)
+
+
+def _review_item_section(state: InterviewState, cluster_id: str | None) -> str | None:
+    """R2-8 (7) (Hazelnut build 4, WP-V) — the vault section of the profile-review
+    item ``cluster_id`` names: a conflict's own ``section``, a confirmation's
+    ``context.section``; None for anything else. A FACT read off the stored
+    descriptor, so the review drawer offers "two separate roles — keep both"
+    only on a role entry, also when it was opened without a Health issue."""
+    if not cluster_id:
+        return None
+    conflict = _conflict_entry(state, cluster_id)
+    if conflict is not None:
+        return conflict.get("section") or None
+    confirmation = _confirmation_entry(state, cluster_id)
+    if confirmation is not None:
+        return (confirmation.get("context") or {}).get("section") or None
+    return None
 
 
 def _confirmation_entry(state: InterviewState, cluster_id: str) -> dict | None:
@@ -437,6 +501,7 @@ async def _handle_confirmation_answer(
             complete=False, question=question, gaps_remaining=gaps_remaining, choices=options,
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
+            review_section=_review_item_section(state, _current_gap_id(state)),
         )
 
     # Adversarial finding (2026-09-09, WP-adv-vault) — founder ruling V-5's
@@ -1134,6 +1199,11 @@ async def _handle_interview_confirmation_answer(
     state.pop("pending_interview_confirmation_queue", None)
 
     current_gap = state["critical_gaps"][current_idx]
+    follow_up = await _ask_deferred_follow_up(
+        record, state, db, provider, current_gap, current_idx, profile_record, lang, applied,
+    )
+    if follow_up is not None:
+        return _with_receipt(follow_up, receipt)
     if current_gap not in state.get("addressed_gaps", []):
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
     # RULING 787:L7 (founder 2026-10-22; Hazelnut b3 WP-V, UX audit Marcus
@@ -1148,6 +1218,66 @@ async def _handle_interview_confirmation_answer(
     return _with_receipt(
         await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang),
         receipt,
+    )
+
+
+async def _ask_deferred_follow_up(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_gap: str,
+    current_idx: int,
+    profile_record: MasterProfile,
+    lang: str,
+    applied: bool,
+) -> SessionMessageResponse | None:
+    """783:179 — the partial-coverage follow-up a gap answer earned while a
+    confirmation was asked first. The gate is the one the answer's own turn
+    passed (`open_members`, parked as facts), re-read against the per-gap
+    record NOW: a gap the candidate left open meanwhile (ruling K-1), a spent
+    budget or members no longer open on the record are not asked. ``None`` =
+    nothing owed; the caller advances as before."""
+    deferred = state.pop("deferred_follow_up", None)
+    if not isinstance(deferred, dict) or deferred.get("gap") != current_gap:
+        return None
+    job_id = state.get("job_id")
+    if not job_id:
+        return None
+    row = (
+        await db.execute(
+            select(GapAnalysis)
+            .where(
+                GapAnalysis.job_analysis_id == uuid.UUID(str(job_id)),
+                GapAnalysis.user_id == record.user_id,
+                GapAnalysis.deleted_at.is_(None),
+            )
+            .order_by(GapAnalysis.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    cluster = gap_coverage.cluster_by_id(row.gap_clusters, current_gap) if row is not None else None
+    if (
+        cluster is None
+        or gap_coverage.is_left_open(cluster)
+        or gap_coverage.remaining_budget(cluster, INTERVIEW_MAX_QUESTIONS_PER_GAP) <= 0
+    ):
+        return None
+    still_open = {ats_norm(str(m)) for m in (cluster.get("gaps") or [])}
+    open_members = [m for m in deferred.get("open_members") or [] if ats_norm(str(m)) in still_open]
+    if not open_members:
+        return None
+    from types import SimpleNamespace
+
+    turn = SimpleNamespace(
+        denied_concepts=list(deferred.get("recorded_denials") or []),
+        conflict_summaries=None, denial_recorded=False, no_write_receipt=None,
+        addressed=applied,
+    )
+    questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
+    return await _ask_partial_coverage_follow_up(
+        record, state, db, provider, current_gap, current_idx, open_members,
+        profile_record.profile_json, turn, questions_for_gap, lang, _coverage_of(cluster),
     )
 
 
@@ -1236,6 +1366,7 @@ async def _handle_conflict_answer(
             complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices,
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
+            review_section=_review_item_section(state, _current_gap_id(state)),
         )
 
     resolution = "existing" if decision == "existing" else "incoming"
@@ -1567,6 +1698,7 @@ async def create_profile_review_session(
         gaps_remaining=len(review_ids),
         choices=first_choices,
         current_gap_id=review_ids[0],
+        review_section=_review_item_section(state, review_ids[0]),
     )
 
 
@@ -2202,7 +2334,17 @@ async def _record_cluster_turn(
     # follow-up (the pre-ledger behaviour: advance).
     if row.keyword_ledger:
         named = _members_named_by(answer, members, row.keyword_ledger)
-        open_members = [m for m in members if facts.get(m) == "open" and m not in named]
+        # R2-9 (Hazelnut build 4, felix Q7): a posting term the match does not
+        # count (`requirement: false`, a ledger fact — G's
+        # `member_is_requirement`) never earns a follow-up of its own. Round 2
+        # spent a question on "Auditability" right after the candidate had
+        # answered the topic, while the sidebar called it "a term from the
+        # posting, not a counted requirement".
+        open_members = [
+            m for m in members
+            if facts.get(m) == "open" and m not in named
+            and gap_coverage.member_is_requirement(m, row.keyword_ledger)
+        ]
     else:
         open_members = []
     if recorded is None:
@@ -2368,6 +2510,7 @@ def _resumed_response(
         resumed=answered,
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        review_section=_review_item_section(state, _current_gap_id(state)),
         # #259 run-4 finding 9 — the real server-tracked count, so a page
         # refresh restores "N of up to M" instead of resetting to "1 of…".
         questions_asked=real_questions_asked,
@@ -2456,7 +2599,11 @@ async def _create_targeted_session(
     askable_ids = [
         cid
         for cid in cluster_ids
-        if gap_coverage.is_askable(clusters_by_id[cid], INTERVIEW_MAX_QUESTIONS_PER_GAP)
+        # R2-10: the row's ledger rides along, so a topic of posting terms
+        # only (no counted requirement) is never planned.
+        if gap_coverage.is_askable(
+            clusters_by_id[cid], INTERVIEW_MAX_QUESTIONS_PER_GAP, gap_analysis.keyword_ledger or []
+        )
     ]
     if len(askable_ids) != len(cluster_ids):
         logger.info(
@@ -2991,6 +3138,17 @@ async def _mark_probe_asked(
     return profile_record.profile_json
 
 
+#: Founder ruling I-4 (Hazelnut build 4, 2026-10-24; R2-9, ADR-064 amended):
+#: the denial transfer probe is RETIRED. A direct "no" advances the topic — no
+#: probe, no partial-coverage follow-up on the denied members, no retry; the
+#: answer's own "but I did Y" is still recorded by the reconciler. Round 2
+#: (felix Q9): the probe's "anything near what you just said no to" read as
+#: being asked the same thing again. The selection/asking path below stays as
+#: dormant code (a session with a probe already on screen still resolves its
+#: answer through ``probing_concept``) until the next prompt sweep deletes it.
+_DENIAL_TRANSFER_PROBE_ENABLED = False
+
+
 async def _select_denial_probe_concept(
     state: InterviewState,
     turn,
@@ -3483,16 +3641,48 @@ async def _send_message_turn(
     # and never commits, so the vault write and the `session.state` writes below
     # stay ONE unit — and this function's own `db.commit()` is load-bearing:
     # dropping it is a silent no-write.
-    turn = await reconcile_interview_turn(
-        db,
-        profile_record=profile_record,
-        gap=cluster_label,
-        question=current_question,
-        answer=message,
-        provider=provider,
-        session_id=str(record.id),
-        lang=lang,
-    )
+    try:
+        turn = await reconcile_interview_turn(
+            db,
+            profile_record=profile_record,
+            gap=cluster_label,
+            question=current_question,
+            answer=message,
+            provider=provider,
+            session_id=str(record.id),
+            lang=lang,
+        )
+    except ReconcileFailedError:
+        # R2-13 (P-1, Hazelnut build 4) — the reconcile call failed after its
+        # retry: the answer was NOT merged. Before build 4 the engine returned
+        # an empty result here, the turn read as "the answer changed nothing",
+        # and the branch below asked a follow-up — the candidate moved on
+        # believing the answer was kept (founder UAT 2026-10-23). Now the turn
+        # is "not saved": no follow-up is generated, nothing is committed (the
+        # engine raises before `commit_ops`, and this function's single commit
+        # is never reached), and the door answers `answer_not_saved` so the UI
+        # keeps the text in the composer. `state["messages"]` shares its list
+        # with `record.state` (a shallow copy above), so the optimistic append
+        # is undone in place — a later commit on this db session (the agent
+        # door reuses it) must not persist an answer the vault never saw.
+        if state["messages"] and state["messages"][-1] == {"role": "user", "content": message}:
+            state["messages"].pop()
+        logger.warning(
+            "interview turn not saved: reconcile failed (session=%s, gap=%s)",
+            record.id, current_gap,
+        )
+        raise
+    # R2-6 (4) (Hazelnut build 4) — the turn receipt decides by `changes` FIRST:
+    # "nothing was recorded" only when the turn's record changed nothing. The
+    # Felix crypto turn (UX re-audit 2, felix-051) committed 3× `denied_concepts`
+    # AND a `no_write` item for the denial's own explanation sentence; the UI
+    # rendered the `not_applied` half and asked the candidate to repeat a "no"
+    # the vault already held. `turn.changes` is the committed record's change
+    # list (positive content + denials + demotions + re-floors): when it holds
+    # anything, the answer WAS recorded, and every response site below carries
+    # no receipt. The persisted `not_applied` item itself is the committer's.
+    if turn.changes and turn.no_write_receipt is not None:
+        turn.no_write_receipt = None
     conflict_summaries = turn.conflict_summaries
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict
@@ -3668,6 +3858,16 @@ async def _send_message_turn(
     # position, DE<->EN employer); it asks. Surface that before advancing —
     # unless this turn is itself resolving a prior confirmation (#187). ---
     if turn.pending_confirmations and not resolving_confirmation:
+        # 783:179 — the confirmation is asked FIRST, but the follow-up this
+        # answer earned is owed after it: park the facts the follow-up gate
+        # read on this turn; `_handle_interview_confirmation_answer` asks it
+        # once the confirmation (and its queue) is resolved.
+        if recorded_cluster is not None and addressed and open_members and not left_open_now:
+            state["deferred_follow_up"] = {
+                "gap": current_gap,
+                "open_members": list(open_members),
+                "recorded_denials": [str(d) for d in (turn.denied_concepts or []) if d],
+            }
         return _with_coverage(
             await _ask_confirmation(record, state, db, turn, current_gap, current_idx),
             cluster_coverage,
@@ -3692,7 +3892,8 @@ async def _send_message_turn(
     # Python) trigger; only the follow-up's WORDING is the model's (Task 3).
     # ADR-089 clause 2 precedence: probe > partial coverage > no change. ---
     if (
-        not addressed
+        _DENIAL_TRANSFER_PROBE_ENABLED
+        and not addressed
         and denial_recorded
         and probing_concept is None
         and not resolving_confirmation
@@ -4067,6 +4268,12 @@ async def _ask_partial_coverage_follow_up(
         clusters_by_id[current_gap] = {**clusters_by_id[current_gap], "gaps": list(open_members)}
         state["gap_clusters_by_id"] = clusters_by_id
 
+    # R2-9 (felix Q2): the no's this turn recorded travel with the focus as a
+    # fact, so the drafting judgement can close a member the candidate denied
+    # in other words ("settlement or payout rails" vs "Payment settlement").
+    turn_denials = [str(d) for d in (getattr(turn, "denied_concepts", None) or []) if d]
+    extra = {"recorded_denials": turn_denials} if turn_denials else {}
+
     async def _draft(focus: list[str]) -> dict:
         return await _cluster_question(
             state,
@@ -4078,6 +4285,7 @@ async def _ask_partial_coverage_follow_up(
             gap_category=gap_category,
             lang=lang,
             follow_up_focus=list(focus),
+            **extra,
         )
 
     q_data, remaining, question = await _judged_draft(_draft, list(open_members), current_gap)

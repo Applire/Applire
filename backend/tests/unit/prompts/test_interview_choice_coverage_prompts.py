@@ -49,6 +49,7 @@ Two prompts are touched:
 """
 
 from applire.prompts.interview import (
+    _COVERED_IN_OTHER_WORDS_RULE,
     DENIAL_PROBE_QUESTION_SYSTEM_PROMPT,
     QUESTION_SYSTEM_PROMPT,
 )
@@ -75,27 +76,62 @@ def test_prompt_names_the_three_levels():
     assert "denial" in low
 
 
-def test_prompt_denial_is_evidence_conditioned_and_never_softened():
-    # ADR-064 clause 6 as amended 2026-08-05 (#347): the denial choice is no
-    # longer unconditional — it mirrors the DIRECT choice's evidence
-    # condition and is scoped to the unevidenced constituents. The
-    # never-softened half of the original rule is unchanged.
+def test_prompt_never_offers_a_denial_choice():
+    # Was test_prompt_denial_is_evidence_conditioned_and_never_softened.
+    # R2-2 (founder ruling 2026-10-24): the DENIAL level is no longer offered on
+    # any question (V-7 extended from Category C to B). The old evidence-
+    # conditioned, never-softened denial rule is gone with the level itself.
     low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
-    assert "always present" not in low
-    assert "same evidence condition as the direct choice" in low
-    assert "never softened into a hedge" in low
+    assert "never offer a choice at the denial level" in low
+    assert "same evidence condition as the direct choice" not in low
+    assert "never softened into a hedge" not in low
+    assert "they span two levels" in low
 
 
-def test_prompt_denial_scope_forbids_broader_areas_and_evidenced_concepts():
-    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
-    assert "never paraphrase them into a broader area" in low
-    assert "never deny, name, or sweep over a concept" in low
+def test_prompt_no_invented_limit_with_a_single_exception():
+    # Was test_prompt_denial_scope_forbids_broader_areas_and_evidenced_concepts.
+    # R2-2: no choice states a limit the candidate never gave; the only exception
+    # is the candidate's own earlier no. The scope rule (never a broader area,
+    # never an evidenced concept) moved to the PARTIAL "not yet documented" bullet.
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    low = flat.lower()
+    assert "NO INVENTED LIMIT" in flat
+    assert "says that the candidate lacks, has not done" in low
+    assert "keine erfahrung mit x" in low
+    assert "means unknown, never no" in low
+    assert "the one exception: the candidate already said that no themselves" in low
+    assert "name exactly those concepts, never a broader area" in low
+    assert "never one the profile summary or the earlier answers evidence in other words" in low
 
 
-def test_prompt_all_evidenced_cluster_offers_no_denial_choice():
-    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
-    assert "offer no denial choice" in low
-    assert "nothing honest left for a denial to say" in low
+def test_prompt_partial_marks_gaps_as_not_in_the_profile():
+    # Was test_prompt_all_evidenced_cluster_offers_no_denial_choice.
+    # R2-2: a PARTIAL choice that must mark what it does not cover says the
+    # PROFILE does not document it, in both languages, never that the candidate
+    # lacks it. Evidence in any wording still counts (787 M2).
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert "but my profile does not yet document X or Y" in flat
+    assert "aber zu X und Y steht in meinem Profil noch nichts" in flat
+    assert "what the PROFILE does not show yet" in flat
+    assert 'a "Teamleiter" role is evidence of team leadership' in flat
+    assert 'a "Scrum Master" skill of agile methods' in flat
+
+
+def test_denied_terms_means_named_without_claiming():
+    # R2-2: denied_terms no longer lists what a choice "denies"; it lists the
+    # concepts the choice names WITHOUT claiming them.
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert "names WITHOUT claiming them" in flat
+    assert "explicitly denies" not in flat
+
+
+def test_covered_in_other_words_rule_counts_a_denied_requirement_as_answered():
+    # R2-9: a requirement the candidate DENIED is answered too (a no is an
+    # answer, never asked again); covered_by_answer lists covered OR denied.
+    flat = _collapsed(_COVERED_IN_OTHER_WORDS_RULE)
+    assert "DENIED" in flat and "is answered too" in flat
+    assert "a no is an answer, and it is never asked again" in flat
+    assert "covered OR denied" in flat
 
 
 def test_prompt_conversation_answers_count_as_evidence():
@@ -107,10 +143,16 @@ def test_prompt_conversation_answers_count_as_evidence():
         assert "earlier answers in this conversation are evidence" in low
 
 
-def test_prompt_gives_the_denial_vs_hedge_example():
+def test_prompt_gives_the_invented_limit_examples():
+    # Was test_prompt_gives_the_denial_vs_hedge_example. The denial-vs-hedge
+    # contrast is gone with the denial level (R2-2); the concrete forbidden
+    # phrasings now carry the teaching, in English and German.
     collapsed = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert "\"I haven't worked with X\" is a denial." in collapsed
-    assert "\"I have limited exposure to X\" is NOT a" in collapsed
+    assert '"I have not used X"' in collapsed
+    assert '"not X directly"' in collapsed
+    assert '"noch nie"' in collapsed
+    assert '"nicht mit X gearbeitet"' in collapsed
+    assert "I haven't worked with X\" is a denial" not in collapsed
 
 
 def test_prompt_states_the_truthfulness_interaction_explicitly():
@@ -120,7 +162,7 @@ def test_prompt_states_the_truthfulness_interaction_explicitly():
     low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
     assert "does not relax the truthfulness rules" in low
     assert "unchanged and still bind" in low
-    assert 'partial + denial only' in low
+    assert 'are partial only' in low
     assert 'never invent a direct-level "yes"' in low
 
 
@@ -197,7 +239,7 @@ def test_direct_caveat_is_folded_into_the_first_coverage_bullet():
     # correction could fabricate a direct-level claim to satisfy coverage.
     low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
     i_direct = low.index("one at the direct level")
-    i_partial = low.index("one at the partial level")
+    i_partial = low.index("one or two at the partial level")
     i_caveat = low.index("evidences it", i_direct)
     assert i_direct < i_caveat < i_partial
 
@@ -206,3 +248,12 @@ def test_direct_caveat_still_present_later_too():
     # Belt and braces: the pre-existing later bullet is kept, not replaced.
     low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
     assert low.count("evidences it") >= 2
+
+
+def test_the_profile_clause_is_joined_with_the_pivot_and_listed_in_denied_terms():
+    # R2-2 rule arm run 1: "; zu X steht in meinem Profil noch nichts" carries no
+    # _PIVOT_MARKERS phrase, so the grounding filter dropped the honest chip.
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert 'joined with ", but" (German ", aber")' in flat
+    assert "never a semicolon, a dash or a new sentence" in flat
+    assert 'every concept it names is listed in "denied_terms"' in flat

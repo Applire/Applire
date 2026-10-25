@@ -252,13 +252,16 @@ def test_the_cv_terminal_door_gets_its_own_ratchet():
     prefixed. Mapped to SF-REVIEW.6 (new: a curated vault fact the writer prompt demands
     reaches no reviewer) and SF-WRITE.37 (occurrence after #729's control shipped).
     """
-    assert len(cv.TERMINAL_REVIEW_SYSTEM_PROMPT) < 14_600, (
+    # 2026-10-24 (R2-5, founder ruling T-1 = A, Hazelnut build 4): moved ONCE for the terminal doors' per-issue `note` field (+~150 chars, the same point in the candidate's words for the review card; the corrector never reads it). Replayed before the move on 5 captured round-2 terminal records (3 CV, 2 letter), luna thinking off, n=5: verdict parity held (approvals 1/25 vs 1/25, blocking counts inside the arm-A range), finish=stop 25/25, 81/81 notes in the document's language once the user prompt names it, 0 field paths.
+    assert len(cv.TERMINAL_REVIEW_SYSTEM_PROMPT) < 14_750, (
         f"CV terminal reviewer prompt is {len(cv.TERMINAL_REVIEW_SYSTEM_PROMPT)} chars — it is "
         "regrowing. Map the new content to an SF-WRITE row and REPLACE, do not append. "
         "The ratchet moved 14,000 → 14,100 ONCE, on 2026-09-08, for #668's shared check 8 "
         "(+296 chars, SF-WRITE.26/.27), and 14,100 → 14,600 ONCE, on 2026-09-20, for the two "
         "named blocking checks of F-5/F-9 (+412 chars, SF-REVIEW.6 / SF-WRITE.37) — with every "
-        "instruction moved into the per-round block instead of the system prompt."
+        "instruction moved into the per-round block instead of the system prompt; "
+        "14,600 → 14,750 ONCE, on 2026-10-24, for R2-5's per-issue plain `note` (T-1 = A, "
+        "replayed n=5 on 3 captured CV records: verdict parity, 0 truncation)."
     )
 
 
@@ -272,11 +275,13 @@ def test_the_letter_terminal_door_gets_its_own_ratchet():
     # move, luna, n=5 per arm: unfused-shape finding 0/5 -> 5/5 blocking; at delivery,
     # gap sentences carrying their own transfer clause 0 of 3 -> 5 of 5, disclosures
     # 3 -> 5, blind hiring manager NO -> YES. SF-WRITE, new row, id at integration.
-    assert len(letter.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_850, (
+    # 2026-10-24 (R2-5, founder ruling T-1 = A, Hazelnut build 4): moved ONCE for the terminal doors' per-issue `note` field (+~150 chars, the same point in the candidate's words for the review card; the corrector never reads it). Replayed before the move on 5 captured round-2 terminal records (3 CV, 2 letter), luna thinking off, n=5: verdict parity held (approvals 1/25 vs 1/25, blocking counts inside the arm-A range), finish=stop 25/25, 81/81 notes in the document's language once the user prompt names it, 0 field paths.
+    assert len(letter.TERMINAL_REVIEW_SYSTEM_PROMPT) < 17_000, (
         f"letter terminal reviewer prompt is {len(letter.TERMINAL_REVIEW_SYSTEM_PROMPT)} chars — "
         "it is regrowing. Map the new content to an SF-WRITE row and REPLACE, do not append. "
         "The ratchet moved 16,100 → 16,300 ONCE, on 2026-09-11, for #668's letter half "
-        "(named check 6, REDUNDANCY, +377 chars; measured 0/5 → 5/5 blocking)."
+        "(named check 6, REDUNDANCY, +377 chars; measured 0/5 → 5/5 blocking), and "
+        "16,850 → 17,000 ONCE, on 2026-10-24, for R2-5's per-issue plain `note` (T-1 = A)."
     )
 
 

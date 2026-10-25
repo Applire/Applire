@@ -107,6 +107,21 @@ class KeywordLedgerEntry(BaseModel):
     # published it on 0 of 42, because an undeclared key is stripped by
     # `GapAnalysisResponse.model_validate` on every response.
     jd_phrase: str | None = None
+    # G-4 (founder, Hazelnut build 4; ADR-095: additive) — DERIVED, never read
+    # from a stored row: True on a row the ADR-059 containment floor wrote
+    # (keyword_ledger.is_denial_floored). Surfaces count it in the declined
+    # bucket ("ruled out by your answer"), never as an open requirement; the
+    # floor itself (no credit, never claimed) is unchanged.
+    floored_by_denial: bool = False
+
+    @model_validator(mode="after")
+    def _derive_floored_by_denial(self) -> "KeywordLedgerEntry":
+        from applire.services.keyword_ledger import is_denial_floored
+
+        self.floored_by_denial = is_denial_floored(
+            {"status": self.status, "evidence": self.evidence}
+        )
+        return self
 
     @model_validator(mode="after")
     def _denial_level_only_when_denied(self) -> "KeywordLedgerEntry":
@@ -129,6 +144,29 @@ class KeywordLedgerEntry(BaseModel):
             )
             self.denial_level = None
         return self
+
+
+def _asked_cluster_concepts(clusters) -> set[str]:
+    """R2-6 (5): the concepts (casefolded) of every gap cluster the interview asked
+    about (``outcome.asked > 0``) or recorded a decline on — its open members, its
+    JD skills, and what it covered or declined."""
+    out: set[str] = set()
+    for c in clusters or []:
+        outcome = getattr(c, "outcome", None)
+        if outcome is None:
+            continue
+        declined = list(getattr(outcome, "declined", None) or [])
+        if not (getattr(outcome, "asked", 0) or 0) and not declined:
+            continue
+        for name in [
+            *(getattr(c, "gaps", None) or []),
+            *(getattr(c, "jd_skills", None) or []),
+            *(getattr(outcome, "covered", None) or []),
+            *declined,
+        ]:
+            if isinstance(name, str) and name.strip():
+                out.add(name.strip().casefold())
+    return out
 
 
 class GapAnalysisResponse(BaseModel):
@@ -200,8 +238,20 @@ class GapAnalysisResponse(BaseModel):
             KeywordLedgerEntry(**e) for e in _compute(entries)
         ]
         # ADR-074 — same derivation discipline, same single source.
+        # R2-6 (5) (founder ruling 2026-10-24, build 4): "never asked" is a claim
+        # about US, so it is checked against what the interview actually did. A
+        # row a gap cluster ASKED about or recorded a decline on is not "never
+        # asked" (Felix, round 2: "Payment settlement" listed as never asked after
+        # two questions on the "Payment Settlement & Payouts" gap). A row a stated
+        # limit covers already leaves the set by the ledger floor itself
+        # (``is_unasked_requirement`` needs ``evidence == ""``; the floor writes
+        # ``DENIAL_FLOOR_EVIDENCE``). The letter's own Restfall (ADR-074) keeps
+        # the ledger predicate — this filter is the candidate-facing notice only.
+        asked = _asked_cluster_concepts(self.gap_clusters)
         self.unasked_requirements = [
-            KeywordLedgerEntry(**e) for e in unasked_hard_requirements(entries)
+            KeywordLedgerEntry(**e)
+            for e in unasked_hard_requirements(entries)
+            if (e.get("concept") or "").strip().casefold() not in asked
         ]
         return self
 
@@ -216,22 +266,32 @@ class GapAnalysisResponse(BaseModel):
           keeps it: the record is written by the session turn and the
           recompute, never re-judged on read;
         * ``member_statuses`` for every cluster (ruling C-1,
-          ``member_statuses``) — the chip colours of the gaps page.
+          ``member_statuses``) — the chip colours of the gaps page;
+        * ``requirement_topic`` (R2-10) — False for a cluster with no counted
+          requirement among its members.
         """
         if not self.gap_clusters:
             return self
-        from applire.services.gap_coverage import derive_coverage, member_statuses
+        from applire.services.gap_coverage import (
+            derive_coverage,
+            is_requirement_topic,
+            member_statuses,
+        )
 
         from applire.schemas.gap_cluster import GapClusterMemberStatus
 
         ledger = [e.model_dump() for e in self.keyword_ledger]
         for cluster in self.gap_clusters:
-            raw = cluster.model_dump(exclude={"budget_remaining", "member_statuses"})
+            raw = cluster.model_dump(
+                exclude={"budget_remaining", "member_statuses", "requirement_topic"}
+            )
             if cluster.coverage is None:
                 cluster.coverage = derive_coverage(raw, ledger)
             cluster.member_statuses = [
                 GapClusterMemberStatus(**item) for item in member_statuses(raw, ledger)
             ]
+            # R2-10: a topic of posting terms only is not a topic.
+            cluster.requirement_topic = is_requirement_topic(raw, ledger)
         return self
 
 

@@ -187,6 +187,21 @@ interface SignatureStoryShape {
   source?: string | null;
 }
 
+/**
+ * 789:181 — a CV header set in capitals ("STEFAN BRANDT") is stored as typed
+ * and was printed raw. Display-only: a name whose letters are ALL upper case
+ * reads in title case ("Stefan Brandt"); any mixed-case name ("McDonald",
+ * "van der Berg") is shown exactly as stored. The vault value is untouched.
+ */
+export function displayPersonName(name: string | null | undefined): string | null | undefined {
+  if (!name) return name;
+  const letters = name.replace(/[^\p{L}]/gu, "");
+  if (letters.length < 2 || letters !== letters.toLocaleUpperCase()) return name;
+  return name
+    .toLocaleLowerCase()
+    .replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep: string, ch: string) => sep + ch.toLocaleUpperCase());
+}
+
 interface PersonalInfoShape {
   name?: string | null;
   email?: string | null;
@@ -267,7 +282,7 @@ export function ProfileSectionBody({
   if (section === "personal_info") {
     const info = (value ?? {}) as PersonalInfoShape;
     const rows: Array<[string, string | null | undefined]> = [
-      [t("fieldName"), info.name],
+      [t("fieldName"), displayPersonName(info.name)],
       [t("fieldEmail"), info.email],
       [t("fieldPhone"), info.phone],
       [t("fieldLocation"), info.location],

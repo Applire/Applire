@@ -50,6 +50,26 @@ export type ATSCheck = {
   // today only `repeated_demand` on the `terminal-review` check. Absent/null on
   // every report that predates it.
   signals?: CheckSignal[] | null;
+  // R2-5 (Hazelnut build 4): the `terminal-review` card's items as data — the
+  // surface says them in the UI language. Absent/null on every other check and
+  // on every report persisted before it (those keep the EN `details`).
+  notes?: CheckNote[] | null;
+};
+
+/**
+ * R2-5 — one item of the `terminal-review` card. `finding` = a point the final
+ * reviewer raised (`plain` = its own one-sentence note for the candidate, when it
+ * gave one); `code` = a deterministic check still open on the delivered document
+ * (`key` = the check id, `subjects` = the names it is about); `note` = something
+ * the delivery pipeline did. `key: "more"` + `count` = the rest of a long list.
+ */
+export type CheckNote = {
+  kind: "finding" | "code" | "note";
+  key?: string | null;
+  subjects?: string[];
+  count?: number | null;
+  text?: string;
+  plain?: string | null;
 };
 
 /** #703 — a job term the writing loop demanded in `rounds` of `total_rounds`. */
@@ -114,6 +134,10 @@ export type ATSReport = {
     // the candidate's own recorded denials covers, those denials. The review card
     // shows them and offers no add-to-profile handle. Absent = legacy report / none.
     present_unsupported_denials?: Record<string, string[]>;
+    // #803 belt (founder ruling T-2 = B, build 4): letter terms whose every
+    // occurrence sits in a sentence naming the employer — listed, but neutral:
+    // no add-to-profile exit, not counted in the group-1 headline.
+    present_unsupported_employer_sentence?: string[];
     // E048/US266 (#249 option b): EVERY claimable Keyword Ledger entry's surface
     // forms (concept name included), regardless of presence in the document.
     claimable_concepts?: string[];
@@ -133,6 +157,8 @@ export const LOCALIZED_DETAIL_KEYS = new Set([
   // could not hit — a genuine miss, never dressed up as senior-profile advice.
   "page-length-target-missed",
   "page-length-senior",
+  // 786:237: the person chose "keep" on the x+1 card — the length is decided.
+  "page-length-kept",
   "page-length-exhausted",
   "page-length-exceeds",
   "page-length-letter",
@@ -141,13 +167,39 @@ export const LOCALIZED_DETAIL_KEYS = new Set([
   "page-length-not-applicable",
   // #391 interim (ADR-076 amendment 4 point 6): measurement-only advisory.
   "skills-weak-vault-tie",
+  // 786:47: a letter paragraph opening several sentences on one employer name
+  // ({employer, paragraph, count, more}) — advisory, the person decides.
+  "employer-repetition",
   // #759: a FAILED document-language check, shown in the review surface's
   // "before you send it" block ({language, count, examples}).
   "document-language-mixed",
   // #790 line L10 (ruling D2-1 = A): present terms the keyword check did not
   // verify across languages ({count, terms}) — a neutral not_applicable row.
   "keyword-other-language",
+  // R2-5 (build 4): the terminal-review card's lead sentence, one per state
+  // ({count}); its items ride `notes` (TerminalReviewDetail).
+  "terminal-review-unverified",
+  "terminal-review-unverified-clean",
+  "terminal-review-open",
+  "terminal-review-unnamed",
+  "terminal-review-incomplete",
+  "terminal-review-not-run",
+  "terminal-review-clean-code-open",
+  "terminal-review-observations",
+  "terminal-review-clean",
 ]);
+
+/**
+ * R2-5 — a `terminal-review` pass that says nothing beyond "clean" is a PASSED
+ * check, not an advisory row (the card exists only when there is something to
+ * read). A legacy report without the key keeps its EN advisory row.
+ */
+export function isSilentPass(check: ATSCheck): boolean {
+  return (
+    check.status === "pass" &&
+    (!check.details || (check.details_key === "terminal-review-clean" && !(check.notes?.length ?? 0)))
+  );
+}
 
 /**
  * Should this check's `details` be rendered through `t()`?

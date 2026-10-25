@@ -100,4 +100,11 @@ describe("resolveFlowRedirect", () => {
   it("returns null for unknown steps", () => {
     expect(resolveFlowRedirect(FLOW, "/flow/f1/interview", "some_future_step")).toBeNull();
   });
+
+  it("783:195: past the interview, the interview route is a revisit route (the summary)", () => {
+    expect(resolveFlowRedirect(FLOW, "/flow/f1/interview", "cv_generation")).toBeNull();
+    expect(resolveFlowRedirect(FLOW, "/flow/f1/interview", "complete")).toBeNull();
+    // Before the interview it still redirects.
+    expect(resolveFlowRedirect(FLOW, "/flow/f1/interview", "gap_analysis")).toBe("/flow/f1/gaps");
+  });
 });

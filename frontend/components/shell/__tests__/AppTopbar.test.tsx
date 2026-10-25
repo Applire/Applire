@@ -94,6 +94,27 @@ describe("AppTopbar", () => {
     expect(pill.textContent).toContain("übersprungen");
   });
 
+  // R2-3 (ruling G-1): a passed step the person may go back to is a link — the
+  // skipped interview reads "skipped, take it now"; the active step never is one.
+  it("R2-3: a passed step with an href is a link; the skipped interview invites the reopen", () => {
+    render(withIntl(
+      <AppTopbar mode="flow" steps={[
+        { key: "cv_import",     labelKey: "flow.stepProfile",   state: "done" },
+        { key: "gap_analysis",  labelKey: "flow.stepGaps",      state: "done",    href: "/flow/f1/gaps" },
+        { key: "interview",     labelKey: "flow.stepInterview", state: "skipped", href: "/flow/f1/gaps" },
+        { key: "cv_generation", labelKey: "flow.stepCV",        state: "active",  href: "/flow/f1/cv" },
+      ]} />
+    ));
+    const interview = screen.getByTestId("flow-step-link-interview");
+    expect(interview).toHaveAttribute("href", "/flow/f1/gaps");
+    expect(interview).toHaveAttribute("data-state", "skipped");
+    expect(interview).toHaveAttribute("title", `${messages.flow.stepInterview} – übersprungen, jetzt nachholen`);
+    expect(screen.getByTestId("flow-step-link-gap_analysis")).toHaveAttribute("href", "/flow/f1/gaps");
+    // The active step stays a plain pill, even with an href.
+    expect(screen.queryByTestId("flow-step-link-cv_generation")).toBeNull();
+    expect(screen.queryByTestId("flow-step-link-cv_import")).toBeNull();
+  });
+
   // US223: below md the persistent AppSidebar is hidden, so every AppTopbar
   // mode needs its own hamburger affordance into the equivalent drawer nav.
   it("renders a hamburger button that opens the mobile nav drawer", () => {

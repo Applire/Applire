@@ -45,6 +45,13 @@ class ContentSnapshot(BaseModel):
     introduction: str
     positions: list[SnapshotPosition]
     skills: list[str]
+    # L-3 = A (789:193, founder 2026-10-24): one line per certification / education
+    # entry (``services.cv_section_editor.entry_line``), section ids
+    # ``certification::<i>`` / ``education::<i>`` (i = index in tailored_data).
+    # ``None`` = a snapshot stored before these existed: rebuilt lazily from
+    # tailored_data at read time (``cv_section_editor.snapshot_entry_lines``).
+    certifications: list[str] | None = None
+    education: list[str] | None = None
 
 
 class GapHintItem(BaseModel):
@@ -92,6 +99,25 @@ class AssistStartResponse(BaseModel):
 class AssistAnswerRequest(BaseModel):
     session_id: str
     answer: str
+
+
+class AssistAcceptRequest(BaseModel):
+    """783:60 (ruling V-3 = A) — the candidate pressed "Übernehmen". Only the
+    session is named: the ANSWER the vault receives is the one the server
+    stored with the session, never text the client sends, and never the
+    generated suggestion (a paraphrase is not a source)."""
+
+    session_id: str = Field(min_length=1, max_length=100)
+
+
+class AssistAcceptResponse(BaseModel):
+    """What the accepted answer wrote to the profile ("In dein Profil
+    übernommen: …"). ``added`` = the new facts in the candidate's words as the
+    vault holds them; empty with ``no_write_receipt`` when nothing was new."""
+
+    added: list[str] = Field(default_factory=list)
+    denied_concepts: list[str] = Field(default_factory=list)
+    no_write_receipt: str | None = None
 
 
 class AssistAnswerResponse(BaseModel):

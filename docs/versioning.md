@@ -93,6 +93,20 @@ The container images carry a major tag: `ghcr.io/applire/applire-backend:1`
 release, so pinning `:1` gets you every 1.x update and never a 2.0. `:latest`
 moves with every regular (non-pre-release) release, whatever its major version.
 
+### The version notice keys on the version string — so `:edge` never shows it
+
+The administrator's version notice (promise 1) compares the version this
+instance last ran with the version it runs now. It appears only when that
+version string moves forward. That is right for releases: every release
+carries a new version. The `:edge` images are different. They are a developer
+channel, rebuilt on every merge to `main`, and they keep the same version
+string across those merges. So an `:edge` instance **never** shows the notice,
+even when a merge added new settings. This is by design. If you run `:edge`,
+read the CHANGELOG's `[Unreleased]` section instead. The notice lists each
+setting with the release that brings it: a release *ahead* of the running
+build reads "from 1.0.0" ("ab 1.0.0"), and one already reached reads
+"since 0.44.0" ("seit 0.44.0").
+
 ## Supported versions
 
 Security fixes go to the latest 1.x minor release only. See

@@ -85,6 +85,28 @@ describe("LiabilityPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("789:175: the evidence line names the vault entities, never the classifier's prose", () => {
+    render(
+      withIntl(
+        <LiabilityPanel
+          jobId="job-1"
+          liabilities={[
+            { concept: "RAG", evidence: "listed as expert in skills", evidence_owners: ["Acme GmbH"] },
+            { concept: "SQL", evidence: "listed as expert in skills" },
+          ]}
+          clusters={CLUSTERS}
+          apiBase=""
+          onDropped={() => {}}
+          onStoryAdded={() => {}}
+        />,
+        "de",
+      )
+    );
+    expect(screen.getByTestId("liability-card-RAG")).toHaveTextContent("Steht im Profil bei: Acme GmbH");
+    expect(document.body.textContent).not.toContain("listed as expert");
+    expect(screen.getAllByTestId("liability-evidence")).toHaveLength(1); // SQL: no owner, no line
+  });
+
   it("lists each liability concept with both exits", () => {
     render(
       withIntl(
@@ -176,6 +198,35 @@ describe("LiabilityPanel", () => {
     await waitFor(() => expect(onStoryAdded).toHaveBeenCalledWith("RAG"));
     expect(screen.getByTestId("liability-resolved-RAG")).toBeInTheDocument();
     expect(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][0])).toBe("/api/session/sess-1/message");
+  });
+
+  it("R2-13: a 503 'answer_not_saved' turn shows errors.answerNotSaved, never the status text, and keeps the draft", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(jsonResponse({ session_id: "sess-1", question: "Tell me about RAG." }))
+      .mockResolvedValueOnce({
+        ok: false, status: 503, statusText: "Service Unavailable",
+        json: async () => ({
+          detail: { error_code: "answer_not_saved", turn_state: "not_saved", message: "Your answer was not saved." },
+        }),
+      } as Response);
+    const onStoryAdded = vi.fn();
+    render(
+      withIntl(
+        <LiabilityPanel jobId="job-1" liabilities={[{ concept: "RAG" }]} clusters={CLUSTERS}
+          apiBase="" onDropped={() => {}} onStoryAdded={onStoryAdded} />
+      )
+    );
+    fireEvent.click(screen.getByTestId("liability-tell-story-RAG"));
+    await screen.findByTestId("liability-question-RAG");
+    fireEvent.change(screen.getByTestId("liability-answer-textarea-RAG"), { target: { value: "My RAG story." } });
+    fireEvent.click(screen.getByTestId("liability-submit-RAG"));
+
+    // errors.answerNotSaved (Lead I's copy, I-2) — not the server's English.
+    await waitFor(() => expect(screen.getByText(/could not be saved/i)).toBeInTheDocument());
+    expect(screen.queryByText("Service Unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByText("Your answer was not saved.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("liability-answer-textarea-RAG")).toHaveValue("My RAG story.");
+    expect(onStoryAdded).not.toHaveBeenCalled();
   });
 
   it("dropping the keyword calls the downgrade endpoint, hides the card, and calls onDropped", async () => {
@@ -586,17 +637,20 @@ describe("LiabilityPanel — locking (ADR-089 clause 8, one open micro-session a
     expect(onActiveChange).toHaveBeenCalledWith(false);
 
     fireEvent.click(screen.getByTestId("liability-tell-story-RAG"));
-    await waitFor(() => expect(onActiveChange).toHaveBeenCalledWith(true));
+    // Explicit 10 s budgets: the default 1 s waitFor/findBy window flaked under CPU load (785:221).
+    await waitFor(() => expect(onActiveChange).toHaveBeenCalledWith(true), { timeout: 10000 });
 
-    await screen.findByTestId("liability-question-RAG");
+    await screen.findByTestId("liability-question-RAG", {}, { timeout: 10000 });
     fireEvent.change(screen.getByTestId("liability-answer-textarea-RAG"), {
       target: { value: "Built a production RAG pipeline." },
     });
     fireEvent.click(screen.getByTestId("liability-submit-RAG"));
 
-    await waitFor(() => expect(screen.getByTestId("liability-resolved-RAG")).toBeInTheDocument());
-    expect(onActiveChange).toHaveBeenLastCalledWith(false);
-  });
+    await waitFor(() => expect(screen.getByTestId("liability-resolved-RAG")).toBeInTheDocument(), {
+      timeout: 10000,
+    });
+    await waitFor(() => expect(onActiveChange).toHaveBeenLastCalledWith(false), { timeout: 10000 });
+  }, 30000);
 });
 
 describe("LiabilityPanel — ruling M-1b: the follow-up label names what the follow-up asks", () => {

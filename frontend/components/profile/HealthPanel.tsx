@@ -17,8 +17,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useState, type ReactNode } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -43,7 +43,11 @@ export type HealthThread =
   | "not_applied"
   // #764 — a transcribed skill duration no source states (the Oracle's
   // "laundered span"); fixed by one deterministic recompute, not a decision.
-  | "span_provenance";
+  | "span_provenance"
+  // FS-5 (Hazelnut build 4) — a recorded skill binding that crosses
+  // technical↔soft ("REST APIs" on "Mentoring"). Read-only; answered by the
+  // pair's own acts (confirm / #717 separate), never a decision popup.
+  | "suspect_binding";
 export type HealthSeverity = "info" | "review" | "critical";
 
 export interface HealthIssue {
@@ -86,6 +90,19 @@ export interface HealthIssue {
   skill_name?: string | null;
   span_years?: number | null;
   recomputed_years?: number | null;
+  // FS-5 — the name the document used for a `suspect_binding` pair; the
+  // target's name is `skill_name`, its id `skill_id`.
+  incoming_name?: string | null;
+  // G-5 / #604 — a `confirmation` issue's question per language; the panel
+  // renders the reader's own instead of the English `summary`.
+  question_i18n?: Record<string, string> | null;
+  // G-5 / ruling V-5 (c) — a `confirmation` the panel answers IN PLACE (the
+  // `denial_scope` family): the ask's id and its options, plain and per
+  // language. Null options = answered in the interview ("Beheben").
+  confirmation_id?: string | null;
+  confirmation_kind?: string | null;
+  options?: string[] | null;
+  options_i18n?: Record<string, string>[] | null;
 }
 
 export interface ProfileHealth {
@@ -244,7 +261,7 @@ export function groupNotAppliedItems(
 // `span_provenance` is absent on purpose: its label lives in the
 // `profileHealth.launderedSpan` namespace (see IssueCard), not in `health`.
 const THREAD_LABEL: Record<
-  Exclude<HealthThread, "span_provenance">,
+  Exclude<HealthThread, "span_provenance" | "suspect_binding">,
   | "threadConflict"
   | "threadAccuracy"
   | "threadConfirmation"
@@ -280,26 +297,70 @@ export function describeConflictIssue(
   return describeConflict(issue, t, tProfile);
 }
 
+export type AnswerBinding = (issue: HealthIssue, same: boolean) => Promise<boolean>;
+/** V-5 (c) — answer a parked confirmation with one of its plain options;
+ *  resolves to false when the act failed. */
+export type AnswerConfirmation = (issue: HealthIssue, option: string) => Promise<boolean>;
+
 function IssueCard({
   issue,
   onResolve,
   onRecomputeSpan,
+  onAnswerBinding,
+  onAnswerConfirmation,
   prominent,
 }: {
   issue: HealthIssue;
   onResolve: (issue: HealthIssue) => void;
   onRecomputeSpan?: (issue: HealthIssue) => Promise<void> | void;
+  onAnswerBinding?: AnswerBinding;
+  onAnswerConfirmation?: AnswerConfirmation;
   prominent?: boolean;
 }) {
   const t = useTranslations("health");
   const tProfile = useTranslations("profile");
   const tSpan = useTranslations("profileHealth.launderedSpan");
   const [recomputing, setRecomputing] = useState(false);
+  const locale = useLocale();
+  const [answering, setAnswering] = useState(false);
+  const [answerFailed, setAnswerFailed] = useState(false);
   const conflict = describeConflictIssue(issue, t, tProfile);
   const isSpan = issue.thread === "span_provenance";
   // The one-click recompute needs a handler; without one the card degrades to
   // the ordinary Resolve button (and the server summary is not the sentence).
   const canRecompute = isSpan && !!onRecomputeSpan;
+  // FS-5 — a suspect binding is ONE question with the pair's two acts; without
+  // a handler it degrades to the ordinary Resolve button.
+  const isBinding = issue.thread === "suspect_binding";
+  const canAnswerBinding = isBinding && !!onAnswerBinding;
+  // V-5 (c) — a `denial_scope` ask is answered with its own options; the
+  // answer IS the act (no second dialog). Without a handler: "Beheben".
+  const confirmationOptions =
+    issue.thread === "confirmation" && issue.options && issue.options.length > 0 ? issue.options : null;
+  const canAnswerConfirmation = !!confirmationOptions && !!onAnswerConfirmation;
+  const optionLabel = (i: number) =>
+    issue.options_i18n?.[i]?.[locale] ?? confirmationOptions?.[i] ?? "";
+  const handleConfirmation = async (option: string) => {
+    if (!onAnswerConfirmation || answering) return;
+    setAnswering(true);
+    setAnswerFailed(false);
+    try {
+      if (!(await onAnswerConfirmation(issue, option))) setAnswerFailed(true);
+    } finally {
+      setAnswering(false);
+    }
+  };
+  const handleBinding = async (same: boolean) => {
+    if (!onAnswerBinding || answering) return;
+    setAnswering(true);
+    setAnswerFailed(false);
+    try {
+      if (!(await onAnswerBinding(issue, same))) setAnswerFailed(true);
+    } finally {
+      setAnswering(false);
+    }
+  };
+  const bold = (chunks: ReactNode) => <b className="font-semibold">{chunks}</b>;
   const handleRecompute = async () => {
     if (!onRecomputeSpan || recomputing) return;
     setRecomputing(true);
@@ -323,7 +384,9 @@ function IssueCard({
         <span className="text-xs text-gray-500">
           {issue.thread === "span_provenance"
             ? tSpan("thread")
-            : t(THREAD_LABEL[issue.thread])}
+            : issue.thread === "suspect_binding"
+              ? t("threadSuspectBinding")
+              : t(THREAD_LABEL[issue.thread])}
         </span>
       </div>
       {/* #626: a `conflict` issue composes a localized heading (naming the
@@ -347,7 +410,9 @@ function IssueCard({
           fixing `confirmation` needs a backend change too
           (`HealthIssue` carries no `question_i18n`/`options_i18n` for it, only
           `not_applied` got that treatment), which is why it is deferred
-          alongside `accuracy` rather than built here. */}
+          alongside `accuracy` rather than built here.
+          G-5 (Hazelnut build 4): `confirmation` now carries `question_i18n`
+          and renders the reader's language; `accuracy` still falls through. */}
       {conflict ? (
         <div data-testid="health-issue-conflict">
           <p className="text-sm font-medium text-neutral-dark">{conflict.heading}</p>
@@ -362,17 +427,75 @@ function IssueCard({
             recomputed: issue.recomputed_years ?? 0,
           })}
         </p>
+      ) : isBinding ? (
+        <div data-testid="health-issue-suspect-binding">
+          <p className="text-sm text-neutral-dark">
+            {t.rich("suspectBindingQuestion", {
+              incoming: issue.incoming_name ?? "",
+              existing: issue.skill_name ?? "",
+              b: bold,
+            })}
+          </p>
+          <p className="text-xs text-on-surface-variant mt-1">{t("suspectBindingNote")}</p>
+          {answerFailed && (
+            <p className="text-xs text-critical mt-1" role="alert">
+              {t("suspectBindingFailed")}
+            </p>
+          )}
+        </div>
       ) : (
         <p className="text-sm text-neutral-dark" data-testid="health-issue-summary">
           {issue.thread === "unit"
             ? t("unitBudgetIssue", { entry: issue.source_record_ref ?? "" })
             : issue.thread === "not_applied"
               ? describeNotApplied(issue, t, tProfile)
-              : issue.summary}
+              : issue.thread === "confirmation" && issue.question_i18n?.[locale]
+                ? issue.question_i18n[locale]
+                : issue.summary}
         </p>
       )}
-      <div className="mt-2 flex justify-end">
-        {canRecompute ? (
+      {canAnswerConfirmation && answerFailed && (
+        <p className="text-xs text-critical mt-1" role="alert">
+          {t("suspectBindingFailed")}
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        {canAnswerConfirmation && confirmationOptions ? (
+          confirmationOptions.map((option, i) => (
+            <Button
+              key={option}
+              size="sm"
+              variant="outline"
+              className="h-auto min-h-8 whitespace-normal text-left"
+              data-testid="health-confirmation-option"
+              disabled={answering}
+              onClick={() => handleConfirmation(option)}
+            >
+              {optionLabel(i)}
+            </Button>
+          ))
+        ) : canAnswerBinding ? (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="health-binding-same"
+              disabled={answering}
+              onClick={() => handleBinding(true)}
+            >
+              {t("suspectBindingSame")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="health-binding-separate"
+              disabled={answering}
+              onClick={() => handleBinding(false)}
+            >
+              {t("suspectBindingSeparate")}
+            </Button>
+          </>
+        ) : canRecompute ? (
           <Button
             size="sm"
             variant="outline"
@@ -402,6 +525,8 @@ export function HealthPanel({
   onResolve,
   onImprove,
   onRecomputeSpan,
+  onAnswerBinding,
+  onAnswerConfirmation,
 }: {
   health: ProfileHealth;
   onResolve: (issue: HealthIssue) => void;
@@ -411,8 +536,16 @@ export function HealthPanel({
   // US166 — launch the standalone Mode C (ADR-028) enrichment conversation in
   // context from the completeness block. Optional: growth, never blocking.
   onImprove?: () => void;
+  // FS-5 — answer a `suspect_binding` pair (true = same, false = separate);
+  // resolves to false when the act failed. Optional: without it that thread
+  // falls back to the ordinary Resolve button.
+  onAnswerBinding?: AnswerBinding;
+  // V-5 (c) — answer a `denial_scope` ask in place. Optional: without it the
+  // ask falls back to the ordinary Resolve button.
+  onAnswerConfirmation?: AnswerConfirmation;
 }) {
   const t = useTranslations("health");
+  const tSection = useTranslations("review.section");
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
 
   const critical = health.issues.filter((i) => i.profile_mismatch_severity === "critical");
@@ -466,6 +599,8 @@ export function HealthPanel({
               issue={issue}
               onResolve={onResolve}
               onRecomputeSpan={onRecomputeSpan}
+              onAnswerBinding={onAnswerBinding}
+              onAnswerConfirmation={onAnswerConfirmation}
               prominent
             />
           ))}
@@ -480,6 +615,8 @@ export function HealthPanel({
               issue={issue}
               onResolve={onResolve}
               onRecomputeSpan={onRecomputeSpan}
+              onAnswerBinding={onAnswerBinding}
+              onAnswerConfirmation={onAnswerConfirmation}
             />
           ))}
         </div>
@@ -489,7 +626,12 @@ export function HealthPanel({
         <div className="mt-3 flex items-center justify-between gap-2">
           {health.completeness.gaps.length > 0 && (
             <p className="text-xs text-gray-500">
-              {t("gapsLabel", { sections: health.completeness.gaps.join(", ") })}
+              {t("gapsLabel", {
+                // Section keys in the reader's words, never the raw key.
+                sections: health.completeness.gaps
+                  .map((g) => (tSection.has(g) ? tSection(g) : g))
+                  .join(", "),
+              })}
             </p>
           )}
           {/* US179: gate the enrich entry-point on field_gaps (role-aware work-entry

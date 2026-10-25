@@ -17,6 +17,7 @@
 
 """Profile enrichment endpoints — Mode C interview sessions (no JD required)."""
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -28,6 +29,7 @@ from applire.auth.deps import require_user
 from applire.models.user import User
 from applire.constants import INTERVIEW_SESSION_TTL_DAYS
 from applire.db.session import get_db
+from applire.exceptions import ReconcileFailedError
 from applire.models.profile import MasterProfile
 from applire.services.profile.owner import resolve_owner
 from applire.models.session import InterviewSession
@@ -50,9 +52,14 @@ from applire.services.interview_graph import (
 from applire.services.profile.commit import CommitProvenance, commit_ops
 from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
 from applire.services.profile.reconcile.ops import SetProfileMeta
-from applire.services.session import _to_confirmation_prompts, get_ui_language
+from applire.exceptions import ReconcileFailedError, answer_not_saved_detail
+from applire.services.session import (
+    _to_confirmation_prompts,
+    get_profile_conversation_language,
+)
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
+logger = logging.getLogger(__name__)
 
 
 def _uid(user: "User | None"):
@@ -200,7 +207,7 @@ async def _next_question_or_done(
         return None, True
 
     state["current_gap_index"] = idx
-    lang = await get_ui_language(db, user_id=session.user_id)
+    lang = await get_profile_conversation_language(db, profile_data, user_id=session.user_id)
     q_data = await question_generator_with_profile(state, profile_data, provider, lang=lang)
     question = q_data["question"]
     state["current_question"] = question
@@ -266,7 +273,7 @@ async def start_enrich_session(
         "na_gaps": [],
     }
 
-    lang = await get_ui_language(db, user_id=profile_record.user_id)
+    lang = await get_profile_conversation_language(db, profile_data, user_id=profile_record.user_id)
     q_data = await question_generator_with_profile(state, profile_data, provider, lang=lang)
     first_question = q_data["question"]
     state["current_question"] = first_question
@@ -341,7 +348,9 @@ async def respond_to_enrich(
     current_question = state["current_question"]
 
     # Reconcile answer via the ADR-046 engine (single pass — no separate review step)
-    lang = await get_ui_language(db, user_id=profile_record.user_id)
+    lang = await get_profile_conversation_language(
+        db, profile_record.profile_json, user_id=profile_record.user_id
+    )
     # ADR-063 (#480 PR 2) — the bridge writes through `commit_ops`, which
     # flushes and leaves the transaction here. The write is now UNCONDITIONAL,
     # which subsumes #338: `addressed` is deliberately `bool(changes)` EXCLUDING
@@ -351,16 +360,28 @@ async def respond_to_enrich(
     # an ADR-059 receipt the LLM call had already paid for. #338 widened the
     # gate to `addressed or denial_recorded`; the committer removes the gate,
     # so a turn that produced neither still leaves a trail saying it happened.
-    turn = await reconcile_interview_turn(
-        db,
-        profile_record=profile_record,
-        gap=current_gap,
-        question=current_question,
-        answer=answer,
-        provider=provider,
-        session_id=str(session_id),
-        lang=lang,
-    )
+    try:
+        turn = await reconcile_interview_turn(
+            db,
+            profile_record=profile_record,
+            gap=current_gap,
+            question=current_question,
+            answer=answer,
+            provider=provider,
+            session_id=str(session_id),
+            lang=lang,
+        )
+    except ReconcileFailedError:
+        logger.warning("enrich respond: reconcile failed; answer not saved (session %s)", session_id)
+        # R2-13 (P-1) — the answer was NOT merged: no next question, nothing
+        # committed, the optimistic transcript append undone in place (the
+        # list is shared with `session.state`). The UI keeps the text.
+        if state["messages"] and state["messages"][-1] == {"role": "user", "content": answer}:
+            state["messages"].pop()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=answer_not_saved_detail(),
+        )
     updated_profile_data = turn.profile_dict
 
     # Mark gap addressed if the reconciler applied at least one change.

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { getApiErrorMessage } from "./errors";
+import { getApiErrorMessage, translateApiError } from "./errors";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -87,6 +87,17 @@ export async function startEnrichSession(
   return res.json();
 }
 
+/**
+ * R2-13 — the answer was NOT saved (the reconcile call failed after its retry);
+ * the same text can be sent again. The caller renders its own copy for it.
+ */
+export class EnrichAnswerNotSavedError extends Error {
+  constructor() {
+    super("not_saved");
+    this.name = "EnrichAnswerNotSavedError";
+  }
+}
+
 export async function respondToEnrich(
   sessionId: string,
   answer: string
@@ -97,6 +108,13 @@ export async function respondToEnrich(
     body: JSON.stringify({ answer }),
   });
   if (!res.ok) {
+    if (res.status === 503) {
+      const body = await res.json().catch(() => null);
+      // R2-13 — WP-I's turn shape (`error_code: "answer_not_saved"`,
+      // `turn_state: "not_saved"`) is the one the enrich door answers with.
+      if (body?.detail?.error_code === "answer_not_saved") throw new EnrichAnswerNotSavedError();
+      throw new Error(translateApiError(503));
+    }
     const errorMsg = await getApiErrorMessage(res);
     throw new Error(errorMsg);
   }

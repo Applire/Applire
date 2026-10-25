@@ -47,10 +47,12 @@
     "stepLabel": "Schritt {n}",
     "step1Title": "Lebenslauf hochladen",
     "step1Body": "Einer reicht. Das Lesen dauert 1–2 Minuten je Datei.",
+    "step1PhoneTag": "1–2 Min. je Datei",
     "step2Title": "Stellenanzeige einfügen",
     "step2Body": "Link oder Text der Stelle, die dich interessiert.",
     "step3Title": "Lücken ansehen",
     "step3Body": "Was die Stelle verlangt und dein Lebenslauf noch nicht zeigt. Ein paar Minuten Lesen.",
+    "step3PhoneTag": "wenige Min.",
     "step4Title": "Interview",
     "step4Body": "Fragen nur zu den offenen Punkten. Jederzeit beendbar.",
     "step4Tag": "optional · 10–20 Min.",
@@ -102,6 +104,7 @@
     "cvUploaded": "{count, plural, one {1 Lebenslauf hochgeladen} other {# Lebensläufe hochgeladen}}",
     "profileUpdated": "{count, plural, one {Master-Profil mit 1 neuem Lebenslauf aktualisiert} other {Master-Profil mit # neuen Lebensläufen aktualisiert}}",
     "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut.",
+    "uploadNotSaved": "Wir konnten diesen Lebenslauf diesmal nicht in dein Profil übernehmen — es wurde nichts geändert. Bitte versuche es erneut.",
     "notAppliedNote": "{count, plural, one {1 Eintrag aus deinem Lebenslauf wurde nicht automatisch übernommen} other {# Einträge aus deinem Lebenslauf wurden nicht automatisch übernommen}}: {labels}",
     "notAppliedMore": "+{count} weitere",
     "sourceTruncatedNote": "Nur die ersten ≈ {percent} % Deiner Datei wurden gelesen – prüfe, ob alle Stationen übernommen sind.",
@@ -110,7 +113,7 @@
   },
   "flow": {
     "stepProfile": "1 Profil",
-    "stepGaps": "2 Lücken",
+    "stepGaps": "2 Abgleich",
     "stepInterview": "3 Interview",
     "stepCV": "4 Lebenslauf",
     "loading": "Lade …",
@@ -140,7 +143,8 @@
     "cancelDialogConfirm": "Bewerbung abbrechen",
     "cancelDialogBusy": "Wird abgebrochen …",
     "stepSkipped": "{label} – übersprungen",
-    "stepSkippedSr": " (übersprungen)"
+    "stepSkippedSr": " (übersprungen)",
+    "stepSkippedReopen": "{label} – übersprungen, jetzt nachholen"
   },
   "gaps": {
     "title": "Lückenanalyse",
@@ -158,7 +162,7 @@
     "masterProfileUpdated": "Dein Profil ist aktualisiert:",
     "cvParsedPartial": "{parsed} von {total} Lebensläufen wurden gelesen — die übrigen konnten nicht verarbeitet und nicht zum Profil hinzugefügt werden.",
     "jdEchoTitle": "Das haben wir aus der Stellenanzeige gelesen",
-    "jdEchoSubtitle": "Prüfe kurz, ob das zur Anzeige passt, bevor du das Interview startest.",
+    "jdEchoSubtitle": "Prüfe kurz, ob das zur Anzeige passt. Stimmt etwas nicht, passt auch der Abgleich darüber nicht.",
     "jdEchoRole": "Rolle",
     "jdEchoCompany": "Unternehmen",
     "jdEchoEducation": "Ausbildung",
@@ -332,7 +336,17 @@
     "gapsSectionLead": "{count, plural, one {# offene Anforderung} other {# offene Anforderungen}}, in {topics, plural, one {# Thema} other {# Themen}} gebündelt. Offen heißt: Dein Lebenslauf zeigt es noch nicht — nicht, dass du es nicht kannst.",
     "gapsSectionLeadNoneOpen": "Keine Anforderung ist offen. {count, plural, one {# ist} other {# sind}} nur wahrscheinlich belegt — ein kurzes Bestätigen macht sie sicher.",
     "jdContextLabel": "Was die Stelle erwartet:",
-    "liabilityEvidenceLabel": "Steht im Profil:"
+    "liabilityEvidenceLabel": "Steht im Profil bei:",
+    "reopenNote": "Deine Unterlagen bleiben erhalten. Wenn du das Interview jetzt nachholst, bleiben Lebenslauf und Anschreiben als Versionen gespeichert. Danach erstellst du mit „Neu zuschneiden“ neue Fassungen aus deinem neuen Stand.",
+    "reopenInterview": "Interview jetzt nachholen",
+    "reopenInterviewContinue": "Interview fortsetzen",
+    "goToDocuments": "Zu meinen Unterlagen",
+    "goToDocumentsHint": "Lebenslauf und Anschreiben ansehen, so wie sie sind.",
+    "interviewOpenFailed": "Das Interview konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal.",
+    "cvAdvanceFailed": "Der Lebenslauf-Schritt konnte gerade nicht geöffnet werden. Bitte lade die Seite neu und versuche es noch einmal.",
+    "memberRuledOutSr": "(durch deine Antwort ausgeschlossen)",
+    "coverageRuledOut": "Durch deine Antwort ausgeschlossen",
+    "foldedMembersLabel": "Später zu diesem Thema dazugekommen:"
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -350,7 +364,7 @@
     "gapsResolved": "Geschlossene Lücken",
     "generateCV": "Maßgeschneiderten Lebenslauf erstellen",
     "viewProfile": "Aktualisiertes Profil anzeigen",
-    "reasonGapsResolved": "Interview abgeschlossen — Lücken geschlossen!",
+    "reasonGapsResolved": "Interview abgeschlossen — alle Themen besprochen",
     "reasonUserEnded": "Interview beendet",
     "reasonMaxReached": "Fragelimit erreicht",
     "completionGapsResolved": "Gut gemacht! Dein Profil wurde angereichert.",
@@ -390,7 +404,13 @@
     "introStart": "Erste Frage zeigen",
     "introBack": "Zurück zu den Lücken",
     "unsavedAnswerTitle": "Antwort noch nicht gesendet",
-    "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg."
+    "unsavedAnswerBody": "Du hast eine Antwort angefangen und noch nicht gesendet. Wenn du die Seite jetzt verlässt, ist sie weg.",
+    "reopenedSummaryTitle": "Deine Interview-Zusammenfassung",
+    "reopenedSummaryLead": "Was wir aus deinen Antworten in dein Profil übernommen haben. Das Interview ist abgeschlossen; du kannst es dir hier jederzeit wieder ansehen.",
+    "backToCV": "Zurück zum Lebenslauf",
+    "reasonNoneOpen": "Interview abgeschlossen — keine Anforderung mehr offen",
+    "completionOpenRequirements": "{count, plural, one {# Anforderung ist noch offen} other {# Anforderungen sind noch offen}}. Deine Antworten sind in deinem Profil gespeichert.",
+    "openRequirementsStat": "{count, plural, one {Anforderung noch offen} other {Anforderungen noch offen}}"
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",
@@ -471,6 +491,7 @@
     "generationFailed": "Generierung fehlgeschlagen.",
     "generationFailedTruncated": "Dein Lebenslauf ließ sich nicht in einem Durchgang erstellen — er ist dem aktuellen KI-Modell vielleicht zu umfangreich. Bitte versuche es erneut.",
     "generationFailedTimeout": "Die Erstellung deines Lebenslaufs hat zu lange gedauert. Bitte versuche es gleich noch einmal.",
+    "generationFailedUnavailable": "Der KI-Anbieter war gerade nicht erreichbar. Bitte versuche es gleich noch einmal.",
     "retryGeneration": "Erneut versuchen →",
     "photoStepTitle": "Profilfoto hinzufügen?",
     "photoStepHint": "Deutsche Arbeitgeber erwarten typischerweise ein professionelles Foto im Lebenslauf. Optional, aber empfohlen für DACH-Bewerbungen.",
@@ -577,7 +598,29 @@
     "pageOverflowKeptDone": "{actual} Seiten — so von dir gewählt.",
     "pageOverflowUndoKeep": "Doch auf {target, plural, one {# Seite} other {# Seiten}} kürzen",
     "pageOverflowUndoGone": "Rückgängig machen geht hier nicht mehr: Der Lebenslauf hat sich seit dem Kürzen geändert.",
-    "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal."
+    "pageOverflowError": "Das hat nicht geklappt. Lade die Seite neu und versuche es noch einmal.",
+    "assistSavedToProfile": "In dein Profil übernommen: {items}",
+    "assistNothingNewForProfile": "Für dein Profil war in deiner Antwort nichts Neues.",
+    "assistProfileSaveFailed": "Deine Antwort konnte nicht in dein Profil übernommen werden. Im Lebenslauf steht der Text trotzdem; versuche es später noch einmal.",
+    "pageOverflowCutGone": "Kürzen geht nicht mehr: Der Lebenslauf hat sich seit diesem Vorschlag geändert.",
+    "entryRemoved": "Dieser Eintrag steht nicht mehr in diesem Lebenslauf. Dein Profil behält ihn.",
+    "entryRestore": "Wieder aufnehmen",
+    "entryRemove": "Aus diesem Lebenslauf nehmen",
+    "entryField": {
+      "name": "Bezeichnung",
+      "issuing_organization": "Ausstellende Stelle",
+      "date_obtained": "Erworben",
+      "expiry_date": "Gültig bis",
+      "degree": "Abschluss",
+      "field": "Fachrichtung",
+      "institution": "Einrichtung",
+      "start_date": "Beginn",
+      "end_date": "Ende"
+    },
+    "entrySectionLabel": {
+      "certification": "Zertifikat: {name}",
+      "education": "Ausbildung: {name}"
+    }
   },
   "saveScopePrompt": {
     "saveToProfile": "Wo soll die Änderung gelten?",
@@ -853,6 +896,7 @@
       "statusNeedsConfirmation": "Ein paar Details brauchen deine Bestätigung — im Profilzustand-Hub zu finden.",
       "statusConflict": "Das widerspricht etwas, das schon in deinem Profil steht — im Profilzustand-Hub zu finden.",
       "statusError": "Konnte nicht verarbeitet werden: {detail}",
+      "statusNotSaved": "Deine Angaben konnten nicht gespeichert werden — es wurde nichts geändert. Bitte sende sie noch einmal.",
       "notAppliedFigure": "Zahl „{span}“ steht in keinem übernommenen Eintrag.",
       "notAppliedOp": "Ein Teil der Antwort ({op}) hatte ein ungültiges Format und wurde verworfen."
     },
@@ -1186,7 +1230,13 @@
     },
     "notAppliedNoSection": "Ohne festen Abschnitt",
     "notAppliedGroupHeading": "{section} ({count})",
-    "notAppliedCallout": "Aus deinem Import nicht sicher übernommen: {labels} — prüfe, ob sie hier schon unter anderem Namen stehen, bevor du sie nachträgst."
+    "notAppliedCallout": "Aus deinem Import nicht sicher übernommen: {labels} — prüfe, ob sie hier schon unter anderem Namen stehen, bevor du sie nachträgst.",
+    "threadSuspectBinding": "Zuordnung",
+    "suspectBindingQuestion": "Ist <b>{incoming}</b> dasselbe wie <b>{existing}</b>?",
+    "suspectBindingNote": "Das wurde zusammengeführt, obwohl das eine eine fachliche und das andere eine persönliche Fähigkeit ist. Bitte kurz bestätigen.",
+    "suspectBindingSame": "Ja",
+    "suspectBindingSeparate": "Nein, getrennt führen",
+    "suspectBindingFailed": "Das hat nicht geklappt. Bitte versuche es noch einmal."
   },
   "profileReview": {
     "title": "Profil prüfen",
@@ -1292,7 +1342,11 @@
     "staleCvDismiss": "Ausblenden",
     "staleCvRetailorFailed": "Der Lebenslauf konnte nicht neu zugeschnitten werden. Bitte versuche es erneut.",
     "cancelledBanner": "Diese Bewerbung ist abgebrochen und wird am {date} endgültig entfernt — inklusive der erzeugten Dokumente. Bis dahin kannst du sie wiederherstellen.",
-    "cancelledBannerNoDate": "Diese Bewerbung ist abgebrochen und wird nach Ablauf einer Frist endgültig entfernt. Bis dahin kannst du sie wiederherstellen."
+    "cancelledBannerNoDate": "Diese Bewerbung ist abgebrochen und wird nach Ablauf einer Frist endgültig entfernt. Bis dahin kannst du sie wiederherstellen.",
+    "duplicateSameTitle": "Diese Stelle kennst du schon",
+    "duplicateSameBody": "Das ist dieselbe Anzeige, die du am {date} analysiert hast ({company} – {role}). Für eine Anzeige führen wir eine Bewerbung – du kannst sie öffnen oder dort das Interview führen.",
+    "duplicateOpenSame": "Vorhandene Bewerbung öffnen",
+    "duplicateInterviewExisting": "Interview zu dieser Bewerbung führen"
   },
   "import": {
     "title": "Lebenslauf importieren"
@@ -1316,6 +1370,7 @@
     "retry": "Erneut versuchen"
   },
   "errors": {
+    "answerNotSaved": "Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden.",
     "uploadAtLeastOne": "Bitte lade mindestens einen Lebenslauf hoch, um fortzufahren.",
     "exportFailed": "Export fehlgeschlagen. Bitte versuche es erneut.",
     "deletionFailed": "Löschen fehlgeschlagen. Bitte versuche es erneut.",
@@ -1453,21 +1508,9 @@
     }
   },
   "match": {
-    "title": "Stellenanzeigen",
-    "loading": "Stellen werden geladen…",
-    "emptyIcon": "📋",
-    "emptyHeading": "Noch keine Stellen analysiert",
-    "emptyBody": "Füge eine Stellenbeschreibung auf der Startseite ein, um sie zu analysieren und hier zu sehen.",
-    "emptyAction": "Erste Stelle hinzufügen →",
-    "matchScore": "Übereinstimmung",
-    "strengthPrefix": "✓ {label}",
-    "gapPrefix": "✗ {label}",
     "bandStrongFit": "Starke Übereinstimmung",
     "bandModerateFit": "Mittlere Übereinstimmung",
-    "bandNeedsWork": "Geringe Übereinstimmung",
-    "runGapAnalysis": "Lückenanalyse starten →",
-    "errorLoadFailed": "Stellen konnten nicht geladen werden. Bitte erneut versuchen.",
-    "errorBackendUnreachable": "Server nicht erreichbar. Läuft das Backend?"
+    "bandNeedsWork": "Geringe Übereinstimmung"
   },
   "ats": {
     "title": "ATS-Prüfungen",
@@ -1500,10 +1543,11 @@
       "skills-near-dupe": "Keine ähnlichen Skills",
       "page-length": "Seitenlänge",
       "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug",
-      "terminal-review": "Abschlussprüfung des Dokuments",
+      "terminal-review": "Schlussprüfung",
       "narrative-evidence": "Belege im Werdegang statt nur als Skill",
       "document-language": "Dokument durchgehend in einer Sprache",
-      "keyword-other-language": "Nicht sprachübergreifend geprüfte Begriffe"
+      "keyword-other-language": "Nicht sprachübergreifend geprüfte Begriffe",
+      "employer-repetition": "Wiederholter Firmenname"
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht deinem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
@@ -1516,7 +1560,22 @@
       "document-language-not-applicable": "Nicht anwendbar — für dieses Dokument wurde keine Sprache angegeben",
       "document-language-mixed": "{count, plural, one {# Stelle ist} other {# Stellen sind}} nicht auf {language, select, de {Deutsch} en {Englisch} other {{language}}} geschrieben: {examples}",
       "keyword-other-language": "Nicht sprachübergreifend geprüft — Dein Profil enthält Text in einer anderen Sprache, und diese Prüfung vergleicht nur den Wortlaut. Prüfe {count, plural, one {diesen Begriff} other {diese Begriffe}} selbst: {terms}",
-      "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
+      "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}",
+      "page-length-kept": "{pages} Seiten — Du hast entschieden, sie zu behalten (Ziel: {target}).",
+      "terminal-review-unverified": "Unsere Schlussprüfung hatte {count, plural, one {einen Hinweis} other {# Hinweise}}, die wir nach der letzten Änderung nicht erneut prüfen konnten – lies sie selbst:",
+      "terminal-review-unverified-clean": "Unsere Schlussprüfung fand nichts. Danach wurde das Dokument noch einmal geändert, und diese Fassung haben wir nicht erneut geprüft – lies sie vor dem Versand einmal selbst.",
+      "terminal-review-open": "Unsere Schlussprüfung hat {count, plural, one {einen Hinweis} other {# Hinweise}} zu diesem Dokument, die beim Schreiben nicht behoben wurden – lies sie selbst:",
+      "terminal-review-unnamed": "Unsere Schlussprüfung war mit dem Dokument nicht zufrieden, hat aber nicht gesagt, warum. Lies es vor dem Versand einmal selbst.",
+      "terminal-review-incomplete": "Unsere Schlussprüfung konnte nicht zu Ende laufen. Lies das Dokument vor dem Versand einmal selbst.",
+      "terminal-review-not-run": "Die Schlussprüfung ist für dieses Dokument nicht gelaufen – ob alles passt, wissen wir nicht. Lies es vor dem Versand einmal selbst.",
+      "terminal-review-clean-code-open": "Unsere Schlussprüfung fand nichts. Eine automatische Prüfung meldet aber noch etwas:",
+      "terminal-review-observations": "Unsere Schlussprüfung fand nichts, das Du ändern musst. Zur Ansicht:",
+      "terminal-review-clean": "Unsere Schlussprüfung fand nichts.",
+      "narrative-evidence-tag-only": "Dein Profil belegt diese Anforderungen der Stelle, im Lebenslauf stehen sie aber nur in der Skill-Liste – in keiner Station und keinem Projekt: {terms}. Ein Skill ohne Beleg liest sich für Personaler oft wie eine nicht erfüllte Anforderung.",
+      "narrative-evidence-absent": "Dein Profil belegt diese Anforderungen der Stelle, im Lebenslauf fehlen sie ganz: {terms}.",
+      "narrative-evidence-absent-also": "Ganz fehlen: {terms}.",
+      "narrative-evidence-more": "… und {count} weitere.",
+      "employer-repetition": "„{employer}“ steht in Absatz {paragraph} am Anfang von {count} Sätzen{more, plural, =0 {} one { (und in einem weiteren Absatz)} other { (und in # weiteren Absätzen)}}. So oft wiederholt wirkt der Name maschinell geschrieben — ein Rückbezug wie „dort“ liest sich natürlicher."
     },
     "pinnedFacts": {
       "title": "Festgelegte Fakten",
@@ -1525,6 +1584,45 @@
       "removedByTruthFloor": "durch Wahrheits-Prüfung entfernt",
       "driverLine": "Länge u. a. durch {count, plural, one {einen festgelegten Fakt} other {# festgelegte Fakten}} bedingt",
       "ledgerConflict": "— Nicht-behaupten-Begriff: {terms}"
+    },
+    "terminalReview": {
+      "codeHeadingCv": "Im fertigen Lebenslauf außerdem offen:",
+      "codeHeadingLetter": "Im fertigen Anschreiben außerdem offen:",
+      "more": "… und {count} weitere.",
+      "findingGeneric": "Ein Hinweis der Schlussprüfung – sieh Dir das Dokument an dieser Stelle selbst an.",
+      "code": {
+        "cv-claim_missing": "„{term}“ belegt Dein Profil, im Lebenslauf fehlt es.",
+        "cv-project_missing": "„{term}“ verlangt die Stelle, und ein Projekt in Deinem Profil belegt es – im Lebenslauf steht es nicht.",
+        "cv-project_not_mentioned": "Dieses Projekt aus Deinem Profil steht nicht im Lebenslauf: „{term}“.",
+        "cv-skill_untied": "„{term}“ steht in der Skill-Liste, ist in Deinem Profil aber keine Fähigkeit. Belegt Dein Profil es, gehört es in den Stichpunkt mit dem Beleg.",
+        "cv-skill_spelling": "„{term}“ ist in der Skill-Liste anders geschrieben als in Deinem Profil.",
+        "cv-skills_cap": "Die Skill-Liste ist länger als vorgesehen – am wenigsten passt: {terms}.",
+        "cv-skill_duplicate": "Die Skill-Liste nennt dasselbe doppelt: {terms}.",
+        "cv-skill_named_in_bullet": "„{term}“ steht in einem Stichpunkt, aber nicht in der Skill-Liste.",
+        "cv-role_budget": "Bei {term} stehen mehr Stichpunkte als vorgesehen.",
+        "cv-page_length": "Der Lebenslauf ist länger als die Zielseitenzahl.",
+        "cv-recorded_name": "„{term}“ ist nicht der Name, den Dein Profil dafür führt.",
+        "cv-identifier_not_in_profile": "„{term}“ steht so nicht in Deinem Profil – prüfe die Schreibweise.",
+        "cv-empty_project": "Das Projekt „{term}“ hat keinen einzigen Stichpunkt.",
+        "cv-level_code_changed": "Eine Sprachstufe steht anders da als in Deinem Profil.",
+        "cv-vault_field_missing": "Ein Eintrag aus Deinem Profil fehlt im Lebenslauf.",
+        "letter-page_length": "Das Anschreiben ist länger als eine Seite.",
+        "letter-salutation": "Die Anrede fehlt oder steht nicht allein in der ersten Zeile.",
+        "letter-signoff": "Der Gruß steht doppelt – die Vorlage setzt ihn selbst.",
+        "letter-closing": "Der letzte Absatz ist kein echter Schluss (Interesse und Einladung zum Gespräch).",
+        "letter-figure": "Die Zahl „{term}“ gehört in Deinem Profil zu einer anderen Station als im Satz.",
+        "letter-limit": "Das Anschreiben sagt, Dir fehle „{term}“ – das hast Du uns so nie gesagt.",
+        "letter-names": "„{term}“ ist nicht der Name, den Dein Profil dafür führt.",
+        "letter-identifier": "„{term}“ steht so nicht in Deinem Profil – prüfe die Schreibweise.",
+        "letter-availability": "Das Anschreiben nennt einen Eintrittstermin, den Du nicht angegeben hast.",
+        "generic": "Eine automatische Prüfung meldet hier noch etwas – sieh Dir die Stelle im Dokument an."
+      },
+      "note": {
+        "letter-limit_cut": "Wir haben einen Satz aus dem Anschreiben entfernt: Er sagte, Dir fehle etwas, das Du uns nie so gesagt hast. Entfernt: {terms}",
+        "letter-limit_kept": "Das Anschreiben sagt, Dir fehle etwas, das Du uns nie so gesagt hast. Wir konnten den Satz nicht entfernen, ohne das Anschreiben zu leeren – prüfe ihn selbst: {terms}",
+        "letter-missing_terms": "Begriffe der Stelle, die Dein Profil belegt, die das gekürzte Anschreiben aber nicht nutzt: {terms}.",
+        "generic": "Beim Fertigstellen ist noch etwas aufgefallen – sieh Dir das Dokument einmal selbst an."
+      }
     }
   },
   "truthfulness": {
@@ -1635,7 +1733,8 @@
     "letterGenerating": "Anschreiben wird erstellt",
     "letterFailed": "Anschreiben fehlgeschlagen",
     "letterExpired": "Anschreiben abgelaufen",
-    "letterOpen": "Anschreiben öffnen"
+    "letterOpen": "Anschreiben öffnen",
+    "typeLetter": "Anschreiben"
   },
   "explainers": {
     "dontShowAgain": "Nicht mehr anzeigen",
@@ -1739,7 +1838,13 @@
       "role_closed": "Diese Position als beendet markiert.",
       "gap_marked_na": "Diese Lücke als „nicht zutreffend“ markiert.",
       "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert.",
-      "denial_noted": "Als selbst genannte Einschränkung vermerkt."
+      "denial_noted": "Als selbst genannte Einschränkung vermerkt.",
+      "denial_withdrawn": "Eine frühere Einschränkung hast du selbst zurückgenommen.",
+      "denial_withdrawn_skill": "Nicht mehr ausgeschlossen: Du hast die Einschränkung zurückgenommen. Es zählt wieder, sobald ein Lebenslauf oder eine Antwort es belegt.",
+      "match_separated": "Getrennt geführt: Du hast gesagt, dass das nicht dasselbe ist.",
+      "match_confirmed": "Du hast bestätigt, dass das dasselbe ist.",
+      "availability_recorded": "Deine Verfügbarkeit festgehalten.",
+      "availability_cleared": "Deine Verfügbarkeit entfernt."
     }
   },
   "mergeGate": {
@@ -1757,6 +1862,7 @@
     "cancel": "Abbrechen",
     "resolving": "Wird verarbeitet …",
     "resolveError": "Die Aktion konnte nicht abgeschlossen werden.",
+    "notSaved": "Wir konnten diesen Lebenslauf diesmal nicht in dein Profil übernehmen — es wurde nichts geändert. Bitte versuche es erneut.",
     "badge": "Prüfung nötig",
     "reviewAction": "Prüfen"
   },
@@ -1811,7 +1917,7 @@
     "verdictNotesOnly": "{count, plural, one {Weiter unten steht # Hinweis, den Du vor dem Versand kennen solltest.} other {Weiter unten stehen # Hinweise, die Du vor dem Versand kennen solltest.}}",
     "verdictUncheckedHead": "Nicht geprüft: {producers} — sieh Dir diesen Teil selbst an, bevor Du sendest.",
     "verdictTruthLine": "Erfunden ist nichts: Jede Aussage im Dokument ist durch Dein Profil gedeckt.{decisions, plural, =0 {} one { # Punkt braucht Deine Entscheidung.} other { # Punkte brauchen Deine Entscheidung.}}{notes, plural, =0 {} one { Dazu kommt # Hinweis.} other { Dazu kommen # Hinweise.}}",
-    "verdictClearWithSendCheck": "Jede Aussage im Dokument ist durch Dein Profil gedeckt — aber {count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
+    "verdictClearWithSendCheck": "{count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
     "verdictUnknown": "Ob jede Aussage gedeckt ist, wurde für dieses Dokument nicht geprüft.",
     "group1Title": "Im Dokument, aber nicht in Deinem Profil",
     "group2Title": "Fehlt, obwohl Dein Profil es deckt",
@@ -1895,7 +2001,10 @@
       "title": "Aus Deiner Eingabe im Formular",
       "hint": "Diese Sätze stammen aus dem, was Du für dieses Anschreiben ins Formular geschrieben hast — Deine eigene Aussage für dieses Anschreiben. Applire prüft sie nicht gegen Dein Profil und übernimmt nichts davon ins Profil.",
       "chip": "Formular"
-    }
+    },
+    "group2OpenPins": "Zu den festgelegten Fakten",
+    "cardEmployerSentence": "„{term}“ steht nur in Sätzen über das Unternehmen, bei dem Du Dich bewirbst – wahrscheinlich beschreibt es dessen Geschäft, nicht Deine Erfahrung. Klingt es dort doch wie Deine eigene Erfahrung, nimm es heraus oder bearbeite die Stelle.",
+    "loading": "Prüfung wird geladen …"
   },
   "upgradeNotice": {
     "title": "Seit deinem letzten Start hat sich an den Einstellungen etwas geändert",
@@ -1904,6 +2013,8 @@
     "reMeantHeading": "Diese Werte setzt du, und ihre Bedeutung hat sich geändert:",
     "introducedIn": "seit {version}, Standard: {defaultValue}",
     "changedIn": "geändert in {version}",
+    "introducedInAhead": "ab {version}, Standard: {defaultValue}",
+    "changedInAhead": "geändert ab {version}",
     "emptyDefault": "leer",
     "moreInfo": "Was sich geändert hat, steht im CHANGELOG unter „Upgrade notes“ und in docs/SELF-HOSTING.md.",
     "debugLogOn": "Das LLM-Debug-Protokoll ist eingeschaltet: Jede Anfrage wird samt Lebenslauf-Daten in Dateien im Container geschrieben, ohne Größen- oder Altersgrenze. Im Produktivbetrieb ausschalten (LLM_DEBUG_LOG=false) und die Dateien löschen.",
@@ -2264,6 +2375,8 @@
     "reasonTimeout": "Der KI-Anbieter hat nicht rechtzeitig geantwortet",
     "reasonTruncated": "Die Antwort des KI-Anbieters war abgeschnitten",
     "reasonRateLimited": "Der KI-Anbieter hat Anfragen gedrosselt",
+    "reasonProviderUnavailable": "Der KI-Anbieter war nicht erreichbar",
+    "reasonNotSaved": "Die Übernahme ins Profil ist fehlgeschlagen, nichts wurde gespeichert",
     "reasonUnauthorised": "Der KI-Anbieter hat den Schlüssel abgewiesen",
     "reasonOther": "Fehlercode {code}",
     "failedHint": "Häufen sich Zeitüberschreitungen, liegt es oft am Anbieter. Du kannst ihn unter Einstellungen wechseln.",
@@ -2452,10 +2565,7 @@
     "deletedPerson": "gelöschte Person"
   },
   "importSummary": {
-    "recognisedTitle": "Schon in deinem Profil ({count})",
-    "recognisedIntro": "Diese Einträge aus deiner Datei stehen bereits in deinem Profil, nur unter anderem Namen. Den neuen Namen haben wir als weitere Bezeichnung gespeichert. Stimmt eine Zuordnung nicht, tippe auf „Nicht dasselbe“.",
     "showInProfile": "Im Profil zeigen",
-    "notSame": "Nicht dasselbe",
     "separatedDone": "Als eigener Eintrag hinzugefügt",
     "sameLanguage": "gleiche Sprache",
     "showAll": "Alle {count} anzeigen",
@@ -2464,13 +2574,31 @@
     "restatedIntro": "Diese Punkte aus deiner Datei sagen dasselbe wie ein Punkt, der schon bei dieser Station steht. Wir haben sie nicht übernommen und nichts gelöscht. Steckt doch etwas Neues darin, tippe auf „Trotzdem übernehmen“.",
     "restatedHeld": "Steht schon da: {text}",
     "restatedApply": "Trotzdem übernehmen",
-    "restatedApplied": "Übernommen"
+    "restatedApplied": "Übernommen",
+    "combinedTitle": "Mit Vorhandenem zusammengeführt ({count})",
+    "combinedIntro": "Diese Angaben aus der Datei stehen schon in deinem Profil — unter anderem Namen. Wir haben sie dort ergänzt statt doppelt anzulegen.",
+    "pairQuestion": "Ist <b>{incoming}</b> dasselbe wie <b>{existing}</b>?",
+    "pairYes": "Ja",
+    "pairNo": "Nein, getrennt führen",
+    "pairConfirmed": "Als dasselbe bestätigt",
+    "keptSeparatelyTitle": "Separat behalten ({count})",
+    "keptSeparately": "<b>{incoming}</b> haben wir nicht mit <b>{existing}</b> zusammengeführt — das sind verschiedene Dinge. Beide stehen einzeln in deinem Profil.",
+    "lastImportTitle": "Dein Import vom {date} — {file}",
+    "lastImportTitleNoFile": "Dein Import vom {date}",
+    "lastImportLead": "Wir haben {added, plural, one {# Angabe} other {# Angaben}} in dein Profil übernommen und {matched, plural, one {# als schon vorhanden} other {# als schon vorhanden}} erkannt. Nichts wurde gelöscht.",
+    "groupCount": "{count, plural, one {# Angabe} other {# Angaben}}",
+    "notAppliedNote": "{count, plural, one {# Angabe aus der Datei ist nicht in deinem Profil angekommen.} other {# Angaben aus der Datei sind nicht in deinem Profil angekommen.}}",
+    "techLog": "Technisches Protokoll anzeigen",
+    "loadFailed": "Die Zusammenfassung konnte nicht geladen werden."
   },
   "profileAliases": {
     "label": "Auch bekannt als",
     "remove": "„{alias}“ als weiteren Namen entfernen",
     "removeFailed": "Entfernen hat nicht geklappt. Bitte versuch es noch einmal.",
-    "labelFor": "{name} — auch bekannt als"
+    "labelFor": "{name} — auch bekannt als",
+    "alsoTag": "auch",
+    "alsoSince": "<b>{role}</b> seit {date}",
+    "since": "seit {date}"
   },
   "reviewSignals": {
     "verdictClearCrossReadUnknown": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Ob Anschreiben und Lebenslauf zusammenpassen, wurde nicht geprüft — lies beide nebeneinander, bevor Du sendest.",
@@ -2577,6 +2705,43 @@
     "figuresNoEvidence": "Für diese Zahl(en) gibt es in Deinem Profil keinen Beleg: {figures}.",
     "inflatedAspirational": "Steht als erreichtes Ergebnis da, in Deinem Profil ist es aber ein Ziel, kein Ergebnis.",
     "restatementBorrowed": "Die Zahl in diesem Satz belegt in Deinem Profil nur eine andere Station — der Satz gibt diesen Beleg nicht wieder.",
-    "fromLetterForm": "Aus Deiner Eingabe im Formular ({field, select, motivation {Warum diese Stelle} availability {Kündigungsfrist / frühester Eintritt} salary {Gehaltswunsch} other {Formular}}) — Deine eigene Aussage für dieses Anschreiben, nicht gegen Dein Profil geprüft."
+    "fromLetterForm": "Aus Deiner Eingabe im Formular ({field, select, motivation {Warum diese Stelle} availability {Kündigungsfrist / frühester Eintritt} salary {Gehaltswunsch} other {Formular}}) — Deine eigene Aussage für dieses Anschreiben, nicht gegen Dein Profil geprüft.",
+    "triageEmployerFact": "Eine Aussage über das Unternehmen oder die Stelle, nicht über Dich — daher nicht gegen Dein Profil geprüft.",
+    "triageLetterForm": "Briefform oder Höflichkeit (Anrede, Interesse, Motivation, Verfügbarkeit) — behauptet nichts, was Dein Profil belegen müsste.",
+    "triageCandidateLimit": "Eine ehrliche Grenze, die Du selbst nennst — es gibt nichts Positives, das Dein Profil belegen müsste.",
+    "crossLanguageUnconfirmed": "Dieser Satz ist in einer anderen Sprache als Dein Profil. Wir konnten nicht sicher prüfen, ob er Deinen Profileintrag wiedergibt — deshalb nur ein Hinweis, kein Vorwurf.",
+    "entailmentNarrow": "Die automatischen Prüfungen konnten das nicht eindeutig entscheiden; das Ergebnis stammt aus einer engen Inhaltsprüfung.",
+    "figuresTrace": "Alle Zahlen sind in Deinem Profil belegt.",
+    "noCheckableContent": "Nichts Prüfbares — eine allgemeine oder formelhafte Aussage.",
+    "noCloseEvidence": "In Deinem Profil steht nichts, das nah genug daran ist, um es sicher zu prüfen.",
+    "attributionUnresolved": "Der einzige Beleg in Deinem Profil gehört zu einer bestimmten Station, aber der Satz nennt keinen Arbeitgeber — welcher Station er gehört, lässt sich nicht sicher prüfen.",
+    "crossLanguageEquivalent": "Gibt einen Eintrag Deines Profils gleichwertig in einer anderen Sprache wieder.",
+    "qualificationNamed": "Ein Eintrag in Deinem Profil nennt diese Qualifikation.",
+    "otherLanguageNotChecked": "Kein Eintrag in Deinem Profil heißt so, und ein Teil Deines Profils ist in einer anderen Sprache — über Sprachen hinweg prüfen wir Namen nicht, deshalb bleibt das offen statt als Fehler markiert.",
+    "honestDenial": "Eine ehrliche Verneinung oder eine Aufgabe, die jemand anderes erledigt hat — keine Aussage über Dich, die Dein Profil belegen müsste.",
+    "figuresFromStatedLimit": "Die Zahl stammt aus einer Grenze, die Du selbst angegeben hast — eine ehrliche Wiedergabe, keine neue Behauptung.",
+    "groundedUnion": "Belegt durch mehrere Einträge Deines Profils zusammen."
+  },
+  "deniedConcepts": {
+    "title": "Was laut deinen Antworten nicht auf dich zutrifft",
+    "lead": "Diese Punkte zählen wir in Bewerbungen als nicht vorhanden. Wenn einer nicht stimmt, weil du dich vertan hast oder wir dich falsch verstanden haben, kannst du ihn zurücknehmen.",
+    "none": "Zurzeit schließt keine deiner Antworten etwas aus.",
+    "quoted": "„{statement}“",
+    "source": {
+      "interview": "Aus deinem Gespräch am {date}",
+      "agent_interview": "Aus einem Gespräch mit deinem Assistenten am {date}",
+      "testimony": "Aus einer Ergänzung zu deinem Profil am {date}"
+    },
+    "withdraw": "Zurücknehmen",
+    "withdrawnTitle": "Zurückgenommen ({count})",
+    "withdrawnLine": "{concept}, am {date}",
+    "dialogTitle": "„{concept}“ zurücknehmen?",
+    "dialogSaid": "Am {date} hast du gesagt: <i>„{statement}“</i> Deshalb zählen wir {concept} bisher als nicht vorhanden.",
+    "dialogSaidNoStatement": "Laut deiner früheren Antwort zählen wir {concept} bisher als nicht vorhanden.",
+    "dialogEffect": "Wenn du das zurücknimmst, gilt diese Angabe nicht mehr. {concept} zählt dann wieder, sobald du es in einem Lebenslauf oder einer Antwort belegst.",
+    "dialogHistory": "Deine frühere Antwort bleibt im Verlauf deines Profils stehen. Du kannst {concept} später wieder ausschließen, indem du es in einem Gespräch sagst.",
+    "cancel": "Abbrechen",
+    "confirm": "Ja, zurücknehmen",
+    "failed": "Das hat nicht geklappt. Bitte versuche es noch einmal."
   }
 }

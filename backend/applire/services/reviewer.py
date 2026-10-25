@@ -273,6 +273,10 @@ class CheckFinding:
     #: round runs, but it never opens a round by itself, so a finding the model rightly
     #: declines cannot spin the loop to exhaustion (SF-WRITE.45).
     blocking: bool = True
+    #: R2-5 (build 4): the names this fact is about (an employer, a skill, a
+    #: concept) — data for the review card, which says the finding in the UI
+    #: language instead of printing ``text``. Never read by the loop.
+    subjects: tuple[str, ...] = ()
 
     def as_issue(self) -> ReviewIssue:
         if self.blocking:
@@ -777,7 +781,9 @@ async def review_and_refine(
     # #563 (D): the last verdict's normalized issues, split by the ADR-021 severity
     # gate, plus the rounds used — the state `on_settle` reports. A cell rather than a
     # closure variable because `_settle` is defined before the loop that sets it.
-    verdict_cell: dict[str, Any] = {"blocking": (), "minor": (), "approved": False, "rounds": 0}
+    verdict_cell: dict[str, Any] = {
+        "blocking": (), "minor": (), "approved": False, "rounds": 0, "plain": (),
+    }
 
     def _report_settle(settled: dict[str, Any], path: str | None) -> None:
         """Deliver the ``ReviewSettle`` report, once, without ever becoming a new
@@ -793,6 +799,7 @@ async def review_and_refine(
                     minor_issues=tuple(verdict_cell["minor"]),
                     rounds=int(verdict_cell["rounds"]),
                     settled=settled,
+                    plain_notes=tuple(verdict_cell["plain"]),
                 )
             )
         except Exception:
@@ -982,6 +989,8 @@ async def review_and_refine(
                 minor=tuple(i.text for i in issues if not i.is_blocking),
                 approved=approved,
                 rounds=attempt + 1,
+                # R2-5 (T-1 = A): the reviewer's plain notes, for the review card only.
+                plain=tuple((i.text, i.note) for i in issues if i.note),
             )
             # #264: structured, always-on verdict line — every attempt, approved or
             # not, so retry-round distributions are countable without heuristic

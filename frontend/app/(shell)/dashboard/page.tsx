@@ -20,7 +20,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { AvailabilityReminderCard } from "@/components/dashboard/AvailabilityReminderCard";
 import { ImportInProgressBanner } from "@/components/dashboard/ImportInProgressBanner";
@@ -59,6 +60,7 @@ interface Application {
 
 export default function DashboardPage() {
   const t = useTranslations("dashboard");
+  const locale = useLocale();
   const router = useRouter();
   const [applications, setApplications] = useState<Application[]>([]);
   const [userName, setUserName] = useState<string | null>(null);
@@ -323,7 +325,7 @@ export default function DashboardPage() {
                     {app.expires_at && (
                       <span className="text-[11.5px] text-gray-400">
                         {t("cancelledRemovalDate", {
-                          date: new Date(app.expires_at).toLocaleDateString(),
+                          date: formatUiDate(app.expires_at, locale),
                         })}
                       </span>
                     )}

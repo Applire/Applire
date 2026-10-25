@@ -20,9 +20,10 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { CoverLetterDocument } from "@/components/cover-letter/CoverLetterDocument";
-import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterContentTab";
+import { CoverLetterContentTab, type CoverLetterContentTabHandle } from "@/components/cover-letter/CoverLetterContentTab";
 import { LetterLookLine } from "@/components/document/LetterLookLine";
 import { EditContextStrip, type EditContext, type SaveReceipt } from "@/components/document/EditContextStrip";
 import { NewVersionDialog } from "@/components/document/NewVersionDialog";
@@ -42,6 +43,7 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { ProgressWidget } from "@/components/ui/progress-widget";
 import { buildClProgressSteps } from "./cover-letter-utils";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
+import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import UnaskedRequirementsPanel, {
@@ -50,6 +52,7 @@ import UnaskedRequirementsPanel, {
 import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { openGroup1Count, buildReviewGroups, decisionCount } from "@/lib/review-groups";
+import { openRequirementConcepts } from "@/lib/match-utils";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
   markEdited,
@@ -83,6 +86,8 @@ interface CLState {
   preGenInputs: Record<string, unknown> | null;
   jobId: string | null;
   applicationId: string | null;
+  /** 786:165: the application's CV — the pin panel measures its fates too. */
+  cvId: string | null;
   roleTitle: string | null;
   matchScore: number | null;
   expiresAt: string | null;
@@ -104,6 +109,7 @@ export default function CoverLetterPage({
 }) {
   const { flowId } = use(params);
   const t = useTranslations("coverLetter");
+  const locale = useLocale();
   const tc = useTranslations("common");
   const tDoc = useTranslations("document");
 
@@ -127,6 +133,9 @@ export default function CoverLetterPage({
   const [truthReport, setTruthReport] = useState<TruthfulnessReport>(null);
   // ADR-060/E049 49.6: outcome critic advisory report (Pass B, cross-document mount).
   const [criticReport, setCriticReport] = useState<OutcomeCriticReport>(null);
+  // R2-8 (8), build 4 (WP-T hunk): the letter whose review fetches have all
+  // settled — before that, `null` reports mean "not loaded yet", not "did not run".
+  const [reviewLoadedFor, setReviewLoadedFor] = useState<string | null>(null);
   // #786 / T-2: the writing loop's review steps that did not run (status door).
   const [reviewDegradation, setReviewDegradation] = useState<DegradedReviewStep[] | null>(null);
   // ADR-074 (#526): JD hard requirements Applire holds nothing on and never
@@ -135,6 +144,8 @@ export default function CoverLetterPage({
   // report column on this letter — it cannot drift past a post-interview
   // recompute, and it clears itself once the candidate is asked and answers.
   const [unasked, setUnasked] = useState<UnaskedRequirement[]>([]);
+  // R2-10 (F1-2, lead G hunk): review group 3 = the job's open requirements.
+  const [openRequirements, setOpenRequirements] = useState<string[] | null | undefined>(undefined);
   // ADR-090 cl. 6: the per-document review decisions (rides on the ATS-report response).
   const [reviewState, setReviewState] = useState<ReviewState | null>(null);
   // ADR-090 cl. 2: bumps on every preview (re)load — marks do not survive one.
@@ -163,6 +174,11 @@ export default function CoverLetterPage({
   // Adversarial finding 11: the body draft also holds back a reload / tab
   // close, every in-app link and the browser's back button.
   const draftGuard = useUnsavedDraftGuard(bodyDirty, (nav) => setPendingNav(nav));
+  // #789:189 — the dialog's Save goes through the body editor(s); desktop tab
+  // and phone sheet may both be mounted, each answers true when it has no draft.
+  const bodyEditorRefs = useRef<Partial<Record<"panel" | "sheet", CoverLetterContentTabHandle | null>>>({});
+  const [pendingNavBusy, setPendingNavBusy] = useState(false);
+  const [pendingNavFailed, setPendingNavFailed] = useState(false);
   const router = useRouter();
   // Remounts the body editor after a review action rewrote the letter, so it
   // never saves stale text over the rewrite.
@@ -209,7 +225,7 @@ export default function CoverLetterPage({
         application_id?: string | null;
         job_summary?: { role_title?: string };
         gap_summary?: { match_score?: number };
-        cv_summary?: { expires_at?: string };
+        cv_summary?: { cv_id?: string; expires_at?: string };
       };
 
       const clSummary = flowData.cover_letter_summary;
@@ -226,6 +242,7 @@ export default function CoverLetterPage({
           preGenInputs: null,
           jobId: flowData.job_id ?? null,
           applicationId: flowData.application_id ?? null,
+          cvId: flowData.cv_summary?.cv_id ?? null,
           roleTitle: flowData.job_summary?.role_title ?? null,
           matchScore: null,
           expiresAt: null,
@@ -272,6 +289,7 @@ export default function CoverLetterPage({
             : null,
         jobId: flowData.job_id ?? null,
         applicationId: flowData.application_id ?? null,
+        cvId: flowData.cv_summary?.cv_id ?? null,
         roleTitle: flowData.job_summary?.role_title ?? null,
         // gap_summary.match_score is a 0–1 fraction; the sidebar expects 0–100.
         matchScore:
@@ -343,19 +361,29 @@ export default function CoverLetterPage({
       if (!clState?.jobId) return;
       try {
         const res = await fetch(`${API_BASE}/api/job/${clState.jobId}/gaps`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          // R2-10: a missing row keeps the legacy grouping; a failed read is *unknown*.
+          if (res.status !== 404) setOpenRequirements(null);
+          return;
+        }
         const data: { unasked_requirements?: UnaskedRequirement[] } = await res.json();
         setUnasked(data.unasked_requirements ?? []);
+        // R2-10 (F1-2, lead G hunk): the same row the gaps page counts.
+        setOpenRequirements(openRequirementConcepts(data as Parameters<typeof openRequirementConcepts>[0]));
       } catch {
+        setOpenRequirements(null);
         // Non-fatal — the panel simply doesn't render. The omission itself is
         // recorded server-side on the always-on LETTER_UNASKED_REQUIREMENTS line
         // regardless of whether this fetch succeeds.
       }
     }
-    void fetchAtsReport();
-    void fetchTruthReport();
-    void fetchCriticReport();
-    void fetchUnaskedRequirements();
+    const forLetter = clState.coverLetterId;
+    void Promise.allSettled([
+      fetchAtsReport(),
+      fetchTruthReport(),
+      fetchCriticReport(),
+      fetchUnaskedRequirements(),
+    ]).then(() => setReviewLoadedFor(forLetter));
   }, [phase, clState?.coverLetterId, clState?.jobId]);
 
   function startPolling(clId: string) {
@@ -660,7 +688,7 @@ export default function CoverLetterPage({
   const validity =
     clState?.expiresAt != null
       ? {
-          label: tDoc("validUntil", { date: new Date(clState.expiresAt).toLocaleDateString() }),
+          label: tDoc("validUntil", { date: formatUiDate(clState.expiresAt, locale) }),
           level: "warning" as const,
         }
       : null;
@@ -672,9 +700,12 @@ export default function CoverLetterPage({
   // would claim it failed).
   // D-4 (ADR-050 amendment): built per layout so the phone's command-bar sheet
   // mounts the SAME live surface, not a forked panel.
+  // R2-8 (8): see `reviewLoadedFor`.
+  const reviewLoading = reviewLoadedFor !== (clState?.coverLetterId ?? null);
   const renderReviewSurface = (layout: "panel" | "sheet") => (
     <ReviewSurface
       documentKind="cover-letter"
+      loading={reviewLoading}
       documentId={clState?.coverLetterId ?? null}
       degradation={reviewDegradation}
       onRegenerate={requestRegenerate}
@@ -683,6 +714,7 @@ export default function CoverLetterPage({
       criticReport={criticReport}
       gapClusters={[]}
       hasClusterProducer={false}
+      openRequirements={openRequirements}
       reviewState={reviewState}
       onRefresh={applyReviewRefresh}
       locator={CL_LOCATOR}
@@ -711,6 +743,19 @@ export default function CoverLetterPage({
     }
   }
 
+  function proceedNav(nav: NonNullable<typeof pendingNav>) {
+    if (nav.kind === "sheet") nav.proceed();
+    else if (nav.kind === "tab") switchTab(nav.id);
+    else if (nav.kind === "href") {
+      draftGuard.release();
+      router.push(nav.href);
+    } else {
+      // The guard entry is already popped; one more step leaves the page.
+      draftGuard.release();
+      window.history.back();
+    }
+  }
+
   const editContextStrip = (
     <EditContextStrip
       context={editContext}
@@ -732,6 +777,9 @@ export default function CoverLetterPage({
     {editContextStrip}
     <CoverLetterContentTab
       key={`cl-content-${where}-${contentVersion}`}
+      ref={(h) => {
+        bodyEditorRefs.current[where] = h;
+      }}
       openBodyNonce={openBodyNonce}
       coverLetterId={clState!.coverLetterId}
       letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
@@ -751,6 +799,7 @@ export default function CoverLetterPage({
     criticReport,
     gapClusters: [],
     hasClusterProducer: false,
+    openRequirements,
   });
   const group1Live = liveGroups.find((g) => g.id === 1)!;
   // T-1: the phone badge's amber number when group 1 is clean.
@@ -763,7 +812,7 @@ export default function CoverLetterPage({
       label: tDoc("tabReview"),
       icon: <ClipboardCheck className="w-4 h-4" aria-hidden="true" />,
       badge:
-        group1Count > 0 ? (
+        !reviewLoading && group1Count > 0 ? (
           <span
             data-testid="tab-badge-review"
             className="inline-flex min-w-4 items-center justify-center rounded-full bg-critical-container px-1 text-[10px] font-bold text-critical"
@@ -795,7 +844,22 @@ export default function CoverLetterPage({
           onRegenerateCoverLetter={requestRegenerate}
           // ADR-081 cl. 3 (amended, #737 / RULING E-1 = A): pin fates live on
           // Aktionen beside the regeneration they feed, outside the finding groups.
-          pins={<ATSChecksPanel report={atsReport} variant="pins" />}
+          pins={
+            <>
+              {/* 786:165 (E-12 walk, founder 2026-10-22): principle-11 parity —
+                  the letter's Aktionen offers the same application-scoped pin
+                  panel the CV's Aktionen and the gaps page do. */}
+              {clState?.applicationId && (
+                <PinnedFactsPanel
+                  applicationId={clState.applicationId}
+                  apiBase={API_BASE}
+                  cvId={clState.cvId}
+                  coverLetterId={clState.coverLetterId || null}
+                />
+              )}
+              <ATSChecksPanel report={atsReport} variant="pins" />
+            </>
+          }
           languageSwitch={
             clState?.applicationId ? (
               <DocumentLanguageSwitch
@@ -875,8 +939,8 @@ export default function CoverLetterPage({
             onDownloadPdf={() => void requestDownload("pdf")}
             openFineTuneNonce={fineTuneNonce}
             suspended={mobileLocating}
-            openCount={atsReport || truthReport ? group1Count : null}
-            decisionCount={atsReport ? liveDecisionCount : null}
+            openCount={!reviewLoading && (atsReport || truthReport) ? group1Count : null}
+            decisionCount={!reviewLoading && atsReport ? liveDecisionCount : null}
             onLeaveFineTune={(proceed) => {
               if (!bodyDirty) {
                 proceed();
@@ -915,7 +979,10 @@ export default function CoverLetterPage({
       <UnsavedEditDialog
         open={pendingNav !== null}
         sectionLabel={t("bodySection")}
+        busy={pendingNavBusy}
+        failed={pendingNavFailed}
         onStay={() => {
+          setPendingNavFailed(false);
           if (pendingNav?.kind === "back") draftGuard.rearmBack();
           setPendingNav(null);
         }}
@@ -923,19 +990,32 @@ export default function CoverLetterPage({
           // Remounting the editor returns it to the effective body (D-2).
           setContentVersion((v) => v + 1);
           setBodyDirty(false);
+          setPendingNavFailed(false);
           const nav = pendingNav;
           setPendingNav(null);
-          if (!nav) return;
-          if (nav.kind === "sheet") nav.proceed();
-          else if (nav.kind === "tab") switchTab(nav.id);
-          else if (nav.kind === "href") {
-            draftGuard.release();
-            router.push(nav.href);
-          } else {
-            // The guard entry is already popped; one more step leaves the page.
-            draftGuard.release();
-            window.history.back();
-          }
+          if (nav) proceedNav(nav);
+        }}
+        onSave={() => {
+          const nav = pendingNav;
+          setPendingNavBusy(true);
+          setPendingNavFailed(false);
+          const saveAll = async () => {
+            for (const handle of [bodyEditorRefs.current.panel, bodyEditorRefs.current.sheet]) {
+              if (handle && !(await handle.saveBody())) return false;
+            }
+            return true;
+          };
+          void saveAll()
+            .then((ok) => {
+              if (!ok) {
+                setPendingNavFailed(true);
+                return;
+              }
+              setBodyDirty(false);
+              setPendingNav(null);
+              if (nav) proceedNav(nav);
+            })
+            .finally(() => setPendingNavBusy(false));
         }}
       />
       <NewVersionDialog

@@ -21,7 +21,8 @@ import { useEffect, useRef, useState } from "react";
 import { CV_UPLOAD_ACCEPT } from "@/components/ui/dropzone";
 import { acceptWithoutImages, useImportCapabilities } from "@/lib/import-capabilities";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import {
@@ -42,6 +43,7 @@ import {
   type ImportNotAppliedItem,
   type MatchReceiptItem,
   type RestatedReceiptItem,
+  type KeptSeparateItem,
 } from "@/lib/import-cv";
 import { RecognisedMatches } from "@/components/profile/RecognisedMatches";
 import { RestatedBullets } from "@/components/profile/RestatedBullets";
@@ -101,6 +103,7 @@ type UploadPhase = "idle" | "uploading" | "merging" | "importing" | "analysing";
 
 export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImportViewProps) {
   const t = useTranslations("profileImport");
+  const locale = useLocale();
   const tp = useTranslations("profileUpdate");
   const tg = useTranslations("mergeGate");
   const tproc = useTranslations("processing");
@@ -123,6 +126,8 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   // #717 — the merge's recognised pairs ("Schon in deinem Profil").
   const [matched, setMatched] = useState<MatchReceiptItem[]>([]);
   const [restated, setRestated] = useState<RestatedReceiptItem[]>([]);
+  // FS-6 — bindings the import kept apart (#801 refusals).
+  const [keptSeparate, setKeptSeparate] = useState<KeptSeparateItem[]>([]);
   const [history, setHistory] = useState<UploadHistoryItem[]>([]);
   const [gateInfo, setGateInfo] = useState<GateInfo | null>(null);
 
@@ -172,6 +177,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     setTruncatedPercent(null);
     setMatched([]);
     setRestated([]);
+    setKeptSeparate([]);
     setLoading(true);
     const isZip = file.name.toLowerCase().endsWith(".zip");
     try {
@@ -233,6 +239,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
         data.matched,
         sourceTruncatedPercent(data.source_truncated),
         data.restated,
+        data.kept_separate,
       );
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return; // unmounted
@@ -255,12 +262,14 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     matchedItems?: MatchReceiptItem[],
     readPercent: number | null = null,
     restatedItems?: RestatedReceiptItem[],
+    keptSeparateItems?: KeptSeparateItem[],
   ) {
     setCompletenessScore(completeness);
     setNotApplied(notAppliedItems ?? []);
     setTruncatedPercent(readPercent);
     setMatched(matchedItems ?? []);
     setRestated(restatedItems ?? []);
+    setKeptSeparate(keptSeparateItems ?? []);
     setUploadSuccess(true);
     refreshHistory();
     onImported?.();
@@ -268,7 +277,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     if (flowId) await advanceFlow(flowId);
     // F3 (#72): standalone updates no longer silently bounce the user. We show a
     // success strip with an explicit "Review what changed" CTA into the merge
-    // review (/profile#import-log) instead, so the hand-off is clear.
+    // review (/profile#import-summary, R2-8 (9)) instead, so the hand-off is clear.
   }
 
   /** In-flow hand-off to the gap step; a failure lands in the amber strip with a retry. */
@@ -283,7 +292,8 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   }
 
   function goToReview() {
-    router.push("/profile#import-log");
+    // R2-8 (9) — the user-language summary, not the technical log.
+    router.push("/profile#import-summary");
   }
 
   async function handleGateResolved(action: ResolveAction, _data: StagedResolveResult) {
@@ -296,6 +306,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
         _data.matched,
         readPercent,
         _data.restated,
+        _data.kept_separate,
       );
     } else {
       refreshHistory();
@@ -577,8 +588,8 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
           )}
 
           {/* #717 — entries recognised as already in the profile, with undo. */}
-          {uploadSuccess && !error && matched.length > 0 && (
-            <RecognisedMatches matched={matched} onSeparated={() => onImported?.()} />
+          {uploadSuccess && !error && (matched.length > 0 || keptSeparate.length > 0) && (
+            <RecognisedMatches matched={matched} keptSeparate={keptSeparate} onSeparated={() => onImported?.()} />
           )}
           {/* D-B3V6 (ruling V-3 = A) — second-source bullets held back as
               restatements of a held bullet; "Trotzdem übernehmen" writes one. */}
@@ -674,7 +685,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
                           </p>
                         ) : (
                           <p className="text-[10px] text-on-surface-variant mt-0.5">
-                            {new Date(item.created_at).toLocaleDateString()}
+                            {formatUiDate(item.created_at, locale)}
                             {item.completeness_score !== null && (
                               <>
                                 {" · "}{Math.round(item.completeness_score * 100)}{" %"}

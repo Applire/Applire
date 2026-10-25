@@ -22,6 +22,8 @@ Providers translate vendor-specific errors (openai.RateLimitError, httpx 429, et
 into these unified types so routers never import SDK-specific exceptions.
 """
 
+import json
+
 
 class LLMError(Exception):
     """Base class for all LLM provider errors."""
@@ -74,6 +76,51 @@ class LLMTruncatedError(LLMError):
     (2026-06-24). Routers should surface this as HTTP 502/retry, never persist the
     partial artifact.
     """
+
+
+class LLMResponseParseError(LLMError, json.JSONDecodeError):
+    """The provider answered, but the reply is not one usable JSON object.
+
+    Hazelnut build 4, R2-13 (P-1). Raised by a provider's ``aparse_json`` when
+    the reply cannot be read as JSON, or when a SECOND JSON object follows the
+    first (half an answer is never kept unseen). Trailing prose or a closing
+    fence after the first object is NOT this error: the shared parse helper
+    accepts the first object and logs the discarded tail. ``str(exc)`` is a
+    short static description; the raw reply goes to the LLM debug log only.
+
+    Also a ``json.JSONDecodeError`` (WP-O, ADR-009 amended 2026-10-24): six
+    call sites catch that type around ``aparse_json`` (``prompts/preamble.py``
+    reads ``exc.doc`` / ``exc.msg``), and a parse failure they caught before
+    must still reach them. ``doc`` is the reply text, ``pos`` where reading
+    failed; ``str(exc)`` is the static message plus that position — never the
+    reply. One-argument construction (``LLMResponseParseError("…")``) works.
+    """
+
+    def __init__(self, msg: str, doc: str = "", pos: int = 0) -> None:
+        json.JSONDecodeError.__init__(self, msg, doc, pos)
+
+
+class ReconcileFailedError(LLMError):
+    """A reconcile call failed after its retry: the new information was NOT merged.
+
+    Hazelnut build 4, R2-13 (P-1). Never mask a failed reconcile as an empty
+    merge: an empty ``ReconcileResult`` means "the answer held nothing new",
+    this error means "the answer was not saved". Callers surface it (the
+    interview turn says so and asks for no follow-up; an import says so).
+    """
+
+
+def answer_not_saved_detail() -> dict:
+    """R2-13 (P-1, Hazelnut build 4) — the reconcile step failed after its
+    retry, so the candidate's answer was NOT merged and no follow-up was asked.
+    A structured body, never the provider text: the UI maps ``error_code`` to
+    its own copy and keeps the answer in the composer; the turn committed
+    nothing, so the same message can be resent unchanged."""
+    return {
+        "error_code": "answer_not_saved",
+        "turn_state": "not_saved",
+        "message": "Your answer could not be saved. Please send it again.",
+    }
 
 
 class LLMProviderError(LLMError):

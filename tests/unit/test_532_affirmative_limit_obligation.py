@@ -151,7 +151,10 @@ def test_the_positioning_entry_is_required_and_affirmative():
     entry = build_stated_limits_entry(DENIED, LEDGER)
     assert entry is not None
     assert entry["required"] is True
-    assert entry["limits"] == select_jd_relevant_limits(DENIED, LEDGER)
+    # RULING L-1 = A: the entry carries only the KEY-requirement denials
+    from applire.services.cover_letter import key_requirement_ledger
+
+    assert entry["limits"] == select_jd_relevant_limits(DENIED, key_requirement_ledger(LEDGER))
     low = _flat(entry["instruction"])
     # the affirmative half
     assert "positioning decision" in low
@@ -207,7 +210,10 @@ def test_the_writer_owes_a_positioning_decision_to_a_denied_concept_at_any_tier(
     but scoped to a `required` JD concept, and IFS/BRC were `nice_to_have`."""
     low = _flat(writer.SYSTEM_PROMPT)
     assert "denied" in low
-    assert "any requirement tier" in low or "required or nice-to-have" in low
+    # RULING L-1 = A (2026-10-24) narrowed "any requirement tier" to the KEY
+    # requirements: the tier cut is code (`key_requirement_ledger`), the writer
+    # is told the block holds key requirements only.
+    assert "key requirements of this posting" in low
     assert "positioning decision" in low
 
 
@@ -227,8 +233,9 @@ def test_the_writer_rule_does_not_reopen_adr_074():
 
 def test_the_letter_reviewer_ratchets_still_hold():
     # 2026-09-20 (#732, #731): the letter's prose door moves 12,900 -> 13,450 and its terminal door 16,300 -> 16,850 ONCE, for #732's named BLOCKING half-delivery finding in check 4 and the check-5 scoping that keeps it from contradicting the admit-and-affirm protection. The merge attempt the ratchet asks for was made and it PAID: a check-1 mirror bullet for #731 (1,245 chars) was written, measured at 0/5 on the real provider, and DELETED again rather than kept (ADR-062 deletion over repair), and the writer's separate SHAPE-OF-A-NAMED-GAP rule (764 chars) was folded into the STATED LIMITS (b) rule it duplicates. Measured BEFORE the ceiling moved, luna, reviewer isolated on the founder-UAT draft shape, n=5 per arm: the unfused-shape finding raised 0/5 -> 5/5, all blocking; at the delivery point, n=2 before / n=3 after, delivered gap sentences carrying their own transfer clause 0 of 3 -> 5 of 5, disclosures 3 -> 5 (never fewer), and the blind hiring manager moved from NO to YES naming the fused form as the reason. Mapped to SF-WRITE (new row, id assigned at integration).
+    # 2026-10-24 (R2-5, founder ruling T-1 = A, Hazelnut build 4): moved ONCE for the terminal doors' per-issue `note` field (+~150 chars, the same point in the candidate's words for the review card; the corrector never reads it). Replayed before the move on 5 captured round-2 terminal records (3 CV, 2 letter), luna thinking off, n=5: verdict parity held (approvals 1/25 vs 1/25, blocking counts inside the arm-A range), finish=stop 25/25, 81/81 notes in the document's language once the user prompt names it, 0 field paths.
     assert len(reviewer.REVIEW_SYSTEM_PROMPT) < 13_450, len(reviewer.REVIEW_SYSTEM_PROMPT)
-    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_850, len(
+    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 17_000, len(
         reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT
     )
 
@@ -260,7 +267,8 @@ def test_the_affirmative_block_is_rendered_only_when_something_is_owed():
     assert "silence on one of these is not one of the options" not in low
     assert "ranked ladder" in low
     assert "discharges the limit" in low
-    assert "a named gap only where neither exists" in low
+    # RULING L-1 = A: with neither rung true the limit is LEFT OUT (was: a named gap)
+    assert "leaves the limit out" in low and "a named gap only where neither exists" not in low
     assert "never state a limit that is not listed here" in low
     assert "Mit IFS habe ich keine Erfahrung." in block
 
@@ -308,5 +316,5 @@ def test_the_generation_path_builds_the_block_from_the_jobs_own_ledger():
 
     src = inspect.getsource(svc._render_cover_letter_body)  # ADR-092: the body behind the owner-context entry
     assert "render_required_limits_block(" in src
-    assert "select_jd_relevant_limits(denied_concepts, keyword_ledger)" in src
+    assert "select_jd_relevant_limits(denied_concepts, key_requirement_ledger(keyword_ledger))" in src
     assert "required_limits_block=required_limits_block," in src

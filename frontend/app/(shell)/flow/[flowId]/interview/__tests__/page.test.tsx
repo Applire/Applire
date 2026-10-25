@@ -634,6 +634,54 @@ describe("InterviewPage failed-turn recovery (#256)", () => {
     );
   });
 
+  it("R2-13: an answer the server could not save goes back into the composer, with the not-saved notice and no follow-up", async () => {
+    const user = userEvent.setup();
+    const answerText = "Since March I am also Team Lead Payments at Acme.";
+    global.fetch = mockRetryApi({
+      messageResponses: [
+        {
+          ok: false,
+          status: 503,
+          body: {
+            detail: {
+              error_code: "answer_not_saved",
+              turn_state: "not_saved",
+              message: "Your answer could not be saved. Please send it again.",
+            },
+          },
+        },
+        { ok: true, body: { complete: false, question: "Tell me about Kubernetes.", gaps_remaining: 1 } },
+      ],
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?"),
+    );
+
+    await sendAnswer(user, answerText);
+
+    // The notice is the UI's own copy for the code, never the backend message.
+    await waitFor(() => expect(screen.getByTestId("turn-error")).toHaveTextContent("answerNotSaved"));
+    expect(document.body.textContent).not.toContain("Please send it again");
+    // The text is back in the composer, word for word, and editable.
+    const textarea = screen.getByTestId("answer-textarea") as HTMLTextAreaElement;
+    expect(textarea.value).toBe(answerText);
+    expect(textarea).not.toBeDisabled();
+    // Not-saved is not a generic failure: the composer IS the retry, no second button.
+    expect(screen.queryByTestId("retry-answer-button")).not.toBeInTheDocument();
+    // The question on screen still stands — no follow-up was asked.
+    expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?");
+
+    // Sending again is an ordinary turn.
+    await user.click(screen.getByTestId("send-button"));
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("Tell me about Kubernetes."),
+    );
+    expect(screen.queryByTestId("turn-error")).not.toBeInTheDocument();
+  });
+
   it("never renders a raw Python exception string leaked as a bare-string detail (defense in depth, any status)", async () => {
     const user = userEvent.setup();
     const rawExceptionText = "'NoneType' object is not subscriptable";
@@ -1428,5 +1476,79 @@ describe("Hazelnut b3 MD3-1 — unsent interview answer", () => {
   it("a whitespace-only answer is not a draft", async () => {
     await typeDraft("   ");
     expect(unloadPrevented()).toBe(false);
+  });
+});
+
+// R2-10 (ruling F1-2, lead G hunk): the completion screen says what the ONE
+// open count says — never "Gaps Closed!" next to open requirements (round 2:
+// Marcus "Lücken geschlossen!" + "7 Geschlossene Lücken" with 5 of 12 open).
+describe("R2-10 — the completion screen agrees with the open count", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  function withLedger(open: number) {
+    const ledger = [
+      { concept: "Python", fit_weight: 1, status: "direct", surface_forms: ["Python"] },
+      ...Array.from({ length: open }, (_, i) => ({
+        concept: `Req${i}`, fit_weight: 1, status: "gap", surface_forms: [`Req${i}`],
+      })),
+      // A keyword-only posting term is not a requirement — never counted.
+      { concept: "E-commerce", fit_weight: 0, status: "gap", surface_forms: ["E-commerce"] },
+    ];
+    const base = mockCeilingApi({
+      complete: true,
+      reason: "gaps_resolved",
+      questions_asked: 11,
+      gaps_resolved: 7,
+      completeness_score: 0.8,
+    });
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/job/j1/gaps")) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: "ga1", match_score: 0.5, category_a: [], category_b: [], category_c: [],
+            gap_clusters: [], keyword_ledger: ledger,
+          }),
+        };
+      }
+      return base(input, init);
+    });
+  }
+
+  it("with requirements still open: names the topics, shows the open count, never 'closed'", async () => {
+    const user = userEvent.setup();
+    global.fetch = withLedger(5) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    await sendAnswer(user, "Done.");
+
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("reasonGapsResolved");
+    await waitFor(() =>
+      expect(screen.getByTestId("completion-open-count").textContent).toContain("5"),
+    );
+    expect(document.body.textContent).toContain('completionOpenRequirements({"count":5})');
+    expect(document.body.textContent).not.toContain("gapsResolved");
+    expect(screen.queryByText("7")).not.toBeInTheDocument(); // topics walked is not shown as "closed"
+  });
+
+  it("with nothing open: says no requirement is open", async () => {
+    const user = userEvent.setup();
+    global.fetch = withLedger(0) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    await sendAnswer(user, "Done.");
+
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("reasonNoneOpen"),
+    );
+    expect(screen.getByTestId("completion-open-count").textContent).toContain("0");
   });
 });

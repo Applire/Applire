@@ -308,6 +308,39 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   4/5 and 3/5. The two other captures were 0/5 on every arm including today's (both
   were id slips, not related-skill judgements), and W1/W2 each lost the languages in
   2/5 stress runs (0/5 on today's). No wording dropped the rate on every case.
+* **25,383 (Hazelnut build 4 WP-V, 2026-10-24, R2-4).** Rule 7 gains the
+  concurrent-role clause (+803 chars): a role held ALONGSIDE the existing one at
+  the same employer is neither a synonym nor a promotion — target the existing
+  entry, ``role`` = the additional title, ``start_date`` = when IT began, never
+  the promotion question. Why: the UX audit's second concurrent role (round-2 log
+  rec 208, "Since September 2026 I've also been tech lead …") echoed the held
+  title, so no alias was written; rule 7 named synonyms and promotions only (B).
+  *Measured* (luna, thinking off, captured input, n=5): rec 208 alias 0/5 → 5/5
+  (all with start 2026-09; an intermediate wording without the worked example
+  reached 4/5); rec 199 5/5 → 5/5 (2026-08); held-out promotion still asks 4/5
+  (base 4/5); held-out synonym alias without a date 5/5 (base 5/5). The applier
+  records the date (``WorkEntry.dated_role_aliases``, ADR-013 note 2026-10-24).
+  Records: ``Documents/Runs/Hazelnut/build-4/v/``.
+* **26,035 (Hazelnut build 4 WP-V, 2026-10-24, R2-11).** add_bullets: the
+  NOT-A-SECOND-TIME rule also holds with no figure and for a fact merged into one
+  bullet or split over two (held-out example), and a bullet is a CV line, not a
+  quote (no "I"/"my"/"we"; an entry with an end_date takes the past tense);
+  upsert_skill REQUIRED: the name is the new information's own word, never a term
+  only the question or the gap label uses (+652 chars). Why: the UX audit's
+  round-2 log wrote "… is my daily work" under a 2017–2021 role (prompt silent)
+  and a skill named after the question's term (rule 9 ignored). *Measured* (luna,
+  thinking off, captured input). Arm 1 used the captured quote as its tense
+  example, n=6 on the fail cases: closed-role voice 6/6 → 0/6 with the fact kept
+  6/6; the quoted "daily work" 6/6 → 2/6; question-term skill 4/6 → 2/6; controls
+  unchanged (new fact beside a restated one kept 3/3, a restated mentoring
+  answer ``already_known`` 3/3, the PSD2/BaFin denials kept 6/6). The shipped
+  wording swaps that example for a held-out one, n=3: voice 0/3 (fact kept
+  3/3), quote 0/3 (2/3 still present tense), question-term 1/3, new-fact
+  control kept 3/3, denials kept 3/3. A stricter wording ("a bullet for that
+  clause only") lost the restated fact in 2/3 runs and was not shipped.
+  Residuals (prompt silent, collector): a denial of the wrapper word ("regulated
+  environments"), an anaphor denial ("the model itself"). Records:
+  ``Documents/Runs/Hazelnut/build-4/v/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -392,7 +425,14 @@ Operations:
   "Reduced quote-calculation p95 latency from 1.8 s to 240 ms through query
   optimisation"; the answer says "I cut the quote calculation's p95 latency
   from 1.8 seconds to 240 ms by optimising the queries" — already there, no
-  bullet.
+  bullet. The same holds with no figure, and when the target already states
+  the fact merged into one bullet or split over two: the target holds "Built
+  the invoice-dunning workflow with retry schedules and email reminders"; the
+  answer says "As I said, I built the dunning flow, the retries and the
+  reminder emails" — already there, not one bullet and not two.
+  A bullet is a CV line, not a quote: no "I", "my" or "we", and an entry with
+  an end_date takes the past tense ("Led the release train", never "I lead the
+  release train").
   Add only what is new; when nothing in the answer is new, "ops" is empty with
   "empty_reason": "already_known".
 
@@ -411,7 +451,8 @@ Operations:
   figure belongs in the bullet that states it; record a skill only for the
   capability the new information says the person has ("OEE-Analyse",
   "Arbeitssicherheitsmanagement").
-  REQUIRED: name.
+  REQUIRED: name. The name is the new information's own word for the
+  capability, never a term only the question or the gap label uses.
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency: ONLY a level the new information states for this skill, then one
   of "basic", "intermediate", "advanced", "expert"; omit it otherwise.
@@ -587,6 +628,17 @@ Operations:
    not apply to it at all, whatever its dates: it IS the existing entry, target
    its `id` as usual (differing dates are rule 5's flag_conflict, never this
    question).
+   An ADDITIONAL role held ALONGSIDE the existing one at the same employer
+   ("also", "alongside my role", "zusätzlich", "neben meiner Rolle als ...")
+   is neither a synonym nor a promotion — the existing position goes on, so
+   never ask the promotion question for it. Emit upsert_work with "target" =
+   the existing entry's `id`, "role" = the ADDITIONAL title as stated (never
+   the existing title again, never left out) and "start_date" = when the
+   ADDITIONAL role began (never the existing entry's start date). Its duties go
+   in add_bullets on that same entry. Example: "Since September 2026 I've
+   also been tech lead of the X workstream" -> {"op": "upsert_work", "ref":
+   "w1", "target": <id>, "company": <employer>, "role": "tech lead of the X
+   workstream", "start_date": "2026-09"}.
 
 8. CURRENT POSITION. When the new information states that a role is ongoing /
    current ("this is my current position", "I still work there", "bis heute",

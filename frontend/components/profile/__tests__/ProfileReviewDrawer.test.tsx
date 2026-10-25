@@ -133,6 +133,8 @@ describe("ProfileReviewDrawer", () => {
       gaps_total: 1,
       gaps_remaining: 1,
       choices: ["Keep current: 2020-03", "Use imported: 2023-01"],
+      review_section: "work_experience",
+      current_gap_id: "conflict:c1",
     });
     sendMock.mockResolvedValue({
       complete: true,
@@ -440,13 +442,56 @@ describe("ProfileReviewDrawer", () => {
       expect(keepBothApplies({ section: "volunteer_activities", thread: "conflict" })).toBe(true);
     });
 
-    it("is true when no issue is passed", () => {
-      expect(keepBothApplies(undefined)).toBe(true);
+    // R2-8 (7) (Hazelnut build 4, emma-mobile-005) — with no issue in hand the
+    // item on screen decides; an unknown item gets no escape.
+    it("is false when no issue is passed and the item is unknown", () => {
+      expect(keepBothApplies(undefined)).toBe(false);
+      expect(keepBothApplies(null, null)).toBe(false);
     });
 
-    it("is true when the issue is null", () => {
-      expect(keepBothApplies(null)).toBe(true);
+    it("is false for a personal_info.location conflict with no issue in hand", () => {
+      expect(keepBothApplies(null, { section: "personal_info", gapId: "conflict:loc" })).toBe(false);
     });
+
+    it("is true for a work-entry conflict with no issue in hand", () => {
+      expect(keepBothApplies(null, { section: "work_experience", gapId: "conflict:c1" })).toBe(true);
+    });
+
+    it("is false for a work-entry confirmation (it carries its own 'separate' option)", () => {
+      expect(keepBothApplies(null, { section: "work_experience", gapId: "confirmation:k1" })).toBe(false);
+    });
+
+    it("the item on screen wins over the clicked issue", () => {
+      expect(
+        keepBothApplies({ section: "work_experience", thread: "conflict" }, { section: "personal_info", gapId: "conflict:loc" }),
+      ).toBe(false);
+    });
+  });
+
+  it("hides 'keep both' on a location conflict in the no-issue decision walk (emma-mobile-005)", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question: "Wohnort 'Köln' oder 'Bonn' — was stimmt?",
+      gaps_total: 2,
+      gaps_remaining: 2,
+      choices: ["Köln behalten", "Bonn übernehmen"],
+      review_section: "personal_info",
+      current_gap_id: "conflict:loc",
+    });
+    sendMock.mockResolvedValue({
+      complete: false,
+      question: "start_date '2020-03' vs '2023-01'?",
+      choices: ["Keep current: 2020-03", "Use imported: 2023-01"],
+      gaps_remaining: 1,
+      review_section: "work_experience",
+      current_gap_id: "conflict:c1",
+    });
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "de"));
+    await waitFor(() => screen.getByText("Köln behalten"));
+    expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Köln behalten"));
+    // the next item is a role conflict → the escape appears for it
+    await waitFor(() => screen.getByTestId("profile-review-keep-both"));
   });
 
   // #685 — the drawer render itself: a profile-level conflict (professional_

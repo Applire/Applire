@@ -45,7 +45,7 @@ It was reading, out of English prose, exactly the field the reviewer now sets.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from applire.prompts.review_severity import SEVERITY_BLOCKING, SEVERITY_MINOR
 
@@ -88,6 +88,11 @@ class ReviewIssue:
 
     text: str
     severity: str  # SEVERITY_BLOCKING | SEVERITY_MINOR
+    #: R2-5 (founder ruling T-1 = A, build 4): the terminal reviewer's own plain
+    #: one-sentence note for the CANDIDATE, in the document's language. Only the
+    #: review card reads it; the corrector keeps reading ``text``. Not part of
+    #: identity, so every comparison of issues is unchanged.
+    note: str = field(default="", compare=False)
 
     @property
     def is_blocking(self) -> bool:
@@ -131,6 +136,9 @@ class ReviewSettle:
     minor_issues: tuple[str, ...]
     rounds: int
     settled: dict
+    #: R2-5 (T-1 = A): ``(issue text, plain note)`` for the LAST verdict's issues
+    #: that carried a note. Empty when the reviewer gave none.
+    plain_notes: tuple[tuple[str, str], ...] = ()
 
     @property
     def ran(self) -> bool:
@@ -177,7 +185,12 @@ def normalize_issues(raw_issues: object) -> list[ReviewIssue]:
     issues: list[ReviewIssue] = []
     for entry in raw_issues:
         severity = _coerce_severity(entry.get("severity") if isinstance(entry, dict) else None)
-        issues.append(ReviewIssue(text=_coerce_text(entry), severity=severity))
+        note = entry.get("note") if isinstance(entry, dict) else None
+        issues.append(ReviewIssue(
+            text=_coerce_text(entry),
+            severity=severity,
+            note=note.strip() if isinstance(note, str) else "",
+        ))
     return issues
 
 

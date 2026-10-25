@@ -90,6 +90,8 @@ export function GenerationProgress({ cvId, flowId, onReady, onRetry }: Generatio
               ? t("generationFailedTruncated")
               : code === "llm_timeout"
               ? t("generationFailedTimeout")
+              : code === "provider_unavailable" // 789:192 (B4-8)
+              ? t("generationFailedUnavailable")
               : t("generationFailed");
           setError(message);
         }

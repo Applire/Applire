@@ -79,11 +79,34 @@ _STRUCTURAL_FIELDS = """,
      "check": "OPTIONAL — the numbered check this issue comes from\""""
 
 
+#: R2-5 (founder ruling T-1 = A, Hazelnut build 4): the TERMINAL doors' extra
+#: per-issue field — the same point once more, for the candidate. Only the review
+#: card reads it (``ReviewIssue.note``); the corrector keeps reading ``issue``.
+_PLAIN_NOTE_FIELD = """,
+     "note": "the same point for the candidate: ONE short plain sentence in the NOTE \
+LANGUAGE the prompt names — no field names, indices, ids or check numbers\""""
+
+
+def note_language_line(document_language: str | None) -> str:
+    """R2-5 (T-1 = A): the user-prompt line naming the ``note`` language — the
+    document's own language, resolved by code (replay 2026-10-24: a hint that
+    left the model to infer it wrote German notes for 7 of 7 English-letter
+    issues). ``""`` when no language is known (the schema still asks for a note)."""
+    if not document_language:
+        return ""
+    from applire.prompts.interview import language_name
+
+    name = language_name(document_language)
+    tone = " and address the candidate as du" if name == "German" else ""
+    return f"NOTE LANGUAGE: write every issue's `note` in {name}{tone}.\n\n"
+
+
 def review_output_schema(
     issue_hint: str,
     feedback_hint: str,
     *,
     structural_fields: bool = False,
+    plain_note: bool = False,
 ) -> str:
     """Render the reviewer's JSON output block with the severity field.
 
@@ -145,8 +168,11 @@ def review_output_schema(
         feedback_hint: In-schema hint for the ``feedback`` string.
         structural_fields: Keep the unread ``location``/``check`` keys in the
                     rendered schema. Only for a door with a measurement.
+        plain_note: Ask for the per-issue ``note`` (R2-5) — the terminal doors
+                    only, whose verdict reaches the candidate's review card.
     """
-    extra = _STRUCTURAL_FIELDS if structural_fields else ""
+    # The note sits right after the issue it restates (the replayed order, T-1).
+    extra = (_PLAIN_NOTE_FIELD if plain_note else "") + (_STRUCTURAL_FIELDS if structural_fields else "")
     return f"""Respond ONLY with a valid JSON object — no markdown, no explanations:
 {{
   "approved": true or false,

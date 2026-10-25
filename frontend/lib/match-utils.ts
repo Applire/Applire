@@ -16,20 +16,10 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Utilities for the /match job ranking page, and the gaps screen's reading of
- * a gap analysis (counts, and the ADR-089 per-cluster coverage record).
+ * The gaps screen's reading of a gap analysis (counts, and the ADR-089
+ * per-cluster coverage record). The /match job ranking page and its JobCard
+ * were retired in Hazelnut build 4 (789:95); `GET /api/jobs/match` stays.
  */
-
-/** Score thresholds for colour-coding the combined-score bar. */
-export const SCORE_GREEN_THRESHOLD = 0.7;
-export const SCORE_AMBER_THRESHOLD = 0.4;
-
-/** Return the Tailwind colour token for a combined score in [0, 1]. */
-export function scoreColor(score: number): "success" | "warning" | "critical" {
-  if (score >= SCORE_GREEN_THRESHOLD) return "success";
-  if (score >= SCORE_AMBER_THRESHOLD) return "warning";
-  return "critical";
-}
 
 /**
  * A [0, 1] match score as a whole percentage — with `null` as the ONLY fallback.
@@ -49,18 +39,6 @@ export function scoreToPercent(
   fallback: number,
 ): number {
   return score == null ? fallback : Math.round(score * 100);
-}
-
-/** Format a [0, 1] score as a percentage string e.g. "72%". */
-export function formatScore(score: number): string {
-  return `${Math.round(score * 100)}%`;
-}
-
-/** Return the hex / Tailwind class used for the progress bar fill. */
-export function scoreBarClass(score: number): string {
-  if (score >= SCORE_GREEN_THRESHOLD) return "bg-success";
-  if (score >= SCORE_AMBER_THRESHOLD) return "bg-warning";
-  return "bg-critical";
 }
 
 /** The three category lists a gap analysis exposes to the gaps screen. */
@@ -86,6 +64,10 @@ export interface LedgerChipEntry {
   /** "direct" | "partial" | "gap" | "denied" (ADR-048) — read by
    * {@link requirementCounts}. */
   status?: string;
+  /** G-4 — derived by the server: a `gap` row the ADR-059 floor wrote because
+   * the candidate's own "no" covers it. Counted in the declined bucket, never
+   * as open. */
+  floored_by_denial?: boolean;
 }
 
 /**
@@ -190,7 +172,37 @@ export interface GapCluster {
    * = a posting TERM the match does not count (a keyword-only ledger row,
    * fit_weight 0, folded into clustering by US204) — shown as a term from the
    * posting, never as an open requirement. Absent (legacy row) = `true`. */
-  member_statuses: { member: string; status: MemberStatus; requirement?: boolean }[];
+  member_statuses: {
+    member: string;
+    status: MemberStatus;
+    requirement?: boolean;
+    /** G-4 — `declined` only through a related denial's floor (never named). */
+    floored?: boolean;
+    /** 787:95 — a member folded into this FINISHED card (see `folded`). */
+    folded?: boolean;
+  }[];
+  /** 787:95 — concepts a recompute found to be this topic under a renamed JD
+   * term while the card was already finished: shown on the card, never in
+   * `gaps`, never colouring or reopening it. Absent on older rows. */
+  folded?: string[];
+  /** R2-10 (ruling F1-2), derived at response time: `false` = no member is a
+   * counted requirement (a topic of posting terms only) — never listed or
+   * counted as a topic. Absent (legacy row / older backend) = `true`. */
+  requirement_topic?: boolean;
+}
+
+/**
+ * R2-10 — the clusters that ARE topics: at least one member is a counted
+ * requirement. Themes only GROUP the open requirements (F1-2), so a cluster of
+ * posting terms only ("Commerce Domain" from "E-commerce" in the company blurb)
+ * is not a topic on any surface — the gaps page list, its counts, the
+ * interview's tracker. The server answers the question
+ * (`gap_coverage.is_requirement_topic`); the page never re-derives it.
+ */
+export function requirementTopics<T extends { requirement_topic?: boolean }>(
+  clusters: T[] | null | undefined,
+): T[] {
+  return (clusters ?? []).filter((c) => c.requirement_topic !== false);
 }
 
 /** `SessionMessageResponse.cluster_coverage` (contract item 4) — the record a
@@ -290,6 +302,9 @@ export interface ClusterMember {
   term: string;
   state: MemberState;
   requirement: boolean;
+  /** G-4 — declined by the candidate's answer through a related denial; the
+   * chip must not say they named it. */
+  floored?: boolean;
 }
 
 export interface ClusterView {
@@ -299,6 +314,13 @@ export interface ClusterView {
   members: ClusterMember[];
   tone: CardTone;
   pill: CoveragePill | null;
+  /** 787:95 — members folded into this finished card, with their own chip
+   * state; outside `members`, so they never colour or reopen the card. */
+  folded?: ClusterMember[];
+  /** G-4 — a `declined` card whose declined requirements are ALL floored (ruled
+   * out by an answer, never named): the pill says so instead of "laut deiner
+   * Angabe". */
+  ruledOut?: boolean;
   /** Budget left AND coverage not covered/declined AND not left open by hand
    * (`gap_coverage.is_askable`). */
   askable: boolean;
@@ -351,9 +373,11 @@ export function clusterView(
   const budget = clusterBudgetRemaining(cluster, turn);
   const facts = new Map<string, MemberStatus>();
   const terms = new Set<string>();
+  const floored = new Set<string>();
   for (const entry of cluster.member_statuses ?? []) {
     if (entry && typeof entry.member === "string") {
       facts.set(normMember(entry.member), entry.status);
+      if (entry.floored === true) floored.add(normMember(entry.member));
       // Only an explicit `false` makes a posting term; absent = requirement.
       if (entry.requirement === false) terms.add(normMember(entry.member));
     }
@@ -382,11 +406,15 @@ export function clusterView(
     return fact === "covered" || fact === "declined" ? fact : "closed";
   };
 
-  const members: ClusterMember[] = allClusterMembers(cluster).map((term) => ({
-    term,
-    state: stateOf(normMember(term)),
-    requirement: !terms.has(normMember(term)),
-  }));
+  const members: ClusterMember[] = allClusterMembers(cluster).map((term) => {
+    const state = stateOf(normMember(term));
+    return {
+      term,
+      state,
+      requirement: !terms.has(normMember(term)),
+      ...(state === "declined" && floored.has(normMember(term)) ? { floored: true } : {}),
+    };
+  });
   if (turn) {
     const known = new Set(members.map((m) => normMember(m.term)));
     for (const term of turn.open_concepts) {
@@ -414,6 +442,10 @@ export function clusterView(
             : "partly"
           : null;
 
+  const declinedReqs = members.filter((m) => m.requirement && m.state === "declined");
+  const ruledOut =
+    pill === "declined" && declinedReqs.length > 0 && declinedReqs.every((m) => m.floored === true);
+
   const finished = coverage === "covered" || coverage === "declined";
   const hasBudget = budget === null ? true : budget > 0;
   const leftOpen = !finished && hasBudget && cluster.outcome?.left_open === true;
@@ -423,6 +455,14 @@ export function clusterView(
     members,
     tone,
     pill,
+    ruledOut,
+    folded: (cluster.folded ?? [])
+      .filter((term) => typeof term === "string" && term.trim() !== "")
+      .map((term) => ({
+        term,
+        state: facts.get(normMember(term)) ?? "gap",
+        requirement: !terms.has(normMember(term)),
+      })),
     askable,
     budgetSpent: !finished && !hasBudget,
     leftOpen,
@@ -439,7 +479,7 @@ export function clusterCoverageCounts(clusters: GapCluster[] | null | undefined)
 } {
   let covered = 0;
   let askable = 0;
-  for (const c of clusters ?? []) {
+  for (const c of requirementTopics(clusters)) {
     const v = clusterView(c);
     if (v.coverage === "covered") covered += 1;
     if (v.askable) askable += 1;
@@ -498,18 +538,40 @@ export function requirementCounts(
   );
   if (fit.length > 0) {
     const n = (st: string) => fit.filter((e) => e.status === st).length;
+    // G-4 — a row floored by the candidate's own "no" is handled, not open.
+    const floored = fit.filter((e) => e.status === "gap" && e.floored_by_denial === true).length;
     return {
       total: fit.length,
       shown: n("direct"),
       likely: n("partial"),
-      open: n("gap"),
-      declined: n("denied"),
+      open: n("gap") - floored,
+      declined: n("denied") + floored,
     };
   }
   const a = gaps?.category_a?.length ?? 0;
   const b = gaps?.category_b?.length ?? 0;
   const c = gaps?.category_c?.length ?? 0;
   return { total: a + b + c, shown: a, likely: b, open: c, declined: 0 };
+}
+
+/**
+ * R2-10 (ruling F1-2) — the open requirements BY NAME: exactly the rows
+ * `requirementCounts(...).open` counts (fit-weighted ledger rows at status
+ * `gap`; legacy rows: `category_c`). The review surface's group 3 lists these,
+ * so its number is the gaps page's number.
+ */
+export function openRequirementConcepts(
+  gaps:
+    | (GapCategories & { keyword_ledger?: (LedgerChipEntry & { status?: string })[] | null })
+    | null
+    | undefined,
+): string[] {
+  const fit = (gaps?.keyword_ledger ?? []).filter(
+    (e) => (e?.fit_weight ?? 0) > 0 && typeof e?.status === "string",
+  );
+  if (fit.length > 0)
+    return fit.filter((e) => e.status === "gap" && e.floored_by_denial !== true).map((e) => e.concept);
+  return [...(gaps?.category_c ?? [])];
 }
 
 /** How many themes (gap clusters) can still be asked — the grouping the open

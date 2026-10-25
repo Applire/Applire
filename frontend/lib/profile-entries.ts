@@ -45,6 +45,9 @@ export interface WorkEntry {
   /** ADR-046 am. 2026-10-07 (#716) — other names of this employer the vault
    * recognised; absent while empty. Removable only (no free-text entry). */
   company_aliases?: string[];
+  /** R2-4 (ADR-013 note 2026-10-24) — an additional role at this employer
+   * since a stated date; applier-written, removable only; absent while empty. */
+  dated_role_aliases?: Array<{ role: string; since: string; bullets?: string[] }>;
   industry_context?: string | null;
   team_size?: number | null;
   budget_managed?: string | null;

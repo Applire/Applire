@@ -28,7 +28,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatUiDate } from "@/lib/format-date";
 import { Button } from "@/components/ui/button";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Badge } from "@/components/ui/badge";
@@ -152,6 +153,7 @@ export default function ApplicationDetailPage() {
   const router = useRouter();
   const params = useParams();
   const t = useTranslations("applications");
+  const locale = useLocale();
   const tDash = useTranslations("dashboard");
   const appId = params.appId as string;
 
@@ -493,7 +495,7 @@ export default function ApplicationDetailPage() {
               <p className="text-sm text-on-surface">
                 {application.expires_at
                   ? t("cancelledBanner", {
-                      date: new Date(application.expires_at).toLocaleDateString(),
+                      date: formatUiDate(application.expires_at, locale),
                     })
                   : t("cancelledBannerNoDate")}
               </p>

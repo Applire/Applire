@@ -22,6 +22,7 @@ import {
   respondToEnrich,
   skipGap,
   markGapNA,
+  EnrichAnswerNotSavedError,
 } from "../api/enrich";
 
 const mockFetch = vi.fn();
@@ -211,5 +212,26 @@ describe("markGapNA", () => {
   it("throws on error response", async () => {
     mockError("Conflict", 422);
     await expect(markGapNA("sess-bad")).rejects.toThrow("Conflict");
+  });
+});
+
+describe("respondToEnrich — R2-13 not saved", () => {
+  it("throws EnrichAnswerNotSavedError on a 503 answer_not_saved", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      json: async () => ({
+        detail: { error_code: "answer_not_saved", turn_state: "not_saved", message: "Your answer could not be saved" },
+      }),
+    });
+    await expect(respondToEnrich("s1", "six people")).rejects.toBeInstanceOf(EnrichAnswerNotSavedError);
+  });
+
+  it("keeps the generic error for another 503", async () => {
+    mockError("busy", 503);
+    const err = await respondToEnrich("s1", "x").catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(EnrichAnswerNotSavedError);
   });
 });

@@ -438,3 +438,62 @@ describe("GapClusterCard — ruling K-1 (leave a gap open, pick it up again)", (
     expect(screen.getByTestId("gap-action-error")).toHaveTextContent("Nope");
   });
 });
+
+describe("G-4 — a requirement floored by the candidate's answer", () => {
+  const floored = makeCluster({
+    gaps: [],
+    coverage: "declined",
+    outcome: { asked: 1, covered: [], declined: ["Payout flows"], session_ids: [] },
+    member_statuses: [{ member: "Payout flows", status: "declined", floored: true }],
+  });
+
+  it("says 'ruled out by your answer', never 'laut deiner Angabe'", () => {
+    render(withIntl(<GapClusterCard cluster={floored} view={clusterView(floored)} />, "de"));
+    const chip = screen.getByTestId("gap-member");
+    expect(chip).toHaveAttribute("data-state", "declined");
+    expect(chip).toHaveAttribute("data-floored", "true");
+    expect(chip).toHaveTextContent("(durch deine Antwort ausgeschlossen)");
+    expect(screen.getByTestId("gap-declined")).toHaveTextContent("Durch deine Antwort ausgeschlossen");
+    expect(document.body.textContent).not.toContain("laut deiner Angabe");
+  });
+
+  it("a literal denial keeps 'laut deiner Angabe'; a mixed card keeps it on the pill", () => {
+    const mixed = makeCluster({
+      gaps: [],
+      coverage: "declined",
+      outcome: { asked: 1, covered: [], declined: ["Payout flows", "Crypto"], session_ids: [] },
+      member_statuses: [
+        { member: "Payout flows", status: "declined", floored: true },
+        { member: "Crypto", status: "declined" },
+      ],
+    });
+    render(withIntl(<GapClusterCard cluster={mixed} view={clusterView(mixed)} />, "de"));
+    expect(screen.getByTestId("gap-declined")).toHaveTextContent("Laut deiner Angabe nicht vorhanden");
+    const chips = screen.getAllByTestId("gap-member");
+    expect(chips[1]).toHaveTextContent("(laut deiner Angabe nicht vorhanden)");
+    expect(chips[1]).not.toHaveAttribute("data-floored");
+  });
+});
+
+describe("787:95 — a folded member on a finished card", () => {
+  it("is listed on the card and neither colours nor reopens it", () => {
+    const done = makeCluster({
+      gaps: [],
+      coverage: "covered",
+      outcome: { asked: 1, covered: ["Verpackungsindustrie"], declined: [], session_ids: [] },
+      folded: ["Kunststoffverpackungen"],
+      member_statuses: [
+        { member: "Verpackungsindustrie", status: "covered" },
+        { member: "Kunststoffverpackungen", status: "gap", folded: true },
+      ],
+    });
+    const view = clusterView(done);
+    expect(view.members.map((m) => m.term)).toEqual(["Verpackungsindustrie"]);
+    expect(view.tone).toBe("green");
+    expect(view.askable).toBe(false);
+    render(withIntl(<GapClusterCard cluster={done} view={view} />, "de"));
+    const line = screen.getByTestId("gap-folded-members");
+    expect(line).toHaveTextContent("Später zu diesem Thema dazugekommen:");
+    expect(line).toHaveTextContent("Kunststoffverpackungen");
+  });
+});

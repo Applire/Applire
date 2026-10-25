@@ -76,11 +76,17 @@ PROMPT_EXCLUDED_METADATA_KEYS: frozenset[str] = frozenset(
         "enrichment_history",
         "pending_conflicts",
         "pending_confirmations",
+        # G-5: the answered CV-contradicts-a-denial questions' keys (bookkeeping).
+        "denial_scope_answered",
         "completeness_score",
         "created_at",
         "created_via",
         "last_updated",
         "application_count",
+        # G-5 (ADR-059 amended 2026-10-24): denials the candidate took back.
+        # History for the profile view only; a prompt reading them would treat
+        # a withdrawn limit as a live one.
+        "withdrawn_denials",
     }
 )
 

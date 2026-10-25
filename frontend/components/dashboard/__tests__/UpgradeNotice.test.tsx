@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CurrentUserProvider, type CurrentUser } from "@/lib/auth";
 import { withIntl } from "@/lib/test-utils/with-intl";
-import { UpgradeNotice, crossesMultiUser } from "../UpgradeNotice";
+import { UpgradeNotice, crossesMultiUser, isAhead } from "../UpgradeNotice";
 
 const ADMIN: CurrentUser = {
   id: "u-1",
@@ -37,11 +37,12 @@ function mockOps(status: number, body: unknown) {
   }) as unknown as typeof fetch;
 }
 
-function renderNotice(user: CurrentUser) {
+function renderNotice(user: CurrentUser, locale: "en" | "de" = "en") {
   return render(withIntl(
     <CurrentUserProvider value={{ user }}>
       <UpgradeNotice />
     </CurrentUserProvider>,
+    locale,
   ));
 }
 
@@ -197,5 +198,47 @@ describe("UpgradeNotice — dismiss and debug log", () => {
     await u.click(await screen.findByTestId("upgrade-notice-dismiss"));
     await waitFor(() => expect(screen.queryByText("Something about your settings changed since your last start")).toBeNull());
     expect(screen.getByTestId("upgrade-notice-debug-log")).toBeInTheDocument();
+  });
+});
+
+describe("UpgradeNotice — FS-9: a version ahead of the running build reads 'ab', not 'seit'", () => {
+  const port: Item = { env_var: "APPLIRE_HTTP_PORT", introduced_in: "1.0.0", default: "80", description: "" };
+  const timeout: Item = { env_var: "LLM_TIMEOUT", introduced_in: "0.44.0", default: "180", description: "" };
+  const reMeantAhead: Item = { env_var: "CV_PIPELINE", semantics_changed_in: "1.0.0", default: "v2", description: "" };
+
+  it("isAhead: semver order, a pre-release is before its release", () => {
+    expect(isAhead("1.0.0", "0.44.0-beta")).toBe(true);
+    expect(isAhead("0.44.0", "0.44.0-beta")).toBe(true);
+    expect(isAhead("0.44.0", "0.44.0b0")).toBe(true);
+    expect(isAhead("0.44.0", "0.44.0")).toBe(false);
+    expect(isAhead("0.43.0", "0.44.0-beta")).toBe(false);
+    expect(isAhead("0.44.0-beta", "0.44.0")).toBe(false);
+    expect(isAhead("", "0.44.0")).toBe(false);
+    expect(isAhead("1.0.0", "unknown")).toBe(false);
+  });
+
+  it("DE: the edge observation — 'APPLIRE_HTTP_PORT ab 1.0.0' on a 0.44.0-beta build; an older setting keeps 'seit'", async () => {
+    mockOps(200, { upgrade_notice: notice("0.43.0-beta", "0.44.0-beta", { unset: [port, { ...timeout, introduced_in: "0.43.0" }] }) });
+    renderNotice(ADMIN, "de");
+    await screen.findByTestId("upgrade-notice");
+    expect(screen.getByText("ab 1.0.0, Standard: 80")).toBeInTheDocument();
+    expect(screen.getByText("seit 0.43.0, Standard: 180")).toBeInTheDocument();
+    expect(screen.queryByText(/seit 1\.0\.0/)).toBeNull();
+  });
+
+  it("EN: 'from' ahead, 'since' otherwise; a re-meant setting ahead reads 'changed as of'", async () => {
+    mockOps(200, { upgrade_notice: notice("0.44.0", "0.44.1", { unset: [port, timeout], re_meant: [reMeantAhead] }) });
+    renderNotice(ADMIN);
+    await screen.findByTestId("upgrade-notice");
+    expect(screen.getByText("from 1.0.0, default: 80")).toBeInTheDocument();
+    expect(screen.getByText("since 0.44.0, default: 180")).toBeInTheDocument();
+    expect(screen.getByText("changed as of 1.0.0")).toBeInTheDocument();
+  });
+
+  it("DE: a re-meant setting of the running release keeps 'geändert in'", async () => {
+    mockOps(200, { upgrade_notice: notice("0.43.0", "1.0.0", { re_meant: [reMeantAhead] }) });
+    renderNotice(ADMIN, "de");
+    await screen.findByTestId("upgrade-notice");
+    expect(screen.getByText("geändert in 1.0.0")).toBeInTheDocument();
   });
 });

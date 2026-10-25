@@ -90,7 +90,9 @@ class TestChoicesHintDenialScope:
         prompt = build_question_prompt(
             _cluster(["Industrie 4.0", "SMED"]), _PROFILE, [], gap_category="C"
         )
-        assert "offer NO denial choice" in prompt
+        assert "Offer NO denial choice" in prompt
+        assert "never that the candidate lacks it" in prompt
+        assert "haven't worked with" not in prompt
 
     def test_single_gap_cluster_still_sets_choices_null(self):
         prompt = build_question_prompt(

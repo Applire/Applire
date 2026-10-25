@@ -107,6 +107,19 @@ def _norm(s: str) -> str:
     return (s or "").strip().casefold()
 
 
+def is_denial_floored(entry: dict[str, Any] | None) -> bool:
+    """G-4 (founder, Hazelnut build 4): a row the ADR-059 containment floor
+    wrote — ``gap``, not claimable, :data:`DENIAL_FLOOR_EVIDENCE` — because the
+    candidate's own "no" covers it. The floor is unchanged (no credit, never
+    claimed); every SURFACE counts the row as handled by the candidate's answer
+    (the declined bucket), never as open. A fact about the row (ADR-062 cl. 1)."""
+    return (
+        isinstance(entry, dict)
+        and entry.get("status") == "gap"
+        and entry.get("evidence") == DENIAL_FLOOR_EVIDENCE
+    )
+
+
 def _matches(a_norm: str, b_norm: str) -> bool:
     """Exact or substring (either direction) — mirrors compute_match_score()."""
     if not a_norm or not b_norm:
@@ -955,6 +968,29 @@ def underclaim_candidate_entries(
     ]
 
 
+#: How the model's LIST of adjacent capability names is joined into the one string the
+#: ledger carries (``KeywordLedgerEntry.adjacent_evidence: str``).
+_ADJACENT_JOIN = ", "
+
+
+def adjacent_evidence_text(raw: Any) -> str:
+    """The classifier's ``adjacent_evidence`` as ONE display string.
+
+    The prompt asks for "the profile's own name(s)", and the model sometimes answers
+    with a JSON list. ``str()`` of that list put its Python repr
+    (``"['Jahresabschluss (HGB)']"``) into the writer prompt and into
+    :func:`retention_forms`, where it matches no bullet (Hazelnut build 4 / WP-G:
+    7 of 233 adjacent rows over the build-3/4 matrices). A list is joined, a string is
+    stripped, anything else is empty.
+    """
+    if isinstance(raw, (list, tuple)):
+        parts = [str(x).strip() for x in raw if isinstance(x, str) and x.strip()]
+        return _ADJACENT_JOIN.join(dict.fromkeys(parts))
+    if isinstance(raw, str):
+        return raw.strip()
+    return ""
+
+
 def retention_forms(entry: dict[str, Any]) -> list[str]:
     """The surface forms that mark a CV bullet as carrying this entry's evidence.
 
@@ -972,7 +1008,11 @@ def retention_forms(entry: dict[str, Any]) -> list[str]:
     make the JD's term read as present (:func:`claimable_surface_forms`).
     """
     if is_positioning_only(entry):
-        return [str(entry["adjacent_evidence"])]
+        adjacent = str(entry["adjacent_evidence"])
+        # A joined list (adjacent_evidence_text) is several names: each one alone
+        # marks a bullet — the joined string as a whole is in no bullet.
+        parts = [p.strip() for p in adjacent.split(_ADJACENT_JOIN) if p.strip()]
+        return list(dict.fromkeys([adjacent, *parts]))
     forms = [f for f in (entry.get("surface_forms") or []) if isinstance(f, str)]
     concept = entry.get("concept")
     if concept:
@@ -1101,8 +1141,9 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
             "EXPLICITLY DENIED BY THE CANDIDATE (they were asked and stated they do NOT "
             "have these). Never claim them, and never soften or walk back the denial. "
             "Unlike the list above these are the candidate's OWN stated position, so a "
-            "cover letter MAY name one honestly and follow it with what they do bring "
-            "instead — a CV simply omits them:",
+            "cover letter MAY name one honestly — ONLY where a REQUIRED: STATED LIMITS "
+            "block lists it, with what they do bring in the same sentence (RULING L-1); "
+            "otherwise the letter, like a CV, simply omits them:",
         ]
         for concept in denied:
             lines.append(f"  - {concept}")
@@ -3982,7 +4023,7 @@ def build_keyword_ledger(
         # to lead with a substitute over the real thing, and on gap/denied there
         # is nothing to point at. Absent (not empty) when the classifier gives
         # none, so "below the bar" stays distinguishable from "adjacent".
-        adjacent = str(item.get("adjacent_evidence") or "").strip()
+        adjacent = adjacent_evidence_text(item.get("adjacent_evidence"))
         if status == "partial" and adjacent:
             entry["adjacent_evidence"] = adjacent
         # #415 (ruling W-4): the posting's own qualifying sentence, verbatim. Carried

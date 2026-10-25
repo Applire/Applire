@@ -22,9 +22,13 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { formatUiDate } from "@/lib/format-date";
 
 export interface DocumentItem {
-  cv_id: string;
+  /** 789:187 (additive): "cover_letter" for a letter whose posting has no CV —
+   *  then `cv_id` is null and `cover_letter` names the letter itself. */
+  kind?: "cv" | "cover_letter";
+  cv_id: string | null;
   flow_id: string | null;
   role_title: string | null;
   company_name: string | null;
@@ -66,11 +70,7 @@ function daysUntilExpiry(expiresAt: string): number {
 
 // #789: the date follows the UI language (was a hard-coded "de-DE").
 function formatDate(iso: string, locale: string): string {
-  return new Date(iso).toLocaleDateString(locale === "de" ? "de-DE" : "en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return formatUiDate(iso, locale, { day: "numeric", month: "short", year: "numeric" });
 }
 
 // Material Symbols identifier — not user-facing text.
@@ -204,11 +204,15 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                 const days = daysUntilExpiry(item.expires_at);
                 const isReady = item.status === "ready";
                 const isGenerating = item.status === "generating" || item.status === "pending";
+                // 789:187: a letter with no CV for its posting is its own row.
+                const isLetter = item.kind === "cover_letter";
                 // Material icon names stored as variables — not user-facing text
-                const docIcon = "description";
+                const docIcon = isLetter ? LETTER_ICON : "description";
                 return (
                   <tr
-                    key={item.cv_id}
+                    key={item.cv_id ?? item.cover_letter?.cover_letter_id ?? `${item.flow_id}-${item.created_at}`}
+                    data-testid="documents-row"
+                    data-kind={item.kind ?? "cv"}
                     className="border-b border-gray-50 last:border-none hover:bg-surface-container transition-colors cursor-pointer"
                   >
                     <td className="px-4 py-3.5">
@@ -236,7 +240,7 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                           {/* #789: the letter that belongs with this CV — My
                               Documents listed CVs only, so a ready letter had
                               no home here. */}
-                          {item.cover_letter && (
+                          {item.cover_letter && !isLetter && (
                             <LetterLine
                               status={item.cover_letter.status}
                               onOpen={
@@ -261,7 +265,7 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                     </td>
                     <td className="px-4 py-3.5">
                       <span className="text-[11px] font-semibold px-2 py-1 rounded-md bg-surface-container text-gray-600">
-                        {templateLabel(item.template)}
+                        {isLetter ? t("typeLetter") : templateLabel(item.template)}
                       </span>
                       {item.origin === "agent" && (
                         <span
@@ -330,7 +334,7 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                           data-testid="documents-table-open-btn"
                           onClick={(e) => {
                             e.stopPropagation();
-                            router.push(`/flow/${item.flow_id}/cv`);
+                            router.push(`/flow/${item.flow_id}/${isLetter ? "cover-letter" : "cv"}`);
                           }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 border-[1.5px] border-gray-200 rounded-lg text-[12px] font-semibold text-gray-600 hover:border-primary hover:text-primary hover:bg-surface-container transition-all"
                         >

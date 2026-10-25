@@ -42,6 +42,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from applire.providers.llm.json_reply import parse_json_reply
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import current_call_site
 
@@ -161,7 +162,9 @@ class ReplayLLMProvider(LLMProvider):
     ) -> dict[str, Any]:
         response = self._take().get("response")
         if isinstance(response, str):
-            response = json.loads(response)
+            # R2-13: a recorded raw reply (incl. a recorded parse failure) is
+            # read exactly as the live provider read it.
+            response = parse_json_reply(response, provider="Replay")
         if not isinstance(response, dict):
             raise TypeError(
                 f"recorded response is {type(response).__name__}, not a JSON object"

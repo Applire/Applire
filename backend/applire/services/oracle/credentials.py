@@ -296,6 +296,48 @@ _ENTRY_WRAPPER = re.compile(r"^(?:ausbildung (?:zum|zur|als)|abschluss (?:als|zu
 _ENTRY_TAIL = re.compile(r",\s*(?=[^,]*(?:universit|hochschule|college|school|akademie|\b(?:19|20)\d\d\b))[^,]*$", re.I)
 
 
+#: 790:69 (Hazelnut build 4) — a degree's FIELD OF STUDY in English ↔ its German
+#: name, folded onto the German form on BOTH sides, inside a degree name only
+#: ("B.Sc. Computer Science" ↔ vault "Bachelor of Science Informatik", fo report
+#: §2: 2 of the 3 priced reds). A fixed table of the same field in two languages,
+#: never a family: "Informatik" and "Wirtschaftsinformatik" stay different fields.
+_ENTRY_FIELDS: tuple[tuple[str, str], ...] = (
+    ("business information systems", "wirtschaftsinformatik"),
+    ("business informatics", "wirtschaftsinformatik"),
+    ("information systems", "wirtschaftsinformatik"),
+    ("computer science", "informatik"),
+    ("business administration", "betriebswirtschaftslehre"),
+    ("bwl", "betriebswirtschaftslehre"),
+    ("economics", "volkswirtschaftslehre"),
+    ("vwl", "volkswirtschaftslehre"),
+    ("industrial engineering", "wirtschaftsingenieurwesen"),
+    ("mechanical engineering", "maschinenbau"),
+    ("electrical engineering", "elektrotechnik"),
+    ("civil engineering", "bauingenieurwesen"),
+    ("mathematics", "mathematik"),
+    ("physics", "physik"),
+    ("chemistry", "chemie"),
+    ("psychology", "psychologie"),
+)
+_ENTRY_FIELD_RES = tuple((re.compile(rf"(?<!\S){re.escape(en)}(?!\S)"), de) for en, de in _ENTRY_FIELDS)
+_ENTRY_DEGREE_LEAD = re.compile(r"^(bachelor|master|diplom|doctor) (of (science|arts|engineering|laws|business administration) )?")
+
+
+def _field_of_study(key: str) -> str:
+    """790:69 — inside a degree name, the field in its German form and the
+    linking "in" dropped ("bachelor of science in computer science" →
+    "bachelor of science informatik"). Any other key is returned unchanged."""
+    m = _ENTRY_DEGREE_LEAD.match(key)
+    if not m:
+        return key
+    head, rest = key[: m.end()], key[m.end():]
+    if rest.startswith("in "):
+        rest = rest[3:]
+    for rx, de in _ENTRY_FIELD_RES:
+        rest = rx.sub(de, rest)
+    return (head + rest).strip()
+
+
 def _entry_key(text: str) -> str:
     s = fold(_ENTRY_STRIP.sub("", text or ""))
     s = _ENTRY_PUNCT.sub(" ", s)
@@ -305,8 +347,8 @@ def _entry_key(text: str) -> str:
     toks = s.split()
     for abbr, long in _ENTRY_PREFIXES:
         if tuple(toks[: len(abbr)]) == abbr:
-            return " ".join([long] + toks[len(abbr):])
-    return s
+            return _field_of_study(" ".join([long] + toks[len(abbr):]))
+    return _field_of_study(s)
 
 
 def entry_keys(name: str) -> frozenset[str]:

@@ -472,6 +472,7 @@ async def question_generator_with_profile(
     prior_exchanges: list[dict] | None = None,
     follow_up_focus: list[str] | None = None,
     retry_focus: list[str] | None = None,
+    recorded_denials: list[str] | None = None,
 ) -> dict:
     """Generate the next question based on mode and context.
 
@@ -672,6 +673,8 @@ async def question_generator_with_profile(
         prompt_extras["prior_exchanges"] = prior_exchanges
     if follow_up_focus:
         prompt_extras["follow_up_focus"] = follow_up_focus
+        if recorded_denials:
+            prompt_extras["recorded_denials"] = list(recorded_denials)
     with llm_log_stage("interview_draft"):
         data: dict = await provider.aparse_json(
             build_question_prompt(
@@ -981,7 +984,11 @@ def _conflict_label(section: str, field: str, lang: str) -> str:
     entry = _SECTION_FIELD_LABEL.get((section, field))
     if entry:
         return entry.get(lang) or entry["en"]
-    return f"{section}.{field}".replace("_", " ")
+    # 789:201 — never the dotted key ("personal info.location"): the field in
+    # words with its section, from the shared mirror of the frontend catalogs.
+    from applire.services.profile.field_labels import field_label
+
+    return field_label(section, field, lang)
 
 
 def _conflict_source_label(source: str | None, lang: str) -> str:

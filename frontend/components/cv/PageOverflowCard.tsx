@@ -198,6 +198,11 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
           {t("pageOverflowCut", { target })}
         </button>
       </div>
+      {!overflow.cut_available && (
+        <p className="mt-2 text-xs text-on-surface-variant" data-testid="cv-page-overflow-cut-gone">
+          {t("pageOverflowCutGone")}
+        </p>
+      )}
       <p className="mt-2 text-xs text-on-surface-variant">{t("pageOverflowNote")}</p>
       {error}
     </section>

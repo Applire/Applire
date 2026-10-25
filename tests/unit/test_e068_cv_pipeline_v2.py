@@ -1163,6 +1163,20 @@ def test_claim_missing_finding_names_concept_vault_sentence_and_role_id():
         "no verbatim append: the corrector writes it"
 
 
+def test_claim_missing_finding_names_the_vault_phrase_that_carries_a_label_concept_786_241():
+    """786:241: a concept named by a LABEL ("Backend service operations") was pasted
+    capitalised mid-sentence; the finding now names the vault sentence's own surface
+    form that satisfies the check, and never asks to name the concept as a label."""
+    ledger = [{
+        "concept": "Linienbetrieb", "surface_forms": ["Linienbetrieb", "Kanban für die Montagelinie"],
+        "claimable": True, "status": "direct", "sources": ["required"], "fit_weight": 1.0,
+        "evidence": "vault evidence",
+    }]
+    f = _by_check(_checks(_prose(), _kanban_vault(), keyword_ledger=ledger))["cv.claim_missing"]
+    assert "“Kanban für die Montagelinie” carries it" in f.text
+    assert "naming the concept as the posting does" not in f.text
+
+
 def test_claim_missing_finding_is_silent_when_the_draft_carries_the_concept():
     prose = _prose()
     prose["work"][1]["bullets"].append("Steuerte die Linie per Kanban.")
@@ -1408,6 +1422,8 @@ def _outcome():
 
 
 def test_delivered_draft_open_findings_reach_the_terminal_review_row():
+    from applire.services.terminal_review_outcome import note_text
+
     """Finding 6: the unreviewed last corrector shipped 6 bullets vs a budget of 5 and
     nothing reported it. The checks run once on the SHIPPED draft; open blocking
     findings become a note on the ATS `terminal-review` row — no rewrite, no round."""
@@ -1417,8 +1433,15 @@ def test_delivered_draft_open_findings_reach_the_terminal_review_row():
     term = cv_v2.V2Terminal(ctx=_ctx(budget=_budget(**{W1: 1})))
     composed = term.compose(prose, _vault(), None)
     out = term.report_delivered(_outcome(), prose, composed.model_dump(mode="json"))
-    assert any("cv.role_budget" in n for n in out.notes)
-    assert "cv.role_budget" in build_terminal_review_check(out).details
+    assert any("cv.role_budget" in note_text(n) or getattr(n, "key", None) == "cv.role_budget"
+               for n in out.notes)
+    check = build_terminal_review_check(out)
+    assert "cv.role_budget" in check.details
+    # R2-5 (build 4): the same fact as data for the review card — the check id and
+    # the employer, never the role's UUID.
+    code = [n for n in check.notes if n.kind == "code"]
+    assert [n.key for n in code] == ["cv.role_budget"]
+    assert code[0].subjects == ["Nivalo GmbH"]
     assert composed.work_history[0].bullets == prose["work"][0]["bullets"], "nothing rewritten"
 
 
@@ -1430,7 +1453,7 @@ def test_delivered_draft_clean_or_without_outcome_is_unchanged():
     assert term.report_delivered(o, prose, composed) is o
     assert term.report_delivered(None, prose, composed) is None
     no_verdict = cv_v2.V2Terminal(ctx=_ctx(budget=_budget(**{W1: 1}))).report_delivered(None, prose, composed)
-    assert no_verdict.status == "not_applicable" and "cv.role_budget" in no_verdict.notes[0]
+    assert no_verdict.status == "not_applicable" and no_verdict.notes[0].key == "cv.role_budget"
 
 
 @pytest.mark.asyncio

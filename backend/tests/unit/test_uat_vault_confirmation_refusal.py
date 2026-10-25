@@ -748,15 +748,19 @@ def test_a_qualified_denial_label_now_reaches_the_jd_s_plural_concept_label():
     #783 line L35 / #787 line L43 the fold carries the closed ``-y``/``-ies``
     pair, so the plural label folds onto the denied compound and the REFUSE half
     floors it (a fact about the word's own letters, ADR-062 cl. 1 — not a
-    matcher widening by meaning). The DECLARED-match half is unchanged: it is a
-    label-to-label comparison and the labels still differ. The "RAG methods" vs
-    "vector databases" class (#731) stays a label-shape gap."""
+    matcher widening by meaning). Since FS-7 (ADR-059 amended 2026-10-24) the
+    DECLARED half reaches it too: "experience" is a generic head noun, so the
+    denial declares its bare term "agile methodology", which folds onto the
+    plural label. The "RAG methods" vs "vector databases" class (#731) stays a
+    label-shape gap."""
     from applire.services.profile.reconcile.stance import (
         declared_denial_matches,
         is_denied_concept,
     )
 
-    assert declared_denial_matches("agile methodologies", _MODEL_DENIALS) == []
+    assert declared_denial_matches("agile methodologies", _MODEL_DENIALS) == [
+        "agile methodology experience"
+    ]
     assert is_denied_concept("agile methodologies", _MODEL_DENIALS, None) is True
     # And the control: a denial that names the concept does reach it.
     assert declared_denial_matches("agile methodologies", ["agile methodologies"]) == [

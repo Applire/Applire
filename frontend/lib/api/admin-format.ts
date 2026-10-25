@@ -47,6 +47,13 @@ export function failedReason(code: string | null | undefined): MsgRef | null {
       return { key: "reasonTruncated" };
     case "rate_limited":
       return { key: "reasonRateLimited" };
+    // 789:192 — a writer-call outage (classify_generation_error, MD3-2).
+    case "provider_unavailable":
+      return { key: "reasonProviderUnavailable" };
+    // R2-13 (Hazelnut build 4): the import's merge call failed after its one
+    // retry and nothing was written (classify_import_error).
+    case "not_saved":
+      return { key: "reasonNotSaved" };
     default:
       return { key: "reasonOther", params: { code } };
   }

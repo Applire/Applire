@@ -283,6 +283,7 @@ def _cross_language_candidate(
             "candidate's vault evidence, so this is left as an honest gap "
             "rather than an accusation (ADR-068)."
         ),
+        detail_key="crossLanguageUnconfirmed",
     )
     candidate = _SeamCandidate(
         seam="cross_language",
@@ -322,6 +323,7 @@ def _restatement_candidate(
             "evidence, so attribution is left unverifiable rather than "
             "accused (ADR-068)."
         ),
+        detail_key="attributionUnresolved",
     )
     candidate = _SeamCandidate(
         seam="restatement",
@@ -369,6 +371,7 @@ def _resolve_seam_candidate(
                     "Equivalent restatement across languages — vault evidence "
                     f'({candidate.vault_language_label}): "{quote}".'
                 ),
+                detail_key="crossLanguageEquivalent",
             )
             return verdict, False, None
         if corresponds is False or corresponds == "uncertain":
@@ -421,6 +424,7 @@ def _resolve_seam_candidate(
                 "doesn't unambiguously point to that one position — "
                 "attribution cannot be verified."
             ),
+            detail_key="attributionUnresolved",
         )
         return verdict, False, None
     return candidate.unavailable_verdict, True, "malformed_item"
@@ -576,6 +580,14 @@ _TRIAGE_EXEMPT_DETAIL = {
 }
 
 
+#: 790:67 (Hazelnut build 4) — the UI-language key of each triage class's detail.
+_TRIAGE_EXEMPT_DETAIL_KEY = {
+    "employer-fact": "triageEmployerFact",
+    "epistolary-form": "triageLetterForm",
+    "candidate-limit": "triageCandidateLimit",
+}
+
+
 async def _run_sentence_triage(
     claims: list[Claim], provider: Any
 ) -> tuple[dict[int, ClaimVerdict], int]:
@@ -689,6 +701,7 @@ async def _run_sentence_triage(
                 detail=_TRIAGE_EXEMPT_DETAIL[classification].format(
                     sentence=claim.text
                 ),
+                detail_key=_TRIAGE_EXEMPT_DETAIL_KEY.get(classification),
             )
     return exemptions, unavailable
 
@@ -1166,6 +1179,7 @@ def _unattributable_evidence_flag(
             "doesn't unambiguously point to that one position — attribution "
             "cannot be verified."
         ),
+        detail_key="attributionUnresolved",
     )
 
 
@@ -1228,6 +1242,7 @@ async def _entailment(
         checker="entailment",
         evidence=_evidence_refs(evidence_units),
         detail="Narrow entailment verdict (deterministic checks could not decide).",
+        detail_key="entailmentNarrow",
     )
 
 
@@ -1554,6 +1569,7 @@ def _verify_entry_claim(
             checker="grounding",
             evidence=refs,
             detail="A profile entry names this qualification.",
+            detail_key="qualificationNamed",
         )
     if not backing.families and holds_other_language(idx, document_language):
         return ClaimVerdict(
@@ -1564,6 +1580,7 @@ def _verify_entry_claim(
                 "written in another language — an entry name is not checked across "
                 "languages, so this is left open rather than accused."
             ),
+            detail_key="otherLanguageNotChecked",
         )
     logger.info("ORACLE_ENTRY_UNBACKED location=%s", claim.location)
     return ClaimVerdict(
@@ -2038,6 +2055,7 @@ async def _verify_claim_unchecked(
                 "outside the vault's scope (checked against the job "
                 "description elsewhere, not here)."
             ),
+            detail_key="triageEmployerFact",
         )
 
     # ── honest gap disclaimers (#282, wave 7): no positive claim to ground ──
@@ -2057,6 +2075,7 @@ async def _verify_claim_unchecked(
                 "Honest denial or third-party delegation — no positive "
                 "claim about the candidate to verify against the vault."
             ),
+            detail_key="honestDenial",
         )
 
     # ── skills: shared-predicate grounding, deterministic either way ────────
@@ -2115,6 +2134,7 @@ async def _verify_claim_unchecked(
                     "vault is written in another language — not checked across "
                     "languages, so this is left open rather than accused."
                 ),
+                detail_key="otherLanguageNotChecked",
             )
         return deny
 
@@ -2165,6 +2185,7 @@ async def _verify_claim_unchecked(
                     "statement (ADR-064 stated limit) — an honest "
                     "restatement, not a new claim."
                 ),
+                detail_key="figuresFromStatedLimit",
             )
 
     # ── 2. target-vs-achieved stance (deterministic red flag) ───────────────
@@ -2233,6 +2254,7 @@ async def _verify_claim_unchecked(
                 checker="numbers",
                 evidence=_evidence_refs(evidence_units),
                 detail="All figures trace to vault evidence.",
+                detail_key="figuresTrace",
             )
             # Adversarial review 2026-07-18 MINOR-1: the figure-carrying units
             # alone (often bare date spans) starve the entailment of the role/
@@ -2250,6 +2272,7 @@ async def _verify_claim_unchecked(
             checker="numbers",
             evidence=_evidence_refs(evidence_units),
             detail="All figures trace to vault evidence.",
+            detail_key="figuresTrace",
         )
 
     # ── 3. figure-free claims: shared-predicate grounding ───────────────────
@@ -2259,6 +2282,7 @@ async def _verify_claim_unchecked(
             verdict="unverifiable",
             checker="grounding",
             detail="No checkable content (soft or formulaic statement).",
+            detail_key="noCheckableContent",
         )
     if grounding.best_coverage >= GROUNDED_MIN_COVERAGE and grounding.best_unit is not None:
         # Adversarial review 2026-07-18 MAJOR-1: the stance red flag applies
@@ -2343,6 +2367,7 @@ async def _verify_claim_unchecked(
                     "Grounded via the union of this role's own vault evidence "
                     "(multi-fact narrative clause)."
                 ),
+                detail_key="groundedUnion",
             )
     elif len(claim.sentence_named_ids) == 1:
         # ── 3a3. soft-anchor role-union (#237 run-4 residual) ────────────────
@@ -2375,6 +2400,7 @@ async def _verify_claim_unchecked(
                     "Grounded via the union of this role's own vault evidence "
                     "(multi-fact narrative clause, sentence-named owner)."
                 ),
+                detail_key="groundedUnion",
             )
     elif letter_named_ids and _all_same_employer(letter_named_ids, idx):
         # ── 3a4. whole-letter single-employer role-union (#237 round-3) ──────
@@ -2407,6 +2433,7 @@ async def _verify_claim_unchecked(
                     "employer's vault evidence (multi-fact narrative "
                     "clause, no closer anchor available)."
                 ),
+                detail_key="groundedUnion",
             )
     union_grounding = ground_via_skill_union(claim.text, idx)
     if union_grounding is not None:
@@ -2418,12 +2445,14 @@ async def _verify_claim_unchecked(
                 "Grounded via the union of vault skill evidence "
                 "(multi-skill enumeration clause)."
             ),
+            detail_key="groundedUnion",
         )
 
     fallback = ClaimVerdict(
         verdict="unverifiable",
         checker="grounding",
         detail="No sufficiently close vault evidence for a deterministic verdict.",
+        detail_key="noCloseEvidence",
     )
     return await _entailment(
         claim.text, grounding.top_units, provider, budget, fallback, attribution_id, idx

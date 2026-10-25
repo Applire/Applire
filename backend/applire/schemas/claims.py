@@ -103,6 +103,10 @@ class ClaimResult(BaseModel):
     confirmations: list[PendingConfirmation] = Field(default_factory=list)
     conflicts: list[Conflict] = Field(default_factory=list)
     detail: str | None = None
+    #: R2-13 (Hazelnut build 4, additive) — ``"not_saved"`` when this claim's
+    #: reconcile call failed after its retry and nothing was written for it
+    #: (restate the same claim to retry); ``None`` otherwise.
+    error_code: str | None = None
 
 
 class SubmissionResult(BaseModel):

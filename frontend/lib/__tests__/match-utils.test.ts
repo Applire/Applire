@@ -28,7 +28,7 @@ import {
   scoreToPercent,
   type GapCluster,
 } from "../match-utils";
-import { requirementCounts } from "../match-utils";
+import { openThemeCount, requirementCounts, requirementTopics } from "../match-utils";
 
 describe("gapCounts", () => {
   it("splits a gap analysis into the four displayed counts", () => {
@@ -460,6 +460,20 @@ describe("clusterCoverageCounts", () => {
   });
 });
 
+// R2-10 (ruling F1-2) — a cluster of posting terms only is not a topic.
+describe("requirementTopics", () => {
+  it("drops a cluster the server marks requirement_topic=false from every count and list", () => {
+    const clusters = [
+      cluster({ id: "k8s" }),
+      cluster({ id: "commerce", requirement_topic: false }),
+      cluster({ id: "legacy" }), // no flag (older backend) = a topic
+    ];
+    expect(requirementTopics(clusters).map((c) => c.id)).toEqual(["k8s", "legacy"]);
+    expect(openThemeCount(clusters)).toBe(2);
+    expect(clusterCoverageCounts(clusters)).toEqual({ covered: 0, askable: 2 });
+  });
+});
+
 describe("isGapRefusalCode", () => {
   it("accepts exactly the two contract codes", () => {
     expect(isGapRefusalCode("gap_budget_spent")).toBe(true);
@@ -496,5 +510,27 @@ describe("requirementCounts", () => {
       }),
     ).toEqual({ total: 4, shown: 1, likely: 2, open: 1, declined: 0 });
     expect(requirementCounts(null)).toEqual({ total: 0, shown: 0, likely: 0, open: 0, declined: 0 });
+  });
+});
+
+describe("G-4 — a floored row is handled, not open", () => {
+  const ledger = [
+    { concept: "Payout flows", fit_weight: 1, status: "gap", floored_by_denial: true },
+    { concept: "Payment settlement", fit_weight: 1, status: "gap" },
+    { concept: "Stripe", fit_weight: 1, status: "direct" },
+    { concept: "Crypto", fit_weight: 0.5, status: "denied" },
+  ];
+  it("requirementCounts moves it from open to declined", () => {
+    expect(requirementCounts({ keyword_ledger: ledger })).toEqual({
+      total: 4,
+      shown: 1,
+      likely: 0,
+      open: 1,
+      declined: 2,
+    });
+  });
+  it("openRequirementConcepts (review group 3) leaves it out", async () => {
+    const { openRequirementConcepts } = await import("../match-utils");
+    expect(openRequirementConcepts({ keyword_ledger: ledger })).toEqual(["Payment settlement"]);
   });
 });

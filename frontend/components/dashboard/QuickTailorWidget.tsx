@@ -82,7 +82,7 @@ export function QuickTailorWidget() {
 
   const canSubmit = (mode === "url" && url.trim()) || (mode === "text" && text.trim());
 
-  async function createApplicationAndRoute(jobId: string) {
+  async function createApplicationAndRoute(jobId: string, toGaps = false) {
     setLoading(true);
     setError("");
     try {
@@ -112,7 +112,14 @@ export function QuickTailorWidget() {
       const appData = await createRes.json();
       // Route via the flow index — it advances the state machine and picks
       // the correct step (returning users skip cv_import entirely).
-      router.push(`/flow/${appData.flow_session_id}`);
+      // R2-3 / 789:184: the identical posting reuses its application and
+      // flow; the duplicate dialog's choice there is the interview, whose one
+      // entry is the gap view (it reopens a finished flow).
+      router.push(
+        toGaps
+          ? `/flow/${appData.flow_session_id}/gaps`
+          : `/flow/${appData.flow_session_id}`,
+      );
     } catch {
       setError(tDash("errorUnexpected"));
     } finally {
@@ -169,8 +176,9 @@ export function QuickTailorWidget() {
           }
           onContinueNew={() => {
             const jobId = duplicatePrompt.jobId;
+            const samePosting = duplicatePrompt.hint.matched_on === "job";
             setDuplicatePrompt(null);
-            void createApplicationAndRoute(jobId);
+            void createApplicationAndRoute(jobId, samePosting);
           }}
           onDismiss={() => setDuplicatePrompt(null)}
         />

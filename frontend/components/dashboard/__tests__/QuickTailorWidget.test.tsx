@@ -251,15 +251,15 @@ describe("QuickTailorWidget", () => {
       company_name: "DataCraft GmbH",
       role_title: "Senior Data Analyst",
       analyzed_at: "2026-07-05T10:00:00Z",
-      matched_on: "job",
+      matched_on: "source_url",
     };
 
-    function analyzeWithHint() {
+    function analyzeWithHint(hint: Record<string, unknown> = DUP_HINT) {
       global.fetch = vi
         .fn()
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ id: "job-1", duplicate_of: DUP_HINT }),
+          json: async () => ({ id: "job-1", duplicate_of: hint }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -304,6 +304,17 @@ describe("QuickTailorWidget", () => {
         job_analysis_id: "job-1",
         start_workflow: true,
       });
+    });
+
+    // R2-3 / 789:184: the identical posting reuses its application + flow; the
+    // dialog's second choice leads to that flow's gap view (the interview entry).
+    it("identical posting: the interview choice lands on the existing flow's gap view", async () => {
+      analyzeWithHint({ ...DUP_HINT, matched_on: "job" });
+      await waitFor(() =>
+        expect(screen.getByTestId("duplicate-jd-dialog")).toBeInTheDocument(),
+      );
+      fireEvent.click(screen.getByTestId("duplicate-jd-continue-new"));
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-2/gaps"));
     });
 
     it("dismissing the dialog leaves the dashboard untouched (never blocks)", async () => {

@@ -12,6 +12,7 @@ duration may be stated only hedged and rounded down ("über sieben Jahre",
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import date
 
 import pytest
@@ -59,7 +60,10 @@ def _v(text: str, profile: dict | None = None):
 def test_probe_sentence_is_unbacked_with_the_span_and_its_role():
     v = _v(PROBE)
     assert (v.verdict, v.checker) == ("unbacked", "numbers"), v
-    assert "7.6 years" in v.detail and "Schwarzwald Präzision GmbH" in v.detail
+    # `_ago` is month-granular while the span is counted to today's day, so
+    # the quoted figure reads 7.6 or 7.7 depending on the day of the month.
+    assert re.search(r"7\.[67] years", v.detail), v.detail
+    assert "Schwarzwald Präzision GmbH" in v.detail
     assert v.figures == ["acht Jahren"]
 
 

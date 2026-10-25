@@ -251,8 +251,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
    must appear, never extended; flag a missing one by key with its text.
    ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE honest
    positioning decision in one paragraph — the gap in the candidate's own terms plus the
-   adjacent strength. BOTH directions are findings: silence on a listed limit, and a
-   limit the letter states that the entry does NOT list (check 1). Withholding detail
+   adjacent strength. BOTH directions are findings: silence on a listed limit that has a
+   transfer (L-1), and a limit the letter states that the entry does NOT list (check 1). Withholding detail
    ("kann ich nicht nennen") is no limit: writing it in IS a finding (DEL-1). A requirement
    lacked WITHOUT a recorded denial owes no sentence; never demand one (DEL-2).
    HALF-DELIVERY IS THE THIRD DIRECTION (#732): the transferring strength stands in the
@@ -365,14 +365,18 @@ the candidate with the document and they never regenerate the letter.
 """
 
 
-_SCHEMA_AND_CLOSER = review_output_schema(
-    issue_hint="the paragraph plus what is untrue or missing — empty array if nothing found",
-    feedback_hint="concise instruction for the writer to correct the BLOCKING issues — empty string if there are none",
-) + """
+_CLOSER = """
 
 Keep `feedback` concise and *referential*: name the offending location (paragraph, claim) and
 state what is wrong. Do NOT quote or paste source passages — the writer re-reads the candidate
 source itself (ADR-021 amended 2026-06-29)."""
+_ISSUE_HINT = "the paragraph plus what is untrue or missing — empty array if nothing found"
+_FEEDBACK_HINT = "concise instruction for the writer to correct the BLOCKING issues — empty string if there are none"
+_SCHEMA_AND_CLOSER = review_output_schema(issue_hint=_ISSUE_HINT, feedback_hint=_FEEDBACK_HINT) + _CLOSER
+#: R2-5 (T-1 = A): the terminal door also asks for the candidate's plain note.
+_TERMINAL_SCHEMA_AND_CLOSER = (
+    review_output_schema(issue_hint=_ISSUE_HINT, feedback_hint=_FEEDBACK_HINT, plain_note=True) + _CLOSER
+)
 
 # ONE definition of the authority block and the five blocking checks; TWO doors,
 # differing in the shape note, the terminal-only checks and the `minor` paragraph.
@@ -385,7 +389,7 @@ TERMINAL_REVIEW_SYSTEM_PROMPT = (
     + "\n"
     + _TERMINAL_CHECKS
     + _MINOR_TERMINAL
-    + _SCHEMA_AND_CLOSER
+    + _TERMINAL_SCHEMA_AND_CLOSER
 )
 
 
@@ -422,6 +426,7 @@ def build_terminal_review_prompt(
     word_count: int,
     word_budget: int,
     condense_exhausted: bool,
+    document_language: str | None = None,
 ) -> str:
     """Build the TERMINAL-round reviewer user prompt (#539, ADR-076 clause 3).
 
@@ -442,6 +447,8 @@ def build_terminal_review_prompt(
         condense_exhausted: True when the bounded condense rewrite is spent (or
                     unavailable) and the letter still exceeds the page norm —
                     stated for honest context, never as a mandate.
+        document_language: R2-5 (T-1 = A) — the letter's pinned language; names
+                    the language of each issue's ``note``. ``None`` = no line.
     """
     if page_count is not None:
         measure = (
@@ -458,9 +465,12 @@ def build_terminal_review_prompt(
             " — condense exhausted: the bounded condense rewrite could not reach "
             "the page norm"
         )
+    from applire.prompts.review_severity import note_language_line
+
     return (
         "Terminal review: the letter below is the COMPOSED artifact exactly as it "
         "will be delivered (see SHAPE NOTE — TERMINAL ROUND).\n\n"
+        f"{note_language_line(document_language)}"
         f"CANDIDATE SOURCE (source of truth):\n{source_material}\n\n"
         f"COMPOSED COVER LETTER (the delivered letter):\n"
         f"{json.dumps(composed_json, ensure_ascii=False, indent=2)}\n\n"
@@ -506,7 +516,8 @@ Rules:
   posting asks about and the candidate has denied in their own words: each owes ONE
   honest positioning decision — the gap in their terms, then the adjacent strength that
   transfers — folded into the SAME honest-gap paragraph, never a litany. Never state a
-  limit the entry does not list, and never soften or delete one it does: an unprompted
+  limit the entry does not list, and never soften or delete one it states with its
+  transferring strength (a bare admission with none is removed — RULING L-1): an unprompted
   admission of a gap is the single thing blind readers name as the reason to trust a
   letter. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
   text pinned by the candidate — keep each pinned fact stated (verbatim in

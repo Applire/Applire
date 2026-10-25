@@ -19,6 +19,8 @@ The model writes, code checks. Pinned here:
 
 Fixtures are synthetic (``controlling_emma_de``-shaped, no real person).
 """
+from applire.services.terminal_review_outcome import _note_texts  # R2-5: notes are data now
+
 import copy
 import sys
 import uuid
@@ -747,7 +749,7 @@ async def test_seam_v2_delivers_unrepaired_text_with_a_report_note(db, v2):
     assert cl.letter_data["body"]["paragraphs"] == _GERMAN_BODY[1:]  # nothing injected
     assert cl.letter_data["header"]["address"] == "Stuttgart"
     outcome = rec["audit"]["terminal_review"]
-    notes = " ".join(outcome.notes) if outcome is not None else ""
+    notes = " ".join(_note_texts(outcome.notes)) if outcome is not None else ""
     assert "[salutation]" in notes
 
 
@@ -785,7 +787,7 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
     assert all(t.startswith("[letter.") for t in outcome.blocking_issues)
     assert any(t.startswith("[letter.page_length]") for t in outcome.blocking_issues)
     assert any("reviewer's notes on the shortened letter" in n and "dropped the HGB closing claim" in n
-               for n in outcome.notes)
+               for n in _note_texts(outcome.notes))
     cl = await db.get(GeneratedCoverLetter, ids[2].id)
     assert cl.letter_data["body"]["paragraphs"] == condensed["body"]["paragraphs"]
 
@@ -914,7 +916,7 @@ async def test_seam_v2_a_non_member_name_reaches_the_loop_and_ships_unrewritten(
     cl = await db.get(GeneratedCoverLetter, ids[2].id)
     assert cl.letter_data["body"]["paragraphs"] == _SHORT_NAME_BODY  # never rewritten
     outcome = rec["audit"]["terminal_review"]
-    assert "[names]" in " ".join(outcome.notes if outcome is not None else [])
+    assert "[names]" in " ".join(_note_texts(outcome.notes) if outcome is not None else [])
 
 
 def test_letter_name_findings_decide_membership_by_w1s_norm_name():
@@ -1070,11 +1072,11 @@ async def test_seam_v2_w3_3c_reviewer_findings_alone_never_fail_the_row(db, v2):
                          pages_seq="fits_after_final_condense", review_verdict=verdict,
                          settle_exhausted=True)
     outcome = rec["audit"]["terminal_review"]
-    post = [n for n in outcome.notes if "reviewer's notes on the shortened letter" in n]
+    post = [n for n in _note_texts(outcome.notes) if "reviewer's notes on the shortened letter" in n]
     assert post, outcome.notes
     assert outcome.status == "pass" and outcome.blocking_issues == ()  # an advisory PASS row
     assert "Figure '2019' is unanchored." in post[0]
-    assert any("does not use: SAP S/4HANA." in n for n in outcome.notes)
+    assert any("does not use: SAP S/4HANA." in n for n in _note_texts(outcome.notes))
     # the earlier terminal round's verdict read a draft that no longer ships
     assert "an earlier round's finding" not in " ".join(outcome.blocking_issues)
     assert outcome.path == "minor_only"
@@ -1190,9 +1192,12 @@ async def _seed_with_denials(db):
     return ids
 
 
+# RULING L-1 = A (2026-10-24): only a KEY (required-tier) denial is owed, so the
+# owed fixture is a required row (was nice_to_have 0.5 — now a constraint only,
+# see test_seam_l1_a_nice_to_have_denial_is_a_constraint_only).
 _DEL3_LEDGER = [
-    {"concept": "IFS", "status": "denied", "claimable": False, "fit_weight": 0.5,
-     "surface_forms": ["IFS"], "sources": ["nice_to_have"], "evidence": ""},
+    {"concept": "IFS", "status": "denied", "claimable": False, "fit_weight": 1.0,
+     "surface_forms": ["IFS"], "sources": ["required"], "evidence": ""},
 ]
 
 
@@ -1223,6 +1228,32 @@ async def test_seam_del3_only_the_postings_denial_reaches_the_writer_obligation(
     entry = drafting["source"][k:drafting["source"].index('"instruction"', k)]
     assert '"required": true' in entry or _DEL3_OWED in entry
     assert _DEL3_OWED in entry and _DEL3_OTHER not in entry
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pipeline", ["v1", "v2"])
+async def test_seam_l1_a_nice_to_have_denial_is_a_constraint_only(db, monkeypatch, pipeline):
+    """RULING L-1 = A: a denial of a nice-to-have ("IFS/BRC von Vorteil") is never
+    owed by the letter — no REQUIRED block, no positioning entry; the statement
+    still reaches the writer as a never-disclosed constraint."""
+    monkeypatch.setenv("LETTER_PIPELINE", pipeline)
+    ledger = [dict(_DEL3_LEDGER[0], fit_weight=0.5, sources=["nice_to_have"])]
+
+    async def _ledger(*_a, **_k):
+        return copy.deepcopy(ledger)
+
+    with patch("applire.services.keyword_ledger.refresh_persist_and_rescore", side_effect=_ledger):
+        rec = await _run(db, await _seed_with_denials(db), payload=_draft(_GERMAN_BODY))
+    writer_prompt = rec["systems"][0][0]
+    assert "=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT" not in writer_prompt
+    con = writer_prompt.index("=== STATED LIMITS — CONSTRAINT ONLY")
+    con_block = writer_prompt[con:writer_prompt.find("\n\n===", con)]
+    assert _DEL3_OWED in con_block and _DEL3_OTHER in con_block
+    # the loop's source keeps the statements as a constraint, never as owed content
+    drafting = next(l for l in rec["loops"] if l["chain_id"] == "cover_letter")
+    k = drafting["source"].find('"stated_limits": {')
+    entry = drafting["source"][k:drafting["source"].index('"instruction"', k)] if k >= 0 else ""
+    assert '"required": true' not in entry
 
 
 @pytest.mark.asyncio

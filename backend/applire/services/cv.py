@@ -1733,6 +1733,53 @@ def _suppress_duplicate_project_bullets(work_history: list[dict]) -> None:
             w["projects"] = surviving
 
 
+_QUAL_NORM_RE = re.compile(r"[^\w]+", re.UNICODE)
+
+
+def _qualification_forms(*parts: str) -> set[str]:
+    """Normalised spellings of one qualification: the name alone and the name with
+    its awarding body, punctuation folded ("Industriemeister Metall (IHK)" ==
+    "Industriemeister Metall" + "IHK")."""
+    def norm(x: str) -> str:
+        return " ".join(_QUAL_NORM_RE.sub(" ", (x or "").casefold()).split())
+
+    name, *bodies = parts
+    forms = {norm(name)}
+    forms |= {norm(f"{name} {b}") for b in bodies if b}
+    return {f for f in forms if f}
+
+
+def _year(value) -> str:
+    m = re.search(r"(19|20)\d{2}", str(value or ""))
+    return m.group(0) if m else ""
+
+
+def _certification_is_an_education_entry(cert: dict, education: Sequence) -> bool:
+    """786:240 (panel + delivery F10, build 3): the vault can record one
+    qualification twice — "Industriemeister Metall (IHK)" as a certification AND as
+    an education entry (degree "Industriemeister Metall", institution "IHK") — and
+    the CV then printed it in Ausbildung and Zertifizierungen. A lexical identity
+    fact (ADR-062 cl. 1): the same normalised name (alone or with its awarding body)
+    and, where both carry a year, the same year. The education entry keeps it; no
+    fact leaves the page."""
+    if not education:
+        return False
+    c_forms = _qualification_forms(cert.get("name") or "", cert.get("issuing_organization") or "")
+    c_year = _year(cert.get("date_obtained"))
+    for e in education:
+        degree = getattr(e, "degree", "") or ""
+        if not degree:
+            continue
+        e_forms = _qualification_forms(degree, getattr(e, "institution", "") or "")
+        if not (c_forms & e_forms):
+            continue
+        e_year = _year(getattr(e, "end_date", None))
+        if c_year and e_year and c_year != e_year:
+            continue
+        return True
+    return False
+
+
 def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
     """Deterministically copy the Master Profile's certifications verbatim into
     ``tailored.certifications`` (PQ F7 / ADR-040 truthfulness).
@@ -1753,7 +1800,7 @@ def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> Tailo
 
     source_certs = [
         c for c in (profile_json.get("certifications") or [])
-        if entry_is_claimable(c)
+        if entry_is_claimable(c) and not _certification_is_an_education_entry(c, tailored.education)
     ]
     if not source_certs:
         return tailored
@@ -5620,6 +5667,11 @@ async def set_page_overflow_choice(
         record.page_overflow = po
         logger.info("PAGE_OVERFLOW_CHOICE cv_id=%s choice=%s", record.id, choice)
         if new_data is None:
+            # 786:237 (WP-T hunk): no new data, no re-audit — the stored report's
+            # page-length row says the decision.
+            from applire.services.ats_audit import decide_kept_page_length
+
+            record.ats_report = decide_kept_page_length(record.ats_report, _pages_kept_at(po))
             await db.commit()
         else:
             old_snapshot = record.content_snapshot
@@ -6175,6 +6227,10 @@ async def _terminal_review(
     # (ADR-082 clauses 1-3 for the deterministic layer).
     _redundancy_fn = redundancy_signal_issues_fn(
         structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+        # 786:81: the bullet a demand produced is exempt from the redundancy finding
+        # for the rest of this terminal review. Read at call time: `_terminal_signal_
+        # issues` runs the under-claim signal FIRST, so this round's demand is in.
+        demanded_groups_fn=lambda: demanded_cell["groups"],
     )
 
     def _terminal_signal_issues(draft: dict) -> list:
@@ -6301,6 +6357,15 @@ async def _terminal_review(
         reentry_exhausted=reentry_exhausted,
         outcome=outcome_cell["outcome"],
     )
+
+
+def _pages_kept_at(page_overflow: dict | None) -> int | None:
+    """786:237 (WP-T hunk) — the page count a "keep" choice covered, else None."""
+    po = page_overflow if isinstance(page_overflow, dict) else None
+    if not po or po.get("choice") != "keep":
+        return None
+    n = po.get("full_pages") or po.get("actual")
+    return n if isinstance(n, int) and n > 0 else None
 
 
 async def _update_ats_report(
@@ -6458,6 +6523,8 @@ async def _update_ats_report(
             vault_index=grounding_vault_index(profile_json),  # ADR-090 cl. 4
             # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim.
             non_claim=non_claim_names_for_job(job, label_app),
+            # 786:237 (WP-T hunk): a "keep" on the x+1 card decides the length.
+            pages_kept_at=_pages_kept_at(getattr(record, "page_overflow", None)),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
@@ -6671,6 +6738,9 @@ async def _update_ats_report_by_id(cv_id: uuid.UUID, *, user_id: uuid.UUID | Non
                 record = None
             if record is not None:
                 await _update_ats_report(record, db)
+                from applire.services.review_actions import note_audited
+
+                note_audited("cv", record)  # 786:232 — `edited` need not audit it again
 
 
 async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> "ATSReportResponse":
