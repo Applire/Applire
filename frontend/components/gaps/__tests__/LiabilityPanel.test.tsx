@@ -221,9 +221,8 @@ describe("LiabilityPanel", () => {
     fireEvent.change(screen.getByTestId("liability-answer-textarea-RAG"), { target: { value: "My RAG story." } });
     fireEvent.click(screen.getByTestId("liability-submit-RAG"));
 
-    // The catalog key is Lead I's (errors.answerNotSaved); until it lands the
-    // provider renders the key path — either way, not the server's English.
-    await waitFor(() => expect(screen.getByText(/answerNotSaved|not saved/i)).toBeInTheDocument());
+    // errors.answerNotSaved (Lead I's copy, I-2) — not the server's English.
+    await waitFor(() => expect(screen.getByText(/could not be saved/i)).toBeInTheDocument());
     expect(screen.queryByText("Service Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Your answer was not saved.")).not.toBeInTheDocument();
     expect(screen.getByTestId("liability-answer-textarea-RAG")).toHaveValue("My RAG story.");
