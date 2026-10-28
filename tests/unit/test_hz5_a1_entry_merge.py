@@ -692,7 +692,7 @@ def test_sec2_candidate_sent_strings_are_bounded():
         lambda: DuplicateChoice(**{**one, "source_text": big}),
         lambda: DuplicateChoice(**{**one, "pair_id": big}),
         lambda: MergeChoices(duplicates=[one] * 201),
-        lambda: SessionMessageRequest(outcome="merge", merged_text=big),
+        lambda: SessionMessageRequest(outcome="merge_confirm", merged_text=big),
         lambda: EntryMergeRequest(section="projects", target_id=big, source_id="b", mode="preview"),
         lambda: EntryMergeRequest(section="projects", target_id="a", source_id=big, mode="preview"),
         lambda: KeepSeparateRequest(section="projects", entry_ids=[big, "b"]),

@@ -2271,6 +2271,16 @@ class SeparateMatchRequest(BaseModel):
     incoming: str = Field(min_length=1)
 
 
+class UndoLastMergeRequest(BaseModel):
+    """ADV-8 — optional basis for POST /api/profile/undo-last-merge: the
+    profile's ``updated_at`` right after the merge the client means. Omitted
+    (old clients, MCP) = today's behaviour."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_updated_at: datetime | None = None
+
+
 class UndoLastMergeResponse(BaseModel):
     """Response for POST /api/profile/undo-last-merge (US168 / ADR-042)."""
 

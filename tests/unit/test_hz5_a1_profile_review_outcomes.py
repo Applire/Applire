@@ -447,3 +447,178 @@ async def test_duplicate_requirement_concepts_are_asked_once(db, monkeypatch):
         db, Stub(),
     )
     assert resp.gaps_total == 1
+
+
+# ── ADV-8: Undo names the merge it means; an already-gone dispute writes nothing ─
+
+
+async def _merge_in_drawer(db, *conflicts):
+    from applire.services.session import send_message
+
+    rec = await _seed(db, *conflicts)
+    created = await _review(db, Stub())
+    merged = ("Introduced a supplier scorecard for vendor selection and merged 12 "
+              "reporting tools into one central lakehouse.")
+    resp = await send_message(created.session_id, "", db, Stub(), outcome="merge_confirm",
+                              merged_text=merged)
+    assert resp.interpreted.outcome == "merge"
+    return rec, created, resp
+
+
+def _basis_from_the_wire(resp):
+    """The basis exactly as a browser sends it back: the JSON-serialised value,
+    parsed by the request model."""
+    from applire.schemas.profile import UndoLastMergeRequest
+
+    wire = resp.model_dump(mode="json")["profile_updated_at"]
+    assert isinstance(wire, str)
+    return UndoLastMergeRequest.model_validate({"expected_updated_at": wire}).expected_updated_at
+
+
+@pytest.mark.asyncio
+async def test_undo_with_the_merge_basis_restores(db):
+    from applire.services.profile.snapshots import undo_last_merge
+
+    rec, _c, resp = await _merge_in_drawer(db, _conflict("c1", "achievements", A_EXISTING, A_INCOMING))
+    undone = await undo_last_merge(db, expected_updated_at=_basis_from_the_wire(resp))
+    assert undone.restored is True and undone.discarded_later_edits is False
+    assert _ach(await _vault(db, rec)) == [A_EXISTING]
+
+
+@pytest.mark.asyncio
+async def test_the_basis_compares_instants_not_representations(db):
+    """SQLite hands back a naive datetime for a timezone=True column; the same
+    instant written with another offset is the same basis."""
+    from datetime import timedelta, timezone
+
+    from applire.services.profile.snapshots import undo_last_merge
+
+    _rec, _c, resp = await _merge_in_drawer(db, _conflict("c1", "achievements", A_EXISTING, A_INCOMING))
+    basis = _basis_from_the_wire(resp)
+    if basis.tzinfo is None:  # SQLite: the wire carries the naive UTC value
+        basis = basis.replace(tzinfo=timezone.utc)
+    shifted = basis.astimezone(timezone(timedelta(hours=2)))
+    assert shifted.utcoffset() == timedelta(hours=2)
+    assert (await undo_last_merge(db, expected_updated_at=shifted)).restored is True
+
+
+@pytest.mark.asyncio
+async def test_undo_after_a_later_edit_is_refused_with_a_basis_and_restores_nothing(db):
+    from applire.services.profile import resolve_conflict
+    from applire.services.profile.snapshots import UndoStale, undo_last_merge
+
+    rec, _c, resp = await _merge_in_drawer(
+        db,
+        _conflict("c1", "achievements", A_EXISTING, A_INCOMING),
+        _conflict("c2", "location", "Köln", "Bonn"),
+    )
+    await resolve_conflict("c2", "incoming", None, db)  # a later write
+    before = (await _vault(db, rec)).model_dump(mode="json")
+    with pytest.raises(UndoStale):
+        await undo_last_merge(db, expected_updated_at=_basis_from_the_wire(resp))
+    assert (await _vault(db, rec)).model_dump(mode="json") == before
+
+
+@pytest.mark.asyncio
+async def test_a_basis_that_is_not_the_profiles_last_write_is_refused(db):
+    from datetime import timedelta
+
+    from applire.services.profile.snapshots import UndoStale, undo_last_merge
+
+    _rec, _c, resp = await _merge_in_drawer(db, _conflict("c1", "achievements", A_EXISTING, A_INCOMING))
+    with pytest.raises(UndoStale):
+        await undo_last_merge(db, expected_updated_at=_basis_from_the_wire(resp) - timedelta(seconds=1))
+
+
+@pytest.mark.asyncio
+async def test_without_a_basis_undo_keeps_todays_behaviour(db):
+    from applire.services.profile import resolve_conflict
+    from applire.services.profile.snapshots import undo_last_merge
+
+    _rec, _c, _resp = await _merge_in_drawer(
+        db,
+        _conflict("c1", "achievements", A_EXISTING, A_INCOMING),
+        _conflict("c2", "location", "Köln", "Bonn"),
+    )
+    await resolve_conflict("c2", "incoming", None, db)
+    undone = await undo_last_merge(db)
+    assert undone.restored is True and undone.discarded_later_edits is True
+
+
+@pytest.mark.asyncio
+async def test_undo_router_answers_409_undo_stale(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from applire.auth import get_auth_provider
+    from applire.db.session import get_db
+    from applire.routers import profile as profile_router
+    from applire.services.profile import snapshots
+
+    seen = {}
+
+    async def fake_undo(db, *, user_id=None, expected_updated_at=None):
+        seen["basis"] = expected_updated_at
+        if expected_updated_at is not None:
+            raise snapshots.UndoStale()
+        return snapshots.UndoResult(restored=True, discarded_later_edits=False)
+
+    monkeypatch.setattr(profile_router, "undo_last_merge", fake_undo)
+    app = FastAPI()
+    app.include_router(profile_router.router)
+    app.dependency_overrides[get_db] = lambda: MagicMock()
+    auth = MagicMock()
+    auth.get_current_user = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
+    app.dependency_overrides[get_auth_provider] = lambda: auth
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
+        r = await ac.post("/api/profile/undo-last-merge",
+                          json={"expected_updated_at": "2026-10-28T12:00:00.123456+00:00"})
+        assert (r.status_code, r.json()["detail"]) == (409, "undo_stale")
+        assert seen["basis"].microsecond == 123456
+        r = await ac.post("/api/profile/undo-last-merge")  # old clients: no body
+        assert r.status_code == 200 and r.json()["restored"] is True
+        assert seen["basis"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_already_gone_dispute_is_reported_as_already_answered(db):
+    """ADV-8 (2): resolved elsewhere between question and answer — nothing is
+    written, so no outcome, no verifier, and no Undo basis."""
+    from applire.services.profile import resolve_conflict
+    from applire.services.session import send_message
+
+    rec = await _seed(db, _conflict("c1", "achievements", A_EXISTING, A_INCOMING))
+    created = await _review(db, Stub())
+    await resolve_conflict("c1", "existing", None, db)  # another tab
+    head = len((await _vault(db, rec)).metadata.enrichment_history)
+    resp = await send_message(created.session_id, "", db, Stub(), outcome="merge_confirm",
+                              merged_text="Introduced a supplier scorecard for vendor selection.")
+    assert resp.interpreted.already_answered is True
+    assert (resp.interpreted.outcome, resp.interpreted.verifier) == (None, None)
+    assert resp.profile_updated_at is None
+    assert len((await _vault(db, rec)).metadata.enrichment_history) == head
+
+
+@pytest.mark.asyncio
+async def test_a_written_answer_carries_the_undo_basis(db):
+    _rec, _c, resp = await _merge_in_drawer(db, _conflict("c1", "achievements", A_EXISTING, A_INCOMING))
+    assert resp.profile_updated_at is not None and resp.interpreted.already_answered is False
+
+
+@pytest.mark.asyncio
+async def test_a_basis_is_refused_when_the_newest_snapshot_is_not_that_merge(db):
+    """Defence in depth: the time matches, but the newest snapshot belongs to
+    another write (a snapshot chain moved without the profile row)."""
+    from datetime import datetime, timedelta, timezone
+
+    from applire.models.profile import ProfileSnapshot
+    from applire.services.profile.snapshots import UndoStale, undo_last_merge
+
+    rec, _c, resp = await _merge_in_drawer(db, _conflict("c1", "achievements", A_EXISTING, A_INCOMING))
+    db.add(ProfileSnapshot(profile_id=rec.id, profile_json={}, enrichment_record_id="another-write",
+                           created_at=datetime.now(timezone.utc) + timedelta(minutes=1)))
+    await db.commit()
+    with pytest.raises(UndoStale):
+        await undo_last_merge(db, expected_updated_at=_basis_from_the_wire(resp))

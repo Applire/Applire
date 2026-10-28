@@ -100,6 +100,11 @@ class InterpretedAnswer(BaseModel):
     corrected_value: str | None = None
     follow_up: str | None = None
     verifier: Literal["passed", "failed"] | None = None
+    #: ADV-8 — the dispute was already gone when the answer arrived (answered
+    #: in another tab, or resolved elsewhere): NOTHING was written, so
+    #: ``outcome`` and ``verifier`` stay null and the UI offers no Undo. The
+    #: UI reads THIS field to say "already answered".
+    already_answered: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +232,10 @@ class ClusterCoverage(BaseModel):
 
 
 class SessionMessageResponse(BaseModel):
+    #: ADV-8 — the profile's ``updated_at`` right after a dispute answer
+    #: wrote (a merge, or any outcome): the basis the drawer's Undo sends as
+    #: ``expected_updated_at``. ``None`` when nothing was written.
+    profile_updated_at: datetime | None = None
     complete: bool
     question: str | None = None
     gaps_remaining: int | None = None
