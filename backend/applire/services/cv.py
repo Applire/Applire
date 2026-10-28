@@ -4625,7 +4625,9 @@ async def _render_cv_background(
                 # the Keyword Ledger read `metadata` on purpose.
                 from applire.services.prompt_view import prompt_profile_view
 
-                prompt_profile = prompt_profile_view(profile_json)
+                # ADV-2: `aims="label"` — the reviewer and every corrector round re-read
+                # this view, so the not_yet_reached label reaches all of them from here.
+                prompt_profile = prompt_profile_view(profile_json, aims="label")
 
                 # E068 / ADR-094 (CV_PIPELINE=v2 only; v1 is byte-identical, R-3): the
                 # model sees short ids (US367), the writer returns the vault-sourced
