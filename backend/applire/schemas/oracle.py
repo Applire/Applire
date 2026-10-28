@@ -204,6 +204,14 @@ class ClaimVerdict(BaseModel):
     # verdicts whose detail has no key yet and on older reports.
     detail_key: str | None = None
     detail_params: dict[str, str] = Field(default_factory=dict)
+    # ADR-099 cl. 2 (UAT-2 fix round, WP-B): the delivery class of this row's
+    # kind (``oracle:<detail_key or verdict>``) from the one finding registry
+    # (``services.finding_registry``) and the resolver of its one action. Set by
+    # ``finding_registry.annotate_truthfulness`` on every flagged verdict the
+    # review surface reads. None on reports persisted before it = unclassified
+    # (a renderer must not read None as "S").
+    delivery_class: Literal["F", "A", "U", "S"] | None = None
+    resolver: str | None = None
 
 
 class ClaimResult(BaseModel):

@@ -21,6 +21,10 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
+# ADR-099 cl. 2 — the four delivery classes (see services.finding_registry).
+DeliveryClass = Literal["F", "A", "U", "S"]
+
+
 class CheckSignal(BaseModel):
     """#703 (ADR-076 amended 2026-10-07) — one structured, locale-neutral signal a
     check carries beside its EN ``details``. Today only ``repeated_demand`` on the
@@ -58,11 +62,12 @@ class CheckNote(BaseModel):
     subjects: list[str] = []
     count: Optional[int] = None
     text: str = ""
+    # ADR-099 cl. 2 / S11.2 (WP-B): the delivery class + resolver of THIS note's
+    # kind (``terminal:<key>`` for a code line, ``terminal:finding`` /
+    # ``terminal:note:<key>`` otherwise). None on reports persisted before it.
+    delivery_class: Optional[DeliveryClass] = None
+    resolver: Optional[str] = None
     plain: Optional[str] = None
-
-
-# ADR-099 cl. 2 — the four delivery classes (see services.finding_registry).
-DeliveryClass = Literal["F", "A", "U", "S"]
 
 
 class DeliveryRemoval(BaseModel):
@@ -78,6 +83,13 @@ class DeliveryRemoval(BaseModel):
     finding_key: Optional[str] = None  # producer + _norm_quote key (ADR-090 cl. 6)
     narrowed_to: Optional[str] = None  # replacement wording when narrowed, None when removed
     pinned: bool = False
+
+
+class BucketDelivery(BaseModel):
+    """ADR-099 cl. 2 — a keyword bucket's registry class + resolver."""
+
+    delivery_class: DeliveryClass
+    resolver: Optional[str] = None
 
 
 class DeliveryState(BaseModel):
@@ -220,6 +232,14 @@ class ATSKeywordCoverage(BaseModel):
     # listed (take-out + edit stay); the review shows them neutral — no add exit,
     # not counted in the group-1 headline. Empty on CVs and older reports.
     present_unsupported_employer_sentence: list[str] = []
+    # ADR-099 cl. 2 (WP-B): bucket field name → its delivery class + resolver
+    # (registry kinds ``keyword:<bucket>``), for every bucket the review surface
+    # reads: ``present_unsupported``, ``present_unsupported_employer_sentence``,
+    # ``present_denied``, ``missing_claimable``, ``missing_honest_gap``,
+    # ``present_other_language``. A term listed in a narrower bucket (employer
+    # sentence, covered by a denial) takes THAT bucket's class. None on reports
+    # persisted before it = unclassified.
+    delivery: Optional[dict[str, "BucketDelivery"]] = None
 
 
 class PinnedFactReportEntry(BaseModel):
