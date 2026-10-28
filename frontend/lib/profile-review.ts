@@ -67,6 +67,8 @@ export interface ReviewReply extends ReviewTurn {
   complete: boolean;
   gaps_remaining: number | null;
   interpreted?: Interpreted | null;
+  /** ADV-8 — the profile's `updated_at` after this reply's write (the undo basis). */
+  profile_updated_at?: string | null;
 }
 
 export interface MergeProposal {

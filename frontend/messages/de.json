@@ -1189,7 +1189,8 @@
       "done": "„{source}“ wurde in „{target}“ aufgenommen.",
       "undo": "Rückgängig machen",
       "undone": "Rückgängig gemacht – beide Einträge sind wieder getrennt.",
-      "dismiss": "Schließen"
+      "dismiss": "Schließen",
+      "undoStale": "Inzwischen hat sich dein Profil geändert – Rückgängig ist nicht mehr möglich."
     }
   },
   "health": {
@@ -1349,7 +1350,8 @@
     "undoNothing": "Es gab nichts mehr rückgängig zu machen.",
     "actionFailed": "Das hat nicht geklappt. Bitte versuche es noch einmal.",
     "progress": "Punkt {current} von {total}",
-    "progressClicked": "Punkt {current} von {total} – der Hinweis, den du angeklickt hast"
+    "progressClicked": "Punkt {current} von {total} – der Hinweis, den du angeklickt hast",
+    "undoStale": "Inzwischen hat sich dein Profil geändert – Rückgängig ist nicht mehr möglich."
   },
   "applications": {
     "loadingDetails": "Bewerbungsdetails werden geladen...",

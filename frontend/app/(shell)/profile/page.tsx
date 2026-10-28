@@ -601,7 +601,11 @@ export default function ProfilePage() {
       <AppTopbar mode="section" titleKey="shell.profile" />
 
       {/* Main Content */}
-      <EntryMergeProvider entriesBySection={mergeRefs} onProfileChanged={loadProfile}>
+      <EntryMergeProvider
+        entriesBySection={mergeRefs}
+        onProfileChanged={loadProfile}
+        profileUpdatedAt={profile?.updated_at ?? null}
+      >
       <main className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-4">
           {error && (

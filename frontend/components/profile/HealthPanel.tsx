@@ -139,8 +139,10 @@ export interface NotAppliedItem {
   reason: string;
   /** UAT-3d — the stable key "Übernehmen" sends; absent on older records. */
   item_key?: string | null;
-  /** false → no adopt through the door; the row offers "go to section". */
+  /** Only `true` offers "Übernehmen"; otherwise the row offers "go to section". */
   adoptable?: boolean | null;
+  /** A1: an item that matched an existing entry is class S — not rendered. */
+  delivery_class?: DeliveryClass | null;
 }
 
 export interface ProfileHealth {
@@ -397,7 +399,8 @@ function NotAppliedItemRows({
     <ul data-testid="health-not-applied-items" className="mt-2 flex flex-col divide-y divide-outline-variant/60">
       {items.map((item, n) => {
         const key = item.item_key ?? `unkeyed-${n}`;
-        const canAdopt = !!item.item_key && item.adoptable !== false;
+        // D-2: "Übernehmen" ONLY for an item the backend marked adoptable.
+        const canAdopt = !!item.item_key && item.adoptable === true;
         const sectionLabel = notAppliedSectionLabel(item.section ?? "", t, tProfile);
         const label =
           item.section === "professional_summary"
@@ -630,11 +633,10 @@ function IssueCard({
     issue.thread === "unit" && !!issue.budget_value && !!issue.entry_id && !!actions.onSaveUnit;
   // UAT-3d — one action per not-applied item, once the backend keys its items
   // (INTERFACE A1-2: `item_key` may be null on an item it cannot adopt).
+  const shownItems = (issue.not_applied_items ?? []).filter((i) => i.delivery_class !== "S");
   const keyedItems =
-    issue.thread === "not_applied" &&
-    (issue.not_applied_items ?? []).some((i) => !!i.item_key) &&
-    !!actions.onAdoptItem
-      ? issue.not_applied_items!
+    issue.thread === "not_applied" && shownItems.some((i) => !!i.item_key) && !!actions.onAdoptItem
+      ? shownItems
       : null;
   const handleKeepSeparate = async () => {
     if (!actions.onKeepSeparate || answering) return;
