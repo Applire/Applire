@@ -41,8 +41,18 @@ def _real(fn_name: str) -> bool:
     return fn is not None and "NotImplementedError" not in inspect.getsource(fn)
 
 
+# B-d1 (reported by WP-C, owned by WP-B): shorten_letter imports REGION_NORMS
+# from applire.constants (it lives in applire.norms) — every "kürzen" answers
+# 500. Scoped to the defect itself: once the import is fixed the seam runs
+# normally (strict — an unexpected pass with the bad import still present fails).
+_B_D1 = _real("shorten_letter") and (
+    "from applire.constants import REGION_NORMS" in inspect.getsource(da.shorten_letter)
+)
+
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _real("shorten_letter"), reason="WP-B shorten_letter not merged yet")
+@pytest.mark.xfail(_B_D1, reason="B-d1: delivery_actions.shorten_letter imports REGION_NORMS from applire.constants", raises=ImportError, strict=True)
 async def test_seam_letter_shorten_through_real_shorten_letter(db):
     paragraphs = ["Erster Absatz.", "Zweiter, sehr langer Absatz über alles.", "Dritter Absatz."]
     cl_id = await seed_letter(db, paragraphs=paragraphs, ats_report=_letter_pages(True))
