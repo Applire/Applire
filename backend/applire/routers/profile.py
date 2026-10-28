@@ -65,6 +65,15 @@ from applire.schemas.profile import (
     UploadHistoryItem,
 )
 from applire.schemas.testimony import TestimonyRequest, TestimonyResult
+from applire.schemas.entry_merge import EntryMergeRequest, KeepSeparateRequest
+from applire.services.profile.entry_merge import (
+    DatesChoiceRequired,
+    MergedTextRequired,
+    SameEntry,
+    StalePreview,
+    entry_merge,
+    keep_entries_separate,
+)
 from applire.models.import_job import CVImportStatus
 from applire.services.profile.import_jobs import (
     create_import_job,
@@ -461,6 +470,55 @@ async def confirm_match_endpoint(
         raise HTTPException(status_code=404, detail="No profile found")
     except MatchNotSeparable as exc:
         raise HTTPException(status_code=409, detail=exc.code)
+
+
+@router.post("/entries/merge", status_code=status.HTTP_200_OK, response_model=None)
+async def merge_entries_endpoint(
+    body: EntryMergeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+    provider: LLMProvider = Depends(_get_provider),
+):
+    """Hazelnut build 5 (U-11) — merge two entries of one section. ``preview``
+    writes nothing and returns the merged entry, the aliases, a date conflict
+    and the duplicate bullets; ``commit`` re-validates the candidate's choices
+    and writes one history record with a pre-write snapshot (undo-last-merge).
+    404 unknown entry / no profile; 409 ``stale_preview``; 422
+    ``dates_choice_required`` / same entry."""
+    try:
+        return await entry_merge(db, body, provider, user_id=_uid(current_user))
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    except SameEntry:
+        raise HTTPException(status_code=422, detail="same_entry")
+    except StalePreview:
+        raise HTTPException(status_code=409, detail="stale_preview")
+    except DatesChoiceRequired:
+        raise HTTPException(status_code=422, detail="dates_choice_required")
+    except MergedTextRequired:
+        raise HTTPException(status_code=422, detail="merged_text_required")
+
+
+@router.post(
+    "/entries/keep-separate",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def keep_entries_separate_endpoint(
+    body: KeepSeparateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """Hazelnut build 5 (U-9) — "Nein, getrennt": the two entries stay separate
+    and the duplicate-entry question is not asked again (idempotent)."""
+    try:
+        return await keep_entries_separate(
+            db, body.section, body.entry_ids, user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    except SameEntry:
+        raise HTTPException(status_code=422, detail="same_entry")
 
 
 @router.post(
