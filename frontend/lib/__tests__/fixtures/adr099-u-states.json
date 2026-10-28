@@ -1,0 +1,63 @@
+[
+  {
+    "id": "duplicate-bullets",
+    "status": "fail",
+    "details_key": "duplicate-bullets",
+    "details_params": {
+      "pairs": "„A“ ~ „A.“",
+      "count": 1
+    },
+    "delivery_class": "U",
+    "resolver": "regenerate"
+  },
+  {
+    "id": "terminal-review",
+    "status": "not_applicable",
+    "details_key": "terminal-review-incomplete",
+    "details_params": {
+      "count": 0
+    },
+    "delivery_class": "U",
+    "resolver": "regenerate"
+  },
+  {
+    "id": "terminal-review",
+    "status": "not_applicable",
+    "details_key": "terminal-review-not-run",
+    "details_params": {
+      "count": 0
+    },
+    "delivery_class": "U",
+    "resolver": "regenerate"
+  },
+  {
+    "id": "terminal-review",
+    "status": "not_applicable",
+    "details_key": "terminal-review-unnamed",
+    "details_params": {
+      "count": 0
+    },
+    "delivery_class": "U",
+    "resolver": "regenerate"
+  },
+  {
+    "id": "terminal-review",
+    "status": "not_applicable",
+    "details_key": "terminal-review-unverified",
+    "details_params": {
+      "count": 1
+    },
+    "delivery_class": "U",
+    "resolver": "regenerate"
+  },
+  {
+    "id": "terminal-review",
+    "status": "not_applicable",
+    "details_key": "terminal-review-unverified-clean",
+    "details_params": {
+      "count": 0
+    },
+    "delivery_class": "U",
+    "resolver": "regenerate"
+  }
+]

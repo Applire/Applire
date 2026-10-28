@@ -18,6 +18,7 @@ import { withIntl } from "@/lib/test-utils/with-intl";
 import { ReviewSurface, type ReviewSurfaceProps } from "../ReviewSurface";
 import type { ATSReport, DeliveryState } from "@/lib/ats-report";
 import type { TruthfulnessReport } from "@/lib/truthfulness-display";
+import producedU from "@/lib/__tests__/fixtures/adr099-u-states.json";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
@@ -150,6 +151,26 @@ describe("ADR-099 cl. 6 — one question per resolver, with only its answers", (
     await waitFor(() => expect(api.moveToStation).toHaveBeenCalledWith("cv", "cv-1", expect.any(String), "exp-2"));
   });
 
+  it("ask_station, ADV-4: a refused station lookup (409, profile changed) offers a recheck and removal — never a guessed station; after the recheck the stations are asked again", async () => {
+    const tr = truth({ delivery_class: "A", resolver: "ask_station" } as Partial<Verdict>);
+    api.listStations
+      .mockRejectedValueOnce(new Error("409 action_not_applicable"))
+      .mockResolvedValueOnce([{ station_id: "exp-2", title: "Buchhalterin", organization: "Nord Spedition AG" }]);
+    api.recheckDocument.mockResolvedValue({ report: ats(), truthfulness: tr, review_state: null });
+    render(withIntl(<ReviewSurface {...props({ truthReport: tr })} />, "de"));
+    const unsure = await screen.findByTestId("review-stations-unsure");
+    expect(unsure.textContent).toContain("keiner Station sicher zuordnen");
+    expect(screen.queryByTestId("review-answer-station")).toBeNull();
+    expect(screen.queryByTestId("review-stations-none")).toBeNull();
+    expect(screen.getByTestId("review-answer-remove")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("review-stations-recheck"));
+    await waitFor(() => expect(api.recheckDocument).toHaveBeenCalledWith("cv", "cv-1"));
+    const station = await screen.findByTestId("review-answer-station");
+    expect(station.textContent).toContain("Nord Spedition AG");
+    expect(api.listStations).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("review-stations-unsure")).toBeNull();
+  });
+
   it("ask_achieved: „Ist das erreicht?“ — yes, or rewrite as a goal", async () => {
     api.rewriteAsGoal.mockResolvedValue({ changes: [], still_listed: false, report: null, truthfulness: null, review_state: null });
     render(withIntl(<ReviewSurface {...props({ truthReport: truth({ delivery_class: "A", resolver: "ask_achieved" } as Partial<Verdict>) })} />, "de"));
@@ -195,7 +216,9 @@ describe("ADR-099 cl. 2 / 4 — classes", () => {
 
   it("a U check is one counted „Nicht geprüft“ row with „Jetzt prüfen“", async () => {
     api.recheckDocument.mockResolvedValue({ report: null, truthfulness: null, review_state: null });
-    const checks = [{ id: "cv-language", status: "fail" as const, delivery_class: "U" as const, resolver: "recheck" }];
+    // Producer shape (ats_audit `_document_language_check`, registry
+    // "ats:document-language@not_applicable" → U recheck): the check did not run.
+    const checks = [{ id: "document-language", status: "not_applicable" as const, details: "x", details_key: "document-language-not-applicable", delivery_class: "U" as const, resolver: "recheck" }];
     render(withIntl(<ReviewSurface {...props({ truthReport: truth({ delivery_class: "S" } as Partial<Verdict>), atsReport: ats(undefined, checks) })} />, "de"));
     const box = screen.getByTestId("review-unknown");
     expect(box.textContent).toContain("Nicht geprüft");
@@ -312,6 +335,42 @@ describe("ADR-099 cl. 7 — page length has ONE place, counted once", () => {
     render(withIntl(<ReviewSurface {...props({ truthReport: clean, atsReport: ats(undefined, [{ ...pageCheck, details_key: "page-length-cv" }]), extraCards: [pageCard] })} />, "de"));
     expect(screen.queryByTestId("review-letter-page")).toBeNull();
     expect(screen.getAllByTestId("cv-page-card-stub")).toHaveLength(1);
+    expect(count()).toBe("1");
+  });
+});
+
+describe("ADV-10 / ADV-11 — the „Nicht geprüft“ words match the producer's state (fixture generated from the producers)", () => {
+  const clean: TruthfulnessReport = { version: "2", document_kind: "cv", counts: {}, stated_limit: "", claims: [] };
+  const WORDS: Record<string, { title: string; body: string }> = {
+    "terminal-review-not-run": { title: "Nicht geprüft: Schlussprüfung", body: "Die Schlussprüfung lief für dieses Dokument nicht" },
+    "terminal-review-incomplete": { title: "Nicht zu Ende geprüft: Schlussprüfung", body: "nicht zu Ende laufen" },
+    "terminal-review-unnamed": { title: "Nicht zu Ende geprüft: Schlussprüfung", body: "nicht zu Ende laufen" },
+    "terminal-review-unverified": { title: "Auf einer früheren Fassung geprüft: Schlussprüfung", body: "lief auf einer früheren Fassung" },
+    "terminal-review-unverified-clean": { title: "Auf einer früheren Fassung geprüft: Schlussprüfung", body: "lief auf einer früheren Fassung" },
+    "duplicate-bullets": { title: "Gefunden, aber nicht behoben:", body: "hat etwas gefunden" },
+  };
+
+  it.each((producedU as NonNullable<ATSReport>["checks"]).map((r) => [r.details_key as string, r] as const))(
+    "%s: state-true title and body, ONE action (the stamped resolver)",
+    (key, row) => {
+      const onRegenerate = vi.fn();
+      const loop = row.id === "duplicate-bullets" ? { loop_clean: false, removals: [], fixed: [] } : { loop_clean: true, removals: [], fixed: [] };
+      render(withIntl(<ReviewSurface {...props({ truthReport: clean, atsReport: ats(loop as DeliveryState, [row]), onRegenerate })} />, "de"));
+      const box = screen.getByTestId("review-unknown");
+      expect(box.querySelector("h4")!.textContent).toContain(WORDS[key].title);
+      expect(within(box).getByTestId("review-unknown-body").textContent).toContain(WORDS[key].body);
+      if (key !== "terminal-review-not-run") expect(box.textContent).not.toContain("lief für dieses Dokument nicht");
+      expect(within(box).getAllByRole("button")).toHaveLength(1);
+      expect(within(box).getByTestId("review-unknown-regenerate")).toBeTruthy();
+      expect(count()).toBe("1");
+    },
+  );
+
+  it("ADV-11: the critic report NULL (the in-loop critic raised) renders the counted „Nicht geprüft: Kohärenz-Hinweis“ with a new version", () => {
+    render(withIntl(<ReviewSurface {...props({ truthReport: clean, criticReport: null, onRegenerate: vi.fn() })} />, "de"));
+    const box = screen.getByTestId("review-unknown");
+    expect(box.querySelector("h4")!.textContent).toBe("Nicht geprüft: Kohärenz-Hinweis");
+    expect(within(box).getByTestId("review-unknown-regenerate")).toBeTruthy();
     expect(count()).toBe("1");
   });
 });

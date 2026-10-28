@@ -10,8 +10,10 @@ import type { ATSCheck, ATSReport } from "../ats-report";
 function ats(checks: ATSCheck[], extra: Partial<NonNullable<ATSReport>> = {}): ATSReport {
   return { checks, keywords: { present: [], missing: [], missing_claimable: [], missing_honest_gap: [], present_unsupported: [], claimable_concepts: [] }, ...extra };
 }
+// ADV-11: a NULL critic report is itself a counted "Nicht geprüft" — the
+// fixture's critic ran clean so the count is the check's alone.
 function inputs(a: ATSReport): DeliveryInputs {
-  return { atsReport: a, truthReport: { version: "2", document_kind: "cv", counts: {}, stated_limit: "", claims: [] } as never, criticReport: null, gapClusters: null, hasClusterProducer: false, openRequirements: null } as DeliveryInputs;
+  return { atsReport: a, truthReport: { version: "2", document_kind: "cv", counts: {}, stated_limit: "", claims: [] } as never, criticReport: { ran: true, mount: "cv", advisories: [], dropped_citations: 0 } as never, gapClusters: null, hasClusterProducer: false, openRequirements: null } as DeliveryInputs;
 }
 
 describe("ADV-HZ5 — producer-shaped class-U rows", () => {

@@ -31,6 +31,7 @@ import {
   CornerDownRight,
   Loader2,
   Plus,
+  RefreshCw,
   RotateCcw,
   Trash2,
 } from "lucide-react";
@@ -42,7 +43,9 @@ import {
   buildDeliveryView,
   buildReviewGroups,
   removeOnly,
+  unknownState,
   type Group1Row,
+  type UnknownState,
   type ReviewItem,
   type ReviewProducer,
   type UnknownRow,
@@ -97,6 +100,19 @@ import type { DegradedReviewStep } from "@/lib/review-degradation";
  * - **cl. 7/8** — no group 2, no cross-document section, no craft rows; group 4
  *   is one passed line. **cl. 12** — no server `details` prose.
  */
+
+/** ADV-10: the U row's words follow what the producer wrote (`unknownState`). */
+const UNKNOWN_TITLE_KEY = {
+  notRun: "delivery.unknownTitle",
+  unfinished: "delivery.unknownTitleUnfinished",
+  earlierDraft: "delivery.unknownTitleEarlierDraft",
+  foundNotFixed: "delivery.unknownTitleFoundNotFixed",
+} as const;
+const UNKNOWN_BODY_KEY: Record<Exclude<UnknownState, "notRun">, string> = {
+  unfinished: "delivery.unknownBodyUnfinished",
+  earlierDraft: "delivery.unknownBodyEarlierDraft",
+  foundNotFixed: "delivery.unknownBodyFoundNotFixed",
+} as const;
 
 const PRODUCER_LABEL_KEY: Record<ReviewProducer, string> = {
   ats: "producerAts",
@@ -281,11 +297,15 @@ export function ReviewSurface({
   const [edit, setEdit] = useState<EditResult | null>(null);
   const [testimony, setTestimony] = useState<{ key: string; outcome: TestimonyOutcome } | null>(null);
   const [removeOnlyKeys, setRemoveOnlyKeys] = useState<Set<string>>(new Set());
-  const [stations, setStations] = useState<{ key: string; list: StationOption[] | null; failed: boolean } | null>(null);
+  const [stations, setStations] = useState<{ key: string; list: StationOption[] | null; failed: boolean; nonce: number } | null>(null);
   const [locate, setLocate] = useState<LocateState | null>(null);
   const [phoneLocating, setPhoneLocating] = useState(false);
   const [scan, setScan] = useState<{ findingKey: string; total: number; texts: string[] } | null>(null);
   const [rechecked, setRechecked] = useState(false);
+  // ADV-4: a recheck re-audits against the profile as it is now — the station
+  // answers are fetched again afterwards (a 409 meant the audit's evidence no
+  // longer names an entry of the current profile).
+  const [stationsNonce, setStationsNonce] = useState(0);
   const highlighted = useRef(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -314,21 +334,22 @@ export function ReviewSurface({
   // "Wohin gehört das?" — its answers are the stations that own the evidence.
   useEffect(() => {
     if (!documentId || !currentFindingKey || currentResolver !== "ask_station") return;
-    if (stations?.key === currentFindingKey) return;
+    if (stations?.key === currentFindingKey && stations.nonce === stationsNonce) return;
     let cancelled = false;
-    setStations({ key: currentFindingKey, list: null, failed: false });
+    const nonce = stationsNonce;
+    setStations({ key: currentFindingKey, list: null, failed: false, nonce });
     listStations(documentKind, documentId, currentFindingKey)
       .then((list) => {
-        if (!cancelled) setStations({ key: currentFindingKey, list, failed: false });
+        if (!cancelled) setStations({ key: currentFindingKey, list, failed: false, nonce });
       })
       .catch(() => {
-        if (!cancelled) setStations({ key: currentFindingKey, list: [], failed: true });
+        if (!cancelled) setStations({ key: currentFindingKey, list: [], failed: true, nonce });
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId, documentKind, currentFindingKey, currentResolver]);
+  }, [documentId, documentKind, currentFindingKey, currentResolver, stationsNonce]);
 
   // A reloaded preview carries no marks.
   useEffect(() => {
@@ -633,10 +654,27 @@ export function ReviewSurface({
                 </span>
               </button>
             ))}
-            {own && own.list !== null && own.list.length === 0 && (
+            {own && own.list !== null && own.list.length === 0 && !own.failed && (
               <p data-testid="review-stations-none" className="text-xs text-on-surface-variant">
                 {t("delivery.stationsNone")}
               </p>
+            )}
+            {own?.failed && (
+              <>
+                <p data-testid="review-stations-unsure" className="text-xs text-on-surface-variant">
+                  {t("delivery.stationsUnsure")}
+                </p>
+                <button
+                  type="button"
+                  data-testid="review-stations-recheck"
+                  disabled={busy !== null || !documentId}
+                  onClick={() => void runRecheck()}
+                  className={answerBtn}
+                >
+                  {busy === "recheck" ? spin : <RefreshCw className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                  <span>{t("delivery.recheck")}</span>
+                </button>
+              </>
             )}
             {removeButton(row, "remove", true)}
           </>
@@ -1105,6 +1143,7 @@ export function ReviewSurface({
       const res = await recheckDocument(documentKind, documentId);
       setRechecked(true);
       applyRefresh(res, false);
+      setStationsNonce((n) => n + 1);
     } catch (e) {
       fail("recheck", e);
     } finally {
@@ -1334,15 +1373,17 @@ export function ReviewSurface({
       {/* ADR-099 cl. 2/9 — class U: "Nicht geprüft" never collapses. */}
       {view.unknown.map((u) => (
         <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} className={`${boxClass} border-dashed`}>
-          <h4 className="font-heading text-[14.5px] font-bold text-on-surface">{t("delivery.unknownTitle", { producer: producerName(u) })}</h4>
-          <p className="text-[13px] leading-snug text-on-surface-variant">
-            {u.resolver === "regenerate"
-              ? u.check
-                ? t("delivery.terminalNotRunBody")
-                : t("delivery.writingOnlyBody")
-              : rechecked
-                ? t("delivery.recheckStill")
-                : t("delivery.unknownBody")}
+          <h4 className="font-heading text-[14.5px] font-bold text-on-surface">{t(UNKNOWN_TITLE_KEY[unknownState(u)], { producer: producerName(u) })}</h4>
+          <p data-testid="review-unknown-body" data-state={unknownState(u)} className="text-[13px] leading-snug text-on-surface-variant">
+            {unknownState(u) !== "notRun"
+              ? t(UNKNOWN_BODY_KEY[unknownState(u) as Exclude<UnknownState, "notRun">])
+              : u.resolver === "regenerate"
+                ? u.check && baseId(u.check.id) === "terminal-review"
+                  ? t("delivery.terminalNotRunBody")
+                  : t("delivery.writingOnlyBody")
+                : rechecked
+                  ? t("delivery.recheckStill")
+                  : t("delivery.unknownBody")}
           </p>
           {u.resolver === "regenerate" ? (
             onRegenerate && (
