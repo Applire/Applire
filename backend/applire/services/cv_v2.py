@@ -806,7 +806,19 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
                 "bullet that owns the evidence."
             ),
         ))
-    respelled = [(b, a) for b, a in zip(s3.skills, s4.skills) if b != a and b in original]
+    # D-11 (Hazelnut build 5): the respelling is read PER ENTRY. A positional zip of
+    # s3 against s4 misaligned as soon as the spelling pass collapsed one entry into
+    # another, and every later pair became a false "the profile's name is X" — the
+    # terminal corrector then copied vault names verbatim, a German one into an
+    # English CV.
+    respelled: list[tuple[str, str]] = []
+    for b in s3.skills:
+        if not isinstance(b, str) or b not in original:
+            continue
+        one = step(cv_mod._restore_skill_spelling, s3.model_copy(update={"skills": [b]}), ctx.profile_json)
+        a = one.skills[0] if one.skills else b
+        if a != b:
+            respelled.append((b, a))
     if respelled:
         out.append(CheckFinding(
             check="cv.skill_spelling",
