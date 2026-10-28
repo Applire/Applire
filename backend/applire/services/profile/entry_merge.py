@@ -34,7 +34,7 @@ from applire.schemas.profile import MasterProfileData, MasterProfileResponse
 from applire.services.profile.commit import CommitProvenance, SnapshotClass, commit_ops
 from applire.services.profile.decisions import find_duplicate_pairs
 from applire.services.profile.merge_verifier import verify_merge
-from applire.services.profile.reconcile.apply import fill_empty_scalars
+from applire.services.profile.reconcile.apply import fill_empty_scalars, union_source_lists
 from applire.services.profile.reconcile.ops import KeepEntriesSeparate, MergeEntries
 
 logger = logging.getLogger(__name__)
@@ -144,6 +144,7 @@ async def preview_merge(
     target, source = _find(profile, section, target_id), _find(profile, section, source_id)
     merged = target.model_copy(deep=True)
     fill_empty_scalars(merged, source)
+    union_source_lists(merged, source, skip=BULLET_LISTS)  # ADV-5: shown before the click
     conflict = date_conflict(target, source)
     if conflict is not None:  # a conflict is the candidate's to decide, not filled
         for name in ("start_date", "end_date", "is_current"):

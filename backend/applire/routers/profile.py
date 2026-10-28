@@ -61,6 +61,7 @@ from applire.schemas.profile import (
     WithdrawDenialRequest,
     StagedResolveRequest,
     StagedResolveResponse,
+    UndoLastMergeRequest,
     UndoLastMergeResponse,
     UploadHistoryItem,
 )
@@ -406,6 +407,7 @@ async def resolve_staged_extraction_endpoint(
 )
 async def undo_last_merge_endpoint(
     request: Request,
+    body: UndoLastMergeRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
 ) -> UndoLastMergeResponse:
@@ -417,7 +419,17 @@ async def undo_last_merge_endpoint(
     whole-profile restore; per-field revert deferred). Idempotent: a repeat call
     with nothing left to undo returns ``restored=false``.
     """
-    result = await undo_last_merge(db, user_id=_uid(current_user))
+    from applire.services.profile.snapshots import UndoStale
+
+    try:
+        result = await undo_last_merge(
+            db,
+            user_id=_uid(current_user),
+            expected_updated_at=body.expected_updated_at if body is not None else None,
+        )
+    except UndoStale:
+        # ADV-8 — the merge the client named is no longer the last write.
+        raise HTTPException(status_code=409, detail="undo_stale")
     return UndoLastMergeResponse(
         restored=result.restored,
         discarded_later_edits=result.discarded_later_edits,

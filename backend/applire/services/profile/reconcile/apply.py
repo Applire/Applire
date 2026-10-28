@@ -29,11 +29,12 @@ was given and creates a new entity when ``target`` is ``None``.
 """
 from __future__ import annotations
 
+import json
 import logging
 import types
 import typing
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Literal, Union
 
@@ -1869,6 +1870,33 @@ def _apply_resolve_confirmation(
             record_answer = getattr(_stance, "record_denial_scope_answer", None)
             if record_answer is not None:
                 record_answer(profile.metadata, dict(context))
+        return
+
+    # ── D-8 — family 6: the answer names the project's position ─────────────
+    # The candidate's explicit choice on a question that names the project is
+    # the act itself (§7.4); it replaces a company string or an older parent.
+    if context.get("kind") == "project_parent":
+        from applire.services.profile.reconcile.project_parent import plan_project_parent
+
+        placed = plan_project_parent(
+            context, resolve_option_key(entry.model_dump(), op.chosen_option), profile
+        )
+        if placed is None:
+            not_applied.append(ImportNotApplied(
+                section="projects",
+                label=str(context.get("project") or ""),
+                reason="confirmation_unresolvable",
+            ))
+            return
+        project, parent_id = placed
+        if project.associated_experience == parent_id:
+            not_applied.append(ImportNotApplied(
+                section="projects", label=project.name, reason="confirmation_already_present",
+            ))
+            return
+        old_parent = project.associated_experience
+        project.associated_experience = parent_id
+        changes.append(_updated("projects", "associated_experience", old_parent, parent_id, entity=project))
         return
 
     # ── Bug #723 — the attribution family's answer places its held content ───
@@ -4051,6 +4079,57 @@ def fill_empty_scalars(target: Any, source: Any, *, skip: tuple[str, ...] = ()) 
     return filled
 
 
+#: List fields a merge never unions: the extraction's completeness hint
+#: (recomputed, not candidate content).
+_MERGE_LIST_SKIP = frozenset({"expected_fields"})
+
+
+def _list_item_key(value: Any) -> str:
+    if isinstance(value, str):
+        return _norm(value)
+    if isinstance(value, BaseModel):
+        return json.dumps(value.model_dump(mode="json"), sort_keys=True, default=str)
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def union_source_lists(target: Any, source: Any, *, skip: Iterable[str] = ()) -> list[str]:
+    """ADV-5 — append every item of every LIST field of ``source`` that
+    ``target`` does not already carry; returns the field names that grew.
+
+    Walks the model's fields, so a list field added later is merged without
+    anybody remembering to name it (the education merge silently lost
+    ``relevant_coursework`` while the list of names was hand-kept). An alias
+    list never gains the entry's own value."""
+    grew: list[str] = []
+    skipped = set(skip) | _MERGE_LIST_SKIP
+    for name in type(target).model_fields:
+        if name in skipped:
+            continue
+        new = getattr(source, name, None)
+        if not isinstance(new, list) or not new:
+            continue
+        cur = getattr(target, name, None)
+        if cur is None:
+            cur = []
+        if not isinstance(cur, list):
+            continue
+        own_attr = _ENTRY_ALIAS_OWN_VALUE.get(name)
+        own = _norm(getattr(target, own_attr, "") or "") if own_attr else None
+        have = {_list_item_key(v) for v in cur}
+        added = False
+        for value in new:
+            key = _list_item_key(value)
+            if key in have or (own is not None and isinstance(value, str) and _norm(value) == own):
+                continue
+            cur.append(value.model_copy(deep=True) if isinstance(value, BaseModel) else value)
+            have.add(key)
+            added = True
+        if added:
+            setattr(target, name, cur)
+            grew.append(name)
+    return grew
+
+
 def entry_label(section: str, entry: Any) -> str:
     """One human label for an entry in a receipt."""
     if section == "work_experience":
@@ -4101,6 +4180,12 @@ def _repoint_entry_references(profile: MasterProfileData, old: str, new: str) ->
         for receipt in (*rec.matched, *rec.restated, *rec.kept_separate):
             if receipt.entity_id == old:
                 receipt.entity_id = new
+    # ADV-3 (RULING B-1 "ask once") — the aspiration records follow the bullet.
+    # A (target, key) twin is harmless: the question is keyed by the bullet text
+    # (any positive verdict flags it, any answer settles it).
+    for rec in (*meta.aspiration_verdicts, *meta.aspiration_answers):
+        if rec.entry_id == old:
+            rec.entry_id = new
     for pairs in (meta.separate_entry_pairs, meta.entry_identity_verdicts):
         kept = []
         for pair in pairs:
@@ -4159,6 +4244,9 @@ def _apply_merge_entries(op, profile: MasterProfileData, changes: list[FieldChan
             if line not in target.not_yet_reached:
                 target.not_yet_reached.append(line)
 
+    # ADV-5 — every other candidate-authored list of the source survives (the
+    # bullet lists the door decided are not touched again).
+    union_source_lists(target, source, skip=set(op.bullets) | {"dated_role_aliases"})
     fill_empty_scalars(target, source, skip=_ENTRY_DATE_FIELDS if op.dates is not None else ())
     for name, value in (op.dates or {}).items():
         if name in _ENTRY_DATE_FIELDS and hasattr(target, name):
@@ -4253,7 +4341,8 @@ def find_adoptable_item(profile: MasterProfileData, record_id: str, item_key: st
     if not open_items:
         raise NotAppliedNotAdoptableError("already_adopted")
     item = open_items[0]
-    if not item.entry or item.section not in _SECTION_MODEL:
+    if not item.entry or item.section not in _SECTION_MODEL or item.already_present_as:
+        # D-2: an item already in the vault under another name is a duplicate.
         raise NotAppliedNotAdoptableError("not_adoptable")
     return record, item
 

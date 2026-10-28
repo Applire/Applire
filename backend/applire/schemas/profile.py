@@ -1149,6 +1149,12 @@ class ImportNotApplied(BaseModel):
     #: Computed when the hub issue is built: has an ``entry`` and no
     #: ``adopted_at``. Never persisted as true.
     adoptable: bool = False
+    #: D-2 (Hazelnut build 5 delivery run, main ruling) — the id of the existing
+    #: entry of the same section the model judged this item to BE (renamed or
+    #: translated institution, employer, degree), set once at the end of the
+    #: import. Such an item was not applied because it is already there: it is
+    #: silent (class S), never offered for "Übernehmen" (a duplicate).
+    already_present_as: str | None = None
 
 
 #: ADR-062 clause 1 (a FACT over the reason key, never a judgement) / ADR-066
@@ -2229,7 +2235,7 @@ class HealthUnitRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    entry_id: str = Field(min_length=1)
+    entry_id: str = Field(min_length=1, max_length=200)
     unit: Literal["EUR", "USD", "CHF", "GBP"]
 
 
@@ -2251,8 +2257,8 @@ class AdoptNotAppliedRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    issue_id: str = Field(min_length=1)
-    item_key: str = Field(min_length=1)
+    issue_id: str = Field(min_length=1, max_length=300)
+    item_key: str = Field(min_length=1, max_length=300)
 
 
 class SeparateMatchRequest(BaseModel):
@@ -2263,6 +2269,16 @@ class SeparateMatchRequest(BaseModel):
 
     entity_id: str = Field(min_length=1)
     incoming: str = Field(min_length=1)
+
+
+class UndoLastMergeRequest(BaseModel):
+    """ADV-8 — optional basis for POST /api/profile/undo-last-merge: the
+    profile's ``updated_at`` right after the merge the client means. Omitted
+    (old clients, MCP) = today's behaviour."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_updated_at: datetime | None = None
 
 
 class UndoLastMergeResponse(BaseModel):

@@ -362,6 +362,24 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   that adds a detail is now written as a bullet where it was a conflict (5/5
   on one founder bullet); the import's restatement check and the
   NOT-A-SECOND-TIME rule own that shape. Records: scratch only (founder data).
+* **27,306 (Hazelnut build 5 WP-A1, 2026-10-28, D-4b).** Rule 9 gains A WORD
+  THAT IS SOMEONE ELSE'S NAME IS NOT DENIED (+628 chars): a reply saying a term
+  names the employer's team, department, product or programme, or a phrase of
+  the posting, and that the person does not claim it about themselves, denies
+  nothing; only "I have not done / used / known X" denies X. Why: a review
+  card's "Stimmt das?" answered with "that is the name of their team from the
+  posting, I don't claim it about myself" went through the testimony door and
+  was persisted as a denial of the team's name — which then blocks the word
+  in every later document (B). *Measured* (``openai/gpt-6-luna``, Requesty,
+  thinking OFF, temperature 0.1, the delivery run's persisted reconcile input
+  replayed verbatim, held-out answers swapped in): captured reply denial 4/5 →
+  0/5; held-out "…Name der Abteilung aus der Ausschreibung – das behaupte ich
+  nicht über mich" 5/5 → 0/5; held-out "nur der Name des Bereichs beim Kunden"
+  0/5 → 0/5; controls — a mixed reply (team name + "mit Backstage nie
+  gearbeitet") denies Backstage only 3/3 → 3/3; the run's two captured
+  interview denials kept 3/3 and 6/8 (base 3/5 — that answer ends "…, die ich
+  belegen kann"); a plain "mit <the same term> keine Erfahrung" still denied
+  3/3. Records: scratch only (delivery data).
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -708,6 +726,15 @@ Operations:
    what the same sentence affirms. "Außer der Hydraulikwartung bei A habe ich
    keine Erfahrung in der Fluidtechnik" → "denials": ["Fluidtechnik außer
    Hydraulikwartung"], never ["Fluidtechnik"]; record X as the fact it is.
+   A WORD THAT IS SOMEONE ELSE'S NAME IS NOT DENIED. An answer saying that a
+   term names something that is not the person's own — the employer's team,
+   department, product or programme, or a phrase from the job posting — and
+   that they do not claim it about themselves ("'Platform Excellence' heißt
+   dort die Abteilung, das behaupte ich nicht von mir", "that is the client's
+   product name, not a skill of mine") says where the word comes from, not that
+   they lack an item: put nothing in "denials" for it. Only a statement that
+   they have not done, used or known X ("mit X habe ich nicht gearbeitet")
+   denies X.
 
 10. CERTIFICATIONS. Every certification, licence or named qualification in the NEW
     INFORMATION (a `certifications` entry, or an item the source lists under a

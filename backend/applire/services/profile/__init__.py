@@ -1976,6 +1976,11 @@ async def _apply_merge(
         # record and keys the ADR-042 pre-merge snapshot to it, so the id this
         # function returns, the stored record and the snapshot still agree —
         # they just agree on the committer's id instead of a pre-generated one.
+        # D-2 — a not-applied item the vault already holds under another name
+        # is marked before the record is written (one model call, fail-safe).
+        from applire.services.profile.not_applied_presence import mark_already_present
+
+        await mark_already_present(list(enrichment.not_applied), merged, provider)
         verdict_ops = await _identity_verdict_ops(merged, provider)  # U-9
         verdict_ops += await aspiration_verdict_ops(merged, provider)  # RULING B-1
         committed = await commit_ops(

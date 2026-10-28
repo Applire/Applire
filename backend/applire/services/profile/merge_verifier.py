@@ -90,9 +90,13 @@ def _present(word: str, src_words: set[str]) -> bool:
                 shared += 1
             if shared >= max(5, min(len(w), len(s)) - 3):
                 return True
-            # a German compound component ("Lieferanten" in
-            # "Lieferantenauswahl"): the word itself is written in a source.
-            if w in s:
+            # a German compound's MODIFIER ("Lieferanten" in
+            # "Lieferantenauswahl"): the word opens a source compound. Never a
+            # HEAD alone (ADV-7): "Verantwortung" is not written in
+            # "Mitverantwortung", "Leitung" not in "Begleitung" — dropping the
+            # qualifying prefix turns co-responsibility into sole
+            # responsibility, scope a merge may not add.
+            if s.startswith(w):
                 return True
     return False
 

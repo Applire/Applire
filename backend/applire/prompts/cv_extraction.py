@@ -197,6 +197,16 @@ Respond ONLY with valid JSON — no markdown fences, no commentary, no explanati
 Rules:
 - Extract everything stated or clearly implied; do not invent data.
 - Separate responsibilities (day-to-day duties) from achievements (outcomes with metrics) into their respective lists.
+- KEEP THE SOURCE'S STANCE when prose becomes bullets (D-3, Hazelnut build 5): a sentence that
+  says what exists, was built or is true ("The app runs fully offline", "the portal is multilingual:
+  customers can switch between five languages") stays a statement of fact in the bullet ("App runs
+  fully offline", "Multilingual portal: customers switch between five languages") — never an
+  imperative task ("Build an offline app", "Enable customers to switch languages"). Only wording the
+  source itself states as a goal, plan or target ("aiming for 60%", "plan to roll out") is a goal.
+  The reverse holds as well, and a "description" is where it goes wrong most: it summarises, and a
+  summary drops verbs. When the source says the work is ESTABLISHING, BUILDING, TARGETING or AIMING
+  for something, the description keeps that verb — write "…, establishing a review board", never
+  "…, with a review board" or "…, including a review board" (that states it already exists).
 - For technology stacks, extract individual tools/languages/frameworks into the technologies list.
 - TECHNOLOGIES vs PRACTICES: a "technologies" list holds ONLY concrete tools, programming
   languages, frameworks, libraries, platforms and products (e.g. Python, React, Docker, AWS, SAP,

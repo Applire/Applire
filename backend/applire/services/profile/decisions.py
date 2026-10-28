@@ -18,11 +18,13 @@ from typing import Any, Literal
 
 from applire.prompts.profile_decisions import (
     ASPIRATION_SYSTEM,
+    PRESENT_SYSTEM,
     DUPLICATES_SYSTEM,
     IDENTITY_SYSTEM,
     MERGE_SYSTEM,
     REPLY_SYSTEM,
     build_aspiration_prompt,
+    build_present_prompt,
     build_duplicates_prompt,
     build_identity_prompt,
     build_merge_prompt,
@@ -299,4 +301,47 @@ async def judge_aspirations(provider, bullets: list[str]) -> set[int] | None:
             continue
         if 0 <= i < len(bullets):
             out.add(i)
+    return out
+
+
+# ── D-2: a not-applied import item that is already in the vault ───────────────
+
+
+async def judge_already_present(
+    provider,
+    items: list[dict[str, Any]],
+    existing: dict[str, list[dict[str, Any]]],
+    *,
+    system: str = PRESENT_SYSTEM,
+    stage: str = "profile_not_applied_present",
+) -> dict[str, str] | None:
+    """ONE model call: ``{item id: existing entry id}`` for every not-applied
+    item the model judges to be an entry the vault already holds under another
+    name. Code keeps only ids it offered for that item's own section; ``None``
+    on any failure (nothing is hidden then — the item stays asked).
+
+    D-5 reuses it for certificates an import has just added (``system`` =
+    ``CERT_SAME_SYSTEM``, its own stage)."""
+    if not items:
+        return {}
+    try:
+        with _stage(stage):
+            data = await provider.aparse_json(
+                build_present_prompt(items, existing),
+                system=system,
+                temperature=0.0,
+                max_tokens=200 + 40 * len(items),
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning("judge_already_present: model call failed; items stay asked", exc_info=True)
+        return None
+    section_of = {str(i["item"]): i["section"] for i in items}
+    offered = {sec: {str(e["id"]) for e in rows} for sec, rows in existing.items()}
+    out: dict[str, str] = {}
+    for row in (data.get("matches") if isinstance(data, dict) else None) or []:
+        if not isinstance(row, dict):
+            continue
+        item, match = str(row.get("item")), row.get("existing")
+        if item in section_of and isinstance(match, str) and match in offered.get(section_of[item], set()):
+            out[item] = match
     return out

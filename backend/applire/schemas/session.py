@@ -52,7 +52,7 @@ class ProfileReviewRequest(BaseModel):
     ``HealthIssue.id`` (``conflict:<id>`` / ``confirmation:<id>``): that item
     is asked FIRST. Empty body = the old behaviour (resume or walk all)."""
 
-    issue_id: str | None = None
+    issue_id: str | None = Field(default=None, max_length=300)  # SEC-2
 
 
 #: ADR-099 cl. 11 — the structured answers to a dispute. ``merge_confirm``
@@ -64,11 +64,11 @@ class SessionMessageRequest(BaseModel):
     # Required unless ``outcome`` is given (a button answer carries no text).
     message: str = ""
     outcome: ConflictOutcome | None = None
-    merged_text: str | None = None
+    merged_text: str | None = Field(default=None, max_length=2000)  # SEC-2
 
 
 class MergeProposalRequest(BaseModel):
-    conflict_id: str
+    conflict_id: str = Field(min_length=1, max_length=200)  # SEC-2
 
 
 class CurrentConflict(BaseModel):
@@ -100,6 +100,11 @@ class InterpretedAnswer(BaseModel):
     corrected_value: str | None = None
     follow_up: str | None = None
     verifier: Literal["passed", "failed"] | None = None
+    #: ADV-8 — the dispute was already gone when the answer arrived (answered
+    #: in another tab, or resolved elsewhere): NOTHING was written, so
+    #: ``outcome`` and ``verifier`` stay null and the UI offers no Undo. The
+    #: UI reads THIS field to say "already answered".
+    already_answered: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +232,10 @@ class ClusterCoverage(BaseModel):
 
 
 class SessionMessageResponse(BaseModel):
+    #: ADV-8 — the profile's ``updated_at`` right after a dispute answer
+    #: wrote (a merge, or any outcome): the basis the drawer's Undo sends as
+    #: ``expected_updated_at``. ``None`` when nothing was written.
+    profile_updated_at: datetime | None = None
     complete: bool
     question: str | None = None
     gaps_remaining: int | None = None

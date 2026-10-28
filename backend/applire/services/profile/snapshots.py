@@ -31,12 +31,20 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire import constants
 from applire.models.profile import MasterProfile, ProfileSnapshot
+from applire.services.profile.commit import _as_utc_instant
+
+
+class UndoStale(Exception):
+    """ADV-8 — the caller named the merge it means to undo (the profile's
+    ``updated_at`` right after it) and the profile has moved since, or the
+    newest snapshot is not that merge. Nothing is restored."""
 
 
 @dataclass
@@ -123,7 +131,12 @@ def _keep_user_managed_fields(restored: dict | None, current: dict | None) -> di
     return out
 
 
-async def undo_last_merge(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> UndoResult:
+async def undo_last_merge(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
+    expected_updated_at: datetime | None = None,
+) -> UndoResult:
     """Restore the most recent pre-merge snapshot.
 
     Clears the conflicts the undone merge introduced (the restored pre-merge JSON
@@ -150,6 +163,15 @@ async def undo_last_merge(db: AsyncSession, *, user_id: uuid.UUID | None = None)
     discarded_later_edits = (
         _head_enrichment_id(profile.profile_json) != snapshot.enrichment_record_id
     )
+    # ADV-8 — with a basis, refuse instead of discarding: an Undo click means
+    # "the merge I just made", never "whatever the newest snapshot is".
+    # Instants are compared on the PERSISTED value (SQLite hands back naive
+    # datetimes for a timezone=True column), as the lost-update check does.
+    if expected_updated_at is not None and (
+        discarded_later_edits
+        or _as_utc_instant(profile.updated_at) != _as_utc_instant(expected_updated_at)
+    ):
+        raise UndoStale()
 
     profile.profile_json = _keep_user_managed_fields(snapshot.profile_json, profile.profile_json)
     # Consume the whole snapshot chain so a retry is a no-op (idempotent) and no

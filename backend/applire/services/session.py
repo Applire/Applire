@@ -1519,13 +1519,24 @@ async def _handle_conflict_answer(
     applied = await _resolve_conflict_safely(
         db, conflict_id, resolution, value, user_id=record.user_id
     )
-    applied = applied or resolution
-    interpreted = interpreted.model_copy(update={
-        "outcome": _OUTCOME_FOR_RESOLUTION.get(applied),
-        "verifier": (
-            ("passed" if applied == "merge" else "failed") if resolution == "merge" else None
-        ),
-    })
+    profile_updated_at = None
+    if applied is None:
+        # ADV-8 — the dispute was already gone: nothing was written and no
+        # snapshot was taken, so no outcome, no verifier, no Undo basis.
+        interpreted = interpreted.model_copy(update={
+            "outcome": None, "verifier": None, "corrected_value": None, "already_answered": True,
+        })
+    else:
+        interpreted = interpreted.model_copy(update={
+            "outcome": _OUTCOME_FOR_RESOLUTION.get(applied),
+            "verifier": (
+                ("passed" if applied == "merge" else "failed") if resolution == "merge" else None
+            ),
+        })
+        from applire.services.profile import _get_latest  # lazy: avoid import cycle
+
+        written = await _get_latest(db, record.user_id)
+        profile_updated_at = written.updated_at if written is not None else None
 
     current_gap = state["critical_gaps"][current_idx]
     state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
@@ -1536,7 +1547,9 @@ async def _handle_conflict_answer(
         db, job_id=state.get("job_id"), user_id=record.user_id
     )
     response = await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
-    return response.model_copy(update={"interpreted": interpreted})
+    return response.model_copy(
+        update={"interpreted": interpreted, "profile_updated_at": profile_updated_at}
+    )
 
 
 def _to_confirmation_prompts(confirmations, lang: str = "en") -> list[ConfirmationPrompt]:

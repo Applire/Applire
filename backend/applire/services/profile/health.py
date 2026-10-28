@@ -126,7 +126,8 @@ def _conflict_issue(conflict: Conflict, profile: MasterProfileData) -> HealthIss
 #: G-5 / ruling V-5 (c) — confirmation families the Health hub answers with
 #: the ask's own options (each answer is a complete act in the applier's
 #: ``_apply_resolve_confirmation``); every other family goes to the interview.
-_ANSWERED_IN_PLACE = frozenset({"denial_scope"})
+#: D-8 — ``project_parent`` (family 6): the answer writes the project's position.
+_ANSWERED_IN_PLACE = frozenset({"denial_scope", "project_parent"})
 
 
 def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
@@ -459,13 +460,20 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
     """
     # UAT-3d — an adopted item is no longer counted or shown; every item
     # adopted = the issue is gone. `adoptable` is computed here, never stored.
+    # D-2 — an item judged to be an existing entry is never adoptable (it would
+    # be a duplicate); the asked items lead, and an issue whose items are ALL
+    # already present is built from them as a silent (class S) record.
     open_items = [
-        i.model_copy(update={"adoptable": bool(i.entry) and i.adopted_at is None})
+        i.model_copy(update={
+            "adoptable": bool(i.entry) and i.adopted_at is None and not i.already_present_as
+        })
         for i in record.not_applied
         if i.adopted_at is None
     ]
     if not open_items:
         return None
+    asked = [i for i in open_items if not i.already_present_as]
+    open_items = asked or open_items
     reasons = sorted(
         {_NOT_APPLIED_REASON.get(i.reason, i.reason) for i in open_items}
     )
@@ -504,19 +512,13 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
     )
 
 
-#: Hub answers whose trail record must not become the not_applied "head": the
-#: candidate answering one hub question may not make another one vanish.
-_TRANSPARENT_RATIONALE_KEYS = frozenset({"not_applied_adopted", "aspiration_achieved", "aspiration_goal"})
-
-
-def _is_adoption_record(record: EnrichmentRecord) -> bool:
-    """A trail record whose only content is the adoption of not-applied items."""
-    return (
-        record.source == "manual_edit"
-        and not record.not_applied
-        and bool(record.changes)
-        and all(c.rationale_key in _TRANSPARENT_RATIONALE_KEYS for c in record.changes)
-    )
+#: D-1 (Hazelnut build 5 delivery run) — the sources of a document IMPORT. The
+#: not_applied question reads the newest record that carries not-applied items
+#: or is such an import, never the bare trail head: every other act (a
+#: conflict answer, a unit, a merge, an adoption, an aspiration answer) writes
+#: a record of its own, and a head rule with an allow-list of "transparent"
+#: acts hid the question twice before this.
+IMPORT_SOURCES = frozenset({"cv_upload", "cv_paste", "linkedin_import", "xing_import"})
 
 
 def _duplicate_entry_issues(profile: MasterProfileData) -> list[HealthIssue]:
@@ -582,6 +584,8 @@ def _registry_kind(issue: HealthIssue) -> str:
         # `conflict_shape` is the one decider; "merge" is only in the list shape.
         return "health:conflict_list" if "merge" in (issue.outcomes or []) else "health:conflict_scalar"
     if thread == "not_applied":
+        if all(i.already_present_as for i in (issue.not_applied_items or [])):
+            return "health:not_applied_already_present"  # D-2
         adoptable = any(i.adoptable for i in (issue.not_applied_items or []))
         return "health:not_applied" if adoptable else "health:not_applied_unadoptable"
     return f"health:{thread}"
@@ -634,11 +638,16 @@ def assess_health(
         # residual is stated rather than hidden: a loss older than the newest
         # record is NOT surfaced here, and the durable receipt — plus the
         # WARNING each drop logs — remains the record of it.
-        # UAT-3d — a record written by "Übernehmen" itself is transparent: the
-        # candidate's own adoption must not make the REST of that import's
-        # items vanish by becoming the new head.
+        # D-1 — the head is the newest record that CARRIES not-applied items
+        # (an import, a statement intake, a confirmation resolution) or is a
+        # document import: a later import that applied everything still
+        # clears the question (V-6), while an act that carries no receipt (a
+        # conflict answer, a unit, a merge, an adoption) never hides it.
         head_record = next(
-            (r for r in reversed(metadata.enrichment_history) if not _is_adoption_record(r)),
+            (
+                r for r in reversed(metadata.enrichment_history)
+                if r.not_applied or r.source in IMPORT_SOURCES
+            ),
             None,
         )
         if head_record is not None:
