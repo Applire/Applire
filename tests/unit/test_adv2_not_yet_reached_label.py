@@ -44,7 +44,7 @@ def test_the_document_view_labels_the_field_and_the_default_view_does_not():
     assert prompt_profile_view(raw)["work_experience"][0]["not_yet_reached"] == [GOAL]
     # the writer rules name the field — the label starts with that name
     assert NOT_YET_REACHED_PROMPT_KEY.startswith("not_yet_reached ")
-    assert NOT_YET_REACHED_PROMPT_KEY in json.dumps(labelled)
+    assert NOT_YET_REACHED_PROMPT_KEY in json.dumps(labelled, ensure_ascii=False)  # as every prompt dumps it
 
 
 def test_every_document_source_view_is_built_labelled():
