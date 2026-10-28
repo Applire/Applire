@@ -148,6 +148,12 @@ class CVPageOverflow(BaseModel):
     choice: Optional[Literal["keep", "cut"]] = None
     cut_available: bool = False
     uncut_available: bool = False
+    # ADR-099 cl. 7 (UAT-2 fix round, additive): False = the ladder cannot reach
+    # ``target`` and "kürzen" proposes the closest reachable length ``cut_pages``;
+    # ``cut_pages`` None = nothing can be cut (only "behalten" decides). None on
+    # proposals stored before the fields.
+    reaches_target: Optional[bool] = None
+    cut_pages: Optional[int] = None
 
 
 class CVPageOverflowChoiceRequest(BaseModel):

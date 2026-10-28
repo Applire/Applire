@@ -2639,6 +2639,9 @@ async def audit_document(
         if unavailable:
             judgement_unavailable += 1
 
-    return TruthfulnessReport.from_results(
+    from applire.services.finding_registry import stamp_truthfulness_model
+
+    # ADR-099 cl. 2 (WP-B): every verdict row carries its delivery class + resolver.
+    return stamp_truthfulness_model(TruthfulnessReport.from_results(
         document_kind, results, judgement_unavailable=judgement_unavailable
-    )
+    ))

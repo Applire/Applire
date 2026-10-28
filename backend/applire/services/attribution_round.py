@@ -320,3 +320,270 @@ async def run_attribution_round(
         "writer for relocation", len(findings),
     )
     return corrected
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADR-099 cl. 4/6 (UAT-2 fix round, WP-B) — the TRUTH round.
+#
+# The attribution round above, widened in two directions the founder ruled
+# (UAT-3a): it now also carries the ``unbacked`` family (unsupported term,
+# credential, identifier, skill, figure, tenure — "corrector removes or
+# narrows"), and it runs for the cover letter too (the letter had no
+# attribution round at all). Same discipline: ONE bounded corrector call on the
+# draft, a structural acceptance check, never a gate, never a code rewrite of
+# prose. What the round could not fix is still in the DELIVERED report — the
+# same instrument (ADR-099 cl. 4(b)) — and renders as class-A residue.
+#
+# Removals (cl. 5): a flagged claim present before the round and absent after it
+# was removed (or narrowed out) BY the corrector, attributable to this round —
+# measured draft-to-draft, never across the later terminal rounds, whose
+# rewording would read as removal (the control-false-positive class).
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: ADR-099 cl. 4(c): at most this many claims per round (the v2 per-round cap),
+#: misattributed first — truthfulness priority within the round.
+TRUTH_ROUND_MAX_FINDINGS = 8
+#: the letter's per-family cap (``cover_letter._V2_FINDINGS_PER_FAMILY``)
+TRUTH_ROUND_LETTER_PER_FAMILY = 2
+
+_UNBACKED_REASON: dict[str, str] = {
+    "figuresNoEvidence": "its figure is not stated anywhere in the candidate profile",
+    "credentialUnbacked": "the candidate profile records no such credential",
+    "identifierAbsent": "the candidate profile records no such identifier",
+    "skillNoEvidence": "no entry of the candidate profile shows this skill",
+    "tenureStartBeforeVault": "the stated duration starts before the profile's own dates",
+    "tenureExceedsVault": "the stated duration is longer than the profile's own dates",
+    "subjectTenureExceeds": "the stated duration is longer than the profile's own dates",
+}
+
+
+@dataclass(frozen=True)
+class TruthFinding:
+    """One group-1 claim the truth round hands the corrector."""
+
+    family: str                 # "misattributed" | "unbacked"
+    kind: str                   # finding-registry key, e.g. "oracle:figuresNoEvidence"
+    text: str
+    location: str
+    detail_key: str | None
+    rendered_under_id: str | None = None
+    owner_ref: str | None = None
+
+
+def truth_findings(
+    report: dict[str, Any] | None, *, document: str = "cv"
+) -> list[TruthFinding]:
+    """The claims the truth round asks about, capped and ordered (misattributed
+    before unbacked). ``inflated`` is NOT here: its stance comes from marker
+    lists, a text heuristic, which may not instruct a writer (ADR-062, ADR-099
+    cl. 6) — it stays the class-A question. Never raises."""
+    claims = (report or {}).get("claims")
+    if not isinstance(claims, list):
+        return []
+    mis: list[TruthFinding] = []
+    unb: list[TruthFinding] = []
+    seen: set[str] = set()
+    for result in claims:
+        if not isinstance(result, dict):
+            continue
+        verdict, claim = result.get("verdict"), result.get("claim")
+        if not isinstance(verdict, dict) or not isinstance(claim, dict):
+            continue
+        v = verdict.get("verdict")
+        if v not in ("misattributed", "unbacked"):
+            continue
+        text = str(claim.get("text") or "").strip()
+        if not text or text.casefold() in seen:
+            continue
+        seen.add(text.casefold())
+        key = verdict.get("detail_key")
+        owner_ref = None
+        for ref in verdict.get("evidence") or []:
+            if isinstance(ref, dict) and ref.get("kind") == "profile_path" and ref.get("ref"):
+                owner_ref = str(ref["ref"])
+                break
+        f = TruthFinding(
+            family=v,
+            kind=f"oracle:{key}" if key else f"oracle@{v}",
+            text=text,
+            location=str(claim.get("location") or ""),
+            detail_key=key,
+            rendered_under_id=(
+                str(claim["source_experience_id"]) if claim.get("source_experience_id") else None
+            ),
+            owner_ref=owner_ref,
+        )
+        (mis if v == "misattributed" else unb).append(f)
+    if document == "cover_letter":
+        mis, unb = mis[:TRUTH_ROUND_LETTER_PER_FAMILY], unb[:TRUTH_ROUND_LETTER_PER_FAMILY]
+    return (mis + unb)[:TRUTH_ROUND_MAX_FINDINGS]
+
+
+def build_truth_feedback(
+    findings: list[TruthFinding], profile_json: dict[str, Any] | None, *, document: str = "cv"
+) -> str:
+    """The corrector's referential critique (ADR-021 amended 2026-06-29): it names
+    the document's own sentence and the CATEGORY of the defect; vault evidence is
+    never pasted, and no system-authored wording is offered as a source (memory
+    "a paraphrase is not a source")."""
+    mis = [f for f in findings if f.family == "misattributed"]
+    unb = [f for f in findings if f.family == "unbacked"]
+    blocks: list[str] = []
+    if mis and document == "cv":
+        blocks.append(build_attribution_feedback(
+            [MisattributionFinding(f.text, f.location, f.rendered_under_id, f.owner_ref) for f in mis],
+            profile_json,
+        ))
+    elif mis:
+        lines = [
+            "ROLE OWNERSHIP (ADR-071): the following sentences tie a fact to an employer "
+            "or role that the candidate profile does not assign it to. Each fact is TRUE — "
+            "the defect is the attribution. Rewrite only that sentence so it names the "
+            "entry the profile assigns the fact to, or drop the misattributed detail. Do "
+            "not change anything else.",
+        ]
+        for f in mis:
+            owner = _label(_by_ref(profile_json, f.owner_ref), "the entry the profile assigns it to")
+            lines.append(f'- "{f.text}" — the profile assigns this to {owner}.')
+        blocks.append("\n".join(lines))
+    if unb:
+        unit = "bullet or skill" if document == "cv" else "sentence"
+        lines = [
+            "PROFILE BACKING (ADR-099): the candidate profile does not back the following "
+            f"claims. For each {unit}: remove the unbacked claim, or narrow it to exactly "
+            "what the profile states (keep the true part, drop the unbacked term, figure, "
+            "credential or duration). Re-read the candidate profile for what it states. "
+            "Never add a fact, never move the claim to another entry. Do not change "
+            "anything else.",
+        ]
+        for f in unb:
+            reason = _UNBACKED_REASON.get(f.detail_key or "", "no entry of the candidate profile states it")
+            lines.append(f'- "{f.text}" — {reason}.')
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def _norm(s: str) -> str:
+    return " ".join(re.sub(r"[^\w%+.,/-]+", " ", s.casefold()).split())
+
+
+def _strings(node: Any) -> list[str]:
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, dict):
+        return [s for v in node.values() for s in _strings(v)]
+    if isinstance(node, list):
+        return [s for v in node for s in _strings(v)]
+    return []
+
+
+def claim_present(text: str, draft: Any) -> bool:
+    """Normalised containment of a claim's text in any string of ``draft`` — the
+    presence FACT the removal line is measured with (ADR-062 cl. 1)."""
+    needle = _norm(text)
+    if not needle:
+        return False
+    return any(needle in _norm(s) for s in _strings(draft))
+
+
+def _letter_paragraphs(draft: Any) -> int:
+    body = draft.get("body") if isinstance(draft, dict) else None
+    paras = body.get("paragraphs") if isinstance(body, dict) else None
+    return len([p for p in paras if isinstance(p, str) and p.strip()]) if isinstance(paras, list) else 0
+
+
+@dataclass
+class TruthRoundResult:
+    draft: dict[str, Any]
+    findings: list[TruthFinding]
+    #: findings whose claim text was in the draft before the round and is gone after it
+    removed: list[TruthFinding]
+    applied: bool = False
+    llm_calls: int = 0
+
+
+async def run_truth_round(
+    draft: dict[str, Any],
+    *,
+    report: dict[str, Any] | None,
+    profile_json: dict[str, Any] | None,
+    source_material: str,
+    provider: Any,
+    system: str,
+    document: str = "cv",
+    prompt_fn: Any = None,
+    max_tokens: int = CV_GENERATION_MAX_TOKENS,
+    json_schema: dict[str, Any] | None = None,
+) -> TruthRoundResult:
+    """AT MOST ONE corrector call over the group-1 claims of ``report`` (ADR-099
+    cl. 6). Returns the corrected draft, or ``draft`` itself when there is nothing
+    to fix or the response is not structurally safe. Never raises.
+
+    ``prompt_fn(previous_draft, feedback, source) -> str`` is the chain's own
+    corrector prompt (the letter's carries its measure + language blocks);
+    ``None`` → the CV ``build_retry_prompt``. ``system`` is the chain's corrector
+    system prompt (v1 or v2) — the round speaks the loop's own language.
+    """
+    findings = truth_findings(report, document=document)
+    if not findings:
+        return TruthRoundResult(draft, [], [])
+    feedback = build_truth_feedback(findings, profile_json, document=document)
+    logger.info(
+        "TRUTH_ROUND (ADR-099 cl. 6) document=%s: %d claim(s) — %s",
+        document, len(findings), [(f.family, f.kind, f.location) for f in findings],
+    )
+    build = prompt_fn or build_retry_prompt
+    try:
+        corrected = await provider.aparse_json(
+            build(draft, feedback, source_material),
+            system=system,
+            temperature=0.2,
+            max_tokens=max_tokens,
+            # the loop corrector's own structured-output schema (#767), when it has one
+            **({"json_schema": json_schema} if json_schema else {}),
+        )
+    except Exception:
+        logger.warning(
+            "TRUTH_ROUND EXHAUSTED: the correction call failed; the claims stay and "
+            "render as class-A residue (ADR-099 cl. 4(e))", exc_info=True,
+        )
+        return TruthRoundResult(draft, findings, [], llm_calls=1)
+    if not isinstance(corrected, dict):
+        logger.warning("TRUTH_ROUND EXHAUSTED: non-object response — original kept")
+        return TruthRoundResult(draft, findings, [], llm_calls=1)
+    if document == "cv":
+        if _work_ids(corrected) != _work_ids(draft):
+            logger.warning(
+                "TRUTH_ROUND EXHAUSTED: the correction dropped or renamed a work entry "
+                "(%s -> %s) — rejected", sorted(_work_ids(draft)), sorted(_work_ids(corrected)),
+            )
+            return TruthRoundResult(draft, findings, [], llm_calls=1)
+        if _bullet_count(corrected) < _bullet_count(draft) - len(findings):
+            logger.warning("TRUTH_ROUND EXHAUSTED: bullets lost beyond the findings — rejected")
+            return TruthRoundResult(draft, findings, [], llm_calls=1)
+        if draft.get("summary") and not corrected.get("summary"):
+            logger.warning("TRUTH_ROUND EXHAUSTED: the summary was emptied — rejected")
+            return TruthRoundResult(draft, findings, [], llm_calls=1)
+    else:
+        before, after = _letter_paragraphs(draft), _letter_paragraphs(corrected)
+        if after == 0 or after < before - 1:
+            logger.warning(
+                "TRUTH_ROUND EXHAUSTED: the letter body lost paragraphs (%d -> %d) — rejected",
+                before, after,
+            )
+            return TruthRoundResult(draft, findings, [], llm_calls=1)
+    if corrected == draft:
+        logger.warning(
+            "TRUTH_ROUND EXHAUSTED: unchanged draft for %d claim(s); they render as "
+            "class-A residue", len(findings),
+        )
+        return TruthRoundResult(draft, findings, [], llm_calls=1)
+    removed = [
+        f for f in findings
+        if f.family == "unbacked" and claim_present(f.text, draft) and not claim_present(f.text, corrected)
+    ]
+    logger.info(
+        "TRUTH_ROUND applied document=%s: %d claim(s) sent, %d removed or narrowed",
+        document, len(findings), len(removed),
+    )
+    return TruthRoundResult(corrected, findings, removed, applied=True, llm_calls=1)

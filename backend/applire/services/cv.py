@@ -1304,6 +1304,87 @@ def _language_shape_fallbacks(settled: dict, corrected: dict) -> tuple[dict, lis
     return out, fallbacks
 
 
+def _foreign_prose(tailored, document_language: str) -> list[tuple[str, str]]:
+    """The delivered prose items not in the document language — the ATS
+    ``document-language`` check's own enumeration (one instrument), minus the
+    vault furniture line ("Branche") no prose pass writes."""
+    from applire.services.ats_audit import foreign_language_items
+
+    return [i for i in foreign_language_items(tailored, document_language)
+            if not i[0].endswith("> Branche")]
+
+
+async def _second_language_round(
+    prose_draft: dict,
+    *,
+    compose,
+    document_language: str | None,
+    provider,
+    keyword_ledger: list | None,
+    budget: Any,
+    v2_shape_check: bool,
+    cv_id: Any = None,
+) -> dict:
+    """ADR-099 cl. 9 (UAT-3f): ONE more ``cv_language`` pass, bounded by its own
+    retry budget, when the composed CV still fails the document-language check.
+    The items are named to the refiner as a blocking finding recomputed on every
+    draft (a detector measurement, the same function the delivered check runs) —
+    so a fixed item is not re-raised. Never raises; ``prose_draft`` itself when it
+    does not fire or fails."""
+    if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0 or not document_language:
+        return prose_draft
+    try:
+        items = _foreign_prose(compose(prose_draft), document_language)
+    except Exception:  # noqa: BLE001
+        logger.exception("second language round: check failed for CV %s — skipped", cv_id)
+        return prose_draft
+    logger.info(
+        "SECOND_LANGUAGE_ROUND (ADR-099 cl. 9) cv_id=%s document_language=%s foreign=%d fired=%s",
+        cv_id, document_language, len(items), bool(items),
+    )
+    if not items:
+        return prose_draft
+    from applire.services.reviewer import CheckFinding
+
+    shape = None
+    if v2_shape_check:
+        from applire.services.cv_v2 import language_shape_checks
+
+        shape = language_shape_checks(prose_draft)
+
+    def _checks(d: dict) -> list:
+        out = list(shape(d)) if shape else []
+        try:
+            left = _foreign_prose(compose(d), document_language)
+        except Exception:  # noqa: BLE001
+            left = []
+        if left:
+            out.append(CheckFinding(
+                check="cv.language_mixed",
+                text=(
+                    f"These items are not written in the document language ({document_language}); "
+                    "translate each one into it, keep every fact, figure and name, change "
+                    "nothing else: " + "; ".join(f'[{w}] "{t}"' for w, t in left[:8])
+                ),
+                blocking=True,
+                subjects=tuple(t for _w, t in left[:8]),
+            ))
+        return out
+
+    try:
+        return await _review_cv_language(
+            prose_draft, document_language, provider,
+            keyword_ledger=keyword_ledger,
+            budget=budget,
+            chain_id="cv_language_second",
+            checks_fn=_checks,
+        )
+    except Exception as exc:
+        record_review_degradation("cv_language_second", "review", type(exc).__name__, 1)
+        logger.exception("second language round failed for CV %s — shipping the draft", cv_id)
+        return prose_draft
+
+
 async def _terminal_language_recheck(
     before: dict,
     after: dict,
@@ -4707,28 +4788,39 @@ async def _render_cv_background(
                 # join is pure and fail-closed on an unknown id; a failure here must
                 # never become a new way for generation to fail, so it only skips
                 # the round — the real assembly below reports the same error.
+                #
+                # ADR-099 cl. 4(b)/6 (UAT-2 fix round, WP-B): the round is now the
+                # TRUTH round — misattributed AND unbacked claims — and its audit is
+                # the ONE instrument: ``_truth_audit`` is the function the delivered
+                # report calls in ``_update_ats_report``, with the same provider,
+                # document language and keyword ledger (it used to pass neither).
+                truth_round = None
                 try:
-                    from applire.services.attribution_round import run_attribution_round
-                    from applire.services.oracle.selfaudit import build_self_audit_report
+                    from applire.services.attribution_round import run_truth_round
 
                     audit_view = assemble_tailored_cv(prose_draft, profile_json)
-                    attribution_report = await build_self_audit_report(
-                        profile_json, tailored_data=audit_view,
+                    attribution_report = await _truth_audit(
+                        profile_json, audit_view,
+                        document_language=document_language,
+                        keyword_ledger=keyword_ledger,
                     )
-                    # Inside the try deliberately. ``run_attribution_round`` is
+                    # Inside the try deliberately. ``run_truth_round`` is
                     # written never to raise, but "never raises" asserted only by
                     # one function's own completeness is not a defence — one
                     # unguarded line added to it later would otherwise become a
                     # hard failure of CV generation. ADR-052 §5 says this may never
                     # gate delivery, so the guarantee is enforced at the boundary.
                     pre_round_draft = prose_draft
-                    prose_draft = await run_attribution_round(
+                    truth_round = await run_truth_round(
                         prose_draft,
                         report=attribution_report,
                         profile_json=profile_json,
                         source_material=source_material,
                         provider=provider,
+                        system=loop_generator_system,
+                        json_schema=loop_schema,
                     )
+                    prose_draft = truth_round.draft
                     if pipeline == PIPELINE_V2:
                         prose_draft = carry_v2_fields(prose_draft, pre_round_draft)
                 except Exception:
@@ -4788,6 +4880,38 @@ async def _render_cv_background(
                         budget=budget,
                         pins=tuple(cv_pins),
                     ))
+
+                # ADR-099 cl. 9 (UAT-3f, WP-B): a SECOND bounded language round when
+                # the composed CV still carries prose not written in the document
+                # language after the first pass; the residue is one action on the
+                # surface ("Diese Stellen übersetzen").
+                raw_profile_json = profile.profile_json or {}
+
+                def _compose_for_language(d: dict):
+                    if v2_terminal is not None:
+                        from applire.services.cv_v2 import compose_v2
+
+                        return compose_v2(carry_v2_fields(d, prose_draft), profile_json,
+                                          raw_profile_json=raw_profile_json)
+                    return _compose_document(
+                        d, profile_json, raw_profile_json=raw_profile_json,
+                        keyword_ledger=keyword_ledger, budget=budget, job_dict=job_dict,
+                        language=document_language, pins=cv_pins, preseed=preseed_plan,
+                    )
+
+                _pre_second = prose_draft
+                prose_draft = await _second_language_round(
+                    prose_draft,
+                    compose=_compose_for_language,
+                    document_language=document_language,
+                    provider=provider,
+                    keyword_ledger=keyword_ledger,
+                    budget=budget,
+                    v2_shape_check=v2_terminal is not None,
+                    cv_id=cv_id,
+                )
+                if v2_terminal is not None and prose_draft is not _pre_second:
+                    prose_draft = carry_v2_fields(prose_draft, _pre_second)
 
                 # ADR-076 clause 3 (#538): the ENTIRE deterministic tail — the E049/
                 # ADR-067 join, the ADR-040 compose block, and the not-yet-migrated
@@ -4850,6 +4974,13 @@ async def _render_cv_background(
                     )
                     measured = None
 
+                # ADR-099 cl. 8 (UAT-2 fix round, WP-B): the outcome critic runs
+                # HERE — once, on the composed CV, before the terminal review — and
+                # its internal inconsistencies ride the terminal rounds as advisory
+                # findings for the corrector (aligned to the profile). Its report is
+                # persisted from this run; the post-commit run is dropped.
+                await _in_loop_critic(record, db, v2_terminal)
+
                 # TERMINAL REVIEW (ADR-076 clause 3, #538): the terminal verdict is
                 # rendered over the COMPOSED document with the real render measure.
                 # LLM_REVIEW_MAX_RETRIES=0 disables it with the rest of the review
@@ -4892,7 +5023,7 @@ async def _render_cv_background(
                 reentered = 0
                 while True:
                     await _update_ats_report(
-                        record, db, measured=measured, commit=False,
+                        record, db, measured=measured, commit=False, critic=False,
                         # #703: the delivery's repeated demands, measured against
                         # the composed CV this audit reads.
                         terminal_review=with_repeated_demands(
@@ -4959,6 +5090,8 @@ async def _render_cv_background(
                     verdict_hash = _subject_hash(record.tailored_data)
                 # #786 (WP-T): the degraded review steps ride the same ready-commit.
                 record.review_degradation = degradation.as_json()
+                # ADR-099 cl. 4(d)/5 (WP-B): the delivery state rides the report.
+                record.ats_report = _cv_delivery_report(record, truth_round, cv_pins)
                 # #786 L-3: when the delivered CV is still over its target, the
                 # page ladder proposes the cuts that would reach it; the person
                 # decides on the CV page (keep x+1 or cut). Never fails generation.
@@ -5482,6 +5615,11 @@ async def _propose_page_cut(
     full = record.tailored_data
     tried: list = []
     reached: dict | None = None
+    # ADR-099 cl. 7 (UAT-2 fix round, U-6): the card is shown WHENEVER the CV is over
+    # target. When the ladder cannot reach the target, "kürzen" proposes the closest
+    # reachable length — the shortest render the ladder produced — and the payload
+    # says so (``reaches_target`` False, ``cut_pages`` > ``target``).
+    best: tuple[int, int, dict] | None = None  # (pages, steps taken, data)
     try:
         for step in ladder_steps(
             full, condense_ctx.skill_tier, pinned=_ladder_pin_predicate(condense_ctx.pins),
@@ -5490,12 +5628,19 @@ async def _propose_page_cut(
             tried.append(step.cut)
             html = await get_cv_html(record.id, db, user_id=record.user_id)
             _text, count = extract_text_and_pages(await _html_to_pdf(html))
+            if count < measured.page_count and (best is None or count < best[0]):
+                best = (count, len(tried), step.data)
             if count <= target:
                 reached = step.data
                 break
     finally:
         record.tailored_data = full
-    proposed = merge_cuts(tried) if reached is not None else []
+    cut_pages: int | None = None
+    if best is not None:
+        cut_pages, n_steps, cut_data = best
+        proposed = merge_cuts(tried[:n_steps])
+    else:
+        proposed, cut_data = [], None
     record.page_overflow = {
         "target": target,
         "actual": measured.page_count,
@@ -5503,12 +5648,14 @@ async def _propose_page_cut(
         "proposed": proposed,
         "choice": None,
         "basis_hash": _subject_hash(full),
-        "cut_data": reached,
+        "cut_data": cut_data,
         "full_data": None,
+        "reaches_target": reached is not None,
+        "cut_pages": cut_pages,
     }
     logger.info(
-        "PAGE_OVERFLOW_PROPOSAL cv_id=%s target=%d actual=%d reachable=%s cuts=%s",
-        record.id, target, measured.page_count, reached is not None,
+        "PAGE_OVERFLOW_PROPOSAL cv_id=%s target=%d actual=%d reachable=%s cut_pages=%s cuts=%s",
+        record.id, target, measured.page_count, reached is not None, cut_pages,
         [(c["kind"], len(c["items"])) for c in proposed],
     )
 
@@ -5569,6 +5716,10 @@ def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = Non
         "choice": choice,
         "cut_available": cut_available,
         "uncut_available": uncut_available,
+        # ADR-099 cl. 7: False = "kürzen" reaches only ``cut_pages`` (closest
+        # reachable); None on a proposal stored before the field (it reached).
+        "reaches_target": po.get("reaches_target", True if po.get("cut_data") else None),
+        "cut_pages": po.get("cut_pages", po.get("target") if po.get("cut_data") else None),
     }
 
 
@@ -6359,10 +6510,96 @@ async def _terminal_review(
     )
 
 
+class _SkipCritic(Exception):
+    """Control flow only: the generation path's critic ran in the loop."""
+
+
+async def _in_loop_critic(record: GeneratedCV, db: AsyncSession, v2_terminal) -> None:
+    """ADR-099 cl. 8: one Pass-A critic run on the composed CV before the terminal
+    review. Persists ``critic_report``; hands ``internal_inconsistency`` /
+    ``numeric_inconsistency`` advisories to the v2 terminal loop. Never raises —
+    the critic never gates delivery (SF-CRITIC.1/.8)."""
+    from applire.providers.llm.debug_log import current_call_site
+    from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
+
+    prior_stage = current_call_site()[0]
+    try:
+        from applire.services.jd_excerpt import build_jd_excerpt
+        from applire.services.outcome_critic import run_pass_a
+
+        job_row = await db.get(JobAnalysis, record.job_analysis_id)
+        role_title = (
+            (await _posting_labels_for(record, db, record.user_id))[0] if job_row else None
+        )
+        _set_llm_log_stage("outcome_critic")
+        report = await run_pass_a(
+            cv_tailored=record.tailored_data,
+            job_role_title=role_title,
+            jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
+            provider=get_provider(),
+        )
+        record.critic_report = report.model_dump(mode="json")
+        if v2_terminal is not None:
+            v2_terminal.critic_advisories = [
+                a for a in (report.advisories or [])
+                if a.kind in ("internal_inconsistency", "numeric_inconsistency") and a.cv_state
+            ]
+    except Exception:
+        logger.exception("in-loop outcome critic failed for CV %s — critic_report left NULL", record.id)
+        record.critic_report = None
+    finally:
+        _set_llm_log_stage(prior_stage)
+
+
+def _cv_delivery_report(record: GeneratedCV, truth_round, pins) -> dict | None:
+    """ADR-099 cl. 4(d)/5: the delivered report with its delivery state
+    (``finding_registry.delivered_report``)."""
+    from applire.services.finding_registry import delivered_report
+
+    return delivered_report(
+        record.ats_report,
+        review_degradation=record.review_degradation,
+        truthfulness=record.truthfulness_report,
+        delivered_data=record.tailored_data or {},
+        truth_round=truth_round,
+        pins=pins,
+    )
+
+
+async def _truth_audit(
+    profile_json: dict,
+    tailored_data: dict,
+    *,
+    document_language: str | None,
+    keyword_ledger: list[dict] | None,
+) -> dict | None:
+    """ADR-099 cl. 4(b) — the ONE truthfulness instrument of a CV: the generation
+    loop's truth round and the delivered report (``_update_ats_report``) both call
+    this, so a claim the loop judged fixed is judged by the same function, with the
+    same provider and document-language arguments, on delivery. Never raises
+    (``build_self_audit_report`` returns None on failure)."""
+    from applire.services.oracle.selfaudit import build_self_audit_report
+
+    return await build_self_audit_report(
+        profile_json,
+        tailored_data=tailored_data,
+        provider=get_provider(),
+        document_language=document_language,
+        keyword_ledger=keyword_ledger,
+    )
+
+
 def _pages_kept_at(page_overflow: dict | None) -> int | None:
     """786:237 (WP-T hunk) — the page count a "keep" choice covered, else None."""
     po = page_overflow if isinstance(page_overflow, dict) else None
-    if not po or po.get("choice") != "keep":
+    if not po:
+        return None
+    if po.get("choice") == "cut" and po.get("reaches_target") is False:
+        # ADR-099 cl. 7 / adv S9: a cut to the closest reachable length is the
+        # person's decision on the length — it decides the row like a keep does.
+        n = po.get("actual") or po.get("cut_pages")
+        return n if isinstance(n, int) and n > 0 else None
+    if po.get("choice") != "keep":
         return None
     n = po.get("full_pages") or po.get("actual")
     return n if isinstance(n, int) and n > 0 else None
@@ -6375,6 +6612,7 @@ async def _update_ats_report(
     measured: MeasuredRender | None = None,
     commit: bool = True,
     terminal_review: "TerminalReviewOutcome | None" = None,
+    critic: bool = True,
 ) -> None:
     """ADR-039: render (unless already measured) → audit → persist. Audit-only —
     the measure-and-condense loop lives in ``_measure_and_condense`` since #538
@@ -6554,10 +6792,9 @@ async def _update_ats_report(
         # missing/deleted) leaves it ``None`` — the seam then stays off,
         # fail-open, exactly like the pre-ADR-068 report.
         judgement_job = await db.get(JobAnalysis, record.job_analysis_id)
-        record.truthfulness_report = await build_self_audit_report(
+        record.truthfulness_report = await _truth_audit(
             profile.profile_json if profile else {},
-            tailored_data=audited.model_dump(mode="json"),
-            provider=get_provider(),
+            audited.model_dump(mode="json"),
             document_language=(
                 record.document_language
                 or (resolve_jd_language(judgement_job) if judgement_job else None)
@@ -6583,7 +6820,14 @@ async def _update_ats_report(
     # of the other blocks' locals: an ATS/truthfulness failure must never
     # take the critic down, or vice versa. Advisory-only, never gates
     # delivery (see run_pass_a's own short-circuits, SF-CRITIC.1/.8).
+    #
+    # ADR-099 cl. 8 (UAT-2 fix round, WP-B): on the GENERATION path the critic now
+    # runs inside the loop, before the terminal review (``_in_loop_critic``), and
+    # its findings reach the corrector; this post-commit run is dropped there
+    # (``critic=False`` — no extra call). The re-audit doors keep it.
     try:
+        if not critic:
+            raise _SkipCritic
         from applire.services.cv_section_editor import apply_overrides_to_tailored
         from applire.services.jd_excerpt import build_jd_excerpt
         from applire.services.outcome_critic import run_pass_a
@@ -6609,6 +6853,8 @@ async def _update_ats_report(
         )
         _set_llm_log_stage("cv_audit")
         record.critic_report = critic_report.model_dump(mode="json")
+    except _SkipCritic:
+        pass  # the generation's in-loop critic report stands
     except Exception:
         logger.exception(
             "Outcome critic Pass A failed for CV %s — critic_report left NULL",
@@ -6717,6 +6963,15 @@ async def _update_ats_report(
             "docx ATS audit failed for CV %s — docx_ats_report left NULL", record.id
         )
         record.docx_ats_report = None
+    # ADR-099 cl. 4(d)/5 (WP-B): every audit door carries the delivery state — the
+    # loop's own (``review_degradation``; None on the agent door) and the removals
+    # the generation recorded (carried across a re-audit of the same CV).
+    from applire.services.finding_registry import apply_delivery
+
+    record.ats_report = apply_delivery(
+        record.ats_report, review_degradation=getattr(record, "review_degradation", None),
+        previous=previous_report,
+    )
     if commit:
         await db.commit()
 

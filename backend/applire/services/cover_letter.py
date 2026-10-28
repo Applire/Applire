@@ -2308,6 +2308,42 @@ async def _render_cover_letter_body(
                     checks_fn=v2_signal_fn,
                 )
 
+                # ADR-099 cl. 6 (UAT-2 fix round, WP-B): the letter's TRUTH round —
+                # the CV's attribution round, which the letter never had, widened to
+                # the unbacked family. ONE corrector call on the settled draft, the
+                # loop's own corrector prompt; its audit is the delivered report's
+                # instrument (``_letter_truth_audit``). Never a gate; what it could
+                # not fix is class-A residue on the delivered report.
+                truth_round = None
+                try:
+                    from applire.services.attribution_round import run_truth_round
+
+                    truth_round = await run_truth_round(
+                        letter_data,
+                        report=await _letter_truth_audit(
+                            profile.profile_json if profile else {},
+                            letter_data,
+                            form_inputs=pre_gen or None,
+                            document_language=detected_language,
+                        ),
+                        profile_json=profile.profile_json if profile else {},
+                        source_material=grounding_source,
+                        provider=provider,
+                        system=letter_loop_prompts(is_v2)[2],
+                        document="cover_letter",
+                        prompt_fn=corrector_prompt_fn,
+                    )
+                    if truth_round.applied and letter_shape_ok(truth_round.draft):
+                        letter_data = truth_round.draft
+                    elif truth_round.applied:
+                        logger.warning("TRUTH_ROUND (letter): corrected draft failed the shape check — kept the settled draft")
+                        truth_round.applied, truth_round.removed = False, []
+                except Exception:
+                    logger.exception(
+                        "ADR-099 letter truth round failed for %s — skipped; generation "
+                        "continues with the settled draft", cl_id,
+                    )
+
                 # #420 (ADR-021 amended 2026-08-02): with prefer_if gone from this
                 # loop, an over-budget settle that never trips the page gate below
                 # ships wordy — recorded, never resolved by reverting content.
@@ -2382,6 +2418,16 @@ async def _render_cover_letter_body(
                 _reviews_enabled = (
                     LLM_REVIEW_MAX_RETRIES > 0 and LETTER_TERMINAL_REVIEW_MAX_RETRIES > 0
                 )
+                # ADR-099 cl. 8 (UAT-2 fix round, WP-B): the outcome critic runs HERE,
+                # once, before the terminal review; a numeric inconsistency between
+                # the letter and the CV rides the terminal rounds as an advisory
+                # finding for the corrector (aligned to the profile). The post-commit
+                # run is dropped on this path (``critic=False`` below).
+                _critic_adv = await _in_loop_letter_critic(cl, db, letter_data)
+                if is_v2 and _critic_adv:
+                    from applire.services.letter_v2 import combine_signal_fns as _combine
+
+                    v2_signal_fn = _combine(v2_signal_fn, _letter_critic_fn(_critic_adv))
                 tr = await _terminal_review_letter(
                     cl, db,
                     draft=letter_data,
@@ -2447,7 +2493,7 @@ async def _render_cover_letter_body(
                     # 'generating'). An audit failure is non-fatal: it leaves
                     # ats_report NULL and we still flip ready.
                     await _update_ats_report_letter(
-                        cl, db, pdf=pdf_bytes,
+                        cl, db, pdf=pdf_bytes, critic=False,
                         pins=letter_pins, truth_floor_hits=pin_floor_hits,
                         # #703: the delivery's repeated demands, measured against
                         # the letter this audit reads.
@@ -2536,6 +2582,17 @@ async def _render_cover_letter_body(
 
                 # #786 (WP-T): the degraded review steps ride the ready-commit.
                 cl.review_degradation = degradation.as_json()
+                # ADR-099 cl. 4(d)/5 (WP-B): the delivery state rides the report.
+                from applire.services.finding_registry import delivered_report
+
+                cl.ats_report = delivered_report(
+                    cl.ats_report,
+                    review_degradation=cl.review_degradation,
+                    truthfulness=cl.truthfulness_report,
+                    delivered_data=cl.letter_data or {},
+                    truth_round=truth_round,
+                    pins=letter_pins,
+                )
                 # Now flip to 'ready' — the report is already committed, so the frontend's
                 # single fetch always sees it.
                 cl.status = CoverLetterStatus.ready.value
@@ -4488,6 +4545,200 @@ async def _label_application(db: AsyncSession, cl: GeneratedCoverLetter):
         return None
 
 
+async def _letter_truth_audit(
+    profile_json: dict,
+    letter_data: dict,
+    *,
+    form_inputs: dict | None,
+    document_language: str | None,
+) -> dict | None:
+    """ADR-099 cl. 4(b) — the ONE truthfulness instrument of a letter: the truth
+    round in generation and the delivered report call this with the same provider,
+    form inputs and document language. Never raises."""
+    from applire.services.oracle.selfaudit import build_self_audit_report
+
+    return await build_self_audit_report(
+        profile_json,
+        letter_data=letter_data,
+        provider=get_provider(),
+        form_inputs=form_inputs,
+        document_language=document_language,
+    )
+
+
+async def _in_loop_letter_critic(cl, db: AsyncSession, letter_data: dict) -> list:
+    """ADR-099 cl. 8: one Pass-B run on the composed letter before the terminal
+    review; persists ``critic_report`` and returns the ``numeric_inconsistency``
+    advisories for the corrector. Never raises."""
+    from applire.providers.llm.debug_log import current_call_site
+
+    prior = current_call_site()[0]
+    try:
+        report = await _run_letter_critic(cl, db, letter_data, restore_stage=prior)
+        cl.critic_report = report.model_dump(mode="json")
+        return [a for a in report.advisories or []
+                if a.kind == "numeric_inconsistency" and a.letter_state]
+    except Exception:
+        logger.exception("in-loop outcome critic failed for cover letter %s — critic_report left NULL", cl.id)
+        cl.critic_report = None
+        return []
+
+
+def _letter_critic_fn(advisories: list):
+    """The critic's numeric inconsistencies as ADVISORY letter findings (residue S,
+    ADR-099 cl. 8). Rides only while the letter still carries the quoted
+    sentence (a presence fact); the profile value is never pasted — the corrector
+    re-reads the candidate profile."""
+    from applire.services.reviewer import CheckFinding
+
+    def fn(draft: dict) -> list:
+        paras = ((draft or {}).get("body") or {}).get("paragraphs") or []
+        hay = " ".join(p for p in paras if isinstance(p, str)).casefold()
+        out = []
+        for a in advisories[:2]:   # the letter's per-family cap
+            state = (a.letter_state or "").strip()
+            if not state or state.casefold() not in hay:
+                continue
+            out.append(CheckFinding(
+                check="letter.critic_numeric",
+                text=(
+                    f'The sentence "{state}" states a figure for {a.concept} that differs '
+                    "from the CV. Re-read the candidate profile and state the figure the "
+                    "profile records, or drop the figure; never add a fact."
+                ),
+                blocking=False,
+                subjects=(state,),
+            ))
+        return out
+
+    return fn
+
+
+class _SkipLetterCritic(Exception):
+    """Control flow only: the generation path's critic ran in the loop."""
+
+
+async def _run_letter_critic(cl, db: AsyncSession, letter_for_critic: dict, *, restore_stage: str):
+    """ADR-060 Pass B on ``letter_for_critic`` and the CV the user has for this
+    job — one implementation for the in-loop run (ADR-099 cl. 8) and the
+    re-audit doors. Raises on failure; callers are fail-open."""
+    from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
+    from applire.services.outcome_critic import run_pass_b
+
+    from applire.services.application import get_application_for_job
+
+    job_row = await db.get(JobAnalysis, cl.job_analysis_id)
+    critic_application = await get_application_for_job(
+        cl.job_analysis_id, cl.user_id, db
+    )
+    ledger = await _latest_keyword_ledger(db, cl.job_analysis_id, user_id=cl.user_id)
+    audited_letter = letter_for_critic
+
+    # Pass B needs BOTH documents (ADR-060 amended 2026-07-30). Resolution
+    # corrected 2026-07-31 (third amendment / SF-CRITIC.10): resolving the
+    # CV EXCLUSIVELY via flow.generated_cv_id starved this pass on every
+    # direct-generation path — that field is populated only by an explicit
+    # flow-advance-to-complete with the CV as artifact_id, which a direct
+    # generate_cv call (charter runs; agent-door runs that never advance
+    # the flow) never performs. Run-11 ground truth: `ran:false,
+    # reason:missing_cv` persisted while a ready CV for the same job sat
+    # two minutes away. Fallback is deterministic: the latest ready
+    # GeneratedCV for the SAME job_analysis_id. Both paths log which one
+    # resolved, so a starved run is diagnosable from the log alone.
+    cv_record = None
+    flow_result = await db.execute(
+        select(FlowSession).where(
+            FlowSession.job_id == cl.job_analysis_id,
+            FlowSession.user_id == cl.user_id,
+            FlowSession.deleted_at.is_(None),
+        )
+    )
+    flow = flow_result.scalar_one_or_none()
+    if flow is not None and flow.generated_cv_id is not None:
+        cv_record = await owned_row(
+            db, GeneratedCV, flow.generated_cv_id, cl.user_id, live=False
+        )
+    if cv_record is None:
+        fallback_result = await db.execute(
+            select(GeneratedCV)
+            .where(
+                GeneratedCV.job_analysis_id == cl.job_analysis_id,
+                GeneratedCV.user_id == cl.user_id,
+                GeneratedCV.status == CVGenerationStatus.ready.value,
+            )
+            .order_by(GeneratedCV.created_at.desc())
+            .limit(1)
+        )
+        cv_record = fallback_result.scalar_one_or_none()
+        if cv_record is not None:
+            logger.info(
+                "outcome critic (letter mount): CV resolved via latest-ready "
+                "fallback for job %s (flow link absent — SF-CRITIC.10)",
+                cl.job_analysis_id,
+            )
+    else:
+        logger.info(
+            "outcome critic (letter mount): CV resolved via flow.generated_cv_id"
+        )
+
+    # The critic must judge the CV the user actually has — overrides
+    # applied, exactly as the render path does (the letter side already
+    # applied its own overrides above; asymmetry found 2026-07-31).
+    cv_tailored: dict | None = None
+    if cv_record is not None:
+        cv_tailored = cv_record.tailored_data
+        if cv_record.section_overrides:
+            from applire.schemas.cv import TailoredCVData
+            from applire.services.cv_section_editor import (
+                apply_overrides_to_tailored,
+            )
+
+            try:
+                cv_tailored = apply_overrides_to_tailored(
+                    TailoredCVData.model_validate(cv_record.tailored_data),
+                    cv_record.content_snapshot,
+                    cv_record.section_overrides,
+                ).model_dump(mode="json")
+            except Exception:
+                # Advisory pass: a row that fails strict validation (legacy
+                # shape) is judged un-overridden rather than not at all.
+                logger.warning(
+                    "outcome critic (letter mount): could not apply CV "
+                    "section overrides for %s — judging the raw "
+                    "tailored_data instead",
+                    cv_record.id,
+                )
+
+    from applire.services.jd_excerpt import build_jd_excerpt
+
+    critic_provider = get_provider()
+    # Build-2 contract 2 (the stage-label leak, #538/#539 pattern): this
+    # function set `letter_audit` at its head (line ~2752) and `set_stage`
+    # is imperative — it never restores — so the critic's OWN calls were
+    # logged under `letter_audit`. Measured on the 2026-09-05 delivery run:
+    # every Pass-B record carried the audit's label, which is why the
+    # inventory read 165/165 outcome-critic records mislabelled. Set it
+    # here and put the audit's label back afterwards, so anything later in
+    # this function stays attributed to the audit.
+    _set_llm_log_stage("outcome_critic")
+    try:
+        critic_report = await run_pass_b(
+            cv_tailored=cv_tailored,
+            letter_data=audited_letter,
+            keyword_ledger=ledger,
+            # ADR-092 cl. 5(f): the owner's own label for the posting.
+            job_role_title=(
+                effective_posting_labels(job_row, critic_application)[0]
+                if job_row else None
+            ),
+            jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
+            provider=critic_provider,
+        )
+    finally:
+        _set_llm_log_stage(restore_stage)
+    return critic_report
+
+
 async def _update_ats_report_letter(
     cl: GeneratedCoverLetter,
     db: AsyncSession,
@@ -4495,6 +4746,7 @@ async def _update_ats_report_letter(
     pins: list | None = None,
     truth_floor_hits: set | frozenset = frozenset(),
     terminal_review=None,
+    critic: bool = True,
 ) -> None:
     """ADR-039 — letter twin of services/cv.py:_update_ats_report.
 
@@ -4624,10 +4876,9 @@ async def _update_ats_report_letter(
         # deleted) leaves it ``None`` — the seam then stays off, fail-open,
         # exactly like the pre-ADR-068 report.
         judgement_job = await db.get(JobAnalysis, cl.job_analysis_id)
-        cl.truthfulness_report = await build_self_audit_report(
+        cl.truthfulness_report = await _letter_truth_audit(
             profile_row.profile_json if profile_row else {},
-            letter_data=audited,
-            provider=get_provider(),
+            audited,
             # B3-10 (WP-FO): what the candidate typed into THIS letter's form is
             # their own statement for this letter — neutral, never vault evidence.
             form_inputs=cl.pre_gen_inputs or None,
@@ -4652,120 +4903,17 @@ async def _update_ats_report_letter(
     # Non-fatal, never gates delivery; see run_pass_b's own docstring for the
     # full set of short-circuits (SF-CRITIC.1/.8).
     try:
-        from applire.services.outcome_critic import run_pass_b
-
-        from applire.services.application import get_application_for_job
-
-        job_row = await db.get(JobAnalysis, cl.job_analysis_id)
-        critic_application = await get_application_for_job(
-            cl.job_analysis_id, cl.user_id, db
+        # ADR-099 cl. 8 (WP-B): generation runs this critic in the loop, before the
+        # terminal review (``critic=False`` here — no extra call); the doors keep it.
+        if not critic:
+            raise _SkipLetterCritic
+        critic_report = await _run_letter_critic(
+            cl, db, _apply_section_overrides(cl.letter_data, cl.section_overrides or {}),
+            restore_stage="letter_audit",
         )
-        ledger = await _latest_keyword_ledger(db, cl.job_analysis_id, user_id=cl.user_id)
-        audited_letter = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
-
-        # Pass B needs BOTH documents (ADR-060 amended 2026-07-30). Resolution
-        # corrected 2026-07-31 (third amendment / SF-CRITIC.10): resolving the
-        # CV EXCLUSIVELY via flow.generated_cv_id starved this pass on every
-        # direct-generation path — that field is populated only by an explicit
-        # flow-advance-to-complete with the CV as artifact_id, which a direct
-        # generate_cv call (charter runs; agent-door runs that never advance
-        # the flow) never performs. Run-11 ground truth: `ran:false,
-        # reason:missing_cv` persisted while a ready CV for the same job sat
-        # two minutes away. Fallback is deterministic: the latest ready
-        # GeneratedCV for the SAME job_analysis_id. Both paths log which one
-        # resolved, so a starved run is diagnosable from the log alone.
-        cv_record = None
-        flow_result = await db.execute(
-            select(FlowSession).where(
-                FlowSession.job_id == cl.job_analysis_id,
-                FlowSession.user_id == cl.user_id,
-                FlowSession.deleted_at.is_(None),
-            )
-        )
-        flow = flow_result.scalar_one_or_none()
-        if flow is not None and flow.generated_cv_id is not None:
-            cv_record = await owned_row(
-                db, GeneratedCV, flow.generated_cv_id, cl.user_id, live=False
-            )
-        if cv_record is None:
-            fallback_result = await db.execute(
-                select(GeneratedCV)
-                .where(
-                    GeneratedCV.job_analysis_id == cl.job_analysis_id,
-                    GeneratedCV.user_id == cl.user_id,
-                    GeneratedCV.status == CVGenerationStatus.ready.value,
-                )
-                .order_by(GeneratedCV.created_at.desc())
-                .limit(1)
-            )
-            cv_record = fallback_result.scalar_one_or_none()
-            if cv_record is not None:
-                logger.info(
-                    "outcome critic (letter mount): CV resolved via latest-ready "
-                    "fallback for job %s (flow link absent — SF-CRITIC.10)",
-                    cl.job_analysis_id,
-                )
-        else:
-            logger.info(
-                "outcome critic (letter mount): CV resolved via flow.generated_cv_id"
-            )
-
-        # The critic must judge the CV the user actually has — overrides
-        # applied, exactly as the render path does (the letter side already
-        # applied its own overrides above; asymmetry found 2026-07-31).
-        cv_tailored: dict | None = None
-        if cv_record is not None:
-            cv_tailored = cv_record.tailored_data
-            if cv_record.section_overrides:
-                from applire.schemas.cv import TailoredCVData
-                from applire.services.cv_section_editor import (
-                    apply_overrides_to_tailored,
-                )
-
-                try:
-                    cv_tailored = apply_overrides_to_tailored(
-                        TailoredCVData.model_validate(cv_record.tailored_data),
-                        cv_record.content_snapshot,
-                        cv_record.section_overrides,
-                    ).model_dump(mode="json")
-                except Exception:
-                    # Advisory pass: a row that fails strict validation (legacy
-                    # shape) is judged un-overridden rather than not at all.
-                    logger.warning(
-                        "outcome critic (letter mount): could not apply CV "
-                        "section overrides for %s — judging the raw "
-                        "tailored_data instead",
-                        cv_record.id,
-                    )
-
-        from applire.services.jd_excerpt import build_jd_excerpt
-
-        critic_provider = get_provider()
-        # Build-2 contract 2 (the stage-label leak, #538/#539 pattern): this
-        # function set `letter_audit` at its head (line ~2752) and `set_stage`
-        # is imperative — it never restores — so the critic's OWN calls were
-        # logged under `letter_audit`. Measured on the 2026-09-05 delivery run:
-        # every Pass-B record carried the audit's label, which is why the
-        # inventory read 165/165 outcome-critic records mislabelled. Set it
-        # here and put the audit's label back afterwards, so anything later in
-        # this function stays attributed to the audit.
-        _set_llm_log_stage("outcome_critic")
-        try:
-            critic_report = await run_pass_b(
-                cv_tailored=cv_tailored,
-                letter_data=audited_letter,
-                keyword_ledger=ledger,
-                # ADR-092 cl. 5(f): the owner's own label for the posting.
-                job_role_title=(
-                    effective_posting_labels(job_row, critic_application)[0]
-                    if job_row else None
-                ),
-                jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
-                provider=critic_provider,
-            )
-        finally:
-            _set_llm_log_stage("letter_audit")
         cl.critic_report = critic_report.model_dump(mode="json")
+    except _SkipLetterCritic:
+        pass
     except Exception:
         logger.exception(
             "Outcome critic Pass B failed for cover letter %s — critic_report left NULL",
@@ -4871,6 +5019,16 @@ async def _update_ats_report_letter(
             cl.id,
         )
         cl.docx_ats_report = None
+    # ADR-099 cl. 4(d)/5 (WP-B): every audit door carries the delivery state;
+    # cl. 7: a "behalten" on the letter's page card decides its length row.
+    from applire.services.ats_audit import decide_kept_letter_page_length
+    from applire.services.finding_registry import apply_delivery
+
+    cl.ats_report = apply_delivery(
+        decide_kept_letter_page_length(cl.ats_report, getattr(cl, "review_state", None)),
+        review_degradation=getattr(cl, "review_degradation", None),
+        previous=previous_report,
+    )
     await db.commit()
 
 

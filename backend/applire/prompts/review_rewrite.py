@@ -199,3 +199,72 @@ def build_review_rewrite_prompt(
         "----- PASSAGE END -----",
     ]
     return "\n".join(parts)
+
+
+# ── ADR-099 cl. 6/9 (UAT-2 fix round, WP-B): the delivery actions' ONE-sentence edit ──
+#
+# The review surface's class-A answers that need a model edit of exactly one
+# sentence: move it to the station that owns the evidence, narrow it to what the
+# profile states, rewrite it as a goal, translate it. User-triggered, shown,
+# re-audited and reversible (the ADR-090 cl. 3 carve-out ADR-099 cl. 9 extends).
+# One prompt for the four modes so the shared rules exist once (ADR-066).
+
+DELIVERY_EDIT_SYSTEM_PROMPT = """\
+You edit ONE sentence of a job-application document (a CV bullet or a sentence of a \
+cover letter) because the candidate answered a question about it. You are an editor \
+making one change, not a writer improving the text.
+
+Rules:
+1. Do exactly the change named under TASK — nothing else.
+2. Add nothing: no claim, skill, tool, figure, employer, date or qualification that the \
+SENTENCE or the PROFILE EXCERPT does not state. A number may only appear if the \
+SENTENCE already contains it, or (for the task NARROW) the PROFILE EXCERPT states it.
+3. Keep every fact the task does not remove: employers, titles, dates, numbers, tools, \
+results. Keep the original words wherever the task does not force a change.
+4. Write in the OUTPUT LANGUAGE. One sentence or one bullet line, the same form as the \
+input (a CV bullet stays a bullet without a marker; a letter sentence stays a full \
+sentence).
+5. Output only the edited sentence: no commentary, no quotation marks, no markdown. \
+When the task leaves nothing true to say, output exactly: <EMPTY>"""
+
+_DELIVERY_TASKS = {
+    "move": (
+        "MOVE: the fact belongs to the role named under STATION. Rewrite the sentence so "
+        "it reads correctly under that role (for a letter: so it names that role or "
+        "employer). Keep the fact itself unchanged."
+    ),
+    "narrow": (
+        "NARROW: the candidate profile does not back part of this sentence. Rewrite it so "
+        "it states only what the PROFILE EXCERPT backs; drop the unbacked term, figure, "
+        "credential or duration. When nothing of it is backed, output <EMPTY>."
+    ),
+    "as_goal": (
+        "AS GOAL: the sentence states as achieved what the candidate has not achieved. "
+        "Rewrite it as the aim or task the candidate works on, never as a result."
+    ),
+    "translate": (
+        "TRANSLATE: the sentence is not written in the OUTPUT LANGUAGE. Translate it into "
+        "the OUTPUT LANGUAGE, keeping every fact, figure and proper name."
+    ),
+}
+
+
+def build_delivery_edit_prompt(
+    mode: str,
+    sentence: str,
+    *,
+    language: str,
+    station: str | None = None,
+    profile_excerpt: str | None = None,
+) -> str:
+    """The user prompt of one delivery edit (``DELIVERY_EDIT_SYSTEM_PROMPT``)."""
+    parts = [
+        f"TASK:\n{_DELIVERY_TASKS[mode]}",
+        f"OUTPUT LANGUAGE: {language_name(language)}",
+    ]
+    if station:
+        parts.append(f"STATION:\n{station}")
+    if profile_excerpt:
+        parts.append(f"PROFILE EXCERPT:\n{profile_excerpt}")
+    parts.append(f"SENTENCE:\n{sentence}")
+    return "\n\n".join(parts)

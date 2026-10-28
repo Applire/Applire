@@ -1575,6 +1575,10 @@
       "narrative-evidence-absent": "Dein Profil belegt diese Anforderungen der Stelle, im Lebenslauf fehlen sie ganz: {terms}.",
       "narrative-evidence-absent-also": "Ganz fehlen: {terms}.",
       "narrative-evidence-more": "… und {count} weitere.",
+      "narrative-evidence-not-applicable": "Ob die Anforderungen der Stelle in Deinen Stationen belegt sind, konnte nicht geprüft werden – für dieses Dokument liegt keine Stichwortauswertung vor.",
+      "skills-near-dupe": "Fast gleiche Skills stehen doppelt in der Liste: {pairs}.",
+      "duplicate-bullets": "Zwei Punkte sagen dasselbe: {pairs}.",
+      "duplicate-project": "Dasselbe Projekt steht zweimal im Lebenslauf: {pairs}.",
       "employer-repetition": "„{employer}“ steht in Absatz {paragraph} am Anfang von {count} Sätzen{more, plural, =0 {} one { (und in einem weiteren Absatz)} other { (und in # weiteren Absätzen)}}. So oft wiederholt wirkt der Name maschinell geschrieben — ein Rückbezug wie „dort“ liest sich natürlicher."
     },
     "pinnedFacts": {

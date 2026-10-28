@@ -100,6 +100,10 @@ class DeliveryState(BaseModel):
 
     loop_clean: Optional[bool] = None
     removals: list[DeliveryRemoval] = Field(default_factory=list)
+    # WP-B (additive): registry kinds the generation loop raised in some round
+    # and that are absent from the delivered report — what the passed line
+    # "N Prüfungen bestanden" counts beside the passed checks (ADR-099 cl. 3).
+    fixed: list[str] = Field(default_factory=list)
 
 
 class ATSCheck(BaseModel):
