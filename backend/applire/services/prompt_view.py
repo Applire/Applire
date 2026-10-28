@@ -396,12 +396,10 @@ def _label_reached_lines(view: dict[str, Any], source: dict[str, Any]) -> dict[s
     return out
 
 
-def aim_only_skill_names(profile: dict[str, Any]) -> set[str]:
-    """D-12: skill names whose every content token a ``not_yet_reached`` line carries
-    while no other narrative line of the profile carries them all (token presence,
-    ADR-062 cl. 1). A skill no line carries at all is not aim-only (unknown)."""
-    from applire.services.ats_audit import skill_tokens
-
+def aim_and_other_lines(profile: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """D-12: the profile's ``not_yet_reached`` lines, and every OTHER narrative line
+    (responsibilities, achievements, a description that is more than the entry's
+    own aims, signature stories)."""
     nyr: list[str] = []
     other: list[str] = []
     for section in ("work_experience", "projects"):
@@ -421,6 +419,16 @@ def aim_only_skill_names(profile: dict[str, Any]) -> set[str]:
     for st in profile.get("signature_stories") or []:
         if isinstance(st, dict):
             other.extend(str(v) for v in st.values() if isinstance(v, str))
+    return nyr, other
+
+
+def aim_only_skill_names(profile: dict[str, Any]) -> set[str]:
+    """D-12: skill names whose every content token a ``not_yet_reached`` line carries
+    while no other narrative line of the profile carries them all (token presence,
+    ADR-062 cl. 1). A skill no line carries at all is not aim-only (unknown)."""
+    from applire.services.ats_audit import skill_tokens
+
+    nyr, other = aim_and_other_lines(profile)
     if not nyr:
         return set()
     nyr_t = [skill_tokens(x) for x in nyr]

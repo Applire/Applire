@@ -93,3 +93,51 @@ def test_the_jd_required_block_never_asks_for_two_joined_names():
     block = build_v2_fields_block({}, required_vault_skills=["AI governance frameworks", "AI governance & risk management"])
     assert "carries both forms" not in block
     assert 'never two names joined by ";"' in block
+
+
+# ── D-12 ledger side (main): an aim-only row is not claimable as held ────────
+
+def _ledger() -> list[dict]:
+    return [
+        {"concept": "AI governance", "status": "direct", "claimable": True, "sources": ["required"],
+         "fit_weight": 1.0, "surface_forms": ["AI governance & risk management"], "evidence": "lists it",
+         "jd_phrase": "AI governance experience"},
+        {"concept": "Python", "status": "direct", "claimable": True, "sources": ["required"],
+         "fit_weight": 1.0, "surface_forms": ["Python"], "evidence": "lists it"},
+    ]
+
+
+def test_a_ledger_row_only_an_aim_backs_is_not_claimable_and_reads_as_an_aim():
+    from applire.services.keyword_ledger import (
+        AIM_ONLY_EVIDENCE, forbidden_terms_in_draft, refresh_ledger_against_vault,
+        render_ledger_prompt_block, split_ledger_for_prompt,
+    )
+
+    ledger, changed = refresh_ledger_against_vault(_ledger(), _vault(), seam="test")
+    assert changed
+    gov = ledger[0]
+    assert (gov["status"], gov["claimable"], gov["aim_only"], gov["evidence"]) == ("gap", False, True, AIM_ONLY_EVIDENCE)
+    assert "jd_phrase" not in gov
+    assert ledger[1]["claimable"] is True
+    claimable, forbidden = split_ledger_for_prompt(ledger)
+    assert [e["concept"] for e in claimable] == ["Python"] and forbidden == []
+    block = render_ledger_prompt_block(ledger)
+    assert "AIMS ONLY" in block and "  - AI governance" in block.split("AIMS ONLY", 1)[1]
+    # the mandate sentence is not a forbidden-term hit
+    assert forbidden_terms_in_draft({"summary": "Mandate to establish AI governance frameworks."}, ledger) == []
+
+
+def test_negative_control_one_more_narrative_line_keeps_it_claimable():
+    from applire.services.keyword_ledger import enforce_aim_only_stance
+
+    v = _vault()
+    v["work_experience"][1]["responsibilities"].append("Set up AI governance and risk management for GxP systems.")
+    assert [e.get("claimable") for e in enforce_aim_only_stance(_ledger(), v)] == [True, True]
+
+
+def test_no_not_yet_reached_line_no_change():
+    from applire.services.keyword_ledger import enforce_aim_only_stance
+
+    v = _vault()
+    v["projects"] = []
+    assert enforce_aim_only_stance(_ledger(), v) == _ledger()

@@ -779,6 +779,59 @@ def _enforce_denial_stance(
     return result
 
 
+#: D-12 (Hazelnut build 5): the evidence an aim-only row carries.
+AIM_ONLY_EVIDENCE = (
+    "Not claimable as held: only a goal the candidate said is not reached yet backs it "
+    "— state it only as that aim."
+)
+
+
+def is_aim_only(entry: dict[str, Any] | None) -> bool:
+    """A row :func:`enforce_aim_only_stance` demoted (D-12)."""
+    return isinstance(entry, dict) and entry.get("aim_only") is True
+
+
+def enforce_aim_only_stance(
+    ledger: list[dict[str, Any]], profile_json: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """D-12 (main, Hazelnut build 5): a CLAIMABLE row whose every backing is the
+    candidate's own "not reached yet" answer — a ``not_yet_reached`` line or a skill
+    only such a line backs (:func:`prompt_view.aim_only_skill_names`) — is not
+    claimable as held. It becomes ``gap``/unclaimable with ``aim_only: True``; the
+    writer block lists it under AIMS ONLY. A row one more narrative line or another
+    claimable skill backs stays as it is. Token presence (ADR-062 cl. 1). Pure."""
+    if not ledger or not profile_json:
+        return list(ledger or [])
+    from applire.services.ats_audit import skill_tokens
+    from applire.services.profile.reconcile.stance import claimable_skill_names
+    from applire.services.prompt_view import aim_and_other_lines, aim_only_skill_names
+
+    nyr, other = aim_and_other_lines(profile_json)
+    if not nyr:
+        return list(ledger)
+    aim_skills = aim_only_skill_names(profile_json)
+    nyr_t = [skill_tokens(x) for x in nyr] + [skill_tokens(x) for x in aim_skills]
+    other_t = [skill_tokens(x) for x in other] + [
+        skill_tokens(x) for x in claimable_skill_names(profile_json) if x not in aim_skills
+    ]
+    out: list[dict[str, Any]] = []
+    for entry in ledger:
+        if not isinstance(entry, dict) or not entry.get("claimable") or is_scope_entry(entry):
+            out.append(entry)
+            continue
+        forms = [t for t in (skill_tokens(f) for f in [entry.get("concept") or "", *(entry.get("surface_forms") or [])]) if t]
+        backs_aim = any(f <= t for f in forms for t in nyr_t)
+        backs_other = any(f <= t for f in forms for t in other_t)
+        if backs_aim and not backs_other:
+            row = {k: v for k, v in entry.items() if k not in ("jd_phrase", "adjacent_evidence")}
+            row.update(status="gap", claimable=False, evidence=AIM_ONLY_EVIDENCE, aim_only=True)
+            logger.info("enforce_aim_only_stance: %r backed only by a not-yet-reached aim — unclaimable", entry.get("concept"))
+            out.append(row)
+        else:
+            out.append(entry)
+    return out
+
+
 def split_ledger_for_prompt(
     keyword_ledger: list[dict[str, Any]] | None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -806,8 +859,8 @@ def split_ledger_for_prompt(
     claimable: list[dict[str, Any]] = []
     forbidden: list[str] = []
     for entry in keyword_ledger or []:
-        if is_scope_entry(entry):
-            continue
+        if is_scope_entry(entry) or is_aim_only(entry):
+            continue  # D-12: an aim-only row is neither — the AIMS ONLY line names it
         if entry.get("claimable"):
             claimable.append(entry)
         else:
@@ -1039,7 +1092,8 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
     is empty so legacy callers and pre-E037 rows add nothing.
     """
     claimable, forbidden = split_ledger_for_prompt(keyword_ledger)
-    if not claimable and not forbidden:
+    aims = [e.get("concept", "") for e in keyword_ledger or [] if is_aim_only(e) and e.get("concept")]
+    if not claimable and not forbidden and not aims:
         return ""
 
     # ADR-084 embedding point 15 (Form B). Every `concept`, `surface_forms`
@@ -1148,7 +1202,21 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
         for concept in denied:
             lines.append(f"  - {concept}")
 
+    lines += _aims_only_lines(aims)
     return "\n".join(lines)
+
+
+def _aims_only_lines(aims: list[str]) -> list[str]:
+    """D-12: the AIMS ONLY section — both ledger blocks render it the same way."""
+    if not aims:
+        return []
+    return [
+        "",
+        "AIMS ONLY (the candidate said these are not reached yet): name one only as the aim "
+        "or mandate the profile's not_yet_reached line states — never as a skill, a held "
+        "competence or a result:",
+        *(f"  - {c}" for c in aims),
+    ]
 
 
 def claimable_surface_forms(
@@ -1349,7 +1417,8 @@ def render_ledger_reviewer_block(
     suggestion, never licence to fabricate. Returns "" for an empty/legacy ledger.
     """
     claimable, forbidden = split_ledger_for_prompt(keyword_ledger)
-    if not claimable and not forbidden:
+    aims = [e.get("concept", "") for e in keyword_ledger or [] if is_aim_only(e) and e.get("concept")]
+    if not claimable and not forbidden and not aims:
         return ""
 
     # ADR-084 embedding point 16 (Form B) — the reviewer's copy of point 15.
@@ -1387,6 +1456,7 @@ def render_ledger_reviewer_block(
     else:
         lines.append("  (none)")
 
+    lines += _aims_only_lines(aims)
     return "\n".join(lines)
 
 
@@ -2863,6 +2933,12 @@ def refresh_ledger_against_vault(
     ledger, changed = reevaluate_gap_ledger_against_vault(keyword_ledger, profile_json)
     if changed:
         ledger, changed = _keep_whole_token_lifts(keyword_ledger, ledger, seam=seam)
+    # D-12 (Hazelnut build 5): the one demotion this read seam owns — the
+    # candidate's own "not reached yet" answer usually arrives AFTER the analysis
+    # (the interview), so a stale claimable row would otherwise reach the writer.
+    aimed = enforce_aim_only_stance(ledger, profile_json)
+    if any(a is not b for a, b in zip(aimed, ledger)):
+        ledger, changed = aimed, True
     if changed:
         after = [(e.get("concept"), e.get("status")) for e in ledger if isinstance(e, dict)]
         moved = [
@@ -4071,6 +4147,7 @@ def build_keyword_ledger(
     # #486 amendment clause (b) documents recurs.
     vault_corpus = denial_release_corpus(profile_json)
     ledger = _enforce_denial_stance(ledger, denied_concepts, vault_corpus or None)
+    ledger = enforce_aim_only_stance(ledger, profile_json)  # D-12
     # #260: final pass — stamp narrative_backed so downstream consumers (the
     # pre-generation summary, the agent-channel ledger surface) can single
     # out a claimable-but-unstoried hard requirement without re-deriving it.
