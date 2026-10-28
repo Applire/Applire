@@ -87,6 +87,10 @@ PROMPT_EXCLUDED_METADATA_KEYS: frozenset[str] = frozenset(
         # History for the profile view only; a prompt reading them would treat
         # a withdrawn limit as a live one.
         "withdrawn_denials",
+        # Hazelnut build 5 (U-9, ADR-046 am.): kept-separate entry pairs and the
+        # model's same-position verdicts — read by the health hub only.
+        "separate_entry_pairs",
+        "entry_identity_verdicts",
     }
 )
 

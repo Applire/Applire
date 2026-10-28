@@ -75,6 +75,8 @@ REST_BODIES: dict[tuple[str, str], dict] = {
     ("POST", "/api/profile/staged/{staged_id}/resolve"): {"action": "discard"},
     ("POST", "/api/profile/enrich/{session_id}/respond"): {"answer": "Yes."},
     ("POST", "/api/session/{session_id}/message"): {"message": "Hello."},
+    # Hazelnut build 5 (ADR-099 cl. 11): "Zusammenführen" inside a review.
+    ("POST", "/api/session/{session_id}/merge-proposal"): {"conflict_id": "c1"},
     ("POST", "/api/flow/{flow_id}/advance"): {"step": "gap_analysis"},
     ("POST", "/api/cv/{cv_id}/sections/{section_id}/assist"): {"gap_id": "cluster-1"},
     ("PATCH", "/api/cv/{cv_id}/sections/{section_id}/assist"): {"session_id": str(uuid.UUID(int=9)), "answer": "Yes."},

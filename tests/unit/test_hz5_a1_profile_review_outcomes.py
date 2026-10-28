@@ -331,7 +331,7 @@ async def test_session_merge_proposal_is_verified_and_writes_nothing(db):
     p = await review_merge_proposal(created.session_id, "c1", db, Stub({"merged": good_text}))
     assert (p.proposal, p.verifier) == (good_text, "passed")
     assert _ach(await _vault(db, rec)) == [A_EXISTING]
-    with pytest.raises(LookupError):
+    with pytest.raises(ValueError):  # 422 — a 404 here means "not your session"
         await review_merge_proposal(created.session_id, "other", db, Stub())
 
 

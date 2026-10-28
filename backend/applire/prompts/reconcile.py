@@ -769,8 +769,8 @@ Operations:
        "existing": <the existing bullet, verbatim>,
        "incoming": <the new bullet, verbatim>}
     and do NOT also emit add_bullets for that bullet — the conflict itself
-    carries the new wording, and the user decides which one stands. Never settle
-    such a contradiction yourself by quietly dropping one of the two versions.
+    carries the new wording, and the user decides which one stands.
+    Never settle such a contradiction yourself by quietly dropping one of the two versions.
     THE TEST BEFORE EVERY BULLET CONFLICT: name the ONE thing both bullets are
     about and the two different VALUES they give it. If you cannot, it is not a
     conflict. Not conflicts, whatever entry or list position they share:

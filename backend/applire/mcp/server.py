@@ -478,7 +478,16 @@ def _profile_summary(profile_response) -> dict:
         "completeness": data.get("completeness"),
         "merge_conflicts": len(data.get("merge_conflicts") or []),
         "merge_status": data.get("merge_status"),
-        "not_applied": data.get("not_applied") or [],
+        # Hazelnut build 5 (UAT-3d): `ImportNotApplied` gained the hub's
+        # adopt fields (`item_key`, the captured `entry`, `adopted_at`,
+        # `adoptable`). "Übernehmen" is a REST/hub act, and the captured entry
+        # is the import's own content echoed back — the agent door keeps the
+        # three-field receipt it always had (black-box data minimisation).
+        "not_applied": [
+            {k: item.get(k) for k in ("section", "label", "reason")}
+            for item in (data.get("not_applied") or [])
+            if isinstance(item, dict)
+        ],
         # #674 line 72 (ADR-063 door parity) — the other half of the same
         # merge's honesty: `not_applied` says what the merge did not carry,
         # `matched` says which of those entries the vault already holds under

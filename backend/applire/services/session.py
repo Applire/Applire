@@ -1906,7 +1906,8 @@ async def review_merge_proposal(
         raise LookupError(f"Session {session_id} not found")
     clusters = (dict(record.state or {}).get("conflict_clusters") or {})
     if not any(c.get("conflict_id") == conflict_id for c in clusters.values()):
-        raise LookupError(f"Conflict '{conflict_id}' not in this review")
+        # 422, not 404: a 404 on this route means "not your session" (S-10).
+        raise ValueError(f"conflict_not_in_review: {conflict_id}")
     return await propose_conflict_merge(conflict_id, db, provider, user_id=uid)
 
 
