@@ -95,20 +95,22 @@ async function errorOf(res: Response): Promise<ReviewApiError> {
   return new ReviewApiError(res.status, code, message);
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+// Named `postJson` and called WITHOUT a type argument so the route tripwire
+// (tests/unit/test_frontend_route_tripwire.py) reads these calls as POST.
+async function postJson(path: string, body: unknown): Promise<unknown> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw await errorOf(res);
-  return res.json() as Promise<T>;
+  return res.json();
 }
 
 /** U-2 — start on the issue the user clicked (`HealthIssue.id`); an unknown or
  *  already-closed id falls back to the generic walk on the server. */
 export function startReview(issueId?: string | null): Promise<ReviewStart> {
-  return post<ReviewStart>("/api/session/profile-review", issueId ? { issue_id: issueId } : {});
+  return postJson("/api/session/profile-review", issueId ? { issue_id: issueId } : {}) as Promise<ReviewStart>;
 }
 
 export function answerWithOutcome(
@@ -116,18 +118,20 @@ export function answerWithOutcome(
   outcome: CommitOutcome,
   mergedText?: string,
 ): Promise<ReviewReply> {
-  return post<ReviewReply>(
+  return postJson(
     `/api/session/${sessionId}/message`,
     mergedText !== undefined ? { outcome, merged_text: mergedText } : { outcome },
-  );
+  ) as Promise<ReviewReply>;
 }
 
 export function answerWithText(sessionId: string, message: string): Promise<ReviewReply> {
-  return post<ReviewReply>(`/api/session/${sessionId}/message`, { message });
+  return postJson(`/api/session/${sessionId}/message`, { message }) as Promise<ReviewReply>;
 }
 
 export function requestMergeProposal(sessionId: string, conflictId: string): Promise<MergeProposal> {
-  return post<MergeProposal>(`/api/session/${sessionId}/merge-proposal`, { conflict_id: conflictId });
+  return postJson(`/api/session/${sessionId}/merge-proposal`, {
+    conflict_id: conflictId,
+  }) as Promise<MergeProposal>;
 }
 
 /**

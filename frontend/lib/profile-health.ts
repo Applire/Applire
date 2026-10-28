@@ -43,7 +43,8 @@ export function hubHasContent(health: ProfileHealth | null | undefined): boolean
 export const BUDGET_UNITS = ["EUR", "USD", "CHF", "GBP"] as const;
 export type BudgetUnit = (typeof BUDGET_UNITS)[number];
 
-async function postProfile(path: string, body: unknown): Promise<ProfileSectionsResponse | null> {
+// `postJson`: the route tripwire reads this helper's calls as POST.
+async function postJson(path: string, body: unknown): Promise<ProfileSectionsResponse | null> {
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
@@ -59,10 +60,10 @@ async function postProfile(path: string, body: unknown): Promise<ProfileSections
 
 /** UAT-3d — "Übernehmen" for ONE not-applied item, through the reconcile door. */
 export function adoptNotApplied(issueId: string, itemKey: string) {
-  return postProfile("/api/profile/not-applied/adopt", { issue_id: issueId, item_key: itemKey });
+  return postJson("/api/profile/not-applied/adopt", { issue_id: issueId, item_key: itemKey });
 }
 
 /** UAT-3d — the unit for a budget figure, accepted in place. */
 export function saveBudgetUnit(entryId: string, unit: BudgetUnit) {
-  return postProfile("/api/profile/health/unit", { entry_id: entryId, unit });
+  return postJson("/api/profile/health/unit", { entry_id: entryId, unit });
 }
