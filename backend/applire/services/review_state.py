@@ -41,16 +41,17 @@ from typing import Any, Literal
 
 from applire.services.scope_requirements import _norm_quote
 
-Producer = Literal["ats", "oracle", "critic", "send"]
+Producer = Literal["ats", "oracle", "critic", "send", "page"]
 Action = Literal[
-    "added", "taken_out", "edited", "kept", "supported", "moved", "as_goal", "translated", "no_change"
+    "added", "taken_out", "edited", "kept", "supported", "moved", "as_goal", "translated", "no_change",
+    "shortened",
 ]
 
 #: ``send`` (ADR-099 cl. 9, WP-C): a document-level send check — today only the
 #: failed ``document-language`` check ("Diese Stellen übersetzen"), keyed
 #: ``send:document-language``. Never a group-1 row; its decision carries the undo
 #: text of the translation.
-PRODUCERS: tuple[str, ...] = ("ats", "oracle", "critic", "send")
+PRODUCERS: tuple[str, ...] = ("ats", "oracle", "critic", "send", "page")
 #: ADR-090 cl. 6's group-1 producers. `critic` (#702, ADR-060 amended 2026-10-07) keys a
 #: CROSS-DOCUMENT item (`critic:<norm letter sentence>`): its decisions live in the same
 #: state but never count toward group 1's "k of n decided", and never collide with a
@@ -63,6 +64,9 @@ GROUP_ONE_PRODUCERS: tuple[str, ...] = ("ats", "oracle")
 # finding stays OPEN and the card offers only "Entfernen" (cl. 6).
 ACTIONS: tuple[str, ...] = (
     "added", "taken_out", "edited", "kept", "supported", "moved", "as_goal", "translated", "no_change",
+    # ADR-099 cl. 7 (INTERFACE B-2): the letter's page-length card — `shortened`
+    # (corrector, undoable) / `kept` under the key `page:page-overflow`.
+    "shortened",
 )
 #: Actions that never LABEL a finding as decided: `no_change` is a state of an
 #: open finding, not an outcome (a finding gone for another reason is not

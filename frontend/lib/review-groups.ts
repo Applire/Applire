@@ -776,7 +776,7 @@ export function buildGroup1Rows(items: ReviewItem[], state: ReviewState | null |
   for (const d of state?.decisions ?? []) {
     // #702: a cross-document decision (`critic:` key) is never a group-1 row;
     // ADR-099 cl. 9: nor the translate decision (`send:` key).
-    if (d.finding_key.startsWith("critic:") || d.finding_key.startsWith("send:")) continue;
+    if (d.finding_key.startsWith("critic:") || d.finding_key.startsWith("send:") || d.finding_key.startsWith("page:")) continue;
     latest.set(keyFold(d.finding_key), d);
   }
 

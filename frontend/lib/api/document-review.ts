@@ -45,7 +45,8 @@ export type ReviewAction =
   | "moved"
   | "as_goal"
   | "translated"
-  | "no_change";
+  | "no_change"
+  | "shortened";
 
 /** ADR-090 cl. 6 — one decision on one finding of THIS generated document. */
 export interface ReviewDecision {
@@ -243,6 +244,19 @@ export function recheckDocument(kind: ReviewDocumentKind, id: string) {
 export function removalEvidence(kind: ReviewDocumentKind, id: string, removalText: string, text: string) {
   return post<RemovalEvidenceResponse>(kind, id, "removal-evidence", { removal_text: removalText, text });
 }
+
+/** The letter's page card (ADR-099 cl. 7, INTERFACE B-2): "Auf {n} Seite kürzen" — one corrector call, undoable. */
+export function shortenLetter(id: string) {
+  return post<TakeOutResponse>("cover-letter", id, "shorten");
+}
+
+/** The letter's page card: "{n} Seiten behalten" — the re-audit decides the row. */
+export function keepLetterLength(id: string) {
+  return post<ReviewRefresh>("cover-letter", id, "keep-length");
+}
+
+/** Decision key of the letter's page card. */
+export const PAGE_LENGTH_KEY = "page:page-overflow";
 
 /** Undo key of the translate decision (ADR-099 cl. 9). */
 export const SEND_LANGUAGE_KEY = "send:document-language";

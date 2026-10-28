@@ -663,6 +663,8 @@ async def _still_listed(
     item)."""
     if rs.split_key(key)[0] == "send":
         return _language_check_failed(record)
+    if rs.split_key(key)[0] == "page":
+        return _letter_page_check(record) is not None
     if rs.split_key(key)[0] == "critic":
         from applire.services.review_signals import locate_sentence
 
@@ -954,6 +956,73 @@ async def recheck(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: u
         record = await load_document(kind, doc_id, db, user_id=owner)
         await reaudit(kind, record, db)
         return ActionOutcome(record=record)
+
+
+#: ADR-099 cl. 7 (INTERFACE B-2): the decision key of the letter's page-length card.
+PAGE_LENGTH_KEY = "page:page-overflow"
+
+
+def _letter_page_check(record) -> dict | None:
+    """The letter's failing ``page-length`` check (B-2: details_key
+    ``page-length-letter``, params ``{pages, letterPages}``) — the card's data."""
+    report = record.ats_report if isinstance(record.ats_report, dict) else {}
+    for c in report.get("checks") or []:
+        cid = str((c or {}).get("id") or "").split("#", 1)[0]
+        if cid.startswith("page-length") and cid != "page-length-kept" and c.get("status") == "fail":
+            return c
+    return None
+
+
+async def shorten_letter(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """Page card → "Auf {n} Seite kürzen" (resolver ``page_length``, letter):
+    WP-B's ``shorten_letter`` (one corrector call + re-audit); decision
+    ``shortened`` under ``page:page-overflow`` with undo. ``still_listed`` =
+    still over target → the card comes back with the new count."""
+    from applire.services.owner_resolution import resolve_owner
+
+    if kind != "cover_letter":
+        raise ResolverNotApplicable("the CV's page card decides through /page-overflow")
+    owner = resolve_owner(user_id, site="review_actions.shorten_letter")
+    da = _delivery_actions()
+    async with rs.document_lock(kind, doc_id):
+        record = await load_document(kind, doc_id, db, user_id=owner)
+        if _letter_page_check(record) is None:
+            raise ResolverNotApplicable("the letter is not over its page target")
+        shorten = getattr(da, "shorten_letter", None)
+        if shorten is None:  # WP-B's action not installed yet
+            raise ResolverUnavailable("delivery action shorten_letter is not available")
+        result = await _call_delivery(shorten, kind, doc_id, db, provider, user_id=owner)
+        record = result.record if result.record is not None else record
+        changes = [
+            {"section_id": c["section_id"], "before": c["before"], "after": c["after"]}
+            for c in (result.changes or [])
+        ]
+        if changes:
+            state = rs.with_decision(
+                rs.load_state(record.review_state), PAGE_LENGTH_KEY, "page-length", "shortened",
+                undo_sections=[{"section_id": c["section_id"], "before": c["before"]} for c in changes],
+            )
+            await _save_state(record, state, db)
+        return ActionOutcome(record=record, changes=changes, still_listed=_letter_page_check(record) is not None)
+
+
+async def keep_length(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """Page card → "{n} Seiten behalten" (letter): decision ``kept`` under
+    ``page:page-overflow``; the re-audit lets WP-B's letter audit decide the
+    row (→ class S), so the card leaves in this request."""
+    from applire.services.owner_resolution import resolve_owner
+
+    if kind != "cover_letter":
+        raise ResolverNotApplicable("the CV's page card decides through /page-overflow")
+    owner = resolve_owner(user_id, site="review_actions.keep_length")
+    async with rs.document_lock(kind, doc_id):
+        record = await load_document(kind, doc_id, db, user_id=owner)
+        if _letter_page_check(record) is None:
+            raise ResolverNotApplicable("the letter is not over its page target")
+        state = rs.with_decision(rs.load_state(record.review_state), PAGE_LENGTH_KEY, "page-length", "kept")
+        await _save_state(record, state, db)
+        await reaudit(kind, record, db)
+        return ActionOutcome(record=record, still_listed=_letter_page_check(record) is not None)
 
 
 def removal_fold(text: str) -> str:

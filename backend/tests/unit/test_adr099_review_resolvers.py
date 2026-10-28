@@ -511,3 +511,96 @@ async def test_foreign_document_is_404_on_every_resolver(db):
         r = client.post(f"/api/cv/{missing}/review/{path}", json=body) if body is not None else client.post(
             f"/api/cv/{missing}/review/{path}")
         assert r.status_code == 404, (path, r.status_code, r.text)
+
+
+# ── page_length (letter, INTERFACE B-2): "kürzen" / "behalten" ───────────────
+
+
+def _letter_pages(over: bool) -> dict:
+    rep = _ats_report("cover_letter", [])
+    rep["checks"] = [{
+        "id": "page-length", "label": "Page length", "status": "fail" if over else "pass",
+        "severity": "warning", "details": "", "details_key": "page-length-letter" if over else "page-length-kept",
+        "details_params": {"pages": 2, "letterPages": 1} if over else {},
+        "delivery_class": "A" if over else "S", "resolver": "page_length" if over else None,
+    }]
+    return rep
+
+
+@pytest.mark.asyncio
+async def test_letter_shorten_rewrites_and_the_card_leaves_on_recompute_then_undo(db):
+    paragraphs = ["Erster Absatz.", "Zweiter, sehr langer Absatz.", "Dritter Absatz."]
+    cl_id = await seed_letter(db, paragraphs=paragraphs, ats_report=_letter_pages(True))
+    fake = FakeDelivery("body", "Erster Absatz.\n\nDritter Absatz.")
+
+    async def shorten_letter(kind, doc_id, db_, provider, *, user_id=None):
+        return await fake._edit("shorten_letter", kind, doc_id, None, db_, user_id)
+
+    reaudit = FakeReaudit([(_letter_pages(False), None)])
+    ps = [patch.object(da, "shorten_letter", shorten_letter, create=True), patch.object(ra, "reaudit", new=reaudit)]
+    _enter(ps)
+    try:
+        r = _client(db).post(f"/api/cover-letter/{cl_id}/review/shorten")
+    finally:
+        _exit(ps)
+    assert r.status_code == 200, r.text
+    assert r.json()["still_listed"] is False
+    record = await ra.load_document("cover_letter", cl_id, db)
+    assert rs.get_decision(rs.load_state(record.review_state), ra.PAGE_LENGTH_KEY)["action"] == "shortened"
+    with patch.object(ra, "reaudit", new=FakeReaudit([(_letter_pages(True), None)])):
+        u = _client(db).post(f"/api/cover-letter/{cl_id}/review/undo", json={"finding_key": ra.PAGE_LENGTH_KEY})
+    assert u.status_code == 200, u.text
+
+
+@pytest.mark.asyncio
+async def test_letter_shorten_still_over_keeps_the_card(db):
+    cl_id = await seed_letter(db, paragraphs=["A.", "B."], ats_report=_letter_pages(True))
+    fake = FakeDelivery("body", "A.")
+
+    async def shorten_letter(kind, doc_id, db_, provider, *, user_id=None):
+        return await fake._edit("shorten_letter", kind, doc_id, None, db_, user_id)
+
+    ps = [patch.object(da, "shorten_letter", shorten_letter, create=True),
+          patch.object(ra, "reaudit", new=FakeReaudit([(_letter_pages(True), None)]))]
+    _enter(ps)
+    try:
+        r = _client(db).post(f"/api/cover-letter/{cl_id}/review/shorten")
+    finally:
+        _exit(ps)
+    assert r.status_code == 200 and r.json()["still_listed"] is True
+
+
+@pytest.mark.asyncio
+async def test_letter_keep_length_records_kept_and_reaudits(db):
+    cl_id = await seed_letter(db, paragraphs=["A."], ats_report=_letter_pages(True))
+    reaudit = FakeReaudit([(_letter_pages(False), None)])  # B's audit decides the row on `kept`
+    with patch.object(ra, "reaudit", new=reaudit):
+        r = _client(db).post(f"/api/cover-letter/{cl_id}/review/keep-length")
+    assert r.status_code == 200, r.text
+    assert reaudit.calls == 1
+    record = await ra.load_document("cover_letter", cl_id, db)
+    assert rs.get_decision(rs.load_state(record.review_state), ra.PAGE_LENGTH_KEY)["action"] == "kept"
+
+
+@pytest.mark.asyncio
+async def test_page_card_actions_on_the_cv_are_409(db):
+    cv_id = await seed_cv(db, ats_report=_ats_report("cv", []))
+    assert _client(db).post(f"/api/cv/{cv_id}/review/keep-length").status_code == 409
+    assert _client(db).post(f"/api/cv/{cv_id}/review/shorten").status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_page_card_actions_on_a_letter_in_target_are_409(db):
+    cl_id = await seed_letter(db, paragraphs=["A."], ats_report=_letter_pages(False))
+    assert _client(db).post(f"/api/cover-letter/{cl_id}/review/keep-length").status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_letter_shorten_before_wp_b_lands_is_503(db):
+    cl_id = await seed_letter(db, paragraphs=["A."], ats_report=_letter_pages(True))
+    if hasattr(da, "shorten_letter"):
+        with patch.object(da, "shorten_letter", new=None):
+            r = _client(db).post(f"/api/cover-letter/{cl_id}/review/shorten")
+    else:
+        r = _client(db).post(f"/api/cover-letter/{cl_id}/review/shorten")
+    assert r.status_code == 503

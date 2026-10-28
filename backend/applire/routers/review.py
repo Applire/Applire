@@ -364,8 +364,35 @@ def _mount(prefix: str, kind: Kind) -> None:
         )
         return RemovalEvidenceResponse(testimony=out.testimony, review_state=load_state(out.record.review_state))
 
+    async def shorten(
+        doc_id: uuid.UUID,
+        db: AsyncSession = Depends(get_db),
+        provider: LLMProvider = Depends(_get_provider),
+        _auth: User = Depends(require_user),
+    ) -> TakeOutResponse:
+        """ADR-099 cl. 7 (letter) — "Auf {n} Seite kürzen": one corrector call
+        + re-audit; undoable under ``page:page-overflow``."""
+        out = await _run(ra.shorten_letter(kind, doc_id, db, provider, user_id=_auth.id))
+        return TakeOutResponse(
+            changes=[SectionChange(**c) for c in out.changes],
+            still_listed=out.still_listed,
+            **await _reports(kind, doc_id, db, _auth.id),
+        )
+
+    async def keep_length(
+        doc_id: uuid.UUID,
+        db: AsyncSession = Depends(get_db),
+        _auth: User = Depends(require_user),
+    ) -> ReviewReportResponse:
+        """ADR-099 cl. 7 (letter) — "{n} Seiten behalten": decision ``kept``; the
+        re-audit decides the page-length row."""
+        await _run(ra.keep_length(kind, doc_id, db, user_id=_auth.id))
+        return ReviewReportResponse(**await _reports(kind, doc_id, db, _auth.id))
+
     tag = "cv" if kind == "cv" else "cover-letter"
     for name, fn, model in (
+        ("shorten", shorten, TakeOutResponse),
+        ("keep-length", keep_length, ReviewReportResponse),
         ("stations", stations, StationsResponse),
         ("move", move, TakeOutResponse),
         ("as-goal", as_goal, TakeOutResponse),
