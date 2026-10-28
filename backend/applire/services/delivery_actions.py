@@ -140,3 +140,17 @@ async def translate_spans(
     ``document-language`` check names (``spans`` = a subset of them; None = all)
     into the document language, then re-audit."""
     raise NotImplementedError
+
+
+async def shorten_letter(
+    kind: Kind,
+    doc_id: uuid.UUID,
+    db,
+    provider,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> DeliveryActionResult:
+    """The letter's page-length card, "kürzen" (ADR-099 cl. 7): one corrector call
+    condenses the body toward the page norm, keeping every fact the letter needs;
+    then re-audits. Residue still over the norm renders the card again."""
+    raise NotImplementedError

@@ -5482,6 +5482,11 @@ async def _propose_page_cut(
     full = record.tailored_data
     tried: list = []
     reached: dict | None = None
+    # ADR-099 cl. 7 (UAT-2 fix round, U-6): the card is shown WHENEVER the CV is over
+    # target. When the ladder cannot reach the target, "kürzen" proposes the closest
+    # reachable length — the shortest render the ladder produced — and the payload
+    # says so (``reaches_target`` False, ``cut_pages`` > ``target``).
+    best: tuple[int, int, dict] | None = None  # (pages, steps taken, data)
     try:
         for step in ladder_steps(
             full, condense_ctx.skill_tier, pinned=_ladder_pin_predicate(condense_ctx.pins),
@@ -5490,12 +5495,19 @@ async def _propose_page_cut(
             tried.append(step.cut)
             html = await get_cv_html(record.id, db, user_id=record.user_id)
             _text, count = extract_text_and_pages(await _html_to_pdf(html))
+            if count < measured.page_count and (best is None or count < best[0]):
+                best = (count, len(tried), step.data)
             if count <= target:
                 reached = step.data
                 break
     finally:
         record.tailored_data = full
-    proposed = merge_cuts(tried) if reached is not None else []
+    cut_pages: int | None = None
+    if best is not None:
+        cut_pages, n_steps, cut_data = best
+        proposed = merge_cuts(tried[:n_steps])
+    else:
+        proposed, cut_data = [], None
     record.page_overflow = {
         "target": target,
         "actual": measured.page_count,
@@ -5503,12 +5515,14 @@ async def _propose_page_cut(
         "proposed": proposed,
         "choice": None,
         "basis_hash": _subject_hash(full),
-        "cut_data": reached,
+        "cut_data": cut_data,
         "full_data": None,
+        "reaches_target": reached is not None,
+        "cut_pages": cut_pages,
     }
     logger.info(
-        "PAGE_OVERFLOW_PROPOSAL cv_id=%s target=%d actual=%d reachable=%s cuts=%s",
-        record.id, target, measured.page_count, reached is not None,
+        "PAGE_OVERFLOW_PROPOSAL cv_id=%s target=%d actual=%d reachable=%s cut_pages=%s cuts=%s",
+        record.id, target, measured.page_count, reached is not None, cut_pages,
         [(c["kind"], len(c["items"])) for c in proposed],
     )
 
@@ -5569,6 +5583,10 @@ def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = Non
         "choice": choice,
         "cut_available": cut_available,
         "uncut_available": uncut_available,
+        # ADR-099 cl. 7: False = "kürzen" reaches only ``cut_pages`` (closest
+        # reachable); None on a proposal stored before the field (it reached).
+        "reaches_target": po.get("reaches_target", True if po.get("cut_data") else None),
+        "cut_pages": po.get("cut_pages", po.get("target") if po.get("cut_data") else None),
     }
 
 
@@ -6362,7 +6380,14 @@ async def _terminal_review(
 def _pages_kept_at(page_overflow: dict | None) -> int | None:
     """786:237 (WP-T hunk) — the page count a "keep" choice covered, else None."""
     po = page_overflow if isinstance(page_overflow, dict) else None
-    if not po or po.get("choice") != "keep":
+    if not po:
+        return None
+    if po.get("choice") == "cut" and po.get("reaches_target") is False:
+        # ADR-099 cl. 7 / adv S9: a cut to the closest reachable length is the
+        # person's decision on the length — it decides the row like a keep does.
+        n = po.get("actual") or po.get("cut_pages")
+        return n if isinstance(n, int) and n > 0 else None
+    if po.get("choice") != "keep":
         return None
     n = po.get("full_pages") or po.get("actual")
     return n if isinstance(n, int) and n > 0 else None

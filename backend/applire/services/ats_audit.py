@@ -1883,14 +1883,18 @@ def _finish(document: Literal["cv", "cover_letter"], checks: list[ATSCheck], cov
     # way passed/failed are (a sum over status equality) — never derived as
     # "whatever's left over", so a status this function doesn't yet know about
     # would undercount everywhere rather than silently inflating one bucket.
-    return ATSReport(
+    from applire.services.finding_registry import stamp_ats_model
+
+    # ADR-099 cl. 2 (WP-B): every check, terminal-review item and keyword bucket
+    # carries its delivery class + resolver from the one registry.
+    return stamp_ats_model(ATSReport(
         document=document,
         checks=checks,
         keywords=coverage,
         passed=sum(1 for c in checks if c.status == "pass"),
         failed=sum(1 for c in checks if c.status == "fail"),
         not_applicable=sum(1 for c in checks if c.status == "not_applicable"),
-    )
+    ))
 
 
 def _free_text_snippets(tailored: TailoredCVData) -> list[str]:
@@ -1983,12 +1987,15 @@ def decide_kept_page_length(report: dict | None, pages_kept_at: int | None) -> d
     :func:`kept_page_length_check`); ``None``/unchanged when nothing applies."""
     if not report or pages_kept_at is None:
         return report
+    from applire.services.finding_registry import annotate_report
+
     out = dict(report)
     out["checks"] = [
         kept_page_length_check(ATSCheck.model_validate(c), pages_kept_at).model_dump()
         if isinstance(c, dict) and c.get("id") == "page-length" else c
         for c in report.get("checks") or []
     ]
+    annotate_report(out)  # ADR-099: the decided row is re-classified (kept → S)
     return out
 
 

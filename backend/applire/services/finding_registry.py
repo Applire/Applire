@@ -33,8 +33,12 @@ the report; WP-C and WP-A2 render from those fields. Add keys; never rename.
 
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 from typing import Literal, Optional
+
+logger = logging.getLogger(__name__)
 
 DeliveryClass = Literal["F", "A", "U", "S"]
 
@@ -76,7 +80,157 @@ class Entry:
 #: kind key → Entry. Kind keys: "ats:<check id>", "oracle:<detail key>",
 #: "keyword:<bucket>", "critic:<kind>", "health:<thread>", "page:<signal>".
 #: Filled by WP-B (document side) and WP-A1 (health side).
-REGISTRY: dict[str, Entry] = {}
+#:
+#: WP-B key grammar (document side; arc42 §5.3.29a is the table's documentation):
+#:   ``ats:<family>``                 an ATS check id with any trailing ``-<n>`` index
+#:                                    stripped (``work-2`` → ``work``)
+#:   ``ats:<family>@<status>``        the same check in one status (``not_applicable``)
+#:   ``ats:<family>~<details_key>``   the same check in one keyed band
+#:                                    (``page-length~page-length-kept``) — most specific wins
+#:   ``oracle:<detail_key>``          a flagged Oracle verdict by its detail key
+#:   ``oracle@<verdict>``             an Oracle verdict without (or beyond) a detail key
+#:   ``keyword:<bucket>``             an ``ATSKeywordCoverage`` bucket field
+#:   ``terminal:<check>``             one terminal-review code line (``CheckNote.key``)
+#:   ``terminal:finding`` / ``terminal:note:<key>``  the card's other item kinds
+#:   ``critic:<kind>``                an outcome-critic advisory kind
+#:   ``page:<signal>``                a condition the result PAGE renders from data
+#:                                    other than a report row (signature, unasked …)
+_F = "F"
+
+
+def _e(cls: DeliveryClass, resolver: Optional[str] = None, fallback: Optional[DeliveryClass] = None) -> Entry:
+    return Entry(cls=cls, resolver=resolver, fallback=fallback)
+
+
+#: ADR-099 cl. 4(c): the order class-F families claim the shared loop budget —
+#: truthfulness first, then the page, then craft. A family listed earlier keeps
+#: its findings when a round's cap (``MAX_FINDINGS_PER_ROUND``) is reached.
+FAMILY_PRIORITY: tuple[str, ...] = (
+    "truth.misattributed",   # attribution round, CV and letter (cl. 6)
+    "truth.unbacked",        # corrector removes / narrows (cl. 6, removal line cl. 5)
+    "language",              # second bounded language round (cl. 9)
+    "consistency",           # critic numeric / internal inconsistency (cl. 8)
+    "coverage",              # narrative evidence / claim / project missing (cl. 8)
+    "duplicates",            # redundancy route (cl. 8)
+    "craft",                 # the remaining v2 code checks
+)
+
+_DOC: dict[str, Entry] = {
+    # ── PDF read-back (cl. 8): a template defect, never the user's task ──────────
+    **{f"ats:{c}": _e("S") for c in (
+        "contact-name", "contact-email", "contact-phone", "work", "education", "skills",
+        "content", "reading-order", "recipient-company", "body",
+    )},
+    # ── duplicates (cl. 8, ADR-094 cl. 3 am.): redundancy route → corrector ─────
+    "ats:skills-near-dupe": _e(_F, None, "S"),
+    "ats:duplicate-bullets": _e(_F, None, "S"),
+    "ats:duplicate-project": _e(_F, None, "S"),
+    # ── mixed language (cl. 9): second language round; residue one action ───────
+    "ats:document-language": _e(_F, "translate", "A"),
+    "ats:document-language@not_applicable": _e("U", "recheck"),
+    "ats:document-language~document-language-not-applicable": _e("U", "recheck"),
+    # ── page length (cl. 7): ONE card, CV and letter ─────────────────────────────
+    "ats:page-length": _e("A", "page_length"),
+    "ats:page-length~page-length-kept": _e("S"),          # ADR-077 pin driver, report only
+    "ats:page-length~page-length-target": _e("S"),        # advisory pass
+    "ats:page-length~page-length-senior": _e("S"),        # advisory pass
+    "ats:page-length@not_applicable": _e("S"),            # .docx: no pagination by kind
+    "ats:page-length~page-length-not-applicable": _e("S"),
+    # ── coverage (cl. 8): the coverage loop; residue S ───────────────────────────
+    "ats:narrative-evidence": _e(_F, None, "S"),
+    "ats:narrative-evidence@not_applicable": _e("U", "recheck"),  # no ledger = missing input
+    # ── unknown states (cl. 9, ADR-081 cl. 9 stands) ─────────────────────────────
+    "ats:keyword-other-language": _e("U", "recheck"),
+    # ── advisory passes (cl. 8) ──────────────────────────────────────────────────
+    "ats:skills-weak-vault-tie": _e("S"),
+    "ats:employer-repetition": _e("S"),
+    # ── the terminal review (cl. 8/9): open notes S; did not run / finish U ──────
+    "ats:terminal-review": _e("S"),
+    "ats:terminal-review@not_applicable": _e("U", "regenerate"),
+    "ats:terminal-review~terminal-review-not-run": _e("U", "regenerate"),
+
+    # ── Oracle group 1 (cl. 6) ───────────────────────────────────────────────────
+    "oracle:misattributed": _e(_F, "ask_station", "A"),
+    "oracle:restatementBorrowed": _e(_F, "ask_station", "A"),
+    "oracle@misattributed": _e(_F, "ask_station", "A"),
+    **{f"oracle:{k}": _e(_F, "ask_true", "A") for k in (
+        "credentialUnbacked", "identifierAbsent", "skillNoEvidence", "figuresNoEvidence",
+        "tenureStartBeforeVault", "tenureExceedsVault", "subjectTenureExceeds",
+    )},
+    "oracle@unbacked": _e(_F, "ask_true", "A"),          # unsupported term / bare unbacked
+    "oracle:inflatedAspirational": _e("A", "ask_achieved"),
+    "oracle@inflated": _e("A", "ask_achieved"),
+    # an Oracle verdict that is not a finding (grounded / n.a.) — report only
+    "oracle@grounded": _e("S"),
+    "oracle@not_applicable": _e("S"),
+    # unverifiable: S, except where the JUDGEMENT did not run (cl. 9 "Nicht geprüft")
+    "oracle@unverifiable": _e("S"),
+    "oracle:otherLanguageNotChecked": _e("U", "recheck"),
+    "oracle:crossLanguageUnconfirmed": _e("U", "recheck"),
+    "oracle:attributionUnresolved": _e("U", "recheck"),
+    # the remaining detail keys, all on non-flag verdicts (report only)
+    **{f"oracle:{k}": _e("S") for k in (
+        "crossLanguageEquivalent", "entailmentNarrow", "figuresFromStatedLimit", "figuresTrace",
+        "fromLetterForm", "groundedUnion", "honestDenial", "noCheckableContent",
+        "noCloseEvidence", "qualificationNamed", "triageEmployerFact",
+    )},
+
+    # ── keyword buckets ──────────────────────────────────────────────────────────
+    "keyword:present_unsupported": _e(_F, "ask_true", "A"),
+    "keyword:present_unsupported_employer_sentence": _e(_F, "remove_only", "A"),
+    "keyword:present_unsupported_denials": _e(_F, "remove_only", "A"),
+    "keyword:present_denied": _e(_F, "remove_only", "A"),
+    "keyword:missing_claimable": _e("S"),                 # group 2 (cl. 7)
+    "keyword:missing_honest_gap": _e("A", "open_gap_analysis"),  # group 3, one link
+    "keyword:present_other_language": _e("U", "recheck"),
+    "keyword:present": _e("S"),
+    "keyword:missing": _e("S"),                           # back-compat union of the two missing buckets
+    "keyword:claimable_concepts": _e("S"),
+    "keyword:keyword_liability_concepts": _e("S"),
+
+    # ── terminal-review card items (S11.2: one row per code) ─────────────────────
+    "terminal:finding": _e("S"),
+    **{f"terminal:{c}": _e(_F, None, "S") for c in (
+        "cv.role_budget", "cv.recorded_name", "cv.level_code_changed", "cv.vault_field_missing",
+        "cv.empty_project", "cv.claim_missing", "cv.project_missing", "cv.project_not_mentioned",
+        "cv.skill_spelling", "cv.skills_cap", "cv.skill_duplicate", "cv.skill_named_in_bullet",
+        "letter.salutation", "letter.signoff", "letter.closing", "letter.names",
+        "letter.availability",
+    )},
+    # one condition, one place (cl. 10): these codes restate a row rendered elsewhere
+    "terminal:cv.page_length": _e("S"),                   # → the page-length card
+    "terminal:letter.page_length": _e("S"),               # → the page-length card
+    "terminal:cv.language_shape": _e("S"),                # → document-language
+    "terminal:letter.language": _e("S"),                  # → document-language
+    "terminal:cv.identifier_not_in_profile": _e("S"),     # → oracle:identifierAbsent
+    "terminal:letter.identifier": _e("S"),                # → oracle:identifierAbsent
+    "terminal:cv.skill_untied": _e("S"),                  # → oracle:skillNoEvidence
+    "terminal:letter.figure": _e("S"),                    # → oracle:figuresNoEvidence
+    "terminal:letter.limit": _e("S"),
+    "terminal:note:letter.limit_cut": _e("S"),
+    "terminal:note:letter.limit_kept": _e("S"),
+    "terminal:note:letter.missing_terms": _e("S"),
+    "terminal:letter.post_condense": _e("S"),
+
+    # ── outcome critic (cl. 8, UAT-3j) ───────────────────────────────────────────
+    "critic:numeric_inconsistency": _e(_F, None, "S"),
+    "critic:internal_inconsistency": _e(_F, None, "S"),
+    "critic:letter_only": _e("S"),
+    "critic:letter_richer": _e("S"),
+
+    # ── conditions the result page renders from non-row data ─────────────────────
+    "page:page-overflow": _e("A", "page_length"),         # CV + letter card (cl. 7)
+    "page:signature-hint": _e("A", "signature"),          # letter only (cl. 9)
+    "page:unasked-requirements": _e("A", "answer_unasked"),  # letter (cl. 9)
+    "page:open-requirements": _e("A", "open_gap_analysis"),  # group 3 (not counted)
+    "page:review-degradation": _e("U", "regenerate"),     # a loop step did not run
+    "page:unchecked": _e("U", "recheck"),                 # "Nicht geprüft"
+    "page:form-input": _e("S"),                           # letter attribution, not a defect
+    "page:cross-document": _e("S"),                       # removed (supersedes R-1)
+    "page:group-two": _e("S"),                            # covered but cut (cl. 7)
+}
+
+REGISTRY: dict[str, Entry] = dict(_DOC)
 
 
 def classify(kind: str) -> Entry:
@@ -85,3 +239,178 @@ def classify(kind: str) -> Entry:
     this, so a new kind without an entry fails the build instead of rendering
     raw or vanishing."""
     return REGISTRY[kind]
+
+
+# ── WP-B: the producers' kinds → the registry, and the report stamp ─────────────
+
+_INDEX_SUFFIX = re.compile(r"-\d+$")
+
+
+def check_family(check_id: str) -> str:
+    """``work-2`` → ``work``; ids without an index are returned unchanged."""
+    return _INDEX_SUFFIX.sub("", check_id or "")
+
+
+def check_kinds(check: dict) -> list[str]:
+    """The registry keys one ATS check may resolve to, most specific first."""
+    fam = check_family(str(check.get("id") or ""))
+    out = []
+    if check.get("details_key"):
+        out.append(f"ats:{fam}~{check['details_key']}")
+    if check.get("status"):
+        out.append(f"ats:{fam}@{check['status']}")
+    out.append(f"ats:{fam}")
+    return out
+
+
+_FLAG_VERDICTS = frozenset({"inflated", "misattributed", "unbacked"})
+
+
+def verdict_kinds(verdict: dict) -> list[str]:
+    """The registry keys one Oracle verdict may resolve to, most specific first.
+    A non-flag verdict (grounded, n.a.) resolves by verdict before detail key —
+    a ``skillNoEvidence`` key on a ``grounded`` verdict is no finding."""
+    v = str(verdict.get("verdict") or "")
+    key = verdict.get("detail_key")
+    if v in ("grounded", "not_applicable"):
+        return [f"oracle@{v}"]
+    out = []
+    # A detail key registered as report-only is verdict-neutral (``entailmentNarrow``
+    # carries whatever verdict the narrow judge returned): on a FLAG verdict it must
+    # not silence the row — the verdict decides (T-registry found this).
+    if key and not (v in _FLAG_VERDICTS and REGISTRY.get(f"oracle:{key}", Entry("A", None)).cls == "S"):
+        out.append(f"oracle:{key}")
+    out.append(f"oracle@{v}")
+    return out
+
+
+def note_kinds(note: dict) -> list[str]:
+    kind = note.get("kind")
+    key = note.get("key")
+    if kind == "code" and key:
+        return [f"terminal:{key}"]
+    if kind == "note" and key:
+        return [f"terminal:note:{key}"]
+    if kind == "finding" and key:
+        return [f"terminal:{key}", "terminal:finding"]
+    return ["terminal:finding"]
+
+
+def resolve(kinds: list[str]) -> tuple[str, Entry] | None:
+    for k in kinds:
+        if k in REGISTRY:
+            return k, REGISTRY[k]
+    return None
+
+
+def rendered_class(entry: Entry) -> tuple[DeliveryClass, Optional[str]]:
+    """The class + resolver a ROW of this kind is stamped with.
+
+    A row of a class-F kind that is still in the DELIVERED report is residue:
+    the loop's self-audit and the delivered report are one instrument (cl. 4(b)),
+    so a fixed instance is simply absent. Residue is never dropped (cl. 4(e)) —
+    it renders as its fallback. Hence a row is never stamped "F": the surface
+    hides nothing on its own, and a loop that did not run (agent door,
+    ``loop_clean is None``) or degraded shows the same fallback rows."""
+    if entry.cls == _F:
+        return (entry.fallback or "A"), entry.resolver
+    return entry.cls, entry.resolver
+
+
+def _stamp(row: dict, kinds: list[str], unregistered: list[str]) -> None:
+    hit = resolve(kinds)
+    if hit is None:
+        unregistered.append(kinds[-1])
+        row["delivery_class"], row["resolver"] = None, None
+        return
+    cls, res = rendered_class(hit[1])
+    row["delivery_class"], row["resolver"] = cls, res
+
+
+#: keyword buckets stamped on ``ATSKeywordCoverage.delivery``
+KEYWORD_BUCKETS: tuple[str, ...] = (
+    "present_unsupported", "present_unsupported_employer_sentence",
+    "present_unsupported_denials", "present_denied", "missing_claimable",
+    "missing_honest_gap", "present_other_language",
+)
+
+
+def annotate_report(report: dict | None) -> list[str]:
+    """Stamp ``delivery_class``/``resolver`` on every check, terminal-review
+    note and keyword bucket of a persisted ATS report dict, IN PLACE. A passing
+    check is "S" (it is no finding; the passed line counts it by status).
+    Returns the unregistered kinds (logged by the caller; the CI registry test
+    keeps the list empty). Never raises."""
+    unregistered: list[str] = []
+    if not isinstance(report, dict):
+        return unregistered
+    try:
+        for check in report.get("checks") or []:
+            if not isinstance(check, dict):
+                continue
+            if check.get("status") == "pass" and check_family(str(check.get("id"))) != "terminal-review":
+                hit = resolve(check_kinds(check))
+                if hit is None:
+                    unregistered.append(check_kinds(check)[-1])
+                check["delivery_class"], check["resolver"] = "S", None
+            else:
+                _stamp(check, check_kinds(check), unregistered)
+            for note in check.get("notes") or []:
+                if isinstance(note, dict):
+                    _stamp(note, note_kinds(note), unregistered)
+        kw = report.get("keywords")
+        if isinstance(kw, dict):
+            delivery = {}
+            for bucket in KEYWORD_BUCKETS:
+                cls, res = rendered_class(REGISTRY[f"keyword:{bucket}"])
+                delivery[bucket] = {"delivery_class": cls, "resolver": res}
+            kw["delivery"] = delivery
+    except Exception:  # noqa: BLE001 — a stamp failure must never fail an audit
+        logger.exception("finding_registry.annotate_report failed; report left unstamped")
+    return unregistered
+
+
+def annotate_truthfulness(report: dict | None) -> list[str]:
+    """Stamp every Oracle verdict row of a persisted truthfulness report dict,
+    IN PLACE (``ClaimVerdict.delivery_class``/``resolver``). Never raises."""
+    unregistered: list[str] = []
+    if not isinstance(report, dict):
+        return unregistered
+    try:
+        for cr in report.get("claims") or []:
+            verdict = cr.get("verdict") if isinstance(cr, dict) else None
+            if isinstance(verdict, dict):
+                _stamp(verdict, verdict_kinds(verdict), unregistered)
+    except Exception:  # noqa: BLE001
+        logger.exception("finding_registry.annotate_truthfulness failed; report left unstamped")
+    return unregistered
+
+
+def stamp_ats_model(report):
+    """:func:`annotate_report` on an ``ATSReport`` model (the audit's ``_finish``
+    seam, so every audit door — generation, section-editor re-audit, agent
+    render, the .docx report — carries the stamp). Returns a new model."""
+    try:
+        data = report.model_dump()
+        bad = annotate_report(data)
+        if bad:
+            logger.warning("FINDING_REGISTRY_UNREGISTERED kinds=%s", sorted(set(bad)))
+        return type(report).model_validate(data)
+    except Exception:  # noqa: BLE001
+        logger.exception("finding_registry.stamp_ats_model failed; report left unstamped")
+        return report
+
+
+def stamp_truthfulness_model(report):
+    """:func:`annotate_truthfulness` on a ``TruthfulnessReport`` model."""
+    try:
+        for cr in report.claims:
+            v = cr.verdict
+            hit = resolve(verdict_kinds({"verdict": v.verdict, "detail_key": v.detail_key}))
+            if hit is None:
+                logger.warning("FINDING_REGISTRY_UNREGISTERED kinds=%s", [v.verdict, v.detail_key])
+                continue
+            v.delivery_class, v.resolver = rendered_class(hit[1])
+    except Exception:  # noqa: BLE001
+        logger.exception("finding_registry.stamp_truthfulness_model failed")
+    return report
