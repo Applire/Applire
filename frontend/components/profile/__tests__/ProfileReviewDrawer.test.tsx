@@ -17,163 +17,338 @@
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ProfileReviewDrawer, keepBothApplies } from "../ProfileReviewDrawer";
+import { ProfileReviewDrawer } from "../ProfileReviewDrawer";
 import { withIntl } from "@/lib/test-utils/with-intl";
+import type { CurrentConflict } from "@/lib/profile-review";
 
-vi.mock("@/lib/api/profileReview", () => ({
-  startProfileReview: vi.fn(),
-  sendProfileReviewMessage: vi.fn(),
-}));
+vi.mock("@/lib/profile-review", async (orig) => {
+  const actual = await orig<typeof import("@/lib/profile-review")>();
+  return {
+    ...actual,
+    startReview: vi.fn(),
+    answerWithOutcome: vi.fn(),
+    answerWithText: vi.fn(),
+    requestMergeProposal: vi.fn(),
+  };
+});
+vi.mock("@/lib/profile-merge", () => ({ undoLastMerge: vi.fn() }));
 
 import {
-  startProfileReview,
-  sendProfileReviewMessage,
-} from "@/lib/api/profileReview";
+  ReviewApiError,
+  answerWithOutcome,
+  answerWithText,
+  requestMergeProposal,
+  startReview,
+} from "@/lib/profile-review";
+import { undoLastMerge } from "@/lib/profile-merge";
 
-const startMock = vi.mocked(startProfileReview);
-const sendMock = vi.mocked(sendProfileReviewMessage);
+const startMock = vi.mocked(startReview);
+const outcomeMock = vi.mocked(answerWithOutcome);
+const textMock = vi.mocked(answerWithText);
+const proposalMock = vi.mocked(requestMergeProposal);
+const undoMock = vi.mocked(undoLastMerge);
+
+const BASE = { choices: null, current_conflict: null, follow_up_used: false };
+
+// Synthetic — the U-1 SHAPE: two different achievements of one role.
+const LIST_CONFLICT: CurrentConflict = {
+  conflict_id: "c-list",
+  shape: "list",
+  outcomes: ["keep_current", "take_new", "keep_both", "merge"],
+  entity_label: "Quality Lead @ Nordwerk Logistik GmbH",
+  section: "work_experience",
+  field: "achievements",
+  existing_value_display: "Rebuilt supplier selection for 4 sites and cut scrap by 18 %.",
+  incoming_value_display: "Introduced a batch-release quality dashboard across 4 sites.",
+  incoming_source: "cv_upload",
+};
+
+const ROLE_SCALAR: CurrentConflict = {
+  conflict_id: "c-date",
+  shape: "scalar",
+  outcomes: ["keep_current", "take_new", "keep_both"],
+  entity_label: "Developer @ Nordwerk Logistik GmbH",
+  section: "work_experience",
+  field: "start_date",
+  existing_value_display: "03/2015",
+  incoming_value_display: "04/2015",
+  incoming_source: "cv_upload",
+};
+
+const NAME_SCALAR: CurrentConflict = {
+  ...ROLE_SCALAR,
+  conflict_id: "c-name",
+  outcomes: ["keep_current", "take_new"],
+  entity_label: null,
+  section: "personal_info",
+  field: "name",
+  existing_value_display: "Max Muster",
+  incoming_value_display: "Markus Muster",
+};
+
+function startOn(conflict: CurrentConflict | null, extra: Record<string, unknown> = {}) {
+  startMock.mockResolvedValue({
+    ...BASE,
+    session_id: "s1",
+    first_question: "Two values — which is correct?",
+    gaps_total: 2,
+    gaps_remaining: 2,
+    current_conflict: conflict,
+    ...extra,
+  });
+}
+
+const reply = (extra: Record<string, unknown> = {}) => ({
+  ...BASE,
+  complete: false,
+  question: null,
+  gaps_remaining: 1,
+  ...extra,
+});
 
 describe("ProfileReviewDrawer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("launches the session and shows the first conflict question with choices", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question: "Your profile has two values for personal_info.name. Which is correct?",
-      gaps_total: 1,
-      gaps_remaining: 1,
-      choices: ["Keep current: Max Muster", "Use imported: Markus Brandt"],
-    });
-
-    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
-
-    await waitFor(() =>
-      expect(screen.getByText(/two values for personal_info\.name/)).toBeInTheDocument(),
+  it("U-2: starts the walk on the issue the user clicked", async () => {
+    startOn(LIST_CONFLICT);
+    const issue = {
+      id: "conflict:c-list",
+      thread: "conflict" as const,
+      profile_mismatch_severity: "review" as const,
+      summary: "x",
+    };
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} />, "en"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    expect(startMock).toHaveBeenCalledWith("conflict:c-list");
+    expect(screen.getByTestId("profile-review-progress")).toHaveTextContent(
+      "Point 1 of 2 – the item you clicked",
     );
-    expect(screen.getByRole("button", { name: /Keep current: Max Muster/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Use imported: Markus Brandt/ })).toBeInTheDocument();
   });
 
-  it("sends the chosen value and renders the next question", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question: "Which name is correct?",
-      gaps_total: 2,
-      gaps_remaining: 2,
-      choices: ["Keep current: Max", "Use imported: Markus"],
-    });
-    sendMock.mockResolvedValue({
-      complete: false,
-      question: "Which email is correct?",
-      choices: ["Keep current: a@x", "Use imported: b@x"],
-      gaps_remaining: 1,
-    });
-
+  it("starts the generic walk with no issue in hand", async () => {
+    startOn(LIST_CONFLICT);
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
-    await waitFor(() => screen.getByRole("button", { name: /Keep current: Max/ }));
-
-    fireEvent.click(screen.getByRole("button", { name: /Keep current: Max/ }));
-
-    await waitFor(() =>
-      expect(screen.getByText("Which email is correct?")).toBeInTheDocument(),
-    );
-    expect(sendMock).toHaveBeenCalledWith("s1", "Keep current: Max");
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    expect(startMock).toHaveBeenCalledWith(null);
   });
 
-  it("shows a done state when the review completes", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question: "Which name is correct?",
-      gaps_total: 1,
-      gaps_remaining: 1,
-      choices: ["Keep current: Max", "Use imported: Markus"],
-    });
-    sendMock.mockResolvedValue({
-      complete: true,
-      question: null,
-      choices: null,
-      gaps_remaining: 0,
-    });
-
-    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
-    await waitFor(() => screen.getByRole("button", { name: /Use imported: Markus/ }));
-
-    fireEvent.click(screen.getByRole("button", { name: /Use imported: Markus/ }));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("profile-review-done")).toBeInTheDocument(),
+  it("UAT-1: a list conflict offers four ways out with both values in full", async () => {
+    startOn(LIST_CONFLICT);
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "de"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    for (const o of ["keep_current", "take_new", "keep_both", "merge"]) {
+      expect(screen.getByTestId(`conflict-outcome-${o}`)).toBeInTheDocument();
+    }
+    expect(screen.getByTestId("conflict-outcome-keep_both")).toHaveTextContent(
+      "Beide behalten – zwei verschiedene Einträge",
     );
+    // U-3b — the reader's quotation marks, never English '…' inside German text.
+    expect(screen.getByTestId("conflict-card-current")).toHaveTextContent(
+      "„Rebuilt supplier selection for 4 sites and cut scrap by 18 %.“",
+    );
+    // The backend's question sentence is not repeated as a bubble.
+    expect(screen.queryByText("Two values — which is correct?")).not.toBeInTheDocument();
+  });
+
+  it("SF-PROFILE.22: 'keep both' sends the structured outcome, never text through the matcher", async () => {
+    startOn(LIST_CONFLICT);
+    outcomeMock.mockResolvedValue(reply({ complete: true, gaps_remaining: 0 }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-outcome-keep_both"));
+    fireEvent.click(screen.getByTestId("conflict-outcome-keep_both"));
+    await waitFor(() => expect(screen.getByTestId("profile-review-done")).toBeInTheDocument());
+    expect(outcomeMock).toHaveBeenCalledWith("s1", "keep_both", undefined);
+    expect(textMock).not.toHaveBeenCalled();
+  });
+
+  it("each outcome chip sends its own outcome", async () => {
+    for (const o of ["keep_current", "take_new"] as const) {
+      vi.clearAllMocks();
+      startOn(LIST_CONFLICT);
+      outcomeMock.mockResolvedValue(reply({ complete: true, gaps_remaining: 0 }));
+      const { unmount } = render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+      await waitFor(() => screen.getByTestId(`conflict-outcome-${o}`));
+      fireEvent.click(screen.getByTestId(`conflict-outcome-${o}`));
+      await waitFor(() => expect(outcomeMock).toHaveBeenCalledWith("s1", o, undefined));
+      unmount();
+    }
+  });
+
+  it("a role entry's scalar conflict keeps the 'two different positions' escape, now as keep_both", async () => {
+    startOn(ROLE_SCALAR);
+    outcomeMock.mockResolvedValue(reply({ complete: true, gaps_remaining: 0 }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-card"));
+    expect(screen.queryByTestId("conflict-outcome-merge")).not.toBeInTheDocument();
+    const both = screen.getByTestId("conflict-outcome-keep_both");
+    expect(both).toHaveTextContent(/two separate roles/i);
+    fireEvent.click(both);
+    await waitFor(() => expect(outcomeMock).toHaveBeenCalledWith("s1", "keep_both", undefined));
+  });
+
+  it("any other scalar conflict offers exactly the backend's two outcomes", async () => {
+    startOn(NAME_SCALAR);
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-card"));
+    expect(screen.getByTestId("conflict-outcome-keep_current")).toBeInTheDocument();
+    expect(screen.getByTestId("conflict-outcome-take_new")).toBeInTheDocument();
+    expect(screen.queryByTestId("conflict-outcome-keep_both")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("conflict-outcome-merge")).not.toBeInTheDocument();
+  });
+
+  it("merge: the proposal is shown for confirm/edit, nothing is written before confirm, the edit is sent", async () => {
+    startOn(LIST_CONFLICT);
+    proposalMock.mockResolvedValue({ proposal: "Rebuilt supplier selection and introduced a dashboard.", verifier: "passed" });
+    outcomeMock.mockResolvedValue(reply({ current_conflict: NAME_SCALAR }));
+    undoMock.mockResolvedValue({ restored: true });
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
+    fireEvent.click(screen.getByTestId("conflict-outcome-merge"));
+    const box = await screen.findByTestId("conflict-merge-text");
+    expect(box).toHaveValue("Rebuilt supplier selection and introduced a dashboard.");
+    expect(proposalMock).toHaveBeenCalledWith("s1", "c-list");
+    expect(outcomeMock).not.toHaveBeenCalled();
+    fireEvent.change(box, { target: { value: "Rebuilt supplier selection for 4 sites and introduced a dashboard." } });
+    fireEvent.click(screen.getByTestId("conflict-merge-confirm"));
+    await waitFor(() =>
+      expect(outcomeMock).toHaveBeenCalledWith(
+        "s1",
+        "merge_confirm",
+        "Rebuilt supplier selection for 4 sites and introduced a dashboard.",
+      ),
+    );
+    // One undo, from the notice.
+    fireEvent.click(await screen.findByTestId("profile-review-undo"));
+    await waitFor(() => expect(undoMock).toHaveBeenCalled());
+    expect(await screen.findByText("Undone.")).toBeInTheDocument();
+  });
+
+  it("merge: 'back' returns to the options without writing", async () => {
+    startOn(LIST_CONFLICT);
+    proposalMock.mockResolvedValue({ proposal: "One sentence.", verifier: "passed" });
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
+    fireEvent.click(screen.getByTestId("conflict-outcome-merge"));
+    fireEvent.click(await screen.findByTestId("conflict-merge-back"));
+    expect(screen.getByTestId("conflict-outcome-keep_both")).toBeInTheDocument();
+    expect(outcomeMock).not.toHaveBeenCalled();
+  });
+
+  it("merge fails closed: a proposal that failed the fact check leaves the other three", async () => {
+    startOn(LIST_CONFLICT);
+    proposalMock.mockResolvedValue({ proposal: null, verifier: "failed" });
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
+    fireEvent.click(screen.getByTestId("conflict-outcome-merge"));
+    await waitFor(() =>
+      expect(screen.getByTestId("conflict-merge-unavailable")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("conflict-outcome-merge")).not.toBeInTheDocument();
+    expect(screen.getByTestId("conflict-outcome-keep_both")).toBeInTheDocument();
+    expect(screen.queryByTestId("conflict-merge-text")).not.toBeInTheDocument();
+  });
+
+  it("an edited merge that failed the server re-check is announced as kept-both + own statement", async () => {
+    startOn(LIST_CONFLICT);
+    proposalMock.mockResolvedValue({ proposal: "One sentence.", verifier: "passed" });
+    outcomeMock.mockResolvedValue(
+      reply({ interpreted: { outcome: "keep_both", testimony_applied: true }, current_conflict: NAME_SCALAR }),
+    );
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
+    fireEvent.click(screen.getByTestId("conflict-outcome-merge"));
+    fireEvent.change(await screen.findByTestId("conflict-merge-text"), {
+      target: { value: "One sentence, and 30 % faster." },
+    });
+    fireEvent.click(screen.getByTestId("conflict-merge-confirm"));
+    const notice = await screen.findByTestId("profile-review-notice");
+    expect(notice).toHaveTextContent(/your own statement. It replaces the two points/);
+    expect(screen.queryByTestId("profile-review-undo")).not.toBeInTheDocument();
+  });
+
+  it("U-4/U-5: a typed answer read as an outcome says so", async () => {
+    startOn(LIST_CONFLICT);
+    textMock.mockResolvedValue(
+      reply({ interpreted: { outcome: "keep_both" }, current_conflict: NAME_SCALAR }),
+    );
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-card"));
+    fireEvent.change(screen.getByTestId("profile-review-answer"), {
+      target: { value: "both are right, two different achievements" },
+    });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    expect(await screen.findByTestId("profile-review-notice")).toHaveTextContent(
+      "Understood: Keep both – two different entries.",
+    );
+    expect(textMock).toHaveBeenCalledWith("s1", "both are right, two different achievements");
+    expect(outcomeMock).not.toHaveBeenCalled();
+  });
+
+  it("U-4/U-5 + T-bound: ONE follow-up, then only the outcome buttons — never the same question again", async () => {
+    startOn(LIST_CONFLICT);
+    textMock.mockResolvedValue(
+      reply({
+        interpreted: { follow_up: "Do you mean both belong in your profile?" },
+        current_conflict: LIST_CONFLICT,
+        follow_up_used: true,
+        gaps_remaining: 2,
+      }),
+    );
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-card"));
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "hmm" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    expect(await screen.findByText("Do you mean both belong in your profile?")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-review-answer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("profile-review-outcome-required")).toBeInTheDocument();
+    expect(screen.getByTestId("conflict-outcome-keep_both")).toBeInTheDocument();
+  });
+
+  it("a 409 outcome_required locks the text field instead of erroring", async () => {
+    startOn(LIST_CONFLICT);
+    textMock.mockRejectedValue(new ReviewApiError(409, "outcome_required", "outcome_required"));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-card"));
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "again" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    expect(await screen.findByTestId("profile-review-outcome-required")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("a typed corrected value is confirmed back to the user", async () => {
+    startOn(ROLE_SCALAR);
+    textMock.mockResolvedValue(
+      reply({ interpreted: { corrected_value: "05/2015" }, complete: true, gaps_remaining: 0 }),
+    );
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-card"));
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "it was 05/2015" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    expect(await screen.findByTestId("profile-review-notice")).toHaveTextContent('Understood – "05/2015" is saved.');
+    expect(screen.getByTestId("profile-review-done")).toBeInTheDocument();
+  });
+
+  it("a non-conflict question keeps its choices, answered in words", async () => {
+    startOn(null, { first_question: "Which role does 'SQL' belong to?", choices: ["Developer", "Analyst"] });
+    textMock.mockResolvedValue(reply({ complete: true, gaps_remaining: 0 }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    expect(await screen.findByText("Which role does 'SQL' belong to?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Analyst" }));
+    await waitFor(() => expect(textMock).toHaveBeenCalledWith("s1", "Analyst"));
+    expect(screen.queryByTestId("conflict-card")).not.toBeInTheDocument();
   });
 
   it("renders an all-clear done state when there is nothing to review", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question: "No open issues to review — your Master Profile is in good shape!",
-      gaps_total: 0,
-      gaps_remaining: 0,
-      choices: null,
-    });
-
-    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("profile-review-done")).toBeInTheDocument(),
-    );
-  });
-
-  // F4 (#73): the resolver must let the user say "these are two roles, keep both"
-  // instead of being forced into an either/or pick. Pairs with backend #71.
-  it("offers a 'keep both / two roles' affordance alongside the choices and sends a distinct answer", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question:
-        "start_date '2020-03' vs '2023-01' — which is correct for Senior Software Engineer at Logivia?",
-      gaps_total: 1,
-      gaps_remaining: 1,
-      choices: ["Keep current: 2020-03", "Use imported: 2023-01"],
-      review_section: "work_experience",
-      current_gap_id: "conflict:c1",
-    });
-    sendMock.mockResolvedValue({
-      complete: true,
-      question: null,
-      choices: null,
-      gaps_remaining: 0,
-    });
-
-    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
-    await waitFor(() => screen.getByTestId("profile-review-keep-both"));
-
-    fireEvent.click(screen.getByTestId("profile-review-keep-both"));
-
-    await waitFor(() => expect(sendMock).toHaveBeenCalledTimes(1));
-    const sentMessage = sendMock.mock.calls[0][1];
-    // A substantive, recognisable "two roles" intent — not one of the binary picks.
-    expect(sentMessage.toLowerCase()).toContain("separate");
-    expect(sentMessage).not.toBe("Keep current: 2020-03");
-  });
-
-  it("does not show the 'keep both' affordance once the review is done", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question: "No open issues — you're in good shape!",
-      gaps_total: 0,
-      gaps_remaining: 0,
-      choices: null,
-    });
-
+    startOn(null, { gaps_total: 0, gaps_remaining: 0 });
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
     await waitFor(() => expect(screen.getByTestId("profile-review-done")).toBeInTheDocument());
-    expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
   });
 
-  // F3b (run3): a merge-loss/accuracy issue has no conflicts to walk
-  // (gaps_total 0). Resolve must NOT dead-end on a generic "All done" — it must
-  // surface the real flagged issue and an action.
   it("surfaces the flagged issue + an action when there are no conflicts to walk", async () => {
     startMock.mockResolvedValue({
+      ...BASE,
       session_id: "s1",
       first_question: "Nothing to review",
       gaps_total: 0,
@@ -217,6 +392,7 @@ describe("ProfileReviewDrawer", () => {
   // backend summary.
   it("composes a conflict issue's entity + values instead of showing the raw summary", async () => {
     startMock.mockResolvedValue({
+      ...BASE,
       session_id: "s1",
       first_question: "Nothing to review",
       gaps_total: 0,
@@ -257,50 +433,13 @@ describe("ProfileReviewDrawer", () => {
     expect(screen.getByText(/2020-01/)).toBeInTheDocument();
   });
 
-  // A genuinely-resolved conflict walk still ends on the all-clear, even if an
-  // issue was passed in (the walk had conflicts, so it's not the merge-loss case).
-  it("shows the all-clear done state after resolving real conflicts even with an issue prop", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question: "Which name is correct?",
-      gaps_total: 1,
-      gaps_remaining: 1,
-      choices: ["Keep current: Max", "Use imported: Markus"],
-    });
-    sendMock.mockResolvedValue({
-      complete: true,
-      question: null,
-      choices: null,
-      gaps_remaining: 0,
-    });
-
-    const issue = {
-      id: "conflict:name",
-      thread: "conflict" as const,
-      profile_mismatch_severity: "review" as const,
-      summary: "name conflict",
-      field_ref: "name",
-      source_record_ref: "rec-1",
-    };
-
-    render(
-      withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={vi.fn()} />, "en"),
-    );
-    await waitFor(() => screen.getByRole("button", { name: /Keep current: Max/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Keep current: Max/ }));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("profile-review-done")).toBeInTheDocument(),
-    );
-    expect(screen.queryByTestId("profile-review-issue")).not.toBeInTheDocument();
-  });
-
   // #705 (founder UAT, 2026-09-15) — a `not_applied` issue carrying the FULL
   // per-item receipt (`not_applied_items`) renders one group per section with
   // its own action, instead of the single "Review the affected section"
   // button that "just randomly moves to one of the affected sections".
   it("groups a not_applied issue's full item list by section, with one action per section", async () => {
     startMock.mockResolvedValue({
+      ...BASE,
       session_id: "s1",
       first_question: "Nothing to review",
       gaps_total: 0,
@@ -365,6 +504,7 @@ describe("ProfileReviewDrawer", () => {
   // #705 (no `not_applied_items`) keeps the old single summary + one action.
   it("falls back to the single summary + action for a not_applied issue with no item list", async () => {
     startMock.mockResolvedValue({
+      ...BASE,
       session_id: "s1",
       first_question: "Nothing to review",
       gaps_total: 0,
@@ -397,6 +537,7 @@ describe("ProfileReviewDrawer", () => {
 
   it("renders German chrome under the de locale", async () => {
     startMock.mockResolvedValue({
+      ...BASE,
       session_id: "s1",
       first_question: "Welcher Name stimmt?",
       gaps_total: 1,
@@ -409,186 +550,4 @@ describe("ProfileReviewDrawer", () => {
     await waitFor(() => expect(screen.getByText("Profil prüfen")).toBeInTheDocument());
   });
 
-  // #685 (refute-v.md §2) — keepBothApplies is exported from THIS module
-  // (ProfileReviewDrawer.tsx:66-69), not from lib/conflict-display.ts as the
-  // issue's own acceptance text names it; verified against the source before
-  // writing this suite. Same PROFILE_LEVEL_SECTIONS gate either way: a
-  // profile-level dispute (professional_summary, personal_info) has no
-  // second entry to keep, so the "keep both" escape hatch (F4/#73) must not
-  // be offered for one.
-  describe("keepBothApplies", () => {
-    it("is false for a professional_summary dispute", () => {
-      expect(keepBothApplies({ section: "professional_summary" })).toBe(false);
-    });
-
-    it("is false for a personal_info dispute", () => {
-      expect(keepBothApplies({ section: "personal_info" })).toBe(false);
-    });
-
-    it("is true for a work_experience dispute", () => {
-      expect(keepBothApplies({ section: "work_experience" })).toBe(true);
-    });
-
-    it("is false for a skill confirmation (no role to keep — UX audit, Felix 'SQL')", () => {
-      expect(keepBothApplies({ section: null, thread: "confirmation" })).toBe(false);
-      expect(keepBothApplies({ section: "skills", thread: "conflict" })).toBe(false);
-    });
-
-    it("is false for an issue with no section", () => {
-      expect(keepBothApplies({ section: null })).toBe(false);
-    });
-
-    it("is true for a volunteer role conflict", () => {
-      expect(keepBothApplies({ section: "volunteer_activities", thread: "conflict" })).toBe(true);
-    });
-
-    // R2-8 (7) (Hazelnut build 4, emma-mobile-005) — with no issue in hand the
-    // item on screen decides; an unknown item gets no escape.
-    it("is false when no issue is passed and the item is unknown", () => {
-      expect(keepBothApplies(undefined)).toBe(false);
-      expect(keepBothApplies(null, null)).toBe(false);
-    });
-
-    it("is false for a personal_info.location conflict with no issue in hand", () => {
-      expect(keepBothApplies(null, { section: "personal_info", gapId: "conflict:loc" })).toBe(false);
-    });
-
-    it("is true for a work-entry conflict with no issue in hand", () => {
-      expect(keepBothApplies(null, { section: "work_experience", gapId: "conflict:c1" })).toBe(true);
-    });
-
-    it("is false for a work-entry confirmation (it carries its own 'separate' option)", () => {
-      expect(keepBothApplies(null, { section: "work_experience", gapId: "confirmation:k1" })).toBe(false);
-    });
-
-    it("the item on screen wins over the clicked issue", () => {
-      expect(
-        keepBothApplies({ section: "work_experience", thread: "conflict" }, { section: "personal_info", gapId: "conflict:loc" }),
-      ).toBe(false);
-    });
-  });
-
-  it("hides 'keep both' on a location conflict in the no-issue decision walk (emma-mobile-005)", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question: "Wohnort 'Köln' oder 'Bonn' — was stimmt?",
-      gaps_total: 2,
-      gaps_remaining: 2,
-      choices: ["Köln behalten", "Bonn übernehmen"],
-      review_section: "personal_info",
-      current_gap_id: "conflict:loc",
-    });
-    sendMock.mockResolvedValue({
-      complete: false,
-      question: "start_date '2020-03' vs '2023-01'?",
-      choices: ["Keep current: 2020-03", "Use imported: 2023-01"],
-      gaps_remaining: 1,
-      review_section: "work_experience",
-      current_gap_id: "conflict:c1",
-    });
-    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "de"));
-    await waitFor(() => screen.getByText("Köln behalten"));
-    expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("Köln behalten"));
-    // the next item is a role conflict → the escape appears for it
-    await waitFor(() => screen.getByTestId("profile-review-keep-both"));
-  });
-
-  // #685 — the drawer render itself: a profile-level conflict (professional_
-  // summary) must not offer "keep both" even though it has real choices to
-  // walk, because the summary has one slot per language, not a second entry
-  // to keep. Mirrors the #73 "offers a 'keep both'" test's setup (gaps_total
-  // 1, real choices) with an issue prop added.
-  it("hides the 'keep both' affordance for a professional_summary conflict", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question:
-        "Your profile has two values for professional_summary.en. Which is correct?",
-      gaps_total: 1,
-      gaps_remaining: 1,
-      choices: ["Keep current: Senior Engineer.", "Use imported: 15 years in GMP manufacturing."],
-    });
-
-    const issue = {
-      id: "conflict:summary-en",
-      thread: "conflict" as const,
-      profile_mismatch_severity: "review" as const,
-      summary: "professional_summary.en: 'Senior Engineer.' vs '15 years in GMP manufacturing.'",
-      field_ref: "en",
-      source_record_ref: "cv_upload",
-      section: "professional_summary",
-      field: "en",
-    };
-
-    render(
-      withIntl(
-        <ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={vi.fn()} />,
-        "en",
-      ),
-    );
-
-    await waitFor(() =>
-      screen.getByRole("button", { name: /Keep current: Senior Engineer\./ }),
-    );
-    expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
-  });
-
-  it("hides the 'keep both' affordance on a skill confirmation (UX audit, Felix 'SQL')", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question:
-        "'SQL' shares a word with skills already on your profile (SQL performance tuning) but may be a distinct skill.",
-      gaps_total: 1,
-      gaps_remaining: 1,
-      choices: ["Add 'SQL' as a separate skill", "Merge into the existing skill", "Neither — don't add it"],
-    });
-    const issue = {
-      id: "confirmation:c1",
-      thread: "confirmation" as const,
-      profile_mismatch_severity: "review" as const,
-      summary: "'SQL' shares a word with skills already on your profile",
-      field_ref: null,
-      source_record_ref: "cv_upload",
-    };
-    render(
-      withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={vi.fn()} />, "en"),
-    );
-    await waitFor(() => screen.getByRole("button", { name: /Add 'SQL' as a separate skill/ }));
-    expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
-  });
-
-  // #685 counterpart: an entity-level dispute (work_experience) keeps the
-  // affordance — the gate is scoped to the two profile-level sections only.
-  it("still shows the 'keep both' affordance for a work_experience conflict", async () => {
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question:
-        "start_date '2020-03' vs '2023-01' — which is correct for Senior Software Engineer at Logivia?",
-      gaps_total: 1,
-      gaps_remaining: 1,
-      choices: ["Keep current: 2020-03", "Use imported: 2023-01"],
-    });
-
-    const issue = {
-      id: "conflict:w-1",
-      thread: "conflict" as const,
-      profile_mismatch_severity: "review" as const,
-      summary: "work_experience.start_date: '2020-03' vs '2023-01'",
-      field_ref: "start_date",
-      source_record_ref: "cv_upload",
-      entity_label: "Senior Software Engineer @ Logivia",
-      section: "work_experience",
-      field: "start_date",
-    };
-
-    render(
-      withIntl(
-        <ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={vi.fn()} />,
-        "en",
-      ),
-    );
-
-    await waitFor(() => screen.getByTestId("profile-review-keep-both"));
-    expect(screen.getByTestId("profile-review-keep-both")).toBeInTheDocument();
-  });
 });

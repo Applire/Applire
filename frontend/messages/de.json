@@ -1331,7 +1331,7 @@
     "mergeBack": "Zurück zur Auswahl",
     "mergeSources": "Die beiden Punkte",
     "mergeUnavailable": "Applire konnte keinen gemeinsamen Satz bilden, der nur Angaben aus beiden Punkten enthält. Wähle eine der anderen Möglichkeiten.",
-    "mergeBecameTestimony": "Dein Text enthält Angaben, die in keinem der beiden Punkte stehen, deshalb ist er kein zusammengeführter Punkt. Applire hat beide Punkte behalten und deinen Text als deine eigene Angabe übernommen.",
+    "mergeBecameTestimony": "Dein Text enthält Angaben, die in keinem der beiden Punkte stehen – deshalb ist er kein zusammengeführter Punkt, sondern deine eigene Angabe. Er ersetzt die beiden Punkte in deinem Profil.",
     "mergeDone": "Zusammengeführt und gespeichert.",
     "typedPlaceholder": "Oder sag es in eigenen Worten – z. B. „Beides stimmt, das sind zwei verschiedene Erfolge“",
     "typedPlaceholderScalar": "Oder sag es in eigenen Worten – z. B. „Eigentlich war es 05/2015“",
@@ -1341,7 +1341,9 @@
     "undo": "Rückgängig machen",
     "undone": "Rückgängig gemacht.",
     "undoNothing": "Es gab nichts mehr rückgängig zu machen.",
-    "actionFailed": "Das hat nicht geklappt. Bitte versuche es noch einmal."
+    "actionFailed": "Das hat nicht geklappt. Bitte versuche es noch einmal.",
+    "progress": "Punkt {current} von {total}",
+    "progressClicked": "Punkt {current} von {total} – der Hinweis, den du angeklickt hast"
   },
   "applications": {
     "loadingDetails": "Bewerbungsdetails werden geladen...",

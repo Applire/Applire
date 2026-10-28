@@ -26,13 +26,11 @@
 //  * phone (< md): no floating overlay. The compact row is portaled into the
 //    TOP of the page's fixed decision bar (`mobileSlot`), whose measured
 //    spacer already keeps it off the content; it is always there.
-// "Decide now" opens the first open decision in the drawer; closing it
-// re-reads the count, so the next one is offered.
+// Hazelnut build 5 (ADR-099 cl. 10): the CTA LINKS to the profile health hub,
+// where each decision is answered — the notice no longer opens its own copy of
+// the review drawer (one condition, one place).
 //
-// Deliberately NOT a second conflict UI: a popup shows a count and one line,
-// and its CTA opens `ProfileReviewDrawer` with the same `HealthIssue` shape the
-// profile page builds. The composition is `lib/conflict-display.ts`, shared
-// with the Health hub and the interview page's `ConflictCard`.
+// Deliberately NOT a second conflict UI: a popup shows a count and one line.
 //
 // Derived from `/api/profile/health` rather than from the answer response, so a
 // reload still shows it (the answer response is per-turn and is wiped on the
@@ -48,8 +46,8 @@ import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import type { HealthIssue, ProfileHealth } from "@/components/profile/HealthPanel";
+import { isRenderedIssue } from "@/lib/profile-health";
 import { TOPBAR_NOTICE_SLOT_ID } from "@/components/shell/AppTopbar";
 import {
   dismissedDecisions,
@@ -97,9 +95,17 @@ const BODY_KEY: Record<DecisionsOrigin, string> = {
   mixed: "decisions.bodyMixed",
 };
 
+/**
+ * Hazelnut build 5 (ADR-099 cl. 10 — one condition, one place): hub conflicts
+ * and confirmations are answered in the profile health hub ONLY. This notice
+ * counts them and links there; it no longer opens a second copy of the review
+ * drawer over the gaps page.
+ */
+export const PROFILE_HEALTH_HREF = "/profile#profile-health";
+
 export function decisionIssues(health: ProfileHealth | null): HealthIssue[] {
   if (!health?.issues) return [];
-  return health.issues.filter((i) => DECISION_THREADS.has(i.thread));
+  return health.issues.filter((i) => DECISION_THREADS.has(i.thread) && isRenderedIssue(i));
 }
 
 export interface ProfileDecisionsCardProps {
@@ -126,10 +132,10 @@ export function ProfileDecisionsCard({
   mobileSlot = null,
 }: ProfileDecisionsCardProps) {
   const t = useTranslations("gaps");
+  const tHealth = useTranslations("health");
   const [issues, setIssues] = useState<HealthIssue[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [autoHidden, setAutoHidden] = useState(false);
-  const [drawerIssue, setDrawerIssue] = useState<HealthIssue | null>(null);
   const [autoSeconds, setAutoSeconds] = useState(DEFAULT_AUTO_DISMISS_SECONDS);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const known = useRef<Set<string>>(new Set());
@@ -195,12 +201,12 @@ export function ProfileDecisionsCard({
   // wording is "x seconds without interaction".
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
-    if (autoSeconds <= 0 || !expanded || drawerIssue) return;
+    if (autoSeconds <= 0 || !expanded) return;
     timer.current = setTimeout(() => setAutoHidden(true), autoSeconds * 1000);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [autoSeconds, expanded, undismissed.length, drawerIssue]);
+  }, [autoSeconds, expanded, undismissed.length]);
 
   // The × collapses the notice to its entry point and remembers the decisions
   // it was about — a new one brings the full notice back.
@@ -210,8 +216,12 @@ export function ProfileDecisionsCard({
     for (const id of ids) markDecisionDismissed(flowId, id);
   };
 
-  const open = () => setDrawerIssue(undismissed[0] ?? issues[0] ?? null);
-  const show = !drawerIssue && issues.length > 0;
+  const show = issues.length > 0;
+  const link = (testId: string) => (
+    <Button data-testid={testId} size="sm" variant="outline" asChild>
+      <a href={PROFILE_HEALTH_HREF}>{tHealth("decisionsLink")}</a>
+    </Button>
+  );
 
   const compact = (testId: string, className: string) => (
     <div
@@ -221,9 +231,7 @@ export function ProfileDecisionsCard({
       <p className="text-sm font-semibold text-neutral-dark">
         {t("decisions.compact", { count: issues.length })}
       </p>
-      <Button data-testid={`${testId}-open`} size="sm" variant="outline" onClick={open}>
-        {t("decisions.cta")}
-      </Button>
+      {link(`${testId}-open`)}
     </div>
   );
 
@@ -270,14 +278,7 @@ export function ProfileDecisionsCard({
                 {t(BODY_KEY[decisionsOrigin(issues)])}
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-3">
-                <Button
-                  data-testid="profile-decisions-open"
-                  size="sm"
-                  variant="outline"
-                  onClick={open}
-                >
-                  {t("decisions.cta")}
-                </Button>
+                {link("profile-decisions-open")}
               </div>
               <p className="mt-2 text-xs leading-snug text-gray-500">
                 {t("decisions.stillThere")}
@@ -296,24 +297,6 @@ export function ProfileDecisionsCard({
       {/* Phone: the entry point lives in the page's fixed decision bar. */}
       {show && (mobileSlot ? createPortal(barRow, mobileSlot) : barRow)}
 
-      <ProfileReviewDrawer
-        open={drawerIssue !== null}
-        issue={drawerIssue}
-        onClose={() => {
-          setDrawerIssue(null);
-          // Re-read rather than assume: the walk may have resolved some, all, or
-          // none of them. When nothing is left the stack disappears on its own —
-          // nothing here decides that it did.
-          void load();
-        }}
-        onAction={() => {
-          // The drawer's "fix it in the section" action has no section to scroll
-          // to on this page. Send the candidate to the profile page, where the
-          // affected section and its editor live — never a dead end (F3b).
-          setDrawerIssue(null);
-          if (typeof window !== "undefined") window.location.href = "/profile";
-        }}
-      />
     </>
   );
 }

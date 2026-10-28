@@ -39,6 +39,8 @@ import {
 import { type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { AliasChips } from "@/components/profile/AliasChips";
+import { EntryDropZone, EntryMergeControls } from "./EntryMerge";
+import type { EntryRef } from "@/lib/profile-merge";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -278,14 +280,22 @@ export function VolunteerEditor({
             const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current, locale);
             const rawLabel = entryLabel(e);
             const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
+            const mergeRef: EntryRef | null = nonEmptyText(e.id)
+              ? { section: "volunteer_activities", id: e.id, label, period: period ?? "" }
+              : null;
             return (
-              <div key={nonEmptyText(e.id) ? e.id : i} className="border-l-2 border-teal/40 pl-3">
+              <EntryDropZone
+                key={nonEmptyText(e.id) ? e.id : i}
+                entry={mergeRef}
+                className="border-l-2 border-teal/40 pl-3"
+              >
                 <div className="flex flex-wrap items-baseline justify-between gap-x-2">
                   <p className="text-sm font-semibold text-neutral-dark">
                     {e.role || e.organization || t("notProvided")}
                   </p>
                   <div className="flex items-center gap-2">
                     {period && <span className="text-xs text-gray-500">{period}</span>}
+                    {mergeRef && <EntryMergeControls entry={mergeRef} />}
                     <button
                       type="button"
                       data-testid={`volunteer-edit-${i}`}
@@ -318,7 +328,7 @@ export function VolunteerEditor({
                 )}
                 <AliasChips section="volunteer_activities" entries={entries} index={i} apiBase={apiBase} profileUpdatedAt={profileUpdatedAt} onProfileUpdated={onProfileUpdated} />
                 {nonEmptyText(e.cause) && <p className="text-xs text-gray-500">{e.cause}</p>}
-              </div>
+              </EntryDropZone>
             );
           })}
         </div>

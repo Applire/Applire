@@ -38,7 +38,7 @@ export interface Interpreted {
 }
 
 export interface ReviewTurn {
-  question: string | null;
+  question?: string | null;
   choices: string[] | null;
   current_conflict?: CurrentConflict | null;
   follow_up_used?: boolean;
@@ -48,6 +48,7 @@ export interface ReviewTurn {
 
 export interface ReviewStart extends ReviewTurn {
   session_id: string;
+  first_question: string | null;
   gaps_total: number;
   gaps_remaining: number;
 }

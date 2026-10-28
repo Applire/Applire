@@ -1331,7 +1331,7 @@
     "mergeBack": "Back to the options",
     "mergeSources": "The two points",
     "mergeUnavailable": "Applire could not build one sentence that uses only what the two points say. Choose one of the other options.",
-    "mergeBecameTestimony": "Your text contains details that are in neither point, so it is not a combined point. Applire kept both points and saved your text as your own statement.",
+    "mergeBecameTestimony": "Your text contains details that are in neither point – so it is not a combined point but your own statement. It replaces the two points in your profile.",
     "mergeDone": "Combined and saved.",
     "typedPlaceholder": "Or say it in your own words – e.g. \"Both are right, they are two different achievements\"",
     "typedPlaceholderScalar": "Or say it in your own words – e.g. \"Actually it was 05/2015\"",
@@ -1341,7 +1341,9 @@
     "undo": "Undo",
     "undone": "Undone.",
     "undoNothing": "There was nothing left to undo.",
-    "actionFailed": "That did not work. Please try again."
+    "actionFailed": "That did not work. Please try again.",
+    "progress": "Point {current} of {total}",
+    "progressClicked": "Point {current} of {total} – the item you clicked"
   },
   "applications": {
     "loadingDetails": "Loading application details...",

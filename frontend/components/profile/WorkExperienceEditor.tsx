@@ -41,6 +41,8 @@ import { trimStringList } from "@/lib/profile-entries";
 import { formatDisplayDate, type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { AliasChips, DatedRoleAliasLines, datedRoleAliasesOf } from "@/components/profile/AliasChips";
+import { EntryDropZone, EntryMergeControls } from "./EntryMerge";
+import type { EntryRef } from "@/lib/profile-merge";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -293,14 +295,22 @@ export function WorkExperienceEditor({
             ];
             const rawLabel = entryLabel(e);
             const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
+            const mergeRef: EntryRef | null = nonEmptyText(e.id)
+              ? { section: "work_experience", id: e.id, label, period: period ?? "" }
+              : null;
             return (
-              <div key={nonEmptyText(e.id) ? e.id : i} className="border-l-2 border-teal/40 pl-3">
+              <EntryDropZone
+                key={nonEmptyText(e.id) ? e.id : i}
+                entry={mergeRef}
+                className="border-l-2 border-teal/40 pl-3"
+              >
                 <div className="flex flex-wrap items-baseline justify-between gap-x-2">
                   <p className="text-sm font-semibold text-neutral-dark">
                     {role || e.company || t("notProvided")}
                   </p>
                   <div className="flex items-center gap-2">
                     {period && <span className="text-xs text-gray-500">{period}</span>}
+                    {mergeRef && <EntryMergeControls entry={mergeRef} />}
                     <button
                       type="button"
                       data-testid={`work-entry-edit-${i}`}
@@ -352,7 +362,7 @@ export function WorkExperienceEditor({
                     })}
                   </ul>
                 )}
-              </div>
+              </EntryDropZone>
             );
           })}
         </div>
