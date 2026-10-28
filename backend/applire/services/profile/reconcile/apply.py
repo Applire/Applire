@@ -795,6 +795,9 @@ def apply_ops(
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
             extraction_review = op.extraction_review
+        elif getattr(op, "op", None) == "adopt_not_applied":
+            # UAT-3d — "Übernehmen": a not-applied import item taken in.
+            _apply_adopt_not_applied(op, new_profile, changes)
 
     # MD-30 (adv-own-1/201, 2026-10-05) — the class guard behind the per-op one
     # in `_apply_set_personal_info`: NO op in this vocabulary may change a field
@@ -3878,3 +3881,75 @@ def _apply_set_availability(op, profile, source, changes) -> None:
         action="updated" if old else "added",
         old_value=old, new_value=text, rationale_key="availability_recorded",
     ))
+
+
+class NotAppliedNotAdoptableError(ValueError):
+    """`AdoptNotApplied` named nothing it may take in. ``code``: ``unknown``
+    (no such trail record / item), ``already_adopted``, ``not_adoptable`` (the
+    item captured no entry — a receipt from before the capture, or a scalar
+    item)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def find_adoptable_item(profile: MasterProfileData, record_id: str, item_key: str):
+    """``(record, item)`` for an adoptable receipt item, or raise
+    :class:`NotAppliedNotAdoptableError` (one predicate for the service
+    pre-check and the applier, ADR-066)."""
+    history = profile.metadata.enrichment_history if profile.metadata else []
+    record = next((r for r in history if r.id == record_id), None)
+    if record is None:
+        raise NotAppliedNotAdoptableError("unknown")
+    candidates = [i for i in record.not_applied if i.item_key == item_key]
+    if not candidates:
+        raise NotAppliedNotAdoptableError("unknown")
+    open_items = [i for i in candidates if i.adopted_at is None]
+    if not open_items:
+        raise NotAppliedNotAdoptableError("already_adopted")
+    item = open_items[0]
+    if not item.entry or item.section not in _SECTION_MODEL:
+        raise NotAppliedNotAdoptableError("not_adoptable")
+    return record, item
+
+
+def _apply_adopt_not_applied(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """UAT-3d — see :class:`AdoptNotApplied`. Appends the captured entry under a
+    fresh id (never a second copy of an entry with the same natural key) and
+    stamps the item ``adopted_at``."""
+    from datetime import datetime, timezone
+
+    _record, item = find_adoptable_item(profile, op.record_id, op.item_key)
+    model = _SECTION_MODEL[item.section]
+    payload = dict(item.entry or {})
+    payload.pop("id", None)
+    try:
+        entry = model.model_validate(payload)
+    except ValueError as exc:
+        raise NotAppliedNotAdoptableError("not_adoptable") from exc
+    entries = getattr(profile, item.section)
+    keys = _ENTRY_NATURAL_KEYS.get(item.section, ())
+    own_key = tuple(_norm(getattr(entry, f, "") or "") for f in keys)
+    already_there = any(
+        tuple(_norm(getattr(e, f, "") or "") for f in keys) == own_key for e in entries
+    )
+    if not already_there:
+        entries.append(entry)
+        changes.append(FieldChange(
+            section=item.section, field=(keys or ("name",))[0],
+            action="added", old_value=None, new_value=item.label,
+            rationale=f"Added {item.label!r}: the candidate adopted it from an import that had not applied it.",
+            rationale_key="not_applied_adopted",
+        ))
+    else:
+        changes.append(FieldChange(
+            section="metadata", field="not_applied", action="updated",
+            old_value=None, new_value=item.label,
+            rationale=f"{item.label!r} was already in the profile; the item was marked adopted.",
+            rationale_key="not_applied_adopted",
+        ))
+    stamp = datetime.now(timezone.utc)
+    for i in _record.not_applied:
+        if i.item_key == op.item_key and i.adopted_at is None:
+            i.adopted_at = stamp

@@ -1117,6 +1117,22 @@ class ImportNotApplied(BaseModel):
         "confirmation_already_present",
         "target_unresolved",
     ]
+    #: UAT-3d (Hazelnut build 5) — a deterministic id for this item inside its
+    #: record (``section:<hash of label>``), set where the item is a whole
+    #: incoming record. ``None`` on receipts persisted before this field.
+    item_key: str | None = None
+    #: The incoming entry payload (no id), captured ONLY for an item that is a
+    #: whole new record of a list section (work_experience, education, projects,
+    #: volunteer_activities, certifications, languages, publications) — what
+    #: "Übernehmen" appends. ``None`` for scalar/summary items and for receipts
+    #: persisted before this field (those fall back to go-to-section).
+    entry: dict[str, Any] | None = None
+    #: Set when the candidate adopted this item; an adopted item is no longer
+    #: counted or shown by the hub.
+    adopted_at: datetime | None = None
+    #: Computed when the hub issue is built: has an ``entry`` and no
+    #: ``adopted_at``. Never persisted as true.
+    adoptable: bool = False
 
 
 #: ADR-062 clause 1 (a FACT over the reason key, never a judgement) / ADR-066
@@ -2148,6 +2164,26 @@ class WithdrawDenialRequest(BaseModel):
     concept: str = Field(min_length=1, max_length=500)
 
 
+class HealthUnitRequest(BaseModel):
+    """UAT-3d — ``POST /api/profile/health/unit``: the currency for one work
+    entry's budget figure that states none."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entry_id: str = Field(min_length=1)
+    unit: Literal["EUR", "USD", "CHF", "GBP"]
+
+
+class AdoptNotAppliedRequest(BaseModel):
+    """UAT-3d — ``POST /api/profile/not-applied/adopt``: one receipt item of the
+    hub's ``not_applied:<record id>`` issue, taken into the vault."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    issue_id: str = Field(min_length=1)
+    item_key: str = Field(min_length=1)
+
+
 class SeparateMatchRequest(BaseModel):
     """#717 — "Nicht dasselbe": the recognised pair to undo, named as the
     import summary shows it (ADR-063 amended 2026-10-07, ruling V-2 = A)."""
@@ -2201,7 +2237,7 @@ class HealthIssue(BaseModel):
     # "Ist A dasselbe wie B?" with the existing Ja / Nein-getrennt acts.
     thread: Literal[
         "conflict", "accuracy", "confirmation", "unit", "not_applied", "span_provenance",
-        "suspect_binding",
+        "suspect_binding", "duplicate_entry",
     ]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     # A server-built, English-only fallback (kept for any consumer #626
@@ -2328,6 +2364,19 @@ class HealthIssue(BaseModel):
     options_i18n: list[dict[str, str]] | None = None
     span_years: int | None = None
     recomputed_years: int | None = None
+    #: UAT-3d — ``conflict`` only: the closed outcome list the dispute allows
+    #: (``decisions.conflict_shape``), e.g. ``keep_current`` / ``take_new`` /
+    #: ``keep_both`` / ``merge``.
+    outcomes: list[str] | None = None
+    #: UAT-3d — ``unit`` only: the stored budget wording as written, and the id
+    #: of the work entry it sits on (the one-action unit input addresses it).
+    budget_value: str | None = None
+    entry_id: str | None = None
+    #: UAT-3d — ``duplicate_entry`` only: [target, other] entry ids of the
+    #: recognised pair, and the other entry's label (``entity_label`` is the
+    #: target's).
+    entry_ids: list[str] | None = None
+    other_entity_label: str | None = None
 
 
 class CompletenessBlock(BaseModel):
@@ -2346,6 +2395,10 @@ class CompletenessBlock(BaseModel):
     score: float                                  # 0.0 to 1.0
     gaps: list[str] = Field(default_factory=list)
     field_gaps: list[str] = Field(default_factory=list)
+    # ADR-099 / UAT-3d: A/complete_section when ``field_gaps`` is non-empty,
+    # else S/None (a section-level gap alone is a nudge, not an action).
+    delivery_class: Literal["F", "A", "U", "S"] | None = None
+    resolver: str | None = None
 
 
 class ProfileHealthResponse(BaseModel):
