@@ -61,6 +61,35 @@ class CheckNote(BaseModel):
     plain: Optional[str] = None
 
 
+# ADR-099 cl. 2 — the four delivery classes (see services.finding_registry).
+DeliveryClass = Literal["F", "A", "U", "S"]
+
+
+class DeliveryRemoval(BaseModel):
+    """ADR-099 cl. 5 — one claim the generation loop removed or narrowed
+    because the profile does not back it. Listed in ONE collapsed, uncounted
+    line on the review surface; each item's single exit is testimony
+    ("Doch, stimmt – wo?"). ``pinned`` = the removal hit a pinned fact
+    (ADR-077 cl. 2: always shown expanded)."""
+
+    text: str                        # the removed / narrowed wording as delivered before the fix
+    section: Optional[str] = None    # document section key the claim stood in
+    kind: str                        # registry kind that drove the removal (e.g. "oracle:unbacked")
+    finding_key: Optional[str] = None  # producer + _norm_quote key (ADR-090 cl. 6)
+    narrowed_to: Optional[str] = None  # replacement wording when narrowed, None when removed
+    pinned: bool = False
+
+
+class DeliveryState(BaseModel):
+    """ADR-099 cl. 4(d)/5 — what the generation loop did for delivery.
+    ``loop_clean`` = the loop ran and ``review_degradation == []``: only then
+    may class-F kinds stay hidden. ``None`` = no loop ran (agent-door render,
+    legacy row) → class-F kinds render as their class-A/U fallback."""
+
+    loop_clean: Optional[bool] = None
+    removals: list[DeliveryRemoval] = Field(default_factory=list)
+
+
 class ATSCheck(BaseModel):
     id: str                      # stable machine id, e.g. "contact-name", "work-2", "reading-order"
     # E057/ADR-079 clause 4: a THIRD status, `not_applicable`, for a check that
@@ -96,6 +125,14 @@ class ATSCheck(BaseModel):
     # R2-5 (build 4): the terminal-review card's items as data (see CheckNote).
     # None on every other check and on every report persisted before it.
     notes: Optional[list[CheckNote]] = None
+    # ADR-099 cl. 2 (UAT-2 fix round): the delivery class of this check's kind
+    # from the one finding registry (`services.finding_registry`) — "F" fixed
+    # before delivery (not rendered), "A" one action, "U" producer did not run,
+    # "S" silent (report only). `resolver` names the one action a class-A/U row
+    # offers (registry vocabulary). Both None on reports persisted before it:
+    # a renderer treats None as "unclassified", never as "S".
+    delivery_class: Optional[DeliveryClass] = None
+    resolver: Optional[str] = None
 
 
 class KeywordMatch(BaseModel):
@@ -238,6 +275,8 @@ class ATSReport(BaseModel):
     # E056/ADR-077: per-pin presence measurement (ship-and-report, never a
     # gate). None = audited without pin context (legacy reports, no pins).
     pinned_facts: Optional[list[PinnedFactReportEntry]] = None
+    # ADR-099 cl. 4–5: None on reports persisted before the field.
+    delivery: Optional[DeliveryState] = None
 
 
 class TruthfulnessSummary(BaseModel):

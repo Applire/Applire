@@ -54,6 +54,30 @@ export type ATSCheck = {
   // surface says them in the UI language. Absent/null on every other check and
   // on every report persisted before it (those keep the EN `details`).
   notes?: CheckNote[] | null;
+  // ADR-099 cl. 2 — delivery class of this check's kind (backend finding
+  // registry) and the one action a class-A/U row offers. Null/absent on
+  // reports persisted before the field = unclassified, never "S".
+  delivery_class?: DeliveryClass | null;
+  resolver?: string | null;
+};
+
+/** ADR-099 cl. 2 — F fixed before delivery · A one action · U did not run · S silent. */
+export type DeliveryClass = "F" | "A" | "U" | "S";
+
+/** ADR-099 cl. 5 — one claim the generation loop removed or narrowed. */
+export type DeliveryRemoval = {
+  text: string;
+  section?: string | null;
+  kind: string;
+  finding_key?: string | null;
+  narrowed_to?: string | null;
+  pinned: boolean;
+};
+
+/** ADR-099 cl. 4(d)/5 — null `loop_clean` = no loop ran → F kinds fall back to A/U. */
+export type DeliveryState = {
+  loop_clean?: boolean | null;
+  removals: DeliveryRemoval[];
 };
 
 /**
@@ -107,6 +131,8 @@ export type ATSReport = {
   checks: ATSCheck[];
   // null/absent = audited without pin context (legacy reports, no pins).
   pinned_facts?: PinnedFactReportEntry[] | null;
+  // ADR-099 cl. 4–5 — absent on reports persisted before the field.
+  delivery?: DeliveryState | null;
   keywords: {
     present: string[];
     missing: string[];

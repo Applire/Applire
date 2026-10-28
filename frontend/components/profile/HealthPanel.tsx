@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { conflictSourceLabel, describeConflict } from "@/lib/conflict-display";
+import type { DeliveryClass } from "@/lib/ats-report";
 
 // US160 (E033 / ADR-041 amended) — the deterministic /api/profile/health contract.
 // "confirmation" (#333): an N-option ambiguity the reconciler parked for the
@@ -57,6 +58,10 @@ export interface HealthIssue {
   summary: string;
   field_ref?: string | null;
   source_record_ref?: string | null;
+  // ADR-099 cl. 2/11 — delivery class + the one action's resolver key from the
+  // backend's finding registry. Null/absent = unclassified (never read as "S").
+  delivery_class?: DeliveryClass | null;
+  resolver?: string | null;
   // #626 (conflict legibility) — structured fields, populated for `conflict`
   // issues only (every other thread leaves them undefined/null and renders
   // exactly as before). See `services/profile/health.py`'s `HealthIssue` for

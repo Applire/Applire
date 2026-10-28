@@ -2185,6 +2185,12 @@ class HealthIssue(BaseModel):
     summary: str
     field_ref: str | None = None
     source_record_ref: str | None = None
+    # ADR-099 cl. 2/11 (UAT-2 fix round): the delivery class of this issue's
+    # kind from ``services.finding_registry`` ("A" one action, "S" not shown,
+    # …) and the one action's resolver key. None = unclassified (a reader must
+    # not treat it as "S").
+    delivery_class: Literal["F", "A", "U", "S"] | None = None
+    resolver: str | None = None
     # ── founder ruling V-7 (2026-09-09) — structured fields for the
     #    ``not_applied`` thread, so the reader composes the sentence in the
     #    candidate's language instead of rendering the server's English
