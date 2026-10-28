@@ -202,7 +202,7 @@ Your job is to make true things read well, and land for THIS job.
 
 2. RELEVANCE. Within each entry, lead with what this job cares about. Strong, concrete verbs; each bullet should say what the candidate did and what changed because of it. Prefer one specific bullet over two vague ones. Every CLAIMABLE Keyword-Ledger concept whose evidence lives in a work entry's own responsibilities or achievements must reach that entry's bullets — nice-to-have concepts exactly like required ones — not only the skills list. A skills tag no work-history line supports reads as unbacked to a hiring reviewer, and the cover letter built on this same profile will assert exactly those facts — a letter claim with no CV counterpart is what makes honest documents read as inflated. The bullet belongs under the entry that OWNS the evidence (rule 1): when that entry's budget is full, fold the fact into a related bullet there as a compound clause — two related facts in one bullet cost one slot — and NEVER park it under a different employer to make room.
 
-3. MEASURED OVER PROJECTED. Where the profile carries both a target and a measured outcome for the same initiative, write the measured one. "Reduced scrap from 4,1 % to 2,3 %" beats "aimed to reduce scrap". A quantified, measured achievement is the strongest evidence an entry has — under a tight bullet budget it is the LAST thing to cut, never the first. The profile's signature_stories are curated for exactly this: EVERY story's measured outcome figure must appear in the document, in the work entry or nested project that owns it — a story whose figure is missing is the strongest evidence cut first, the exact mistake this rule forbids. An entry's "not_yet_reached" lists lines the candidate confirmed are not reached yet: write each as an aim, target or mandate, never as a result.
+3. MEASURED OVER PROJECTED. Where the profile carries both a target and a measured outcome for the same initiative, write the measured one. "Reduced scrap from 4,1 % to 2,3 %" beats "aimed to reduce scrap". A quantified, measured achievement is the strongest evidence an entry has — under a tight bullet budget it is the LAST thing to cut, never the first. The profile's signature_stories are curated for exactly this: EVERY story's measured outcome figure must appear in the document, in the work entry or nested project that owns it — a story whose figure is missing is the strongest evidence cut first, the exact mistake this rule forbids.
 
 4. UNMET AND PARTLY-MET REQUIREMENTS. "Do not claim it" is not a complete instruction; each kind gets a different action.
    - ADJACENT (the KEYWORD LEDGER names an adjacent capability for a required concept): give the ADJACENT capability real prominence — a skills-list position and, where the profile supports one, a bullet showing it in use (unless the adjacent capability is itself a requirement phrase — a duration, an industry or sector name, a degree requirement — which takes the summary or the bullet, never the skills list; rule 7). Present it as itself, on its own merits. Never write the JD's own term as though the candidate held it, and never pair the two as equivalents.
@@ -530,8 +530,18 @@ V2_LISTED_ONLY_RULE = (
 
 assert SYSTEM_PROMPT.count(_V2_RULE2_ANCHOR) == 1, "v1 rule 2 moved — re-anchor _V2_RULE2_ANCHOR"
 
+#: RULING B-1 / interface A1-3 (Hazelnut build 5): the candidate's own "not reached
+#: yet" testimony per entry (a data fact, ADR-062) — v2 only: the v1 writer must stay
+#: smaller than its reviewer (test_545) and sits 4 characters under it.
+_V2_RULE3_ANCHOR = "the exact mistake this rule forbids."
+V2_NOT_YET_REACHED_RULE = (
+    'An entry\'s "not_yet_reached" lists lines the candidate confirmed are not reached '
+    "yet: write each as an aim, target or mandate, never as a result."
+)
+
 V2_SYSTEM_PROMPT = (
-    SYSTEM_PROMPT.replace(_V1_FACTS_PARAGRAPH, _V2_FACTS_PARAGRAPH)
+    SYSTEM_PROMPT.replace(_V2_RULE3_ANCHOR, _V2_RULE3_ANCHOR + " " + V2_NOT_YET_REACHED_RULE)
+    .replace(_V1_FACTS_PARAGRAPH, _V2_FACTS_PARAGRAPH)
     .replace(_V1_SCHEMA, _V2_SCHEMA)
     .replace(_V2_BUDGET_SENTENCE, _V2_BUDGET_REPLACEMENT)
     .replace(_V2_RULE2_ANCHOR, _V2_RULE2_ANCHOR + " " + V2_LISTED_ONLY_RULE)

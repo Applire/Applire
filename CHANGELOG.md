@@ -6,6 +6,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Unreleased — Hazelnut build 5
+- **Applire fixes what it can before you see the CV or letter (ADR-099).** Before delivery, a correction round moves a sentence to the role whose experience backs it and removes or narrows a claim your profile does not back, for the CV and now also for the letter. The review then checks the delivered document with the same check the round used, so a point that was fixed no longer shows up.
+- **A CV still in two languages gets one more translation round** before delivery; whatever is left becomes one *Translate these passages* action.
+- **Duplicate projects are merged by the writing loop**, like duplicate bullets: it is told about the pair and keeps one copy with every detail. Nothing is deleted by code.
+- **The CV's page-length card always offers a choice.** When the target length cannot be reached, *Shorten* proposes the shortest length that can and says so. Keeping a letter's length closes its card.
+- **Review texts for duplicates, near-identical skills and an unchecked work history now come in your language** instead of an English server sentence. A point without a translated text is no longer shown.
+- **A line you said is not reached yet stays a goal in the new CV and letter** (only in the current writing pipeline): it is written as an aim or mandate, never as a result.
+- **Fixed:** *Shorten* on the letter's page card failed every time. It now works and keeps your pinned facts: a shorter version that drops one is refused.
+
 ### Upgrade notes
 - **The `retention` service in `docker-compose.yml` has a new command.** Between its nightly runs it now runs `python -m applire.retention --stale-jobs` every 10 minutes, which marks a dead CV or letter generation as failed (#789). If you keep your own copy of `docker-compose.yml`, take the new `command:` line. With the old one everything keeps working; a dead generation just shows "Generating…" until the next nightly run.
 - **A trusted-proxy range wider than `/16` (IPv4) or `/48` (IPv6) now stops the nginx container at start**, naming the entry, the same way a malformed value already did. Set `APPLIRE_TRUSTED_PROXY` to your proxy's address or a range of at most that width (Docker's `/16` bridge is fine). `0.0.0.0/0` let every client pick its own sign-in throttle identity.
