@@ -1557,6 +1557,35 @@ class ProfileMetadata(BaseModel):
     # the same question again. A withdrawn denial (cv_holds) needs no entry: it
     # is gone from denied_concepts and cannot re-park.
     denial_scope_answered: list[str] = Field(default_factory=list)
+    # ADR-099 cl. 11 / ADR-046 am. (Hazelnut build 5, WP-A1, U-9) — two entries
+    # the candidate keeps as SEPARATE entries: answered "Nein, getrennt" on the
+    # duplicate-entry question, or "Beide behalten" on an entry dispute
+    # (RULING A1-i1). The duplicate-entry question never re-asks such a pair.
+    separate_entry_pairs: list["EntryPair"] = Field(default_factory=list)
+    # U-9 — the model's same-position verdict per candidate pair (identical
+    # dates), judged once at the end of a CV import. Only "different" hides a
+    # pair from the duplicate-entry question; an unjudged pair is asked.
+    entry_identity_verdicts: list["EntryIdentityVerdict"] = Field(default_factory=list)
+
+
+class EntryPair(BaseModel):
+    """Two entries of one section, ids sorted (an unordered pair)."""
+
+    section: str
+    ids: list[str] = Field(min_length=2, max_length=2)
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("ids", mode="after")
+    @classmethod
+    def _sorted(cls, v: list[str]) -> list[str]:
+        return sorted(v)
+
+
+class EntryIdentityVerdict(EntryPair):
+    verdict: Literal["same", "different", "unsure"]
+
+
+ProfileMetadata.model_rebuild()
 
 
 class ProfileMetaBlock(BaseModel):
