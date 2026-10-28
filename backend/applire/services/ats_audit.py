@@ -915,8 +915,10 @@ def foreign_language_items(tailored, document_language: str) -> list[tuple[str, 
     reason as :func:`delivered_bullets`: one list of what the reader actually
     sees, rather than a per-axis scan. Covered surfaces are exactly the ones a
     deterministic pass can put vault text into after the ADR-038 language pass has
-    run — the summary, every work and project bullet (nested and standalone), and
-    every per-role ``industry_context`` furniture line.
+    run — the summary and every work and project bullet (nested and standalone).
+    The per-role ``industry_context`` line is NOT scanned (founder ruling P-1,
+    Hazelnut build 5): no template and no .docx renders it, and a finding on text
+    the reader never sees has nothing to fix.
 
     The predicate is ``utils.language_detection.item_language_mismatch``, which
     wraps THE detector (ADR-066) with a measured evidence floor. It UNDER-reports
@@ -933,11 +935,6 @@ def foreign_language_items(tailored, document_language: str) -> list[tuple[str, 
     summary = _field(tailored, "summary")
     if isinstance(summary, str) and item_language_mismatch(summary, document_language):
         out.append(("Profil", summary))
-    for w in _field(tailored, "work_history") or []:
-        where = f"{_field(w, 'company') or '?'} / {_field(w, 'role') or '?'}"
-        industry = _field(w, "industry_context")
-        if isinstance(industry, str) and item_language_mismatch(industry, document_language):
-            out.append((f"{where} > Branche", industry))
     for where, text in delivered_bullets(tailored):
         if item_language_mismatch(text, document_language):
             out.append((where, text))
@@ -1281,6 +1278,13 @@ class NonClaimNames:
     #: inside one) is a skill, not only a name — "MongoDB Inc." must not hide
     #: "sharded MongoDB clusters", "Software AG" must not mask "software".
     skill_forms: tuple[str, ...] = ()
+    #: D-4 (Hazelnut build 5): the posting's own organisation units — a team,
+    #: division or department it names ("our Developer Experience team",
+    #: "Productivity Solutions Division (PSD)"), normalised, head noun included,
+    #: plus a parenthesised acronym. Read only with ``employer_clause`` (letters):
+    #: a letter sentence about "the Developer Experience team's work" is about the
+    #: employer, and "Developer Experience" in it is no claim of the candidate's.
+    org_units: tuple[str, ...] = ()
 
     def __bool__(self) -> bool:
         return bool(self.titles or self.employers)
@@ -1397,6 +1401,10 @@ def non_claim_names_for_job(job: Any, application: Any | None = None) -> NonClai
     if job is None:
         return None
     posting = non_claim_names(getattr(job, "role_title", None), [getattr(job, "company_name", None)])
+    raw = getattr(job, "raw_text", None)
+    org_units = posting_org_units(raw if isinstance(raw, str) else None)  # D-4 (letters only)
+    if org_units:
+        posting = dataclasses.replace(posting, org_units=org_units)
     if application is None:
         return posting
     from applire.services.posting_labels import effective_posting_labels
@@ -1410,6 +1418,7 @@ def non_claim_names_for_job(job: Any, application: Any | None = None) -> NonClai
     return NonClaimNames(
         titles=_union(effective.titles, posting.titles),
         employers=_union(effective.employers, posting.employers),
+        org_units=posting.org_units,
     )
 
 
@@ -1562,7 +1571,81 @@ def mask_non_claim_spans(text_norm: str, names: NonClaimNames | None) -> str:
     intervals = _name_intervals(text_norm, names.all_names())
     if names.employer_clause:
         intervals += _employer_clause_intervals(text_norm, names.employers, names.skill_forms)
+        if names.org_units:
+            # D-4: the unit's name, and the clause it opens (anchored on the WHOLE
+            # name only — never its first word: "developer" alone is a skill word).
+            intervals += _name_intervals(text_norm, names.org_units)
+            intervals += _org_unit_clause_intervals(text_norm, names.org_units)
     return _mask_intervals(text_norm, intervals)
+
+
+def _org_unit_clause_intervals(text_norm: str, units: Sequence[str]) -> list[tuple[int, int]]:
+    """D-4: the clause a posting's organisation unit opens, ended exactly like an
+    employer clause (:func:`_employer_clause_end`)."""
+    spans: list[tuple[int, int]] = []
+    for u in sorted({x for x in units if x}, key=len, reverse=True):
+        for m in re.finditer(_name_pattern(u), text_norm):
+            end = _employer_clause_end(text_norm, m.end())
+            if end > m.start():
+                spans.append((m.start(), end))
+    return spans
+
+
+#: D-4: a head noun that makes the capitalised words before it the name of an
+#: organisation unit of the employer ("Developer Experience team").
+_ORG_HEADS = (
+    "team", "teams", "division", "department", "business unit", "unit", "group",
+    "organization", "organisation", "abteilung", "bereich", "geschäftsbereich", "sparte",
+)
+#: Capitalised words that open a sentence or a possessive, never a unit's name.
+_ORG_STOP_WORDS = frozenset({
+    "a", "an", "the", "our", "your", "their", "this", "that", "these", "we", "join", "you",
+    "unser", "unsere", "unserem", "unseren", "unserer", "ihr", "ihre", "das", "die", "der",
+    "dem", "den", "ein", "eine", "einem", "einen", "im", "in", "als", "und", "and", "or",
+    "for", "of", "with", "to", "at", "by", "from", "global", "local", "new", "small", "great",
+})
+_ORG_UNIT_RE = re.compile(
+    r"((?:[A-ZÄÖÜ][\w&]*(?:[-\s]+|(?=\s)))+?)\s*"
+    r"(" + "|".join(sorted(_ORG_HEADS, key=len, reverse=True)) + r")(?:['’]s)?\b"
+    r"(?:\s*\(([A-Z]{2,6})\))?",
+    re.IGNORECASE,
+)
+_ORG_CAP_WORD_RE = re.compile(r"[A-ZÄÖÜ][\w&]*")
+#: The posting saying the unit is ITS OWN: "join our …", "unser …" — or an acronym
+#: after it. Without one, "Intensive Care Unit" (a ward in a nurse's title) or
+#: "eines kleinen Controlling-Teams" (a duty) would read as a unit's name.
+_ORG_OWNER_RE = re.compile(r"\b(?:our|unser\w*|join)\b", re.IGNORECASE)
+
+
+def posting_org_units(raw_text: str | None) -> tuple[str, ...]:
+    """D-4: the organisation units the posting names AS ITS OWN — a run of 1–4
+    capitalised words right before a unit head noun, introduced by "our"/"unser…"/
+    "join" or followed by a parenthesised acronym; normalised with the head
+    ("developer experience team"), plus the acronym ("psd"). A FACT about the posting's text (ADR-062 cl. 1): the
+    literal string is what a letter audit masks, never a judgement of meaning."""
+    out: list[str] = []
+    for m in _ORG_UNIT_RE.finditer(raw_text or ""):
+        words = m.group(1).replace("-", " ").split()
+        # the capitalised run directly before the head; IGNORECASE widened [A-Z]
+        run: list[str] = []
+        for w in reversed(words):
+            if not _ORG_CAP_WORD_RE.fullmatch(w) or w.casefold() in _ORG_STOP_WORDS:
+                break
+            run.insert(0, w)
+        run = run[-4:]
+        if not run:
+            continue
+        lead = " ".join(words[: len(words) - len(run)])
+        before = (raw_text or "")[max(0, m.start() - 25): m.start()] + " " + lead
+        acronym = m.group(3)
+        if not acronym and not _ORG_OWNER_RE.search(before):
+            continue
+        name = _norm(" ".join(run) + " " + m.group(2))
+        if name and name not in out:
+            out.append(name)
+        if acronym and _norm(acronym) not in out:
+            out.append(_norm(acronym))
+    return tuple(out)
 
 
 def _keyword_coverage(
@@ -1743,6 +1826,34 @@ def _keyword_coverage(
     # + report-surface parity) — orthogonal to claimable_concepts (literal vault
     # presence) and independent of document presence, same as claimable_concepts.
     keyword_liability_concepts = [e.get("concept", "") for e in keyword_liabilities(ledger)]
+    # D-4c(a) (Hazelnut build 5): per flagged term, the sentences that still carry a
+    # claim-text match after the masks — the review surface counts and locates
+    # only these (it used to count every occurrence in the rendered document,
+    # the masked employer clause included: "an 2 Stellen" for one claim).
+    present_unsupported_sentences = _claim_sentences(text_norm, present_unsupported, non_claim, ledger)
+    # D-4c(b) (ruling D-4c-b, ADR-099 cl. 2): a LETTER term a recorded denial covers
+    # whose every claim sentence also names a term the candidate denied on the
+    # ledger ("IFS, BRC und direkte Lebensmittelproduktion kenne ich nicht") is
+    # the candidate stating their own limit — nothing to fix, never a card (S).
+    # A real claim of the denied thing ("… Lebensmittelproduktion geleitet") names
+    # no denied term and keeps its remove-only card.
+    present_unsupported_in_denial: list[str] = []
+    if non_claim and non_claim.employer_clause and present_denied and present_unsupported_denials:
+        for k in present_unsupported:
+            sents = present_unsupported_sentences.get(k) or []
+            if k in present_unsupported_denials and sents and all(
+                any(keyword_matches(d, x, ledger) for d in present_denied) for x in sents
+            ):
+                present_unsupported_in_denial.append(k)
+        if present_unsupported_in_denial:
+            moved = set(present_unsupported_in_denial)
+            present_unsupported = [k for k in present_unsupported if k not in moved]
+            present_unsupported_employer_sentence = [
+                k for k in present_unsupported_employer_sentence if k not in moved
+            ]
+            present_unsupported_sentences = {
+                k: v for k, v in present_unsupported_sentences.items() if k not in moved
+            }
     return ATSKeywordCoverage(
         present=present,
         missing=missing,
@@ -1757,7 +1868,29 @@ def _keyword_coverage(
         present_denied_matches={k: matches_by_kw[k] for k in present_denied},
         present_unsupported_denials=present_unsupported_denials,
         present_unsupported_employer_sentence=present_unsupported_employer_sentence,
+        present_unsupported_sentences=present_unsupported_sentences,
+        present_unsupported_in_denial=present_unsupported_in_denial,
     )
+
+
+def _claim_sentences(
+    text_norm: str,
+    terms: list[str],
+    non_claim: NonClaimNames | None,
+    ledger: list[dict[str, Any]] | None,
+) -> dict[str, list[str]]:
+    """D-4c(a): for each term, the normalised sentences of ``text_norm`` (unmasked,
+    as delivered) whose MASKED form still matches it — the occurrences the flag
+    read. Same sentence split as the #803 belt; same masks as the flag."""
+    if not terms:
+        return {}
+    sentences = [x for x in _LETTER_SENTENCE_END_RE.split(text_norm) if x and x.strip()]
+    masked = [mask_non_claim_spans(x, non_claim) if non_claim else x for x in sentences]
+    out: dict[str, list[str]] = {}
+    for k in terms:
+        hits = [s.strip() for s, m in zip(sentences, masked) if keyword_matches(k, m, ledger)]
+        out[k] = list(dict.fromkeys(hits))
+    return out
 
 
 #: Sentence ends on the normalised letter text (``_norm`` keeps punctuation).

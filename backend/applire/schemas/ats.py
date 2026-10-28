@@ -104,6 +104,11 @@ class DeliveryState(BaseModel):
     # and that are absent from the delivered report — what the passed line
     # "N Prüfungen bestanden" counts beside the passed checks (ADR-099 cl. 3).
     fixed: list[str] = Field(default_factory=list)
+    # RULING D-AG1 (founder, Hazelnut build 5; additive): the document was authored
+    # by the user's OWN agent (``origin == "agent"``, MCP ``render_document``), not
+    # by Applire's writer — so no Applire loop or final review was ever meant to
+    # run on it, and the terminal-review "not run" row is silent (class S).
+    authored_by_agent: bool = False
 
 
 class ATSCheck(BaseModel):
@@ -236,6 +241,15 @@ class ATSKeywordCoverage(BaseModel):
     # listed (take-out + edit stay); the review shows them neutral — no add exit,
     # not counted in the group-1 headline. Empty on CVs and older reports.
     present_unsupported_employer_sentence: list[str] = []
+    # D-4c(a) (Hazelnut build 5): per ``present_unsupported`` term, the normalised
+    # sentences (the audit's ``_norm`` fold of the delivered text, unmasked) that
+    # still carry a claim-text match after the title/employer/org-unit masks. The
+    # review surface counts and locates only these. Additive, `{}` = legacy.
+    present_unsupported_sentences: dict[str, list[str]] = {}
+    # D-4c(b) (ruling D-4c-b): LETTER terms a recorded denial covers whose every
+    # claim sentence also names a ledger-denied term — the candidate stating their
+    # own limit. Moved OUT of ``present_unsupported`` (class S, no card).
+    present_unsupported_in_denial: list[str] = []
     # ADR-099 cl. 2 (WP-B): bucket field name → its delivery class + resolver
     # (registry kinds ``keyword:<bucket>``), for every bucket the review surface
     # reads: ``present_unsupported``, ``present_unsupported_employer_sentence``,

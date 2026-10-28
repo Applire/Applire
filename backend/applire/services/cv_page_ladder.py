@@ -17,11 +17,18 @@ count is over the limit:
 2. skill chips with no relevance to THIS job (the #192 rank, tier 3),
 3. a "Branche:" line that repeats the line of an earlier role,
 4. the oldest certification, one at a time,
-5. the oldest education entry beyond the two most recent, one at a time.
+5. the oldest education entry beyond the two most recent, one at a time,
+6. (the person's page-length proposal only — ``old_roles_before``) the bullets and
+   nested projects of a role that ended more than ``OLD_ROLE_YEARS`` years ago, oldest
+   first, one role at a time: the role keeps its title, company and dates in THIS CV;
+   the profile is untouched (U-6, founder ruling 2026-10-28: "in case of us needing
+   to reach the limit, shorten the old jobs").
 
-It never touches a role's bullets (a role never loses its last line to this ladder),
-a summary, a JD-relevant skill or a pinned fact's carrier, and every cut is named so
-the length finding can say exactly what went.
+Rungs 1–5 never touch a role's bullets; rung 6 runs only where the person decides
+("Kürzen" on the page card), never in the automatic ``target + 1`` ladder. Nothing
+touches a summary, a JD-relevant skill or a pinned fact's carrier (a pinned bullet
+of an old role stays), and every cut is named so the length finding can say
+exactly what went.
 
 This module is pure: it proposes cut steps over a ``tailored_data`` dict. The caller
 (``services.cv._measure_and_condense``) renders between steps and stops at the limit
@@ -39,9 +46,16 @@ from typing import Any, Callable, Iterator
 # The kinds a cut can have — stable ids the frontend and the ATS finding key on.
 DUPLICATE_PROJECT = "duplicate_project"
 OFF_JOB_SKILLS = "off_job_skills"
+#: Legacy kind (persisted proposals before founder ruling P-1): the ladder no
+#: longer proposes it — the industry line is never rendered, so cutting it saved
+#: no space and the receipt named a cut that changed nothing on the page.
 REPEATED_INDUSTRY = "repeated_industry"
 OLDEST_CERTIFICATION = "oldest_certification"
 OLDEST_EDUCATION = "oldest_education"
+OLD_ROLE_BULLETS = "old_role_bullets"
+
+#: U-6: a role that ended MORE than this many years ago is "old" (rung 6).
+OLD_ROLE_YEARS = 15
 
 _KEEP_EDUCATION = 2
 _YEAR = re.compile(r"(\d{4})")
@@ -93,32 +107,24 @@ def _duplicate_projects(data: dict) -> list[int]:
     ]
 
 
-def _repeated_industry(data: dict) -> list[int]:
-    """Indexes of roles whose industry line repeats an EARLIER role's line verbatim
-    (case/space-insensitive); the first occurrence stays."""
-    seen: set[str] = set()
-    out: list[int] = []
-    for i, w in enumerate(data.get("work_history") or []):
-        key = _norm(w.get("industry_context"))
-        if not key:
-            continue
-        if key in seen:
-            out.append(i)
-        seen.add(key)
-    return out
-
-
 def ladder_steps(
     data: dict,
     skill_tier: Callable[[str], int] | None = None,
     *,
     pinned: Callable[[str], bool] | None = None,
+    old_roles_before: int | None = None,
+    pinned_bullets: Callable[[dict, list[str]], set[int]] | None = None,
 ) -> Iterator[LadderStep]:
     """Yield the ladder's steps in order, each applied on top of the previous one.
 
     ``skill_tier`` is the #192 rank (``services.cv.skill_jd_tier_fn``); without it
     the skills rung is skipped (no rank, no cut). ``pinned`` names text a fact pin
     protects — a protected skill or certification is never cut.
+
+    ``old_roles_before`` arms rung 6: a role whose end year is BEFORE it (the caller
+    passes ``this year - OLD_ROLE_YEARS``) loses its bullets and nested projects.
+    ``pinned_bullets(entry, texts)`` returns the indexes of ``texts`` a CV pin
+    protects (``pin_reach.bullet_pin_carrier_indices``) — those stay.
     """
     current = copy.deepcopy(data)
     is_pinned = pinned or (lambda _s: False)
@@ -139,17 +145,9 @@ def ladder_steps(
             current["skills"] = [s for s in skills if s not in set(off)]
             yield LadderStep(copy.deepcopy(current), LadderCut(OFF_JOB_SKILLS, tuple(off)))
 
-    # 3. a repeated industry ("Branche:") line
-    rep = _repeated_industry(current)
-    if rep:
-        work = current.get("work_history") or []
-        removed = tuple(
-            f"{work[i].get('company') or work[i].get('role') or ''}: {work[i].get('industry_context')}"
-            for i in rep
-        )
-        for i in rep:
-            work[i]["industry_context"] = None
-        yield LadderStep(copy.deepcopy(current), LadderCut(REPEATED_INDUSTRY, removed))
+    # (3. — the repeated industry line — retired by founder ruling P-1: the line
+    # is never rendered, so the cut saved no space; REPEATED_INDUSTRY stays only
+    # as a persisted legacy kind that reinsert_cuts can still undo.)
 
     # 4. the oldest certification, one at a time
     while True:
@@ -178,6 +176,39 @@ def ladder_steps(
         current["education"] = [e for j, e in enumerate(edu) if j != i]
         label = " — ".join(x for x in (oldest.get("degree"), oldest.get("institution")) if x)
         yield LadderStep(copy.deepcopy(current), LadderCut(OLDEST_EDUCATION, (label,)))
+
+    # 6. an old role's bullets and nested projects, oldest first (proposal only)
+    if old_roles_before is None:
+        return
+    pin_idx = pinned_bullets or (lambda _e, _t: set())
+    done: set[int] = set()
+    while True:
+        work = current.get("work_history") or []
+        old = [
+            (i, w) for i, w in enumerate(work)
+            if i not in done and isinstance(w, dict) and not w.get("is_current")
+            and 0 < _year_key(w.get("end_date")) < old_roles_before
+            and (w.get("bullets") or w.get("projects"))
+        ]
+        if not old:
+            return
+        i, role = min(old, key=lambda iw: (_year_key(iw[1].get("end_date")), -iw[0]))
+        done.add(i)
+        bullets = [b for b in role.get("bullets") or [] if isinstance(b, str)]
+        keep_b = pin_idx(role, bullets)
+        kept_projects = [
+            p for p in role.get("projects") or []
+            if isinstance(p, dict) and pin_idx(role, [b for b in p.get("bullets") or [] if isinstance(b, str)])
+        ]
+        new_bullets = [b for j, b in enumerate(bullets) if j in keep_b]
+        if len(new_bullets) == len(bullets) and len(kept_projects) == len(role.get("projects") or []):
+            continue  # everything on it is pinned: nothing to cut
+        role["bullets"] = new_bullets
+        role["projects"] = kept_projects
+        label = " — ".join(
+            x for x in (role.get("role"), role.get("company"), str(role.get("end_date") or "")) if x
+        )
+        yield LadderStep(copy.deepcopy(current), LadderCut(OLD_ROLE_BULLETS, (label,)))
 
 
 def merge_cuts(cuts: list[LadderCut]) -> list[dict[str, Any]]:
@@ -239,9 +270,9 @@ def reinsert_cuts(
     """Put what the page ladder's cut removed back into the CURRENT CV (MD3-3).
 
     ``full`` is the data before the cut and ``cut`` the data the cut produced; the
-    difference between them is exactly what "Kürzen" removed — the ladder's five
+    difference between them is exactly what "Kürzen" removed — the ladder's six
     kinds: top-level projects, skill chips, a role's industry line, certifications,
-    education entries. Everything else in ``current`` (a later edit) is kept as it
+    education entries, an old role's bullets and nested projects (U-6). Everything else in ``current`` (a later edit) is kept as it
     is. Each list item goes back at its original position relative to its
     neighbours; an industry line goes back to its role when that role is still
     there and carries none. ``skills_override`` is the section editor's skills list
@@ -277,6 +308,30 @@ def reinsert_cuts(
             data[section] = merged
 
     cut_roles = cut.get("work_history") or []
+    # U-6 rung 6: an old role's bullets/projects go back to that role when it is
+    # still there and the person has not written new ones into it since.
+    for i, w in enumerate(full.get("work_history") or []):
+        if i >= len(cut_roles) or _role_key(cut_roles[i]) != _role_key(w):
+            continue
+        lost_b = [b for b in w.get("bullets") or [] if b not in (cut_roles[i].get("bullets") or [])]
+        lost_p = [
+            p for p in w.get("projects") or []
+            if _norm(p.get("name")) not in {_norm(q.get("name")) for q in cut_roles[i].get("projects") or []}
+        ]
+        if not lost_b and not lost_p:
+            continue
+        target = next(
+            (r for r in data.get("work_history") or [] if _role_key(r) == _role_key(w)), None,
+        )
+        if target is None:
+            unrestorable.append(f"{w.get('company') or w.get('role') or ''}: {len(lost_b)} bullets")
+            continue
+        if (target.get("bullets") or []) == (cut_roles[i].get("bullets") or []):
+            target["bullets"] = copy.deepcopy(w.get("bullets") or [])
+        if [_norm(p.get("name")) for p in target.get("projects") or []] == [
+            _norm(p.get("name")) for p in cut_roles[i].get("projects") or []
+        ]:
+            target["projects"] = copy.deepcopy(w.get("projects") or [])
     for i, w in enumerate(full.get("work_history") or []):
         line = w.get("industry_context")
         was_cut = (

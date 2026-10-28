@@ -583,7 +583,8 @@ def test_the_restored_bullet_is_delivered_translated_because_it_ran_before_the_p
 def test_the_swapped_back_order_delivers_the_untranslated_vault_bullet():
     """The baseline, asserted rather than assumed: run the language pass FIRST and
     the restore after it — the pre-#724 order — and the same twin delivers English
-    bullets and an English industry line."""
+    bullets (its English industry line is carried too, but renders nowhere since
+    founder ruling P-1, so the language check no longer reads it)."""
     from applire.services.ats_audit import foreign_language_items
 
     profile, budget = _profile(), _budget(max_bullets=8)
@@ -593,7 +594,7 @@ def test_the_swapped_back_order_delivers_the_untranslated_vault_bullet():
 
     foreign = foreign_language_items(doc.model_dump(), "de")
     assert sorted(text for _where, text in foreign) == sorted(
-        [EN_INDUSTRY, EN_ISO, EN_MES, EN_SMED]
+        [EN_ISO, EN_MES, EN_SMED]
     )
 
 

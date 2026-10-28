@@ -502,6 +502,16 @@ def denials_covering(
     denials = [d for d in denials or [] if isinstance(d, str) and d.strip()]
     if not probes or not denials:
         return []
+    # D-4c (Hazelnut build 5, Marcus delivery run): a German compound in the
+    # DOCUMENT reads the denial's compound's first part — the letter's honest
+    # "IFS, BRC und direkte Lebensmittelproduktion kenne ich nicht" matched the
+    # term "Lebensmittel", which is no whole word of the recorded denial "direkte
+    # Produktion für Lebensmittelkunden", so the card asked "Stimmt das?" about a
+    # limit the candidate stated. A single-word probe that opens a compound word of
+    # a denial adds that compound as a probe (a string fact; the floor's own
+    # predicate then decides) — unless the attested release corpus names the bare
+    # word itself. Document-side only: the ledger floor's predicate is unchanged.
+    probes += _denial_compound_probes(probes, denials, corpus)
     if not any(is_denied_concept(p, denials, corpus) for p in probes):
         return []
     if containment_release_form(token, forms, denials, corpus) is not None:
@@ -515,6 +525,30 @@ def denials_covering(
         ):
             covering.append(d)
     return sorted(dict.fromkeys(covering), key=lambda d: len(_norm(d)), reverse=True)
+
+
+#: D-4c: the shortest first part, and the shortest rest, of a compound probe.
+_COMPOUND_MIN_HEAD = 4
+_COMPOUND_MIN_TAIL = 3
+
+
+def _denial_compound_probes(probes: list[str], denials: list[str], corpus: str | None) -> list[str]:
+    """The compound words of ``denials`` that a single-word probe opens
+    ("lebensmittel" → "lebensmittelkunden"), skipping a probe the release corpus
+    names as a whole word (the candidate attests the bare thing)."""
+    corpus_norm = _norm(corpus or "")
+    out: list[str] = []
+    for p in probes:
+        pn = _norm(p)
+        if " " in pn or len(pn) < _COMPOUND_MIN_HEAD:
+            continue
+        if corpus_norm and _bounded_present(pn, corpus_norm):
+            continue
+        for d in denials:
+            for w in re.findall(r"\w+", _norm(d)):
+                if w.startswith(pn) and len(w) - len(pn) >= _COMPOUND_MIN_TAIL and w not in out:
+                    out.append(w)
+    return out
 
 
 def record_denials(

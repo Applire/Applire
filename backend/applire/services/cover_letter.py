@@ -1456,7 +1456,8 @@ async def _render_cover_letter_body(
                     # (`grounding_source`, below) is the one that actually carried it.
                     from applire.services.prompt_view import prompt_profile_view
                     cv_data = prompt_profile_view(
-                        exclude_unconfirmed(profile.profile_json or {}), derived_spans="hedge"
+                        exclude_unconfirmed(profile.profile_json or {}), derived_spans="hedge",
+                        aims="label",  # ADV-2
                     )
 
                 # Auto-extract recipient if not provided
@@ -1971,6 +1972,7 @@ async def _render_cover_letter_body(
                             prompt_profile_view(
                                 exclude_unconfirmed(profile.profile_json), derived_spans="hedge",
                                 entry_status="drop_confirmed",
+                                aims="label",  # ADV-2: the reviewer + corrector re-read this
                             )
                             if profile is not None
                             else {}
@@ -5027,7 +5029,7 @@ async def _update_ats_report_letter(
     cl.ats_report = apply_delivery(
         decide_kept_letter_page_length(cl.ats_report, getattr(cl, "review_state", None)),
         review_degradation=getattr(cl, "review_degradation", None),
-        previous=previous_report,
+        previous=previous_report, origin=getattr(cl, "origin", None),
     )
     await db.commit()
 

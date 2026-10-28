@@ -222,6 +222,7 @@ def prompt_profile_view(
     keep: frozenset[str] = PROMPT_FACING_METADATA_KEYS,
     derived_spans: str = "keep",
     entry_status: str = "keep",
+    aims: str = "keep",
 ) -> Any:
     """Return a filtered COPY of ``profile_json`` for model consumption.
 
@@ -255,6 +256,18 @@ def prompt_profile_view(
     ("Kubernetes is also a confirmed skill."): 5/5 replays as captured, 0/5 with
     the status stripped, with no prompt rule added (adv log recs 160→161,
     luna, thinking off, 2026-10-23).
+
+    ``aims`` (ADV-2, Hazelnut build 5) is a fourth clause-4 narrowing for the
+    DOCUMENT prompts: ``"label"`` renders an entry's ``not_yet_reached`` under
+    :data:`NOT_YET_REACHED_PROMPT_KEY`, a key that states what the list is. The
+    writer's system rule names the field, but the reviewer and every corrector
+    round (tailoring refinement, terminal, attribution/truth, language,
+    segmented, letter refinement/terminal) re-read only this view — and on the
+    founder's 10-27 input the terminal corrector rewrote an aim into a present
+    claim in 2 of 10 delivered documents. One label here reaches every round
+    that re-reads the source; no corrector prompt carries a copy. The data
+    fact (the candidate's own answer) is stated, never a text heuristic
+    (ADR-062 cl. 1). Reconcile/gap prompts keep the plain key.
 
     Tolerant of ``None`` and malformed shapes at every level: a prompt-input
     filter must never become a new way for generation to fail, so anything it
@@ -313,7 +326,38 @@ def prompt_profile_view(
         view = _hedge_derived_spans(view)
     if entry_status == "drop_confirmed":
         view = _drop_confirmed_status(view)
+    if aims == "label":
+        view = _label_not_yet_reached(view)
     return view
+
+
+#: ADV-2: the key a document prompt carries ``not_yet_reached`` under — the
+#: field's own name first (the v2 writer rules name it), then what it is.
+NOT_YET_REACHED_PROMPT_KEY = (
+    "not_yet_reached (the candidate's own answer: not reached yet; write each in natural CV "
+    "wording as ongoing work or a mandate, e.g. 'driving …', 'mandate to …', 'target: …'; "
+    "never as achieved, and never say that it is an aim)"
+)
+
+
+def _label_not_yet_reached(view: dict[str, Any]) -> dict[str, Any]:
+    """Rename a non-empty ``not_yet_reached`` on work and project entries (a copy)."""
+    out = dict(view)
+    for section in ("work_experience", "projects"):
+        entries = out.get(section)
+        if not isinstance(entries, list):
+            continue
+        relabelled = []
+        for entry in entries:
+            if isinstance(entry, dict) and "not_yet_reached" in entry:
+                entry = {
+                    (NOT_YET_REACHED_PROMPT_KEY if k == "not_yet_reached" else k): v
+                    for k, v in entry.items()
+                    if not (k == "not_yet_reached" and not v)
+                }
+            relabelled.append(entry)
+        out[section] = relabelled
+    return out
 
 
 def _hedge_derived_spans(view: dict[str, Any]) -> dict[str, Any]:
