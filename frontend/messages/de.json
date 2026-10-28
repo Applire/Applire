@@ -1896,8 +1896,6 @@
     "signatureDefaultOff": "Standard (aus)",
     "signatureWith": "mit",
     "signatureWithout": "ohne",
-    "signatureUnavailableHint": "Keine Unterschrift hinterlegt.",
-    "signatureUnavailableLink": "Im Profil hinzufügen",
     "signatureSaveError": "Die Einstellung konnte nicht gespeichert werden.",
     "docxScopeCaption": "Word-Datei: Geprüft ist der Stand beim Export — was du danach in Word änderst, prüfen wir nicht.",
     "validUntilHint": "Danach wird dieses Dokument automatisch gelöscht — dein Profil bleibt."
@@ -2048,6 +2046,7 @@
       "recheck": "Jetzt prüfen",
       "recheckStill": "Die Prüfung ist gerade nicht verfügbar. Versuche es später noch einmal.",
       "terminalNotRunBody": "Die Schlussprüfung lief für dieses Dokument nicht. Diese Prüfung läuft nur beim Schreiben – eine neue Fassung holt sie nach.",
+      "writingOnlyBody": "Diese Prüfung lief für dieses Dokument nicht. Applire prüft das nur beim Schreiben – eine neue Fassung holt es nach.",
       "regenerate": "Neue Fassung erstellen",
       "producerTerminal": "Schlussprüfung",
       "producerCheck": "Prüfung „{check}“",
@@ -2065,7 +2064,20 @@
       "unaskedAnswer": "Jetzt beantworten",
       "unaskedNote": "Applire fragt Dich genau dazu – ein kurzes Gespräch. Was Du beantwortest, verschwindet hier; die nächste Fassung kann es verwenden.",
       "unaskedFailed": "Das Gespräch ließ sich gerade nicht starten. Versuche es gleich noch einmal.",
-      "pageBand": "Seite {page} von {total}"
+      "pageBand": "Seite {page} von {total}",
+      "quoted": "„{text}“",
+      "statusMoved": "Verschoben",
+      "statusAsGoal": "Als Ziel formuliert",
+      "statusShortened": "Gekürzt",
+      "letterPageTitle": "Dein Anschreiben braucht {pages} Seiten statt {target, plural, one {# Seite} other {# Seiten}}",
+      "letterPageBody": "Ein Anschreiben für Deutschland hat {target, plural, one {# Seite} other {# Seiten}}.",
+      "letterPageDone": "Gekürzt. Das hat sich geändert:",
+      "cvPageUnreachable": "Auf {target, plural, one {# Seite} other {# Seiten}} kommt Applire nicht, ohne Inhalte zu streichen, die die Stelle verlangt. Am nächsten kommen {reachable} Seiten – dafür müssten diese Angaben weg:",
+      "cvPageNothingToCut": "Kürzer geht es nicht, ohne Inhalte zu streichen, die die Stelle verlangt.",
+      "removalShow": "Weggelassene Stellen zeigen",
+      "unaskedSend": "Antworten",
+      "unaskedDone": "Danke – die nächste Fassung kann es verwenden.",
+      "unaskedQuestion": "Applire fragt"
     }
   },
   "upgradeNotice": {

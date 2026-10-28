@@ -146,20 +146,20 @@ describe("ADR-090 cl. 1 — one layout, no mode switch", () => {
     expect(rows).toHaveLength(3);
     rows.forEach((r) => expect(r.tagName).toBe("BUTTON"));
     expect(screen.getByTestId("review-card").getAttribute("data-finding-key")).toBe("ats:it data & ai governance");
-    expect(screen.getByTestId("review-card-position").textContent).toBe("1 OF 3");
+    expect(screen.getByTestId("review-card-position").textContent).toMatch(/^1 OF 3/);
     // Every row opens its card.
     fireEvent.click(rows[2]);
     expect(screen.getByTestId("review-card").getAttribute("data-finding-key")).toBe("ats:snowflake");
-    expect(screen.getByTestId("review-card-position").textContent).toBe("3 OF 3");
+    expect(screen.getByTestId("review-card-position").textContent).toMatch(/^3 OF 3/);
   });
 
-  it("the card offers the four handles", () => {
+  it("an unclassified card offers Show me where, Stimmt and Take out — no editor handle (ruling C-1 (2))", () => {
     renderSurface({ atsReport: MATCHED_ATS, locator: makePreviewLocator(previewDoc) });
     const card = screen.getByTestId("review-card");
     expect(within(card).getByTestId("review-action-locate").textContent).toBe("Show me where");
     expect(within(card).getByTestId("review-action-add").textContent).toBe("It’s true, add it to my profile");
     expect(within(card).getByTestId("review-action-takeout").textContent).toBe("Take it out for me");
-    expect(within(card).getByTestId("review-action-edit").textContent).toBe("Let me edit it");
+    expect(within(card).queryByTestId("review-action-edit")).toBeNull();
   });
 
   it("R2-10: the group-3 count is the gaps page's open-requirement count, not the ATS keyword misses", () => {
@@ -176,12 +176,13 @@ describe("ADR-090 cl. 1 — one layout, no mode switch", () => {
     expect(screen.getByTestId("review-group3-link").textContent).toContain("Open in the gap analysis");
   });
 
-  it("the verdict carries the instruction line and the coverage line reads from the report", () => {
+  it("ADR-099 cl. 3: the verdict carries the one-question line; no coverage line, no progress bar", () => {
     renderSurface();
     expect(screen.getByTestId("review-verdict-sub").textContent).toBe(
-      "Check each one. Keep it if it is true, take it out if it is not.",
+      "Each point asks you one question. Your answer settles it – then Applire checks the document again.",
     );
-    expect(screen.getByTestId("review-coverage").textContent).toBe("1 of 3 job keywords appear in the document.");
+    expect(screen.queryByTestId("review-coverage")).toBeNull();
+    expect(screen.queryByTestId("review-progress")).toBeNull();
   });
 });
 
@@ -202,7 +203,6 @@ describe("ADR-081 cl. 4 (amended by ADR-090 cl. 6) — the verdict counts the OP
     renderSurface({ atsReport: ats({ present_unsupported: ["Kubernetes", "Terraform"] }), reviewState: state });
     expect(verdictNumber()).toBe(2);
     expect(openRows()).toHaveLength(2);
-    expect(screen.getByTestId("review-progress-label").textContent).toBe("1 of 3 decided");
     expect(screen.getByTestId("review-row-status-taken_out").textContent).toBe("Taken out");
   });
 
@@ -214,9 +214,10 @@ describe("ADR-081 cl. 4 (amended by ADR-090 cl. 6) — the verdict counts the OP
     };
     renderSurface({ atsReport: ats({ present_unsupported: ["Kubernetes"] }), reviewState: state });
     expect(verdictNumber()).toBe(1);
-    expect(openRows()).toHaveLength(1);
+    // One row → the card alone (ruling C-1 (1): the list shows from two rows).
+    expect(screen.getByTestId("review-card").getAttribute("data-finding-key")).toBe("ats:kubernetes");
+    expect(screen.getByTestId("review-card").getAttribute("data-status")).toBe("open");
     expect(screen.queryByTestId("review-row-status-taken_out")).toBeNull();
-    expect(screen.getByTestId("review-progress-label").textContent).toBe("0 of 1 decided");
   });
 
   it("keeps groups 2-4 out of the headline's number", () => {
@@ -224,18 +225,18 @@ describe("ADR-081 cl. 4 (amended by ADR-090 cl. 6) — the verdict counts the OP
     expect(verdictNumber()).toBe(1);
   });
 
-  it("does NOT render an unqualified all-clear while groups 2-4 carry findings (JF-F-K.1)", () => {
+  // ADR-099 cl. 3: the headline counts A + U only. Open requirements are the
+  // uncounted group-3 link (the approved mock); a claimable term (old group 2)
+  // is not on the surface; an unclassified failed check is the counted fallback.
+  it("ADR-099: open requirements alone leave the clear line, with the group-3 link beside it", () => {
     renderSurface({ atsReport: ats({ missing_honest_gap: ["Terraform"], missing: ["Terraform"] }) });
-    // T-1: notes only → the headline names the notes; the truth line sits below.
-    expect(screen.getByTestId("review-verdict").textContent).toMatch(
-      /^There are \d+ notes below you should know before you send it\.$/,
-    );
-    expect(screen.getByTestId("review-verdict-truth").textContent).toBe(
-      "Nothing is made up: every statement in the document is covered by your profile.",
-    );
+    const head = screen.getByTestId("review-verdict");
+    expect(head.textContent).toBe("Nothing needs you any more – the document is ready to send.");
+    expect(head.getAttribute("data-count")).toBe("0");
+    expect(screen.getByTestId("review-group3-link")).toBeTruthy();
   });
 
-  it("T-1: leads with the decision count; the all-clear drops to the normal-weight line", () => {
+  it("ADR-099: leads with the count of what needs the user — the unclassified failed check, not the trade", () => {
     renderSurface({
       atsReport: ats(
         { missing_claimable: ["Scrum", "Jira"], missing_honest_gap: ["SAP"], missing: ["Scrum", "Jira", "SAP"] },
@@ -244,20 +245,16 @@ describe("ADR-081 cl. 4 (amended by ADR-090 cl. 6) — the verdict counts the OP
       gapClusters: [],
     });
     const head = screen.getByTestId("review-verdict");
-    expect(head.textContent).toBe("3 points need your decision before you send it.");
+    expect(head.textContent).toBe("1 point needs you before you send.");
     expect(head.className).toContain("font-bold");
-    const truth = screen.getByTestId("review-verdict-truth");
-    expect(truth.textContent).toBe(
-      "Nothing is made up: every statement in the document is covered by your profile. Plus 1 note.",
-    );
-    expect(truth.className).not.toContain("font-bold");
+    expect(screen.getByTestId("review-fallback-contact-name").dataset.counted).toBe("true");
+    expect(screen.queryByText("Scrum")).toBeNull();
   });
 
-  it("renders the plain all-clear only when every producer ran and every group is empty", () => {
+  it("renders the plain all-clear when nothing is open", () => {
     renderSurface({ atsReport: ats({}, [{ id: "contact-0", status: "pass" }]), gapClusters: [] });
-    expect(screen.getByTestId("review-verdict").textContent).toMatch(/covered by your profile\.$/);
-    // Stands alone only when nothing is open (T-1).
-    expect(screen.queryByTestId("review-verdict-truth")).toBeNull();
+    expect(screen.getByTestId("review-verdict").textContent).toBe("Nothing needs you any more – the document is ready to send.");
+    expect(screen.queryByTestId("review-verdict-sub")).toBeNull();
   });
 });
 
@@ -267,31 +264,10 @@ describe("ADR-081 cl. 4 (amended by ADR-090 cl. 6) — the verdict counts the OP
  * ADR-081 clause 6 / SF-REVIEW.2 — the visibility invariant, on the ONE layout.
  * The mutation it kills: rendering a group's count only when it is opened.
  */
-describe("ADR-081 cl. 6 — every non-zero group's count is visible without interaction", () => {
-  it("renders every non-zero group's count on first paint", () => {
+describe("ADR-099 — the passed line (groups 2 and 4 are gone)", () => {
+  it("renders no group toggles", () => {
     renderSurface();
-    // Group 1's number is the verdict (and the tab badge); groups 2-4 are rows.
-    expect(verdictNumber()).toBe(1);
-    for (const id of [2, 3, 4]) {
-      const badge = screen.getByTestId(`review-group-count-${id}`);
-      expect(Number(badge.textContent)).toBeGreaterThan(0);
-      expect(badge.closest('[aria-expanded="true"]')).toBeNull();
-    }
-  });
-
-  it("collapses a group to a single inert line only at count zero", () => {
-    renderSurface({ atsReport: ats({ present_unsupported: ["Kubernetes"] }), gapClusters: [], criticReport: CRITIC_RAN });
-    expect((screen.getByTestId("review-group-toggle-2") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("review-group-count-2").textContent).toBe("0");
-  });
-
-  it("a non-zero group 2 or 4 opens in place", () => {
-    renderSurface();
-    const toggle = screen.getByTestId("review-group-toggle-4");
-    expect((toggle as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(within(screen.getByTestId("review-group-4")).getByText("3 Seiten")).toBeTruthy();
+    for (const id of [2, 4]) expect(screen.queryByTestId(`review-group-toggle-${id}`)).toBeNull();
   });
 
   it("collapses PASSING checks only, and only when the ATS report actually ran", () => {
@@ -314,33 +290,22 @@ describe("ADR-081 cl. 6 — every non-zero group's count is visible without inte
  * progress figure while a group-1 producer is blind.
  */
 describe("ADR-081 cl. 9 — a producer that did not run renders as unknown, never as zero", () => {
-  it("Oracle absent: the note stands ABOVE the verdict and the list, and no progress figure is shown", () => {
+  // ADR-099 cl. 2 / T-U: a producer that did not run is ONE counted "Nicht
+  // geprüft" row with "Jetzt prüfen" — never zero, never the all-clear.
+  it("Oracle absent: one counted unknown row with the re-check action", () => {
     renderSurface({ truthReport: null });
-    const note = screen.getByTestId("review-group-unknown-1");
-    expect(note.textContent).toMatch(/Truthfulness Oracle did not run/);
-    const verdict = screen.getByTestId("review-verdict");
-    const list = screen.getByTestId("review-group1-list");
-    expect(note.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(note.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.queryByTestId("review-progress")).toBeNull();
+    const box = screen.getAllByTestId("review-unknown").find((b) => /Truthfulness Oracle/.test(b.textContent ?? ""))!;
+    expect(box).toBeTruthy();
+    expect(box.dataset.resolver).toBe("recheck");
+    expect(within(box).getByTestId("review-unknown-recheck").textContent).toBe("Check now");
+    expect(screen.getByTestId("review-verdict").textContent).not.toMatch(/ready to send/);
   });
 
-  it("both group-1 producers absent: the verdict says unchecked, never an all-clear or a zero", () => {
+  it("both group-1 producers absent: two unknown rows counted, never an all-clear or a zero", () => {
     renderSurface({ atsReport: null, truthReport: null, criticReport: null, gapClusters: null });
-    expect(screen.getByTestId("review-verdict").textContent).toMatch(/was not checked/i);
-    expect(screen.getByTestId("review-group-unknown-1").textContent).toMatch(/Not checked/);
-    expect(screen.queryByTestId("review-progress")).toBeNull();
-    expect(screen.getByTestId("review-group-count-2").textContent).toBe("unknown");
-  });
-
-  it("outcome critic absent (ADR-060 ran:false): group 4 says so, without interaction", () => {
-    renderSurface({ criticReport: { ran: false, advisories: [], dropped_citations: 0 } });
-    expect(screen.getByTestId("review-group-unknown-4").textContent).toMatch(/Coherence advisory did not run/);
-  });
-
-  it("gap clusters never loaded: group 3 says so", () => {
-    renderSurface({ gapClusters: null });
-    expect(screen.getByTestId("review-group-unknown-3").textContent).toMatch(/Gap analysis did not run/);
+    expect(screen.getAllByTestId("review-unknown")).toHaveLength(2);
+    expect(screen.getByTestId("review-verdict").getAttribute("data-count")).toBe("2");
+    expect(screen.getByTestId("review-verdict").textContent).toBe("2 points need you before you send.");
   });
 
   it("keeps an unknown group OUT of the passed-checks collapse", () => {
@@ -348,11 +313,11 @@ describe("ADR-081 cl. 9 — a producer that did not run renders as unknown, neve
     expect(screen.queryByTestId("review-passed-checks")).toBeNull();
   });
 
-  it("a producer that ran and found nothing renders 0, not unknown", () => {
+  it("a producer that ran and found nothing renders no row, not unknown", () => {
     renderSurface({ atsReport: ats({}, []), gapClusters: [] });
-    const badge = screen.getByTestId("review-group-count-3");
-    expect(badge.textContent).toBe("0");
-    expect(badge.getAttribute("data-review-unknown")).toBeNull();
+    expect(screen.queryByTestId("review-group3-link")).toBeNull();
+    expect(screen.queryByTestId("review-unknown")).toBeNull();
+    expect(screen.getByTestId("review-verdict").getAttribute("data-count")).toBe("0");
   });
 
   it("declares a producer that does not APPLY (the letter has no gap clusters) rather than faking one", () => {
@@ -364,7 +329,7 @@ describe("ADR-081 cl. 9 — a producer that did not run renders as unknown, neve
 /* ------------------------------------------------------------------ cl. 2 */
 
 describe("ADR-081 cl. 2 — one row citing both producers, and nothing else suppressed", () => {
-  it("renders a genuine overlap as ONE row whose card names both producers", () => {
+  it("renders a genuine overlap as ONE card, counted once", () => {
     renderSurface({
       atsReport: ats({ present_unsupported: ["Lean-Management"] }),
       truthReport: truth([
@@ -374,8 +339,9 @@ describe("ADR-081 cl. 2 — one row citing both producers, and nothing else supp
         },
       ]),
     });
-    expect(openRows()).toHaveLength(1);
-    expect(within(screen.getByTestId("review-card")).getAllByTestId(/review-item-producer-/)).toHaveLength(2);
+    expect(screen.getAllByTestId("review-card")).toHaveLength(1);
+    expect(screen.queryByTestId("review-group1-list")).toBeNull();
+    expect(verdictNumber()).toBe(1);
   });
 
   it("does NOT collapse two findings that merely resemble each other", () => {
@@ -389,28 +355,6 @@ describe("ADR-081 cl. 2 — one row citing both producers, and nothing else supp
       ]),
     });
     expect(openRows()).toHaveLength(2);
-  });
-});
-
-describe("ADR-081 cl. 3 — group 2 states the trade, with no action", () => {
-  it("names the trade and the existing handles once opened", () => {
-    renderSurface({ atsReport: ats({ missing_claimable: ["SAP PP"], missing: ["SAP PP"] }), gapClusters: [] });
-    fireEvent.click(screen.getByTestId("review-group-toggle-2"));
-    expect(screen.getByTestId("review-group2-trade").textContent).toMatch(/length trade/i);
-    expect(screen.getByTestId("review-group2-handle-pin").textContent).toContain("Pin the fact behind it");
-  });
-
-  it("renders NO control in group 2 that could write to the document", () => {
-    renderSurface({
-      atsReport: ats({ missing_claimable: ["SAP PP"], missing: ["SAP PP"] }),
-      gapClusters: [{ id: "g2", label: "Produktionsplanung", kind: "claimable" }],
-    });
-    const group = screen.getByTestId("review-group-2");
-    fireEvent.click(screen.getByTestId("review-group-toggle-2"));
-    // Without the section-editor handler the only button is the group's toggle.
-    const buttons = within(group).getAllByRole("button");
-    expect(buttons).toHaveLength(1);
-    expect(within(group).queryByRole("link")).toBeNull();
   });
 });
 
@@ -477,7 +421,8 @@ describe("ADR-090 cl. 2 — Show me where", () => {
     expect(screen.queryByTestId("review-action-locate")).toBeNull();
     expect(screen.getByTestId("review-action-takeout")).toBeTruthy();
     expect(screen.getByTestId("review-action-add")).toBeTruthy();
-    expect(screen.getByTestId("review-action-edit")).toBeTruthy();
+    // Ruling C-1 (2): no editor handle on the card.
+    expect(screen.queryByTestId("review-action-edit")).toBeNull();
   });
 
   it("matched forms that the preview does not hold → could not be marked (never a silent locate)", () => {
@@ -500,7 +445,8 @@ describe("ADR-090 cl. 2 — Show me where", () => {
     expect(onLocateModeChange).toHaveBeenLastCalledWith(true);
     const view = screen.getByTestId("review-phone-locate");
     expect(within(view).getByTestId("review-locate-place").textContent).toBe("“AI governance” · place 1 of 2");
-    expect(within(view).getByTestId("review-handles-grid")).toBeTruthy();
+    // The card's answers ride along in the locate sheet (ADR-099: one card, its answers).
+    expect(within(view).getByTestId("review-action-takeout")).toBeTruthy();
     fireEvent.click(within(view).getByTestId("review-locate-back"));
     expect(onLocateModeChange).toHaveBeenLastCalledWith(false);
     expect(screen.queryByTestId("review-phone-locate")).toBeNull();
@@ -579,14 +525,13 @@ describe("ADR-090 cl. 3 — Take it out for me", () => {
     expect(screen.getByTestId("review-action-next").textContent).toBe("Next finding");
     expect(screen.getByTestId("review-row-status-taken_out")).toBeTruthy();
     expect(verdictNumber()).toBe(2);
-    expect(screen.getByTestId("review-progress-label").textContent).toBe("1 of 3 decided");
 
     // Next finding → the next open one.
     fireEvent.click(screen.getByTestId("review-action-next"));
     expect(screen.getByTestId("review-card").getAttribute("data-finding-key")).toBe("ats:collibra");
   });
 
-  it("still listed after the rewrite → the card says so and offers Let me edit it", async () => {
+  it("still listed after the rewrite → the card says so and offers the editor (ADR-090 cl. 5)", async () => {
     api.takeOut.mockResolvedValue({
       changes: [{ section_id: "summary", before: "a AI governance b", after: "a AI-Governance b" }],
       still_listed: true,
@@ -594,13 +539,13 @@ describe("ADR-090 cl. 3 — Take it out for me", () => {
       truthfulness: null,
       review_state: TAKEN_STATE,
     });
-    render(withIntl(<Harness />));
+    render(withIntl(<Harness onEditFinding={vi.fn()} />));
     fireEvent.click(screen.getByTestId("review-action-takeout"));
     await waitFor(() => expect(screen.getByTestId("review-takeout-still")).toBeTruthy());
     expect(screen.getByTestId("review-takeout-still").textContent).toBe(
       "The check still finds this in the document. Edit it yourself to remove it.",
     );
-    expect(screen.getByTestId("review-action-edit")).toBeTruthy();
+    expect(screen.getByTestId("review-action-edit-after")).toBeTruthy();
     expect(screen.getByTestId("review-card").getAttribute("data-status")).toBe("open");
     expect(verdictNumber()).toBe(3);
   });
@@ -748,7 +693,10 @@ describe("ADR-090 cl. 4 — It's true, add it to my profile", () => {
     expect(api.addEvidence).not.toHaveBeenCalled();
   });
 
-  it("#797 (ruling D2-5): a wording the profile holds closes in one click, no ask, with the receipt", async () => {
+  // ADR-099 cl. 6 retires #797's "supported" closure (CLOSES_LISTED is empty):
+  // a wording the profile holds asks nothing, and the finding stays OPEN while
+  // the live report lists it — "Stimmt" alone never makes a listed row go away.
+  it("ADR-099 cl. 6: a wording the profile holds asks nothing, and the listed finding stays open", async () => {
     const decision = {
       finding_key: "ats:it data & ai governance", label: "IT Data & AI Governance", action: "supported",
       at: "2026-10-21T10:00:00Z", undo: null,
@@ -767,15 +715,12 @@ describe("ADR-090 cl. 4 — It's true, add it to my profile", () => {
     }
     render(withIntl(<Harness />));
     fireEvent.click(screen.getByTestId("review-action-add"));
-    await waitFor(() => expect(screen.getByTestId("review-row-status-supported")).toBeTruthy());
+    await waitFor(() => expect(api.confirmSupported).toHaveBeenCalledWith("cv", "generated-cv-1", "ats:it data & ai governance"));
     expect(screen.queryByTestId("review-add-box")).toBeNull();
     expect(api.addEvidence).not.toHaveBeenCalled();
-    expect(api.confirmSupported).toHaveBeenCalledWith("cv", "generated-cv-1", "ats:it data & ai governance");
-    expect(screen.getByTestId("review-row-status-supported").textContent).toBe("In your profile");
-    expect(screen.getByTestId("review-card-receipt").textContent).toBe(
-      "Your profile says: “Leitete das AI governance board bei Nordwerk”.",
-    );
-    expect(screen.getByTestId("review-card-still-listed")).toBeTruthy();
+    expect(screen.queryByTestId("review-row-status-supported")).toBeNull();
+    expect(screen.getByTestId("review-card").getAttribute("data-status")).toBe("open");
+    expect(verdictNumber()).toBe(3);
   });
 
   it("#797: a wording the profile lacks opens the ask (the server answered not_in_profile)", async () => {
@@ -788,20 +733,26 @@ describe("ADR-090 cl. 4 — It's true, add it to my profile", () => {
 
 /* ------------------------------------------------------- cl. 5 — edit */
 
-describe("ADR-090 cl. 5 — Let me edit it", () => {
-  it("hands the page the finding, its targets and the place being shown", () => {
+describe("ADR-090 cl. 5 — the editor, after a take-out that left the finding listed", () => {
+  it("hands the page the finding, its targets and the place being shown", async () => {
+    api.takeOut.mockResolvedValue({
+      changes: [{ section_id: "summary", before: "a AI governance b", after: "a AI-Governance b" }],
+      still_listed: true, report: MATCHED_ATS, truthfulness: null, review_state: null,
+    });
     const onEditFinding = vi.fn();
     const doc = previewDoc();
     renderSurface({ atsReport: MATCHED_ATS, locator: makePreviewLocator(() => doc), onEditFinding });
     fireEvent.click(screen.getByTestId("review-action-locate"));
     fireEvent.click(screen.getByTestId("review-locate-next"));
-    fireEvent.click(screen.getByTestId("review-action-edit"));
-    expect(onEditFinding).toHaveBeenCalledWith({
-      findingKey: "ats:it data & ai governance",
-      label: "IT Data & AI Governance",
-      targets: [{ form: "AI governance", stem: false }],
-      placeIndex: 1,
-    });
+    fireEvent.click(screen.getByTestId("review-action-takeout"));
+    fireEvent.click(await screen.findByTestId("review-action-edit-after"));
+    expect(onEditFinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        findingKey: "ats:it data & ai governance",
+        label: "IT Data & AI Governance",
+        targets: [{ form: "AI governance", stem: false }],
+      }),
+    );
   });
 });
 
@@ -840,12 +791,12 @@ describe("ruling B-1 — a stem-only finding offers no Take it out", () => {
     return ats({ present_unsupported: ["Mentoring"], present_unsupported_matches: { Mentoring: matches } });
   }
 
-  it("every matched form stem-only → no Take it out; the other three handles stay", () => {
+  it("every matched form stem-only → no Take it out; Show me where and Stimmt stay", () => {
     renderSurface({ atsReport: atsWith([{ form: "Mentoring", stem: true }]), locator: makePreviewLocator(previewDoc) });
     const card = screen.getByTestId("review-card");
     expect(within(card).queryByTestId("review-action-takeout")).toBeNull();
     expect(within(card).getByTestId("review-action-add")).toBeTruthy();
-    expect(within(card).getByTestId("review-action-edit")).toBeTruthy();
+    expect(within(card).queryByTestId("review-action-edit")).toBeNull();
   });
 
   it("mixed stem and non-stem forms → Take it out stays", () => {
@@ -861,11 +812,11 @@ describe("ruling B-1 — a stem-only finding offers no Take it out", () => {
   it("a 409 refusal lands on the existing still-listed path", async () => {
     const { ReviewActionError } = await import("@/lib/api/document-review");
     api.takeOut.mockRejectedValue(new ReviewActionError(409));
-    renderSurface({ atsReport: atsWith([{ form: "Mentor", stem: false }]) });
+    renderSurface({ atsReport: atsWith([{ form: "Mentor", stem: false }]), onEditFinding: vi.fn() });
     fireEvent.click(screen.getByTestId("review-action-takeout"));
     await waitFor(() => expect(screen.getByTestId("review-takeout-still")).toBeTruthy());
     expect(screen.queryByTestId("review-action-error")).toBeNull();
-    expect(screen.getByTestId("review-action-edit")).toBeTruthy();
+    expect(screen.getByTestId("review-action-edit-after")).toBeTruthy();
   });
 });
 
@@ -899,7 +850,7 @@ describe("D-3 — This is what changed shows the changed passage, not the sectio
 
 /* ------------------------------------------------------------------ #759 */
 
-describe("#759 — a failed document-language check is not 'nothing stands in the way'", () => {
+describe("#759 under ADR-099 — a failed document-language check is never the all-clear", () => {
   const MIXED = {
     id: "document-language",
     status: "fail" as const,
@@ -908,52 +859,30 @@ describe("#759 — a failed document-language check is not 'nothing stands in th
     details_params: { language: "de", count: 2, examples: "Campaign development, including end-to-end" },
   };
 
-  it("renders the send-check block above the other findings, open without a click", () => {
-    renderSurface({ atsReport: ats({}, [MIXED]), gapClusters: [] });
-    const block = screen.getByTestId("review-send-checks");
-    expect(block.textContent).toMatch(/before you send it/i);
-    expect(within(block).getByTestId("review-item-g4-check-send-document-language")).toBeTruthy();
-    expect(block.textContent).toMatch(/2 places are not written in German: Campaign development/);
-    const other = screen.getByTestId("review-other");
-    expect(block.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // ADR-099 cl. 9: a classified mixed-language residue is the "Diese Stellen
+  // übersetzen" card (class A, resolver translate).
+  const CLASSIFIED = { ...MIXED, delivery_class: "A" as const, resolver: "translate" };
+
+  it("classified: the translate card, counted, with the one action", () => {
+    renderSurface({ atsReport: { ...ats({}, [CLASSIFIED]), delivery: { loop_clean: true, removals: [], fixed: [] } } as ATSReport, gapClusters: [] });
+    const box = screen.getByTestId("review-translate");
+    expect(within(box).getByTestId("review-translate-action").textContent).toBe("Translate these passages");
+    expect(screen.getByTestId("review-verdict").getAttribute("data-count")).toBe("1");
+    expect(screen.getByTestId("review-verdict").textContent).not.toMatch(/ready to send/);
   });
 
-  it("the verdict names it and never says it does not stand in the way of sending", () => {
-    renderSurface({ atsReport: ats({}, [MIXED]), gapClusters: [] });
-    const verdict = screen.getByTestId("review-verdict").textContent ?? "";
-    expect(verdict).toMatch(/1 finding needs a look before you send it/);
-    expect(verdict).not.toMatch(/does not stand in the way/);
-  });
-
-  it("789:199 — the headline leads with the count; the all-clear is the normal-weight line below", () => {
-    renderSurface({ atsReport: ats({}, [MIXED]), gapClusters: [] });
-    expect(screen.getByTestId("review-verdict").textContent).toBe("1 finding needs a look before you send it.");
-    expect(screen.getByTestId("review-verdict-truth").textContent).toBe(
-      "Nothing is made up: every statement in the document is covered by your profile.",
-    );
-  });
-
-  it("the failed check is no longer a group-4 row", () => {
-    renderSurface({ atsReport: ats({}, [MIXED, { id: "page-length-0", status: "fail", details: "3 Seiten" }]), gapClusters: [] });
-    fireEvent.click(screen.getByTestId("review-group-toggle-4"));
-    const g4 = screen.getByTestId("review-group-4");
-    expect(within(g4).queryByTestId("review-item-g4-check-send-document-language")).toBeNull();
-    expect(within(g4).queryByTestId("review-item-g4-check-fail-document-language")).toBeNull();
-    expect(within(g4).getByTestId("review-item-g4-check-fail-page-length-0")).toBeTruthy();
-  });
-
-  it("renders the localised German detail in the German UI", () => {
+  it("unclassified (a pre-ADR-099 report): the counted fallback row, label only — no English details", () => {
     render(withIntl(<ReviewSurface {...FULL_INPUTS} atsReport={ats({}, [MIXED])} gapClusters={[]} />, "de"));
-    const block = screen.getByTestId("review-send-checks");
-    expect(block.textContent).toMatch(/Vor dem Versand ansehen/);
-    expect(block.textContent).toMatch(/2 Stellen sind nicht auf Deutsch geschrieben/);
-    expect(block.textContent).not.toMatch(/items not written/);
-    expect(screen.getByTestId("review-verdict").textContent).toMatch(/vor dem Versand ansehen/);
+    const row = screen.getByTestId("review-fallback-document-language");
+    expect(row.dataset.counted).toBe("true");
+    expect(screen.getByTestId("review-surface").textContent ?? "").not.toMatch(/items not written/);
+    expect(screen.getByTestId("review-verdict").textContent).toBe("1 Punkt braucht Dich, bevor Du sendest.");
   });
 
-  it("no block when the check passed", () => {
+  it("no row when the check passed", () => {
     renderSurface({ atsReport: ats({}, [{ id: "document-language", status: "pass" }]), gapClusters: [] });
-    expect(screen.queryByTestId("review-send-checks")).toBeNull();
+    expect(screen.queryByTestId("review-translate")).toBeNull();
+    expect(screen.queryByTestId("review-fallback-document-language")).toBeNull();
   });
 });
 

@@ -54,7 +54,7 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/PreDownloadNotice";
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import { openGroup1Count, buildReviewGroups, decisionCount } from "@/lib/review-groups";
+import { openGroup1Count, buildReviewGroups, buildDeliveryView } from "@/lib/review-groups";
 import { openRequirementConcepts } from "@/lib/match-utils";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
@@ -178,6 +178,8 @@ export default function CVPage({
   const [reviewState, setReviewState] = useState<ReviewState | null>(null);
   // ADR-090 cl. 2: bumps on every preview (re)load — marks do not survive one.
   const [previewVersion, setPreviewVersion] = useState(0);
+  // ADR-099 cl. 3/7: the page-length card is ONE counted row of the review list while undecided.
+  const [pageCardOpen, setPageCardOpen] = useState(false);
   // ADR-090 cl. 1 (phone): the review sheet is suspended while the locate view shows.
   const [mobileLocating, setMobileLocating] = useState(false);
   // ADR-090 cl. 3: bumps when a review action rewrote the document, so the
@@ -856,6 +858,24 @@ export default function CVPage({
         onEditFinding={handleEditFinding}
         sectionLabel={sectionLabel}
         gapAnalysisHref={`/flow/${flowId}/gaps`}
+        extraCards={[
+          {
+            // ADR-099 cl. 7: page length has ONE place — this card, in the review list.
+            key: "page-length",
+            counted: pageCardOpen,
+            node: (
+              <PageOverflowCard
+                key={cvId}
+                cvId={cvId}
+                onOpenChange={setPageCardOpen}
+                onContentChanged={() => {
+                  cvDocRef.current?.refresh();
+                  setAtsRefresh((n) => n + 1);
+                }}
+              />
+            ),
+          },
+        ]}
         onResolveCluster={(gapId) => {
           // The EXISTING path for a gap cluster, unchanged: an honest gap can
           // only close through profile enrichment (#117 / ADR-019), so the
@@ -891,17 +911,18 @@ export default function CVPage({
 
     // ADR-081 cl. 6, carried onto the tab strip and the collapsed rail: group
     // 1's count is the one send-blocking number and may never be invisible.
-    const liveGroups = buildReviewGroups({
+    // ADR-099 cl. 3: the tab badge and the phone badge count the SAME A+U rows
+    // the surface's headline counts — one function, one number.
+    const group1Count = buildDeliveryView({
       atsReport,
       truthReport,
       criticReport,
       gapClusters,
       openRequirements,
-    });
-    const group1Live = liveGroups.find((g) => g.id === 1)!;
-    const group1Count = openGroup1Count(group1Live.items, reviewState);
-    // T-1: the phone badge's amber number when group 1 is clean.
-    const liveDecisionCount = decisionCount(liveGroups);
+      reviewState,
+      degradation: degradationFor?.cvId === cvId ? degradationFor.steps : null,
+      extraCounted: pageCardOpen ? 1 : 0,
+    }).count;
 
     const sidebarTabs: SidebarTab[] = [
       {
@@ -1047,15 +1068,6 @@ export default function CVPage({
         <DocumentWorkspace
           preview={
             <>
-              {/* #786 L-3 (WP-L): the x+1 decision, above the preview. */}
-              <PageOverflowCard
-                key={cvId}
-                cvId={cvId}
-                onContentChanged={() => {
-                  cvDocRef.current?.refresh();
-                  setAtsRefresh((n) => n + 1);
-                }}
-              />
               <CVDocument
                 cvId={cvId}
                 ref={cvDocRef}
@@ -1126,8 +1138,8 @@ export default function CVPage({
               onDownloadPdf={() => void requestDownload("pdf")}
               openFineTuneNonce={fineTuneNonce}
               suspended={mobileLocating}
-              openCount={!reviewLoading && (atsReport || truthReport) ? group1Count : null}
-              decisionCount={!reviewLoading && atsReport ? liveDecisionCount : null}
+              openCount={!reviewLoading ? group1Count : null}
+              decisionCount={null}
               onLeaveFineTune={(proceed) => {
                 if (!editDraft.dirty) {
                   proceed();

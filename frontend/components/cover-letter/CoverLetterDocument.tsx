@@ -20,6 +20,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { paginatePreview } from "@/components/document/previewPages";
 
 interface CoverLetterDocumentProps {
   coverLetterId: string;
@@ -38,6 +39,7 @@ const CV_WIDTH = 794; // A4 at 96 dpi
 
 export function CoverLetterDocument({ coverLetterId, onPreviewLoad, generationInputs }: CoverLetterDocumentProps) {
   const t = useTranslations("coverLetter");
+  const tDelivery = useTranslations("documentReview.delivery");
   const containerRef = useRef<HTMLDivElement>(null);
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +81,24 @@ export function CoverLetterDocument({ coverLetterId, onPreviewLoad, generationIn
   const scale = containerWidth > 0 ? Math.min(1, containerWidth / CV_WIDTH) : 1;
   const iframeHeight = CV_WIDTH * Math.sqrt(2); // A4 aspect ratio ≈ 1123px
 
+  // U-6 (UAT-2): a letter over one page shows where the PDF breaks.
+  const handleLoad = (e: React.SyntheticEvent<HTMLIFrameElement>) => {
+    const doc = e.currentTarget.contentDocument;
+    const done = () => onPreviewLoad?.();
+    if (!doc) return done();
+    const run = () => {
+      try {
+        paginatePreview(doc, (page, total) => tDelivery("pageBand", { page, total }));
+      } catch {
+        // A preview aid only — never block the preview on it.
+      }
+      done();
+    };
+    const fonts = (doc as Document & { fonts?: FontFaceSet }).fonts;
+    if (fonts?.ready) void fonts.ready.then(run, run);
+    else run();
+  };
+
   // L-1: the writer never invents a notice period or a reason for the change,
   // so a letter generated without them simply lacks both. One neutral line says so.
   const noticeMissing = generationInputs != null && !generationInputs.availability?.trim();
@@ -119,7 +139,7 @@ export function CoverLetterDocument({ coverLetterId, onPreviewLoad, generationIn
           srcDoc={srcDoc}
           title={t("previewTitle")}
           data-testid="cover-letter-iframe"
-          onLoad={onPreviewLoad}
+          onLoad={handleLoad}
           sandbox="allow-same-origin"
           style={{
             width: CV_WIDTH,

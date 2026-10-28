@@ -9,7 +9,7 @@
  * "k of n decided" bar — and its rationale is said in the UI language.
  */
 import React from "react";
-import { render, screen, within, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { ReviewSurface, type ReviewSurfaceProps } from "../ReviewSurface";
@@ -68,24 +68,22 @@ describe("buildFormInputRows", () => {
 });
 
 describe("ReviewSurface — Aus Deiner Eingabe im Formular", () => {
-  it("shows the sentence in a neutral section with no buttons, in the UI language", () => {
+  // ADR-099 (INTERFACE B-2 registry: page:form-input = S): a sentence built
+  // from the user's own form input is silent — no section, no row, no count.
+  it("is silent under ADR-099: no section, no row, no button for it", () => {
     render(withIntl(<ReviewSurface {...BASE} />, "de"));
-    const section = screen.getByTestId("review-form-input");
-    expect(within(section).getByText("Aus Deiner Eingabe im Formular")).toBeTruthy();
-    expect(within(section).getByText(SENTENCE)).toBeTruthy();
-    expect(within(section).getByText("Formular")).toBeTruthy();
-    expect(within(section).getByText(/Warum diese Stelle/)).toBeTruthy();
-    expect(within(section).queryByText(/Built from what you typed/)).toBeNull(); // not the English detail
-    expect(within(section).queryAllByRole("button")).toHaveLength(0);
-    // not a group-1 finding: no row, no card for it
+    expect(screen.queryByTestId("review-form-input")).toBeNull();
+    expect(screen.queryByText("Aus Deiner Eingabe im Formular")).toBeNull();
+    expect(screen.queryByText(SENTENCE)).toBeNull();
     expect(document.querySelectorAll('[data-testid^="review-item-g1-"]')).toHaveLength(0);
+    expect(screen.queryByTestId("review-card")).toBeNull();
   });
 
-  it("is not counted in the group-1 progress", () => {
+  it("is not counted: the headline counts the red claim only", () => {
     render(withIntl(<ReviewSurface {...BASE} truthReport={truth([FORM_CLAIM, RED_CLAIM])} />, "en"));
-    expect(document.querySelectorAll('[data-testid^="review-item-g1-"]')).toHaveLength(1);
-    expect(screen.getByTestId("review-form-input-row").textContent).toContain(SENTENCE);
-    expect(screen.queryByText(/of 2 decided/)).toBeNull();
+    expect(screen.getByTestId("review-verdict").getAttribute("data-count")).toBe("1");
+    expect(screen.queryByTestId("review-form-input-row")).toBeNull();
+    expect(screen.getByTestId("review-card").getAttribute("data-finding-key")).not.toContain("body.paragraphs[1][0]");
   });
 
   it("renders nothing when no sentence came from the form", () => {

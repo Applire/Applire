@@ -1024,12 +1024,18 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   const fallback: Array<{ item: ReviewItem; counted: boolean }> = [];
   let hiddenF = 0;
 
-  // Producer liveness (ADR-081 cl. 9 stands; ADR-099 cl. 2 U): the ATS report
-  // or the Oracle did not run → one "Nicht geprüft … Jetzt prüfen" row each.
-  // The critic's kinds are all S (cl. 8), so its liveness raises no row.
+  // Producer liveness (ADR-081 cl. 9 stands; ADR-099 cl. 2 U, T-U): the ATS
+  // report or the Oracle did not run → one "Nicht geprüft … Jetzt prüfen" row
+  // each. The outcome critic answering `ran:false` / `judgement_error` is U as
+  // well (cl. 2 names `ran:false`); it runs only inside the writing loop now
+  // (cl. 8), so its one action is a new version, not a re-check.
   if (atsReport == null) unknown.push({ key: "producer-ats", resolver: "recheck", producer: "ats" });
   if (truthReport == null || (truthReport.judgement_unavailable ?? 0) > 0) {
     unknown.push({ key: "producer-oracle", resolver: "recheck", producer: "oracle" });
+  }
+  const critic = inputs.criticReport;
+  if (critic && (critic.ran === false || critic.reason === "judgement_error")) {
+    unknown.push({ key: "producer-critic", resolver: "regenerate", producer: "critic" });
   }
 
   // Group 1 — one question per kind.

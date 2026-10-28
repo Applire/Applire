@@ -1896,8 +1896,6 @@
     "signatureDefaultOff": "Default (off)",
     "signatureWith": "with",
     "signatureWithout": "without",
-    "signatureUnavailableHint": "No signature on file.",
-    "signatureUnavailableLink": "Add one in your profile",
     "signatureSaveError": "The setting could not be saved.",
     "docxScopeCaption": "Word file: the checks cover the file as exported — changes you make in Word afterwards are not checked.",
     "validUntilHint": "After that this document is deleted automatically — your profile stays."
@@ -2048,6 +2046,7 @@
       "recheck": "Check now",
       "recheckStill": "The check is not available right now. Try again later.",
       "terminalNotRunBody": "The final review did not run for this document. It only runs while writing – a new version catches up on it.",
+      "writingOnlyBody": "This check did not run for this document. It only runs while writing – a new version catches up on it.",
       "regenerate": "Create a new version",
       "producerTerminal": "Final review",
       "producerCheck": "check “{check}”",
@@ -2065,7 +2064,20 @@
       "unaskedAnswer": "Answer now",
       "unaskedNote": "Applire asks you about exactly these – a short conversation. What you answer disappears here; the next version can use it.",
       "unaskedFailed": "The conversation could not be started right now. Try again in a moment.",
-      "pageBand": "Page {page} of {total}"
+      "pageBand": "Page {page} of {total}",
+      "quoted": "“{text}”",
+      "statusMoved": "Moved",
+      "statusAsGoal": "Phrased as a goal",
+      "statusShortened": "Shortened",
+      "letterPageTitle": "Your cover letter needs {pages} pages instead of {target, plural, one {# page} other {# pages}}",
+      "letterPageBody": "A cover letter for Germany has {target, plural, one {# page} other {# pages}}.",
+      "letterPageDone": "Shortened. This changed:",
+      "cvPageUnreachable": "Applire cannot reach {target, plural, one {# page} other {# pages}} without cutting content the job asks for. The closest is {reachable} pages – for that, these entries would have to go:",
+      "cvPageNothingToCut": "It cannot get shorter without cutting content the job asks for.",
+      "removalShow": "Show the left-out passages",
+      "unaskedSend": "Answer",
+      "unaskedDone": "Thanks – the next version can use it.",
+      "unaskedQuestion": "Applire asks"
     }
   },
   "upgradeNotice": {

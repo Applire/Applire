@@ -110,8 +110,10 @@ describe("DocumentExportFooter — the exports, pinned to the panel", () => {
       expect(screen.queryByTestId("signature-override-section")).toBeNull();
     });
 
-    it("shows a disabled hint pointing at the profile card when unavailable", () => {
-      render(
+    it("renders no signature section and no profile hint when none is on file (RULING C-1 (3))", () => {
+      // ADR-099 / RULING C-1 (3): the missing signature is a counted card in the
+      // LETTER's review list, never a hint on the export footer (CV or letter).
+      const { container } = render(
         withIntl(
           <DocumentExportFooter
             onDownloadPdf={vi.fn()}
@@ -120,9 +122,9 @@ describe("DocumentExportFooter — the exports, pinned to the panel", () => {
         ),
       );
       expect(screen.queryByTestId("signature-override-control")).toBeNull();
-      const hint = screen.getByTestId("signature-override-unavailable-hint");
-      expect(hint.textContent).toContain("No signature on file");
-      expect(hint.querySelector("a")?.getAttribute("href")).toBe("/profile");
+      expect(screen.queryByTestId("signature-override-unavailable-hint")).toBeNull();
+      expect(container.textContent).not.toContain("No signature on file");
+      expect(container.querySelector('a[href="/profile"]')).toBeNull();
     });
 
     it("marks the default option pressed when override is null", () => {
