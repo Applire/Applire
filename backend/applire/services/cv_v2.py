@@ -926,10 +926,15 @@ def required_vault_skills(profile_json: dict, job_dict: dict, keyword_ledger: li
     from applire.services.cv import _jd_required_tier_fn
     from applire.services.profile.reconcile.stance import claimable_skill_names
 
+    from applire.services.prompt_view import aim_only_skill_names
+
     tier = _jd_required_tier_fn(job_dict, keyword_ledger)
+    # D-12 (Hazelnut build 5): a skill only a not_yet_reached line backs is not
+    # demanded as a skills entry — the candidate said it is not reached.
+    aims_only = aim_only_skill_names(profile_json or {})
     out: list[str] = []
     for name in claimable_skill_names(profile_json):
-        if tier(name) == 0 and name not in out:
+        if tier(name) == 0 and name not in out and name not in aims_only:
             out.append(name)
     return out
 

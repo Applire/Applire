@@ -657,7 +657,8 @@ def build_v2_fields_block(
             "JD-REQUIRED SKILLS THE PROFILE HOLDS — each must be findable in the skills list, "
             "in the OUTPUT LANGUAGE (a translated or recorded form is the same skill). Two of "
             "them that name ONE competence (an acronym and its expansion, a synonym, a standard "
-            "and its discipline) share ONE entry that carries both forms — rule 7: "
+            "and its discipline) share ONE entry — an acronym with its expansion in parentheses, "
+            "otherwise the one form that names it best, never two names joined by \";\" — rule 7: "
             + ", ".join(f'"{s}"' for s in required_vault_skills)
         )
     return "\n".join(lines)
