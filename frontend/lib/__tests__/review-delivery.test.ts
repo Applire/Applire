@@ -67,7 +67,8 @@ function inputs(over: Partial<DeliveryInputs>): DeliveryInputs {
   return {
     atsReport: ats(),
     truthReport: truth([]),
-    criticReport: null,
+    // ADV-11: NULL is a critic that did not answer (counted U) — the default ran clean.
+    criticReport: { ran: true, mount: "cv", advisories: [], dropped_citations: 0 } as unknown as DeliveryInputs["criticReport"],
     gapClusters: [],
     ...over,
   };

@@ -61,7 +61,9 @@ describe("PageOverflowCard", () => {
     const card = await screen.findByTestId("cv-page-overflow-card");
     expect(screen.getByTestId("cv-page-overflow-keep")).toBeTruthy();
     expect(screen.queryByTestId("cv-page-overflow-cut")).toBeNull();
-    expect(screen.getByTestId("cv-page-overflow-body").textContent).toContain("ohne Inhalte zu streichen");
+    // U-6 (founder ruling 2026-10-28): it says only that it cannot get shorter —
+    // the ladder never checked what the job asks for.
+    expect(screen.getByTestId("cv-page-overflow-body").textContent).toBe("Kürzer geht es nicht.");
     expect(card.textContent).toContain("3 Seiten");
   });
 
@@ -72,6 +74,7 @@ describe("PageOverflowCard", () => {
     const body = screen.getByTestId("cv-page-overflow-body").textContent ?? "";
     expect(body).toContain("cannot reach 2 pages");
     expect(body).toContain("The closest is 3 pages");
+    expect(body).not.toContain("the job asks for");
     expect(screen.getByTestId("cv-page-overflow-cut")).toBeTruthy();
   });
 
@@ -173,5 +176,55 @@ describe("PageOverflowCard", () => {
     mockFetch({ ...PROPOSAL, target: 1, actual: 2 });
     render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
     expect((await screen.findByTestId("cv-page-overflow-cut")).textContent).toBe("Auf 1 Seite kürzen");
+  });
+
+  // U-6 (founder ruling 2026-10-28): the ladder's last rung keeps an old role's
+  // title, company and dates — the card never says such a role "goes".
+  describe("U-6 — an old role is shortened, never named as removed", () => {
+    const OLD: PageOverflow = {
+      ...PROPOSAL,
+      proposed: [
+        { kind: "off_job_skills", items: ["Kosmetik-Verpackungen"] },
+        { kind: "old_role_bullets", items: ["Schichtleiter — Henkel AG"] },
+      ],
+    };
+
+    it("the proposal says leave out OR shorten, and names the old role with what stays (DE)", async () => {
+      mockFetch(OLD);
+      render(withIntl(<PageOverflowCard cvId="cv-u6" />, "de"));
+      await screen.findByTestId("cv-page-overflow-card");
+      const body = screen.getByTestId("cv-page-overflow-body").textContent ?? "";
+      expect(body).toContain("würde Applire zusätzlich Folgendes weglassen oder kürzen:");
+      expect(body).not.toContain("müssten zusätzlich diese Angaben weg");
+      expect(screen.getByTestId("cv-page-overflow-cuts").textContent).toContain(
+        "Ältere Stationen nur mit Titel, Firma und Zeitraum: Schichtleiter — Henkel AG",
+      );
+    });
+
+    it("a removal-only proposal keeps the plain 'would have to go' (EN)", async () => {
+      mockFetch(PROPOSAL);
+      render(withIntl(<PageOverflowCard cvId="cv-u6b" />));
+      await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.getByTestId("cv-page-overflow-body").textContent).toContain("these would also have to go:");
+    });
+
+    it("the unreachable body follows the same rule", async () => {
+      mockFetch({ ...OLD, reaches_target: false, cut_pages: 3, actual: 4 });
+      render(withIntl(<PageOverflowCard cvId="cv-u6c" />));
+      await screen.findByTestId("cv-page-overflow-card");
+      const body = screen.getByTestId("cv-page-overflow-body").textContent ?? "";
+      expect(body).toBe("Applire cannot reach 2 pages. The closest is 3 pages – for that, Applire would leave out or shorten the following:");
+    });
+
+    it.each([
+      ["both", OLD.proposed, "Cut to 2 pages — removed: Kosmetik-Verpackungen; title, company and dates only: Schichtleiter — Henkel AG."],
+      ["old roles only", [OLD.proposed[1]], "Cut to 2 pages — title, company and dates only: Schichtleiter — Henkel AG."],
+    ])("the done line after a cut (%s) never lists the old role as removed", async (_l, proposed, line) => {
+      mockFetch({ ...OLD, proposed, choice: "cut", cut_available: false, uncut_available: true });
+      render(withIntl(<PageOverflowCard cvId="cv-u6d" />));
+      const done = await screen.findByTestId("cv-page-overflow-done");
+      expect(done.textContent).toContain(line);
+      expect(done.textContent).not.toMatch(/removed:[^;]*Schichtleiter/);
+    });
   });
 });

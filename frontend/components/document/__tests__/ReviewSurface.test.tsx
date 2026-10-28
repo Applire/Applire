@@ -302,7 +302,8 @@ describe("ADR-081 cl. 9 — a producer that did not run renders as unknown, neve
   });
 
   it("both group-1 producers absent: two unknown rows counted, never an all-clear or a zero", () => {
-    renderSurface({ atsReport: null, truthReport: null, criticReport: null, gapClusters: null });
+    // ADV-11: the critic ran clean here, so only the two group-1 producers are unknown.
+    renderSurface({ atsReport: null, truthReport: null, criticReport: { ran: true, mount: "cv", advisories: [], dropped_citations: 0 } as never, gapClusters: null });
     expect(screen.getAllByTestId("review-unknown")).toHaveLength(2);
     expect(screen.getByTestId("review-verdict").getAttribute("data-count")).toBe("2");
     expect(screen.getByTestId("review-verdict").textContent).toBe("2 points need you before you send.");

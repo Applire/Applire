@@ -1057,10 +1057,50 @@ async def removal_evidence(kind: Kind, doc_id: uuid.UUID, removal_text: str, tex
         record = await load_document(kind, doc_id, db, user_id=owner)
         if _listed_removal(record, fold) is None:
             raise FindingNotListed(f"no removal {removal_text!r} on the current report")
+        row = _listed_removal(record, fold) or {}
         testimony = await submit_testimony(text, db, provider, user_id=owner)
-        state = rs.with_removal_answer(rs.load_state(record.review_state), fold, testimony.status)
+        # D-9: the reconcile judges by meaning ("das steht schon in deinem
+        # Profil"), the removal's producer by the skill's own words. Ask the
+        # PRODUCER again, on the profile as it now stands, so the answer's
+        # outcome is the one the next version will meet — never a dead end.
+        backed = None
+        if str(row.get("kind") or "") == SKILL_REMOVAL_KIND and testimony.status != "error":
+            backed = await skill_backed_now(record, str(row.get("text") or removal_text), db, user_id=owner)
+        state = rs.with_removal_answer(rs.load_state(record.review_state), fold, testimony.status, backed=backed)
         await _save_state(record, state, db)
         return ActionOutcome(record=record, testimony=testimony)
+
+
+#: D-9: the removal kind whose producer is the Oracle's skill grounding.
+SKILL_REMOVAL_KIND = "oracle:skillNoEvidence"
+
+
+async def skill_backed_now(record, skill: str, db: AsyncSession, *, user_id: uuid.UUID) -> bool:
+    """Would the Oracle ground ``skill`` on the profile as it stands NOW? The
+    producer's own deterministic arm (``ground_skill_claim`` over the claimable
+    vault + the job's claimable ledger forms, as ``audit.py`` reads them). The
+    cross-language equivalence judgement (ADR-068 Seam A) is a model call and is
+    not re-run here — a miss it would have rescued reads as not backed. Never
+    raises: a failure is "not backed" (the removal stands, the copy says so)."""
+    try:
+        from applire.services.gap import _latest_gap_analysis
+        from applire.services.oracle.audit import _claimable_index
+        from applire.services.oracle.matchers.grounding import ground_skill_claim
+        from applire.services.profile import _get_latest
+
+        profile = await _get_latest(db, user_id)
+        if profile is None or not skill.strip():
+            return False
+        forms = None
+        gap = await _latest_gap_analysis(record.job_analysis_id, db, user_id=user_id)
+        if gap is not None and gap.keyword_ledger:
+            from applire.services.keyword_ledger import claimable_surface_form_groups
+
+            forms = claimable_surface_form_groups(gap.keyword_ledger, exclude_keyword_only=True) or None
+        return ground_skill_claim(skill, _claimable_index(profile.profile_json), forms) is not None
+    except Exception:  # noqa: BLE001
+        logger.exception("removal_evidence: skill re-grounding failed — read as not backed")
+        return False
 
 
 def remove_only(record, key: str, *, user_id: uuid.UUID | None = None) -> bool:

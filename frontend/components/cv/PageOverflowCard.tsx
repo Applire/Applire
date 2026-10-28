@@ -106,7 +106,11 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
   // A-3b: after a cut `actual` is the cut CV's count; every "keep" label names
   // the count the person goes back to.
   const full = overflow.full_pages ?? actual;
-  const removed = overflow.proposed.flatMap((c) => c.items).join(", ");
+  // U-6 (founder ruling 2026-10-28): an old role is SHORTENED (title, company
+  // and dates stay), never removed — the copy says which of the two happens.
+  const removed = overflow.proposed.filter((c) => c.kind !== "old_role_bullets").flatMap((c) => c.items).join(", ");
+  const shortened = overflow.proposed.filter((c) => c.kind === "old_role_bullets").flatMap((c) => c.items).join(", ");
+  const mode = shortened ? "shorten" : "remove";
 
   async function choose(choice: "keep" | "cut") {
     if (busy || !overflow) return;
@@ -157,7 +161,11 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
       >
         <span>
           {cut
-            ? t("pageOverflowCutDone", { target, items: removed })
+            ? removed && shortened
+              ? t("pageOverflowCutDoneBoth", { target, items: removed, roles: shortened })
+              : shortened
+                ? t("pageOverflowCutDoneShortened", { target, roles: shortened })
+                : t("pageOverflowCutDone", { target, items: removed })
             : t("pageOverflowKeptDone", { actual: full })}
         </span>
         {cut && !canSwitch && (
@@ -198,8 +206,8 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
         {cutPages === null
           ? tD("cvPageNothingToCut")
           : unreachable
-            ? tD("cvPageUnreachable", { target, reachable: cutPages })
-            : t("pageOverflowBody", { target })}
+            ? tD("cvPageUnreachable", { target, reachable: cutPages, mode })
+            : t("pageOverflowBody", { target, mode })}
       </p>
       <ul className="mb-3 ml-5 list-disc text-[13px] leading-snug text-on-surface-variant" data-testid="cv-page-overflow-cuts">
         {overflow.proposed.map((c) => (

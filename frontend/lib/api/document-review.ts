@@ -64,7 +64,7 @@ export interface ReviewState {
   walked_at: string | null;
   decisions: ReviewDecision[];
   /** ADR-099 cl. 5 — "Doch, stimmt – wo?" answers per removed claim (folded text → status). */
-  removal_answers?: Record<string, { status: string; at?: string }>;
+  removal_answers?: Record<string, { status: string; at?: string; backed?: boolean }>;
 }
 
 /** The `TestimonyResult` the testimony service returns (door parity, ADR-058). */

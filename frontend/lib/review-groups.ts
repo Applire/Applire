@@ -240,6 +240,7 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
   const { atsReport, truthReport } = inputs;
   const terms = atsReport?.keywords.present_unsupported ?? [];
   const matches = atsReport?.keywords.present_unsupported_matches;
+  const claimSentences = atsReport?.keywords.present_unsupported_sentences;
   const denialsByTerm = atsReport?.keywords.present_unsupported_denials;
   const employerSentence = new Set(atsReport?.keywords.present_unsupported_employer_sentence ?? []);
   const claimable = claimableConceptSet(atsReport?.keywords.claimable_concepts);
@@ -272,8 +273,14 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
     // could not be marked. A merged row can still be located by the claim text
     // (ADR-090 cl. 2: an Oracle claim is located by its `text`).
     const termMatches = matches && Object.prototype.hasOwnProperty.call(matches, term) ? matches[term] : null;
+    // D-4c(a): count and locate only the occurrences that are still a claim
+    // (outside a masked employer clause); an older report keeps today's reach.
+    const within =
+      claimSentences && Object.prototype.hasOwnProperty.call(claimSentences, term) && Array.isArray(claimSentences[term])
+        ? claimSentences[term].filter((x) => typeof x === "string")
+        : undefined;
     const targets: LocateTarget[] | null = termMatches
-      ? termMatches.map((m) => ({ form: m.form, stem: Boolean(m.stem) }))
+      ? termMatches.map((m) => ({ form: m.form, stem: Boolean(m.stem), ...(within ? { within } : {}) }))
       : claim
         ? [{ form: claim.claim.text }]
         : null;
@@ -942,6 +949,30 @@ export interface UnknownRow {
   check?: ATSCheck;
 }
 
+/**
+ * ADV-10 — what a U row's copy may say, read from what the producer WROTE
+ * (`fixtures/adr099-u-states.json` is generated from the producers):
+ * - `notRun`: the producer did not answer, or the check did not run;
+ * - `unfinished`: the terminal review ran but reached no usable verdict
+ *   (`terminal-review-incomplete`, `terminal-review-unnamed`);
+ * - `earlierDraft`: the terminal review ran on an earlier draft and this one was
+ *   not re-reviewed (`terminal-review-unverified[-clean]`);
+ * - `foundNotFixed`: a check RAN and FAILED, and the loop that fixes it did not
+ *   run or did not finish (a class-F kind stamped U on an unclean loop).
+ * The action stays the stamped resolver's — one per row.
+ */
+export type UnknownState = "notRun" | "unfinished" | "earlierDraft" | "foundNotFixed";
+
+export function unknownState(u: UnknownRow): UnknownState {
+  const c = u.check;
+  if (!c) return "notRun";
+  const key = c.details_key ?? "";
+  if (key === "terminal-review-unverified" || key === "terminal-review-unverified-clean") return "earlierDraft";
+  if (key === "terminal-review-incomplete" || key === "terminal-review-unnamed") return "unfinished";
+  if (c.status === "fail") return "foundNotFixed";
+  return "notRun";
+}
+
 export interface DeliveryView {
   /**
    * False when NO row of the reports carries a delivery class (a report
@@ -1041,7 +1072,9 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     unknown.push({ key: "producer-oracle", resolver: "recheck", producer: "oracle" });
   }
   const critic = inputs.criticReport;
-  if (critic && (critic.ran === false || critic.reason === "judgement_error")) {
+  // ADV-11: a critic that RAISED leaves the report NULL (no review_degradation
+  // entry either) — the same "did not answer" as ran:false, never silence.
+  if (critic == null || critic.ran === false || critic.reason === "judgement_error") {
     unknown.push({ key: "producer-critic", resolver: "regenerate", producer: "critic" });
   }
 

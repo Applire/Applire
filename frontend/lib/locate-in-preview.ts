@@ -44,6 +44,17 @@
 export interface LocateTarget {
   form: string;
   stem?: boolean;
+  /**
+   * D-4c(a): the audit's normalised sentences in which this form is still a
+   * CLAIM (after the employer/title/org-unit masks,
+   * `keywords.present_unsupported_sentences`). When set, only hits inside one
+   * of these sentences count — an occurrence inside a masked employer clause is
+   * not the finding. Applied only when at least one of them is found in the
+   * text: the sentences come from the PDF's text order, which a multi-column
+   * template may interleave — a set that aligns nowhere (or `[]`) falls back to
+   * every occurrence, as before, rather than to "could not be marked".
+   */
+  within?: string[];
 }
 
 /** A hit in the normalised text: [start, end). */
@@ -218,11 +229,36 @@ export function findHits(textNorm: string, targets: LocateTarget[]): Hit[] {
   return out;
 }
 
-function collectHits(textNorm: string, targets: LocateTarget[], wholeToken: boolean): Hit[] {
-  const raw: Hit[] = [];
-  for (const target of targets) {
-    const n = normAudit(target.form);
+/** Where each of `sentences` occurs in the normalised text. */
+function sentenceSpans(textNorm: string, sentences: string[]): Hit[] {
+  const spans: Hit[] = [];
+  for (const s of sentences) {
+    const n = normAudit(s);
     if (!n) continue;
+    for (let i = textNorm.indexOf(n); i >= 0; i = textNorm.indexOf(n, i + 1)) spans.push({ start: i, end: i + n.length });
+  }
+  return spans;
+}
+
+function collectHits(textNorm: string, targets: LocateTarget[], wholeToken: boolean): Hit[] {
+  const out: Hit[] = [];
+  for (const target of targets) {
+    const own = collectTargetHits(textNorm, target, wholeToken);
+    const spans = target.within ? sentenceSpans(textNorm, target.within) : [];
+    if (spans.length === 0) {
+      out.push(...own);
+      continue;
+    }
+    out.push(...own.filter((h) => spans.some((sp) => sp.start <= h.start && h.end <= sp.end)));
+  }
+  return out;
+}
+
+function collectTargetHits(textNorm: string, target: LocateTarget, wholeToken: boolean): Hit[] {
+  const raw: Hit[] = [];
+  {
+    const n = normAudit(target.form);
+    if (!n) return raw;
     for (const v of foldVariants(n)) {
       let from = 0;
       for (;;) {

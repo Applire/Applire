@@ -107,9 +107,11 @@ async def owning_stations(
     owners: list[dict] = []
     for ref in verdict.get("evidence") or []:
         m = _WORK_REF.match(str((ref or {}).get("ref") or "")) if isinstance(ref, dict) else None
-        if not m or int(m.group(1)) >= len(entries):
+        if not m:
             continue
-        e = entries[int(m.group(1))]
+        # ADV-4: the index was taken at audit time; the profile may have shifted
+        # since (U-11 merge, adopt, an import). Resolve by what the entry HOLDS.
+        e = _evidence_owner(entries, int(m.group(1)), str(ref.get("excerpt") or ""))
         if str(e.get("id") or "") and str(e.get("id")) != rendered_under and e not in owners:
             owners.append(e)
     out: list[StationOption] = []
@@ -127,6 +129,38 @@ async def owning_stations(
         else:
             out.append(StationOption(eid, eid, title, org))
     return out
+
+
+def _entry_text(value) -> str:
+    """Every string an entry holds (title, company, bullets, nested lists), folded."""
+    if isinstance(value, str):
+        return _fold(value)
+    if isinstance(value, dict):
+        return " \n ".join(_entry_text(v) for v in value.values())
+    if isinstance(value, list):
+        return " \n ".join(_entry_text(v) for v in value)
+    return ""
+
+
+def _evidence_owner(entries: list[dict], index: int, excerpt: str) -> dict:
+    """The live profile entry a persisted ``work_experience[N]`` evidence ref
+    names (ADV-4). The index is the audit's, not the profile's: it counts only
+    while that entry still holds the evidence excerpt; otherwise the ONE entry
+    that holds it is the owner. No excerpt, no holder, or several holders none
+    of which sits at the index → :class:`ActionNotApplicable` (409): the card
+    offers *Entfernen* or a recheck, never a guessed employer."""
+    want = _fold(excerpt)
+    if not want:
+        raise ActionNotApplicable("the evidence carries no excerpt to resolve its entry by")
+    if 0 <= index < len(entries) and want in _entry_text(entries[index]):
+        return entries[index]
+    holders = [e for e in entries if want in _entry_text(e)]
+    if len(holders) == 1:
+        return holders[0]
+    raise ActionNotApplicable(
+        "the profile changed since the audit — the evidence's entry is "
+        + ("gone" if not holders else "ambiguous") + "; recheck the document"
+    )
 
 
 async def move_sentence(
