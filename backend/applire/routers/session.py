@@ -53,6 +53,7 @@ from applire.services.session import (
     GapNotAskableError,
     OutcomeNotOffered,
     OutcomeRequired,
+    UnknownRequirement,
     create_profile_review_session,
     create_session,
     get_session_state,
@@ -102,6 +103,11 @@ async def start_session(
     await get_job_for_user(db, body.job_id, user.id)
     try:
         return await create_session(body, db, provider, user_id=user.id)
+    except UnknownRequirement as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error_code": "unknown_requirement", "concepts": exc.concepts},
+        )
     except GapNotAskableError as exc:
         # ADR-089 clause 1 — a Gap-Click on a cluster whose per-gap budget is
         # spent, or whose coverage is already covered/declined, is refused with

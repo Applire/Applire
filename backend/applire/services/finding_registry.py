@@ -98,7 +98,7 @@ REGISTRY.update(
         "health:suspect_binding": Entry("A", "confirm_match"),
         "health:duplicate_entry": Entry("A", "confirm_match"),
         "health:not_applied": Entry("A", "adopt_not_applied"),
-        "health:not_applied_unadoptable": Entry("S", None),
+        "health:not_applied_unadoptable": Entry("A", "complete_section"),
         "health:accuracy": Entry("S", None),
         "health:completeness": Entry("A", "complete_section"),
         "health:completeness_no_field_gaps": Entry("S", None),

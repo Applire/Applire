@@ -2626,6 +2626,10 @@ async def create_session(
     # no purpose but to trap a caller that sends target_gap without ALSO
     # remembering an explicit mode="targeted" — silently falling through to
     # the idempotency branch below instead of the requested gap.
+    if request.requirement_concepts:
+        return await _create_requirement_session(
+            job_id, profile_record, request.requirement_concepts, db, provider, lang, user_id=uid
+        )
     if request.target_gap:
         return await _create_micro_session(
             job_id, job, profile_record, request.target_gap, db, provider, lang, user_id=uid
@@ -3243,6 +3247,146 @@ async def _create_micro_session(
         gaps_remaining=1,
         choices=first_choices,
         current_gap_id=target_cluster_id,
+    )
+
+
+class UnknownRequirement(ValueError):
+    """A ``requirement_concepts`` entry that is no unasked requirement of the
+    job's latest analysis (422 ``unknown_requirement``)."""
+
+    def __init__(self, concepts: list[str]) -> None:
+        self.concepts = concepts
+        super().__init__("unknown_requirement")
+
+
+_REQUIREMENT_PREFIX = "requirement:"
+
+
+async def _create_requirement_session(
+    job_id: uuid.UUID,
+    profile_record: MasterProfile | None,
+    concepts: list[str],
+    db: AsyncSession,
+    provider: LLMProvider,
+    lang: str = "en",
+    *,
+    user_id: uuid.UUID | None = None,
+) -> SessionCreateResponse:
+    """"Jetzt beantworten" (Hazelnut build 5, for WP-C) — ask exactly the
+    chosen never-asked requirements, in the given order, one question each.
+
+    The set offered is ``GapAnalysisResponse.unasked_requirements`` of the
+    owner's latest analysis — read through the SAME response model the gaps
+    page renders from, so the two can never disagree. Each concept becomes a
+    one-member pseudo-cluster (``requirement:<concept>``); the turn writes the
+    vault through the ordinary interview reconcile, and the requirement leaves
+    the unasked set by the existing derivation once the ledger holds evidence
+    or a stated limit for it. A scoped session (``micro_session``), so a later
+    generic interview request retires it like a Gap-Click one.
+    """
+    from applire.schemas.gap import GapAnalysisResponse
+
+    uid = resolve_user_id(user_id, site="session._create_requirement_session")
+    if profile_record is None:
+        raise LookupError("No profile found — upload a CV first")
+    row = (
+        await db.execute(
+            select(GapAnalysis)
+            .where(
+                GapAnalysis.job_analysis_id == job_id,
+                GapAnalysis.user_id == uid,
+                GapAnalysis.deleted_at.is_(None),
+            )
+            .order_by(GapAnalysis.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise LookupError("No gap analysis for this job — run the gap check first")
+    unasked = {
+        (e.concept or "").strip().casefold(): e
+        for e in GapAnalysisResponse.model_validate(row).unasked_requirements
+    }
+    wanted: list[str] = []
+    for c in concepts:
+        key = (c or "").strip().casefold()
+        if key and key not in [w.casefold() for w in wanted]:
+            wanted.append((c or "").strip())
+    unknown = [c for c in wanted if c.casefold() not in unasked]
+    if unknown or not wanted:
+        raise UnknownRequirement(unknown or list(concepts))
+
+    ids: list[str] = []
+    clusters: dict[str, dict] = {}
+    for c in wanted:
+        entry = unasked[c.casefold()]
+        cid = f"{_REQUIREMENT_PREFIX}{entry.concept}"
+        ids.append(cid)
+        clusters[cid] = {
+            "id": cid,
+            "label": entry.concept,
+            "gaps": [entry.concept],
+            "jd_skills": [entry.concept],
+            "jd_context": getattr(entry, "jd_context", None) or "",
+            "category": "C",
+        }
+
+    existing_active = await _get_active_session(job_id, db, user_id=uid)
+    ceiling = derive_hard_ceiling(len(ids))
+    state: InterviewState = _build_state(
+        mode="targeted",
+        job_id=job_id,
+        gap_analysis_id=row.id,
+        profile_id=profile_record.id,
+        critical_gaps=ids,
+        gap_categories={i: "C" for i in ids},
+        gap_clusters_by_id=clusters,
+        current_question="",
+        hard_ceiling=ceiling,
+        micro_session=True,
+    )
+    state["entry"] = "requirements"
+    q_data = await _cluster_question(
+        state, profile_record.profile_json, provider, db,
+        user_id=uid, gap_category="C", lang=lang,
+    )
+    first_question = q_data["question"]
+    first_choices = q_data["choices"]
+    state["current_question"] = first_question
+    state["current_choices"] = first_choices
+    state["messages"].append({"role": "assistant", "content": first_question})
+    state["questions_asked"] = 1
+
+    if existing_active is not None:
+        existing_active.status = "complete"
+        existing_active.updated_at = datetime.now(timezone.utc)
+        await db.flush()
+
+    record = _make_session_record(
+        job_id=job_id,
+        gap_analysis_id=row.id,
+        profile_id=profile_record.id,
+        user_id=profile_record.user_id,
+        mode="targeted",
+        status="active",
+        state=state,
+        hard_ceiling=ceiling,
+        questions_asked=1,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return SessionCreateResponse(
+        session_id=record.id,
+        mode="targeted",
+        first_question=first_question,
+        question=first_question,
+        estimated_questions=len(ids),
+        hard_ceiling=ceiling,
+        gaps_total=len(ids),
+        gaps_remaining=len(ids),
+        choices=first_choices,
+        current_gap_id=ids[0],
     )
 
 

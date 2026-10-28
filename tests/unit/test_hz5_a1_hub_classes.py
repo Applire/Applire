@@ -137,7 +137,7 @@ def test_no_issue_comes_out_unclassified():
 
 
 def test_registry_rows_are_the_contract():
-    assert classify("health:not_applied_unadoptable").cls == "S"
+    assert classify("health:not_applied_unadoptable").cls == "A"
     assert classify("health:completeness_no_field_gaps").cls == "S"
     assert classify("health:conflict_list").resolver == "conflict_list"
 
@@ -244,7 +244,7 @@ def test_legacy_item_without_entry_is_not_adoptable_and_does_not_crash():
     p = _with_not_applied([ImportNotApplied(**_not_applied_item())])
     (issue,) = [i for i in assess_health(p).issues if i.thread == "not_applied"]
     assert [i.adoptable for i in issue.not_applied_items] == [False]
-    assert (issue.delivery_class, issue.resolver) == ("S", None)  # health:not_applied_unadoptable
+    assert (issue.delivery_class, issue.resolver) == ("A", "complete_section")  # legacy: go-to-section fallback stays visible
 
 
 def test_summary_item_has_no_entry():
