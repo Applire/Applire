@@ -322,6 +322,43 @@ def _content_present(probe: str, text_norm: str, required_count: int = 1) -> boo
     return available >= required_count
 
 
+def _not_rendered_paths(model_cls: type) -> frozenset:
+    """The writer's OWN not-rendered leaf registry for ``model_cls`` (imported,
+    never re-typed). Founder ruling P-1 (Hazelnut build 5) moved
+    ``work_history[].industry_context`` there: every CV template and the .docx
+    stop printing the industry, so a parity probe for it would demand content
+    both artefacts deliberately leave out."""
+    from applire.services.office_export import cv_docx
+
+    if model_cls is TailoredCVData:
+        return frozenset(cv_docx._NOT_RENDERED_LEAVES)
+    return frozenset()
+
+
+def _drop_not_rendered(dumped: Any, paths: frozenset) -> Any:
+    """Remove each ``a.b`` / ``list[].field`` path in ``paths`` from a
+    ``model_dump()`` structure (in place on the dump, returned for chaining)."""
+    for path in paths:
+        _drop_path(dumped, path.split("."))
+    return dumped
+
+
+def _drop_path(node: Any, parts: list[str]) -> None:
+    if not parts or not isinstance(node, dict):
+        return
+    head, rest = parts[0], parts[1:]
+    is_list = head.endswith("[]")
+    key = head[:-2] if is_list else head
+    if key not in node:
+        return
+    if not rest:
+        node.pop(key, None)
+        return
+    children = node[key] if is_list else [node[key]]
+    for child in children or []:
+        _drop_path(child, rest)
+
+
 def _missing_sections(model_cls: type, instance: Any, text_norm: str) -> list[tuple[str, list[str]]]:
     """For every TOP-LEVEL field in ``model_cls.model_fields`` (mechanically
     — never a hand-typed list, ADR-079 clause 5), collect that field's
@@ -365,11 +402,11 @@ def _missing_sections(model_cls: type, instance: Any, text_norm: str) -> list[tu
     blocking CI gate — see `test_content_present_...` below for the
     mutation-verified proof.
     """
-    dumped = instance.model_dump()
+    dumped = _drop_not_rendered(instance.model_dump(), _not_rendered_paths(model_cls))
     expected_counts: Counter[str] = Counter(_string_leaves(dumped))
     missing: list[tuple[str, list[str]]] = []
     for field_name in sorted(model_cls.model_fields):
-        probes = _string_leaves(dumped[field_name])
+        probes = _string_leaves(dumped.get(field_name))
         gaps = [
             p for p in probes
             if not _content_present(p, text_norm, expected_counts[p])
@@ -1372,10 +1409,11 @@ def test_section_parity_checker_detects_dropped_role_facts(monkeypatch):
     missing = _missing_sections(TailoredCVData, instance, mutated_text_norm)
     missing_by_field = dict(missing)
     work_history_gaps = missing_by_field.get("work_history", [])
+    # P-1: the industry is not rendered, so it is not probed either.
+    assert entry.industry_context not in work_history_gaps
     for field_name, value in (
         ("team_size", str(entry.team_size)),
         ("budget_managed", entry.budget_managed),
-        ("industry_context", entry.industry_context),
     ):
         assert value in work_history_gaps, (
             f"dropping _role_facts_line's rendering must be caught as a "
@@ -1419,7 +1457,9 @@ def test_office_export_omits_a_unit_less_budget_figure():
     # side effect of the whole entry (or the whole role-facts line, which
     # still carries team_size/industry_context) going missing.
     assert _content_present(str(instance.work_history[0].team_size), text_norm)
-    assert _content_present(instance.work_history[0].industry_context, text_norm)
+    assert not _content_present(instance.work_history[0].industry_context, text_norm), (
+        "founder ruling P-1: the industry is never printed under a job"
+    )
     assert _content_present(instance.work_history[0].company, text_norm)
 
 
