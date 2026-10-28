@@ -138,6 +138,36 @@ describe("ADR-099 cl. 6 — one question per resolver, with only its answers", (
     expect(api.addEvidence).toHaveBeenCalledWith("cv", "cv-1", expect.any(String), "Bei Nordwind, 2021.");
   });
 
+  // D-10 (delivery re-run 2026-10-28): on a SKILL the producer grounds by its own
+  // words, "Entfernen" alone would delete a true skill — the card offers the
+  // action that can clear it (the profile in the person's words + a recheck).
+  it("ask_true on a skill (skillNoEvidence): no_change offers profile + recheck + remove, never remove alone", async () => {
+    const skill = "Software development with Delphi and .NET";
+    api.addEvidence.mockResolvedValue({
+      testimony: { status: "no_change", changes: [] },
+      remove_only: true,
+      still_listed: true,
+      report: null,
+      truthfulness: null,
+      review_state: null,
+    });
+    api.recheckDocument.mockResolvedValue({ review_state: null });
+    const skillTruth = truth({ delivery_class: "A", resolver: "ask_true", detail_key: "skillNoEvidence", detail_params: { skill } } as Partial<Verdict>, skill);
+    render(withIntl(<ReviewSurface {...props({ truthReport: skillTruth })} />, "de"));
+    fireEvent.click(screen.getByTestId("review-answer-yes"));
+    fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "Bei Nordlicht: Delphi 5 auf .NET." } });
+    fireEvent.click(screen.getByTestId("review-add-submit"));
+    await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
+    const card = screen.getByTestId("review-card");
+    const why = within(card).getByTestId("review-card-why").textContent ?? "";
+    expect(why).toContain("nicht in diesen Worten");
+    expect(why).not.toContain("Es bleibt nur: entfernen.");
+    expect(within(card).getByTestId("review-skill-profile").getAttribute("href")).toBe("/profile");
+    fireEvent.click(within(card).getByTestId("review-skill-recheck"));
+    await waitFor(() => expect(api.recheckDocument).toHaveBeenCalledWith("cv", "cv-1"));
+    expect(within(card).getByTestId("review-answer-remove")).toBeTruthy();
+  });
+
   it("ask_station: „Wohin gehört das?“ lists the owning stations as answers, then remove", async () => {
     api.listStations.mockResolvedValue([
       { station_id: "exp-2", title: "Teamleiterin Plattform", organization: "Nordwind Logistik GmbH" },

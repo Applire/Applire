@@ -684,6 +684,37 @@ export function ReviewSurface({
 
     if (resolver === "ask_true") {
       const onlyRemove = removeOnlyKeys.has(row.findingKey) || removeOnly(row);
+      if (onlyRemove && row.item?.detailKey === "skillNoEvidence") {
+        // D-10: a skill the producer grounds by its own words. "Entfernen" must
+        // never be the only exit for a true skill — the profile, in the
+        // person's words, plus a recheck is the action that CAN clear it.
+        return {
+          q: t("delivery.qTrue"),
+          why: t("delivery.skillNoChange", { skill: row.label }),
+          answers: (
+            <>
+              <Link href="/profile" data-testid="review-skill-profile" className={answerBtn}>
+                <CornerDownRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>
+                  {t("delivery.skillToProfile")}
+                  <span className={sub}>{t("delivery.skillToProfileSub")}</span>
+                </span>
+              </Link>
+              <button
+                type="button"
+                data-testid="review-skill-recheck"
+                disabled={busy !== null || !documentId}
+                onClick={() => void runRecheck()}
+                className={answerBtn}
+              >
+                {busy === "recheck" ? spin : <RefreshCw className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                <span>{t("delivery.recheck")}</span>
+              </button>
+              {removeButton(row, "remove", false)}
+            </>
+          ),
+        };
+      }
       if (onlyRemove) {
         return {
           q: t("delivery.qTrue"),

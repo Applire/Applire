@@ -432,7 +432,62 @@ def ground_skill_claim(
         backing = [ground_skill_claim(part, index, ledger_forms) for part in parts]
         if all(u is not None for u in backing):
             return backing[0]
-    return None
+    return _ground_compound(name, index, ledger_forms)
+
+
+# D-10 (Hazelnut build 5, delivery re-run 2026-10-28): a skill chip the writer
+# COMPOSED from attested parts — "Software development with Delphi and .NET",
+# every part named in one bullet ("…transition of software development from
+# legacy Delphi 5 to .NET…") — never occurs as one string, so the whole-token
+# test read a true skill as unbacked and the card's only exit deleted it. The
+# #797 precedent (a slash enumeration grounds when every part does), extended:
+# - a LIST ("A, B and C", "A und B", "A & B") grounds when every part grounds;
+# - a RELATION ("X with Y", "X mit Y") says more than its parts — it grounds
+#   only when X and every part of Y are named in ONE vault entry.
+# A presence fact over the shared instruments, never a judgement of meaning.
+_RELATION_RE = re.compile(r"\s+(?:with|mit)\s+", re.IGNORECASE)
+_LIST_RE = re.compile(r"\s*,\s*|\s+(?:and|und|sowie|&)\s+", re.IGNORECASE)
+_ENTRY_RE = re.compile(r"^[a-z_]+\[\d+\]")
+
+
+def _list_parts(text: str) -> list[str]:
+    return [p.strip() for p in _LIST_RE.split(text) if p and p.strip()]
+
+
+def _entries_naming(part: str, index: VaultIndex) -> set[str]:
+    """The vault entries (``work_experience[0]``, ``projects[1]`` …) one of whose
+    units names ``part`` as a whole token."""
+    out: set[str] = set()
+    for unit in index.units:
+        if surface_present_whole_token(part, unit.text_norm):
+            m = _ENTRY_RE.match(unit.path)
+            if m:
+                out.add(m.group(0))
+    return out
+
+
+def _ground_compound(name: str, index: VaultIndex, ledger_forms) -> EvidenceUnit | None:
+    pieces = _RELATION_RE.split(name.strip(), maxsplit=1)
+    if len(pieces) == 2:
+        parts = [pieces[0].strip(), *_list_parts(pieces[1])]
+        if len(parts) < 2 or any(not re.search(r"\w", p) for p in parts):
+            return None
+        shared = None
+        for part in parts:
+            entries = _entries_naming(part, index)
+            shared = entries if shared is None else shared & entries
+            if not shared:
+                return None
+        entry = sorted(shared)[0]
+        for unit in index.units:
+            if unit.path.startswith(entry) and surface_present_whole_token(parts[0], unit.text_norm):
+                return unit
+        return None
+    parts = _list_parts(name)
+    if len(parts) < 2 or any(not re.search(r"\w", p) for p in parts):
+        return None
+    backing = [ground_skill_claim(part, index, ledger_forms) for part in parts]
+    return backing[0] if all(u is not None for u in backing) else None
 
 
 _SLASH_ENUM_RE = re.compile(r"^(?P<head>(?:[^\s/]+\s+)*)(?P<first>[^\s/]+)(?P<rest>(?:/[^\s/]+)+)$")
