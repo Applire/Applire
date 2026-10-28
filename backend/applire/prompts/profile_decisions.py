@@ -168,10 +168,11 @@ def build_aspiration_prompt(bullets: list[str]) -> str:
 
 PRESENT_SYSTEM = """An import of one person's CV did NOT apply some entries. For each NEW entry,
 decide whether it is the SAME as one of the EXISTING entries of its section:
-the same degree at the same school, the same job, project, certificate or
-language, written in another language or under another name (a translated or
+the same degree at the same school, the same job, project, certificate, skill
+or language, written in another language or under another name (a translated or
 older institution name, a renamed or shortened company, a degree or title
-written differently).
+written differently). A NEW skill may also be one of the EXISTING
+certificates, and a NEW certificate one of the EXISTING skills.
 
 - Name the existing entry's id only when it is clearly the same thing.
 - Different degrees at one school, or different jobs at one employer, are NOT

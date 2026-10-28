@@ -26,6 +26,19 @@ from applire.schemas.profile import ImportNotApplied, MasterProfileData
 
 logger = logging.getLogger(__name__)
 
+#: D-2b — a skill item may BE a held certificate (an extractor routes
+#: "ITIL Foundation" into skills; the vault holds it under certifications), and
+#: the other way round. Only these pairs cross a section.
+_ALSO_IN: dict[str, tuple[str, ...]] = {
+    "skills": ("certifications",),
+    "certifications": ("skills",),
+}
+
+
+def _sections_for(section: str) -> tuple[str, ...]:
+    return (section, *_ALSO_IN.get(section, ()))
+
+
 #: Fields never shown to the judge (ids, bookkeeping); lists are omitted too.
 _SKIP = {"id", "status", "source", "expected_fields", "photo_url"}
 
@@ -47,21 +60,24 @@ async def mark_already_present(
 
     asked = [
         i for i in items
-        if i.entry and i.section and i.adopted_at is None and i.already_present_as is None
-        and getattr(merged, i.section, None)
+        if (i.entry or (i.label or "").strip()) and i.section and i.adopted_at is None
+        and i.already_present_as is None
+        and any(getattr(merged, sec, None) for sec in _sections_for(i.section))
     ]
     if not asked:
         return 0
     try:
         payload = [
-            {"item": f"n{n}", "section": i.section, **_scalars(i.entry)}
+            {"item": f"n{n}", "section": i.section, **(_scalars(i.entry) if i.entry else {"name": i.label})}
             for n, i in enumerate(asked)
         ]
+        wanted = sorted({sec for i in asked for sec in _sections_for(i.section)})
         existing = {
             sec: [{"id": e.id, **_scalars(e)} for e in getattr(merged, sec) if getattr(e, "id", None)]
-            for sec in sorted({i.section for i in asked})
+            for sec in wanted
+            if getattr(merged, sec, None)
         }
-        found = await judge_already_present(provider, payload, existing)
+        found = await judge_already_present(provider, payload, existing, also_in=_ALSO_IN)
     except Exception:  # noqa: BLE001 — never fail the import
         logger.warning("already-present check skipped", exc_info=True)
         return 0

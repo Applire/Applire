@@ -355,6 +355,13 @@ class FlagConflict(BaseModel):
     field: str
     existing: Any = None
     incoming: Any = None
+    #: U-1r (ADR-046 amended 2026-10-28) — for a BULLET conflict, the two
+    #: values rule 13's test names, each copied from its own bullet. A weaker
+    #: field, not a more powerful one: the engine checks the model's own
+    #: declaration (``conflict_values.route_unchecked_conflicts``) and routes a
+    #: bullet conflict it cannot check as an ``add_bullets`` of the incoming
+    #: bullet. Ignored for a scalar conflict, whose sides ARE the values.
+    values: list[Any] | None = None
 
 
 # ADR-063 amended 2026-09-05, BUILT 2026-09-08 (#669) — the stable option
