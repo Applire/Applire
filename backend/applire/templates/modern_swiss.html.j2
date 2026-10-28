@@ -237,6 +237,9 @@
       background: var(--cv-accent-tint);
       border-radius: 2pt;
       color: var(--text);
+      /* U-10: a chip never splits across pages; rows break between chips. */
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     /* ---- Languages ---- */
@@ -480,20 +483,21 @@
   <!-- ===== SKILLS / KENNTNISSE ===== -->
   {% if cv.skills %}
   {% set n_skills = cv.skills | length %}
+  {# U-10 (Hazelnut b5): ONE wrapping chip list. The #622 item-count
+     lead/tail split cut the flex row into three lists (2 / n-4 / 2 chips),
+     so the rows wrapped unevenly. A long list now breaks only BETWEEN chip
+     rows (.skills-grid li is unbreakable) and the heading keeps its first
+     row (.section-header break-after: avoid). #}
   <section class="section{{ ' section-atomic' if n_skills <= 6 else '' }}">
-    {% if n_skills > 6 %}<div class="section-lead">{% endif %}
     <div class="section-header">
       <span class="section-title-en">{{ labels.skills }}</span>
       <div class="section-rule"></div>
     </div>
     <ul class="skills-grid">
       {% for skill in cv.skills %}
-      {% if n_skills > 6 and loop.index == 3 %}</ul></div><ul class="skills-grid">{% endif %}
-      {% if n_skills > 6 and loop.revindex == 2 %}</ul><div class="section-tail"><ul class="skills-grid">{% endif %}
       <li>{{ skill }}</li>
       {% endfor %}
     </ul>
-    {% if n_skills > 6 %}</div>{% endif %}
   </section>
   {% endif %}
 

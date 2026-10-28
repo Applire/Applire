@@ -39,6 +39,8 @@ import {
 } from "@/lib/profile-entries";
 import { type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
+import { EntryDropZone, EntryMergeControls } from "./EntryMerge";
+import { toEntryRef } from "@/lib/profile-merge";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -278,14 +280,20 @@ export function ProjectsEditor({
             const rawLabel = nonEmptyText(e.name) ? e.name : null;
             const label = rawLabel ?? t("notProvided");
             const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current, locale);
+            const mergeRef = toEntryRef("projects", e, { present: t("present"), notProvided: t("notProvided") }, locale);
             return (
-              <div key={nonEmptyText(e.id) ? e.id : i} className="border-l-2 border-teal/40 pl-3">
+              <EntryDropZone
+                key={nonEmptyText(e.id) ? e.id : i}
+                entry={mergeRef}
+                className="border-l-2 border-teal/40 pl-3"
+              >
                 <div className="flex flex-wrap items-baseline justify-between gap-x-2">
                   <p className="text-sm font-semibold text-neutral-dark">
                     {[label, nonEmptyText(e.role) ? e.role : null].filter(Boolean).join(" · ")}
                   </p>
                   <div className="flex items-center gap-2">
                     {period && <span className="text-xs text-gray-500">{period}</span>}
+                    {mergeRef && <EntryMergeControls entry={mergeRef} />}
                     <button
                       type="button"
                       data-testid={`project-edit-${i}`}
@@ -316,7 +324,7 @@ export function ProjectsEditor({
                 {nonEmptyText(e.description) && (
                   <p className="mt-1 text-sm text-gray-700">{e.description}</p>
                 )}
-              </div>
+              </EntryDropZone>
             );
           })}
         </div>
