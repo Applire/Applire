@@ -44,6 +44,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.models.uploads import UploadRecord
 from applire.schemas.profile import (
     ConflictResolutionRequest,
+    MergeProposalResponse,
     CVImportJobListItem,
     CVImportJobResponse,
     CVImportStatusResponse,
@@ -81,6 +82,7 @@ from applire.services.profile import (
     get_profile,
     patch_profile_section,
     profile_exists,
+    propose_conflict_merge,
     resolve_conflict,
     resolve_confirmation,
     MatchNotSeparable,
@@ -881,6 +883,33 @@ async def resolve_profile_conflict(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
         )
+
+
+@router.post(
+    "/conflicts/{conflict_id}/merge-proposal",
+    response_model=MergeProposalResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def conflict_merge_proposal(
+    conflict_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+    provider: LLMProvider = Depends(_get_provider),
+) -> MergeProposalResponse:
+    """ADR-099 cl. 11 — one model call, verified, nothing written. 404 for an
+    unknown/closed dispute, 422 for one that offers no merge."""
+    try:
+        p = await propose_conflict_merge(conflict_id, db, provider, user_id=_uid(current_user))
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    except Exception:
+        logger.exception("profile route failed")  # never echo str(exc) (MD-24 (6))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
+        )
+    return MergeProposalResponse(proposal=p.proposal, verifier=p.verifier, sources=list(p.sources))
 
 
 @router.post(

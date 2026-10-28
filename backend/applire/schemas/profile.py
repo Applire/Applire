@@ -1989,8 +1989,21 @@ class ConflictResolutionRequest(BaseModel):
         "incoming" — replace with the incoming value
         "manual"   — supply a custom value via `value`
     """
-    resolution: Literal["existing", "incoming", "manual"]
+    # ADR-099 cl. 11 (Hazelnut build 5): + "keep_both" (only where the dispute
+    # offers it) and "merge" (bullet lists; ``value`` = the merged sentence,
+    # re-verified — a sentence that fails is written as "manual", RULING A1-1).
+    resolution: Literal["existing", "incoming", "manual", "keep_both", "merge"]
     value: Any | None = None
+
+
+class MergeProposalResponse(BaseModel):
+    """ADR-099 cl. 11 — "Zusammenführen": the model's one sentence, or ``None``
+    when it failed the fact-presence check (then only the other outcomes are
+    offered). ``sources`` = [existing, incoming], shown beside the proposal."""
+
+    proposal: str | None = None
+    verifier: Literal["passed", "failed"]
+    sources: list[str]
 
 
 class ConflictSummary(BaseModel):

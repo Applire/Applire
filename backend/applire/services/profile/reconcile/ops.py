@@ -660,9 +660,21 @@ class ResolveField(BaseModel):
     #: and such a dispute must still be answerable (it writes nothing).
     section: str
     field: str
-    #: The candidate's own text. Read only when ``resolution == "manual"``.
+    #: The candidate's own text. Read only when ``resolution`` is ``"manual"``
+    #: or ``"merge"`` (the merged sentence the candidate confirmed or edited).
     value: Any = None
-    resolution: Literal["existing", "incoming", "manual"]
+    #: ADR-099 cl. 11 (Hazelnut build 5, UAT-1) adds two outcomes:
+    #:
+    #: * ``"both"`` — "Beide behalten": on a bullet LIST the existing bullet
+    #:   stays and the incoming one is added beside it; on an identity field of
+    #:   a work / volunteer entry (RULING A1-i1) a second entry is created (the
+    #:   first entry's identity fields with the disputed field set to the
+    #:   incoming value, no bullets) and the pair is recorded as kept-separate.
+    #:   Any other field refuses it (nothing to keep "both" of).
+    #: * ``"merge"`` — "Zusammenführen": a bullet LIST only; ``value`` replaces
+    #:   the contested pair. The door verifies the sentence; the receipt names
+    #:   both originals and the door takes a MERGE snapshot (one undo).
+    resolution: Literal["existing", "incoming", "manual", "both", "merge"]
 
 
 class ResolveConfirmation(BaseModel):

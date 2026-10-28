@@ -1564,6 +1564,8 @@ def _apply_resolve_field(
     # The winning value comes from the DISPUTE for the two non-manual
     # resolutions, so an adapter cannot claim "incoming" and write something
     # else. Only `manual` reads the op's own `value` — the candidate's words.
+    if op.resolution in ("both", "merge"):
+        return _apply_resolve_both_or_merge(op, conflict, profile, changes)
     if op.resolution == "existing":
         chosen = conflict.existing_value
     elif op.resolution == "incoming":
@@ -1622,6 +1624,131 @@ def _apply_resolve_field(
                 rationale_key="conflict_resolved",
             )
         )
+    return updated
+
+
+#: RULING A1-i1 — the identity fields of a work / volunteer entry on which a
+#: dispute may mean two different entries. Mirrors
+#: ``services.profile.decisions.ENTRY_IDENTITY_FIELDS`` (the door's outcome
+#: set); kept here so the applier needs no service import.
+_ENTRY_SPLIT_SECTIONS = frozenset({"work_experience", "volunteer_activities"})
+_ENTRY_SPLIT_FIELDS = frozenset({"role", "company", "organization", "start_date", "end_date"})
+
+
+def _close_conflict(profile: MasterProfileData, conflict_id: str) -> None:
+    if profile.metadata is not None:
+        profile.metadata.pending_conflicts = [
+            c for c in profile.metadata.pending_conflicts if c.conflict_id != conflict_id
+        ]
+
+
+def _apply_resolve_both_or_merge(
+    op: ResolveField,
+    conflict: Conflict,
+    profile: MasterProfileData,
+    changes: list[FieldChange],
+) -> MasterProfileData:
+    """ADR-099 cl. 11 — "Beide behalten" and "Zusammenführen".
+
+    Structured outcomes: nothing here reads a free-text answer (the defect
+    behind SF-PROFILE.22 was a free-text matcher that heard "beide" and kept
+    one). A shape the outcome does not apply to is REFUSED — the dispute
+    stays open and nothing is written, so a caller bug can never turn into
+    a silent "keep current".
+    """
+    dumped = profile.model_dump(mode="json")
+    section_data = dumped.get(op.section)
+    if not isinstance(section_data, list):
+        logger.info("apply_ops: refused resolve_field %s for %s — not an entry section",
+                    op.resolution, op.conflict_id)
+        return profile
+    entry = _entry_for_conflict(section_data, conflict)
+    if entry is None:
+        logger.info("apply_ops: refused resolve_field %s for %s — entry not found",
+                    op.resolution, op.conflict_id)
+        return profile
+    current = entry.get(conflict.field)
+
+    if isinstance(current, list):
+        existing, incoming = conflict.existing_value, conflict.incoming_value
+        if op.resolution == "both":
+            bullets = list(current)
+            keys = {_norm(b) for b in bullets}
+            for value in (existing, incoming):
+                if _norm(value) and _norm(value) not in keys:
+                    bullets.append(value)
+                    keys.add(_norm(value))
+            entry[conflict.field] = bullets
+            new_value: Any = [existing, incoming]
+            rationale = f"Kept both values on {op.field}."
+            key = "conflict_resolved"
+        else:  # merge
+            merged = op.value.strip() if isinstance(op.value, str) else ""
+            if not merged:
+                logger.info("apply_ops: refused resolve_field merge for %s — empty text",
+                            op.conflict_id)
+                return profile
+            entry[conflict.field] = _rewrite_bullet_list(current, existing, incoming, merged)
+            new_value = merged
+            rationale = f"Merged two values on {op.field} into one."
+            key = "conflict_resolved"
+        updated = MasterProfileData.model_validate(dumped)
+        _close_conflict(updated, op.conflict_id)
+        # One rationale key for every outcome (the catalogs translate
+        # ``conflict_resolved``; the English ``rationale`` names which one).
+        changes.append(
+            FieldChange(
+                section=op.section,
+                field=op.field,
+                action="updated",
+                # Both originals stay on the receipt (SF-VAULT.23: what a merge
+                # replaced is never lost from the record).
+                old_value=[existing, incoming],
+                new_value=new_value,
+                rationale=rationale,
+                rationale_key=key,
+            )
+        )
+        return updated
+
+    # A scalar: only "both" on an entry identity field (RULING A1-i1).
+    if (
+        op.resolution != "both"
+        or op.section not in _ENTRY_SPLIT_SECTIONS
+        or conflict.field not in _ENTRY_SPLIT_FIELDS
+    ):
+        logger.info("apply_ops: refused resolve_field %s for %s — not offered on %s.%s",
+                    op.resolution, op.conflict_id, op.section, conflict.field)
+        return profile
+    import uuid as _uuid
+
+    second = {
+        k: ([] if isinstance(v, list) else v)
+        for k, v in entry.items()
+        if k != "id"
+    }
+    second["id"] = str(_uuid.uuid4())
+    second[conflict.field] = conflict.incoming_value
+    section_data.append(second)
+    updated = MasterProfileData.model_validate(dumped)
+    _close_conflict(updated, op.conflict_id)
+    if updated.metadata is not None:
+        from applire.schemas.profile import EntryPair
+
+        updated.metadata.separate_entry_pairs.append(
+            EntryPair(section=op.section, ids=[entry["id"], second["id"]])
+        )
+    changes.append(
+        FieldChange(
+            section=op.section,
+            field=f"[{second['id']}]",
+            action="added",
+            old_value=conflict.existing_value,
+            new_value=conflict.incoming_value,
+            rationale=f"Kept both values on {op.field} as two separate entries.",
+            rationale_key="conflict_resolved",
+        )
+    )
     return updated
 
 
