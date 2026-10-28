@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { ReviewSurface, type ReviewSurfaceProps } from "../ReviewSurface";
 import type { ATSReport, DeliveryState } from "@/lib/ats-report";
+import { normQuote } from "@/lib/norm-quote";
 import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import producedU from "@/lib/__tests__/fixtures/adr099-u-states.json";
 
@@ -288,6 +289,51 @@ describe("ADR-099 cl. 5 — the removal line", () => {
     await waitFor(() =>
       expect(api.removalEvidence).toHaveBeenCalledWith("cv", "cv-1", "Leitete 12 Personen.", "Bei Nordwind, Team von 12."),
     );
+  });
+
+  // D-9 (delivery run 2026-10-28): the answer's outcome is the PRODUCER's, and it
+  // survives a reload — never "Nichts Neues gefunden" over a removal that stands,
+  // never the question again.
+  const SKILL = "Technical strategy and roadmapping";
+  const skillRemoval = { loop_clean: true, removals: [{ text: SKILL, kind: "oracle:skillNoEvidence", section: "skills", pinned: false }], fixed: [] };
+  const stateWith = (answer: Record<string, unknown>) => ({ walked_at: null, decisions: [], removal_answers: { [normQuote(SKILL)]: answer } });
+  const sRemovalProps = (reviewState: unknown) =>
+    props({ truthReport: truth({ delivery_class: "S" } as Partial<Verdict>), atsReport: ats(skillRemoval as DeliveryState), reviewState: reviewState as never });
+
+  it("D-9: a skill answer the producer still does not back says so after a reload, with the way to the profile", () => {
+    render(withIntl(<ReviewSurface {...sRemovalProps(stateWith({ status: "no_change", backed: false }))} />, "de"));
+    fireEvent.click(screen.getByTestId("review-removals-toggle"));
+    const result = screen.getByTestId("review-removal-result");
+    expect(result.dataset.backed).toBe("false");
+    expect(result.textContent).toContain("Dein Profil nennt „Technical strategy and roadmapping“ nicht in diesen Worten");
+    expect(result.textContent).not.toContain("steht schon in deinem Profil");
+    expect(screen.getByTestId("review-removal-profile").getAttribute("href")).toBe("/profile");
+    expect(screen.queryByTestId("review-removal-where")).toBeNull();
+  });
+
+  it("D-9: the fresh answer shows the producer's re-check from the returned state, not the reconcile's words", async () => {
+    api.removalEvidence.mockResolvedValue({
+      testimony: { status: "applied", changes: [{}] },
+      review_state: stateWith({ status: "applied", backed: true }),
+    });
+    render(withIntl(<ReviewSurface {...sRemovalProps(null)} />, "de"));
+    fireEvent.click(screen.getByTestId("review-removals-toggle"));
+    fireEvent.click(screen.getByTestId("review-removal-where"));
+    fireEvent.change(screen.getByTestId("review-removal-text"), { target: { value: "Technical strategy and roadmapping at Agilent." } });
+    fireEvent.click(screen.getByTestId("review-removal-submit"));
+    const result = await screen.findByTestId("review-removal-result");
+    expect(result.dataset.backed).toBe("true");
+    expect(result.textContent).toContain("die nächste Fassung kann es wieder aufnehmen");
+  });
+
+  it("D-9: a stored answer that changed nothing stays answered after a reload (no second question)", () => {
+    render(withIntl(<ReviewSurface {...props({ truthReport: truth({ delivery_class: "S" } as Partial<Verdict>), atsReport: ats(removals(false)),
+      reviewState: { walked_at: null, decisions: [], removal_answers: { [normQuote("Leitete 12 Personen.")]: { status: "no_change" } } } as never })} />, "de"));
+    fireEvent.click(screen.getByTestId("review-removals-toggle"));
+    const items = screen.getAllByTestId("review-removal-item");
+    expect(items[0].textContent).toContain("Deine Antwort ist gespeichert");
+    expect(items[0].querySelector('[data-testid="review-removal-where"]')).toBeNull();
+    expect(items[1].querySelector('[data-testid="review-removal-where"]')).not.toBeNull();
   });
 });
 

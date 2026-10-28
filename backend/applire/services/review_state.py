@@ -334,12 +334,18 @@ def with_decision(
     return out
 
 
-def with_removal_answer(state: dict, removal_fold: str, status: str, at: str | None = None) -> dict:
+def with_removal_answer(
+    state: dict, removal_fold: str, status: str, at: str | None = None, *, backed: bool | None = None
+) -> dict:
     """ADR-099 cl. 5 (WP-C): record the testimony outcome of a "Doch, stimmt –
-    wo?" answer on one item of the removal line (keyed by the removal's fold)."""
+    wo?" answer on one item of the removal line (keyed by the removal's fold).
+    ``backed`` (D-9): the removal's PRODUCER, re-asked after the answer — does
+    the profile now back the claim? ``None`` = not re-asked (not a skill)."""
     out = load_state(state)
     answers = dict(out.get("removal_answers") or {})
     answers[removal_fold] = {"status": status, "at": at or _now()}
+    if backed is not None:
+        answers[removal_fold]["backed"] = backed
     out["removal_answers"] = answers
     return out
 

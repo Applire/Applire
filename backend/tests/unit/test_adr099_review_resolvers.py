@@ -635,3 +635,88 @@ async def test_translate_spans_at_the_bounds_are_accepted_by_the_body(db):
     cv_id = await seed_cv(db, ats_report=_lang_report("cv", False))
     r = _client(db).post(f"/api/cv/{cv_id}/review/translate", json={"spans": ["x" * 5000] * 50})
     assert r.status_code != 422, r.text[:200]
+
+
+# ── D-9: "Doch, stimmt – wo?" on a skill removal asks the PRODUCER again ─────
+
+
+_SKILL = "Technical strategy and roadmapping"
+
+
+def _skill_removal(text: str = _SKILL) -> dict:
+    rep = _ats_report("cv", [])
+    rep["delivery"] = {"loop_clean": True, "removals": [
+        {"text": text, "section": "skills", "kind": ra.SKILL_REMOVAL_KIND, "pinned": False},
+    ]}
+    return rep
+
+
+async def _live_vault(db, profile_json: dict) -> None:
+    from tests.support.profile_factory import make_master_profile, retire_live_profiles
+
+    await retire_live_profiles(db)
+    db.add(make_master_profile(id=uuid.uuid4(), profile_json=profile_json))
+    await db.commit()
+
+
+_PROSE = {"work_experience": [{"company": "Agilent", "role": "Associate Director", "start_date": "2021-05",
+                               "bullets": ["Defined the technical strategy and the product roadmap for QC software."]}]}
+
+
+@pytest.mark.asyncio
+async def test_d9_reconcile_finds_it_in_prose_but_the_producer_does_not__answer_records_not_backed(db):
+    """The delivery-run shape: the reconcile says "already in your profile"
+    (no_change) because a bullet paraphrases it; the Oracle grounds a skill by
+    its own words, so the removal stands — recorded, and said, as such."""
+    from applire.services.oracle.audit import _claimable_index
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+
+    cv_id = await seed_cv(db, ats_report=_skill_removal())
+    await _live_vault(db, _PROSE)
+    assert ground_skill_claim(_SKILL, _claimable_index(_PROSE), None) is None  # the producer's own verdict
+    with patch("applire.services.profile.reconcile.testimony_bridge.submit_testimony") as submit:
+        submit.return_value = _canned_testimony("no_change")
+        r = _client(db).post(f"/api/cv/{cv_id}/review/removal-evidence",
+                             json={"removal_text": _SKILL, "text": "At Agilent I set the technical strategy and the roadmap."})
+    assert r.status_code == 200, r.text
+    answer = r.json()["review_state"]["removal_answers"][rs.norm_quote(_SKILL)]
+    assert answer["status"] == "no_change" and answer["backed"] is False
+
+
+@pytest.mark.asyncio
+async def test_d9_an_answer_that_writes_the_skill_is_backed_on_recompute(db):
+    """The answer's vault write (here: the reconcile adding the skill in the
+    person's words) makes the producer ground the claim — the next version may
+    carry it, and the stored answer says so."""
+    from applire.services.oracle.audit import _claimable_index
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+
+    cv_id = await seed_cv(db, ats_report=_skill_removal())
+    await _live_vault(db, _PROSE)
+    written = {**_PROSE, "skills": [{"name": _SKILL, "category": "domain"}]}
+
+    async def _reconcile_writes(*_a, **_k):
+        await _live_vault(db, written)
+        return _canned_testimony("applied")
+
+    with patch("applire.services.profile.reconcile.testimony_bridge.submit_testimony", side_effect=_reconcile_writes):
+        r = _client(db).post(f"/api/cv/{cv_id}/review/removal-evidence",
+                             json={"removal_text": _SKILL, "text": "Technical strategy and roadmapping: my job at Agilent since 2021."})
+    assert r.status_code == 200, r.text
+    assert ground_skill_claim(_SKILL, _claimable_index(written), None) is not None
+    answer = r.json()["review_state"]["removal_answers"][rs.norm_quote(_SKILL)]
+    assert answer["status"] == "applied" and answer["backed"] is True
+
+
+@pytest.mark.asyncio
+async def test_d9_a_non_skill_removal_is_not_re_grounded(db):
+    removed = "Mentorin für 15 Nachwuchskräfte."
+    cv_id = await seed_cv(db, ats_report=_with_removal("cv", removed))
+    with patch("applire.services.profile.reconcile.testimony_bridge.submit_testimony") as submit, \
+            patch.object(ra, "skill_backed_now") as regrounds:
+        submit.return_value = _canned_testimony("no_change")
+        r = _client(db).post(f"/api/cv/{cv_id}/review/removal-evidence",
+                             json={"removal_text": removed, "text": "x"})
+    assert r.status_code == 200
+    regrounds.assert_not_called()
+    assert "backed" not in r.json()["review_state"]["removal_answers"][rs.norm_quote(removed)]

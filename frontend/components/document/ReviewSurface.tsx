@@ -1509,6 +1509,8 @@ function RemovalLine({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<Record<string, TestimonyOutcome>>({});
+  // D-9: the stored answer the action returned (with the producer's re-check).
+  const [answers, setAnswers] = useState<NonNullable<ReviewState["removal_answers"]>>({});
   const [error, setError] = useState<string | null>(null);
   if (removals.length === 0) return null;
   const expanded = open || pinned;
@@ -1520,6 +1522,7 @@ function RemovalLine({
     try {
       const res = await removalEvidence(documentKind, documentId, r.text, text.trim());
       setResults((m) => ({ ...m, [normQuote(r.text)]: res.testimony }));
+      setAnswers((m) => ({ ...m, ...(res.review_state?.removal_answers ?? {}) }));
       setAsking(null);
       setText("");
       onRefresh({ review_state: res.review_state });
@@ -1547,7 +1550,7 @@ function RemovalLine({
         removals.map((r) => {
           const fold = normQuote(r.text);
           const answered = results[fold] ?? null;
-          const stored = reviewState?.removal_answers?.[fold];
+          const stored = answers[fold] ?? reviewState?.removal_answers?.[fold];
           return (
             <div key={fold} data-testid="review-removal-item" data-pinned={r.pinned ? "true" : "false"} className="flex flex-col gap-1.5 rounded-lg border border-outline-variant px-2.5 py-2">
               <span className="text-[13px] text-on-surface line-through decoration-outline-variant">{t("delivery.quoted", { text: r.text })}</span>
@@ -1561,13 +1564,32 @@ function RemovalLine({
                   .filter(Boolean)
                   .join(" · ")}
               </span>
-              {answered ? (
+              {stored && typeof stored.backed === "boolean" ? (
+                // D-9: what the removal's producer says on the profile as it now stands.
+                <p data-testid="review-removal-result" data-status={stored.status} data-backed={stored.backed ? "true" : "false"} className={`text-[13px] ${stored.backed ? "text-success" : "text-on-surface"}`}>
+                  {stored.backed ? (
+                    t("delivery.removalBackedNow", { text: r.text })
+                  ) : (
+                    <>
+                      {t("delivery.removalNotBacked", { text: r.text })}{" "}
+                      <Link href="/profile" data-testid="review-removal-profile" className="font-semibold text-primary underline underline-offset-2">
+                        {t("delivery.removalOpenProfile")}
+                      </Link>
+                    </>
+                  )}
+                </p>
+              ) : answered ? (
                 <p data-testid="review-removal-result" data-status={answered.status} className="text-[13px] text-on-surface">
                   {testimonyMessage(answered)}
                 </p>
               ) : stored && (stored.status === "applied" || stored.status === "partial") ? (
                 <p data-testid="review-removal-result" data-status={stored.status} className="text-[13px] text-success">
                   {t("statusAdded")}
+                </p>
+              ) : stored && stored.status !== "error" ? (
+                // D-9: an answer that changed nothing stays answered after a reload.
+                <p data-testid="review-removal-result" data-status={stored.status} className="text-[13px] text-on-surface">
+                  {t("delivery.removalAnsweredNoChange")}
                 </p>
               ) : asking === fold ? (
                 <div className="flex flex-col gap-2">
