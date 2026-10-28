@@ -440,16 +440,13 @@ describe("buildGroup1Rows — counts from the live report, decisions only label 
     expect(rows.filter((r) => r.status === "open")).toHaveLength(2);
   });
 
-  it("#797 (ruling D2-5): a `supported` decision closes a finding the report STILL lists", () => {
+  it("ADR-099 cl. 6 (retires #797 / D2-5): a `supported` decision no longer closes a finding the report still lists", () => {
     const rows = buildGroup1Rows(items, state(["ats:snowflake", "supported", "2026-10-21T10:00:00Z"]));
     expect(rows.map((r) => [r.label, r.status])).toEqual([
-      ["Snowflake", "supported"],
+      ["Snowflake", "open"],
       ["Collibra", "open"],
     ]);
-    expect(rows[0].item).not.toBeNull(); // the card can state the disagreement
-    // the tab badge / save receipt count OPEN rows, not listed items
-    expect(openGroup1Count(items, state(["ats:snowflake", "supported", "2026-10-21T10:00:00Z"]))).toBe(1);
-    expect(openGroup1Count(items, state(["ats:snowflake", "taken_out", "2026-10-21T10:00:00Z"]))).toBe(2);
+    expect(openGroup1Count(items, state(["ats:snowflake", "supported", "2026-10-21T10:00:00Z"]))).toBe(2);
   });
 
   it("a decision whose finding is gone is a decided row, before the open ones", () => {

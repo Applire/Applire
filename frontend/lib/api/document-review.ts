@@ -33,7 +33,19 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
 export type ReviewDocumentKind = "cv" | "cover-letter";
 
 // #702: `kept` — *So lassen* on a cross-document item (`critic:` key).
-export type ReviewAction = "added" | "taken_out" | "edited" | "kept" | "supported";
+// ADR-099 (UAT-2 fix round, WP-C): `moved` / `as_goal` / `translated` — the
+// class-A resolvers' edits (undoable); `no_change` — a "Stimmt das?" answer
+// that changed nothing: an OPEN marker, never a closing decision.
+export type ReviewAction =
+  | "added"
+  | "taken_out"
+  | "edited"
+  | "kept"
+  | "supported"
+  | "moved"
+  | "as_goal"
+  | "translated"
+  | "no_change";
 
 /** ADR-090 cl. 6 — one decision on one finding of THIS generated document. */
 export interface ReviewDecision {
@@ -50,6 +62,8 @@ export interface ReviewDecision {
 export interface ReviewState {
   walked_at: string | null;
   decisions: ReviewDecision[];
+  /** ADR-099 cl. 5 — "Doch, stimmt – wo?" answers per removed claim (folded text → status). */
+  removal_answers?: Record<string, { status: string; at?: string }>;
 }
 
 /** The `TestimonyResult` the testimony service returns (door parity, ADR-058). */
@@ -95,6 +109,22 @@ export interface ReviewRefresh {
 
 export interface AddEvidenceResponse extends ReviewRefresh {
   testimony: TestimonyOutcome;
+  /** ADR-099 cl. 6 — the answer did not clear the finding: only "Entfernen" remains. */
+  remove_only?: boolean;
+  still_listed?: boolean;
+}
+
+/** ADR-099 cl. 6 — one answer of "Wohin gehört das?". */
+export interface StationOption {
+  station_id: string;
+  experience_id?: string | null;
+  title: string;
+  organization: string;
+}
+
+export interface RemovalEvidenceResponse {
+  testimony: TestimonyOutcome;
+  review_state: ReviewState | null;
 }
 
 export interface SupportedResponse extends ReviewRefresh {
@@ -109,8 +139,11 @@ export interface TakeOutResponse extends ReviewRefresh {
 
 /** A failed request, carrying the HTTP status for `errors.generic`. */
 export class ReviewActionError extends Error {
-  constructor(public status: number) {
+  /** ADR-099: the server's `detail.error` code (`resolver_unavailable`, `action_not_applicable`, `rewrite_failed`). */
+  public code?: string;
+  constructor(public status: number, code?: string) {
     super(`review action failed (${status})`);
+    this.code = code;
   }
 }
 
@@ -125,7 +158,16 @@ async function post<T>(kind: ReviewDocumentKind, id: string, action: string, bod
   } catch {
     throw new ReviewActionError(0);
   }
-  if (!res.ok) throw new ReviewActionError(res.status);
+  if (!res.ok) {
+    let code: string | undefined;
+    try {
+      const body = (await res.json()) as { detail?: { error?: unknown } };
+      if (body?.detail && typeof body.detail.error === "string") code = body.detail.error;
+    } catch {
+      /* no JSON body */
+    }
+    throw new ReviewActionError(res.status, code);
+  }
   return (await res.json()) as T;
 }
 
@@ -169,6 +211,42 @@ export function keepCrossDocument(kind: ReviewDocumentKind, id: string, findingK
   return post<{ review_state: ReviewState | null }>(kind, id, "kept", { finding_key: findingKey, keep });
 }
 
+// ── ADR-099 resolvers (UAT-2 fix round, WP-C) ─────────────────────────────
+
+/** "Wohin gehört das?" — the stations whose profile evidence holds the sentence. */
+export async function listStations(kind: ReviewDocumentKind, id: string, findingKey: string) {
+  const out = await post<{ stations: StationOption[] }>(kind, id, "stations", { finding_key: findingKey });
+  return out.stations;
+}
+
+/** The answer = a station: Applire moves (CV) or re-attributes (letter) the sentence. */
+export function moveToStation(kind: ReviewDocumentKind, id: string, findingKey: string, stationId: string) {
+  return post<TakeOutResponse>(kind, id, "move", { finding_key: findingKey, station_id: stationId });
+}
+
+/** "Ist das erreicht?" → Nein: the sentence is rewritten as the goal. */
+export function rewriteAsGoal(kind: ReviewDocumentKind, id: string, findingKey: string) {
+  return post<TakeOutResponse>(kind, id, "as-goal", { finding_key: findingKey });
+}
+
+/** "Diese Stellen übersetzen" — only the named sentences; omitted = all of them. */
+export function translateSpans(kind: ReviewDocumentKind, id: string, spans?: string[]) {
+  return post<TakeOutResponse>(kind, id, "translate", spans ? { spans } : {});
+}
+
+/** "Jetzt prüfen" — re-run the full report on this version. */
+export function recheckDocument(kind: ReviewDocumentKind, id: string) {
+  return post<ReviewRefresh>(kind, id, "recheck");
+}
+
+/** "Doch, stimmt – wo?" on one removed claim. */
+export function removalEvidence(kind: ReviewDocumentKind, id: string, removalText: string, text: string) {
+  return post<RemovalEvidenceResponse>(kind, id, "removal-evidence", { removal_text: removalText, text });
+}
+
+/** Undo key of the translate decision (ADR-099 cl. 9). */
+export const SEND_LANGUAGE_KEY = "send:document-language";
+
 export function markWalked(kind: ReviewDocumentKind, id: string) {
   return post<{ review_state: ReviewState | null }>(kind, id, "walked");
 }
@@ -189,5 +267,9 @@ export function refreshedReport(refresh: ReviewRefresh): ATSReport | undefined {
 export function refreshedState(refresh: ReviewRefresh): ReviewState | null {
   const s = refresh.review_state;
   if (!s) return null;
-  return { walked_at: s.walked_at ?? null, decisions: s.decisions ?? [] };
+  return {
+    walked_at: s.walked_at ?? null,
+    decisions: s.decisions ?? [],
+    ...(s.removal_answers ? { removal_answers: s.removal_answers } : {}),
+  };
 }

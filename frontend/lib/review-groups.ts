@@ -51,7 +51,16 @@ import type {
   CrossDocumentItem,
   OutcomeCriticReport,
 } from "@/components/cv/CriticAdvisoryPanel";
-import { baseId, isSilentPass, type ATSCheck, type ATSReport, type CheckSignal } from "./ats-report";
+import {
+  baseId,
+  isSilentPass,
+  usesLocalizedDetail,
+  type ATSCheck,
+  type ATSReport,
+  type CheckSignal,
+  type DeliveryClass,
+  type DeliveryRemoval,
+} from "./ats-report";
 import type { ReviewAction, ReviewDecision, ReviewState } from "./api/document-review";
 import type { LocateTarget } from "./locate-in-preview";
 import { normQuote } from "./norm-quote";
@@ -130,6 +139,13 @@ export interface ReviewItem {
    * The row stays (take-out + edit) but is neutral and never counted.
    */
   employerSentence?: boolean;
+  /**
+   * ADR-099 cl. 2 — the row kind's delivery class and resolver, READ from the
+   * producer's row (check / Oracle verdict / keyword bucket). `null` or absent
+   * = unclassified: rendered as today's fallback, never hidden.
+   */
+  deliveryClass?: DeliveryClass | null;
+  resolver?: string | null;
 }
 
 export interface ReviewGroup {
@@ -228,6 +244,7 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
   const employerSentence = new Set(atsReport?.keywords.present_unsupported_employer_sentence ?? []);
   const claimable = claimableConceptSet(atsReport?.keywords.claimable_concepts);
   const claims = truthReport ? flaggedClaims(truthReport.claims ?? [], claimable) : [];
+  const buckets = atsReport?.keywords.delivery ?? null;
 
   const claimsByNorm = new Map<string, number>();
   claims.forEach((c, i) => {
@@ -260,11 +277,26 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       : claim
         ? [{ form: claim.claim.text }]
         : null;
+    // ADR-099: a merged row takes the Oracle verdict's class (it names the
+    // kind: misattributed, unbacked …); a term row its keyword bucket's — the
+    // narrower bucket first (employer sentence, covered by a denial).
+    const termDenials =
+      denialsByTerm && Object.prototype.hasOwnProperty.call(denialsByTerm, term) ? denialsByTerm[term] : [];
+    const bucket = buckets
+      ? employerSentence.has(term)
+        ? buckets.present_unsupported_employer_sentence
+        : termDenials.length > 0
+          ? (buckets.present_denied ?? buckets.present_unsupported)
+          : buckets.present_unsupported
+      : undefined;
+    const claimDelivery = claim?.verdict.delivery_class != null ? claim.verdict : null;
     items.push({
       key: findingKey,
       findingKey,
       label: term,
       kind: "term",
+      deliveryClass: claimDelivery ? claimDelivery.delivery_class : (bucket?.delivery_class ?? null),
+      resolver: claimDelivery ? (claimDelivery.resolver ?? null) : (bucket?.resolver ?? null),
       producers: overlap ? ["ats", "oracle"] : ["ats"],
       severity: employerSentence.has(term) && !overlap ? "neutral" : "critical",
       employerSentence: employerSentence.has(term) && !overlap,
@@ -290,6 +322,8 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
       findingKey,
       label: c.claim.text,
       kind: "claim",
+      deliveryClass: c.verdict.delivery_class ?? null,
+      resolver: c.verdict.resolver ?? null,
       producers: ["oracle"],
       severity: "critical",
       detail: c.verdict.detail ?? null,
@@ -435,6 +469,8 @@ export function buildSendChecks(atsReport: ATSReport): ReviewItem[] {
     severity: "warning" as const,
     checkId: c.id,
     check: c,
+    deliveryClass: c.delivery_class ?? null,
+    resolver: c.resolver ?? null,
   }));
 }
 
@@ -467,6 +503,8 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
       severity: "critical" as const,
       checkId: c.id,
       check: c,
+      deliveryClass: c.delivery_class ?? null,
+      resolver: c.resolver ?? null,
     })),
     ...advisory.map((c) => ({
       key: `check-advisory-${c.id}`,
@@ -476,6 +514,8 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
       severity: "info" as const,
       checkId: c.id,
       check: c,
+      deliveryClass: c.delivery_class ?? null,
+      resolver: c.resolver ?? null,
     })),
     ...notApplicable.map((c) => ({
       key: `check-na-${c.id}`,
@@ -485,6 +525,8 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
       severity: "neutral" as const,
       checkId: c.id,
       check: c,
+      deliveryClass: c.delivery_class ?? null,
+      resolver: c.resolver ?? null,
     })),
   ];
 
@@ -715,7 +757,11 @@ export function openGroup1Count(items: ReviewItem[], state: ReviewState | null |
  * employer-sentence row is listed and walkable, but never counted.
  */
 export function countedOpenRows(rows: Group1Row[]): Group1Row[] {
-  return rows.filter((r) => r.status === "open" && !r.item?.employerSentence);
+  // ADR-099 cl. 6: a CLASSIFIED employer-sentence row is class-A residue
+  // ("Entfernen") and counts; the legacy unclassified row stays uncounted.
+  return rows.filter(
+    (r) => r.status === "open" && (!r.item?.employerSentence || r.item.deliveryClass === "A"),
+  );
 }
 
 /**
@@ -728,8 +774,9 @@ export function countedOpenRows(rows: Group1Row[]): Group1Row[] {
 export function buildGroup1Rows(items: ReviewItem[], state: ReviewState | null | undefined): Group1Row[] {
   const latest = new Map<string, ReviewDecision>();
   for (const d of state?.decisions ?? []) {
-    // #702: a cross-document decision (`critic:` key) is never a group-1 row.
-    if (d.finding_key.startsWith("critic:")) continue;
+    // #702: a cross-document decision (`critic:` key) is never a group-1 row;
+    // ADR-099 cl. 9: nor the translate decision (`send:` key).
+    if (d.finding_key.startsWith("critic:") || d.finding_key.startsWith("send:")) continue;
     latest.set(keyFold(d.finding_key), d);
   }
 
@@ -737,24 +784,17 @@ export function buildGroup1Rows(items: ReviewItem[], state: ReviewState | null |
   const decided: Group1Row[] = [];
   latest.forEach((d, fold) => {
     if (listedFolds.has(fold)) return;
+    // ADR-099 cl. 6: `no_change` is an OPEN marker ("the answer changed
+    // nothing"), never a closing label for a finding that left the report.
+    if (d.action === "no_change") return;
     decided.push({ findingKey: d.finding_key, label: d.label, status: d.action, item: null, decision: d });
   });
-  // #797 / ruling D2-5 = A (ADR-090 cl. 6 amended): `supported` is the ONE
-  // decision that closes a finding the live report still lists — the candidate
-  // confirmed it and every wording was found in their profile. The row keeps
-  // its report item, so the card can state the disagreement.
-  const closed = new Set<string>();
-  for (const it of items) {
-    const key = it.findingKey ?? it.key;
-    const d = latest.get(keyFold(key));
-    if (d?.action === "supported") {
-      closed.add(key);
-      decided.push({ findingKey: key, label: it.label, status: "supported", item: it, decision: d });
-    }
-  }
+  // ADR-099 cl. 6 retired #797's label closure (ruling D2-5): a finding the
+  // live report lists is OPEN whatever was decided on it — "Stimmt" without a
+  // vault change no longer closes a row.
   decided.sort((a, b) => (a.decision!.at < b.decision!.at ? -1 : a.decision!.at > b.decision!.at ? 1 : 0));
 
-  const open: Group1Row[] = items.filter((it) => !closed.has(it.findingKey ?? it.key)).map((it) => {
+  const open: Group1Row[] = items.map((it) => {
     const key = it.findingKey ?? it.key;
     return { findingKey: key, label: it.label, status: "open", item: it, decision: latest.get(keyFold(key)) ?? null };
   });
@@ -847,4 +887,253 @@ export function buildFormInputRows(truthReport: TruthfulnessReport): FormInputRo
     });
   }
   return rows;
+}
+
+/* ------------------------------------- ADR-099 — fix it, ask once, or stay silent */
+
+/**
+ * The resolvers whose row is a class-U "did not run" row (ADR-099 cl. 2/9): a
+ * class-F row whose loop did not run clean falls back to U when its registry
+ * resolver is one of these, to A otherwise.
+ */
+const U_RESOLVERS: ReadonlySet<string> = new Set(["recheck", "regenerate"]);
+
+/** The group-1 question resolvers the card knows (ADR-099 cl. 6). */
+export const QUESTION_RESOLVERS: ReadonlySet<string> = new Set([
+  "ask_station",
+  "ask_true",
+  "ask_achieved",
+  "remove_only",
+]);
+
+/** How a row renders, after its class is read (never computed) — ADR-099 cl. 2/4. */
+export type EffectiveClass = "A" | "U" | "hidden" | "unclassified";
+
+/**
+ * ADR-099 cl. 4(d)/(e): F is hidden ONLY when the loop ran clean
+ * (`delivery.loop_clean === true`); otherwise it renders as its fallback (U for
+ * a re-run resolver, A otherwise). S is hidden — except while the writing loop
+ * degraded (T-S: an S kind never hides when `review_degradation` is non-empty),
+ * then it renders as an unclassified note. `null` = unclassified, never S.
+ */
+export function effectiveClass(
+  cls: DeliveryClass | null | undefined,
+  resolver: string | null | undefined,
+  loopClean: boolean | null | undefined,
+  degraded: boolean,
+): EffectiveClass {
+  if (cls == null) return "unclassified";
+  if (cls === "F") {
+    if (loopClean === true) return "hidden";
+    return resolver && U_RESOLVERS.has(resolver) ? "U" : "A";
+  }
+  if (cls === "S") return degraded ? "unclassified" : "hidden";
+  return cls;
+}
+
+/** One class-U row: a producer that did not answer, or a check that did not run. */
+export interface UnknownRow {
+  key: string;
+  /** `recheck` → "Jetzt prüfen" (full report re-run); `regenerate` → "Neue Fassung erstellen". */
+  resolver: "recheck" | "regenerate";
+  /** A producer of the surface that did not run (`ats` / `oracle`). */
+  producer?: ReviewProducer;
+  /** A check whose own class is U (e.g. `terminal-review` not run). */
+  check?: ATSCheck;
+}
+
+export interface DeliveryView {
+  /**
+   * False when NO row of the reports carries a delivery class (a report
+   * persisted before ADR-099): every row renders as its unclassified fallback —
+   * "None = unclassified, never hidden". "Jetzt prüfen" re-audits and classifies.
+   */
+  classified: boolean;
+  /**
+   * Group-1 rows rendered as ONE-question cards (`row.item.resolver` is the
+   * question; `null` = unclassified → today's handles). Decided rows (the
+   * finding left the report) stay listed with their label, uncounted.
+   */
+  questions: Group1Row[];
+  /** Class-A send checks — today the failed `document-language` check ("Diese Stellen übersetzen"). */
+  translate: ReviewItem[];
+  /**
+   * The LETTER's page-length card (INTERFACE B-2: the `page-length` check,
+   * class A, resolver `page_length`, params `{pages, letterPages}`). The CV's
+   * card renders from `page_overflow`, never from a row — the page passes it.
+   */
+  pageLength: ReviewItem | null;
+  /** Class-U rows ("Nicht geprüft … Jetzt prüfen" / "Neue Fassung erstellen"). */
+  unknown: UnknownRow[];
+  /**
+   * Rows of a classified report whose own row is unclassified (or class S while
+   * the loop degraded) — rendered as today's row, without server prose.
+   * `counted` marks the ones today's predicate counts (a failed check).
+   */
+  fallback: Array<{ item: ReviewItem; counted: boolean }>;
+  /** "N Prüfungen bestanden" — passed checks + class-F rows the loop handled (cl. 3). */
+  passed: number;
+  /** ADR-099 cl. 5 — the collapsed, uncounted removal line. */
+  removals: DeliveryRemoval[];
+  /** Headline + phone badge: the class A and U rows of THIS view (cl. 3), before page extras. */
+  count: number;
+}
+
+export interface DeliveryInputs extends ReviewInputs {
+  /** `review_degradation` from the status door — non-empty = the loop degraded. */
+  degradation?: unknown[] | null;
+  /** ADR-090 cl. 6 — the persisted per-document decisions. */
+  reviewState?: ReviewState | null;
+  /**
+   * Counted cards the PAGE renders into the surface (page length, unasked
+   * requirements, the letter's signature) — ONE number for the headline, the
+   * tab badge and the phone badge (ADR-099 cl. 3).
+   */
+  extraCounted?: number;
+}
+
+/** Does any row of the reports carry an ADR-099 delivery class? */
+export function reportIsClassified(atsReport: ATSReport, truthReport: TruthfulnessReport): boolean {
+  if (atsReport?.delivery) return true;
+  if (atsReport?.keywords.delivery) return true;
+  if ((atsReport?.checks ?? []).some((c) => c.delivery_class != null)) return true;
+  return (truthReport?.claims ?? []).some((c) => c.verdict.delivery_class != null);
+}
+
+/**
+ * ADR-099 — the review surface's rows by delivery class. A pure read of the
+ * producers' rows: the class and the resolver come from the row (WP-B's
+ * registry annotates them); nothing here classifies a kind.
+ *
+ * Removed from the surface regardless of class (ADR-099 cl. 7/8, UAT-3b/c/j):
+ * group 2 (missing-but-covered terms, claimable clusters, repeated-demand
+ * signals), the cross-document section and the critic advisories — the
+ * structured report keeps them for agents (ADR-077 cl. 5).
+ */
+export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
+  const { atsReport, truthReport } = inputs;
+  const loopClean = atsReport?.delivery?.loop_clean ?? null;
+  const degraded = Array.isArray(inputs.degradation) && inputs.degradation.length > 0;
+  const groups = buildReviewGroups(inputs);
+  const classified = reportIsClassified(atsReport, truthReport);
+
+  const questionItems: ReviewItem[] = [];
+  const translate: ReviewItem[] = [];
+  const unknown: UnknownRow[] = [];
+  let pageLength: ReviewItem | null = null;
+  const fallback: Array<{ item: ReviewItem; counted: boolean }> = [];
+  let hiddenF = 0;
+
+  // Producer liveness (ADR-081 cl. 9 stands; ADR-099 cl. 2 U): the ATS report
+  // or the Oracle did not run → one "Nicht geprüft … Jetzt prüfen" row each.
+  // The critic's kinds are all S (cl. 8), so its liveness raises no row.
+  if (atsReport == null) unknown.push({ key: "producer-ats", resolver: "recheck", producer: "ats" });
+  if (truthReport == null || (truthReport.judgement_unavailable ?? 0) > 0) {
+    unknown.push({ key: "producer-oracle", resolver: "recheck", producer: "oracle" });
+  }
+
+  // Group 1 — one question per kind.
+  for (const item of groups.find((g) => g.id === 1)!.items) {
+    const eff = effectiveClass(item.deliveryClass, item.resolver, loopClean, degraded);
+    if (eff === "hidden") {
+      hiddenF += item.deliveryClass === "F" ? 1 : 0;
+      continue;
+    }
+    if (eff === "U") {
+      unknown.push({ key: `g1-${item.key}`, resolver: (item.resolver as "recheck" | "regenerate") ?? "recheck" });
+      continue;
+    }
+    // A (or unclassified: the card falls back to today's handles).
+    questionItems.push(eff === "A" ? item : { ...item, resolver: null });
+  }
+  const questions = buildGroup1Rows(questionItems, inputs.reviewState);
+
+  // Checks — translation, U rows, unclassified fallback, passes. Page length
+  // is never a ROW: its one place is the card (cl. 7) — the letter's from its
+  // class-A check, the CV's from `page_overflow` (the page, via `extraCounted`).
+  const checks: ATSCheck[] = atsReport?.checks ?? [];
+  let passed = 0;
+  for (const c of checks) {
+    const item: ReviewItem = {
+      key: `check-${c.status}-${c.id}`,
+      label: c.id,
+      kind: "check",
+      producers: ["ats"],
+      severity: c.status === "fail" ? "critical" : c.status === "not_applicable" ? "neutral" : "info",
+      checkId: c.id,
+      check: c,
+      deliveryClass: c.delivery_class ?? null,
+      resolver: c.resolver ?? null,
+    };
+    // ADR-099 cl. 7 / 10: page length has ONE place — the page's card.
+    if (baseId(c.id) === "page-length" || c.id === "page-length-kept") {
+      if (c.status === "pass") passed += 1;
+      else if (c.delivery_class === "A" && c.resolver === "page_length" && !pageLength) pageLength = item;
+      continue;
+    }
+    if (c.status === "not_applicable") continue;
+    if (c.status === "pass" && c.delivery_class !== "U") {
+      passed += 1;
+      continue;
+    }
+    const eff = effectiveClass(c.delivery_class, c.resolver, loopClean, degraded);
+    if (eff === "hidden") {
+      if (c.delivery_class === "F") hiddenF += 1;
+      continue;
+    }
+    if (eff === "U") {
+      unknown.push({
+        key: `check-${c.id}`,
+        resolver: c.resolver === "regenerate" ? "regenerate" : "recheck",
+        check: c,
+      });
+      continue;
+    }
+    if (eff === "A" && c.resolver === "translate") {
+      translate.push(item);
+      continue;
+    }
+    // A failed check that is unclassified (a legacy report, or a kind the
+    // registry does not know) or class A without a dedicated card: today's row,
+    // counted — never hidden (cl. 2: None is never S). cl. 12: no server prose.
+    fallback.push({ item, counted: true });
+  }
+
+  const removals = atsReport?.delivery?.removals ?? [];
+  const count =
+    countedOpenRows(questions).length +
+    translate.length +
+    (pageLength ? 1 : 0) +
+    unknown.length +
+    fallback.filter((f) => f.counted).length +
+    (degraded ? 1 : 0) +
+    (inputs.extraCounted ?? 0);
+
+  return {
+    classified,
+    questions,
+    translate,
+    pageLength,
+    unknown,
+    fallback,
+    // B-2: B never stamps "F" on a row; the loop's fixed kinds arrive as
+    // `delivery.fixed`. `hiddenF` stays for a row a future producer stamps F.
+    passed: passed + hiddenF + (atsReport?.delivery?.fixed?.length ?? 0),
+    removals,
+    count,
+  };
+}
+
+/** True when an unkeyed check would render server prose (ADR-099 cl. 12) — the surface shows only the label then. */
+export function hasKeyedDetail(c: ATSCheck): boolean {
+  return usesLocalizedDetail(c);
+}
+
+/**
+ * ADR-099 cl. 6 — the end state of a "Stimmt das?" card: the latest decision
+ * on a still-listed finding says the answer did not clear it (`no_change`, or
+ * `added` while the live report still lists it) → only "Entfernen" remains.
+ */
+export function removeOnly(row: Group1Row): boolean {
+  return row.status === "open" && (row.decision?.action === "no_change" || row.decision?.action === "added");
 }
