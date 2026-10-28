@@ -275,3 +275,35 @@ async def test_requesty_strips_when_the_configured_effort_is_refused_too(monkeyp
     attempts.clear()
     await _requesty_with(refuse_any).acomplete("q")
     assert [a.get("extra_body") for a in attempts] == [None]
+
+
+@pytest.mark.asyncio
+async def test_requesty_policy_flag_400_does_not_latch_reasoning_on(monkeypatch):
+    """Build-5 delivery run: OpenAI's content-policy 400 links
+    `…/guides/reasoning#advice-on-prompting`; reading that link as a refusal
+    latched reasoning ON for the model for the rest of the process."""
+    _pin(monkeypatch, "requesty")
+    attempts: list[dict] = []
+    flagged = {"done": False}
+
+    async def policy_once(**kwargs):
+        attempts.append(kwargs)
+        if not flagged["done"]:
+            flagged["done"] = True
+            raise _bad_request(
+                "Invalid prompt: your prompt was flagged as potentially violating our usage policy. "
+                "Please try again with a different prompt: "
+                "https://platform.openai.com/docs/guides/reasoning#advice-on-prompting",
+                "router.eu.requesty.ai",
+            )
+        return _ok()
+
+    first = _requesty()
+    first._client = _client(policy_once)
+    await first.acomplete("q")
+    assert first._reasoning_rejected is False
+    attempts.clear()
+    second = _requesty()
+    second._client = _client(policy_once)
+    await second.acomplete("q")
+    assert (attempts[0].get("extra_body") or {}).get("reasoning_effort") == "none"
