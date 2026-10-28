@@ -20,6 +20,10 @@ import pytest
 
 from applire.schemas.cv import TailoredCVData
 from applire.services import delivery_actions as da
+# Bound BEFORE any test patches review_actions.load_document: review_signals binds
+# review_actions names at import, and delivery_actions imports it lazily — a first
+# import under the monkeypatch would leak the twin into every later test.
+from applire.services import review_signals as _review_signals  # noqa: F401
 from applire.services import review_state as rs
 from applire.services.cv_section_editor import apply_overrides_to_tailored, build_content_snapshot
 from applire.services.oracle.selfaudit import build_self_audit_report

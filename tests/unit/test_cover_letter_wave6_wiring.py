@@ -45,6 +45,17 @@ def _v1_pipelines(monkeypatch):
     monkeypatch.setenv("LETTER_PIPELINE", "v1")
 
 
+@pytest.fixture(autouse=True)
+def _no_truth_round_or_critic(monkeypatch):
+    """ADR-099 (WP-B): these tests sequence the provider's writer + condense replies;
+    the letter's in-loop truth audit and critic are stubbed so they cannot consume
+    one (they are pinned in test_adr099_truth_round.py)."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr("applire.services.cover_letter._letter_truth_audit", AsyncMock(return_value=None))
+    monkeypatch.setattr("applire.services.cover_letter._in_loop_letter_critic", AsyncMock(return_value=[]))
+
+
 def _letter(paragraphs):
     return {
         "header": {"name": "Anna Bauer"},

@@ -297,7 +297,7 @@ async def shorten_letter(
     """The letter's page-length card, "kürzen" (ADR-099 cl. 7): one corrector call
     condenses the body toward the page norm, keeping every fact the letter needs;
     then re-audits. Residue still over the norm renders the card again."""
-    from applire.constants import REGION_NORMS
+    from applire.norms import REGION_NORMS
     from applire.prompts.cover_letter import build_condense_prompt, build_system_prompt
     from applire.services.cover_letter import _apply_section_overrides, _condense_call
     from applire.services.review_actions import load_document
@@ -314,11 +314,15 @@ async def shorten_letter(
     language = await _language(kind, record, db)
     data = _apply_section_overrides(record.letter_data or {}, record.section_overrides or {})
     before = "\n\n".join(p for p in ((data.get("body") or {}).get("paragraphs") or []) if isinstance(p, str))
+    pins = await _letter_pin_quotes(record, db)
     condensed = await _condense_call(
         provider,
         build_condense_prompt(
             data, norm.letter_body_word_budget, int(params.get("pages") or 2),
             letter_pages=norm.letter_pages, language=language,
+            # ADR-077 cl. 2/3: a pinned sentence survives the shortening — by
+            # instruction here, refused below when the result drops one.
+            pinned_quotes=pins or None,
         ),
         stage="letter_condense_review_action",
         system=build_system_prompt(language),
@@ -327,6 +331,12 @@ async def shorten_letter(
     after = "\n\n".join(paras)
     if not paras or after == before or not _no_new_numbers(before, after):
         raise RewriteFailed("the shortening returned nothing usable")
+    from applire.services.review_state import norm_quote
+
+    lost = [q for q in pins if norm_quote(q) in norm_quote(before) and norm_quote(q) not in norm_quote(after)]
+    if lost:
+        logger.info("DELIVERY_SHORTEN_REFUSED reason=pinned_dropped n=%d", len(lost))
+        raise RewriteFailed("the shortening dropped a pinned fact")
     result = await _apply(kind, record, db, [{"section_id": "body", "before": before, "after": after}], None, calls=1)
     c = _check(result.record, "page-length")
     result.still_listed = bool(c and c.get("status") == "fail")
@@ -334,6 +344,24 @@ async def shorten_letter(
 
 
 # ── plumbing ─────────────────────────────────────────────────────────────────
+
+async def _letter_pin_quotes(record, db) -> list[str]:
+    """The letter's active pinned quotes (ADR-077), as the letter audit loads them;
+    ``[]`` on any failure (fail-safe: the shortening then has nothing to protect,
+    and the re-audit still measures pin presence)."""
+    try:
+        from applire.services.application import get_application_for_job
+        from applire.services.fact_pins import load_pins
+        from applire.services.pin_reach import active_pins
+
+        app = await get_application_for_job(record.job_analysis_id, record.user_id, db)
+        if app is None or not app.pinned_facts:
+            return []
+        return [pn.quote for pn in active_pins(load_pins(app), "letter") if pn.quote]
+    except Exception:  # noqa: BLE001
+        logger.exception("pin load failed for shorten_letter on %s", getattr(record, "id", None))
+        return []
+
 
 _WORK_REF = re.compile(r"^work_experience\[(\d+)\]")
 _NUM = re.compile(r"\d+(?:[.,]\d+)*")
