@@ -184,6 +184,16 @@ async def reconcile(
     rejected_ops: list[str] = []
     ops = _parse_ops(data.get("ops"), rejected=rejected_ops)
     ambiguities = _parse_ambiguities(data.get("ambiguities"))
+    # D-8 (Hazelnut build 5) — a model-asked "which position does this project
+    # belong to?" carries prompt handles in its options; rebuilt as family 6
+    # (both languages, `entry:<id>` keys) so its answer can write the parent.
+    from applire.services.profile.reconcile.project_parent import bind_project_parent_ask
+
+    ops = [
+        bind_project_parent_ask(o, llm.id_map, profile) if isinstance(o, RequestConfirmation) else o
+        for o in ops
+    ]
+    ambiguities = [bind_project_parent_ask(a, llm.id_map, profile) for a in ambiguities]
     denials = _parse_denials(data.get("denials"))
     # Stance guard (#127, ADR-061): the model's own denials outrank its ops;
     # interview-turn token claims are resolved via the testimony predicate

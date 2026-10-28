@@ -1872,6 +1872,33 @@ def _apply_resolve_confirmation(
                 record_answer(profile.metadata, dict(context))
         return
 
+    # ── D-8 — family 6: the answer names the project's position ─────────────
+    # The candidate's explicit choice on a question that names the project is
+    # the act itself (§7.4); it replaces a company string or an older parent.
+    if context.get("kind") == "project_parent":
+        from applire.services.profile.reconcile.project_parent import plan_project_parent
+
+        placed = plan_project_parent(
+            context, resolve_option_key(entry.model_dump(), op.chosen_option), profile
+        )
+        if placed is None:
+            not_applied.append(ImportNotApplied(
+                section="projects",
+                label=str(context.get("project") or ""),
+                reason="confirmation_unresolvable",
+            ))
+            return
+        project, parent_id = placed
+        if project.associated_experience == parent_id:
+            not_applied.append(ImportNotApplied(
+                section="projects", label=project.name, reason="confirmation_already_present",
+            ))
+            return
+        old_parent = project.associated_experience
+        project.associated_experience = parent_id
+        changes.append(_updated("projects", "associated_experience", old_parent, parent_id, entity=project))
+        return
+
     # ── Bug #723 — the attribution family's answer places its held content ───
     plan = plan_attribution_resolution(
         entry.context or {},
