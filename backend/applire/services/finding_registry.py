@@ -102,9 +102,13 @@ def _e(cls: DeliveryClass, resolver: Optional[str] = None, fallback: Optional[De
     return Entry(cls=cls, resolver=resolver, fallback=fallback)
 
 
-#: ADR-099 cl. 4(c): the order class-F families claim the shared loop budget —
-#: truthfulness first, then the page, then craft. A family listed earlier keeps
-#: its findings when a round's cap (``MAX_FINDINGS_PER_ROUND``) is reached.
+#: ADR-099 cl. 4(c): the declared order class-F families claim the loop —
+#: truthfulness first, then language, then craft. The pipeline REALISES it by
+#: call sequence, not by reading this tuple: the truth round (own 1-call bound)
+#: runs before the terminal loop, the second language round before compose, and
+#: inside a terminal round ``cv_v2`` ranks blocking checks → critic consistency →
+#: advisory craft under ``MAX_FINDINGS_PER_ROUND``. Documentation for arc42
+#: §5.3.29a and agents; changing it changes no behaviour.
 FAMILY_PRIORITY: tuple[str, ...] = (
     "truth.misattributed",   # attribution round, CV and letter (cl. 6)
     "truth.unbacked",        # corrector removes / narrows (cl. 6, removal line cl. 5)

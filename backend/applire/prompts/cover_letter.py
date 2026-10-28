@@ -346,7 +346,8 @@ _V1_OVERSTATE_ANCHOR = "never overstate the seniority/impact the candidate data 
 _V2_TARGET_RULE = (
     "  * A target, goal, SLO, plan or forecast the candidate data records stays a target in the\n"
     "    letter (\"with a 99.9 % availability target\") — never write it as achieved, ensured,\n"
-    "    maintained or delivered unless the candidate data states that result.\n"
+    "    maintained or delivered unless the candidate data states that result. An entry's\n"
+    "    \"not_yet_reached\" lists lines the candidate confirmed are not reached yet: an aim, never a result.\n"
 )
 
 _V2_TITLES_RULE_TAIL = (
