@@ -1085,7 +1085,9 @@ async def get_profile_health(db: AsyncSession, *, user_id: uuid.UUID | None = No
     Health panel renders uniformly."""
     record = await _get_latest(db, user_id)
     if not record:
-        return ProfileHealthResponse(completeness=CompletenessBlock(score=0.0))
+        return ProfileHealthResponse(
+            completeness=CompletenessBlock(score=0.0, delivery_class="S", resolver=None)
+        )
     profile_data = MasterProfileData.model_validate(record.profile_json)
     na_fields = (record.profile_json.get("_meta") or {}).get("na_fields", [])
     return assess_health(profile_data, na_fields=na_fields)

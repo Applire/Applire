@@ -1238,6 +1238,27 @@ _ADAPTER_ONLY = (
     RecordEntryIdentityVerdicts,
 )
 
+
+
+class AdoptNotApplied(BaseModel):
+    """The candidate takes one not-applied import item into the vault —
+    ADAPTER-ONLY (UAT-3d, Hazelnut build 5).
+
+    Names the trail record (``record_id``) and the receipt item
+    (``item_key``). The applier appends the item's captured ``entry`` to its
+    section under a fresh id and stamps the item ``adopted_at``; it refuses an
+    unknown record/item, an already adopted item, and an item that captured no
+    entry (a receipt from before the capture, or a scalar item). Never
+    model-emittable: the entry comes from a persisted receipt, not from a model.
+    """
+
+    op: Literal["adopt_not_applied"] = "adopt_not_applied"
+    record_id: str
+    item_key: str
+
+
+_ADAPTER_ONLY = _ADAPTER_ONLY + (AdoptNotApplied,)
+
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
 
 DecisionOp = Annotated[Union[_ADAPTER_ONLY], Field(discriminator="op")]

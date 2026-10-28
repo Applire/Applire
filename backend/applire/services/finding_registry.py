@@ -85,3 +85,22 @@ def classify(kind: str) -> Entry:
     this, so a new kind without an entry fails the build instead of rendering
     raw or vanishing."""
     return REGISTRY[kind]
+
+
+# UAT-3d (Hazelnut build 5, WP-A1 hub) — the profile-health hub's kinds.
+REGISTRY.update(
+    {
+        "health:conflict_list": Entry("A", "conflict_list"),
+        "health:conflict_scalar": Entry("A", "conflict_scalar"),
+        "health:confirmation": Entry("A", "confirmation"),
+        "health:unit": Entry("A", "unit_input"),
+        "health:span_provenance": Entry("A", "recompute_span"),
+        "health:suspect_binding": Entry("A", "confirm_match"),
+        "health:duplicate_entry": Entry("A", "confirm_match"),
+        "health:not_applied": Entry("A", "adopt_not_applied"),
+        "health:not_applied_unadoptable": Entry("S", None),
+        "health:accuracy": Entry("S", None),
+        "health:completeness": Entry("A", "complete_section"),
+        "health:completeness_no_field_gaps": Entry("S", None),
+    }
+)

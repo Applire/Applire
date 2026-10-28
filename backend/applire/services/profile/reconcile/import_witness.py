@@ -173,6 +173,7 @@ health hub's count to see, not this fact's.
 """
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Callable, NamedTuple, Sequence
 
 from applire.schemas.profile import ImportNotApplied, MasterProfileData
@@ -561,6 +562,38 @@ def alias_carries(
     ]
 
 
+#: UAT-3d — the list sections whose not-applied item is a WHOLE new record the
+#: candidate can adopt in one act ("Übernehmen"). Skills (category / binding
+#: semantics) and signature stories (challenge/mechanism/outcome) stay with
+#: the go-to-section fallback.
+ADOPTABLE_SECTIONS: frozenset[str] = frozenset(
+    {
+        "work_experience", "education", "projects", "volunteer_activities",
+        "certifications", "languages", "publications",
+    }
+)
+
+
+def item_key_for(section: str | None, label: str) -> str:
+    """A deterministic id for one receipt item: stable for the same record."""
+    digest = hashlib.sha1(f"{section or ''}\x00{label}".encode("utf-8")).hexdigest()[:12]
+    return f"{section or 'op'}:{digest}"
+
+
+def _carried_item(section: str, entry: Any, label: str) -> ImportNotApplied:
+    payload = None
+    if section in ADOPTABLE_SECTIONS and hasattr(entry, "model_dump"):
+        payload = entry.model_dump(mode="json")
+        payload.pop("id", None)
+    return ImportNotApplied(
+        section=section,
+        label=label,
+        reason="no_op_carried_entry",
+        item_key=item_key_for(section, label),
+        entry=payload,
+    )
+
+
 def _flat_section_not_applied(
     section: str, incoming: MasterProfileData, merged: MasterProfileData, ops: Sequence[CommitOp]
 ) -> list[ImportNotApplied]:
@@ -662,11 +695,7 @@ def _flat_section_not_applied(
             for touched in touched_entries
         ):  # arm (c), sub-clause 2 — the op must have targeted THIS entry
             continue
-        items.append(
-            ImportNotApplied(
-                section=section, label=_format_label(entry, fields), reason="no_op_carried_entry"
-            )
-        )
+        items.append(_carried_item(section, entry, _format_label(entry, fields)))
     return items
 
 
@@ -832,11 +861,7 @@ def _engagement_section_not_applied(
             for touched_org, touched_start in section_touched
         ):  # arm (c), sub-clause 2 — the op must have targeted THIS stint (B1)
             continue
-        items.append(
-            ImportNotApplied(
-                section=section.name, label=_format_label(entry, fields), reason="no_op_carried_entry"
-            )
-        )
+        items.append(_carried_item(section.name, entry, _format_label(entry, fields)))
     return items
 
 

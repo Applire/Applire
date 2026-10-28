@@ -917,6 +917,66 @@ async def get_profile_health_endpoint(
     return await get_profile_health(db, user_id=_uid(current_user))
 
 
+# ── UAT-3d — the hub's writing one-action resolvers ─────────────────────────
+from applire.schemas.profile import AdoptNotAppliedRequest, HealthUnitRequest  # noqa: E402
+from applire.services.profile.hub_actions import (  # noqa: E402
+    HubEntryNotFound,
+    NotAppliedConflict,
+    NotAppliedUnprocessable,
+    UnitNotApplicable,
+    adopt_not_applied_item,
+    set_budget_unit,
+)
+
+
+@router.post(
+    "/health/unit",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def set_health_unit_endpoint(
+    body: HealthUnitRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """UAT-3d — the unit input in place: writes the stored budget wording plus
+    the chosen currency onto that work entry. 404 unknown entry (or no profile);
+    422 when the entry has no budget value or it already states a unit."""
+    try:
+        return await set_budget_unit(
+            db, entry_id=body.entry_id, unit=body.unit, user_id=_uid(current_user)
+        )
+    except (LookupError, HubEntryNotFound):
+        raise HTTPException(status_code=404, detail="Entry not found")
+    except UnitNotApplicable as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post(
+    "/not-applied/adopt",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def adopt_not_applied_endpoint(
+    body: AdoptNotAppliedRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """UAT-3d — "Übernehmen": take one not-applied import item into the vault.
+    404 unknown issue/item; 409 already adopted; 422 not adoptable (no entry
+    was captured — a receipt from before the capture, or a scalar item)."""
+    try:
+        return await adopt_not_applied_item(
+            db, issue_id=body.issue_id, item_key=body.item_key, user_id=_uid(current_user)
+        )
+    except (LookupError, HubEntryNotFound):
+        raise HTTPException(status_code=404, detail="Issue or item not found")
+    except NotAppliedConflict:
+        raise HTTPException(status_code=409, detail="already_adopted")
+    except NotAppliedUnprocessable:
+        raise HTTPException(status_code=422, detail="not_adoptable")
+
+
 @router.post(
     "/conflicts/{conflict_id}/resolve",
     response_model=MasterProfileResponse,
