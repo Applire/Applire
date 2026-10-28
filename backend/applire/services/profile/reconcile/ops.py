@@ -1259,6 +1259,43 @@ class AdoptNotApplied(BaseModel):
 
 _ADAPTER_ONLY = _ADAPTER_ONLY + (AdoptNotApplied,)
 
+
+class AspirationVerdictItem(BaseModel):
+    section: Literal["work_experience", "projects"] = "work_experience"
+    entry_id: str
+    key: str
+    text: str
+    aspiration: bool
+
+
+class RecordAspirationVerdicts(BaseModel):
+    """RULING B-1 (U-7) — the model's goal/task-wording verdicts for current
+    work bullets, judged once at the end of a CV import — ADAPTER-ONLY
+    bookkeeping. Appends ``metadata.aspiration_verdicts`` (a bullet already
+    judged is kept). Writes nothing in the vault sections."""
+
+    op: Literal["record_aspiration_verdicts"] = "record_aspiration_verdicts"
+    verdicts: list[AspirationVerdictItem] = Field(default_factory=list)
+
+
+class AnswerAspiration(BaseModel):
+    """RULING B-1 — the candidate's answer to "Ist das erreicht?" — ADAPTER-ONLY.
+
+    ``achieved`` appends ``outcome`` (the candidate's own words, ADR-061 cl. 2
+    testimony through the manual door) to the entry's ``achievements``; not
+    achieved appends the bullet to the entry's ``not_yet_reached`` (the stance a
+    writer then keeps). Either way the answer is recorded and never re-asked.
+    Never model-emittable: the answer is the candidate's."""
+
+    op: Literal["answer_aspiration"] = "answer_aspiration"
+    entry_id: str
+    key: str
+    achieved: bool
+    outcome: str | None = None
+
+
+_ADAPTER_ONLY = _ADAPTER_ONLY + (RecordAspirationVerdicts, AnswerAspiration)
+
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
 
 DecisionOp = Annotated[Union[_ADAPTER_ONLY], Field(discriminator="op")]

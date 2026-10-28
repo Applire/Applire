@@ -762,6 +762,10 @@ class MockLLMProvider(LLMProvider):
             return {"verdicts": [{"pair_id": i, "verdict": "unsure"} for i in ids]}
         if "two entries of one person's cv profile are being merged" in system_lower:
             return {"pairs": []}
+        # RULING B-1 — the goal/task-wording judge: the cautious answer, nothing
+        # flagged (no hub question on the mock stack unless a test seeds one).
+        if "you read the bullet points of a person's current jobs" in system_lower:
+            return {"items": []}
 
         # D-B3V6 (ruling V-3 = A) — the import restatement check. The real
         # shape with nothing restated: every new bullet is written, exactly

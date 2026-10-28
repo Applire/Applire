@@ -918,7 +918,7 @@ async def get_profile_health_endpoint(
 
 
 # ── UAT-3d — the hub's writing one-action resolvers ─────────────────────────
-from applire.schemas.profile import AdoptNotAppliedRequest, HealthUnitRequest  # noqa: E402
+from applire.schemas.profile import AdoptNotAppliedRequest, AspirationAnswerRequest, HealthUnitRequest  # noqa: E402
 from applire.services.profile.hub_actions import (  # noqa: E402
     HubEntryNotFound,
     NotAppliedConflict,
@@ -950,6 +950,43 @@ async def set_health_unit_endpoint(
         raise HTTPException(status_code=404, detail="Entry not found")
     except UnitNotApplicable as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+from applire.services.profile.aspiration import (  # noqa: E402 — RULING B-1
+    AspirationAnswered,
+    AspirationOutcomeRequired,
+    answer_aspiration,
+)
+
+
+@router.post(
+    "/aspirations/answer",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def answer_aspiration_endpoint(
+    body: AspirationAnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """RULING B-1 — "Ist das erreicht?" for one ``aspiration:<entry>:<key>``
+    issue. ``achieved`` + ``outcome`` writes the outcome as an achievement in
+    the candidate's words; not achieved keeps the bullet as a goal. 404 unknown
+    issue (or no profile); 409 already answered; 422 achieved without outcome."""
+    try:
+        return await answer_aspiration(
+            db,
+            issue_id=body.issue_id,
+            achieved=body.achieved,
+            outcome=body.outcome,
+            user_id=_uid(current_user),
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    except AspirationAnswered:
+        raise HTTPException(status_code=409, detail="already_answered")
+    except AspirationOutcomeRequired:
+        raise HTTPException(status_code=422, detail="outcome_required")
 
 
 @router.post(

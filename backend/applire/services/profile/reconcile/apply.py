@@ -805,6 +805,11 @@ def apply_ops(
         elif getattr(op, "op", None) == "adopt_not_applied":
             # UAT-3d — "Übernehmen": a not-applied import item taken in.
             _apply_adopt_not_applied(op, new_profile, changes)
+        elif getattr(op, "op", None) in ("record_aspiration_verdicts", "answer_aspiration"):
+            # RULING B-1 — "Ist das erreicht?" bookkeeping and the answer.
+            from applire.services.profile.aspiration import apply_aspiration_op
+
+            apply_aspiration_op(op, new_profile, changes)
 
     # MD-30 (adv-own-1/201, 2026-10-05) — the class guard behind the per-op one
     # in `_apply_set_personal_info`: NO op in this vocabulary may change a field

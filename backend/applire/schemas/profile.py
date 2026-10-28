@@ -271,6 +271,12 @@ class DatedRoleAlias(BaseModel):
 class WorkEntry(ExperienceBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company: str = ""
+    #: RULING B-1 (Hazelnut build 5, U-7) — bullets of this entry the candidate
+    #: answered "Nein" to on "Ist das erreicht?": the goal, target or mandate
+    #: they state is NOT reached yet. The bullet itself stays where it is; this
+    #: list is the candidate's testimony about its stance, and a writer phrases
+    #: what it names as a goal or an aim, never as a result.
+    not_yet_reached: list[str] = Field(default_factory=list)
 
     @field_validator("company", mode="before")
     @classmethod
@@ -833,6 +839,10 @@ class ProjectEntry(ExperienceBase):
     url: str | None = None
     # Optional id/label linking to a work OR volunteer entry; None = standalone.
     associated_experience: str | None = None
+    #: RULING B-1 (A1-3 gap) — as ``WorkEntry.not_yet_reached``: bullets of this
+    #: project the candidate said are not reached yet; a writer phrases them as
+    #: a goal or an aim, never as a result.
+    not_yet_reached: list[str] = Field(default_factory=list)
 
     def org_label(self) -> str:
         return self.name
@@ -1582,6 +1592,13 @@ class ProfileMetadata(BaseModel):
     # dates), judged once at the end of a CV import. Only "different" hides a
     # pair from the duplicate-entry question; an unjudged pair is asked.
     entry_identity_verdicts: list["EntryIdentityVerdict"] = Field(default_factory=list)
+    # RULING B-1 (U-7) — the model's per-bullet "worded as a goal or a task still
+    # to do" judgement for the bullets of current work entries, judged once at
+    # the end of a CV import (negatives are kept so a bullet is judged once).
+    aspiration_verdicts: list["AspirationVerdict"] = Field(default_factory=list)
+    # B-1 — the candidate's answers to "Ist das erreicht?"; an answered bullet
+    # is never asked again.
+    aspiration_answers: list["AspirationAnswer"] = Field(default_factory=list)
 
 
 class EntryPair(BaseModel):
@@ -1599,6 +1616,29 @@ class EntryPair(BaseModel):
 
 class EntryIdentityVerdict(EntryPair):
     verdict: Literal["same", "different", "unsure"]
+
+
+class AspirationVerdict(BaseModel):
+    """B-1 — one bullet of a current work entry or current project and the
+    model's judgement whether it is worded as a goal or a task still to do.
+    ``key`` is ``aspiration_key(text)``; the text is kept so the hub can quote it."""
+
+    section: Literal["work_experience", "projects"] = "work_experience"
+    entry_id: str
+    key: str
+    text: str
+    aspiration: bool
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AspirationAnswer(BaseModel):
+    """B-1 — the candidate's answer for one asked bullet: ``achieved`` (with
+    what came out, written as an achievement in their words) or ``goal``."""
+
+    entry_id: str
+    key: str
+    answer: Literal["achieved", "goal"]
+    answered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 ProfileMetadata.model_rebuild()
@@ -2187,6 +2227,18 @@ class HealthUnitRequest(BaseModel):
     unit: Literal["EUR", "USD", "CHF", "GBP"]
 
 
+class AspirationAnswerRequest(BaseModel):
+    """B-1 — ``POST /api/profile/aspirations/answer``: the candidate's answer to
+    "Ist das erreicht?" for one ``aspiration:<entry id>:<key>`` issue. ``achieved``
+    requires ``outcome`` — what came out, in the candidate's own words."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    issue_id: str = Field(min_length=1, max_length=300)
+    achieved: bool
+    outcome: str | None = Field(default=None, max_length=500)
+
+
 class AdoptNotAppliedRequest(BaseModel):
     """UAT-3d — ``POST /api/profile/not-applied/adopt``: one receipt item of the
     hub's ``not_applied:<record id>`` issue, taken into the vault."""
@@ -2250,7 +2302,7 @@ class HealthIssue(BaseModel):
     # "Ist A dasselbe wie B?" with the existing Ja / Nein-getrennt acts.
     thread: Literal[
         "conflict", "accuracy", "confirmation", "unit", "not_applied", "span_provenance",
-        "suspect_binding", "duplicate_entry",
+        "suspect_binding", "duplicate_entry", "aspiration",
     ]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     # A server-built, English-only fallback (kept for any consumer #626
@@ -2390,6 +2442,9 @@ class HealthIssue(BaseModel):
     #: target's).
     entry_ids: list[str] | None = None
     other_entity_label: str | None = None
+    #: B-1 — ``aspiration`` only: the bullet as written (the candidate's own
+    #: words), asked as "Ist das erreicht?"; ``entry_id`` names its entry.
+    aspiration_text: str | None = None
 
 
 class CompletenessBlock(BaseModel):

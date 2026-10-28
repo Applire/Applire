@@ -17,10 +17,12 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from applire.prompts.profile_decisions import (
+    ASPIRATION_SYSTEM,
     DUPLICATES_SYSTEM,
     IDENTITY_SYSTEM,
     MERGE_SYSTEM,
     REPLY_SYSTEM,
+    build_aspiration_prompt,
     build_duplicates_prompt,
     build_identity_prompt,
     build_merge_prompt,
@@ -266,3 +268,35 @@ async def find_duplicate_pairs(
             merged = None
         pairs.append(DuplicatePair(ti, si, merged))
     return pairs
+
+
+# ── RULING B-1 (U-7): a current role's goal/task-worded bullet ────────────────
+
+
+async def judge_aspirations(provider, bullets: list[str]) -> set[int] | None:
+    """ONE model call: the indices of ``bullets`` worded as a goal or a task
+    still to be done. ``None`` on any failure (nothing is asked then — the
+    question is a courtesy, never a gate). The judgement is the model's
+    (ADR-062 cl. 1); code keeps only in-range indices."""
+    if not bullets:
+        return set()
+    try:
+        with _stage("profile_aspiration"):
+            data = await provider.aparse_json(
+                build_aspiration_prompt(bullets),
+                system=ASPIRATION_SYSTEM,
+                temperature=0.0,
+                max_tokens=200 + 8 * len(bullets),
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning("judge_aspirations: model call failed; nothing asked", exc_info=True)
+        return None
+    out: set[int] = set()
+    for n in (data.get("items") if isinstance(data, dict) else None) or []:
+        try:
+            i = int(n) - 1
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < len(bullets):
+            out.add(i)
+    return out

@@ -504,13 +504,18 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
     )
 
 
+#: Hub answers whose trail record must not become the not_applied "head": the
+#: candidate answering one hub question may not make another one vanish.
+_TRANSPARENT_RATIONALE_KEYS = frozenset({"not_applied_adopted", "aspiration_achieved", "aspiration_goal"})
+
+
 def _is_adoption_record(record: EnrichmentRecord) -> bool:
     """A trail record whose only content is the adoption of not-applied items."""
     return (
         record.source == "manual_edit"
         and not record.not_applied
         and bool(record.changes)
-        and all(c.rationale_key == "not_applied_adopted" for c in record.changes)
+        and all(c.rationale_key in _TRANSPARENT_RATIONALE_KEYS for c in record.changes)
     )
 
 
@@ -547,6 +552,29 @@ def _duplicate_entry_issues(profile: MasterProfileData) -> list[HealthIssue]:
     return issues
 
 
+def _aspiration_issues(profile: MasterProfileData) -> list[HealthIssue]:
+    """RULING B-1 — one ``review`` issue per current-role or current-project
+    bullet (``section`` names which) the model judged
+    as worded like a goal or a task still to do, unanswered
+    (``aspiration.open_aspirations``). Answered by ``ask_achieved``."""
+    from applire.services.profile.aspiration import issue_id, open_aspirations
+
+    return [
+        HealthIssue(
+            id=issue_id(entry.id, key),
+            thread="aspiration",
+            profile_mismatch_severity="review",
+            summary=f"Is this reached? '{text}' ({_entity_label(entry) or entry.id})",
+            field_ref=section,
+            section=section,
+            entry_id=entry.id,
+            entity_label=_entity_label(entry),
+            aspiration_text=text,
+        )
+        for section, entry, key, text in open_aspirations(profile)
+    ]
+
+
 def _registry_kind(issue: HealthIssue) -> str:
     """The ``health:<kind>`` registry key of one issue (ADR-099)."""
     thread = issue.thread
@@ -581,6 +609,7 @@ def assess_health(
     issues.extend(_span_provenance_issues(profile))
     issues.extend(_suspect_binding_issues(profile))  # FS-5
     issues.extend(_duplicate_entry_issues(profile))  # UAT-3d
+    issues.extend(_aspiration_issues(profile))  # RULING B-1
 
     metadata = profile.metadata
     if metadata is not None:

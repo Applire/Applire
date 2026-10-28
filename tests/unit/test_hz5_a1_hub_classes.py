@@ -89,6 +89,15 @@ def _build(thread: str) -> MasterProfileData:
             work_experience=[_work("w1"), _work("w2", company="Talwerk Feinmechanik GmbH")]))
     if thread == "not_applied":
         return _with_not_applied([ImportNotApplied(**_not_applied_item(item_key="education:x", entry={"institution": "Hochschule Nord", "degree": "M.Sc."}))])
+    if thread == "aspiration":  # RULING B-1
+        from applire.services.profile.aspiration import aspiration_key
+
+        text = "Aufbau eines Risiko-Frameworks"
+        return MasterProfileData.model_validate(_blob(
+            work_experience=[_work(end_date=None, responsibilities=[text])],
+            metadata={"aspiration_verdicts": [{
+                "entry_id": "w1", "key": aspiration_key(text), "text": text, "aspiration": True}]},
+        ))
     if thread == "accuracy":
         rec = EnrichmentRecord(
             timestamp=datetime.now(timezone.utc), source="cv_upload", confidence=0.2)
@@ -111,6 +120,7 @@ _EXPECTED = {
     "suspect_binding": ("A", {"confirm_match"}),
     "duplicate_entry": ("A", {"confirm_match"}),
     "not_applied": ("A", {"adopt_not_applied"}),
+    "aspiration": ("A", {"ask_achieved"}),
     "accuracy": ("S", {None}),
 }
 

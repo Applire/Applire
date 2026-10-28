@@ -91,6 +91,11 @@ PROMPT_EXCLUDED_METADATA_KEYS: frozenset[str] = frozenset(
         # model's same-position verdicts — read by the health hub only.
         "separate_entry_pairs",
         "entry_identity_verdicts",
+        # RULING B-1 — the goal/task-wording verdicts and the candidate's
+        # answers; read by the health hub only. The stance a writer needs
+        # reaches it as the entry's own ``not_yet_reached`` list.
+        "aspiration_verdicts",
+        "aspiration_answers",
     }
 )
 

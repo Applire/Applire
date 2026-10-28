@@ -1880,6 +1880,9 @@ class ApplyMergeOutcome:
     kept_separate: list[KeptSeparateReceipt] = field(default_factory=list)  # FS-6
 
 
+from applire.services.profile.aspiration import aspiration_verdict_ops  # noqa: E402 — RULING B-1
+
+
 async def _identity_verdict_ops(merged: MasterProfileData, provider: LLMProvider) -> list:
     """U-9 (Hazelnut build 5) — the model's same-position verdict for every
     candidate pair (identical stated dates) of the profile an import is about to
@@ -1974,6 +1977,7 @@ async def _apply_merge(
         # function returns, the stored record and the snapshot still agree —
         # they just agree on the committer's id instead of a pre-generated one.
         verdict_ops = await _identity_verdict_ops(merged, provider)  # U-9
+        verdict_ops += await aspiration_verdict_ops(merged, provider)  # RULING B-1
         committed = await commit_ops(
             db,
             [
@@ -2026,6 +2030,7 @@ async def _apply_merge(
         last_updated=now,
     )
     verdict_ops = await _identity_verdict_ops(incoming, provider)  # U-9
+    verdict_ops += await aspiration_verdict_ops(incoming, provider)  # RULING B-1
     committed = await commit_ops(
         db,
         [

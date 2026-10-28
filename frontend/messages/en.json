@@ -1846,6 +1846,8 @@
       "entries_merged": "Merged with another entry for the same position.",
       "entries_kept_separate": "Kept apart: you said these are two different entries.",
       "not_applied_adopted": "Added from your import after you chose to take it in.",
+      "aspiration_achieved": "Added as a result: you said what came out of this goal.",
+      "aspiration_goal": "Kept as a goal: you said this is not reached yet.",
       "availability_recorded": "Recorded your availability.",
       "availability_cleared": "Removed your availability."
     }

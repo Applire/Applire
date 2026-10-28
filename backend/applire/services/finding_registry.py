@@ -97,6 +97,7 @@ REGISTRY.update(
         "health:span_provenance": Entry("A", "recompute_span"),
         "health:suspect_binding": Entry("A", "confirm_match"),
         "health:duplicate_entry": Entry("A", "confirm_match"),
+        "health:aspiration": Entry("A", "ask_achieved"),  # RULING B-1
         "health:not_applied": Entry("A", "adopt_not_applied"),
         "health:not_applied_unadoptable": Entry("A", "complete_section"),
         "health:accuracy": Entry("S", None),

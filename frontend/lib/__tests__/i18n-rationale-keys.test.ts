@@ -53,6 +53,9 @@ const BACKEND_RATIONALE_KEYS = [
   "entries_merged",
   "entries_kept_separate",
   "not_applied_adopted",
+  // RULING B-1 — services/profile/aspiration.py
+  "aspiration_achieved",
+  "aspiration_goal",
   // D-B3V7 — reconcile/apply.py::_apply_set_availability
   "availability_recorded",
   "availability_cleared",

@@ -132,3 +132,34 @@ def build_duplicates_prompt(target_bullets: list[str], source_bullets: list[str]
     t = "\n".join(f"T{i + 1}: {b}" for i, b in enumerate(target_bullets))
     s = "\n".join(f"S{i + 1}: {b}" for i, b in enumerate(source_bullets))
     return f"Entry T bullets:\n{t or '(none)'}\n\nEntry S bullets:\n{s or '(none)'}\nAnswer with the JSON object now."
+
+
+ASPIRATION_SYSTEM = """You read the bullet points of a person's CURRENT jobs in their CV profile. List
+ONLY the bullets that state something NOT YET reached, a result or a thing to
+create that the bullet itself leaves open:
+
+- a goal, target or plan: "aiming for over 60% efficiency improvement",
+  "the project targets a 20% cut", "plan to roll out", "Ziel: …", "angestrebt";
+- a mandate to create or establish something, worded as an imperative or an
+  "-ing" intention, that never says it exists: "Establish AI governance
+  frameworks", "Build up a data platform", "Aufbau einer Governance", "… while
+  establishing a review board".
+
+NEVER listed:
+- an ongoing duty or role, even about a project or an area: "Lead a team of 8
+  engineers", "Manage a cloud migration project using Azure", "Act as lead
+  architect for the payments area", "Set strategic direction for the platform",
+  "Verantwortung für das Budget";
+- anything the bullet states as reached, done, built or measured, in any tense:
+  "Established …", "The pilot reached a 40% saving", "cut costs by 18%",
+  "Set up a CI pipeline";
+- plain descriptions of the role or the product.
+
+When unsure, do not list the bullet.
+
+Output ONLY this JSON object: {"items": [<bullet number>, ...]} (an empty list when none)"""
+
+
+def build_aspiration_prompt(bullets: list[str]) -> str:
+    lines = "\n".join(f"{i + 1}: {b}" for i, b in enumerate(bullets))
+    return f"Bullets of the current jobs:\n{lines}\nAnswer with the JSON object now."
