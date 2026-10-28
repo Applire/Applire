@@ -596,27 +596,39 @@ class TestRenderCvDocxContent:
 
 
 class TestRenderCvDocxRoleFacts:
-    """#328-style per-role quantified facts (team_size/budget_managed/
-    industry_context) — rendered by all seven PDF templates via
-    cv_labels()'s role_team_size/role_budget/role_industry slots. ADR-079's
-    premise is that the export carries the same content set as the PDF, so
-    these are not optional."""
+    """Per-role fact line (team_size / budget_managed). Founder ruling P-1
+    (Hazelnut build 5): figures only, no labels, never the industry — the
+    .docx goes through the SAME producer as the seven PDF templates
+    (``templates.filters.role_facts``), so PDF, preview and export agree."""
 
-    def test_role_facts_appear_when_present(self):
+    def test_role_facts_appear_unlabelled_when_present(self):
         from applire.services.office_export.cv_docx import render_cv_docx
 
         text = _all_text(render_cv_docx(_full_tailored_cv(), lang="de", accent_color=ACCENT))
-        labels_de = cv_labels("de")
-        assert f"{labels_de['role_team_size']}: 42" in text
+        flat = text.replace("\u00a0", " ")
         # #786 NBSP (ADR-066): the DOCX sink binds a figure to its unit.
-        assert f"{labels_de['role_budget']}: MARKER 4,2 Mio. EUR" in text.replace("\u00a0", " ")
-        assert f"{labels_de['role_industry']}: MARKER_INDUSTRY_ALPHA" in text
+        assert "42 Personen · MARKER 4,2 Mio. EUR" in flat
+        labels_de = cv_labels("de")
+        for key in ("role_team_size", "role_budget", "role_industry"):
+            assert f"{labels_de[key]}:" not in flat
+        assert "MARKER_INDUSTRY_ALPHA" not in flat, "the industry line is dropped (P-1)"
 
-    def test_team_size_zero_renders(self):
-        """The trap: team_size: int | None, and 0 is a valid, meaningful
-        team size ("None means 'not stated' — 0 is a valid team_size",
-        schemas/cv.py:140). A `if entry.team_size:` truthiness guard would
-        silently drop a real zero; this pins that it does not."""
+    def test_industry_alone_renders_no_line(self):
+        from applire.services.office_export.cv_docx import render_cv_docx
+
+        cv = TailoredCVData(
+            contact=TailoredContact(name="Solo Kandidat"),
+            work_history=[
+                TailoredWorkEntry(company="OneCo", role="Engineer", industry_context="MARKER_IND_ONLY"),
+            ],
+        )
+        text = _all_text(render_cv_docx(cv, lang="de", accent_color=ACCENT))
+        assert "MARKER_IND_ONLY" not in text
+        assert " · " not in text
+
+    def test_team_size_zero_renders_no_line(self):
+        """``0`` is a stated "no direct reports" — but "0 Personen" is exactly
+        the furniture P-1 removes, so it renders no line (same as the PDF)."""
         from applire.services.office_export.cv_docx import render_cv_docx
 
         cv = TailoredCVData(
@@ -626,11 +638,8 @@ class TestRenderCvDocxRoleFacts:
             ],
         )
         text = _all_text(render_cv_docx(cv, lang="de", accent_color=ACCENT))
-        labels_de = cv_labels("de")
-        assert f"{labels_de['role_team_size']}: 0" in text, (
-            f"team_size=0 did not render — a truthiness guard would produce "
-            f"exactly this miss:\n{text}"
-        )
+        assert "0 Personen" not in text
+        assert cv_labels("de")["role_team_size"] not in text
 
     def test_role_facts_absent_when_all_none(self):
         from applire.services.office_export.cv_docx import render_cv_docx
@@ -649,29 +658,41 @@ class TestRenderCvDocxRoleFacts:
         assert labels_de["role_team_size"] not in text
         assert labels_de["role_budget"] not in text
         assert labels_de["role_industry"] not in text
+        assert "Personen" not in text
 
-    def test_role_facts_only_entry_still_counts_as_content(self):
-        """A work entry whose ONLY content is team_size=0 must still count
-        as 'has content': the Experience heading is not suppressed, and
-        rendering does not crash."""
+    def test_a_facts_only_entry_still_counts_as_content(self):
+        """A work entry whose ONLY content is a team size still counts as
+        content: the Experience heading is not suppressed."""
         from applire.services.office_export.cv_docx import render_cv_docx
 
         cv = TailoredCVData(
             contact=TailoredContact(name="Solo Kandidat"),
-            work_history=[TailoredWorkEntry(team_size=0)],
+            work_history=[TailoredWorkEntry(team_size=7)],
         )
         text = _all_text(render_cv_docx(cv, lang="de", accent_color=ACCENT))
         labels_de = cv_labels("de")
         assert labels_de["experience"] in text
-        assert f"{labels_de['role_team_size']}: 0" in text
+        assert "7 Personen" in text
 
-    def test_role_facts_use_en_labels_in_english(self):
+    def test_an_industry_only_entry_is_not_content(self):
+        """The inverse: an entry whose only field is the industry renders
+        nothing (P-1), so it must not conjure an empty Experience section."""
+        from applire.services.office_export.cv_docx import render_cv_docx
+
+        cv = TailoredCVData(
+            contact=TailoredContact(name="Solo Kandidat"),
+            work_history=[TailoredWorkEntry(industry_context="Logistik")],
+        )
+        text = _all_text(render_cv_docx(cv, lang="de", accent_color=ACCENT))
+        assert cv_labels("de")["experience"] not in text
+
+    def test_role_facts_use_en_words_in_english(self):
         from applire.services.office_export.cv_docx import render_cv_docx
 
         text = _all_text(render_cv_docx(_full_tailored_cv(), lang="en", accent_color=ACCENT))
-        labels_en = cv_labels("en")
-        assert f"{labels_en['role_team_size']}: 42" in text
-        assert cv_labels("de")["role_team_size"] not in text
+        assert "42 people" in text
+        assert "Personen" not in text
+        assert cv_labels("en")["role_team_size"] not in text
 
 
 class TestRenderCvDocxDegenerateInputs:

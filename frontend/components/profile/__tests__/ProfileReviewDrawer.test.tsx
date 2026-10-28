@@ -202,7 +202,11 @@ describe("ProfileReviewDrawer", () => {
     startOn(LIST_CONFLICT);
     proposalMock.mockResolvedValue({ proposal: "Rebuilt supplier selection and introduced a dashboard.", verifier: "passed" });
     outcomeMock.mockResolvedValue(
-      reply({ interpreted: { outcome: "merge", verifier: "passed" }, current_conflict: NAME_SCALAR }),
+      reply({
+        interpreted: { outcome: "merge", verifier: "passed" },
+        profile_updated_at: "2026-10-28T10:00:00Z",
+        current_conflict: NAME_SCALAR,
+      }),
     );
     undoMock.mockResolvedValue({ restored: true });
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
@@ -223,8 +227,65 @@ describe("ProfileReviewDrawer", () => {
     );
     // One undo, from the notice.
     fireEvent.click(await screen.findByTestId("profile-review-undo"));
-    await waitFor(() => expect(undoMock).toHaveBeenCalled());
+    await waitFor(() => expect(undoMock).toHaveBeenCalledWith("2026-10-28T10:00:00Z"));
     expect(await screen.findByText("Undone.")).toBeInTheDocument();
+  });
+
+  async function confirmMergeWith(replyExtra: Record<string, unknown>) {
+    startOn(LIST_CONFLICT);
+    proposalMock.mockResolvedValue({ proposal: "One sentence.", verifier: "passed" });
+    outcomeMock.mockResolvedValue(reply({ current_conflict: NAME_SCALAR, ...replyExtra }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
+    fireEvent.click(screen.getByTestId("conflict-outcome-merge"));
+    await screen.findByTestId("conflict-merge-text");
+    fireEvent.click(screen.getByTestId("conflict-merge-confirm"));
+    await waitFor(() => expect(outcomeMock).toHaveBeenCalled());
+  }
+
+  it("ADV-8: no Undo for a merge reply that wrote nothing", async () => {
+    await confirmMergeWith({ interpreted: null, profile_updated_at: "2026-10-28T10:00:00Z" });
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toHaveTextContent("Name"));
+    expect(screen.queryByTestId("profile-review-undo")).not.toBeInTheDocument();
+  });
+
+  it("A1-4: a dispute already answered says so and offers no Undo", async () => {
+    await confirmMergeWith({
+      interpreted: { already_answered: true, outcome: null, verifier: null },
+      profile_updated_at: null,
+    });
+    expect(await screen.findByTestId("profile-review-notice")).toHaveTextContent(
+      "This question had already been answered – nothing was changed.",
+    );
+    expect(screen.queryByTestId("profile-review-undo")).not.toBeInTheDocument();
+  });
+
+  it("ADV-8: no Undo without the merge's basis", async () => {
+    await confirmMergeWith({ interpreted: { outcome: "merge", verifier: "passed" } });
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toHaveTextContent("Name"));
+    expect(screen.queryByTestId("profile-review-undo")).not.toBeInTheDocument();
+  });
+
+  it("ADV-8: the next answer removes the Undo; a 409 says the profile changed", async () => {
+    await confirmMergeWith({
+      interpreted: { outcome: "merge", verifier: "passed" },
+      profile_updated_at: "2026-10-28T10:00:00Z",
+    });
+    undoMock.mockRejectedValue(new ReviewApiError(409, "undo_stale", "undo_stale"));
+    fireEvent.click(await screen.findByTestId("profile-review-undo"));
+    expect(await screen.findByText("Your profile has changed since then – undo is no longer possible.")).toBeInTheDocument();
+  });
+
+  it("ADV-8: the Undo is gone once the next answer is written", async () => {
+    await confirmMergeWith({
+      interpreted: { outcome: "merge", verifier: "passed" },
+      profile_updated_at: "2026-10-28T10:00:00Z",
+    });
+    await screen.findByTestId("profile-review-undo");
+    outcomeMock.mockResolvedValue(reply({ complete: false, current_conflict: NAME_SCALAR }));
+    fireEvent.click(screen.getByTestId("conflict-outcome-keep_current"));
+    await waitFor(() => expect(outcomeMock).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("profile-review-undo")).not.toBeInTheDocument();
   });
 
   it("merge: 'back' returns to the options without writing", async () => {

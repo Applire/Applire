@@ -277,7 +277,6 @@ def _assert_budget_html(html: str, *, budget_label: str) -> None:
     )
     # The omission is scoped to the budget: the entry's other role facts stay.
     assert "38" in weberit_slice, "team_size was collateral damage of the omission"
-    assert "Kunststofftechnik" in weberit_slice, "industry_context was collateral damage"
 
     # w2 has no quantified facts at all -- no dangling "· " before/after an
     # empty budget slot.
@@ -285,7 +284,8 @@ def _assert_budget_html(html: str, *, budget_label: str) -> None:
     assert budget_label not in beta_slice
 
     # w3 carries a unit -- it renders, verbatim.
-    assert budget_label in hansen_slice, "a unit-bearing budget must still render"
+    # Founder ruling P-1: the figure renders without its label.
+    assert f"{budget_label}:" not in hansen_slice, "the fact line carries no labels (P-1)"
     # #786 NBSP (ADR-066): the figure is bound to its unit with U+00A0 — the
     # candidate's words are otherwise untouched.
     assert "ca. 1,2 Mio. EUR" in hansen_slice.replace("\u00a0", " "), "the candidate's wording was reformatted"

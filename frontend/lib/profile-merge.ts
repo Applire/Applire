@@ -112,10 +112,38 @@ export function commitMerge(
   });
 }
 
-export async function undoLastMerge(): Promise<{ restored: boolean; discarded_later_edits?: boolean }> {
-  const res = await fetch(`${API_BASE}/api/profile/undo-last-merge`, { method: "POST" });
-  if (!res.ok) throw new ReviewApiError(res.status, null, `HTTP ${res.status}`);
+/**
+ * ADV-8 (ruling main): an undo names the merge it undoes — the profile's
+ * `updated_at` right after that merge. The server refuses (409 `undo_stale`)
+ * when the profile changed since, instead of rolling later writes back.
+ */
+export async function undoLastMerge(
+  expectedUpdatedAt: string,
+): Promise<{ restored: boolean; discarded_later_edits?: boolean }> {
+  const res = await fetch(`${API_BASE}/api/profile/undo-last-merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expected_updated_at: expectedUpdatedAt }),
+  });
+  if (!res.ok) {
+    let code: string | null = null;
+    try {
+      const detail = (await res.json())?.detail;
+      code = typeof detail === "string" ? detail : (detail?.code ?? null);
+    } catch {
+      /* keep null */
+    }
+    throw new ReviewApiError(res.status, code, code ?? `HTTP ${res.status}`);
+  }
   return res.json();
+}
+
+/** The profile moved past the merge's own write — its Undo is no longer offered. */
+export function undoSuperseded(basis: string, profileUpdatedAt: string | null | undefined): boolean {
+  if (!profileUpdatedAt) return false;
+  const now = Date.parse(profileUpdatedAt);
+  const then = Date.parse(basis);
+  return Number.isFinite(now) && Number.isFinite(then) && now > then;
 }
 
 export async function keepEntriesSeparate(section: string, entryIds: string[]): Promise<boolean> {

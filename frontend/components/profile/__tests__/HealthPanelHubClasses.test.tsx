@@ -141,6 +141,21 @@ describe("HealthPanel — hub per delivery class", () => {
     expect(screen.getByTestId("health-not-applied-go-to-section")).toBeInTheDocument();
   });
 
+  it("D-2: an item without adoptable:true gets no 'Übernehmen'; a class-S item is not shown", () => {
+    const issue = notApplied([true, true, true]);
+    issue.not_applied_items![1] = { ...issue.not_applied_items![1], adoptable: null };
+    issue.not_applied_items![2] = { ...issue.not_applied_items![2], delivery_class: "S" };
+    render(
+      withIntl(
+        <HealthPanel health={health([issue])} onResolve={vi.fn()} actions={{ onAdoptItem: vi.fn(), onGoToSection: vi.fn() }} />,
+        "en",
+      ),
+    );
+    expect(screen.getAllByTestId("health-not-applied-item")).toHaveLength(2);
+    expect(screen.getAllByTestId("health-adopt-item")).toHaveLength(1);
+    expect(screen.queryByText("Skill 2")).toBeNull();
+  });
+
   it("a not-applied issue without item keys keeps the #705 route", () => {
     const legacy = notApplied([true]);
     legacy.not_applied_items = legacy.not_applied_items!.map(({ section, label, reason }) => ({ section, label, reason }));

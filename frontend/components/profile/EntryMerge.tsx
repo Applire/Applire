@@ -30,6 +30,7 @@ import {
   previewComplete,
   previewMerge,
   undoLastMerge,
+  undoSuperseded,
   type DuplicateOutcome,
   type EntryRef,
   type MergePreview,
@@ -60,6 +61,9 @@ interface DialogState {
 interface BannerState {
   source: EntryRef;
   target: EntryRef;
+  /** ADV-8 — the profile's `updated_at` right after the merge: the undo's basis. */
+  basis: string;
+  stale?: boolean;
   undone: boolean;
   failed: boolean;
 }
@@ -69,10 +73,15 @@ type Answers = Record<string, { outcome: DuplicateOutcome; merged_text?: string 
 export function EntryMergeProvider({
   entriesBySection,
   onProfileChanged,
+  profileUpdatedAt,
   children,
 }: {
   entriesBySection: Partial<Record<MergeSection, EntryRef[]>>;
   onProfileChanged: () => void;
+  /** ADV-8 — the page's current profile `updated_at`. Once it moves past the
+   *  merge's own write, the banner (and its Undo) is gone: an undo restores the
+   *  whole pre-merge snapshot and would roll the later write back too. */
+  profileUpdatedAt?: string | null;
   children: ReactNode;
 }) {
   const t = useTranslations("profile.entryMerge");
@@ -101,11 +110,15 @@ export function EntryMergeProvider({
     if (!banner || undoBusy) return;
     setUndoBusy(true);
     try {
-      await undoLastMerge();
+      await undoLastMerge(banner.basis);
       setBanner({ ...banner, undone: true, failed: false });
       onProfileChanged();
-    } catch {
-      setBanner({ ...banner, failed: true });
+    } catch (err) {
+      if (err instanceof ReviewApiError && err.status === 409) {
+        setBanner({ ...banner, stale: true, failed: false });
+      } else {
+        setBanner({ ...banner, failed: true });
+      }
     } finally {
       setUndoBusy(false);
     }
@@ -122,15 +135,16 @@ export function EntryMergeProvider({
             initialTarget={dialog.target}
             candidates={refsFor(dialog.source.section).filter((r) => r.id !== dialog.source.id)}
             onClose={() => setDialog(null)}
-            onDone={(source, target) => {
+            onDone={(source, target, basis) => {
               setDialog(null);
-              setBanner({ source, target, undone: false, failed: false });
+              setBanner({ source, target, basis, undone: false, failed: false });
               onProfileChanged();
             }}
           />,
           document.body,
         )}
       {banner &&
+        !(!banner.undone && undoSuperseded(banner.basis, profileUpdatedAt)) &&
         createPortal(
           <div
             data-testid="entry-merge-banner"
@@ -139,13 +153,15 @@ export function EntryMergeProvider({
             style={{ maxWidth: "calc(100vw - 32px)" }}
           >
             <span>
-              {banner.failed
+              {banner.stale
+                ? t("undoStale")
+                : banner.failed
                 ? t("failed")
                 : banner.undone
                   ? t("undone")
                   : t("done", { source: banner.source.label, target: banner.target.label })}
             </span>
-            {!banner.undone && (
+            {!banner.undone && !banner.stale && (
               <button
                 type="button"
                 data-testid="entry-merge-undo"
@@ -296,7 +312,7 @@ function MergeDialog({
   initialTarget: EntryRef | null;
   candidates: EntryRef[];
   onClose: () => void;
-  onDone: (source: EntryRef, target: EntryRef) => void;
+  onDone: (source: EntryRef, target: EntryRef, basis: string) => void;
 }) {
   const t = useTranslations("profile.entryMerge");
   const tProfile = useTranslations("profile");
@@ -355,8 +371,13 @@ function MergeDialog({
     setFailed(false);
     setStale(false);
     try {
-      await commitMerge(source.section, target.id, source.id, buildChoices(preview, dates, answers));
-      onDone(source, target);
+      const merged = await commitMerge(
+        source.section,
+        target.id,
+        source.id,
+        buildChoices(preview, dates, answers),
+      );
+      onDone(source, target, merged.updated_at);
     } catch (err) {
       if (err instanceof ReviewApiError && err.status === 409) {
         setStale(true);

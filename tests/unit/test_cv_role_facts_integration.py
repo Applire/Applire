@@ -254,20 +254,17 @@ async def test_role_facts_rendered_as_furniture_in_german_html(db):
     from applire.services.cv import get_cv_html
     html = await get_cv_html(cv.id, db)
 
-    assert "38" in html
-    assert "ca. 6 Mio. EUR" in html.replace("\u00a0", " ")  # #786 NBSP binds figure+unit
-    assert "Anlagenbau" in html
-    # DE labels (labels[lang] chrome mechanism, ADR-038) -- not hardcoded EN.
-    assert "Teamgröße" in html
-    assert "Branche" in html
+    # Founder ruling P-1: one unlabelled fact line, figures only, no industry.
+    flat = html.replace("\u00a0", " ")
+    assert '<div class="entry-facts">38 Personen · ca. 6 Mio. EUR</div>' in flat
+    assert "Teamgröße" not in flat
+    assert "Branche:" not in flat
+    assert "Budget:" not in flat
 
-    # The no-facts role must NOT grow a dangling furniture line (no empty
-    # separators, no empty label pair).
-    import re
-    junior_block = html[html.index("Junior Consultant"):html.index("Junior Consultant") + 400]
-    assert "Teamgröße" not in junior_block
-    assert "Budget" not in junior_block
-    assert "Branche" not in junior_block
+    # The no-facts role must NOT grow a dangling furniture line.
+    junior_block = flat[flat.index("Junior Consultant"):flat.index("Junior Consultant") + 400]
+    assert "entry-facts" not in junior_block
+    assert "Personen" not in junior_block
 
 
 @pytest.mark.asyncio
@@ -280,11 +277,10 @@ async def test_role_facts_rendered_as_furniture_in_english_html(db):
     from applire.services.cv import get_cv_html
     html = await get_cv_html(cv.id, db)
 
-    assert "38" in html
-    assert "ca. 6 Mio. EUR" in html.replace("\u00a0", " ")  # #786 NBSP binds figure+unit
-    assert "Anlagenbau" in html
-    assert "Team size" in html
-    assert "Industry" in html
-    # The German labels must NOT leak into the English render.
-    assert "Teamgröße" not in html
-    assert "Branche" not in html
+    flat = html.replace("\u00a0", " ")
+    assert '<div class="entry-facts">38 people · ca. 6 Mio. EUR</div>' in flat
+    assert "Team size" not in flat
+    assert "Industry:" not in flat
+    # The German words must NOT leak into the English render.
+    assert "Personen" not in flat
+    assert "Teamgröße" not in flat

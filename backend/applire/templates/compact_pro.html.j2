@@ -252,12 +252,11 @@
             <div class="entry-dates">{{ job.start_date | month_year }} – {{ job.end_date | month_year if job.end_date else labels.present }}</div>
           </div>
           <div class="entry-subtitle">{{ job.company }}</div>
-          {% set role_facts = [] %}
-          {% if job.team_size is not none %}{% set _ = role_facts.append(labels.role_team_size ~ ': ' ~ job.team_size) %}{% endif %}
-          {% set budget_text = job.budget_managed | budget_display(lang) %}{% if budget_text %}{% set _ = role_facts.append(labels.role_budget ~ ': ' ~ budget_text) %}{% endif %}
-          {% if job.industry_context %}{% set _ = role_facts.append(labels.role_industry ~ ': ' ~ job.industry_context) %}{% endif %}
-          {% if role_facts %}
-          <div class="entry-facts">{{ role_facts | join(' · ') }}</div>
+          {# Founder ruling P-1: one fact line, numbers only, no labels, no industry
+             (filters.role_facts — shared with the .docx export). #}
+          {% set role_facts_text = job | role_facts(lang) %}
+          {% if role_facts_text %}
+          <div class="entry-facts">{{ role_facts_text }}</div>
           {% endif %}
           {% endset %}
           {% if n_bullets > 3 %}

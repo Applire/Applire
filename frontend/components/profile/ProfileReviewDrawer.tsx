@@ -67,8 +67,9 @@ interface Message {
 interface Notice {
   tone: "ok" | "warn";
   text: string;
-  /** A confirmed merge can be undone from the notice (one undo, ADR-099 cl. 11). */
-  undo?: boolean;
+  /** A confirmed merge can be undone from the notice (one undo, ADR-099 cl. 11):
+   *  the profile's `updated_at` right after the merge — the undo's basis (ADV-8). */
+  undo?: string;
 }
 
 /**
@@ -259,7 +260,9 @@ export function ProfileReviewDrawer({
   const afterReply = useCallback(
     (result: ReviewReply, onScreen: CurrentConflict | null, typed: boolean) => {
       const read = result.interpreted ?? null;
-      if (mergeBecameOwnStatement(read)) {
+      if (read?.already_answered) {
+        setNotice({ tone: "warn", text: t("alreadyAnswered") });
+      } else if (mergeBecameOwnStatement(read)) {
         setNotice({ tone: "warn", text: t("mergeBecameTestimony") });
       } else if (read?.corrected_value) {
         setNotice({ tone: "ok", text: t("correctedSaved", { value: read.corrected_value }) });
@@ -318,9 +321,14 @@ export function ProfileReviewDrawer({
       line,
       async () => {
         const result = await answerWithOutcome(sessionId, outcome, mergedText);
-        // A confirmed merge that passed the server's re-check can be undone.
-        if (outcome === "merge_confirm" && !mergeBecameOwnStatement(result.interpreted)) {
-          setNotice({ tone: "ok", text: t("mergeDone"), undo: true });
+        // ADV-8: Undo only for a merge the server says it WROTE, and only with
+        // its basis; the notice goes with the next answer (the next write).
+        if (
+          outcome === "merge_confirm" &&
+          result.interpreted?.outcome === "merge" &&
+          result.profile_updated_at
+        ) {
+          setNotice({ tone: "ok", text: t("mergeDone"), undo: result.profile_updated_at });
         }
         return result;
       },
@@ -350,12 +358,15 @@ export function ProfileReviewDrawer({
     return null;
   };
 
-  const undo = async () => {
+  const undo = async (basis: string) => {
     try {
-      const r = await undoLastMerge();
+      const r = await undoLastMerge(basis);
       setNotice({ tone: "ok", text: r.restored ? t("undone") : t("undoNothing") });
-    } catch {
-      setNotice({ tone: "warn", text: t("actionFailed") });
+    } catch (e: unknown) {
+      setNotice({
+        tone: "warn",
+        text: e instanceof ReviewApiError && e.status === 409 ? t("undoStale") : t("actionFailed"),
+      });
     }
   };
 
@@ -569,7 +580,7 @@ function ReviewNotice({
   undoLabel,
 }: {
   notice: Notice;
-  onUndo: () => void;
+  onUndo: (basis: string) => void;
   undoLabel: string;
 }) {
   return (
@@ -585,7 +596,7 @@ function ReviewNotice({
     >
       <span>{notice.text}</span>
       {notice.undo && (
-        <Button size="sm" variant="ghost" data-testid="profile-review-undo" onClick={onUndo}>
+        <Button size="sm" variant="ghost" data-testid="profile-review-undo" onClick={() => onUndo(notice.undo!)}>
           {undoLabel}
         </Button>
       )}

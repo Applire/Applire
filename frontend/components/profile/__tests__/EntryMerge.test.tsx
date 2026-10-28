@@ -36,6 +36,7 @@ function res(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
 }
 
+const MERGED_AT = "2026-10-28T10:00:00.000Z";
 let fetchMock: ReturnType<typeof vi.fn>;
 let commitResponses: Response[];
 
@@ -47,7 +48,7 @@ function bodies(mode: string): Array<Record<string, unknown>> {
 }
 
 beforeEach(() => {
-  commitResponses = [res(200, { ok: true })];
+  commitResponses = [res(200, { ok: true, updated_at: MERGED_AT })];
   fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (String(url).endsWith("/api/profile/undo-last-merge")) return res(200, { restored: true });
     const body = JSON.parse((init?.body as string) ?? "{}");
@@ -62,12 +63,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function Harness({ onProfileChanged = vi.fn() }: { onProfileChanged?: () => void }) {
+function Harness({
+  onProfileChanged = vi.fn(),
+  profileUpdatedAt = null,
+}: {
+  onProfileChanged?: () => void;
+  profileUpdatedAt?: string | null;
+}) {
   const all = [W1, W2, P1, P2];
   return (
     <EntryMergeProvider
       entriesBySection={{ work_experience: [W1, W2], projects: [P1, P2] }}
       onProfileChanged={onProfileChanged}
+      profileUpdatedAt={profileUpdatedAt}
     >
       {all.map((r) => (
         <EntryDropZone key={r.id} entry={r} className="row">
@@ -185,7 +193,46 @@ describe("EntryMerge", () => {
     const undoCall = fetchMock.mock.calls.find(([u]) => String(u).endsWith("/api/profile/undo-last-merge"));
     expect(undoCall).toBeTruthy();
     expect((undoCall![1] as RequestInit).method).toBe("POST");
+    // ADV-8 — the undo names the merge it undoes.
+    expect(JSON.parse((undoCall![1] as RequestInit).body as string)).toEqual({ expected_updated_at: MERGED_AT });
     expect(screen.getByTestId("entry-merge-banner").textContent).toContain("Undone");
+  });
+
+  async function mergeOnce() {
+    await openPreviewViaPicker();
+    fireEvent.click(screen.getByTestId("entry-merge-dates-target"));
+    fireEvent.click(screen.getByTestId("entry-merge-dup-keep_current"));
+    fireEvent.click(screen.getByTestId("entry-merge-confirm"));
+    return screen.findByTestId("entry-merge-banner");
+  }
+
+  it("ADV-8: the banner and its Undo go once the profile moves past the merge's write", async () => {
+    const { rerender } = render(withIntl(<Harness profileUpdatedAt="2026-10-28T09:00:00.000Z" />, "en"));
+    await mergeOnce();
+    // The reload after the merge itself carries the merge's own timestamp: still offered.
+    rerender(withIntl(<Harness profileUpdatedAt={MERGED_AT} />, "en"));
+    expect(screen.getByTestId("entry-merge-undo")).toBeInTheDocument();
+    // Any later write (an edit, a hub answer, an import) moves it past: gone.
+    rerender(withIntl(<Harness profileUpdatedAt="2026-10-28T10:05:00.000Z" />, "en"));
+    expect(screen.queryByTestId("entry-merge-banner")).toBeNull();
+    expect(screen.queryByTestId("entry-merge-undo")).toBeNull();
+  });
+
+  it("ADV-8: a 409 from the undo says the profile changed and offers no second try", async () => {
+    renderHarness();
+    await mergeOnce();
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith("/api/profile/undo-last-merge")
+        ? res(409, { detail: { code: "undo_stale" } })
+        : res(200, {}),
+    );
+    fireEvent.click(screen.getByTestId("entry-merge-undo"));
+    await waitFor(() =>
+      expect(screen.getByTestId("entry-merge-banner").textContent).toContain(
+        "Your profile has changed since then – undo is no longer possible.",
+      ),
+    );
+    expect(screen.queryByTestId("entry-merge-undo")).toBeNull();
   });
 
   it("(f) drag one entry onto another fetches the preview; another section shows no hint", async () => {

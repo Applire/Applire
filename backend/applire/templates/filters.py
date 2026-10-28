@@ -37,6 +37,7 @@ from applire.utils.budget_unit import budget_needs_unit
 __all__ = [
     "month_year",
     "budget_display",
+    "role_facts",
     "education_title",
     "register_filters",
     "build_template_env",
@@ -154,6 +155,59 @@ def budget_display(value: object, lang: str = "de") -> str:
     return text
 
 
+#: Founder ruling P-1 (Hazelnut build 5): the team size is shown as a count of
+#: people, without a label.
+_TEAM_WORDS = {
+    "de": ("Person", "Personen"),
+    "en": ("person", "people"),
+}
+
+
+def _attr(entry: object, name: str):
+    if isinstance(entry, dict):
+        return entry.get(name)
+    return getattr(entry, name, None)
+
+
+def role_facts(entry: object, lang: str = "de") -> str:
+    """THE per-role fact line under a job entry, for every CV template AND the
+    .docx export (founder ruling P-1, Hazelnut build 5).
+
+    A blind panel (4 of 6 reviewers) read the old ``Teamgröße: 12 · Budget: … ·
+    Branche: …`` line as "template-generated". The ruling:
+
+    * the industry is never rendered — not alone, not in the line;
+    * the line exists only when it holds a figure — a team size and/or a budget —
+      and it carries no labels: ``12 Personen · ca. 2 Mio. EUR``;
+    * no number → no line (``""``), so the caller's ``{% if %}`` drops the whole
+      element.
+
+    A team size of 0 ("no direct reports") is not rendered: "0 Personen" is
+    exactly the furniture the panel objected to, and it holds no claim a reader
+    could use. The budget goes through :func:`budget_display` first, so a
+    unit-less figure (#382) stays omitted.
+
+    >>> role_facts({"team_size": 12, "budget_managed": "ca. 2 Mio. EUR", "industry_context": "Logistik"}, "de")
+    '12 Personen · ca. 2 Mio. EUR'
+    >>> role_facts({"industry_context": "Logistik"}, "de")
+    ''
+    >>> role_facts({"team_size": 1}, "en")
+    '1 person'
+    """
+    parts: list[str] = []
+    team = _attr(entry, "team_size")
+    if isinstance(team, bool):
+        team = None
+    if isinstance(team, (int, float)) and team > 0:
+        one, many = _TEAM_WORDS.get(lang, _TEAM_WORDS["en"])
+        n = int(team) if float(team).is_integer() else team
+        parts.append(f"{n} {one if n == 1 else many}")
+    budget = budget_display(_attr(entry, "budget_managed"), lang).strip()
+    if budget:
+        parts.append(budget)
+    return " · ".join(parts)
+
+
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
@@ -249,6 +303,7 @@ def register_filters(env) -> None:
     """
     env.filters["month_year"] = month_year
     env.filters["budget_display"] = budget_display
+    env.filters["role_facts"] = role_facts
     env.filters["education_title"] = education_title
 
 

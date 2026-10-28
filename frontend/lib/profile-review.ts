@@ -39,6 +39,8 @@ export interface Interpreted {
   corrected_value?: string | null;
   follow_up?: string | null;
   verifier?: "passed" | "failed" | null;
+  /** INTERFACE A1-4 — the dispute was gone already; nothing was written. */
+  already_answered?: boolean | null;
 }
 
 /** A confirmed merge's text failed the fact check and went in as the
@@ -67,6 +69,8 @@ export interface ReviewReply extends ReviewTurn {
   complete: boolean;
   gaps_remaining: number | null;
   interpreted?: Interpreted | null;
+  /** ADV-8 — the profile's `updated_at` after this reply's write (the undo basis). */
+  profile_updated_at?: string | null;
 }
 
 export interface MergeProposal {
