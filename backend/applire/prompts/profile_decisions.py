@@ -149,6 +149,7 @@ NEVER listed:
 - an ongoing duty or role, even about a project or an area: "Lead a team of 8
   engineers", "Manage a cloud migration project using Azure", "Act as lead
   architect for the payments area", "Set strategic direction for the platform",
+  "Build and grow the analytics team through hiring and coaching",
   "Verantwortung für das Budget";
 - anything the bullet states as reached, done, built or measured, in any tense:
   "Established …", "The pilot reached a 40% saving", "cut costs by 18%",
