@@ -220,6 +220,9 @@
 
     .skills-list li {
       font-size: 10.5pt;
+      /* U-10: a chip never splits across pages; rows break between chips. */
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     .skills-list li::before {
@@ -466,17 +469,14 @@
   <!-- ===== KENNTNISSE ===== -->
   {% if cv.skills %}
   {% set n_skills = cv.skills | length %}
+  {# U-10 (Hazelnut b5): ONE wrapping chip list — see modern_swiss.html.j2. #}
   <section class="section{{ ' section-atomic' if n_skills <= 6 else '' }}">
-    {% if n_skills > 6 %}<div class="section-lead">{% endif %}
     <h2 class="section-title">{{ labels.skills }}</h2>
     <ul class="skills-list">
       {% for skill in cv.skills %}
-      {% if n_skills > 6 and loop.index == 3 %}</ul></div><ul class="skills-list">{% endif %}
-      {% if n_skills > 6 and loop.revindex == 2 %}</ul><div class="section-tail"><ul class="skills-list">{% endif %}
       <li>{{ skill }}</li>
       {% endfor %}
     </ul>
-    {% if n_skills > 6 %}</div>{% endif %}
   </section>
   {% endif %}
 

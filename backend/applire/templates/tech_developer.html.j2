@@ -203,6 +203,9 @@
       border: 1px solid var(--cv-primary);
       border-radius: 2pt;
       color: var(--cv-primary);
+      /* U-10: a chip never splits across pages; rows break between chips. */
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     .summary-text {
@@ -275,17 +278,14 @@
 
   {% if cv.skills %}
   {% set n_skills = cv.skills | length %}
+  {# U-10 (Hazelnut b5): ONE wrapping chip list — see modern_swiss.html.j2. #}
   <div class="section{{ ' section-atomic' if n_skills <= 6 else '' }}">
-    {% if n_skills > 6 %}<div class="section-lead">{% endif %}
     <div class="section-label">{{ labels.skills | lower }}</div>
     <ul class="skills-grid">
       {% for skill in cv.skills %}
-      {% if n_skills > 6 and loop.index == 3 %}</ul></div><ul class="skills-grid">{% endif %}
-      {% if n_skills > 6 and loop.revindex == 2 %}</ul><div class="section-tail"><ul class="skills-grid">{% endif %}
       <li>{{ skill }}</li>
       {% endfor %}
     </ul>
-    {% if n_skills > 6 %}</div>{% endif %}
   </div>
   {% endif %}
 
