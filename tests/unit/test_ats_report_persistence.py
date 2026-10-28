@@ -1002,6 +1002,8 @@ async def test_letter_condense_rerender_failure_audits_with_null_pdf_not_stale(d
     mock_update_report = AsyncMock()
 
     with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter._letter_truth_audit", new=AsyncMock(return_value=None)), \
+         patch("applire.services.cover_letter._in_loop_letter_critic", new=AsyncMock(return_value=[])), \
          patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
          patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
          patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 0), \
@@ -1136,6 +1138,8 @@ async def test_letter_condense_commit_failure_rolls_back_to_original_not_half_st
         return await real_commit()
 
     with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter._letter_truth_audit", new=AsyncMock(return_value=None)), \
+         patch("applire.services.cover_letter._in_loop_letter_critic", new=AsyncMock(return_value=[])), \
          patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
          patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
          patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 0), \
@@ -1584,6 +1588,8 @@ async def test_letter_overrun_triggers_one_condense_regenerate(db_with_cover_let
     mock_extract = MagicMock(side_effect=[("text", 2), ("text", 1)])
 
     with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter._letter_truth_audit", new=AsyncMock(return_value=None)), \
+         patch("applire.services.cover_letter._in_loop_letter_critic", new=AsyncMock(return_value=[])), \
          patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
          patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
          patch("applire.services.cover_letter_pdf.render_pdf", mock_render_pdf), \
@@ -1809,6 +1815,8 @@ async def test_v2_letter_condense_commit_failure_still_reaches_ready(
         return await real_commit()
 
     with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter._letter_truth_audit", new=AsyncMock(return_value=None)), \
+         patch("applire.services.cover_letter._in_loop_letter_critic", new=AsyncMock(return_value=[])), \
          patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
          patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
          patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 0), \

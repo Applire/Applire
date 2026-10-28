@@ -201,6 +201,7 @@ _DOC: dict[str, Entry] = {
     "terminal:cv.page_length": _e("S"),                   # → the page-length card
     "terminal:letter.page_length": _e("S"),               # → the page-length card
     "terminal:cv.language_shape": _e("S"),                # → document-language
+    "terminal:cv.language_mixed": _e("S"),                # → document-language (second round)
     "terminal:letter.language": _e("S"),                  # → document-language
     "terminal:cv.identifier_not_in_profile": _e("S"),     # → oracle:identifierAbsent
     "terminal:letter.identifier": _e("S"),                # → oracle:identifierAbsent
@@ -211,6 +212,10 @@ _DOC: dict[str, Entry] = {
     "terminal:note:letter.limit_kept": _e("S"),
     "terminal:note:letter.missing_terms": _e("S"),
     "terminal:letter.post_condense": _e("S"),
+    # the in-loop critic's advisory findings (cl. 8): never a delivered note, residue S
+    "terminal:letter.critic_numeric": _e(_F, None, "S"),
+    "terminal:critic.internal_inconsistency": _e(_F, None, "S"),
+    "terminal:critic.numeric_inconsistency": _e(_F, None, "S"),
 
     # ── outcome critic (cl. 8, UAT-3j) ───────────────────────────────────────────
     "critic:numeric_inconsistency": _e(_F, None, "S"),
@@ -317,14 +322,21 @@ def rendered_class(entry: Entry) -> tuple[DeliveryClass, Optional[str]]:
     return entry.cls, entry.resolver
 
 
-def _stamp(row: dict, kinds: list[str], unregistered: list[str]) -> None:
+def _stamp(row: dict, kinds: list[str], unregistered: list[str], clean: Optional[bool] = True,
+           silent: list[str] | None = None) -> None:
     hit = resolve(kinds)
     if hit is None:
         unregistered.append(kinds[-1])
         row["delivery_class"], row["resolver"] = None, None
         return
     cls, res = rendered_class(hit[1])
+    if hit[1].cls == _F and cls == "S" and clean is not True:
+        # ADR-099 cl. 4(d) / adv S7: nothing fixed it (agent door, degraded loop) —
+        # S may only stand for a producer that answered, so it is unknown.
+        cls, res = "U", "regenerate"
     row["delivery_class"], row["resolver"] = cls, res
+    if cls == "S" and silent is not None:
+        silent.append(hit[0])
 
 
 #: keyword buckets stamped on ``ATSKeywordCoverage.delivery``
@@ -344,6 +356,11 @@ def annotate_report(report: dict | None) -> list[str]:
     unregistered: list[str] = []
     if not isinstance(report, dict):
         return unregistered
+    delivery = report.get("delivery")
+    # No delivery state yet (the audit seam, before generation records it): stamp
+    # as if clean; :func:`apply_delivery` re-stamps once the loop's state is known.
+    clean = delivery.get("loop_clean") if isinstance(delivery, dict) else True
+    silent: list[str] = []
     try:
         for check in report.get("checks") or []:
             if not isinstance(check, dict):
@@ -354,10 +371,15 @@ def annotate_report(report: dict | None) -> list[str]:
                     unregistered.append(check_kinds(check)[-1])
                 check["delivery_class"], check["resolver"] = "S", None
             else:
-                _stamp(check, check_kinds(check), unregistered)
+                _stamp(check, check_kinds(check), unregistered, clean, silent)
             for note in check.get("notes") or []:
                 if isinstance(note, dict):
-                    _stamp(note, note_kinds(note), unregistered)
+                    _stamp(note, note_kinds(note), unregistered, clean, silent)
+        if isinstance(delivery, dict) and silent:
+            logger.info(
+                "DELIVERY_SILENT loop_clean=%s count=%d kinds=%s",
+                clean, len(silent), sorted(set(silent)),
+            )
         kw = report.get("keywords")
         if isinstance(kw, dict):
             delivery = {}
@@ -414,3 +436,109 @@ def stamp_truthfulness_model(report):
     except Exception:  # noqa: BLE001
         logger.exception("finding_registry.stamp_truthfulness_model failed")
     return report
+
+
+# ── ADR-099 cl. 4(d)/5 (WP-B): the delivery state on the report ──────────────
+
+
+def loop_clean_of(review_degradation) -> Optional[bool]:
+    """``[]`` → True (the loop ran and every step answered); non-empty → False;
+    ``None`` (agent-door render, legacy row: nothing recorded) → None."""
+    if review_degradation is None:
+        return None
+    return not bool(review_degradation)
+
+
+def apply_delivery(
+    report: dict | None,
+    *,
+    review_degradation,
+    removals: list[dict] | None = None,
+    fixed: list[str] | None = None,
+    previous: dict | None = None,
+) -> dict | None:
+    """Return a COPY of ``report`` carrying ``delivery`` (``DeliveryState``) with
+    every row re-stamped for it (:func:`annotate_report`). Never raises.
+
+    * ``removals``/``fixed`` None → carried from ``previous`` (the report this
+      one replaces): a re-audit after an edit describes the same generation.
+    * Not clean (``loop_clean`` False or None): a class-F kind whose residue is
+      silent renders as class U "regenerate" (adv S7; the T-S negative test).
+    * The S rows are counted into one operator log line (T-S)."""
+    if not isinstance(report, dict):
+        return report
+    try:
+        import copy as _copy
+
+        out = _copy.deepcopy(report)
+        prev = (previous or {}).get("delivery") if isinstance(previous, dict) else None
+        prev = prev if isinstance(prev, dict) else {}
+        out["delivery"] = {
+            "loop_clean": loop_clean_of(review_degradation),
+            "removals": list(removals if removals is not None else prev.get("removals") or []),
+            "fixed": list(fixed if fixed is not None else prev.get("fixed") or []),
+        }
+        bad = annotate_report(out)
+        if bad:
+            logger.warning("FINDING_REGISTRY_UNREGISTERED kinds=%s", sorted(set(bad)))
+        return out
+    except Exception:  # noqa: BLE001
+        logger.exception("finding_registry.apply_delivery failed; report left as is")
+        return report
+
+
+def removal_rows(removed, *, pins=None, section_of=None) -> list[dict]:
+    """``DeliveryRemoval`` dicts for the truth round's removed findings. ``pins``:
+    FactPin-like objects (``quote``) — a removal whose text holds a pinned quote is
+    ``pinned`` (ADR-077 cl. 2: always shown expanded)."""
+    from applire.services.review_state import finding_key, norm_quote
+
+    quotes = [norm_quote(getattr(p, "quote", "") or "") for p in pins or [] if not getattr(p, "stale", False)]
+    rows = []
+    for f in removed or []:
+        t = norm_quote(f.text)
+        rows.append({
+            "text": f.text,
+            "section": (section_of(f.location) if section_of else None) or (f.location.split("[")[0] or None),
+            "kind": f.kind,
+            "finding_key": finding_key("oracle", f.text),
+            "narrowed_to": None,
+            "pinned": any(q and (q in t or t in q) for q in quotes),
+        })
+    return rows
+
+
+def delivered_report(
+    report: dict | None,
+    *,
+    review_degradation,
+    truthfulness: dict | None,
+    delivered_data,
+    truth_round=None,
+    pins=None,
+) -> dict | None:
+    """The generation path's delivered ATS report with ``delivery`` (ADR-099 cl.
+    4(d)/5), CV and letter alike: removals = what the truth round removed that the
+    delivered document does not carry again; fixed = truth-round kinds the
+    delivered truthfulness report (the same instrument) no longer flags. Never
+    raises."""
+    from applire.services.attribution_round import claim_present
+
+    removals: list[dict] = []
+    fixed: list[str] = []
+    try:
+        if truth_round is not None and truth_round.findings:
+            flagged = {
+                str((c.get("claim") or {}).get("text") or "").casefold()
+                for c in (truthfulness or {}).get("claims") or []
+                if isinstance(c, dict) and (c.get("verdict") or {}).get("verdict") in _FLAG_VERDICTS
+            }
+            removals = removal_rows(
+                [f for f in truth_round.removed if not claim_present(f.text, delivered_data)],
+                pins=pins,
+            )
+            if truth_round.applied:
+                fixed = sorted({f.kind for f in truth_round.findings if f.text.casefold() not in flagged})
+    except Exception:  # noqa: BLE001
+        logger.exception("delivered_report: delivery state failed — none recorded")
+    return apply_delivery(report, review_degradation=review_degradation, removals=removals, fixed=fixed)

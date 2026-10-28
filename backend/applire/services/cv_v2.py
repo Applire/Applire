@@ -933,6 +933,51 @@ def build_v2_fields_block_for(profile_json: dict, job_dict: dict, keyword_ledger
     )
 
 
+def critic_findings(advisories: list, composed: Any) -> list[CheckFinding]:
+    """ADR-099 cl. 8 (UAT-2 fix round, WP-B): the outcome critic's internal /
+    numeric inconsistencies as ADVISORY findings for the terminal corrector —
+    advisory because the family's corrector compliance is not yet measured
+    (ADR-021 amendment; residue is class S). A finding rides only while BOTH
+    quoted spans are still in the composed CV (a presence fact, ADR-062 cl. 1) —
+    a fixed inconsistency is not re-raised. The critic's spans are the CV's own
+    words; vault values are never pasted (the corrector re-reads the profile)."""
+    if not advisories:
+        return []
+    try:
+        dumped = composed.model_dump() if hasattr(composed, "model_dump") else composed
+        haystack = " ".join(_strings(dumped)).casefold()
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[CheckFinding] = []
+    for a in advisories:
+        state = (getattr(a, "cv_state", None) or "").strip()
+        detail = (getattr(a, "cv_detail", None) or "").strip()
+        if not state or state.casefold() not in haystack or (detail and detail.casefold() not in haystack):
+            continue
+        pair = f'"{state}"' + (f' and "{detail}"' if detail else "")
+        out.append(CheckFinding(
+            check=f"critic.{a.kind}",
+            text=(
+                f"The CV contradicts itself: {pair} state the same thing differently. "
+                "Re-read the candidate profile and align the statement that differs from "
+                "it to what the profile states; never add a fact."
+            ),
+            blocking=False,
+            subjects=(state,),
+        ))
+    return out
+
+
+def _strings(node: Any) -> list[str]:
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, dict):
+        return [x for v in node.values() for x in _strings(v)]
+    if isinstance(node, list):
+        return [x for v in node for x in _strings(v)]
+    return []
+
+
 @dataclass
 class V2Terminal:
     """What the v2 terminal loop needs beyond v1's arguments."""
@@ -941,6 +986,9 @@ class V2Terminal:
     max_retries: int = V2_TERMINAL_MAX_RETRIES
     notes_by_draft: dict[str, ComposeNotes] = field(default_factory=dict)
     open_findings: list = field(default_factory=list)
+    #: ADR-099 cl. 8 (WP-B): the in-loop critic's internal / numeric
+    #: inconsistencies (``CriticAdvisory``), set once before the terminal review.
+    critic_advisories: list = field(default_factory=list)
 
     def compose(self, prose: dict, profile_json: dict, raw_profile_json: dict | None) -> "TailoredCVData":
         notes = ComposeNotes()
@@ -958,7 +1006,14 @@ class V2Terminal:
         def _fn(draft: dict) -> list[CheckFinding]:
             composed = subject_for(draft)
             notes = self.notes_by_draft.get(canonical(draft)) or ComposeNotes()
-            return v2_checks(draft, composed, notes, self.ctx)
+            own = v2_checks(draft, composed, notes, self.ctx)
+            critic = critic_findings(self.critic_advisories, composed)
+            if not critic:
+                return own
+            # ADR-099 cl. 4(c): one shared per-round cap; consistency ranks after
+            # the blocking checks and before the advisory craft checks.
+            ranked = [f for f in own if f.blocking] + critic + [f for f in own if not f.blocking]
+            return ranked[:MAX_FINDINGS_PER_ROUND]
         return _fn
 
     def delivered_findings(self, prose: dict, tailored_data: dict) -> list[CheckFinding]:
