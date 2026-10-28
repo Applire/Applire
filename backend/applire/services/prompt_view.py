@@ -334,8 +334,9 @@ def prompt_profile_view(
 #: ADV-2: the key a document prompt carries ``not_yet_reached`` under — the
 #: field's own name first (the v2 writer rules name it), then what it is.
 NOT_YET_REACHED_PROMPT_KEY = (
-    "not_yet_reached (the candidate's own answer: aims, not results; "
-    "write each as an aim, never as a result)"
+    "not_yet_reached (the candidate's own answer: not reached yet; write each in natural CV "
+    "wording as ongoing work or a mandate, e.g. 'driving …', 'mandate to …', 'target: …'; "
+    "never as achieved, and never say that it is an aim)"
 )
 
 
