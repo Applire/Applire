@@ -194,7 +194,7 @@ async def test_ja_writes_the_outcome_in_the_candidates_words(client, db_session)
     assert resp.status_code == 200
     entry = resp.json()["profile"]["work_experience"][0]
     assert entry["achievements"] == [TARGET, outcome]
-    assert GOAL in entry["responsibilities"] and entry["not_yet_reached"] == []
+    assert GOAL in entry["responsibilities"] and "not_yet_reached" not in entry  # omitted while empty
     last = resp.json()["profile"]["metadata"]["enrichment_history"][-1]
     assert last["source"] == "manual_edit"
     assert [c["rationale_key"] for c in last["changes"]] == ["aspiration_achieved"]

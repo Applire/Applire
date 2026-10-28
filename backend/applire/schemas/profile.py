@@ -340,8 +340,10 @@ class WorkEntry(ExperienceBase):
 
     @model_serializer(mode="wrap")
     def _omit_empty_company_aliases(self, handler: Any) -> Any:
+        # RULING B-1: `not_yet_reached` is omitted while empty too, so a
+        # profile nobody answered "Nein" for dumps (and prompts) byte-identical.
         return _omit_empty_alias_lists(
-            handler(self), ("company_aliases", "dated_role_aliases")
+            handler(self), ("company_aliases", "dated_role_aliases", "not_yet_reached")
         )
 
     industry_context: str | None = None
@@ -843,6 +845,10 @@ class ProjectEntry(ExperienceBase):
     #: project the candidate said are not reached yet; a writer phrases them as
     #: a goal or an aim, never as a result.
     not_yet_reached: list[str] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_not_yet_reached(self, handler: Any) -> Any:
+        return _omit_empty_alias_lists(handler(self), ("not_yet_reached",))
 
     def org_label(self) -> str:
         return self.name
