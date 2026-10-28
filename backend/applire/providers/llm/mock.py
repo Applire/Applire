@@ -668,6 +668,19 @@ def _mock_removal(prompt: str) -> str:
     return "\n".join(" ".join(line.split()) for line in passage.split("\n") if line.strip())
 
 
+def _mock_delivery_edit(prompt: str) -> str:
+    """Mock of the ADR-099 delivery edit (``DELIVERY_EDIT_SYSTEM_PROMPT``): the
+    SENTENCE, unchanged for MOVE, otherwise without its figure tokens (``<EMPTY>``
+    when nothing is left). Deterministic; adds nothing."""
+    sentence = prompt.rsplit("SENTENCE:\n", 1)[-1].strip()
+    if "TASK:\nMOVE" in prompt:
+        return sentence
+    kept = " ".join(t for t in sentence.split() if not any(ch.isdigit() for ch in t))
+    if not kept or kept == sentence:
+        return "<EMPTY>" if "TASK:\nNARROW" in prompt else sentence.rstrip(".") + " (überarbeitet)"
+    return kept
+
+
 class MockLLMProvider(LLMProvider):
     """Instant, deterministic LLM provider for CI/CD and E2E tests.
 
@@ -708,6 +721,9 @@ class MockLLMProvider(LLMProvider):
             or "you remove numbers from one passage" in system_lower  # E-1 figure variant
         ):
             return _mock_removal(prompt)
+        # ADR-099 cl. 6/9 (WP-B): the one-sentence delivery edit of the review resolvers.
+        if "you edit one sentence of a job-application document" in system_lower:
+            return _mock_delivery_edit(prompt)
         return _INTERVIEW_QUESTION
 
     async def aparse_json(  # type: ignore[override]
