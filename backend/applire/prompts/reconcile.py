@@ -380,6 +380,28 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   interview denials kept 3/3 and 6/8 (base 3/5 — that answer ends "…, die ich
   belegen kann"); a plain "mit <the same term> keine Erfahrung" still denied
   3/3. Records: scratch only (delivery data).
+* **27,484 (Hazelnut build 5 WP-A1, 2026-10-28, U-1r, ruling A1-U1r).** No new
+  rule text: the ``flag_conflict`` op shape gains ``"values"`` (+178 chars, the
+  vocabulary line and rule 13's template), the two values rule 13's test
+  already names, each copied from its own bullet. The engine checks only that
+  declaration (``reconcile/conflict_values.py``): a bullet conflict whose values
+  are missing, equal, or absent from their own bullets is not raised, and its
+  incoming bullet goes the ``add_bullets`` way (on an import, through the
+  restatement check). Why: the delivery re-run parked a conflict between two
+  DIFFERENT duties of one role, and two prompt wordings (new shapes (d)/(e);
+  a value definition in THE TEST) did not converge. Replay base (27,306)
+  noise: founder 10-25 input 0/5 at 26,678, then 1/4 without and 2/3 with the
+  D-4b paragraph. *Measured* (``openai/gpt-6-luna``, Requesty, thinking OFF,
+  temperature 0.1, persisted inputs verbatim) — delivery rep-b record:
+  spurious bullet conflicts 6 in 9 runs (3/9 runs) → 1 in 5 (1/5); founder
+  10-25 input: 4 in 3 runs (2/3) → 2 in 5 (2/5); the real changed-target pair
+  (two different target figures, each in its own bullet) kept every time it
+  was raised, 4/9 → 3/5; controls (shape ``control``, model-matrix S9) still
+  ``flag_conflict`` 4/4 each. In these runs the code check itself fired 0
+  times: every raised conflict declared checkable values; the gain came from
+  the declaration. Rejected wordings: (d)/(e) shapes (+691) — rep b 6-in-9 →
+  1-in-6 but founder input 4-in-3 → 10-in-3; value definition in THE TEST (+213) —
+  rep b 3/5 runs, founder input 3/4 runs. Records: scratch only.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -551,7 +573,8 @@ Operations:
       already-populated value.
     * a BULLET: set "field" to the bullet list's own name ("responsibilities"
       or "achievements") and put the two contradicting bullets — verbatim and
-      in full — in "existing" and "incoming". See rule 13.
+      in full — in "existing" and "incoming", and in "values" the two values
+      rule 13's test names, each copied from its own bullet. See rule 13.
   Copy both sides verbatim; the user is shown them side by side and picks one.
 
 - match_existing — the new information names an entity the profile ALREADY holds
@@ -794,7 +817,8 @@ Operations:
       {"op": "flag_conflict", "target": <the entity's id>,
        "field": "responsibilities" | "achievements",
        "existing": <the existing bullet, verbatim>,
-       "incoming": <the new bullet, verbatim>}
+       "incoming": <the new bullet, verbatim>,
+       "values": [<the value in the existing bullet>, <the value in the new bullet>]}
     and do NOT also emit add_bullets for that bullet — the conflict itself
     carries the new wording, and the user decides which one stands.
     Never settle such a contradiction yourself by quietly dropping one of the two versions.

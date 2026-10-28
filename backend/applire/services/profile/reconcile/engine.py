@@ -183,6 +183,12 @@ async def reconcile(
     # item instead of the loss being visible only at DEBUG log level.
     rejected_ops: list[str] = []
     ops = _parse_ops(data.get("ops"), rejected=rejected_ops)
+    # U-1r (ADR-046 amended 2026-10-28) — a bullet conflict whose own declared
+    # values do not hold is not raised; its incoming bullet goes the add_bullets
+    # way (on an import, through the restatement check).
+    from applire.services.profile.reconcile.conflict_values import route_unchecked_conflicts
+
+    ops = route_unchecked_conflicts(ops)
     ambiguities = _parse_ambiguities(data.get("ambiguities"))
     # D-8 (Hazelnut build 5) — a model-asked "which position does this project
     # belong to?" carries prompt handles in its options; rebuilt as family 6
