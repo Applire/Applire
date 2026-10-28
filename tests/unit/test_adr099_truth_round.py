@@ -163,8 +163,8 @@ async def test_a_removal_that_hits_a_pinned_fact_is_marked_pinned():
 
 
 def test_agent_door_and_degraded_loop_never_hide_a_class_f_kind():
-    report = {"checks": [{"id": "duplicate-bullets", "status": "fail"},
-                         {"id": "narrative-evidence", "status": "fail", "details_key": "narrative-evidence-underclaim"}]}
+    report = {"checks": [{"id": "duplicate-bullets", "status": "fail", "details_key": "duplicate-bullets"},
+                         {"id": "narrative-evidence", "status": "fail", "details_key": "narrative-evidence-tag-only"}]}
     clean = fr.apply_delivery(report, review_degradation=[])
     assert [c["delivery_class"] for c in clean["checks"]] == ["S", "S"]
     for degradation in (None, [{"chain": "cv_tailoring", "stage": "review"}]):
@@ -250,3 +250,88 @@ def test_one_instrument_cv_and_letter():
     assert "report=await _letter_truth_audit(" in lsrc
     assert "cl.truthfulness_report = await _letter_truth_audit(" in lsrc
     assert lsrc.count("build_self_audit_report(") == 1
+
+
+def test_a_duplicate_project_goes_the_redundancy_route(monkeypatch):
+    """ADR-099 cl. 8: the ATS duplicate-project pair reaches the corrector as one
+    sentence (no deterministic drop); none when the document has no pair."""
+    import applire.services.bullet_redundancy_signal as brs
+
+    monkeypatch.setattr(brs, "redundant_bullet_pairs", lambda d: [])
+    monkeypatch.setattr(brs, "duplicate_project_pairs", lambda d: [("A > Projekte", "Atlas", "Projekte", "Atlas (2021)")])
+    issues = brs.redundancy_signal_issues({"x": 1})
+    assert len(issues) == 1 and '"Atlas"' in issues[0].text and "nothing that appears in only one copy" in issues[0].text
+    monkeypatch.setattr(brs, "duplicate_project_pairs", lambda d: [])
+    assert brs.redundancy_signal_issues({"x": 1}) == []
+
+
+@pytest.mark.asyncio
+async def test_t_bound_the_second_language_round_stays_within_its_call_bound():
+    """T-bound (ADR-099): a provider that fails every round — the reviewer never
+    approves, the refiner never translates — spends at most the loop's declared
+    calls, and the draft ships unchanged-in-shape."""
+    from applire.prompts.review_cv_language import CV_LANGUAGE_REVIEW_SYSTEM_PROMPT
+    from applire.services import cv as cv_mod
+
+    foreign = "Managed the monthly close for twelve entities"
+    prose = _prose([foreign])
+
+    class Stubborn:
+        calls = 0
+
+        async def aparse_json(self, prompt, **kw):
+            Stubborn.calls += 1
+            if kw.get("system") == CV_LANGUAGE_REVIEW_SYSTEM_PROMPT:
+                return {"approved": False, "feedback": "still English",
+                        "issues": [{"text": "still English", "severity": "blocking"}]}
+            return copy.deepcopy(prose)
+
+        async def acomplete(self, prompt, **kw):
+            return await self.aparse_json(prompt, **kw)
+
+    out = await cv_mod._second_language_round(
+        prose, compose=_tailored, document_language="de", provider=Stubborn(),
+        keyword_ledger=None, budget=None, v2_shape_check=False, cv_id="t",
+    )
+    bound = 2 * cv_mod.CV_LANGUAGE_REVIEW_MAX_RETRIES + 1
+    assert 0 < Stubborn.calls <= bound, (Stubborn.calls, bound)
+    assert out["work"][0]["bullets"] == [foreign]
+
+    class Down:
+        calls = 0
+
+        async def aparse_json(self, prompt, **kw):
+            Down.calls += 1
+            raise RuntimeError("down")
+
+        acomplete = aparse_json
+
+    out = await cv_mod._second_language_round(
+        prose, compose=_tailored, document_language="de", provider=Down(),
+        keyword_ledger=None, budget=None, v2_shape_check=False, cv_id="t",
+    )
+    assert out["work"][0]["bullets"] == [foreign] and Down.calls <= bound
+
+
+@pytest.mark.asyncio
+async def test_a_narrowed_claim_still_flagged_is_residue_not_a_removal():
+    """cl. 10 one condition, one place: the corrector narrowed an unbacked claim
+    and the remainder is STILL unbacked → it renders as its class-A card, never
+    also on the removal line; a remainder the Oracle backs is named narrowed_to."""
+    from applire.services.attribution_round import TruthFinding, TruthRoundResult
+
+    claim = "Treasury-Management für 15 Bankkonten verantwortet"
+    f = TruthFinding(family="unbacked", kind="oracle:figuresNoEvidence", text=claim,
+                     location="work_history[0].bullets[1]", detail_key="figuresNoEvidence")
+    tr = TruthRoundResult(draft={}, findings=[f], removed=[f], applied=True, llm_calls=1)
+    still = {"claims": [{"claim": {"text": "Treasury-Management verantwortet"},
+                         "verdict": {"verdict": "unbacked", "detail_key": "skillNoEvidence"}}]}
+    out = fr.delivered_report({"checks": []}, review_degradation=[], truthfulness=still,
+                              delivered_data={"x": "Treasury-Management verantwortet"}, truth_round=tr)
+    assert out["delivery"]["removals"] == [] and out["delivery"]["fixed"] == []
+    backed = {"claims": [{"claim": {"text": "Treasury-Management verantwortet"},
+                          "verdict": {"verdict": "grounded"}}]}
+    out = fr.delivered_report({"checks": []}, review_degradation=[], truthfulness=backed,
+                              delivered_data={"x": "Treasury-Management verantwortet"}, truth_round=tr)
+    assert [r.get("narrowed_to") for r in out["delivery"]["removals"]] == ["Treasury-Management verantwortet"]
+    assert out["delivery"]["fixed"] == ["oracle:figuresNoEvidence"]

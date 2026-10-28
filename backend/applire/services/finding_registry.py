@@ -372,6 +372,12 @@ def annotate_report(report: dict | None) -> list[str]:
                 check["delivery_class"], check["resolver"] = "S", None
             else:
                 _stamp(check, check_kinds(check), unregistered, clean, silent)
+                if check.get("delivery_class") in ("A", "U") and not check.get("details_key"):
+                    # ADR-099 cl. 12: no server prose — an unkeyed row is silent
+                    # until its detail is keyed in the catalogs.
+                    logger.info("FINDING_UNKEYED check=%s — rendered S until keyed", check.get("id"))
+                    check["delivery_class"], check["resolver"] = "S", None
+                    silent.append(check_kinds(check)[-1])
             for note in check.get("notes") or []:
                 if isinstance(note, dict):
                     _stamp(note, note_kinds(note), unregistered, clean, silent)
@@ -508,6 +514,26 @@ def removal_rows(removed, *, pins=None, section_of=None) -> list[dict]:
     return rows
 
 
+_TOKEN = re.compile(r"[\w%+-]+")
+
+
+def _tokens(s: str) -> set[str]:
+    return {t.casefold() for t in _TOKEN.findall(s or "")}
+
+
+def _narrowed_forms(text: str, claims: list[tuple[str, bool]]) -> list[tuple[str, bool]]:
+    """Delivered claims that are a strict narrowing of ``text``: every word of the
+    delivered claim (≥ 2 words) is a word of the removed one — a presence FACT
+    (ADR-062 cl. 1), never a judgement of meaning."""
+    src = _tokens(text)
+    out = []
+    for t, is_flag in claims:
+        tok = _tokens(t)
+        if len(tok) >= 2 and tok < src:
+            out.append((t, is_flag))
+    return out
+
+
 def delivered_report(
     report: dict | None,
     *,
@@ -528,17 +554,33 @@ def delivered_report(
     fixed: list[str] = []
     try:
         if truth_round is not None and truth_round.findings:
-            flagged = {
-                str((c.get("claim") or {}).get("text") or "").casefold()
-                for c in (truthfulness or {}).get("claims") or []
-                if isinstance(c, dict) and (c.get("verdict") or {}).get("verdict") in _FLAG_VERDICTS
-            }
-            removals = removal_rows(
-                [f for f in truth_round.removed if not claim_present(f.text, delivered_data)],
-                pins=pins,
-            )
+            claims = [
+                (str((c.get("claim") or {}).get("text") or ""),
+                 (c.get("verdict") or {}).get("verdict") in _FLAG_VERDICTS)
+                for c in (truthfulness or {}).get("claims") or [] if isinstance(c, dict)
+            ]
+            flagged = {t.casefold() for t, is_flag in claims if is_flag}
+            gone = [f for f in truth_round.removed if not claim_present(f.text, delivered_data)]
+            rows = removal_rows(gone, pins=pins)
+            kept_rows = []
+            for f, row in zip(gone, rows):
+                # A NARROWED claim whose remainder is itself still flagged is residue
+                # (it renders as its class-A card) — never also a removal (one
+                # condition, one place, cl. 10). A remainder the Oracle backs is the
+                # narrowing: named on the row.
+                narrowed = _narrowed_forms(f.text, claims)
+                if any(is_flag for _t, is_flag in narrowed):
+                    continue
+                if narrowed:
+                    row["narrowed_to"] = max((t for t, _ in narrowed), key=len)
+                kept_rows.append(row)
+            removals = kept_rows
             if truth_round.applied:
-                fixed = sorted({f.kind for f in truth_round.findings if f.text.casefold() not in flagged})
+                fixed = sorted({
+                    f.kind for f in truth_round.findings
+                    if f.text.casefold() not in flagged
+                    and not any(is_flag for _t, is_flag in _narrowed_forms(f.text, claims))
+                })
     except Exception:  # noqa: BLE001
         logger.exception("delivered_report: delivery state failed — none recorded")
     return apply_delivery(report, review_degradation=review_degradation, removals=removals, fixed=fixed)

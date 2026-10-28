@@ -5019,11 +5019,14 @@ async def _update_ats_report_letter(
             cl.id,
         )
         cl.docx_ats_report = None
-    # ADR-099 cl. 4(d)/5 (WP-B): every audit door carries the delivery state.
+    # ADR-099 cl. 4(d)/5 (WP-B): every audit door carries the delivery state;
+    # cl. 7: a "behalten" on the letter's page card decides its length row.
+    from applire.services.ats_audit import decide_kept_letter_page_length
     from applire.services.finding_registry import apply_delivery
 
     cl.ats_report = apply_delivery(
-        cl.ats_report, review_degradation=getattr(cl, "review_degradation", None),
+        decide_kept_letter_page_length(cl.ats_report, getattr(cl, "review_state", None)),
+        review_degradation=getattr(cl, "review_degradation", None),
         previous=previous_report,
     )
     await db.commit()

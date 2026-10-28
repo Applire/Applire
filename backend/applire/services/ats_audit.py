@@ -1163,6 +1163,15 @@ def _check(checks: list[ATSCheck], cid: str, ok: bool, details: str | None = Non
     checks.append(ATSCheck(id=cid, status="pass" if ok else "fail", details=None if ok else details))
 
 
+def _key_failed(checks: list[ATSCheck], key: str, params: dict) -> None:
+    """ADR-099 cl. 12 (WP-B): the just-appended row, when failed, carries its
+    detail as a catalog key + data (``ats.checkDetails.<key>``) — the surface never
+    renders the server sentence. The params are the document's own words."""
+    if checks and checks[-1].status == "fail":
+        checks[-1].details_key = key
+        checks[-1].details_params = params
+
+
 def _document_language_check(
     checks: list[ATSCheck], foreign: list[tuple[str, str]], document_language: str
 ) -> None:
@@ -1982,6 +1991,47 @@ def kept_page_length_check(check: ATSCheck, pages_kept_at: int | None) -> ATSChe
     )
 
 
+#: ADR-099 cl. 7 (WP-B): the review-state key of the letter's "{n} Seiten
+#: behalten" decision (action ``kept``), recorded by the review surface.
+LETTER_PAGE_KEEP_KEY = "ats:page-length"
+
+
+def letter_page_kept(review_state) -> bool:
+    """The person kept the letter over its page norm (a ``kept`` decision on
+    :data:`LETTER_PAGE_KEEP_KEY`)."""
+    for d in (review_state or {}).get("decisions") or [] if isinstance(review_state, dict) else []:
+        if isinstance(d, dict) and d.get("finding_key") == LETTER_PAGE_KEEP_KEY and d.get("action") == "kept":
+            return True
+    return False
+
+
+def decide_kept_letter_page_length(report: dict | None, review_state) -> dict | None:
+    """The letter twin of :func:`decide_kept_page_length`: a failed
+    ``page-length-letter`` row reads as DECIDED (``page-length-kept``, class S) once
+    the person chose to keep the length. ``None``/unchanged otherwise."""
+    if not report or not letter_page_kept(review_state):
+        return report
+    from applire.services.finding_registry import annotate_report
+
+    out = dict(report)
+    checks = []
+    for c in report.get("checks") or []:
+        if isinstance(c, dict) and c.get("id") == "page-length" and c.get("details_key") == "page-length-letter":
+            params = c.get("details_params") or {}
+            c = ATSCheck(
+                id="page-length", status="pass",
+                details=f"{params.get('pages')} pages — you chose to keep them (norm {params.get('letterPages')})",
+                details_key="page-length-kept",
+                details_params={"pages": params.get("pages"), "target": params.get("letterPages")},
+            ).model_dump()
+        checks.append(c)
+    out["checks"] = checks
+    out["passed"] = sum(1 for c in checks if isinstance(c, dict) and c.get("status") == "pass")
+    out["failed"] = sum(1 for c in checks if isinstance(c, dict) and c.get("status") == "fail")
+    annotate_report(out)
+    return out
+
+
 def decide_kept_page_length(report: dict | None, pages_kept_at: int | None) -> dict | None:
     """786:237 — the stored CV report with its page-length row decided (see
     :func:`kept_page_length_check`); ``None``/unchanged when nothing applies."""
@@ -2087,6 +2137,7 @@ def _audit_cv_text(
         ]
         _check(checks, "skills-near-dupe", not near_pairs,
                "near-duplicate skills: " + "; ".join(f"'{a}' ~ '{b}'" for a, b in near_pairs))
+        _key_failed(checks, "skills-near-dupe", {"pairs": "; ".join(f"{a} ~ {b}" for a, b in near_pairs[:5])})
 
         # #391 interim (ADR-076 amendment 4 point 6): measurement-only advisory,
         # never a failure — silent unless at least one rendered skill's ONLY
@@ -2164,6 +2215,9 @@ def _audit_cv_text(
                    for wa, a, wb, b in dupe_pairs[:5]
                )
                + (f" (+{len(dupe_pairs) - 5} more)" if len(dupe_pairs) > 5 else ""))
+        _key_failed(checks, "duplicate-bullets",
+                    {"pairs": " · ".join(f"„{a[:60]}“ ~ „{b[:60]}“" for _wa, a, _wb, b in dupe_pairs[:3]),
+                     "count": len(dupe_pairs)})
 
     # ── #424 (ADR-082 clause 1, 2026-09-13) ─────────────────────────────────
     # The bullet-level check above cannot name the SHAPE when the two copies are
@@ -2183,6 +2237,9 @@ def _audit_cv_text(
                    for wa, a, wb, b in project_pairs[:5]
                )
                + (f" (+{len(project_pairs) - 5} more)" if len(project_pairs) > 5 else ""))
+        _key_failed(checks, "duplicate-project",
+                    {"pairs": " · ".join(f"„{a[:50]}“ ~ „{b[:50]}“" for _wa, a, _wb, b in project_pairs[:3]),
+                     "count": len(project_pairs)})
 
     # ── #724 (ADR-039; ADR-072/ADR-062/ADR-067 amended 2026-09-18) ──────────
     # The delivered document is written in ONE language. On the founder's edge
@@ -2411,6 +2468,10 @@ def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, A
                 "No Keyword Ledger is available for this document, so whether its claims "
                 "are evidenced in the work history could not be judged."
             ),
+            # ADR-099 cl. 12 (WP-B): keyed, so the U row ("Nicht geprüft") renders
+            # in the UI language instead of the server sentence.
+            details_key="narrative-evidence-not-applicable",
+            details_params={},
         )
     # #672 line 40/45 (2026-09-13): the SAME document, also as the structured-section
     # corpus. `verified_narrative_underclaim` has exempted a concept the COMPOSED

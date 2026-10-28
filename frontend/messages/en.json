@@ -1575,6 +1575,10 @@
       "narrative-evidence-absent": "Your profile backs these requirements of the role, but the CV does not show them at all: {terms}.",
       "narrative-evidence-absent-also": "Missing entirely: {terms}.",
       "narrative-evidence-more": "… and {count} more.",
+      "narrative-evidence-not-applicable": "Whether the job's requirements are evidenced in your work history could not be checked — no keyword analysis is available for this document.",
+      "skills-near-dupe": "Near-duplicate skills are listed twice: {pairs}.",
+      "duplicate-bullets": "Two bullets state the same achievement: {pairs}.",
+      "duplicate-project": "The same project appears twice in the CV: {pairs}.",
       "employer-repetition": "“{employer}” opens {count} sentences in paragraph {paragraph}{more, plural, =0 {} one { (and in one more paragraph)} other { (and in # more paragraphs)}}. Repeated that often, the name reads as machine-written — a back-reference such as “there” reads more naturally."
     },
     "pinnedFacts": {

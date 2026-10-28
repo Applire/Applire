@@ -207,8 +207,8 @@ def test_registry_vocabulary_is_closed():
 def test_a_row_is_never_stamped_f_and_a_pass_is_silent():
     report = {
         "checks": [
-            {"id": "document-language", "status": "fail"},
-            {"id": "duplicate-bullets", "status": "fail"},
+            {"id": "document-language", "status": "fail", "details_key": "document-language-mixed"},
+            {"id": "duplicate-bullets", "status": "fail", "details_key": "duplicate-bullets"},
             {"id": "work-3", "status": "pass"},
             {"id": "terminal-review", "status": "not_applicable", "details_key": "terminal-review-not-run",
              "notes": [{"kind": "code", "key": "cv.page_length"}]},
@@ -245,3 +245,73 @@ def test_the_oracle_seam_stamps_every_verdict():
     out = fr.stamp_truthfulness_model(rep)
     assert (out.claims[0].verdict.delivery_class, out.claims[0].verdict.resolver) == ("A", "ask_station")
     assert out.claims[1].verdict.delivery_class == "S"
+
+
+def _catalog_keys(lang):
+    import json
+
+    root = SERVICES.parents[2] / "frontend" / "messages" / f"{lang}.json"
+    return set(json.loads(root.read_text(encoding="utf-8"))["ats"]["checkDetails"])
+
+
+def _emitted_details_keys():
+    keys = set()
+    for _f, _l, kw, _pos in _calls([SERVICES / "ats_audit.py", SERVICES / "terminal_review_outcome.py"], "ATSCheck"):
+        if kw.get("details_key"):
+            keys.add(kw["details_key"])
+    for _f, _l, _kw, pos in _calls([SERVICES / "ats_audit.py"], "_key_failed"):
+        if len(pos) >= 2 and pos[1]:
+            keys.add(pos[1])
+    return sorted(keys)
+
+
+@pytest.mark.parametrize("key", _emitted_details_keys())
+def test_every_emitted_details_key_is_in_both_catalogs(key):
+    """ADR-099 cl. 12: no server prose — every keyed detail renders from de/en."""
+    # a composite key the surface assembles from catalog parts (ReviewSurface
+    # narrativeEvidenceDetail: tag-only / absent / absent-also / more)
+    composite = {"narrative-evidence-underclaim": "narrative-evidence-tag-only"}
+    key = composite.get(key, key)
+    assert key in _catalog_keys("de") and key in _catalog_keys("en"), key
+
+
+def test_an_unkeyed_action_row_is_silent_until_keyed(caplog):
+    caplog.set_level("INFO", logger="applire.services.finding_registry")
+    report = {"checks": [{"id": "document-language", "status": "fail", "details": "server sentence"}]}
+    fr.annotate_report(report)
+    assert report["checks"][0]["delivery_class"] == "S"
+    assert any("FINDING_UNKEYED" in r.message for r in caplog.records)
+    report = {"checks": [{"id": "document-language", "status": "fail", "details_key": "document-language-mixed"}]}
+    fr.annotate_report(report)
+    assert report["checks"][0]["delivery_class"] == "A"
+
+
+def test_the_duplicate_rows_are_keyed():
+    from applire.schemas.ats import ATSCheck
+    from applire.services.ats_audit import _check, _key_failed
+
+    checks: list = []
+    _check(checks, "duplicate-bullets", False, "x")
+    _key_failed(checks, "duplicate-bullets", {"pairs": "a ~ b", "count": 1})
+    assert checks[0].details_key == "duplicate-bullets" and checks[0].details_params["pairs"] == "a ~ b"
+    _check(checks, "duplicate-bullets", True, "x")
+    _key_failed(checks, "duplicate-bullets", {"pairs": ""})
+    assert checks[1].details_key is None
+
+
+def test_the_letter_keep_decision_decides_the_page_row():
+    """ADR-099 cl. 7: "{n} Seiten behalten" on the letter → the row is decided
+    (page-length-kept, class S, still in the report as the pin driver)."""
+    from applire.services.ats_audit import LETTER_PAGE_KEEP_KEY, decide_kept_letter_page_length
+
+    report = {"checks": [{"id": "page-length", "status": "fail", "details_key": "page-length-letter",
+                          "details_params": {"pages": 2, "region": "DACH", "letterPages": 1}}]}
+    assert decide_kept_letter_page_length(report, None) is report
+    state = {"decisions": [{"finding_key": LETTER_PAGE_KEEP_KEY, "action": "kept"}]}
+    out = decide_kept_letter_page_length(report, state)
+    row = out["checks"][0]
+    assert (row["status"], row["details_key"], row["delivery_class"]) == ("pass", "page-length-kept", "S")
+    assert row["details_params"] == {"pages": 2, "target": 1}
+    fresh = {"checks": [dict(report["checks"][0])]}
+    fr.annotate_report(fresh)
+    assert (fresh["checks"][0]["delivery_class"], fresh["checks"][0]["resolver"]) == ("A", "page_length")
