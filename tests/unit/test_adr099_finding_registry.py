@@ -336,3 +336,49 @@ def test_d_ag1_only_the_agent_origin_silences_the_terminal_not_run_row():
                                            "details_key": "document-language-mixed"}]},
                               review_degradation=None, origin="agent")
     assert other["checks"][0]["delivery_class"] == "A"
+
+
+#: ADV-6 (main ruling; ADR-099 cl. 2 "an action that cannot clear it is a defect"):
+#: every class-U kind and the action that changes its producer's input.
+U_KINDS_AND_WHAT_CLEARS_THEM = {
+    # a new generation runs the terminal review (the review cannot run alone)
+    "ats:terminal-review@not_applicable": "regenerate",
+    "ats:terminal-review~terminal-review-not-run": "regenerate",
+    # only the cross-language judgement's UNAVAILABLE verdict; the recheck re-runs
+    # the judgement with a provider (one instrument: _truth_audit / _letter_truth_audit)
+    "oracle:crossLanguageUnconfirmed": "recheck",
+    # a loop step did not run → a new generation runs the loop
+    "page:review-degradation": "regenerate",
+    # a producer's report is missing (ATS / Oracle / critic failed) → the recheck
+    # rewrites ats_report, truthfulness_report and critic_report
+    "page:unchecked": "recheck",
+}
+
+
+def test_adv6_the_u_set_is_exactly_the_kinds_an_action_can_clear():
+    got = {k: e.resolver for k, e in fr.REGISTRY.items() if e.cls == "U"}
+    assert got == U_KINDS_AND_WHAT_CLEARS_THEM
+    assert not [k for k, e in fr.REGISTRY.items() if e.fallback == "U"]
+    for k in ("ats:keyword-other-language", "keyword:present_other_language",
+              "ats:narrative-evidence@not_applicable", "ats:document-language@not_applicable",
+              "ats:document-language~document-language-not-applicable",
+              "oracle:otherLanguageNotChecked", "oracle:attributionUnresolved"):
+        assert fr.REGISTRY[k].cls == "S", k
+
+
+def test_adv6_cross_language_unconfirmed_is_only_the_unavailable_verdict():
+    """The one Oracle U kind stays U because the recheck can clear it: its detail
+    key is minted in exactly one place — the seam's ``unavailable`` verdict."""
+    src = (SERVICES / "oracle" / "audit.py").read_text(encoding="utf-8")
+    assert src.count('detail_key="crossLanguageUnconfirmed"') == 1
+    i = src.index('detail_key="crossLanguageUnconfirmed"')
+    assert src.rfind("unavailable = ClaimVerdict(", 0, i) > src.rfind("def ", 0, i)
+
+
+def test_adv6_a_bilingual_profile_row_is_not_a_counted_unknown():
+    report = {"checks": [{"id": "keyword-other-language", "status": "not_applicable",
+                          "details_key": "keyword-other-language", "details_params": {"count": 2, "terms": "a, b"}},
+                         {"id": "narrative-evidence", "status": "not_applicable",
+                          "details_key": "narrative-evidence-not-applicable"}]}
+    out = fr.apply_delivery(report, review_degradation=[])
+    assert [c["delivery_class"] for c in out["checks"]] == ["S", "S"]

@@ -131,8 +131,12 @@ _DOC: dict[str, Entry] = {
     "ats:duplicate-project": _e(_F, None, "S"),
     # ── mixed language (cl. 9): second language round; residue one action ───────
     "ats:document-language": _e(_F, "translate", "A"),
-    "ats:document-language@not_applicable": _e("U", "recheck"),
-    "ats:document-language~document-language-not-applicable": _e("U", "recheck"),
+    # ADV-6 (main ruling, ADR-099 cl. 2): n.a. = the caller stated no language
+    # (a row without ``document_language``; the v1 letter never passes one). The
+    # recheck re-reads the SAME stamped column, so "Jetzt prüfen" cannot clear
+    # it — a scope statement, not a producer that failed → S.
+    "ats:document-language@not_applicable": _e("S"),
+    "ats:document-language~document-language-not-applicable": _e("S"),
     # ── page length (cl. 7): ONE card, CV and letter ─────────────────────────────
     "ats:page-length": _e("A", "page_length"),
     "ats:page-length~page-length-kept": _e("S"),          # ADR-077 pin driver, report only
@@ -142,9 +146,14 @@ _DOC: dict[str, Entry] = {
     "ats:page-length~page-length-not-applicable": _e("S"),
     # ── coverage (cl. 8): the coverage loop; residue S ───────────────────────────
     "ats:narrative-evidence": _e(_F, None, "S"),
-    "ats:narrative-evidence@not_applicable": _e("U", "recheck"),  # no ledger = missing input
+    # ADV-6: n.a. = no Keyword Ledger for the job (no gap analysis ran — e.g. an
+    # agent-door CV). Neither the recheck nor a regeneration builds one (both read
+    # the latest GapAnalysis) → no one action clears it → S.
+    "ats:narrative-evidence@not_applicable": _e("S"),
     # ── unknown states (cl. 9, ADR-081 cl. 9 stands) ─────────────────────────────
-    "ats:keyword-other-language": _e("U", "recheck"),
+    # ADV-6 (a): every bilingual profile — a scope statement of the keyword
+    # check ("compares wording only"), never a producer that did not run → S.
+    "ats:keyword-other-language": _e("S"),
     # ── advisory passes (cl. 8) ──────────────────────────────────────────────────
     "ats:skills-weak-vault-tie": _e("S"),
     "ats:employer-repetition": _e("S"),
@@ -169,9 +178,17 @@ _DOC: dict[str, Entry] = {
     "oracle@not_applicable": _e("S"),
     # unverifiable: S, except where the JUDGEMENT did not run (cl. 9 "Nicht geprüft")
     "oracle@unverifiable": _e("S"),
-    "oracle:otherLanguageNotChecked": _e("U", "recheck"),
+    # ADV-6 (c): a literal miss over a mixed-language vault — deterministic, the
+    # recheck reproduces it → S (scope statement, as keyword-other-language).
+    "oracle:otherLanguageNotChecked": _e("S"),
+    # Only ever the UNAVAILABLE verdict of the cross-language judgement (provider
+    # failure / citation drop); the recheck re-runs the judgement with a provider
+    # (cv._truth_audit / cover_letter._letter_truth_audit) → can clear → U.
     "oracle:crossLanguageUnconfirmed": _e("U", "recheck"),
-    "oracle:attributionUnresolved": _e("U", "recheck"),
+    # ADV-6 (c): produced by the deterministic attribution checker AND by a
+    # resolved restatement judgement ("uncertain"/true) — the recheck reproduces
+    # both; an honest "left open, not accused" (ADR-068) → S.
+    "oracle:attributionUnresolved": _e("S"),
     # the remaining detail keys, all on non-flag verdicts (report only)
     **{f"oracle:{k}": _e("S") for k in (
         "crossLanguageEquivalent", "entailmentNarrow", "figuresFromStatedLimit", "figuresTrace",
@@ -186,7 +203,7 @@ _DOC: dict[str, Entry] = {
     "keyword:present_denied": _e(_F, "remove_only", "A"),
     "keyword:missing_claimable": _e("S"),                 # group 2 (cl. 7)
     "keyword:missing_honest_gap": _e("A", "open_gap_analysis"),  # group 3, one link
-    "keyword:present_other_language": _e("U", "recheck"),
+    "keyword:present_other_language": _e("S"),  # ADV-6 (a): the bucket behind the row
     "keyword:present": _e("S"),
     "keyword:missing": _e("S"),                           # back-compat union of the two missing buckets
     "keyword:claimable_concepts": _e("S"),
