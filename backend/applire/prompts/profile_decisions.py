@@ -60,6 +60,9 @@ the reply says. Exactly ONE of the three fields is non-null:
 - "follow_up": the reply chooses nothing you can name. Ask ONE short question,
   in the reply's language, that names the offered answers in plain words.
 
+The values were shown in this order: CURRENT first, NEW second — "the first"
+means CURRENT, "the second" means NEW. A reply that names a date, number or
+word matching ONE value chooses that value.
 Never guess: when the reply is ambiguous, ask the follow_up.
 Output ONLY this JSON object: {"outcome": <key or null>, "corrected_value": <string or null>, "follow_up": <string or null>}"""
 
@@ -116,8 +119,9 @@ DUPLICATES_SYSTEM = """Two entries of one person's CV profile are being merged i
 bullets of entry T and of entry S, numbered. Find every pair (one T bullet, one S
 bullet) that states the SAME fact — the same piece of work, possibly in another
 language or other words. Two different pieces of work that share words are NOT
-a pair. For each pair, also propose ONE bullet that carries the facts of both
-(only facts written in the two bullets; same stance and tense; no "I"), or null
+a pair. For each pair, also propose ONE bullet that keeps EVERY fact of both
+(only facts written in the two bullets; same stance and tense; no "I"; one
+language — the language of the T bullet, never both side by side), or null
 when they cannot be one line without dropping a fact.
 
 Output ONLY this JSON object: {"pairs": [{"t": "T1", "s": "S2", "merged": "<bullet>"|null}]}

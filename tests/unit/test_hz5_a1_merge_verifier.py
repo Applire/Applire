@@ -175,3 +175,17 @@ def test_synthetic_u1_fixture_has_the_shape():
     fx = json.load(open("tests/files/reconcile_list_conflict/shape_u1.json"))
     for key in ("profile", "incoming", "profile_large", "incoming_large", "control"):
         assert key in fx
+
+
+def test_decision_prompts_carry_the_measured_rules():
+    """The wording measured on gpt-6-luna (2026-10-28, report §Evidence) is
+    what ships: every system prompt names JSON (OpenAI JSON mode 400s
+    otherwise); the reply prompt fixes the value order; the duplicates
+    prompt asks for one language and every fact."""
+    from applire.prompts import profile_decisions as pd
+
+    for system in (pd.MERGE_SYSTEM, pd.REPLY_SYSTEM, pd.IDENTITY_SYSTEM, pd.DUPLICATES_SYSTEM):
+        assert "JSON" in system
+    assert '"the first"\nmeans CURRENT' in pd.REPLY_SYSTEM
+    assert "the language of the T bullet" in pd.DUPLICATES_SYSTEM
+    assert "keeps EVERY fact of both" in pd.DUPLICATES_SYSTEM
