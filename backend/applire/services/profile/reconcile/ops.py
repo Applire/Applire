@@ -660,9 +660,21 @@ class ResolveField(BaseModel):
     #: and such a dispute must still be answerable (it writes nothing).
     section: str
     field: str
-    #: The candidate's own text. Read only when ``resolution == "manual"``.
+    #: The candidate's own text. Read only when ``resolution`` is ``"manual"``
+    #: or ``"merge"`` (the merged sentence the candidate confirmed or edited).
     value: Any = None
-    resolution: Literal["existing", "incoming", "manual"]
+    #: ADR-099 cl. 11 (Hazelnut build 5, UAT-1) adds two outcomes:
+    #:
+    #: * ``"both"`` — "Beide behalten": on a bullet LIST the existing bullet
+    #:   stays and the incoming one is added beside it; on an identity field of
+    #:   a work / volunteer entry (RULING A1-i1) a second entry is created (the
+    #:   first entry's identity fields with the disputed field set to the
+    #:   incoming value, no bullets) and the pair is recorded as kept-separate.
+    #:   Any other field refuses it (nothing to keep "both" of).
+    #: * ``"merge"`` — "Zusammenführen": a bullet LIST only; ``value`` replaces
+    #:   the contested pair. The door verifies the sentence; the receipt names
+    #:   both originals and the door takes a MERGE snapshot (one undo).
+    resolution: Literal["existing", "incoming", "manual", "both", "merge"]
 
 
 class ResolveConfirmation(BaseModel):
@@ -1152,6 +1164,59 @@ class DismissAvailabilityReminder(BaseModel):
     op: Literal["dismiss_availability_reminder"] = "dismiss_availability_reminder"
 
 
+class MergeEntries(BaseModel):
+    """The candidate merges two entries of one section into one — ADAPTER-ONLY
+    (Hazelnut build 5, U-11).
+
+    The door (``services/profile/entry_merge.py``) has already resolved every
+    judgement the candidate owns (dates side, per-pair outcome) and hands the
+    applier the finished facts; the applier only folds them in, deterministically:
+    the target keeps its id, ``bullets`` replaces the target's bullet lists,
+    ``aliases`` are appended (never the entry's own value, never twice), empty
+    scalars are filled from the source, every reference to the source id moves to
+    the target, and the source entry is removed. Never model-emittable: a
+    hallucinated merge would delete a real entry.
+    """
+
+    op: Literal["merge_entries"] = "merge_entries"
+    section: Literal["work_experience", "volunteer_activities", "projects", "education"]
+    target_id: str
+    source_id: str
+    #: final lists per bullet field (``responsibilities`` / ``achievements`` /
+    #: ``technologies``) — already de-duplicated by the door.
+    bullets: dict[str, list[str]] = Field(default_factory=dict)
+    #: alias list field name -> values to append (``role_aliases`` ...).
+    aliases: dict[str, list[str]] = Field(default_factory=dict)
+    #: ``start_date`` / ``end_date`` / ``is_current`` taken from the chosen side;
+    #: only present when both entries stated dates that differ.
+    dates: dict[str, Any] | None = None
+
+
+class KeepEntriesSeparate(BaseModel):
+    """The candidate keeps two entries separate — ADAPTER-ONLY bookkeeping
+    (U-9): appends an ``EntryPair`` to ``metadata.separate_entry_pairs``;
+    idempotent. Writes nothing in the vault sections."""
+
+    op: Literal["keep_entries_separate"] = "keep_entries_separate"
+    section: str
+    entry_ids: list[str] = Field(min_length=2, max_length=2)
+
+
+class EntryVerdictItem(BaseModel):
+    section: str
+    ids: list[str] = Field(min_length=2, max_length=2)
+    verdict: Literal["same", "different", "unsure"]
+
+
+class RecordEntryIdentityVerdicts(BaseModel):
+    """The model's same-position verdicts for candidate pairs, judged once at the
+    end of a CV import — ADAPTER-ONLY bookkeeping (U-9). Appends
+    ``metadata.entry_identity_verdicts`` (a pair already judged is kept)."""
+
+    op: Literal["record_entry_identity_verdicts"] = "record_entry_identity_verdicts"
+    verdicts: list[EntryVerdictItem] = Field(default_factory=list)
+
+
 _ADAPTER_ONLY = (
     DemoteSkill,
     ApplyImportMerge,
@@ -1168,7 +1233,68 @@ _ADAPTER_ONLY = (
     WithdrawDenial,
     SetAvailability,
     DismissAvailabilityReminder,
+    MergeEntries,
+    KeepEntriesSeparate,
+    RecordEntryIdentityVerdicts,
 )
+
+
+
+class AdoptNotApplied(BaseModel):
+    """The candidate takes one not-applied import item into the vault —
+    ADAPTER-ONLY (UAT-3d, Hazelnut build 5).
+
+    Names the trail record (``record_id``) and the receipt item
+    (``item_key``). The applier appends the item's captured ``entry`` to its
+    section under a fresh id and stamps the item ``adopted_at``; it refuses an
+    unknown record/item, an already adopted item, and an item that captured no
+    entry (a receipt from before the capture, or a scalar item). Never
+    model-emittable: the entry comes from a persisted receipt, not from a model.
+    """
+
+    op: Literal["adopt_not_applied"] = "adopt_not_applied"
+    record_id: str
+    item_key: str
+
+
+_ADAPTER_ONLY = _ADAPTER_ONLY + (AdoptNotApplied,)
+
+
+class AspirationVerdictItem(BaseModel):
+    section: Literal["work_experience", "projects"] = "work_experience"
+    entry_id: str
+    key: str
+    text: str
+    aspiration: bool
+
+
+class RecordAspirationVerdicts(BaseModel):
+    """RULING B-1 (U-7) — the model's goal/task-wording verdicts for current
+    work bullets, judged once at the end of a CV import — ADAPTER-ONLY
+    bookkeeping. Appends ``metadata.aspiration_verdicts`` (a bullet already
+    judged is kept). Writes nothing in the vault sections."""
+
+    op: Literal["record_aspiration_verdicts"] = "record_aspiration_verdicts"
+    verdicts: list[AspirationVerdictItem] = Field(default_factory=list)
+
+
+class AnswerAspiration(BaseModel):
+    """RULING B-1 — the candidate's answer to "Ist das erreicht?" — ADAPTER-ONLY.
+
+    ``achieved`` appends ``outcome`` (the candidate's own words, ADR-061 cl. 2
+    testimony through the manual door) to the entry's ``achievements``; not
+    achieved appends the bullet to the entry's ``not_yet_reached`` (the stance a
+    writer then keeps). Either way the answer is recorded and never re-asked.
+    Never model-emittable: the answer is the candidate's."""
+
+    op: Literal["answer_aspiration"] = "answer_aspiration"
+    entry_id: str
+    key: str
+    achieved: bool
+    outcome: str | None = None
+
+
+_ADAPTER_ONLY = _ADAPTER_ONLY + (RecordAspirationVerdicts, AnswerAspiration)
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
 

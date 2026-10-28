@@ -33,6 +33,7 @@ GET /api/session/{id}:
 """
 
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -66,6 +67,8 @@ from applire.schemas.session import (
     ClusterCoverage,
     ConfirmationPrompt,
     ConflictSummary,
+    CurrentConflict,
+    InterpretedAnswer,
     InterviewState,
     SessionCreateRequest,
     SessionCreateResponse,
@@ -416,6 +419,60 @@ def _conflict_entry(state: InterviewState, cluster_id: str) -> dict | None:
     if not is_conflict_cluster(cluster_id):
         return None
     return (state.get("conflict_clusters") or {}).get(cluster_id)
+
+
+class OutcomeRequired(ValueError):
+    """ADR-099 cl. 11 — the one follow-up on this dispute is spent; only a
+    structured outcome answers it now (409 ``outcome_required``)."""
+
+    def __init__(self) -> None:
+        super().__init__("outcome_required")
+
+
+class OutcomeNotOffered(ValueError):
+    """An outcome this dispute does not offer, or one sent while the current
+    item is not a dispute (422 ``outcome_not_offered``)."""
+
+    def __init__(self) -> None:
+        super().__init__("outcome_not_offered")
+
+
+def _conflict_outcomes(entry: dict) -> tuple[str, list[str]]:
+    from applire.services.profile.decisions import conflict_shape
+
+    return conflict_shape(entry.get("section"), entry.get("field"), entry.get("entity_id"))
+
+
+def _current_conflict(state: InterviewState) -> CurrentConflict | None:
+    """The dispute the review asks about now, or None."""
+    if state.get("entry") != "profile_review":
+        return None
+    idx = state.get("current_gap_index", 0)
+    gaps = state.get("critical_gaps") or []
+    if not (0 <= idx < len(gaps)):
+        return None
+    entry = _conflict_entry(state, gaps[idx])
+    if entry is None:
+        return None
+    shape, outcomes = _conflict_outcomes(entry)
+    return CurrentConflict(
+        conflict_id=entry["conflict_id"],
+        shape=shape,  # type: ignore[arg-type]
+        outcomes=outcomes,
+        entity_label=entry.get("entity_label"),
+        section=entry.get("section"),
+        field=entry.get("field"),
+        existing_value_display=entry.get("existing_value_display"),
+        incoming_value_display=entry.get("incoming_value_display"),
+        incoming_source=entry.get("source"),
+    )
+
+
+def _follow_up_used(state: InterviewState) -> bool:
+    current = _current_conflict(state)
+    if current is None:
+        return False
+    return current.conflict_id in (state.get("conflict_follow_ups") or [])
 
 
 def _review_item_section(state: InterviewState, cluster_id: str | None) -> str | None:
@@ -1313,17 +1370,40 @@ def _with_receipt(
 
 
 async def _resolve_conflict_safely(
-    db: AsyncSession, conflict_id: str, resolution: str
-) -> None:
-    """Apply the user's correction, tolerating an already-resolved conflict."""
-    from applire.services.profile import resolve_conflict  # lazy: avoid import cycle
+    db: AsyncSession,
+    conflict_id: str,
+    resolution: str,
+    value: object = None,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> str | None:
+    """Apply the user's correction, tolerating an already-resolved conflict.
+    Returns the resolution actually written (``manual`` when an edited merge
+    sentence failed the fact-presence check, RULING A1-1), None when the
+    dispute was already gone."""
+    from applire.services.profile import last_applied_resolution, resolve_conflict  # lazy: avoid import cycle
 
     try:
-        await resolve_conflict(conflict_id, resolution, None, db)
+        await resolve_conflict(conflict_id, resolution, value, db, user_id=user_id)
     except LookupError:
         # Idempotent on resume: the conflict is already gone from pending, so
         # advancing past it is correct.
-        pass
+        return None
+    return last_applied_resolution()
+
+
+#: "Beide behalten" / "keep both" — words that make the legacy keep/use word
+#: matcher unsafe (SF-PROFILE.22: it heard "behalten" and kept ONE). A typed
+#: answer carrying one of them is read by the model, never by the word sets.
+_BOTH_WORDS = frozenset({"beide", "beides", "both", "zusammen", "zusammenführen", "merge", "combine"})
+
+_OUTCOME_FOR_RESOLUTION = {
+    "existing": "keep_current",
+    "incoming": "take_new",
+    "both": "keep_both",
+    "merge": "merge",
+    "manual": "manual",
+}
 
 
 async def _handle_conflict_answer(
@@ -1334,43 +1414,118 @@ async def _handle_conflict_answer(
     current_idx: int,
     conflict_entry: dict,
     message: str,
+    *,
+    outcome: str | None = None,
+    merged_text: str | None = None,
 ) -> SessionMessageResponse:
-    """Resolve a pending Tier-2 conflict from the user's answer (US165).
+    """Resolve a pending Tier-2 conflict from the user's answer (US165;
+    ADR-099 cl. 11, Hazelnut build 5).
 
-    A clear keep/use choice writes through the ADR-013 merge (manual_edit
-    EnrichmentRecord) and advances; an ambiguous answer re-asks the same
-    question (safe default: never guess a factual correction)."""
-    decision = interpret_conflict_answer(
-        message,
-        conflict_entry["existing_value"],
-        conflict_entry["incoming_value"],
-        # #218 — the drawer submits the offered choice verbatim; trust the button
-        # over the prose inside it (a bullet-valued choice collides with the
-        # keep/use word sets and would re-ask forever).
-        choices=conflict_entry.get("choices"),
+    * A structured ``outcome`` (the hub's buttons) is written as given — it
+      must be one the dispute offers. ``merge_confirm`` carries the sentence.
+    * Typed text: the offered button text and the legacy keep/use words decide
+      first (unless the answer says "both"); anything else is read by ONE
+      model call → an offered outcome, a corrected value written in the
+      candidate's own words (``manual``, RULING A1-1), or ONE follow-up. After
+      that follow-up only a structured outcome answers (``OutcomeRequired``).
+    """
+    from applire.services.profile.decisions import interpret_reply
+
+    shape, outcomes = _conflict_outcomes(conflict_entry)
+    conflict_id = conflict_entry["conflict_id"]
+    resolution: str | None = None
+    value: object = None
+    interpreted = InterpretedAnswer()
+
+    if outcome is not None:
+        if outcome == "merge_confirm":
+            if "merge" not in outcomes or not (merged_text or "").strip():
+                raise OutcomeNotOffered()
+            resolution, value = "merge", merged_text.strip()  # type: ignore[union-attr]
+        elif outcome in outcomes:
+            resolution = {"keep_current": "existing", "take_new": "incoming", "keep_both": "both"}[outcome]
+        else:
+            raise OutcomeNotOffered()
+    else:
+        tokens = set(re.findall(r"\w+", (message or "").casefold()))
+        says_both = bool(tokens & _BOTH_WORDS)
+        decision = "unclear"
+        if not says_both:
+            decision = interpret_conflict_answer(
+                message,
+                conflict_entry["existing_value"],
+                conflict_entry["incoming_value"],
+                # #218 — the drawer submits the offered choice verbatim; trust the
+                # button over the prose inside it.
+                choices=conflict_entry.get("choices"),
+            )
+        if decision in ("existing", "incoming"):
+            resolution = decision
+        else:
+            follow_ups = list(state.get("conflict_follow_ups") or [])
+            if conflict_id in follow_ups:
+                raise OutcomeRequired()
+            lang = await get_conversation_language(
+                db, job_id=state.get("job_id"), user_id=record.user_id
+            )
+            reading = await interpret_reply(
+                provider,
+                reply=message,
+                entry_label=conflict_entry.get("entity_label"),
+                field=conflict_entry.get("field") or "",
+                existing=conflict_entry["existing_value"],
+                incoming=conflict_entry["incoming_value"],
+                outcomes=outcomes,
+                lang=lang,
+            )
+            if reading.outcome is not None:
+                resolution = {
+                    "keep_current": "existing", "take_new": "incoming",
+                    "keep_both": "both", "merge": None,
+                }.get(reading.outcome)
+                if resolution is None:
+                    # "combine them" typed: a merge needs a sentence the
+                    # candidate confirms — ask through the follow-up.
+                    reading = type(reading)(follow_up=None)
+            elif reading.corrected_value is not None:
+                resolution, value = "manual", reading.corrected_value
+                interpreted = InterpretedAnswer(corrected_value=reading.corrected_value)
+            if resolution is None:
+                from applire.services.profile.decisions import default_follow_up
+
+                follow_up = reading.follow_up or default_follow_up(lang)
+                # The follow-up leads; the dispute's own question (both values)
+                # stays under it, so a text-only reader (the agent door) still
+                # sees what is being asked.
+                question = f"{follow_up}\n\n{conflict_entry['question']}"
+                state["conflict_follow_ups"] = follow_ups + [conflict_id]
+                state["current_question"] = question
+                state["messages"].append({"role": "assistant", "content": question})
+                record.state = state
+                record.updated_at = datetime.now(timezone.utc)
+                await db.commit()
+                gaps_remaining = _count_remaining(
+                    state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+                )
+                return SessionMessageResponse(
+                    complete=False, question=question, gaps_remaining=gaps_remaining,
+                    choices=conflict_entry["choices"],
+                    current_gap_id=_current_gap_id(state),
+                    addressed_gap_ids=list(state.get("addressed_gaps", [])),
+                    review_section=_review_item_section(state, _current_gap_id(state)),
+                    interpreted=InterpretedAnswer(follow_up=follow_up),
+                )
+
+    applied = await _resolve_conflict_safely(
+        db, conflict_id, resolution, value, user_id=record.user_id
     )
-
-    if decision == "unclear":
-        question = conflict_entry["question"]
-        choices = conflict_entry["choices"]
-        state["current_question"] = question
-        state["current_choices"] = choices
-        state["messages"].append({"role": "assistant", "content": question})
-        record.state = state
-        record.updated_at = datetime.now(timezone.utc)
-        await db.commit()
-        gaps_remaining = _count_remaining(
-            state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
-        )
-        return SessionMessageResponse(
-            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices,
-            current_gap_id=_current_gap_id(state),
-            addressed_gap_ids=list(state.get("addressed_gaps", [])),
-            review_section=_review_item_section(state, _current_gap_id(state)),
-        )
-
-    resolution = "existing" if decision == "existing" else "incoming"
-    await _resolve_conflict_safely(db, conflict_entry["conflict_id"], resolution)
+    applied = applied or resolution
+    interpreted = interpreted.model_copy(update={
+        "outcome": _OUTCOME_FOR_RESOLUTION.get(applied),
+        "verifier": (
+            ("passed" if applied == "merge" else "failed") if resolution == "merge" else None
+        ),
+    })
 
     current_gap = state["critical_gaps"][current_idx]
     state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
@@ -1380,7 +1535,8 @@ async def _handle_conflict_answer(
     lang = await get_conversation_language(
         db, job_id=state.get("job_id"), user_id=record.user_id
     )
-    return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
+    response = await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
+    return response.model_copy(update={"interpreted": interpreted})
 
 
 def _to_confirmation_prompts(confirmations, lang: str = "en") -> list[ConfirmationPrompt]:
@@ -1504,6 +1660,9 @@ async def _get_active_profile_review_session(
 
 async def _open_conflicts(profile_record: MasterProfile) -> list[dict]:
     """Unresolved ADR-013 conflicts on the profile, shaped for the cluster builder."""
+    from applire.services.profile.entity_label import label_for
+    from applire.utils.display import format_display_value
+
     profile_data = MasterProfileData.model_validate(profile_record.profile_json)
     if profile_data.metadata is None:
         return []
@@ -1514,6 +1673,12 @@ async def _open_conflicts(profile_record: MasterProfile) -> list[dict]:
             "field": c.field,
             "existing_value": c.existing_value,
             "incoming_value": c.incoming_value,
+            # ADR-099 cl. 11 — what the outcome set and the current_conflict
+            # block need (the entry identity decides keep_both, A1-i1).
+            "entity_id": c.entity_id,
+            "entity_label": label_for(profile_data, c.entity_id),
+            "existing_value_display": format_display_value(c.existing_value),
+            "incoming_value_display": format_display_value(c.incoming_value),
             # #685 — `Conflict.source` carried the real provenance all along and
             # this dict simply dropped it, so `_CONFLICT_COPY` had nothing to say
             # but "an import suggested" — for an INTERVIEW answer, on the
@@ -1577,12 +1742,19 @@ async def create_profile_review_session(
     lang: str | None = None,
     *,
     user_id: uuid.UUID | None = None,
+    issue_id: str | None = None,
 ) -> SessionCreateResponse:
     """Launch the standalone profile-review interview (US165).
 
     No ``job_id``: the session walks the user's open Tier-2 conflicts and resolves
     each in place through the ADR-013 merge. Resume-safe — a second call returns
     the in-flight session rather than starting a new one.
+
+    U-2 (Hazelnut build 5): ``issue_id`` (a hub item's ``HealthIssue.id``) is
+    asked FIRST. An in-flight review already asking that item resumes; one
+    asking another item is closed and a fresh review starts on the clicked
+    one (the founder clicked "Beheben" on X and was asked Y). An id that is
+    no open conflict/confirmation → ``LookupError`` (404).
     """
     from applire.services.profile import get_profile_for_user
 
@@ -1596,7 +1768,14 @@ async def create_profile_review_session(
 
     existing = await _get_active_profile_review_session(db, user_id=uid)
     if existing is not None:
-        return _resumed_response(existing)
+        if issue_id is None or _current_gap_id(dict(existing.state)) == issue_id:
+            return _resumed_response(existing)
+        # U-2 — the clicked item is not the one in flight: close that review
+        # (nothing unanswered is lost — every item is still open on the
+        # profile and the new review asks them after the clicked one).
+        existing.status = "complete"
+        existing.updated_at = datetime.now(timezone.utc)
+        await db.flush()
 
     conflicts = await _open_conflicts(profile_record)
     conflict_ids, conflict_categories, conflict_by_id = build_conflict_clusters(
@@ -1612,6 +1791,10 @@ async def create_profile_review_session(
     review_ids = conflict_ids + confirm_ids
     review_categories = {**conflict_categories, **confirm_categories}
     review_by_id = {**conflict_by_id, **confirm_by_id}
+    if issue_id is not None:
+        if issue_id not in review_by_id:
+            raise LookupError(f"issue_not_found: {issue_id}")
+        review_ids = [issue_id] + [r for r in review_ids if r != issue_id]
 
     # ADR-080 — the budget follows the plan. Every conflict/confirmation cluster
     # here is answered deterministically in ONE turn (no LLM re-ask, no follow-up),
@@ -1699,7 +1882,33 @@ async def create_profile_review_session(
         choices=first_choices,
         current_gap_id=review_ids[0],
         review_section=_review_item_section(state, review_ids[0]),
+        current_conflict=_current_conflict(state),
+        follow_up_used=False,
     )
+
+
+async def review_merge_proposal(
+    session_id: uuid.UUID,
+    conflict_id: str,
+    db: AsyncSession,
+    provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
+):
+    """ADR-099 cl. 11 — "Zusammenführen" inside a profile review: the same
+    service as ``POST /api/profile/conflicts/{id}/merge-proposal``, scoped to
+    a dispute this review owns. Nothing is written."""
+    from applire.services.profile import propose_conflict_merge
+
+    uid = resolve_user_id(user_id, site="session.review_merge_proposal")
+    record = await owned_row(db, InterviewSession, session_id, uid)
+    if record is None:
+        raise LookupError(f"Session {session_id} not found")
+    clusters = (dict(record.state or {}).get("conflict_clusters") or {})
+    if not any(c.get("conflict_id") == conflict_id for c in clusters.values()):
+        # 422, not 404: a 404 on this route means "not your session" (S-10).
+        raise ValueError(f"conflict_not_in_review: {conflict_id}")
+    return await propose_conflict_merge(conflict_id, db, provider, user_id=uid)
 
 
 # ---------------------------------------------------------------------------
@@ -2418,6 +2627,10 @@ async def create_session(
     # no purpose but to trap a caller that sends target_gap without ALSO
     # remembering an explicit mode="targeted" — silently falling through to
     # the idempotency branch below instead of the requested gap.
+    if request.requirement_concepts:
+        return await _create_requirement_session(
+            job_id, profile_record, request.requirement_concepts, db, provider, lang, user_id=uid
+        )
     if request.target_gap:
         return await _create_micro_session(
             job_id, job, profile_record, request.target_gap, db, provider, lang, user_id=uid
@@ -2511,6 +2724,8 @@ def _resumed_response(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         review_section=_review_item_section(state, _current_gap_id(state)),
+        current_conflict=_current_conflict(state),
+        follow_up_used=_follow_up_used(state),
         # #259 run-4 finding 9 — the real server-tracked count, so a page
         # refresh restores "N of up to M" instead of resetting to "1 of…".
         questions_asked=real_questions_asked,
@@ -3036,6 +3251,152 @@ async def _create_micro_session(
     )
 
 
+class UnknownRequirement(ValueError):
+    """A ``requirement_concepts`` entry that is no unasked requirement of the
+    job's latest analysis (422 ``unknown_requirement``)."""
+
+    #: SEC-1 — the 422 detail echoes at most this many concepts, each cut to
+    #: the schema's per-item bound.
+    ECHO_CAP = 10
+
+    def __init__(self, concepts: list[str]) -> None:
+        self.concepts = [str(c)[:200] for c in concepts[: self.ECHO_CAP]]
+        super().__init__("unknown_requirement")
+
+
+_REQUIREMENT_PREFIX = "requirement:"
+
+
+async def _create_requirement_session(
+    job_id: uuid.UUID,
+    profile_record: MasterProfile | None,
+    concepts: list[str],
+    db: AsyncSession,
+    provider: LLMProvider,
+    lang: str = "en",
+    *,
+    user_id: uuid.UUID | None = None,
+) -> SessionCreateResponse:
+    """"Jetzt beantworten" (Hazelnut build 5, for WP-C) — ask exactly the
+    chosen never-asked requirements, in the given order, one question each.
+
+    The set offered is ``GapAnalysisResponse.unasked_requirements`` of the
+    owner's latest analysis — read through the SAME response model the gaps
+    page renders from, so the two can never disagree. Each concept becomes a
+    one-member pseudo-cluster (``requirement:<concept>``); the turn writes the
+    vault through the ordinary interview reconcile, and the requirement leaves
+    the unasked set by the existing derivation once the ledger holds evidence
+    or a stated limit for it. A scoped session (``micro_session``), so a later
+    generic interview request retires it like a Gap-Click one.
+    """
+    from applire.schemas.gap import GapAnalysisResponse
+
+    uid = resolve_user_id(user_id, site="session._create_requirement_session")
+    if profile_record is None:
+        raise LookupError("No profile found — upload a CV first")
+    row = (
+        await db.execute(
+            select(GapAnalysis)
+            .where(
+                GapAnalysis.job_analysis_id == job_id,
+                GapAnalysis.user_id == uid,
+                GapAnalysis.deleted_at.is_(None),
+            )
+            .order_by(GapAnalysis.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise LookupError("No gap analysis for this job — run the gap check first")
+    unasked = {
+        (e.concept or "").strip().casefold(): e
+        for e in GapAnalysisResponse.model_validate(row).unasked_requirements
+    }
+    wanted: list[str] = []
+    seen: set[str] = set()
+    for c in concepts:
+        key = (c or "").strip().casefold()
+        if key and key not in seen:
+            seen.add(key)
+            wanted.append((c or "").strip())
+    unknown = [c for c in wanted if c.casefold() not in unasked]
+    if unknown or not wanted:
+        raise UnknownRequirement(unknown or list(concepts))
+
+    ids: list[str] = []
+    clusters: dict[str, dict] = {}
+    for c in wanted:
+        entry = unasked[c.casefold()]
+        cid = f"{_REQUIREMENT_PREFIX}{entry.concept}"
+        ids.append(cid)
+        clusters[cid] = {
+            "id": cid,
+            "label": entry.concept,
+            "gaps": [entry.concept],
+            "jd_skills": [entry.concept],
+            "jd_context": getattr(entry, "jd_context", None) or "",
+            "category": "C",
+        }
+
+    existing_active = await _get_active_session(job_id, db, user_id=uid)
+    ceiling = derive_hard_ceiling(len(ids))
+    state: InterviewState = _build_state(
+        mode="targeted",
+        job_id=job_id,
+        gap_analysis_id=row.id,
+        profile_id=profile_record.id,
+        critical_gaps=ids,
+        gap_categories={i: "C" for i in ids},
+        gap_clusters_by_id=clusters,
+        current_question="",
+        hard_ceiling=ceiling,
+        micro_session=True,
+    )
+    state["entry"] = "requirements"
+    q_data = await _cluster_question(
+        state, profile_record.profile_json, provider, db,
+        user_id=uid, gap_category="C", lang=lang,
+    )
+    first_question = q_data["question"]
+    first_choices = q_data["choices"]
+    state["current_question"] = first_question
+    state["current_choices"] = first_choices
+    state["messages"].append({"role": "assistant", "content": first_question})
+    state["questions_asked"] = 1
+
+    if existing_active is not None:
+        existing_active.status = "complete"
+        existing_active.updated_at = datetime.now(timezone.utc)
+        await db.flush()
+
+    record = _make_session_record(
+        job_id=job_id,
+        gap_analysis_id=row.id,
+        profile_id=profile_record.id,
+        user_id=profile_record.user_id,
+        mode="targeted",
+        status="active",
+        state=state,
+        hard_ceiling=ceiling,
+        questions_asked=1,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return SessionCreateResponse(
+        session_id=record.id,
+        mode="targeted",
+        first_question=first_question,
+        question=first_question,
+        estimated_questions=len(ids),
+        hard_ceiling=ceiling,
+        gaps_total=len(ids),
+        gaps_remaining=len(ids),
+        choices=first_choices,
+        current_gap_id=ids[0],
+    )
+
+
 # ---------------------------------------------------------------------------
 # POST /api/session/{session_id}/message
 # ---------------------------------------------------------------------------
@@ -3525,17 +3886,30 @@ async def send_message(
     provider: LLMProvider,
     *,
     user_id: uuid.UUID | None = None,
+    outcome: str | None = None,
+    merged_text: str | None = None,
 ) -> SessionMessageResponse:
     """One interview turn. Every response carries the session's
     ``questions_asked`` (RULING 787:L7 — gap elicitation only), so the header
     count reads the backend's number instead of counting turns client-side,
-    which would count a confirmation turn as a question."""
-    response = await _send_message_turn(session_id, message, db, provider, user_id=user_id)
-    if response.questions_asked is None:
-        uid = resolve_user_id(user_id, site="session.send_message")
-        record = await owned_row(db, InterviewSession, session_id, uid)
-        if record is not None:
+    which would count a confirmation turn as a question.
+
+    ADR-099 cl. 11 — ``outcome``/``merged_text`` answer a profile-review
+    dispute structurally; the response names the next dispute
+    (``current_conflict``) and whether its one follow-up is spent."""
+    response = await _send_message_turn(
+        session_id, message, db, provider, user_id=user_id,
+        outcome=outcome, merged_text=merged_text,
+    )
+    uid = resolve_user_id(user_id, site="session.send_message")
+    record = await owned_row(db, InterviewSession, session_id, uid)
+    if record is not None:
+        if response.questions_asked is None:
             response.questions_asked = record.questions_asked
+        state = dict(record.state or {})
+        if state.get("entry") == "profile_review" and not response.complete:
+            response.current_conflict = _current_conflict(state)
+            response.follow_up_used = _follow_up_used(state)
     return response
 
 
@@ -3546,6 +3920,8 @@ async def _send_message_turn(
     provider: LLMProvider,
     *,
     user_id: uuid.UUID | None = None,
+    outcome: str | None = None,
+    merged_text: str | None = None,
 ) -> SessionMessageResponse:
     # Load the caller's session (foreign id = missing id, S-10)
     uid = resolve_user_id(user_id, site="session.send_message")
@@ -3561,13 +3937,17 @@ async def _send_message_turn(
     )
 
     state: InterviewState = dict(record.state)
-    state["messages"].append({"role": "user", "content": message})
+    # ADR-099 cl. 11 — a button answer carries no text; the transcript keeps
+    # what was chosen.
+    state["messages"].append(
+        {"role": "user", "content": message or (merged_text or outcome or "")}
+    )
     # Ruling M-1b: the waiting follow-up's label belongs to the question this
     # message answers; a new partial-coverage follow-up sets it again.
     state.pop("follow_up_concepts", None)
 
     # --- Done-signal check (pre-LLM, deterministic) ---
-    if is_termination_signal(message):
+    if outcome is None and is_termination_signal(message):
         return await _complete_session(record, state, db, "user_ended", provider)
 
     current_idx = state["current_gap_index"]
@@ -3604,8 +3984,12 @@ async def _send_message_turn(
     conflict_entry = _conflict_entry(state, current_gap)
     if conflict_entry is not None:
         return await _handle_conflict_answer(
-            record, state, db, provider, current_idx, conflict_entry, message
+            record, state, db, provider, current_idx, conflict_entry, message,
+            outcome=outcome, merged_text=merged_text,
         )
+    if outcome is not None:
+        # A structured dispute answer while the current item is no dispute.
+        raise OutcomeNotOffered()
 
     # --- E037 PQ #4: a pending import-time confirmation (N-option ambiguity) is
     # resolved deterministically (no LLM) — the user picks one of the engine's

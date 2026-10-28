@@ -39,7 +39,21 @@ from applire.services.profile.reconcile.ops import ResolveConfirmation, ResolveF
 #: The three ways a dispute can be answered, as the doors have always spelled
 #: them. `existing` keeps the stored value, `incoming` accepts the disputed
 #: one, `manual` writes the candidate's own text.
-VALID_RESOLUTIONS = ("existing", "incoming", "manual")
+VALID_RESOLUTIONS = ("existing", "incoming", "manual", "both", "merge")
+
+#: ADR-099 cl. 11 — the outcome keys the hub and the profile review send
+#: (``keep_current`` …) and the resolution each writes. The resolution names
+#: stay the op's vocabulary; both spellings are accepted at every door.
+OUTCOME_ALIASES: dict[str, str] = {
+    "keep_current": "existing",
+    "take_new": "incoming",
+    "keep_both": "both",
+    "merge_confirm": "merge",
+}
+
+
+def normalise_resolution(resolution: str) -> str:
+    return OUTCOME_ALIASES.get(resolution, resolution)
 
 
 def build_resolve_field_op(
@@ -61,16 +75,18 @@ def build_resolve_field_op(
     applier reads the winning side off the conflict record itself, so the
     chosen text cannot diverge from the dispute the candidate was shown.
     """
+    resolution = normalise_resolution(resolution)
     if resolution not in VALID_RESOLUTIONS:
         raise ValueError(
-            f"Invalid resolution '{resolution}'. Must be existing, incoming, or manual."
+            f"Invalid resolution '{resolution}'. Must be existing, incoming, manual, "
+            "keep_both or merge."
         )
     return ResolveField(
         conflict_id=conflict.conflict_id,
         target=conflict.entity_id,
         section=conflict.section,
         field=conflict.field,
-        value=value if resolution == "manual" else None,
+        value=value if resolution in ("manual", "merge") else None,
         resolution=resolution,  # type: ignore[arg-type]
     )
 

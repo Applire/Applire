@@ -1091,6 +1091,12 @@ def build_conflict_clusters(
             "label": q["question"],
             "question": q["question"],
             "choices": q["choices"],
+            # ADR-099 cl. 11 — the outcome set and the current_conflict block.
+            "entity_id": c.get("entity_id"),
+            "entity_label": c.get("entity_label"),
+            "existing_value_display": c.get("existing_value_display"),
+            "incoming_value_display": c.get("incoming_value_display"),
+            "source": c.get("source"),
         }
     return cluster_ids, categories, by_id
 

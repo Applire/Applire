@@ -277,6 +277,12 @@ async def test_upload_cv_builds_generic_prompt_even_when_job_id_is_supplied(
             job_id=uuid.uuid4(),  # supplied, but must no longer select a different prompt
         )
 
+    # RULING B-1 (Hazelnut build 5): the import's commit also asks the
+    # goal/task-wording judge about the current role's bullet — a later call,
+    # never the extraction call this test pins.
+    from applire.prompts.profile_decisions import ASPIRATION_SYSTEM
+
+    captured_system = [s for s in captured_system if s != ASPIRATION_SYSTEM]
     assert captured_system == [GENERIC_CV_EXTRACTION_PROMPT], (
         "upload_cv must build GENERIC_CV_EXTRACTION_PROMPT for the extraction call, "
         "even when job_id is supplied — JD-aware extraction was retired M5.1.3"

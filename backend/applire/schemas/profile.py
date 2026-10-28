@@ -271,6 +271,12 @@ class DatedRoleAlias(BaseModel):
 class WorkEntry(ExperienceBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company: str = ""
+    #: RULING B-1 (Hazelnut build 5, U-7) — bullets of this entry the candidate
+    #: answered "Nein" to on "Ist das erreicht?": the goal, target or mandate
+    #: they state is NOT reached yet. The bullet itself stays where it is; this
+    #: list is the candidate's testimony about its stance, and a writer phrases
+    #: what it names as a goal or an aim, never as a result.
+    not_yet_reached: list[str] = Field(default_factory=list)
 
     @field_validator("company", mode="before")
     @classmethod
@@ -334,8 +340,10 @@ class WorkEntry(ExperienceBase):
 
     @model_serializer(mode="wrap")
     def _omit_empty_company_aliases(self, handler: Any) -> Any:
+        # RULING B-1: `not_yet_reached` is omitted while empty too, so a
+        # profile nobody answered "Nein" for dumps (and prompts) byte-identical.
         return _omit_empty_alias_lists(
-            handler(self), ("company_aliases", "dated_role_aliases")
+            handler(self), ("company_aliases", "dated_role_aliases", "not_yet_reached")
         )
 
     industry_context: str | None = None
@@ -833,6 +841,14 @@ class ProjectEntry(ExperienceBase):
     url: str | None = None
     # Optional id/label linking to a work OR volunteer entry; None = standalone.
     associated_experience: str | None = None
+    #: RULING B-1 (A1-3 gap) — as ``WorkEntry.not_yet_reached``: bullets of this
+    #: project the candidate said are not reached yet; a writer phrases them as
+    #: a goal or an aim, never as a result.
+    not_yet_reached: list[str] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_not_yet_reached(self, handler: Any) -> Any:
+        return _omit_empty_alias_lists(handler(self), ("not_yet_reached",))
 
     def org_label(self) -> str:
         return self.name
@@ -1117,6 +1133,22 @@ class ImportNotApplied(BaseModel):
         "confirmation_already_present",
         "target_unresolved",
     ]
+    #: UAT-3d (Hazelnut build 5) — a deterministic id for this item inside its
+    #: record (``section:<hash of label>``), set where the item is a whole
+    #: incoming record. ``None`` on receipts persisted before this field.
+    item_key: str | None = None
+    #: The incoming entry payload (no id), captured ONLY for an item that is a
+    #: whole new record of a list section (work_experience, education, projects,
+    #: volunteer_activities, certifications, languages, publications) — what
+    #: "Übernehmen" appends. ``None`` for scalar/summary items and for receipts
+    #: persisted before this field (those fall back to go-to-section).
+    entry: dict[str, Any] | None = None
+    #: Set when the candidate adopted this item; an adopted item is no longer
+    #: counted or shown by the hub.
+    adopted_at: datetime | None = None
+    #: Computed when the hub issue is built: has an ``entry`` and no
+    #: ``adopted_at``. Never persisted as true.
+    adoptable: bool = False
 
 
 #: ADR-062 clause 1 (a FACT over the reason key, never a judgement) / ADR-066
@@ -1557,6 +1589,65 @@ class ProfileMetadata(BaseModel):
     # the same question again. A withdrawn denial (cv_holds) needs no entry: it
     # is gone from denied_concepts and cannot re-park.
     denial_scope_answered: list[str] = Field(default_factory=list)
+    # ADR-099 cl. 11 / ADR-046 am. (Hazelnut build 5, WP-A1, U-9) — two entries
+    # the candidate keeps as SEPARATE entries: answered "Nein, getrennt" on the
+    # duplicate-entry question, or "Beide behalten" on an entry dispute
+    # (RULING A1-i1). The duplicate-entry question never re-asks such a pair.
+    separate_entry_pairs: list["EntryPair"] = Field(default_factory=list)
+    # U-9 — the model's same-position verdict per candidate pair (identical
+    # dates), judged once at the end of a CV import. Only "different" hides a
+    # pair from the duplicate-entry question; an unjudged pair is asked.
+    entry_identity_verdicts: list["EntryIdentityVerdict"] = Field(default_factory=list)
+    # RULING B-1 (U-7) — the model's per-bullet "worded as a goal or a task still
+    # to do" judgement for the bullets of current work entries, judged once at
+    # the end of a CV import (negatives are kept so a bullet is judged once).
+    aspiration_verdicts: list["AspirationVerdict"] = Field(default_factory=list)
+    # B-1 — the candidate's answers to "Ist das erreicht?"; an answered bullet
+    # is never asked again.
+    aspiration_answers: list["AspirationAnswer"] = Field(default_factory=list)
+
+
+class EntryPair(BaseModel):
+    """Two entries of one section, ids sorted (an unordered pair)."""
+
+    section: str
+    ids: list[str] = Field(min_length=2, max_length=2)
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("ids", mode="after")
+    @classmethod
+    def _sorted(cls, v: list[str]) -> list[str]:
+        return sorted(v)
+
+
+class EntryIdentityVerdict(EntryPair):
+    verdict: Literal["same", "different", "unsure"]
+
+
+class AspirationVerdict(BaseModel):
+    """B-1 — one bullet of a current work entry or current project and the
+    model's judgement whether it is worded as a goal or a task still to do.
+    ``key`` is ``aspiration_key(text)``; the text is kept so the hub can quote it."""
+
+    section: Literal["work_experience", "projects"] = "work_experience"
+    entry_id: str
+    key: str
+    text: str
+    aspiration: bool
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AspirationAnswer(BaseModel):
+    """B-1 — the candidate's answer for one asked bullet: ``achieved`` (with
+    what came out, written as an achievement in their words) or ``goal``."""
+
+    entry_id: str
+    key: str
+    answer: Literal["achieved", "goal"]
+    answered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+ProfileMetadata.model_rebuild()
 
 
 class ProfileMetaBlock(BaseModel):
@@ -1960,8 +2051,21 @@ class ConflictResolutionRequest(BaseModel):
         "incoming" — replace with the incoming value
         "manual"   — supply a custom value via `value`
     """
-    resolution: Literal["existing", "incoming", "manual"]
+    # ADR-099 cl. 11 (Hazelnut build 5): + "keep_both" (only where the dispute
+    # offers it) and "merge" (bullet lists; ``value`` = the merged sentence,
+    # re-verified — a sentence that fails is written as "manual", RULING A1-1).
+    resolution: Literal["existing", "incoming", "manual", "keep_both", "merge"]
     value: Any | None = None
+
+
+class MergeProposalResponse(BaseModel):
+    """ADR-099 cl. 11 — "Zusammenführen": the model's one sentence, or ``None``
+    when it failed the fact-presence check (then only the other outcomes are
+    offered). ``sources`` = [existing, incoming], shown beside the proposal."""
+
+    proposal: str | None = None
+    verifier: Literal["passed", "failed"]
+    sources: list[str]
 
 
 class ConflictSummary(BaseModel):
@@ -2119,6 +2223,38 @@ class WithdrawDenialRequest(BaseModel):
     concept: str = Field(min_length=1, max_length=500)
 
 
+class HealthUnitRequest(BaseModel):
+    """UAT-3d — ``POST /api/profile/health/unit``: the currency for one work
+    entry's budget figure that states none."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entry_id: str = Field(min_length=1)
+    unit: Literal["EUR", "USD", "CHF", "GBP"]
+
+
+class AspirationAnswerRequest(BaseModel):
+    """B-1 — ``POST /api/profile/aspirations/answer``: the candidate's answer to
+    "Ist das erreicht?" for one ``aspiration:<entry id>:<key>`` issue. ``achieved``
+    requires ``outcome`` — what came out, in the candidate's own words."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    issue_id: str = Field(min_length=1, max_length=300)
+    achieved: bool
+    outcome: str | None = Field(default=None, max_length=500)
+
+
+class AdoptNotAppliedRequest(BaseModel):
+    """UAT-3d — ``POST /api/profile/not-applied/adopt``: one receipt item of the
+    hub's ``not_applied:<record id>`` issue, taken into the vault."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    issue_id: str = Field(min_length=1)
+    item_key: str = Field(min_length=1)
+
+
 class SeparateMatchRequest(BaseModel):
     """#717 — "Nicht dasselbe": the recognised pair to undo, named as the
     import summary shows it (ADR-063 amended 2026-10-07, ruling V-2 = A)."""
@@ -2172,7 +2308,7 @@ class HealthIssue(BaseModel):
     # "Ist A dasselbe wie B?" with the existing Ja / Nein-getrennt acts.
     thread: Literal[
         "conflict", "accuracy", "confirmation", "unit", "not_applied", "span_provenance",
-        "suspect_binding",
+        "suspect_binding", "duplicate_entry", "aspiration",
     ]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     # A server-built, English-only fallback (kept for any consumer #626
@@ -2299,6 +2435,22 @@ class HealthIssue(BaseModel):
     options_i18n: list[dict[str, str]] | None = None
     span_years: int | None = None
     recomputed_years: int | None = None
+    #: UAT-3d — ``conflict`` only: the closed outcome list the dispute allows
+    #: (``decisions.conflict_shape``), e.g. ``keep_current`` / ``take_new`` /
+    #: ``keep_both`` / ``merge``.
+    outcomes: list[str] | None = None
+    #: UAT-3d — ``unit`` only: the stored budget wording as written, and the id
+    #: of the work entry it sits on (the one-action unit input addresses it).
+    budget_value: str | None = None
+    entry_id: str | None = None
+    #: UAT-3d — ``duplicate_entry`` only: [target, other] entry ids of the
+    #: recognised pair, and the other entry's label (``entity_label`` is the
+    #: target's).
+    entry_ids: list[str] | None = None
+    other_entity_label: str | None = None
+    #: B-1 — ``aspiration`` only: the bullet as written (the candidate's own
+    #: words), asked as "Ist das erreicht?"; ``entry_id`` names its entry.
+    aspiration_text: str | None = None
 
 
 class CompletenessBlock(BaseModel):
@@ -2317,6 +2469,10 @@ class CompletenessBlock(BaseModel):
     score: float                                  # 0.0 to 1.0
     gaps: list[str] = Field(default_factory=list)
     field_gaps: list[str] = Field(default_factory=list)
+    # ADR-099 / UAT-3d: A/complete_section when ``field_gaps`` is non-empty,
+    # else S/None (a section-level gap alone is a nudge, not an action).
+    delivery_class: Literal["F", "A", "U", "S"] | None = None
+    resolver: str | None = None
 
 
 class ProfileHealthResponse(BaseModel):

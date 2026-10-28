@@ -1,0 +1,269 @@
+{
+  "_comment": "Synthetic regression shape for Hazelnut build 5 U-1 (SF-PROFILE.21): a second CV import whose entries carry DIFFERENT achievements that share a phrase with an existing achievement of the same role. Expected: no flag_conflict on the bullet lists (two different facts are add_bullets, a restatement is silence). Controls: a genuine same-fact/changed-figure pair must still be flagged. Fictional people and employers only.",
+  "profile": {
+    "personal_info": {
+      "name": "Mara Lindqvist",
+      "email": "mara.lindqvist@example.com",
+      "location": "Leipzig"
+    },
+    "professional_summary": {
+      "de": null,
+      "en": "Data platform lead in logistics."
+    },
+    "work_experience": [
+      {
+        "id": "w-lumen-head",
+        "company": "Lumen Logistik GmbH",
+        "role": "Head of Data Platforms",
+        "start_date": "2021-04",
+        "end_date": null,
+        "is_current": true,
+        "responsibilities": [
+          "Led a team of six platform engineers building the analytics stack for warehouse operations."
+        ],
+        "achievements": [
+          "Introduced a supplier scorecard for vendor selection and platform design.",
+          "Cut monthly cloud spend by 30% through workload right-sizing."
+        ],
+        "technologies": [
+          "Snowflake",
+          "dbt"
+        ]
+      },
+      {
+        "id": "w-lumen-eng",
+        "company": "Lumen Logistik GmbH",
+        "role": "Data Engineer",
+        "start_date": "2017-02",
+        "end_date": "2021-03",
+        "responsibilities": [
+          "Owned the nightly ETL for the transport management system."
+        ],
+        "achievements": [
+          "Qualified the warehouse control system for the pallet line across 3 sites (test design, execution, documentation review)."
+        ],
+        "technologies": [
+          "Python"
+        ]
+      }
+    ],
+    "education": [],
+    "certifications": [],
+    "skills": [],
+    "languages": [],
+    "publications": [],
+    "projects": [],
+    "volunteer_activities": [],
+    "signature_stories": []
+  },
+  "incoming": {
+    "personal_info": {
+      "name": "Mara Lindqvist",
+      "email": "mara.lindqvist@example.com",
+      "location": "Leipzig"
+    },
+    "professional_summary": {
+      "de": null,
+      "en": "Data platform leader."
+    },
+    "work_experience": [
+      {
+        "company": "Lumen Logistik GmbH",
+        "role": "Head of Data Platforms",
+        "start_date": "2021-04",
+        "end_date": null,
+        "is_current": true,
+        "responsibilities": [
+          "Led a team of platform engineers building the analytics stack for warehouse operations."
+        ],
+        "achievements": [
+          "Merged 12 reporting tools into one central lakehouse, streamlining vendor selection and platform scalability."
+        ],
+        "technologies": []
+      },
+      {
+        "company": "Lumen Logistik GmbH",
+        "role": "Data Engineer",
+        "start_date": "2017-02",
+        "end_date": "2021-03",
+        "responsibilities": [
+          "Owned the nightly ETL for the transport management system."
+        ],
+        "achievements": [
+          "Built dashboards supporting shipment release across 3 sites."
+        ],
+        "technologies": []
+      }
+    ],
+    "education": [],
+    "certifications": [],
+    "skills": [],
+    "languages": [],
+    "publications": [],
+    "projects": [],
+    "volunteer_activities": [],
+    "signature_stories": []
+  },
+  "expect": {
+    "different_fact_incoming": [
+      "Merged 12 reporting tools into one central lakehouse, streamlining vendor selection and platform scalability.",
+      "Built dashboards supporting shipment release across 3 sites."
+    ]
+  },
+  "control": {
+    "_comment": "Same fact, changed figure: must stay a flag_conflict (rule 13).",
+    "incoming_achievement_for_w-lumen-head": "Cut monthly cloud spend by 45% through workload right-sizing."
+  },
+  "profile_large": {
+    "personal_info": {
+      "name": "Mara Lindqvist",
+      "email": "mara.lindqvist@example.com",
+      "location": "Leipzig"
+    },
+    "professional_summary": {
+      "de": null,
+      "en": "Data platform lead in logistics."
+    },
+    "work_experience": [
+      {
+        "id": "w-lumen-dir",
+        "company": "Lumen Logistik GmbH",
+        "role": "Director Warehouse Data Systems",
+        "start_date": "2024-01",
+        "end_date": null,
+        "is_current": true,
+        "responsibilities": [
+          "Lead cross-functional teams delivering routing software for same-day parcel delivery, including chain-of-custody scanning for medical shipments.",
+          "Run a machine-learning forecasting project with Spark and gradient boosting to plan depot staffing, aiming for a 20% cut in overtime while setting up model review rules for safety-relevant decisions.",
+          "Act as domain architect for the inbound logistics area, defining the target architecture and the migration path to a cloud-ready system landscape, including cost estimates."
+        ],
+        "achievements": [
+          "The forecasting pilot reduced unplanned overtime by 14% in two depots, so the rollout was extended to all regions."
+        ]
+      },
+      {
+        "id": "w-lumen-head",
+        "company": "Lumen Logistik GmbH",
+        "role": "Head of Data Platforms",
+        "start_date": "2021-04",
+        "end_date": "2023-12",
+        "responsibilities": [
+          "Led a team of six platform engineers building the analytics stack for warehouse operations.",
+          "Defined cross-site data flow models that made every pallet traceable end to end."
+        ],
+        "achievements": [
+          "Introduced a supplier scorecard for vendor selection and platform design.",
+          "Passed three consecutive customs audits without a single major finding by building one register of every system, interface and site."
+        ]
+      },
+      {
+        "id": "w-lumen-eng",
+        "company": "Lumen Logistik GmbH",
+        "role": "Data Engineer",
+        "start_date": "2017-02",
+        "end_date": "2021-03",
+        "responsibilities": [
+          "Owned the nightly ETL for the transport management system."
+        ],
+        "achievements": [
+          "Led the record-fast rollout of the yard management system (5 months, 4 sites) as lead engineer, owning the test strategy and data migration.",
+          "Qualified the warehouse control system for the pallet line across 3 sites (test design, execution, documentation review)."
+        ]
+      }
+    ],
+    "education": [],
+    "certifications": [],
+    "skills": [],
+    "languages": [],
+    "publications": [],
+    "projects": [
+      {
+        "id": "p-yard",
+        "name": "Yard Management Rollout",
+        "role": "Lead Engineer",
+        "start_date": "2019-06",
+        "end_date": "2019-11",
+        "responsibilities": [],
+        "achievements": [
+          "Enabled same-day dispatch for the growing e-commerce volume, supporting €40m revenue"
+        ]
+      }
+    ],
+    "volunteer_activities": [],
+    "signature_stories": []
+  },
+  "incoming_large": {
+    "personal_info": {
+      "name": "Mara Lindqvist",
+      "email": "mara.lindqvist@example.com",
+      "location": "Leipzig"
+    },
+    "professional_summary": {
+      "de": null,
+      "en": "Data platform leader."
+    },
+    "work_experience": [
+      {
+        "company": "Lumen Logistik GmbH",
+        "role": "Director Warehouse Data Systems",
+        "start_date": "2024-01",
+        "end_date": null,
+        "is_current": true,
+        "responsibilities": [
+          "Lead cross-functional teams delivering routing software for same-day parcel delivery, including end-to-end parcel tracking.",
+          "Lead a machine-learning project to plan depot staffing while setting up model review rules for safety-relevant decisions.",
+          "Set strategic direction and plan roadmaps for automation across the depot network."
+        ],
+        "achievements": [
+          "The forecasting project targets a 20%+ cut in overtime."
+        ]
+      },
+      {
+        "company": "Lumen Logistik GmbH",
+        "role": "Head of Data Platforms",
+        "start_date": "2021-04",
+        "end_date": "2023-12",
+        "responsibilities": [
+          "Led a team of platform engineers building the analytics stack for warehouse operations.",
+          "Chaired the data governance board, aligning the platform roadmap with operations."
+        ],
+        "achievements": [
+          "Merged 12 reporting tools into one central lakehouse, streamlining vendor selection and platform scalability."
+        ]
+      },
+      {
+        "company": "Lumen Logistik GmbH",
+        "role": "Data Engineer",
+        "start_date": "2017-02",
+        "end_date": "2021-03",
+        "responsibilities": [
+          "Owned the nightly ETL for the transport management system."
+        ],
+        "achievements": [
+          "Led a yard management rollout across 4 sites in 5 months, enabling same-day dispatch supporting €40m revenue.",
+          "Built dashboards supporting shipment release across 3 sites."
+        ]
+      }
+    ],
+    "education": [],
+    "certifications": [],
+    "skills": [],
+    "languages": [],
+    "publications": [],
+    "volunteer_activities": [],
+    "signature_stories": [],
+    "projects": [
+      {
+        "name": "Yard Management Rollout",
+        "role": "Lead Engineer",
+        "start_date": "2019-06",
+        "end_date": "2019-11",
+        "responsibilities": [],
+        "achievements": [
+          "Delivered a yard system supporting same-day dispatch, contributing to €40 million revenue in 2019."
+        ]
+      }
+    ]
+  },
+  "_comment_large": "profile_large/incoming_large: the same SHAPE at the size of a real second-CV import — three roles at one employer, rewordings that add or drop a detail, two different facts sharing a phrase ('vendor selection', 'across 3 sites'), a target beside a result. Expected: no flag_conflict on bullets."
+}

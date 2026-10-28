@@ -588,3 +588,22 @@ def delivered_report(
     except Exception:  # noqa: BLE001
         logger.exception("delivered_report: delivery state failed — none recorded")
     return apply_delivery(report, review_degradation=review_degradation, removals=removals, fixed=fixed)
+
+# UAT-3d (Hazelnut build 5, WP-A1 hub) — the profile-health hub's kinds.
+REGISTRY.update(
+    {
+        "health:conflict_list": Entry("A", "conflict_list"),
+        "health:conflict_scalar": Entry("A", "conflict_scalar"),
+        "health:confirmation": Entry("A", "confirmation"),
+        "health:unit": Entry("A", "unit_input"),
+        "health:span_provenance": Entry("A", "recompute_span"),
+        "health:suspect_binding": Entry("A", "confirm_match"),
+        "health:duplicate_entry": Entry("A", "confirm_match"),
+        "health:aspiration": Entry("A", "ask_achieved"),  # RULING B-1
+        "health:not_applied": Entry("A", "adopt_not_applied"),
+        "health:not_applied_unadoptable": Entry("A", "complete_section"),
+        "health:accuracy": Entry("S", None),
+        "health:completeness": Entry("A", "complete_section"),
+        "health:completeness_no_field_gaps": Entry("S", None),
+    }
+)

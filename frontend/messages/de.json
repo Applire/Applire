@@ -1847,6 +1847,11 @@
       "denial_withdrawn_skill": "Nicht mehr ausgeschlossen: Du hast die Einschränkung zurückgenommen. Es zählt wieder, sobald ein Lebenslauf oder eine Antwort es belegt.",
       "match_separated": "Getrennt geführt: Du hast gesagt, dass das nicht dasselbe ist.",
       "match_confirmed": "Du hast bestätigt, dass das dasselbe ist.",
+      "entries_merged": "Mit einem anderen Eintrag derselben Position zusammengeführt.",
+      "entries_kept_separate": "Getrennt gehalten: Du hast gesagt, das sind zwei verschiedene Einträge.",
+      "not_applied_adopted": "Aus deinem Import übernommen, nachdem du es hinzufügen wolltest.",
+      "aspiration_achieved": "Als Ergebnis ergänzt: Du hast gesagt, was aus diesem Ziel geworden ist.",
+      "aspiration_goal": "Als Ziel behalten: Du hast gesagt, das ist noch nicht erreicht.",
       "availability_recorded": "Deine Verfügbarkeit festgehalten.",
       "availability_cleared": "Deine Verfügbarkeit entfernt."
     }
