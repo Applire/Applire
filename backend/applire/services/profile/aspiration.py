@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,8 +98,23 @@ def current_entries(profile: MasterProfileData) -> list[tuple[str, Entry]]:
     return [("work_experience", w) for w in work] + [("projects", p) for p in projects]
 
 
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _description_sentences(entry: Entry) -> list[str]:
+    """U-7b — the sentences of a project's ``description``: a goal folded into
+    prose is as able to reach a document as a bullet."""
+    text = getattr(entry, "description", None)
+    if not isinstance(text, str) or not text.strip():
+        return []
+    return [s.strip() for s in _SENTENCE_SPLIT.split(text.strip()) if s.strip()]
+
+
 def _bullets(entry: Entry) -> list[str]:
-    return [b for b in (*entry.responsibilities, *entry.achievements) if isinstance(b, str) and b.strip()]
+    """The candidate lines of an entry: its bullets, then its description's
+    sentences (U-7b)."""
+    lines = [b for b in (*entry.responsibilities, *entry.achievements) if isinstance(b, str) and b.strip()]
+    return lines + [s for s in _description_sentences(entry) if s not in lines]
 
 
 def entry_label(entry: Entry) -> str:

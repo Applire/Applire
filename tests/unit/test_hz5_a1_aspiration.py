@@ -313,3 +313,26 @@ def test_project_stance_reaches_the_prompt_view():
 
     p = _with_projects(_proj("ongoing", start_date="2024", not_yet_reached=[P_GOAL]))
     assert prompt_profile_view(p.model_dump(mode="json"))["projects"][0]["not_yet_reached"] == [P_GOAL]
+
+
+# ── U-7b: a goal folded into a current project's description is asked too ──────
+
+
+def test_a_current_projects_description_sentences_are_candidates_and_answerable():
+    from applire.services.profile.aspiration import apply_aspiration_op
+    from applire.services.profile.reconcile.ops import AnswerAspiration
+
+    goal = "It aims to establish a model-risk review board."
+    p = _with_projects(_proj("ongoing", start_date="2024",
+                             description=f"Platform for claims automation. {goal}"))
+    texts = [t for sec, _e, _k, t in unjudged_bullets(p) if sec == "projects"]
+    assert goal in texts and "Platform for claims automation." in texts
+    blob = p.model_dump(mode="json")
+    blob["metadata"] = {"aspiration_verdicts": [
+        {"section": "projects", "entry_id": "ongoing", "key": aspiration_key(goal), "text": goal,
+         "aspiration": True}]}
+    p = MasterProfileData.model_validate(blob)
+    assert [t for _s, _e, _k, t in open_aspirations(p)] == [goal]
+    apply_aspiration_op(AnswerAspiration(entry_id="ongoing", key=aspiration_key(goal), achieved=False), p, [])
+    assert p.projects[0].not_yet_reached == [goal]
+    assert open_aspirations(p) == []

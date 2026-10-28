@@ -203,6 +203,10 @@ Rules:
   fully offline", "Multilingual portal: customers switch between five languages") — never an
   imperative task ("Build an offline app", "Enable customers to switch languages"). Only wording the
   source itself states as a goal, plan or target ("aiming for 60%", "plan to roll out") is a goal.
+  The reverse holds as well, and a "description" is where it goes wrong most: it summarises, and a
+  summary drops verbs. When the source says the work is ESTABLISHING, BUILDING, TARGETING or AIMING
+  for something, the description keeps that verb — write "…, establishing a review board", never
+  "…, with a review board" or "…, including a review board" (that states it already exists).
 - For technology stacks, extract individual tools/languages/frameworks into the technologies list.
 - TECHNOLOGIES vs PRACTICES: a "technologies" list holds ONLY concrete tools, programming
   languages, frameworks, libraries, platforms and products (e.g. Python, React, Docker, AWS, SAP,
