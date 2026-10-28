@@ -990,6 +990,13 @@ export interface DeliveryInputs extends ReviewInputs {
    * tab badge and the phone badge (ADR-099 cl. 3).
    */
   extraCounted?: number;
+  /**
+   * The page renders the page-length card itself (the CV's PageOverflowCard,
+   * counted through `extraCounted`). Then the report's `page-length` row is
+   * neither a second card nor a second count — page length has ONE place
+   * (ADR-099 cl. 7). The letter's card is the surface's own (false).
+   */
+  pageCardFromPage?: boolean;
 }
 
 /** Does any row of the reports carry an ADR-099 delivery class? */
@@ -1109,7 +1116,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   const count =
     countedOpenRows(questions).length +
     translate.length +
-    (pageLength ? 1 : 0) +
+    (pageLength && !inputs.pageCardFromPage ? 1 : 0) +
     unknown.length +
     fallback.filter((f) => f.counted).length +
     (degraded ? 1 : 0) +

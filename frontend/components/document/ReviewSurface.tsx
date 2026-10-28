@@ -253,8 +253,9 @@ export function ReviewSurface({
         reviewState,
         degradation,
         extraCounted,
+        pageCardFromPage: !isLetter,
       }),
-    [atsReport, truthReport, criticReport, gapClusters, hasClusterProducer, openRequirements, reviewState, degradation, extraCounted],
+    [atsReport, truthReport, criticReport, gapClusters, hasClusterProducer, openRequirements, reviewState, degradation, extraCounted, isLetter],
   );
   const group3 = useMemo(
     () =>
@@ -1145,6 +1146,11 @@ export function ReviewSurface({
     "flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-white disabled:opacity-50";
   const outlineBtn =
     "flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-outline-variant bg-surface-bright px-3 text-sm font-semibold text-on-surface disabled:opacity-50";
+  // A filled twin of outlineBtn. Never append colour classes to outlineBtn:
+  // Tailwind resolves bg-*/text-* conflicts by stylesheet order, not class order
+  // (the letter page card once rendered its "kürzen" button white on white).
+  const filledBtn =
+    "flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-primary bg-primary px-3 text-sm font-semibold text-white disabled:opacity-50";
 
   const translateEdit = edit && edit.key === SEND_LANGUAGE_KEY ? edit : null;
   const pageEdit = edit && edit.key === PAGE_LENGTH_KEY ? edit : null;
@@ -1291,7 +1297,7 @@ export function ReviewSurface({
               data-testid="review-letter-page-cut"
               disabled={busy !== null}
               onClick={() => void runLetterPage("cut")}
-              className={`${outlineBtn} border-primary bg-primary text-white`}
+              className={filledBtn}
             >
               {busy === "page" && spin}
               {tCv("pageOverflowCut", { target: Number(view.pageLength.check?.details_params?.letterPages ?? 1) })}

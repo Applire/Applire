@@ -922,6 +922,7 @@ export default function CVPage({
       reviewState,
       degradation: degradationFor?.cvId === cvId ? degradationFor.steps : null,
       extraCounted: pageCardOpen ? 1 : 0,
+      pageCardFromPage: true,
     }).count;
 
     const sidebarTabs: SidebarTab[] = [

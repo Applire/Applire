@@ -44,12 +44,14 @@ export function CoverLetterDocument({ coverLetterId, onPreviewLoad, generationIn
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
       setContainerWidth(entry.contentRect.width);
+      setContainerHeight(entry.contentRect.height);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -79,7 +81,10 @@ export function CoverLetterDocument({ coverLetterId, onPreviewLoad, generationIn
   }, [coverLetterId]);
 
   const scale = containerWidth > 0 ? Math.min(1, containerWidth / CV_WIDTH) : 1;
-  const iframeHeight = CV_WIDTH * Math.sqrt(2); // A4 aspect ratio ≈ 1123px
+  // U-6: the iframe fills the preview box and scrolls inside (as the CV's
+  // does) — a fixed one-A4 height clipped a two-page letter right at its page
+  // band, so page 2 was out of reach on the phone. One A4 until measured.
+  const iframeHeight = containerHeight > 0 ? containerHeight / scale : CV_WIDTH * Math.sqrt(2);
 
   // U-6 (UAT-2): a letter over one page shows where the PDF breaks.
   const handleLoad = (e: React.SyntheticEvent<HTMLIFrameElement>) => {

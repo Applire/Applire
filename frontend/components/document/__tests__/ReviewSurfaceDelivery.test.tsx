@@ -33,6 +33,8 @@ const api = vi.hoisted(() => ({
   translateSpans: vi.fn(),
   recheckDocument: vi.fn(),
   removalEvidence: vi.fn(),
+  shortenLetter: vi.fn(),
+  keepLetterLength: vi.fn(),
 }));
 vi.mock("@/lib/api/document-review", async (orig) => {
   const actual = await orig<typeof import("@/lib/api/document-review")>();
@@ -263,5 +265,53 @@ describe("ADR-099 cl. 5 — the removal line", () => {
     await waitFor(() =>
       expect(api.removalEvidence).toHaveBeenCalledWith("cv", "cv-1", "Leitete 12 Personen.", "Bei Nordwind, Team von 12."),
     );
+  });
+});
+
+describe("ADR-099 cl. 7 — page length has ONE place, counted once", () => {
+  const pageCheck = {
+    id: "page-length",
+    status: "fail" as const,
+    details_key: "page-length-letter",
+    details_params: { pages: 2, letterPages: 1 },
+    delivery_class: "A" as const,
+    resolver: "page_length",
+  };
+  const clean: TruthfulnessReport = { version: "2", document_kind: "cv", counts: {}, stated_limit: "", claims: [] };
+
+  it("the letter's card: title, both answers labelled, the filled one without a light background, counted once", () => {
+    render(withIntl(<ReviewSurface {...props({ documentKind: "cover-letter", documentId: "cl-1", truthReport: clean, atsReport: ats(undefined, [pageCheck]) })} />, "de"));
+    const card = screen.getByTestId("review-letter-page");
+    expect(card.textContent).toContain("Dein Anschreiben braucht 2 Seiten statt 1 Seite");
+    expect(within(card).getByTestId("review-letter-page-keep").textContent).toBe("2 Seiten behalten");
+    const cut = within(card).getByTestId("review-letter-page-cut");
+    expect(cut.textContent).toBe("Auf 1 Seite kürzen");
+    // Tailwind resolves bg-*/text-* conflicts by stylesheet order: a filled
+    // button that also carries the outline's light background renders white on white.
+    expect(cut.className).toContain("bg-primary");
+    expect(cut.className).not.toMatch(/bg-surface|text-on-surface/);
+    expect(count()).toBe("1");
+  });
+
+  it("„kürzen“ calls the letter's shorten door; „behalten“ the keep door", async () => {
+    api.shortenLetter.mockResolvedValue({ changes: [{ section_id: "body", before: "A. B.", after: "A." }], still_listed: false, report: ats(), truthfulness: null, review_state: null });
+    api.keepLetterLength.mockResolvedValue({ report: ats(), truthfulness: null, review_state: null });
+    const p = props({ documentKind: "cover-letter", documentId: "cl-1", truthReport: clean, atsReport: ats(undefined, [pageCheck]) });
+    const { unmount } = render(withIntl(<ReviewSurface {...p} />, "de"));
+    fireEvent.click(screen.getByTestId("review-letter-page-cut"));
+    await waitFor(() => expect(api.shortenLetter).toHaveBeenCalledWith("cl-1"));
+    await waitFor(() => expect(screen.getByTestId("review-letter-page-result")).toBeTruthy());
+    unmount();
+    render(withIntl(<ReviewSurface {...p} />, "de"));
+    fireEvent.click(screen.getByTestId("review-letter-page-keep"));
+    await waitFor(() => expect(api.keepLetterLength).toHaveBeenCalledWith("cl-1"));
+  });
+
+  it("on the CV the page's own card is the ONE page card: the report row adds no second card and no second count", () => {
+    const pageCard = { key: "page-length", counted: true, node: <div data-testid="cv-page-card-stub" /> };
+    render(withIntl(<ReviewSurface {...props({ truthReport: clean, atsReport: ats(undefined, [{ ...pageCheck, details_key: "page-length-cv" }]), extraCards: [pageCard] })} />, "de"));
+    expect(screen.queryByTestId("review-letter-page")).toBeNull();
+    expect(screen.getAllByTestId("cv-page-card-stub")).toHaveLength(1);
+    expect(count()).toBe("1");
   });
 });
