@@ -25,6 +25,7 @@ import { Card } from "@/components/ui/card";
 import { conflictSourceLabel, describeConflict } from "@/lib/conflict-display";
 import type { DeliveryClass } from "@/lib/ats-report";
 import {
+  ASPIRATION_OUTCOME_MAX,
   BUDGET_UNITS,
   type BudgetUnit,
   completenessActionable,
@@ -59,9 +60,8 @@ export type HealthThread =
   // same station (same dates, cross-language title/employer). One question;
   // "Ja" opens the U-11 merge preview for the pair.
   | "duplicate_entry"
-  // U-7 (ruling B-1) — a task/goal-worded profile item: ONE question "Ist das
-  // erreicht?". Shape per INTERFACE A1-3 (pending; fields below are A2's
-  // reading until A1 confirms them).
+  // U-7 (ruling B-1, INTERFACE A1-3) — a task/goal-worded profile item: ONE
+  // question "Ist das erreicht?" (resolver ask_achieved).
   | "aspiration";
 export type HealthSeverity = "info" | "review" | "critical";
 
@@ -129,7 +129,7 @@ export interface HealthIssue {
   // U-9 — `duplicate_entry`: the pair (target first) and the other's label.
   entry_ids?: string[] | null;
   other_entity_label?: string | null;
-  // U-7 — the goal-worded sentence as stored.
+  // U-7 (INTERFACE A1-3) — the bullet verbatim, quoted under the question.
   aspiration_text?: string | null;
 }
 
@@ -557,6 +557,7 @@ function AspirationQuestion({
           <textarea
             id={`aspiration-${issue.id}`}
             data-testid="health-aspiration-outcome"
+            maxLength={ASPIRATION_OUTCOME_MAX}
             value={text}
             onChange={(e) => setText(e.target.value)}
             className="mt-1 min-h-[64px] w-full resize-y rounded-md border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20"

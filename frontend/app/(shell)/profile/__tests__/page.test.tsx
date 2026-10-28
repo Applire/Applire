@@ -436,4 +436,63 @@ describe("ProfilePage", () => {
       await waitFor(() => expect(screen.getAllByTestId("entry-merge-open")).toHaveLength(2));
     });
   });
+
+  // U-7 (ruling B-1, INTERFACE A1-3) — the page sends the answer to the
+  // aspiration door: Nein submits directly, Ja carries what came out.
+  describe("goal-worded item (U-7)", () => {
+    const GOAL_HEALTH = {
+      issues: [
+        {
+          id: "aspiration:e43fc4b2-aaaa:abcdef123456",
+          thread: "aspiration",
+          delivery_class: "A",
+          resolver: "ask_achieved",
+          profile_mismatch_severity: "review",
+          summary: "goal-worded bullet",
+          entry_id: "e43fc4b2-aaaa",
+          section: "work_experience",
+          entity_label: "Senior Software Engineer @ Logivia",
+          aspiration_text: "Cut build times below 5 minutes",
+        },
+      ],
+      completeness: { score: 0.99, gaps: [], field_gaps: [] },
+    };
+    const sent: { url: string; body: unknown }[] = [];
+    beforeEach(() => {
+      sent.length = 0;
+      global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "POST") sent.push({ url, body: JSON.parse(String(init.body)) });
+        if (url.includes("/api/profile/health")) return { ok: true, status: 200, json: async () => GOAL_HEALTH };
+        if (url.includes("/api/profile/enrichment-history")) return { ok: true, status: 200, json: async () => [] };
+        if (url.includes("/api/profile")) return { ok: true, status: 200, json: async () => PROFILE };
+        return { ok: true, status: 200, json: async () => ({}) };
+      }) as unknown as typeof fetch;
+    });
+
+    it("Ja + what came out goes to the aspiration door", async () => {
+      render(withIntl(<ProfilePage />, "en"));
+      fireEvent.click(await screen.findByTestId("health-aspiration-yes"));
+      fireEvent.change(screen.getByTestId("health-aspiration-outcome"), { target: { value: "Build times at 4 minutes" } });
+      fireEvent.click(screen.getByTestId("health-aspiration-save"));
+      await waitFor(() =>
+        expect(sent.find((c) => c.url.includes("/api/profile/aspirations/answer"))?.body).toEqual({
+          issue_id: "aspiration:e43fc4b2-aaaa:abcdef123456",
+          achieved: true,
+          outcome: "Build times at 4 minutes",
+        }),
+      );
+    });
+
+    it("Nein submits directly", async () => {
+      render(withIntl(<ProfilePage />, "en"));
+      fireEvent.click(await screen.findByTestId("health-aspiration-no"));
+      await waitFor(() =>
+        expect(sent.find((c) => c.url.includes("/api/profile/aspirations/answer"))?.body).toEqual({
+          issue_id: "aspiration:e43fc4b2-aaaa:abcdef123456",
+          achieved: false,
+        }),
+      );
+    });
+  });
 });

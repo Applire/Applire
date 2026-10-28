@@ -54,7 +54,13 @@ import {
   keepEntriesSeparate,
   toEntryRef,
 } from "@/lib/profile-merge";
-import { adoptNotApplied, hubHasContent, renderedIssues, saveBudgetUnit } from "@/lib/profile-health";
+import {
+  adoptNotApplied,
+  answerAspiration,
+  hubHasContent,
+  renderedIssues,
+  saveBudgetUnit,
+} from "@/lib/profile-health";
 import {
   ProfileSectionBody,
   resolveSummary,
@@ -507,6 +513,12 @@ export default function ProfilePage() {
       return ok;
     },
     onGoToSection: (section, labels) => handleSectionAction(section, labels),
+    // U-7 — "Ist das erreicht?" (INTERFACE A1-3).
+    onAspiration: async (issue, achieved, outcome) => {
+      const ok = await answerAspiration(issue.id, achieved, outcome);
+      if (ok) await loadProfile();
+      return ok;
+    },
   };
 
   // U-11 — every mergeable entry's identity, built by the same function the

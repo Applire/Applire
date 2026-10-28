@@ -77,6 +77,18 @@ export const HEALTH = {
       entity_label: "Quality Lead @ Nordwerk Logistik GmbH",
       other_entity_label: "Qualitätsleiter @ Nordwerk Logistik",
     },
+    {
+      id: "aspiration:we-1:a1b2c3d4e5f6",
+      thread: "aspiration",
+      delivery_class: "A",
+      resolver: "ask_achieved",
+      profile_mismatch_severity: "review",
+      summary: "goal-worded bullet",
+      entry_id: "we-1",
+      section: "work_experience",
+      entity_label: "Quality Lead @ Nordwerk Logistik GmbH",
+      aspiration_text: "Reduce scrap below 2 % at all sites by end of 2019.",
+    },
   ],
   completeness: { score: 0.8, gaps: ["education"], field_gaps: [] },
 };
@@ -149,6 +161,10 @@ export async function openHub(page: Page): Promise<Wire[]> {
   await page.route("**/api/profile/entries/merge", (route) => {
     record(route.request().url(), route.request().postData());
     return route.fulfill(json(PREVIEW));
+  });
+  await page.route("**/api/profile/aspirations/answer", (route) => {
+    record(route.request().url(), route.request().postData());
+    return route.fulfill(json(PROFILE));
   });
   await page.route("**/api/profile/entries/keep-separate", (route) => {
     record(route.request().url(), route.request().postData());

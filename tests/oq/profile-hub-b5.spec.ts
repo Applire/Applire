@@ -11,7 +11,7 @@ import { openHub, shot } from "./profile-hub-b5-fixtures";
 test.describe("Hazelnut b5 — profile hub per class, conflict outcomes, entry merge", () => {
   test("class S is not rendered; the conflict, duplicate and its actions are", async ({ page }) => {
     await openHub(page);
-    await expect(page.getByTestId("health-issue")).toHaveCount(2);
+    await expect(page.getByTestId("health-issue")).toHaveCount(3);
     await expect(page.getByTestId("health-panel")).not.toContainText("Datenabgleich");
     // Completeness without field_gaps is class S as well.
     await expect(page.getByTestId("health-panel")).not.toContainText(/Missing sections|Fehlende Abschnitte/);
@@ -56,5 +56,18 @@ test.describe("Hazelnut b5 — profile hub per class, conflict outcomes, entry m
     await expect(page.getByTestId("entry-merge-pick-option")).toHaveCount(1);
     await expect(page.getByTestId("entry-merge-pick-option")).toContainText("Quality Lead @ Nordwerk Logistik GmbH");
     await shot(page, "oq-entry-merge-pick-desktop");
+  });
+
+  test("U-7: 'Was it achieved?' — Yes asks what came out and sends it to the aspiration door", async ({ page }) => {
+    const wire = await openHub(page);
+    const card = page.getByTestId("health-issue-aspiration");
+    await expect(card).toContainText("Reduce scrap below 2 % at all sites by end of 2019.");
+    await page.getByTestId("health-aspiration-yes").click();
+    await page.getByTestId("health-aspiration-outcome").fill("Scrap at 1.6 % by 11/2019.");
+    await shot(page, "oq-u7-aspiration-desktop");
+    await page.getByTestId("health-aspiration-save").click();
+    await expect
+      .poll(() => wire.find((w) => w.url.endsWith("/api/profile/aspirations/answer"))?.body)
+      .toEqual({ issue_id: "aspiration:we-1:a1b2c3d4e5f6", achieved: true, outcome: "Scrap at 1.6 % by 11/2019." });
   });
 });

@@ -69,3 +69,30 @@ export function adoptNotApplied(issueId: string, itemKey: string) {
 export function saveBudgetUnit(entryId: string, unit: BudgetUnit) {
   return postJson("/api/profile/health/unit", { entry_id: entryId, unit });
 }
+
+/** U-7 (ruling B-1, INTERFACE A1-3) — the longest outcome the endpoint takes. */
+export const ASPIRATION_OUTCOME_MAX = 500;
+
+/**
+ * U-7 — "Ist das erreicht?". `achieved` + `outcome` appends the outcome to the
+ * entry's achievements; `achieved: false` keeps the bullet as a goal. A 409
+ * `already_answered` counts as done (the issue is gone on reload).
+ */
+export async function answerAspiration(
+  issueId: string,
+  achieved: boolean,
+  outcome?: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/profile/aspirations/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        achieved ? { issue_id: issueId, achieved, outcome } : { issue_id: issueId, achieved },
+      ),
+    });
+    return res.ok || res.status === 409;
+  } catch {
+    return false;
+  }
+}

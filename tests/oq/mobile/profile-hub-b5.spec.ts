@@ -31,4 +31,14 @@ test.describe("Hazelnut b5 — profile hub on a phone", () => {
     await expect(page.getByTestId("entry-merge-dialog")).toBeVisible();
     await shot(page, "oq-entry-merge-preview-mobile");
   });
+
+  test("U-7: 'No, it stays a goal' submits directly on a phone", async ({ page }) => {
+    const wire = await openHub(page);
+    await page.getByTestId("health-issue-aspiration").scrollIntoViewIfNeeded();
+    await shot(page, "oq-u7-aspiration-mobile");
+    await page.getByTestId("health-aspiration-no").click();
+    await expect
+      .poll(() => wire.find((w) => w.url.endsWith("/api/profile/aspirations/answer"))?.body)
+      .toEqual({ issue_id: "aspiration:we-1:a1b2c3d4e5f6", achieved: false });
+  });
 });
