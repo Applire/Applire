@@ -1287,7 +1287,15 @@
     "unitLabel": "Unit",
     "unitSave": "Save",
     "unitSaving": "Saving …",
-    "decisionsLink": "View in profile health"
+    "decisionsLink": "View in profile health",
+    "threadAspiration": "Goal or result?",
+    "aspirationQuestion": "At <b>{entry}</b> it says:",
+    "aspirationAsk": "That sounds like a goal. <b>Was it achieved?</b>",
+    "aspirationYes": "Yes, achieved …",
+    "aspirationNo": "No, it stays a goal",
+    "aspirationOutcomeLabel": "What came out of it? In your words – it is saved as an achievement.",
+    "aspirationSave": "Save as achievement",
+    "aspirationBack": "Back"
   },
   "profileReview": {
     "title": "Review profile",

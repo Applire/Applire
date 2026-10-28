@@ -185,4 +185,50 @@ describe("HealthPanel — hub per delivery class", () => {
     fireEvent.click(screen.getByTestId("health-duplicate-separate"));
     await waitFor(() => expect(onKeepSeparate).toHaveBeenCalledWith(expect.objectContaining({ id: duplicate.id })));
   });
+
+  it("U-7: 'Ist das erreicht?' — Ja asks what came out and saves it; Nein keeps the goal", async () => {
+    const goal: HealthIssue = {
+      id: "aspiration:w1:0",
+      thread: "aspiration",
+      delivery_class: "A",
+      profile_mismatch_severity: "review",
+      summary: "goal-worded",
+      entity_label: "Qualitätsleiter @ Nordwerk Logistik GmbH",
+      aspiration_text: "Ausschussquote bis Ende 2019 unter 2 % senken.",
+    };
+    const onAspiration = vi.fn().mockResolvedValue(true);
+    render(withIntl(<HealthPanel health={health([goal])} onResolve={vi.fn()} actions={{ onAspiration }} />, "de"));
+    const card = screen.getByTestId("health-issue-aspiration");
+    expect(card).toHaveTextContent("„Ausschussquote bis Ende 2019 unter 2 % senken.“");
+    expect(card).toHaveTextContent("Das klingt nach einem Ziel. Ist das erreicht?");
+    expect(screen.queryByTestId("health-resolve")).toBeNull();
+    fireEvent.click(screen.getByTestId("health-aspiration-yes"));
+    expect(screen.getByTestId("health-aspiration-save")).toBeDisabled();
+    fireEvent.change(screen.getByTestId("health-aspiration-outcome"), {
+      target: { value: "Ausschussquote bis 11/2019 auf 1,6 % gesenkt." },
+    });
+    fireEvent.click(screen.getByTestId("health-aspiration-save"));
+    await waitFor(() =>
+      expect(onAspiration).toHaveBeenCalledWith(
+        expect.objectContaining({ id: goal.id }),
+        true,
+        "Ausschussquote bis 11/2019 auf 1,6 % gesenkt.",
+      ),
+    );
+  });
+
+  it("U-7: Nein keeps it as a goal", async () => {
+    const goal: HealthIssue = {
+      id: "aspiration:w1:0",
+      thread: "aspiration",
+      profile_mismatch_severity: "review",
+      summary: "goal-worded",
+      entity_label: "X @ Y",
+      aspiration_text: "Reach 2 %.",
+    };
+    const onAspiration = vi.fn().mockResolvedValue(true);
+    render(withIntl(<HealthPanel health={health([goal])} onResolve={vi.fn()} actions={{ onAspiration }} />, "en"));
+    fireEvent.click(screen.getByTestId("health-aspiration-no"));
+    await waitFor(() => expect(onAspiration).toHaveBeenCalledWith(expect.objectContaining({ id: goal.id }), false, undefined));
+  });
 });

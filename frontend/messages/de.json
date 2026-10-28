@@ -1287,7 +1287,15 @@
     "unitLabel": "Einheit",
     "unitSave": "Speichern",
     "unitSaving": "Wird gespeichert …",
-    "decisionsLink": "Im Profilzustand ansehen"
+    "decisionsLink": "Im Profilzustand ansehen",
+    "threadAspiration": "Ziel oder Ergebnis?",
+    "aspirationQuestion": "Bei <b>{entry}</b> steht:",
+    "aspirationAsk": "Das klingt nach einem Ziel. <b>Ist das erreicht?</b>",
+    "aspirationYes": "Ja, erreicht …",
+    "aspirationNo": "Nein, es bleibt ein Ziel",
+    "aspirationOutcomeLabel": "Was kam dabei heraus? In deinen Worten – das wird als Erfolg gespeichert.",
+    "aspirationSave": "Als Erfolg speichern",
+    "aspirationBack": "Zurück"
   },
   "profileReview": {
     "title": "Profil prüfen",

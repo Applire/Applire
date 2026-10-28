@@ -58,7 +58,11 @@ export type HealthThread =
   // U-9 (Hazelnut build 5) — two entries of one section that look like the
   // same station (same dates, cross-language title/employer). One question;
   // "Ja" opens the U-11 merge preview for the pair.
-  | "duplicate_entry";
+  | "duplicate_entry"
+  // U-7 (ruling B-1) — a task/goal-worded profile item: ONE question "Ist das
+  // erreicht?". Shape per INTERFACE A1-3 (pending; fields below are A2's
+  // reading until A1 confirms them).
+  | "aspiration";
 export type HealthSeverity = "info" | "review" | "critical";
 
 export interface HealthIssue {
@@ -125,6 +129,8 @@ export interface HealthIssue {
   // U-9 — `duplicate_entry`: the pair (target first) and the other's label.
   entry_ids?: string[] | null;
   other_entity_label?: string | null;
+  // U-7 — the goal-worded sentence as stored.
+  aspiration_text?: string | null;
 }
 
 export interface NotAppliedItem {
@@ -300,7 +306,7 @@ export function groupNotAppliedItems(
 // `span_provenance` is absent on purpose: its label lives in the
 // `profileHealth.launderedSpan` namespace (see IssueCard), not in `health`.
 const THREAD_LABEL: Record<
-  Exclude<HealthThread, "span_provenance" | "suspect_binding" | "duplicate_entry">,
+  Exclude<HealthThread, "span_provenance" | "suspect_binding" | "duplicate_entry" | "aspiration">,
   | "threadConflict"
   | "threadAccuracy"
   | "threadConfirmation"
@@ -353,6 +359,9 @@ export interface HubActions {
   onSaveUnit?: SaveUnit;
   onMergeDuplicate?: (issue: HealthIssue) => void;
   onKeepSeparate?: (issue: HealthIssue) => Promise<boolean>;
+  /** U-7 — achieved (with what came out, recorded as an achievement) or not
+   *  (kept as a goal). Resolves to false when the act failed. */
+  onAspiration?: (issue: HealthIssue, achieved: boolean, outcome?: string) => Promise<boolean>;
 }
 
 /**
@@ -488,6 +497,94 @@ function UnitInPlace({ issue, onSaveUnit }: { issue: HealthIssue; onSaveUnit: Sa
   );
 }
 
+/** U-7 (ruling B-1) — "Ist das erreicht?": Ja opens one box for what came out
+ *  (saved as an achievement); Nein keeps the sentence as a goal. */
+function AspirationQuestion({
+  issue,
+  onAnswer,
+}: {
+  issue: HealthIssue;
+  onAnswer: NonNullable<HubActions["onAspiration"]>;
+}) {
+  const t = useTranslations("health");
+  const tReview = useTranslations("profileReview");
+  const [yes, setYes] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const bold = (chunks: ReactNode) => <strong>{chunks}</strong>;
+  const answer = async (achieved: boolean) => {
+    if (busy) return;
+    setBusy(true);
+    setFailed(false);
+    try {
+      if (!(await onAnswer(issue, achieved, achieved ? text.trim() : undefined))) setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div data-testid="health-issue-aspiration">
+      <p className="text-sm text-neutral-dark">
+        {t.rich("aspirationQuestion", { entry: issue.entity_label ?? "", b: bold })}
+      </p>
+      <p className="my-1 rounded-lg bg-surface-container px-3 py-1.5 text-sm text-on-surface break-words">
+        {tReview("quoted", { value: issue.aspiration_text ?? issue.summary })}
+      </p>
+      {!yes ? (
+        <>
+          <p className="text-sm text-neutral-dark">{t.rich("aspirationAsk", { b: bold })}</p>
+          <div className="mt-2 flex flex-wrap justify-end gap-2">
+            <Button size="sm" data-testid="health-aspiration-yes" disabled={busy} onClick={() => setYes(true)}>
+              {t("aspirationYes")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="health-aspiration-no"
+              disabled={busy}
+              onClick={() => void answer(false)}
+            >
+              {t("aspirationNo")}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className="mt-2">
+          <label className="text-xs text-on-surface-variant" htmlFor={`aspiration-${issue.id}`}>
+            {t("aspirationOutcomeLabel")}
+          </label>
+          <textarea
+            id={`aspiration-${issue.id}`}
+            data-testid="health-aspiration-outcome"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="mt-1 min-h-[64px] w-full resize-y rounded-md border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20"
+          />
+          <div className="mt-2 flex flex-wrap justify-end gap-2">
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => setYes(false)}>
+              {t("aspirationBack")}
+            </Button>
+            <Button
+              size="sm"
+              data-testid="health-aspiration-save"
+              disabled={busy || text.trim() === ""}
+              onClick={() => void answer(true)}
+            >
+              {t("aspirationSave")}
+            </Button>
+          </div>
+        </div>
+      )}
+      {failed && (
+        <p className="mt-1 text-xs text-critical" role="alert">
+          {t("suspectBindingFailed")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function IssueCard({
   issue,
   onResolve,
@@ -524,6 +621,7 @@ function IssueCard({
   // U-9 — a duplicate-station pair: "Ja" opens the merge preview, "Nein"
   // records the pair as separate. Without both handlers: "Beheben".
   const isDuplicate = issue.thread === "duplicate_entry";
+  const aspiration = issue.thread === "aspiration" && !!actions.onAspiration;
   const canAnswerDuplicate =
     isDuplicate && !!actions.onMergeDuplicate && !!actions.onKeepSeparate;
   // UAT-3d — a budget figure's unit, accepted in place.
@@ -602,6 +700,8 @@ function IssueCard({
               ? t("threadSuspectBinding")
               : issue.thread === "duplicate_entry"
                 ? t("threadDuplicateEntry")
+                : issue.thread === "aspiration"
+                  ? t("threadAspiration")
                 : t(THREAD_LABEL[issue.thread])}
         </span>
       </div>
@@ -643,6 +743,8 @@ function IssueCard({
             recomputed: issue.recomputed_years ?? 0,
           })}
         </p>
+      ) : aspiration ? (
+        <AspirationQuestion issue={issue} onAnswer={actions.onAspiration!} />
       ) : isDuplicate ? (
         <div data-testid="health-issue-duplicate-entry">
           <p className="text-sm text-neutral-dark">
@@ -710,7 +812,7 @@ function IssueCard({
           {t("suspectBindingFailed")}
         </p>
       )}
-      {!keyedItems && !unitInPlace && (
+      {!keyedItems && !unitInPlace && !aspiration && (
       <div className="mt-2 flex flex-wrap justify-end gap-2">
         {canAnswerDuplicate ? (
           <>
