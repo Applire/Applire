@@ -604,3 +604,34 @@ async def test_letter_shorten_before_wp_b_lands_is_503(db):
     else:
         r = _client(db).post(f"/api/cover-letter/{cl_id}/review/shorten")
     assert r.status_code == 503
+
+
+# ── SEC-2: every free-text field of the WP-C resolver bodies is bounded ───────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("path", "body"), [
+    ("translate", {"spans": ["x"] * 51}),                       # list bound
+    ("translate", {"spans": ["x" * 5001]}),                     # item bound
+    ("translate", {"spans": [""]}),                             # empty item
+    ("move", {"finding_key": "oracle:" + "x" * 2000, "station_id": "s"}),
+    ("move", {"finding_key": _ORACLE_KEY, "station_id": "s" * 501}),
+    ("stations", {"finding_key": "oracle:" + "x" * 2000}),
+    ("as-goal", {"finding_key": "oracle:" + "x" * 2000}),
+    ("removal-evidence", {"removal_text": "r" * 5001, "text": "t"}),
+    ("removal-evidence", {"removal_text": "r", "text": "t" * 20_001}),
+])
+async def test_oversized_resolver_bodies_are_422_before_any_work(db, path, body):
+    cv_id = await seed_cv(db, ats_report=_lang_report("cv", True))
+    with patch.object(ra, "reaudit", new=FakeReaudit()) as _:
+        r = _client(db).post(f"/api/cv/{cv_id}/review/{path}", json=body)
+    assert r.status_code == 422, (path, r.status_code, r.text[:200])
+    record = await ra.load_document("cv", cv_id, db)
+    assert not record.section_overrides and not (record.review_state or {}).get("decisions")
+
+
+@pytest.mark.asyncio
+async def test_translate_spans_at_the_bounds_are_accepted_by_the_body(db):
+    cv_id = await seed_cv(db, ats_report=_lang_report("cv", False))
+    r = _client(db).post(f"/api/cv/{cv_id}/review/translate", json={"spans": ["x" * 5000] * 50})
+    assert r.status_code != 422, r.text[:200]

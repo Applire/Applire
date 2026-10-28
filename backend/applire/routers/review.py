@@ -19,10 +19,10 @@ installed → 503.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth.deps import require_user
@@ -88,7 +88,11 @@ class TranslateBody(BaseModel):
     """ADR-099 cl. 9 — "Diese Stellen übersetzen": a subset of the spans the
     failed document-language check names; omitted = all of them."""
 
-    spans: Optional[list[str]] = Field(default=None, max_length=50)
+    # SEC-2: the list AND each item are bounded (a span is one sentence or
+    # paragraph the check named; 5000 chars like ``removal_text``).
+    spans: Optional[list[Annotated[str, StringConstraints(min_length=1, max_length=5000)]]] = Field(
+        default=None, max_length=50
+    )
 
 
 class RemovalEvidenceBody(BaseModel):
