@@ -336,3 +336,26 @@ def test_a_current_projects_description_sentences_are_candidates_and_answerable(
     apply_aspiration_op(AnswerAspiration(entry_id="ongoing", key=aspiration_key(goal), achieved=False), p, [])
     assert p.projects[0].not_yet_reached == [goal]
     assert open_aspirations(p) == []
+
+
+@pytest.mark.parametrize("end", ["present", "Present", "heute", "bis heute", None])
+def test_an_ongoing_end_marker_keeps_a_project_and_a_role_current(end):
+    """Build-5 delivery re-run: extraction wrote the founder project's end date as
+    the literal "present"; the truthy-end guard dropped the project from the
+    candidates, so its goal sentences were never asked."""
+    from applire.schemas.profile import ProjectEntry, WorkEntry
+    from applire.services.profile.aspiration import current_entries
+
+    profile = MasterProfileData(
+        work_experience=[WorkEntry(id="w1", company="Nordwerk", role="Lead", start_date="2023-01", end_date=end)],
+        projects=[ProjectEntry(id="p1", name="Platform", start_date="2024", end_date=end)],
+    )
+    assert [(s, e.id) for s, e in current_entries(profile)] == [("work_experience", "w1"), ("projects", "p1")]
+
+
+def test_a_real_end_date_still_ends_a_project():
+    from applire.schemas.profile import ProjectEntry
+    from applire.services.profile.aspiration import current_entries
+
+    profile = MasterProfileData(projects=[ProjectEntry(id="p1", name="P", start_date="2020", end_date="2021-06")])
+    assert current_entries(profile) == []

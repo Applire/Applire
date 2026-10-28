@@ -73,14 +73,30 @@ SECTIONS = ("work_experience", "projects")
 Entry = WorkEntry | ProjectEntry
 
 
+#: An end date that names no date but says the entry is still running. A FACT of
+#: the date field (ADR-062), not a judgement: extraction writes "present" as a
+#: literal end date at times (build-5 delivery re-run, founder project).
+_ONGOING_END = frozenset({
+    "present", "current", "now", "today", "ongoing",
+    "heute", "bis heute", "aktuell", "laufend", "derzeit",
+})
+
+
+def _ended(end_date: object) -> bool:
+    """True when ``end_date`` states an end, not an ongoing marker."""
+    if not end_date:
+        return False
+    return " ".join(str(end_date).split()).casefold() not in _ONGOING_END
+
+
 def is_current(entry: WorkEntry) -> bool:
-    return bool(entry.is_current) or (bool(entry.start_date) and not entry.end_date)
+    return bool(entry.is_current) or (bool(entry.start_date) and not _ended(entry.end_date))
 
 
 def _project_is_current(project: ProjectEntry, current_work: list[WorkEntry]) -> bool:
     if project.is_current:
         return True
-    if project.end_date:
+    if _ended(project.end_date):
         return False
     if project.start_date:
         return True
