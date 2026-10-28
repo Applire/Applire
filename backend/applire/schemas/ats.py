@@ -104,6 +104,11 @@ class DeliveryState(BaseModel):
     # and that are absent from the delivered report — what the passed line
     # "N Prüfungen bestanden" counts beside the passed checks (ADR-099 cl. 3).
     fixed: list[str] = Field(default_factory=list)
+    # RULING D-AG1 (founder, Hazelnut build 5; additive): the document was authored
+    # by the user's OWN agent (``origin == "agent"``, MCP ``render_document``), not
+    # by Applire's writer — so no Applire loop or final review was ever meant to
+    # run on it, and the terminal-review "not run" row is silent (class S).
+    authored_by_agent: bool = False
 
 
 class ATSCheck(BaseModel):

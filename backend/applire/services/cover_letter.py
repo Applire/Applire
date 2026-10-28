@@ -5027,7 +5027,7 @@ async def _update_ats_report_letter(
     cl.ats_report = apply_delivery(
         decide_kept_letter_page_length(cl.ats_report, getattr(cl, "review_state", None)),
         review_degradation=getattr(cl, "review_degradation", None),
-        previous=previous_report,
+        previous=previous_report, origin=getattr(cl, "origin", None),
     )
     await db.commit()
 

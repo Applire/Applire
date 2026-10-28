@@ -315,3 +315,24 @@ def test_the_letter_keep_decision_decides_the_page_row():
     fresh = {"checks": [dict(report["checks"][0])]}
     fr.annotate_report(fresh)
     assert (fresh["checks"][0]["delivery_class"], fresh["checks"][0]["resolver"]) == ("A", "page_length")
+
+
+def test_d_ag1_only_the_agent_origin_silences_the_terminal_not_run_row():
+    """RULING D-AG1, both sides: an Applire-written document whose final review did
+    not run keeps the counted U "regenerate" (origin pipeline, loop degraded OR no
+    loop state); only origin == "agent" makes the row S. A re-audit (origin None)
+    carries the flag from the report it replaces."""
+    row = {"id": "terminal-review", "status": "not_applicable", "details_key": "terminal-review-not-run"}
+    for degradation in (None, [{"chain": "cv_terminal_review", "stage": "review"}]):
+        out = fr.apply_delivery({"checks": [dict(row)]}, review_degradation=degradation, origin="pipeline")
+        assert (out["checks"][0]["delivery_class"], out["checks"][0]["resolver"]) == ("U", "regenerate")
+        assert out["delivery"]["authored_by_agent"] is False
+    out = fr.apply_delivery({"checks": [dict(row)]}, review_degradation=None, origin="agent")
+    assert (out["checks"][0]["delivery_class"], out["checks"][0]["resolver"]) == ("S", None)
+    again = fr.apply_delivery({"checks": [dict(row)]}, review_degradation=None, previous=out)
+    assert again["delivery"]["authored_by_agent"] is True and again["checks"][0]["delivery_class"] == "S"
+    # the agent flag silences ONLY the terminal-review row
+    other = fr.apply_delivery({"checks": [{"id": "document-language", "status": "fail",
+                                           "details_key": "document-language-mixed"}]},
+                              review_degradation=None, origin="agent")
+    assert other["checks"][0]["delivery_class"] == "A"

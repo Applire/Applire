@@ -6970,7 +6970,7 @@ async def _update_ats_report(
 
     record.ats_report = apply_delivery(
         record.ats_report, review_degradation=getattr(record, "review_degradation", None),
-        previous=previous_report,
+        previous=previous_report, origin=getattr(record, "origin", None),
     )
     if commit:
         await db.commit()
