@@ -78,6 +78,8 @@ export type DeliveryRemoval = {
 export type DeliveryState = {
   loop_clean?: boolean | null;
   removals: DeliveryRemoval[];
+  /** INTERFACE B-2: the kinds the loop fixed — counted in "N Prüfungen bestanden" (ADR-099 cl. 3). */
+  fixed?: string[] | null;
 };
 
 /**
@@ -94,6 +96,10 @@ export type CheckNote = {
   count?: number | null;
   text?: string;
   plain?: string | null;
+  // ADR-099 cl. 2 / S11.2 (WP-B interface): this note's kind's delivery class
+  // + resolver. Absent on older reports = unclassified.
+  delivery_class?: DeliveryClass | null;
+  resolver?: string | null;
 };
 
 /** #703 — a job term the writing loop demanded in `rounds` of `total_rounds`. */
@@ -167,8 +173,16 @@ export type ATSReport = {
     // E048/US266 (#249 option b): EVERY claimable Keyword Ledger entry's surface
     // forms (concept name included), regardless of presence in the document.
     claimable_concepts?: string[];
+    // ADR-099 cl. 2 (WP-B interface 0d955fa4): bucket field name → the bucket's
+    // delivery class + resolver (registry kinds `keyword:<bucket>`). A term in a
+    // narrower bucket (employer sentence, covered by a denial) takes THAT
+    // bucket's class. Absent/null on older reports = unclassified.
+    delivery?: Record<string, BucketDelivery> | null;
   };
 } | null;
+
+/** ADR-099 cl. 2 — a keyword bucket's registry class + resolver. */
+export type BucketDelivery = { delivery_class: DeliveryClass; resolver?: string | null };
 
 /** Strip a trailing numeric index: `work-1` → `work`, `body-3` → `body`. */
 export const baseId = (id: string): string => id.replace(/-\d+$/, "");

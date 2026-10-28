@@ -341,7 +341,7 @@ async def test_cover_letter_add_evidence_applied_records_added_and_awaits_reaudi
 
 
 @pytest.mark.asyncio
-async def test_cv_add_evidence_no_change_records_no_decision(db):
+async def test_cv_add_evidence_no_change_records_only_the_open_no_change_marker(db):
     cv_id = await seed_cv(
         db, introduction="Kenntnisse in Kubernetes.",
         ats_report=_ats_report("cv", [_KUBERNETES], _MATCHES),
@@ -363,7 +363,11 @@ async def test_cv_add_evidence_no_change_records_no_decision(db):
     assert response.status_code == 200, response.text
     data = response.json()
     assert fake_reaudit.calls == 1
-    assert data["review_state"]["decisions"] == []
+    # ADR-099 cl. 6 (WP-C): the answer changed nothing → a `no_change` marker
+    # (the card offers only "Entfernen"); the finding stays OPEN.
+    [marker] = data["review_state"]["decisions"]
+    assert marker["action"] == "no_change" and data["remove_only"] is True
+    assert rs.derive_review(data["review_state"], _ats_report("cv", [_KUBERNETES], _MATCHES), None)["open_count"] == 1
 
 
 # ── take-out ──────────────────────────────────────────────────────────────────

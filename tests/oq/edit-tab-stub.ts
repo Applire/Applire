@@ -177,6 +177,18 @@ export async function stubDocuments(
     if (opts.editedReportMissing) return json(r, { report: { document_id: CV_ID, status: 'failed', report: null, review_state: {} }, review_state: {} });
     return json(r, { report: { document_id: CV_ID, status: 'ready', report, review_state: {} }, review_state: {} });
   });
+  // ADR-099 / RULING C-1 (2): the card has no editor handle; the editor is
+  // offered after a take-out that left the finding listed. The stubbed rewrite
+  // changes nothing, so the finding stays listed.
+  await page.route(`**/api/cv/${CV_ID}/review/take-out`, (r) =>
+    json(r, {
+      changes: [],
+      still_listed: true,
+      report: { document_id: CV_ID, status: 'ready', report: ATS, review_state: {} },
+      truthfulness: null,
+      review_state: {},
+    }),
+  );
   await page.route('**/api/cv/generate', async (r) => {
     server.generates.push(JSON.parse(r.request().postData() ?? '{}'));
     return json(r, { cv_id: CV_ID, status: 'pending', expires_at: '2026-12-22T00:00:00Z' });

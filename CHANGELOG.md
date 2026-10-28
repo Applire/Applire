@@ -14,6 +14,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Review texts for duplicates, near-identical skills and an unchecked work history now come in your language** instead of an English server sentence. A point without a translated text is no longer shown.
 - **A line you said is not reached yet stays a goal in the new CV and letter** (only in the current writing pipeline): it is written as an aim or mandate, never as a result.
 - **Fixed:** *Shorten* on the letter's page card failed every time. It now works and keeps your pinned facts: a shorter version that drops one is refused.
+- **The review tab asks one question per point, and only about what you can act on (ADR-099).** Each open point is one card with one question and its answers: *Where does this belong?*, *Is this true?*, *Is this achieved?* (or *write it as a goal*), *Take it out?*. Craft notes, the cross-read between letter and CV and the old "other findings" groups are gone from the tab; agents still get them in the report. The headline counts exactly the points that need you, and the tab badge shows the same number.
+- **A check that did not run says so (ADR-099).** *Not checked* with *Check now* (re-runs the checks on this version), or *Create a new version* for a check that only runs while writing. It is never shown as passed.
+- **What Applire left out is listed (ADR-099).** One collapsed line names the passages the writing loop removed because your profile does not back them; a removed pinned fact opens it. *Actually, that's true — where?* adds your own words to your profile.
+- **The letter's page length and signature are cards in its review (ADR-099).** *Keep* or *Shorten to one page*; *Add a signature in your profile* or *Without signature* (remembered — the hint does not come back). The CV's export footer no longer shows a signature hint. The CV's page card now also shows when the target cannot be reached, with the closest length.
+- **Requirements nobody asked you about can be answered in place (ADR-099).** *Answer now* opens a short interview on exactly those requirements.
+- **The CV and letter previews show where the PDF breaks pages** ("— Page 2 of 3 —").
+- **Mixed-language passages get one action, *Translate these passages*,** which rewrites only those sentences and re-checks the document.
 
 ### Upgrade notes
 - **The `retention` service in `docker-compose.yml` has a new command.** Between its nightly runs it now runs `python -m applire.retention --stale-jobs` every 10 minutes, which marks a dead CV or letter generation as failed (#789). If you keep your own copy of `docker-compose.yml`, take the new `command:` line. With the old one everything keeps working; a dead generation just shows "Generating…" until the next nightly run.

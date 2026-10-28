@@ -27,11 +27,15 @@ test.describe('D-4 — the letter review at 390x844', () => {
     await stubLetter(page);
     await page.goto(`/flow/${FLOW_ID}/cover-letter`);
     await expect(page.getByTestId('mobile-command-bar')).toBeVisible();
-    await expect(page.getByTestId('command-ats-open-badge')).toHaveText('2');
+    // ADR-099 cl. 3 + RULING C-1 (3): two findings plus the letter's counted
+    // signature card (this letter has no signature) — one number.
+    await expect(page.getByTestId('command-ats-open-badge')).toHaveText('3');
     await page.getByTestId('command-ats').click();
     const sheet = page.getByTestId('command-sheet');
     const card = sheet.getByTestId('review-card');
     await expect(card).toBeVisible();
+    await expect(sheet.getByTestId('review-extra-signature')).toBeVisible();
+    await expect(sheet.getByTestId('review-verdict')).toHaveAttribute('data-count', '3');
     await expect(card).toHaveAttribute('data-finding-key', 'ats:european e commerce');
 
     await card.getByTestId('review-action-locate').click();

@@ -62,6 +62,13 @@ export type TruthfulnessClaimResult = {
     /** ADR-052 amended 2026-10-22: the detail's catalog key + params (`oracleDetail.*`). */
     detail_key?: string | null;
     detail_params?: Record<string, string> | null;
+    /**
+     * ADR-099 cl. 2 (WP-B interface 0d955fa4): the row kind's delivery class
+     * (`oracle:<detail_key or verdict>`) and its one action's resolver. Absent
+     * on older reports = unclassified (never read as "S").
+     */
+    delivery_class?: import("./ats-report").DeliveryClass | null;
+    resolver?: string | null;
   };
 };
 

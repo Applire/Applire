@@ -25,7 +25,7 @@
 // the failed narrative-evidence check = 2).
 
 import React from "react";
-import { render, screen, within, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { ReviewSurface } from "../ReviewSurface";
@@ -72,32 +72,33 @@ describe("re-probe N1 — the panel shows every decision the headline counts", (
     expect(groups.map((g) => groupDecisionCount(g))).toEqual([0, 1, 0, 1]);
   });
 
-  it("the headline names 2 decisions and the group rows mark exactly those 2", () => {
+  // ADR-099 cl. 3/8: the headline counts exactly the counted rows the surface
+  // renders. The claimable term (old group 2) and the craft section left the
+  // surface; on this PRE-ADR-099 report (no delivery class stamped) the failed
+  // check is the honest unclassified fallback — one counted row, label only.
+  it("ADR-099: the headline count equals the counted rows the panel renders", () => {
     renderDaniel();
-    expect(screen.getByTestId("review-verdict").textContent).toBe(
-      "2 points need your decision before you send it.",
-    );
-    expect(chipNumber(2)).toBe(1);
-    expect(chipNumber(4)).toBe(1);
-    expect(chipNumber(3)).toBe(0);
-    expect(chipNumber(2) + chipNumber(3) + chipNumber(4)).toBe(headlineNumber());
+    const counted = document.querySelectorAll('[data-counted="true"]').length;
+    expect(screen.getByTestId("review-verdict").getAttribute("data-count")).toBe(String(counted));
+    expect(headlineNumber()).toBe(counted);
+    expect(counted).toBe(1);
+    expect(screen.getByTestId("review-fallback-narrative-evidence").getAttribute("data-counted")).toBe("true");
   });
 
-  it("the section line no longer says none of them matter, and names the count", () => {
+  it("no group 2, no group 4, no 'other findings' section any more", () => {
     renderDaniel();
-    const other = screen.getByTestId("review-other");
-    expect(other.textContent).not.toContain("None of these stand in the way");
-    expect(within(other).getByTestId("review-other-sub").textContent).toContain("2");
+    expect(screen.queryByTestId("review-other")).toBeNull();
+    expect(screen.queryByTestId("review-other-sub")).toBeNull();
+    expect(chipNumber(2) + chipNumber(4)).toBe(0);
+    expect(screen.queryByTestId("review-group-toggle-2")).toBeNull();
   });
 
-  it("German: the same count reaches the section line and the chips", () => {
+  it("German: the same count, in the ADR-099 headline", () => {
     renderDaniel("de");
-    expect(screen.getByTestId("review-verdict").textContent).toMatch(/^2 Punkte brauchen Deine Entscheidung/);
-    expect(screen.getByTestId("review-other-sub").textContent).not.toContain("Nichts davon steht dem Versand im Weg");
-    expect(screen.getByTestId("review-group-decisions-4").textContent).toMatch(/1/);
+    expect(screen.getByTestId("review-verdict").textContent).toBe("1 Punkt braucht Dich, bevor Du sendest.");
   });
 
-  it("without a decision the section line keeps its reassurance and no chip renders", () => {
+  it("without the failed check nothing is counted and the clear line shows", () => {
     render(
       withIntl(
         <ReviewSurface
@@ -115,10 +116,7 @@ describe("re-probe N1 — the panel shows every decision the headline counts", (
         />,
       ),
     );
-    expect(screen.getByTestId("review-other-sub").textContent).toBe(
-      "None of these stand in the way of sending the document.",
-    );
-    expect(screen.queryByTestId("review-group-decisions-2")).toBeNull();
-    expect(screen.queryByTestId("review-group-decisions-4")).toBeNull();
+    expect(document.querySelectorAll('[data-counted="true"]')).toHaveLength(0);
+    expect(screen.getByTestId("review-verdict").getAttribute("data-count")).toBe("0");
   });
 });

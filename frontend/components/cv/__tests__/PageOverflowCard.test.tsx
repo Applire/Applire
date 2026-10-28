@@ -46,15 +46,33 @@ describe("PageOverflowCard", () => {
     expect(screen.getByTestId("cv-page-overflow-cut").textContent).toBe("Auf 2 Seiten kürzen");
   });
 
-  it("renders nothing when the CV fits, or when nothing could be cut", async () => {
+  it("renders nothing when the CV fits", async () => {
     mockFetch(null);
-    const { container, rerender } = render(withIntl(<PageOverflowCard cvId="cv-1" />));
+    const { container } = render(withIntl(<PageOverflowCard cvId="cv-1" />));
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     expect(container.textContent).toBe("");
-    mockFetch({ ...PROPOSAL, proposed: [] });
-    rerender(withIntl(<PageOverflowCard cvId="cv-2" />));
-    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
-    expect(screen.queryByTestId("cv-page-overflow-card")).toBeNull();
+  });
+
+  // INTERFACE B-2 / ADR-099 cl. 7: the card shows WHENEVER the CV is over its
+  // target — even when nothing can be cut (only "keep" is offered then).
+  it("shows the card with only keep when nothing can be cut (cut_pages null)", async () => {
+    mockFetch({ ...PROPOSAL, proposed: [], cut_available: false, reaches_target: false, cut_pages: null });
+    render(withIntl(<PageOverflowCard cvId="cv-2" />, "de"));
+    const card = await screen.findByTestId("cv-page-overflow-card");
+    expect(screen.getByTestId("cv-page-overflow-keep")).toBeTruthy();
+    expect(screen.queryByTestId("cv-page-overflow-cut")).toBeNull();
+    expect(screen.getByTestId("cv-page-overflow-body").textContent).toContain("ohne Inhalte zu streichen");
+    expect(card.textContent).toContain("3 Seiten");
+  });
+
+  it("names the closest reachable length when the target cannot be reached", async () => {
+    mockFetch({ ...PROPOSAL, reaches_target: false, cut_pages: 3, actual: 4 });
+    render(withIntl(<PageOverflowCard cvId="cv-3" />));
+    await screen.findByTestId("cv-page-overflow-card");
+    const body = screen.getByTestId("cv-page-overflow-body").textContent ?? "";
+    expect(body).toContain("cannot reach 2 pages");
+    expect(body).toContain("The closest is 3 pages");
+    expect(screen.getByTestId("cv-page-overflow-cut")).toBeTruthy();
   });
 
   it("cut posts the choice, names what went, and refreshes the preview", async () => {

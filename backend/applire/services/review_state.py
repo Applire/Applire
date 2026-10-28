@@ -41,22 +41,41 @@ from typing import Any, Literal
 
 from applire.services.scope_requirements import _norm_quote
 
-Producer = Literal["ats", "oracle", "critic"]
-Action = Literal["added", "taken_out", "edited", "kept", "supported"]
+Producer = Literal["ats", "oracle", "critic", "send", "page"]
+Action = Literal[
+    "added", "taken_out", "edited", "kept", "supported", "moved", "as_goal", "translated", "no_change",
+    "shortened",
+]
 
-PRODUCERS: tuple[str, ...] = ("ats", "oracle", "critic")
+#: ``send`` (ADR-099 cl. 9, WP-C): a document-level send check — today only the
+#: failed ``document-language`` check ("Diese Stellen übersetzen"), keyed
+#: ``send:document-language``. Never a group-1 row; its decision carries the undo
+#: text of the translation.
+PRODUCERS: tuple[str, ...] = ("ats", "oracle", "critic", "send", "page")
 #: ADR-090 cl. 6's group-1 producers. `critic` (#702, ADR-060 amended 2026-10-07) keys a
 #: CROSS-DOCUMENT item (`critic:<norm letter sentence>`): its decisions live in the same
 #: state but never count toward group 1's "k of n decided", and never collide with a
 #: group-1 decision whose fold happens to be equal.
 GROUP_ONE_PRODUCERS: tuple[str, ...] = ("ats", "oracle")
 # #702: `kept` — the candidate decided a cross-document item stays as it is.
-ACTIONS: tuple[str, ...] = ("added", "taken_out", "edited", "kept", "supported")
-#: Bug #797 / founder ruling D2-5 = A (ADR-090 cl. 6 amended 2026-10-21): the ONE
-#: action that closes a finding the live report still lists. It is recorded only
-#: by ``review_actions.confirm_supported`` — after every wording of the finding
-#: was found in the candidate's whole profile — and carries that ``receipt``.
-CLOSES_LISTED: frozenset[str] = frozenset({"supported"})
+# ADR-099 (WP-C): `moved` ("Wohin gehört das?" → a station), `as_goal` ("Ist das
+# erreicht?" → Nein), `translated` ("Diese Stellen übersetzen") carry undo text;
+# `no_change` marks a "Stimmt das?" answer whose testimony changed nothing — the
+# finding stays OPEN and the card offers only "Entfernen" (cl. 6).
+ACTIONS: tuple[str, ...] = (
+    "added", "taken_out", "edited", "kept", "supported", "moved", "as_goal", "translated", "no_change",
+    # ADR-099 cl. 7 (INTERFACE B-2): the letter's page-length card — `shortened`
+    # (corrector, undoable) / `kept` under the key `page:page-overflow`.
+    "shortened",
+)
+#: Actions that never LABEL a finding as decided: `no_change` is a state of an
+#: open finding, not an outcome (a finding gone for another reason is not
+#: "decided" by it).
+NON_DECIDING: frozenset[str] = frozenset({"no_change"})
+#: ADR-099 cl. 6 (UAT-2, WP-C): "Stimmt" without a vault change no longer closes
+#: a row. Bug #797's D2-5 label closure (`supported` closing a finding the live
+#: report still lists) is retired: every count derives from the live report.
+CLOSES_LISTED: frozenset[str] = frozenset()
 # frontend lib/truthfulness-display.ts FLAG_VERDICTS
 FLAG_VERDICTS: frozenset[str] = frozenset({"inflated", "misattributed", "unbacked"})
 
@@ -228,6 +247,13 @@ def load_state(raw: Any) -> dict:
     state = {"walked_at": None, "decisions": []}
     if isinstance(raw, dict):
         state["walked_at"] = raw.get("walked_at")
+        # ADR-099 cl. 5 (WP-C): "Doch, stimmt – wo?" answers on the removal
+        # line, keyed by the removal's fold — {fold: {"status", "at"}}.
+        answers = raw.get("removal_answers")
+        if isinstance(answers, dict) and answers:
+            state["removal_answers"] = {
+                str(k): dict(v) for k, v in answers.items() if isinstance(v, dict)
+            }
         for d in raw.get("decisions") or []:
             if isinstance(d, dict) and d.get("action") in ACTIONS and d.get("finding_key"):
                 state["decisions"].append(copy.deepcopy(d))
@@ -241,10 +267,13 @@ def _now() -> str:
 def _same_finding(a: tuple[str, str], b: tuple[str, str]) -> bool:
     """Two keys name one finding when their folds are equal AND they belong to the
     same surface: a group-1 row may be recorded under either of its producers
-    (ADR-081 cl. 2's merge), a cross-document item (#702) only under `critic`."""
+    (ADR-081 cl. 2's merge), a cross-document item (#702) only under `critic`,
+    a send check (ADR-099) only under `send`."""
     if a[1] != b[1]:
         return False
-    return (a[0] == "critic") == (b[0] == "critic")
+    if a[0] in GROUP_ONE_PRODUCERS and b[0] in GROUP_ONE_PRODUCERS:
+        return True
+    return a[0] == b[0]
 
 
 def get_decision(state: dict, key: str) -> dict | None:
@@ -305,6 +334,16 @@ def with_decision(
     return out
 
 
+def with_removal_answer(state: dict, removal_fold: str, status: str, at: str | None = None) -> dict:
+    """ADR-099 cl. 5 (WP-C): record the testimony outcome of a "Doch, stimmt –
+    wo?" answer on one item of the removal line (keyed by the removal's fold)."""
+    out = load_state(state)
+    answers = dict(out.get("removal_answers") or {})
+    answers[removal_fold] = {"status": status, "at": at or _now()}
+    out["removal_answers"] = answers
+    return out
+
+
 def with_walked(state: dict, at: str | None = None) -> dict:
     out = load_state(state)
     out["walked_at"] = at or _now()
@@ -318,10 +357,10 @@ def derive_review(state: Any, ats_report: dict | None, truth_report: dict | None
     """What the surface shows, derived from the LIVE report.
 
     ``open`` = every group-1 finding the report lists (a decision on it is
-    ignored) — EXCEPT a ``supported`` decision (ADR-090 cl. 6 amended
-    2026-10-21, D2-5): the candidate confirmed it and every wording was found in
-    their profile, so it closes the row although the keyword check still lists
-    it (``still_listed: True`` on the decided row states the disagreement).
+    ignored). ADR-099 cl. 6 retired the D2-5 label closure: ``supported`` no
+    longer closes a finding the live report still lists (``CLOSES_LISTED`` is
+    empty; the branch below stays for a future, registry-declared residual).
+    A ``no_change`` marker never labels anything decided.
     ``decided`` = the decisions whose finding the report no longer lists, plus
     those. ``unknown_producers`` names a producer whose report is missing
     (ADR-081 cl. 9): no figure reads as complete while it is non-empty.
@@ -338,6 +377,8 @@ def derive_review(state: Any, ats_report: dict | None, truth_report: dict | None
             continue
         if producer not in GROUP_ONE_PRODUCERS:
             continue  # #702: a cross-document decision is not a group-1 row
+        if d.get("action") in NON_DECIDING:
+            continue  # ADR-099: a state of an open finding, never a decided label
         if n not in listed_norms:
             decided.append({k: d.get(k) for k in ("finding_key", "label", "action", "at")})
         elif d.get("action") in CLOSES_LISTED:

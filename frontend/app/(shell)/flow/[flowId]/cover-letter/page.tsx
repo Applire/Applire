@@ -36,7 +36,8 @@ import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
 import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
 import { DocumentExportFooter } from "@/components/document/DocumentExportFooter";
-import { ReviewSurface, type EditFindingRequest } from "@/components/document/ReviewSurface";
+import { ReviewSurface, type EditFindingRequest, type ReviewExtraCard } from "@/components/document/ReviewSurface";
+import { SignatureHintCard } from "@/components/cover-letter/SignatureHintCard";
 import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
 import { ClipboardCheck, Palette, Zap } from "lucide-react";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
@@ -51,7 +52,7 @@ import UnaskedRequirementsPanel, {
 } from "@/components/gaps/UnaskedRequirementsPanel";
 import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import { openGroup1Count, buildReviewGroups, decisionCount } from "@/lib/review-groups";
+import { openGroup1Count, buildReviewGroups, buildDeliveryView } from "@/lib/review-groups";
 import { openRequirementConcepts } from "@/lib/match-utils";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
@@ -194,6 +195,11 @@ export default function CoverLetterPage({
   // the control's "Standard (an|aus)" option; seeded from /api/settings.
   const [signatureKindDefaultOn, setSignatureKindDefaultOn] = useState(true);
   const [signatureSaving, setSignatureSaving] = useState(false);
+  // ADR-099 cl. 9 (RULING C-1 (3)): "Ohne Unterschrift" on the review card.
+  const [signatureHintSaving, setSignatureHintSaving] = useState(false);
+  const [signatureHintFailed, setSignatureHintFailed] = useState(false);
+  // ADR-099 cl. 9: "Jetzt beantworten" re-reads the unasked list when it ends.
+  const [unaskedNonce, setUnaskedNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -384,7 +390,7 @@ export default function CoverLetterPage({
       fetchCriticReport(),
       fetchUnaskedRequirements(),
     ]).then(() => setReviewLoadedFor(forLetter));
-  }, [phase, clState?.coverLetterId, clState?.jobId]);
+  }, [phase, clState?.coverLetterId, clState?.jobId, unaskedNonce]);
 
   function startPolling(clId: string) {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -702,6 +708,60 @@ export default function CoverLetterPage({
   // mounts the SAME live surface, not a forked panel.
   // R2-8 (8): see `reviewLoadedFor`.
   const reviewLoading = reviewLoadedFor !== (clState?.coverLetterId ?? null);
+  // ADR-099 cl. 9 / RULING C-1 (3): the letter's signature hint is a counted
+  // card — shown while no signature is on file and the letter would carry one.
+  const showSignatureCard =
+    phase === "ready" && !signatureAvailable && signatureKindDefaultOn && signatureOverride !== false;
+  async function chooseNoSignature() {
+    if (signatureHintSaving) return;
+    setSignatureHintSaving(true);
+    setSignatureHintFailed(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature_in_letter: false }),
+      });
+      if (!res.ok) throw new Error(`settings ${res.status}`);
+      setSignatureKindDefaultOn(false);
+    } catch {
+      setSignatureHintFailed(true);
+    } finally {
+      setSignatureHintSaving(false);
+    }
+  }
+  const reviewExtraCards: ReviewExtraCard[] = [
+    ...(unasked.length > 0
+      ? [
+          {
+            key: "unasked",
+            counted: true,
+            node: (
+              <UnaskedRequirementsPanel
+                requirements={unasked}
+                jobId={clState?.jobId ?? null}
+                onAnswered={() => setUnaskedNonce((n) => n + 1)}
+              />
+            ),
+          },
+        ]
+      : []),
+    ...(showSignatureCard
+      ? [
+          {
+            key: "signature",
+            counted: true,
+            node: (
+              <SignatureHintCard
+                onWithout={() => void chooseNoSignature()}
+                saving={signatureHintSaving}
+                failed={signatureHintFailed}
+              />
+            ),
+          },
+        ]
+      : []),
+  ];
   const renderReviewSurface = (layout: "panel" | "sheet") => (
     <ReviewSurface
       documentKind="cover-letter"
@@ -724,12 +784,8 @@ export default function CoverLetterPage({
       onEditFinding={handleEditFinding}
       sectionLabel={() => t("bodySection")}
       gapAnalysisHref={`/flow/${flowId}/gaps`}
-      cvEditHref={`/flow/${flowId}/cv?tab=edit`}
-    >
-      {/* Not one of ADR-081's four producers — rendered after the groups so it
-          can never be mistaken for one of them. */}
-      <UnaskedRequirementsPanel requirements={unasked} />
-    </ReviewSurface>
+      extraCards={reviewExtraCards}
+    />
   );
 
   // The letter's section editor — the Edit tab on desktop, the Fine-tune
@@ -793,18 +849,19 @@ export default function CoverLetterPage({
     </>
   );
 
-  const liveGroups = buildReviewGroups({
+  // ADR-099 cl. 3: the tab badge and the phone badge count the SAME A+U rows
+  // the surface's headline counts — one function, one number.
+  const group1Count = buildDeliveryView({
     atsReport,
     truthReport,
     criticReport,
     gapClusters: [],
     hasClusterProducer: false,
     openRequirements,
-  });
-  const group1Live = liveGroups.find((g) => g.id === 1)!;
-  // T-1: the phone badge's amber number when group 1 is clean.
-  const liveDecisionCount = decisionCount(liveGroups);
-  const group1Count = openGroup1Count(group1Live.items, reviewState);
+    reviewState,
+    degradation: reviewDegradation,
+    extraCounted: reviewExtraCards.filter((c) => c.counted).length,
+  }).count;
 
   const sidebarTabs: SidebarTab[] = [
     {
@@ -939,8 +996,8 @@ export default function CoverLetterPage({
             onDownloadPdf={() => void requestDownload("pdf")}
             openFineTuneNonce={fineTuneNonce}
             suspended={mobileLocating}
-            openCount={!reviewLoading && (atsReport || truthReport) ? group1Count : null}
-            decisionCount={!reviewLoading && atsReport ? liveDecisionCount : null}
+            openCount={!reviewLoading ? group1Count : null}
+            decisionCount={null}
             onLeaveFineTune={(proceed) => {
               if (!bodyDirty) {
                 proceed();

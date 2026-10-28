@@ -19,7 +19,8 @@
 // Build-2 delivery F2 (SF-REVIEW.18): the letter review offered "Stimmt, in mein
 // Profil aufnehmen" on "Lebensmittelkunden", which the candidate's own recorded
 // denial covers. A term the report says a denial covers shows that denial and no
-// add-to-profile handle; take-out and edit stay.
+// add-to-profile handle; take-out stays. ADR-099 / ruling C-1 (2): the card
+// carries no editor handle any more (the Edit tab stays the editor).
 
 import React from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
@@ -72,17 +73,17 @@ describe("F2 — a term a recorded denial covers", () => {
     const card = screen.getByTestId("review-card");
     expect(card.getAttribute("data-finding-key")).toBe("ats:lebensmittelkunden");
     expect(within(card).queryByTestId("review-action-add")).toBeNull();
-    expect(within(card).getByTestId("review-card-denied").textContent).toBe(
+    expect(within(card).getByTestId("review-card-why").textContent).toBe(
       "Dazu hast Du selbst eine Einschränkung genannt: „direkte Produktion für Lebensmittelkunden“. " +
         "Deshalb bietet Applire nicht an, es in Dein Profil aufzunehmen. Nimm es heraus oder bearbeite die Stelle.",
     );
     expect(within(card).getByTestId("review-action-takeout")).toBeTruthy();
-    expect(within(card).getByTestId("review-action-edit")).toBeTruthy();
+    expect(within(card).queryByTestId("review-action-edit")).toBeNull();
   });
 
   it("says the same in English", () => {
     render(withIntl(<ReviewSurface {...props(ats({ Lebensmittelkunden: [DENIAL] }))} />, "en"));
-    expect(screen.getByTestId("review-card-denied").textContent).toBe(
+    expect(screen.getByTestId("review-card-why").textContent).toBe(
       "You told us about a limit here yourself: “direkte Produktion für Lebensmittelkunden”. " +
         "That is why Applire does not offer to add it to your profile. Take it out or edit the passage.",
     );
@@ -95,7 +96,7 @@ describe("F2 — a term a recorded denial covers", () => {
     const card = screen.getByTestId("review-card");
     expect(card.getAttribute("data-finding-key")).toBe("ats:payments platform");
     expect(within(card).getByTestId("review-action-add")).toBeTruthy();
-    expect(within(card).queryByTestId("review-card-denied")).toBeNull();
+    expect(within(card).queryByTestId("review-card-why")?.textContent ?? "").not.toContain("limit here yourself");
   });
 
   it("a report without the field keeps today's card", () => {

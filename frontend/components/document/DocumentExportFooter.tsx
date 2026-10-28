@@ -18,7 +18,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Download } from "lucide-react";
 
@@ -108,11 +107,12 @@ export function DocumentExportFooter({
   signature,
 }: DocumentExportFooterProps) {
   const t = useTranslations("document");
-  const router = useRouter();
 
   return (
     <div className="flex flex-col gap-2" data-testid="document-export-footer">
-      {signature && (
+      {/* ADR-099 cl. 9 / RULING C-1 (3): no signature on file → nothing here; the
+          letter's review list carries the counted card, the CV never shows it. */}
+      {signature?.available && (
         <div className="flex items-center gap-2 text-xs" data-testid="signature-override-section">
           {signature.available ? (
             <>
@@ -145,23 +145,7 @@ export function DocumentExportFooter({
                 })}
               </div>
             </>
-          ) : (
-            <p className="text-on-surface-variant" data-testid="signature-override-unavailable-hint">
-              {t("signatureUnavailableHint")}
-              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-              {" "}
-              <a
-                href="/profile"
-                className="text-primary underline hover:no-underline"
-                onClick={(e) => {
-                  e.preventDefault();
-                  router.push("/profile");
-                }}
-              >
-                {t("signatureUnavailableLink")}
-              </a>
-            </p>
-          )}
+          ) : null}
         </div>
       )}
       <div className="flex items-center gap-2">

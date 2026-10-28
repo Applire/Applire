@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Tobias Rosenbaum
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
+ * (Superseded in part by ADR-099 cl. 8 — see the describes below.)
  * #703 (RULING R-3 = A) and #702 on the review surface itself: the repeated-
  * demand tag on the open group-2 row, the late-arrival row under Handwerk, and
  * the cross-document section mounted between group 1 and the other findings.
@@ -53,143 +54,67 @@ function props(over: Partial<ReviewSurfaceProps> = {}): ReviewSurfaceProps {
   };
 }
 
-function open(group: number) {
-  const toggle = screen.getByTestId(`review-group-toggle-${group}`);
-  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
-}
-
-describe("#703 repeated demands on the surface", () => {
-  it("tags the open group-2 row and explains it (DE)", () => {
-    render(withIntl(<ReviewSurface {...props()} />, "de"));
-    open(2);
-    const g2 = screen.getByTestId("review-group-2");
-    const tag = within(g2).getByTestId("review-item-signal-tag");
-    expect(tag).toHaveTextContent("2× nachgefordert");
-    expect(tag.dataset.weight).toBe("open");
-    expect(within(g2).getByTestId("review-item-signal-note")).toHaveTextContent(
-      "Applire hat in 2 Runden versucht, das unterzubringen — es steht nicht im Anschreiben. Dein Profil deckt es.",
-    );
+// ADR-099 cl. 8: the cross-document section, the repeated-demand tags on
+// group 2 and the late-arrival rows under "Handwerk" left the surface (S).
+// What survives from these suites is cl. 2's U: a critic that did not answer
+// is "Nicht geprüft", counted, and never the plain all-clear (T-U).
+describe("ADR-099 cl. 8 — signals and the cross-read are not on the surface", () => {
+  it("no group-2 tag, no Handwerk row, no cross-document section", () => {
+    render(withIntl(<ReviewSurface {...props({ cvEditHref: "/flow/f/cv?tab=edit" })} />, "de"));
+    expect(screen.queryByTestId("review-group-2")).toBeNull();
+    expect(screen.queryByTestId("review-group-4")).toBeNull();
+    expect(screen.queryByTestId("review-item-signal-tag")).toBeNull();
+    expect(screen.queryByTestId("review-xdoc")).toBeNull();
+    expect(screen.queryByTestId("review-other")).toBeNull();
+    const text = screen.getByTestId("review-surface").textContent ?? "";
+    expect(text).not.toContain("Kosmetik-Verpackungen");
+    expect(text).not.toContain("nachgefordert");
   });
 
-  it("lists late arrivals under Handwerk with the re-read hint (EN)", () => {
-    render(withIntl(<ReviewSurface {...props()} />));
-    open(4);
-    const g4 = screen.getByTestId("review-group-4");
-    expect(within(g4).getByText("Arbeitssicherheit")).toBeInTheDocument();
-    expect(within(g4).getAllByTestId("review-item-signal-note")[0]).toHaveTextContent(
-      "Only made it into the cover letter after 3 attempts.",
-    );
-    expect(within(g4).getAllByText("Asked for again").length).toBe(2);
-  });
-});
-
-describe("#702 cross-document section placement", () => {
-  it("sits between group 1 and the other findings, and passes the CV edit target", () => {
-    render(withIntl(<ReviewSurface {...props({ cvEditHref: "/flow/f/cv?tab=edit" })} />));
-    const section = screen.getByTestId("review-xdoc");
-    const other = screen.getByTestId("review-other");
-    expect(section.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(section).getByTestId("review-xdoc-add-to-cv").getAttribute("href")).toMatch(/^\/flow\/f\/cv\?tab=edit&xdoc=[0-9a-f]{8}$/);
-  });
-});
-
-describe("#702 RULING R-1 = A — the verdict never contradicts an open card", () => {
-  const clean = (): ATSReport => ({ ...ats(), checks: [], keywords: { ...ats()!.keywords, missing_claimable: [] } });
-
-  it("rewords the all-clear while a cross-document item is undecided (DE)", () => {
-    render(withIntl(<ReviewSurface {...props({ atsReport: clean() })} />, "de"));
+  it("an undecided cross-document item neither counts nor rewords the clear line (DE)", () => {
+    const clean: ATSReport = { ...ats(), checks: [], keywords: { ...ats()!.keywords, missing_claimable: [] } };
+    render(withIntl(<ReviewSurface {...props({ atsReport: clean })} />, "de"));
     const verdict = screen.getByTestId("review-verdict");
-    expect(verdict).toHaveTextContent("Neben Deinem Lebenslauf gelesen fällt aber eine Stelle auf");
-    expect(verdict).not.toHaveTextContent("nicht im Weg");
-  });
-
-  it("returns to the plain all-clear once the item is decided", () => {
-    const reviewState = {
-      walked_at: null,
-      decisions: [{ finding_key: "critic:x", label: "x", action: "kept" as const, at: "2026-10-07T12:00:00Z", undo: null }],
-    };
-    render(withIntl(<ReviewSurface {...props({ atsReport: clean(), reviewState })} />, "de"));
-    const verdict = screen.getByTestId("review-verdict");
+    expect(verdict.getAttribute("data-count")).toBe("0");
+    expect(verdict).toHaveTextContent("Nichts braucht Dich mehr – das Dokument ist versandbereit.");
     expect(verdict).not.toHaveTextContent("Neben Deinem Lebenslauf");
-    expect(verdict).toHaveTextContent("Jede Aussage im Dokument ist durch Dein Profil gedeckt.");
   });
 });
 
-describe("adv-review finding 10 — a critic that did not answer leaves the cross-read undecided", () => {
+describe("ADR-099 T-U — a critic that did not answer is unknown, never an all-clear", () => {
   const clean = (): ATSReport => ({ ...ats(), checks: [], keywords: { ...ats()!.keywords, missing_claimable: [] } });
   const errored: OutcomeCriticReport = {
     ran: true, reason: "judgement_error", mount: "letter", dropped_citations: 0, advisories: [], cross_document: [],
   };
-
-  it("states not-checked and never calls the rest harmless on the letter (DE)", () => {
-    render(withIntl(<ReviewSurface {...props({ atsReport: clean(), criticReport: errored })} />, "de"));
-    expect(screen.getByTestId("review-xdoc-unknown")).toBeInTheDocument();
-    const verdict = screen.getByTestId("review-verdict");
-    expect(verdict).toHaveTextContent("Ob Anschreiben und Lebenslauf zusammenpassen, wurde nicht geprüft");
-    expect(verdict).not.toHaveTextContent("nicht im Weg");
-  });
-
-  it("a critic that ran and found nothing keeps the plain all-clear", () => {
-    const quiet: OutcomeCriticReport = { ...errored, reason: null };
-    render(withIntl(<ReviewSurface {...props({ atsReport: clean(), criticReport: quiet })} />, "de"));
-    expect(screen.queryByTestId("review-xdoc-unknown")).toBeNull();
-    expect(screen.getByTestId("review-verdict")).toHaveTextContent("Jede Aussage im Dokument ist durch Dein Profil gedeckt.");
-    expect(screen.getByTestId("review-verdict")).not.toHaveTextContent("zusammenpassen");
-  });
-});
-
-describe("#789 line L60 — an unanswered CV critic never reads as findings below", () => {
-  const clean = (): ATSReport => ({ ...ats(), checks: [], keywords: { ...ats()!.keywords, missing_claimable: [] } });
-  const errored: OutcomeCriticReport = {
-    ran: true, reason: "judgement_error", mount: "cv", dropped_citations: 0, advisories: [],
-  };
   const notRun: OutcomeCriticReport = { ran: false, mount: "cv", dropped_citations: 0, advisories: [] };
-  const cvProps = (over: Partial<ReviewSurfaceProps>) =>
-    props({ documentKind: "cv", gapClusters: [], hasClusterProducer: true, ...over });
 
-  for (const [name, report] of [["judgement_error", errored], ["ran:false", notRun]] as const) {
-    it(`names the unchecked advisory instead of promising findings below (${name}, DE)`, () => {
-      render(withIntl(<ReviewSurface {...cvProps({ atsReport: clean(), criticReport: report })} />, "de"));
+  for (const [name, report, kind] of [
+    ["judgement_error, letter", errored, "cover-letter"],
+    ["ran:false, CV", notRun, "cv"],
+  ] as const) {
+    it(`counts one "Nicht geprüft" row with the new-version action (${name}, DE)`, () => {
+      const onRegenerate = vi.fn();
+      render(withIntl(<ReviewSurface {...props({ documentKind: kind, atsReport: clean(), criticReport: report, onRegenerate })} />, "de"));
       const verdict = screen.getByTestId("review-verdict");
-      expect(verdict).not.toHaveTextContent("Weiter unten stehen Befunde");
-      expect(verdict).not.toHaveTextContent("nicht im Weg");
-      expect(verdict).toHaveTextContent("Kohärenz-Hinweis");
-      expect(verdict).toHaveTextContent("Nicht geprüft: Kohärenz-Hinweis — sieh Dir diesen Teil selbst an");
+      expect(verdict.getAttribute("data-count")).toBe("1");
+      expect(verdict).not.toHaveTextContent("versandbereit");
+      const box = screen.getByTestId("review-unknown");
+      expect(box).toHaveTextContent("Nicht geprüft: Kohärenz-Hinweis");
+      expect(box).toHaveTextContent("Applire prüft das nur beim Schreiben");
+      expect(box.dataset.resolver).toBe("regenerate");
+      fireEvent.click(within(box).getByTestId("review-unknown-regenerate"));
+      expect(onRegenerate).toHaveBeenCalledTimes(1);
     });
   }
 
-  it("keeps the real finding count next to the unchecked producer (EN)", () => {
-    const base = clean()!;
-    const withGap: ATSReport = { ...base, keywords: { ...base.keywords, missing_honest_gap: ["Terraform"], missing: ["Terraform"] } };
-    render(withIntl(<ReviewSurface {...cvProps({ atsReport: withGap, criticReport: notRun })} />, "en"));
-    const verdict = screen.getByTestId("review-verdict");
-    expect(verdict).toHaveTextContent("Coherence advisory");
-    expect(verdict).toHaveTextContent("Not checked: Coherence advisory — look over that part yourself before you send it.");
-    expect(verdict).not.toHaveTextContent("stand in the way");
-    // T-1: the real count stays, on the truth line below the headline.
-    expect(screen.getByTestId("review-verdict-truth")).toHaveTextContent(
-      "Nothing is made up: every statement in the document is covered by your profile. Plus 1 note.",
-    );
+  it("a critic that ran and found nothing keeps the plain all-clear", () => {
+    render(withIntl(<ReviewSurface {...props({ atsReport: clean(), criticReport: { ...errored, reason: null } })} />, "de"));
+    expect(screen.queryByTestId("review-unknown")).toBeNull();
+    expect(screen.getByTestId("review-verdict")).toHaveTextContent(/^Nichts braucht Dich mehr – das Dokument ist versandbereit\.$/);
   });
 
-  it("names the count in the ruled DE wording when findings sit below (D2-3)", () => {
-    const base = clean()!;
-    const withGaps: ATSReport = {
-      ...base,
-      keywords: { ...base.keywords, missing_honest_gap: ["Terraform", "Ansible"], missing: ["Terraform", "Ansible"] },
-    };
-    render(withIntl(<ReviewSurface {...cvProps({ atsReport: withGaps, criticReport: errored })} />, "de"));
-    // D2-3 reordered by T-1: the blind check leads, the count sits on the truth line.
-    expect(screen.getByTestId("review-verdict")).toHaveTextContent(
-      /^Nicht geprüft: Kohärenz-Hinweis — sieh Dir diesen Teil selbst an, bevor Du sendest\.$/,
-    );
-    expect(screen.getByTestId("review-verdict-truth")).toHaveTextContent(
-      /^Erfunden ist nichts: Jede Aussage im Dokument ist durch Dein Profil gedeckt\. Dazu kommen 2 Hinweise\.$/,
-    );
-  });
-
-  it("a CV critic that ran and found nothing keeps the plain all-clear", () => {
-    render(withIntl(<ReviewSurface {...cvProps({ atsReport: clean(), criticReport: { ...errored, reason: null } })} />, "de"));
-    expect(screen.getByTestId("review-verdict")).toHaveTextContent(/^Jede Aussage im Dokument ist durch Dein Profil gedeckt\.$/);
+  it("EN: the unknown row names the producer", () => {
+    render(withIntl(<ReviewSurface {...props({ atsReport: clean(), criticReport: notRun, documentKind: "cv" })} />, "en"));
+    expect(screen.getByTestId("review-unknown")).toHaveTextContent("Coherence advisory");
   });
 });

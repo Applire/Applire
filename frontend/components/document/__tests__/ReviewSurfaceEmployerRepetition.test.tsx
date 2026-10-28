@@ -6,7 +6,7 @@
 // as an info row in group 4 — never counted in the headline.
 
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { ReviewSurface, type ReviewSurfaceProps } from "../ReviewSurface";
@@ -41,37 +41,23 @@ const props: ReviewSurfaceProps = {
   hasClusterProducer: false,
 };
 
-function openGroup4() {
-  const toggle = screen.getByTestId("review-group-toggle-4");
-  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
-}
-
-describe("786:47 — the repeated employer name, in the user's words", () => {
-  it("DE: label and sentence in German, no EN details", () => {
+// ADR-099 cl. 8: craft notes (the repeated employer name among them) left the
+// review surface — a passing craft check is "S" (silent) and only counts in
+// the passed line. 786:47's wording lives on in the catalog for the writer's
+// own loop; the surface must not render it.
+describe("786:47 under ADR-099 cl. 8 — the repeated employer name is not on the surface", () => {
+  it("DE: no craft row, no EN details; the check counts as passed", () => {
     render(withIntl(<ReviewSurface {...props} />, "de"));
-    openGroup4();
-    const text = screen.getByTestId("review-other").textContent ?? "";
-    expect(text).toContain("Wiederholter Firmenname");
-    expect(text).toContain(
-      "„Schwarzwald Präzision GmbH“ steht in Absatz 2 am Anfang von 4 Sätzen (und in einem weiteren Absatz).",
-    );
-    expect(text).not.toContain("opens 4 sentences");
+    const surface = screen.getByTestId("review-surface").textContent ?? "";
+    expect(surface).not.toContain("Wiederholter Firmenname");
+    expect(surface).not.toContain("Schwarzwald Präzision GmbH");
+    expect(surface).not.toContain("opens 4 sentences");
+    expect(screen.queryByTestId("review-other")).toBeNull();
+    expect(screen.getByTestId("review-passed-checks").textContent).toContain("1");
   });
 
-  it("EN: the English sentence; a single paragraph has no rest clause", () => {
-    render(
-      withIntl(
-        <ReviewSurface
-          {...props}
-          atsReport={{
-            ...REPORT,
-            checks: [{ ...REPORT.checks[0], details_params: { employer: "Alpha GmbH", paragraph: 1, count: 2, more: 0 } }],
-          }}
-        />,
-        "en",
-      ),
-    );
-    openGroup4();
-    expect(screen.getByTestId("review-other").textContent).toContain("“Alpha GmbH” opens 2 sentences in paragraph 1. Repeated");
+  it("EN: nothing of the note either", () => {
+    render(withIntl(<ReviewSurface {...props} />, "en"));
+    expect(screen.getByTestId("review-surface").textContent ?? "").not.toContain("Repeated");
   });
 });
