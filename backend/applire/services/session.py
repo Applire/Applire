@@ -3255,8 +3255,12 @@ class UnknownRequirement(ValueError):
     """A ``requirement_concepts`` entry that is no unasked requirement of the
     job's latest analysis (422 ``unknown_requirement``)."""
 
+    #: SEC-1 — the 422 detail echoes at most this many concepts, each cut to
+    #: the schema's per-item bound.
+    ECHO_CAP = 10
+
     def __init__(self, concepts: list[str]) -> None:
-        self.concepts = concepts
+        self.concepts = [str(c)[:200] for c in concepts[: self.ECHO_CAP]]
         super().__init__("unknown_requirement")
 
 
@@ -3309,9 +3313,11 @@ async def _create_requirement_session(
         for e in GapAnalysisResponse.model_validate(row).unasked_requirements
     }
     wanted: list[str] = []
+    seen: set[str] = set()
     for c in concepts:
         key = (c or "").strip().casefold()
-        if key and key not in [w.casefold() for w in wanted]:
+        if key and key not in seen:
+            seen.add(key)
             wanted.append((c or "").strip())
     unknown = [c for c in wanted if c.casefold() not in unasked]
     if unknown or not wanted:

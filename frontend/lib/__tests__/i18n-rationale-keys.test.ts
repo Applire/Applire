@@ -49,6 +49,10 @@ const BACKEND_RATIONALE_KEYS = [
   // #717 / FS-6 — reconcile/apply.py's separate / confirm acts
   "match_separated",
   "match_confirmed",
+  // Hazelnut build 5 (U-11 / U-9 / UAT-3d) — reconcile/apply.py
+  "entries_merged",
+  "entries_kept_separate",
+  "not_applied_adopted",
   // D-B3V7 — reconcile/apply.py::_apply_set_availability
   "availability_recorded",
   "availability_cleared",

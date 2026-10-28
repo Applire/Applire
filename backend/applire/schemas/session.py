@@ -17,9 +17,9 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,11 @@ class SessionCreateRequest(BaseModel):
     # candidate chose to answer now. Asks exactly those, in this order, as one
     # micro-session; a concept that is not an unasked requirement of this job's
     # analysis → 422 ``unknown_requirement``. Wins over ``mode``/``target_gap``.
-    requirement_concepts: list[str] | None = None
+    # SEC-1: bounded (≤ 50 concepts, each 1–200 chars) — a body cannot turn
+    # the membership check into an unbounded loop or echo.
+    requirement_concepts: (
+        list[Annotated[str, StringConstraints(min_length=1, max_length=200)]] | None
+    ) = Field(default=None, max_length=50)
 
 
 class ProfileReviewRequest(BaseModel):

@@ -1843,6 +1843,9 @@
       "denial_withdrawn_skill": "No longer ruled out: you took back the limit. It counts again once a CV or an answer states it.",
       "match_separated": "Kept apart: you said these are not the same.",
       "match_confirmed": "You confirmed these are the same.",
+      "entries_merged": "Merged with another entry for the same position.",
+      "entries_kept_separate": "Kept apart: you said these are two different entries.",
+      "not_applied_adopted": "Added from your import after you chose to take it in.",
       "availability_recorded": "Recorded your availability.",
       "availability_cleared": "Removed your availability."
     }

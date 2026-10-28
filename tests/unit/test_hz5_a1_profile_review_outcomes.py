@@ -406,3 +406,44 @@ async def test_requirement_concepts_asks_exactly_those_in_order(db, monkeypatch)
     record = await db.get(InterviewSession, resp.session_id)
     assert record.state["critical_gaps"] == ["requirement:Snowflake", "requirement:Kubernetes"]
     assert record.state["gap_clusters_by_id"]["requirement:Kubernetes"]["gaps"] == ["Kubernetes"]
+
+
+# ── SEC-1: the requirement list is bounded ────────────────────────────────────
+
+
+def test_requirement_concepts_is_bounded_in_the_schema():
+    from pydantic import ValidationError
+
+    from applire.schemas.session import SessionCreateRequest
+
+    job = uuid.uuid4()
+    SessionCreateRequest(job_id=job, requirement_concepts=["x" * 200] * 50)
+    for bad in (["x"] * 51, ["x" * 201], [""]):
+        with pytest.raises(ValidationError):
+            SessionCreateRequest(job_id=job, requirement_concepts=bad)
+
+
+def test_unknown_requirement_echo_is_capped():
+    from applire.services.session import UnknownRequirement
+
+    err = UnknownRequirement([f"c{i}" * 300 for i in range(40)])
+    assert len(err.concepts) == UnknownRequirement.ECHO_CAP
+    assert all(len(c) <= 200 for c in err.concepts)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_requirement_concepts_are_asked_once(db, monkeypatch):
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services import session as session_svc
+
+    async def fake_question(state, profile_json, provider, db_, **kw):
+        return {"question": "Q", "choices": None}
+
+    monkeypatch.setattr(session_svc, "_cluster_question", fake_question)
+    rec = await _seed(db)
+    job, _row_ = await _seed_job_with_ledger(db, rec)
+    resp = await session_svc.create_session(
+        SessionCreateRequest(job_id=job.id, requirement_concepts=["Snowflake", " snowflake ", "SNOWFLAKE"]),
+        db, Stub(),
+    )
+    assert resp.gaps_total == 1
