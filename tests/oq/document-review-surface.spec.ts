@@ -225,7 +225,7 @@ test.describe('E058 — the preview takes the height unconditionally (#625)', ()
 });
 
 test.describe('E058/ADR-090 cl. 1 — ONE layout, no mode switch', () => {
-  test('every non-zero group count is visible without any mode interaction', async ({ page }) => {
+  test('the open rows render without any mode interaction', async ({ page }) => {
     await stubBackend(page, { ats: ATS_LONG });
     await page.goto(CV_PAGE_URL);
     await expect(page.getByTestId('review-surface')).toBeVisible({ timeout: 15_000 });
@@ -233,12 +233,8 @@ test.describe('E058/ADR-090 cl. 1 — ONE layout, no mode switch', () => {
     // replaced it with the card + list); its own non-zero signal is the list
     // itself, rendered without any click.
     await expect(page.locator('[data-testid^="review-item-g1-"]')).toHaveCount(10, { timeout: 15_000 });
-    // Groups 2–4 keep the count badge (ADR-081 cl. 6), visible on the
-    // collapsed row itself — no toggle click needed for the COUNT.
-    for (const id of [2, 3, 4]) {
-      await expect(page.getByTestId(`review-group-count-${id}`)).toBeVisible();
-      await expect(page.getByTestId(`review-group-count-${id}`)).not.toHaveText('0');
-    }
+    // ADR-099 cl. 8: groups 2 and 4 left the surface; no group toggle renders.
+    for (const id of [2, 4]) await expect(page.getByTestId(`review-group-toggle-${id}`)).toHaveCount(0);
     // ADR-090 cl. 1: the overview/guided pair and its switch are retired.
     await expect(page.getByTestId('review-mode-switch')).toHaveCount(0);
     await expect(page.getByTestId('review-overview')).toHaveCount(0);
@@ -252,42 +248,48 @@ test.describe('E058/ADR-090 cl. 1 — ONE layout, no mode switch', () => {
     // group-1 list to carry the loaded count, or this reads the empty-state
     // sentence and the assertion is a race rather than a check.
     await expect(page.locator('[data-testid^="review-item-g1-"]')).toHaveCount(10, { timeout: 15_000 });
-    const sentence = (await page.getByTestId('review-verdict').textContent()) ?? '';
-    const stated = Number(sentence.match(/\d+/)?.[0]);
-    const rendered = await page.locator('[data-testid^="review-item-g1-"]').count();
-    expect(stated).toBe(10);
+    // ADR-099 cl. 3: the number counts the open rows plus the counted fallback
+    // rows and unknown rows the panel renders — nothing it does not show.
+    const stated = Number(await page.getByTestId('review-verdict').getAttribute('data-count'));
+    const rendered =
+      (await page.locator('[data-testid^="review-item-g1-"][data-status="open"]').count()) +
+      (await page.locator('[data-testid^="review-fallback-"][data-counted="true"]').count()) +
+      (await page.getByTestId('review-unknown').count());
     expect(rendered).toBe(stated);
+    expect((await page.getByTestId('review-verdict').textContent()) ?? '').toContain(String(stated));
   });
 });
 
 test.describe('E058 — clause 9, a producer that did not run', () => {
+  // ADR-099 cl. 2 / T-U: one counted "Not checked" row per producer that did not run.
   test('an Oracle that never wrote a report renders as unknown, never as zero', async ({ page }) => {
     await stubBackend(page, { truth: null });
     await page.goto(CV_PAGE_URL);
     await expect(page.getByTestId('review-surface')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('review-group-unknown-1')).toBeVisible();
-    await expect(page.getByTestId('review-group-unknown-1')).toContainText('did not run');
+    const box = page.getByTestId('review-unknown').filter({ hasText: 'Truthfulness Oracle' });
+    await expect(box).toBeVisible();
+    await expect(box.getByTestId('review-unknown-recheck')).toHaveText('Check now');
   });
 
-  test('an outcome critic that did not run keeps group 4 out of the passed-checks collapse', async ({
+  test('an outcome critic that did not run is a counted unknown row with a new-version action', async ({
     page,
   }) => {
     await stubBackend(page, { critic: { ran: false, advisories: [], dropped_citations: 0 } });
     await page.goto(CV_PAGE_URL);
     await expect(page.getByTestId('review-surface')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('review-group-unknown-4')).toBeVisible();
+    const box = page.getByTestId('review-unknown').filter({ hasText: 'Coherence advisory' });
+    await expect(box).toBeVisible();
+    await expect(box).toHaveAttribute('data-resolver', 'regenerate');
   });
 
-  test('#789 line L60: an unanswered CV critic is named in the headline, never "findings below"', async ({
-    page,
-  }) => {
+  test('#789 line L60 under T-U: an unanswered CV critic is never an all-clear', async ({ page }) => {
     const clean = { ...ATS_SHORT, keywords: { ...ATS_SHORT.keywords, present_unsupported: [] } };
     await stubBackend(page, { ats: clean, critic: { ran: true, reason: 'judgement_error', advisories: [], dropped_citations: 0 } });
     await page.goto(CV_PAGE_URL);
-    await expect(page.getByTestId('review-verdict')).toContainText('Not checked: Coherence advisory', {
+    await expect(page.getByTestId('review-unknown').filter({ hasText: 'Not checked: Coherence advisory' })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByTestId('review-verdict')).not.toContainText('stand in the way');
+    await expect(page.getByTestId('review-verdict')).not.toContainText('ready to send');
   });
 
   test('with no reports at all the surface says so instead of heading itself with an all-clear', async ({
@@ -296,11 +298,8 @@ test.describe('E058 — clause 9, a producer that did not run', () => {
     await stubBackend(page, { ats: null, truth: null, critic: null, sections: null });
     await page.goto(CV_PAGE_URL);
     await expect(page.getByTestId('review-surface')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('review-verdict')).toContainText('not checked');
-    // Group 1 has no `review-group-count-1` badge in the recut — its unknown
-    // state is stated by the note above the verdict (cl. 9), asserted by the
-    // sibling test above; here the all-clear collapse being absent is the point.
-    await expect(page.getByTestId('review-group-unknown-1')).toBeVisible();
+    await expect(page.getByTestId('review-unknown').first()).toBeVisible();
+    await expect(page.getByTestId('review-verdict')).not.toContainText('ready to send');
     await expect(page.locator('[data-testid="review-passed-checks"]')).toHaveCount(0);
   });
 });
@@ -325,8 +324,8 @@ test.describe('#786 / T-2 — a review step of the writing loop that did not run
   });
 });
 
-test.describe('E058 — group 2 names the trade and offers nothing', () => {
-  test('the trade and the three handles render, and the group has no action', async ({ page }) => {
+test.describe('ADR-099 cl. 8 — the trade (old group 2) is not on the surface', () => {
+  test('a claimable term renders no row, no toggle and no handle', async ({ page }) => {
     await stubBackend(page, {
       ats: {
         checks: [{ id: 'contact-0', status: 'pass' }],
@@ -341,20 +340,10 @@ test.describe('E058 — group 2 names the trade and offers nothing', () => {
       },
     });
     await page.goto(CV_PAGE_URL);
-    // The count is visible on the collapsed row; the trade copy is behind the
-    // row's own toggle (ADR-081 cl. 6 permits the all-clear collapse — a
-    // non-zero group still starts closed under the ONE-layout recut).
-    await expect(page.getByTestId('review-group-count-2')).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId('review-group-toggle-2').click();
-    await expect(page.getByTestId('review-group2-trade')).toBeVisible();
-    await expect(page.getByTestId('review-group2-handle-pages')).toBeVisible();
-    await expect(page.getByTestId('review-group2-handle-pin')).toBeVisible();
-    await expect(page.getByTestId('review-group2-handle-regenerate')).toBeVisible();
-    // The group's controls are its own collapse toggle and the pin handle's
-    // link to the Aktionen tab's pin panel (789:26) — no action on the trade.
-    await expect(page.getByTestId('review-group2-open-pins')).toBeVisible();
-    await expect(page.getByTestId('review-group-2').locator('button')).toHaveCount(2);
-    await expect(page.getByTestId('review-group-2').locator('a')).toHaveCount(0);
+    await expect(page.getByTestId('review-verdict')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('review-group-toggle-2')).toHaveCount(0);
+    await expect(page.getByTestId('review-group2-trade')).toHaveCount(0);
+    await expect(page.getByTestId('review-surface')).not.toContainText('SAP PP');
   });
 });
 
@@ -524,16 +513,13 @@ test.describe('E058/ADR-090 — a stubbed end-to-end review flow', () => {
     await expect(
       page.getByTestId(`review-item-g1-${AI_GOV_KEY}`).getByTestId('review-row-status-taken_out'),
     ).toHaveText('Taken out');
-    await expect(page.getByTestId('review-progress-label')).toHaveText('1 of 3 decided');
-    await expect(page.getByTestId('review-verdict')).toHaveText(
-      '2 places in the document are not covered by your profile.',
-    );
+    await expect(page.getByTestId('review-verdict')).toHaveText('2 points need you before you send.');
 
     // (d) — Undo restores the finding to open.
     await page.getByTestId('review-action-undo').click();
     await expect(page.getByTestId('review-card')).toHaveAttribute('data-finding-key', AI_GOV_KEY);
     await expect(page.getByTestId('review-card')).toHaveAttribute('data-status', 'open');
-    await expect(page.getByTestId('review-progress-label')).toHaveText('0 of 3 decided');
+    await expect(page.getByTestId('review-verdict')).toHaveText('3 points need you before you send.');
 
     // (e) — Add to profile.
     await page.getByTestId('review-action-add').click();

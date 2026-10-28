@@ -20,7 +20,7 @@
 //
 // ADR-090 real-path delivery run, defects D-1 … D-3, pinned in a browser with
 // every backend call stubbed (`page.route`, no provider call):
-//  * D-2 (HIGH) — take out on the letter, then *Let me edit it* + save: the
+//  * D-2 (HIGH) — take out on the letter, then the Edit tab + save: the
 //    PATCH must carry the taken-out body, never the pre-take-out wording.
 //  * D-3 — the result names only the changed sentence, the rest elided.
 //  * D-1 — a CV position change is labelled with the section's label, not
@@ -29,7 +29,7 @@ import { test, expect } from '../support/auth-fixture';
 import { FLOW_ID, CV_ID, JOB_ID, TRUTH, SETTINGS, json, atsReport, stubLetter } from './review-letter-stub';
 
 test.describe('ADR-090 delivery fixes — the letter (D-2, D-3)', () => {
-  test('take out → Let me edit it → save writes the taken-out body, never the removed wording', async ({ page }) => {
+  test('take out → Edit tab → save writes the taken-out body, never the removed wording', async ({ page }) => {
     const server = await stubLetter(page);
     await page.goto(`/flow/${FLOW_ID}/cover-letter`);
     const card = page.getByTestId('review-card');
@@ -45,9 +45,9 @@ test.describe('ADR-090 delivery fixes — the letter (D-2, D-3)', () => {
     await expect(page.getByTestId('review-takeout-after')).toHaveText(['I built platforms for ten years.']);
     await expect(page.getByTestId('review-takeout-change')).not.toContainText('five markets');
 
-    // D-2: open the remaining finding and edit it yourself.
-    await page.getByTestId('review-item-g1-ats:settlement').click();
-    await page.getByTestId('review-action-edit').click();
+    // D-2: edit the body yourself. ADR-099 / RULING C-1 (2): the card has no
+    // editor handle any more — the Edit tab is the editor.
+    await page.getByTestId('sidebar-tab-edit').click();
     // The phone's Fine-tune sheet mounts its own (md:hidden) editor too — act on the visible one.
     const textarea = page.locator('[data-testid="cl-body-textarea"]:visible');
     await expect(textarea).toBeVisible();
