@@ -1281,6 +1281,13 @@ class NonClaimNames:
     #: inside one) is a skill, not only a name — "MongoDB Inc." must not hide
     #: "sharded MongoDB clusters", "Software AG" must not mask "software".
     skill_forms: tuple[str, ...] = ()
+    #: D-4 (Hazelnut build 5): the posting's own organisation units — a team,
+    #: division or department it names ("our Developer Experience team",
+    #: "Productivity Solutions Division (PSD)"), normalised, head noun included,
+    #: plus a parenthesised acronym. Read only with ``employer_clause`` (letters):
+    #: a letter sentence about "the Developer Experience team's work" is about the
+    #: employer, and "Developer Experience" in it is no claim of the candidate's.
+    org_units: tuple[str, ...] = ()
 
     def __bool__(self) -> bool:
         return bool(self.titles or self.employers)
@@ -1397,6 +1404,10 @@ def non_claim_names_for_job(job: Any, application: Any | None = None) -> NonClai
     if job is None:
         return None
     posting = non_claim_names(getattr(job, "role_title", None), [getattr(job, "company_name", None)])
+    raw = getattr(job, "raw_text", None)
+    org_units = posting_org_units(raw if isinstance(raw, str) else None)  # D-4 (letters only)
+    if org_units:
+        posting = dataclasses.replace(posting, org_units=org_units)
     if application is None:
         return posting
     from applire.services.posting_labels import effective_posting_labels
@@ -1410,6 +1421,7 @@ def non_claim_names_for_job(job: Any, application: Any | None = None) -> NonClai
     return NonClaimNames(
         titles=_union(effective.titles, posting.titles),
         employers=_union(effective.employers, posting.employers),
+        org_units=posting.org_units,
     )
 
 
@@ -1562,7 +1574,81 @@ def mask_non_claim_spans(text_norm: str, names: NonClaimNames | None) -> str:
     intervals = _name_intervals(text_norm, names.all_names())
     if names.employer_clause:
         intervals += _employer_clause_intervals(text_norm, names.employers, names.skill_forms)
+        if names.org_units:
+            # D-4: the unit's name, and the clause it opens (anchored on the WHOLE
+            # name only — never its first word: "developer" alone is a skill word).
+            intervals += _name_intervals(text_norm, names.org_units)
+            intervals += _org_unit_clause_intervals(text_norm, names.org_units)
     return _mask_intervals(text_norm, intervals)
+
+
+def _org_unit_clause_intervals(text_norm: str, units: Sequence[str]) -> list[tuple[int, int]]:
+    """D-4: the clause a posting's organisation unit opens, ended exactly like an
+    employer clause (:func:`_employer_clause_end`)."""
+    spans: list[tuple[int, int]] = []
+    for u in sorted({x for x in units if x}, key=len, reverse=True):
+        for m in re.finditer(_name_pattern(u), text_norm):
+            end = _employer_clause_end(text_norm, m.end())
+            if end > m.start():
+                spans.append((m.start(), end))
+    return spans
+
+
+#: D-4: a head noun that makes the capitalised words before it the name of an
+#: organisation unit of the employer ("Developer Experience team").
+_ORG_HEADS = (
+    "team", "teams", "division", "department", "business unit", "unit", "group",
+    "organization", "organisation", "abteilung", "bereich", "geschäftsbereich", "sparte",
+)
+#: Capitalised words that open a sentence or a possessive, never a unit's name.
+_ORG_STOP_WORDS = frozenset({
+    "a", "an", "the", "our", "your", "their", "this", "that", "these", "we", "join", "you",
+    "unser", "unsere", "unserem", "unseren", "unserer", "ihr", "ihre", "das", "die", "der",
+    "dem", "den", "ein", "eine", "einem", "einen", "im", "in", "als", "und", "and", "or",
+    "for", "of", "with", "to", "at", "by", "from", "global", "local", "new", "small", "great",
+})
+_ORG_UNIT_RE = re.compile(
+    r"((?:[A-ZÄÖÜ][\w&]*(?:[-\s]+|(?=\s)))+?)\s*"
+    r"(" + "|".join(sorted(_ORG_HEADS, key=len, reverse=True)) + r")(?:['’]s)?\b"
+    r"(?:\s*\(([A-Z]{2,6})\))?",
+    re.IGNORECASE,
+)
+_ORG_CAP_WORD_RE = re.compile(r"[A-ZÄÖÜ][\w&]*")
+#: The posting saying the unit is ITS OWN: "join our …", "unser …" — or an acronym
+#: after it. Without one, "Intensive Care Unit" (a ward in a nurse's title) or
+#: "eines kleinen Controlling-Teams" (a duty) would read as a unit's name.
+_ORG_OWNER_RE = re.compile(r"\b(?:our|unser\w*|join)\b", re.IGNORECASE)
+
+
+def posting_org_units(raw_text: str | None) -> tuple[str, ...]:
+    """D-4: the organisation units the posting names AS ITS OWN — a run of 1–4
+    capitalised words right before a unit head noun, introduced by "our"/"unser…"/
+    "join" or followed by a parenthesised acronym; normalised with the head
+    ("developer experience team"), plus the acronym ("psd"). A FACT about the posting's text (ADR-062 cl. 1): the
+    literal string is what a letter audit masks, never a judgement of meaning."""
+    out: list[str] = []
+    for m in _ORG_UNIT_RE.finditer(raw_text or ""):
+        words = m.group(1).replace("-", " ").split()
+        # the capitalised run directly before the head; IGNORECASE widened [A-Z]
+        run: list[str] = []
+        for w in reversed(words):
+            if not _ORG_CAP_WORD_RE.fullmatch(w) or w.casefold() in _ORG_STOP_WORDS:
+                break
+            run.insert(0, w)
+        run = run[-4:]
+        if not run:
+            continue
+        lead = " ".join(words[: len(words) - len(run)])
+        before = (raw_text or "")[max(0, m.start() - 25): m.start()] + " " + lead
+        acronym = m.group(3)
+        if not acronym and not _ORG_OWNER_RE.search(before):
+            continue
+        name = _norm(" ".join(run) + " " + m.group(2))
+        if name and name not in out:
+            out.append(name)
+        if acronym and _norm(acronym) not in out:
+            out.append(_norm(acronym))
+    return tuple(out)
 
 
 def _keyword_coverage(
