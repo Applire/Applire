@@ -29,7 +29,8 @@ for doing it right already existed (LLM-generated questions and the outcome
 critic's advisories ship `{"de": …, "en": …}` pairs and follow `ui_language`);
 it had simply never been applied to these paths.
 
-**Ten builders, five ask families.** Every deterministic
+**Eleven builders, six ask families** (family 6, the project-parent ask, is
+D-8 of Hazelnut build 5: the engine rebuilds a model-asked one). Every deterministic
 `RequestConfirmation` in `applire/` is built here — `apply.py` x8 and
 `attribution.py` x2 (the guard's ask, and the narrower "which of your roles at
 this employer" ask its RESOLUTION raises, #723 / ADR-063 am. 2026-09-18) — so a
