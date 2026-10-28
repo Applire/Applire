@@ -497,3 +497,19 @@ async def test_an_import_survives_a_judge_that_raises(session, monkeypatch):
     row = (await session.execute(select(MasterProfile))).scalar_one()
     data = MasterProfileData.model_validate(row.profile_json)
     assert len(data.work_experience) == 2 and data.metadata.entry_identity_verdicts == []
+
+
+def test_merge_keeps_the_sources_not_yet_reached_answers():
+    """RULING B-1: a "not reached yet" answer on the merged-away entry moves to
+    the target — without it the writers state the goal as a result again."""
+    from applire.services.profile.reconcile.apply import _apply_merge_entries
+
+    profile = _vault()
+    target, source = profile.work_experience[0], profile.work_experience[1]
+    target.not_yet_reached = ["Cut delivery delays by 20%"]
+    source.not_yet_reached = ["Introduced a shift handover checklist", "Cut delivery delays by 20%"]
+    _apply_merge_entries(
+        MergeEntries(section="work_experience", target_id="wa", source_id="wb"), profile, [],
+    )
+    assert [e.id for e in profile.work_experience] == ["wa", "wc"]
+    assert target.not_yet_reached == ["Cut delivery delays by 20%", "Introduced a shift handover checklist"]

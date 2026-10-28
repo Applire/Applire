@@ -4152,6 +4152,12 @@ def _apply_merge_entries(op, profile: MasterProfileData, changes: list[FieldChan
                 target.dated_role_aliases.append(dated)
                 if _norm(dated.role) not in {_norm(r) for r in target.role_aliases}:
                     target.role_aliases.append(dated.role)
+    # RULING B-1: a "not reached yet" answer is the candidate's word — it moves
+    # with the source's bullets instead of vanishing with the source entry.
+    if hasattr(target, "not_yet_reached"):
+        for line in getattr(source, "not_yet_reached", None) or []:
+            if line not in target.not_yet_reached:
+                target.not_yet_reached.append(line)
 
     fill_empty_scalars(target, source, skip=_ENTRY_DATE_FIELDS if op.dates is not None else ())
     for name, value in (op.dates or {}).items():
