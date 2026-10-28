@@ -107,44 +107,61 @@ def entry_label(entry: Entry) -> str:
     return f"{entry.role} — {entry.company}".strip(" —")
 
 
+def _answered_keys(profile: MasterProfileData) -> set[str]:
+    """Keys of every bullet the candidate answered — by an answer record, or by
+    the stance itself (a bullet in any entry's ``not_yet_reached``). ADV-3: the
+    QUESTION is the normalised bullet text, not (entry, text) — an answer given
+    on one entry holds for every entry carrying that bullet (DE/EN duplicates,
+    and the target of a later merge)."""
+    meta = profile.metadata
+    keys = {a.key for a in (meta.aspiration_answers if meta else [])}
+    for _section, entry in current_entries(profile):
+        keys.update(aspiration_key(t) for t in entry.not_yet_reached)
+    return keys
+
+
 def unjudged_bullets(profile: MasterProfileData) -> list[tuple[str, str, str, str]]:
     """``(section, entry_id, key, text)`` of every current-role and
-    current-project bullet no verdict judged."""
+    current-project bullet whose text no verdict judged and no answer settled."""
     meta = profile.metadata
-    judged = {(v.entry_id, v.key) for v in (meta.aspiration_verdicts if meta else [])}
+    judged = {v.key for v in (meta.aspiration_verdicts if meta else [])} | _answered_keys(profile)
     out: list[tuple[str, str, str, str]] = []
     for section, entry in current_entries(profile):
         for text in _bullets(entry):
             k = aspiration_key(text)
-            if (entry.id, k) not in judged:
-                judged.add((entry.id, k))
+            if k not in judged:
+                judged.add(k)
                 out.append((section, entry.id, k, text))
     return out
 
 
+def holders(profile: MasterProfileData, key: str) -> list[tuple[str, Entry, str]]:
+    """``(section, entry, text)`` of every current entry carrying the bullet ``key``."""
+    out: list[tuple[str, Entry, str]] = []
+    for section, entry in current_entries(profile):
+        text = next((b for b in _bullets(entry) if aspiration_key(b) == key), None)
+        if text is not None:
+            out.append((section, entry, text))
+    return out
+
+
 def open_aspirations(profile: MasterProfileData) -> list[tuple[str, Entry, str, str]]:
-    """``(section, entry, key, text)`` for every bullet the model judged as
-    goal/task wording that still stands on a current entry and is unanswered."""
+    """``(section, entry, key, text)`` — ONE per bullet text the model judged as
+    goal/task wording that still stands on a current entry and is unanswered;
+    the entry is the first one carrying it."""
     meta = profile.metadata
     if meta is None or not meta.aspiration_verdicts:
         return []
-    answered = {(a.entry_id, a.key) for a in meta.aspiration_answers}
-    by_id = {e.id: (sec, e) for sec, e in current_entries(profile)}
+    flagged = {v.key for v in meta.aspiration_verdicts if v.aspiration}
+    answered = _answered_keys(profile)
     out: list[tuple[str, Entry, str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for v in meta.aspiration_verdicts:
-        ident = (v.entry_id, v.key)
-        if not v.aspiration or ident in answered or ident in seen:
-            continue
-        hit = by_id.get(v.entry_id)
-        if hit is None:
-            continue
-        section, entry = hit
-        text = next((b for b in _bullets(entry) if aspiration_key(b) == v.key), None)
-        if text is None:
-            continue
-        seen.add(ident)
-        out.append((section, entry, v.key, text))
+    seen: set[str] = set()
+    for section, entry in current_entries(profile):
+        for text in _bullets(entry):
+            k = aspiration_key(text)
+            if k in flagged and k not in answered and k not in seen:
+                seen.add(k)
+                out.append((section, entry, k, text))
     return out
 
 
@@ -177,13 +194,10 @@ async def aspiration_verdict_ops(profile: MasterProfileData, provider) -> list:
 def find_open_aspiration(profile: MasterProfileData, entry_id: str, key: str):
     """``(section, entry, text)`` of an open aspiration, or raise (one predicate for the
     service pre-check and the applier, ADR-066)."""
-    meta = profile.metadata
-    if meta is not None and any(
-        a.entry_id == entry_id and a.key == key for a in meta.aspiration_answers
-    ):
+    if key in _answered_keys(profile):
         raise AspirationAnswered(key)
     for section, entry, k, text in open_aspirations(profile):
-        if entry.id == entry_id and k == key:
+        if k == key and any(e.id == entry_id for _s, e, _t in holders(profile, key)):
             return section, entry, text
     raise AspirationNotFound(key)
 
@@ -208,32 +222,34 @@ def apply_aspiration_op(op, profile: MasterProfileData, changes: list) -> None:
             meta.aspiration_verdicts.append(AspirationVerdict(**item.model_dump()))
         return
 
-    section, entry, text = find_open_aspiration(profile, op.entry_id, op.key)
-    label = entry_label(entry)
-    if op.achieved:
-        outcome = " ".join((op.outcome or "").split())
-        if not outcome:
-            raise AspirationOutcomeRequired(op.key)
-        if outcome.casefold() not in {a.casefold() for a in entry.achievements}:
-            entry.achievements.append(outcome)
-        changes.append(FieldChange(
-            section=section, field="achievements", action="added",
-            old_value=None, new_value=outcome,
-            rationale=f"Added to {label!r}: the candidate said what came out of a goal-worded bullet.",
-            rationale_key=RATIONALE_ACHIEVED,
+    find_open_aspiration(profile, op.entry_id, op.key)
+    outcome = " ".join((op.outcome or "").split())
+    if op.achieved and not outcome:
+        raise AspirationOutcomeRequired(op.key)
+    # ADV-3: the answer holds for every current entry carrying the bullet.
+    for section, entry, text in holders(profile, op.key):
+        label = entry_label(entry)
+        if op.achieved:
+            if outcome.casefold() not in {a.casefold() for a in entry.achievements}:
+                entry.achievements.append(outcome)
+            changes.append(FieldChange(
+                section=section, field="achievements", action="added",
+                old_value=None, new_value=outcome,
+                rationale=f"Added to {label!r}: the candidate said what came out of a goal-worded bullet.",
+                rationale_key=RATIONALE_ACHIEVED, entity_id=entry.id,
+            ))
+        else:
+            if text not in entry.not_yet_reached:
+                entry.not_yet_reached.append(text)
+            changes.append(FieldChange(
+                section=section, field="not_yet_reached", action="added",
+                old_value=None, new_value=text,
+                rationale=f"Kept as a goal on {label!r}: the candidate said it is not reached yet.",
+                rationale_key=RATIONALE_GOAL, entity_id=entry.id,
+            ))
+        meta.aspiration_answers.append(AspirationAnswer(
+            entry_id=entry.id, key=op.key, answer="achieved" if op.achieved else "goal",
         ))
-    else:
-        if text not in entry.not_yet_reached:
-            entry.not_yet_reached.append(text)
-        changes.append(FieldChange(
-            section=section, field="not_yet_reached", action="added",
-            old_value=None, new_value=text,
-            rationale=f"Kept as a goal on {label!r}: the candidate said it is not reached yet.",
-            rationale_key=RATIONALE_GOAL,
-        ))
-    meta.aspiration_answers.append(AspirationAnswer(
-        entry_id=op.entry_id, key=op.key, answer="achieved" if op.achieved else "goal",
-    ))
 
 
 def parse_issue_id(value: str) -> tuple[str, str]:

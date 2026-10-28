@@ -52,7 +52,7 @@ class ProfileReviewRequest(BaseModel):
     ``HealthIssue.id`` (``conflict:<id>`` / ``confirmation:<id>``): that item
     is asked FIRST. Empty body = the old behaviour (resume or walk all)."""
 
-    issue_id: str | None = None
+    issue_id: str | None = Field(default=None, max_length=300)  # SEC-2
 
 
 #: ADR-099 cl. 11 — the structured answers to a dispute. ``merge_confirm``
@@ -64,11 +64,11 @@ class SessionMessageRequest(BaseModel):
     # Required unless ``outcome`` is given (a button answer carries no text).
     message: str = ""
     outcome: ConflictOutcome | None = None
-    merged_text: str | None = None
+    merged_text: str | None = Field(default=None, max_length=2000)  # SEC-2
 
 
 class MergeProposalRequest(BaseModel):
-    conflict_id: str
+    conflict_id: str = Field(min_length=1, max_length=200)  # SEC-2
 
 
 class CurrentConflict(BaseModel):

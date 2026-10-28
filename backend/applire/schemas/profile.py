@@ -2229,7 +2229,7 @@ class HealthUnitRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    entry_id: str = Field(min_length=1)
+    entry_id: str = Field(min_length=1, max_length=200)
     unit: Literal["EUR", "USD", "CHF", "GBP"]
 
 
@@ -2251,8 +2251,8 @@ class AdoptNotAppliedRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    issue_id: str = Field(min_length=1)
-    item_key: str = Field(min_length=1)
+    issue_id: str = Field(min_length=1, max_length=300)
+    item_key: str = Field(min_length=1, max_length=300)
 
 
 class SeparateMatchRequest(BaseModel):

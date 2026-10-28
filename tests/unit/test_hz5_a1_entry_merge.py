@@ -399,16 +399,38 @@ async def test_undo_last_merge_restores_both_entries(session):
     assert restored.skills[0].experience_refs == ["wb", "wc"]
 
 
-def test_the_new_ops_are_adapter_only():
+#: ADV-HZ5 review: each payload is a COMPLETE, valid adapter op — the old test
+#: fed ``{"op": name}`` only, which fails validation for missing fields whatever
+#: the union, so it would have passed even for a model-emittable op.
+_ADAPTER_PAYLOADS = [
+    {"op": "merge_entries", "section": "work_experience", "target_id": "wa", "source_id": "wb"},
+    {"op": "keep_entries_separate", "section": "work_experience", "entry_ids": ["wa", "wb"]},
+    {"op": "record_entry_identity_verdicts", "verdicts": [
+        {"section": "work_experience", "ids": ["wa", "wb"], "verdict": "different"}]},
+    {"op": "adopt_not_applied", "record_id": "r", "item_key": "k"},
+    {"op": "record_aspiration_verdicts", "verdicts": []},
+    {"op": "answer_aspiration", "entry_id": "wa", "key": "k", "achieved": True, "outcome": "x"},
+    {"op": "resolve_field", "conflict_id": "c", "section": "work_experience", "field": "achievements",
+     "resolution": "both"},
+    {"op": "resolve_field", "conflict_id": "c", "section": "work_experience", "field": "achievements",
+     "resolution": "merge", "value": "x"},
+]
+
+
+@pytest.mark.parametrize(
+    "payload", _ADAPTER_PAYLOADS, ids=lambda p: p["op"] + ":" + str(p.get("resolution", ""))
+)
+def test_the_new_ops_are_adapter_only(payload):
     from pydantic import TypeAdapter, ValidationError
 
-    for op in ("merge_entries", "keep_entries_separate", "record_entry_identity_verdicts"):
-        with pytest.raises(ValidationError):
-            TypeAdapter(ReconcileOp).validate_python({"op": op})
-    TypeAdapter(DecisionOp).validate_python(
-        {"op": "merge_entries", "section": "projects", "target_id": "a", "source_id": "b"}
-    )
-    assert MergeEntries.model_fields["op"].default == "merge_entries"
+    from applire.services.profile.reconcile.engine import _parse_ops
+
+    TypeAdapter(DecisionOp).validate_python(payload)  # control: a complete, valid op
+    with pytest.raises(ValidationError):
+        TypeAdapter(ReconcileOp).validate_python(payload)
+    rejected: list[str] = []
+    assert _parse_ops([payload], rejected=rejected) == []
+    assert rejected == [payload["op"]]
 
 
 # ── keep separate ─────────────────────────────────────────────────────────────
@@ -513,3 +535,175 @@ def test_merge_keeps_the_sources_not_yet_reached_answers():
     )
     assert [e.id for e in profile.work_experience] == ["wa", "wc"]
     assert target.not_yet_reached == ["Cut delivery delays by 20%", "Introduced a shift handover checklist"]
+
+
+# ── ADV-HZ5 round (ADV-3, ADV-5, SEC-2) ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_education_merge_keeps_the_sources_relevant_coursework(session):
+    """ADV-5 (vault integrity): the source entry is deleted; its coursework must
+    land on the target, not vanish with it."""
+    from applire.schemas.profile import EducationEntry
+
+    data = MasterProfileData(education=[
+        EducationEntry(id="ea", institution="TU Berlin", degree="B.Sc. Informatik",
+                       relevant_coursework=["Algorithms"]),
+        EducationEntry(id="eb", institution="Technische Universität Berlin", degree="BSc Informatik",
+                       relevant_coursework=["Databases", "Compilers"]),
+    ])
+    await _seed(session, data)
+    resp = await _commit(session, section="education", target="ea", source="eb")
+    kept = [e for e in resp.profile.education if e.id == "ea"][0].relevant_coursework
+    assert {"Algorithms", "Databases", "Compilers"} <= set(kept), kept
+
+
+def _filled(model, prefix):
+    """An entry of ``model`` with a distinct value in EVERY ``list[str]`` field."""
+    import typing
+
+    values = {}
+    for name, field in model.model_fields.items():
+        args = typing.get_args(field.annotation)
+        if typing.get_origin(field.annotation) is list and args == (str,):
+            values[name] = [f"{prefix} {name}"]
+    return values
+
+
+@pytest.mark.parametrize("section", ["work_experience", "volunteer_activities", "projects", "education"])
+def test_a_merge_loses_no_list_field_of_the_source(section):
+    """ADV-5: walks the MODEL's list fields — a list field added later is covered
+    without anybody naming it. Non-string list fields must be named here, so a
+    new one fails this test until somebody decides how it merges."""
+    import typing
+
+    from applire.services.profile.reconcile.apply import _SECTION_MODEL, _apply_merge_entries
+
+    model = _SECTION_MODEL[section]
+    non_str = {
+        n for n, f in model.model_fields.items()
+        if typing.get_origin(f.annotation) is list and typing.get_args(f.annotation) != (str,)
+    }
+    assert non_str <= {"dated_role_aliases"}, f"decide how a merge treats {non_str}"
+    required = {n: f"{n} value" for n, f in model.model_fields.items() if f.is_required()}
+    target = model.model_validate({**required, "id": "ta", **_filled(model, "A")})
+    source = model.model_validate({**required, "id": "tb", **_filled(model, "B")})
+    profile = MasterProfileData.model_validate({section: [target.model_dump(), source.model_dump()]})
+    _apply_merge_entries(MergeEntries(section=section, target_id="ta", source_id="tb"), profile, [])
+    (merged,) = getattr(profile, section)
+    for name, (value,) in _filled(model, "B").items():
+        if name == "expected_fields":
+            continue
+        assert value in (getattr(merged, name) or []), f"{section}.{name} lost the source's {value!r}"
+
+
+def test_merge_repoints_the_aspiration_records_and_does_not_re_ask():
+    """ADV-3 ("ask once"): the candidate said 'Nein' on the source; after the
+    merge the next import must not judge or ask the moved bullet again."""
+    from applire.services.profile.aspiration import (
+        apply_aspiration_op,
+        aspiration_key,
+        open_aspirations,
+        unjudged_bullets,
+    )
+    from applire.services.profile.reconcile.apply import _apply_merge_entries
+    from applire.services.profile.reconcile.ops import (
+        AnswerAspiration,
+        AspirationVerdictItem,
+        RecordAspirationVerdicts,
+    )
+
+    goal = "Establish AI governance frameworks and risk management protocols"
+    p = MasterProfileData.model_validate({"work_experience": [
+        {"id": "wa", "company": "Talwerk GmbH", "role": "Head of AI", "start_date": "2024-01",
+         "is_current": True, "responsibilities": ["Lead the AI platform team"]},
+        {"id": "wb", "company": "Talwerk", "role": "Head of AI", "start_date": "2024-01",
+         "is_current": True, "responsibilities": [goal]},
+    ]})
+    k = aspiration_key(goal)
+    apply_aspiration_op(RecordAspirationVerdicts(verdicts=[AspirationVerdictItem(
+        entry_id="wb", key=k, text=goal, aspiration=True)]), p, [])
+    apply_aspiration_op(AnswerAspiration(entry_id="wb", key=k, achieved=False), p, [])
+    _apply_merge_entries(MergeEntries(
+        section="work_experience", target_id="wa", source_id="wb",
+        bullets={"responsibilities": ["Lead the AI platform team", goal]},
+    ), p, [])
+    assert p.work_experience[0].not_yet_reached == [goal]
+    assert [t for *_x, t in unjudged_bullets(p) if t == goal] == []
+    assert open_aspirations(p) == []
+    ids = {v.entry_id for v in p.metadata.aspiration_verdicts} | {
+        a.entry_id for a in p.metadata.aspiration_answers}
+    assert ids == {"wa"}
+
+
+def test_duplicate_entries_with_the_same_goal_are_asked_once_and_answered_on_both():
+    """ADV-3: DE/EN duplicates carrying one goal — ONE question; the answer holds
+    for every entry carrying the bullet."""
+    from applire.services.profile.aspiration import (
+        apply_aspiration_op,
+        aspiration_key,
+        open_aspirations,
+    )
+    from applire.services.profile.reconcile.ops import AnswerAspiration
+
+    goal = "Aufbau einer Risiko-Governance"
+    k = aspiration_key(goal)
+    p = MasterProfileData.model_validate({
+        "work_experience": [
+            {"id": "de", "company": "Talwerk", "role": "Leiterin Controlling", "start_date": "2022-01",
+             "responsibilities": [goal]},
+            {"id": "en", "company": "Talwerk", "role": "Head of Controlling", "start_date": "2022-01",
+             "responsibilities": ["Aufbau  einer risiko-governance"]},
+        ],
+        "metadata": {"aspiration_verdicts": [
+            {"entry_id": "de", "key": k, "text": goal, "aspiration": True},
+            {"entry_id": "en", "key": k, "text": goal, "aspiration": True},
+        ]},
+    })
+    asked = open_aspirations(p)
+    assert [(e.id, key) for _s, e, key, _t in asked] == [("de", k)]
+    apply_aspiration_op(AnswerAspiration(entry_id="de", key=k, achieved=False), p, [])
+    assert [e.not_yet_reached for e in p.work_experience] == [
+        [goal], ["Aufbau  einer risiko-governance"]]
+    assert open_aspirations(p) == []
+
+
+def test_sec2_candidate_sent_strings_are_bounded():
+    from pydantic import ValidationError
+
+    from applire.schemas.entry_merge import (
+        DuplicateChoice,
+        EntryMergeRequest,
+        KeepSeparateRequest,
+        MergeChoices,
+    )
+    from applire.schemas.profile import AdoptNotAppliedRequest, HealthUnitRequest
+    from applire.schemas.session import (
+        MergeProposalRequest,
+        ProfileReviewRequest,
+        SessionMessageRequest,
+    )
+
+    big = "x" * 1_000_000
+    one = dict(pair_id="responsibilities:0:0", target_text="a", source_text="b", outcome="keep_current")
+    for build in (
+        lambda: DuplicateChoice(**{**one, "outcome": "merge", "merged_text": big}),
+        lambda: DuplicateChoice(**{**one, "target_text": big}),
+        lambda: DuplicateChoice(**{**one, "source_text": big}),
+        lambda: DuplicateChoice(**{**one, "pair_id": big}),
+        lambda: MergeChoices(duplicates=[one] * 201),
+        lambda: SessionMessageRequest(outcome="merge", merged_text=big),
+        lambda: EntryMergeRequest(section="projects", target_id=big, source_id="b", mode="preview"),
+        lambda: EntryMergeRequest(section="projects", target_id="a", source_id=big, mode="preview"),
+        lambda: KeepSeparateRequest(section="projects", entry_ids=[big, "b"]),
+        lambda: AdoptNotAppliedRequest(issue_id="not_applied:" + big, item_key="k"),
+        lambda: AdoptNotAppliedRequest(issue_id="not_applied:r", item_key=big),
+        lambda: HealthUnitRequest(entry_id=big, unit="EUR"),
+        lambda: MergeProposalRequest(conflict_id=big),
+        lambda: ProfileReviewRequest(issue_id=big),
+    ):
+        with pytest.raises(ValidationError):
+            build()
+    # control: ordinary sizes pass
+    MergeChoices(duplicates=[one] * 200)
+    DuplicateChoice(**{**one, "outcome": "merge", "merged_text": "y" * 2000})
