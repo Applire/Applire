@@ -41,18 +41,9 @@ def _real(fn_name: str) -> bool:
     return fn is not None and "NotImplementedError" not in inspect.getsource(fn)
 
 
-# B-d1 (reported by WP-C, owned by WP-B): shorten_letter imports REGION_NORMS
-# from applire.constants (it lives in applire.norms) — every "kürzen" answers
-# 500. Scoped to the defect itself: once the import is fixed the seam runs
-# normally (strict — an unexpected pass with the bad import still present fails).
-_B_D1 = _real("shorten_letter") and (
-    "from applire.constants import REGION_NORMS" in inspect.getsource(da.shorten_letter)
-)
-
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _real("shorten_letter"), reason="WP-B shorten_letter not merged yet")
-@pytest.mark.xfail(_B_D1, reason="B-d1: delivery_actions.shorten_letter imports REGION_NORMS from applire.constants", raises=ImportError, strict=True)
 async def test_seam_letter_shorten_through_real_shorten_letter(db):
     paragraphs = ["Erster Absatz.", "Zweiter, sehr langer Absatz über alles.", "Dritter Absatz."]
     cl_id = await seed_letter(db, paragraphs=paragraphs, ats_report=_letter_pages(True))
@@ -93,3 +84,30 @@ async def test_seam_letter_translate_through_real_translate_spans(db):
     assert german in body and english not in body
     assert paragraphs[0] in body
     assert rs.get_decision(rs.load_state(record.review_state), ra.SEND_LANGUAGE_KEY)["action"] == "translated"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _real("shorten_letter"), reason="WP-B shorten_letter not merged yet")
+async def test_seam_letter_shorten_that_drops_a_pinned_sentence_writes_nothing(db):
+    """ADR-077 cl. 2/3 through the page card: WP-B refuses a condense that drops
+    a pinned sentence; the endpoint answers rewrite_failed, the letter and the
+    review state stay as they were, and the card stays (no decision)."""
+    pinned = "Zweiter, sehr langer Absatz über alles."
+    cl_id = await seed_letter(db, paragraphs=["Erster Absatz.", pinned, "Dritter Absatz."], ats_report=_letter_pages(True))
+
+    async def condense(provider, prompt, **kw):
+        return {"body": {"paragraphs": ["Erster Absatz.", "Dritter Absatz."]}}
+
+    async def pins(record, db_):
+        return [pinned]
+
+    reaudit = FakeReaudit([(_letter_pages(False), None)])
+    with patch("applire.services.cover_letter._condense_call", new=condense), \
+            patch.object(da, "_letter_pin_quotes", new=pins), patch.object(ra, "reaudit", new=reaudit):
+        r = _client(db).post(f"/api/cover-letter/{cl_id}/review/shorten")
+    assert r.status_code == 502, r.text
+    assert r.json()["detail"]["error"] == "rewrite_failed"
+    assert reaudit.calls == 0
+    record = await ra.load_document("cover_letter", cl_id, db)
+    assert "body" not in (record.section_overrides or {})
+    assert rs.get_decision(rs.load_state(record.review_state), ra.PAGE_LENGTH_KEY) is None
