@@ -511,12 +511,12 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
     )
 
 
-#: D-1 (Hazelnut build 5 delivery run) — the sources of a document IMPORT, the
-#: only records that can carry ``not_applied`` items. The not_applied question
-#: reads the newest record among THESE, never the trail head: every other act
-#: (a conflict answer, a unit, a merge, an adoption, an aspiration answer)
-#: writes a record of its own, and a head rule with an allow-list of
-#: "transparent" acts hid the question twice before this.
+#: D-1 (Hazelnut build 5 delivery run) — the sources of a document IMPORT. The
+#: not_applied question reads the newest record that carries not-applied items
+#: or is such an import, never the bare trail head: every other act (a
+#: conflict answer, a unit, a merge, an adoption, an aspiration answer) writes
+#: a record of its own, and a head rule with an allow-list of "transparent"
+#: acts hid the question twice before this.
 IMPORT_SOURCES = frozenset({"cv_upload", "cv_paste", "linkedin_import", "xing_import"})
 
 
@@ -637,11 +637,16 @@ def assess_health(
         # residual is stated rather than hidden: a loss older than the newest
         # record is NOT surfaced here, and the durable receipt — plus the
         # WARNING each drop logs — remains the record of it.
-        # D-1 — the newest IMPORT record (V-6's "newest import" without the
-        # non-import acts in between): a later import that applied everything
-        # still clears the question, a candidate's answer elsewhere never does.
+        # D-1 — the head is the newest record that CARRIES not-applied items
+        # (an import, a statement intake, a confirmation resolution) or is a
+        # document import: a later import that applied everything still
+        # clears the question (V-6), while an act that carries no receipt (a
+        # conflict answer, a unit, a merge, an adoption) never hides it.
         head_record = next(
-            (r for r in reversed(metadata.enrichment_history) if r.source in IMPORT_SOURCES),
+            (
+                r for r in reversed(metadata.enrichment_history)
+                if r.not_applied or r.source in IMPORT_SOURCES
+            ),
             None,
         )
         if head_record is not None:

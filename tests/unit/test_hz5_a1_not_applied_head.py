@@ -161,3 +161,18 @@ async def test_a_failed_judge_hides_nothing():
     items = [NEW.model_copy()]
     assert await mark_already_present(items, _profile([]), _Judge(fail=True)) == 0
     assert items[0].already_present_as is None
+
+
+def test_a_statement_intake_with_items_after_an_import_is_the_head():
+    """Statement intakes and confirmation resolutions carry receipts too: the
+    newest record WITH items leads (V-6 tests pin the interview case)."""
+    later = EnrichmentRecord(timestamp=T0 + timedelta(minutes=9), source="interview", not_applied=[
+        ImportNotApplied(section="professional_summary", label="en", reason="summary_populated")])
+    (issue,) = _na(_profile([_import_record([NEW]), later]))
+    assert [i.label for i in issue.not_applied_items] == ["en"]
+
+
+def test_a_receipt_less_interview_record_does_not_clear_an_imports_items():
+    later = EnrichmentRecord(timestamp=T0 + timedelta(minutes=9), source="interview")
+    (issue,) = _na(_profile([_import_record([NEW]), later]))
+    assert issue.not_applied_items[0].label == NEW.label
