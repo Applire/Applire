@@ -32,7 +32,9 @@ export function renderedIssues(health: ProfileHealth | null | undefined): Health
  * action ("Verbessern").
  */
 export function completenessActionable(health: ProfileHealth | null | undefined): boolean {
-  return (health?.completeness.field_gaps ?? []).length > 0;
+  const block = health?.completeness;
+  if (block?.delivery_class) return block.delivery_class !== "S";
+  return (block?.field_gaps ?? []).length > 0;
 }
 
 /** The hub card is worth mounting: a rendered issue or an actionable gap. */

@@ -53,6 +53,7 @@ import {
   answerWithOutcome,
   answerWithText,
   interpretedOutcome,
+  mergeBecameOwnStatement,
   requestMergeProposal,
   startReview,
 } from "@/lib/profile-review";
@@ -219,7 +220,12 @@ export function ProfileReviewDrawer({
     setLoading(true);
 
     // U-2 — start on the issue the user clicked, not the generic walk.
+    // An item closed meanwhile answers 404 issue_not_found → the generic walk.
     startReview(issue?.id ?? null)
+      .catch((e: unknown) => {
+        if (issue && e instanceof ReviewApiError && e.status === 404) return startReview(null);
+        throw e;
+      })
       .then((s) => {
         setSessionId(s.session_id);
         // gaps_total 0 → nothing to review: land straight on the all-clear state.
@@ -251,15 +257,20 @@ export function ProfileReviewDrawer({
   }, [open, onClose]);
 
   const afterReply = useCallback(
-    (result: ReviewReply, onScreen: CurrentConflict | null) => {
+    (result: ReviewReply, onScreen: CurrentConflict | null, typed: boolean) => {
       const read = result.interpreted ?? null;
-      if (read?.testimony_applied) {
+      if (mergeBecameOwnStatement(read)) {
         setNotice({ tone: "warn", text: t("mergeBecameTestimony") });
       } else if (read?.corrected_value) {
         setNotice({ tone: "ok", text: t("correctedSaved", { value: read.corrected_value }) });
       } else if (read?.follow_up) {
-        setMessages((prev) => [...prev, { role: "assistant", content: read.follow_up! }]);
-      } else {
+        // On a conflict the card stays and the follow-up is its own bubble; on
+        // a plain question `question` already carries follow-up + question.
+        if (result.current_conflict || !result.question) {
+          setMessages((prev) => [...prev, { role: "assistant", content: read.follow_up! }]);
+        }
+      } else if (typed) {
+        // Only a TYPED answer is echoed back; a tapped outcome needs no echo.
         const o = interpretedOutcome(read);
         if (o) setNotice({ tone: "ok", text: t("typedUnderstood", { outcome: outcomeLabel(o, onScreen) }) });
       }
@@ -274,12 +285,17 @@ export function ProfileReviewDrawer({
   );
 
   const run = useCallback(
-    async (userLine: string, call: () => Promise<ReviewReply>, onScreen: CurrentConflict | null) => {
+    async (
+      userLine: string,
+      call: () => Promise<ReviewReply>,
+      onScreen: CurrentConflict | null,
+      typed: boolean,
+    ) => {
       setLoading(true);
       setError("");
       setMessages((prev) => [...prev, { role: "user", content: userLine }]);
       try {
-        afterReply(await call(), onScreen);
+        afterReply(await call(), onScreen, typed);
       } catch (e: unknown) {
         if (e instanceof ReviewApiError && e.code === "outcome_required") {
           // The ONE follow-up was spent: only the buttons remain (U-4/U-5).
@@ -303,12 +319,13 @@ export function ProfileReviewDrawer({
       async () => {
         const result = await answerWithOutcome(sessionId, outcome, mergedText);
         // A confirmed merge that passed the server's re-check can be undone.
-        if (outcome === "merge_confirm" && !result.interpreted?.testimony_applied) {
+        if (outcome === "merge_confirm" && !mergeBecameOwnStatement(result.interpreted)) {
           setNotice({ tone: "ok", text: t("mergeDone"), undo: true });
         }
         return result;
       },
       onScreen,
+      false,
     );
   };
 
@@ -317,7 +334,7 @@ export function ProfileReviewDrawer({
     if (!sessionId || !value) return;
     setAnswer("");
     setNotice(null);
-    void run(value, () => answerWithText(sessionId, value), conflict);
+    void run(value, () => answerWithText(sessionId, value), conflict, true);
   };
 
   const proposeMerge = async (): Promise<string | null> => {

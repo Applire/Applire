@@ -127,6 +127,20 @@ describe("HealthPanel — hub per delivery class", () => {
     expect(onGoToSection).toHaveBeenCalledWith("skills", ["Skill 1"]);
   });
 
+  it("an item the backend left unkeyed (not adoptable) offers 'go to section'", () => {
+    const issue = notApplied([true, false]);
+    issue.not_applied_items![1] = { ...issue.not_applied_items![1], item_key: null };
+    render(
+      withIntl(
+        <HealthPanel health={health([issue])} onResolve={vi.fn()} actions={{ onAdoptItem: vi.fn(), onGoToSection: vi.fn() }} />,
+        "en",
+      ),
+    );
+    expect(screen.getAllByTestId("health-not-applied-item")).toHaveLength(2);
+    expect(screen.getAllByTestId("health-adopt-item")).toHaveLength(1);
+    expect(screen.getByTestId("health-not-applied-go-to-section")).toBeInTheDocument();
+  });
+
   it("a not-applied issue without item keys keeps the #705 route", () => {
     const legacy = notApplied([true]);
     legacy.not_applied_items = legacy.not_applied_items!.map(({ section, label, reason }) => ({ section, label, reason }));

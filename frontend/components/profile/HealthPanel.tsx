@@ -143,7 +143,14 @@ export interface ProfileHealth {
   // field_gaps: role-aware work-entry gaps the no-JD enrichment interview will ask
   // (US179) — gates and counts the enrich entry-point so the count equals the
   // questions the interview will actually ask (unified with backend CompletenessBlock).
-  completeness: { score: number; gaps: string[]; field_gaps: string[] };
+  completeness: {
+    score: number;
+    gaps: string[];
+    field_gaps: string[];
+    // ADR-099 (INTERFACE A1-2): A/"complete_section" with field_gaps, else S/null.
+    delivery_class?: DeliveryClass | null;
+    resolver?: string | null;
+  };
 }
 
 // review/info are non-blocking nudges; critical is shown prominently (ADR-040 §4).
@@ -379,8 +386,9 @@ function NotAppliedItemRows({
   };
   return (
     <ul data-testid="health-not-applied-items" className="mt-2 flex flex-col divide-y divide-outline-variant/60">
-      {items.map((item) => {
-        const key = item.item_key ?? "";
+      {items.map((item, n) => {
+        const key = item.item_key ?? `unkeyed-${n}`;
+        const canAdopt = !!item.item_key && item.adoptable !== false;
         const sectionLabel = notAppliedSectionLabel(item.section ?? "", t, tProfile);
         const label =
           item.section === "professional_summary"
@@ -407,7 +415,7 @@ function NotAppliedItemRows({
                 </p>
               )}
             </div>
-            {item.adoptable !== false ? (
+            {canAdopt ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -521,11 +529,11 @@ function IssueCard({
   // UAT-3d — a budget figure's unit, accepted in place.
   const unitInPlace =
     issue.thread === "unit" && !!issue.budget_value && !!issue.entry_id && !!actions.onSaveUnit;
-  // UAT-3d — "Übernehmen" per not-applied item (every item keyed).
+  // UAT-3d — one action per not-applied item, once the backend keys its items
+  // (INTERFACE A1-2: `item_key` may be null on an item it cannot adopt).
   const keyedItems =
     issue.thread === "not_applied" &&
-    (issue.not_applied_items ?? []).length > 0 &&
-    (issue.not_applied_items ?? []).every((i) => !!i.item_key) &&
+    (issue.not_applied_items ?? []).some((i) => !!i.item_key) &&
     !!actions.onAdoptItem
       ? issue.not_applied_items!
       : null;

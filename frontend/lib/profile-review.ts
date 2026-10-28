@@ -29,12 +29,22 @@ export interface CurrentConflict {
   incoming_source?: string | null;
 }
 
+/** How the server read and applied an answer (INTERFACE A1, A1-1 applied).
+ *  `manual` = the candidate's own words were written as this dispute's
+ *  resolution: a typed corrected value (`corrected_value`), or a confirmed
+ *  merge whose text failed the fact check (`verifier: "failed"`). A
+ *  `follow_up` means nothing was written. */
 export interface Interpreted {
-  outcome?: CommitOutcome | ConflictOutcome | null;
+  outcome?: ConflictOutcome | "manual" | null;
   corrected_value?: string | null;
   follow_up?: string | null;
-  /** A merged text that failed the server's fact check went in as testimony. */
-  testimony_applied?: boolean | null;
+  verifier?: "passed" | "failed" | null;
+}
+
+/** A confirmed merge's text failed the fact check and went in as the
+ *  candidate's own statement, replacing the two points (ruling A1-1). */
+export function mergeBecameOwnStatement(i: Interpreted | null | undefined): boolean {
+  return i?.outcome === "manual" && i?.verifier === "failed";
 }
 
 export interface ReviewTurn {
@@ -150,6 +160,5 @@ export function visibleOutcomes(
 /** The outcome a typed answer was read as, normalised to the chip it matches. */
 export function interpretedOutcome(i: Interpreted | null | undefined): ConflictOutcome | null {
   const o = i?.outcome ?? null;
-  if (o === "merge_confirm") return "merge";
-  return o;
+  return o === "manual" ? null : o;
 }

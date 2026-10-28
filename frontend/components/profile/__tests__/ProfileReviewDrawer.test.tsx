@@ -201,7 +201,9 @@ describe("ProfileReviewDrawer", () => {
   it("merge: the proposal is shown for confirm/edit, nothing is written before confirm, the edit is sent", async () => {
     startOn(LIST_CONFLICT);
     proposalMock.mockResolvedValue({ proposal: "Rebuilt supplier selection and introduced a dashboard.", verifier: "passed" });
-    outcomeMock.mockResolvedValue(reply({ current_conflict: NAME_SCALAR }));
+    outcomeMock.mockResolvedValue(
+      reply({ interpreted: { outcome: "merge", verifier: "passed" }, current_conflict: NAME_SCALAR }),
+    );
     undoMock.mockResolvedValue({ restored: true });
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
     await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
@@ -254,7 +256,7 @@ describe("ProfileReviewDrawer", () => {
     startOn(LIST_CONFLICT);
     proposalMock.mockResolvedValue({ proposal: "One sentence.", verifier: "passed" });
     outcomeMock.mockResolvedValue(
-      reply({ interpreted: { outcome: "keep_both", testimony_applied: true }, current_conflict: NAME_SCALAR }),
+      reply({ interpreted: { outcome: "manual", verifier: "failed" }, current_conflict: NAME_SCALAR }),
     );
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
     await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
@@ -320,7 +322,7 @@ describe("ProfileReviewDrawer", () => {
   it("a typed corrected value is confirmed back to the user", async () => {
     startOn(ROLE_SCALAR);
     textMock.mockResolvedValue(
-      reply({ interpreted: { corrected_value: "05/2015" }, complete: true, gaps_remaining: 0 }),
+      reply({ interpreted: { outcome: "manual", corrected_value: "05/2015" }, complete: true, gaps_remaining: 0 }),
     );
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
     await waitFor(() => screen.getByTestId("conflict-card"));
@@ -338,6 +340,42 @@ describe("ProfileReviewDrawer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Analyst" }));
     await waitFor(() => expect(textMock).toHaveBeenCalledWith("s1", "Analyst"));
     expect(screen.queryByTestId("conflict-card")).not.toBeInTheDocument();
+  });
+
+  it("an item closed meanwhile (404 issue_not_found) falls back to the generic walk", async () => {
+    startMock
+      .mockRejectedValueOnce(new ReviewApiError(404, "issue_not_found: conflict:gone", "issue_not_found"))
+      .mockResolvedValueOnce({
+        ...BASE,
+        session_id: "s1",
+        first_question: "x",
+        gaps_total: 1,
+        gaps_remaining: 1,
+        current_conflict: LIST_CONFLICT,
+      });
+    const issue = { id: "conflict:gone", thread: "conflict" as const, profile_mismatch_severity: "review" as const, summary: "x" };
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} />, "en"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    expect(startMock).toHaveBeenNthCalledWith(1, "conflict:gone");
+    expect(startMock).toHaveBeenNthCalledWith(2, null);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("a follow-up on a plain question is shown once (the question carries it)", async () => {
+    startOn(null, { first_question: "Which role does 'SQL' belong to?", choices: ["Developer", "Analyst"] });
+    textMock.mockResolvedValue(
+      reply({
+        interpreted: { follow_up: "Do you mean the analyst role?" },
+        question: "Do you mean the analyst role?\n\nWhich role does 'SQL' belong to?",
+        choices: ["Developer", "Analyst"],
+        follow_up_used: true,
+      }),
+    );
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await screen.findByText("Which role does 'SQL' belong to?");
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "hm" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    await waitFor(() => expect(screen.getAllByText(/Do you mean the analyst role\?/)).toHaveLength(1));
   });
 
   it("renders an all-clear done state when there is nothing to review", async () => {
