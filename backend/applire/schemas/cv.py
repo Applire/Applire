@@ -129,7 +129,7 @@ class CVPageOverflowCut(BaseModel):
     "Kürzen" says exactly what went)."""
     kind: Literal[
         "duplicate_project", "off_job_skills", "repeated_industry",
-        "oldest_certification", "oldest_education",
+        "oldest_certification", "oldest_education", "old_role_bullets",
     ]
     items: list[str] = Field(default_factory=list)
 

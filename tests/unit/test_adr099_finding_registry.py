@@ -315,3 +315,70 @@ def test_the_letter_keep_decision_decides_the_page_row():
     fresh = {"checks": [dict(report["checks"][0])]}
     fr.annotate_report(fresh)
     assert (fresh["checks"][0]["delivery_class"], fresh["checks"][0]["resolver"]) == ("A", "page_length")
+
+
+def test_d_ag1_only_the_agent_origin_silences_the_terminal_not_run_row():
+    """RULING D-AG1, both sides: an Applire-written document whose final review did
+    not run keeps the counted U "regenerate" (origin pipeline, loop degraded OR no
+    loop state); only origin == "agent" makes the row S. A re-audit (origin None)
+    carries the flag from the report it replaces."""
+    row = {"id": "terminal-review", "status": "not_applicable", "details_key": "terminal-review-not-run"}
+    for degradation in (None, [{"chain": "cv_terminal_review", "stage": "review"}]):
+        out = fr.apply_delivery({"checks": [dict(row)]}, review_degradation=degradation, origin="pipeline")
+        assert (out["checks"][0]["delivery_class"], out["checks"][0]["resolver"]) == ("U", "regenerate")
+        assert out["delivery"]["authored_by_agent"] is False
+    out = fr.apply_delivery({"checks": [dict(row)]}, review_degradation=None, origin="agent")
+    assert (out["checks"][0]["delivery_class"], out["checks"][0]["resolver"]) == ("S", None)
+    again = fr.apply_delivery({"checks": [dict(row)]}, review_degradation=None, previous=out)
+    assert again["delivery"]["authored_by_agent"] is True and again["checks"][0]["delivery_class"] == "S"
+    # the agent flag silences ONLY the terminal-review row
+    other = fr.apply_delivery({"checks": [{"id": "document-language", "status": "fail",
+                                           "details_key": "document-language-mixed"}]},
+                              review_degradation=None, origin="agent")
+    assert other["checks"][0]["delivery_class"] == "A"
+
+
+#: ADV-6 (main ruling; ADR-099 cl. 2 "an action that cannot clear it is a defect"):
+#: every class-U kind and the action that changes its producer's input.
+U_KINDS_AND_WHAT_CLEARS_THEM = {
+    # a new generation runs the terminal review (the review cannot run alone)
+    "ats:terminal-review@not_applicable": "regenerate",
+    "ats:terminal-review~terminal-review-not-run": "regenerate",
+    # only the cross-language judgement's UNAVAILABLE verdict; the recheck re-runs
+    # the judgement with a provider (one instrument: _truth_audit / _letter_truth_audit)
+    "oracle:crossLanguageUnconfirmed": "recheck",
+    # a loop step did not run → a new generation runs the loop
+    "page:review-degradation": "regenerate",
+    # a producer's report is missing (ATS / Oracle / critic failed) → the recheck
+    # rewrites ats_report, truthfulness_report and critic_report
+    "page:unchecked": "recheck",
+}
+
+
+def test_adv6_the_u_set_is_exactly_the_kinds_an_action_can_clear():
+    got = {k: e.resolver for k, e in fr.REGISTRY.items() if e.cls == "U"}
+    assert got == U_KINDS_AND_WHAT_CLEARS_THEM
+    assert not [k for k, e in fr.REGISTRY.items() if e.fallback == "U"]
+    for k in ("ats:keyword-other-language", "keyword:present_other_language",
+              "ats:narrative-evidence@not_applicable", "ats:document-language@not_applicable",
+              "ats:document-language~document-language-not-applicable",
+              "oracle:otherLanguageNotChecked", "oracle:attributionUnresolved"):
+        assert fr.REGISTRY[k].cls == "S", k
+
+
+def test_adv6_cross_language_unconfirmed_is_only_the_unavailable_verdict():
+    """The one Oracle U kind stays U because the recheck can clear it: its detail
+    key is minted in exactly one place — the seam's ``unavailable`` verdict."""
+    src = (SERVICES / "oracle" / "audit.py").read_text(encoding="utf-8")
+    assert src.count('detail_key="crossLanguageUnconfirmed"') == 1
+    i = src.index('detail_key="crossLanguageUnconfirmed"')
+    assert src.rfind("unavailable = ClaimVerdict(", 0, i) > src.rfind("def ", 0, i)
+
+
+def test_adv6_a_bilingual_profile_row_is_not_a_counted_unknown():
+    report = {"checks": [{"id": "keyword-other-language", "status": "not_applicable",
+                          "details_key": "keyword-other-language", "details_params": {"count": 2, "terms": "a, b"}},
+                         {"id": "narrative-evidence", "status": "not_applicable",
+                          "details_key": "narrative-evidence-not-applicable"}]}
+    out = fr.apply_delivery(report, review_degradation=[])
+    assert [c["delivery_class"] for c in out["checks"]] == ["S", "S"]

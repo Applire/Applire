@@ -448,6 +448,11 @@ def _profile_excerpt(profile: dict, claim: dict) -> str:
         lines.append(head)
         for k in ("responsibilities", "achievements"):
             lines += [f"- {x}" for x in e.get(k) or [] if isinstance(x, str)]
+        aims = [x for x in e.get("not_yet_reached") or [] if isinstance(x, str)]
+        if aims:  # ADV-2: the same label every document round reads
+            from applire.services.prompt_view import NOT_YET_REACHED_PROMPT_KEY
+
+            lines += [f"{NOT_YET_REACHED_PROMPT_KEY}:"] + [f"- {x}" for x in aims]
         if sid:
             break
     if not lines:

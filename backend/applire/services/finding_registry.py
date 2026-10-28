@@ -131,8 +131,12 @@ _DOC: dict[str, Entry] = {
     "ats:duplicate-project": _e(_F, None, "S"),
     # ── mixed language (cl. 9): second language round; residue one action ───────
     "ats:document-language": _e(_F, "translate", "A"),
-    "ats:document-language@not_applicable": _e("U", "recheck"),
-    "ats:document-language~document-language-not-applicable": _e("U", "recheck"),
+    # ADV-6 (main ruling, ADR-099 cl. 2): n.a. = the caller stated no language
+    # (a row without ``document_language``; the v1 letter never passes one). The
+    # recheck re-reads the SAME stamped column, so "Jetzt prüfen" cannot clear
+    # it — a scope statement, not a producer that failed → S.
+    "ats:document-language@not_applicable": _e("S"),
+    "ats:document-language~document-language-not-applicable": _e("S"),
     # ── page length (cl. 7): ONE card, CV and letter ─────────────────────────────
     "ats:page-length": _e("A", "page_length"),
     "ats:page-length~page-length-kept": _e("S"),          # ADR-077 pin driver, report only
@@ -142,9 +146,14 @@ _DOC: dict[str, Entry] = {
     "ats:page-length~page-length-not-applicable": _e("S"),
     # ── coverage (cl. 8): the coverage loop; residue S ───────────────────────────
     "ats:narrative-evidence": _e(_F, None, "S"),
-    "ats:narrative-evidence@not_applicable": _e("U", "recheck"),  # no ledger = missing input
+    # ADV-6: n.a. = no Keyword Ledger for the job (no gap analysis ran — e.g. an
+    # agent-door CV). Neither the recheck nor a regeneration builds one (both read
+    # the latest GapAnalysis) → no one action clears it → S.
+    "ats:narrative-evidence@not_applicable": _e("S"),
     # ── unknown states (cl. 9, ADR-081 cl. 9 stands) ─────────────────────────────
-    "ats:keyword-other-language": _e("U", "recheck"),
+    # ADV-6 (a): every bilingual profile — a scope statement of the keyword
+    # check ("compares wording only"), never a producer that did not run → S.
+    "ats:keyword-other-language": _e("S"),
     # ── advisory passes (cl. 8) ──────────────────────────────────────────────────
     "ats:skills-weak-vault-tie": _e("S"),
     "ats:employer-repetition": _e("S"),
@@ -169,9 +178,17 @@ _DOC: dict[str, Entry] = {
     "oracle@not_applicable": _e("S"),
     # unverifiable: S, except where the JUDGEMENT did not run (cl. 9 "Nicht geprüft")
     "oracle@unverifiable": _e("S"),
-    "oracle:otherLanguageNotChecked": _e("U", "recheck"),
+    # ADV-6 (c): a literal miss over a mixed-language vault — deterministic, the
+    # recheck reproduces it → S (scope statement, as keyword-other-language).
+    "oracle:otherLanguageNotChecked": _e("S"),
+    # Only ever the UNAVAILABLE verdict of the cross-language judgement (provider
+    # failure / citation drop); the recheck re-runs the judgement with a provider
+    # (cv._truth_audit / cover_letter._letter_truth_audit) → can clear → U.
     "oracle:crossLanguageUnconfirmed": _e("U", "recheck"),
-    "oracle:attributionUnresolved": _e("U", "recheck"),
+    # ADV-6 (c): produced by the deterministic attribution checker AND by a
+    # resolved restatement judgement ("uncertain"/true) — the recheck reproduces
+    # both; an honest "left open, not accused" (ADR-068) → S.
+    "oracle:attributionUnresolved": _e("S"),
     # the remaining detail keys, all on non-flag verdicts (report only)
     **{f"oracle:{k}": _e("S") for k in (
         "crossLanguageEquivalent", "entailmentNarrow", "figuresFromStatedLimit", "figuresTrace",
@@ -186,7 +203,7 @@ _DOC: dict[str, Entry] = {
     "keyword:present_denied": _e(_F, "remove_only", "A"),
     "keyword:missing_claimable": _e("S"),                 # group 2 (cl. 7)
     "keyword:missing_honest_gap": _e("A", "open_gap_analysis"),  # group 3, one link
-    "keyword:present_other_language": _e("U", "recheck"),
+    "keyword:present_other_language": _e("S"),  # ADV-6 (a): the bucket behind the row
     "keyword:present": _e("S"),
     "keyword:missing": _e("S"),                           # back-compat union of the two missing buckets
     "keyword:claimable_concepts": _e("S"),
@@ -364,6 +381,7 @@ def annotate_report(report: dict | None) -> list[str]:
     # No delivery state yet (the audit seam, before generation records it): stamp
     # as if clean; :func:`apply_delivery` re-stamps once the loop's state is known.
     clean = delivery.get("loop_clean") if isinstance(delivery, dict) else True
+    by_agent = bool(delivery.get("authored_by_agent")) if isinstance(delivery, dict) else False
     silent: list[str] = []
     try:
         for check in report.get("checks") or []:
@@ -376,6 +394,15 @@ def annotate_report(report: dict | None) -> list[str]:
                 check["delivery_class"], check["resolver"] = "S", None
             else:
                 _stamp(check, check_kinds(check), unregistered, clean, silent)
+                if (
+                    by_agent
+                    and check_family(str(check.get("id"))) == "terminal-review"
+                    and check.get("delivery_class") == "U"
+                ):
+                    # RULING D-AG1: the user's own agent wrote this document; Applire's
+                    # final review was never its step, so "not run" is no finding.
+                    check["delivery_class"], check["resolver"] = "S", None
+                    silent.append(check_kinds(check)[-1])
                 if check.get("delivery_class") in ("A", "U") and not check.get("details_key"):
                     # ADR-099 cl. 12: no server prose — an unkeyed row is silent
                     # until its detail is keyed in the catalogs.
@@ -466,10 +493,16 @@ def apply_delivery(
     removals: list[dict] | None = None,
     fixed: list[str] | None = None,
     previous: dict | None = None,
+    origin: str | None = None,
 ) -> dict | None:
     """Return a COPY of ``report`` carrying ``delivery`` (``DeliveryState``) with
     every row re-stamped for it (:func:`annotate_report`). Never raises.
 
+    * ``origin`` = the document row's persisted ``origin`` (``"agent"`` = authored
+      by the user's own agent via ``render_document``; ``"pipeline"`` = Applire's
+      writer) → ``authored_by_agent`` (RULING D-AG1). ``None`` → carried from
+      ``previous``. Never inferred from ``loop_clean is None``: that also means a
+      legacy or degraded row.
     * ``removals``/``fixed`` None → carried from ``previous`` (the report this
       one replaces): a re-audit after an edit describes the same generation.
     * Not clean (``loop_clean`` False or None): a class-F kind whose residue is
@@ -487,6 +520,8 @@ def apply_delivery(
             "loop_clean": loop_clean_of(review_degradation),
             "removals": list(removals if removals is not None else prev.get("removals") or []),
             "fixed": list(fixed if fixed is not None else prev.get("fixed") or []),
+            "authored_by_agent": (origin == "agent") if origin is not None
+            else bool(prev.get("authored_by_agent")),
         }
         bad = annotate_report(out)
         if bad:

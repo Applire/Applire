@@ -590,6 +590,7 @@
     "pageOverflowKindRepeatedIndustry": "Repeated industry lines",
     "pageOverflowKindOldestCertification": "Older certifications",
     "pageOverflowKindOldestEducation": "Older education entries",
+    "pageOverflowKindOldRoleBullets": "Bullets of older roles (title, company and dates stay)",
     "pageOverflowKeep": "Keep {actual} pages",
     "pageOverflowCut": "Cut to {target, plural, one {# page} other {# pages}}",
     "pageOverflowNote": "You can change this later. For a new version we only ask if it is needed again.",
