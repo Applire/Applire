@@ -1152,6 +1152,59 @@ class DismissAvailabilityReminder(BaseModel):
     op: Literal["dismiss_availability_reminder"] = "dismiss_availability_reminder"
 
 
+class MergeEntries(BaseModel):
+    """The candidate merges two entries of one section into one — ADAPTER-ONLY
+    (Hazelnut build 5, U-11).
+
+    The door (``services/profile/entry_merge.py``) has already resolved every
+    judgement the candidate owns (dates side, per-pair outcome) and hands the
+    applier the finished facts; the applier only folds them in, deterministically:
+    the target keeps its id, ``bullets`` replaces the target's bullet lists,
+    ``aliases`` are appended (never the entry's own value, never twice), empty
+    scalars are filled from the source, every reference to the source id moves to
+    the target, and the source entry is removed. Never model-emittable: a
+    hallucinated merge would delete a real entry.
+    """
+
+    op: Literal["merge_entries"] = "merge_entries"
+    section: Literal["work_experience", "volunteer_activities", "projects", "education"]
+    target_id: str
+    source_id: str
+    #: final lists per bullet field (``responsibilities`` / ``achievements`` /
+    #: ``technologies``) — already de-duplicated by the door.
+    bullets: dict[str, list[str]] = Field(default_factory=dict)
+    #: alias list field name -> values to append (``role_aliases`` ...).
+    aliases: dict[str, list[str]] = Field(default_factory=dict)
+    #: ``start_date`` / ``end_date`` / ``is_current`` taken from the chosen side;
+    #: only present when both entries stated dates that differ.
+    dates: dict[str, Any] | None = None
+
+
+class KeepEntriesSeparate(BaseModel):
+    """The candidate keeps two entries separate — ADAPTER-ONLY bookkeeping
+    (U-9): appends an ``EntryPair`` to ``metadata.separate_entry_pairs``;
+    idempotent. Writes nothing in the vault sections."""
+
+    op: Literal["keep_entries_separate"] = "keep_entries_separate"
+    section: str
+    entry_ids: list[str] = Field(min_length=2, max_length=2)
+
+
+class EntryVerdictItem(BaseModel):
+    section: str
+    ids: list[str] = Field(min_length=2, max_length=2)
+    verdict: Literal["same", "different", "unsure"]
+
+
+class RecordEntryIdentityVerdicts(BaseModel):
+    """The model's same-position verdicts for candidate pairs, judged once at the
+    end of a CV import — ADAPTER-ONLY bookkeeping (U-9). Appends
+    ``metadata.entry_identity_verdicts`` (a pair already judged is kept)."""
+
+    op: Literal["record_entry_identity_verdicts"] = "record_entry_identity_verdicts"
+    verdicts: list[EntryVerdictItem] = Field(default_factory=list)
+
+
 _ADAPTER_ONLY = (
     DemoteSkill,
     ApplyImportMerge,
@@ -1168,6 +1221,9 @@ _ADAPTER_ONLY = (
     WithdrawDenial,
     SetAvailability,
     DismissAvailabilityReminder,
+    MergeEntries,
+    KeepEntriesSeparate,
+    RecordEntryIdentityVerdicts,
 )
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]

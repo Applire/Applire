@@ -1786,6 +1786,51 @@ class ApplyMergeOutcome:
     kept_separate: list[KeptSeparateReceipt] = field(default_factory=list)  # FS-6
 
 
+async def _identity_verdict_ops(merged: MasterProfileData, provider: LLMProvider) -> list:
+    """U-9 (Hazelnut build 5) — the model's same-position verdict for every
+    candidate pair (identical stated dates) of the profile an import is about to
+    install: ONE ``judge_identity`` call, persisted as a
+    ``RecordEntryIdentityVerdicts`` op in the SAME commit as the import (one
+    history record, one transaction, the pre-merge snapshot stays the head
+    record's — undo-last-merge sees no "later edit"). A failure of any kind
+    returns no op: verdicts stay absent, the pair is simply asked later."""
+    try:
+        from applire.services.profile.decisions import judge_identity
+        from applire.services.profile.entry_identity import unjudged_pairs
+        from applire.services.profile.reconcile.ops import (
+            EntryVerdictItem,
+            RecordEntryIdentityVerdicts,
+        )
+
+        pairs = unjudged_pairs(merged)
+        if not pairs:
+            return []
+
+        def _side(section: str, entry_id: str) -> dict:
+            e = next(x for x in getattr(merged, section) if x.id == entry_id)
+            return {
+                "company" if section == "work_experience" else "organization": e.org_label(),
+                "role": e.role,
+                "start_date": e.start_date,
+                "end_date": e.end_date,
+            }
+
+        shaped = [
+            {"pair_id": f"{sec}:{a}:{b}", "a": _side(sec, a), "b": _side(sec, b)}
+            for sec, a, b in pairs
+        ]
+        verdicts = await judge_identity(provider, shaped)
+        items = [
+            EntryVerdictItem(section=sec, ids=[a, b], verdict=verdicts[f"{sec}:{a}:{b}"])
+            for sec, a, b in pairs
+            if f"{sec}:{a}:{b}" in verdicts
+        ]
+        return [RecordEntryIdentityVerdicts(verdicts=items)] if items else []
+    except Exception:  # noqa: BLE001 — a judge failure must never fail the import
+        logger.warning("entry identity verdicts skipped", exc_info=True)
+        return []
+
+
 async def _apply_merge(
     db: AsyncSession,
     incoming: MasterProfileData,
@@ -1834,6 +1879,7 @@ async def _apply_merge(
         # record and keys the ADR-042 pre-merge snapshot to it, so the id this
         # function returns, the stored record and the snapshot still agree —
         # they just agree on the committer's id instead of a pre-generated one.
+        verdict_ops = await _identity_verdict_ops(merged, provider)  # U-9
         committed = await commit_ops(
             db,
             [
@@ -1846,7 +1892,8 @@ async def _apply_merge(
                     restated=enrichment.restated,  # D-B3V6
                     kept_separate=enrichment.kept_separate,  # FS-6
                     extraction_review=extraction_review,  # 783:L41
-                )
+                ),
+                *verdict_ops,
             ],
             CommitProvenance(source=source, intake="import", actor="candidate"),
             record=existing,
@@ -1884,6 +1931,7 @@ async def _apply_merge(
         created_at=now,
         last_updated=now,
     )
+    verdict_ops = await _identity_verdict_ops(incoming, provider)  # U-9
     committed = await commit_ops(
         db,
         [
@@ -1891,7 +1939,8 @@ async def _apply_merge(
                 merged=incoming,
                 changes=enrichment.changes,
                 extraction_review=extraction_review,  # 783:L41
-            )
+            ),
+            *verdict_ops,
         ],
         CommitProvenance(source=source, intake="import", actor="candidate"),
         record=None,

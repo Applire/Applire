@@ -107,6 +107,9 @@ from applire.services.profile.reconcile.ops import (
     WithdrawDenial,
     SetAvailability,
     DismissAvailabilityReminder,
+    MergeEntries,
+    KeepEntriesSeparate,
+    RecordEntryIdentityVerdicts,
     RequestConfirmation,
     ResolveConfirmation,
     ResolveField,
@@ -732,6 +735,10 @@ def apply_ops(
         elif isinstance(op, ConfirmMatch):
             # FS-6 (ruling V-4 = A) — the candidate's "Ja, dasselbe".
             _apply_confirm_match(op, new_profile, changes)
+        elif isinstance(op, (MergeEntries, KeepEntriesSeparate, RecordEntryIdentityVerdicts)):
+            # Hazelnut build 5 (U-11 / U-9) — the candidate's entry-merge act and
+            # the two entry-identity bookkeeping writes.
+            _apply_entry_ops(op, new_profile, changes)
         elif isinstance(op, WithdrawDenial):
             # G-5 (ADR-059 amended 2026-10-24) — the explicit un-denial act.
             # Receipts on the denial channel, never `changes`.
@@ -3878,3 +3885,203 @@ def _apply_set_availability(op, profile, source, changes) -> None:
         action="updated" if old else "added",
         old_value=old, new_value=text, rationale_key="availability_recorded",
     ))
+
+
+# ── Hazelnut build 5 (U-11 / U-9): entry merge + entry-identity bookkeeping ───
+
+_ENTRY_ALIAS_OWN_VALUE = {
+    "role_aliases": "role",
+    "company_aliases": "company",
+    "organization_aliases": "organization",
+    "institution_aliases": "institution",
+    "degree_aliases": "degree",
+}
+_ENTRY_DATE_FIELDS = ("start_date", "end_date", "is_current")
+_ENTRY_ID_FIELD_SKIP = {"id", "photo_url"}
+
+
+def fill_empty_scalars(target: Any, source: Any, *, skip: tuple[str, ...] = ()) -> list[str]:
+    """Fill ``target``'s EMPTY scalar fields from ``source``; returns the names
+    filled. Lists, dicts and ids are never touched here."""
+    filled: list[str] = []
+    for name in type(target).model_fields:
+        if name in _ENTRY_ID_FIELD_SKIP or name in skip:
+            continue
+        cur, new = getattr(target, name, None), getattr(source, name, None)
+        if isinstance(cur, (list, dict)) or isinstance(new, (list, dict)):
+            continue
+        if _is_empty(cur) and not _is_empty(new):
+            setattr(target, name, new)
+            filled.append(name)
+    return filled
+
+
+def entry_label(section: str, entry: Any) -> str:
+    """One human label for an entry in a receipt."""
+    if section == "work_experience":
+        parts = (entry.company, entry.role)
+    elif section == "volunteer_activities":
+        parts = (entry.organization, entry.role)
+    elif section == "projects":
+        parts = (entry.name,)
+    else:
+        parts = (entry.institution, entry.degree)
+    return " / ".join(p for p in parts if p) or entry.id
+
+
+def _repoint_id(value: Any, old: str, new: str) -> Any:
+    return new if value == old else value
+
+
+def _repoint_entry_references(profile: MasterProfileData, old: str, new: str) -> None:
+    """Every field of the vault that holds an entry id moves from ``old`` to ``new``."""
+
+    def _dedupe(ids: list[str]) -> list[str]:
+        seen: list[str] = []
+        for i in ids:
+            if i not in seen:
+                seen.append(i)
+        return seen
+
+    for skill in profile.skills:
+        if old in skill.experience_refs:
+            skill.experience_refs = _dedupe([_repoint_id(r, old, new) for r in skill.experience_refs])
+    for story in profile.signature_stories:
+        if old in story.experience_refs:
+            story.experience_refs = _dedupe([_repoint_id(r, old, new) for r in story.experience_refs])
+    for project in profile.projects:
+        if project.associated_experience == old:
+            project.associated_experience = new
+    meta = profile.metadata
+    if meta is None:
+        return
+    for conflict in meta.pending_conflicts:
+        if conflict.entity_id == old:
+            conflict.entity_id = new
+    for confirmation in meta.pending_confirmations:
+        for key, val in list(confirmation.context.items()):
+            if val == old:
+                confirmation.context[key] = new
+    for rec in meta.enrichment_history:
+        for receipt in (*rec.matched, *rec.restated, *rec.kept_separate):
+            if receipt.entity_id == old:
+                receipt.entity_id = new
+    for pairs in (meta.separate_entry_pairs, meta.entry_identity_verdicts):
+        kept = []
+        for pair in pairs:
+            if old in pair.ids:
+                ids = sorted(_repoint_id(i, old, new) for i in pair.ids)
+                if ids[0] == ids[1]:
+                    continue  # the pair that was just merged
+                pair.ids = ids
+            kept.append(pair)
+        pairs[:] = kept
+
+
+def _apply_entry_ops(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    if isinstance(op, MergeEntries):
+        _apply_merge_entries(op, profile, changes)
+    elif isinstance(op, KeepEntriesSeparate):
+        _apply_keep_entries_separate(op, profile, changes)
+    else:
+        _apply_record_entry_identity_verdicts(op, profile)
+
+
+def _apply_merge_entries(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """U-11 — see :class:`MergeEntries`."""
+    entries = getattr(profile, op.section)
+    target = next((e for e in entries if e.id == op.target_id), None)
+    source = next((e for e in entries if e.id == op.source_id), None)
+    if target is None or source is None or target is source:
+        raise ValueError(f"merge_entries: unknown or identical entries in {op.section!r}")
+    src_label, tgt_label = entry_label(op.section, source), entry_label(op.section, target)
+
+    for name, values in op.bullets.items():
+        if name in ("responsibilities", "achievements", "technologies") and hasattr(target, name):
+            setattr(target, name, list(values))
+    for name, values in op.aliases.items():
+        if not hasattr(target, name):
+            continue
+        own = _norm(getattr(target, _ENTRY_ALIAS_OWN_VALUE.get(name, ""), ""))
+        current = list(getattr(target, name))
+        have = {_norm(v) for v in current}
+        for v in values:
+            if v and _norm(v) != own and _norm(v) not in have:
+                current.append(v)
+                have.add(_norm(v))
+        setattr(target, name, current)
+    if op.section == "work_experience":
+        have_roles = {_norm(d.role) for d in target.dated_role_aliases}
+        for dated in source.dated_role_aliases:
+            if _norm(dated.role) not in have_roles:
+                target.dated_role_aliases.append(dated)
+                if _norm(dated.role) not in {_norm(r) for r in target.role_aliases}:
+                    target.role_aliases.append(dated.role)
+
+    fill_empty_scalars(target, source, skip=_ENTRY_DATE_FIELDS if op.dates is not None else ())
+    for name, value in (op.dates or {}).items():
+        if name in _ENTRY_DATE_FIELDS and hasattr(target, name):
+            setattr(target, name, value)
+
+    _repoint_entry_references(profile, op.source_id, op.target_id)
+    entries[:] = [e for e in entries if e.id != op.source_id]
+
+    changes.append(FieldChange(
+        section=op.section, field="entry", action="merged",
+        old_value=src_label, new_value=tgt_label,
+        rationale=f"The candidate merged {src_label!r} into {tgt_label!r}.",
+        rationale_key="entries_merged", entity_id=op.target_id,
+    ))
+    changes.append(FieldChange(
+        section=op.section, field="entry", action="removed",
+        old_value=src_label, new_value=None,
+        rationale=f"{src_label!r} was merged into {tgt_label!r}; its content and references moved.",
+        rationale_key="entries_merged", entity_id=op.source_id,
+    ))
+
+
+def _ensure_metadata(profile: MasterProfileData):
+    from applire.schemas.profile import ProfileMetadata
+
+    if profile.metadata is None:
+        profile.metadata = ProfileMetadata()
+    return profile.metadata
+
+
+def _apply_keep_entries_separate(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """U-9 — see :class:`KeepEntriesSeparate`. Idempotent."""
+    from applire.schemas.profile import EntryPair
+    from applire.services.profile.entry_identity import pair_key
+
+    meta = _ensure_metadata(profile)
+    key = pair_key(op.section, op.entry_ids[0], op.entry_ids[1])
+    if any(pair_key(p.section, p.ids[0], p.ids[1]) == key for p in meta.separate_entry_pairs):
+        return
+    meta.separate_entry_pairs.append(EntryPair(section=op.section, ids=list(op.entry_ids)))
+    entries = getattr(profile, op.section, None) or []
+    labels = {e.id: entry_label(op.section, e) for e in entries}
+    a, b = (labels.get(i, i) for i in op.entry_ids)
+    changes.append(FieldChange(
+        section="metadata", field="separate_entry_pairs", action="added",
+        old_value=None, new_value=f"{a} | {b}",
+        rationale=f"The candidate keeps {a!r} and {b!r} as separate entries.",
+        rationale_key="entries_kept_separate",
+    ))
+
+
+def _apply_record_entry_identity_verdicts(op, profile: MasterProfileData) -> None:
+    """U-9 — see :class:`RecordEntryIdentityVerdicts`. No receipt: the verdict is
+    the model's judgement, not a change to the candidate's vault."""
+    from applire.schemas.profile import EntryIdentityVerdict
+    from applire.services.profile.entry_identity import pair_key
+
+    meta = _ensure_metadata(profile)
+    judged = {pair_key(v.section, v.ids[0], v.ids[1]) for v in meta.entry_identity_verdicts}
+    for item in op.verdicts:
+        key = pair_key(item.section, item.ids[0], item.ids[1])
+        if key in judged:
+            continue
+        judged.add(key)
+        meta.entry_identity_verdicts.append(
+            EntryIdentityVerdict(section=item.section, ids=list(item.ids), verdict=item.verdict)
+        )
