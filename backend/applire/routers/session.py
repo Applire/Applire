@@ -39,6 +39,8 @@ from applire.schemas.gap import GapAnalysisResponse
 from applire.schemas.session import (
     SessionCreateRequest,
     SessionCreateResponse,
+    MergeProposalRequest,
+    ProfileReviewRequest,
     SessionMessageRequest,
     SessionMessageResponse,
     SessionStateResponse,
@@ -46,11 +48,15 @@ from applire.schemas.session import (
 from applire.services.gap import analyze_gaps_for_session
 from applire.services.job import get_job_for_user
 from applire.exceptions import answer_not_saved_detail
+from applire.schemas.profile import MergeProposalResponse
 from applire.services.session import (
     GapNotAskableError,
+    OutcomeNotOffered,
+    OutcomeRequired,
     create_profile_review_session,
     create_session,
     get_session_state,
+    review_merge_proposal,
     send_message,
 )
 
@@ -135,13 +141,17 @@ async def start_session(
     status_code=status.HTTP_201_CREATED,
 )
 async def start_profile_review_session(
+    body: ProfileReviewRequest | None = None,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
     user: User = Depends(require_user),
 ) -> SessionCreateResponse:
-    """US165 — launch the standalone profile-review interview (no JD)."""
+    """US165 — launch the standalone profile-review interview (no JD).
+    U-2 — ``issue_id`` asks the clicked hub item first."""
     try:
-        return await create_profile_review_session(db, provider, user_id=user.id)
+        return await create_profile_review_session(
+            db, provider, user_id=user.id, issue_id=body.issue_id if body else None
+        )
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
@@ -217,6 +227,38 @@ async def analyze_session_gaps(
 
 
 @router.post(
+    "/{session_id}/merge-proposal",
+    response_model=MergeProposalResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def post_merge_proposal(
+    session_id: uuid.UUID,
+    body: MergeProposalRequest,
+    db: AsyncSession = Depends(get_db),
+    provider: LLMProvider = Depends(_get_provider),
+    user: User = Depends(require_user),
+) -> MergeProposalResponse:
+    """ADR-099 cl. 11 — "Zusammenführen" for a dispute of this review: one
+    verified model call, nothing written (commit = message outcome
+    ``merge_confirm``)."""
+    try:
+        p = await review_merge_proposal(
+            session_id, body.conflict_id, db, provider, user_id=user.id
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    except Exception:
+        logger.exception("merge proposal failed for session %s", session_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_internal_error_detail(),
+        )
+    return MergeProposalResponse(proposal=p.proposal, verifier=p.verifier, sources=list(p.sources))
+
+
+@router.post(
     "/{session_id}/message",
     response_model=SessionMessageResponse,
     status_code=status.HTTP_200_OK,
@@ -228,14 +270,22 @@ async def post_message(
     provider: LLMProvider = Depends(_get_provider),
     user: User = Depends(require_user),
 ) -> SessionMessageResponse:
-    if not body.message.strip():
+    if not body.message.strip() and body.outcome is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="message must not be empty",
         )
     try:
         return await send_message(
-            session_id, body.message.strip(), db, provider, user_id=user.id
+            session_id, body.message.strip(), db, provider, user_id=user.id,
+            outcome=body.outcome, merged_text=body.merged_text,
+        )
+    except OutcomeRequired:
+        # ADR-099 cl. 11 — the one follow-up on this dispute is spent.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="outcome_required")
+    except OutcomeNotOffered:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="outcome_not_offered"
         )
     except ReconcileFailedError:
         # R2-13 — "not saved" is distinct from "changed nothing": the turn
