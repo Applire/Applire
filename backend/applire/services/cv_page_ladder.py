@@ -46,6 +46,9 @@ from typing import Any, Callable, Iterator
 # The kinds a cut can have — stable ids the frontend and the ATS finding key on.
 DUPLICATE_PROJECT = "duplicate_project"
 OFF_JOB_SKILLS = "off_job_skills"
+#: Legacy kind (persisted proposals before founder ruling P-1): the ladder no
+#: longer proposes it — the industry line is never rendered, so cutting it saved
+#: no space and the receipt named a cut that changed nothing on the page.
 REPEATED_INDUSTRY = "repeated_industry"
 OLDEST_CERTIFICATION = "oldest_certification"
 OLDEST_EDUCATION = "oldest_education"
@@ -104,21 +107,6 @@ def _duplicate_projects(data: dict) -> list[int]:
     ]
 
 
-def _repeated_industry(data: dict) -> list[int]:
-    """Indexes of roles whose industry line repeats an EARLIER role's line verbatim
-    (case/space-insensitive); the first occurrence stays."""
-    seen: set[str] = set()
-    out: list[int] = []
-    for i, w in enumerate(data.get("work_history") or []):
-        key = _norm(w.get("industry_context"))
-        if not key:
-            continue
-        if key in seen:
-            out.append(i)
-        seen.add(key)
-    return out
-
-
 def ladder_steps(
     data: dict,
     skill_tier: Callable[[str], int] | None = None,
@@ -157,17 +145,9 @@ def ladder_steps(
             current["skills"] = [s for s in skills if s not in set(off)]
             yield LadderStep(copy.deepcopy(current), LadderCut(OFF_JOB_SKILLS, tuple(off)))
 
-    # 3. a repeated industry ("Branche:") line
-    rep = _repeated_industry(current)
-    if rep:
-        work = current.get("work_history") or []
-        removed = tuple(
-            f"{work[i].get('company') or work[i].get('role') or ''}: {work[i].get('industry_context')}"
-            for i in rep
-        )
-        for i in rep:
-            work[i]["industry_context"] = None
-        yield LadderStep(copy.deepcopy(current), LadderCut(REPEATED_INDUSTRY, removed))
+    # (3. — the repeated industry line — retired by founder ruling P-1: the line
+    # is never rendered, so the cut saved no space; REPEATED_INDUSTRY stays only
+    # as a persisted legacy kind that reinsert_cuts can still undo.)
 
     # 4. the oldest certification, one at a time
     while True:

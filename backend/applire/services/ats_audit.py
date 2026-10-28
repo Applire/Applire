@@ -915,8 +915,10 @@ def foreign_language_items(tailored, document_language: str) -> list[tuple[str, 
     reason as :func:`delivered_bullets`: one list of what the reader actually
     sees, rather than a per-axis scan. Covered surfaces are exactly the ones a
     deterministic pass can put vault text into after the ADR-038 language pass has
-    run — the summary, every work and project bullet (nested and standalone), and
-    every per-role ``industry_context`` furniture line.
+    run — the summary and every work and project bullet (nested and standalone).
+    The per-role ``industry_context`` line is NOT scanned (founder ruling P-1,
+    Hazelnut build 5): no template and no .docx renders it, and a finding on text
+    the reader never sees has nothing to fix.
 
     The predicate is ``utils.language_detection.item_language_mismatch``, which
     wraps THE detector (ADR-066) with a measured evidence floor. It UNDER-reports
@@ -933,11 +935,6 @@ def foreign_language_items(tailored, document_language: str) -> list[tuple[str, 
     summary = _field(tailored, "summary")
     if isinstance(summary, str) and item_language_mismatch(summary, document_language):
         out.append(("Profil", summary))
-    for w in _field(tailored, "work_history") or []:
-        where = f"{_field(w, 'company') or '?'} / {_field(w, 'role') or '?'}"
-        industry = _field(w, "industry_context")
-        if isinstance(industry, str) and item_language_mismatch(industry, document_language):
-            out.append((f"{where} > Branche", industry))
     for where, text in delivered_bullets(tailored):
         if item_language_mismatch(text, document_language):
             out.append((where, text))
