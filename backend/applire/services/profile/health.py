@@ -504,6 +504,16 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
     )
 
 
+def _is_adoption_record(record: EnrichmentRecord) -> bool:
+    """A trail record whose only content is the adoption of not-applied items."""
+    return (
+        record.source == "manual_edit"
+        and not record.not_applied
+        and bool(record.changes)
+        and all(c.rationale_key == "not_applied_adopted" for c in record.changes)
+    )
+
+
 def _duplicate_entry_issues(profile: MasterProfileData) -> list[HealthIssue]:
     """UAT-3d — one ``review`` issue per recognised-as-possibly-the-same pair of
     positions (``entry_identity.open_pairs``: identical stated dates, not kept
@@ -595,8 +605,15 @@ def assess_health(
         # residual is stated rather than hidden: a loss older than the newest
         # record is NOT surfaced here, and the durable receipt — plus the
         # WARNING each drop logs — remains the record of it.
-        if metadata.enrichment_history:
-            head = _not_applied_issue(metadata.enrichment_history[-1])
+        # UAT-3d — a record written by "Übernehmen" itself is transparent: the
+        # candidate's own adoption must not make the REST of that import's
+        # items vanish by becoming the new head.
+        head_record = next(
+            (r for r in reversed(metadata.enrichment_history) if not _is_adoption_record(r)),
+            None,
+        )
+        if head_record is not None:
+            head = _not_applied_issue(head_record)
             if head is not None:
                 issues.append(head)
 
