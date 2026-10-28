@@ -141,3 +141,14 @@ async def test_a_vanished_project_is_receipted_not_silent():
 
     assert [(i.section, i.label, i.reason) for i in out.not_applied] == [
         ("projects", PROJECT, "confirmation_unresolvable")]
+
+
+@pytest.mark.asyncio
+async def test_the_hub_answers_it_in_place_in_the_readers_language():
+    from applire.services.profile.health import _confirmation_issue
+
+    rc = await _ask(["Systems Engineer (id_w1)", "Head of Lab Systems (id_w2)"])
+    issue = _confirmation_issue(_parked(rc).metadata.pending_confirmations[0])
+
+    assert issue.question_i18n["de"].startswith("Zu welcher Position")
+    assert issue.options and [o["de"] for o in issue.options_i18n][1].endswith("heute)")

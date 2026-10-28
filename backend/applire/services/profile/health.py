@@ -126,7 +126,8 @@ def _conflict_issue(conflict: Conflict, profile: MasterProfileData) -> HealthIss
 #: G-5 / ruling V-5 (c) — confirmation families the Health hub answers with
 #: the ask's own options (each answer is a complete act in the applier's
 #: ``_apply_resolve_confirmation``); every other family goes to the interview.
-_ANSWERED_IN_PLACE = frozenset({"denial_scope"})
+#: D-8 — ``project_parent`` (family 6): the answer writes the project's position.
+_ANSWERED_IN_PLACE = frozenset({"denial_scope", "project_parent"})
 
 
 def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
