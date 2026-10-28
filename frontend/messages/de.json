@@ -1351,7 +1351,8 @@
     "actionFailed": "Das hat nicht geklappt. Bitte versuche es noch einmal.",
     "progress": "Punkt {current} von {total}",
     "progressClicked": "Punkt {current} von {total} – der Hinweis, den du angeklickt hast",
-    "undoStale": "Inzwischen hat sich dein Profil geändert – Rückgängig ist nicht mehr möglich."
+    "undoStale": "Inzwischen hat sich dein Profil geändert – Rückgängig ist nicht mehr möglich.",
+    "alreadyAnswered": "Diese Frage war schon beantwortet – es wurde nichts geändert."
   },
   "applications": {
     "loadingDetails": "Bewerbungsdetails werden geladen...",

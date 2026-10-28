@@ -249,6 +249,17 @@ describe("ProfileReviewDrawer", () => {
     expect(screen.queryByTestId("profile-review-undo")).not.toBeInTheDocument();
   });
 
+  it("A1-4: a dispute already answered says so and offers no Undo", async () => {
+    await confirmMergeWith({
+      interpreted: { already_answered: true, outcome: null, verifier: null },
+      profile_updated_at: null,
+    });
+    expect(await screen.findByTestId("profile-review-notice")).toHaveTextContent(
+      "This question had already been answered – nothing was changed.",
+    );
+    expect(screen.queryByTestId("profile-review-undo")).not.toBeInTheDocument();
+  });
+
   it("ADV-8: no Undo without the merge's basis", async () => {
     await confirmMergeWith({ interpreted: { outcome: "merge", verifier: "passed" } });
     await waitFor(() => expect(screen.getByTestId("conflict-card")).toHaveTextContent("Name"));

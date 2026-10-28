@@ -260,7 +260,9 @@ export function ProfileReviewDrawer({
   const afterReply = useCallback(
     (result: ReviewReply, onScreen: CurrentConflict | null, typed: boolean) => {
       const read = result.interpreted ?? null;
-      if (mergeBecameOwnStatement(read)) {
+      if (read?.already_answered) {
+        setNotice({ tone: "warn", text: t("alreadyAnswered") });
+      } else if (mergeBecameOwnStatement(read)) {
         setNotice({ tone: "warn", text: t("mergeBecameTestimony") });
       } else if (read?.corrected_value) {
         setNotice({ tone: "ok", text: t("correctedSaved", { value: read.corrected_value }) });
