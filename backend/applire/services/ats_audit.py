@@ -915,7 +915,10 @@ def foreign_language_items(tailored, document_language: str) -> list[tuple[str, 
     reason as :func:`delivered_bullets`: one list of what the reader actually
     sees, rather than a per-axis scan. Covered surfaces are exactly the ones a
     deterministic pass can put vault text into after the ADR-038 language pass has
-    run — the summary and every work and project bullet (nested and standalone).
+    run — the summary, every work and project bullet (nested and standalone), and
+    every skill chip (D-11, Hazelnut build 5: a terminal corrector copied a German
+    vault skill name into an English CV and nothing read the chips). The item
+    predicate's evidence floor keeps a 2–3-word chip silent by construction.
     The per-role ``industry_context`` line is NOT scanned (founder ruling P-1,
     Hazelnut build 5): no template and no .docx renders it, and a finding on text
     the reader never sees has nothing to fix.
@@ -938,6 +941,9 @@ def foreign_language_items(tailored, document_language: str) -> list[tuple[str, 
     for where, text in delivered_bullets(tailored):
         if item_language_mismatch(text, document_language):
             out.append((where, text))
+    for chip in _field(tailored, "skills") or []:
+        if isinstance(chip, str) and item_language_mismatch(chip, document_language):
+            out.append(("Kenntnisse", chip))
     return out
 
 

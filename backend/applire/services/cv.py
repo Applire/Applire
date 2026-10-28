@@ -1212,6 +1212,12 @@ def _terminal_language_trigger(
         x for x in after.get("skills") or []
         if isinstance(x, str) and x.strip() and _norm(x) not in before_skills
     ]
+    # D-11 (Hazelnut build 5): on a SAME-language vault a new chip still fires when
+    # the item predicate itself reads it as foreign (its evidence floor keeps 2–3-word
+    # chips silent) — a German vault skill name copied into an English CV.
+    foreign += [
+        ("skills", x) for x in new_skills if item_language_mismatch(x, document_language)
+    ]
     cross = _vault_dominant_language(profile_json) != document_language
     return TerminalLanguageTrigger(
         foreign_prose=foreign, new_skills=new_skills, cross_language=cross,
@@ -3108,6 +3114,13 @@ def _acronym_expansion_vault_match(mangled: str, vault_skills: list[str]) -> str
         (acronym,) = vault_only
         if any(acronym in m for m in mangled_only):
             continue
+        # D-11 (Hazelnut build 5): the residual token must BE an acronym in the
+        # vault's own spelling (two or more capitals: "GxP", "MES", "PP"). An
+        # ordinary word ("Development") left over is a different name, not an
+        # expansion: the writer's "Cross-functional team leadership and
+        # mentoring" was read as a mangled "Team Leadership and Development".
+        if not _is_acronym_in(acronym, vault_skill):
+            continue
         if len(mangled_only) < 2:
             continue
         candidates.append(vault_skill)
@@ -3115,6 +3128,17 @@ def _acronym_expansion_vault_match(mangled: str, vault_skills: list[str]) -> str
     if len(candidates) == 1:
         return candidates[0]
     return None  # zero or ambiguous (>= 2) matches -- never guess
+
+
+def _is_acronym_in(token: str, name: str) -> bool:
+    """Does the word of ``name`` that folds to ``token`` carry two or more capital
+    letters ("GxP", "MES")? A fact about the vault's own spelling."""
+    from applire.services.ats_audit import skill_tokens
+
+    for word in re.findall(r"[^\W_]+(?:[+./][^\W_]+)*\+?", name or ""):
+        if token in skill_tokens(word) and sum(1 for c in word if c.isupper()) >= 2:
+            return True
+    return False
 
 
 def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None) -> TailoredCVData:
