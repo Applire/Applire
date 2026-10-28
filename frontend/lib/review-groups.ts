@@ -1084,7 +1084,11 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
       else if (c.delivery_class === "A" && c.resolver === "page_length" && !pageLength) pageLength = item;
       continue;
     }
-    if (c.status === "not_applicable") continue;
+    // A check that did not run (terminal review not run / incomplete, language
+    // or narrative evidence n.a.) is stamped U: it is a "Nicht geprüft" row,
+    // never silently absent (ADR-079 cl. 4, ADR-099 cl. 3). Only a not-applicable
+    // check stamped otherwise (S: nothing to do) stays off the surface.
+    if (c.status === "not_applicable" && c.delivery_class !== "U") continue;
     if (c.status === "pass" && c.delivery_class !== "U") {
       passed += 1;
       continue;
