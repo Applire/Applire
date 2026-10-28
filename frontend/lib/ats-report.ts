@@ -161,6 +161,8 @@ export type ATSReport = {
     // through the token-stem fallback). An absent keyword = no data (a report
     // older than the field) → *Show me where* says it could not mark the place.
     present_unsupported_matches?: Record<string, KeywordMatch[]>;
+    /** D-4c(a): per flagged term, the audit-normalised sentences that still carry a claim-text match after the employer/title/org-unit masks. Absent = older report. */
+    present_unsupported_sentences?: Record<string, string[]>;
     present_denied_matches?: Record<string, KeywordMatch[]>;
     // Build-2 delivery F2 (SF-REVIEW.18): for a `present_unsupported` term that one of
     // the candidate's own recorded denials covers, those denials. The review card

@@ -240,6 +240,7 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
   const { atsReport, truthReport } = inputs;
   const terms = atsReport?.keywords.present_unsupported ?? [];
   const matches = atsReport?.keywords.present_unsupported_matches;
+  const claimSentences = atsReport?.keywords.present_unsupported_sentences;
   const denialsByTerm = atsReport?.keywords.present_unsupported_denials;
   const employerSentence = new Set(atsReport?.keywords.present_unsupported_employer_sentence ?? []);
   const claimable = claimableConceptSet(atsReport?.keywords.claimable_concepts);
@@ -272,8 +273,14 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
     // could not be marked. A merged row can still be located by the claim text
     // (ADR-090 cl. 2: an Oracle claim is located by its `text`).
     const termMatches = matches && Object.prototype.hasOwnProperty.call(matches, term) ? matches[term] : null;
+    // D-4c(a): count and locate only the occurrences that are still a claim
+    // (outside a masked employer clause); an older report keeps today's reach.
+    const within =
+      claimSentences && Object.prototype.hasOwnProperty.call(claimSentences, term) && Array.isArray(claimSentences[term])
+        ? claimSentences[term].filter((x) => typeof x === "string")
+        : undefined;
     const targets: LocateTarget[] | null = termMatches
-      ? termMatches.map((m) => ({ form: m.form, stem: Boolean(m.stem) }))
+      ? termMatches.map((m) => ({ form: m.form, stem: Boolean(m.stem), ...(within ? { within } : {}) }))
       : claim
         ? [{ form: claim.claim.text }]
         : null;
