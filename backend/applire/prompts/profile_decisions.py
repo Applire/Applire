@@ -181,6 +181,23 @@ written differently).
 Output ONLY this JSON object: {"matches": [{"item": "<item id>", "existing": "<existing id>" | null}]}"""
 
 
+# D-5 — the same judgement for certificates an import has just ADDED: one
+# translated or renamed credential must not stand twice in the profile.
+CERT_SAME_SYSTEM = """You compare the certificates of one person's profile. An import has just
+added the NEW certificates; the EXISTING ones were there before. For each NEW
+certificate, decide whether it is the SAME credential as one EXISTING
+certificate, written in another language or under another name (a translated
+title, a shorter or longer form of the same title).
+
+- Name the existing certificate's id only when it is clearly the same credential.
+- Two levels, versions or tracks of one programme are NOT the same (a foundation
+  and an advanced level, version 3 and version 4, one role's certificate and
+  another role's certificate of the same body).
+- When unsure, answer null.
+
+Output ONLY this JSON object: {"matches": [{"item": "<item id>", "existing": "<existing id>" | null}]}"""
+
+
 def build_present_prompt(items: list[dict[str, Any]], existing: dict[str, list[dict[str, Any]]]) -> str:
     return (
         "EXISTING entries by section:\n"

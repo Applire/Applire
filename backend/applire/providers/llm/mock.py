@@ -785,6 +785,9 @@ class MockLLMProvider(LLMProvider):
         # D-2 — the already-present judge: nothing matched (items stay asked).
         if "an import of one person's cv did not apply some entries" in system_lower:
             return {"matches": []}
+        # D-5 — the certificate identity check: no certificate is the same.
+        if "you compare the certificates of one person's profile" in system_lower:
+            return {"matches": []}
 
         # D-B3V6 (ruling V-3 = A) — the import restatement check. The real
         # shape with nothing restated: every new bullet is written, exactly

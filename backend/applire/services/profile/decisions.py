@@ -308,19 +308,27 @@ async def judge_aspirations(provider, bullets: list[str]) -> set[int] | None:
 
 
 async def judge_already_present(
-    provider, items: list[dict[str, Any]], existing: dict[str, list[dict[str, Any]]]
+    provider,
+    items: list[dict[str, Any]],
+    existing: dict[str, list[dict[str, Any]]],
+    *,
+    system: str = PRESENT_SYSTEM,
+    stage: str = "profile_not_applied_present",
 ) -> dict[str, str] | None:
     """ONE model call: ``{item id: existing entry id}`` for every not-applied
     item the model judges to be an entry the vault already holds under another
     name. Code keeps only ids it offered for that item's own section; ``None``
-    on any failure (nothing is hidden then — the item stays asked)."""
+    on any failure (nothing is hidden then — the item stays asked).
+
+    D-5 reuses it for certificates an import has just added (``system`` =
+    ``CERT_SAME_SYSTEM``, its own stage)."""
     if not items:
         return {}
     try:
-        with _stage("profile_not_applied_present"):
+        with _stage(stage):
             data = await provider.aparse_json(
                 build_present_prompt(items, existing),
-                system=PRESENT_SYSTEM,
+                system=system,
                 temperature=0.0,
                 max_tokens=200 + 40 * len(items),
             )
