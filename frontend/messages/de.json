@@ -1288,7 +1288,6 @@
     "unitLabel": "Einheit",
     "unitSave": "Speichern",
     "unitSaving": "Wird gespeichert …",
-    "fieldGapsLabel": "{count, plural, one {Bei # Station fehlen Angaben, nach denen Arbeitgeber fragen.} other {Bei # Stationen fehlen Angaben, nach denen Arbeitgeber fragen.}}",
     "decisionsLink": "Im Profilzustand ansehen"
   },
   "profileReview": {

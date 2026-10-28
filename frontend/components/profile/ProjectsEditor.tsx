@@ -40,7 +40,7 @@ import {
 import { type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { EntryDropZone, EntryMergeControls } from "./EntryMerge";
-import type { EntryRef } from "@/lib/profile-merge";
+import { toEntryRef } from "@/lib/profile-merge";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -280,9 +280,7 @@ export function ProjectsEditor({
             const rawLabel = nonEmptyText(e.name) ? e.name : null;
             const label = rawLabel ?? t("notProvided");
             const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current, locale);
-            const mergeRef: EntryRef | null = nonEmptyText(e.id)
-              ? { section: "projects", id: e.id, label, period: period ?? "" }
-              : null;
+            const mergeRef = toEntryRef("projects", e, { present: t("present"), notProvided: t("notProvided") }, locale);
             return (
               <EntryDropZone
                 key={nonEmptyText(e.id) ? e.id : i}

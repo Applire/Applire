@@ -24,6 +24,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { conflictSourceLabel, describeConflict } from "@/lib/conflict-display";
 import type { DeliveryClass } from "@/lib/ats-report";
+import {
+  BUDGET_UNITS,
+  type BudgetUnit,
+  completenessActionable,
+  renderedIssues,
+} from "@/lib/profile-health";
 
 // US160 (E033 / ADR-041 amended) — the deterministic /api/profile/health contract.
 // "confirmation" (#333): an N-option ambiguity the reconciler parked for the
@@ -48,7 +54,11 @@ export type HealthThread =
   // FS-5 (Hazelnut build 4) — a recorded skill binding that crosses
   // technical↔soft ("REST APIs" on "Mentoring"). Read-only; answered by the
   // pair's own acts (confirm / #717 separate), never a decision popup.
-  | "suspect_binding";
+  | "suspect_binding"
+  // U-9 (Hazelnut build 5) — two entries of one section that look like the
+  // same station (same dates, cross-language title/employer). One question;
+  // "Ja" opens the U-11 merge preview for the pair.
+  | "duplicate_entry";
 export type HealthSeverity = "info" | "review" | "critical";
 
 export interface HealthIssue {
@@ -87,7 +97,7 @@ export interface HealthIssue {
   // for a record from a backend predating #705 (falls back to the old
   // single-summary rendering); `null` never sent by the backend but accepted
   // defensively.
-  not_applied_items?: { section: string | null; label: string; reason: string }[] | null;
+  not_applied_items?: NotAppliedItem[] | null;
   // #764 — the pieces the `span_provenance` sentence is composed from (its
   // server `summary` is an English fallback and is never rendered). Null/absent
   // on every other thread.
@@ -108,6 +118,23 @@ export interface HealthIssue {
   confirmation_kind?: string | null;
   options?: string[] | null;
   options_i18n?: Record<string, string>[] | null;
+  // UAT-3d (Hazelnut build 5) — `unit`: the stored figure and the entry it
+  // belongs to, so the unit is accepted IN PLACE.
+  budget_value?: string | null;
+  entry_id?: string | null;
+  // U-9 — `duplicate_entry`: the pair (target first) and the other's label.
+  entry_ids?: string[] | null;
+  other_entity_label?: string | null;
+}
+
+export interface NotAppliedItem {
+  section: string | null;
+  label: string;
+  reason: string;
+  /** UAT-3d — the stable key "Übernehmen" sends; absent on older records. */
+  item_key?: string | null;
+  /** false → no adopt through the door; the row offers "go to section". */
+  adoptable?: boolean | null;
 }
 
 export interface ProfileHealth {
@@ -266,7 +293,7 @@ export function groupNotAppliedItems(
 // `span_provenance` is absent on purpose: its label lives in the
 // `profileHealth.launderedSpan` namespace (see IssueCard), not in `health`.
 const THREAD_LABEL: Record<
-  Exclude<HealthThread, "span_provenance" | "suspect_binding">,
+  Exclude<HealthThread, "span_provenance" | "suspect_binding" | "duplicate_entry">,
   | "threadConflict"
   | "threadAccuracy"
   | "threadConfirmation"
@@ -306,6 +333,151 @@ export type AnswerBinding = (issue: HealthIssue, same: boolean) => Promise<boole
 /** V-5 (c) — answer a parked confirmation with one of its plain options;
  *  resolves to false when the act failed. */
 export type AnswerConfirmation = (issue: HealthIssue, option: string) => Promise<boolean>;
+/** UAT-3d — adopt ONE not-applied item; resolves to false when the act failed. */
+export type AdoptItem = (issue: HealthIssue, itemKey: string) => Promise<boolean>;
+/** UAT-3d — accept the unit of a budget figure in place. */
+export type SaveUnit = (issue: HealthIssue, unit: BudgetUnit) => Promise<boolean>;
+
+/** The hub's per-class one-action handlers (ADR-099 cl. 11). Each is optional:
+ *  without it the card degrades to the ordinary "Beheben" button. */
+export interface HubActions {
+  onAdoptItem?: AdoptItem;
+  onGoToSection?: (section: string, labels: string[]) => void;
+  onSaveUnit?: SaveUnit;
+  onMergeDuplicate?: (issue: HealthIssue) => void;
+  onKeepSeparate?: (issue: HealthIssue) => Promise<boolean>;
+}
+
+/**
+ * UAT-3d — a `not_applied` issue's items, each with its ONE action: "Übernehmen"
+ * through the reconcile door (the item disappears on recompute), or — for an
+ * item the door cannot take (`adoptable: false`) — "go to section", the #705
+ * route. Rendered only when every item carries an `item_key`.
+ */
+function NotAppliedItemRows({
+  issue,
+  items,
+  actions,
+}: {
+  issue: HealthIssue;
+  items: NotAppliedItem[];
+  actions: HubActions;
+}) {
+  const t = useTranslations("health");
+  const tProfile = useTranslations("profile");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const adopt = async (key: string) => {
+    if (!actions.onAdoptItem || busy) return;
+    setBusy(key);
+    setFailed(null);
+    try {
+      if (!(await actions.onAdoptItem(issue, key))) setFailed(key);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <ul data-testid="health-not-applied-items" className="mt-2 flex flex-col divide-y divide-outline-variant/60">
+      {items.map((item) => {
+        const key = item.item_key ?? "";
+        const sectionLabel = notAppliedSectionLabel(item.section ?? "", t, tProfile);
+        const label =
+          item.section === "professional_summary"
+            ? t(item.label === "de" ? "fieldLabel.summaryDe" : "fieldLabel.summaryEn")
+            : item.label;
+        const reason = t.has(`notAppliedReason.${item.reason}`)
+          ? t(`notAppliedReason.${item.reason}`)
+          : item.reason;
+        return (
+          <li
+            key={key}
+            data-testid="health-not-applied-item"
+            className="flex flex-wrap items-center justify-between gap-2 py-2"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-neutral-dark break-words">
+                {t("notAppliedItemLabel", { section: sectionLabel, label })}
+              </p>
+              <p className="text-xs text-on-surface-variant">{reason}</p>
+              {failed === key && (
+                <p className="text-xs text-critical" role="alert">
+                  {t("suspectBindingFailed")}
+                </p>
+              )}
+            </div>
+            {item.adoptable !== false ? (
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="health-adopt-item"
+                disabled={busy !== null}
+                onClick={() => void adopt(key)}
+              >
+                {busy === key ? t("adopting") : t("adopt")}
+              </Button>
+            ) : item.section && actions.onGoToSection ? (
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="health-not-applied-go-to-section"
+                onClick={() => actions.onGoToSection!(item.section!, [label])}
+              >
+                {t("goToSectionShort")}
+              </Button>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** UAT-3d — the unit of a budget figure, accepted in place (one control). */
+function UnitInPlace({ issue, onSaveUnit }: { issue: HealthIssue; onSaveUnit: SaveUnit }) {
+  const t = useTranslations("health");
+  const [unit, setUnit] = useState<BudgetUnit>("EUR");
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setFailed(false);
+    try {
+      if (!(await onSaveUnit(issue, unit))) setFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div data-testid="health-unit-in-place" className="mt-2 flex flex-wrap items-center gap-2">
+      <label className="text-xs text-on-surface-variant" htmlFor={`unit-${issue.id}`}>
+        {t("unitLabel")}
+      </label>
+      <select
+        id={`unit-${issue.id}`}
+        data-testid="health-unit-select"
+        value={unit}
+        onChange={(e) => setUnit(e.target.value as BudgetUnit)}
+        className="h-8 rounded-md border border-outline-variant bg-white px-2 text-sm text-on-surface"
+      >
+        {BUDGET_UNITS.map((u) => (
+          <option key={u} value={u}>
+            {u}
+          </option>
+        ))}
+      </select>
+      <Button size="sm" data-testid="health-unit-save" disabled={saving} onClick={() => void save()}>
+        {saving ? t("unitSaving") : t("unitSave")}
+      </Button>
+      {failed && (
+        <p className="w-full text-xs text-critical" role="alert">
+          {t("suspectBindingFailed")}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function IssueCard({
   issue,
@@ -313,6 +485,7 @@ function IssueCard({
   onRecomputeSpan,
   onAnswerBinding,
   onAnswerConfirmation,
+  actions = {},
   prominent,
 }: {
   issue: HealthIssue;
@@ -320,6 +493,7 @@ function IssueCard({
   onRecomputeSpan?: (issue: HealthIssue) => Promise<void> | void;
   onAnswerBinding?: AnswerBinding;
   onAnswerConfirmation?: AnswerConfirmation;
+  actions?: HubActions;
   prominent?: boolean;
 }) {
   const t = useTranslations("health");
@@ -338,6 +512,32 @@ function IssueCard({
   // a handler it degrades to the ordinary Resolve button.
   const isBinding = issue.thread === "suspect_binding";
   const canAnswerBinding = isBinding && !!onAnswerBinding;
+  // U-9 — a duplicate-station pair: "Ja" opens the merge preview, "Nein"
+  // records the pair as separate. Without both handlers: "Beheben".
+  const isDuplicate = issue.thread === "duplicate_entry";
+  const canAnswerDuplicate =
+    isDuplicate && !!actions.onMergeDuplicate && !!actions.onKeepSeparate;
+  // UAT-3d — a budget figure's unit, accepted in place.
+  const unitInPlace =
+    issue.thread === "unit" && !!issue.budget_value && !!issue.entry_id && !!actions.onSaveUnit;
+  // UAT-3d — "Übernehmen" per not-applied item (every item keyed).
+  const keyedItems =
+    issue.thread === "not_applied" &&
+    (issue.not_applied_items ?? []).length > 0 &&
+    (issue.not_applied_items ?? []).every((i) => !!i.item_key) &&
+    !!actions.onAdoptItem
+      ? issue.not_applied_items!
+      : null;
+  const handleKeepSeparate = async () => {
+    if (!actions.onKeepSeparate || answering) return;
+    setAnswering(true);
+    setAnswerFailed(false);
+    try {
+      if (!(await actions.onKeepSeparate(issue))) setAnswerFailed(true);
+    } finally {
+      setAnswering(false);
+    }
+  };
   // V-5 (c) — a `denial_scope` ask is answered with its own options; the
   // answer IS the act (no second dialog). Without a handler: "Beheben".
   const confirmationOptions =
@@ -391,7 +591,9 @@ function IssueCard({
             ? tSpan("thread")
             : issue.thread === "suspect_binding"
               ? t("threadSuspectBinding")
-              : t(THREAD_LABEL[issue.thread])}
+              : issue.thread === "duplicate_entry"
+                ? t("threadDuplicateEntry")
+                : t(THREAD_LABEL[issue.thread])}
         </span>
       </div>
       {/* #626: a `conflict` issue composes a localized heading (naming the
@@ -432,6 +634,41 @@ function IssueCard({
             recomputed: issue.recomputed_years ?? 0,
           })}
         </p>
+      ) : isDuplicate ? (
+        <div data-testid="health-issue-duplicate-entry">
+          <p className="text-sm text-neutral-dark">
+            {t.rich("duplicateEntryQuestion", {
+              entry: issue.entity_label ?? "",
+              other: issue.other_entity_label ?? "",
+              b: bold,
+            })}
+          </p>
+          {answerFailed && (
+            <p className="text-xs text-critical mt-1" role="alert">
+              {t("suspectBindingFailed")}
+            </p>
+          )}
+        </div>
+      ) : keyedItems ? (
+        <div data-testid="health-issue-not-applied">
+          <p className="text-sm text-neutral-dark">
+            {t("notAppliedLead", {
+              count: keyedItems.length,
+              source: conflictSourceLabel(tProfile, issue.not_applied_source),
+            })}
+          </p>
+          <NotAppliedItemRows issue={issue} items={keyedItems} actions={actions} />
+        </div>
+      ) : unitInPlace ? (
+        <div>
+          <p className="text-sm text-neutral-dark" data-testid="health-issue-summary">
+            {t("unitBudgetQuestion", {
+              value: issue.budget_value ?? "",
+              entry: issue.source_record_ref ?? "",
+            })}
+          </p>
+          <UnitInPlace issue={issue} onSaveUnit={actions.onSaveUnit!} />
+        </div>
       ) : isBinding ? (
         <div data-testid="health-issue-suspect-binding">
           <p className="text-sm text-neutral-dark">
@@ -464,8 +701,30 @@ function IssueCard({
           {t("suspectBindingFailed")}
         </p>
       )}
+      {!keyedItems && !unitInPlace && (
       <div className="mt-2 flex flex-wrap justify-end gap-2">
-        {canAnswerConfirmation && confirmationOptions ? (
+        {canAnswerDuplicate ? (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="health-duplicate-merge"
+              disabled={answering}
+              onClick={() => actions.onMergeDuplicate!(issue)}
+            >
+              {t("duplicateEntrySame")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="health-duplicate-separate"
+              disabled={answering}
+              onClick={() => void handleKeepSeparate()}
+            >
+              {t("duplicateEntrySeparate")}
+            </Button>
+          </>
+        ) : canAnswerConfirmation && confirmationOptions ? (
           confirmationOptions.map((option, i) => (
             <Button
               key={option}
@@ -521,6 +780,7 @@ function IssueCard({
           </Button>
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -532,6 +792,7 @@ export function HealthPanel({
   onRecomputeSpan,
   onAnswerBinding,
   onAnswerConfirmation,
+  actions,
 }: {
   health: ProfileHealth;
   onResolve: (issue: HealthIssue) => void;
@@ -548,17 +809,24 @@ export function HealthPanel({
   // V-5 (c) — answer a `denial_scope` ask in place. Optional: without it the
   // ask falls back to the ordinary Resolve button.
   onAnswerConfirmation?: AnswerConfirmation;
+  // UAT-3d / U-9 — the per-class one-action handlers (adopt, unit, duplicate).
+  actions?: HubActions;
 }) {
   const t = useTranslations("health");
   const tSection = useTranslations("review.section");
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
 
-  const critical = health.issues.filter((i) => i.profile_mismatch_severity === "critical");
-  const nudgeable = health.issues.filter((i) => i.profile_mismatch_severity !== "critical");
+  // ADR-099 cl. 2/11 — class S (e.g. `accuracy`, "Datenabgleich") is never
+  // rendered; an unclassified issue renders as before.
+  const issues = renderedIssues(health);
+  const critical = issues.filter((i) => i.profile_mismatch_severity === "critical");
+  const nudgeable = issues.filter((i) => i.profile_mismatch_severity !== "critical");
+  // Completeness without `field_gaps` is class S: its label had no action.
+  const showCompleteness = completenessActionable(health);
   const pct = Math.round((health.completeness.score ?? 0) * 100);
 
   return (
-    <Card data-testid="health-panel" className="p-4">
+    <Card id="profile-health" data-testid="health-panel" className="p-4 scroll-mt-24">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-heading text-base font-semibold text-neutral-dark">
           {t("title")}
@@ -566,11 +834,11 @@ export function HealthPanel({
         <span className="text-xs text-gray-500">{t("completeness", { pct })}</span>
       </div>
 
-      {health.issues.length === 0 ? (
+      {issues.length === 0 ? (
         <p className="text-sm text-gray-600">{t("allClear")}</p>
       ) : (
         <p className="text-sm text-gray-600 mb-3">
-          {t("issuesSummary", { count: health.issues.length })}
+          {t("issuesSummary", { count: issues.length })}
         </p>
       )}
 
@@ -606,6 +874,7 @@ export function HealthPanel({
               onRecomputeSpan={onRecomputeSpan}
               onAnswerBinding={onAnswerBinding}
               onAnswerConfirmation={onAnswerConfirmation}
+              actions={actions}
               prominent
             />
           ))}
@@ -622,12 +891,13 @@ export function HealthPanel({
               onRecomputeSpan={onRecomputeSpan}
               onAnswerBinding={onAnswerBinding}
               onAnswerConfirmation={onAnswerConfirmation}
+              actions={actions}
             />
           ))}
         </div>
       )}
 
-      {(health.completeness.gaps.length > 0 || health.completeness.field_gaps.length > 0) && (
+      {showCompleteness && (
         <div className="mt-3 flex items-center justify-between gap-2">
           {health.completeness.gaps.length > 0 && (
             <p className="text-xs text-gray-500">

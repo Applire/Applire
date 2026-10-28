@@ -1288,7 +1288,6 @@
     "unitLabel": "Unit",
     "unitSave": "Save",
     "unitSaving": "Saving …",
-    "fieldGapsLabel": "{count, plural, one {# position lacks details employers ask about.} other {# positions lack details employers ask about.}}",
     "decisionsLink": "View in profile health"
   },
   "profileReview": {

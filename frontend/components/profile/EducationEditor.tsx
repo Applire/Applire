@@ -39,7 +39,7 @@ import { type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { AliasChips } from "@/components/profile/AliasChips";
 import { EntryDropZone, EntryMergeControls } from "./EntryMerge";
-import type { EntryRef } from "@/lib/profile-merge";
+import { toEntryRef } from "@/lib/profile-merge";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -271,9 +271,7 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
               (nonEmptyText(e.year) ? e.year : null);
             const rawLabel = entryLabel(e);
             const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
-            const mergeRef: EntryRef | null = nonEmptyText(e.id)
-              ? { section: "education", id: e.id, label, period: period ?? "" }
-              : null;
+            const mergeRef = toEntryRef("education", e, { present: t("present"), notProvided: t("notProvided") }, locale);
             return (
               <EntryDropZone
                 key={nonEmptyText(e.id) ? e.id : i}

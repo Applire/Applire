@@ -66,9 +66,20 @@ describe("HealthPanel — denial_scope ask (V-5 c)", () => {
 
 describe("HealthPanel — missing sections in words", () => {
   it("names the missing sections in the reader's language, not by key", () => {
-    const h: ProfileHealth = { issues: [], completeness: { score: 0.5, gaps: ["education", "volunteer_activities"], field_gaps: [] } };
-    render(withIntl(<HealthPanel health={h} onResolve={vi.fn()} />, "de"));
+    const h: ProfileHealth = {
+      issues: [],
+      completeness: { score: 0.5, gaps: ["education", "volunteer_activities"], field_gaps: ["work_experience[0].achievements"] },
+    };
+    render(withIntl(<HealthPanel health={h} onResolve={vi.fn()} onImprove={vi.fn()} />, "de"));
     expect(screen.getByText(/Ausbildung, Ehrenamtliche Tätigkeiten/)).toBeTruthy();
     expect(screen.queryByText(/volunteer_activities/)).toBeNull();
+  });
+
+  // Hazelnut build 5 (ADR-099 cl. 11): completeness WITHOUT field_gaps is class
+  // S — the "missing sections" label had no action, so it is not rendered.
+  it("hides the missing-sections line when there are no field gaps to act on", () => {
+    const h: ProfileHealth = { issues: [], completeness: { score: 0.5, gaps: ["education"], field_gaps: [] } };
+    render(withIntl(<HealthPanel health={h} onResolve={vi.fn()} />, "de"));
+    expect(screen.queryByText(/Ausbildung/)).toBeNull();
   });
 });

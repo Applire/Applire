@@ -42,7 +42,7 @@ import { formatDisplayDate, type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { AliasChips, DatedRoleAliasLines, datedRoleAliasesOf } from "@/components/profile/AliasChips";
 import { EntryDropZone, EntryMergeControls } from "./EntryMerge";
-import type { EntryRef } from "@/lib/profile-merge";
+import { toEntryRef } from "@/lib/profile-merge";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -295,9 +295,7 @@ export function WorkExperienceEditor({
             ];
             const rawLabel = entryLabel(e);
             const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
-            const mergeRef: EntryRef | null = nonEmptyText(e.id)
-              ? { section: "work_experience", id: e.id, label, period: period ?? "" }
-              : null;
+            const mergeRef = toEntryRef("work_experience", e, { present: t("present"), notProvided: t("notProvided") }, locale);
             return (
               <EntryDropZone
                 key={nonEmptyText(e.id) ? e.id : i}

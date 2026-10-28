@@ -7,7 +7,8 @@
 // commit goes through commit_ops and is undone by /api/profile/undo-last-merge.
 
 import { ReviewApiError } from "@/lib/profile-review";
-import type { ProfileSectionsResponse } from "@/lib/profile-entries";
+import { formatEntryPeriod, type ProfileSectionsResponse } from "@/lib/profile-entries";
+import type { DisplayLocale } from "@/lib/profileDisplay";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -174,4 +175,53 @@ export function formatPair(pair: DatePair, fmt: (d: string) => string, present: 
   const start = pair.start_date ? fmt(pair.start_date) : "";
   const end = pair.end_date ? fmt(pair.end_date) : present;
   return [start, end].filter(Boolean).join(" – ");
+}
+
+interface RefSource {
+  id?: string | null;
+  role?: string | null;
+  company?: string | null;
+  organization?: string | null;
+  name?: string | null;
+  degree?: string | null;
+  institution?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  is_current?: boolean | null;
+  year?: string | null;
+}
+
+const filled = (s: string | null | undefined): s is string => typeof s === "string" && s.trim() !== "";
+
+/**
+ * The ONE place an entry's merge identity is built — the editors (controls,
+ * drop zones) and the profile page (picker list, hub's duplicate pair) must
+ * show the same label and period for the same entry. Labels follow what each
+ * editor already shows; `null` for an entry without an id (nothing to merge).
+ */
+export function toEntryRef(
+  section: MergeSection,
+  entry: RefSource,
+  labels: { present: string; notProvided: string },
+  locale: DisplayLocale,
+): EntryRef | null {
+  if (!filled(entry.id)) return null;
+  const parts =
+    section === "work_experience"
+      ? [entry.role, entry.company]
+      : section === "volunteer_activities"
+        ? [entry.role, entry.organization]
+        : section === "projects"
+          ? [entry.name]
+          : [entry.degree, entry.institution];
+  const raw = parts.filter(filled).join(section === "education" ? " · " : " @ ");
+  const period =
+    formatEntryPeriod(
+      entry.start_date,
+      entry.end_date,
+      labels.present,
+      section === "education" ? undefined : entry.is_current,
+      locale,
+    ) ?? (section === "education" && filled(entry.year) ? entry.year : null);
+  return { section, id: entry.id, label: raw || labels.notProvided, period: period ?? "" };
 }

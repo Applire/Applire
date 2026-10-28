@@ -40,7 +40,7 @@ import { type DisplayLocale } from "@/lib/profileDisplay";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { AliasChips } from "@/components/profile/AliasChips";
 import { EntryDropZone, EntryMergeControls } from "./EntryMerge";
-import type { EntryRef } from "@/lib/profile-merge";
+import { toEntryRef } from "@/lib/profile-merge";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -280,9 +280,7 @@ export function VolunteerEditor({
             const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current, locale);
             const rawLabel = entryLabel(e);
             const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
-            const mergeRef: EntryRef | null = nonEmptyText(e.id)
-              ? { section: "volunteer_activities", id: e.id, label, period: period ?? "" }
-              : null;
+            const mergeRef = toEntryRef("volunteer_activities", e, { present: t("present"), notProvided: t("notProvided") }, locale);
             return (
               <EntryDropZone
                 key={nonEmptyText(e.id) ? e.id : i}

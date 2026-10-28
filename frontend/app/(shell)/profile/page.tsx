@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Bot } from "lucide-react";
@@ -39,7 +39,22 @@ import {
 } from "@/components/profile/DeniedConceptsCard";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
-import { HealthPanel, type ProfileHealth, type HealthIssue } from "@/components/profile/HealthPanel";
+import {
+  HealthPanel,
+  type HubActions,
+  type ProfileHealth,
+  type HealthIssue,
+} from "@/components/profile/HealthPanel";
+import { EntryMergeProvider, useEntryMerge } from "@/components/profile/EntryMerge";
+import {
+  MERGE_SECTIONS,
+  type EntryRef,
+  type MergeSection,
+  isMergeSection,
+  keepEntriesSeparate,
+  toEntryRef,
+} from "@/lib/profile-merge";
+import { adoptNotApplied, hubHasContent, saveBudgetUnit } from "@/lib/profile-health";
 import {
   ProfileSectionBody,
   resolveSummary,
@@ -230,6 +245,33 @@ function hasProfileGaps(
   if (work.some((e) => countWorkEntryGaps(e) > 0)) return true;
   if (resolveSummary(profile.professional_summary, uiLanguage).missing) return true;
   return false;
+}
+
+/**
+ * U-9 → U-11 (Hazelnut build 5): the hub's duplicate-station question "Ja,
+ * zusammenführen …" opens the SAME merge preview a drag or the entry's merge
+ * button opens — one merge act, two entry points. Lives inside the
+ * `EntryMergeProvider` so it can reach `begin`.
+ */
+function HealthPanelWithMerge(
+  props: ComponentProps<typeof HealthPanel> & { actions: HubActions },
+) {
+  const merge = useEntryMerge();
+  const onMergeDuplicate = (issue: HealthIssue) => {
+    const section = issue.section ?? "";
+    const [targetId, sourceId] = issue.entry_ids ?? [];
+    if (!merge || !isMergeSection(section) || !targetId || !sourceId) return;
+    const refs = merge.refsFor(section);
+    const target = refs.find((r) => r.id === targetId);
+    const source = refs.find((r) => r.id === sourceId);
+    if (target && source) merge.begin(source, target);
+  };
+  return (
+    <HealthPanel
+      {...props}
+      actions={{ ...props.actions, onMergeDuplicate: merge ? onMergeDuplicate : undefined }}
+    />
+  );
 }
 
 export default function ProfilePage() {
@@ -442,6 +484,43 @@ export default function ProfilePage() {
     }
   };
 
+  // UAT-3d / U-9 — the hub's one-action resolvers. Each refreshes the page on
+  // success, so the issue disappears on the recompute it was built to clear.
+  const hubActions: HubActions = {
+    onAdoptItem: async (issue, itemKey) => {
+      const updated = await adoptNotApplied(issue.id, itemKey);
+      if (!updated) return false;
+      await loadProfile();
+      return true;
+    },
+    onSaveUnit: async (issue, unit) => {
+      if (!issue.entry_id) return false;
+      const updated = await saveBudgetUnit(issue.entry_id, unit);
+      if (!updated) return false;
+      await loadProfile();
+      return true;
+    },
+    onKeepSeparate: async (issue) => {
+      if (!issue.section || !issue.entry_ids || issue.entry_ids.length < 2) return false;
+      const ok = await keepEntriesSeparate(issue.section, issue.entry_ids);
+      if (ok) await loadProfile();
+      return ok;
+    },
+    onGoToSection: (section, labels) => handleSectionAction(section, labels),
+  };
+
+  // U-11 — every mergeable entry's identity, built by the same function the
+  // editors use, so the picker and the hub's pair name entries identically.
+  const mergeRefs: Partial<Record<MergeSection, EntryRef[]>> = {};
+  for (const section of MERGE_SECTIONS) {
+    const list = (profile?.profile[section] ?? []) as Array<Parameters<typeof toEntryRef>[1]>;
+    mergeRefs[section] = list
+      .map((e) =>
+        toEntryRef(section, e, { present: t("present"), notProvided: t("notProvided") }, uiLanguage),
+      )
+      .filter((r): r is EntryRef => r !== null);
+  }
+
   const completenessScore = profile?.completeness ?? 0;
 
   // #382 — the work entries whose budget figure states no unit, as decided by
@@ -502,6 +581,7 @@ export default function ProfilePage() {
       <AppTopbar mode="section" titleKey="shell.profile" />
 
       {/* Main Content */}
+      <EntryMergeProvider entriesBySection={mergeRefs} onProfileChanged={loadProfile}>
       <main className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-4">
           {error && (
@@ -527,9 +607,10 @@ export default function ProfilePage() {
               {recomputeNote.text}
             </p>
           )}
-          {health && (health.issues.length > 0 || health.completeness.gaps.length > 0) && (
-            <HealthPanel
+          {health && hubHasContent(health) && (
+            <HealthPanelWithMerge
               health={health}
+              actions={hubActions}
               onResolve={handleResolve}
               onRecomputeSpan={handleRecomputeSpan}
               onAnswerBinding={handleAnswerBinding}
@@ -963,6 +1044,7 @@ export default function ProfilePage() {
           </ImportSummaryCard>
         </div>
       </main>
+      </EntryMergeProvider>
 
       <EnrichmentDrawer
         open={enrichDrawerOpen}
