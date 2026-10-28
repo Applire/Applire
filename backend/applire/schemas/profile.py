@@ -1149,6 +1149,12 @@ class ImportNotApplied(BaseModel):
     #: Computed when the hub issue is built: has an ``entry`` and no
     #: ``adopted_at``. Never persisted as true.
     adoptable: bool = False
+    #: D-2 (Hazelnut build 5 delivery run, main ruling) — the id of the existing
+    #: entry of the same section the model judged this item to BE (renamed or
+    #: translated institution, employer, degree), set once at the end of the
+    #: import. Such an item was not applied because it is already there: it is
+    #: silent (class S), never offered for "Übernehmen" (a duplicate).
+    already_present_as: str | None = None
 
 
 #: ADR-062 clause 1 (a FACT over the reason key, never a judgement) / ADR-066

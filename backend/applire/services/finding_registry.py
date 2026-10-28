@@ -602,6 +602,8 @@ REGISTRY.update(
         "health:aspiration": Entry("A", "ask_achieved"),  # RULING B-1
         "health:not_applied": Entry("A", "adopt_not_applied"),
         "health:not_applied_unadoptable": Entry("A", "complete_section"),
+        # D-2 — every item is an entry the vault already holds: silent.
+        "health:not_applied_already_present": Entry("S", None),
         "health:accuracy": Entry("S", None),
         "health:completeness": Entry("A", "complete_section"),
         "health:completeness_no_field_gaps": Entry("S", None),

@@ -163,3 +163,28 @@ Output ONLY this JSON object: {"items": [<bullet number>, ...]} (an empty list w
 def build_aspiration_prompt(bullets: list[str]) -> str:
     lines = "\n".join(f"{i + 1}: {b}" for i, b in enumerate(bullets))
     return f"Bullets of the current jobs:\n{lines}\nAnswer with the JSON object now."
+
+
+PRESENT_SYSTEM = """An import of one person's CV did NOT apply some entries. For each NEW entry,
+decide whether it is the SAME as one of the EXISTING entries of its section:
+the same degree at the same school, the same job, project, certificate or
+language, written in another language or under another name (a translated or
+older institution name, a renamed or shortened company, a degree or title
+written differently).
+
+- Name the existing entry's id only when it is clearly the same thing.
+- Different degrees at one school, or different jobs at one employer, are NOT
+  the same.
+- When unsure, answer null.
+
+Output ONLY this JSON object: {"matches": [{"item": "<item id>", "existing": "<existing id>" | null}]}"""
+
+
+def build_present_prompt(items: list[dict[str, Any]], existing: dict[str, list[dict[str, Any]]]) -> str:
+    return (
+        "EXISTING entries by section:\n"
+        + json.dumps(existing, ensure_ascii=False, indent=1)
+        + "\n\nNEW entries the import did not apply:\n"
+        + json.dumps(items, ensure_ascii=False, indent=1)
+        + "\nAnswer with the JSON object now."
+    )

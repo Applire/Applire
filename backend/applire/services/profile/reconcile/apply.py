@@ -4314,7 +4314,8 @@ def find_adoptable_item(profile: MasterProfileData, record_id: str, item_key: st
     if not open_items:
         raise NotAppliedNotAdoptableError("already_adopted")
     item = open_items[0]
-    if not item.entry or item.section not in _SECTION_MODEL:
+    if not item.entry or item.section not in _SECTION_MODEL or item.already_present_as:
+        # D-2: an item already in the vault under another name is a duplicate.
         raise NotAppliedNotAdoptableError("not_adoptable")
     return record, item
 
