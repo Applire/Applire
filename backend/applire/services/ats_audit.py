@@ -1991,16 +1991,28 @@ def kept_page_length_check(check: ATSCheck, pages_kept_at: int | None) -> ATSChe
     )
 
 
-#: ADR-099 cl. 7 (WP-B): the review-state key of the letter's "{n} Seiten
-#: behalten" decision (action ``kept``), recorded by the review surface.
-LETTER_PAGE_KEEP_KEY = "ats:page-length"
+#: ADR-099 cl. 7 (WP-B, interface B-2): the review-state key of the letter's
+#: "{n} Seiten behalten" decision (action ``kept``), recorded by the review
+#: surface (``PAGE_LENGTH_KEY`` in frontend lib/api/document-review.ts).
+LETTER_PAGE_KEEP_KEY = "page:page-overflow"
+
+
+def _fold_key(key) -> tuple[str, str] | None:
+    if not isinstance(key, str) or ":" not in key:
+        return None
+    from applire.services.review_state import norm_quote
+
+    producer, _, text = key.partition(":")
+    return producer, norm_quote(text)
 
 
 def letter_page_kept(review_state) -> bool:
     """The person kept the letter over its page norm (a ``kept`` decision on
-    :data:`LETTER_PAGE_KEEP_KEY`)."""
-    for d in (review_state or {}).get("decisions") or [] if isinstance(review_state, dict) else []:
-        if isinstance(d, dict) and d.get("finding_key") == LETTER_PAGE_KEEP_KEY and d.get("action") == "kept":
+    :data:`LETTER_PAGE_KEEP_KEY`, compared on the review-state key fold)."""
+    want = _fold_key(LETTER_PAGE_KEEP_KEY)
+    decisions = review_state.get("decisions") if isinstance(review_state, dict) else None
+    for d in decisions or []:
+        if isinstance(d, dict) and d.get("action") == "kept" and _fold_key(d.get("finding_key")) == want:
             return True
     return False
 
