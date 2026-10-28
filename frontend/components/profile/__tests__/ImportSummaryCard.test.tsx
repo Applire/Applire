@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { ImportSummaryCard } from "../ImportSummaryCard";
+import { ImportSummaryCard, matchPairKey } from "../ImportSummaryCard";
 import { withIntl } from "@/lib/test-utils/with-intl";
 
 const SUMMARY = {
@@ -60,5 +60,16 @@ describe("ImportSummaryCard", () => {
     await waitFor(() => expect(screen.getByTestId("the-log")).toBeInTheDocument());
     expect(screen.queryByTestId("import-summary")).toBeNull();
     expect(screen.queryByTestId("import-tech-log")).toBeNull();
+  });
+
+  // Hazelnut build 5 (ADR-099 cl. 10) — a pair the hub asks about is asked there only.
+  it("does not ask a recognised pair again when the health hub asks about it", async () => {
+    respond(SUMMARY);
+    render(
+      withIntl(<ImportSummaryCard hubPairKeys={new Set([matchPairKey("s1", " budgetverantwortung")])} />, "de"),
+    );
+    await waitFor(() => expect(screen.getByTestId("import-summary")).toBeInTheDocument());
+    expect(screen.queryByTestId("recognised-match-question")).toBeNull();
+    expect(screen.getByTestId("kept-separately")).toBeInTheDocument();
   });
 });

@@ -31,7 +31,7 @@ import { AvailabilityCard, type AvailabilityValue } from "@/components/profile/A
 import { SignatureManager } from "@/components/profile/SignatureManager";
 import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
 import { ProfileImportView } from "@/components/profile/ProfileImportView";
-import { ImportSummaryCard } from "@/components/profile/ImportSummaryCard";
+import { ImportSummaryCard, matchPairKey } from "@/components/profile/ImportSummaryCard";
 import {
   DeniedConceptsCard,
   type DeniedConceptItem,
@@ -54,7 +54,7 @@ import {
   keepEntriesSeparate,
   toEntryRef,
 } from "@/lib/profile-merge";
-import { adoptNotApplied, hubHasContent, saveBudgetUnit } from "@/lib/profile-health";
+import { adoptNotApplied, hubHasContent, renderedIssues, saveBudgetUnit } from "@/lib/profile-health";
 import {
   ProfileSectionBody,
   resolveSummary,
@@ -521,6 +521,14 @@ export default function ProfilePage() {
       .filter((r): r is EntryRef => r !== null);
   }
 
+  // ADR-099 cl. 10 — a recognised pair the hub asks about is not asked again
+  // by the import summary below it.
+  const hubPairKeys = new Set(
+    renderedIssues(health)
+      .filter((i) => i.thread === "suspect_binding" && i.skill_id && i.incoming_name)
+      .map((i) => matchPairKey(i.skill_id!, i.incoming_name!)),
+  );
+
   const completenessScore = profile?.completeness ?? 0;
 
   // #382 — the work entries whose budget figure states no unit, as decided by
@@ -959,7 +967,7 @@ export default function ProfilePage() {
           {/* R2-8 (9) (ruling V-2 = A) — "See what was combined" lands on the
               last import's summary (#import-summary); the Enrichment History
               (#67/#69, #import-log) stays inside it as the folded technical log. */}
-          <ImportSummaryCard reloadKey={enrichmentHistory} onChanged={loadProfile}>
+          <ImportSummaryCard reloadKey={enrichmentHistory} onChanged={loadProfile} hubPairKeys={hubPairKeys}>
           {enrichmentHistory.length > 0 && (
             <Card id="import-log" className="p-4 mt-6 scroll-mt-24">
               <h3 className="font-heading text-base font-semibold text-neutral-dark mb-4">
