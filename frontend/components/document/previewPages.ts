@@ -174,6 +174,39 @@ function inkBox(u: Unit, doc: Document): { top: number; bottom: number; left: nu
   return { top: box.top, bottom: Math.min(box.bottom, ink.bottom), left: box.left, right: box.right };
 }
 
+function isRow(cs: CSSStyleDeclaration): boolean {
+  return cs.display.includes("grid") || (cs.display.includes("flex") && !cs.flexDirection.startsWith("column"));
+}
+
+/**
+ * D-6 (founder replay 2026-10-28): the block the page edge pushes down may be the
+ * FIRST thing in its column of a split flex/grid row (an entry's head beside its
+ * date cell). The PDF engine then pushes the whole row — the date goes with its
+ * entry; moving only the column left "05/2021 – 11/2024" alone at the foot of the
+ * page. Returns the row to move instead, or `null` when the block is not at its
+ * row's start (a later bullet breaks inside the row, as before) or the row
+ * already starts the page.
+ */
+function rowToMove(unit: Unit, root: HTMLElement, pageTop: number, win: Window): Unit | null {
+  let el: HTMLElement = unit.el;
+  for (let p = el.parentElement; p && p !== root && root.contains(p); el = p, p = p.parentElement) {
+    // `el` must be the first visible box of `p`, or the block is not at the row's start.
+    const first = (Array.from(p.children) as HTMLElement[]).find((k) => {
+      if (k.hasAttribute(MARK)) return false;
+      const ks = win.getComputedStyle(k);
+      return ks.display !== "none" && ks.position !== "absolute" && ks.position !== "fixed" && k.getBoundingClientRect().height > 0;
+    });
+    const pcs = win.getComputedStyle(p);
+    if (isRow(pcs)) {
+      // In a row every cell starts the row; the block must start its cell.
+      if (topOf(p, win) <= pageTop + 1) return null;
+      return { el: p, row: false, leaf: false };
+    }
+    if (first !== el) return null;
+  }
+  return null;
+}
+
 function topOf(el: HTMLElement, win: Window): number {
   return el.getBoundingClientRect().top + win.scrollY;
 }
@@ -289,9 +322,12 @@ export function paginatePreview(doc: Document, label: (page: number, total: numb
     // Page 1's content box starts at the `:first` margin, the rest at `top`.
     const limit = guard === 0 ? rootTop + A4_HEIGHT_PX - margins.bottom : pageContentTop + contentHeight;
     // Per column, the first block that crosses (or starts beyond) the page edge.
+    // D-6: the print layout runs up to ~1 px taller than the screen layout (a
+    // block ending 0.1–0.9 px inside the edge on screen moved in the PDF,
+    // 3360 measured entries) — a block counts as crossing within 1 px of it.
     const crossing = units
       .map((u) => ({ u, r: inkBox(u, doc) }))
-      .filter(({ r }) => r.bottom + win.scrollY > limit + 0.5)
+      .filter(({ r }) => r.bottom + win.scrollY > limit - 1)
       .sort((a, b) => a.r.top - b.r.top);
     if (crossing.length === 0) break;
     const chosen: Array<{ u: Unit; top: number }> = [];
@@ -302,11 +338,21 @@ export function paginatePreview(doc: Document, label: (page: number, total: numb
       chosen.push({ u, top: r.top + win.scrollY });
     }
     const nextContentTop = limit + gap;
-    for (const { u, top } of chosen) {
+    const thisPageTop = guard === 0 ? rootTop + margins.firstTop : pageContentTop;
+    // D-6: a column's first block at its row's start moves the whole row (once).
+    const moves: Array<{ u: Unit; top: number; lifted?: boolean }> = [];
+    for (const c of chosen) {
+      const row = rowToMove(c.u, root, thisPageTop, win);
+      const m = row ? { u: row, top: topOf(row.el, win), lifted: true } : c;
+      if (!moves.some((x) => x.u.el === m.u.el || x.u.el.contains(m.u.el))) moves.push(m);
+    }
+    for (const { u, top, lifted } of moves) {
+      if (moves.some((x) => x.u !== u && x.u.el.contains(u.el))) continue;
       // A block that starts on this page above the edge moves to the next page
       // whole; a block taller than a page (it cannot) stays where it is.
       const height = u.el.getBoundingClientRect().height;
-      if (height > contentHeight && top < limit) continue;
+      // A lifted row starts a page whole — its own blocks break further down.
+      if (!lifted && height > contentHeight && top < limit) continue;
       const spacers = pushDown(u, nextContentTop - top, doc);
       // Margin collapsing may have eaten part of the push — correct once.
       const landed = topOf(u.el, win);
