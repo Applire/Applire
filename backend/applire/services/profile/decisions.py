@@ -314,6 +314,7 @@ async def judge_already_present(
     *,
     system: str = PRESENT_SYSTEM,
     stage: str = "profile_not_applied_present",
+    also_in: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, str] | None:
     """ONE model call: ``{item id: existing entry id}`` for every not-applied
     item the model judges to be an entry the vault already holds under another
@@ -321,7 +322,9 @@ async def judge_already_present(
     on any failure (nothing is hidden then — the item stays asked).
 
     D-5 reuses it for certificates an import has just added (``system`` =
-    ``CERT_SAME_SYSTEM``, its own stage)."""
+    ``CERT_SAME_SYSTEM``, its own stage). D-2b: ``also_in`` names the further
+    sections whose ids an item of a section may match (a skill item that is a
+    held certificate)."""
     if not items:
         return {}
     try:
@@ -342,6 +345,9 @@ async def judge_already_present(
         if not isinstance(row, dict):
             continue
         item, match = str(row.get("item")), row.get("existing")
-        if item in section_of and isinstance(match, str) and match in offered.get(section_of[item], set()):
+        if item not in section_of or not isinstance(match, str):
+            continue
+        sections = (section_of[item], *((also_in or {}).get(section_of[item], ())))
+        if any(match in offered.get(sec, set()) for sec in sections):
             out[item] = match
     return out
