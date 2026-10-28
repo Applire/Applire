@@ -1829,6 +1829,34 @@ def _keyword_coverage(
     # + report-surface parity) — orthogonal to claimable_concepts (literal vault
     # presence) and independent of document presence, same as claimable_concepts.
     keyword_liability_concepts = [e.get("concept", "") for e in keyword_liabilities(ledger)]
+    # D-4c(a) (Hazelnut build 5): per flagged term, the sentences that still carry a
+    # claim-text match after the masks — the review surface counts and locates
+    # only these (it used to count every occurrence in the rendered document,
+    # the masked employer clause included: "an 2 Stellen" for one claim).
+    present_unsupported_sentences = _claim_sentences(text_norm, present_unsupported, non_claim, ledger)
+    # D-4c(b) (ruling D-4c-b, ADR-099 cl. 2): a LETTER term a recorded denial covers
+    # whose every claim sentence also names a term the candidate denied on the
+    # ledger ("IFS, BRC und direkte Lebensmittelproduktion kenne ich nicht") is
+    # the candidate stating their own limit — nothing to fix, never a card (S).
+    # A real claim of the denied thing ("… Lebensmittelproduktion geleitet") names
+    # no denied term and keeps its remove-only card.
+    present_unsupported_in_denial: list[str] = []
+    if non_claim and non_claim.employer_clause and present_denied and present_unsupported_denials:
+        for k in present_unsupported:
+            sents = present_unsupported_sentences.get(k) or []
+            if k in present_unsupported_denials and sents and all(
+                any(keyword_matches(d, x, ledger) for d in present_denied) for x in sents
+            ):
+                present_unsupported_in_denial.append(k)
+        if present_unsupported_in_denial:
+            moved = set(present_unsupported_in_denial)
+            present_unsupported = [k for k in present_unsupported if k not in moved]
+            present_unsupported_employer_sentence = [
+                k for k in present_unsupported_employer_sentence if k not in moved
+            ]
+            present_unsupported_sentences = {
+                k: v for k, v in present_unsupported_sentences.items() if k not in moved
+            }
     return ATSKeywordCoverage(
         present=present,
         missing=missing,
@@ -1843,7 +1871,29 @@ def _keyword_coverage(
         present_denied_matches={k: matches_by_kw[k] for k in present_denied},
         present_unsupported_denials=present_unsupported_denials,
         present_unsupported_employer_sentence=present_unsupported_employer_sentence,
+        present_unsupported_sentences=present_unsupported_sentences,
+        present_unsupported_in_denial=present_unsupported_in_denial,
     )
+
+
+def _claim_sentences(
+    text_norm: str,
+    terms: list[str],
+    non_claim: NonClaimNames | None,
+    ledger: list[dict[str, Any]] | None,
+) -> dict[str, list[str]]:
+    """D-4c(a): for each term, the normalised sentences of ``text_norm`` (unmasked,
+    as delivered) whose MASKED form still matches it — the occurrences the flag
+    read. Same sentence split as the #803 belt; same masks as the flag."""
+    if not terms:
+        return {}
+    sentences = [x for x in _LETTER_SENTENCE_END_RE.split(text_norm) if x and x.strip()]
+    masked = [mask_non_claim_spans(x, non_claim) if non_claim else x for x in sentences]
+    out: dict[str, list[str]] = {}
+    for k in terms:
+        hits = [s.strip() for s, m in zip(sentences, masked) if keyword_matches(k, m, ledger)]
+        out[k] = list(dict.fromkeys(hits))
+    return out
 
 
 #: Sentence ends on the normalised letter text (``_norm`` keeps punctuation).

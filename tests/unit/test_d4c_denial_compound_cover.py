@@ -41,19 +41,48 @@ def _vault() -> dict:
 
 
 def test_the_letters_honest_denial_is_never_asked_true():
-    letter = _norm(
+    cov = _cov(
         "Rheinwerk fertigt Kunststoff- und Verbundverpackungen für Konsumgüter- und Lebensmittelkunden – "
         "dieses Umfeld reizt mich. IFS, BRC und direkte Lebensmittelproduktion kenne ich nicht."
     )
-    ledger = [{"concept": "Lebensmittel", "status": "gap", "claimable": False, "surface_forms": ["Lebensmittel"],
-               "sources": ["keyword"], "fit_weight": 1.0, "evidence": ""}]
-    nc = non_claim_names("Leiter Operations (m/w/d)", ["Rheinwerk Verpackungen GmbH"]).with_employer_clause()
-    vault = _vault()
-    cov = _keyword_coverage(letter, ["Lebensmittel"], ledger, None, grounding_vault_index(vault), nc,
-                            document_language="de")
-    assert cov.present_unsupported == ["Lebensmittel"]
-    # the review reads this map: covered by a recorded denial → no "add to profile" (ask_true)
+    # ruling D-4c-b: the sentence also names ledger-denied terms (IFS, BRC) → the
+    # candidate stating their own limit: no card at all (class S)
+    assert cov.present_unsupported == []
+    assert cov.present_unsupported_in_denial == ["Lebensmittel"]
     assert cov.present_unsupported_denials == {"Lebensmittel": ["direkte Produktion für Lebensmittelkunden"]}
+
+
+_LEDGER = [
+    {"concept": c, "status": st, "claimable": False, "surface_forms": [c], "sources": ["keyword"],
+     "fit_weight": 1.0, "evidence": ""}
+    for c, st in (("Lebensmittel", "gap"), ("IFS", "denied"), ("BRC", "denied"))
+]
+_NC = non_claim_names("Leiter Operations (m/w/d)", ["Rheinwerk Verpackungen GmbH"]).with_employer_clause()
+
+
+def _cov(letter: str):
+    return _keyword_coverage(_norm(letter), ["Lebensmittel", "IFS", "BRC"], _LEDGER, None,
+                             grounding_vault_index(_vault()), _NC, document_language="de")
+
+
+def test_a_real_claim_of_the_denied_thing_keeps_its_remove_only_card():
+    """The Oracle grades this claim unverifiable/S (no close evidence) — the
+    keyword card is its only signal, so it stays (A remove_only, never ask_true)."""
+    cov = _cov("Bei Weberit habe ich die Lebensmittelproduktion geleitet. IFS und BRC kenne ich nicht.")
+    assert cov.present_unsupported == ["Lebensmittel"]
+    assert cov.present_unsupported_in_denial == []
+    assert cov.present_unsupported_denials == {"Lebensmittel": ["direkte Produktion für Lebensmittelkunden"]}
+
+
+def test_the_claim_sentences_are_only_the_ones_the_flag_read():
+    """D-4c(a): the employer clause carries the term too, but only the claim
+    sentence is listed — the surface counts and locates these."""
+    cov = _cov("Rheinwerk fertigt Verpackungen für Lebensmittelkunden – dieses Umfeld reizt mich. "
+               "Bei Weberit habe ich die Lebensmittelproduktion geleitet.")
+    assert cov.present_unsupported == ["Lebensmittel"]
+    assert cov.present_unsupported_sentences == {
+        "Lebensmittel": ["bei weberit habe ich die lebensmittelproduktion geleitet."]
+    }
 
 
 def test_without_the_compound_probe_the_denial_did_not_cover_it(monkeypatch):
