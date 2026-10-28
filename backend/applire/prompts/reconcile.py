@@ -341,6 +341,27 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   Residuals (prompt silent, collector): a denial of the wrapper word ("regulated
   environments"), an anaphor denial ("the model itself"). Records:
   ``Documents/Runs/Hazelnut/build-4/v/``.
+* **26,678 (Hazelnut build 5 WP-A1, 2026-10-28, U-1 / SF-PROFILE.21).** Rule 13's
+  two closing limits become THE TEST BEFORE EVERY BULLET CONFLICT ("name the ONE
+  thing both bullets are about and the two different VALUES they give it") with
+  three held-out not-a-conflict shapes: (a) a rewording that adds or leaves out
+  a detail, (b) two different pieces of work that share words, (c) a target
+  beside a result (+643 chars). Why: a founder's second-CV import parked
+  ``flag_conflict`` on two DIFFERENT achievements that shared a phrase, and the
+  old limits ("a genuinely DIFFERENT achievement is not a conflict either") were
+  present and violated — the model read "same entry, same list" as "same fact".
+  *Measured* (``openai/gpt-6-luna``, Requesty, thinking OFF, temperature 0.1, the
+  founder's persisted 10-25 reconcile input replayed verbatim; synthetic shapes
+  in ``tests/files/reconcile_list_conflict/shape_u1.json``): persisted input —
+  runs with a spurious bullet conflict 6/6 → 0/5 (10 → 0 conflicts; one more
+  run was a provider parse error, excluded), the incoming different-fact
+  achievement written as ``add_bullets`` 3/6 → 5/5; large synthetic shape 4/5
+  → 0/5 (10 → 0); controls — a same-fact changed-figure pair on an import
+  (shape ``control``) still ``flag_conflict`` 5/5 → 6/6, model-matrix S9
+  (interview answer, changed figure) 5/5 → 6/6. Known side effect: a rewording
+  that adds a detail is now written as a bullet where it was a conflict (5/5
+  on one founder bullet); the import's restatement check and the
+  NOT-A-SECOND-TIME rule own that shape. Records: scratch only (founder data).
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -748,12 +769,21 @@ Operations:
        "existing": <the existing bullet, verbatim>,
        "incoming": <the new bullet, verbatim>}
     and do NOT also emit add_bullets for that bullet — the conflict itself
-    carries the new wording, and the user decides which one stands. Two limits:
-    a pure REWORDING that changes no claim (a translation, a synonym, a
-    tightening) is NOT a conflict — stay silent; and a bullet describing a
-    genuinely DIFFERENT achievement is not a conflict either — that is an
-    ordinary add_bullets. Never settle such a contradiction yourself by quietly
-    dropping one of the two versions.
+    carries the new wording, and the user decides which one stands. Never settle
+    such a contradiction yourself by quietly dropping one of the two versions.
+    THE TEST BEFORE EVERY BULLET CONFLICT: name the ONE thing both bullets are
+    about and the two different VALUES they give it. If you cannot, it is not a
+    conflict. Not conflicts, whatever entry or list position they share:
+    (a) a REWORDING — a translation, a synonym, a tightening, or a detail added
+    or left out without contradicting a value ("Rolled out the ticketing system
+    to 5 depots in 4 months" / "Rolled out the ticketing system (4 months, 5
+    depots), the fastest rollout to date") → silence, or add_bullets for a
+    genuinely new detail only;
+    (b) two DIFFERENT pieces of work that share words ("Introduced a supplier
+    scorecard for vendor selection" / "Merged 12 reporting tools into one
+    lakehouse, streamlining vendor selection") → add_bullets;
+    (c) a target and a result ("Aims to cut returns by 25%" / "The pilot cut
+    returns by 18%") → add_bullets.
 """
 
 

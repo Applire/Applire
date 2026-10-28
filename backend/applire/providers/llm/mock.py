@@ -741,6 +741,28 @@ class MockLLMProvider(LLMProvider):
             ]
             return {"claims": parts or [prompt.strip()]}
 
+        # ADR-099 cl. 11 (Hazelnut build 5, WP-A1) — the profile hub's four
+        # decision calls (`prompts/profile_decisions.py`). Real shapes, the
+        # cautious answer: the merge proposal repeats bullet 1 (passes the
+        # fact-presence verifier by construction), a typed reply gets the
+        # follow-up, an identity pair is "unsure" (the hub still asks), no
+        # duplicate bullets.
+        if "you combine two cv bullet points" in system_lower:
+            import re as _re
+
+            m = _re.search(r"^Bullet 1: (.*)$", prompt, _re.MULTILINE)
+            return {"merged": m.group(1).strip() if m else None}
+        if "you read a candidate's typed reply" in system_lower:
+            return {"outcome": None, "corrected_value": None,
+                    "follow_up": "Which of the offered options do you mean?"}
+        if "you compare pairs of entries" in system_lower:
+            import re as _re
+
+            ids = _re.findall(r'"pair_id":\s*"([^"]+)"', prompt)
+            return {"verdicts": [{"pair_id": i, "verdict": "unsure"} for i in ids]}
+        if "two entries of one person's cv profile are being merged" in system_lower:
+            return {"pairs": []}
+
         # D-B3V6 (ruling V-3 = A) — the import restatement check. The real
         # shape with nothing restated: every new bullet is written, exactly
         # what the mock stack's imports did before the check existed.
