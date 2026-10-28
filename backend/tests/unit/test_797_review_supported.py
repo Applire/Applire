@@ -72,13 +72,14 @@ def test_support_in_profile_refuses_a_missing_or_denied_wording():
     assert ra.support_in_profile(["SAP PP"], with_concept) is None
 
 
-def test_a_supported_decision_closes_a_still_listed_row_in_the_derivation():
+def test_a_supported_decision_no_longer_closes_a_still_listed_row():
+    """ADR-099 cl. 6 (UAT-2, WP-C) retired D2-5's label closure: "Stimmt"
+    without a vault change no longer closes a row — the live report decides."""
     ats = _ats_report("cv", [_TERM], _MATCHES)
     state = rs.with_decision(rs.load_state(None), _KEY, _TERM, "supported",
                              receipt=[{"path": "skills[0]", "text": "SAP PP"}])
     out = rs.derive_review(state, ats, None)
-    assert out["open_count"] == 0
-    assert out["decided"][0]["action"] == "supported" and out["decided"][0]["still_listed"] is True
+    assert out["open_count"] == 1 and out["decided_count"] == 0
     # control: any other action on a listed finding leaves it open (cl. 6 unchanged)
     kept = rs.with_decision(rs.load_state(None), _KEY, _TERM, "edited")
     assert rs.derive_review(kept, ats, None)["open_count"] == 1
@@ -101,7 +102,7 @@ async def _seed(db, profile_json):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("shape", ["merged", "unconfirmed"])
-async def test_supported_closes_the_finding_without_asking(db, shape):
+async def test_supported_confirms_the_skill_without_asking_but_does_not_close_a_listed_finding(db, shape):
     from applire.models.profile import MasterProfile
 
     cv_id, profile_id = await _seed(db, MERGED if shape == "merged" else UNCONFIRMED)
@@ -117,7 +118,8 @@ async def test_supported_closes_the_finding_without_asking(db, shape):
     [decision] = data["review_state"]["decisions"]
     assert decision["action"] == "supported"
     assert decision["receipt"] and all(r["text"] for r in decision["receipt"])
-    assert rs.derive_review(data["review_state"], _ats_report("cv", [_TERM], _MATCHES), None)["open_count"] == 0
+    # ADR-099 cl. 6: the decision is recorded, but a still-listed finding stays open
+    assert rs.derive_review(data["review_state"], _ats_report("cv", [_TERM], _MATCHES), None)["open_count"] == 1
     profile = (await db.execute(select(MasterProfile).where(MasterProfile.id == profile_id))).scalar_one()
     await db.refresh(profile)
     statuses = {s["name"]: s.get("status") for s in profile.profile_json["skills"]}

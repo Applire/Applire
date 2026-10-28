@@ -72,6 +72,45 @@ class ReviewReportResponse(ReviewStateResponse):
 
 class AddEvidenceResponse(ReviewReportResponse):
     testimony: TestimonyResult
+    # ADR-099 cl. 6 (WP-C, additive): the answer did not clear the finding —
+    # the "Stimmt das?" card now offers only "Entfernen".
+    remove_only: bool = False
+    still_listed: bool = False
+
+
+class MoveBody(FindingKeyBody):
+    """ADR-099 cl. 6 — "Wohin gehört das?": one of the stations ``/stations`` named."""
+
+    station_id: str = Field(..., min_length=1, max_length=500)
+
+
+class TranslateBody(BaseModel):
+    """ADR-099 cl. 9 — "Diese Stellen übersetzen": a subset of the spans the
+    failed document-language check names; omitted = all of them."""
+
+    spans: Optional[list[str]] = Field(default=None, max_length=50)
+
+
+class RemovalEvidenceBody(BaseModel):
+    """ADR-099 cl. 5 — "Doch, stimmt – wo?" on one item of the removal line."""
+
+    removal_text: str = Field(..., min_length=1, max_length=5000)
+    text: str = Field(..., min_length=1, max_length=20_000)
+
+
+class StationOut(BaseModel):
+    station_id: str
+    experience_id: Optional[str] = None
+    title: str = ""
+    organization: str = ""
+
+
+class StationsResponse(BaseModel):
+    stations: list[StationOut]
+
+
+class RemovalEvidenceResponse(ReviewStateResponse):
+    testimony: TestimonyResult
 
 
 class SectionChange(BaseModel):
@@ -130,6 +169,12 @@ async def _run(coro):
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "not_in_profile", "message": str(exc)})
     except ra.RewriteUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except ra.ResolverUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail={"error": "resolver_unavailable", "message": str(exc)})
+    except ra.ResolverNotApplicable as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "action_not_applicable", "message": str(exc)})
+    except ra.ResolverRewriteFailed as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail={"error": "rewrite_failed", "message": str(exc)})
     except LookupError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -148,7 +193,12 @@ def _mount(prefix: str, kind: Kind) -> None:
         """ADR-090 cl. 4 — testimony (the `/api/profile/testimony` service), then
         the awaited document re-audit."""
         out = await _run(ra.add_evidence(kind, doc_id, body.finding_key, body.text, db, provider, user_id=_auth.id))
-        return AddEvidenceResponse(testimony=out.testimony, **await _reports(kind, doc_id, db, _auth.id))
+        return AddEvidenceResponse(
+            testimony=out.testimony,
+            still_listed=out.still_listed,
+            remove_only=ra.remove_only(out.record, body.finding_key),
+            **await _reports(kind, doc_id, db, _auth.id),
+        )
 
     async def take_out(
         doc_id: uuid.UUID,
@@ -228,8 +278,100 @@ def _mount(prefix: str, kind: Kind) -> None:
 
         return ReviewStateResponse(review_state=load_state(out.record.review_state))
 
+    # ── ADR-099 resolvers (UAT-2 fix round, WP-C) ──────────────────────────
+
+    async def stations(
+        doc_id: uuid.UUID,
+        body: FindingKeyBody,
+        db: AsyncSession = Depends(get_db),
+        _auth: User = Depends(require_user),
+    ) -> StationsResponse:
+        """ADR-099 cl. 6 — the answers of "Wohin gehört das?" (read-only)."""
+        out = await _run(ra.stations(kind, doc_id, body.finding_key, db, user_id=_auth.id))
+        return StationsResponse(stations=[StationOut(**s) for s in out.stations])
+
+    async def move(
+        doc_id: uuid.UUID,
+        body: MoveBody,
+        db: AsyncSession = Depends(get_db),
+        provider: LLMProvider = Depends(_get_provider),
+        _auth: User = Depends(require_user),
+    ) -> TakeOutResponse:
+        """ADR-099 cl. 6 — move the sentence to the owning station (corrector
+        edit of that sentence), re-audited in this request, undoable."""
+        out = await _run(ra.move(kind, doc_id, body.finding_key, body.station_id, db, provider, user_id=_auth.id))
+        return TakeOutResponse(
+            changes=[SectionChange(**c) for c in out.changes],
+            still_listed=out.still_listed,
+            **await _reports(kind, doc_id, db, _auth.id),
+        )
+
+    async def as_goal(
+        doc_id: uuid.UUID,
+        body: FindingKeyBody,
+        db: AsyncSession = Depends(get_db),
+        provider: LLMProvider = Depends(_get_provider),
+        _auth: User = Depends(require_user),
+    ) -> TakeOutResponse:
+        """ADR-099 cl. 6 — "Ist das erreicht?" → Nein: the sentence is rewritten
+        as the goal the profile states; re-audited, undoable."""
+        out = await _run(ra.as_goal(kind, doc_id, body.finding_key, db, provider, user_id=_auth.id))
+        return TakeOutResponse(
+            changes=[SectionChange(**c) for c in out.changes],
+            still_listed=out.still_listed,
+            **await _reports(kind, doc_id, db, _auth.id),
+        )
+
+    async def translate(
+        doc_id: uuid.UUID,
+        body: TranslateBody,
+        db: AsyncSession = Depends(get_db),
+        provider: LLMProvider = Depends(_get_provider),
+        _auth: User = Depends(require_user),
+    ) -> TakeOutResponse:
+        """ADR-099 cl. 9 — "Diese Stellen übersetzen": only those sentences,
+        then the re-audit; undoable under ``send:document-language``."""
+        out = await _run(ra.translate(kind, doc_id, body.spans, db, provider, user_id=_auth.id))
+        return TakeOutResponse(
+            changes=[SectionChange(**c) for c in out.changes],
+            still_listed=out.still_listed,
+            **await _reports(kind, doc_id, db, _auth.id),
+        )
+
+    async def recheck(
+        doc_id: uuid.UUID,
+        db: AsyncSession = Depends(get_db),
+        _auth: User = Depends(require_user),
+    ) -> ReviewReportResponse:
+        """ADR-099 cl. 9 / UAT-3h — "Jetzt prüfen": the full report re-run on
+        this version (no new version)."""
+        await _run(ra.recheck(kind, doc_id, db, user_id=_auth.id))
+        return ReviewReportResponse(**await _reports(kind, doc_id, db, _auth.id))
+
+    async def removal_evidence(
+        doc_id: uuid.UUID,
+        body: RemovalEvidenceBody,
+        db: AsyncSession = Depends(get_db),
+        provider: LLMProvider = Depends(_get_provider),
+        _auth: User = Depends(require_user),
+    ) -> RemovalEvidenceResponse:
+        """ADR-099 cl. 5 — "Doch, stimmt – wo?": testimony for one removed claim;
+        the next version may use it."""
+        from applire.services.review_state import load_state
+
+        out = await _run(
+            ra.removal_evidence(kind, doc_id, body.removal_text, body.text, db, provider, user_id=_auth.id)
+        )
+        return RemovalEvidenceResponse(testimony=out.testimony, review_state=load_state(out.record.review_state))
+
     tag = "cv" if kind == "cv" else "cover-letter"
     for name, fn, model in (
+        ("stations", stations, StationsResponse),
+        ("move", move, TakeOutResponse),
+        ("as-goal", as_goal, TakeOutResponse),
+        ("translate", translate, TakeOutResponse),
+        ("recheck", recheck, ReviewReportResponse),
+        ("removal-evidence", removal_evidence, RemovalEvidenceResponse),
         ("add-evidence", add_evidence, AddEvidenceResponse),
         ("take-out", take_out, TakeOutResponse),
         ("undo", undo, ReviewReportResponse),
