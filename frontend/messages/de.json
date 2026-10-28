@@ -1280,7 +1280,6 @@
     "duplicateEntrySame": "Ja, zusammenführen …",
     "duplicateEntrySeparate": "Nein, getrennt führen",
     "notAppliedLead": "{count, plural, one {# Angabe aus {source} kam nicht in deinem Profil an:} other {# Angaben aus {source} kamen nicht in deinem Profil an:}}",
-    "notAppliedItemLabel": "{section}: {label}",
     "adopt": "Übernehmen",
     "adopting": "Wird übernommen …",
     "goToSectionShort": "Zum Abschnitt",

@@ -396,9 +396,10 @@ function NotAppliedItemRows({
             className="flex flex-wrap items-center justify-between gap-2 py-2"
           >
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-neutral-dark break-words">
-                {t("notAppliedItemLabel", { section: sectionLabel, label })}
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-on-surface-variant">
+                {sectionLabel}
               </p>
+              <p className="text-sm font-medium text-neutral-dark break-words">{label}</p>
               <p className="text-xs text-on-surface-variant">{reason}</p>
               {failed === key && (
                 <p className="text-xs text-critical" role="alert">

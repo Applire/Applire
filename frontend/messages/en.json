@@ -1280,7 +1280,6 @@
     "duplicateEntrySame": "Yes, merge …",
     "duplicateEntrySeparate": "No, keep separate",
     "notAppliedLead": "{count, plural, one {# item from {source} did not reach your profile:} other {# items from {source} did not reach your profile:}}",
-    "notAppliedItemLabel": "{section}: {label}",
     "adopt": "Add to profile",
     "adopting": "Adding …",
     "goToSectionShort": "Go to section",
