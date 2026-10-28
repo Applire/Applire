@@ -22,7 +22,9 @@ export type PageOverflowCutKind =
   | "off_job_skills"
   | "repeated_industry"
   | "oldest_certification"
-  | "oldest_education";
+  | "oldest_education"
+  // U-6: an old role (ended > 15 years ago) keeps title/company/dates only.
+  | "old_role_bullets";
 
 export interface PageOverflow {
   target: number;
@@ -50,6 +52,7 @@ const KIND_KEYS: Record<PageOverflowCutKind, string> = {
   repeated_industry: "pageOverflowKindRepeatedIndustry",
   oldest_certification: "pageOverflowKindOldestCertification",
   oldest_education: "pageOverflowKindOldestEducation",
+  old_role_bullets: "pageOverflowKindOldRoleBullets",
 };
 
 interface PageOverflowCardProps {

@@ -590,6 +590,7 @@
     "pageOverflowKindRepeatedIndustry": "Wiederholte Branchenangaben",
     "pageOverflowKindOldestCertification": "Ältere Weiterbildungen und Zertifikate",
     "pageOverflowKindOldestEducation": "Ältere Ausbildungsstationen",
+    "pageOverflowKindOldRoleBullets": "Aufgaben älterer Stationen (nur Titel, Firma und Zeitraum bleiben)",
     "pageOverflowKeep": "{actual} Seiten behalten",
     "pageOverflowCut": "Auf {target, plural, one {# Seite} other {# Seiten}} kürzen",
     "pageOverflowNote": "Du kannst das später ändern. Bei einer neuen Fassung fragen wir nur, wenn es wieder nötig ist.",

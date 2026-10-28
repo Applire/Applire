@@ -5541,6 +5541,27 @@ def _ladder_pin_predicate(pins: Sequence):
     return lambda text: any(q in _norm_quote(text) or _norm_quote(text) in q for q in quotes)
 
 
+def _old_roles_before() -> int:
+    """U-6: the end year before which a role counts as old (rung 6 of the ladder)."""
+    from datetime import date
+
+    from applire.services.cv_page_ladder import OLD_ROLE_YEARS
+
+    return date.today().year - OLD_ROLE_YEARS
+
+
+def _ladder_bullet_pins(pins: Sequence):
+    """ADR-077 cl. 4 for ladder rung 6: the bullets of an old role a CV pin protects
+    (the same carrier fold as condensation, ``pin_reach.bullet_pin_carrier_indices``)."""
+    if not pins:
+        return None
+    from applire.services.pin_reach import bullet_pin_carrier_indices
+
+    return lambda entry, texts: bullet_pin_carrier_indices(
+        texts, entry_id=str(entry.get("id") or ""), pins=pins
+    )
+
+
 async def _apply_page_ladder(
     record: GeneratedCV,
     db: AsyncSession,
@@ -5625,6 +5646,11 @@ async def _propose_page_cut(
     try:
         for step in ladder_steps(
             full, condense_ctx.skill_tier, pinned=_ladder_pin_predicate(condense_ctx.pins),
+            # U-6 (founder ruling 2026-10-28): the proposal may also shorten roles
+            # that ended more than OLD_ROLE_YEARS ago — the person decides ("Kürzen");
+            # the automatic target+1 ladder above never does.
+            old_roles_before=_old_roles_before(),
+            pinned_bullets=_ladder_bullet_pins(condense_ctx.pins),
         ):
             record.tailored_data = step.data
             tried.append(step.cut)
