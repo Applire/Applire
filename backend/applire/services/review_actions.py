@@ -980,12 +980,13 @@ async def shorten_letter(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, provid
     still over target → the card comes back with the new count."""
     from applire.services.owner_resolution import resolve_owner
 
-    if kind != "cover_letter":
-        raise ResolverNotApplicable("the CV's page card decides through /page-overflow")
     owner = resolve_owner(user_id, site="review_actions.shorten_letter")
     da = _delivery_actions()
     async with rs.document_lock(kind, doc_id):
+        # Ownership first (another user's id is a 404, never a 409), then the kind.
         record = await load_document(kind, doc_id, db, user_id=owner)
+        if kind != "cover_letter":
+            raise ResolverNotApplicable("the CV's page card decides through /page-overflow")
         if _letter_page_check(record) is None:
             raise ResolverNotApplicable("the letter is not over its page target")
         shorten = getattr(da, "shorten_letter", None)
@@ -1012,11 +1013,12 @@ async def keep_length(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_i
     row (→ class S), so the card leaves in this request."""
     from applire.services.owner_resolution import resolve_owner
 
-    if kind != "cover_letter":
-        raise ResolverNotApplicable("the CV's page card decides through /page-overflow")
     owner = resolve_owner(user_id, site="review_actions.keep_length")
     async with rs.document_lock(kind, doc_id):
+        # Ownership first (another user's id is a 404, never a 409), then the kind.
         record = await load_document(kind, doc_id, db, user_id=owner)
+        if kind != "cover_letter":
+            raise ResolverNotApplicable("the CV's page card decides through /page-overflow")
         if _letter_page_check(record) is None:
             raise ResolverNotApplicable("the letter is not over its page target")
         state = rs.with_decision(rs.load_state(record.review_state), PAGE_LENGTH_KEY, "page-length", "kept")
@@ -1025,7 +1027,7 @@ async def keep_length(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_i
         return ActionOutcome(record=record, still_listed=_letter_page_check(record) is not None)
 
 
-def removal_fold(text: str) -> str:
+def removal_fold(text: str, *, user_id: uuid.UUID | None = None) -> str:
     """The key of one removal-line item: the fold of its removed wording."""
     return rs.norm_quote(text)
 
@@ -1061,7 +1063,7 @@ async def removal_evidence(kind: Kind, doc_id: uuid.UUID, removal_text: str, tex
         return ActionOutcome(record=record, testimony=testimony)
 
 
-def remove_only(record, key: str) -> bool:
+def remove_only(record, key: str, *, user_id: uuid.UUID | None = None) -> bool:
     """ADR-099 cl. 6: after a "Stimmt das?" answer whose testimony changed
     nothing (``no_change``) — or changed the vault without clearing it
     (``added`` while still listed) — the finding offers only "Entfernen": True

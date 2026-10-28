@@ -88,6 +88,20 @@ REST_BODIES: dict[tuple[str, str], dict] = {
         for kind in ("cv", "cover-letter")
         for action in ("take-out", "undo", "edited", "supported")
     },
+    # ADR-099 resolvers (WP-C): bodies valid enough to reach the ownership check.
+    **{
+        ("POST", f"/api/{kind}/{{doc_id}}/review/{action}"): dict(_FK)
+        for kind in ("cv", "cover-letter")
+        for action in ("stations", "as-goal")
+    },
+    **{
+        ("POST", f"/api/{kind}/{{doc_id}}/review/move"): {**_FK, "station_id": "position::x"}
+        for kind in ("cv", "cover-letter")
+    },
+    **{
+        ("POST", f"/api/{kind}/{{doc_id}}/review/removal-evidence"): {"removal_text": "Removed.", "text": "Evidence."}
+        for kind in ("cv", "cover-letter")
+    },
     # #702: *So lassen* on a cross-document item (a `critic:` key).
     **{
         ("POST", f"/api/{kind}/{{doc_id}}/review/kept"): {"finding_key": "critic:python"}
