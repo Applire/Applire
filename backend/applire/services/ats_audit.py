@@ -795,7 +795,7 @@ def _longest_shared_run(a: Sequence[str], b: Sequence[str]) -> int:
     return best
 
 
-def bullets_prose_dupe(a: str, b: str) -> bool:
+def bullets_prose_dupe(a: str, b: str, term_grams: frozenset = frozenset()) -> bool:
     """Do two delivered bullets state the same achievement? (ADR-082, #659/#424)
 
     True when EITHER the shorter bullet's content tokens are ``>=
@@ -840,7 +840,28 @@ def bullets_prose_dupe(a: str, b: str) -> bool:
     # a heuristic: this cannot change any verdict, only skip work.
     if not shared:
         return False
-    return _longest_shared_run(ta, tb) >= _PROSE_DUPE_MIN_RUN
+    if not term_grams:
+        return _longest_shared_run(ta, tb) >= _PROSE_DUPE_MIN_RUN
+    # D-19 (Hazelnut build 5, delivery run 3): a shared run that lies inside a
+    # skill the document delivers is that skill NAMED twice ("computer system
+    # validation" in two unrelated bullets), not a copied clause. A fact about
+    # the words (ADR-062 cl.1); with no terms this is exactly the run test above.
+    return bool((_run_grams(ta) & _run_grams(tb)) - term_grams)
+
+
+def _run_grams(tokens: Sequence[str]) -> set[tuple[str, ...]]:
+    n = _PROSE_DUPE_MIN_RUN
+    return {tuple(tokens[i:i + n]) for i in range(len(tokens) - n + 1)}
+
+
+def skill_term_grams(tailored) -> frozenset:
+    """Every MIN_RUN-token run inside a delivered skills entry (D-19)."""
+    grams: set[tuple[str, ...]] = set()
+    for skill in _field(tailored, "skills") or []:
+        name = skill if isinstance(skill, str) else _field(skill, "name")
+        if isinstance(name, str):
+            grams |= _run_grams(_prose_tokens(name))
+    return frozenset(grams)
 
 
 def _field(obj, name):
@@ -993,11 +1014,12 @@ def redundant_bullet_pairs(tailored) -> list[tuple[str, str, str, str]]:
     may not delete).
     """
     delivered = delivered_bullets(tailored)
+    terms = skill_term_grams(tailored)
     pairs: list[tuple[str, str, str, str]] = []
     for i in range(len(delivered)):
         for j in range(i + 1, len(delivered)):
             (wa, a), (wb, b) = delivered[i], delivered[j]
-            if bullets_prose_dupe(a, b):
+            if bullets_prose_dupe(a, b, terms):
                 pairs.append((wa, a, wb, b))
     return pairs
 

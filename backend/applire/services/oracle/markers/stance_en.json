@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "language": "en",
   "description": "Target-vs-achieved stance markers (ADR-052 / US245). Community-extensible data, not code. Markers are matched word-boundary-aware on unicode-normalized, casefolded text (typographic apostrophes folded to ASCII).",
   "aspirational": [
@@ -35,7 +35,23 @@
     "anticipated",
     "in progress",
     "underway",
-    "roadmap to"
+    "roadmap to",
+    "remains a target",
+    "is a target",
+    "is the target",
+    "as a target",
+    "target:",
+    "targeting",
+    "aiming for",
+    "aim is",
+    "aim of",
+    "mandate to",
+    "ongoing mandate",
+    "not yet achieved",
+    "not an achieved",
+    "not achieved",
+    "not yet reached",
+    "yet to be"
   ],
   "achieved": [
     "achieved",

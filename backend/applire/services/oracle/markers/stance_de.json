@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "language": "de",
   "description": "Ziel-vs-erreicht Stance-Marker (ADR-052 / US245). Community-erweiterbare Daten, kein Code. Abgleich wortgrenzen-bewusst auf unicode-normalisiertem, casefolded Text (typografische Apostrophe zu ASCII gefaltet).",
   "aspirational": [
@@ -26,7 +26,17 @@
     "in arbeit",
     "laufend",
     "künftig",
-    "zukünftig"
+    "zukünftig",
+    "ziel:",
+    "bleibt ein ziel",
+    "bleibt das ziel",
+    "als ziel",
+    "zielwert",
+    "angepeilt",
+    "mandat",
+    "noch nicht erreicht",
+    "nicht erreicht",
+    "kein erreichtes"
   ],
   "achieved": [
     "erreicht",
