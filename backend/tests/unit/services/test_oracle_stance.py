@@ -46,5 +46,5 @@ def test_typographic_apostrophes_are_normalized():
 
 def test_marker_files_are_versioned_data():
     versions = marker_versions()
-    assert versions.get("de") == "1.0"
-    assert versions.get("en") == "1.0"
+    assert versions.get("de") == "1.1"
+    assert versions.get("en") == "1.1"
