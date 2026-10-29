@@ -220,3 +220,36 @@ def test_a_parked_ask_about_an_attached_project_is_not_shown_on_the_hub():
 
     profile.projects[0].associated_experience = "Nordwerk AG"  # not attached to a held position
     assert [i.thread for i in assess_health(profile).issues if i.thread == "confirmation"] == ["confirmation"]
+
+
+class _ImportAsker(_AskerShape3):
+    """Delivery run 3 exactly: the import brings the project in, places it
+    under a held position AND asks where it belongs, in one batch."""
+
+    def __init__(self, parent="id_w1"):
+        super().__init__()
+        self.parent = parent
+
+    async def aparse_json(self, prompt, **kw):
+        data = await super().aparse_json(prompt, **kw)
+        data["ops"] = [{"op": "upsert_project", "ref": "p9", "name": PROJECT, "parent": self.parent,
+                        "start_date": "2020-12", "end_date": "2021-07"}]
+        return data
+
+
+@pytest.mark.asyncio
+async def test_an_ask_about_a_project_the_same_batch_attaches_to_a_held_position_is_not_raised():
+    profile = _profile()
+    profile.projects = []
+    result = await reconcile(profile, {"answer": "x"}, "cv_upload", _ImportAsker(), "de")
+
+    assert result.ambiguities == []
+
+
+@pytest.mark.asyncio
+async def test_the_same_batch_with_a_standalone_project_still_asks():
+    profile = _profile()
+    profile.projects = []
+    result = await reconcile(profile, {"answer": "x"}, "cv_upload", _ImportAsker(parent=None), "de")
+
+    assert len(result.ambiguities) == 1
