@@ -253,3 +253,82 @@ async def test_the_same_batch_with_a_standalone_project_still_asks():
     result = await reconcile(profile, {"answer": "x"}, "cv_upload", _ImportAsker(parent=None), "de")
 
     assert len(result.ambiguities) == 1
+
+
+# ── D-25 (delivery run 5) — a parent whose dates cannot hold the project ─────
+
+
+class _ParentPicker:
+    """An import batch that brings the project in under ``parent``."""
+
+    def __init__(self, parent, start="2020-12", end="2021-07", ask=False):
+        self.parent, self.start, self.end, self.ask = parent, start, end, ask
+
+    async def aparse_json(self, prompt, **kw):
+        ops = [{"op": "upsert_project", "ref": "p9", "name": "Neues Projekt", "parent": self.parent,
+                "start_date": self.start, "end_date": self.end}]
+        amb = [{"question": "Which role?", "options": ["A", "B"],
+                "context": {"project": "Neues Projekt"}}] if self.ask else []
+        return {"ops": ops, "ambiguities": amb, "denials": []}
+
+
+def _profile_three():
+    from applire.schemas.profile import WorkEntry
+
+    profile = _profile()
+    profile.projects = []
+    profile.work_experience.append(
+        WorkEntry(id="44444444-4444-4444-8444-444444444444", company="Nordwerk AG", role="Director",
+                  start_date="2024-12", is_current=True))
+    profile.work_experience[1].is_current = False
+    profile.work_experience[1].end_date = "2024-11"
+    return profile
+
+
+def _upsert(result):
+    from applire.services.profile.reconcile.ops import UpsertProject
+
+    [op] = [o for o in result.ops if isinstance(o, UpsertProject)]
+    return op
+
+
+@pytest.mark.asyncio
+async def test_a_parent_whose_dates_do_not_touch_the_project_is_dropped_and_asked():
+    result = await reconcile(_profile_three(), {"answer": "x"}, "cv_upload", _ParentPicker("id_w3"), "de")
+
+    assert _upsert(result).parent is None
+    [rc] = result.ambiguities
+    assert rc.option_keys == [f"entry:{W1}", f"entry:{W2}"]  # the two positions the dates fit
+    assert rc.context["kind"] == "project_parent" and rc.context["project"] == "Neues Projekt"
+
+
+@pytest.mark.asyncio
+async def test_an_overlapping_parent_is_kept_and_nothing_is_asked():
+    result = await reconcile(_profile_three(), {"answer": "x"}, "cv_upload", _ParentPicker("id_w1"), "de")
+
+    assert _upsert(result).parent == W1
+    assert result.ambiguities == []
+
+
+@pytest.mark.asyncio
+async def test_an_undated_project_is_not_checked():
+    result = await reconcile(_profile_three(), {"answer": "x"}, "cv_upload",
+                             _ParentPicker("id_w3", start=None, end=None), "de")
+
+    assert _upsert(result).parent == "44444444-4444-4444-8444-444444444444"
+
+
+@pytest.mark.asyncio
+async def test_one_fitting_position_leaves_the_project_standalone_without_a_question():
+    result = await reconcile(_profile_three(), {"answer": "x"}, "cv_upload",
+                             _ParentPicker("id_w3", start="2019-01", end="2019-06"), "de")
+
+    assert _upsert(result).parent is None
+    assert result.ambiguities == []
+
+
+@pytest.mark.asyncio
+async def test_the_models_own_ask_about_the_project_is_not_doubled():
+    result = await reconcile(_profile_three(), {"answer": "x"}, "cv_upload", _ParentPicker("id_w3", ask=True), "de")
+
+    assert len(result.ambiguities) == 1
