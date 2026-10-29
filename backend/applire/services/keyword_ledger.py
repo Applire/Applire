@@ -1849,8 +1849,17 @@ def render_verified_coverage_block(
     *,
     bounded: bool = False,
     deferred_count: int = 0,
+    skills_list: bool = False,
 ) -> str:
     """Render the verified-absent claimable entries for the REVIEWER (US213, #122).
+
+    ``skills_list`` (D-20, Hazelnut build 5 delivery run 4): the document has a skills
+    list (a CV draft). The block then says where a term is surfaced — in the sentence
+    that carries its evidence, never as a skills-list entry. Without it the demand
+    named no place, the corrector put the posting phrase into the skills list (5/5 in
+    the replay of the captured round), the skills-shape chain removed it as untied
+    (``cv.skill_untied``), and the next round demanded it again as absent: four
+    rounds, the cap, UNVERIFIED. With it 0/5 skills-list placements.
 
     This replaces the reviewer's own coverage *detection* (US202) with ground truth:
     the list is the output of a deterministic literal check, not something to
@@ -1931,6 +1940,16 @@ def render_verified_coverage_block(
         "and the reason in your feedback); a waived term does not block approval. "
         "Grounding strictly outranks coverage — never ask the writer to fabricate.",
     ]
+    if skills_list:
+        lines += [
+            "",
+            "WHERE A TERM IS SURFACED: in the sentence that carries its evidence — the "
+            "summary, or a bullet of the position that owns it — with the candidate's own "
+            "facts around it. Name that place in your issue. Never ask for a term as a "
+            "skills-list entry: the skills list takes only forms the profile itself "
+            "records, a deterministic check removes a posting phrase from it, and the term "
+            "then comes back on this list as absent in the next round.",
+        ]
     if bounded and deferred_count:
         lines += [
             "",
@@ -2017,7 +2036,7 @@ def coverage_reviewer_prompt_fn(
             )
             prompt = (
                 f"{prompt}\n\n"
-                f"{render_verified_coverage_block(blocking, bounded=max_terms_per_round is not None, deferred_count=len(deferred))}"
+                f"{render_verified_coverage_block(blocking, bounded=max_terms_per_round is not None, deferred_count=len(deferred), skills_list=isinstance(draft, dict) and 'skills' in draft)}"
             )
         return prompt
 
