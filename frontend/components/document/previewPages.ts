@@ -207,6 +207,49 @@ function rowToMove(unit: Unit, root: HTMLElement, pageTop: number, win: Window):
   return null;
 }
 
+function visibleBox(k: Element, win: Window): boolean {
+  if (k.hasAttribute(MARK)) return false;
+  const ks = win.getComputedStyle(k);
+  return ks.display !== "none" && ks.position !== "absolute" && ks.position !== "fixed" && k.getBoundingClientRect().height > 0;
+}
+
+function avoidsBreakAfter(cs: CSSStyleDeclaration): boolean {
+  const v = cs.breakAfter;
+  return v === "avoid" || v === "avoid-page" || cs.getPropertyValue("page-break-after") === "avoid";
+}
+
+/**
+ * D-6 residual (delivery run 4): a heading the template keeps with what follows
+ * (`break-after: avoid` — a section title, the nested "Projekte" sub-label) must
+ * not end a page while its first block starts the next one. The PDF engine moves
+ * the heading along; so does the preview: walking back from the moved block, the
+ * box right before it (its previous sibling, or — when it opens its parent — the
+ * parent's) is that heading, and it starts below the page top. Returns the
+ * outermost such heading (a title over a sub-label moves both), or `null`.
+ */
+function headingToMove(el: HTMLElement, root: HTMLElement, pageTop: number, win: Window): HTMLElement | null {
+  let found: HTMLElement | null = null;
+  let cur: HTMLElement = el;
+  for (let guard = 0; guard < 8; guard++) {
+    let anchor: HTMLElement = cur;
+    let prev: Element | null = null;
+    for (;;) {
+      prev = anchor.previousElementSibling;
+      while (prev && !visibleBox(prev, win)) prev = prev.previousElementSibling;
+      if (prev) break;
+      const up = anchor.parentElement;
+      if (!up || up === root || !root.contains(up)) break;
+      anchor = up;
+    }
+    if (!prev || !avoidsBreakAfter(win.getComputedStyle(prev))) break;
+    const heading = prev as HTMLElement;
+    if (topOf(heading, win) <= pageTop + 1) break; // it already starts the page
+    found = heading;
+    cur = heading;
+  }
+  return found;
+}
+
 function topOf(el: HTMLElement, win: Window): number {
   return el.getBoundingClientRect().top + win.scrollY;
 }
@@ -343,7 +386,10 @@ export function paginatePreview(doc: Document, label: (page: number, total: numb
     const moves: Array<{ u: Unit; top: number; lifted?: boolean }> = [];
     for (const c of chosen) {
       const row = rowToMove(c.u, root, thisPageTop, win);
-      const m = row ? { u: row, top: topOf(row.el, win), lifted: true } : c;
+      let m: { u: Unit; top: number; lifted?: boolean } = row ? { u: row, top: topOf(row.el, win), lifted: true } : c;
+      // D-6 residual: the heading before it goes too (`break-after: avoid`).
+      const heading = headingToMove(m.u.el, root, thisPageTop, win);
+      if (heading) m = { u: { el: heading, row: false, leaf: false }, top: topOf(heading, win), lifted: true };
       if (!moves.some((x) => x.u.el === m.u.el || x.u.el.contains(m.u.el))) moves.push(m);
     }
     for (const { u, top, lifted } of moves) {

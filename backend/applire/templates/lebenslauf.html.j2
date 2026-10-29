@@ -194,6 +194,9 @@
     /* Projects nested under a position */
     .entry-projects { margin-top: 4pt; }
     .entry-projects-title {
+      /* D-6 (delivery run 4): the sub-label moves with its first project — never alone at a page foot. */
+      break-after: avoid;
+      page-break-after: avoid;
       font-size: 9.5pt;
       font-weight: bold;
       text-transform: uppercase;

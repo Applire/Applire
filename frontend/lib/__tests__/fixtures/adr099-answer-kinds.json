@@ -1,0 +1,46 @@
+[
+  {
+    "kind": "keyword:present_unsupported",
+    "resolver": "ask_true"
+  },
+  {
+    "kind": "oracle:credentialUnbacked",
+    "resolver": "ask_true"
+  },
+  {
+    "kind": "oracle:figuresNoEvidence",
+    "resolver": "ask_true"
+  },
+  {
+    "kind": "oracle:identifierAbsent",
+    "resolver": "ask_true"
+  },
+  {
+    "kind": "oracle:inflatedAspirational",
+    "resolver": "ask_achieved"
+  },
+  {
+    "kind": "oracle:skillNoEvidence",
+    "resolver": "ask_true"
+  },
+  {
+    "kind": "oracle:subjectTenureExceeds",
+    "resolver": "ask_true"
+  },
+  {
+    "kind": "oracle:tenureExceedsVault",
+    "resolver": "ask_true"
+  },
+  {
+    "kind": "oracle:tenureStartBeforeVault",
+    "resolver": "ask_true"
+  },
+  {
+    "kind": "oracle@inflated",
+    "resolver": "ask_achieved"
+  },
+  {
+    "kind": "oracle@unbacked",
+    "resolver": "ask_true"
+  }
+]

@@ -1187,3 +1187,18 @@ export function hasKeyedDetail(c: ATSCheck): boolean {
 export function removeOnly(row: Group1Row): boolean {
   return row.status === "open" && (row.decision?.action === "no_change" || row.decision?.action === "added");
 }
+
+/**
+ * U-13 (build 5, delivery run 4): which way out a "Stimmt das?" card offers
+ * once the answer changed nothing. Never "Entfernen" alone — the card names
+ * what CAN clear it: the profile in the person's own words, then "Jetzt
+ * prüfen" (the card's own producer runs again on the live vault).
+ * `skill` = a wording the producer grounds by the words themselves (a keyword
+ * term of the Keyword Ledger, an Oracle skill chip) → "unter Kenntnisse";
+ * `fact` = any other unbacked statement (credential, figure, tenure …) → "an
+ * der passenden Stelle".
+ */
+export function noChangeExit(row: Group1Row): "skill" | "fact" {
+  const item = row.item;
+  return item?.kind === "term" || item?.detailKey === "skillNoEvidence" ? "skill" : "fact";
+}

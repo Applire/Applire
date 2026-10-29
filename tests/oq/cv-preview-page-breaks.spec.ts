@@ -24,6 +24,8 @@
  * templates against their printed PDFs (3360 entries, 0 date/title splits in
  * the PDF); this spec pins the shape with fixed-height blocks so it does not
  * depend on the machine's fonts.
+ * D-6 residual (delivery run 4): a heading the template keeps with what follows
+ * (`break-after: avoid`) moves with its first block — "PROJECTS" ended page 1.
  */
 import { test, expect } from '../support/auth-fixture';
 
@@ -56,6 +58,26 @@ function cvHtml(fillerPx: number, leadPx: number): string {
         <ul><li>a</li><li>b</li><li>c</li><li>d</li><li>e</li></ul>
       </div>
     </div>
+  </div></body></html>`;
+}
+
+/** D-6 residual (delivery run 4): a heading kept with its next block, then a block that does not fit. */
+function headingHtml(fillerPx: number, nested: boolean): string {
+  const block = `<div class="item" data-testid="d6-item"><div class="name">Generative AI Automation Platform</div><div class="body"></div></div>`;
+  return `<!doctype html><html><head><style>
+    @page { size: A4; margin: 20mm; }
+    body { margin: 0; font: 13px/16px Arial, sans-serif; }
+    @media screen { .page { padding: 20mm; } }
+    .filler { height: ${fillerPx}px; }
+    .section-title, .entry-projects-title { height: 20px; break-after: avoid; page-break-after: avoid; }
+    .item { break-inside: avoid; }
+    .item .name { height: 20px; }
+    .item .body { height: 100px; }
+  </style></head><body><div class="page">
+    <div class="filler"></div>
+    ${nested
+      ? `<div class="entry-projects"><div class="entry-projects-title" data-testid="d6-heading">PROJECTS</div>${block}</div>`
+      : `<section><h2 class="section-title" data-testid="d6-heading">PROJECTS</h2>${block}</section>`}
   </div></body></html>`;
 }
 
@@ -96,4 +118,13 @@ test.describe('CV preview page bands — D-6 parity with the PDF', () => {
     expect(await pageOf(frame, 'd6-title')).toBe(2);
     expect(await pageOf(frame, 'd6-date')).toBe(2);
   });
+
+  for (const nested of [false, true]) {
+    test(`a ${nested ? 'nested "Projekte" sub-label' : 'section heading'} never ends a page alone — it moves with its first block`, async ({ page }) => {
+      // The heading fits 60 px above the edge; the 120 px block after it does not.
+      const frame = await open(page, headingHtml(CONTENT_PX - 60, nested));
+      expect(await pageOf(frame, 'd6-item')).toBe(2);
+      expect(await pageOf(frame, 'd6-heading')).toBe(2);
+    });
+  }
 });
