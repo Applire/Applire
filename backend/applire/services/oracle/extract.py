@@ -678,7 +678,9 @@ def _employer_anchor_candidates(
     return pairs
 
 
-def _match_ids(text: str, candidates: list[tuple[str, str]]) -> frozenset[str]:
+def _match_ids(
+    text: str, candidates: list[tuple[str, str]], *, case_sensitive: bool = False
+) -> frozenset[str]:
     """Every candidate id whose name appears in ``text`` (word-boundary,
     case-insensitive, punctuation-normalized) — no uniqueness constraint.
 
@@ -694,7 +696,8 @@ def _match_ids(text: str, candidates: list[tuple[str, str]]) -> frozenset[str]:
     found: set[str] = set()
     for name, entity_id in candidates:
         pattern = re.compile(
-            r"\b" + re.escape(_normalize_punct(name)) + r"\b", re.IGNORECASE
+            r"\b" + re.escape(_normalize_punct(name)) + r"\b",
+            0 if case_sensitive else re.IGNORECASE,
         )
         if pattern.search(normalized_text):
             found.add(entity_id)
@@ -841,7 +844,12 @@ def sentence_mentioned_ids(
     mention_tokens = _distinctive_token_candidates(
         loose_candidates, unique_only=False
     )
-    return found | _match_ids(text, mention_tokens)
+    # D-21 (Hazelnut build 5, delivery run 4): a lone leading token is matched
+    # as written — "Implementation" (project "Implementation of BioNTech
+    # Global QC LIMS") is a name there, "software implementation" is a word.
+    # The case-blind match made a BRK sentence "name" BioNTech too, the anchor
+    # failed open, and a misattributed project fact verdicted grounded.
+    return found | _match_ids(text, mention_tokens, case_sensitive=True)
 
 
 def _find_employer_anchor(
@@ -903,7 +911,9 @@ def _find_employer_anchor(
     if not found and loose_candidates:
         found = _match_ids(sentence, loose_candidates)
     if not found and loose_candidates:
-        found = _match_ids(sentence, _distinctive_token_candidates(loose_candidates))
+        found = _match_ids(
+            sentence, _distinctive_token_candidates(loose_candidates), case_sensitive=True
+        )
     # #790 line L6 (2026-10-20): the ladder stops at the first pass with a
     # hit, so "At Finleap Build I built X, and at Cargonaut I designed Y"
     # found ONE employer (Finleap, via the legal-form pass) and stamped its id
@@ -912,19 +922,29 @@ def _find_employer_anchor(
     # #697 line 16's ``sentence_mentioned_ids``): a sentence that mentions
     # two different companies anchors to neither, and each clause gets its
     # own chance below. Fail open — this can only remove an anchor.
+    # D-21 (Hazelnut build 5, delivery run 4): an id carries EVERY name that
+    # maps to it — its employer and the projects nested under it. Keying one
+    # name per id let the last project name overwrite "BioNTech", so "At
+    # BioNTech SE, …" read as three different companies and anchored to none.
+    # Two ids are the same company when they share a name.
+    names_of: dict[str, set[str]] = {}
+    for n, i in loose_candidates or candidates:
+        names_of.setdefault(i, set()).add(_core_company_name(n).casefold())
+
+    def _one_company(ids: frozenset[str]) -> bool:
+        sets = [names_of.get(i, {i}) for i in ids]
+        return bool(set.intersection(*sets)) if sets else True
+
     if found and loose_candidates:
-        core_of = {i: _core_company_name(n).casefold() for n, i in loose_candidates}
         mentioned = sentence_mentioned_ids(sentence, loose_candidates) | found
-        if len({core_of.get(i, i) for i in mentioned}) > 1:
+        if not _one_company(frozenset(mentioned)):
             return None
     if len(found) == 1:
         return next(iter(found))
-    if len(found) > 1:
-        names = {n for n, i in (loose_candidates or candidates) if i in found}
-        if len(names) == 1:
-            current_found = found & current_ids
-            if len(current_found) == 1:
-                return next(iter(current_found))
+    if len(found) > 1 and _one_company(found):
+        current_found = found & current_ids
+        if len(current_found) == 1:
+            return next(iter(current_found))
     return None
 
 
