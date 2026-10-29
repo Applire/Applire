@@ -584,6 +584,7 @@
     "pageOverflowTitle": "Your CV needs {actual} pages instead of {target, plural, one {# page} other {# pages}}",
     "pageOverflowTitleShort": "{actual} pages instead of {target}",
     "pageOverflowBody": "We have already tightened it. To fit {target, plural, one {# page} other {# pages}}, {mode, select, shorten {Applire would also leave out or shorten the following:} other {these would also have to go:}}",
+    "pageOverflowAutoCutsLead": "To keep it to at most {limit} pages, Applire already left out:",
     "pageOverflowCutLine": "{label}: {items}",
     "pageOverflowKindDuplicateProject": "Projects already listed under a role",
     "pageOverflowKindOffJobSkills": "Skills the posting does not mention",

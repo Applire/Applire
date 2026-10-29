@@ -42,6 +42,11 @@ export interface PageOverflow {
   reaches_target?: boolean | null;
   /** B-2: pages after the proposed cut; `null` = nothing can be cut → only "behalten". */
   cut_pages?: number | null;
+  /**
+   * D-23 (B): what the generation ALREADY left out to stay within target + 1
+   * pages, per kind. `[]` (or absent) on older rows and when nothing was cut.
+   */
+  auto_cuts?: { kind: PageOverflowCutKind; items: string[] }[];
 }
 
 const WARNING_ICON = "warning";
@@ -111,6 +116,8 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
   const removed = overflow.proposed.filter((c) => c.kind !== "old_role_bullets").flatMap((c) => c.items).join(", ");
   const shortened = overflow.proposed.filter((c) => c.kind === "old_role_bullets").flatMap((c) => c.items).join(", ");
   const mode = shortened ? "shorten" : "remove";
+  // D-23: only kinds the card can name (a kind it does not know renders nothing).
+  const autoCuts = (overflow.auto_cuts ?? []).filter((c) => c.kind in KIND_KEYS && c.items.length > 0);
 
   async function choose(choice: "keep" | "cut") {
     if (busy || !overflow) return;
@@ -202,6 +209,18 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
         <span className="hidden sm:inline">{t("pageOverflowTitle", { actual, target })}</span>
         <span className="sm:hidden">{t("pageOverflowTitleShort", { actual, target })}</span>
       </h2>
+      {autoCuts.length > 0 && (
+        <div className="mb-2 text-[13px] leading-snug text-on-surface-variant" data-testid="cv-page-overflow-auto-cuts">
+          <p className="mb-1">{t("pageOverflowAutoCutsLead", { limit: target + 1 })}</p>
+          <ul className="ml-5 list-disc">
+            {autoCuts.map((c) => (
+              <li key={c.kind} data-kind={c.kind}>
+                {t("pageOverflowCutLine", { label: t(KIND_KEYS[c.kind]), items: c.items.join(", ") })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <p className="mb-1 text-[13px] leading-snug text-on-surface-variant" data-testid="cv-page-overflow-body">
         {cutPages === null
           ? tD("cvPageNothingToCut")

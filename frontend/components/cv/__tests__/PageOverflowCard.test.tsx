@@ -227,4 +227,52 @@ describe("PageOverflowCard", () => {
       expect(done.textContent).not.toMatch(/removed:[^;]*Schichtleiter/);
     });
   });
+
+  // D-23 (B's `auto_cuts`): what the generation already left out is named
+  // ABOVE the body — and nothing renders for an empty list (older rows).
+  describe("D-23 — what Applire already left out", () => {
+    const AUTO: PageOverflow = {
+      ...PROPOSAL,
+      proposed: [],
+      cut_available: false,
+      reaches_target: false,
+      cut_pages: null,
+      auto_cuts: [
+        { kind: "oldest_certification", items: ["REFA-Grundschein"] },
+        { kind: "off_job_skills", items: ["Kosmetik-Verpackungen", "Lackierung"] },
+      ],
+    };
+
+    it.each([
+      ["de", "Damit er höchstens 3 Seiten hat, hat Applire schon weggelassen:", "Ältere Weiterbildungen und Zertifikate: REFA-Grundschein", "Kürzer geht es nicht."],
+      ["en", "To keep it to at most 3 pages, Applire already left out:", "REFA-Grundschein", null],
+    ] as const)("%s: the line and its list sit above the body", async (locale, lead, item, body) => {
+      mockFetch(AUTO);
+      render(withIntl(<PageOverflowCard cvId="cv-auto" />, locale));
+      const box = await screen.findByTestId("cv-page-overflow-auto-cuts");
+      expect(box.textContent).toContain(lead);
+      expect(box.textContent).toContain(item);
+      expect(box.querySelectorAll("li")).toHaveLength(2);
+      const bodyEl = screen.getByTestId("cv-page-overflow-body");
+      if (body) expect(bodyEl.textContent).toBe(body);
+      // above: the auto-cut block precedes the body in document order
+      expect(box.compareDocumentPosition(bodyEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.queryByTestId("cv-page-overflow-cut")).toBeNull(); // no offer-back
+    });
+
+    it.each(["de", "en"] as const)("%s: an empty auto_cuts renders nothing (and an absent field neither)", async (locale) => {
+      mockFetch({ ...AUTO, auto_cuts: [] });
+      const { unmount } = render(withIntl(<PageOverflowCard cvId="cv-e" />, locale));
+      await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.queryByTestId("cv-page-overflow-auto-cuts")).toBeNull();
+      expect(screen.getByTestId("cv-page-overflow-card").textContent).not.toMatch(/weggelassen|left out/);
+      unmount();
+      const { auto_cuts: _drop, ...older } = AUTO;
+      void _drop;
+      mockFetch(older);
+      render(withIntl(<PageOverflowCard cvId="cv-o" />, locale));
+      await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.queryByTestId("cv-page-overflow-auto-cuts")).toBeNull();
+    });
+  });
 });

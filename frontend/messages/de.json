@@ -584,6 +584,7 @@
     "pageOverflowTitle": "Dein Lebenslauf braucht {actual} Seiten statt {target, plural, one {# Seite} other {# Seiten}}",
     "pageOverflowTitleShort": "{actual} Seiten statt {target}",
     "pageOverflowBody": "Wir haben ihn schon gestrafft. Damit er auf {target, plural, one {# Seite} other {# Seiten}} passt, {mode, select, shorten {würde Applire zusätzlich Folgendes weglassen oder kürzen:} other {müssten zusätzlich diese Angaben weg:}}",
+    "pageOverflowAutoCutsLead": "Damit er höchstens {limit} Seiten hat, hat Applire schon weggelassen:",
     "pageOverflowCutLine": "{label}: {items}",
     "pageOverflowKindDuplicateProject": "Projekte, die schon unter einer Stelle stehen",
     "pageOverflowKindOffJobSkills": "Kenntnisse, die die Stelle nicht nennt",
