@@ -114,6 +114,20 @@ def bind_project_parent_ask(
     return project_parent_confirmation(project=project, candidates=candidates, context=context)
 
 
+def parked_ask_is_redundant(context: dict[str, Any] | None, profile: MasterProfileData) -> bool:
+    """D-16 for an ask parked before the engine rule existed: a model-asked or
+    family-6 project-parent ask whose project is now attached to a held
+    position. The hub does not show it."""
+    context = context or {}
+    if "incoming" in context or context.get("kind") not in (None, KIND):
+        return False
+    if context.get("section") not in (None, "projects"):
+        return False
+    project = _project_name(context)
+    held = _held_project(profile, project) if project else None
+    return held is not None and str(held.associated_experience or "") in _positions(profile)
+
+
 def plan_project_parent(
     context: dict[str, Any], chosen_key: str | None, profile: MasterProfileData
 ) -> tuple[Any, str] | None:

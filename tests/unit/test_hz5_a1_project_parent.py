@@ -206,3 +206,17 @@ async def test_a_section_less_ask_with_handles_is_rebuilt():
     [rc] = result.ambiguities
     assert rc.option_keys == [f"entry:{W1}", f"entry:{W2}"]
     assert rc.question_i18n["de"].startswith("Zu welcher Position")
+
+
+def test_a_parked_ask_about_an_attached_project_is_not_shown_on_the_hub():
+    from applire.services.profile.health import assess_health
+
+    profile = _profile(assoc=W1)
+    profile.metadata = ProfileMetadata(pending_confirmations=[PendingConfirmation(
+        confirmation_id="c-3", question="Does the project belong under …?", options=["A", "B"],
+        context={"project": PROJECT, "existing_work_id": "id_w1"},
+    )])
+    assert not [i for i in assess_health(profile).issues if i.thread == "confirmation"]
+
+    profile.projects[0].associated_experience = "Nordwerk AG"  # not attached to a held position
+    assert [i.thread for i in assess_health(profile).issues if i.thread == "confirmation"] == ["confirmation"]
