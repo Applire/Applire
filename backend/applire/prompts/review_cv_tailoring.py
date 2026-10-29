@@ -219,17 +219,17 @@ Check for ALL of the following:
    draft, find the profile statement behind it and ask that statement two questions:
    - A REATTACHED FIGURE (#375) — what is the number a quantity OF? Check the subject, not only
      the digits: the profile's "14 Jahren Erfahrung in der diskreten Fertigung" rendered as
-     "14 Jahren Führungserfahrung" is an overstatement although "14" is correct. Hardest to see:
-     the number verifies, only the noun moved; likeliest in the summary, restated in the job's
+     "14 Jahren Führungserfahrung" is an overstatement although "14" is correct. This is the
+     hardest case in this check to see, precisely because the number verifies and only the noun
+     moved, and it is likeliest in the summary, where a figure gets restated in the job's own
      vocabulary.
    - AGENCY vs PROXIMITY (#289) — what relation does the statement give the candidate? This
      bites on an ORGANISATION-SCALE figure (employer's or unit's revenue, headcount, users),
      not a result their own work produced. Flag a line stating it as their result, or leaving
      the relation implicit ("supporting €N revenue"). A figure the profile holds in the SAME
-     entry as the work, in a sentence whose subject is that work or the candidate, with the
-     profile's own relation ("contributed to €N"), is correct: never flag or split it. A
-     figure in a sentence of its own or "separately", or taken from another entry, is a
-     finding: ask to join it to its own entry's work.
+     entry as the work, joined as "contributed to €N … by <that work>", is correct: never
+     flag or split it. A figure in a sentence of its own or "separately", or taken from
+     another entry, is a finding: ask to join it to its own entry's work.
    For both, the correction you ask for is a FRAMING one: write the profile's own subject and
    the relationship the profile states, an organisation-scale figure joined to the work of its
    entry. NEVER ask for the figure to be removed, rounded away or made vaguer — a line

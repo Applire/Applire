@@ -37,10 +37,10 @@ def test_every_reviewer_keeps_the_connection_and_flags_the_split():
         assert "never flag or split it" in p
         assert 'in a sentence of its own or "separately", or taken from another entry, is a finding' in p
         assert "scale of the operation" not in p  # the framing that drove the split
-        # D-20 (r5 bench, ~4 of 30 rounds): the joined wording was still flagged as an
-        # overstatement, whatever its word order — the subject + the profile's own relation
-        assert "in a sentence whose subject is that work or the candidate" in p
-        assert "with the profile's own relation" in p
+        # D-20 (r5 replay, 15 captured terminal reviews of joined drafts): a "subject"
+        # clause raised false flags 1/15 -> 7/15; the FIG-3 example form stays.
+        assert 'joined as "contributed to €N … by <that work>", is correct' in p
+        assert "whose subject is" not in p
 
 
 def test_one_home_per_fact_at_the_writer_and_the_corrector():
