@@ -1504,6 +1504,8 @@ Rows carry their class and resolver from the producer (`delivery_class`, `resolv
 
 The CV and letter previews now draw the PDF's page breaks ("— PAGE 2 OF 3 —"): the preview applies the template's own print rules and `@page` margins and moves blocks the way the PDF engine does. On synthetic two- to four-page documents across all seven templates and both document kinds, the preview's page count matched the rendered PDF in 28 of 28 cases. The PDF stays the authority for the page count.
 
+**Hardened after the delivery runs (2026-10-29).** The CV review loops gained a shape check, the counterpart of the letter's: a corrector reply without CV prose counts as a failed correction, and the last good draft ships — before this, such a reply could ship an empty CV. A figure from the candidate's documents is written as part of its own role or project, never as an unrelated sentence. The automatic page shortening keeps at least eight skills and names what it cut on the page card. An acronym and its fixed expansion count as one skill. A second import keeps a role's dates. Two code advisories no longer ask back what another check just removed.
+
 ### Master Profile JSONB Shape
 
 ```json
