@@ -159,6 +159,9 @@ async def test_no_change_answer_reaudits_the_ledger_then_profile_and_recheck_cle
     assert body["still_listed"] is True and body["remove_only"] is True
     [marker] = body["review_state"]["decisions"]
     assert marker["action"] == "no_change" and marker["finding_key"] == key
+    # U-13 (delivery run 5): the reconciler found the fact → the card says
+    # "mit anderen Worten", and says it again after a reload.
+    assert marker["found"] is True
     record = await ra.load_document("cv", cv_id, db)
 
     # the exit the card now offers: the profile, in the person's words → recheck
@@ -168,3 +171,31 @@ async def test_no_change_answer_reaudits_the_ledger_then_profile_and_recheck_cle
     assert r.status_code == 200, r.text
     record = await ra.load_document("cv", cv_id, db)
     assert rs.find_listed(ra.findings_of(record), key) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,found", [("no_change", True), ("conflict", False), ("needs_confirmation", False),
+                                          ("denial_recorded", False)])
+async def test_the_no_change_marker_records_whether_reconcile_found_the_fact(db, status, found):
+    """U-13 (delivery run 5): one true state — the profile names it in other
+    words (reconcile recognised the answer as already there) or it found
+    nothing it could match. The surface reads ``found`` after a reload."""
+    vault = {"work_experience": WORK, "skills": SKILLS}
+    cv_id = await seed_cv(db, introduction=SENTENCE, ats_report=_report_from(_coverage(vault)))
+    record = await ra.load_document("cv", cv_id, db)
+    await _new_vault(db, record, vault)
+    key = rs.finding_key("ats", TERM)
+    with patch.object(ra, "reaudit", new=_ledger_reaudit), \
+            patch("applire.services.profile.reconcile.testimony_bridge.submit_testimony") as submit:
+        submit.return_value = _canned_testimony(status)
+        r = _client(db).post(f"/api/cv/{cv_id}/review/add-evidence", json={"finding_key": key, "text": "Bei Nordlicht."})
+    assert r.status_code == 200, r.text
+    [marker] = r.json()["review_state"]["decisions"]
+    assert marker["action"] == "no_change" and marker["found"] is found
+    record = await ra.load_document("cv", cv_id, db)
+    assert rs.load_state(record.review_state)["decisions"][0]["found"] is found
+
+
+def test_found_is_only_written_when_given():
+    state = rs.with_decision(rs.load_state(None), rs.finding_key("ats", TERM), TERM, "taken_out")
+    assert "found" not in state["decisions"][0]

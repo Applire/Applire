@@ -57,6 +57,8 @@ export interface ReviewDecision {
   undo: { sections: Array<{ section_id: string; before: string }> } | null;
   /** #797 (ruling D2-5): `supported` only — the profile lines that hold the wording. */
   receipt?: Array<{ path: string; text: string }>;
+  /** U-13: `no_change` only — the reconciler found the answer's fact already in the profile. */
+  found?: boolean;
 }
 
 /** ADR-090 cl. 6 — the persisted per-document review state. `null` = none yet. */

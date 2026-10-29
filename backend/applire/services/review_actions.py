@@ -361,7 +361,12 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
             # ADR-099 cl. 6 ("Stimmt das?"): the answer changed nothing in the
             # vault, so the finding stays — the card now offers only
             # "Entfernen". Persisted so a reload shows the same end state.
-            state = rs.with_decision(rs.load_state(record.review_state), key, finding.label, "no_change")
+            # U-13 (delivery run 5): `found` = the reconciler recognised the
+            # answer's fact as already in the profile (testimony `no_change`) —
+            # the profile names it in other words; any other outcome (conflict,
+            # parked question, denial) found nothing it could match.
+            state = rs.with_decision(rs.load_state(record.review_state), key, finding.label, "no_change",
+                                     found=testimony.status == "no_change")
             await _save_state(record, state, db)
     # RULING E-2: the vault changed, so the SIBLING document of the same
     # application is re-audited too — AFTER the pressed document's lock is

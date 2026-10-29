@@ -310,10 +310,14 @@ def with_decision(
     undo_sections: list[dict] | None = None,
     at: str | None = None,
     receipt: list[dict] | None = None,
+    found: bool | None = None,
 ) -> dict:
     """Record ``action`` on ``key``, REPLACING any earlier decision on the same
     finding (its ``undo.before`` is superseded by the new action's, cl. 6).
-    ``receipt`` (``supported`` only): the profile lines that hold the wording."""
+    ``receipt`` (``supported`` only): the profile lines that hold the wording.
+    ``found`` (``no_change`` only, U-13): the reconciler found the answer's fact
+    already in the profile — the card then says the profile names it in other
+    words, never "nicht gefunden"."""
     if action not in ACTIONS:
         raise ValueError(f"unknown action {action!r}")
     split_key(key)
@@ -330,6 +334,8 @@ def with_decision(
     }
     if receipt:
         entry["receipt"] = [{"path": r.get("path"), "text": r.get("text")} for r in receipt]
+    if found is not None:
+        entry["found"] = bool(found)
     out["decisions"].append(entry)
     return out
 

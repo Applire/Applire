@@ -1198,6 +1198,19 @@ export function removeOnly(row: Group1Row): boolean {
  * `fact` = any other unbacked statement (credential, figure, tenure …) → "an
  * der passenden Stelle".
  */
+/**
+ * U-13 (delivery run 5): the ONE true state behind a no-change card. `found` =
+ * the profile holds the answered fact, only not in words the check matches —
+ * the answer was saved (`added`, or this session's testimony applied it) or the
+ * reconciler recognised it as already there (`no_change` with `found`, or this
+ * session's testimony said `no_change`). Otherwise nothing in the profile names it.
+ */
+export function noChangeFound(row: Group1Row, testimonyStatus?: string | null): boolean {
+  if (testimonyStatus) return testimonyStatus === "no_change" || testimonyStatus === "applied" || testimonyStatus === "partial";
+  const d = row.decision;
+  return d?.action === "added" || (d?.action === "no_change" && d.found === true);
+}
+
 export function noChangeExit(row: Group1Row): "skill" | "fact" {
   const item = row.item;
   return item?.kind === "term" || item?.detailKey === "skillNoEvidence" ? "skill" : "fact";

@@ -133,7 +133,7 @@ describe("ADR-099 cl. 6 — one question per resolver, with only its answers", (
     fireEvent.click(screen.getByTestId("review-add-submit"));
     await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
     const card = screen.getByTestId("review-card");
-    expect(within(card).getByTestId("review-card-why").textContent).toContain("an der passenden Stelle");
+    expect(within(card).getByTestId("review-card-why").textContent).toContain("Dein Profil nennt das mit anderen Worten");
     expect(within(card).getByTestId("review-nochange-profile").getAttribute("href")).toBe("/profile");
     expect(within(card).getByTestId("review-nochange-recheck")).toBeTruthy();
     expect(within(card).getByTestId("review-answer-remove").textContent).toContain("Entfernen");
@@ -162,7 +162,7 @@ describe("ADR-099 cl. 6 — one question per resolver, with only its answers", (
     await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
     const card = screen.getByTestId("review-card");
     const why = within(card).getByTestId("review-card-why").textContent ?? "";
-    expect(why).toContain("nicht in diesen Worten");
+    expect(why).toContain("mit anderen Worten");
     expect(why).not.toContain("Es bleibt nur: entfernen.");
     expect(within(card).getByTestId("review-nochange-profile").getAttribute("href")).toBe("/profile");
     fireEvent.click(within(card).getByTestId("review-nochange-recheck"));

@@ -44,6 +44,7 @@ import {
   buildReviewGroups,
   removeOnly,
   noChangeExit,
+  noChangeFound,
   unknownState,
   type Group1Row,
   type UnknownState,
@@ -692,9 +693,15 @@ export function ReviewSurface({
         // statement — the profile, in the person's words, plus a recheck is
         // the action that CAN clear it.
         const skill = noChangeExit(row) === "skill";
+        // U-13 (delivery run 5): ONE statement of the state — the profile names
+        // it in other words, or it does not name it at all (never both).
+        const found = noChangeFound(row, testimony && testimony.key === row.findingKey ? testimony.outcome.status : null);
+        const whyKey = skill
+          ? found ? "delivery.skillOtherWords" : "delivery.skillNotFound"
+          : found ? "delivery.factOtherWords" : "delivery.factNotFound";
         return {
           q: t("delivery.qTrue"),
-          why: skill ? t("delivery.skillNoChange", { skill: row.label }) : t("delivery.factNoChange"),
+          why: t(whyKey, { skill: row.label }),
           answers: (
             <>
               <Link href="/profile" data-testid="review-nochange-profile" className={answerBtn}>
@@ -965,7 +972,7 @@ export function ReviewSurface({
           </div>
         )}
 
-        {currentTestimony && (
+        {currentTestimony && !(row.item?.resolver === "ask_true" && !decided && (removeOnlyKeys.has(row.findingKey) || removeOnly(row))) && (
           <p
             data-testid="review-testimony-result"
             data-status={currentTestimony.status}
