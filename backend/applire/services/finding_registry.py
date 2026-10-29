@@ -64,7 +64,6 @@ RESOLVERS: frozenset[str] = frozenset(
         "unit_input",         # hub unit: the input in place
         "adopt_not_applied",  # hub not_applied: "Übernehmen" per item
         "complete_section",   # hub completeness with field_gaps: "Verbessern"
-        "ask_org_figure",     # hub org_figure (FIG-2): "Gehört <figure> in Deine Unterlagen?" (Ja + Bezug · Nein, weglassen)
     }
 )
 
@@ -638,7 +637,6 @@ REGISTRY.update(
         "health:suspect_binding": Entry("A", "confirm_match"),
         "health:duplicate_entry": Entry("A", "confirm_match"),
         "health:aspiration": Entry("A", "ask_achieved"),  # RULING B-1
-        "health:org_figure": Entry("A", "ask_org_figure"),  # FIG-2
         "health:not_applied": Entry("A", "adopt_not_applied"),
         "health:not_applied_unadoptable": Entry("A", "complete_section"),
         # D-2 — every item is an entry the vault already holds: silent.

@@ -60,23 +60,6 @@ def _omit_empty_alias_lists(data: Any, fields: tuple[str, ...]) -> Any:
     return data
 
 
-class OrgFigureDecision(BaseModel):
-    """FIG-2 (founder ruling, Hazelnut build 5) — the candidate's decision on one
-    organisation-scale figure (company revenue, headcount, market size,
-    funding) that a bullet of this entry carries: does it belong in the
-    documents? ``include=False``: a writer never states the figure on this
-    entry, in any wording. ``include=True``: a writer states it only together
-    with ``relation``, the candidate's own words, stored verbatim (never
-    paraphrased or translated). ``text`` is the bullet that carried it;
-    ``key`` the figure's canonical key (``org_figure.figure_key``)."""
-
-    figure: str
-    include: bool
-    relation: str | None = None
-    text: str
-    key: str
-
-
 # ─── Section sub-models ───────────────────────────────────────────────────────
 
 class ProfessionalSummary(BaseModel):
@@ -294,9 +277,6 @@ class WorkEntry(ExperienceBase):
     #: list is the candidate's testimony about its stance, and a writer phrases
     #: what it names as a goal or an aim, never as a result.
     not_yet_reached: list[str] = Field(default_factory=list)
-    #: FIG-2 — the candidate's decisions on organisation figures this entry's
-    #: bullets carry (``OrgFigureDecision``); omitted while empty.
-    org_figure_decisions: list[OrgFigureDecision] = Field(default_factory=list)
 
     @field_validator("company", mode="before")
     @classmethod
@@ -363,8 +343,7 @@ class WorkEntry(ExperienceBase):
         # RULING B-1: `not_yet_reached` is omitted while empty too, so a
         # profile nobody answered "Nein" for dumps (and prompts) byte-identical.
         return _omit_empty_alias_lists(
-            handler(self),
-            ("company_aliases", "dated_role_aliases", "not_yet_reached", "org_figure_decisions"),
+            handler(self), ("company_aliases", "dated_role_aliases", "not_yet_reached")
         )
 
     industry_context: str | None = None
@@ -866,12 +845,10 @@ class ProjectEntry(ExperienceBase):
     #: project the candidate said are not reached yet; a writer phrases them as
     #: a goal or an aim, never as a result.
     not_yet_reached: list[str] = Field(default_factory=list)
-    #: FIG-2 — as ``WorkEntry.org_figure_decisions``.
-    org_figure_decisions: list[OrgFigureDecision] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")
     def _omit_empty_not_yet_reached(self, handler: Any) -> Any:
-        return _omit_empty_alias_lists(handler(self), ("not_yet_reached", "org_figure_decisions"))
+        return _omit_empty_alias_lists(handler(self), ("not_yet_reached",))
 
     def org_label(self) -> str:
         return self.name
@@ -1634,10 +1611,6 @@ class ProfileMetadata(BaseModel):
     # B-1 — the candidate's answers to "Ist das erreicht?"; an answered bullet
     # is never asked again.
     aspiration_answers: list["AspirationAnswer"] = Field(default_factory=list)
-    # FIG-2 — the model's per-bullet organisation-figure judgement (negatives
-    # too, so a bullet is judged once), judged at the end of a CV import. The
-    # candidate's answer lives on the entry (``org_figure_decisions``).
-    org_figure_verdicts: list["OrgFigureVerdict"] = Field(default_factory=list)
 
 
 class EntryPair(BaseModel):
@@ -1678,21 +1651,6 @@ class AspirationAnswer(BaseModel):
     key: str
     answer: Literal["achieved", "goal"]
     answered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class OrgFigureVerdict(BaseModel):
-    """FIG-2 — one figure-carrying bullet and the model's judgement whether it
-    carries an organisation-scale figure. ``key`` is the bullet's key
-    (``aspiration_key(text)``); ``figure`` the figure as the bullet writes it
-    and ``figure_key`` its canonical key, both ``None`` for a negative."""
-
-    section: Literal["work_experience", "projects"] = "work_experience"
-    entry_id: str
-    key: str
-    text: str
-    figure: str | None = None
-    figure_key: str | None = None
-    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 ProfileMetadata.model_rebuild()
@@ -2293,19 +2251,6 @@ class AspirationAnswerRequest(BaseModel):
     outcome: str | None = Field(default=None, max_length=500)
 
 
-class OrgFigureAnswerRequest(BaseModel):
-    """FIG-2 — ``POST /api/profile/org-figures/answer``: the candidate's answer to
-    "Gehört „<figure>“ in Deine Unterlagen?" for one ``org_figure:<entry id>:<key>``
-    issue. ``include`` requires ``relation`` — the candidate's own words, stored
-    verbatim."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    issue_id: str = Field(min_length=1, max_length=300)
-    include: bool
-    relation: str | None = Field(default=None, max_length=500)
-
-
 class AdoptNotAppliedRequest(BaseModel):
     """UAT-3d — ``POST /api/profile/not-applied/adopt``: one receipt item of the
     hub's ``not_applied:<record id>`` issue, taken into the vault."""
@@ -2379,7 +2324,7 @@ class HealthIssue(BaseModel):
     # "Ist A dasselbe wie B?" with the existing Ja / Nein-getrennt acts.
     thread: Literal[
         "conflict", "accuracy", "confirmation", "unit", "not_applied", "span_provenance",
-        "suspect_binding", "duplicate_entry", "aspiration", "org_figure",
+        "suspect_binding", "duplicate_entry", "aspiration",
     ]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     # A server-built, English-only fallback (kept for any consumer #626
@@ -2522,11 +2467,6 @@ class HealthIssue(BaseModel):
     #: B-1 — ``aspiration`` only: the bullet as written (the candidate's own
     #: words), asked as "Ist das erreicht?"; ``entry_id`` names its entry.
     aspiration_text: str | None = None
-    #: FIG-2 — ``org_figure`` only: the figure as the bullet writes it, the
-    #: bullet, and the entry label ("Role @ Company" / the project name).
-    org_figure: str | None = None
-    org_figure_text: str | None = None
-    org_figure_entry: str | None = None
 
 
 class CompletenessBlock(BaseModel):

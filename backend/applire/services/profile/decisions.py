@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from applire.prompts.profile_decisions import (
-    ORG_FIGURE_SYSTEM,
     ASPIRATION_SYSTEM,
     PRESENT_SYSTEM,
     DUPLICATES_SYSTEM,
@@ -25,7 +24,6 @@ from applire.prompts.profile_decisions import (
     MERGE_SYSTEM,
     REPLY_SYSTEM,
     build_aspiration_prompt,
-    build_org_figure_prompt,
     build_present_prompt,
     build_duplicates_prompt,
     build_identity_prompt,
@@ -353,46 +351,3 @@ async def judge_already_present(
         if any(match in offered.get(sec, set()) for sec in sections):
             out[item] = match
     return out
-
-
-# ── FIG-2: an organisation-scale figure on a bullet ──────────────────────────
-
-
-async def judge_org_figures(provider, bullets: list[str]) -> dict[int, str] | None:
-    """ONE model call: ``{bullet index: the organisation figure as the bullet
-    writes it}``. ``None`` on any failure (nothing is asked then). The judgement
-    is the model's (ADR-062 cl. 1); code keeps only in-range indices whose
-    copied words stand in the bullet and carry a figure (a FACT)."""
-    from applire.services.load_bearing import bullet_carries_figure
-
-    if not bullets:
-        return {}
-    try:
-        with _stage("profile_org_figure"):
-            data = await provider.aparse_json(
-                build_org_figure_prompt(bullets),
-                system=ORG_FIGURE_SYSTEM,
-                temperature=0.0,
-                max_tokens=200 + 24 * len(bullets),
-            )
-    except Exception:  # noqa: BLE001
-        logger.warning("judge_org_figures: model call failed; nothing asked", exc_info=True)
-        return None
-    out: dict[int, str] = {}
-    for item in (data.get("items") if isinstance(data, dict) else None) or []:
-        if not isinstance(item, dict):
-            continue
-        try:
-            i = int(item.get("n")) - 1
-        except (TypeError, ValueError):
-            continue
-        figure = " ".join(str(item.get("figure") or "").split()).strip(" .,;")
-        if not (0 <= i < len(bullets)) or i in out or not figure:
-            continue
-        if figure.casefold() not in " ".join(bullets[i].split()).casefold():
-            continue
-        if not bullet_carries_figure(figure):
-            continue
-        out[i] = figure
-    return out
-

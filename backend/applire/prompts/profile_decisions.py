@@ -166,37 +166,6 @@ def build_aspiration_prompt(bullets: list[str]) -> str:
     return f"Bullets of the current jobs:\n{lines}\nAnswer with the JSON object now."
 
 
-# FIG-2 (founder ruling, Hazelnut build 5): an organisation-scale figure on a
-# bullet: the candidate decides once whether it belongs in the documents.
-ORG_FIGURE_SYSTEM = """You read bullet points of one person's CV profile. Some carry a figure that
-measures the ORGANISATION, not the person's own work: the revenue, profit,
-headcount, market size or share, funding, valuation or customer count of the
-employer, a customer or the whole company. List ONLY those figures.
-
-NEVER listed, however large: the person's own work.
-- a result the person produced: "reduced cost by €2M", "cut release time by 40%",
-  "saved 1,200 hours a year";
-- what the person led, managed or owned: a team ("team of 12"), a budget, a
-  portfolio ("30+ applications"), the sites, users or volume of a system they
-  built or ran ("processing 7,500 orders daily");
-- dates, years, durations, counts of sites or projects, version numbers.
-
-A bullet can hold both; list only the organisation figure. When unsure, do not
-list it.
-
-For each listed figure, copy the figure and the words that say what it
-measures exactly as the bullet writes them ("$4 billion in annual sales"),
-nothing more.
-
-Output ONLY this JSON object: {"items": [{"n": <bullet number>, "figure": "<copied words>"}]}
-(an empty list when none)"""
-
-
-def build_org_figure_prompt(bullets: list[str]) -> str:
-    lines = "\n".join(f"{i + 1}: {b}" for i, b in enumerate(bullets))
-    return f"Bullets:\n{lines}\nAnswer with the JSON object now."
-
-
 PRESENT_SYSTEM = """An import of one person's CV did NOT apply some entries. For each NEW entry,
 decide whether it is the SAME as one of the EXISTING entries of its section:
 the same degree at the same school, the same job, project, certificate, skill

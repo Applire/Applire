@@ -1301,41 +1301,7 @@ class AnswerAspiration(BaseModel):
     outcome: str | None = None
 
 
-class OrgFigureVerdictItem(BaseModel):
-    section: Literal["work_experience", "projects"] = "work_experience"
-    entry_id: str
-    key: str
-    text: str
-    figure: str | None = None
-    figure_key: str | None = None
-
-
-class RecordOrgFigureVerdicts(BaseModel):
-    """FIG-2 — the model's organisation-figure verdicts for figure-carrying
-    bullets, judged once at the end of a CV import — ADAPTER-ONLY bookkeeping.
-    Appends ``metadata.org_figure_verdicts`` (a bullet already judged is kept).
-    Writes nothing in the vault sections."""
-
-    op: Literal["record_org_figure_verdicts"] = "record_org_figure_verdicts"
-    verdicts: list[OrgFigureVerdictItem] = Field(default_factory=list)
-
-
-class AnswerOrgFigure(BaseModel):
-    """FIG-2 — the candidate's answer to "Gehört „<figure>“ in Deine
-    Unterlagen?" — ADAPTER-ONLY. Writes an ``OrgFigureDecision`` (``include``,
-    ``relation`` verbatim) on every entry carrying the figure. Never
-    model-emittable: the answer is the candidate's."""
-
-    op: Literal["answer_org_figure"] = "answer_org_figure"
-    entry_id: str
-    key: str
-    include: bool
-    relation: str | None = None
-
-
-_ADAPTER_ONLY = _ADAPTER_ONLY + (
-    RecordAspirationVerdicts, AnswerAspiration, RecordOrgFigureVerdicts, AnswerOrgFigure,
-)
+_ADAPTER_ONLY = _ADAPTER_ONLY + (RecordAspirationVerdicts, AnswerAspiration)
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
 

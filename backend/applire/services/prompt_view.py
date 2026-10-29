@@ -96,9 +96,6 @@ PROMPT_EXCLUDED_METADATA_KEYS: frozenset[str] = frozenset(
         # reaches it as the entry's own ``not_yet_reached`` list.
         "aspiration_verdicts",
         "aspiration_answers",
-        # FIG-2 — the org-figure verdicts; the candidate's decision a writer
-        # needs reaches it as the entry's own ``org_figure_decisions`` list.
-        "org_figure_verdicts",
     }
 )
 
