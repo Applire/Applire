@@ -4837,6 +4837,7 @@ async def _render_cv_background(
                     chain_id="cv_tailoring",
                     signal_ids=(PINNED_FACT_SIGNAL_ID,),
                     generator_json_schema=loop_schema,
+                    draft_shape_ok=cv_prose_shape_ok,
                 )
                 if pipeline == PIPELINE_V2:
                     from applire.services.cv_v2 import carry_v2_fields
@@ -6154,6 +6155,25 @@ class TerminalReviewResult:
     outcome: "TerminalReviewOutcome | None" = None
 
 
+def cv_prose_shape_ok(draft: Any) -> bool:
+    """D-26 (Hazelnut build 5, r5 bench): the CV corrector's draft has the prose
+    shape — a ``summary`` string, a non-empty ``work`` list of entries with ids, a
+    ``skills`` list. A corrector that answered only ``{"analysis": …}`` was taken as
+    "omitted every work entry" and an EMPTY CV (no summary, no bullet, no skill)
+    shipped on the re-entry bound. A wrong-shape draft is a failed correction:
+    ``review_and_refine`` ships the last known-good draft (the letter's
+    ``letter_shape_ok`` precedent). A shape fact, never a judgement."""
+    if not isinstance(draft, dict):
+        return False
+    work = draft.get("work")
+    return (
+        isinstance(draft.get("summary"), str)
+        and isinstance(draft.get("skills"), list)
+        and isinstance(work, list) and len(work) > 0
+        and all(isinstance(w, dict) and w.get("id") for w in work)
+    )
+
+
 async def _terminal_review(
     record: GeneratedCV,
     db: AsyncSession,
@@ -6547,6 +6567,7 @@ async def _terminal_review(
             signal_ids=(PINNED_FACT_SIGNAL_ID,),
             signal_issues_fn=_terminal_signal_issues,
             on_settle=_record_settle,
+            draft_shape_ok=cv_prose_shape_ok,
             **v2_kwargs,
         )
         if v2 is not None:
