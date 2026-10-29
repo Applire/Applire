@@ -98,6 +98,16 @@ def _build(thread: str) -> MasterProfileData:
             metadata={"aspiration_verdicts": [{
                 "entry_id": "w1", "key": aspiration_key(text), "text": text, "aspiration": True}]},
         ))
+    if thread == "org_figure":  # FIG-2
+        from applire.services.profile.aspiration import aspiration_key
+
+        text = "Built the order platform for a €2.1 billion retailer."
+        return MasterProfileData.model_validate(_blob(
+            work_experience=[_work(responsibilities=[text])],
+            metadata={"org_figure_verdicts": [{
+                "entry_id": "w1", "key": aspiration_key(text), "text": text,
+                "figure": "€2.1 billion retailer", "figure_key": "currency-2100000000"}]},
+        ))
     if thread == "accuracy":
         rec = EnrichmentRecord(
             timestamp=datetime.now(timezone.utc), source="cv_upload", confidence=0.2)
@@ -121,6 +131,7 @@ _EXPECTED = {
     "duplicate_entry": ("A", {"confirm_match"}),
     "not_applied": ("A", {"adopt_not_applied"}),
     "aspiration": ("A", {"ask_achieved"}),
+    "org_figure": ("A", {"ask_org_figure"}),
     "accuracy": ("S", {None}),
 }
 

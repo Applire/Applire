@@ -811,6 +811,11 @@ def apply_ops(
             from applire.services.profile.aspiration import apply_aspiration_op
 
             apply_aspiration_op(op, new_profile, changes)
+        elif getattr(op, "op", None) in ("record_org_figure_verdicts", "answer_org_figure"):
+            # FIG-2 — the org-figure bookkeeping or the candidate's answer.
+            from applire.services.profile.org_figure import apply_org_figure_op
+
+            apply_org_figure_op(op, new_profile, changes)
 
     # MD-30 (adv-own-1/201, 2026-10-05) — the class guard behind the per-op one
     # in `_apply_set_personal_info`: NO op in this vocabulary may change a field
@@ -4183,7 +4188,7 @@ def _repoint_entry_references(profile: MasterProfileData, old: str, new: str) ->
     # ADV-3 (RULING B-1 "ask once") — the aspiration records follow the bullet.
     # A (target, key) twin is harmless: the question is keyed by the bullet text
     # (any positive verdict flags it, any answer settles it).
-    for rec in (*meta.aspiration_verdicts, *meta.aspiration_answers):
+    for rec in (*meta.aspiration_verdicts, *meta.aspiration_answers, *meta.org_figure_verdicts):
         if rec.entry_id == old:
             rec.entry_id = new
     for pairs in (meta.separate_entry_pairs, meta.entry_identity_verdicts):

@@ -290,6 +290,9 @@ _INTERNAL_FIELDS: dict[str, frozenset[str] | None] = {
     # RULING B-1 (Hazelnut build 5) — the candidate's "Nein" on "Ist das
     # erreicht?" (services/profile/aspiration.py); never read off a document.
     "not_yet_reached": frozenset({"work_experience", "projects"}),
+    # FIG-2 (Hazelnut build 5) — the candidate's answer to "Gehört <figure> in
+    # Deine Unterlagen?" (services/profile/org_figure.py); never read off a document.
+    "org_figure_decisions": frozenset({"work_experience", "projects"}),
 }
 
 

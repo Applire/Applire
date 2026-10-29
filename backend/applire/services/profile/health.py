@@ -577,6 +577,30 @@ def _aspiration_issues(profile: MasterProfileData) -> list[HealthIssue]:
     ]
 
 
+def _org_figure_issues(profile: MasterProfileData) -> list[HealthIssue]:
+    """FIG-2 — one ``review`` issue per organisation figure the model flagged on
+    a standing bullet and the candidate has not decided
+    (``org_figure.open_org_figures``). Answered by ``ask_org_figure``."""
+    from applire.services.profile.org_figure import entry_label, issue_id, open_org_figures
+
+    return [
+        HealthIssue(
+            id=issue_id(entry.id, key),
+            thread="org_figure",
+            profile_mismatch_severity="review",
+            summary=f"Does '{figure}' belong in your documents? ({entry_label(entry) or entry.id})",
+            field_ref=section,
+            section=section,
+            entry_id=entry.id,
+            entity_label=_entity_label(entry),
+            org_figure=figure,
+            org_figure_text=text,
+            org_figure_entry=entry_label(entry),
+        )
+        for section, entry, key, text, figure in open_org_figures(profile)
+    ]
+
+
 def _registry_kind(issue: HealthIssue) -> str:
     """The ``health:<kind>`` registry key of one issue (ADR-099)."""
     thread = issue.thread
@@ -614,6 +638,7 @@ def assess_health(
     issues.extend(_suspect_binding_issues(profile))  # FS-5
     issues.extend(_duplicate_entry_issues(profile))  # UAT-3d
     issues.extend(_aspiration_issues(profile))  # RULING B-1
+    issues.extend(_org_figure_issues(profile))  # FIG-2
 
     metadata = profile.metadata
     if metadata is not None:

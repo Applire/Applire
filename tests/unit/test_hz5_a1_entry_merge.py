@@ -584,7 +584,9 @@ def test_a_merge_loses_no_list_field_of_the_source(section):
         n for n, f in model.model_fields.items()
         if typing.get_origin(f.annotation) is list and typing.get_args(f.annotation) != (str,)
     }
-    assert non_str <= {"dated_role_aliases"}, f"decide how a merge treats {non_str}"
+    # FIG-2: ``org_figure_decisions`` (the candidate's answers) is unioned by
+    # the generic list union, item by item (tests/unit/test_hz5_a1_org_figure.py).
+    assert non_str <= {"dated_role_aliases", "org_figure_decisions"}, f"decide how a merge treats {non_str}"
     required = {n: f"{n} value" for n, f in model.model_fields.items() if f.is_required()}
     target = model.model_validate({**required, "id": "ta", **_filled(model, "A")})
     source = model.model_validate({**required, "id": "tb", **_filled(model, "B")})

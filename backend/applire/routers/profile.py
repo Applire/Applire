@@ -930,7 +930,7 @@ async def get_profile_health_endpoint(
 
 
 # ── UAT-3d — the hub's writing one-action resolvers ─────────────────────────
-from applire.schemas.profile import AdoptNotAppliedRequest, AspirationAnswerRequest, HealthUnitRequest  # noqa: E402
+from applire.schemas.profile import AdoptNotAppliedRequest, AspirationAnswerRequest, HealthUnitRequest, OrgFigureAnswerRequest  # noqa: E402
 from applire.services.profile.hub_actions import (  # noqa: E402
     HubEntryNotFound,
     NotAppliedConflict,
@@ -999,6 +999,47 @@ async def answer_aspiration_endpoint(
         raise HTTPException(status_code=409, detail="already_answered")
     except AspirationOutcomeRequired:
         raise HTTPException(status_code=422, detail="outcome_required")
+
+
+from applire.services.profile.org_figure import (  # noqa: E402 — FIG-2
+    OrgFigureAnswered,
+    OrgFigureRelationRequired,
+    OrgFigureStale,
+    answer_org_figure,
+)
+
+
+@router.post(
+    "/org-figures/answer",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def answer_org_figure_endpoint(
+    body: OrgFigureAnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """FIG-2 — "Gehört „<figure>“ in Deine Unterlagen?" for one
+    ``org_figure:<entry>:<key>`` issue. ``include`` + ``relation`` keeps the
+    figure with the candidate's own words (verbatim); not included, the
+    writers leave it out. 404 malformed id or no profile; 409 already answered
+    or stale (the hub treats both as done); 422 include without relation."""
+    try:
+        return await answer_org_figure(
+            db,
+            issue_id=body.issue_id,
+            include=body.include,
+            relation=body.relation,
+            user_id=_uid(current_user),
+        )
+    except OrgFigureRelationRequired:
+        raise HTTPException(status_code=422, detail="relation_required")
+    except OrgFigureAnswered:
+        raise HTTPException(status_code=409, detail="already_answered")
+    except OrgFigureStale:
+        raise HTTPException(status_code=409, detail="stale")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Issue not found")
 
 
 @router.post(

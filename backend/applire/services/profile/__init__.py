@@ -17,6 +17,7 @@
 
 import hashlib
 import json
+import asyncio
 import logging
 import uuid
 
@@ -1881,6 +1882,7 @@ class ApplyMergeOutcome:
 
 
 from applire.services.profile.aspiration import aspiration_verdict_ops  # noqa: E402 — RULING B-1
+from applire.services.profile.org_figure import org_figure_verdict_ops  # noqa: E402 — FIG-2
 
 
 async def _identity_verdict_ops(merged: MasterProfileData, provider: LLMProvider) -> list:
@@ -1982,7 +1984,11 @@ async def _apply_merge(
 
         await mark_already_present(list(enrichment.not_applied), merged, provider)
         verdict_ops = await _identity_verdict_ops(merged, provider)  # U-9
-        verdict_ops += await aspiration_verdict_ops(merged, provider)  # RULING B-1
+        # RULING B-1 + FIG-2 — two independent import-end judgements, one call each.
+        _asp_ops, _fig_ops = await asyncio.gather(
+            aspiration_verdict_ops(merged, provider), org_figure_verdict_ops(merged, provider)
+        )
+        verdict_ops += _asp_ops + _fig_ops
         committed = await commit_ops(
             db,
             [
@@ -2035,7 +2041,11 @@ async def _apply_merge(
         last_updated=now,
     )
     verdict_ops = await _identity_verdict_ops(incoming, provider)  # U-9
-    verdict_ops += await aspiration_verdict_ops(incoming, provider)  # RULING B-1
+    # RULING B-1 + FIG-2 — two independent import-end judgements, one call each.
+    _asp_ops, _fig_ops = await asyncio.gather(
+        aspiration_verdict_ops(incoming, provider), org_figure_verdict_ops(incoming, provider)
+    )
+    verdict_ops += _asp_ops + _fig_ops
     committed = await commit_ops(
         db,
         [
