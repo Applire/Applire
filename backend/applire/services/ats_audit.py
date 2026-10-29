@@ -1873,15 +1873,39 @@ def _keyword_coverage(
                 any(keyword_matches(d, x, ledger) for d in present_denied) for x in sents
             ):
                 present_unsupported_in_denial.append(k)
-        if present_unsupported_in_denial:
-            moved = set(present_unsupported_in_denial)
-            present_unsupported = [k for k in present_unsupported if k not in moved]
-            present_unsupported_employer_sentence = [
-                k for k in present_unsupported_employer_sentence if k not in moved
-            ]
-            present_unsupported_sentences = {
-                k: v for k, v in present_unsupported_sentences.items() if k not in moved
-            }
+    # D-4b (Hazelnut build 5, delivery run 4): the candidate's own denial
+    # sentence ("I have not built CI/CD pipelines or other cloud or DevOps
+    # capabilities.", "I have no experience with AI programming assistants …")
+    # carried a card about the very term it denies. The co-occurrence test
+    # above needs a ledger-denied JD keyword in the sentence, and the cover
+    # needs the recorded denial in the document's language. A term whose every
+    # matched form, in every claim sentence, stands in a negation's scope
+    # (`form_in_denial_segment`, a token-position fact) is not claimed at all —
+    # on a letter of a candidate who has recorded limits, it is the limit.
+    if non_claim and non_claim.employer_clause and denied_concepts:
+        from applire.services.oracle.extract import form_in_denial_segment
+
+        for k in present_unsupported:
+            if k in present_unsupported_in_denial:
+                continue
+            sents = present_unsupported_sentences.get(k) or []
+            # A stem-only hit has no literal form to locate: it stays (safe side).
+            forms = [m.form for m in claim_matches.get(k) or [] if m.form and not m.stem] or [k]
+            if sents and all(
+                any(form_in_denial_segment(x, f) for f in forms)
+                and not any(_form_outside_denial(x, f) for f in forms)
+                for x in sents
+            ):
+                present_unsupported_in_denial.append(k)
+    if present_unsupported_in_denial:
+        moved = set(present_unsupported_in_denial)
+        present_unsupported = [k for k in present_unsupported if k not in moved]
+        present_unsupported_employer_sentence = [
+            k for k in present_unsupported_employer_sentence if k not in moved
+        ]
+        present_unsupported_sentences = {
+            k: v for k, v in present_unsupported_sentences.items() if k not in moved
+        }
     return ATSKeywordCoverage(
         present=present,
         missing=missing,
@@ -1898,6 +1922,15 @@ def _keyword_coverage(
         present_unsupported_employer_sentence=present_unsupported_employer_sentence,
         present_unsupported_sentences=present_unsupported_sentences,
         present_unsupported_in_denial=present_unsupported_in_denial,
+    )
+
+
+def _form_outside_denial(sentence: str, form: str) -> bool:
+    """The form occurs in ``sentence`` at least once OUTSIDE a negation's scope."""
+    from applire.services.oracle.extract import form_in_denial_segment
+
+    return bool(re.search(rf"(?<!\w){re.escape(form)}(?!\w)", sentence, re.IGNORECASE)) and (
+        not form_in_denial_segment(sentence, form)
     )
 
 
