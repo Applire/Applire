@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import copy
 import hashlib
 import json
 import logging
@@ -1597,6 +1598,8 @@ async def ingest_cv(
         system=recipe.system,
         user_prompt=recipe.build_user_prompt(raw_text),
     )
+    # D-24 — the first extraction's dates, kept to bound the review's remedy.
+    first_draft = copy.deepcopy(data)
     data = await review_and_refine(
         source=raw_text,
         draft=data,
@@ -1610,6 +1613,12 @@ async def ingest_cv(
         chain_id=recipe.chain_id,
         on_settle=_settled.append,
     )
+    # D-24 (Hazelnut build 5) — a date the review removed or changed although
+    # its year stands in the source near the entry is restored (a FACT bound
+    # on the corrector; a fabricated year's removal stands).
+    from applire.services.profile.extraction_dates import keep_source_dates
+
+    keep_source_dates(first_draft, data, raw_text)
     # 783:L41 (ADR-021 amended 2026-10-20) — the loop's own settle report,
     # recorded on the import receipt and response instead of a log line only.
     extraction_review = (
