@@ -43,6 +43,7 @@ import {
   buildDeliveryView,
   buildReviewGroups,
   removeOnly,
+  noChangeExit,
   unknownState,
   type Group1Row,
   type UnknownState,
@@ -684,25 +685,28 @@ export function ReviewSurface({
 
     if (resolver === "ask_true") {
       const onlyRemove = removeOnlyKeys.has(row.findingKey) || removeOnly(row);
-      if (onlyRemove && row.item?.detailKey === "skillNoEvidence") {
-        // D-10: a skill the producer grounds by its own words. "Entfernen" must
-        // never be the only exit for a true skill — the profile, in the
-        // person's words, plus a recheck is the action that CAN clear it.
+      if (onlyRemove) {
+        // U-13 (D-10 generalised to every class-A "Stimmt das?" card): the
+        // answer changed nothing, and the re-audit of the card's own producer
+        // still lists it. "Entfernen" must never be the only exit for a true
+        // statement — the profile, in the person's words, plus a recheck is
+        // the action that CAN clear it.
+        const skill = noChangeExit(row) === "skill";
         return {
           q: t("delivery.qTrue"),
-          why: t("delivery.skillNoChange", { skill: row.label }),
+          why: skill ? t("delivery.skillNoChange", { skill: row.label }) : t("delivery.factNoChange"),
           answers: (
             <>
-              <Link href="/profile" data-testid="review-skill-profile" className={answerBtn}>
+              <Link href="/profile" data-testid="review-nochange-profile" className={answerBtn}>
                 <CornerDownRight className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>
                   {t("delivery.skillToProfile")}
-                  <span className={sub}>{t("delivery.skillToProfileSub")}</span>
+                  <span className={sub}>{t(skill ? "delivery.skillToProfileSub" : "delivery.factToProfileSub")}</span>
                 </span>
               </Link>
               <button
                 type="button"
-                data-testid="review-skill-recheck"
+                data-testid="review-nochange-recheck"
                 disabled={busy !== null || !documentId}
                 onClick={() => void runRecheck()}
                 className={answerBtn}
@@ -713,13 +717,6 @@ export function ReviewSurface({
               {removeButton(row, "remove", false)}
             </>
           ),
-        };
-      }
-      if (onlyRemove) {
-        return {
-          q: t("delivery.qTrue"),
-          why: t("delivery.noChange"),
-          answers: removeButton(row, "remove", false),
         };
       }
       return {

@@ -118,7 +118,7 @@ describe("ADR-099 cl. 6 — one question per resolver, with only its answers", (
     expect(count()).toBe("1");
   });
 
-  it("ask_true: an answer that did not change the profile leaves only „Entfernen“", async () => {
+  it("ask_true: an answer that did not change the profile offers profile + recheck + remove (U-13), never remove alone", async () => {
     api.addEvidence.mockResolvedValue({
       testimony: { status: "no_change", changes: [] },
       remove_only: true,
@@ -133,7 +133,9 @@ describe("ADR-099 cl. 6 — one question per resolver, with only its answers", (
     fireEvent.click(screen.getByTestId("review-add-submit"));
     await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
     const card = screen.getByTestId("review-card");
-    expect(within(card).getByTestId("review-card-why").textContent).toContain("Es bleibt nur: entfernen.");
+    expect(within(card).getByTestId("review-card-why").textContent).toContain("an der passenden Stelle");
+    expect(within(card).getByTestId("review-nochange-profile").getAttribute("href")).toBe("/profile");
+    expect(within(card).getByTestId("review-nochange-recheck")).toBeTruthy();
     expect(within(card).getByTestId("review-answer-remove").textContent).toContain("Entfernen");
     expect(api.addEvidence).toHaveBeenCalledWith("cv", "cv-1", expect.any(String), "Bei Nordwind, 2021.");
   });
@@ -162,8 +164,8 @@ describe("ADR-099 cl. 6 — one question per resolver, with only its answers", (
     const why = within(card).getByTestId("review-card-why").textContent ?? "";
     expect(why).toContain("nicht in diesen Worten");
     expect(why).not.toContain("Es bleibt nur: entfernen.");
-    expect(within(card).getByTestId("review-skill-profile").getAttribute("href")).toBe("/profile");
-    fireEvent.click(within(card).getByTestId("review-skill-recheck"));
+    expect(within(card).getByTestId("review-nochange-profile").getAttribute("href")).toBe("/profile");
+    fireEvent.click(within(card).getByTestId("review-nochange-recheck"));
     await waitFor(() => expect(api.recheckDocument).toHaveBeenCalledWith("cv", "cv-1"));
     expect(within(card).getByTestId("review-answer-remove")).toBeTruthy();
   });
