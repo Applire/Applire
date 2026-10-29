@@ -302,12 +302,47 @@ _COUNTRY_SEGMENTS = frozenset({
     "germany", "deutschland", "de", "austria", "österreich", "oesterreich", "at",
     "switzerland", "schweiz", "suisse", "svizzera", "ch", "liechtenstein", "li",
 })
+#: Dateline (build 5 run 5, 4/4 panelists): "Mainz, Rheinland-Pfalz, Deutschland"
+#: was dated "Rheinland-Pfalz, 29 October 2026" — the last non-country segment was
+#: the STATE. A closed list of DACH states/regions that are no city (the city-states
+#: Berlin, Hamburg, Bremen, Wien and cantons named like their capital — Zürich,
+#: Bern, Basel, Luzern, Salzburg … — are deliberately absent: they ARE places).
+_REGION_SEGMENTS = frozenset({
+    # Germany (DE + EN spellings, common abbreviations)
+    "baden-württemberg", "baden-wuerttemberg", "bw", "bayern", "bavaria", "by",
+    "brandenburg", "hessen", "hesse", "mecklenburg-vorpommern",
+    "mecklenburg-western pomerania", "mv", "niedersachsen", "lower saxony", "nds",
+    "nordrhein-westfalen", "north rhine-westphalia", "nrw", "rheinland-pfalz",
+    "rhineland-palatinate", "rlp", "saarland", "sachsen", "saxony", "sachsen-anhalt",
+    "saxony-anhalt", "schleswig-holstein", "sh", "thüringen", "thueringen", "thuringia",
+    # Austria
+    "niederösterreich", "niederoesterreich", "lower austria", "oberösterreich",
+    "oberoesterreich", "upper austria", "steiermark", "styria", "tirol", "tyrol",
+    "kärnten", "kaernten", "carinthia", "vorarlberg", "burgenland",
+    # Switzerland (cantons not named like a city)
+    "aargau", "thurgau", "graubünden", "graubuenden", "grisons", "wallis", "valais",
+    "tessin", "ticino", "waadt", "vaud", "obwalden", "nidwalden", "basel-landschaft",
+    "basel-land", "appenzell ausserrhoden", "appenzell innerrhoden",
+})
+#: A segment naming an area, not a place ("Rhein-Main-Gebiet", "Greater Munich
+#: Metropolitan Area", "Metropolregion Nürnberg").
+_REGION_WORDS = re.compile(r"\b(?:region|metropolregion|gebiet|area|bezirk|landkreis|kreis|kanton|canton|county|state|bundesland)\b", re.IGNORECASE)
 _POSTCODE = re.compile(r"^(?:[A-Z]{1,2}-)?\d{4,5}\s+")
+
+
+def _not_a_place(segment: str) -> bool:
+    folded = segment.casefold()
+    return (
+        folded in _COUNTRY_SEGMENTS or folded in _REGION_SEGMENTS
+        or bool(_REGION_WORDS.search(segment))
+    )
 
 
 def date_line_place(location: str | None) -> str | None:
     """The place of a DIN 5008 ``Ort, Datum`` line from a recorded location: the
-    last comma segment that is not a country, without a leading postcode —
+    last comma segment that is not a country, a state or an area, without a
+    leading postcode ("Mainz, Rheinland-Pfalz, Deutschland" → "Mainz"; a location
+    naming no city → ``None``, the line is the date alone) —
     "Frankfurt am Main, Germany" → "Frankfurt am Main", "Maximilianstraße 12,
     80539 München" → "München". A cut of the recorded string, never a lookup;
     ``None`` when nothing is left. Shared by the letter's date line and the CV's
@@ -316,7 +351,10 @@ def date_line_place(location: str | None) -> str | None:
     if not isinstance(location, str):
         return None
     segments = [seg.strip() for seg in location.split(",") if seg.strip()]
-    while len(segments) > 1 and segments[-1].casefold() in _COUNTRY_SEGMENTS:
+    # Dateline (build 5 run 5): a country, a state or an area is never the place
+    # of the line — when the recorded location names no city the line is the date
+    # alone (FACT: a closed-list cut of the recorded string, never a lookup).
+    while segments and _not_a_place(_POSTCODE.sub("", segments[-1]).strip()):
         segments.pop()
     if not segments:
         return None

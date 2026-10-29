@@ -78,17 +78,18 @@ def test_ladder_cuts_in_the_founders_order_and_names_every_cut():
     steps = list(ladder_steps(_heavy(), _tier))
     kinds = [s.cut.kind for s in steps]
     assert kinds == [
-        DUPLICATE_PROJECT, OFF_JOB_SKILLS,
+        DUPLICATE_PROJECT, OFF_JOB_SKILLS, OFF_JOB_SKILLS,
         OLDEST_CERTIFICATION, OLDEST_CERTIFICATION, OLDEST_CERTIFICATION,
         OLDEST_CERTIFICATION, OLDEST_EDUCATION, OLDEST_EDUCATION,
     ]
     assert steps[0].cut.items == ("MES-Einführung",)
-    assert steps[1].cut.items == ("Kosmetik-Verpackungen", "Golf")
+    # D-23: off-job chips go one slice at a time, the lowest-ranked (last) first
+    assert [s.cut.items for s in steps[1:3]] == [("Golf",), ("Kosmetik-Verpackungen",)]
     # oldest first: 2008, 2013, 2015, 2019
-    assert [s.cut.items[0] for s in steps[2:6]] == [
+    assert [s.cut.items[0] for s in steps[3:7]] == [
         "Erste Hilfe", "REFA-Grundschein", "Sicherheitsbeauftragter", "Six Sigma Green Belt",
     ]
-    assert [s.cut.items[0] for s in steps[6:]] == [
+    assert [s.cut.items[0] for s in steps[7:]] == [
         "Hauptschulabschluss — Hauptschule", "Realschulabschluss — Realschule",
     ]
     final = steps[-1].data
@@ -230,7 +231,10 @@ async def _measure(cv, db, *, target, condense=False, page_ladder=True):
 
 
 @pytest.mark.asyncio
-async def test_measure_holds_the_delivery_at_target_plus_one(db):
+async def test_measure_holds_the_delivery_at_target_plus_one(db, monkeypatch):
+    # The skills rung's own floor (D-23) is pinned in test_d23_*; here the
+    # fixture's 5 chips must stay cuttable to exercise the order.
+    monkeypatch.setattr("applire.services.cv_page_ladder.AUTO_SKILL_FLOOR", 0)
     cv = await _seed(db, target_pages=2)
     assert _volume_pages(cv)() == 5, "fixture must start well over target + 1"
     measured = await _measure(cv, db, target=2)
@@ -275,10 +279,12 @@ def test_pin_predicate_protects_an_active_cv_skill_pin():
 
 
 @pytest.mark.asyncio
-async def test_the_page_length_finding_names_every_ladder_cut(db):
+async def test_the_page_length_finding_names_every_ladder_cut(db, monkeypatch):
     """Seam: generation's audit (``_update_ats_report`` fed the measurement) carries
     the cuts into the page-length row — the founder's "name each cut"."""
     from applire.services.cv import _update_ats_report
+
+    monkeypatch.setattr("applire.services.cv_page_ladder.AUTO_SKILL_FLOOR", 0)
 
     cv = await _seed(db, target_pages=2)
     measured = await _measure(cv, db, target=2)

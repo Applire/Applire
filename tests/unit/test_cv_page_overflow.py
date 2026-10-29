@@ -306,7 +306,7 @@ async def test_status_carries_the_decision_without_the_data_copies(client, db, m
         "target": 2, "actual": 4, "full_pages": 4,
         "proposed": [{"kind": "oldest_certification", "items": ["Cert 2010", "Cert 2011", "Cert 2012", "Cert 2013"]}],
         "choice": None, "cut_available": True, "uncut_available": False,
-        "reaches_target": True, "cut_pages": 2,
+        "reaches_target": True, "cut_pages": 2, "auto_cuts": [],
     }
 
 

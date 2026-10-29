@@ -2797,6 +2797,8 @@ def skill_jd_tier_fn(
     def _matches(skill_toks: frozenset[str], term_toks: list[frozenset[str]]) -> bool:
         return any(_relevant(skill_toks, t) for t in term_toks)
 
+    evidence_texts = _ledger_evidence_texts(keyword_ledger)
+
     def _tier(skill: str) -> int:
         st = skill_tokens(skill)
         if not st:
@@ -2807,9 +2809,54 @@ def skill_jd_tier_fn(
             return 1
         if _matches(st, kw_toks):
             return 2
+        # D-23 (Hazelnut build 5 run 5): a posting that asks for "AI agents" and
+        # "developer tooling" never spells "Python", "LangChain" or "Docker", so a
+        # literal term match put an AI engineer's whole stack in tier 3 and the
+        # page ladder cut it. The ledger already NAMED those chips as the
+        # candidate's evidence for the posting's terms ("… using LangGraph/
+        # LangChain"); a chip the ledger's claimable evidence names verbatim is
+        # relevant to this job — keyword tier, below every direct term match
+        # (ADR-062 cl. 1: a string occurrence in a stored record, no judgement).
+        if _named_in_evidence(skill, evidence_texts):
+            return 2
         return 3
 
     return _tier
+
+
+def _ledger_evidence_texts(keyword_ledger: list[dict] | None) -> list[str]:
+    """D-23: the evidence lines of the CLAIMABLE ledger rows (a gap/denial row's
+    text never makes a chip relevant), lower-cased for the whole-word search."""
+    texts: list[str] = []
+    for entry in keyword_ledger or []:
+        if not isinstance(entry, dict) or not entry.get("claimable"):
+            continue
+        for key in ("evidence", "adjacent_evidence"):
+            val = entry.get(key)
+            if isinstance(val, str) and val.strip():
+                texts.append(val.lower())
+    return texts
+
+
+_PAREN_RE = re.compile(r"\(([^()]*)\)")
+
+
+def _named_in_evidence(skill: str, texts: list[str]) -> bool:
+    """D-23: the chip — whole, without its parenthetical, or the parenthetical
+    alone ("Model Context Protocol (MCP)") — occurs as a whole word in one of
+    ``texts``. Forms shorter than two characters never match."""
+    if not texts or not isinstance(skill, str):
+        return False
+    base = _PAREN_RE.sub(" ", skill)
+    forms = {skill, base, *(_PAREN_RE.findall(skill))}
+    for form in forms:
+        f = " ".join(form.split()).lower()
+        if len(f) < 2:
+            continue
+        pat = re.compile(r"(?<![\w])" + re.escape(f) + r"(?![\w])")
+        if any(pat.search(t) for t in texts):
+            return True
+    return False
 
 
 def _tailor_skills_to_jd(
@@ -4790,6 +4837,7 @@ async def _render_cv_background(
                     chain_id="cv_tailoring",
                     signal_ids=(PINNED_FACT_SIGNAL_ID,),
                     generator_json_schema=loop_schema,
+                    draft_shape_ok=_cv_prose_shape_ok,
                 )
                 if pipeline == PIPELINE_V2:
                     from applire.services.cv_v2 import carry_v2_fields
@@ -5603,7 +5651,7 @@ async def _apply_page_ladder(
     each ``tailored_data`` write (amendment §2, as the condense loop does).
     Returns the final (text, count, applied cuts)."""
     from applire.services.ats_audit import extract_text_and_pages
-    from applire.services.cv_page_ladder import ladder_steps, merge_cuts
+    from applire.services.cv_page_ladder import AUTO_SKILL_FLOOR, ladder_steps, merge_cuts
     from applire.services.cv_section_editor import build_content_snapshot
 
     limit = condense_ctx.target + 1
@@ -5612,6 +5660,8 @@ async def _apply_page_ladder(
     for step in ladder_steps(
         record.tailored_data, condense_ctx.skill_tier,
         pinned=_ladder_pin_predicate(condense_ctx.pins),
+        # D-23: the automatic ladder never empties the skills section.
+        skill_floor=AUTO_SKILL_FLOOR,
     ):
         if count <= limit:
             break
@@ -5707,6 +5757,9 @@ async def _propose_page_cut(
         "full_data": None,
         "reaches_target": reached is not None,
         "cut_pages": cut_pages,
+        # D-23 (ADR-099: no silent automatic cut): what the automatic target + 1
+        # ladder already removed from THIS render, so the card can name it.
+        "auto_cuts": merge_cuts(list(measured.ladder_cuts or ())),
     }
     logger.info(
         "PAGE_OVERFLOW_PROPOSAL cv_id=%s target=%d actual=%d reachable=%s cut_pages=%s cuts=%s",
@@ -5775,6 +5828,9 @@ def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = Non
         # reachable); None on a proposal stored before the field (it reached).
         "reaches_target": po.get("reaches_target", True if po.get("cut_data") else None),
         "cut_pages": po.get("cut_pages", po.get("target") if po.get("cut_data") else None),
+        # D-23: what the automatic ladder cut before the card was shown ([] on
+        # older rows and when nothing was cut).
+        "auto_cuts": po.get("auto_cuts") or [],
     }
 
 
@@ -6097,6 +6153,25 @@ class TerminalReviewResult:
     # earlier exhaustion that already shipped content. `None` only when the review
     # layer produced no settle at all. Reported as the ADR-039 `terminal-review` check.
     outcome: "TerminalReviewOutcome | None" = None
+
+
+def _cv_prose_shape_ok(draft: Any) -> bool:
+    """D-26 (Hazelnut build 5, r5 bench): the CV corrector's draft has the prose
+    shape — a ``summary`` string, a non-empty ``work`` list of entries with ids, a
+    ``skills`` list. A corrector that answered only ``{"analysis": …}`` was taken as
+    "omitted every work entry" and an EMPTY CV (no summary, no bullet, no skill)
+    shipped on the re-entry bound. A wrong-shape draft is a failed correction:
+    ``review_and_refine`` ships the last known-good draft (the letter's
+    ``letter_shape_ok`` precedent). A shape fact, never a judgement."""
+    if not isinstance(draft, dict):
+        return False
+    work = draft.get("work")
+    return (
+        isinstance(draft.get("summary"), str)
+        and isinstance(draft.get("skills"), list)
+        and isinstance(work, list) and len(work) > 0
+        and all(isinstance(w, dict) and w.get("id") for w in work)
+    )
 
 
 async def _terminal_review(
@@ -6492,6 +6567,7 @@ async def _terminal_review(
             signal_ids=(PINNED_FACT_SIGNAL_ID,),
             signal_issues_fn=_terminal_signal_issues,
             on_settle=_record_settle,
+            draft_shape_ok=_cv_prose_shape_ok,
             **v2_kwargs,
         )
         if v2 is not None:
