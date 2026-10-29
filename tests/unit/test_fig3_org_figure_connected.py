@@ -37,3 +37,19 @@ def test_every_reviewer_keeps_the_connection_and_flags_the_split():
         assert "never flag or split it" in p
         assert 'in a sentence of its own or "separately", or taken from another entry, is a finding' in p
         assert "scale of the operation" not in p  # the framing that drove the split
+        # D-20 (r5 bench, ~4 of 30 rounds): the joined wording was still flagged as an
+        # overstatement, whatever its word order — the subject + the profile's own relation
+        assert "in a sentence whose subject is that work or the candidate" in p
+        assert "with the profile's own relation" in p
+
+
+def test_one_home_per_fact_at_the_writer_and_the_corrector():
+    """D-20 (r5 bench + panel: "the project restates the role"): the vault holds the
+    same work in an entry line AND its nested project; the home is the project."""
+    for prompt in (cv_tailoring.SYSTEM_PROMPT, cv_tailoring.V2_SYSTEM_PROMPT):
+        p = _flat(prompt)
+        assert "never duplicated into the entry's bullets" in p
+        assert "state the same work or result, write it in the project only" in p
+    corrector = _flat(cv_tailoring.V2_TAILORING_REFINEMENT_PROMPT)
+    assert "keep it in the project's bullets and remove it from the entry's bullets" in corrector
+    assert "Never drop the project for it" in corrector
