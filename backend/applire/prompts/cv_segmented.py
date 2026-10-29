@@ -68,9 +68,11 @@ _CORE_RULES = """\
   defensible is exactly what stops any other check catching it.
   Claim only as much agency as the source statement itself gives the candidate (#289): an
   ORGANISATION-SCALE figure — the employer's or unit's revenue, headcount, portfolio, user base,
-  as opposed to a result the candidate's own work produced — is the setting the work happened in.
-  State the relationship the source states, or name it as the scale of the operation; never fuse
-  it to the candidate's own action verb and leave the causation to the reader. Framing only:
+  as opposed to a result the candidate's own work produced. Held in the SAME entry as the work,
+  connect the two in one sentence ("contributed to the company's €X revenue by rolling out …"),
+  no adjective the source lacks; never a sentence of its own or "separately", never their
+  result, never a figure from another entry, never fused to their verb with the causation left
+  to the reader. Framing only:
   never drop the figure, a line vaguer than the truth is the opposite defect.
 - Output language: write ALL prose in the OUTPUT LANGUAGE stated in the user message,
   translating from the source where needed (translating is not inventing). The test for any

@@ -2218,10 +2218,21 @@ async def _verify_claim_unchecked(
         # figure so an ambient same-role year can never launder a foreign
         # achievement figure. Years are exempt entirely (tenure-ambient: date
         # spans and "since 20XX" phrasing overlap across positions).
+        #
+        # FIG-3 (founder ruling, Hazelnut build 5): on a CV bullet the rendered
+        # entry is explicit (``TailoredWorkEntry.id``), so a figure is checked
+        # against THAT entry's own evidence (its nested projects carry its id)
+        # without the same-employer escape. The escape exists for a letter
+        # sentence anchored by name, where "At BioNTech" cannot say which
+        # tenure. A figure the vault holds only under another entry — even at
+        # the same company — is misattributed under this one; held in both, it
+        # is grounded under either. A fact: digits and units + entry ownership.
         for fig, fig_units in fig_match.matched:
             if fig.kind == "year":
                 continue
-            flag = _attribution_red_flag(attribution_id, fig_units, idx)
+            flag = _attribution_red_flag(
+                attribution_id, fig_units, None if claim.kind == "bullet" else idx
+            )
             if flag is not None:
                 return flag
         # ── 2c. unattributable figure (unanchored letter claim, #243-adjacent)
