@@ -50,6 +50,7 @@ from applire.services.profile.commit import (
 )
 from applire.services.profile.entity_label import label_for
 from applire.services.profile.reconcile.engine import reconcile
+from applire.services.profile.reconcile.restatement import hold_back_restatements
 from applire.utils.display import format_display_value
 
 _SOURCE = "interview"
@@ -169,10 +170,17 @@ async def reconcile_interview_turn(
     before = MasterProfileData.model_validate(profile_record.profile_json)
     new_info = {"gap": gap, "question": question, "answer": answer}
     result = await reconcile(before, new_info, _SOURCE, provider, lang)
+    # D-17 (Hazelnut build 5, ADR-046 + ADR-063 amended) — the import's
+    # restatement check on this door too: an answer that retells a held fact
+    # comes back as new bullets onto the entry that holds it, and the reconcile
+    # prompt's "not a SECOND TIME" rule does not stop it (delivery run 3: 4 of
+    # 5 write-back turns). One small call, only when a turn adds bullets to an
+    # entry that already holds some; fail-open; nothing held is touched.
+    ops, restated = await hold_back_restatements(before, result.ops, provider)
 
     committed = await commit_ops(
         db,
-        result.ops,
+        ops,
         CommitProvenance(
             source=record_source,
             intake=intake,
@@ -203,6 +211,7 @@ async def reconcile_interview_turn(
         # ADR-063 amendment (5) — an interview turn snapshots NOTHING. Ten of
         # them would otherwise evict the import snapshot the undo exists for.
         snapshot=None,
+        restated=restated,
     )
 
     # The POST-commit profile: a conflict was flagged against the entity this

@@ -622,10 +622,13 @@ def assess_health(
             for c in metadata.pending_conflicts
             if not c.resolved
         )
+        from applire.services.profile.reconcile.project_parent import parked_ask_is_redundant
+
         issues.extend(
             _confirmation_issue(c)
             for c in metadata.pending_confirmations
-            if not c.resolved
+            # D-16 — a project-parent ask whose project is attached is silent.
+            if not c.resolved and not parked_ask_is_redundant(c.context, profile)
         )
         for record in metadata.enrichment_history:
             issue = _accuracy_issue(record)

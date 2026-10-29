@@ -152,3 +152,104 @@ async def test_the_hub_answers_it_in_place_in_the_readers_language():
 
     assert issue.question_i18n["de"].startswith("Zu welcher Position")
     assert issue.options and [o["de"] for o in issue.options_i18n][1].endswith("heute)")
+
+
+# ── D-16 (delivery run 3) — an ask about an already-attached project ─────────
+
+
+class _AskerShape3:
+    """The run-3 shape: no section, no handles in the options, the work id in
+    the context. In ``ops`` or in ``ambiguities``."""
+
+    def __init__(self, where="ambiguities", options=None):
+        self.where = where
+        self.options = options or ["The Nordwerk experience", "Systems Engineer role", "Both / different project"]
+
+    async def aparse_json(self, prompt, **kw):
+        ask = {
+            "op": "request_confirmation",
+            "question": f"Does the 2020-12 to 2021-07 project “{PROJECT}” belong under the Nordwerk experience or the Systems Engineer role?",
+            "options": self.options,
+            "context": {"project": PROJECT, "existing_work_id": "id_w1", "project_dates": "2020-12 to 2021-07"},
+        }
+        if self.where == "ops":
+            return {"ops": [ask], "ambiguities": [], "denials": []}
+        return {"ops": [], "ambiguities": [ask], "denials": []}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("where", ["ambiguities", "ops"])
+async def test_an_ask_about_a_project_already_attached_to_a_held_position_is_not_raised(where):
+    from applire.services.profile.reconcile.ops import RequestConfirmation
+
+    result = await reconcile(_profile(assoc=W1), {"answer": "x"}, "cv_upload", _AskerShape3(where), "de")
+
+    assert result.ambiguities == []
+    assert not [o for o in result.ops if isinstance(o, RequestConfirmation)]
+
+
+@pytest.mark.asyncio
+async def test_the_same_ask_about_a_project_held_under_a_company_string_is_still_asked():
+    result = await reconcile(_profile(assoc="Nordwerk AG"), {"answer": "x"}, "cv_upload", _AskerShape3(), "de")
+
+    [rc] = result.ambiguities
+    assert rc.option_keys == []  # no handles to bind on: the model's own ask (residual)
+
+
+@pytest.mark.asyncio
+async def test_a_section_less_ask_with_handles_is_rebuilt():
+    result = await reconcile(
+        _profile(), {"answer": "x"}, "cv_upload",
+        _AskerShape3(options=["Systems Engineer (id_w1)", "Head of Lab Systems (id_w2)"]), "de",
+    )
+
+    [rc] = result.ambiguities
+    assert rc.option_keys == [f"entry:{W1}", f"entry:{W2}"]
+    assert rc.question_i18n["de"].startswith("Zu welcher Position")
+
+
+def test_a_parked_ask_about_an_attached_project_is_not_shown_on_the_hub():
+    from applire.services.profile.health import assess_health
+
+    profile = _profile(assoc=W1)
+    profile.metadata = ProfileMetadata(pending_confirmations=[PendingConfirmation(
+        confirmation_id="c-3", question="Does the project belong under …?", options=["A", "B"],
+        context={"project": PROJECT, "existing_work_id": "id_w1"},
+    )])
+    assert not [i for i in assess_health(profile).issues if i.thread == "confirmation"]
+
+    profile.projects[0].associated_experience = "Nordwerk AG"  # not attached to a held position
+    assert [i.thread for i in assess_health(profile).issues if i.thread == "confirmation"] == ["confirmation"]
+
+
+class _ImportAsker(_AskerShape3):
+    """Delivery run 3 exactly: the import brings the project in, places it
+    under a held position AND asks where it belongs, in one batch."""
+
+    def __init__(self, parent="id_w1"):
+        super().__init__()
+        self.parent = parent
+
+    async def aparse_json(self, prompt, **kw):
+        data = await super().aparse_json(prompt, **kw)
+        data["ops"] = [{"op": "upsert_project", "ref": "p9", "name": PROJECT, "parent": self.parent,
+                        "start_date": "2020-12", "end_date": "2021-07"}]
+        return data
+
+
+@pytest.mark.asyncio
+async def test_an_ask_about_a_project_the_same_batch_attaches_to_a_held_position_is_not_raised():
+    profile = _profile()
+    profile.projects = []
+    result = await reconcile(profile, {"answer": "x"}, "cv_upload", _ImportAsker(), "de")
+
+    assert result.ambiguities == []
+
+
+@pytest.mark.asyncio
+async def test_the_same_batch_with_a_standalone_project_still_asks():
+    profile = _profile()
+    profile.projects = []
+    result = await reconcile(profile, {"answer": "x"}, "cv_upload", _ImportAsker(parent=None), "de")
+
+    assert len(result.ambiguities) == 1
