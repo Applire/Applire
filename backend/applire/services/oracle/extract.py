@@ -571,6 +571,35 @@ def named_in_denial_segment(text: str, digits: str) -> bool:
     return False
 
 
+def form_in_denial_segment(text: str, form: str) -> bool:
+    """True when every occurrence of the term ``form`` in ``text`` sits after a
+    negation cue in its own clause segment, or right before a closed denial
+    phrase (D-4b, Hazelnut build 5 delivery run 4).
+
+    The word-bounded sibling of :func:`named_in_denial_segment`: same segment
+    split, same non-negation list, same cue vocabulary. A term has no fixed
+    width like an identifier, so the cue may stand anywhere earlier in the
+    segment ("I have not built CI/CD pipelines or other cloud or DevOps
+    capabilities"). ADR-062: a fact about token positions. ``False`` when the
+    form does not occur at all.
+    """
+    if not form or not form.strip():
+        return False
+    normalized = _normalize_punct(text)
+    pattern = re.compile(rf"(?<!\w){re.escape(_normalize_punct(form))}(?!\w)", re.IGNORECASE)
+    seen = False
+    for segment in _ID_SEGMENT_SPLIT_RE.split(normalized):
+        cleaned = _ID_NON_NEGATION_RE.sub(lambda m: " " * len(m.group(0)), segment)
+        for hit in pattern.finditer(segment):
+            seen = True
+            if _ID_NEGATION_CUE_RE.search(cleaned[: hit.start()]):
+                continue
+            if _ID_TRAILING_DENIAL_RE.search(cleaned[hit.end():].lstrip()):
+                continue
+            return False
+    return seen
+
+
 # Clause boundaries: a semicolon, a comma followed by a coordinating
 # conjunction/preposition that typically introduces a bolted-on second fact
 # (EN+DE), or a spaced em/en-dash. The delimiter itself is consumed — it
