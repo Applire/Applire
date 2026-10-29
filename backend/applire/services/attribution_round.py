@@ -132,9 +132,12 @@ def _label(entry: dict[str, Any] | None, fallback: str) -> str:
         return fallback
     company = str(entry.get("company") or "").strip()
     role = str(entry.get("role") or entry.get("position") or "").strip()
+    # D-14 ripple: no end date reads "heute" only when the entry is not marked
+    # ended — an explicit ``is_current: False`` shows the start alone.
+    end = str(entry.get("end_date") or "").strip() or (
+        "" if entry.get("is_current") is False else "heute")
     span = " ".join(
-        s for s in (str(entry.get("start_date") or "").strip(),
-                    "–", str(entry.get("end_date") or "heute").strip()) if s
+        s for s in (str(entry.get("start_date") or "").strip(), "–", end) if s
     ).strip(" –")
     parts = [p for p in (company, role) if p]
     label = ", ".join(parts) if parts else fallback
