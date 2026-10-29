@@ -647,6 +647,43 @@ def _project_text(p: dict) -> str:
     return "\n".join(x for x in parts if x.strip())
 
 
+#: Words that name the KIND of a project, not which one ("Implementation of …").
+_GENERIC_PROJECT_WORDS = frozenset({
+    "implementation", "introduction", "rollout", "roll", "out", "deployment", "project",
+    "projekt", "programme", "program", "programm", "einführung", "umsetzung",
+    "migration", "of", "the", "for", "der", "die", "das", "des", "von", "zur", "zum",
+})
+
+
+def _parent_role_names_project(project: dict, composed: "TailoredCVData", profile_json: dict) -> bool:
+    """D-20 (build 5 run 5): the vault project's parent role is on the CV and one of
+    its bullets already names the project — every distinctive token of the project's
+    name (generic kind words and the employer's own name removed; at least two left)
+    occurs in that bullet. "Implementation of BioNTech Global QC LIMS" is then
+    mentioned by "Spearheaded … the global QC LIMS introduction …". A token fact
+    (ADR-062 cl. 1): the advisory asked back a project the corrector had just
+    removed as a duplicate of exactly that bullet, and the loop ran to its cap."""
+    from applire.services.ats_audit import skill_tokens
+
+    parent = str(project.get("associated_experience") or "")
+    if not parent:
+        return False
+    company = ""
+    for w in profile_json.get("work_experience") or []:
+        if isinstance(w, dict) and str(w.get("id") or "") == parent:
+            company = str(w.get("company") or "")
+    distinctive = skill_tokens(str(project.get("name") or "")) - _GENERIC_PROJECT_WORDS - skill_tokens(company)
+    if len(distinctive) < 2:
+        return False
+    for w in composed.work_history:
+        if str(getattr(w, "id", "") or "") != parent:
+            continue
+        for b in w.bullets or []:
+            if distinctive <= skill_tokens(b):
+                return True
+    return False
+
+
 def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
     """C2 as findings (inventory C2, ruling W1-1 r2) — v1's ``_nest_projects`` appended
     an untailored vault project's own text; v2 hands projects to the writer and checks.
@@ -720,6 +757,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
             for p in vault_projects
             if p.get("name") and norm_name(p.get("name")) not in headings
             and not surface_present(str(p.get("name")), doc_norm)
+            and not _parent_role_names_project(p, composed, ctx.profile_json)
         ]
         if unmentioned:
             out.append(CheckFinding(
@@ -852,6 +890,11 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
             ),
         ))
     narrated = added(s4, s5)
+    # D-20 (build 5 run 5): never ask to add more chips than the cap leaves room
+    # for — at a full list this advisory and the blocking cv.skills_cap asked for
+    # opposite edits round after round (a count fact, ADR-062 cl. 1).
+    room = max(0, cv_mod.CV_MAX_SKILLS - len(s0.skills))
+    narrated = narrated[:room]
     if narrated:
         out.append(CheckFinding(
             check="cv.skill_named_in_bullet",
