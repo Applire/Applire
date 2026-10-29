@@ -250,11 +250,11 @@ or incomplete; anything you notice outside them is `minor` by definition.
    ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
    must appear, never extended; flag a missing one by key with its text.
    ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE
-   positioning decision — a scoped claim or a transfer argument discharges it (never
-   demand a gap beside one); else a plain-fact gap plus strength. Findings: silence on a
-   listed limit that has a transfer (L-1), a limit the entry does NOT list (check 1), a
-   gap phrased as "cannot substantiate/prove", several lacks in one clause (DEL-2). Withholding detail
-   ("kann ich nicht nennen") is no limit: writing it in IS a finding (DEL-1). A requirement
+   positioning decision — a scoped claim of what the statement says they DO have, or a
+   transfer, discharges it all: never demand a gap beside one; else a plain-fact gap
+   plus strength. Findings: silence on a limit that has a transfer (L-1), a limit the
+   entry does NOT list (check 1), a gap as "cannot substantiate/prove", several
+   lacks in one clause (DEL-2). Withheld detail ("kann ich nicht nennen"): writing it in IS a finding (DEL-1). A requirement
    lacked WITHOUT a recorded denial owes no sentence; never demand one (DEL-2).
    HALF-DELIVERY IS THE THIRD DIRECTION (#732): the transferring strength stands in the
    SAME sentence as the words naming the gap. A standalone negative, its strength in a
