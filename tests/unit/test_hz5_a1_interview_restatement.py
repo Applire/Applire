@@ -7,9 +7,10 @@ words. The reconcile prompt's "not a SECOND TIME" rule did not stop it
 the restatement check since D-B3V6; the interview door now runs it too.
 
 Replay of the five captured write-back turns (gpt-6-luna, thinking off, n = 3):
-the check held back 15-16 of 19 new bullets that restate a held one, the same
-ones each run; 32 control bullets with a fact the profile does not hold, 0
-held back.
+the check held back 14-15 of the 16 new bullets that restate a bullet of the
+same entry, the same ones each run; the 3 with a new fact for their entry were
+written every run; 32 control bullets with a fact the profile does not hold,
+0 held back.
 """
 import pytest
 import pytest_asyncio
