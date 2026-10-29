@@ -154,6 +154,10 @@ class CVPageOverflow(BaseModel):
     # proposals stored before the fields.
     reaches_target: Optional[bool] = None
     cut_pages: Optional[int] = None
+    # D-23 (Hazelnut build 5, additive): what the automatic target + 1 page
+    # ladder already removed before the card was shown — the card names it
+    # (ADR-099: an automatic cut is never silent). [] when nothing was cut.
+    auto_cuts: list[CVPageOverflowCut] = Field(default_factory=list)
 
 
 class CVPageOverflowChoiceRequest(BaseModel):

@@ -14,7 +14,9 @@ the extra page stays. The ladder runs, rung by rung, only while the rendered pag
 count is over the limit:
 
 1. a top-level project that repeats a project already nested under a role,
-2. skill chips with no relevance to THIS job (the #192 rank, tier 3),
+2. skill chips with no relevance to THIS job (the #192 rank, tier 3), lowest
+   ranked first and only as many as the page needs — never below
+   ``AUTO_SKILL_FLOOR`` chips in the automatic ladder (D-23),
 3. a "Branche:" line that repeats the line of an earlier role,
 4. the oldest certification, one at a time,
 5. the oldest education entry beyond the two most recent, one at a time,
@@ -58,6 +60,13 @@ OLD_ROLE_BULLETS = "old_role_bullets"
 OLD_ROLE_YEARS = 15
 
 _KEEP_EDUCATION = 2
+
+#: D-23: the automatic ladder never cuts the skills section below this many
+#: chips (ADR-099: an automatic cut must not empty a section).
+AUTO_SKILL_FLOOR = 8
+#: D-23: the skills rung cuts in at most this many growing slices (one re-render
+#: each), so it stops near the fewest chips the page needs.
+_SKILL_CUT_STEPS = 4
 _YEAR = re.compile(r"(\d{4})")
 
 
@@ -114,6 +123,7 @@ def ladder_steps(
     pinned: Callable[[str], bool] | None = None,
     old_roles_before: int | None = None,
     pinned_bullets: Callable[[dict, list[str]], set[int]] | None = None,
+    skill_floor: int = 0,
 ) -> Iterator[LadderStep]:
     """Yield the ladder's steps in order, each applied on top of the previous one.
 
@@ -125,6 +135,10 @@ def ladder_steps(
     passes ``this year - OLD_ROLE_YEARS``) loses its bullets and nested projects.
     ``pinned_bullets(entry, texts)`` returns the indexes of ``texts`` a CV pin
     protects (``pin_reach.bullet_pin_carrier_indices``) — those stay.
+
+    ``skill_floor``: the skills rung never leaves fewer chips than this (the
+    automatic ``target + 1`` ladder passes ``AUTO_SKILL_FLOOR``; the person's
+    proposal passes 0 — the card names every chip before anything is cut).
     """
     current = copy.deepcopy(data)
     is_pinned = pinned or (lambda _s: False)
@@ -137,13 +151,25 @@ def ladder_steps(
         current["projects"] = [p for i, p in enumerate(projects) if i not in set(dup)]
         yield LadderStep(copy.deepcopy(current), LadderCut(DUPLICATE_PROJECT, names))
 
-    # 2. skill chips with no relevance to this job
+    # 2. skill chips with no relevance to this job — D-23 (build 5 run 5): only as
+    # many as the page needs, never below ``skill_floor`` chips. The chips go from
+    # the END of the list (the #192 pass ranks them, lowest last) in at most
+    # ``_SKILL_CUT_STEPS`` growing slices; the caller re-renders after each slice
+    # and stops at the limit, so a 4-page render that one line of chips tips over
+    # loses that line, not the section (run 5: 27 chips → 3 delivered).
     if skill_tier is not None:
         skills = [s for s in current.get("skills") or [] if isinstance(s, str)]
-        off = [s for s in skills if skill_tier(s) >= 3 and not is_pinned(s)]
+        off = [s for s in reversed(skills) if skill_tier(s) >= 3 and not is_pinned(s)]
+        off = off[: max(0, len(skills) - max(0, skill_floor))]
         if off:
-            current["skills"] = [s for s in skills if s not in set(off)]
-            yield LadderStep(copy.deepcopy(current), LadderCut(OFF_JOB_SKILLS, tuple(off)))
+            size = -(-len(off) // _SKILL_CUT_STEPS)  # ceil
+            done = 0
+            while done < len(off):
+                batch = off[done : done + size]
+                done += len(batch)
+                gone = set(batch)
+                current["skills"] = [s for s in current.get("skills") or [] if s not in gone]
+                yield LadderStep(copy.deepcopy(current), LadderCut(OFF_JOB_SKILLS, tuple(batch)))
 
     # (3. — the repeated industry line — retired by founder ruling P-1: the line
     # is never rendered, so the cut saved no space; REPEATED_INDUSTRY stays only
