@@ -31,6 +31,16 @@ the model's own statement; ADR-062 clause 1). Results: captured call 0/5 false
 below); replay set 106/108 restatements held, 10/10 new kept; synthetic set
 27/27 and 39/39; held-out real import (Stefan, XING PDF then CV, n = 1): 6/6
 new bullets kept, 0 held.
+
+Hazelnut build 5 (D-17, delivery runs 3 and 4): the check runs on the interview
+door too. HELD now also carries the entry's ``not_yet_reached`` aims and the
+bullets of its kin (a project's position, a position's projects), and one
+sentence says "not reached yet" is no new fact. Replay of the two run-4 turns
+(luna, thinking off), old → new: the target written as an achievement held back
+0/2 → 4/4; the project bullet restating its position held back 0/2 → 4/4. The
+r3 turn bench is unchanged (new-for-the-entry bullets written 9/9, synthetic
+controls 0/32 held back). The import replay set above was not re-run against
+the kin widening.
 """
 from __future__ import annotations
 
