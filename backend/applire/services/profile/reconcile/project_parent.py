@@ -66,18 +66,35 @@ def position_label(entry: Any) -> dict[str, str]:
     }
 
 
-def bind_project_parent_ask(rc: RequestConfirmation, id_map: Any, profile: MasterProfileData) -> RequestConfirmation:
-    """``rc`` rebuilt as family 6, or ``rc`` unchanged when it is not a
-    project-parent ask the code can bind with certainty: the section must be
-    ``projects``, the ask must not park an op of its own (``incoming`` — that
-    is the V-5 engagement family), the project must be named, and every option
-    must carry exactly one handle that maps to a held position."""
+def _held_project(profile: MasterProfileData, name: str) -> Any | None:
+    hits = [p for p in profile.projects if (p.name or "").strip().casefold() == name.casefold()]
+    return hits[0] if len(hits) == 1 else None
+
+
+def bind_project_parent_ask(
+    rc: RequestConfirmation, id_map: Any, profile: MasterProfileData
+) -> RequestConfirmation | None:
+    """``rc`` rebuilt as family 6; ``None`` when the ask is redundant; or ``rc``
+    unchanged when it is not a project-parent ask the code can bind with
+    certainty.
+
+    - Redundant (D-16, Hazelnut build 5 delivery run 3): the ask names a HELD
+      project whose ``associated_experience`` already resolves to a held
+      position. The answer could change nothing, so the ask is not raised.
+    - Rebuilt: the section is ``projects`` or absent, the ask parks no op of
+      its own (``incoming`` is the V-5 engagement family), the project is
+      named, and every option carries exactly one handle that maps to a held
+      position.
+    """
     from applire.services.profile.reconcile.confirmations import project_parent_confirmation
 
     context = dict(rc.context or {})
-    if context.get("section") != "projects" or "incoming" in context or rc.option_keys:
+    if context.get("section") not in (None, "projects") or "incoming" in context or rc.option_keys:
         return rc
     project = _project_name(context)
+    held = _held_project(profile, project) if project else None
+    if held is not None and str(held.associated_experience or "") in _positions(profile):
+        return None
     if project is None or len(rc.options) < 2:
         return rc
     positions = _positions(profile)
@@ -107,8 +124,7 @@ def plan_project_parent(
     entry_id = chosen_key.split(":", 1)[1]
     if entry_id not in _positions(profile):
         return None
-    name = (_project_name(context) or "").casefold()
-    hits = [p for p in profile.projects if (p.name or "").strip().casefold() == name]
-    if len(hits) != 1:
+    held = _held_project(profile, _project_name(context) or "")
+    if held is None:
         return None
-    return hits[0], entry_id
+    return held, entry_id
