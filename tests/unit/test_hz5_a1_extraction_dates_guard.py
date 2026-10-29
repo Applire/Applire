@@ -48,7 +48,7 @@ def test_a_true_date_the_corrector_nulled_is_restored():
     draft = _draft()
     refined = _nulled(draft)
     notes = keep_source_dates(draft, refined, SOURCE)
-    assert len(notes) == 2
+    assert notes == ["work_experience[1].start_date", "work_experience[1].end_date"]
     assert refined["work_experience"][1]["start_date"] == "2008-08"
     assert refined["work_experience"][1]["end_date"] == "2011-05"
     assert refined["work_experience"][0] == draft["work_experience"][0]
@@ -85,3 +85,15 @@ def test_an_entry_the_corrector_dropped_or_renamed_is_left_alone():
     refined = {"work_experience": [copy.deepcopy(draft["work_experience"][0])]}
     assert keep_source_dates(draft, refined, SOURCE) == []
     assert keep_source_dates(draft, draft, SOURCE) == []
+
+
+def test_no_profile_value_reaches_the_log(caplog):
+    import logging
+
+    draft = _draft()
+    with caplog.at_level(logging.DEBUG):
+        keep_source_dates(draft, _nulled(draft), SOURCE)
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "work_experience[1].start_date" in logged
+    for value in ("Hochschule", "Hilfskraft", "2008", "2011", "Nordwerk"):
+        assert value not in logged

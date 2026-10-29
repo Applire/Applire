@@ -88,7 +88,8 @@ def _match(draft_entry: dict, refined: list[dict]) -> dict | None:
 def keep_source_dates(draft: dict, refined: dict, source: str) -> list[str]:
     """Restore, IN PLACE on ``refined``, every work-entry date the review loop
     removed or changed although its year stands in the source near the entry.
-    Returns one note per restored field (for the log and the tests)."""
+    Returns one note per restored field, ``"work_experience[<i>].<field>"``
+    (index into ``refined``): positions and field names, never a value."""
     if not isinstance(draft, dict) or not isinstance(refined, dict) or draft is refined:
         return []
     before = [e for e in draft.get("work_experience") or [] if isinstance(e, dict)]
@@ -110,10 +111,12 @@ def keep_source_dates(draft: dict, refined: dict, source: str) -> list[str]:
                 spans = _spans(lines, d, every_name)
             if any(year in span for span in spans):
                 r[name] = old
-                notes.append(f"{d.get('company')!s} / {d.get('role')!s}: {name} {new!r} -> {old!r}")
+                notes.append(f"work_experience[{after.index(r)}].{name}")
     if notes:
+        # Index and field names only: a company, a role or a date is CV data
+        # and never reaches the application log.
         logger.warning(
             "extraction review: %d date(s) restored — the year stands in the source near the entry (D-24): %s",
-            len(notes), "; ".join(notes),
+            len(notes), ", ".join(notes),
         )
     return notes
