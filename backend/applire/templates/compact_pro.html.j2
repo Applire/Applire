@@ -164,6 +164,9 @@
 
     .entry-projects { margin-top: 3pt; }
     .entry-projects-title {
+      /* D-6 (delivery run 4): the sub-label moves with its first project — never alone at a page foot. */
+      break-after: avoid;
+      page-break-after: avoid;
       font-size: 8pt;
       font-weight: 700;
       text-transform: uppercase;
