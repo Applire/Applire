@@ -364,6 +364,8 @@ def ground_skill_claim(
     name: str,
     index: VaultIndex,
     ledger_forms: list[list[str]] | None = None,
+    *,
+    _equivalent: bool = False,
 ) -> EvidenceUnit | None:
     """Evidence unit backing a skill claim, or None if the vault has nothing.
 
@@ -427,6 +429,17 @@ def ground_skill_claim(
                 for unit in index.units:
                     if unit.path == f"skills[{i}]":
                         return unit
+    # U-13 (build 5 run 5): an acronym and its fixed expansion are ONE name
+    # ("CI/CD" ≡ "continuous integration and delivery") — a closed table
+    # (matchers/acronyms.py), read both ways, so the verdict no longer depends on
+    # which sibling forms the ledger model happened to list. One level only.
+    if not _equivalent:
+        from applire.services.oracle.matchers.acronyms import acronym_equivalents
+
+        for alt in acronym_equivalents(name):
+            unit = ground_skill_claim(alt, index, ledger_forms, _equivalent=True)
+            if unit is not None:
+                return unit
     parts = slash_enumeration_parts(name)
     if parts:
         backing = [ground_skill_claim(part, index, ledger_forms) for part in parts]
