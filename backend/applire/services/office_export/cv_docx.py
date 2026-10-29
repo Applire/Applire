@@ -73,7 +73,7 @@ from applire.services.office_export._common import (
 )
 import logging
 
-from applire.templates.filters import education_title, month_year, role_facts
+from applire.templates.filters import education_title, month_year, period, role_facts
 from applire.templates.labels import cv_labels
 
 logger = logging.getLogger(__name__)
@@ -106,28 +106,17 @@ def _join_nonblank(parts: list[str | None], sep: str = _JOIN) -> str:
     return sep.join(p.strip() for p in parts if p and p.strip())
 
 
-def _format_date_range(start: str | None, end: str | None, labels: dict) -> str:
-    """'01/2020 – 06/2022', '07/2022 – heute'/'Present' (end is None but start
-    is set), or '' when both are blank. Never renders the literal 'None'.
+def _format_date_range(entry, labels: dict) -> str:
+    """The entry's date range through THE producer every CV template uses
+    (``templates.filters.period``, D-14 / ADR-062 clause 1): '01/2020 –
+    06/2022', '07/2022 – heute' only when the role is current (or unstated),
+    the start date alone when ``is_current`` is False and no end date is
+    known, '' when there is no date at all.
 
-    Formatted with the SAME ``month_year`` filter all seven PDF templates use
-    (`{{ job.start_date | month_year }}`), not a second rule of its own. The
-    export previously emitted the storage format (`2017-04`), so one document
-    showed two different dates depending on which file the reader opened —
-    SF-EXPORT.2's failure mode, and two implementations of one display rule
-    (ADR-066). Every containment assertion in this suite stayed green through
-    it, because the raw value IS present either way: the tests could not see
-    formatting at all. Caught by converting a real export and looking at it.
-    """
-    start = month_year((start or "").strip())
-    end = month_year((end or "").strip())
-    if not start and not end:
-        return ""
-    if not end:
-        end = labels["present"]
-    if start and end:
-        return f"{start}{_DASH}{end}"
-    return start or end
+    One display rule, not two (ADR-066): the export once emitted the storage
+    format (``2017-04``) while the PDF showed ``04/2017`` — SF-EXPORT.2."""
+    p = period(entry, labels["present"])
+    return f"{p['start']}{_DASH if p['dash'] else ''}{p['end']}"
 
 
 def _role_facts_line(entry: TailoredWorkEntry, labels: dict, lang: str) -> str:
@@ -218,7 +207,7 @@ def _render_work_history(document, tailored, labels, color, photo_bytes, lang) -
             continue
         header = _join_nonblank([entry.company, entry.role])
         add_heading(document, header, 3, color)
-        add_paragraph(document, _format_date_range(entry.start_date, entry.end_date, labels), italic=True)
+        add_paragraph(document, _format_date_range(entry, labels), italic=True)
         facts = _role_facts_line(entry, labels, lang)
         if facts:
             add_paragraph(document, facts, italic=True)
@@ -251,7 +240,7 @@ def _render_education(document, tailored, labels, color, photo_bytes, lang) -> N
         # too or it reintroduces a closed defect on a new surface.
         header = _join_nonblank([entry.institution, education_title(entry.degree, entry.field)])
         add_paragraph(document, header, bold=True)
-        add_paragraph(document, _format_date_range(entry.start_date, entry.end_date, labels), italic=True)
+        add_paragraph(document, _format_date_range(entry, labels), italic=True)
 
 
 def _render_languages(document, tailored, labels, color, photo_bytes, lang) -> None:
@@ -341,6 +330,12 @@ _RENDERED_LEAVES: frozenset[str] = frozenset({
 })
 
 _NOT_RENDERED_LEAVES: dict[str, str] = {
+    "work_history[].is_current": (
+        "D-14 (Hazelnut build 5): a structural modifier, never printed as "
+        "text — templates.filters.period reads it to decide whether a missing "
+        "end date renders as 'heute'/'Present' (current or unstated) or not at "
+        "all (False: ended, end unknown). Same producer as the PDF templates."
+    ),
     "work_history[].industry_context": (
         "Founder ruling P-1 (Hazelnut build 5): the industry line read as "
         "template-generated to a blind panel and is dropped from every CV "

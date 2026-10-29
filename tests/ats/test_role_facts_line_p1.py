@@ -77,7 +77,7 @@ def _html(template: str, lang: str) -> str:
 
 
 def _flat(text: str) -> str:
-    return re.sub(r"\s+", " ", text.replace(" ", " "))
+    return re.sub(r"\s+", " ", text.replace("\u00a0", " "))
 
 
 def _no_labels_no_industry(text: str, lang: str) -> None:

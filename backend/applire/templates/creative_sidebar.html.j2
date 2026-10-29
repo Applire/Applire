@@ -341,7 +341,7 @@
         {% set head %}
         <div class="entry-header">
           <div class="entry-title">{{ job.role }}</div>
-          <div class="entry-dates">{{ job.start_date | month_year }} – {{ job.end_date | month_year if job.end_date else labels.present }}</div>
+          <div class="entry-dates">{% set job_period = job | period(labels.present) %}{{ job_period.start }}{% if job_period.dash %} – {% endif %}{{ job_period.end }}</div>
         </div>
         <div class="entry-subtitle">{{ job.company }}</div>
         {# Founder ruling P-1: one fact line, numbers only, no labels, no industry
@@ -455,7 +455,7 @@
       <div class="entry entry-atomic">
         <div class="entry-header">
           <div class="entry-title">{{ edu.degree | education_title(edu.field) }}</div>
-          <div class="entry-dates">{{ edu.start_date | month_year }}{% if edu.start_date %} – {% endif %}{{ edu.end_date | month_year if edu.end_date else (labels.present if edu.start_date else "") }}</div>
+          <div class="entry-dates">{% set edu_period = edu | period(labels.present) %}{{ edu_period.start }}{% if edu_period.dash %} – {% endif %}{{ edu_period.end }}</div>
         </div>
         <div class="entry-subtitle">{{ edu.institution }}</div>
       </div>

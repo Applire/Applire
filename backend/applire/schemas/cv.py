@@ -217,6 +217,11 @@ class TailoredWorkEntry(BaseModel):
     team_size: int | None = None
     budget_managed: str | None = None
     industry_context: str | None = None
+    # D-14 (Hazelnut build 5, ADR-062 clause 1 — a date fact): the vault's
+    # is_current, carried by assemble_tailored_cv. None = unstated (legacy
+    # tailored_data); False with no end_date renders the start date alone,
+    # never "– Present" (templates.filters.period).
+    is_current: bool | None = None
 
     _coerce_fields = field_validator("company", "role", "start_date", mode="before")(_coerce_none_str)
     _coerce_id = field_validator("id", mode="before")(_coerce_none_str)

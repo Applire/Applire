@@ -224,7 +224,7 @@
     {% for job in cv.work_history %}
     {% set n_bullets = job.bullets | length %}
     <div class="entry{{ ' entry-atomic' if n_bullets <= 3 else '' }}">
-      <div class="entry-date">{{ job.start_date | month_year }}<br/>– {{ job.end_date | month_year if job.end_date else labels.present }}</div>
+      <div class="entry-date">{% set job_period = job | period(labels.present) %}{{ job_period.start }}{% if job_period.dash %}<br/>– {% endif %}{{ job_period.end }}</div>
       <div class="entry-content">
         {% set head %}
         <div class="entry-title">{{ job.role }}</div>
@@ -330,7 +330,7 @@
     {% if n_edu > 6 and loop.index == 3 %}</div>{% endif %}
     {% if n_edu > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
     <div class="entry entry-atomic">
-      <div class="entry-date">{{ edu.start_date | month_year }}<br/>{% if edu.start_date %}– {% endif %}{{ edu.end_date | month_year if edu.end_date else (labels.present if edu.start_date else "") }}</div>
+      <div class="entry-date">{% set edu_period = edu | period(labels.present) %}{{ edu_period.start }}{% if edu_period.dash %}<br/>– {% endif %}{{ edu_period.end }}</div>
       <div class="entry-content">
         <div class="entry-title">{{ edu.degree | education_title(edu.field) }}</div>
         <div class="entry-subtitle">{{ edu.institution }}</div>

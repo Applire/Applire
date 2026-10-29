@@ -234,10 +234,14 @@ function formatPeriod(
   const explicitEnd = nonEmpty(end) ? formatDisplayDate(end, locale) : null;
   // #155 — an explicit is_current === true always renders the present label;
   // an empty end keeps the existing present-label fallback.
+  // D-14: is_current === false with no end date = ended, end unknown — the
+  // start renders alone, never the present label (templates.filters.period).
   const right =
     isCurrent === true
       ? (presentLabel ?? explicitEnd)
-      : (explicitEnd ?? presentLabel ?? null);
+      : isCurrent === false
+        ? explicitEnd
+        : (explicitEnd ?? presentLabel ?? null);
   // #113(d) — a missing side is rendered by omission, never by an em-dash
   // standing in for data we do not have ("— → 2006"). Mirrors the DACH
   // convention already shipped in the CV templates (lebenslauf.html.j2: an

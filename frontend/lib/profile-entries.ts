@@ -268,7 +268,15 @@ export function formatEntryPeriod(
   if (!nonEmptyText(start) && !nonEmptyText(end)) return null;
   const left = nonEmptyText(start) ? formatDisplayDate(start, locale) : null;
   const explicitEnd = nonEmptyText(end) ? formatDisplayDate(end, locale) : null;
-  const right = isCurrent === true ? (presentLabel ?? explicitEnd) : (explicitEnd ?? presentLabel ?? null);
+  // D-14 (Hazelnut build 5): is_current === false with no end date is a role
+  // that ENDED with its end unknown — the start renders alone, never "present".
+  // Same rule as the CV renderers (templates.filters.period).
+  const right =
+    isCurrent === true
+      ? (presentLabel ?? explicitEnd)
+      : isCurrent === false
+        ? explicitEnd
+        : (explicitEnd ?? presentLabel ?? null);
   if (!left) return right;
   if (!right) return left;
   return `${left} → ${right}`;

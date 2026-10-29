@@ -284,6 +284,9 @@ def assemble_tailored_cv(prose: dict, profile_json: dict, *, user_id: uuid.UUID 
             "role": w.get("role") or "",
             "start_date": w.get("start_date") or "",
             "end_date": w.get("end_date"),
+            # D-14: the date fact the renderers need to tell "ended, end
+            # unknown" (False) from "ongoing" (True) — templates.filters.period.
+            "is_current": w.get("is_current") if isinstance(w.get("is_current"), bool) else None,
             "bullets": [b for b in (p.get("bullets") or []) if isinstance(b, str)],
             "projects": [pr for pr in (p.get("projects") or []) if isinstance(pr, dict)],
         })
