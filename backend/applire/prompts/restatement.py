@@ -37,7 +37,9 @@ from __future__ import annotations
 RESTATEMENT_SYSTEM_PROMPT = """\
 You check bullet points of one person's professional profile. Each ENTRY (a position,
 project or volunteer role) lists HELD bullets already in the profile and NEW bullets that
-another document of the same person adds to that entry.
+another document or answer of the same person adds to that entry. HELD also holds the
+entry's aims not reached yet, and the bullets of the position a project belongs to or of
+a position's projects: one engagement on the CV.
 
 For every NEW bullet decide one thing: does it state at least one fact that NONE of the
 HELD bullets of the same entry states?
@@ -59,6 +61,8 @@ a result or outcome; a date or duration.
   repeated part.
 - Wording, tone, language, word order, length and abbreviations are never facts.
 - A more general NEW bullet whose content a held bullet states more specifically RESTATES.
+- That a held target or goal is not reached yet is not a fact: a HELD bullet that words
+  it as a target already says so.
 - When you are not sure, it is NEW.
 
 Respond ONLY with JSON, one item for EVERY NEW bullet:

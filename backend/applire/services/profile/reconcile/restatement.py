@@ -60,6 +60,27 @@ def _held_bullets(entity: Any) -> list[str]:
     ]
 
 
+def _held_for(profile: MasterProfileData, section: str, entity: Any) -> list[str]:
+    """What the profile already says about this entry (D-17 residue, delivery
+    run 4): its own bullets, its ``not_yet_reached`` aims, and the bullets of
+    its KIN — a project's position (``associated_experience``) and a
+    position's projects. A project and its position are one engagement on the
+    CV, so a fact the one holds is not new on the other."""
+    held = _held_bullets(entity) + [
+        b for b in (getattr(entity, "not_yet_reached", None) or []) if isinstance(b, str) and b.strip()
+    ]
+    entity_id = str(getattr(entity, "id", "") or "")
+    if section == "projects":
+        parent = str(getattr(entity, "associated_experience", "") or "")
+        kin = [e for s in ("work_experience", "volunteer_activities") for e in getattr(profile, s, None) or []
+               if str(getattr(e, "id", "") or "") == parent]
+    else:
+        kin = [p for p in profile.projects if entity_id and str(p.associated_experience or "") == entity_id]
+    for other in kin:
+        held.extend(_held_bullets(other))
+    return list(dict.fromkeys(held))
+
+
 def _parse_pairs(data: Any) -> list[tuple[int, int, int]]:
     """``(entry, new, held)`` 1-based triples from the model's answer; anything
     malformed is dropped (never guessed)."""
@@ -102,7 +123,7 @@ async def hold_back_restatements(
         if not isinstance(op, AddBullets) or op.target not in held_by_id:
             continue
         section, entity = held_by_id[op.target]
-        held = _held_bullets(entity)
+        held = _held_for(existing, section, entity)
         new = [(f, t) for f in _BULLET_FIELDS for t in getattr(op, f) if isinstance(t, str) and t.strip()]
         if not held or not new:
             continue
