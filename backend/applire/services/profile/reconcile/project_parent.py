@@ -161,3 +161,79 @@ def plan_project_parent(
     if held is None:
         return None
     return held, entry_id
+
+
+# ── D-25 (delivery run 5): a parent whose dates cannot hold the project ──────
+
+_YM = re.compile(r"^\s*(\d{4})(?:-(\d{1,2}))?")
+
+
+def _month(value: Any, *, end: bool) -> int | None:
+    """A partial date as a month index; a bare year spans the whole year."""
+    m = _YM.match(str(value or ""))
+    if not m:
+        return None
+    month = int(m.group(2)) if m.group(2) else (12 if end else 1)
+    return int(m.group(1)) * 12 + month
+
+
+def _span(start: Any, end: Any, *, current: bool = False) -> tuple[int, int] | None:
+    """``(first, last)`` month of a dated span; an open or ongoing end runs on.
+    ``None`` when the start is unknown (nothing to check)."""
+    from applire.services.profile.aspiration import _ended
+
+    first = _month(start, end=False)
+    if first is None:
+        return None
+    last = _month(end, end=True) if (_ended(end) and not current) else None
+    return first, (last if last is not None else 10**9)
+
+
+def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
+    return a[0] <= b[1] and b[0] <= a[1]
+
+
+def check_parent_dates(ops: list[Any], profile: MasterProfileData) -> tuple[list[Any], list[RequestConfirmation]]:
+    """D-25 — the project's parent must be a position whose dates overlap the
+    project's (a FACT of the two date fields, ADR-062 cl. 1). An
+    ``upsert_project`` whose parent is a held position or a position of this
+    batch with a dated span the project's dated span does not touch loses that
+    parent. When two or more held positions do overlap the project, the
+    candidate is asked which (family 6); otherwise the project stays without a
+    parent. A project or position without a start date is not checked."""
+    from applire.services.profile.reconcile.confirmations import project_parent_confirmation
+    from applire.services.profile.reconcile.ops import UpsertProject, UpsertVolunteer, UpsertWork
+
+    held = _positions(profile)
+    batch: dict[str, Any] = {
+        o.ref: o for o in ops if isinstance(o, (UpsertWork, UpsertVolunteer)) and getattr(o, "ref", None)
+    }
+    held_projects = {str(p.id): p for p in profile.projects}
+    out: list[Any] = []
+    asks: list[RequestConfirmation] = []
+    for op in ops:
+        if not isinstance(op, UpsertProject) or not op.parent:
+            out.append(op)
+            continue
+        base = held_projects.get(str(op.target or ""))
+        project = _span(op.start_date or getattr(base, "start_date", None),
+                        op.end_date or getattr(base, "end_date", None))
+        parent = held.get(str(op.parent)) or batch.get(str(op.parent))
+        parent_span = _span(getattr(parent, "start_date", None), getattr(parent, "end_date", None),
+                            current=bool(getattr(parent, "is_current", False))) if parent is not None else None
+        if project is None or parent_span is None or _overlaps(project, parent_span):
+            out.append(op)
+            continue
+        out.append(op.model_copy(update={"parent": None}))
+        fits = [
+            (pid, e) for pid, e in held.items()
+            if (s := _span(e.start_date, e.end_date, current=bool(getattr(e, "is_current", False))))
+            and _overlaps(project, s)
+        ]
+        if len(fits) >= 2:
+            asks.append(project_parent_confirmation(
+                project=op.name,
+                candidates=[(pid, position_label(e)) for pid, e in fits],
+                context={"section": "projects", "kind": KIND, "project": op.name},
+            ))
+    return out, asks

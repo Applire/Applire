@@ -196,7 +196,22 @@ async def reconcile(
     from applire.services.profile.reconcile.project_parent import (
         attached_in_batch,
         bind_project_parent_ask,
+        check_parent_dates,
     )
+    from applire.services.profile.reconcile.project_parent import _project_name
+
+    def _project_name_of(rc):
+        return _project_name(dict(rc.context or {}))
+
+    # D-25 — a project's parent must be a position whose dates overlap the
+    # project's; a non-overlapping parent is dropped (asked as family 6 when
+    # two or more held positions overlap). Before D-16 reads the parents.
+    ops, date_asks = check_parent_dates(ops, profile)
+    asked = {
+        (_project_name_of(a) or "").casefold()
+        for a in [*ambiguities, *(o for o in ops if isinstance(o, RequestConfirmation))]
+    }
+    ambiguities = ambiguities + [a for a in date_asks if (_project_name_of(a) or "").casefold() not in asked]
 
     # D-16 — an ask about a project already attached to a held position is
     # redundant (its answer could change nothing) and is not raised.
