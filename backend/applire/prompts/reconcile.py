@@ -402,6 +402,18 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   the declaration. Rejected wordings: (d)/(e) shapes (+691) — rep b 6-in-9 →
   1-in-6 but founder input 4-in-3 → 10-in-3; value definition in THE TEST (+213) —
   rep b 3/5 runs, founder input 3/4 runs. Records: scratch only.
+* **27,802 (Hazelnut build 5 WP-A1, 2026-10-29, D-17 residue (a)).** add_bullets
+  gains "A TARGET IS NOT AN ACHIEVEMENT" (+318 chars): a goal, target or plan the
+  answer says is not reached yet never goes in achievements. If the target already
+  holds it, in any list including not_yet_reached, it is already there; otherwise
+  it goes in responsibilities, worded as the aim. Why: delivery run 4, rep b. The
+  answer "the 70 % are a target, not reached yet" was written as an ACHIEVEMENT
+  next to the held target line, and it reached the CV as a defensive line.
+  *Measured* (``openai/gpt-6-luna``, thinking OFF, persisted interview turn
+  verbatim): target written as an achievement 3/5 → 0/6 (2/6 now a
+  responsibility "Targets a 70% reduction …", which the restatement check holds
+  back 4/4). Control: the same turn plus a REACHED figure ("cut the effort by
+  35 %, measured over 40 documents") is still an achievement 4/4.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -491,6 +503,10 @@ Operations:
   the invoice-dunning workflow with retry schedules and email reminders"; the
   answer says "As I said, I built the dunning flow, the retries and the
   reminder emails" — already there, not one bullet and not two.
+  A TARGET IS NOT AN ACHIEVEMENT: a goal, target or plan the answer says is not
+  reached yet never goes in achievements. When the target already holds it, in
+  any list including not_yet_reached, it is already there. Otherwise it goes in
+  responsibilities, worded as the aim ("Targets a 30% shorter release cycle").
   A bullet is a CV line, not a quote: no "I", "my" or "we", and an entry with
   an end_date takes the past tense ("Led the release train", never "I lead the
   release train").
