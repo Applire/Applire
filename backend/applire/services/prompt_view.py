@@ -340,9 +340,8 @@ def prompt_profile_view(
 #: field's own name first (the v2 writer rules name it), then what it is.
 NOT_YET_REACHED_PROMPT_KEY = (
     "not_yet_reached (the candidate's own answer: not reached yet; write each in natural CV "
-    "wording as ongoing work or a mandate, e.g. 'driving …', 'mandate to …'; a target "
-    "goes into the line of the work it is for, as its clause ('…, targeting …'), never a "
-    "line of its own; never as achieved, and never say that it is an aim or not achieved)"
+    "wording as ongoing work or a mandate, e.g. 'driving …', 'mandate to …', 'target: …'; "
+    "never as achieved, and never say that it is an aim)"
 )
 
 
