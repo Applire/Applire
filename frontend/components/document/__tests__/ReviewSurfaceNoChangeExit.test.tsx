@@ -174,7 +174,10 @@ describe("U-13 (delivery run 5) — the card states ONE true state after the ans
     expect(within(card).queryByTestId("review-testimony-result")).toBeNull();
     expect(card.textContent).not.toContain("Nichts Neues gefunden");
     expect(card.textContent ?? "").not.toMatch(LOWER_DEIN);
-    expect(within(card).getByTestId("review-nochange-profile").textContent).toContain("so wie es im Dokument steht");
+    // main's copy ruling (r5): truthful and neutral — never "copy the posting's words".
+    const exit = within(card).getByTestId("review-nochange-profile").textContent ?? "";
+    expect(exit).toContain(`Trag „${TERM}“ unter Kenntnisse ein, wenn es stimmt.`);
+    expect(card.textContent).not.toMatch(/im Dokument steht/);
     expect(within(card).getByTestId("review-nochange-recheck")).toBeTruthy();
     expect(within(card).getByTestId("review-answer-remove")).toBeTruthy();
   });
@@ -215,5 +218,15 @@ describe("U-13 (delivery run 5) — the card states ONE true state after the ans
     unmount();
     render(withIntl(<ReviewSurface {...props({ ...b.props, reviewState: noChange(b.key, SENTENCE) })} />, "de"));
     expect(screen.getByTestId("review-card-why").textContent).toContain("Dein Profil nennt das nicht");
+  });
+});
+
+describe("main's copy ruling — the skill exit names the term, neutrally (en)", () => {
+  it("en: Add “TERM” under skills if it is true.", () => {
+    const b = build("keyword:present_unsupported", "ask_true");
+    render(withIntl(<ReviewSurface {...props({ ...b.props, reviewState: noChange(b.key, TERM, { found: true }) })} />, "en"));
+    const card = screen.getByTestId("review-card");
+    expect(within(card).getByTestId("review-nochange-profile").textContent).toContain(`Add “${TERM}” under skills if it is true.`);
+    expect(card.textContent).not.toMatch(/as the document words it/);
   });
 });

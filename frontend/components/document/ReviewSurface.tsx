@@ -708,7 +708,7 @@ export function ReviewSurface({
                 <CornerDownRight className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>
                   {t("delivery.skillToProfile")}
-                  <span className={sub}>{t(skill ? "delivery.skillToProfileSub" : "delivery.factToProfileSub")}</span>
+                  <span className={sub}>{skill ? t("delivery.skillToProfileSub", { term: row.label }) : t("delivery.factToProfileSub")}</span>
                 </span>
               </Link>
               <button
