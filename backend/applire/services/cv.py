@@ -4837,7 +4837,7 @@ async def _render_cv_background(
                     chain_id="cv_tailoring",
                     signal_ids=(PINNED_FACT_SIGNAL_ID,),
                     generator_json_schema=loop_schema,
-                    draft_shape_ok=cv_prose_shape_ok,
+                    draft_shape_ok=_cv_prose_shape_ok,
                 )
                 if pipeline == PIPELINE_V2:
                     from applire.services.cv_v2 import carry_v2_fields
@@ -6155,7 +6155,7 @@ class TerminalReviewResult:
     outcome: "TerminalReviewOutcome | None" = None
 
 
-def cv_prose_shape_ok(draft: Any) -> bool:
+def _cv_prose_shape_ok(draft: Any) -> bool:
     """D-26 (Hazelnut build 5, r5 bench): the CV corrector's draft has the prose
     shape — a ``summary`` string, a non-empty ``work`` list of entries with ids, a
     ``skills`` list. A corrector that answered only ``{"analysis": …}`` was taken as
@@ -6567,7 +6567,7 @@ async def _terminal_review(
             signal_ids=(PINNED_FACT_SIGNAL_ID,),
             signal_issues_fn=_terminal_signal_issues,
             on_settle=_record_settle,
-            draft_shape_ok=cv_prose_shape_ok,
+            draft_shape_ok=_cv_prose_shape_ok,
             **v2_kwargs,
         )
         if v2 is not None:
