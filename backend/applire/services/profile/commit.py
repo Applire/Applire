@@ -93,6 +93,7 @@ from applire.schemas.profile import (
     MasterProfileData,
     PendingConfirmation,
     ProfileMetadata,
+    RestatedReceipt,
 )
 from applire.services.profile.reconcile.apply import (
     UserConfirmedEngagement,
@@ -539,6 +540,7 @@ async def commit_ops(
     llm_provider: "LLMProvider | None" = None,
     embedding_provider: "EmbeddingProvider | None" = None,
     user_id: uuid.UUID | None = None,
+    restated: Sequence[RestatedReceipt] = (),
 ) -> CommitResult:
     """Apply `ops` to the Master Profile and persist the result. One write path.
 
@@ -591,6 +593,10 @@ async def commit_ops(
             omitting a provider.
         embedding_provider: `None` leaves `master_profiles.embedding` stale and
             says so once (§7.2).
+        restated: D-17 (Hazelnut build 5) — new bullets a turn-based door held
+            back BEFORE this call because they restate a held one
+            (``restatement.hold_back_restatements``). They wrote nothing; the
+            receipts ride on the enrichment record next to the import's own.
 
     Raises:
         NotImplementedError: an unhandled `SnapshotClass`, or an
@@ -795,7 +801,7 @@ async def commit_ops(
         # bindings of the same batch; a receipt for something that did NOT
         # write, kept off `changes` on purpose (see `MatchReceipt`).
         matched=applied.matched,
-        restated=applied.restated,  # D-B3V6
+        restated=[*applied.restated, *restated],  # D-B3V6, D-17
         kept_separate=applied.kept_separate,  # FS-6
         # 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the import's
         # extraction review outcome; `None` for every non-import batch.
