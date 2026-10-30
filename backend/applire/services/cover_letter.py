@@ -844,8 +844,8 @@ _STATED_LIMITS_CONSTRAINT = (
 # in it said the limits are owed nothing — while the writer's own block already
 # said "the letter NEVER mentions them". Reviewers called it "the required
 # stated_limits positioning" (delivery run 7, log 183/184/198) and the corrector
-# wrote both denials in. Replayed on those reviewer rounds (gpt-6-luna, n=42/43):
-# a demand for a limit sentence 4/42 -> 1/43 (round 184: 4/13 -> 0/13); the
+# wrote both denials in. Replayed on those reviewer rounds (gpt-6-luna, n=37 per arm):
+# a demand for a limit sentence 4/37 -> 1/37 (round 184: 4/13 -> 0/13); the
 # terminal reviewer on the two-denial draft flagged them 0/5 -> 2/5.
 _STATED_LIMITS_NOT_OWED = (
     "CONSTRAINT ONLY — owed nothing. These are the candidate's own words about what "
