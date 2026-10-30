@@ -608,6 +608,13 @@ def render_required_limits_block(limits: list[str]) -> str:
     """
     if not limits:
         return ""
+    # D-29 (Hazelnut build 5, delivery run 6, panel 2/2): "the same SINGLE honest-gap
+    # paragraph" plus the same-sentence strength (#732) made the writer introduce the
+    # candidate's main system a second time in the gap paragraph ("At <employer>, I lead
+    # … that runs on <platform>"). Replay of the two captured writer calls (gpt-6-luna,
+    # n=10 each): second introduction 8/20 -> 3/20, Copilot-type limit still positioned
+    # 17/20 -> 17/20. A corrector-side rule did not undo an existing restatement and was
+    # not landed.
     lines = [
         "=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT (ADR-075) ===",
         "Each statement below is the candidate's own wording about a concept THIS "
@@ -627,7 +634,11 @@ def render_required_limits_block(limits: list[str]) -> str:
         "let a standalone negative sentence follow directly on a sentence stating a "
         "strength — that pair is what a reader quotes back as the reason to decline. All "
         "of it inside the SAME single honest-gap paragraph, never a litany, never an "
-        "apology.",
+        "apology. ONE HOME PER FACT: when the transferring strength is a system or "
+        "project the letter already introduced, the gap sentence names it back in a few "
+        "words (\"no X experience, but that system …\") and never introduces it again (no "
+        "second \"At <employer>, I lead …\"); a scoped claim about that system (where it "
+        "runs, what it uses) joins the paragraph that introduced it.",
         "Never state a limit that is NOT listed here: an invented limit is as untrue "
         "as an inflated claim and throws away the candidate's own best evidence.",
         WITHHOLDING_IS_NOT_A_LIMIT,

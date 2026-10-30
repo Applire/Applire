@@ -496,7 +496,8 @@ def v2_checks(
                 text=(
                     f"The rendered CV is {pages} pages; the target is {target}. Shorten "
                     "older or less relevant roles toward one strong line; keep measured "
-                    "outcomes."
+                    "outcomes. A role keeps at least one bullet of its own, never only its "
+                    "nested project."
                 ),
             ))
 

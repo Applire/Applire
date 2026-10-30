@@ -410,6 +410,8 @@ def test_page_length_finding_fires_for_the_exact_draft_that_was_rendered():
     f = findings["cv.page_length"]
     assert f.blocking is True
     assert "3 pages" in f.text and "target is 2" in f.text
+    # M-3 (Hazelnut build 5, delivery run 6): shortening never leaves a role with only its project
+    assert "A role keeps at least one bullet of its own, never only its nested project." in f.text
 
 
 def test_page_length_finding_is_silent_for_a_measure_of_a_different_draft():
