@@ -7,6 +7,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Unreleased — Hazelnut build 5
+- **A "no" in the interview closes the topic.** When your answer says you have not done something, the interview does not ask a follow-up on the same topic. It no longer asks about the posting's own term for what you just said no to ("Copilots" after "no coding assistants"), and the summary lists that limit once.
 - **Interview questions in German keep the field's own terms.** A follow-up question no longer turns "Cloud", "API", "MCP", "Copilot", a product name or your employer's name into invented German words ("Rechnerwolke"), and no longer drops the name. Only English phrases in a German sentence are translated.
 - **The profile hub no longer asks "Ist das erreicht?" about work on your own running product or about building your team.** A line like "Building an open-source platform that automates …", when your profile shows the platform in use or in beta, is read as your ongoing work. "Build and develop the team through hiring …" is read as a duty. Goals and open mandates ("Establish … governance", "aiming for 60 %") are still asked.
 - **Applire fixes what it can before you see the CV or letter (ADR-099).** Before delivery, a correction round moves a sentence to the role whose experience backs it and removes or narrows a claim your profile does not back, for the CV and now also for the letter. The review then checks the delivered document with the same check the round used, so a point that was fixed no longer shows up.

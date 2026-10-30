@@ -4649,7 +4649,23 @@ async def _ask_partial_coverage_follow_up(
     returns ``None`` with the session state as it found it: no question, no
     budget slot spent, the cluster's members untouched — the caller advances.
     The judgement never reaches the per-gap record; coverage stays strict.
+
+    Ruling A1-R8-1 = B (D-30, Hazelnut build 5): a no closes the topic. When
+    the turn recorded any no, the cluster earns no partial-coverage follow-up —
+    returns ``None`` before any budget is spent, and the caller advances. The
+    fact is the turn's own recorded denials, never a reading of the answer:
+    the drafting call could not be brought to read a no in narrower words
+    ("coding assistants") as an answer to the posting's wider term, 0 of 39
+    replays, so the candidate was asked the same limit twice and the summary
+    listed it twice. The founder accepts that an unrelated open member of the
+    same cluster loses its one follow-up.
     """
+    if any(str(d).strip() for d in (getattr(turn, "denied_concepts", None) or []) if d):
+        logger.info(
+            "Follow-up on %s not asked: the answer recorded a no, which closes the topic (A1-R8-1)",
+            current_gap,
+        )
+        return None
     qpg_before = dict(state.get("questions_per_gap", {}))
     clusters_before = state.get("gap_clusters_by_id")
     qpg = dict(qpg_before)
@@ -4665,12 +4681,6 @@ async def _ask_partial_coverage_follow_up(
         clusters_by_id[current_gap] = {**clusters_by_id[current_gap], "gaps": list(open_members)}
         state["gap_clusters_by_id"] = clusters_by_id
 
-    # R2-9 (felix Q2): the no's this turn recorded travel with the focus as a
-    # fact, so the drafting judgement can close a member the candidate denied
-    # in other words ("settlement or payout rails" vs "Payment settlement").
-    turn_denials = [str(d) for d in (getattr(turn, "denied_concepts", None) or []) if d]
-    extra = {"recorded_denials": turn_denials} if turn_denials else {}
-
     async def _draft(focus: list[str]) -> dict:
         return await _cluster_question(
             state,
@@ -4682,7 +4692,6 @@ async def _ask_partial_coverage_follow_up(
             gap_category=gap_category,
             lang=lang,
             follow_up_focus=list(focus),
-            **extra,
         )
 
     q_data, remaining, question = await _judged_draft(_draft, list(open_members), current_gap)
