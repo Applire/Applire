@@ -1418,6 +1418,17 @@ def test_project_missing_states_the_role_budget_when_the_role_is_full():
     assert "If the role is at its bullet budget, replace its weakest bullet." in room.text
 
 
+def test_compose_nests_a_top_level_project_the_vault_ties_to_a_role():
+    """D-31: the v2 compose renders a vault-linked project under its role, whatever
+    slot the prose used — the reviewers and the corrector see one container."""
+    prose = _prose()
+    prose["projects"] = [{"name": "Umstellung auf FastAPI", "bullets": ["Migrierte zwei Dienste."]}]
+    tailored, _notes = _compose(prose, _project_vault())
+    assert tailored.projects == []
+    owner = next(w for w in tailored.work_history if w.id == W1)
+    assert [p.name for p in owner.projects] == ["Umstellung auf FastAPI"]
+
+
 def test_project_missing_is_silent_when_a_bullet_states_the_concept():
     prose = _prose()
     prose["work"][0]["projects"] = [{"name": "Migration", "bullets": ["Migrierte zwei Dienste auf FastAPI."]}]

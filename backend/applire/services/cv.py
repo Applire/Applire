@@ -4824,10 +4824,28 @@ async def _render_cv_background(
                     loop_generator_system = CV_TAILORING_REFINEMENT_PROMPT
                     loop_reviewer_system = _CV_REVIEW_SYSTEM_PROMPT
                     loop_schema = None
+                loop_generator_prompt_fn = _build_cv_retry_prompt
+                if pipeline == PIPELINE_V2:
+                    # D-31: a vault-linked project lives under its role in every draft
+                    # the loop's seats read, whatever slot the writer used.
+                    from applire.services.cv_v2 import place_linked_projects
+
+                    prose_draft = place_linked_projects(prose_draft, profile_json)
+                    _plain_reviewer_fn = reviewer_fn
+
+                    def loop_generator_prompt_fn(previous_draft, feedback, source):
+                        return _build_cv_retry_prompt(
+                            place_linked_projects(previous_draft, profile_json), feedback, source
+                        )
+
+                    def reviewer_fn(source, draft):
+                        return _plain_reviewer_fn(
+                            source, place_linked_projects(draft, profile_json)
+                        )
                 prose_draft = await review_and_refine(
                     source=source_material,
                     draft=prose_draft,
-                    generator_prompt_fn=_build_cv_retry_prompt,
+                    generator_prompt_fn=loop_generator_prompt_fn,
                     generator_system=loop_generator_system,
                     reviewer_prompt_fn=reviewer_fn,
                     reviewer_system=loop_reviewer_system,
@@ -6440,8 +6458,16 @@ async def _terminal_review(
         is read-only context (ADR-067 clauses 2/3 — no vault-verbatim field is ever
         routed through a writer LLM).
         """
+        shown = previous_draft
+        if v2 is not None:
+            # D-31: PREVIOUS OUTPUT shows a vault-linked project under its role, as
+            # the composed DELIVERED DOCUMENT does — one container in both views, so
+            # the corrector has no second slot to write a copy into.
+            from applire.services.cv_v2 import place_linked_projects
+
+            shown = place_linked_projects(previous_draft, profile_json)
         return _build_cv_retry_prompt(
-            previous_draft,
+            shown,
             feedback,
             source,
             delivered=_subject_for(previous_draft).model_dump(mode="json"),

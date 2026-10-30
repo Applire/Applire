@@ -184,12 +184,21 @@ def redundancy_signal_issues(
 
 
 def _project_issue_text(loc_a: str, name_a: str, loc_b: str, name_b: str) -> str:
-    """The duplicate-project demand, corrector audience (as :func:`_issue_text`)."""
+    """The duplicate-project demand, corrector audience (as :func:`_issue_text`).
+
+    D-31 (Hazelnut build 5, round 9): "fold into it every bullet … that appears only in
+    the other copy" read literally keeps two near-twin bullets ("… approaches." and "…
+    approaches, with zero major audit deviations …") — distinct strings, so each
+    "appears only in" one copy; the round-cap shipped that round (delivery run 7, log
+    168). A fact is merged once, in its fuller wording. Replay of log 168 (gpt-6-luna,
+    n=10 per arm): a contained duplicate 0/10 → 0/10 (the live event did not reproduce
+    at base), every checked fact kept as often or more."""
     return (
         f'the same project is delivered twice — [{loc_a}] "{_quote(name_a)}" and '
         f'[{loc_b}] "{_quote(name_b)}". Keep it in ONE place (under the role it belongs '
-        "to) and fold into it every bullet, figure and detail that appears only in the "
-        "other copy; nothing that appears in only one copy may be lost."
+        "to). A fact both copies state, in any wording, is written ONCE, in its fuller "
+        "wording; carry over every fact, figure and detail that appears in only one copy, "
+        "so nothing is lost and nothing is said twice."
     )
 
 
