@@ -96,29 +96,26 @@ async def test_control_a_counted_requirement_still_earns_its_follow_up(db):
 
 
 @pytest.mark.asyncio
-async def test_the_turns_recorded_denials_reach_the_follow_up_draft(db):
-    """Round 2: the answer said "I haven't built settlement or payout rails
-    myself"; the vault recorded that no, and the follow-up asked about
-    "Payment settlement" and "Payout flows" anyway (the literal matcher missed
-    the paraphrase). The recorded no is now handed to the drafting call as a
-    fact; the judgement of what it covers is the model's (replay: 5/5 closed
-    vs 0/5 on the old prompt, report §Evidence)."""
+async def test_a_turn_with_a_recorded_no_earns_no_follow_up(db):
+    """Round 2 (felix Q2): the answer said "I haven't built settlement or
+    payout rails myself", and the follow-up asked about "Payment settlement"
+    and "Payout flows" anyway. R2-9 handed the recorded no to the drafting call
+    as a fact; delivery run 6 (D-30) showed the model still re-asks a no given
+    in other words. Ruling A1-R8-1 = B: a recorded no closes the topic — no
+    follow-up at all."""
     job, _profile, _ = await _seed(db, clusters=[
         _cluster(_INFRA, "Payments", ["Checkout", "Payment settlement", "Payout flows"]),
     ], ledger=[_row("Checkout"), _row("Payment settlement"), _row("Payout flows")])
     writer = _writer("Tell me about payments.", "And settlement?")
     created = await _gap_click(db, job, _INFRA, writer)
-    await _answer(
+    resp = await _answer(
         db, created.session_id,
         "Checkout at Acme daily. I haven't built settlement or payout rails myself.",
         _writing_bridge(add_skills=["Checkout"], deny=["settlement or payout rails"]), writer,
     )
 
-    follow_up = writer.calls[-1]
-    assert follow_up["follow_up_focus"] == ["Payment settlement", "Payout flows"], (
-        "fixture check: the deterministic matcher really misses the paraphrase"
-    )
-    assert follow_up["recorded_denials"] == ["settlement or payout rails"]
+    assert len(writer.calls) == 1, "the no closed the topic"
+    assert resp.question != "And settlement?"
 
 
 @pytest.mark.asyncio

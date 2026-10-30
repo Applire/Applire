@@ -15,11 +15,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v2
+# Prompt version: v4
 # Used by: services/interview_graph.py → _review_question_language()
 #          wrapped with services/reviewer.review_and_refine (ADR-021, ADR-038)
 #          review_and_refine calls reviewer_prompt_fn(source, draft) positionally,
 #          so `source` binds to `required_language` (e.g. "English", "German").
+#
+# v4 changes vs v3 (D-30, Hazelnut build 5, 2026-10-30):
+#   - The review names what is NOT a language mismatch: a name, an acronym, an
+#     established loanword of the field or a job title as the records spell it.
+#     A delivery run flagged cloud, API, compliance and DevSecOps acronyms, a
+#     product name and the employer's own name as English; the rewrite then
+#     translated them into invented German ("Rechnerwolke"-style) and dropped
+#     the employer. The refinement keeps those terms byte-for-byte and
+#     translates only the phrases the feedback names.
 #
 # v3 changes vs v2 (#451 / ADR-064 amended 2026-08-06):
 #   - Choices also carry "denied_terms": a list of concept names the choice
@@ -55,6 +64,18 @@ list alongside its "text". "level" is a FIXED ENGLISH ENUM and "denied_terms" ho
 concept names — neither is translatable content; never flag either as a language mismatch and \
 never suggest changing them. Judge only each choice's "text".
 
+WHAT IS NOT A MISMATCH: a sentence in the required language keeps the fixed terms a
+professional of the field uses in it, exactly as the posting and the profile spell them —
+names of companies, products, frameworks and tools ("Northwind GmbH", "Terraform", "Jira"),
+acronyms ("API", "ERP", "CI/CD", "GxP", "LLM", "ISO 27001"), loanwords the field uses
+untranslated ("Cloud", "Copilot", "Workflow", "Container", "Deployment"), also inside a
+compound ("Cloud-Dienste", "API-Anbindung", "LLM-basierte Lösungen"), and job titles as the
+candidate's records spell them ("Product Owner", "Head of Engineering"). Never flag one of
+them and never ask to replace one: "Rechnerwolke" for Cloud or "Behälterabbild" for a
+container image makes the question wrong, not German. A mismatch is a run of ordinary words
+in the other language's grammar: "cost-saving measures" or "release planning" inside a
+German sentence.
+
 WHAT IS BLOCKING IN THIS PASS: any "text" still in the wrong language. In this pass every
 genuine language mismatch is blocking — that is the one thing you are here to catch. Use
 "minor" for a preference BETWEEN TWO CORRECT-LANGUAGE WORDINGS, and for nothing else.
@@ -71,6 +92,10 @@ You receive (1) a previous draft JSON {"question", "choices"} and (2) reviewer f
 naming the required language.
 Rewrite the question and every choice's "text" into that language, preserving meaning, intent, \
 and structure exactly.
+Translate ONLY the phrases the feedback names. Names of companies, products, frameworks and \
+tools, acronyms, loanwords the field uses untranslated ("Cloud", "Copilot", "Workflow") and job \
+titles stay exactly as the draft spells them — never translate, spell out or remove one, even \
+when the feedback asks for it.
 Do not add, remove, or reorder choices. Each choice's "level" field ("direct", "partial", or \
 "denial") is a fixed English enum and its "denied_terms" list holds verbatim concept names — \
 neither is translatable content. Copy BOTH through UNCHANGED, byte-for-byte, for every choice. \
