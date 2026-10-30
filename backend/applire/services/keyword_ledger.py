@@ -1844,14 +1844,37 @@ def rank_coverage_demand(
     return ordered[:max_terms_per_round], ordered[max_terms_per_round:]
 
 
+#: D-28 (Hazelnut build 5, delivery run 6): in a letter a coverage term is delivered by its
+#: EVIDENCE, not by its word. The demand "surface Technical leadership …" was executed as
+#: "I provide technical leadership by …, and technical strategy by …" and as the gloss
+#: "an agentic GenAI system—an AI agent and LLM-based solution—". Replay of the four
+#: captured letter reviewer calls (gpt-6-luna, n=5 each): feedback naming the posting
+#: term 17/20 -> 3/20, approved 1/20 -> 5/20. Letters only (a CV keeps the skills-list
+#: placement sentence above).
+LETTER_COVERAGE_BY_EVIDENCE = (
+    'IN A LETTER, A TERM IS DELIVERED BY ITS EVIDENCE: a term above counts as '
+    "delivered when the letter already states the candidate's evidence for it, under "
+    "the position that owns it, even though the posting's word does not appear. Such "
+    'a term raises no issue and does not block approval. Demand only a term whose '
+    'evidence the letter does not state, and ask for that EVIDENCE, never for the '
+    'word: never ask for a term to be named verbatim or "explicitly", as a label ("I '
+    'provide <term> by …"), or as an inserted gloss ("… — a <term> — …").'
+)
+
+
 def render_verified_coverage_block(
     entries: list[dict[str, Any]],
     *,
     bounded: bool = False,
     deferred_count: int = 0,
     skills_list: bool = False,
+    letter: bool = False,
 ) -> str:
     """Render the verified-absent claimable entries for the REVIEWER (US213, #122).
+
+    ``letter`` (D-28, Hazelnut build 5 delivery run 6): the document is a cover letter.
+    The block then says that a term is delivered by the evidence the letter states, and
+    never asks for the posting's word as a label (:data:`LETTER_COVERAGE_BY_EVIDENCE`).
 
     ``skills_list`` (D-20, Hazelnut build 5 delivery run 4): the document has a skills
     list (a CV draft). The block then says where a term is surfaced — in the sentence
@@ -1940,6 +1963,8 @@ def render_verified_coverage_block(
         "and the reason in your feedback); a waived term does not block approval. "
         "Grounding strictly outranks coverage — never ask the writer to fabricate.",
     ]
+    if letter:
+        lines += ["", LETTER_COVERAGE_BY_EVIDENCE]
     if skills_list:
         lines += [
             "",
@@ -2036,7 +2061,7 @@ def coverage_reviewer_prompt_fn(
             )
             prompt = (
                 f"{prompt}\n\n"
-                f"{render_verified_coverage_block(blocking, bounded=max_terms_per_round is not None, deferred_count=len(deferred), skills_list=isinstance(draft, dict) and 'skills' in draft)}"
+                f"{render_verified_coverage_block(blocking, bounded=max_terms_per_round is not None, deferred_count=len(deferred), skills_list=isinstance(draft, dict) and 'skills' in draft, letter=isinstance(draft, dict) and 'body' in draft)}"
             )
         return prompt
 
