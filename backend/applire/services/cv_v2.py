@@ -685,6 +685,38 @@ def _parent_role_names_project(project: dict, composed: "TailoredCVData", profil
     return False
 
 
+def _project_budget_fact(
+    composed: "TailoredCVData", ctx: V2CheckContext, parents: Sequence[str]
+) -> str:
+    """D-20 (Hazelnut build 5, round 9): the count a project demand lands on, as a fact.
+
+    ``cv.project_missing`` asks for one or two project bullets under a role; the role
+    budget counts those same bullets (``cv.role_budget``: own + nested project). Told
+    only "if the role is at its bullet budget", the corrector added the project and
+    kept every own bullet — replayed on the delivery-run-7 rounds that carried this
+    finding (log 156/167/172, gpt-6-luna, n=15), the next draft was over budget 11/15;
+    with the role's own count stated, 6/15. Empty when no parent role is at budget."""
+    if ctx.budget is None:
+        return ""
+    facts: list[str] = []
+    for w in composed.work_history:
+        if w.id not in parents:
+            continue
+        rb = ctx.budget.roles.get(w.id)
+        if rb is None:
+            continue
+        n = len(w.bullets) + sum(len(p.bullets) for p in w.projects)
+        if n >= rb.max_bullets:
+            facts.append(f"{w.id} already holds {n} bullets against its budget of {rb.max_bullets}")
+    if not facts:
+        return ""
+    return (
+        " " + "; ".join(facts) + " (own and nested project bullets together), so this is a "
+        "rewrite, not an addition: state the concept in one of its existing bullets, or give "
+        "the project one bullet in place of the role's weakest."
+    )
+
+
 def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
     """C2 as findings (inventory C2, ruling W1-1 r2) — v1's ``_nest_projects`` appended
     an untailored vault project's own text; v2 hands projects to the writer and checks.
@@ -715,6 +747,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
     out: list[CheckFinding] = []
     parts: list[str] = []
     missing_concepts: list[str] = []
+    parents: list[str] = []
     if ctx.keyword_ledger:
         try:
             under = verified_narrative_underclaim(doc, ctx.keyword_ledger, structured_document=doc)
@@ -728,6 +761,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
                 continue
             desc = str(hit.get("description") or "").strip()
             missing_concepts.append(c.concept)
+            parents.append(str(hit.get("associated_experience") or ""))
             parts.append(
                 f"“{c.concept}” is required by the posting and no bullet states it — the vault "
                 f"project “{hit.get('name')}” ({hit.get('id')}, {_where(hit)}) is its evidence"
@@ -741,7 +775,9 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
                 "; ".join(parts[:_MAX_ITEMS_PER_FINDING])
                 + ". Write that project into the CV (as a project of its role, one or two "
                 "bullets in the document language) or state the concept in a bullet of that "
-                "role; if the role is at its bullet budget, replace its weakest bullet."
+                "role."
+                + (_project_budget_fact(composed, ctx, parents)
+                   or " If the role is at its bullet budget, replace its weakest bullet.")
             ),
         ))
 
