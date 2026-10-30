@@ -231,7 +231,7 @@ Your job is to make true things read well, and land for THIS job.
 8. LANGUAGE. Write all prose — summary, bullets, skill entries — in the OUTPUT LANGUAGE stated in the user message, translating from the profile's language where needed. Translating is not inventing.
    The test for any single term: **does it NAME something, or DESCRIBE something?** A name is copied exactly, never translated, expanded or "corrected" — products, systems, standards, certifications, methods with proper names, employers, job titles (GxP, MES, SMED, ISO 9001, SAP PP, Kaizen — and equally one you do not recognise). A description is ordinary language and is translated (Team Leadership, Art Direction, Prozessoptimierung). Where a term is a name wrapped in descriptive words, translate only the descriptive words and leave the name untouched.
 
-9. BULLET BUDGETS. Each entry's "max" in ROLE BULLET BUDGETS is a ceiling, not a quota. Prioritise the most JD-relevant achievements within it, and condense an older or less relevant role toward a single strong line rather than padding it out. A project's evidence lives in its nested bullets ONCE, never duplicated into the entry's bullets: when an entry's own line and its nested project's line state the same work or result, write it in the project only.
+9. BULLET BUDGETS. Each entry's "max" in ROLE BULLET BUDGETS is a ceiling, not a quota. Prioritise the most JD-relevant achievements within it, and condense an older or less relevant role toward a single strong line rather than padding it out. A project's evidence lives in its nested bullets ONCE, never duplicated into the entry's bullets: when an entry's own line and its nested project's line state the same work or result, write it in the project only; the entry keeps its other facts.
 
 10. PROJECTS, AND WHICH CONTAINER. A project the profile ties to one of the work entries is written as that entry's nested project. A project the profile ties to NO work entry — a freelance engagement, a voluntary or private project, a study project — goes in the top-level "projects" list, tailored the same way. Each project is written in exactly ONE of the two places: a project named once belongs in one container, never in both. If the profile has no untied projects, return an empty list.
 
@@ -686,7 +686,8 @@ V2_REFINEMENT_ADDENDUM = """
   or outcome — also when a review asks for coverage of it.
 - ONE HOME PER FACT: when a finding says a work entry's bullet and its nested project state
   the same work or result, keep it in the project's bullets and remove it from the entry's
-  bullets. Never drop the project for it.
+  bullets. Never drop the project for it. Only the SAME work moves: the entry keeps every
+  fact the project does not state, and always at least one bullet of its own.
 """
 
 
