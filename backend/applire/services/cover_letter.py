@@ -838,6 +838,31 @@ _STATED_LIMITS_CONSTRAINT = (
 )
 
 
+# D-32 (Hazelnut build 5, round 9): the entry a posting does NOT ask about. It
+# used to carry the shared constraint above verbatim, whose "an honest denial
+# names the adjacent strengths that transfer" read as an invitation, and nothing
+# in it said the limits are owed nothing — while the writer's own block already
+# said "the letter NEVER mentions them". Reviewers called it "the required
+# stated_limits positioning" (delivery run 7, log 183/184/198) and the corrector
+# wrote both denials in. Replayed on those reviewer rounds (gpt-6-luna, n=37 per arm):
+# a demand for a limit sentence 4/37 -> 1/37 (round 184: 4/13 -> 0/13); the
+# terminal reviewer on the two-denial draft flagged them 0/5 -> 2/5.
+_STATED_LIMITS_NOT_OWED = (
+    "CONSTRAINT ONLY — owed nothing. These are the candidate's own words about what "
+    "they cannot claim, and the ONLY limits the vault holds. This posting's key "
+    "requirements do not ask about them, so the letter never mentions them: no "
+    "disclosure, no gap, no \"no (further) experience\" sentence drawn from one, and a "
+    "review never demands one — a letter that writes one has a finding. A draft must "
+    "not contradict one — and must not invent one either. A concept named inside a "
+    "statement as something the candidate DOES have is a strength, not a limit: claim "
+    "it plainly. Everything the Keyword Ledger marks claimable stays fully claimable "
+    "unless a statement here denies it. "
+    "A statement that only withholds detail (\"kann ich nicht nennen\", no figure or "
+    "example given) is NOT a limit: use the detail it gives, and never write the "
+    "withholding into the letter (RULING DEL-1)."
+)
+
+
 def _constraining_stated_limits_entry(limits: list[str]) -> dict:
     """The pre-ADR-075 entry: every denial the vault holds, constraint only.
 
@@ -847,7 +872,7 @@ def _constraining_stated_limits_entry(limits: list[str]) -> dict:
     never contradict a limit, never invent one. It carries no ``required`` flag,
     so reviewer check 4 does not demand content that does not exist.
     """
-    return {"limits": limits, "instruction": _STATED_LIMITS_CONSTRAINT}
+    return {"limits": limits, "instruction": _STATED_LIMITS_NOT_OWED}
 
 
 def build_stated_limits_entry(

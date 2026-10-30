@@ -1401,6 +1401,23 @@ def test_project_missing_fires_for_a_required_concept_only_a_vault_project_evide
     assert f.blocking and "Umstellung auf FastAPI" in f.text and W1 in f.text
 
 
+def test_project_missing_states_the_role_budget_when_the_role_is_full():
+    """D-20 (Hazelnut build 5, round 9): the demand for a project bullet lands on a
+    role at its budget — the finding says so as a count, so complying is a rewrite.
+    Delivery run 7: told only "if the role is at its bullet budget", the corrector
+    added the project and kept every own bullet (over budget 11/15 replays)."""
+    prose = _prose()
+    prose["skills"] = ["SPS", "MES", "FastAPI"]
+    full = _by_check(_checks(prose, _project_vault(), keyword_ledger=_fastapi_ledger(),
+                             budget=_budget(**{W1: 2, W2: 3})))["cv.project_missing"]
+    assert f"{W1} already holds 2 bullets against its budget of 2" in full.text
+    assert "this is a rewrite, not an addition" in full.text
+    room = _by_check(_checks(prose, _project_vault(), keyword_ledger=_fastapi_ledger(),
+                             budget=_budget(**{W1: 5, W2: 3})))["cv.project_missing"]
+    assert "already holds" not in room.text
+    assert "If the role is at its bullet budget, replace its weakest bullet." in room.text
+
+
 def test_project_missing_is_silent_when_a_bullet_states_the_concept():
     prose = _prose()
     prose["work"][0]["projects"] = [{"name": "Migration", "bullets": ["Migrierte zwei Dienste auf FastAPI."]}]

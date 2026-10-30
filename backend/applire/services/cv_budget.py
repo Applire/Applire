@@ -655,6 +655,33 @@ def condense_to_budget(
             coverage_demanded_groups=budgets.coverage_demanded_concepts,
             evidence_external_text=evidence_external,
         )
+        # D-20 (Hazelnut build 5, round 9): the M-3 floor counts against the budget.
+        # A role keeps at least one bullet of its own, never only its nested project
+        # (writer rule 9, the corrector's ONE HOME line, the page-length finding) — so
+        # when this ranking would remove every own bullet while a project bullet
+        # survives, the own bullet the ranking kept longest is held (it occupies one
+        # budget slot, like a pin) and a project bullet goes instead. Without it the
+        # budget's candidates told the corrector to cut what the floor forbids.
+        role_orders = [it["order"] for it in items if it["is_role"]]
+        if role_orders and set(pinned_idx).isdisjoint(role_orders):
+            cut_idx = {c.index for c in cuts}
+            project_survives = any(
+                not it["is_role"] and it["order"] not in cut_idx for it in items
+            )
+            if project_survives and all(o in cut_idx for o in role_orders):
+                held = [c.index for c in cuts if c.index in role_orders][-1]
+                cuts = rank_cuts(
+                    item_texts,
+                    [(it["carries_figure"], it["is_role"], -it["order"]) for it in items],
+                    keep=ceiling,
+                    concept_groups=concept_groups,
+                    external_text=external,
+                    pinned=set(pinned_idx) | {held},
+                    demanded_groups=budgets.demanded_concepts,
+                    narrative_external_text=narrative_external,
+                    coverage_demanded_groups=budgets.coverage_demanded_concepts,
+                    evidence_external_text=evidence_external,
+                )
         log_cuts(
             "condense_to_budget", cuts,
             role_id=str(entry.get("id") or ""), ceiling=ceiling, iteration=iteration,
