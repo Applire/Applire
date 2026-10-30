@@ -146,6 +146,83 @@ def carry_v2_fields(new: Any, previous: Any) -> Any:
 
 
 # --------------------------------------------------------------------------- #
+# place: a project's container is a vault fact (D-31, Hazelnut build 5 round 9)
+# --------------------------------------------------------------------------- #
+def place_linked_projects(prose: Any, profile_json: dict | None) -> Any:
+    """Put every top-level prose project the vault ties to a work entry under that
+    entry — whatever slot the model used. Returns a new draft; never mutates.
+
+    A project's home is a vault FACT (``associated_experience``), and the v2 compose is
+    the join by id — but it rendered the prose's top-level ``projects`` list as is, so a
+    linked project the writer put there was delivered as standalone while the reviewers,
+    reading the vault, called it "the nested project under work_history index 3". The
+    corrector then wrote a nested copy and kept the top-level one; the duplicate-project
+    fold kept both copies' near-twin bullets, and the round cap shipped that round
+    (delivery run 7, log 145 → 164 → 168: D-31). v1's ``_nest_projects`` had closed this
+    container gap (#672 L100, "the LLM tailors prose; code disposes"); the v2 compose
+    never ran it. This is that rule for the prose shape: a container move by name and id,
+    no text authored, no bullet dropped except a byte-identical (normalised) repeat of a
+    bullet already in the destination copy.
+
+    Matching is by the project's normalised NAME against the vault, and by the vault's
+    ``associated_experience`` id against the draft's work ids; a name the vault does not
+    hold (a translated heading) or a link to no work entry of the draft stays where the
+    model put it — never a guessed owner (ADR-072 cl. 5)."""
+    if not isinstance(prose, dict) or not isinstance(prose.get("projects"), list):
+        return prose
+    work = prose.get("work")
+    if not isinstance(work, list):
+        return prose
+    from applire.services.ats_audit import _norm
+
+    work_ids = {str(w.get("id") or "") for w in work if isinstance(w, dict)}
+    owner_by_name: dict[str, str] = {}
+    for vp in (profile_json or {}).get("projects") or []:
+        if not isinstance(vp, dict):
+            continue
+        parent = str(vp.get("associated_experience") or "").strip()
+        name = _norm(str(vp.get("name") or ""))
+        if name and parent in work_ids:
+            owner_by_name[name] = parent
+    moves = [
+        (i, owner_by_name[_norm(str(p.get("name") or ""))])
+        for i, p in enumerate(prose["projects"])
+        if isinstance(p, dict) and _norm(str(p.get("name") or "")) in owner_by_name
+    ]
+    if not moves:
+        return prose
+    out = copy.deepcopy(prose)
+    by_id = {str(w.get("id") or ""): w for w in out["work"] if isinstance(w, dict)}
+    moved_idx = set()
+    for i, wid in moves:
+        proj = out["projects"][i]
+        entry = by_id[wid]
+        nested = entry.get("projects") if isinstance(entry.get("projects"), list) else []
+        same = next(
+            (q for q in nested if isinstance(q, dict)
+             and _norm(str(q.get("name") or "")) == _norm(str(proj.get("name") or ""))),
+            None,
+        )
+        if same is None:
+            nested.append(proj)
+        else:
+            have = {_norm(b) for b in same.get("bullets") or [] if isinstance(b, str)}
+            same["bullets"] = list(same.get("bullets") or []) + [
+                b for b in proj.get("bullets") or []
+                if isinstance(b, str) and _norm(b) not in have
+            ]
+        entry["projects"] = nested
+        moved_idx.add(i)
+        logger.info(
+            "TAIL_RELOCATE (D-31) pass=place_linked_projects predicate=top-level copy "
+            "of a role-tied project role_id=%r project=%r merged=%s",
+            wid, proj.get("name"), same is not None,
+        )
+    out["projects"] = [p for i, p in enumerate(out["projects"]) if i not in moved_idx]
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # compose: the join by id, nothing else
 # --------------------------------------------------------------------------- #
 @dataclass
@@ -212,6 +289,8 @@ def compose_v2(
     from applire.services.profile.language_names import LANGUAGE_NAME_DE_EN
 
     notes = notes if notes is not None else ComposeNotes()
+    # D-31: the container of a vault-linked project is a fact, not the prose's slot.
+    prose = place_linked_projects(prose, profile_json)
     tailored = TailoredCVData.model_validate(assemble_tailored_cv(prose, profile_json))
     tailored = _apply_certifications(tailored, profile_json)
     tailored = _apply_role_facts(tailored, profile_json, preseed=None)

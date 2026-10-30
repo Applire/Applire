@@ -260,7 +260,7 @@ def test_a_duplicate_project_goes_the_redundancy_route(monkeypatch):
     monkeypatch.setattr(brs, "redundant_bullet_pairs", lambda d: [])
     monkeypatch.setattr(brs, "duplicate_project_pairs", lambda d: [("A > Projekte", "Atlas", "Projekte", "Atlas (2021)")])
     issues = brs.redundancy_signal_issues({"x": 1})
-    assert len(issues) == 1 and '"Atlas"' in issues[0].text and "nothing that appears in only one copy" in issues[0].text
+    assert len(issues) == 1 and '"Atlas"' in issues[0].text and "appears in only one copy, so nothing is lost" in issues[0].text
     monkeypatch.setattr(brs, "duplicate_project_pairs", lambda d: [])
     assert brs.redundancy_signal_issues({"x": 1}) == []
 
