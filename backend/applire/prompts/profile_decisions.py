@@ -134,6 +134,14 @@ def build_duplicates_prompt(target_bullets: list[str], source_bullets: list[str]
     return f"Entry T bullets:\n{t or '(none)'}\n\nEntry S bullets:\n{s or '(none)'}\nAnswer with the JSON object now."
 
 
+# D-3 regression (Hazelnut build 5, delivery run 6): the judge asked "Ist das
+# erreicht?" of a present-progressive line about the candidate's own working
+# product, and of a team-building duty. Measured on the logged run-6 calls
+# (gpt-6-luna, thinking off, n=5): product line 5/5 -> 0/5, team duty 3/5 ->
+# 0/5; true positives (the governance mandates, the 60 %+/70 % targets) kept.
+# The removed mandate example "Build up a data platform" primed the false
+# positive. Residual: an extraction that rewrites a stated property as an
+# imperative ("Build privacy into the platform …") is still flagged.
 ASPIRATION_SYSTEM = """You read the bullet points of a person's CURRENT jobs in their CV profile. List
 ONLY the bullets that state something NOT YET reached, a result or a thing to
 create that the bullet itself leaves open:
@@ -142,15 +150,22 @@ create that the bullet itself leaves open:
   "the project targets a 20% cut", "plan to roll out", "Ziel: …", "angestrebt";
 - a mandate to create or establish something, worded as an imperative or an
   "-ing" intention, that never says it exists: "Establish AI governance
-  frameworks", "Build up a data platform", "Aufbau einer Governance", "… while
-  establishing a review board".
+  frameworks", "Aufbau einer Governance", "… while establishing a review
+  board".
 
 NEVER listed:
 - an ongoing duty or role, even about a project or an area: "Lead a team of 8
   engineers", "Manage a cloud migration project using Azure", "Act as lead
   architect for the payments area", "Set strategic direction for the platform",
   "Build and grow the analytics team through hiring and coaching",
-  "Verantwortung für das Budget";
+  "Verantwortung für das Budget" — building, growing or developing a TEAM or
+  people (hiring, coaching, talent development) is always such a duty;
+- building, developing or improving the person's own product, platform, app
+  or system, in any form ("-ing", imperative, noun), when this bullet or
+  another one says what that thing does, or that it is in use, released or in
+  beta: "Building a booking app that matches riders and drivers in 12 cities",
+  "Develop the app's backend", "Make the app work offline" — that is the job's
+  ongoing work, a duty;
 - anything the bullet states as reached, done, built or measured, in any tense:
   "Established …", "The pilot reached a 40% saving", "cut costs by 18%",
   "Set up a CI pipeline";
