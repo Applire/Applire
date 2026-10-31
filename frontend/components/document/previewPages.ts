@@ -213,6 +213,11 @@ function visibleBox(k: Element, win: Window): boolean {
   return ks.display !== "none" && ks.position !== "absolute" && ks.position !== "fixed" && k.getBoundingClientRect().height > 0;
 }
 
+function avoidsBreakBefore(cs: CSSStyleDeclaration): boolean {
+  const v = cs.breakBefore;
+  return v === "avoid" || v === "avoid-page" || cs.getPropertyValue("page-break-before") === "avoid";
+}
+
 function avoidsBreakAfter(cs: CSSStyleDeclaration): boolean {
   const v = cs.breakAfter;
   return v === "avoid" || v === "avoid-page" || cs.getPropertyValue("page-break-after") === "avoid";
@@ -233,6 +238,10 @@ function headingToMove(el: HTMLElement, root: HTMLElement, pageTop: number, win:
   for (let guard = 0; guard < 8; guard++) {
     let anchor: HTMLElement = cur;
     let prev: Element | null = null;
+    // D-35: `break-before: avoid` on the block (or on a parent it opens — the
+    // nested projects) keeps it with the box before it, as `break-after: avoid`
+    // on that box does.
+    let avoidBefore = avoidsBreakBefore(win.getComputedStyle(anchor));
     for (;;) {
       prev = anchor.previousElementSibling;
       while (prev && !visibleBox(prev, win)) prev = prev.previousElementSibling;
@@ -240,9 +249,20 @@ function headingToMove(el: HTMLElement, root: HTMLElement, pageTop: number, win:
       const up = anchor.parentElement;
       if (!up || up === root || !root.contains(up)) break;
       anchor = up;
+      avoidBefore = avoidBefore || avoidsBreakBefore(win.getComputedStyle(anchor));
     }
-    if (!prev || !avoidsBreakAfter(win.getComputedStyle(prev))) break;
-    const heading = prev as HTMLElement;
+    if (!prev || !(avoidBefore || avoidsBreakAfter(win.getComputedStyle(prev)))) break;
+    // D-35: a box the print engine may split (a long role's open tail) keeps
+    // only its LAST unit with what follows — descend to it.
+    let heading = prev as HTMLElement;
+    for (let d = 0; d < 8; d++) {
+      const hs = win.getComputedStyle(heading);
+      if (keepsTogether(hs)) break;
+      const kids = (Array.from(heading.children) as HTMLElement[]).filter((k) => visibleBox(k, win));
+      const last = kids[kids.length - 1];
+      if (!last || hs.display.includes("flex") || hs.display.includes("grid") || hs.display.startsWith("table")) break;
+      heading = last;
+    }
     if (topOf(heading, win) <= pageTop + 1) break; // it already starts the page
     found = heading;
     cur = heading;
@@ -385,11 +405,18 @@ export function paginatePreview(doc: Document, label: (page: number, total: numb
     // D-6: a column's first block at its row's start moves the whole row (once).
     const moves: Array<{ u: Unit; top: number; lifted?: boolean }> = [];
     for (const c of chosen) {
-      const row = rowToMove(c.u, root, thisPageTop, win);
-      let m: { u: Unit; top: number; lifted?: boolean } = row ? { u: row, top: topOf(row.el, win), lifted: true } : c;
-      // D-6 residual: the heading before it goes too (`break-after: avoid`).
-      const heading = headingToMove(m.u.el, root, thisPageTop, win);
-      if (heading) m = { u: { el: heading, row: false, leaf: false }, top: topOf(heading, win), lifted: true };
+      let m: { u: Unit; top: number; lifted?: boolean } = c;
+      // D-6: a column's first block at its row's start moves the whole row; D-6
+      // residual / D-35: the box kept with it (`break-after: avoid` before it,
+      // `break-before: avoid` on it) goes too — and that box may open a row in
+      // turn (a role's lead with the nested projects after it).
+      for (let hop = 0; hop < 6; hop++) {
+        const row = rowToMove(m.u, root, thisPageTop, win);
+        if (row) m = { u: row, top: topOf(row.el, win), lifted: true };
+        const heading = headingToMove(m.u.el, root, thisPageTop, win);
+        if (heading) m = { u: { el: heading, row: false, leaf: false }, top: topOf(heading, win), lifted: true };
+        else break;
+      }
       if (!moves.some((x) => x.u.el === m.u.el || x.u.el.contains(m.u.el))) moves.push(m);
     }
     for (const { u, top, lifted } of moves) {

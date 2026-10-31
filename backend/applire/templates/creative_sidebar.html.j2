@@ -151,9 +151,26 @@
     .entry-tail .entry-bullets {
       margin-top: 0;
     }
-    .project-item {
+    /* D-35: a SHORT project (<=3 bullets) stays one unit; a LONG one keeps its
+       name + first 2 bullets together (.project-lead) and may break after. */
+    .project-atomic,
+    .project-lead {
       break-inside: avoid;
       page-break-inside: avoid;
+    }
+    .project-lead ~ .entry-bullets { margin-top: 0; }
+    /* D-35: the nested projects never open a page without their role — the
+       block before them (the role's lead or tail) travels with their first block. */
+    .entry-projects {
+      break-before: avoid;
+      page-break-before: avoid;
+    }
+    /* D-35: when projects follow, a long role's last 2 bullets are no longer one
+       unit — only the LAST bullet travels with the projects, so the break costs
+       one bullet's height, not two. */
+    .entry-tail.entry-tail-open {
+      break-inside: auto;
+      page-break-inside: auto;
     }
     .section-atomic {
       break-inside: avoid;
@@ -340,7 +357,11 @@
       <div class="section-title">{{ labels.experience }}</div>
       {% for job in cv.work_history %}
       {% set n_bullets = job.bullets | length %}
-      <div class="entry{{ ' entry-atomic' if n_bullets <= 3 else '' }}">
+      {# D-35: an entry is atomic only when ALL of it is short — its own bullets
+         PLUS its nested projects' bullets (a 2-bullet role with a 5-bullet project
+         was one unbreakable block and left page 1 ~40 % empty). #}
+      {% set n_proj_bullets = job.projects | map(attribute='bullets') | map('length') | sum %}
+      <div class="entry{{ ' entry-atomic' if n_bullets + n_proj_bullets <= 3 else '' }}">
         {% set head %}
         <div class="entry-header">
           <div class="entry-title">{{ job.role }}</div>
@@ -370,13 +391,24 @@
           {% endfor %}
         </ul>
         {% endif %}
-        <div class="entry-tail">
+        <div class="entry-tail{{ ' entry-tail-open' if job.projects else '' }}">
           <ul class="entry-bullets">
             {% for bullet in job.bullets[-2:] %}
             <li>{{ bullet }}</li>
             {% endfor %}
           </ul>
         </div>
+        {% else %}
+        {% if job.projects and n_bullets + n_proj_bullets > 3 %}
+        {# D-35: a short role WITH nested projects breaks like a long one — head +
+           first 2 own bullets keep together (.entry-lead), the rest follow, and the
+           projects travel with the block before them (.entry-projects
+           break-before: avoid): they never open a page on their own. #}
+        <div class="entry-lead">
+          {{ head }}
+          {% if job.bullets %}<ul class="entry-bullets">{% for bullet in job.bullets[:2] %}<li>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+        {% if n_bullets > 2 %}<ul class="entry-bullets">{% for bullet in job.bullets[2:] %}<li>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
         {% else %}
         {{ head }}
         {% if job.bullets %}
@@ -387,16 +419,25 @@
         </ul>
         {% endif %}
         {% endif %}
+        {% endif %}
         {% if job.projects %}
         <div class="entry-projects">
           <div class="entry-projects-title">{{ labels.projects }}</div>
           {% for project in job.projects %}
-          <div class="project-item">
+          {% set n_pb = project.bullets | length %}
+          <div class="project-item{{ ' project-atomic' if n_pb <= 1 else '' }}">
+            {% if n_pb > 1 %}
+            {# D-35: a project with more than one bullet may break — its name + first bullet keep together. #}
+            <div class="project-lead">
+              <div class="project-name">{{ project.name }}</div>
+              <ul class="entry-bullets">{% for bullet in project.bullets[:1] %}<li>{{ bullet }}</li>{% endfor %}</ul>
+            </div>
+            <ul class="entry-bullets">{% for bullet in project.bullets[1:] %}<li>{{ bullet }}</li>{% endfor %}</ul>
+            {% else %}
             <div class="project-name">{{ project.name }}</div>
             {% if project.bullets %}
-            <ul class="entry-bullets">
-              {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
-            </ul>
+            <ul class="entry-bullets">{% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}</ul>
+            {% endif %}
             {% endif %}
           </div>
           {% endfor %}
