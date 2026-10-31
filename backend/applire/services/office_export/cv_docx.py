@@ -73,7 +73,7 @@ from applire.services.office_export._common import (
 )
 import logging
 
-from applire.templates.filters import budget_display, education_title, month_year
+from applire.templates.filters import education_title, month_year, period, role_facts
 from applire.templates.labels import cv_labels
 
 logger = logging.getLogger(__name__)
@@ -106,56 +106,25 @@ def _join_nonblank(parts: list[str | None], sep: str = _JOIN) -> str:
     return sep.join(p.strip() for p in parts if p and p.strip())
 
 
-def _format_date_range(start: str | None, end: str | None, labels: dict) -> str:
-    """'01/2020 – 06/2022', '07/2022 – heute'/'Present' (end is None but start
-    is set), or '' when both are blank. Never renders the literal 'None'.
+def _format_date_range(entry, labels: dict) -> str:
+    """The entry's date range through THE producer every CV template uses
+    (``templates.filters.period``, D-14 / ADR-062 clause 1): '01/2020 –
+    06/2022', '07/2022 – heute' only when the role is current (or unstated),
+    the start date alone when ``is_current`` is False and no end date is
+    known, '' when there is no date at all.
 
-    Formatted with the SAME ``month_year`` filter all seven PDF templates use
-    (`{{ job.start_date | month_year }}`), not a second rule of its own. The
-    export previously emitted the storage format (`2017-04`), so one document
-    showed two different dates depending on which file the reader opened —
-    SF-EXPORT.2's failure mode, and two implementations of one display rule
-    (ADR-066). Every containment assertion in this suite stayed green through
-    it, because the raw value IS present either way: the tests could not see
-    formatting at all. Caught by converting a real export and looking at it.
-    """
-    start = month_year((start or "").strip())
-    end = month_year((end or "").strip())
-    if not start and not end:
-        return ""
-    if not end:
-        end = labels["present"]
-    if start and end:
-        return f"{start}{_DASH}{end}"
-    return start or end
+    One display rule, not two (ADR-066): the export once emitted the storage
+    format (``2017-04``) while the PDF showed ``04/2017`` — SF-EXPORT.2."""
+    p = period(entry, labels["present"])
+    return f"{p['start']}{_DASH if p['dash'] else ''}{p['end']}"
 
 
 def _role_facts_line(entry: TailoredWorkEntry, labels: dict, lang: str) -> str:
-    """#328 (ADR-062 clause 1) per-role quantified facts, rendered as
-    deterministic document furniture — 'Label: value' pairs, never composed
-    into a sentence, matching how all seven PDF templates render them via
-    the same `role_team_size` / `role_budget` / `role_industry` labels.
-
-    `team_size` is guarded on `is not None`, never truthiness: it is
-    `int | None` and 0 is a stated, meaningful fact — "None means 'not
-    stated' — 0 is a valid team_size" (schemas/cv.py:140). `if
-    entry.team_size:` would silently drop a real zero.
-    """
-    parts = []
-    if entry.team_size is not None:
-        parts.append(f"{labels['role_team_size']}: {entry.team_size}")
-    # Through the SAME filter every template applies
-    # (`job.budget_managed | budget_display(lang)`), and — like the templates'
-    # `{% if budget_text %}` — the line is omitted when the filter rejects the
-    # value. `budget_display("6000000")` returns "" precisely because a bare
-    # unit-less number shipped as #382; printing it raw here would reintroduce
-    # that defect on the export.
-    budget_text = budget_display(entry.budget_managed, lang)
-    if _has_text(budget_text):
-        parts.append(f"{labels['role_budget']}: {budget_text.strip()}")
-    if _has_text(entry.industry_context):
-        parts.append(f"{labels['role_industry']}: {entry.industry_context.strip()}")
-    return "   |   ".join(parts)
+    """The per-role fact line — THE same producer the PDF templates use
+    (``templates.filters.role_facts``, founder ruling P-1): numbers only
+    (team size and/or a budget with a digit), no labels, never the industry;
+    ``""`` when there is no number, and the caller then adds no paragraph."""
+    return role_facts(entry, lang)
 
 
 def _project_has_content(project: TailoredProjectEntry) -> bool:
@@ -165,10 +134,9 @@ def _project_has_content(project: TailoredProjectEntry) -> bool:
 def _work_entry_has_content(entry: TailoredWorkEntry) -> bool:
     if _has_text(entry.company, entry.role, entry.start_date, entry.end_date):
         return True
-    # See _role_facts_line: 0 is a stated team_size, not "nothing to show".
-    if entry.team_size is not None:
-        return True
-    if _has_text(entry.budget_managed, entry.industry_context):
+    # The fact line counts as content exactly when it renders (P-1): a team size
+    # of 0, a unit-less budget or an industry alone render nothing.
+    if role_facts(entry, "de"):
         return True
     if any(_has_text(b) for b in entry.bullets):
         return True
@@ -239,8 +207,10 @@ def _render_work_history(document, tailored, labels, color, photo_bytes, lang) -
             continue
         header = _join_nonblank([entry.company, entry.role])
         add_heading(document, header, 3, color)
-        add_paragraph(document, _format_date_range(entry.start_date, entry.end_date, labels), italic=True)
-        add_paragraph(document, _role_facts_line(entry, labels, lang), italic=True)
+        add_paragraph(document, _format_date_range(entry, labels), italic=True)
+        facts = _role_facts_line(entry, labels, lang)
+        if facts:
+            add_paragraph(document, facts, italic=True)
         for bullet in entry.bullets:
             add_bullet(document, bullet)
         for project in entry.projects:
@@ -270,7 +240,7 @@ def _render_education(document, tailored, labels, color, photo_bytes, lang) -> N
         # too or it reintroduces a closed defect on a new surface.
         header = _join_nonblank([entry.institution, education_title(entry.degree, entry.field)])
         add_paragraph(document, header, bold=True)
-        add_paragraph(document, _format_date_range(entry.start_date, entry.end_date, labels), italic=True)
+        add_paragraph(document, _format_date_range(entry, labels), italic=True)
 
 
 def _render_languages(document, tailored, labels, color, photo_bytes, lang) -> None:
@@ -341,7 +311,6 @@ _RENDERED_LEAVES: frozenset[str] = frozenset({
     "work_history[].bullets",
     "work_history[].team_size",
     "work_history[].budget_managed",
-    "work_history[].industry_context",
     "work_history[].projects[].name",
     "work_history[].projects[].bullets",
     "skills",
@@ -361,6 +330,18 @@ _RENDERED_LEAVES: frozenset[str] = frozenset({
 })
 
 _NOT_RENDERED_LEAVES: dict[str, str] = {
+    "work_history[].is_current": (
+        "D-14 (Hazelnut build 5): a structural modifier, never printed as "
+        "text — templates.filters.period reads it to decide whether a missing "
+        "end date renders as 'heute'/'Present' (current or unstated) or not at "
+        "all (False: ended, end unknown). Same producer as the PDF templates."
+    ),
+    "work_history[].industry_context": (
+        "Founder ruling P-1 (Hazelnut build 5): the industry line read as "
+        "template-generated to a blind panel and is dropped from every CV "
+        "template; the .docx follows the same producer (templates.filters."
+        "role_facts), so PDF, preview and export carry the same content set."
+    ),
     "contact.photo_url": (
         "Not read by this pure function at all: the caller "
         "(services.cv.get_cv_docx) resolves it via the existing "

@@ -27,7 +27,7 @@
  * producer's real output rather than a hand-written stub is the point: #671's
  * premise is a claim about what the surface does with the REAL shape.
  */
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { ReviewSurface, type ReviewSurfaceProps } from "../ReviewSurface";
@@ -124,18 +124,18 @@ function base(overrides: Partial<ReviewSurfaceProps> = {}): ReviewSurfaceProps {
   };
 }
 
-/** Idempotent: ADR-081 cl. 5 opens the FIRST present group automatically, so a
- *  blind click would close the very group under test. */
-function open(group: number) {
-  const toggle = screen.getByTestId(`review-group-toggle-${group}`);
-  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
-}
+// ADR-099 supersedes what these suites pinned on groups 2 and 4: group 2 (the
+// trade, its pin link and its fourth handle, #667 / 789:26) is gone, and the
+// terminal review's open notes are class S (cl. 8) — never rendered, and never
+// as server prose (cl. 12). What stays from #671 is that the REAL payloads are
+// read without crashing and without hiding a failure: on a report persisted
+// before ADR-099 (no delivery class) a failed check is the counted fallback
+// row, its label only.
 
-describe("R2-5 — the surface renders the keyed final-check card, not the EN details", () => {
-  it("DE: Schlussprüfung with the lead sentence and the German code line; no check id or round count", () => {
+describe("R2-5 / #671 under ADR-099 — no server prose from the terminal review", () => {
+  it("DE: an unclassified failed final check is one counted row, label only — no notes, no code, no rounds", () => {
     const keyed: ATSCheck = {
       ...TERMINAL_REVIEW_FAIL,
-      status: "fail",
       details_key: "terminal-review-open",
       details_params: { count: 1 },
       notes: [
@@ -144,192 +144,71 @@ describe("R2-5 — the surface renders the keyed final-check card, not the EN de
       ],
     };
     render(withIntl(<ReviewSurface {...base({ atsReport: ats([keyed]) })} />, "de"));
-    open(4);
-    const group = screen.getByTestId("review-group-4");
-    expect(within(group).getByText("Schlussprüfung")).toBeTruthy();
-    const card = within(group).getByTestId("terminal-review-detail");
-    expect(card.textContent).toContain("Unsere Schlussprüfung hat einen Hinweis zu diesem Dokument");
-    expect(card.textContent).toContain("Bei Weberit ist 5S nicht als Aufgabe belegt.");
-    expect(card.textContent).toContain("Bei Weberit Kunststofftechnik GmbH stehen mehr Stichpunkte als vorgesehen.");
-    expect(group.textContent ?? "").not.toMatch(/round\(s\)|cv\.role_budget|exhausted its retries/);
-  });
-});
-
-describe("#671 — group 4 renders the terminal review's details", () => {
-  it("renders the FAIL details verbatim on the CV surface", () => {
-    render(withIntl(<ReviewSurface {...base({ atsReport: ats([TERMINAL_REVIEW_FAIL]) })} />));
-    open(4);
-    const group = screen.getByTestId("review-group-4");
-    // The label comes from `ats.checks.terminal-review`, not from the raw id (R2-5: "Final check").
-    expect(within(group).getByText("Final check")).toBeTruthy();
-    expect(
-      within(group).getByText(/exhausted its retries with findings still open/),
-    ).toBeTruthy();
-    // The open findings themselves, not only the status sentence — a status
-    // without its finding tells the user something is wrong and not what.
-    expect(within(group).getByText(/Weberit Kunststofftechnik GmbH/)).toBeTruthy();
+    const row = screen.getByTestId("review-fallback-terminal-review");
+    expect(row.dataset.counted).toBe("true");
+    expect(row.textContent).toContain("Schlussprüfung");
+    const text = screen.getByTestId("review-surface").textContent ?? "";
+    expect(text).not.toMatch(/round\(s\)|cv\.role_budget|exhausted its retries|Weberit/);
+    expect(screen.getByTestId("review-verdict").getAttribute("data-count")).toBe("1");
   });
 
-  it("renders the FAIL details on the cover-letter surface too", () => {
-    render(
-      withIntl(
-        <ReviewSurface
-          {...base({
-            documentKind: "cover_letter",
-            documentId: "generated-cl-1",
-            atsReport: ats([TERMINAL_REVIEW_FAIL]),
-            gapClusters: [],
-            hasClusterProducer: false,
-          })}
-        />,
-      ),
-    );
-    open(4);
-    expect(
-      within(screen.getByTestId("review-group-4")).getByText(
-        /exhausted its retries with findings still open/,
-      ),
-    ).toBeTruthy();
+  it("EN, both surfaces: the raw details never render", () => {
+    for (const kind of ["cv", "cover-letter"] as const) {
+      const { unmount } = render(
+        withIntl(<ReviewSurface {...base({ documentKind: kind, atsReport: ats([TERMINAL_REVIEW_FAIL]), hasClusterProducer: kind === "cv" })} />),
+      );
+      expect(screen.getByTestId("review-fallback-terminal-review").textContent).toContain("Final check");
+      expect(screen.getByTestId("review-surface").textContent ?? "").not.toMatch(/exhausted its retries|Weberit/);
+      unmount();
+    }
   });
 
-  it("a minor-only settle is a PASS that still names its observations", () => {
-    render(
-      withIntl(<ReviewSurface {...base({ atsReport: ats([TERMINAL_REVIEW_MINOR_ONLY]) })} />),
-    );
-    open(4);
-    const group = screen.getByTestId("review-group-4");
-    expect(within(group).getByText(/repeats the employer's name/)).toBeTruthy();
-    // ADR-039 has no fourth band (founder ruling 7): the row must not carry the
-    // severity dot the FAIL rows use, and the group must not report a failure.
-    const row = within(group).getByTestId("review-item-g4-check-advisory-terminal-review");
-    expect(row.querySelector(".bg-critical")).toBeNull();
-    expect(within(group).queryByTestId("review-item-g4-check-fail-terminal-review")).toBeNull();
+  it("a classified terminal review with open notes (class S) renders nothing and counts nothing", () => {
+    const s: ATSCheck = { ...TERMINAL_REVIEW_FAIL, delivery_class: "S", resolver: null };
+    const report = { ...ats([s]), delivery: { loop_clean: true, removals: [], fixed: [] } } as ATSReport;
+    render(withIntl(<ReviewSurface {...base({ atsReport: report })} />));
+    expect(screen.queryByTestId("review-fallback-terminal-review")).toBeNull();
+    expect(screen.getByTestId("review-verdict").getAttribute("data-count")).toBe("0");
+  });
+
+  it("a minor-only settle is a PASS: counted in the passed line, its observations not shown", () => {
+    render(withIntl(<ReviewSurface {...base({ atsReport: ats([TERMINAL_REVIEW_MINOR_ONLY]) })} />));
+    expect(screen.getByTestId("review-passed-checks").textContent).toContain("1");
+    expect(screen.getByTestId("review-surface").textContent ?? "").not.toMatch(/repeats the employer's name/);
+    expect(screen.queryByTestId("review-fallback-terminal-review")).toBeNull();
   });
 
   it("a pass WITHOUT details stays collapsed into the passed-checks line", () => {
     const clean: ATSCheck = { id: "terminal-review", status: "pass", details: null, driver: null };
     render(withIntl(<ReviewSurface {...base({ atsReport: ats([clean]) })} />));
     expect(screen.getByTestId("review-passed-checks").textContent).toContain("1");
-    expect(screen.queryByTestId("review-item-g4-check-advisory-terminal-review")).toBeNull();
   });
 
-  it("reads ATSCheck.driver as a MAP — a second key does not hide the check", () => {
-    // Frontend collector #677 / #671: `driver` was `{pinned_facts}` only until
-    // `narrative-evidence` added `{concepts}`. A consumer that destructures one
-    // fixed key must not swallow the other check.
-    render(
-      withIntl(
-        <ReviewSurface
-          {...base({ atsReport: ats([NARRATIVE_EVIDENCE, PAGE_LENGTH_PIN_DRIVER]) })}
-        />,
-      ),
-    );
-    open(4);
-    const group = screen.getByTestId("review-group-4");
-    expect(within(group).getByText(/8 JD-required concepts/)).toBeTruthy();
-    expect(within(group).getByText(/3 pages against a 2-page target/)).toBeTruthy();
+  it("reads ATSCheck.driver as a MAP — a second key does not hide the failed check", () => {
+    // #677 / #671: `driver` carries `{concepts}` besides `{pinned_facts}`.
+    // Page length has ONE place — the page's card (cl. 7) — so its unclassified
+    // fail is not a row; the narrative-evidence fail still is.
+    render(withIntl(<ReviewSurface {...base({ atsReport: ats([NARRATIVE_EVIDENCE, PAGE_LENGTH_PIN_DRIVER]) })} />));
+    expect(screen.getByTestId("review-fallback-narrative-evidence").dataset.counted).toBe("true");
+    expect(screen.queryByTestId("review-fallback-page-length")).toBeNull();
+    const text = screen.getByTestId("review-surface").textContent ?? "";
+    expect(text).not.toMatch(/8 JD-required concepts|3 pages against/);
   });
 });
 
-describe("789:26 — group 2's pin handle is a GROUP-level link to the pin panel", () => {
-  it("one link under the handle list opens the pins; no row carries it (ADR-081 cl. 3)", () => {
+describe("ADR-099 — group 2 and its handles are gone", () => {
+  it("no group-2 toggle, no pin link, no gap-cluster handle buttons", () => {
     const onOpenPins = vi.fn();
-    render(
-      withIntl(
-        <ReviewSurface {...base({ atsReport: ats([], { missing_claimable: ["SAP PP", "OEE"] }), onOpenPins })} />,
-        "de",
-      ),
-    );
-    open(2);
-    const links = screen.getAllByTestId("review-group2-open-pins");
-    expect(links).toHaveLength(1);
-    expect(links[0].textContent).toBe("Zu den festgelegten Fakten");
-    expect(within(screen.getByTestId("review-group2-handle-pin")).getByTestId("review-group2-open-pins")).toBeTruthy();
-    fireEvent.click(links[0]);
-    expect(onOpenPins).toHaveBeenCalledTimes(1);
-    expect(onOpenPins).toHaveBeenCalledWith(); // nothing pre-filled
-  });
-
-  it("without the handler the handle stays plain text", () => {
-    render(withIntl(<ReviewSurface {...base({ atsReport: ats([], { missing_claimable: ["SAP PP"] }) })} />));
-    open(2);
-    expect(screen.queryByTestId("review-group2-open-pins")).toBeNull();
-  });
-});
-
-describe("#667 — the section editor is a fourth handle", () => {
-  const CLAIMABLE_CLUSTER = { id: "gap-7", label: "SAP PP", kind: "claimable" as const };
-
-  it("group 2 names FOUR handles, the fourth being the section editor", () => {
-    render(
-      withIntl(
-        <ReviewSurface
-          {...base({
-            atsReport: ats([], { missing_claimable: ["SAP PP"] }),
-            onEditGapSection: vi.fn(),
-          })}
-        />,
-      ),
-    );
-    open(2);
-    expect(screen.getByTestId("review-group2-handle-editor")).toBeTruthy();
-    expect(screen.getByTestId("review-group2-handle-pin")).toBeTruthy();
-    expect(screen.getByTestId("review-group2-handle-pages")).toBeTruthy();
-    expect(screen.getByTestId("review-group2-handle-regenerate")).toBeTruthy();
-  });
-
-  it("a claimable gap cluster in group 2 is a button that hands the gap over", () => {
     const onEditGapSection = vi.fn();
     render(
       withIntl(
-        <ReviewSurface {...base({ gapClusters: [CLAIMABLE_CLUSTER], onEditGapSection })} />,
-      ),
-    );
-    open(2);
-    const row = screen.getByTestId("review-item-g2-mc-cluster-gap-7");
-    expect(row.tagName).toBe("BUTTON");
-    expect(row.getAttribute("data-handle")).toBe("section-editor");
-    fireEvent.click(row);
-    expect(onEditGapSection).toHaveBeenCalledWith("gap-7");
-  });
-
-  it("without the handler the row is still SHOWN but inert — a surface with no editor", () => {
-    // The cover-letter page supplies no `onEditGapSection` (it has no section
-    // editor). The finding must still be visible — hiding it would trade an
-    // inert row for a missing one, which is the SF-REVIEW.1 failure mode.
-    render(
-      withIntl(
         <ReviewSurface
-          {...base({
-            documentKind: "cover_letter",
-            gapClusters: [CLAIMABLE_CLUSTER],
-            hasClusterProducer: false,
-          })}
+          {...base({ atsReport: ats([], { missing_claimable: ["OEE"] }), onOpenPins, onEditGapSection })}
         />,
       ),
     );
-    open(2);
-    const row = screen.getByTestId("review-item-g2-mc-cluster-gap-7");
-    expect(row.tagName).toBe("LI");
-    expect(row.getAttribute("data-handle")).toBeNull();
-  });
-
-  it("a group-2 TERM row is still not clickable — there is no section to preselect", () => {
-    render(
-      withIntl(
-        <ReviewSurface
-          {...base({
-            atsReport: ats([], { missing_claimable: ["SAP PP"] }),
-            onEditGapSection: vi.fn(),
-          })}
-        />,
-      ),
-    );
-    open(2);
-    const rows = screen
-      .getByTestId("review-group-2")
-      .querySelectorAll('[data-testid^="review-item-g2-mc-term-"]');
-    expect(rows.length).toBe(1);
-    expect(rows[0].tagName).toBe("LI");
+    expect(screen.queryByTestId("review-group-toggle-2")).toBeNull();
+    expect(screen.queryByTestId("review-group2-pins")).toBeNull();
+    expect(screen.queryAllByRole("button").filter((b) => /OEE/.test(b.textContent ?? ""))).toHaveLength(0);
   });
 });

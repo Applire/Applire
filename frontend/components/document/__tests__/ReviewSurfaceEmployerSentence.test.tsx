@@ -63,16 +63,16 @@ describe("#803 belt — a term only in sentences about the employer", () => {
     expect(openGroup1Count(g1.items, null)).toBe(1);
   });
 
-  it("its card says why, offers no add handle, keeps take-out and edit (de)", () => {
+  it("its card says why, offers no add handle, keeps take-out — no editor handle (de, ruling C-1 (2))", () => {
     render(withIntl(<ReviewSurface {...props(ats(["Konsumgüter"]))} />, "de"));
     const card = screen.getByTestId("review-card");
     expect(card.getAttribute("data-finding-key")).toBe("ats:konsumgüter");
-    expect(within(card).getByTestId("review-card-employer-sentence").textContent).toContain(
+    expect(within(card).getByTestId("review-card-why").textContent).toContain(
       "„Konsumgüter“ steht nur in Sätzen über das Unternehmen, bei dem Du Dich bewirbst",
     );
     expect(within(card).queryByTestId("review-action-add")).toBeNull();
     expect(within(card).getByTestId("review-action-takeout")).toBeTruthy();
-    expect(within(card).getByTestId("review-action-edit")).toBeTruthy();
+    expect(within(card).queryByTestId("review-action-edit")).toBeNull();
   });
 
   it("a report without the field keeps both terms red and counted", () => {

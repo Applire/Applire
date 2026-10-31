@@ -52,12 +52,13 @@ def test_writer_claim_strength_rule_states_the_agency_ceiling():
 
 
 def test_writer_rule_names_the_context_framing_and_forbids_implied_causation():
-    """Issue #289 "Expected": state the real relationship, or frame the figure
-    explicitly as context — never leave it implying causation."""
+    """Issue #289 "Expected": state the real relationship — never leave it implying
+    causation. Founder ruling FIG-3 (Hazelnut build 5): the relationship is the
+    figure's own entry's work, connected in one sentence ("contributed to … by …")."""
     from applire.prompts.cv_tailoring import SYSTEM_PROMPT
 
     rule6 = _rule_slice(SYSTEM_PROMPT, "6. CLAIM STRENGTH.", "7. SKILLS.")
-    assert "setting" in rule6 or "scale of the operation" in rule6
+    assert "connect the two in one sentence" in rule6
     assert "causation" in rule6 or "causal" in rule6
 
 

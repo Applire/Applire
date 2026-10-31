@@ -152,6 +152,16 @@ Rules:
   Kenntnisse section and once inside a specific OTHER position's own bullet, it belongs to that
   other position's technologies, not this one's.
 - Separate duties (responsibilities) from outcomes/metrics (achievements).
+- KEEP THE SOURCE'S STANCE when prose becomes bullets (D-3, Hazelnut build 5): a sentence that
+  says what exists, was built or is true ("The app runs fully offline", "the portal is multilingual:
+  customers can switch between five languages") stays a statement of fact in the bullet ("App runs
+  fully offline", "Multilingual portal: customers switch between five languages") — never an
+  imperative task ("Build an offline app", "Enable customers to switch languages"). Only wording the
+  source itself states as a goal, plan or target ("aiming for 60%", "plan to roll out") is a goal.
+  The reverse holds as well, and a "description" is where it goes wrong most: it summarises, and a
+  summary drops verbs. When the source says the work is ESTABLISHING, BUILDING, TARGETING or AIMING
+  for something, the description keeps that verb — write "…, establishing a review board", never
+  "…, with a review board" or "…, including a review board" (that states it already exists).
 - """ + _TECH_VS_PRACTICES + """
 - QUANTIFIED ROLE FACTS: team_size, budget_managed and industry_context (extracted for this
   position by a separate outline pass) are DERIVED PROJECTIONS of a figure the source ALSO states

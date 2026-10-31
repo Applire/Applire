@@ -17,9 +17,9 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 
 
 # ---------------------------------------------------------------------------
@@ -35,10 +35,76 @@ class SessionCreateRequest(BaseModel):
     # 1-question micro-session for Gap-Click mode (create_session routes on
     # target_gap alone; the resulting session is always mode="targeted").
     target_gap: str | None = None
+    # ADR-099 cl. 11 / "Jetzt beantworten" (Hazelnut build 5, WP-A1 for WP-C):
+    # the concepts of ``GapAnalysisResponse.unasked_requirements[]`` the
+    # candidate chose to answer now. Asks exactly those, in this order, as one
+    # micro-session; a concept that is not an unasked requirement of this job's
+    # analysis → 422 ``unknown_requirement``. Wins over ``mode``/``target_gap``.
+    # SEC-1: bounded (≤ 50 concepts, each 1–200 chars) — a body cannot turn
+    # the membership check into an unbounded loop or echo.
+    requirement_concepts: (
+        list[Annotated[str, StringConstraints(min_length=1, max_length=200)]] | None
+    ) = Field(default=None, max_length=50)
+
+
+class ProfileReviewRequest(BaseModel):
+    """U-2 (Hazelnut build 5) — ``issue_id`` = the clicked hub item's
+    ``HealthIssue.id`` (``conflict:<id>`` / ``confirmation:<id>``): that item
+    is asked FIRST. Empty body = the old behaviour (resume or walk all)."""
+
+    issue_id: str | None = Field(default=None, max_length=300)  # SEC-2
+
+
+#: ADR-099 cl. 11 — the structured answers to a dispute. ``merge_confirm``
+#: carries ``merged_text`` (the proposal as confirmed or edited).
+ConflictOutcome = Literal["keep_current", "take_new", "keep_both", "merge_confirm"]
 
 
 class SessionMessageRequest(BaseModel):
-    message: str
+    # Required unless ``outcome`` is given (a button answer carries no text).
+    message: str = ""
+    outcome: ConflictOutcome | None = None
+    merged_text: str | None = Field(default=None, max_length=2000)  # SEC-2
+
+
+class MergeProposalRequest(BaseModel):
+    conflict_id: str = Field(min_length=1, max_length=200)  # SEC-2
+
+
+class CurrentConflict(BaseModel):
+    """ADR-099 cl. 11 — the dispute the profile review is asking about now,
+    so the reader renders its outcome buttons (``outcomes``) instead of the
+    two legacy ``choices``."""
+
+    conflict_id: str
+    shape: Literal["list", "scalar"]
+    outcomes: list[str]
+    entity_label: str | None = None
+    section: str | None = None
+    field: str | None = None
+    existing_value_display: str | None = None
+    incoming_value_display: str | None = None
+    incoming_source: str | None = None
+
+
+class InterpretedAnswer(BaseModel):
+    """ADR-099 cl. 11 — what the last answer was read as. ``outcome`` is the
+    outcome written (``keep_current`` / ``take_new`` / ``keep_both`` /
+    ``merge``) or ``manual`` (the candidate's own words written as the value:
+    a typed corrected value, or an edited merge sentence that failed the
+    fact-presence check — RULING A1-1). ``corrected_value`` = the value
+    written for a typed correction. ``follow_up`` = the ONE follow-up asked
+    instead (nothing written). ``verifier`` = for a merge only."""
+
+    outcome: Literal["keep_current", "take_new", "keep_both", "merge", "manual"] | None = None
+    corrected_value: str | None = None
+    follow_up: str | None = None
+    verifier: Literal["passed", "failed"] | None = None
+    #: ADV-8 — the dispute was already gone when the answer arrived (answered
+    #: in another tab, or resolved elsewhere): NOTHING was written, so
+    #: ``outcome`` and ``verifier`` stay null and the UI offers no Undo. The
+    #: UI reads THIS field to say "already answered".
+    already_answered: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +161,10 @@ class SessionCreateResponse(BaseModel):
     # R2-8 (7) (Hazelnut build 4) — profile review only: the vault section of
     # the conflict/confirmation item this question is about (None otherwise).
     review_section: str | None = None
+    # ADR-099 cl. 11 — profile review only: the dispute asked now (None when the
+    # current item is a confirmation or there is none).
+    current_conflict: CurrentConflict | None = None
+    follow_up_used: bool = False
 
 
 class ConflictSummary(BaseModel):
@@ -162,6 +232,10 @@ class ClusterCoverage(BaseModel):
 
 
 class SessionMessageResponse(BaseModel):
+    #: ADV-8 — the profile's ``updated_at`` right after a dispute answer
+    #: wrote (a merge, or any outcome): the basis the drawer's Undo sends as
+    #: ``expected_updated_at``. ``None`` when nothing was written.
+    profile_updated_at: datetime | None = None
     complete: bool
     question: str | None = None
     gaps_remaining: int | None = None
@@ -206,6 +280,11 @@ class SessionMessageResponse(BaseModel):
     addressed_gap_ids: list[str] | None = None
     # R2-8 (7) — see SessionCreateResponse.review_section.
     review_section: str | None = None
+    # ADR-099 cl. 11 — see SessionCreateResponse.current_conflict; and what the
+    # answer just given was read as (profile review dispute turns only).
+    current_conflict: CurrentConflict | None = None
+    follow_up_used: bool = False
+    interpreted: InterpretedAnswer | None = None
     # ADR-089 — the per-gap record this turn wrote (see ClusterCoverage). On a
     # follow-up turn `complete` is False and `question`/`choices` carry the
     # follow-up exactly like any other next question.

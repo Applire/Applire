@@ -11,8 +11,8 @@
 // 2. Zero decision-threaded issues -> nothing renders at all.
 // 3. However many decisions are open, there is exactly ONE notice (the title
 //    carries the count) — never one per decision, never "+N more".
-// 4. The CTA opens ProfileReviewDrawer on the first open decision; nothing
-//    else of this component renders while the drawer is open.
+// 4. The CTA links to the profile health hub (ADR-099 cl. 10: the decisions
+//    are answered there only) — no second review drawer on the gaps page.
 // 5. The x collapses the notice to its compact entry point and records the
 //    decisions it was about, per flowId; a remount keeps it collapsed, a NEW
 //    decision brings the full notice back.
@@ -44,14 +44,6 @@ import {
   markDecisionDismissed,
 } from "@/lib/gap-decisions-dismissed";
 
-vi.mock("@/lib/api/profileReview", () => ({
-  startProfileReview: vi.fn(),
-  sendProfileReviewMessage: vi.fn(),
-}));
-
-import { startProfileReview } from "@/lib/api/profileReview";
-
-const startMock = vi.mocked(startProfileReview);
 
 function issue(thread: HealthIssue["thread"], id: string): HealthIssue {
   return {
@@ -118,13 +110,6 @@ describe("ProfileDecisionsCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
-    startMock.mockResolvedValue({
-      session_id: "s1",
-      first_question: "Which value is right?",
-      gaps_total: 1,
-      gaps_remaining: 1,
-      choices: null,
-    });
   });
 
   // Property 1
@@ -176,18 +161,25 @@ describe("ProfileDecisionsCard", () => {
   });
 
   // Property 4
-  it("opens the ProfileReviewDrawer from the CTA and renders nothing else while it is open", async () => {
+  it("links the CTA to the profile health hub and opens no drawer of its own (ADR-099 cl. 10)", async () => {
     global.fetch = mockFetch({ issues: [issue("confirmation", "cf-1")] });
     render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
     await waitFor(() => expect(screen.getByTestId("profile-decisions-card")).toBeInTheDocument());
+    const cta = screen.getByTestId("profile-decisions-open");
+    expect(cta.tagName).toBe("A");
+    expect(cta).toHaveAttribute("href", "/profile#profile-health");
+    expect(cta).toHaveTextContent("View in profile health");
     expect(screen.queryByTestId("profile-review-drawer")).not.toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByTestId("profile-decisions-open"));
-
-    expect(screen.getByTestId("profile-review-drawer")).toBeInTheDocument();
-    expect(screen.queryByTestId("profile-decisions-stack")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("profile-decisions-bar-row")).not.toBeInTheDocument();
-    await waitFor(() => expect(startMock).toHaveBeenCalled());
+  it("does not count a class-S issue as a decision", async () => {
+    global.fetch = mockFetch({
+      issues: [{ ...issue("conflict", "c-1"), delivery_class: "S" }, issue("conflict", "c-2")],
+    });
+    render(withIntl(<ProfileDecisionsCard apiBase="" flowId="flow-1" />, "en"));
+    await waitFor(() =>
+      expect(screen.getByTestId("profile-decisions-title")).toHaveTextContent("1 decision"),
+    );
   });
 
   // Property 5
@@ -417,8 +409,10 @@ describe("ProfileDecisionsCard", () => {
       });
       expect(within(slot).getByTestId("profile-decisions-bar-row")).toBeInTheDocument();
 
-      fireEvent.click(within(slot).getByTestId("profile-decisions-bar-row-open"));
-      expect(screen.getByTestId("profile-review-drawer")).toBeInTheDocument();
+      expect(within(slot).getByTestId("profile-decisions-bar-row-open")).toHaveAttribute(
+        "href",
+        "/profile#profile-health",
+      );
       slot.remove();
     });
   });

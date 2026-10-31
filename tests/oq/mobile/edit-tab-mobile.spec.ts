@@ -25,7 +25,9 @@ test('#737 phone — the Fine-tune sheet says why the review sent you', async ({
   await expect(page.getByTestId('mobile-command-bar')).toBeVisible({ timeout: 10_000 });
   await page.getByTestId('command-ats').click();
   const sheet = page.getByTestId('command-sheet');
-  await sheet.getByTestId('review-action-edit').click();
+  // ADR-099 / RULING C-1 (2): the editor is offered after a take-out that left the finding listed.
+  await sheet.getByTestId('review-action-takeout').click();
+  await sheet.getByTestId('review-action-edit-after').click();
   await expect(sheet.getByTestId('edit-context-finding')).toContainText('MES-Einführung');
   await expect(sheet.getByTestId('section-textarea')).toHaveValue(/MES-Einführung/);
   await expect(sheet.getByText('Verwandte Lücken')).toHaveCount(0);

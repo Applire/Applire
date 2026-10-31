@@ -183,7 +183,48 @@ async def reconcile(
     # item instead of the loss being visible only at DEBUG log level.
     rejected_ops: list[str] = []
     ops = _parse_ops(data.get("ops"), rejected=rejected_ops)
+    # U-1r (ADR-046 amended 2026-10-28) — a bullet conflict whose own declared
+    # values do not hold is not raised; its incoming bullet goes the add_bullets
+    # way (on an import, through the restatement check).
+    from applire.services.profile.reconcile.conflict_values import route_unchecked_conflicts
+
+    ops = route_unchecked_conflicts(ops)
     ambiguities = _parse_ambiguities(data.get("ambiguities"))
+    # D-8 (Hazelnut build 5) — a model-asked "which position does this project
+    # belong to?" carries prompt handles in its options; rebuilt as family 6
+    # (both languages, `entry:<id>` keys) so its answer can write the parent.
+    from applire.services.profile.reconcile.project_parent import (
+        attached_in_batch,
+        bind_project_parent_ask,
+        check_parent_dates,
+    )
+    from applire.services.profile.reconcile.project_parent import _project_name
+
+    def _project_name_of(rc):
+        return _project_name(dict(rc.context or {}))
+
+    # D-25 — a project's parent must be a position whose dates overlap the
+    # project's; a non-overlapping parent is dropped (asked as family 6 when
+    # two or more held positions overlap). Before D-16 reads the parents.
+    ops, date_asks = check_parent_dates(ops, profile)
+    asked = {
+        (_project_name_of(a) or "").casefold()
+        for a in [*ambiguities, *(o for o in ops if isinstance(o, RequestConfirmation))]
+    }
+    ambiguities = ambiguities + [a for a in date_asks if (_project_name_of(a) or "").casefold() not in asked]
+
+    # D-16 — an ask about a project already attached to a held position is
+    # redundant (its answer could change nothing) and is not raised.
+    attached = attached_in_batch(ops, profile)
+    ops = [
+        bind_project_parent_ask(o, llm.id_map, profile, attached) if isinstance(o, RequestConfirmation) else o
+        for o in ops
+    ]
+    ops = [o for o in ops if o is not None]
+    ambiguities = [
+        a for a in (bind_project_parent_ask(a, llm.id_map, profile, attached) for a in ambiguities)
+        if a is not None
+    ]
     denials = _parse_denials(data.get("denials"))
     # Stance guard (#127, ADR-061): the model's own denials outrank its ops;
     # interview-turn token claims are resolved via the testimony predicate

@@ -1124,6 +1124,8 @@ class TestCoverLetterPositioningIntegration:
         mock_provider.aparse_json.return_value = letter_raw
 
         with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter._letter_truth_audit", new=AsyncMock(return_value=None)), \
+             patch("applire.services.cover_letter._in_loop_letter_critic", new=AsyncMock(return_value=[])), \
              patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
              patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
              patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
@@ -1196,6 +1198,8 @@ class TestCoverLetterPositioningIntegration:
         mock_provider.aparse_json.return_value = letter_raw
 
         with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter._letter_truth_audit", new=AsyncMock(return_value=None)), \
+             patch("applire.services.cover_letter._in_loop_letter_critic", new=AsyncMock(return_value=[])), \
              patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
              patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
              patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
@@ -1320,6 +1324,8 @@ class TestCoverLetterPositioningIntegration:
         mock_provider.aparse_json.return_value = letter_raw
 
         with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter._letter_truth_audit", new=AsyncMock(return_value=None)), \
+             patch("applire.services.cover_letter._in_loop_letter_critic", new=AsyncMock(return_value=[])), \
              patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
              patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
              patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \

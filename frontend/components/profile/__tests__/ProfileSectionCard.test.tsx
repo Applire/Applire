@@ -292,6 +292,24 @@ describe("ProfileSectionCard — open-ended periods (#113d)", () => {
     expect(document.body.textContent).not.toContain("—");
     expect(document.body.textContent).not.toContain("→");
   });
+
+  it("D-14: an ended role with no known end shows its start alone, never present", () => {
+    const work = [
+      { role: "Software Test Engineer", company: "Dade Behring", start_date: "2005-03", end_date: null, is_current: false },
+      { role: "Leiterin QA", company: "Nordlab", start_date: "2019-04", end_date: null, is_current: true },
+      { role: "Testerin", company: "Altbau", start_date: "2016-02", end_date: null },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="work_experience" value={work} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText("Mar 2005")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Mar 2005 →/);
+    expect(screen.getByText(/Apr 2019 → present/)).toBeInTheDocument();
+    expect(screen.getByText(/Feb 2016 → present/)).toBeInTheDocument();
+  });
 });
 
 describe("resolveSummary — language-aware summary check (F9.2)", () => {

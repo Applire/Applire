@@ -9,8 +9,7 @@ on that very document, and a reviewer's exhaustion is not a delivered signal.
 
 This pins the new `document-language` ATS check (`_audit_cv_text`, driven by the
 `document_language` parameter) and its enumeration, `foreign_language_items`,
-which walks the summary, every per-role `industry_context` ("Branche") line, and
-every bullet `delivered_bullets()` reaches — nested project, standalone project,
+which walks the summary and every bullet `delivered_bullets()` reaches — nested project, standalone project,
 and role bullets alike, in one flat pass rather than a handful of per-axis scans.
 It also pins the evidence floor in `item_language_mismatch`
 (`ITEM_LANGUAGE_MIN_WORDS = 4`): below four words the predicate stays silent even
@@ -135,9 +134,11 @@ def test_an_english_work_bullet_fails_the_check_and_names_its_location():
 
 
 # ── 2. an English `industry_context` ("Branche") line ─────────────────────────
+# Founder ruling P-1 (Hazelnut build 5): the industry line renders in no template
+# and no .docx, so an English one is text the reader never sees — no finding.
 
 
-def test_an_english_industry_context_fails_and_the_location_names_branche():
+def test_an_english_industry_context_is_not_a_finding_it_is_never_rendered():
     cv = TailoredCVData.model_validate({
         "contact": {"name": "Jana Lehmann"},
         "summary": DE_SUMMARY,
@@ -150,9 +151,9 @@ def test_an_english_industry_context_fails_and_the_location_names_branche():
     check = _check(_audit(cv, "de"), "document-language")
 
     assert check is not None
-    assert check.status == "fail", check.details
-    assert "Branche" in check.details, check.details
-    assert "logistics" in check.details, check.details
+    assert check.status == "pass", check.details
+    assert "Branche" not in (check.details or "")
+    assert "logistics" not in (check.details or "")
 
 
 # ── 3. nested AND standalone project bullets are both reached ─────────────────

@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Bot } from "lucide-react";
@@ -31,7 +31,7 @@ import { AvailabilityCard, type AvailabilityValue } from "@/components/profile/A
 import { SignatureManager } from "@/components/profile/SignatureManager";
 import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
 import { ProfileImportView } from "@/components/profile/ProfileImportView";
-import { ImportSummaryCard } from "@/components/profile/ImportSummaryCard";
+import { ImportSummaryCard, matchPairKey } from "@/components/profile/ImportSummaryCard";
 import {
   DeniedConceptsCard,
   type DeniedConceptItem,
@@ -39,7 +39,28 @@ import {
 } from "@/components/profile/DeniedConceptsCard";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
-import { HealthPanel, type ProfileHealth, type HealthIssue } from "@/components/profile/HealthPanel";
+import {
+  HealthPanel,
+  type HubActions,
+  type ProfileHealth,
+  type HealthIssue,
+} from "@/components/profile/HealthPanel";
+import { EntryMergeProvider, useEntryMerge } from "@/components/profile/EntryMerge";
+import {
+  MERGE_SECTIONS,
+  type EntryRef,
+  type MergeSection,
+  isMergeSection,
+  keepEntriesSeparate,
+  toEntryRef,
+} from "@/lib/profile-merge";
+import {
+  adoptNotApplied,
+  answerAspiration,
+  hubHasContent,
+  renderedIssues,
+  saveBudgetUnit,
+} from "@/lib/profile-health";
 import {
   ProfileSectionBody,
   resolveSummary,
@@ -230,6 +251,33 @@ function hasProfileGaps(
   if (work.some((e) => countWorkEntryGaps(e) > 0)) return true;
   if (resolveSummary(profile.professional_summary, uiLanguage).missing) return true;
   return false;
+}
+
+/**
+ * U-9 → U-11 (Hazelnut build 5): the hub's duplicate-station question "Ja,
+ * zusammenführen …" opens the SAME merge preview a drag or the entry's merge
+ * button opens — one merge act, two entry points. Lives inside the
+ * `EntryMergeProvider` so it can reach `begin`.
+ */
+function HealthPanelWithMerge(
+  props: ComponentProps<typeof HealthPanel> & { actions: HubActions },
+) {
+  const merge = useEntryMerge();
+  const onMergeDuplicate = (issue: HealthIssue) => {
+    const section = issue.section ?? "";
+    const [targetId, sourceId] = issue.entry_ids ?? [];
+    if (!merge || !isMergeSection(section) || !targetId || !sourceId) return;
+    const refs = merge.refsFor(section);
+    const target = refs.find((r) => r.id === targetId);
+    const source = refs.find((r) => r.id === sourceId);
+    if (target && source) merge.begin(source, target);
+  };
+  return (
+    <HealthPanel
+      {...props}
+      actions={{ ...props.actions, onMergeDuplicate: merge ? onMergeDuplicate : undefined }}
+    />
+  );
 }
 
 export default function ProfilePage() {
@@ -442,6 +490,57 @@ export default function ProfilePage() {
     }
   };
 
+  // UAT-3d / U-9 — the hub's one-action resolvers. Each refreshes the page on
+  // success, so the issue disappears on the recompute it was built to clear.
+  const hubActions: HubActions = {
+    onAdoptItem: async (issue, itemKey) => {
+      const updated = await adoptNotApplied(issue.id, itemKey);
+      if (!updated) return false;
+      await loadProfile();
+      return true;
+    },
+    onSaveUnit: async (issue, unit) => {
+      if (!issue.entry_id) return false;
+      const updated = await saveBudgetUnit(issue.entry_id, unit);
+      if (!updated) return false;
+      await loadProfile();
+      return true;
+    },
+    onKeepSeparate: async (issue) => {
+      if (!issue.section || !issue.entry_ids || issue.entry_ids.length < 2) return false;
+      const ok = await keepEntriesSeparate(issue.section, issue.entry_ids);
+      if (ok) await loadProfile();
+      return ok;
+    },
+    onGoToSection: (section, labels) => handleSectionAction(section, labels),
+    // U-7 — "Ist das erreicht?" (INTERFACE A1-3).
+    onAspiration: async (issue, achieved, outcome) => {
+      const ok = await answerAspiration(issue.id, achieved, outcome);
+      if (ok) await loadProfile();
+      return ok;
+    },
+  };
+
+  // U-11 — every mergeable entry's identity, built by the same function the
+  // editors use, so the picker and the hub's pair name entries identically.
+  const mergeRefs: Partial<Record<MergeSection, EntryRef[]>> = {};
+  for (const section of MERGE_SECTIONS) {
+    const list = (profile?.profile[section] ?? []) as Array<Parameters<typeof toEntryRef>[1]>;
+    mergeRefs[section] = list
+      .map((e) =>
+        toEntryRef(section, e, { present: t("present"), notProvided: t("notProvided") }, uiLanguage),
+      )
+      .filter((r): r is EntryRef => r !== null);
+  }
+
+  // ADR-099 cl. 10 — a recognised pair the hub asks about is not asked again
+  // by the import summary below it.
+  const hubPairKeys = new Set(
+    renderedIssues(health)
+      .filter((i) => i.thread === "suspect_binding" && i.skill_id && i.incoming_name)
+      .map((i) => matchPairKey(i.skill_id!, i.incoming_name!)),
+  );
+
   const completenessScore = profile?.completeness ?? 0;
 
   // #382 — the work entries whose budget figure states no unit, as decided by
@@ -502,6 +601,11 @@ export default function ProfilePage() {
       <AppTopbar mode="section" titleKey="shell.profile" />
 
       {/* Main Content */}
+      <EntryMergeProvider
+        entriesBySection={mergeRefs}
+        onProfileChanged={loadProfile}
+        profileUpdatedAt={profile?.updated_at ?? null}
+      >
       <main className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-4">
           {error && (
@@ -527,9 +631,10 @@ export default function ProfilePage() {
               {recomputeNote.text}
             </p>
           )}
-          {health && (health.issues.length > 0 || health.completeness.gaps.length > 0) && (
-            <HealthPanel
+          {health && hubHasContent(health) && (
+            <HealthPanelWithMerge
               health={health}
+              actions={hubActions}
               onResolve={handleResolve}
               onRecomputeSpan={handleRecomputeSpan}
               onAnswerBinding={handleAnswerBinding}
@@ -878,7 +983,7 @@ export default function ProfilePage() {
           {/* R2-8 (9) (ruling V-2 = A) — "See what was combined" lands on the
               last import's summary (#import-summary); the Enrichment History
               (#67/#69, #import-log) stays inside it as the folded technical log. */}
-          <ImportSummaryCard reloadKey={enrichmentHistory} onChanged={loadProfile}>
+          <ImportSummaryCard reloadKey={enrichmentHistory} onChanged={loadProfile} hubPairKeys={hubPairKeys}>
           {enrichmentHistory.length > 0 && (
             <Card id="import-log" className="p-4 mt-6 scroll-mt-24">
               <h3 className="font-heading text-base font-semibold text-neutral-dark mb-4">
@@ -963,6 +1068,7 @@ export default function ProfilePage() {
           </ImportSummaryCard>
         </div>
       </main>
+      </EntryMergeProvider>
 
       <EnrichmentDrawer
         open={enrichDrawerOpen}

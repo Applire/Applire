@@ -354,10 +354,11 @@ async def test_no_change_answer_keeps_the_retry_follow_up(db):
 
 
 @pytest.mark.asyncio
-async def test_mixed_turn_declines_one_member_and_follows_up_on_the_other(db):
+async def test_mixed_turn_declines_one_member_and_the_no_closes_the_topic(db):
     """Precedence: a turn that both added content and denied a member is not a
-    probe (the probe needs a denial-only turn); the partial-coverage follow-up
-    then aims only at the member that is still OPEN — never the declined one."""
+    probe (the probe needs a denial-only turn). Ruling A1-R8-1 = B (Hazelnut
+    build 5, D-30): a recorded no closes the topic — no partial-coverage
+    follow-up on the member still open; the founder accepts that cost."""
     job, _profile, _ = await _seed(db, clusters=[
         _cluster(_INFRA, "Cloud infrastructure", ["Kubernetes", "Terraform", "Helm"]),
     ], ledger=[_row("Kubernetes"), _row("Terraform"), _row("Helm")])
@@ -369,12 +370,12 @@ async def test_mixed_turn_declines_one_member_and_follows_up_on_the_other(db):
         _writing_bridge(add_skills=["Kubernetes"], deny=["Terraform"]), writer,
     )
 
-    assert resp.complete is False
-    assert writer.calls[-1]["follow_up_focus"] == ["Helm"]
+    assert len(writer.calls) == 1, "no follow-up after a turn that recorded a no"
+    assert resp.question != "What about Helm?"
     persisted = await _latest_cluster(db, job.id, _INFRA)
     assert persisted["outcome"]["covered"] == ["Kubernetes"]
     assert persisted["outcome"]["declined"] == ["Terraform"]
-    assert persisted["gaps"] == ["Helm"]
+    assert persisted["outcome"]["asked"] == 1
 
 
 @pytest.mark.asyncio

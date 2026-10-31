@@ -129,7 +129,7 @@ class CVPageOverflowCut(BaseModel):
     "Kürzen" says exactly what went)."""
     kind: Literal[
         "duplicate_project", "off_job_skills", "repeated_industry",
-        "oldest_certification", "oldest_education",
+        "oldest_certification", "oldest_education", "old_role_bullets",
     ]
     items: list[str] = Field(default_factory=list)
 
@@ -148,6 +148,16 @@ class CVPageOverflow(BaseModel):
     choice: Optional[Literal["keep", "cut"]] = None
     cut_available: bool = False
     uncut_available: bool = False
+    # ADR-099 cl. 7 (UAT-2 fix round, additive): False = the ladder cannot reach
+    # ``target`` and "kürzen" proposes the closest reachable length ``cut_pages``;
+    # ``cut_pages`` None = nothing can be cut (only "behalten" decides). None on
+    # proposals stored before the fields.
+    reaches_target: Optional[bool] = None
+    cut_pages: Optional[int] = None
+    # D-23 (Hazelnut build 5, additive): what the automatic target + 1 page
+    # ladder already removed before the card was shown — the card names it
+    # (ADR-099: an automatic cut is never silent). [] when nothing was cut.
+    auto_cuts: list[CVPageOverflowCut] = Field(default_factory=list)
 
 
 class CVPageOverflowChoiceRequest(BaseModel):
@@ -211,6 +221,11 @@ class TailoredWorkEntry(BaseModel):
     team_size: int | None = None
     budget_managed: str | None = None
     industry_context: str | None = None
+    # D-14 (Hazelnut build 5, ADR-062 clause 1 — a date fact): the vault's
+    # is_current, carried by assemble_tailored_cv. None = unstated (legacy
+    # tailored_data); False with no end_date renders the start date alone,
+    # never "– Present" (templates.filters.period).
+    is_current: bool | None = None
 
     _coerce_fields = field_validator("company", "role", "start_date", mode="before")(_coerce_none_str)
     _coerce_id = field_validator("id", mode="before")(_coerce_none_str)

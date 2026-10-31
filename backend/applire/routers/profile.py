@@ -44,6 +44,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.models.uploads import UploadRecord
 from applire.schemas.profile import (
     ConflictResolutionRequest,
+    MergeProposalResponse,
     CVImportJobListItem,
     CVImportJobResponse,
     CVImportStatusResponse,
@@ -60,10 +61,20 @@ from applire.schemas.profile import (
     WithdrawDenialRequest,
     StagedResolveRequest,
     StagedResolveResponse,
+    UndoLastMergeRequest,
     UndoLastMergeResponse,
     UploadHistoryItem,
 )
 from applire.schemas.testimony import TestimonyRequest, TestimonyResult
+from applire.schemas.entry_merge import EntryMergeRequest, KeepSeparateRequest
+from applire.services.profile.entry_merge import (
+    DatesChoiceRequired,
+    MergedTextRequired,
+    SameEntry,
+    StalePreview,
+    entry_merge,
+    keep_entries_separate,
+)
 from applire.models.import_job import CVImportStatus
 from applire.services.profile.import_jobs import (
     create_import_job,
@@ -81,6 +92,7 @@ from applire.services.profile import (
     get_profile,
     patch_profile_section,
     profile_exists,
+    propose_conflict_merge,
     resolve_conflict,
     resolve_confirmation,
     MatchNotSeparable,
@@ -395,6 +407,7 @@ async def resolve_staged_extraction_endpoint(
 )
 async def undo_last_merge_endpoint(
     request: Request,
+    body: UndoLastMergeRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
 ) -> UndoLastMergeResponse:
@@ -406,7 +419,17 @@ async def undo_last_merge_endpoint(
     whole-profile restore; per-field revert deferred). Idempotent: a repeat call
     with nothing left to undo returns ``restored=false``.
     """
-    result = await undo_last_merge(db, user_id=_uid(current_user))
+    from applire.services.profile.snapshots import UndoStale
+
+    try:
+        result = await undo_last_merge(
+            db,
+            user_id=_uid(current_user),
+            expected_updated_at=body.expected_updated_at if body is not None else None,
+        )
+    except UndoStale:
+        # ADV-8 — the merge the client named is no longer the last write.
+        raise HTTPException(status_code=409, detail="undo_stale")
     return UndoLastMergeResponse(
         restored=result.restored,
         discarded_later_edits=result.discarded_later_edits,
@@ -459,6 +482,55 @@ async def confirm_match_endpoint(
         raise HTTPException(status_code=404, detail="No profile found")
     except MatchNotSeparable as exc:
         raise HTTPException(status_code=409, detail=exc.code)
+
+
+@router.post("/entries/merge", status_code=status.HTTP_200_OK, response_model=None)
+async def merge_entries_endpoint(
+    body: EntryMergeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+    provider: LLMProvider = Depends(_get_provider),
+):
+    """Hazelnut build 5 (U-11) — merge two entries of one section. ``preview``
+    writes nothing and returns the merged entry, the aliases, a date conflict
+    and the duplicate bullets; ``commit`` re-validates the candidate's choices
+    and writes one history record with a pre-write snapshot (undo-last-merge).
+    404 unknown entry / no profile; 409 ``stale_preview``; 422
+    ``dates_choice_required`` / same entry."""
+    try:
+        return await entry_merge(db, body, provider, user_id=_uid(current_user))
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    except SameEntry:
+        raise HTTPException(status_code=422, detail="same_entry")
+    except StalePreview:
+        raise HTTPException(status_code=409, detail="stale_preview")
+    except DatesChoiceRequired:
+        raise HTTPException(status_code=422, detail="dates_choice_required")
+    except MergedTextRequired:
+        raise HTTPException(status_code=422, detail="merged_text_required")
+
+
+@router.post(
+    "/entries/keep-separate",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def keep_entries_separate_endpoint(
+    body: KeepSeparateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """Hazelnut build 5 (U-9) — "Nein, getrennt": the two entries stay separate
+    and the duplicate-entry question is not asked again (idempotent)."""
+    try:
+        return await keep_entries_separate(
+            db, body.section, body.entry_ids, user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    except SameEntry:
+        raise HTTPException(status_code=422, detail="same_entry")
 
 
 @router.post(
@@ -857,6 +929,103 @@ async def get_profile_health_endpoint(
     return await get_profile_health(db, user_id=_uid(current_user))
 
 
+# ── UAT-3d — the hub's writing one-action resolvers ─────────────────────────
+from applire.schemas.profile import AdoptNotAppliedRequest, AspirationAnswerRequest, HealthUnitRequest  # noqa: E402
+from applire.services.profile.hub_actions import (  # noqa: E402
+    HubEntryNotFound,
+    NotAppliedConflict,
+    NotAppliedUnprocessable,
+    UnitNotApplicable,
+    adopt_not_applied_item,
+    set_budget_unit,
+)
+
+
+@router.post(
+    "/health/unit",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def set_health_unit_endpoint(
+    body: HealthUnitRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """UAT-3d — the unit input in place: writes the stored budget wording plus
+    the chosen currency onto that work entry. 404 unknown entry (or no profile);
+    422 when the entry has no budget value or it already states a unit."""
+    try:
+        return await set_budget_unit(
+            db, entry_id=body.entry_id, unit=body.unit, user_id=_uid(current_user)
+        )
+    except (LookupError, HubEntryNotFound):
+        raise HTTPException(status_code=404, detail="Entry not found")
+    except UnitNotApplicable as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+from applire.services.profile.aspiration import (  # noqa: E402 — RULING B-1
+    AspirationAnswered,
+    AspirationOutcomeRequired,
+    answer_aspiration,
+)
+
+
+@router.post(
+    "/aspirations/answer",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def answer_aspiration_endpoint(
+    body: AspirationAnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """RULING B-1 — "Ist das erreicht?" for one ``aspiration:<entry>:<key>``
+    issue. ``achieved`` + ``outcome`` writes the outcome as an achievement in
+    the candidate's words; not achieved keeps the bullet as a goal. 404 unknown
+    issue (or no profile); 409 already answered; 422 achieved without outcome."""
+    try:
+        return await answer_aspiration(
+            db,
+            issue_id=body.issue_id,
+            achieved=body.achieved,
+            outcome=body.outcome,
+            user_id=_uid(current_user),
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    except AspirationAnswered:
+        raise HTTPException(status_code=409, detail="already_answered")
+    except AspirationOutcomeRequired:
+        raise HTTPException(status_code=422, detail="outcome_required")
+
+
+@router.post(
+    "/not-applied/adopt",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def adopt_not_applied_endpoint(
+    body: AdoptNotAppliedRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """UAT-3d — "Übernehmen": take one not-applied import item into the vault.
+    404 unknown issue/item; 409 already adopted; 422 not adoptable (no entry
+    was captured — a receipt from before the capture, or a scalar item)."""
+    try:
+        return await adopt_not_applied_item(
+            db, issue_id=body.issue_id, item_key=body.item_key, user_id=_uid(current_user)
+        )
+    except (LookupError, HubEntryNotFound):
+        raise HTTPException(status_code=404, detail="Issue or item not found")
+    except NotAppliedConflict:
+        raise HTTPException(status_code=409, detail="already_adopted")
+    except NotAppliedUnprocessable:
+        raise HTTPException(status_code=422, detail="not_adoptable")
+
+
 @router.post(
     "/conflicts/{conflict_id}/resolve",
     response_model=MasterProfileResponse,
@@ -881,6 +1050,33 @@ async def resolve_profile_conflict(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
         )
+
+
+@router.post(
+    "/conflicts/{conflict_id}/merge-proposal",
+    response_model=MergeProposalResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def conflict_merge_proposal(
+    conflict_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+    provider: LLMProvider = Depends(_get_provider),
+) -> MergeProposalResponse:
+    """ADR-099 cl. 11 — one model call, verified, nothing written. 404 for an
+    unknown/closed dispute, 422 for one that offers no merge."""
+    try:
+        p = await propose_conflict_merge(conflict_id, db, provider, user_id=_uid(current_user))
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    except Exception:
+        logger.exception("profile route failed")  # never echo str(exc) (MD-24 (6))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
+        )
+    return MergeProposalResponse(proposal=p.proposal, verifier=p.verifier, sources=list(p.sources))
 
 
 @router.post(

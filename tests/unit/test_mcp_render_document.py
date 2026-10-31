@@ -535,3 +535,32 @@ async def test_an_unknown_kind_is_still_refused_and_the_error_names_the_alias():
         )
     assert exc_info.value.error.code == -32602
     assert "'cover-letter' is accepted as an alias" in exc_info.value.error.message
+
+
+@pytest.mark.asyncio
+async def test_d_ag1_an_agent_authored_document_has_a_silent_terminal_review_row(seeded):
+    """RULING D-AG1: a document the user's own agent authored (``origin == "agent"``,
+    this door) never had Applire's final review as a step, so its terminal-review
+    "not run" row is class S; truthfulness and the other ATS rows render as usual.
+    The signal is the persisted ``origin`` column, carried on the report as
+    ``delivery.authored_by_agent`` — never ``loop_clean is None`` alone."""
+    from applire.mcp.server import render_document
+    from applire.models.cv import GeneratedCV
+    from sqlalchemy import select
+
+    p1, p2, p3, p4 = _cv_patches(seeded["db"])
+    with p1, p2, p3, p4:
+        await render_document(
+            document_kind="cv", content=dict(AGENT_CV_CONTENT),
+            job_id=str(seeded["job_id"]), target_pages=2,
+        )
+    row = (await seeded["db"].execute(select(GeneratedCV))).scalar_one()
+    report = row.ats_report
+    assert report["delivery"]["authored_by_agent"] is True
+    assert report["delivery"]["loop_clean"] is None
+    terminal = [c for c in report["checks"] if c["id"] == "terminal-review"]
+    assert terminal and terminal[0]["status"] == "not_applicable"
+    assert (terminal[0]["delivery_class"], terminal[0]["resolver"]) == ("S", None)
+    # every other row keeps its usual stamp (the agent flag touches only this row)
+    assert all(c.get("delivery_class") for c in report["checks"])
+    assert row.truthfulness_report is not None

@@ -54,6 +54,32 @@ export type ATSCheck = {
   // surface says them in the UI language. Absent/null on every other check and
   // on every report persisted before it (those keep the EN `details`).
   notes?: CheckNote[] | null;
+  // ADR-099 cl. 2 — delivery class of this check's kind (backend finding
+  // registry) and the one action a class-A/U row offers. Null/absent on
+  // reports persisted before the field = unclassified, never "S".
+  delivery_class?: DeliveryClass | null;
+  resolver?: string | null;
+};
+
+/** ADR-099 cl. 2 — F fixed before delivery · A one action · U did not run · S silent. */
+export type DeliveryClass = "F" | "A" | "U" | "S";
+
+/** ADR-099 cl. 5 — one claim the generation loop removed or narrowed. */
+export type DeliveryRemoval = {
+  text: string;
+  section?: string | null;
+  kind: string;
+  finding_key?: string | null;
+  narrowed_to?: string | null;
+  pinned: boolean;
+};
+
+/** ADR-099 cl. 4(d)/5 — null `loop_clean` = no loop ran → F kinds fall back to A/U. */
+export type DeliveryState = {
+  loop_clean?: boolean | null;
+  removals: DeliveryRemoval[];
+  /** INTERFACE B-2: the kinds the loop fixed — counted in "N Prüfungen bestanden" (ADR-099 cl. 3). */
+  fixed?: string[] | null;
 };
 
 /**
@@ -70,6 +96,10 @@ export type CheckNote = {
   count?: number | null;
   text?: string;
   plain?: string | null;
+  // ADR-099 cl. 2 / S11.2 (WP-B interface): this note's kind's delivery class
+  // + resolver. Absent on older reports = unclassified.
+  delivery_class?: DeliveryClass | null;
+  resolver?: string | null;
 };
 
 /** #703 — a job term the writing loop demanded in `rounds` of `total_rounds`. */
@@ -107,6 +137,8 @@ export type ATSReport = {
   checks: ATSCheck[];
   // null/absent = audited without pin context (legacy reports, no pins).
   pinned_facts?: PinnedFactReportEntry[] | null;
+  // ADR-099 cl. 4–5 — absent on reports persisted before the field.
+  delivery?: DeliveryState | null;
   keywords: {
     present: string[];
     missing: string[];
@@ -129,6 +161,8 @@ export type ATSReport = {
     // through the token-stem fallback). An absent keyword = no data (a report
     // older than the field) → *Show me where* says it could not mark the place.
     present_unsupported_matches?: Record<string, KeywordMatch[]>;
+    /** D-4c(a): per flagged term, the audit-normalised sentences that still carry a claim-text match after the employer/title/org-unit masks. Absent = older report. */
+    present_unsupported_sentences?: Record<string, string[]>;
     present_denied_matches?: Record<string, KeywordMatch[]>;
     // Build-2 delivery F2 (SF-REVIEW.18): for a `present_unsupported` term that one of
     // the candidate's own recorded denials covers, those denials. The review card
@@ -141,8 +175,16 @@ export type ATSReport = {
     // E048/US266 (#249 option b): EVERY claimable Keyword Ledger entry's surface
     // forms (concept name included), regardless of presence in the document.
     claimable_concepts?: string[];
+    // ADR-099 cl. 2 (WP-B interface 0d955fa4): bucket field name → the bucket's
+    // delivery class + resolver (registry kinds `keyword:<bucket>`). A term in a
+    // narrower bucket (employer sentence, covered by a denial) takes THAT
+    // bucket's class. Absent/null on older reports = unclassified.
+    delivery?: Record<string, BucketDelivery> | null;
   };
 } | null;
+
+/** ADR-099 cl. 2 — a keyword bucket's registry class + resolver. */
+export type BucketDelivery = { delivery_class: DeliveryClass; resolver?: string | null };
 
 /** Strip a trailing numeric index: `work-1` → `work`, `body-3` → `body`. */
 export const baseId = (id: string): string => id.replace(/-\d+$/, "");

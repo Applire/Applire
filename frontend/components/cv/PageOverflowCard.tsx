@@ -22,7 +22,9 @@ export type PageOverflowCutKind =
   | "off_job_skills"
   | "repeated_industry"
   | "oldest_certification"
-  | "oldest_education";
+  | "oldest_education"
+  // U-6: an old role (ended > 15 years ago) keeps title/company/dates only.
+  | "old_role_bullets";
 
 export interface PageOverflow {
   target: number;
@@ -33,6 +35,18 @@ export interface PageOverflow {
   choice: "keep" | "cut" | null;
   cut_available: boolean;
   uncut_available: boolean;
+  /**
+   * INTERFACE B-2 (ADR-099 cl. 7): `false` = the ladder cannot reach the target
+   * and the proposal is the closest reachable length; `null`/absent = older row.
+   */
+  reaches_target?: boolean | null;
+  /** B-2: pages after the proposed cut; `null` = nothing can be cut → only "behalten". */
+  cut_pages?: number | null;
+  /**
+   * D-23 (B): what the generation ALREADY left out to stay within target + 1
+   * pages, per kind. `[]` (or absent) on older rows and when nothing was cut.
+   */
+  auto_cuts?: { kind: PageOverflowCutKind; items: string[] }[];
 }
 
 const WARNING_ICON = "warning";
@@ -43,16 +57,23 @@ const KIND_KEYS: Record<PageOverflowCutKind, string> = {
   repeated_industry: "pageOverflowKindRepeatedIndustry",
   oldest_certification: "pageOverflowKindOldestCertification",
   oldest_education: "pageOverflowKindOldestEducation",
+  old_role_bullets: "pageOverflowKindOldRoleBullets",
 };
 
 interface PageOverflowCardProps {
   cvId: string;
   /** Called after a choice swapped the CV's content (cut, or back from a cut). */
   onContentChanged?: () => void;
+  /**
+   * ADR-099 cl. 3/7: the card is ONE counted class-A row of the review list
+   * while undecided — the page counts it in the headline and the badges.
+   */
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardProps) {
+export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageOverflowCardProps) {
   const t = useTranslations("cv");
+  const tReview = useTranslations("documentReview.delivery");
   const [overflow, setOverflow] = useState<PageOverflow | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -73,14 +94,30 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
     };
   }, [cvId]);
 
+  // ADR-099 cl. 7: shown WHENEVER the CV is over target (B-2 sends the row
+  // then) — no longer hidden when nothing is proposed.
+  const open = Boolean(overflow && overflow.choice === null && overflow.actual > overflow.target);
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
+
   if (!overflow) return null;
-  if (overflow.choice === null && overflow.proposed.length === 0) return null;
+  if (overflow.choice === null && overflow.actual <= overflow.target) return null;
 
   const { target, actual } = overflow;
+  const tD = tReview;
+  const cutPages = overflow.cut_pages === undefined ? target : overflow.cut_pages;
+  const unreachable = overflow.reaches_target === false;
   // A-3b: after a cut `actual` is the cut CV's count; every "keep" label names
   // the count the person goes back to.
   const full = overflow.full_pages ?? actual;
-  const removed = overflow.proposed.flatMap((c) => c.items).join(", ");
+  // U-6 (founder ruling 2026-10-28): an old role is SHORTENED (title, company
+  // and dates stay), never removed — the copy says which of the two happens.
+  const removed = overflow.proposed.filter((c) => c.kind !== "old_role_bullets").flatMap((c) => c.items).join(", ");
+  const shortened = overflow.proposed.filter((c) => c.kind === "old_role_bullets").flatMap((c) => c.items).join(", ");
+  const mode = shortened ? "shorten" : "remove";
+  // D-23: only kinds the card can name (a kind it does not know renders nothing).
+  const autoCuts = (overflow.auto_cuts ?? []).filter((c) => c.kind in KIND_KEYS && c.items.length > 0);
 
   async function choose(choice: "keep" | "cut") {
     if (busy || !overflow) return;
@@ -125,13 +162,17 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
     const canSwitch = cut ? overflow.uncut_available : overflow.cut_available;
     return (
       <div
-        className="mb-3 shrink-0 rounded-lg border border-outline-variant bg-surface-container px-3 py-2 text-[13px] text-on-surface"
+        className="shrink-0 rounded-lg border border-outline-variant bg-surface-container px-3 py-2 text-[13px] text-on-surface"
         data-testid="cv-page-overflow-done"
         data-choice={overflow.choice}
       >
         <span>
           {cut
-            ? t("pageOverflowCutDone", { target, items: removed })
+            ? removed && shortened
+              ? t("pageOverflowCutDoneBoth", { target, items: removed, roles: shortened })
+              : shortened
+                ? t("pageOverflowCutDoneShortened", { target, roles: shortened })
+                : t("pageOverflowCutDone", { target, items: removed })
             : t("pageOverflowKeptDone", { actual: full })}
         </span>
         {cut && !canSwitch && (
@@ -157,7 +198,7 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
 
   return (
     <section
-      className="mb-3 max-h-[45%] shrink-0 overflow-y-auto rounded-lg border border-warning/40 bg-warning-container px-4 py-3 text-on-surface"
+      className="shrink-0 rounded-xl border border-outline-variant bg-surface-bright px-3 py-3 text-on-surface"
       data-testid="cv-page-overflow-card"
       aria-labelledby="cv-page-overflow-title"
     >
@@ -168,8 +209,24 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
         <span className="hidden sm:inline">{t("pageOverflowTitle", { actual, target })}</span>
         <span className="sm:hidden">{t("pageOverflowTitleShort", { actual, target })}</span>
       </h2>
-      <p className="mb-1 text-[13px] leading-snug text-on-surface-variant">
-        {t("pageOverflowBody", { target })}
+      {autoCuts.length > 0 && (
+        <div className="mb-2 text-[13px] leading-snug text-on-surface-variant" data-testid="cv-page-overflow-auto-cuts">
+          <p className="mb-1">{t("pageOverflowAutoCutsLead", { limit: target + 1 })}</p>
+          <ul className="ml-5 list-disc">
+            {autoCuts.map((c) => (
+              <li key={c.kind} data-kind={c.kind}>
+                {t("pageOverflowCutLine", { label: t(KIND_KEYS[c.kind]), items: c.items.join(", ") })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="mb-1 text-[13px] leading-snug text-on-surface-variant" data-testid="cv-page-overflow-body">
+        {cutPages === null
+          ? tD("cvPageNothingToCut")
+          : unreachable
+            ? tD("cvPageUnreachable", { target, reachable: cutPages, mode })
+            : t("pageOverflowBody", { target, mode })}
       </p>
       <ul className="mb-3 ml-5 list-disc text-[13px] leading-snug text-on-surface-variant" data-testid="cv-page-overflow-cuts">
         {overflow.proposed.map((c) => (
@@ -188,17 +245,19 @@ export function PageOverflowCard({ cvId, onContentChanged }: PageOverflowCardPro
         >
           {t("pageOverflowKeep", { actual: full })}
         </button>
-        <button
-          type="button"
-          onClick={() => void choose("cut")}
-          disabled={busy || !overflow.cut_available}
-          className="rounded-lg border border-outline-variant bg-white px-4 py-2 text-[13px] font-semibold text-on-surface disabled:opacity-50"
-          data-testid="cv-page-overflow-cut"
-        >
-          {t("pageOverflowCut", { target })}
-        </button>
+        {cutPages !== null && (
+          <button
+            type="button"
+            onClick={() => void choose("cut")}
+            disabled={busy || !overflow.cut_available}
+            className="rounded-lg border border-outline-variant bg-white px-4 py-2 text-[13px] font-semibold text-on-surface disabled:opacity-50"
+            data-testid="cv-page-overflow-cut"
+          >
+            {t("pageOverflowCut", { target: cutPages })}
+          </button>
+        )}
       </div>
-      {!overflow.cut_available && (
+      {cutPages !== null && !overflow.cut_available && (
         <p className="mt-2 text-xs text-on-surface-variant" data-testid="cv-page-overflow-cut-gone">
           {t("pageOverflowCutGone")}
         </p>

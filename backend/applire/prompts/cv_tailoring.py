@@ -101,6 +101,13 @@
 #   ADR-062 clause 1 reserves for the model, not a fact a rule can compute. ADR-062 clause
 #   7: needs charter-run verification — this entry states the rule, not the model's
 #   compliance.)
+# FIG-3 (founder ruling, Hazelnut build 5, 2026-10-29) — rule 6 AGENCY, NOT PROXIMITY: an
+#   organisation-scale figure held in the SAME entry as the work is connected to it in one
+#   sentence ("contributed to the company's €X revenue by rolling out …"); never a sentence of
+#   its own, never "separately", never a figure from another entry. The "scale of the operation"
+#   alternative is gone: in delivery run 4 the reviewer used it to split a joined line (4/5 on
+#   replay) and the correctors wrote "Separately, BioNTech reported €19 billion …". Replay n=5,
+#   gpt-6-luna: writer joined 3/5 → 5/5; figure from another entry attached 0/5 → 0/5.
 # Prompt version: v10 (#375, 2026-08-07 — rule 6 gains A FIGURE KEEPS ITS OWN SUBJECT,
 #   folded with v9's #289 clause: both landed on rule 6 in the same flavour and are one
 #   policy, so they are stated as one — "a true figure can still be written untruthfully,
@@ -214,7 +221,7 @@ Your job is to make true things read well, and land for THIS job.
 6. CLAIM STRENGTH. Vivid, never inflated — any line you write, a summary sentence as much as a bullet, drawn from a truthful source but with misleading emphasis is still a defect, and the candidate is the one exposed in the interview. Mirror the profile's own verb strength: if it says "supported", "contributed to" or "was part of", do not upgrade to "led", "owned" or "drove". Never enlarge a team size, budget, scope or user count, and never imply a more senior role than the profile states.
    A true figure can still be written untruthfully, in two ways. Ask both of every figure you carry.
    A FIGURE KEEPS ITS OWN SUBJECT. Carrying a quantity from the profile means carrying what the profile says it is a quantity OF — the number and the thing it measures move together, or neither moves. "14 Jahren Erfahrung in der diskreten Fertigung" is fourteen years of EXPERIENCE; written as "14 Jahren Führungserfahrung", or as "14 Jahren Expertise", it is a claim the candidate never made. The danger is exactly that the number stays defensible: nothing else in the document contradicts it, no check on the figure can catch it, and the candidate meets the strengthened claim for the first time in the interview. This holds for every quantity — years, headcount, budget, volume, rate — and for narrowing as much as widening.
-   AGENCY, NOT PROXIMITY. A bullet may claim only as much agency as the profile statement it is drawn from actually gives the candidate — being on the team, in the unit or in the room while something happened is not having done it. This bites hardest on an ORGANISATION-SCALE figure: the employer's or the unit's revenue, headcount, portfolio or user base, as opposed to a result the candidate's own work produced. Such a figure is the SETTING the work happened in, and must be written as one — either name the relationship the profile itself states (ran it, contributed to it, worked within it), or say plainly that this was the scale of the operation ("for a production line carrying €X in revenue", "in a business unit of that scale"). Never fuse the candidate's own action verb to an organisation-scale figure and leave the causation to the reader: "supporting €X revenue" lands on a hiring manager as a vague causal association rather than a measured contribution, and costs more credibility than the figure earns even though every word of it is true.
+   AGENCY, NOT PROXIMITY. A bullet may claim only as much agency as the profile statement it is drawn from actually gives the candidate — being on the team, in the unit or in the room while something happened is not having done it. This bites hardest on an ORGANISATION-SCALE figure: the employer's or unit's revenue, headcount, portfolio or user base, not a result the candidate's own work produced. Where the profile holds such a figure in the SAME entry as the work, connect the two in one sentence — what the work contributed to, then by what: "contributed to the company's €X revenue by rolling out …", in the profile's own facts, with no adjective it does not hold. Never write the figure as a sentence of its own or "separately", never as the candidate's own result, and never attach a figure from another entry. Never fuse the candidate's own action verb to the figure and leave the causation to the reader: "supporting €X revenue" lands on a hiring manager as a vague causal association rather than a measured contribution, and costs more credibility than the figure earns even though every word of it is true.
    Both are FRAMING instructions and never a reason to drop the figure or to write around it: the resolution is always the profile's own subject and the profile's own relationship, written out — never a vaguer line, never a missing number. A bullet vaguer than the truth is the opposite defect and just as damaging (rule 3).
 
 7. SKILLS. Return the skills this JD cares about that the profile supports, most relevant first. A skill with no basis in the profile is omitted, however loudly the JD asks for it. A requirement phrase — a duration ("5+ years of…", "X Jahre…"), an industry or sector name, or a degree requirement — is not a skill: a skill is a named competence, tool or method the candidate holds in the vault. An industry or sector name ("Maschinenbau", "Verpackungsindustrie") and years of experience are the SETTING of the work — they belong in the summary or in the bullet that states them, never in the skills list.
@@ -224,7 +231,7 @@ Your job is to make true things read well, and land for THIS job.
 8. LANGUAGE. Write all prose — summary, bullets, skill entries — in the OUTPUT LANGUAGE stated in the user message, translating from the profile's language where needed. Translating is not inventing.
    The test for any single term: **does it NAME something, or DESCRIBE something?** A name is copied exactly, never translated, expanded or "corrected" — products, systems, standards, certifications, methods with proper names, employers, job titles (GxP, MES, SMED, ISO 9001, SAP PP, Kaizen — and equally one you do not recognise). A description is ordinary language and is translated (Team Leadership, Art Direction, Prozessoptimierung). Where a term is a name wrapped in descriptive words, translate only the descriptive words and leave the name untouched.
 
-9. BULLET BUDGETS. Each entry's "max" in ROLE BULLET BUDGETS is a ceiling, not a quota. Prioritise the most JD-relevant achievements within it, and condense an older or less relevant role toward a single strong line rather than padding it out. A project's evidence lives in the project's own nested bullets ONCE — never duplicated into the entry's bullets: duplication spends budget the entry should spend on evidence nothing else in the document carries.
+9. BULLET BUDGETS. Each entry's "max" in ROLE BULLET BUDGETS is a ceiling, not a quota. Prioritise the most JD-relevant achievements within it, and condense an older or less relevant role toward a single strong line rather than padding it out. A project's evidence lives in its nested bullets ONCE, never duplicated into the entry's bullets: when an entry's own line and its nested project's line state the same work or result, write it in the project only; the entry keeps its other facts.
 
 10. PROJECTS, AND WHICH CONTAINER. A project the profile ties to one of the work entries is written as that entry's nested project. A project the profile ties to NO work entry — a freelance engagement, a voluntary or private project, a study project — goes in the top-level "projects" list, tailored the same way. Each project is written in exactly ONE of the two places: a project named once belongs in one container, never in both. If the profile has no untied projects, return an empty list.
 
@@ -530,8 +537,18 @@ V2_LISTED_ONLY_RULE = (
 
 assert SYSTEM_PROMPT.count(_V2_RULE2_ANCHOR) == 1, "v1 rule 2 moved — re-anchor _V2_RULE2_ANCHOR"
 
+#: RULING B-1 / interface A1-3 (Hazelnut build 5): the candidate's own "not reached
+#: yet" testimony per entry (a data fact, ADR-062) — v2 only: the v1 writer must stay
+#: smaller than its reviewer (test_545) and sits 4 characters under it.
+_V2_RULE3_ANCHOR = "the exact mistake this rule forbids."
+V2_NOT_YET_REACHED_RULE = (
+    'An entry\'s "not_yet_reached" lists lines the candidate confirmed are not reached '
+    "yet: write each as an aim, target or mandate, never as a result."
+)
+
 V2_SYSTEM_PROMPT = (
-    SYSTEM_PROMPT.replace(_V1_FACTS_PARAGRAPH, _V2_FACTS_PARAGRAPH)
+    SYSTEM_PROMPT.replace(_V2_RULE3_ANCHOR, _V2_RULE3_ANCHOR + " " + V2_NOT_YET_REACHED_RULE)
+    .replace(_V1_FACTS_PARAGRAPH, _V2_FACTS_PARAGRAPH)
     .replace(_V1_SCHEMA, _V2_SCHEMA)
     .replace(_V2_BUDGET_SENTENCE, _V2_BUDGET_REPLACEMENT)
     .replace(_V2_RULE2_ANCHOR, _V2_RULE2_ANCHOR + " " + V2_LISTED_ONLY_RULE)
@@ -647,7 +664,8 @@ def build_v2_fields_block(
             "JD-REQUIRED SKILLS THE PROFILE HOLDS — each must be findable in the skills list, "
             "in the OUTPUT LANGUAGE (a translated or recorded form is the same skill). Two of "
             "them that name ONE competence (an acronym and its expansion, a synonym, a standard "
-            "and its discipline) share ONE entry that carries both forms — rule 7: "
+            "and its discipline) share ONE entry — an acronym with its expansion in parentheses, "
+            "otherwise the one form that names it best, never two names joined by \";\" — rule 7: "
             + ", ".join(f'"{s}"' for s in required_vault_skills)
         )
     return "\n".join(lines)
@@ -666,6 +684,10 @@ V2_REFINEMENT_ADDENDUM = """
   [listed only — no role bullet or story states it] may be named in the skills list or a
   list of tools, never written into a bullet or the summary as a responsibility, ownership
   or outcome — also when a review asks for coverage of it.
+- ONE HOME PER FACT: when a finding says a work entry's bullet and its nested project state
+  the same work or result, keep it in the project's bullets and remove it from the entry's
+  bullets. Never drop the project for it. Only the SAME work moves: the entry keeps every
+  fact the project does not state, and always at least one bullet of its own.
 """
 
 

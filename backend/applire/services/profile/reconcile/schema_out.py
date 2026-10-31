@@ -121,7 +121,8 @@ _PROMPT_REQUIRED_EXTRA: dict[str, tuple[str, ...]] = {
 MODEL_FACING_DESCRIPTIONS: dict[str, str] = {
     "FlagConflict": (
         "The new information contradicts a value or bullet the profile already states; "
-        "copy both sides verbatim, the user picks one."
+        "copy both sides verbatim, the user picks one. For a bullet, \"values\" holds "
+        "the two values, each copied from its own bullet."
     ),
     "MatchExisting": (
         "The new information names an entity the profile already holds under another "

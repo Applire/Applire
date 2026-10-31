@@ -341,4 +341,158 @@ describe("ProfilePage", () => {
       expect(screen.queryByTestId("not-applied-callout")).not.toBeInTheDocument();
     });
   });
+
+  // Hazelnut build 5 (U-9 → U-11) — the hub's duplicate-station question and
+  // the entry's own merge button open the SAME merge act. Seam: the page wires
+  // the hub's "Ja" into the EntryMergeProvider with the pair (target first),
+  // and "Nein" into keep-separate.
+  describe("duplicate station (U-9 → U-11)", () => {
+    const TWO_ROLES = {
+      ...PROFILE,
+      profile: {
+        ...PROFILE.profile,
+        work_experience: [
+          PROFILE.profile.work_experience[0],
+          {
+            id: "w-dup",
+            role: "Senior Softwareentwickler",
+            company: "Logivia GmbH",
+            start_date: "2020-03",
+            end_date: null,
+            achievements: ["Build-Zeiten um 40 % gesenkt"],
+            source: "cv_upload",
+          },
+        ],
+      },
+    };
+    const DUP_HEALTH = {
+      issues: [
+        {
+          id: "duplicate_entry:e43fc4b2-aaaa:w-dup",
+          thread: "duplicate_entry",
+          profile_mismatch_severity: "review",
+          summary: "same station?",
+          delivery_class: "U",
+          section: "work_experience",
+          entry_ids: ["e43fc4b2-aaaa", "w-dup"],
+          entity_label: "Senior Software Engineer @ Logivia",
+          other_entity_label: "Senior Softwareentwickler @ Logivia GmbH",
+        },
+      ],
+      completeness: { score: 0.99, gaps: [], field_gaps: [] },
+    };
+    const calls: { url: string; body: unknown }[] = [];
+    beforeEach(() => {
+      calls.length = 0;
+      global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+        if (url.includes("/api/profile/entries/merge"))
+          return {
+            ok: true,
+            json: async () => ({
+              merged_entry: {},
+              aliases: [{ role: "Senior Softwareentwickler", company: "Logivia GmbH" }],
+              date_conflict: null,
+              duplicate_pairs: [],
+              unique_bullets: ["Cut build times by 40%"],
+            }),
+          };
+        if (url.includes("/api/profile/entries/keep-separate")) return { ok: true, json: async () => ({}) };
+        if (url.includes("/api/profile/health")) return { ok: true, json: async () => DUP_HEALTH };
+        if (url.includes("/api/profile/enrichment-history")) return { ok: true, json: async () => [] };
+        if (url.includes("/api/profile")) return { ok: true, json: async () => TWO_ROLES };
+        return { ok: true, json: async () => ({}) };
+      }) as unknown as typeof fetch;
+    });
+
+    it("'Ja, zusammenführen' opens the merge preview for that pair, target first", async () => {
+      render(withIntl(<ProfilePage />, "en"));
+      fireEvent.click(await screen.findByTestId("health-duplicate-merge"));
+      expect(await screen.findByTestId("entry-merge-dialog")).toBeInTheDocument();
+      await waitFor(() =>
+        expect(calls.find((c) => c.url.includes("/entries/merge"))?.body).toEqual({
+          section: "work_experience",
+          target_id: "e43fc4b2-aaaa",
+          source_id: "w-dup",
+          mode: "preview",
+        }),
+      );
+    });
+
+    it("'Nein, getrennt führen' records the pair as separate", async () => {
+      render(withIntl(<ProfilePage />, "en"));
+      fireEvent.click(await screen.findByTestId("health-duplicate-separate"));
+      await waitFor(() =>
+        expect(calls.find((c) => c.url.includes("/entries/keep-separate"))?.body).toEqual({
+          section: "work_experience",
+          entry_ids: ["e43fc4b2-aaaa", "w-dup"],
+        }),
+      );
+    });
+
+    it("each work entry offers the merge button once there are two", async () => {
+      render(withIntl(<ProfilePage />, "en"));
+      await waitFor(() => expect(screen.getAllByTestId("entry-merge-open")).toHaveLength(2));
+    });
+  });
+
+  // U-7 (ruling B-1, INTERFACE A1-3) — the page sends the answer to the
+  // aspiration door: Nein submits directly, Ja carries what came out.
+  describe("goal-worded item (U-7)", () => {
+    const GOAL_HEALTH = {
+      issues: [
+        {
+          id: "aspiration:e43fc4b2-aaaa:abcdef123456",
+          thread: "aspiration",
+          delivery_class: "A",
+          resolver: "ask_achieved",
+          profile_mismatch_severity: "review",
+          summary: "goal-worded bullet",
+          entry_id: "e43fc4b2-aaaa",
+          section: "work_experience",
+          entity_label: "Senior Software Engineer @ Logivia",
+          aspiration_text: "Cut build times below 5 minutes",
+        },
+      ],
+      completeness: { score: 0.99, gaps: [], field_gaps: [] },
+    };
+    const sent: { url: string; body: unknown }[] = [];
+    beforeEach(() => {
+      sent.length = 0;
+      global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "POST") sent.push({ url, body: JSON.parse(String(init.body)) });
+        if (url.includes("/api/profile/health")) return { ok: true, status: 200, json: async () => GOAL_HEALTH };
+        if (url.includes("/api/profile/enrichment-history")) return { ok: true, status: 200, json: async () => [] };
+        if (url.includes("/api/profile")) return { ok: true, status: 200, json: async () => PROFILE };
+        return { ok: true, status: 200, json: async () => ({}) };
+      }) as unknown as typeof fetch;
+    });
+
+    it("Ja + what came out goes to the aspiration door", async () => {
+      render(withIntl(<ProfilePage />, "en"));
+      fireEvent.click(await screen.findByTestId("health-aspiration-yes"));
+      fireEvent.change(screen.getByTestId("health-aspiration-outcome"), { target: { value: "Build times at 4 minutes" } });
+      fireEvent.click(screen.getByTestId("health-aspiration-save"));
+      await waitFor(() =>
+        expect(sent.find((c) => c.url.includes("/api/profile/aspirations/answer"))?.body).toEqual({
+          issue_id: "aspiration:e43fc4b2-aaaa:abcdef123456",
+          achieved: true,
+          outcome: "Build times at 4 minutes",
+        }),
+      );
+    });
+
+    it("Nein submits directly", async () => {
+      render(withIntl(<ProfilePage />, "en"));
+      fireEvent.click(await screen.findByTestId("health-aspiration-no"));
+      await waitFor(() =>
+        expect(sent.find((c) => c.url.includes("/api/profile/aspirations/answer"))?.body).toEqual({
+          issue_id: "aspiration:e43fc4b2-aaaa:abcdef123456",
+          achieved: false,
+        }),
+      );
+    });
+  });
 });

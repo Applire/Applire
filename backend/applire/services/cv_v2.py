@@ -146,6 +146,83 @@ def carry_v2_fields(new: Any, previous: Any) -> Any:
 
 
 # --------------------------------------------------------------------------- #
+# place: a project's container is a vault fact (D-31, Hazelnut build 5 round 9)
+# --------------------------------------------------------------------------- #
+def place_linked_projects(prose: Any, profile_json: dict | None) -> Any:
+    """Put every top-level prose project the vault ties to a work entry under that
+    entry — whatever slot the model used. Returns a new draft; never mutates.
+
+    A project's home is a vault FACT (``associated_experience``), and the v2 compose is
+    the join by id — but it rendered the prose's top-level ``projects`` list as is, so a
+    linked project the writer put there was delivered as standalone while the reviewers,
+    reading the vault, called it "the nested project under work_history index 3". The
+    corrector then wrote a nested copy and kept the top-level one; the duplicate-project
+    fold kept both copies' near-twin bullets, and the round cap shipped that round
+    (delivery run 7, log 145 → 164 → 168: D-31). v1's ``_nest_projects`` had closed this
+    container gap (#672 L100, "the LLM tailors prose; code disposes"); the v2 compose
+    never ran it. This is that rule for the prose shape: a container move by name and id,
+    no text authored, no bullet dropped except a byte-identical (normalised) repeat of a
+    bullet already in the destination copy.
+
+    Matching is by the project's normalised NAME against the vault, and by the vault's
+    ``associated_experience`` id against the draft's work ids; a name the vault does not
+    hold (a translated heading) or a link to no work entry of the draft stays where the
+    model put it — never a guessed owner (ADR-072 cl. 5)."""
+    if not isinstance(prose, dict) or not isinstance(prose.get("projects"), list):
+        return prose
+    work = prose.get("work")
+    if not isinstance(work, list):
+        return prose
+    from applire.services.ats_audit import _norm
+
+    work_ids = {str(w.get("id") or "") for w in work if isinstance(w, dict)}
+    owner_by_name: dict[str, str] = {}
+    for vp in (profile_json or {}).get("projects") or []:
+        if not isinstance(vp, dict):
+            continue
+        parent = str(vp.get("associated_experience") or "").strip()
+        name = _norm(str(vp.get("name") or ""))
+        if name and parent in work_ids:
+            owner_by_name[name] = parent
+    moves = [
+        (i, owner_by_name[_norm(str(p.get("name") or ""))])
+        for i, p in enumerate(prose["projects"])
+        if isinstance(p, dict) and _norm(str(p.get("name") or "")) in owner_by_name
+    ]
+    if not moves:
+        return prose
+    out = copy.deepcopy(prose)
+    by_id = {str(w.get("id") or ""): w for w in out["work"] if isinstance(w, dict)}
+    moved_idx = set()
+    for i, wid in moves:
+        proj = out["projects"][i]
+        entry = by_id[wid]
+        nested = entry.get("projects") if isinstance(entry.get("projects"), list) else []
+        same = next(
+            (q for q in nested if isinstance(q, dict)
+             and _norm(str(q.get("name") or "")) == _norm(str(proj.get("name") or ""))),
+            None,
+        )
+        if same is None:
+            nested.append(proj)
+        else:
+            have = {_norm(b) for b in same.get("bullets") or [] if isinstance(b, str)}
+            same["bullets"] = list(same.get("bullets") or []) + [
+                b for b in proj.get("bullets") or []
+                if isinstance(b, str) and _norm(b) not in have
+            ]
+        entry["projects"] = nested
+        moved_idx.add(i)
+        logger.info(
+            "TAIL_RELOCATE (D-31) pass=place_linked_projects predicate=top-level copy "
+            "of a role-tied project role_id=%r project=%r merged=%s",
+            wid, proj.get("name"), same is not None,
+        )
+    out["projects"] = [p for i, p in enumerate(out["projects"]) if i not in moved_idx]
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # compose: the join by id, nothing else
 # --------------------------------------------------------------------------- #
 @dataclass
@@ -212,6 +289,8 @@ def compose_v2(
     from applire.services.profile.language_names import LANGUAGE_NAME_DE_EN
 
     notes = notes if notes is not None else ComposeNotes()
+    # D-31: the container of a vault-linked project is a fact, not the prose's slot.
+    prose = place_linked_projects(prose, profile_json)
     tailored = TailoredCVData.model_validate(assemble_tailored_cv(prose, profile_json))
     tailored = _apply_certifications(tailored, profile_json)
     tailored = _apply_role_facts(tailored, profile_json, preseed=None)
@@ -496,7 +575,8 @@ def v2_checks(
                 text=(
                     f"The rendered CV is {pages} pages; the target is {target}. Shorten "
                     "older or less relevant roles toward one strong line; keep measured "
-                    "outcomes."
+                    "outcomes. A role keeps at least one bullet of its own, never only its "
+                    "nested project."
                 ),
             ))
 
@@ -647,6 +727,75 @@ def _project_text(p: dict) -> str:
     return "\n".join(x for x in parts if x.strip())
 
 
+#: Words that name the KIND of a project, not which one ("Implementation of …").
+_GENERIC_PROJECT_WORDS = frozenset({
+    "implementation", "introduction", "rollout", "roll", "out", "deployment", "project",
+    "projekt", "programme", "program", "programm", "einführung", "umsetzung",
+    "migration", "of", "the", "for", "der", "die", "das", "des", "von", "zur", "zum",
+})
+
+
+def _parent_role_names_project(project: dict, composed: "TailoredCVData", profile_json: dict) -> bool:
+    """D-20 (build 5 run 5): the vault project's parent role is on the CV and one of
+    its bullets already names the project — every distinctive token of the project's
+    name (generic kind words and the employer's own name removed; at least two left)
+    occurs in that bullet. "Implementation of BioNTech Global QC LIMS" is then
+    mentioned by "Spearheaded … the global QC LIMS introduction …". A token fact
+    (ADR-062 cl. 1): the advisory asked back a project the corrector had just
+    removed as a duplicate of exactly that bullet, and the loop ran to its cap."""
+    from applire.services.ats_audit import skill_tokens
+
+    parent = str(project.get("associated_experience") or "")
+    if not parent:
+        return False
+    company = ""
+    for w in profile_json.get("work_experience") or []:
+        if isinstance(w, dict) and str(w.get("id") or "") == parent:
+            company = str(w.get("company") or "")
+    distinctive = skill_tokens(str(project.get("name") or "")) - _GENERIC_PROJECT_WORDS - skill_tokens(company)
+    if len(distinctive) < 2:
+        return False
+    for w in composed.work_history:
+        if str(getattr(w, "id", "") or "") != parent:
+            continue
+        for b in w.bullets or []:
+            if distinctive <= skill_tokens(b):
+                return True
+    return False
+
+
+def _project_budget_fact(
+    composed: "TailoredCVData", ctx: V2CheckContext, parents: Sequence[str]
+) -> str:
+    """D-20 (Hazelnut build 5, round 9): the count a project demand lands on, as a fact.
+
+    ``cv.project_missing`` asks for one or two project bullets under a role; the role
+    budget counts those same bullets (``cv.role_budget``: own + nested project). Told
+    only "if the role is at its bullet budget", the corrector added the project and
+    kept every own bullet — replayed on the delivery-run-7 rounds that carried this
+    finding (log 156/167/172, gpt-6-luna, n=15), the next draft was over budget 11/15;
+    with the role's own count stated, 6/15. Empty when no parent role is at budget."""
+    if ctx.budget is None:
+        return ""
+    facts: list[str] = []
+    for w in composed.work_history:
+        if w.id not in parents:
+            continue
+        rb = ctx.budget.roles.get(w.id)
+        if rb is None:
+            continue
+        n = len(w.bullets) + sum(len(p.bullets) for p in w.projects)
+        if n >= rb.max_bullets:
+            facts.append(f"{w.id} already holds {n} bullets against its budget of {rb.max_bullets}")
+    if not facts:
+        return ""
+    return (
+        " " + "; ".join(facts) + " (own and nested project bullets together), so this is a "
+        "rewrite, not an addition: state the concept in one of its existing bullets, or give "
+        "the project one bullet in place of the role's weakest."
+    )
+
+
 def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
     """C2 as findings (inventory C2, ruling W1-1 r2) — v1's ``_nest_projects`` appended
     an untailored vault project's own text; v2 hands projects to the writer and checks.
@@ -677,6 +826,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
     out: list[CheckFinding] = []
     parts: list[str] = []
     missing_concepts: list[str] = []
+    parents: list[str] = []
     if ctx.keyword_ledger:
         try:
             under = verified_narrative_underclaim(doc, ctx.keyword_ledger, structured_document=doc)
@@ -690,6 +840,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
                 continue
             desc = str(hit.get("description") or "").strip()
             missing_concepts.append(c.concept)
+            parents.append(str(hit.get("associated_experience") or ""))
             parts.append(
                 f"“{c.concept}” is required by the posting and no bullet states it — the vault "
                 f"project “{hit.get('name')}” ({hit.get('id')}, {_where(hit)}) is its evidence"
@@ -703,7 +854,9 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
                 "; ".join(parts[:_MAX_ITEMS_PER_FINDING])
                 + ". Write that project into the CV (as a project of its role, one or two "
                 "bullets in the document language) or state the concept in a bullet of that "
-                "role; if the role is at its bullet budget, replace its weakest bullet."
+                "role."
+                + (_project_budget_fact(composed, ctx, parents)
+                   or " If the role is at its bullet budget, replace its weakest bullet.")
             ),
         ))
 
@@ -720,6 +873,7 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
             for p in vault_projects
             if p.get("name") and norm_name(p.get("name")) not in headings
             and not surface_present(str(p.get("name")), doc_norm)
+            and not _parent_role_names_project(p, composed, ctx.profile_json)
         ]
         if unmentioned:
             out.append(CheckFinding(
@@ -806,7 +960,19 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
                 "bullet that owns the evidence."
             ),
         ))
-    respelled = [(b, a) for b, a in zip(s3.skills, s4.skills) if b != a and b in original]
+    # D-11 (Hazelnut build 5): the respelling is read PER ENTRY. A positional zip of
+    # s3 against s4 misaligned as soon as the spelling pass collapsed one entry into
+    # another, and every later pair became a false "the profile's name is X" — the
+    # terminal corrector then copied vault names verbatim, a German one into an
+    # English CV.
+    respelled: list[tuple[str, str]] = []
+    for b in s3.skills:
+        if not isinstance(b, str) or b not in original:
+            continue
+        one = step(cv_mod._restore_skill_spelling, s3.model_copy(update={"skills": [b]}), ctx.profile_json)
+        a = one.skills[0] if one.skills else b
+        if a != b:
+            respelled.append((b, a))
     if respelled:
         out.append(CheckFinding(
             check="cv.skill_spelling",
@@ -840,6 +1006,11 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
             ),
         ))
     narrated = added(s4, s5)
+    # D-20 (build 5 run 5): never ask to add more chips than the cap leaves room
+    # for — at a full list this advisory and the blocking cv.skills_cap asked for
+    # opposite edits round after round (a count fact, ADR-062 cl. 1).
+    room = max(0, cv_mod.CV_MAX_SKILLS - len(s0.skills))
+    narrated = narrated[:room]
     if narrated:
         out.append(CheckFinding(
             check="cv.skill_named_in_bullet",
@@ -914,10 +1085,15 @@ def required_vault_skills(profile_json: dict, job_dict: dict, keyword_ledger: li
     from applire.services.cv import _jd_required_tier_fn
     from applire.services.profile.reconcile.stance import claimable_skill_names
 
+    from applire.services.prompt_view import aim_only_skill_names
+
     tier = _jd_required_tier_fn(job_dict, keyword_ledger)
+    # D-12 (Hazelnut build 5): a skill only a not_yet_reached line backs is not
+    # demanded as a skills entry — the candidate said it is not reached.
+    aims_only = aim_only_skill_names(profile_json or {})
     out: list[str] = []
     for name in claimable_skill_names(profile_json):
-        if tier(name) == 0 and name not in out:
+        if tier(name) == 0 and name not in out and name not in aims_only:
             out.append(name)
     return out
 
@@ -933,6 +1109,51 @@ def build_v2_fields_block_for(profile_json: dict, job_dict: dict, keyword_ledger
     )
 
 
+def critic_findings(advisories: list, composed: Any) -> list[CheckFinding]:
+    """ADR-099 cl. 8 (UAT-2 fix round, WP-B): the outcome critic's internal /
+    numeric inconsistencies as ADVISORY findings for the terminal corrector —
+    advisory because the family's corrector compliance is not yet measured
+    (ADR-021 amendment; residue is class S). A finding rides only while BOTH
+    quoted spans are still in the composed CV (a presence fact, ADR-062 cl. 1) —
+    a fixed inconsistency is not re-raised. The critic's spans are the CV's own
+    words; vault values are never pasted (the corrector re-reads the profile)."""
+    if not advisories:
+        return []
+    try:
+        dumped = composed.model_dump() if hasattr(composed, "model_dump") else composed
+        haystack = " ".join(_strings(dumped)).casefold()
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[CheckFinding] = []
+    for a in advisories:
+        state = (getattr(a, "cv_state", None) or "").strip()
+        detail = (getattr(a, "cv_detail", None) or "").strip()
+        if not state or state.casefold() not in haystack or (detail and detail.casefold() not in haystack):
+            continue
+        pair = f'"{state}"' + (f' and "{detail}"' if detail else "")
+        out.append(CheckFinding(
+            check=f"critic.{a.kind}",
+            text=(
+                f"The CV contradicts itself: {pair} state the same thing differently. "
+                "Re-read the candidate profile and align the statement that differs from "
+                "it to what the profile states; never add a fact."
+            ),
+            blocking=False,
+            subjects=(state,),
+        ))
+    return out
+
+
+def _strings(node: Any) -> list[str]:
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, dict):
+        return [x for v in node.values() for x in _strings(v)]
+    if isinstance(node, list):
+        return [x for v in node for x in _strings(v)]
+    return []
+
+
 @dataclass
 class V2Terminal:
     """What the v2 terminal loop needs beyond v1's arguments."""
@@ -941,6 +1162,9 @@ class V2Terminal:
     max_retries: int = V2_TERMINAL_MAX_RETRIES
     notes_by_draft: dict[str, ComposeNotes] = field(default_factory=dict)
     open_findings: list = field(default_factory=list)
+    #: ADR-099 cl. 8 (WP-B): the in-loop critic's internal / numeric
+    #: inconsistencies (``CriticAdvisory``), set once before the terminal review.
+    critic_advisories: list = field(default_factory=list)
 
     def compose(self, prose: dict, profile_json: dict, raw_profile_json: dict | None) -> "TailoredCVData":
         notes = ComposeNotes()
@@ -958,7 +1182,14 @@ class V2Terminal:
         def _fn(draft: dict) -> list[CheckFinding]:
             composed = subject_for(draft)
             notes = self.notes_by_draft.get(canonical(draft)) or ComposeNotes()
-            return v2_checks(draft, composed, notes, self.ctx)
+            own = v2_checks(draft, composed, notes, self.ctx)
+            critic = critic_findings(self.critic_advisories, composed)
+            if not critic:
+                return own
+            # ADR-099 cl. 4(c): one shared per-round cap; consistency ranks after
+            # the blocking checks and before the advisory craft checks.
+            ranked = [f for f in own if f.blocking] + critic + [f for f in own if not f.blocking]
+            return ranked[:MAX_FINDINGS_PER_ROUND]
         return _fn
 
     def delivered_findings(self, prose: dict, tailored_data: dict) -> list[CheckFinding]:

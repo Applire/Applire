@@ -51,7 +51,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from applire.prompts.review_severity import SEVERITY_BLOCKING
-from applire.services.ats_audit import redundant_bullet_pairs
+from applire.services.ats_audit import duplicate_project_pairs, redundant_bullet_pairs
 from applire.services.review_issues import ReviewIssue
 
 #: Redundant pairs demanded per corrector round. Two, deliberately: the measured
@@ -165,10 +165,41 @@ def redundancy_signal_issues(
             pairs = [p for p in pairs if p[1] not in answers and p[3] not in answers]
     except Exception:  # noqa: BLE001 — a signal may never break the loop
         return []
-    return [
+    issues = [
         ReviewIssue(text=_issue_text(*pair), severity=SEVERITY_BLOCKING)
         for pair in pairs[:limit]
     ]
+    # ADR-099 cl. 8 / ADR-094 cl. 3 amended (UAT-2 fix round, WP-B): the same
+    # project rendered twice (the ATS `duplicate-project` row) goes the same route
+    # — one sentence to the corrector, which decides what to merge; never a
+    # deterministic drop (ADR-082 cl. 3). Bounded by one issue per round.
+    try:
+        projects = duplicate_project_pairs(document)
+    except Exception:  # noqa: BLE001
+        projects = []
+    if projects:
+        la, a, lb, b = projects[0]
+        issues.append(ReviewIssue(text=_project_issue_text(la, a, lb, b), severity=SEVERITY_BLOCKING))
+    return issues
+
+
+def _project_issue_text(loc_a: str, name_a: str, loc_b: str, name_b: str) -> str:
+    """The duplicate-project demand, corrector audience (as :func:`_issue_text`).
+
+    D-31 (Hazelnut build 5, round 9): "fold into it every bullet … that appears only in
+    the other copy" read literally keeps two near-twin bullets ("… approaches." and "…
+    approaches, with zero major audit deviations …") — distinct strings, so each
+    "appears only in" one copy; the round-cap shipped that round (delivery run 7, log
+    168). A fact is merged once, in its fuller wording. Replay of log 168 (gpt-6-luna,
+    n=10 per arm): a contained duplicate 0/10 → 0/10 (the live event did not reproduce
+    at base), every checked fact kept as often or more."""
+    return (
+        f'the same project is delivered twice — [{loc_a}] "{_quote(name_a)}" and '
+        f'[{loc_b}] "{_quote(name_b)}". Keep it in ONE place (under the role it belongs '
+        "to). A fact both copies state, in any wording, is written ONCE, in its fuller "
+        "wording; carry over every fact, figure and detail that appears in only one copy, "
+        "so nothing is lost and nothing is said twice."
+    )
 
 
 def redundancy_signal_issues_fn(

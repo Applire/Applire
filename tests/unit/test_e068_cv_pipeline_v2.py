@@ -410,6 +410,8 @@ def test_page_length_finding_fires_for_the_exact_draft_that_was_rendered():
     f = findings["cv.page_length"]
     assert f.blocking is True
     assert "3 pages" in f.text and "target is 2" in f.text
+    # M-3 (Hazelnut build 5, delivery run 6): shortening never leaves a role with only its project
+    assert "A role keeps at least one bullet of its own, never only its nested project." in f.text
 
 
 def test_page_length_finding_is_silent_for_a_measure_of_a_different_draft():
@@ -1397,6 +1399,34 @@ def test_project_missing_fires_for_a_required_concept_only_a_vault_project_evide
     found = _by_check(_checks(prose, _project_vault(), keyword_ledger=_fastapi_ledger()))
     f = found["cv.project_missing"]
     assert f.blocking and "Umstellung auf FastAPI" in f.text and W1 in f.text
+
+
+def test_project_missing_states_the_role_budget_when_the_role_is_full():
+    """D-20 (Hazelnut build 5, round 9): the demand for a project bullet lands on a
+    role at its budget — the finding says so as a count, so complying is a rewrite.
+    Delivery run 7: told only "if the role is at its bullet budget", the corrector
+    added the project and kept every own bullet (over budget 11/15 replays)."""
+    prose = _prose()
+    prose["skills"] = ["SPS", "MES", "FastAPI"]
+    full = _by_check(_checks(prose, _project_vault(), keyword_ledger=_fastapi_ledger(),
+                             budget=_budget(**{W1: 2, W2: 3})))["cv.project_missing"]
+    assert f"{W1} already holds 2 bullets against its budget of 2" in full.text
+    assert "this is a rewrite, not an addition" in full.text
+    room = _by_check(_checks(prose, _project_vault(), keyword_ledger=_fastapi_ledger(),
+                             budget=_budget(**{W1: 5, W2: 3})))["cv.project_missing"]
+    assert "already holds" not in room.text
+    assert "If the role is at its bullet budget, replace its weakest bullet." in room.text
+
+
+def test_compose_nests_a_top_level_project_the_vault_ties_to_a_role():
+    """D-31: the v2 compose renders a vault-linked project under its role, whatever
+    slot the prose used — the reviewers and the corrector see one container."""
+    prose = _prose()
+    prose["projects"] = [{"name": "Umstellung auf FastAPI", "bullets": ["Migrierte zwei Dienste."]}]
+    tailored, _notes = _compose(prose, _project_vault())
+    assert tailored.projects == []
+    owner = next(w for w in tailored.work_history if w.id == W1)
+    assert [p.name for p in owner.projects] == ["Umstellung auf FastAPI"]
 
 
 def test_project_missing_is_silent_when_a_bullet_states_the_concept():

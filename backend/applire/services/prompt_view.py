@@ -87,6 +87,15 @@ PROMPT_EXCLUDED_METADATA_KEYS: frozenset[str] = frozenset(
         # History for the profile view only; a prompt reading them would treat
         # a withdrawn limit as a live one.
         "withdrawn_denials",
+        # Hazelnut build 5 (U-9, ADR-046 am.): kept-separate entry pairs and the
+        # model's same-position verdicts — read by the health hub only.
+        "separate_entry_pairs",
+        "entry_identity_verdicts",
+        # RULING B-1 — the goal/task-wording verdicts and the candidate's
+        # answers; read by the health hub only. The stance a writer needs
+        # reaches it as the entry's own ``not_yet_reached`` list.
+        "aspiration_verdicts",
+        "aspiration_answers",
     }
 )
 
@@ -213,6 +222,7 @@ def prompt_profile_view(
     keep: frozenset[str] = PROMPT_FACING_METADATA_KEYS,
     derived_spans: str = "keep",
     entry_status: str = "keep",
+    aims: str = "keep",
 ) -> Any:
     """Return a filtered COPY of ``profile_json`` for model consumption.
 
@@ -246,6 +256,18 @@ def prompt_profile_view(
     ("Kubernetes is also a confirmed skill."): 5/5 replays as captured, 0/5 with
     the status stripped, with no prompt rule added (adv log recs 160→161,
     luna, thinking off, 2026-10-23).
+
+    ``aims`` (ADV-2, Hazelnut build 5) is a fourth clause-4 narrowing for the
+    DOCUMENT prompts: ``"label"`` renders an entry's ``not_yet_reached`` under
+    :data:`NOT_YET_REACHED_PROMPT_KEY`, a key that states what the list is. The
+    writer's system rule names the field, but the reviewer and every corrector
+    round (tailoring refinement, terminal, attribution/truth, language,
+    segmented, letter refinement/terminal) re-read only this view — and on the
+    founder's 10-27 input the terminal corrector rewrote an aim into a present
+    claim in 2 of 10 delivered documents. One label here reaches every round
+    that re-reads the source; no corrector prompt carries a copy. The data
+    fact (the candidate's own answer) is stated, never a text heuristic
+    (ADR-062 cl. 1). Reconcile/gap prompts keep the plain key.
 
     Tolerant of ``None`` and malformed shapes at every level: a prompt-input
     filter must never become a new way for generation to fail, so anything it
@@ -304,7 +326,150 @@ def prompt_profile_view(
         view = _hedge_derived_spans(view)
     if entry_status == "drop_confirmed":
         view = _drop_confirmed_status(view)
+    if aims == "label":
+        source = profile_json if isinstance(profile_json, dict) else (
+            profile_json.model_dump(mode="json") if hasattr(profile_json, "model_dump") else {}
+        )
+        view = _label_aim_only_skills(view, aim_only_skill_names(source))
+        view = _label_not_yet_reached(view)
+        view = _label_reached_lines(view, source)
     return view
+
+
+#: ADV-2: the key a document prompt carries ``not_yet_reached`` under — the
+#: field's own name first (the v2 writer rules name it), then what it is.
+NOT_YET_REACHED_PROMPT_KEY = (
+    "not_yet_reached (the candidate's own answer: not reached yet; write each in natural CV "
+    "wording as ongoing work or a mandate, e.g. 'driving …', 'mandate to …', 'target: …'; "
+    "never as achieved, and never say that it is an aim)"
+)
+
+
+#: D-3b (Hazelnut build 5): the key a document prompt carries the task lines the
+#: candidate ANSWERED "reached" under (the aspiration answer, a data fact).
+REACHED_PROMPT_KEY = (
+    "reached (the candidate's own answer: this task line is done; write it as done, "
+    "in the past tense; where an achievement states its result, write that result once "
+    "instead of the task)"
+)
+
+#: D-12: skills only a ``not_yet_reached`` line backs — never a skills-list entry.
+NOT_YET_REACHED_SKILLS_KEY = (
+    "skills_only_in_not_yet_reached (backed only by a not_yet_reached line: never list "
+    "them as skills; they may be named only as the aim that line states)"
+)
+
+
+def _label_reached_lines(view: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    """Move each responsibility the candidate answered "achieved" (the aspiration
+    answer joined to its verdict text, by key) under :data:`REACHED_PROMPT_KEY`."""
+    meta = source.get("metadata") if isinstance(source, dict) else None
+    if not isinstance(meta, dict):
+        return view
+    texts = {
+        v.get("key"): (v.get("entry_id"), v.get("text"))
+        for v in meta.get("aspiration_verdicts") or [] if isinstance(v, dict)
+    }
+    reached: dict[str, set[str]] = {}
+    for a in meta.get("aspiration_answers") or []:
+        if isinstance(a, dict) and a.get("answer") == "achieved" and a.get("key") in texts:
+            eid, text = texts[a["key"]]
+            if eid and isinstance(text, str):
+                reached.setdefault(str(eid), set()).add(text)
+    if not reached:
+        return view
+    out = dict(view)
+    for section in ("work_experience", "projects"):
+        entries = out.get(section)
+        if not isinstance(entries, list):
+            continue
+        moved_entries = []
+        for entry in entries:
+            done = reached.get(str(entry.get("id"))) if isinstance(entry, dict) else None
+            resp = entry.get("responsibilities") if done else None
+            if done and isinstance(resp, list) and any(r in done for r in resp):
+                entry = dict(entry)
+                entry["responsibilities"] = [r for r in resp if r not in done]
+                entry[REACHED_PROMPT_KEY] = [r for r in resp if r in done]
+            moved_entries.append(entry)
+        out[section] = moved_entries
+    return out
+
+
+def aim_and_other_lines(profile: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """D-12: the profile's ``not_yet_reached`` lines, and every OTHER narrative line
+    (responsibilities, achievements, a description that is more than the entry's
+    own aims, signature stories)."""
+    nyr: list[str] = []
+    other: list[str] = []
+    for section in ("work_experience", "projects"):
+        for e in profile.get(section) or []:
+            if not isinstance(e, dict):
+                continue
+            aims = [x for x in e.get("not_yet_reached") or [] if isinstance(x, str)]
+            nyr.extend(aims)
+            for key in ("responsibilities", "achievements"):
+                other.extend(x for x in e.get(key) or [] if isinstance(x, str) and x not in aims)
+            d = e.get("description")
+            rest = d if isinstance(d, str) else ""
+            for x in aims:  # a description composed of the entry's own aims is an aim
+                rest = rest.replace(x, " ")
+            if rest.strip().strip(" .;,"):
+                other.append(d)
+    for st in profile.get("signature_stories") or []:
+        if isinstance(st, dict):
+            other.extend(str(v) for v in st.values() if isinstance(v, str))
+    return nyr, other
+
+
+def aim_only_skill_names(profile: dict[str, Any]) -> set[str]:
+    """D-12: skill names whose every content token a ``not_yet_reached`` line carries
+    while no other narrative line of the profile carries them all (token presence,
+    ADR-062 cl. 1). A skill no line carries at all is not aim-only (unknown)."""
+    from applire.services.ats_audit import skill_tokens
+
+    nyr, other = aim_and_other_lines(profile)
+    if not nyr:
+        return set()
+    nyr_t = [skill_tokens(x) for x in nyr]
+    other_t = [skill_tokens(x) for x in other]
+    out: set[str] = set()
+    for s in profile.get("skills") or []:
+        name = s.get("name") if isinstance(s, dict) else s
+        toks = skill_tokens(name) if isinstance(name, str) else frozenset()
+        if toks and any(toks <= t for t in nyr_t) and not any(toks <= t for t in other_t):
+            out.add(name)
+    return out
+
+
+def _label_aim_only_skills(view: dict[str, Any], names: set[str]) -> dict[str, Any]:
+    if not names:
+        return view
+    out = dict(view)
+    skills = out.get("skills") or []
+    out["skills"] = [s for s in skills if (s.get("name") if isinstance(s, dict) else s) not in names]
+    out[NOT_YET_REACHED_SKILLS_KEY] = sorted(names)
+    return out
+
+
+def _label_not_yet_reached(view: dict[str, Any]) -> dict[str, Any]:
+    """Rename a non-empty ``not_yet_reached`` on work and project entries (a copy)."""
+    out = dict(view)
+    for section in ("work_experience", "projects"):
+        entries = out.get(section)
+        if not isinstance(entries, list):
+            continue
+        relabelled = []
+        for entry in entries:
+            if isinstance(entry, dict) and "not_yet_reached" in entry:
+                entry = {
+                    (NOT_YET_REACHED_PROMPT_KEY if k == "not_yet_reached" else k): v
+                    for k, v in entry.items()
+                    if not (k == "not_yet_reached" and not v)
+                }
+            relabelled.append(entry)
+        out[section] = relabelled
+    return out
 
 
 def _hedge_derived_spans(view: dict[str, Any]) -> dict[str, Any]:

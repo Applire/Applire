@@ -1431,7 +1431,7 @@ def test_letter_default_colour_is_the_cv_default():
     ("Maximilianstraße 12, 80539 München", "München"),
     ("8001 Zürich, Schweiz", "Zürich"),
     ("Koblenz", "Koblenz"),
-    ("Germany", "Germany"),
+    ("Germany", None),  # dateline (build 5 run 5): no city, no place
     ("  ", None),
     (None, None),
 ])

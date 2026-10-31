@@ -287,6 +287,9 @@ _INTERNAL_FIELDS: dict[str, frozenset[str] | None] = {
     # dated role alias when a targeted upsert_work names an additional role
     # with its own start date; an extraction never targets a vault entry.
     "dated_role_aliases": frozenset({"work_experience"}),
+    # RULING B-1 (Hazelnut build 5) — the candidate's "Nein" on "Ist das
+    # erreicht?" (services/profile/aspiration.py); never read off a document.
+    "not_yet_reached": frozenset({"work_experience", "projects"}),
 }
 
 

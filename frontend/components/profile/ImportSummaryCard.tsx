@@ -21,11 +21,24 @@ import { fetchImportSummary, type ImportSummary } from "@/lib/api/importSummary"
 
 export const IMPORT_SUMMARY_ANCHOR = "import-summary";
 
+/** The key a recognised pair is known by in the hub (`suspect_binding`). */
+export function matchPairKey(entityId: string, incoming: string): string {
+  return `${entityId}:${incoming.trim().toLowerCase()}`;
+}
+
 export function ImportSummaryCard({
   reloadKey,
   onChanged,
+  hubPairKeys,
   children,
 }: {
+  /**
+   * Hazelnut build 5 (ADR-099 cl. 10 — one condition, one place): a recognised
+   * pair the health hub currently asks about (`suspect_binding`) is answered
+   * THERE; this summary does not ask it a second time. Import time
+   * (`ProfileImportView`) still shows every pair — the hub has nothing yet.
+   */
+  hubPairKeys?: ReadonlySet<string>;
   /** Changes whenever the profile was reloaded (re-fetch the summary). */
   reloadKey?: unknown;
   /** A pair answer or "Trotzdem übernehmen" changed the profile. */
@@ -128,7 +141,15 @@ export function ImportSummaryCard({
         </p>
       )}
 
-      <RecognisedMatches matched={summary.matched} keptSeparate={summary.kept_separate} onSeparated={changed} />
+      <RecognisedMatches
+        matched={
+          hubPairKeys && hubPairKeys.size > 0
+            ? summary.matched.filter((m) => !hubPairKeys.has(matchPairKey(m.entity_id, m.incoming)))
+            : summary.matched
+        }
+        keptSeparate={summary.kept_separate}
+        onSeparated={changed}
+      />
       <RestatedBullets restated={summary.restated} onApplied={changed} />
 
       {children && (

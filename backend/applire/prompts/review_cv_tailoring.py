@@ -92,6 +92,13 @@
 #   If the loop starts exhausting on summary or framing findings, the disposition is v5's
 #   — demote, do not tune.
 #   ADR-062 clause 7: prompt effect; CI pins the wording only.)
+# FIG-3 (founder ruling, Hazelnut build 5, 2026-10-29) — rule 6 AGENCY, NOT PROXIMITY: an
+#   organisation-scale figure held in the SAME entry as the work is connected to it in one
+#   sentence ("contributed to the company's €X revenue by rolling out …"); never a sentence of
+#   its own, never "separately", never a figure from another entry. The "scale of the operation"
+#   alternative is gone: in delivery run 4 the reviewer used it to split a joined line (4/5 on
+#   replay) and the correctors wrote "Separately, BioNTech reported €19 billion …". Replay n=5,
+#   gpt-6-luna: writer joined 3/5 → 5/5; figure from another entry attached 0/5 → 0/5.
 # Prompt version: v6 (#289, 2026-08-07 — check 5 gains AGENCY vs PROXIMITY, the
 #   reviewer-side half of the writer's new rule 6 clause. Charter run #5 Finding 7
 #   ("supporting €19bn revenue"): correctly owned, correctly grounded, and read by a
@@ -216,15 +223,16 @@ Check for ALL of the following:
      hardest case in this check to see, precisely because the number verifies and only the noun
      moved, and it is likeliest in the summary, where a figure gets restated in the job's own
      vocabulary.
-   - AGENCY vs PROXIMITY (#289) — what relationship does the statement actually give the
-     candidate? This bites on an ORGANISATION-SCALE figure: the employer's or the unit's revenue,
-     headcount, portfolio or user base, as opposed to a result the candidate's own work produced.
-     Flag the line when it asserts more agency than its source does, or when it leaves the
-     relationship implicit so that a figure the candidate merely stood next to reads as their own
-     result.
-   For both, the correction you ask for is a FRAMING one: write the profile's own subject, and
-   state the relationship the profile states or name the figure as the scale of the operation the
-   work happened in. NEVER ask for the figure to be removed, rounded away or made vaguer — a line
+   - AGENCY vs PROXIMITY (#289) — what relation does the statement give the candidate? This
+     bites on an ORGANISATION-SCALE figure (employer's or unit's revenue, headcount, users),
+     not a result their own work produced. Flag a line stating it as their result, or leaving
+     the relation implicit ("supporting €N revenue"). A figure the profile holds in the SAME
+     entry as the work, joined as "contributed to €N … by <that work>", is correct: never
+     flag or split it. A figure in a sentence of its own or "separately", or taken from
+     another entry, is a finding: ask to join it to its own entry's work.
+   For both, the correction you ask for is a FRAMING one: write the profile's own subject and
+   the relationship the profile states, an organisation-scale figure joined to the work of its
+   entry. NEVER ask for the figure to be removed, rounded away or made vaguer — a line
    vaguer than the truth is the opposite defect and is equally damaging.
 6. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
    CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (honest

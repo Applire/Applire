@@ -16,8 +16,9 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 """#328 follow-up — the quantified role-facts furniture line
-(``team_size`` / ``budget_managed`` / ``industry_context``) must reach the
-rendered CV on EVERY user-selectable template, not just ``lebenslauf.html.j2``
+(``team_size`` / ``budget_managed``; since founder ruling P-1 unlabelled and
+never the ``industry_context``) must reach the rendered CV on EVERY
+user-selectable template, not just ``lebenslauf.html.j2``
 (``classic_german``). A previous pass wired the render into ONE of the seven
 templates in ``_TEMPLATE_FILES`` (``backend/applire/services/cv.py``) and
 passed review; a user who picked any other template silently lost the figure.
@@ -36,6 +37,7 @@ template source) against a real in-memory SQLite DB, mirroring
 and the initial writer call are mocked. Asserts on the RENDERED HTML in both
 German and English.
 """
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -227,32 +229,32 @@ async def _run_render(db, job, profile, cv):
     await db.refresh(cv)
 
 
+_FACTS_RE = re.compile(r'<div class="entry-facts">(.*?)</div>', re.S)
+
+#: Founder ruling P-1 (Hazelnut build 5): numbers only, no labels, no industry.
+_EXPECTED_FACTS = {
+    "de": "38 Personen · ca. 6 Mio. EUR",
+    "en": "38 people · ca. 6 Mio. EUR",
+}
+
+
 def _assert_role_facts_html(html: str, *, lang: str) -> None:
     """Shared assertions, independent of which template produced ``html``."""
     from applire.templates.labels import cv_labels
 
     labels = cv_labels(lang)
+    flat = html.replace("\u00a0", " ")
 
-    # w1 (Nordstahl AG / Werksleiterin) carries all three quantified facts,
-    # rendered as deterministic furniture regardless of the writer's bullet.
-    assert "38" in html, "team_size figure missing from rendered HTML"
-    # #786 NBSP (ADR-066): figure and unit are bound with U+00A0.
-    assert "ca. 6 Mio. EUR" in html.replace("\u00a0", " "), "budget_managed figure missing from rendered HTML"
-    assert "Anlagenbau" in html, "industry_context figure missing from rendered HTML"
-    assert labels["role_team_size"] in html
-    assert labels["role_budget"] in html
-    assert labels["role_industry"] in html
+    # w1 (Nordstahl AG) carries team size, budget AND industry; the ONE fact
+    # line holds the two figures, unlabelled. w2 has none -> no line at all.
+    facts = [f.strip() for f in _FACTS_RE.findall(flat)]
+    assert facts == [_EXPECTED_FACTS[lang]], facts
 
-    # w2 (Beta GmbH / Junior Consultant) has NO quantified facts -- the line
-    # must be suppressed entirely there, not rendered empty/dangling. Scope
-    # the check to the slice of HTML between the two role markers so a
-    # site-wide "Teamgröße" match (present, correctly, for w1) doesn't mask a
-    # regression for w2.
-    beta_idx = html.index("Beta GmbH")
-    tail = html[beta_idx:beta_idx + 600]
-    assert labels["role_team_size"] not in tail
-    assert labels["role_budget"] not in tail
-    assert labels["role_industry"] not in tail
+    # P-1: no template keeps a label or the industry line.
+    for key in ("role_team_size", "role_budget", "role_industry"):
+        assert f"{labels[key]}:" not in flat, f"label {labels[key]!r} still rendered"
+    nordstahl = flat[flat.index("Nordstahl AG"):flat.index("Beta GmbH")]
+    assert "Anlagenbau" not in nordstahl, "industry_context still rendered under the job"
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +305,7 @@ async def test_role_facts_render_on_every_cv_template_en(db, template_name):
     from applire.templates.labels import cv_labels
     de_labels = cv_labels("de")
     assert de_labels["role_team_size"] not in html
-    assert de_labels["role_industry"] not in html
+    assert "Personen" not in html
 
 
 # ---------------------------------------------------------------------------

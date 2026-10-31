@@ -360,3 +360,18 @@ class TestRunAttributionRound:
                 source_material="{}", provider=provider,
             )
             assert isinstance(out, dict) and out["work"]
+
+
+def test_label_of_an_ended_role_without_end_date_never_says_heute():
+    """D-14 ripple (Hazelnut build 5): an extraction that dropped ``end_date``
+    but kept ``is_current: False`` must not be shown to the writer as current."""
+    from applire.services.attribution_round import _label
+
+    ended = {"company": "Muster GmbH", "role": "Testingenieur", "start_date": "2005-03",
+             "end_date": None, "is_current": False}
+    current = {"company": "Muster GmbH", "role": "Testingenieur", "start_date": "2005-03",
+               "end_date": None, "is_current": True}
+    unknown = {"company": "Muster GmbH", "role": "Testingenieur", "start_date": "2005-03"}
+    assert _label(ended, "x") == "Muster GmbH, Testingenieur (2005-03)"
+    assert _label(current, "x") == "Muster GmbH, Testingenieur (2005-03 – heute)"
+    assert _label(unknown, "x") == "Muster GmbH, Testingenieur (2005-03 – heute)"

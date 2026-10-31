@@ -668,6 +668,19 @@ def _mock_removal(prompt: str) -> str:
     return "\n".join(" ".join(line.split()) for line in passage.split("\n") if line.strip())
 
 
+def _mock_delivery_edit(prompt: str) -> str:
+    """Mock of the ADR-099 delivery edit (``DELIVERY_EDIT_SYSTEM_PROMPT``): the
+    SENTENCE, unchanged for MOVE, otherwise without its figure tokens (``<EMPTY>``
+    when nothing is left). Deterministic; adds nothing."""
+    sentence = prompt.rsplit("SENTENCE:\n", 1)[-1].strip()
+    if "TASK:\nMOVE" in prompt:
+        return sentence
+    kept = " ".join(t for t in sentence.split() if not any(ch.isdigit() for ch in t))
+    if not kept or kept == sentence:
+        return "<EMPTY>" if "TASK:\nNARROW" in prompt else sentence.rstrip(".") + " (überarbeitet)"
+    return kept
+
+
 class MockLLMProvider(LLMProvider):
     """Instant, deterministic LLM provider for CI/CD and E2E tests.
 
@@ -708,6 +721,9 @@ class MockLLMProvider(LLMProvider):
             or "you remove numbers from one passage" in system_lower  # E-1 figure variant
         ):
             return _mock_removal(prompt)
+        # ADR-099 cl. 6/9 (WP-B): the one-sentence delivery edit of the review resolvers.
+        if "you edit one sentence of a job-application document" in system_lower:
+            return _mock_delivery_edit(prompt)
         return _INTERVIEW_QUESTION
 
     async def aparse_json(  # type: ignore[override]
@@ -740,6 +756,38 @@ class MockLLMProvider(LLMProvider):
                 c.strip() for c in _re.split(r"(?<=[.!?])\s+", prompt) if c.strip()
             ]
             return {"claims": parts or [prompt.strip()]}
+
+        # ADR-099 cl. 11 (Hazelnut build 5, WP-A1) — the profile hub's four
+        # decision calls (`prompts/profile_decisions.py`). Real shapes, the
+        # cautious answer: the merge proposal repeats bullet 1 (passes the
+        # fact-presence verifier by construction), a typed reply gets the
+        # follow-up, an identity pair is "unsure" (the hub still asks), no
+        # duplicate bullets.
+        if "you combine two cv bullet points" in system_lower:
+            import re as _re
+
+            m = _re.search(r"^Bullet 1: (.*)$", prompt, _re.MULTILINE)
+            return {"merged": m.group(1).strip() if m else None}
+        if "you read a candidate's typed reply" in system_lower:
+            return {"outcome": None, "corrected_value": None,
+                    "follow_up": "Which of the offered options do you mean?"}
+        if "you compare pairs of entries" in system_lower:
+            import re as _re
+
+            ids = _re.findall(r'"pair_id":\s*"([^"]+)"', prompt)
+            return {"verdicts": [{"pair_id": i, "verdict": "unsure"} for i in ids]}
+        if "two entries of one person's cv profile are being merged" in system_lower:
+            return {"pairs": []}
+        # RULING B-1 — the goal/task-wording judge: the cautious answer, nothing
+        # flagged (no hub question on the mock stack unless a test seeds one).
+        if "you read the bullet points of a person's current jobs" in system_lower:
+            return {"items": []}
+        # D-2 — the already-present judge: nothing matched (items stay asked).
+        if "an import of one person's cv did not apply some entries" in system_lower:
+            return {"matches": []}
+        # D-5 — the certificate identity check: no certificate is the same.
+        if "you compare the certificates of one person's profile" in system_lower:
+            return {"matches": []}
 
         # D-B3V6 (ruling V-3 = A) — the import restatement check. The real
         # shape with nothing restated: every new bullet is written, exactly

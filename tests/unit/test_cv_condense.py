@@ -227,3 +227,28 @@ def test_project_with_surviving_bullets_is_kept():
     out, _ = condense_to_budget(data, _budget({"r1": 3}), 1)
     assert out["work_history"][0]["bullets"] == ["Role A"]
     assert out["work_history"][0]["projects"][0]["bullets"] == ["P1", "P2"]
+
+
+# --- D-20 (Hazelnut build 5, round 9): the M-3 floor counts against the budget ---
+
+def test_condense_never_cuts_a_roles_last_own_bullet_while_its_project_survives():
+    """A role keeps at least one bullet of its own, never only its nested project
+    (M-3). The ranking cuts figure-less bullets first, so a figure-less own bullet
+    beside figure-bearing project bullets used to go first and leave the role with
+    only its project — the budget's candidates then named the bullet the floor forbids."""
+    data = _cv([{"id": "r1", "bullets": ["Owned the platform roadmap."],
+                 "projects": [{"name": "P", "bullets": [
+                     "Cut cycle time by 30%.", "Saved 2 FTE per year.", "Raised yield by 4%."]}]}])
+    out, changed = condense_to_budget(data, _budget({"r1": 2}), 1)
+    role = out["work_history"][0]
+    assert changed
+    assert role["bullets"] == ["Owned the platform roadmap."]
+    assert sum(len(p["bullets"]) for p in role["projects"]) == 1
+
+
+def test_condense_may_empty_a_role_that_has_no_project_left():
+    # the floor is about "never only its nested project": with no project bullet
+    # surviving, the plain ceiling applies unchanged
+    data = _cv([{"id": "r1", "bullets": ["a", "b", "c"]}])
+    out, _ = condense_to_budget(data, _budget({"r1": 1}), 1)
+    assert len(out["work_history"][0]["bullets"]) == 1

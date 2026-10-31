@@ -353,10 +353,21 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
         testimony = await submit_testimony(text, db, provider, user_id=owner)
         await reaudit(kind, record, db)
         vault_changed = testimony.status in ("applied", "partial")
+        still = rs.find_listed(findings_of(record), key) is not None
         if vault_changed:
             state = rs.with_decision(rs.load_state(record.review_state), key, finding.label, "added")
             await _save_state(record, state, db)
-        still = rs.find_listed(findings_of(record), key) is not None
+        elif still and testimony.status != "error":
+            # ADR-099 cl. 6 ("Stimmt das?"): the answer changed nothing in the
+            # vault, so the finding stays — the card now offers only
+            # "Entfernen". Persisted so a reload shows the same end state.
+            # U-13 (delivery run 5): `found` = the reconciler recognised the
+            # answer's fact as already in the profile (testimony `no_change`) —
+            # the profile names it in other words; any other outcome (conflict,
+            # parked question, denial) found nothing it could match.
+            state = rs.with_decision(rs.load_state(record.review_state), key, finding.label, "no_change",
+                                     found=testimony.status == "no_change")
+            await _save_state(record, state, db)
     # RULING E-2: the vault changed, so the SIBLING document of the same
     # application is re-audited too — AFTER the pressed document's lock is
     # released (holding both would let a concurrent add-evidence on the sibling
@@ -655,6 +666,10 @@ async def _still_listed(
     the document itself — does the item's SENTENCE still stand and hold the
     wording (adv-review finding 7: another sentence naming the fact is not this
     item)."""
+    if rs.split_key(key)[0] == "send":
+        return _language_check_failed(record)
+    if rs.split_key(key)[0] == "page":
+        return _letter_page_check(record) is not None
     if rs.split_key(key)[0] == "critic":
         from applire.services.review_signals import locate_sentence
 
@@ -757,3 +772,348 @@ async def walked(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uu
         record = await load_document(kind, doc_id, db, user_id=owner)
         await _save_state(record, rs.with_walked(rs.load_state(record.review_state)), db)
         return ActionOutcome(record=record)
+
+
+# ── ADR-099 resolvers (UAT-2 fix round, WP-C) ────────────────────────────────
+#
+# One action per class-A/U row (ADR-099 cl. 2/6/9). The corrector edits are
+# WP-B's ``services/delivery_actions.py`` (model edit of ONE sentence + the full
+# re-audit); this module holds the document lock around them and records the
+# decision with the undo text, exactly like ``take_out``. A finding whose answer
+# did not clear it stays OPEN — every count derives from the live report.
+
+#: The send check "Diese Stellen übersetzen" resolves (ADR-099 cl. 9).
+SEND_LANGUAGE_KEY = "send:document-language"
+
+
+class ResolverUnavailable(Exception):
+    """WP-B's corrector action is not installed yet (stub raises
+    ``NotImplementedError``) → 503; nothing was written."""
+
+
+class ResolverNotApplicable(LookupError):
+    """``delivery_actions.ActionNotApplicable``: the finding / station / span is
+    not (or no longer) there, or there is nothing to change → 409."""
+
+
+class ResolverRewriteFailed(Exception):
+    """``delivery_actions.RewriteFailed``: the model edit did not pass its fact
+    check; nothing was written → 502."""
+
+
+def _delivery_actions():
+    from applire.services import delivery_actions
+
+    return delivery_actions
+
+
+async def _call_delivery(coro_fn, *args, **kwargs):
+    """Run one ``delivery_actions`` call and map its contract errors."""
+    da = _delivery_actions()
+    try:
+        return await coro_fn(*args, **kwargs)
+    except NotImplementedError as exc:
+        raise ResolverUnavailable(f"{coro_fn.__name__} is not installed yet") from exc
+    except da.ActionNotApplicable as exc:
+        raise ResolverNotApplicable(str(exc)) from exc
+    except da.RewriteFailed as exc:
+        raise ResolverRewriteFailed(str(exc)) from exc
+
+
+@dataclass
+class StationsOutcome:
+    stations: list[dict]
+
+
+async def stations(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> StationsOutcome:
+    """The answers of "Wohin gehört das?" (resolver ``ask_station``): the stations
+    that own the evidence the Oracle found (WP-B ``owning_stations``). ``[]`` =
+    the only end state is "Entfernen". Read-only."""
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.stations")
+    record = await load_document(kind, doc_id, db, user_id=owner)
+    _listed_or_raise(record, key)
+    da = _delivery_actions()
+    options = await _call_delivery(da.owning_stations, kind, doc_id, key, db, user_id=owner)
+    return StationsOutcome(stations=[
+        {
+            "station_id": o.station_id,
+            "experience_id": o.experience_id,
+            "title": o.title,
+            "organization": o.organization,
+        }
+        for o in options
+    ])
+
+
+async def _resolve_with_edit(
+    kind: Kind,
+    doc_id: uuid.UUID,
+    key: str,
+    action: str,
+    call,
+    db: AsyncSession,
+    *,
+    owner: uuid.UUID,
+    listed_required: bool = True,
+) -> ActionOutcome:
+    """Shared body of the corrector-backed resolvers: lock → listed check → the
+    WP-B call → decision with the undo sections (only when something changed)."""
+    async with rs.document_lock(kind, doc_id):
+        record = await load_document(kind, doc_id, db, user_id=owner)
+        label = key.partition(":")[2]
+        if listed_required:
+            finding = _listed_or_raise(record, key)
+            label = finding.label
+        result = await call()
+        record = result.record if result.record is not None else record
+        changes = [
+            {"section_id": c["section_id"], "before": c["before"], "after": c["after"]}
+            for c in (result.changes or [])
+        ]
+        if changes:
+            state = rs.with_decision(
+                rs.load_state(record.review_state), key, label, action,
+                undo_sections=[{"section_id": c["section_id"], "before": c["before"]} for c in changes],
+            )
+            await _save_state(record, state, db)
+        return ActionOutcome(record=record, changes=changes, still_listed=bool(result.still_listed))
+
+
+async def move(kind: Kind, doc_id: uuid.UUID, key: str, station_id: str, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """"Wohin gehört das?" → a station: WP-B's ``move_sentence`` (corrector edit of
+    that sentence + re-audit); decision ``moved`` with undo."""
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.move")
+    da = _delivery_actions()
+
+    async def call():
+        return await _call_delivery(
+            da.move_sentence, kind, doc_id, key, station_id, db, provider, user_id=owner,
+        )
+
+    return await _resolve_with_edit(kind, doc_id, key, "moved", call, db, owner=owner)
+
+
+async def as_goal(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """"Ist das erreicht?" → Nein: WP-B's ``narrow_or_remove(mode="as_goal")``;
+    decision ``as_goal`` with undo."""
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.as_goal")
+    da = _delivery_actions()
+
+    async def call():
+        return await _call_delivery(
+            da.narrow_or_remove, kind, doc_id, key, db, provider, mode="as_goal", user_id=owner,
+        )
+
+    return await _resolve_with_edit(kind, doc_id, key, "as_goal", call, db, owner=owner)
+
+
+def _language_check_failed(record) -> bool:
+    for c in ((record.ats_report or {}) if isinstance(record.ats_report, dict) else {}).get("checks") or []:
+        cid = str((c or {}).get("id") or "")
+        if cid.split("#", 1)[0] == "document-language" and c.get("status") == "fail":
+            return True
+    return False
+
+
+async def translate(kind: Kind, doc_id: uuid.UUID, spans: list[str] | None, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """"Diese Stellen übersetzen" (resolver ``translate``, ADR-099 cl. 9): WP-B's
+    ``translate_spans`` rewrites ONLY the sentences the failed
+    ``document-language`` check names, then re-audits; decision under
+    ``send:document-language`` with undo. ``still_listed`` = the check still
+    fails on the new report."""
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.translate")
+    da = _delivery_actions()
+    async with rs.document_lock(kind, doc_id):
+        record = await load_document(kind, doc_id, db, user_id=owner)
+        if not _language_check_failed(record):
+            raise ResolverNotApplicable("the document-language check does not fail on this version")
+        result = await _call_delivery(da.translate_spans, kind, doc_id, db, provider, spans=spans, user_id=owner)
+        record = result.record if result.record is not None else record
+        changes = [
+            {"section_id": c["section_id"], "before": c["before"], "after": c["after"]}
+            for c in (result.changes or [])
+        ]
+        if changes:
+            state = rs.with_decision(
+                rs.load_state(record.review_state), SEND_LANGUAGE_KEY, "document-language", "translated",
+                undo_sections=[{"section_id": c["section_id"], "before": c["before"]} for c in changes],
+            )
+            await _save_state(record, state, db)
+        return ActionOutcome(record=record, changes=changes, still_listed=_language_check_failed(record))
+
+
+async def recheck(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """"Jetzt prüfen" (resolver ``recheck``, ADR-099 cl. 9 / UAT-3h): the full
+    document re-audit on THIS version — no new version, no content change. A
+    producer that still cannot run stays unknown (the surface says so)."""
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.recheck")
+    async with rs.document_lock(kind, doc_id):
+        record = await load_document(kind, doc_id, db, user_id=owner)
+        await reaudit(kind, record, db)
+        return ActionOutcome(record=record)
+
+
+#: ADR-099 cl. 7 (INTERFACE B-2): the decision key of the letter's page-length card.
+PAGE_LENGTH_KEY = "page:page-overflow"
+
+
+def _letter_page_check(record) -> dict | None:
+    """The letter's failing ``page-length`` check (B-2: details_key
+    ``page-length-letter``, params ``{pages, letterPages}``) — the card's data."""
+    report = record.ats_report if isinstance(record.ats_report, dict) else {}
+    for c in report.get("checks") or []:
+        cid = str((c or {}).get("id") or "").split("#", 1)[0]
+        if cid.startswith("page-length") and cid != "page-length-kept" and c.get("status") == "fail":
+            return c
+    return None
+
+
+async def shorten_letter(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """Page card → "Auf {n} Seite kürzen" (resolver ``page_length``, letter):
+    WP-B's ``shorten_letter`` (one corrector call + re-audit); decision
+    ``shortened`` under ``page:page-overflow`` with undo. ``still_listed`` =
+    still over target → the card comes back with the new count."""
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.shorten_letter")
+    da = _delivery_actions()
+    async with rs.document_lock(kind, doc_id):
+        # Ownership first (another user's id is a 404, never a 409), then the kind.
+        record = await load_document(kind, doc_id, db, user_id=owner)
+        if kind != "cover_letter":
+            raise ResolverNotApplicable("the CV's page card decides through /page-overflow")
+        if _letter_page_check(record) is None:
+            raise ResolverNotApplicable("the letter is not over its page target")
+        shorten = getattr(da, "shorten_letter", None)
+        if shorten is None:  # WP-B's action not installed yet
+            raise ResolverUnavailable("delivery action shorten_letter is not available")
+        result = await _call_delivery(shorten, kind, doc_id, db, provider, user_id=owner)
+        record = result.record if result.record is not None else record
+        changes = [
+            {"section_id": c["section_id"], "before": c["before"], "after": c["after"]}
+            for c in (result.changes or [])
+        ]
+        if changes:
+            state = rs.with_decision(
+                rs.load_state(record.review_state), PAGE_LENGTH_KEY, "page-length", "shortened",
+                undo_sections=[{"section_id": c["section_id"], "before": c["before"]} for c in changes],
+            )
+            await _save_state(record, state, db)
+        return ActionOutcome(record=record, changes=changes, still_listed=_letter_page_check(record) is not None)
+
+
+async def keep_length(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """Page card → "{n} Seiten behalten" (letter): decision ``kept`` under
+    ``page:page-overflow``; the re-audit lets WP-B's letter audit decide the
+    row (→ class S), so the card leaves in this request."""
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.keep_length")
+    async with rs.document_lock(kind, doc_id):
+        # Ownership first (another user's id is a 404, never a 409), then the kind.
+        record = await load_document(kind, doc_id, db, user_id=owner)
+        if kind != "cover_letter":
+            raise ResolverNotApplicable("the CV's page card decides through /page-overflow")
+        if _letter_page_check(record) is None:
+            raise ResolverNotApplicable("the letter is not over its page target")
+        state = rs.with_decision(rs.load_state(record.review_state), PAGE_LENGTH_KEY, "page-length", "kept")
+        await _save_state(record, state, db)
+        await reaudit(kind, record, db)
+        return ActionOutcome(record=record, still_listed=_letter_page_check(record) is not None)
+
+
+def removal_fold(text: str, *, user_id: uuid.UUID | None = None) -> str:
+    """The key of one removal-line item: the fold of its removed wording."""
+    return rs.norm_quote(text)
+
+
+def _listed_removal(record, fold: str) -> dict | None:
+    report = record.ats_report if isinstance(record.ats_report, dict) else {}
+    for r in ((report.get("delivery") or {}).get("removals") or []):
+        if isinstance(r, dict) and removal_fold(str(r.get("text") or "")) == fold:
+            return r
+    return None
+
+
+async def removal_evidence(kind: Kind, doc_id: uuid.UUID, removal_text: str, text: str, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    """"Doch, stimmt – wo?" on one item of the removal line (ADR-099 cl. 5 /
+    UAT-3i): testimony through the reconcile door (ADR-061, the same
+    ``submit_testimony`` as ``add_evidence``); the outcome is recorded per item.
+    The document is not changed — the NEXT version may use what the vault now
+    holds."""
+    from applire.services.owner_resolution import resolve_owner
+    from applire.services.profile.reconcile.testimony_bridge import submit_testimony
+
+    owner = resolve_owner(user_id, site="review_actions.removal_evidence")
+    fold = removal_fold(removal_text)
+    if not fold:
+        raise ValueError("removal_text is empty")
+    async with rs.document_lock(kind, doc_id):
+        record = await load_document(kind, doc_id, db, user_id=owner)
+        if _listed_removal(record, fold) is None:
+            raise FindingNotListed(f"no removal {removal_text!r} on the current report")
+        row = _listed_removal(record, fold) or {}
+        testimony = await submit_testimony(text, db, provider, user_id=owner)
+        # D-9: the reconcile judges by meaning ("das steht schon in deinem
+        # Profil"), the removal's producer by the skill's own words. Ask the
+        # PRODUCER again, on the profile as it now stands, so the answer's
+        # outcome is the one the next version will meet — never a dead end.
+        backed = None
+        if str(row.get("kind") or "") == SKILL_REMOVAL_KIND and testimony.status != "error":
+            backed = await skill_backed_now(record, str(row.get("text") or removal_text), db, user_id=owner)
+        state = rs.with_removal_answer(rs.load_state(record.review_state), fold, testimony.status, backed=backed)
+        await _save_state(record, state, db)
+        return ActionOutcome(record=record, testimony=testimony)
+
+
+#: D-9: the removal kind whose producer is the Oracle's skill grounding.
+SKILL_REMOVAL_KIND = "oracle:skillNoEvidence"
+
+
+async def skill_backed_now(record, skill: str, db: AsyncSession, *, user_id: uuid.UUID) -> bool:
+    """Would the Oracle ground ``skill`` on the profile as it stands NOW? The
+    producer's own deterministic arm (``ground_skill_claim`` over the claimable
+    vault + the job's claimable ledger forms, as ``audit.py`` reads them). The
+    cross-language equivalence judgement (ADR-068 Seam A) is a model call and is
+    not re-run here — a miss it would have rescued reads as not backed. Never
+    raises: a failure is "not backed" (the removal stands, the copy says so)."""
+    try:
+        from applire.services.gap import _latest_gap_analysis
+        from applire.services.oracle.audit import _claimable_index
+        from applire.services.oracle.matchers.grounding import ground_skill_claim
+        from applire.services.profile import _get_latest
+
+        profile = await _get_latest(db, user_id)
+        if profile is None or not skill.strip():
+            return False
+        forms = None
+        gap = await _latest_gap_analysis(record.job_analysis_id, db, user_id=user_id)
+        if gap is not None and gap.keyword_ledger:
+            from applire.services.keyword_ledger import claimable_surface_form_groups
+
+            forms = claimable_surface_form_groups(gap.keyword_ledger, exclude_keyword_only=True) or None
+        return ground_skill_claim(skill, _claimable_index(profile.profile_json), forms) is not None
+    except Exception:  # noqa: BLE001
+        logger.exception("removal_evidence: skill re-grounding failed — read as not backed")
+        return False
+
+
+def remove_only(record, key: str, *, user_id: uuid.UUID | None = None) -> bool:
+    """ADR-099 cl. 6: after a "Stimmt das?" answer whose testimony changed
+    nothing (``no_change``) — or changed the vault without clearing it
+    (``added`` while still listed) — the finding offers only "Entfernen": True
+    when the latest decision on ``key`` is one of those and it is listed."""
+    if rs.find_listed(findings_of(record), key) is None:
+        return False
+    d = rs.get_decision(rs.load_state(record.review_state), key)
+    return bool(d and d.get("action") in ("no_change", "added"))

@@ -31,6 +31,13 @@ test.use({
 const CV = `/flow/${FLOW_ID}/cv`;
 const LETTER = `/flow/${FLOW_ID}/cover-letter`;
 
+/** ADR-099 / RULING C-1 (2): the review card has no editor handle — the editor
+ *  is offered after a take-out that left the finding listed. */
+async function openEditorFromCard(page: import('@playwright/test').Page) {
+  await page.getByTestId('review-action-takeout').click();
+  await page.getByTestId('review-action-edit-after').click();
+}
+
 test.describe('#737 — CV Edit tab', () => {
   test('lists sections without gap counts and marks the edited one', async ({ page }) => {
     await stubDocuments(page);
@@ -46,10 +53,10 @@ test.describe('#737 — CV Edit tab', () => {
     await expect(panel(page).getByTestId('write-myself-btn')).toHaveCount(0);
   });
 
-  test('"Ich bearbeite es selbst" lands with the reason, and the save says what the review found', async ({ page }) => {
+  test('the editor after a take-out that left the finding listed lands with the reason, and the save says what the review found', async ({ page }) => {
     const server = await stubDocuments(page);
     await page.goto(CV);
-    await page.getByTestId('review-action-edit').click();
+    await openEditorFromCard(page);
     await expect(panel(page).getByTestId('edit-context-finding')).toContainText('MES-Einführung');
     await expect(panel(page).getByTestId('edit-context-label')).toHaveText('Industrie 4.0');
     const textarea = panel(page).getByTestId('section-textarea');
@@ -68,7 +75,7 @@ test.describe('#737 — CV Edit tab', () => {
   test('a still-flagged place is said as still flagged', async ({ page }) => {
     await stubDocuments(page);
     await page.goto(CV);
-    await page.getByTestId('review-action-edit').click();
+    await openEditorFromCard(page);
     const textarea = panel(page).getByTestId('section-textarea');
     await textarea.fill('- Leitete die MES-Einführung an 14 Spritzgussmaschinen (neu formuliert)');
     await panel(page).getByTestId('section-save').click();
@@ -80,7 +87,7 @@ test.describe('#737 — CV Edit tab', () => {
   test('a re-audit without a report never reads as "nothing open" (ADR-081 cl. 9)', async ({ page }) => {
     await stubDocuments(page, 'de', { editedReportMissing: true });
     await page.goto(CV);
-    await page.getByTestId('review-action-edit').click();
+    await openEditorFromCard(page);
     await panel(page).getByTestId('section-textarea').fill('- Leitete die Einführung eines Maschinendatensystems');
     await panel(page).getByTestId('section-save').click();
     await page.getByRole('button', { name: 'Nur für diesen Lebenslauf' }).click();
@@ -240,21 +247,8 @@ test.describe('#737 — cover letter', () => {
     await page.getByTestId('edit-new-version-confirm').click();
     await expect(page.getByTestId('cover-letter-modal')).toBeVisible();
   });
-
-  test('"In den Lebenslauf übernehmen" lands on the CV Edit tab with the letter-only facts', async ({ page }) => {
-    await stubDocuments(page);
-    await page.goto(LETTER);
-    await page.getByTestId('review-xdoc-add-to-cv').first().click();
-    // Finding 9: an opaque 8-hex handle, never the letter sentence.
-    await expect(page).toHaveURL(/\/cv\?tab=edit&xdoc=[0-9a-f]{8}$/);
-    expect(decodeURIComponent(page.url())).not.toMatch(/kosmetik|sauberraum|audit/i);
-    const strip = panel(page).getByTestId('edit-context-letter');
-    await expect(strip).toBeVisible();
-    await expect(panel(page).getByTestId('edit-context-facts')).toContainText('Kosmetik-Verpackungen');
-    await expect(panel(page).getByTestId('edit-context-facts')).toContainText('ISO-9001-Audit-Praxis');
-    await panel(page).getByTestId('edit-context-back').click();
-    await expect(page).toHaveURL(new RegExp(`${LETTER}$`));
-  });
+  // ADR-099 cl. 8: the cross-document section (and its "In den Lebenslauf
+  // übernehmen" entry) left the review surface; its spec was removed.
 });
 
 // Adversarial finding 11 — an unsaved draft holds back EVERY way off the page,

@@ -76,6 +76,9 @@ from applire.services.profile.severity import (
     classify_reconciliation,
     escalate,
 )
+from applire.services.finding_registry import classify as _classify_kind
+from applire.services.profile.decisions import conflict_shape
+from applire.services.profile.entry_identity import open_pairs
 from applire.utils.budget_unit import budget_needs_unit
 from applire.utils.display import format_display_value
 
@@ -113,13 +116,18 @@ def _conflict_issue(conflict: Conflict, profile: MasterProfileData) -> HealthIss
         # side's provenance is not recoverable here.
         existing_source=None,
         incoming_source=conflict.source,
+        # UAT-3d: the closed outcome list this dispute allows (ADR-099 cl. 11).
+        outcomes=list(
+            conflict_shape(conflict.section, conflict.field, conflict.entity_id)[1]
+        ),
     )
 
 
 #: G-5 / ruling V-5 (c) — confirmation families the Health hub answers with
 #: the ask's own options (each answer is a complete act in the applier's
 #: ``_apply_resolve_confirmation``); every other family goes to the interview.
-_ANSWERED_IN_PLACE = frozenset({"denial_scope"})
+#: D-8 — ``project_parent`` (family 6): the answer writes the project's position.
+_ANSWERED_IN_PLACE = frozenset({"denial_scope", "project_parent"})
 
 
 def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
@@ -212,6 +220,8 @@ def _unit_issues(profile: MasterProfileData) -> list[HealthIssue]:
                 ),
                 field_ref="work_experience.budget_managed",
                 source_record_ref=label,
+                budget_value=str(entry.budget_managed),
+                entry_id=getattr(entry, "id", None),
             )
         )
     return issues
@@ -448,24 +458,38 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
     the vault simply does not carry something the submission did. ``critical``
     is for values the candidate rejected still standing (SF-PROFILE.9's band).
     """
-    if not record.not_applied:
+    # UAT-3d — an adopted item is no longer counted or shown; every item
+    # adopted = the issue is gone. `adoptable` is computed here, never stored.
+    # D-2 — an item judged to be an existing entry is never adoptable (it would
+    # be a duplicate); the asked items lead, and an issue whose items are ALL
+    # already present is built from them as a silent (class S) record.
+    open_items = [
+        i.model_copy(update={
+            "adoptable": bool(i.entry) and i.adopted_at is None and not i.already_present_as
+        })
+        for i in record.not_applied
+        if i.adopted_at is None
+    ]
+    if not open_items:
         return None
+    asked = [i for i in open_items if not i.already_present_as]
+    open_items = asked or open_items
     reasons = sorted(
-        {_NOT_APPLIED_REASON.get(i.reason, i.reason) for i in record.not_applied}
+        {_NOT_APPLIED_REASON.get(i.reason, i.reason) for i in open_items}
     )
-    labels = [_item_label(i) for i in record.not_applied][:3]
+    labels = [_item_label(i) for i in open_items][:3]
     # V-7 — the pieces the reader composes from. `summary` below stays as the
     # English fallback for any consumer that has not been updated.
-    raw_labels = [i.label for i in record.not_applied][:3]
-    raw_reasons = sorted({i.reason for i in record.not_applied})
-    more = len(record.not_applied) - len(labels)
+    raw_labels = [i.label for i in open_items][:3]
+    raw_reasons = sorted({i.reason for i in open_items})
+    more = len(open_items) - len(labels)
     named = ", ".join(labels) + (f" and {more} more" if more > 0 else "")
-    count = len(record.not_applied)
+    count = len(open_items)
     # #705 (founder UAT, 2026-09-15) — the FULL receipt, every item, sorted by
     # section (then label) for a stable grouped render. `raw_labels`/
     # `raw_reasons` above stay capped at three — they keep the V-7 hub
     # sentence working unchanged; this is the overlay's full list.
-    items_detail = sorted(record.not_applied, key=lambda i: (i.section or "", i.label))
+    items_detail = sorted(open_items, key=lambda i: (i.section or "", i.label))
     return HealthIssue(
         id=f"not_applied:{record.id}",
         thread="not_applied",
@@ -476,7 +500,7 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
             f"{'; '.join(reasons)}"
         ),
         field_ref=", ".join(
-            sorted({i.section for i in record.not_applied if i.section})
+            sorted({i.section for i in open_items if i.section})
         )
         or None,
         source_record_ref=record.id,
@@ -486,6 +510,91 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
         not_applied_labels=raw_labels,
         not_applied_items=items_detail,
     )
+
+
+#: D-1 (Hazelnut build 5 delivery run) — the sources of a document IMPORT. The
+#: not_applied question reads the newest record that carries not-applied items
+#: or is such an import, never the bare trail head: every other act (a
+#: conflict answer, a unit, a merge, an adoption, an aspiration answer) writes
+#: a record of its own, and a head rule with an allow-list of "transparent"
+#: acts hid the question twice before this.
+IMPORT_SOURCES = frozenset({"cv_upload", "cv_paste", "linkedin_import", "xing_import"})
+
+
+def _duplicate_entry_issues(profile: MasterProfileData) -> list[HealthIssue]:
+    """UAT-3d — one ``review`` issue per recognised-as-possibly-the-same pair of
+    positions (``entry_identity.open_pairs``: identical stated dates, not kept
+    separate, not judged different by the model). Answered by the pair
+    resolver (``confirm_match``)."""
+    issues: list[HealthIssue] = []
+    for section, id_a, id_b in open_pairs(profile):
+        by_id = {
+            getattr(e, "id", None): e for e in (getattr(profile, section, None) or [])
+        }
+        a, b = by_id.get(id_a), by_id.get(id_b)
+        if a is None or b is None:
+            continue
+        label_a, label_b = _entity_label(a), _entity_label(b)
+        issues.append(
+            HealthIssue(
+                id=f"duplicate_entry:{section}:{id_a}:{id_b}",
+                thread="duplicate_entry",
+                profile_mismatch_severity="review",
+                summary=(
+                    f"{label_a or id_a} and {label_b or id_b} state the same dates "
+                    f"— are they the same entry?"
+                ),
+                field_ref=f"{section}",
+                section=section,
+                entry_ids=[id_a, id_b],
+                entity_label=label_a,
+                other_entity_label=label_b,
+            )
+        )
+    return issues
+
+
+def _aspiration_issues(profile: MasterProfileData) -> list[HealthIssue]:
+    """RULING B-1 — one ``review`` issue per current-role or current-project
+    bullet (``section`` names which) the model judged
+    as worded like a goal or a task still to do, unanswered
+    (``aspiration.open_aspirations``). Answered by ``ask_achieved``."""
+    from applire.services.profile.aspiration import issue_id, open_aspirations
+
+    return [
+        HealthIssue(
+            id=issue_id(entry.id, key),
+            thread="aspiration",
+            profile_mismatch_severity="review",
+            summary=f"Is this reached? '{text}' ({_entity_label(entry) or entry.id})",
+            field_ref=section,
+            section=section,
+            entry_id=entry.id,
+            entity_label=_entity_label(entry),
+            aspiration_text=text,
+        )
+        for section, entry, key, text in open_aspirations(profile)
+    ]
+
+
+def _registry_kind(issue: HealthIssue) -> str:
+    """The ``health:<kind>`` registry key of one issue (ADR-099)."""
+    thread = issue.thread
+    if thread == "conflict":
+        # `conflict_shape` is the one decider; "merge" is only in the list shape.
+        return "health:conflict_list" if "merge" in (issue.outcomes or []) else "health:conflict_scalar"
+    if thread == "not_applied":
+        if all(i.already_present_as for i in (issue.not_applied_items or [])):
+            return "health:not_applied_already_present"  # D-2
+        adoptable = any(i.adoptable for i in (issue.not_applied_items or []))
+        return "health:not_applied" if adoptable else "health:not_applied_unadoptable"
+    return f"health:{thread}"
+
+
+def _classified(issue: HealthIssue) -> HealthIssue:
+    """The ONE place a health issue gets its delivery class and resolver."""
+    entry = _classify_kind(_registry_kind(issue))
+    return issue.model_copy(update={"delivery_class": entry.cls, "resolver": entry.resolver})
 
 
 def assess_health(
@@ -503,6 +612,8 @@ def assess_health(
     issues: list[HealthIssue] = _unit_issues(profile)
     issues.extend(_span_provenance_issues(profile))
     issues.extend(_suspect_binding_issues(profile))  # FS-5
+    issues.extend(_duplicate_entry_issues(profile))  # UAT-3d
+    issues.extend(_aspiration_issues(profile))  # RULING B-1
 
     metadata = profile.metadata
     if metadata is not None:
@@ -511,10 +622,13 @@ def assess_health(
             for c in metadata.pending_conflicts
             if not c.resolved
         )
+        from applire.services.profile.reconcile.project_parent import parked_ask_is_redundant
+
         issues.extend(
             _confirmation_issue(c)
             for c in metadata.pending_confirmations
-            if not c.resolved
+            # D-16 — a project-parent ask whose project is attached is silent.
+            if not c.resolved and not parked_ask_is_redundant(c.context, profile)
         )
         for record in metadata.enrichment_history:
             issue = _accuracy_issue(record)
@@ -527,8 +641,20 @@ def assess_health(
         # residual is stated rather than hidden: a loss older than the newest
         # record is NOT surfaced here, and the durable receipt — plus the
         # WARNING each drop logs — remains the record of it.
-        if metadata.enrichment_history:
-            head = _not_applied_issue(metadata.enrichment_history[-1])
+        # D-1 — the head is the newest record that CARRIES not-applied items
+        # (an import, a statement intake, a confirmation resolution) or is a
+        # document import: a later import that applied everything still
+        # clears the question (V-6), while an act that carries no receipt (a
+        # conflict answer, a unit, a merge, an adoption) never hides it.
+        head_record = next(
+            (
+                r for r in reversed(metadata.enrichment_history)
+                if r.not_applied or r.source in IMPORT_SOURCES
+            ),
+            None,
+        )
+        if head_record is not None:
+            head = _not_applied_issue(head_record)
             if head is not None:
                 issues.append(head)
 
@@ -536,11 +662,17 @@ def assess_health(
     if na_fields:
         profile_dict["_meta"] = {"na_fields": na_fields}
 
+    field_gaps = completeness_field_gaps(profile_dict)
+    completeness_entry = _classify_kind(
+        "health:completeness" if field_gaps else "health:completeness_no_field_gaps"
+    )
     return ProfileHealthResponse(
-        issues=issues,
+        issues=[_classified(i) for i in issues],
         completeness=CompletenessBlock(
             score=profile.calculate_completeness(),
             gaps=profile.completeness_gaps(),
-            field_gaps=completeness_field_gaps(profile_dict),
+            field_gaps=field_gaps,
+            delivery_class=completeness_entry.cls,
+            resolver=completeness_entry.resolver,
         ),
     )

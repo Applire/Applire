@@ -35,6 +35,7 @@ Env vars consumed (see applire/config.py):
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 
@@ -67,6 +68,21 @@ _X_TITLE = "Applire"
 # reasoning_effort we retry once without it, flooring the budget so the now
 # unavoidable reasoning tokens don't crowd out a short answer (→ truncation).
 _REASONING_FALLBACK_MIN_TOKENS = 4096
+
+def _is_reasoning_rejection(exc: Exception) -> bool:
+    """True when a 400 refuses the reasoning parameter itself.
+
+    OpenAI's content-policy 400 links ``…/guides/reasoning#advice-on-prompting``;
+    a bare ``"reasoning" in message`` read that link as a refusal and latched
+    reasoning ON for the model for the rest of the process (Hazelnut build-5
+    delivery run: 149k reasoning tokens with thinking off). URLs are ignored and a
+    policy flag is never a reasoning refusal.
+    """
+    text = re.sub(r"https?://\S+", "", str(exc)).lower()
+    if "usage policy" in text or "flagged" in text:
+        return False
+    return "reasoning" in text
+
 
 def _with_effort(extra_body: dict | None, effort: str | None) -> dict | None:
     """`extra_body` with its reasoning_effort replaced by `effort`, or removed."""
@@ -377,7 +393,7 @@ class RequestyProvider(LLMProvider):
             # co-occurs with reasoning_effort must not permanently disable
             # reasoning control for this model. The one-shot stripped retry
             # below still runs either way (harmless if the real cause persists).
-            about_reasoning = "reasoning" in str(exc).lower()
+            about_reasoning = _is_reasoning_rejection(exc)
             if about_reasoning:
                 self._refuse_effort(sent)
             fallback = self._effort_after_refusal(sent) if about_reasoning else None
@@ -394,7 +410,7 @@ class RequestyProvider(LLMProvider):
                         max_tokens=floor, extra_body=_with_effort(extra_body, fallback), **kwargs
                     )
                 except openai.BadRequestError as exc2:
-                    if "reasoning" in str(exc2).lower():
+                    if _is_reasoning_rejection(exc2):
                         self._refuse_effort(fallback)
             return await self._client.chat.completions.create(
                 max_tokens=floor, extra_body=_with_effort(extra_body, None), **kwargs

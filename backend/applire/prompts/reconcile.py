@@ -341,6 +341,79 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   Residuals (prompt silent, collector): a denial of the wrapper word ("regulated
   environments"), an anaphor denial ("the model itself"). Records:
   ``Documents/Runs/Hazelnut/build-4/v/``.
+* **26,678 (Hazelnut build 5 WP-A1, 2026-10-28, U-1 / SF-PROFILE.21).** Rule 13's
+  two closing limits become THE TEST BEFORE EVERY BULLET CONFLICT ("name the ONE
+  thing both bullets are about and the two different VALUES they give it") with
+  three held-out not-a-conflict shapes: (a) a rewording that adds or leaves out
+  a detail, (b) two different pieces of work that share words, (c) a target
+  beside a result (+643 chars). Why: a founder's second-CV import parked
+  ``flag_conflict`` on two DIFFERENT achievements that shared a phrase, and the
+  old limits ("a genuinely DIFFERENT achievement is not a conflict either") were
+  present and violated — the model read "same entry, same list" as "same fact".
+  *Measured* (``openai/gpt-6-luna``, Requesty, thinking OFF, temperature 0.1, the
+  founder's persisted 10-25 reconcile input replayed verbatim; synthetic shapes
+  in ``tests/files/reconcile_list_conflict/shape_u1.json``): persisted input —
+  runs with a spurious bullet conflict 6/6 → 0/5 (10 → 0 conflicts; one more
+  run was a provider parse error, excluded), the incoming different-fact
+  achievement written as ``add_bullets`` 3/6 → 5/5; large synthetic shape 4/5
+  → 0/5 (10 → 0); controls — a same-fact changed-figure pair on an import
+  (shape ``control``) still ``flag_conflict`` 5/5 → 6/6, model-matrix S9
+  (interview answer, changed figure) 5/5 → 6/6. Known side effect: a rewording
+  that adds a detail is now written as a bullet where it was a conflict (5/5
+  on one founder bullet); the import's restatement check and the
+  NOT-A-SECOND-TIME rule own that shape. Records: scratch only (founder data).
+* **27,306 (Hazelnut build 5 WP-A1, 2026-10-28, D-4b).** Rule 9 gains A WORD
+  THAT IS SOMEONE ELSE'S NAME IS NOT DENIED (+628 chars): a reply saying a term
+  names the employer's team, department, product or programme, or a phrase of
+  the posting, and that the person does not claim it about themselves, denies
+  nothing; only "I have not done / used / known X" denies X. Why: a review
+  card's "Stimmt das?" answered with "that is the name of their team from the
+  posting, I don't claim it about myself" went through the testimony door and
+  was persisted as a denial of the team's name — which then blocks the word
+  in every later document (B). *Measured* (``openai/gpt-6-luna``, Requesty,
+  thinking OFF, temperature 0.1, the delivery run's persisted reconcile input
+  replayed verbatim, held-out answers swapped in): captured reply denial 4/5 →
+  0/5; held-out "…Name der Abteilung aus der Ausschreibung – das behaupte ich
+  nicht über mich" 5/5 → 0/5; held-out "nur der Name des Bereichs beim Kunden"
+  0/5 → 0/5; controls — a mixed reply (team name + "mit Backstage nie
+  gearbeitet") denies Backstage only 3/3 → 3/3; the run's two captured
+  interview denials kept 3/3 and 6/8 (base 3/5 — that answer ends "…, die ich
+  belegen kann"); a plain "mit <the same term> keine Erfahrung" still denied
+  3/3. Records: scratch only (delivery data).
+* **27,484 (Hazelnut build 5 WP-A1, 2026-10-28, U-1r, ruling A1-U1r).** No new
+  rule text: the ``flag_conflict`` op shape gains ``"values"`` (+178 chars, the
+  vocabulary line and rule 13's template), the two values rule 13's test
+  already names, each copied from its own bullet. The engine checks only that
+  declaration (``reconcile/conflict_values.py``): a bullet conflict whose values
+  are missing, equal, or absent from their own bullets is not raised, and its
+  incoming bullet goes the ``add_bullets`` way (on an import, through the
+  restatement check). Why: the delivery re-run parked a conflict between two
+  DIFFERENT duties of one role, and two prompt wordings (new shapes (d)/(e);
+  a value definition in THE TEST) did not converge. Replay base (27,306)
+  noise: founder 10-25 input 0/5 at 26,678, then 1/4 without and 2/3 with the
+  D-4b paragraph. *Measured* (``openai/gpt-6-luna``, Requesty, thinking OFF,
+  temperature 0.1, persisted inputs verbatim) — delivery rep-b record:
+  spurious bullet conflicts 6 in 9 runs (3/9 runs) → 1 in 5 (1/5); founder
+  10-25 input: 4 in 3 runs (2/3) → 2 in 5 (2/5); the real changed-target pair
+  (two different target figures, each in its own bullet) kept every time it
+  was raised, 4/9 → 3/5; controls (shape ``control``, model-matrix S9) still
+  ``flag_conflict`` 4/4 each. In these runs the code check itself fired 0
+  times: every raised conflict declared checkable values; the gain came from
+  the declaration. Rejected wordings: (d)/(e) shapes (+691) — rep b 6-in-9 →
+  1-in-6 but founder input 4-in-3 → 10-in-3; value definition in THE TEST (+213) —
+  rep b 3/5 runs, founder input 3/4 runs. Records: scratch only.
+* **27,802 (Hazelnut build 5 WP-A1, 2026-10-29, D-17 residue (a)).** add_bullets
+  gains "A TARGET IS NOT AN ACHIEVEMENT" (+318 chars): a goal, target or plan the
+  answer says is not reached yet never goes in achievements. If the target already
+  holds it, in any list including not_yet_reached, it is already there; otherwise
+  it goes in responsibilities, worded as the aim. Why: delivery run 4, rep b. The
+  answer "the 70 % are a target, not reached yet" was written as an ACHIEVEMENT
+  next to the held target line, and it reached the CV as a defensive line.
+  *Measured* (``openai/gpt-6-luna``, thinking OFF, persisted interview turn
+  verbatim): target written as an achievement 3/5 → 0/6 (2/6 now a
+  responsibility "Targets a 70% reduction …", which the restatement check holds
+  back 4/4). Control: the same turn plus a REACHED figure ("cut the effort by
+  35 %, measured over 40 documents") is still an achievement 4/4.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -430,6 +503,10 @@ Operations:
   the invoice-dunning workflow with retry schedules and email reminders"; the
   answer says "As I said, I built the dunning flow, the retries and the
   reminder emails" — already there, not one bullet and not two.
+  A TARGET IS NOT AN ACHIEVEMENT: a goal, target or plan the answer says is not
+  reached yet never goes in achievements. When the target already holds it, in
+  any list including not_yet_reached, it is already there. Otherwise it goes in
+  responsibilities, worded as the aim ("Targets a 30% shorter release cycle").
   A bullet is a CV line, not a quote: no "I", "my" or "we", and an entry with
   an end_date takes the past tense ("Led the release train", never "I lead the
   release train").
@@ -512,7 +589,8 @@ Operations:
       already-populated value.
     * a BULLET: set "field" to the bullet list's own name ("responsibilities"
       or "achievements") and put the two contradicting bullets — verbatim and
-      in full — in "existing" and "incoming". See rule 13.
+      in full — in "existing" and "incoming", and in "values" the two values
+      rule 13's test names, each copied from its own bullet. See rule 13.
   Copy both sides verbatim; the user is shown them side by side and picks one.
 
 - match_existing — the new information names an entity the profile ALREADY holds
@@ -687,6 +765,15 @@ Operations:
    what the same sentence affirms. "Außer der Hydraulikwartung bei A habe ich
    keine Erfahrung in der Fluidtechnik" → "denials": ["Fluidtechnik außer
    Hydraulikwartung"], never ["Fluidtechnik"]; record X as the fact it is.
+   A WORD THAT IS SOMEONE ELSE'S NAME IS NOT DENIED. An answer saying that a
+   term names something that is not the person's own — the employer's team,
+   department, product or programme, or a phrase from the job posting — and
+   that they do not claim it about themselves ("'Platform Excellence' heißt
+   dort die Abteilung, das behaupte ich nicht von mir", "that is the client's
+   product name, not a skill of mine") says where the word comes from, not that
+   they lack an item: put nothing in "denials" for it. Only a statement that
+   they have not done, used or known X ("mit X habe ich nicht gearbeitet")
+   denies X.
 
 10. CERTIFICATIONS. Every certification, licence or named qualification in the NEW
     INFORMATION (a `certifications` entry, or an item the source lists under a
@@ -746,14 +833,24 @@ Operations:
       {"op": "flag_conflict", "target": <the entity's id>,
        "field": "responsibilities" | "achievements",
        "existing": <the existing bullet, verbatim>,
-       "incoming": <the new bullet, verbatim>}
+       "incoming": <the new bullet, verbatim>,
+       "values": [<the value in the existing bullet>, <the value in the new bullet>]}
     and do NOT also emit add_bullets for that bullet — the conflict itself
-    carries the new wording, and the user decides which one stands. Two limits:
-    a pure REWORDING that changes no claim (a translation, a synonym, a
-    tightening) is NOT a conflict — stay silent; and a bullet describing a
-    genuinely DIFFERENT achievement is not a conflict either — that is an
-    ordinary add_bullets. Never settle such a contradiction yourself by quietly
-    dropping one of the two versions.
+    carries the new wording, and the user decides which one stands.
+    Never settle such a contradiction yourself by quietly dropping one of the two versions.
+    THE TEST BEFORE EVERY BULLET CONFLICT: name the ONE thing both bullets are
+    about and the two different VALUES they give it. If you cannot, it is not a
+    conflict. Not conflicts, whatever entry or list position they share:
+    (a) a REWORDING — a translation, a synonym, a tightening, or a detail added
+    or left out without contradicting a value ("Rolled out the ticketing system
+    to 5 depots in 4 months" / "Rolled out the ticketing system (4 months, 5
+    depots), the fastest rollout to date") → silence, or add_bullets for a
+    genuinely new detail only;
+    (b) two DIFFERENT pieces of work that share words ("Introduced a supplier
+    scorecard for vendor selection" / "Merged 12 reporting tools into one
+    lakehouse, streamlining vendor selection") → add_bullets;
+    (c) a target and a result ("Aims to cut returns by 25%" / "The pilot cut
+    returns by 18%") → add_bullets.
 """
 
 

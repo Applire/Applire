@@ -21,92 +21,100 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import {
   ArrowLeft,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CornerDownRight,
   Loader2,
-  Pencil,
   Plus,
-  Search,
+  RefreshCw,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
-import { localizedMessage } from "@/components/cv/CriticAdvisoryPanel";
 import type { GapHintItem } from "@/components/cv/ContentTab";
 import type { OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
-import { baseId, usesLocalizedDetail, type ATSCheck, type ATSReport } from "@/lib/ats-report";
+import { baseId, usesLocalizedDetail, type ATSCheck, type ATSReport, type DeliveryRemoval } from "@/lib/ats-report";
 import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
-  buildCrossDocument,
-  buildGroup1Rows,
-  countedOpenRows,
-  buildFormInputRows,
+  buildDeliveryView,
   buildReviewGroups,
-  buildSendChecks,
-  decisionCount,
-  groupDecisionCount,
-  verdictState,
-  type FormInputRow,
+  removeOnly,
+  noChangeExit,
+  noChangeFound,
+  unknownState,
   type Group1Row,
-  type ReviewGroup,
+  type UnknownState,
   type ReviewItem,
   type ReviewProducer,
+  type UnknownRow,
 } from "@/lib/review-groups";
 import {
   addEvidence,
   confirmSupported,
+  keepLetterLength,
+  listStations,
   markWalked,
-  refreshedReport,
+  moveToStation,
+  PAGE_LENGTH_KEY,
+  recheckDocument,
+  removalEvidence,
   ReviewActionError,
+  rewriteAsGoal,
+  SEND_LANGUAGE_KEY,
+  shortenLetter,
   takeOut,
+  translateSpans,
   undoDecision,
   type ReviewDocumentKind,
   type ReviewRefresh,
   type ReviewState,
   type SectionChange,
+  type StationOption,
   type TestimonyOutcome,
 } from "@/lib/api/document-review";
 import { countInText, type LocateTarget, type PreviewLocator } from "@/lib/locate-in-preview";
+import { normQuote } from "@/lib/norm-quote";
 import { changedPassages } from "@/lib/passage-diff";
-import { CrossDocumentSection } from "@/components/review/CrossDocumentSection";
 import { ReviewDegradationNote } from "./ReviewDegradationNote";
-import { TerminalReviewDetail, hasTerminalReviewCard } from "./TerminalReviewDetail";
 import { oracleDetailText, type OracleDetailTranslator } from "@/lib/oracle-detail";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 
 /**
- * The document review surface (arc42 §5.3.29, ADR-081 as amended by ADR-090).
+ * The document review surface (arc42 §5.3.29, ADR-081 / ADR-090 as amended by
+ * ADR-099 — "fix it, ask once, or stay silent"; mock approved RULING C-1).
  *
- * ONE layout (ADR-090 cl. 1 — the overview/guided pair is gone): the verdict,
- * group 1 as a list of DECISIONS with the current one open as a card carrying
- * four handles (*Show me where*, *It's true, add it to my profile*, *Take it
- * out for me*, *Let me edit it*), and groups 2–4 beneath as one row each.
+ * Every row renders by the delivery class and resolver READ from its producer's
+ * row (`buildDeliveryView`): class A = ONE question with the answers that settle
+ * it, class U = "Nicht geprüft" with "Jetzt prüfen" / "Neue Fassung erstellen",
+ * F and S silent, an unclassified row as today's fallback (never hidden).
  *
  * Invariants, each gated by its own test:
  *
- * - **ADR-081 cl. 4 as amended by ADR-090 cl. 6** — the verdict sentence and the
- *   tab badge count the OPEN group-1 rows actually rendered; *n* in
- *   "k of n decided" is open + decided. A decision never hides a finding the
- *   live report still lists (`buildGroup1Rows`, SF-REVIEW.9).
- * - **ADR-081 cl. 6** — every non-zero group's count is on screen without
- *   interaction; a group collapses to a single line only at count zero.
- * - **ADR-081 cl. 9** — a producer that did not run renders as *unknown*, never
- *   0; for group 1 the note stands above the list and the verdict, and no
- *   progress figure reads as complete.
- *
- * Group 2 still offers no action (ADR-081 cl. 3 — ADR-090 amends it for group 1
- * only, in the removal direction).
+ * - **ADR-099 cl. 3** — the headline and the phone badge count the class A and
+ *   U rows of the rendered view (`view.count` — the same number the page uses).
+ * - **cl. 5** — removals: ONE collapsed, uncounted line; a pinned removal opens it.
+ * - **cl. 6** — group 1: one question per kind; "Stimmt" without a vault change
+ *   never closes a row (the card then offers only "Entfernen").
+ * - **cl. 7/8** — no group 2, no cross-document section, no craft rows; group 4
+ *   is one passed line. **cl. 12** — no server `details` prose.
  */
 
-const GROUP_TITLE_KEY: Record<1 | 2 | 3 | 4, string> = {
-  1: "group1Title",
-  2: "group2Title",
-  3: "group3Title",
-  4: "group4Title",
-};
+/** ADV-10: the U row's words follow what the producer wrote (`unknownState`). */
+const UNKNOWN_TITLE_KEY = {
+  notRun: "delivery.unknownTitle",
+  unfinished: "delivery.unknownTitleUnfinished",
+  earlierDraft: "delivery.unknownTitleEarlierDraft",
+  foundNotFixed: "delivery.unknownTitleFoundNotFixed",
+} as const;
+const UNKNOWN_BODY_KEY: Record<Exclude<UnknownState, "notRun">, string> = {
+  unfinished: "delivery.unknownBodyUnfinished",
+  earlierDraft: "delivery.unknownBodyEarlierDraft",
+  foundNotFixed: "delivery.unknownBodyFoundNotFixed",
+} as const;
 
 const PRODUCER_LABEL_KEY: Record<ReviewProducer, string> = {
   ats: "producerAts",
@@ -115,40 +123,23 @@ const PRODUCER_LABEL_KEY: Record<ReviewProducer, string> = {
   clusters: "producerClusters",
 };
 
-const KIND_LABEL_KEY: Record<Exclude<ReviewItem["kind"], "signal">, string> = {
-  term: "kindTerm",
-  cluster: "kindCluster",
-  claim: "kindClaim",
-  check: "kindCheck",
-  advisory: "kindAdvisory",
-};
-
-/** Handle-grid columns by handle count (Tailwind needs the literal class names). */
-const GRID_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3" };
-
-const SEVERITY_DOT: Record<ReviewItem["severity"], string> = {
-  critical: "bg-critical",
-  warning: "bg-warning",
-  info: "bg-primary",
-  neutral: "bg-outline-variant",
-};
-
-/**
- * Ruling B-1 (founder, 2026-09-23): a finding whose EVERY matched form hit only
- * through the token-stem fallback cannot be taken out by the removal rewrite
- * (the document holds no literal form to remove), so the card does not offer
- * it. The backend refuses it too (409 `take_out_unavailable_stem_only`).
- */
-export function isStemOnly(targets: LocateTarget[] | null | undefined): boolean {
-  return Boolean(targets && targets.length > 0 && targets.every((t) => t.stem === true));
-}
-
-const STATUS_KEY: Record<"added" | "taken_out" | "edited" | "supported", string> = {
+/** The decided-row labels (the finding left the report). */
+const STATUS_KEY: Record<string, string> = {
   added: "statusAdded",
   supported: "statusSupported",
   taken_out: "statusTakenOut",
   edited: "statusEdited",
+  moved: "delivery.statusMoved",
+  as_goal: "delivery.statusAsGoal",
 };
+
+/**
+ * Ruling B-1 (founder, 2026-09-23): a finding whose EVERY matched form hit only
+ * through the token-stem fallback cannot be taken out by the removal rewrite.
+ */
+export function isStemOnly(targets: LocateTarget[] | null | undefined): boolean {
+  return Boolean(targets && targets.length > 0 && targets.every((t) => t.stem === true));
+}
 
 /** Opening a finding in the section editor (ADR-090 cl. 5). */
 export interface EditFindingRequest {
@@ -157,6 +148,17 @@ export interface EditFindingRequest {
   targets: LocateTarget[] | null;
   /** 0-based place the user was looking at (0 when not located). */
   placeIndex: number;
+}
+
+/**
+ * A counted (or uncounted) card the PAGE renders into the review list — the
+ * CV's page-length card, the letter's unasked requirements and signature card
+ * (ADR-099 cl. 7/9). `counted` enters the headline (cl. 3).
+ */
+export interface ReviewExtraCard {
+  key: string;
+  counted: boolean;
+  node: ReactNode;
 }
 
 export interface ReviewSurfaceProps {
@@ -168,77 +170,50 @@ export interface ReviewSurfaceProps {
   criticReport: OutcomeCriticReport;
   /** `null` = never loaded → group 3's cluster half is *unknown*, not zero. */
   gapClusters: GapHintItem[] | null;
-  /**
-   * `false` on the cover letter: §5.3.26's clusters are computed against the
-   * CV, so the producer does not apply and is removed from groups 2 and 3.
-   */
+  /** `false` on the cover letter: §5.3.26's clusters are computed against the CV. */
   hasClusterProducer?: boolean;
-  /**
-   * R2-10 (F1-2, lead G hunk): the job's open requirements by name — group 3's
-   * population and count, the gaps page's number. `undefined` = not supplied
-   * (legacy grouping); `null` = the gap row did not load (*unknown*).
-   */
+  /** R2-10: the job's open requirements by name — group 3's population and count. */
   openRequirements?: string[] | null;
   /** ADR-090 cl. 6 — the persisted per-document decisions. `null` = none. */
   reviewState?: ReviewState | null;
-  /**
-   * #702 (RULING R-2): where *In den Lebenslauf übernehmen* on a cross-document
-   * card goes — the CV's Edit tab. Absent → that action is not offered.
-   */
-  cvEditHref?: string | null;
-  /**
-   * A review action answered with refreshed reports and state (the server
-   * awaited the re-audit). `documentChanged` = the document text changed (take
-   * out / undo), so the page reloads the preview.
-   */
+  /** A review action answered with refreshed reports and state (the server awaited the re-audit). */
   onRefresh?: (refresh: ReviewRefresh, opts: { documentChanged: boolean }) => void;
   /** The preview's locate handle (ADR-090 cl. 2). `null` = no preview to search. */
   locator?: PreviewLocator | null;
   /** Bumps whenever the preview document (re)loads — marks do not survive a reload. */
   previewVersion?: number;
-  /** `sheet` = the phone's review sheet (ADR-050): *Show me where* switches to the locate view. */
+  /** `sheet` = the phone's review sheet (ADR-050). */
   layout?: "panel" | "sheet";
   /** Phone only — the locate view opened (true) or closed (false). */
   onLocateModeChange?: (active: boolean) => void;
-  /** ADR-090 cl. 5 — open the Edit tab on the section holding the place. */
+  /** ADR-090 cl. 5 — open the Edit tab on the section holding the place (after a take-out that left it listed). */
   onEditFinding?: (request: EditFindingRequest) => void;
-  /** Display label for a section id in the take-out result. */
+  /** Display label for a section id in the action result. */
   sectionLabel?: (sectionId: string) => string;
   /** Group 3's row: the gap view of this application. */
   gapAnalysisHref?: string | null;
-  /** Existing handler for a gap cluster (routes to the editor or to /profile). */
-  onResolveCluster?: (gapId: string) => void;
-  /** #667 — a claimable gap cluster in group 2 lands in the section editor. */
-  onEditGapSection?: (gapId: string) => void;
-  /**
-   * 789:26 (founder 2026-10-22, build 4) — group 2's "pin the fact behind it"
-   * handle opens the page's pin panel. GROUP-level navigation, nothing
-   * pre-filled: no finding row links a pin as its remedy (ADR-081 cl. 3).
-   */
-  onOpenPins?: () => void;
-  /** Not one of the four producers — rendered after the groups (the letter's unasked-requirements panel). */
+  /** The page's own cards in the review list (page length, unasked requirements, signature). */
+  extraCards?: ReviewExtraCard[];
+  /** Rendered after the review list. */
   children?: ReactNode;
-  /**
-   * ADR-081 cl. 9 amended 2026-10-22 (#786, T-2): the writing loop's review
-   * steps that did not run (`review_degradation` from the status door).
-   * `null` = not recorded; a non-empty list renders a note above the verdict.
-   */
+  /** ADR-081 cl. 9 (T-2): the writing loop's review steps that did not run. */
   degradation?: DegradedReviewStep[] | null;
-  /** T-2: the existing regenerate path (behind the page's new-version confirmation). */
+  /** The existing regenerate path (behind the page's new-version confirmation). */
   onRegenerate?: () => void;
-  /**
-   * R2-8 (8), build 4: the page's report fetches have not all settled yet. A
-   * `null` report means "did not run" (ADR-081 cl. 9) only once it has LOADED;
-   * before that, the surface says it is loading — no verdict, no count and no
-   * "Nicht geprüft" notice (the 1–3 s false flash, marcus-057).
-   */
+  /** R2-8 (8): the page's report fetches have not all settled yet. */
   loading?: boolean;
+  // Accepted for call-site compatibility; ADR-099 removed what used them.
+  cvEditHref?: string | null;
+  onResolveCluster?: (gapId: string) => void;
+  onEditGapSection?: (gapId: string) => void;
+  onOpenPins?: () => void;
 }
 
-type Busy = "add" | "takeout" | "undo" | null;
+type Busy = "answer" | "remove" | "move" | "goal" | "undo" | "translate" | "recheck" | "page" | null;
 
-interface TakeOutResult {
-  findingKey: string;
+interface EditResult {
+  key: string;
+  action: "taken_out" | "moved" | "as_goal" | "translated" | "shortened";
   changes: SectionChange[];
   stillListed: boolean;
   places: number;
@@ -261,7 +236,6 @@ export function ReviewSurface({
   hasClusterProducer = true,
   openRequirements,
   reviewState = null,
-  cvEditHref = null,
   onRefresh,
   locator = null,
   previewVersion = 0,
@@ -270,9 +244,7 @@ export function ReviewSurface({
   onEditFinding,
   sectionLabel,
   gapAnalysisHref = null,
-  onResolveCluster,
-  onEditGapSection,
-  onOpenPins,
+  extraCards = [],
   children,
   degradation = null,
   onRegenerate,
@@ -280,28 +252,39 @@ export function ReviewSurface({
 }: ReviewSurfaceProps) {
   const t = useTranslations("documentReview");
   const tAts = useTranslations("ats");
+  const tCv = useTranslations("cv");
   const tProfile = useTranslations("profile");
   const tErrors = useTranslations("errors");
   const tOracle = useTranslations("oracleDetail");
-  const locale = useLocale();
+  const isLetter = documentKind === "cover-letter";
 
-  const groups = useMemo(
+  const extraCounted = extraCards.filter((c) => c.counted).length;
+  const view = useMemo(
     () =>
-      buildReviewGroups({
+      buildDeliveryView({
         atsReport,
         truthReport,
         criticReport,
         gapClusters,
         hasClusterProducer,
         openRequirements,
+        reviewState,
+        degradation,
+        extraCounted,
+        pageCardFromPage: !isLetter,
       }),
+    [atsReport, truthReport, criticReport, gapClusters, hasClusterProducer, openRequirements, reviewState, degradation, extraCounted, isLetter],
+  );
+  const group3 = useMemo(
+    () =>
+      buildReviewGroups({ atsReport, truthReport, criticReport, gapClusters, hasClusterProducer, openRequirements }).find(
+        (g) => g.id === 3,
+      )!,
     [atsReport, truthReport, criticReport, gapClusters, hasClusterProducer, openRequirements],
   );
-  const group1 = groups.find((g) => g.id === 1)!;
-  const rows = useMemo(() => buildGroup1Rows(group1.items, reviewState), [group1.items, reviewState]);
-  const formInputRows = useMemo(() => buildFormInputRows(truthReport), [truthReport]);
+
+  const rows = view.questions;
   const openRows = rows.filter((r) => r.status === "open");
-  const decidedCount = rows.length - openRows.length;
 
   // The current card, by finding key — stable across report refreshes.
   const [currentKey, setCurrentKey] = useState<string | null>(null);
@@ -310,19 +293,28 @@ export function ReviewSurface({
   const currentIndex = current ? rows.indexOf(current) : -1;
 
   const [busy, setBusy] = useState<Busy>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
-  const [addText, setAddText] = useState("");
-  const [takeOutResult, setTakeOutResult] = useState<TakeOutResult | null>(null);
-  const [testimony, setTestimony] = useState<{ findingKey: string; outcome: TestimonyOutcome } | null>(null);
+  const [error, setError] = useState<{ scope: string; text: string } | null>(null);
+  const [answerOpen, setAnswerOpen] = useState(false);
+  const [answerText, setAnswerText] = useState("");
+  const [edit, setEdit] = useState<EditResult | null>(null);
+  const [testimony, setTestimony] = useState<{ key: string; outcome: TestimonyOutcome } | null>(null);
+  const [removeOnlyKeys, setRemoveOnlyKeys] = useState<Set<string>>(new Set());
+  const [stations, setStations] = useState<{ key: string; list: StationOption[] | null; failed: boolean; nonce: number } | null>(null);
   const [locate, setLocate] = useState<LocateState | null>(null);
   const [phoneLocating, setPhoneLocating] = useState(false);
   const [scan, setScan] = useState<{ findingKey: string; total: number; texts: string[] } | null>(null);
+  const [rechecked, setRechecked] = useState(false);
+  // ADV-4: a recheck re-audits against the profile as it is now — the station
+  // answers are fetched again afterwards (a 409 meant the audit's evidence no
+  // longer names an entry of the current profile).
+  const [stationsNonce, setStationsNonce] = useState(0);
   const highlighted = useRef(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
   const targets = current?.item?.targets ?? null;
   const targetsSig = targets ? JSON.stringify(targets) : "";
+  const currentFindingKey = current?.findingKey ?? null;
+  const currentResolver = current?.status === "open" ? (current.item?.resolver ?? null) : null;
 
   const clearLocate = useCallback(() => {
     if (highlighted.current) {
@@ -332,14 +324,34 @@ export function ReviewSurface({
     setLocate(null);
   }, [locator]);
 
-  // A different card: drop the marks, the add box, the transient error.
-  const currentFindingKey = current?.findingKey ?? null;
+  // A different card: drop the marks, the answer box, the transient error.
   useEffect(() => {
     clearLocate();
-    setAddOpen(false);
+    setAnswerOpen(false);
+    setAnswerText("");
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentFindingKey]);
+
+  // "Wohin gehört das?" — its answers are the stations that own the evidence.
+  useEffect(() => {
+    if (!documentId || !currentFindingKey || currentResolver !== "ask_station") return;
+    if (stations?.key === currentFindingKey && stations.nonce === stationsNonce) return;
+    let cancelled = false;
+    const nonce = stationsNonce;
+    setStations({ key: currentFindingKey, list: null, failed: false, nonce });
+    listStations(documentKind, documentId, currentFindingKey)
+      .then((list) => {
+        if (!cancelled) setStations({ key: currentFindingKey, list, failed: false, nonce });
+      })
+      .catch(() => {
+        if (!cancelled) setStations({ key: currentFindingKey, list: [], failed: true, nonce });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, documentKind, currentFindingKey, currentResolver, stationsNonce]);
 
   // A reloaded preview carries no marks.
   useEffect(() => {
@@ -364,7 +376,7 @@ export function ReviewSurface({
     onLocateModeChange?.(false);
   }, [phoneLocating, onLocateModeChange]);
 
-  // Leaving the surface (sheet closed, tab switched) removes the marks it placed.
+  // Leaving the surface removes the marks it placed.
   useEffect(
     () => () => {
       if (highlighted.current) locator?.clear();
@@ -388,9 +400,18 @@ export function ReviewSurface({
     onRefresh?.(refresh, { documentChanged });
   };
 
-  const fail = (e: unknown) => {
+  const fail = (scope: string, e: unknown) => {
+    const code = e instanceof ReviewActionError ? e.code : undefined;
     const status = e instanceof ReviewActionError ? e.status : 0;
-    setError(tErrors("generic", { status: status || "—" }));
+    const text =
+      code === "resolver_unavailable"
+        ? t("delivery.errorUnavailable")
+        : code === "rewrite_failed"
+          ? t("delivery.errorRewriteFailed")
+          : code === "action_not_applicable"
+            ? t("delivery.errorNotApplicable")
+            : tErrors("generic", { status: status || "—" });
+    setError({ scope, text });
   };
 
   const maybeWalked = (state: ReviewState | null | undefined, stillOpen: number) => {
@@ -400,109 +421,110 @@ export function ReviewSurface({
       .catch(() => {});
   };
 
-  const runTakeOut = async (row: Group1Row) => {
+  const placesChanged = (row: Group1Row | null, changes: SectionChange[]) => {
+    const rowTargets = row?.item?.targets ?? null;
+    let places = 0;
+    if (rowTargets) {
+      for (const c of changes) places += Math.max(0, countInText(c.before, rowTargets) - countInText(c.after, rowTargets));
+    }
+    return places > 0 ? places : changes.length;
+  };
+
+  /** One corrector-backed answer: the server edits, re-audits and records an undoable decision. */
+  const runEdit = async (
+    row: Group1Row,
+    action: EditResult["action"],
+    busyAs: Busy,
+    call: () => Promise<{ changes: SectionChange[]; still_listed: boolean } & ReviewRefresh>,
+  ) => {
     if (!documentId || busy) return;
     endPhoneLocate();
     clearLocate();
-    setBusy("takeout");
+    setBusy(busyAs);
     setError(null);
     try {
-      const res = await takeOut(documentKind, documentId, row.findingKey);
-      const rowTargets = row.item?.targets ?? null;
-      let places = 0;
-      if (rowTargets) {
-        for (const c of res.changes) {
-          places += Math.max(0, countInText(c.before, rowTargets) - countInText(c.after, rowTargets));
-        }
-      }
-      setTakeOutResult({
-        findingKey: row.findingKey,
+      const res = await call();
+      setEdit({
+        key: row.findingKey,
+        action,
         changes: res.changes,
         stillListed: res.still_listed,
-        places: places > 0 ? places : res.changes.length,
+        places: placesChanged(row, res.changes),
       });
       setCurrentKey(row.findingKey);
       applyRefresh(res, res.changes.length > 0);
       if (!res.still_listed) maybeWalked(res.review_state, openRows.length - 1);
     } catch (e) {
-      if (e instanceof ReviewActionError && e.status === 409) {
-        // Ruling B-1: the server refused the removal (stem-only finding) —
-        // the existing still-listed path, which points to *Let me edit it*.
-        setTakeOutResult({ findingKey: row.findingKey, changes: [], stillListed: true, places: 0 });
-        setCurrentKey(row.findingKey);
+      if (action === "taken_out" && e instanceof ReviewActionError && e.status === 409) {
+        // Ruling B-1: the removal was refused (stem-only) — the still-listed path.
+        setEdit({ key: row.findingKey, action, changes: [], stillListed: true, places: 0 });
       } else {
-        fail(e);
+        fail(row.findingKey, e);
       }
     } finally {
       setBusy(null);
     }
   };
 
-  /**
-   * #797 / ruling D2-5 = A: *Stimmt* first asks the server whether the profile
-   * already holds every wording. Yes → closed in one click, with the receipt
-   * (no "Wo hast du das gemacht?"). No (`null`) → the testimony ask opens.
-   */
-  const runConfirm = async (row: Group1Row) => {
+  const runRemove = (row: Group1Row) =>
+    runEdit(row, "taken_out", "remove", () => takeOut(documentKind, documentId!, row.findingKey));
+  const runMove = (row: Group1Row, stationId: string) =>
+    runEdit(row, "moved", "move", () => moveToStation(documentKind, documentId!, row.findingKey, stationId));
+  const runAsGoal = (row: Group1Row) =>
+    runEdit(row, "as_goal", "goal", () => rewriteAsGoal(documentKind, documentId!, row.findingKey));
+
+  /** "Ja, und zwar bei …" — testimony through the reconcile door (ADR-061). */
+  const runAnswer = async (row: Group1Row) => {
+    if (!documentId || busy || !answerText.trim()) return;
+    setBusy("answer");
+    setError(null);
+    try {
+      const res = await addEvidence(documentKind, documentId, row.findingKey, answerText.trim());
+      setTestimony({ key: row.findingKey, outcome: res.testimony });
+      setAnswerOpen(false);
+      setAnswerText("");
+      setCurrentKey(row.findingKey);
+      if (res.remove_only) setRemoveOnlyKeys((s) => new Set(s).add(row.findingKey));
+      applyRefresh(res, false);
+      if (res.still_listed === false) maybeWalked(res.review_state, openRows.length - 1);
+    } catch (e) {
+      fail(row.findingKey, e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Unclassified fallback (a legacy report): today's "Stimmt" — no ask when the profile holds it. */
+  const runLegacyConfirm = async (row: Group1Row) => {
     if (!documentId || busy) return;
-    setBusy("add");
+    setBusy("answer");
     setError(null);
     try {
       const res = await confirmSupported(documentKind, documentId, row.findingKey);
       if (res === null) {
-        setAddOpen(true);
+        setAnswerOpen(true);
         return;
       }
       setCurrentKey(row.findingKey);
       applyRefresh(res, false);
-      maybeWalked(res.review_state, openRows.length - 1);
     } catch (e) {
-      fail(e);
+      fail(row.findingKey, e);
     } finally {
       setBusy(null);
     }
   };
 
-  const runAdd = async (row: Group1Row) => {
-    if (!documentId || busy || !addText.trim()) return;
-    setBusy("add");
-    setError(null);
-    try {
-      const res = await addEvidence(documentKind, documentId, row.findingKey, addText.trim());
-      setTestimony({ findingKey: row.findingKey, outcome: res.testimony });
-      setAddOpen(false);
-      setAddText("");
-      setCurrentKey(row.findingKey);
-      applyRefresh(res, false);
-      const stillListed = buildReviewGroups({
-        atsReport: refreshedReport(res) ?? atsReport,
-        truthReport: res.truthfulness === undefined || res.truthfulness === null ? truthReport : res.truthfulness,
-        criticReport,
-        gapClusters,
-        hasClusterProducer,
-      })
-        .find((g) => g.id === 1)!
-        .items.some((it) => it.findingKey === row.findingKey);
-      if (!stillListed) maybeWalked(res.review_state, openRows.length - 1);
-    } catch (e) {
-      fail(e);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const runUndo = async (row: Group1Row) => {
+  const runUndo = async (key: string, scope: string) => {
     if (!documentId || busy) return;
     setBusy("undo");
     setError(null);
     try {
-      const res = await undoDecision(documentKind, documentId, row.findingKey);
-      setTakeOutResult(null);
+      const res = await undoDecision(documentKind, documentId, key);
+      setEdit(null);
       setTestimony(null);
-      setCurrentKey(row.findingKey);
       applyRefresh(res, true);
     } catch (e) {
-      fail(e);
+      fail(scope, e);
     } finally {
       setBusy(null);
     }
@@ -519,7 +541,7 @@ export function ReviewSurface({
   };
 
   const nextFinding = () => {
-    setTakeOutResult(null);
+    setEdit(null);
     setTestimony(null);
     const after = rows.slice(currentIndex + 1).find((r) => r.status === "open");
     const next = after ?? openRows.find((r) => r.findingKey !== current?.findingKey) ?? null;
@@ -542,9 +564,6 @@ export function ReviewSurface({
       case "conflict":
         return tProfile("testimony.statusConflict");
       case "error":
-        // R2-13 (Lead V's contract): a reconcile that failed after its retry says
-        // "not saved" in the user's language, never the English detail. The key
-        // is V's (profile namespace); until it is merged the generic line stays.
         if (o.error_code === "not_saved" && tProfile.has("testimony.statusNotSaved")) {
           return tProfile("testimony.statusNotSaved");
         }
@@ -554,112 +573,251 @@ export function ReviewSurface({
     }
   };
 
-  // ADR-081 cl. 4 (amended by ADR-090 cl. 6): the number is the OPEN group-1
-  // rows actually rendered — the length of the very array the list renders.
-  // #759: a failed send-blocking check (document-language) is named by the
-  // verdict and shown in its own block — never counted among the findings that
-  // "do not stand in the way of sending".
-  const sendChecks = useMemo(() => buildSendChecks(atsReport), [atsReport]);
-  // #803 belt (T-2 = B): an employer-sentence row is listed, never counted.
-  const verdict = verdictState(groups, countedOpenRows(rows).length, sendChecks.length);
-  // #702 RULING R-1 = A (condition): while a cross-document item is undecided,
-  // the all-clear headline must not say the rest "does not stand in the way of
-  // sending" — the card above "Weitere Hinweise" says otherwise.
-  const crossRead = useMemo(() => buildCrossDocument(criticReport, reviewState), [criticReport, reviewState]);
-  const openCrossRead = crossRead.rows.filter((r) => r.status === "open").length;
-  // Adv-review finding 10: on the letter, a critic that did not answer leaves the
-  // cross-read UNDECIDED — the all-clear may not call the rest harmless either.
-  const crossReadUnknown = documentKind === "cover-letter" && crossRead.unknown;
-  const groupOneClear =
-    verdict.kind === "clear" || verdict.kind === "clear_with_others" || verdict.kind === "clear_unchecked";
-  const tSignals = useTranslations("reviewSignals");
-  const group1Blind = group1.unknownProducers.length > 0;
-  const present = atsReport?.keywords.present.length ?? 0;
-  const total = present + (atsReport?.keywords.missing.length ?? 0);
-
-  const wordingOf = (texts: string[]): string => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const x of texts) {
-      const k = x.toLowerCase();
-      if (!seen.has(k)) {
-        seen.add(k);
-        out.push(x);
-      }
-    }
-    // The ICU message wraps `{wording}` in quotes; several distinct wordings
-    // are listed inside one pair, separated as quoted items. #797: the
-    // separator is the CATALOG's quote convention (DE „a“, „b“ — EN “a”, “b”),
-    // never a hard-coded English pair inside a German sentence.
-    return out.join(t("cardMatchedJoin"));
-  };
-
   const currentScan = scan && current && scan.findingKey === current.findingKey ? scan : null;
   const currentLocate = locate && current && locate.findingKey === current.findingKey ? locate : null;
-  const currentTakeOut =
-    takeOutResult && current && takeOutResult.findingKey === current.findingKey ? takeOutResult : null;
-  const currentTestimony =
-    testimony && current && testimony.findingKey === current.findingKey ? testimony.outcome : null;
+  const currentEdit = edit && current && edit.key === current.findingKey ? edit : null;
+  const currentTestimony = testimony && current && testimony.key === current.findingKey ? testimony.outcome : null;
 
-  const handleButtons = (row: Group1Row, variant: "stack" | "grid") => {
-    const base =
-      variant === "stack"
-        ? "flex w-full items-center gap-2.5 min-h-11 rounded-xl border border-outline-variant bg-surface-bright px-3 py-2 text-left text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
-        : "flex flex-col items-center justify-center gap-1 min-h-[60px] rounded-xl border border-outline-variant bg-surface-bright px-1 py-1.5 text-center text-xs font-semibold leading-tight text-on-surface hover:bg-surface-container disabled:opacity-50";
-    const canTakeOut = !isStemOnly(row.item?.targets);
-    // Build-2 delivery F2 (SF-REVIEW.18): never offer to write into the profile a
-    // term the candidate's own recorded denial covers — the card shows the denial.
-    // #803 belt (T-2 = B): nor a term that only sits in sentences about the employer.
-    const canAdd = !(row.item?.denials && row.item.denials.length > 0) && !row.item?.employerSentence;
-    const columns = 1 + Number(canAdd) + Number(canTakeOut);
-    const wrap =
-      variant === "stack" ? "flex flex-col gap-2" : `grid ${GRID_COLS[columns]} gap-1.5`;
-    return (
-      <div className={wrap} data-testid={`review-handles-${variant}`}>
-        {canAdd && (
-        <button
-          type="button"
-          data-testid="review-action-add"
-          disabled={busy !== null}
-          onClick={() => {
-            endPhoneLocate();
-            void runConfirm(row);
-          }}
-          className={base}
-        >
-          <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
-          {t("actionAddToProfile")}
-        </button>
-        )}
-        {canTakeOut && (
-        <button
-          type="button"
-          data-testid="review-action-takeout"
-          disabled={busy !== null}
-          aria-busy={busy === "takeout"}
-          onClick={() => void runTakeOut(row)}
-          className={base}
-        >
-          {busy === "takeout" ? (
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-          ) : (
-            <Trash2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-          )}
-          {t("actionTakeOut")}
-        </button>
-        )}
-        <button
-          type="button"
-          data-testid="review-action-edit"
-          disabled={busy !== null}
-          onClick={() => editRow(row)}
-          className={base}
-        >
-          <Pencil className="h-4 w-4 shrink-0" aria-hidden="true" />
-          {t("actionEdit")}
-        </button>
-      </div>
+  /* ---------------------------------------------------- answer buttons */
+
+  const answerBtn =
+    "flex w-full items-center gap-2.5 min-h-11 rounded-xl border border-outline-variant bg-surface-bright px-3 py-2 text-left text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50";
+  const sub = "block text-xs font-normal text-on-surface-variant";
+  const spin = <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />;
+
+  const removeButton = (row: Group1Row, labelKey: "remove" | "noRemove", withSub: boolean) =>
+    isStemOnly(row.item?.targets) ? null : (
+      <button
+        type="button"
+        data-testid="review-answer-remove"
+        disabled={busy !== null}
+        aria-busy={busy === "remove"}
+        onClick={() => void runRemove(row)}
+        className={`${answerBtn} text-critical`}
+      >
+        {busy === "remove" ? spin : <Trash2 className="h-4 w-4 shrink-0" aria-hidden="true" />}
+        <span>
+          {t(`delivery.${labelKey}`)}
+          {withSub && <span className={sub}>{t(isLetter ? "delivery.removeSubLetter" : "delivery.removeSubCv")}</span>}
+        </span>
+      </button>
     );
+
+  /** The question a resolver asks, and its answers (ADR-099 cl. 6). */
+  const question = (row: Group1Row): { q: string | null; why: string | null; answers: ReactNode } => {
+    const resolver = row.item?.resolver ?? null;
+    const oracleWhy = row.item ? itemOracleDetail(row.item, tOracle) : null;
+    const yesBox = (labelKey: "yesWhere" | "yesAchieved", subKey: "yesWhereSub" | "yesAchievedSub") => (
+      <button
+        type="button"
+        data-testid="review-answer-yes"
+        disabled={busy !== null}
+        onClick={() => {
+          endPhoneLocate();
+          setAnswerOpen(true);
+        }}
+        className={answerBtn}
+      >
+        <Check className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>
+          {t(`delivery.${labelKey}`)}
+          <span className={sub}>{t(`delivery.${subKey}`)}</span>
+        </span>
+      </button>
+    );
+
+    if (resolver === "ask_station") {
+      const own = stations && stations.key === row.findingKey ? stations : null;
+      return {
+        q: t("delivery.qStation"),
+        why: t(isLetter ? "delivery.whyStationLetter" : "delivery.whyStationCv"),
+        answers: (
+          <>
+            {own?.list === null && (
+              <p data-testid="review-stations-loading" className="text-xs text-on-surface-variant">
+                {t("delivery.stationsLoading")}
+              </p>
+            )}
+            {own?.list?.map((s) => (
+              <button
+                key={s.station_id}
+                type="button"
+                data-testid="review-answer-station"
+                data-station-id={s.station_id}
+                disabled={busy !== null}
+                aria-busy={busy === "move"}
+                onClick={() => void runMove(row, s.station_id)}
+                className={answerBtn}
+              >
+                {busy === "move" ? spin : <CornerDownRight className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                <span>
+                  {[s.title, s.organization].filter(Boolean).join(" · ")}
+                  <span className={sub}>{t(isLetter ? "delivery.stationSubLetter" : "delivery.stationSubCv")}</span>
+                </span>
+              </button>
+            ))}
+            {own && own.list !== null && own.list.length === 0 && !own.failed && (
+              <p data-testid="review-stations-none" className="text-xs text-on-surface-variant">
+                {t("delivery.stationsNone")}
+              </p>
+            )}
+            {own?.failed && (
+              <>
+                <p data-testid="review-stations-unsure" className="text-xs text-on-surface-variant">
+                  {t("delivery.stationsUnsure")}
+                </p>
+                <button
+                  type="button"
+                  data-testid="review-stations-recheck"
+                  disabled={busy !== null || !documentId}
+                  onClick={() => void runRecheck()}
+                  className={answerBtn}
+                >
+                  {busy === "recheck" ? spin : <RefreshCw className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                  <span>{t("delivery.recheck")}</span>
+                </button>
+              </>
+            )}
+            {removeButton(row, "remove", true)}
+          </>
+        ),
+      };
+    }
+
+    if (resolver === "ask_true") {
+      const onlyRemove = removeOnlyKeys.has(row.findingKey) || removeOnly(row);
+      if (onlyRemove) {
+        // U-13 (D-10 generalised to every class-A "Stimmt das?" card): the
+        // answer changed nothing, and the re-audit of the card's own producer
+        // still lists it. "Entfernen" must never be the only exit for a true
+        // statement — the profile, in the person's words, plus a recheck is
+        // the action that CAN clear it.
+        const skill = noChangeExit(row) === "skill";
+        // U-13 (delivery run 5): ONE statement of the state — the profile names
+        // it in other words, or it does not name it at all (never both).
+        const found = noChangeFound(row, testimony && testimony.key === row.findingKey ? testimony.outcome.status : null);
+        const whyKey = skill
+          ? found ? "delivery.skillOtherWords" : "delivery.skillNotFound"
+          : found ? "delivery.factOtherWords" : "delivery.factNotFound";
+        return {
+          q: t("delivery.qTrue"),
+          why: t(whyKey, { skill: row.label }),
+          answers: (
+            <>
+              <Link href="/profile" data-testid="review-nochange-profile" className={answerBtn}>
+                <CornerDownRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>
+                  {t("delivery.skillToProfile")}
+                  <span className={sub}>{skill ? t("delivery.skillToProfileSub", { term: row.label }) : t("delivery.factToProfileSub")}</span>
+                </span>
+              </Link>
+              <button
+                type="button"
+                data-testid="review-nochange-recheck"
+                disabled={busy !== null || !documentId}
+                onClick={() => void runRecheck()}
+                className={answerBtn}
+              >
+                {busy === "recheck" ? spin : <RefreshCw className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                <span>{t("delivery.recheck")}</span>
+              </button>
+              {removeButton(row, "remove", false)}
+            </>
+          ),
+        };
+      }
+      return {
+        q: t("delivery.qTrue"),
+        why: oracleWhy,
+        answers: (
+          <>
+            {yesBox("yesWhere", "yesWhereSub")}
+            {removeButton(row, "noRemove", false)}
+          </>
+        ),
+      };
+    }
+
+    if (resolver === "ask_achieved") {
+      return {
+        q: t("delivery.qAchieved"),
+        why: oracleWhy,
+        answers: (
+          <>
+            {yesBox("yesAchieved", "yesAchievedSub")}
+            <button
+              type="button"
+              data-testid="review-answer-as-goal"
+              disabled={busy !== null}
+              aria-busy={busy === "goal"}
+              onClick={() => void runAsGoal(row)}
+              className={answerBtn}
+            >
+              {busy === "goal" ? spin : <RotateCcw className="h-4 w-4 shrink-0" aria-hidden="true" />}
+              <span>
+                {t("delivery.asGoal")}
+                <span className={sub}>{t("delivery.asGoalSub")}</span>
+              </span>
+            </button>
+          </>
+        ),
+      };
+    }
+
+    if (resolver === "remove_only") {
+      const why = row.item?.employerSentence
+        ? t("cardEmployerSentence", { term: row.label })
+        : row.item?.denials && row.item.denials.length > 0
+          ? t("cardDenied", { denials: row.item.denials.join(t("cardMatchedJoin")) })
+          : oracleWhy;
+      return { q: t("delivery.qRemove"), why, answers: removeButton(row, "remove", false) };
+    }
+
+    // Unclassified (a report persisted before ADR-099, or a kind the registry
+    // does not know): today's handles — the Oracle's keyed detail, "Stimmt",
+    // "Nimm es für mich heraus" (ruling C-1 (2): no editor handle on the card).
+    const canAdd = !(row.item?.denials && row.item.denials.length > 0) && !row.item?.employerSentence;
+    const why = row.item?.employerSentence
+      ? t("cardEmployerSentence", { term: row.label })
+      : row.item?.denials && row.item.denials.length > 0
+        ? t("cardDenied", { denials: row.item.denials.join(t("cardMatchedJoin")) })
+        : oracleWhy;
+    return {
+      q: null,
+      why,
+      answers: (
+        <>
+          {canAdd && (
+            <button
+              type="button"
+              data-testid="review-action-add"
+              disabled={busy !== null}
+              onClick={() => {
+                endPhoneLocate();
+                void runLegacyConfirm(row);
+              }}
+              className={answerBtn}
+            >
+              <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {t("actionAddToProfile")}
+            </button>
+          )}
+          {!isStemOnly(row.item?.targets) && (
+            <button
+              type="button"
+              data-testid="review-action-takeout"
+              disabled={busy !== null}
+              aria-busy={busy === "remove"}
+              onClick={() => void runRemove(row)}
+              className={answerBtn}
+            >
+              {busy === "remove" ? spin : <Trash2 className="h-4 w-4 shrink-0" aria-hidden="true" />}
+              {t("actionTakeOut")}
+            </button>
+          )}
+        </>
+      ),
+    };
   };
 
   const stepper = (loc: LocateState, size: "card" | "sheet") => {
@@ -695,139 +853,126 @@ export function ReviewSurface({
 
   /* ------------------------------------------------------------ the card */
 
+  const editDoneKey: Record<EditResult["action"], string> = {
+    taken_out: "",
+    moved: "delivery.movedDone",
+    as_goal: "delivery.asGoalDone",
+    translated: "delivery.translateDone",
+    shortened: "delivery.letterPageDone",
+  };
+
+  const renderChanges = (changes: SectionChange[]) =>
+    changes.map((c, i) => (
+      <div
+        key={`${c.section_id}-${i}`}
+        data-testid="review-takeout-change"
+        className="flex flex-col gap-1.5 rounded-lg bg-surface-container px-3 py-2.5"
+      >
+        <span className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
+          {sectionLabel ? sectionLabel(c.section_id) : c.section_id}
+        </span>
+        {changedPassages(c.before, c.after).map((h, k) => (
+          <div key={k} data-testid="review-takeout-hunk" className="flex flex-col gap-1">
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+            {h.elidedBefore && <span aria-hidden="true" className="text-xs text-on-surface-variant">…</span>}
+            {h.before.map((u, x) => (
+              <span key={`b${x}`} data-testid="review-takeout-before" className="text-xs leading-snug text-on-surface-variant line-through">
+                {u}
+              </span>
+            ))}
+            {h.after.map((u, x) => (
+              <span key={`a${x}`} data-testid="review-takeout-after" className="text-xs leading-snug text-on-surface">
+                {u}
+              </span>
+            ))}
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+            {h.elidedAfter && <span aria-hidden="true" className="text-xs text-on-surface-variant">…</span>}
+          </div>
+        ))}
+      </div>
+    ));
+
+  // Distinct wordings, case-folded, in the catalog's quote convention (#797).
+  const wordingOf = (texts: string[]): string => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const x of texts) {
+      const k = x.toLowerCase();
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(x);
+      }
+    }
+    return out.slice(0, 3).join(t("cardMatchedJoin"));
+  };
+
   const renderCard = (row: Group1Row) => {
     const decided = row.status !== "open";
     const notMarkable = !decided && (!row.item?.targets || (currentScan !== null && currentScan.total === 0));
+    const { q, why, answers } = decided ? { q: null, why: null, answers: null } : question(row);
     const border = decided ? "border-success" : "border-primary";
+    const prompt = row.item?.resolver === "ask_achieved" ? t("delivery.achievedPrompt") : row.item?.resolver ? t("delivery.truePrompt") : t("addPrompt");
     return (
       <div
         ref={cardRef}
         data-testid="review-card"
         data-finding-key={row.findingKey}
         data-status={row.status}
+        data-resolver={row.item?.resolver ?? "none"}
         aria-busy={busy !== null}
-        className={`flex flex-col gap-3 rounded-xl border-2 ${border} bg-surface-bright p-3.5 shadow-sm`}
+        className={`flex flex-col gap-2.5 rounded-xl border-2 ${border} bg-surface-bright p-3.5 shadow-sm`}
       >
-        <div className="flex flex-col gap-1">
-          <span
-            data-testid="review-card-position"
-            className="text-[11px] font-bold tracking-wide text-on-surface-variant"
-          >
-            {t("cardPosition", { index: currentIndex + 1, total: rows.length })}
+        <span data-testid="review-card-position" className="text-[11px] font-bold tracking-wide text-on-surface-variant">
+          {t("cardPosition", { index: currentIndex + 1, total: rows.length })}
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          {" · "}
+          <span className="uppercase">{t("delivery.cardKind")}</span>
+        </span>
+        <span data-testid="review-card-claim" className="rounded-lg bg-surface-container px-2.5 py-2 text-sm leading-snug text-on-surface">
+          {t("delivery.quoted", { text: row.label })}
+        </span>
+
+        {decided && !currentEdit && STATUS_KEY[row.status] && (
+          <span data-testid="review-card-status" className="text-[13px] font-semibold text-success">
+            {t(STATUS_KEY[row.status])}
           </span>
-          <span className="font-heading text-[17px] font-bold text-on-surface">{row.label}</span>
-          {/* ADR-081 cl. 2: a merged row CITES both producers. */}
-          {row.item && (
-            <span className="flex flex-wrap items-center gap-1" data-testid="review-card-producers">
-              {row.item.producers.map((p) => (
-                <span
-                  key={p}
-                  data-testid={`review-item-producer-${p}`}
-                  className="rounded-full bg-surface-container px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant"
-                >
-                  {t(PRODUCER_LABEL_KEY[p])}
-                </span>
-              ))}
-            </span>
-          )}
+        )}
 
-          {decided && !currentTakeOut && (
-            <span data-testid="review-card-status" className="text-[13px] font-semibold text-success">
-              {t(STATUS_KEY[row.status as keyof typeof STATUS_KEY])}
-            </span>
-          )}
-          {row.status === "supported" && row.decision?.receipt && row.decision.receipt.length > 0 && (
-            <span data-testid="review-card-receipt" className="text-[13px] leading-snug text-on-surface-variant">
-              {t("supportedReceipt", {
-                lines: row.decision.receipt.map((r) => r.text.replace(/[\s.;:,]+$/, "")).join(t("cardMatchedJoin")),
-              })}
-            </span>
-          )}
-          {row.status === "supported" && row.item && (
-            <span data-testid="review-card-still-listed" className="text-xs text-on-surface-variant">
-              {t("supportedStillListed")}
-            </span>
-          )}
+        {q && (
+          <span data-testid="review-card-question" className="font-heading text-[16.5px] font-bold text-on-surface">
+            {q}
+          </span>
+        )}
+        {!decided && why && (
+          <span data-testid="review-card-why" className="text-[13px] leading-snug text-on-surface-variant">
+            {why}
+          </span>
+        )}
+        {!decided && !why && currentScan && currentScan.total > 0 && (
+          <span data-testid="review-card-matched" className="text-[13px] leading-snug text-on-surface-variant">
+            {t("cardMatched", { wording: wordingOf(currentScan.texts), count: currentScan.total })}
+          </span>
+        )}
 
-          {!decided && currentScan && currentScan.total > 0 && (
-            <span data-testid="review-card-matched" className="text-[13px] leading-snug text-on-surface-variant">
-              {t("cardMatched", { wording: wordingOf(currentScan.texts), count: currentScan.total })}
-            </span>
-          )}
-          {notMarkable && (
-            <span data-testid="review-locate-not-found" className="text-[13px] leading-snug text-on-surface-variant">
-              {t("locateNotFound")}
-            </span>
-          )}
-          {!decided && row.item?.employerSentence && (
-            <span data-testid="review-card-employer-sentence" className="text-[13px] leading-snug text-on-surface">
-              {t("cardEmployerSentence", { term: row.label })}
-            </span>
-          )}
-          {!decided && row.item?.denials && row.item.denials.length > 0 && (
-            <span data-testid="review-card-denied" className="text-[13px] leading-snug text-on-surface">
-              {t("cardDenied", { denials: row.item.denials.join(t("cardMatchedJoin")) })}
-            </span>
-          )}
-          {!decided && row.item?.detail && (
-            <span data-testid="review-card-detail" className="text-xs text-on-surface-variant">
-              {itemOracleDetail(row.item, tOracle)}
-            </span>
-          )}
-        </div>
-
-        {/* Take it out — the result, with what changed (canvas: TakeOut). */}
-        {currentTakeOut && (
-          <div className="flex flex-col gap-2" data-testid="review-takeout-result">
+        {currentEdit && (
+          <div className="flex flex-col gap-2" data-testid="review-takeout-result" data-action={currentEdit.action}>
             <span
-              data-testid={currentTakeOut.stillListed ? "review-takeout-still" : "review-takeout-done"}
-              className={`text-[13px] font-semibold ${currentTakeOut.stillListed ? "text-critical" : "text-success"}`}
+              data-testid={currentEdit.stillListed ? "review-takeout-still" : "review-takeout-done"}
+              className={`text-[13px] font-semibold ${currentEdit.stillListed ? "text-critical" : "text-success"}`}
             >
-              {currentTakeOut.stillListed
-                ? t("takenOutStillFlagged")
-                : t("takenOutDone", { count: currentTakeOut.places })}
+              {currentEdit.stillListed
+                ? currentEdit.action === "taken_out"
+                  ? t("takenOutStillFlagged")
+                  : t("delivery.stillListed")
+                : currentEdit.action === "taken_out"
+                  ? t("takenOutDone", { count: currentEdit.places })
+                  : t(editDoneKey[currentEdit.action])}
             </span>
-            {currentTakeOut.changes.map((c, i) => (
-              <div
-                key={`${c.section_id}-${i}`}
-                data-testid="review-takeout-change"
-                className="flex flex-col gap-1.5 rounded-lg bg-surface-container px-3 py-2.5"
-              >
-                <span className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
-                  {sectionLabel ? sectionLabel(c.section_id) : c.section_id}
-                </span>
-                {/* D-3 / ADR-090 cl. 3: the CHANGED passages only — each
-                    changed sentence or line struck through, then what
-                    replaced it; unchanged text elided. */}
-                {changedPassages(c.before, c.after).map((h, k) => (
-                  <div key={k} data-testid="review-takeout-hunk" className="flex flex-col gap-1">
-                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-                    {h.elidedBefore && <span aria-hidden="true" className="text-xs text-on-surface-variant">…</span>}
-                    {h.before.map((u, x) => (
-                      <span
-                        key={`b${x}`}
-                        data-testid="review-takeout-before"
-                        className="text-xs leading-snug text-on-surface-variant line-through"
-                      >
-                        {u}
-                      </span>
-                    ))}
-                    {h.after.map((u, x) => (
-                      <span key={`a${x}`} data-testid="review-takeout-after" className="text-xs leading-snug text-on-surface">
-                        {u}
-                      </span>
-                    ))}
-                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-                    {h.elidedAfter && <span aria-hidden="true" className="text-xs text-on-surface-variant">…</span>}
-                  </div>
-                ))}
-              </div>
-            ))}
+            {renderChanges(currentEdit.changes)}
           </div>
         )}
 
-        {/* Add it to my profile — the box, then the testimony outcome. */}
-        {currentTestimony && (
+        {currentTestimony && !(row.item?.resolver === "ask_true" && !decided && (removeOnlyKeys.has(row.findingKey) || removeOnly(row))) && (
           <p
             data-testid="review-testimony-result"
             data-status={currentTestimony.status}
@@ -837,42 +982,16 @@ export function ReviewSurface({
           </p>
         )}
 
-        {!decided && !currentLocate && !notMarkable && !addOpen && (
-          <button
-            type="button"
-            data-testid="review-action-locate"
-            disabled={busy !== null}
-            onClick={() => showPlace(0)}
-            className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            <Search className="h-4 w-4" aria-hidden="true" />
-            {t("actionShowWhere")}
-          </button>
-        )}
-
-        {!decided && currentLocate && currentLocate.total > 0 && layout === "panel" && (
-          <div
-            data-testid="review-locate-stepper"
-            className="flex items-center gap-2 rounded-lg bg-gold-container py-1.5 pl-3 pr-1.5"
-          >
-            <Search className="h-4 w-4 shrink-0 text-gold-dim" aria-hidden="true" />
-            <span className="flex-1 text-[13px] font-semibold text-on-surface" aria-live="polite">
-              {t("locateShowing", { index: currentLocate.index + 1, total: currentLocate.total })}
-            </span>
-            {stepper(currentLocate, "card")}
-          </div>
-        )}
-
-        {!decided && addOpen && (
+        {!decided && answerOpen && (
           <div data-testid="review-add-box" className="flex flex-col gap-2">
             <label htmlFor={`review-add-${row.findingKey}`} className="text-[13px] font-semibold text-on-surface">
-              {t("addPrompt")}
+              {prompt}
             </label>
             <textarea
               id={`review-add-${row.findingKey}`}
               data-testid="review-add-text"
-              value={addText}
-              onChange={(e) => setAddText(e.target.value)}
+              value={answerText}
+              onChange={(e) => setAnswerText(e.target.value)}
               disabled={busy !== null}
               rows={3}
               className="w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
@@ -881,11 +1000,11 @@ export function ReviewSurface({
               <button
                 type="button"
                 data-testid="review-add-submit"
-                disabled={busy !== null || !addText.trim()}
-                onClick={() => void runAdd(row)}
+                disabled={busy !== null || !answerText.trim()}
+                onClick={() => void runAnswer(row)}
                 className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {busy === "add" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                {busy === "answer" && spin}
                 {t("addSubmit")}
               </button>
               <button
@@ -893,8 +1012,8 @@ export function ReviewSurface({
                 data-testid="review-add-cancel"
                 disabled={busy !== null}
                 onClick={() => {
-                  setAddOpen(false);
-                  setAddText("");
+                  setAnswerOpen(false);
+                  setAnswerText("");
                 }}
                 className="min-h-11 rounded-full border border-outline-variant bg-surface-bright px-4 text-sm font-semibold text-on-surface"
               >
@@ -904,10 +1023,40 @@ export function ReviewSurface({
           </div>
         )}
 
-        {!decided && !addOpen && handleButtons(row, "stack")}
+        {!decided && !answerOpen && !(currentEdit && !currentEdit.stillListed) && (
+          <div className="flex flex-col gap-2" data-testid="review-answers">
+            {answers}
+          </div>
+        )}
 
-        {/* The decided card, and the still-listed take-out: Next / Undo / Edit. */}
-        {(decided || currentTakeOut) && (
+        {/* Ruling C-1 (2): "Zeig mir, wo" stays on the card, as a link. */}
+        {!decided && !currentLocate && !notMarkable && !answerOpen && (
+          <button
+            type="button"
+            data-testid="review-action-locate"
+            disabled={busy !== null}
+            onClick={() => showPlace(0)}
+            className="self-start text-[13px] font-semibold text-primary underline underline-offset-2 disabled:opacity-50"
+          >
+            {t("actionShowWhere")}
+          </button>
+        )}
+        {notMarkable && (
+          <span data-testid="review-locate-not-found" className="text-xs leading-snug text-on-surface-variant">
+            {t("locateNotFound")}
+          </span>
+        )}
+
+        {!decided && currentLocate && currentLocate.total > 0 && layout === "panel" && (
+          <div data-testid="review-locate-stepper" className="flex items-center gap-2 rounded-lg bg-gold-container py-1.5 pl-3 pr-1.5">
+            <span className="flex-1 text-[13px] font-semibold text-on-surface" aria-live="polite">
+              {t("locateShowing", { index: currentLocate.index + 1, total: currentLocate.total })}
+            </span>
+            {stepper(currentLocate, "card")}
+          </div>
+        )}
+
+        {(decided || currentEdit) && (
           <div className="flex flex-wrap gap-2">
             {openRows.some((r) => r.findingKey !== row.findingKey) && (
               <button
@@ -919,19 +1068,19 @@ export function ReviewSurface({
                 {t("actionNextFinding")}
               </button>
             )}
-            {row.decision?.undo && (row.status !== "open" || currentTakeOut) && (
+            {row.decision?.undo && (decided || currentEdit) && (
               <button
                 type="button"
                 data-testid="review-action-undo"
                 disabled={busy !== null}
-                onClick={() => void runUndo(row)}
+                onClick={() => void runUndo(row.findingKey, row.findingKey)}
                 className="flex min-h-11 items-center gap-2 whitespace-nowrap rounded-full border border-outline-variant bg-surface-bright px-4 text-sm font-semibold text-on-surface disabled:opacity-50"
               >
-                {busy === "undo" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                {busy === "undo" && spin}
                 {t("actionUndo")}
               </button>
             )}
-            {decided && currentTakeOut && (
+            {currentEdit?.stillListed && currentEdit.action === "taken_out" && onEditFinding && (
               <button
                 type="button"
                 data-testid="review-action-edit-after"
@@ -944,9 +1093,9 @@ export function ReviewSurface({
           </div>
         )}
 
-        {error && (
+        {error && error.scope === row.findingKey && (
           <p data-testid="review-action-error" role="alert" className="text-[13px] text-critical">
-            {error}
+            {error.text}
           </p>
         )}
       </div>
@@ -977,11 +1126,7 @@ export function ReviewSurface({
               <div className="flex items-center gap-2">
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="truncate font-heading text-[15px] font-bold text-on-surface">{current.label}</span>
-                  <span
-                    data-testid="review-locate-place"
-                    aria-live="polite"
-                    className="text-xs text-on-surface-variant"
-                  >
+                  <span data-testid="review-locate-place" aria-live="polite" className="text-xs text-on-surface-variant">
                     {t("locatePlace", {
                       wording: currentLocate.texts[currentLocate.index] ?? current.label,
                       index: currentLocate.index + 1,
@@ -991,7 +1136,7 @@ export function ReviewSurface({
                 </div>
                 {stepper(currentLocate, "sheet")}
               </div>
-              {handleButtons(current, "grid")}
+              {current.status === "open" && <div className="flex flex-col gap-2">{question(current).answers}</div>}
             </div>
           </div>,
           document.body,
@@ -1001,8 +1146,6 @@ export function ReviewSurface({
   /* ------------------------------------------------------------ render */
 
   if (loading) {
-    // R2-8 (8): nothing is claimed before the reports are in — neither a verdict
-    // nor a degradation notice computed from a half-loaded state.
     return (
       <section data-testid="review-surface" aria-label={t("title")} aria-busy="true" className="flex flex-col gap-4 p-3">
         <p data-testid="review-loading" role="status" className="text-sm text-on-surface-variant">
@@ -1012,103 +1155,102 @@ export function ReviewSurface({
     );
   }
 
+  const runTranslate = async () => {
+    if (!documentId || busy) return;
+    setBusy("translate");
+    setError(null);
+    try {
+      const res = await translateSpans(documentKind, documentId);
+      setEdit({ key: SEND_LANGUAGE_KEY, action: "translated", changes: res.changes, stillListed: res.still_listed, places: res.changes.length });
+      applyRefresh(res, res.changes.length > 0);
+    } catch (e) {
+      fail(SEND_LANGUAGE_KEY, e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runRecheck = async () => {
+    if (!documentId || busy) return;
+    setBusy("recheck");
+    setError(null);
+    try {
+      const res = await recheckDocument(documentKind, documentId);
+      setRechecked(true);
+      applyRefresh(res, false);
+      setStationsNonce((n) => n + 1);
+    } catch (e) {
+      fail("recheck", e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runLetterPage = async (choice: "keep" | "cut") => {
+    if (!documentId || busy || !isLetter) return;
+    setBusy("page");
+    setError(null);
+    try {
+      if (choice === "cut") {
+        const res = await shortenLetter(documentId);
+        setEdit({ key: PAGE_LENGTH_KEY, action: "shortened", changes: res.changes, stillListed: res.still_listed, places: res.changes.length });
+        applyRefresh(res, res.changes.length > 0);
+      } else {
+        applyRefresh(await keepLetterLength(documentId), false);
+      }
+    } catch (e) {
+      fail(PAGE_LENGTH_KEY, e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const producerName = (u: UnknownRow): string => {
+    if (u.producer) return t(PRODUCER_LABEL_KEY[u.producer]);
+    if (u.check && baseId(u.check.id) === "terminal-review") return t("delivery.producerTerminal");
+    if (u.check) {
+      const key = `checks.${baseId(u.check.id)}`;
+      return t("delivery.producerCheck", { check: tAts.has(key) ? tAts(key) : u.check.id });
+    }
+    return "";
+  };
+
+  const boxClass = "flex flex-col gap-2 rounded-xl border border-outline-variant p-3";
+  const primaryBtn =
+    "flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-white disabled:opacity-50";
+  const outlineBtn =
+    "flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-outline-variant bg-surface-bright px-3 text-sm font-semibold text-on-surface disabled:opacity-50";
+  // A filled twin of outlineBtn. Never append colour classes to outlineBtn:
+  // Tailwind resolves bg-*/text-* conflicts by stylesheet order, not class order
+  // (the letter page card once rendered its "kürzen" button white on white).
+  const filledBtn =
+    "flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-primary bg-primary px-3 text-sm font-semibold text-white disabled:opacity-50";
+
+  const translateEdit = edit && edit.key === SEND_LANGUAGE_KEY ? edit : null;
+  const pageEdit = edit && edit.key === PAGE_LENGTH_KEY ? edit : null;
+  const translateUndo = reviewState?.decisions.some((d) => d.finding_key === SEND_LANGUAGE_KEY && d.undo);
+  const pageUndo = reviewState?.decisions.some((d) => d.finding_key === PAGE_LENGTH_KEY && d.undo);
+
   return (
-    <section data-testid="review-surface" aria-label={t("title")} className="flex flex-col gap-4 p-3">
-      {/* ADR-081 cl. 9 / ADR-090 cl. 1: a blind group-1 producer is stated
-          ABOVE the verdict and the list, never inside a collapse. */}
-      <UnknownProducerNote group={group1} />
-      {/* #786 / T-2: a review step of the writing loop that did not run. */}
+    <section data-testid="review-surface" aria-label={t("title")} className="flex flex-col gap-3 p-3">
+      {/* #786 / T-2: a review step of the writing loop that did not run (class U, counted). */}
       <ReviewDegradationNote steps={degradation} onRegenerate={onRegenerate} />
 
-      <div className="flex flex-col gap-1.5">
-        <p
-          data-testid="review-verdict"
-          className={`font-heading text-lg font-bold leading-snug ${
-            verdict.kind === "unknown" ? "text-on-surface-variant" : "text-on-surface"
-          }`}
-        >
-          {verdict.kind === "findings" && t("verdictFindings", { count: verdict.count })}
-          {groupOneClear && openCrossRead > 0 ? tSignals("verdictClearCrossRead", { open: openCrossRead }) : null}
-          {groupOneClear && crossReadUnknown ? tSignals("verdictClearCrossReadUnknown") : null}
-          {verdict.kind === "clear" && openCrossRead === 0 && !crossReadUnknown && t("verdictClear")}
-          {/* T-1 (ADR-081 cl. 4 amended 2026-10-22): decisions first — the
-              headline names what needs deciding; the all-clear drops to the
-              normal-weight line below. */}
-          {verdict.kind === "clear_with_others" &&
-            openCrossRead === 0 &&
-            !crossReadUnknown &&
-            (verdict.decisions > 0
-              ? t("verdictDecisions", { count: verdict.decisions })
-              : t("verdictNotesOnly", { count: verdict.notes }))}
-          {verdict.kind === "clear_unchecked" &&
-            openCrossRead === 0 &&
-            !crossReadUnknown &&
-            t("verdictUncheckedHead", {
-              producers: verdict.unchecked.map((p) => t(PRODUCER_LABEL_KEY[p])).join(", "),
-            })}
-          {verdict.kind === "clear_with_send_checks" && t("verdictClearWithSendCheck", { count: verdict.count })}
-          {verdict.kind === "unknown" && t("verdictUnknown")}
+      <div className="flex flex-col gap-1">
+        <p data-testid="review-verdict" data-count={view.count} className="font-heading text-lg font-bold leading-snug text-on-surface">
+          {view.count > 0 ? t("delivery.headline", { count: view.count }) : t("delivery.clear")}
         </p>
-        {verdict.kind === "findings" && (
+        {view.count > 0 && (
           <p data-testid="review-verdict-sub" className="text-sm leading-snug text-on-surface-variant">
-            {t("verdictSub")}
+            {t("delivery.headlineSub")}
           </p>
         )}
-        {/* 789:199 (as ruled T-1, build 3): a send-check headline leads with the
-            count, like the decisions headline — the all-clear moves to this
-            normal-weight line, so a green sentence never leads above an amber
-            "the final review did not run" note. */}
-        {verdict.kind === "clear_with_send_checks" && (
-          <p data-testid="review-verdict-truth" className="text-sm leading-snug text-on-surface">
-            {t("verdictTruthLine", { decisions: 0, notes: 0 })}
-          </p>
-        )}
-        {(verdict.kind === "clear_with_others" || verdict.kind === "clear_unchecked") &&
-          openCrossRead === 0 &&
-          !crossReadUnknown && (
-            <p data-testid="review-verdict-truth" className="text-sm leading-snug text-on-surface">
-              {t("verdictTruthLine", {
-                // The headline already names the decisions (clear_with_others)
-                // or the notes (notes-only); the truth line adds what it did not.
-                decisions: verdict.kind === "clear_unchecked" ? verdict.decisions : 0,
-                notes:
-                  verdict.kind === "clear_unchecked" || verdict.decisions > 0 ? verdict.notes : 0,
-              })}
-            </p>
-          )}
       </div>
-
-      {/* "k of n decided" — n = open + decided. Withheld while a group-1
-          producer is blind: a complete-looking figure would be a lie (cl. 9). */}
-      {rows.length > 0 && !group1Blind && (
-        <div className="flex flex-col gap-1.5" data-testid="review-progress">
-          <div
-            aria-hidden="true"
-            className="grid gap-1"
-            style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}
-          >
-            {rows.map((r) => (
-              <span
-                key={r.findingKey}
-                className={`h-1.5 rounded-sm ${
-                  r.status !== "open"
-                    ? "bg-success"
-                    : r.findingKey === current?.findingKey
-                      ? "bg-primary"
-                      : "bg-surface-container-highest"
-                }`}
-              />
-            ))}
-          </div>
-          <span data-testid="review-progress-label" className="text-xs font-semibold text-on-surface-variant">
-            {t("progressDecided", { decided: decidedCount, total: rows.length })}
-          </span>
-        </div>
-      )}
 
       {current && renderCard(current)}
 
-      {rows.length > 0 && (
+      {/* Ruling C-1 (1): one open card + the list. */}
+      {rows.length > 1 && (
         <ul data-testid="review-group1-list" className="flex flex-col">
           {rows.map((r) => {
             const isCurrent = r.findingKey === current?.findingKey;
@@ -1122,13 +1264,12 @@ export function ReviewSurface({
                   onClick={() => {
                     setCurrentKey(r.findingKey);
                     if (!isCurrent) {
-                      setTakeOutResult(null);
+                      setEdit(null);
                       setTestimony(null);
                     }
-                    // The card sits above the list: bring it back into view.
                     cardRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
                   }}
-                  className={`flex min-h-11 w-full items-center gap-2.5 border-b border-surface-container px-1 text-left ${
+                  className={`flex min-h-10 w-full items-center gap-2.5 border-b border-surface-container px-1 text-left ${
                     isCurrent ? "rounded-lg bg-surface-container" : ""
                   }`}
                 >
@@ -1137,34 +1278,23 @@ export function ReviewSurface({
                       <Check className="h-[18px] w-[18px] text-success" strokeWidth={2.4} />
                     ) : isCurrent ? (
                       <span className="h-2 w-2 rounded-full bg-primary" />
-                    ) : r.item?.employerSentence ? (
-                      <span data-testid="review-row-neutral" className="h-2 w-2 rounded-full border-[1.5px] border-on-surface-variant" />
                     ) : (
                       <span className="h-2 w-2 rounded-full border-[1.5px] border-critical" />
                     )}
                   </span>
                   <span
-                    className={`min-w-0 flex-1 text-sm ${
-                      isCurrent
-                        ? "font-semibold text-primary"
-                        : r.status !== "open"
-                          ? "text-on-surface-variant"
-                          : "text-on-surface"
+                    className={`min-w-0 flex-1 truncate text-sm ${
+                      isCurrent ? "font-semibold text-primary" : r.status !== "open" ? "text-on-surface-variant" : "text-on-surface"
                     }`}
                   >
                     {r.label}
                   </span>
-                  {r.status !== "open" && (
+                  {r.status !== "open" && STATUS_KEY[r.status] && (
                     <span
                       data-testid={`review-row-status-${r.status}`}
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                        r.status === "added" || r.status === "supported"
-                          ? "bg-success-container text-success"
-                          : "bg-surface-container text-on-surface-variant"
-                      }`}
+                      className="shrink-0 rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant"
                     >
-                      {/* `kept` belongs to cross-document items only; buildGroup1Rows never yields it. */}
-                      {t(STATUS_KEY[r.status as keyof typeof STATUS_KEY])}
+                      {t(STATUS_KEY[r.status])}
                     </span>
                   )}
                   {r.status === "open" && !isCurrent && (
@@ -1177,61 +1307,184 @@ export function ReviewSurface({
         </ul>
       )}
 
-      <FormInputSection rows={formInputRows} tOracle={tOracle} />
-
-      {/* #702 (ADR-060 amended 2026-10-07): the cross-document section sits
-          between group 1 and the other findings — it is not "nothing that
-          stands in the way of sending" (RULING R-1 pending: placement A). */}
-      <CrossDocumentSection
-        documentKind={documentKind}
-        documentId={documentId}
-        criticReport={criticReport}
-        reviewState={reviewState}
-        cvEditHref={cvEditHref}
-        onRefresh={onRefresh}
-      />
-
-      {sendChecks.length > 0 && (
-        <SendChecks
-          items={sendChecks}
-          renderItem={(item) => (
-            <ItemRow
-              key={item.key}
-              item={item}
-              group={groups.find((g) => g.id === 4)!}
-              documentKind={documentKind}
-              locale={locale}
-              t={t}
-              tAts={tAts}
-            />
+      {/* ADR-099 cl. 9 — "Diese Stellen übersetzen". */}
+      {view.translate.map((item) => {
+        const p = item.check?.details_params ?? {};
+        const examples = String(p.examples ?? "")
+          .split("; ")
+          .filter(Boolean);
+        return (
+          <div key={item.key} data-testid="review-translate" className={boxClass}>
+            <h4 className="font-heading text-[14.5px] font-bold text-on-surface">
+              {t("delivery.translateTitle", { count: Number(p.count ?? examples.length), language: String(p.language ?? "") })}
+            </h4>
+            {examples.length > 0 && (
+              <p className="text-[13px] leading-snug text-on-surface-variant">
+                {examples.map((x) => t("delivery.quoted", { text: x })).join(" · ")}
+              </p>
+            )}
+            <button type="button" data-testid="review-translate-action" disabled={busy !== null} onClick={() => void runTranslate()} className={primaryBtn}>
+              {busy === "translate" && spin}
+              {t("delivery.translateAction")}
+            </button>
+            <p className="text-xs text-on-surface-variant">{t("delivery.translateNote")}</p>
+            {error?.scope === SEND_LANGUAGE_KEY && (
+              <p data-testid="review-action-error" role="alert" className="text-[13px] text-critical">
+                {error.text}
+              </p>
+            )}
+          </div>
+        );
+      })}
+      {translateEdit && (
+        <div data-testid="review-translate-result" className={boxClass}>
+          <span className={`text-[13px] font-semibold ${translateEdit.stillListed ? "text-critical" : "text-success"}`}>
+            {translateEdit.stillListed ? t("delivery.stillListed") : t("delivery.translateDone")}
+          </span>
+          {renderChanges(translateEdit.changes)}
+          {translateUndo && (
+            <button type="button" data-testid="review-translate-undo" disabled={busy !== null} onClick={() => void runUndo(SEND_LANGUAGE_KEY, SEND_LANGUAGE_KEY)} className={outlineBtn}>
+              {t("actionUndo")}
+            </button>
           )}
-        />
+        </div>
       )}
 
-      <OtherFindings
-        groups={groups}
-        gapAnalysisHref={gapAnalysisHref}
-        onOpenPins={onOpenPins}
-        renderItem={(item, group) => (
-          <ItemRow
-            key={item.key}
-            item={item}
-            group={group}
-            documentKind={documentKind}
-            locale={locale}
-            t={t}
-            tAts={tAts}
-            onResolveCluster={onResolveCluster}
-            onEditGapSection={onEditGapSection}
-          />
-        )}
-      />
+      {/* ADR-099 cl. 7 — the letter's ONE page-length card (the CV's comes from the page). */}
+      {isLetter && view.pageLength && (
+        <div data-testid="review-letter-page" className={boxClass}>
+          <h4 className="font-heading text-[14.5px] font-bold text-on-surface">
+            {t("delivery.letterPageTitle", {
+              pages: Number(view.pageLength.check?.details_params?.pages ?? 2),
+              target: Number(view.pageLength.check?.details_params?.letterPages ?? 1),
+            })}
+          </h4>
+          <p className="text-[13px] text-on-surface-variant">
+            {t("delivery.letterPageBody", { target: Number(view.pageLength.check?.details_params?.letterPages ?? 1) })}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" data-testid="review-letter-page-keep" disabled={busy !== null} onClick={() => void runLetterPage("keep")} className={outlineBtn}>
+              {tCv("pageOverflowKeep", { actual: Number(view.pageLength.check?.details_params?.pages ?? 2) })}
+            </button>
+            <button
+              type="button"
+              data-testid="review-letter-page-cut"
+              disabled={busy !== null}
+              onClick={() => void runLetterPage("cut")}
+              className={filledBtn}
+            >
+              {busy === "page" && spin}
+              {tCv("pageOverflowCut", { target: Number(view.pageLength.check?.details_params?.letterPages ?? 1) })}
+            </button>
+          </div>
+          <p className="text-xs text-on-surface-variant">{tCv("pageOverflowNote")}</p>
+          {error?.scope === PAGE_LENGTH_KEY && (
+            <p data-testid="review-action-error" role="alert" className="text-[13px] text-critical">
+              {error.text}
+            </p>
+          )}
+        </div>
+      )}
+      {pageEdit && (
+        <div data-testid="review-letter-page-result" className={boxClass}>
+          <span className={`text-[13px] font-semibold ${pageEdit.stillListed ? "text-critical" : "text-success"}`}>
+            {pageEdit.stillListed ? t("delivery.stillListed") : t("delivery.letterPageDone")}
+          </span>
+          {renderChanges(pageEdit.changes)}
+          {pageUndo && (
+            <button type="button" data-testid="review-letter-page-undo" disabled={busy !== null} onClick={() => void runUndo(PAGE_LENGTH_KEY, PAGE_LENGTH_KEY)} className={outlineBtn}>
+              {t("actionUndo")}
+            </button>
+          )}
+        </div>
+      )}
 
-      {atsReport && (
-        <p data-testid="review-coverage" className="text-xs text-on-surface-variant">
-          {t("coverageLine", { present, total })}
+      {extraCards.map((c) => (
+        <div key={c.key} data-testid={`review-extra-${c.key}`} data-counted={c.counted ? "true" : "false"}>
+          {c.node}
+        </div>
+      ))}
+
+      {/* ADR-099 cl. 2/9 — class U: "Nicht geprüft" never collapses. */}
+      {view.unknown.map((u) => (
+        <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} className={`${boxClass} border-dashed`}>
+          <h4 className="font-heading text-[14.5px] font-bold text-on-surface">{t(UNKNOWN_TITLE_KEY[unknownState(u)], { producer: producerName(u) })}</h4>
+          <p data-testid="review-unknown-body" data-state={unknownState(u)} className="text-[13px] leading-snug text-on-surface-variant">
+            {unknownState(u) !== "notRun"
+              ? t(UNKNOWN_BODY_KEY[unknownState(u) as Exclude<UnknownState, "notRun">])
+              : u.resolver === "regenerate"
+                ? u.check && baseId(u.check.id) === "terminal-review"
+                  ? t("delivery.terminalNotRunBody")
+                  : t("delivery.writingOnlyBody")
+                : rechecked
+                  ? t("delivery.recheckStill")
+                  : t("delivery.unknownBody")}
+          </p>
+          {u.resolver === "regenerate" ? (
+            onRegenerate && (
+              <button type="button" data-testid="review-unknown-regenerate" onClick={onRegenerate} className={primaryBtn}>
+                {t("delivery.regenerate")}
+              </button>
+            )
+          ) : (
+            <button type="button" data-testid="review-unknown-recheck" disabled={busy !== null || !documentId} onClick={() => void runRecheck()} className={primaryBtn}>
+              {busy === "recheck" && spin}
+              {t("delivery.recheck")}
+            </button>
+          )}
+        </div>
+      ))}
+      {error?.scope === "recheck" && (
+        <p data-testid="review-action-error" role="alert" className="text-[13px] text-critical">
+          {error.text}
         </p>
       )}
+
+      {/* An unclassified (or unregistered) failed check: today's row — its label
+          and a KEYED detail only (cl. 12: never the server's prose). */}
+      {view.fallback.length > 0 && (
+        <ul data-testid="review-fallback" className="flex flex-col gap-1">
+          {view.fallback.map(({ item, counted }) => (
+            <FallbackRow key={item.key} item={item} counted={counted} />
+          ))}
+        </ul>
+      )}
+
+      {/* Group 3 — the link out (uncounted, as approved). */}
+      {gapAnalysisHref && !group3.unknown && group3.items.length > 0 && (
+        <Link
+          href={gapAnalysisHref}
+          data-testid="review-group3-link"
+          className="flex min-h-11 w-full items-center gap-2.5 rounded-xl border border-outline-variant bg-surface-bright px-3 text-left"
+        >
+          <span className="flex min-w-0 flex-1 flex-col py-1.5">
+            <span className="text-[13px] text-on-surface">{t("group3Title")}</span>
+            <span className="text-xs font-semibold text-primary">{t("group3Link")}</span>
+          </span>
+          <span data-testid="review-group-count-3" className="shrink-0 rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-bold text-on-surface">
+            {group3.items.length}
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-on-surface-variant" aria-hidden="true" />
+        </Link>
+      )}
+
+      {/* ADR-099 cl. 3 — group 4 is ONE passed line; a U item never enters it. */}
+      {atsReport && view.passed > 0 && (
+        <p data-testid="review-passed-checks" className="flex items-center gap-1.5 text-[13px] text-success">
+          <Check className="h-4 w-4" aria-hidden="true" />
+          {t("delivery.passed", { count: view.passed })}
+        </p>
+      )}
+
+      <RemovalLine
+        removals={view.removals}
+        documentKind={documentKind}
+        documentId={documentId}
+        reviewState={reviewState}
+        sectionLabel={sectionLabel}
+        onRefresh={(r) => applyRefresh(r, false)}
+        testimonyMessage={testimonyMessage}
+      />
 
       {children}
       {phoneLocate}
@@ -1239,449 +1492,208 @@ export function ReviewSurface({
   );
 }
 
-/* ------------------------------------- B3-10 — "Aus Deiner Eingabe im Formular" */
+/* ---------------------------------------------------------- fallback row */
 
-/**
- * Ruling B3-10, RULING FO-1 = A: the sentences built from the letter form's input
- * — the candidate's own statement for this letter. Neutral by design: an outline
- * chip, no buttons (no profile write), outside group 1's headline and progress.
- */
-function FormInputSection({
-  rows,
-  tOracle,
-}: {
-  rows: FormInputRow[];
-  tOracle: OracleDetailTranslator;
-}) {
-  const t = useTranslations("documentReview.formInput");
-  if (rows.length === 0) return null;
+function FallbackRow({ item, counted }: { item: ReviewItem; counted: boolean }) {
+  const tAts = useTranslations("ats");
+  const c = item.check as ATSCheck | undefined;
+  const key = c ? `checks.${baseId(c.id)}` : "";
+  const label = c ? (tAts.has(key) ? tAts(key) : c.id) : item.label;
+  const detail = c && usesLocalizedDetail(c) ? tAts(`checkDetails.${c.details_key}`, c.details_params ?? undefined) : null;
   return (
-    <div data-testid="review-form-input" className="flex flex-col gap-1.5 border-t border-outline-variant pt-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">{t("title")}</h3>
-      <p className="text-xs text-on-surface-variant">{t("hint")}</p>
-      <ul className="flex flex-col">
-        {rows.map((r) => {
-          const detail = oracleDetailText(
-            { detail: r.detail, detail_key: r.detailKey, detail_params: r.detailParams },
-            tOracle,
-          );
-          return (
-            <li
-              key={r.key}
-              data-testid="review-form-input-row"
-              className="flex items-start gap-2.5 border-b border-surface-container px-1 py-2"
-            >
-              <span className="mt-0.5 shrink-0 rounded-full border border-outline-variant px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant">
-                {t("chip")}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm text-on-surface">{r.text}</span>
-                {detail && <span className="block text-xs text-on-surface-variant">{detail}</span>}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------- group counts */
-
-/**
- * ADR-081 cl. 6's visibility invariant: a non-zero group's count is on screen
- * without interaction, and an *unknown* group says so instead of showing a zero.
- */
-/** Re-probe N1: this group's share of the headline's decision count, on the row itself. */
-function GroupDecisions({ group }: { group: ReviewGroup }) {
-  const t = useTranslations("documentReview");
-  const n = groupDecisionCount(group);
-  if (n === 0) return null;
-  return (
-    <span data-testid={`review-group-decisions-${group.id}`} className="text-xs font-semibold text-on-surface">
-      <span aria-hidden="true" className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-warning align-middle" />
-      {t("groupDecisions", { count: n })}
-    </span>
-  );
-}
-
-function GroupCount({ group }: { group: ReviewGroup }) {
-  const t = useTranslations("documentReview");
-  if (group.unknown) {
-    return (
-      <span
-        data-testid={`review-group-count-${group.id}`}
-        data-review-unknown="true"
-        className="shrink-0 rounded-full border border-dashed border-outline-variant px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-on-surface-variant"
-      >
-        {t("unknownLabel")}
-      </span>
-    );
-  }
-  const empty = group.items.length === 0;
-  return (
-    <span
-      data-testid={`review-group-count-${group.id}`}
-      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${
-        empty ? "bg-success-container text-success" : "bg-surface-container text-on-surface"
-      }`}
-    >
-      {group.items.length}
-    </span>
-  );
-}
-
-function UnknownProducerNote({ group }: { group: ReviewGroup }) {
-  const t = useTranslations("documentReview");
-  if (group.unknownProducers.length === 0) return null;
-  const names = group.unknownProducers.map((p) => t(PRODUCER_LABEL_KEY[p])).join(", ");
-  return (
-    <p data-testid={`review-group-unknown-${group.id}`} className="text-xs text-on-surface-variant">
-      {group.unknown ? t("unknownWhole", { producers: names }) : t("unknownPartial", { producers: names })}
-    </p>
-  );
-}
-
-/* ------------------------------------------------------ before sending */
-
-/**
- * #759 (ADR-081 amended 2026-10-08) — failed checks that DO stand in the way of
- * sending (`SEND_CHECK_IDS`). Open without interaction, above "Weitere Hinweise",
- * whose "nothing here stands in the way" sentence is then true again.
- */
-function SendChecks({
-  items,
-  renderItem,
-}: {
-  items: ReviewItem[];
-  renderItem: (item: ReviewItem) => ReactNode;
-}) {
-  const t = useTranslations("documentReview");
-  return (
-    <div
-      data-testid="review-send-checks"
-      className="flex flex-col gap-1 rounded-xl border border-warning/40 bg-warning-container px-3 py-2"
-    >
-      <span className="font-heading text-[13px] font-bold text-on-surface">{t("sendCheckTitle")}</span>
-      <span className="text-xs text-on-surface-variant">{t("sendCheckSub")}</span>
-      <ul>{items.map((item) => renderItem(item))}</ul>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------- groups 2 – 4 */
-
-/**
- * Groups 2–4 beneath group 1, one row each with its count (ADR-090 cl. 1;
- * ADR-081 cl. 6 unchanged). Group 2 and 4 open in place; group 3 links to the
- * gap view (ruling C-1: `/flow/{id}/gaps` is reachable once the analysis exists).
- */
-function OtherFindings({
-  groups,
-  gapAnalysisHref,
-  onOpenPins,
-  renderItem,
-}: {
-  groups: ReviewGroup[];
-  gapAnalysisHref: string | null;
-  onOpenPins?: () => void;
-  renderItem: (item: ReviewItem, group: ReviewGroup) => ReactNode;
-}) {
-  const t = useTranslations("documentReview");
-  const [openId, setOpenId] = useState<number | null>(null);
-  const order = [2, 4, 3] as const; // the canvas' order: the two in-place groups, then the link out
-  const decisions = decisionCount(groups);
-  return (
-    <div className="flex flex-col gap-2 border-t border-outline-variant pt-2" data-testid="review-other">
-      <span className="font-heading text-[13px] font-bold text-on-surface">{t("otherTitle")}</span>
-      {/* Re-probe N1: the T-1 headline counts the decisions among these rows,
-          so the line under the title may not call all of them harmless. */}
-      <span data-testid="review-other-sub" className="text-xs text-on-surface-variant">
-        {decisions > 0 ? t("otherSubDecisions", { count: decisions }) : t("otherSub")}
-      </span>
-      <ul className="flex flex-col gap-2">
-        {order.map((id) => {
-          const group = groups.find((g) => g.id === id)!;
-          const count = group.items.length;
-          // cl. 6: a group may collapse to a single line ONLY at count zero.
-          const expandable = count > 0;
-          const open = expandable && openId === id;
-          const rowClass =
-            "flex min-h-11 w-full items-center gap-2.5 rounded-xl border border-outline-variant bg-surface-bright px-3 text-left disabled:cursor-default";
-
-          if (id === 3 && gapAnalysisHref && !group.unknown) {
-            return (
-              <li key={id} data-testid="review-group-3">
-                <Link href={gapAnalysisHref} data-testid="review-group3-link" className={rowClass}>
-                  <span className="flex min-w-0 flex-1 flex-col py-1.5">
-                    <span className="text-[13px] text-on-surface">{t(GROUP_TITLE_KEY[3])}</span>
-                    <span className="text-xs font-semibold text-primary">{t("group3Link")}</span>
-                  </span>
-                  <GroupCount group={group} />
-                  <ChevronRight className="h-4 w-4 shrink-0 text-on-surface-variant" aria-hidden="true" />
-                </Link>
-                <div className="px-1 pt-1">
-                  <UnknownProducerNote group={group} />
-                </div>
-              </li>
-            );
-          }
-
-          return (
-            <li key={id} data-testid={`review-group-${id}`}>
-              <button
-                type="button"
-                data-testid={`review-group-toggle-${id}`}
-                aria-expanded={open}
-                disabled={!expandable || id === 3}
-                onClick={() => setOpenId(open ? null : id)}
-                className={rowClass}
-              >
-                <span className="flex min-w-0 flex-1 flex-col py-1.5">
-                  <span className="text-[13px] text-on-surface">{t(GROUP_TITLE_KEY[id])}</span>
-                  <GroupDecisions group={group} />
-                </span>
-                <GroupCount group={group} />
-                {expandable && id !== 3 ? (
-                  <ChevronDown
-                    className={`h-4 w-4 shrink-0 text-on-surface-variant transition-transform ${open ? "rotate-180" : ""}`}
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <span aria-hidden="true" className="h-4 w-4 shrink-0" />
-                )}
-              </button>
-              {/* cl. 9: a blind producer is stated WITHOUT interaction. */}
-              <div className="px-1 pt-1">
-                <UnknownProducerNote group={group} />
-                {/* cl. 6 — the all-clear collapse is for PASSING CHECKS only. */}
-                {id === 4 && group.passedChecks > 0 && !group.unknownProducers.includes("ats") && (
-                  <p data-testid="review-passed-checks" className="text-xs text-success">
-                    {t("passedChecks", { count: group.passedChecks })}
-                  </p>
-                )}
-              </div>
-              {open && (
-                <div className="mt-1 rounded-xl border border-outline-variant px-1 pb-2 pt-1">
-                  {id === 2 && <Group2Trade onOpenPins={onOpenPins} />}
-                  <ul>{group.items.map((item) => renderItem(item, group))}</ul>
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------------- item rows */
-
-function ItemRow({
-  item,
-  group,
-  documentKind,
-  locale,
-  t,
-  tAts,
-  onResolveCluster,
-  onEditGapSection,
-}: {
-  item: ReviewItem;
-  group: ReviewGroup;
-  documentKind: ReviewDocumentKind;
-  locale: string;
-  t: ReturnType<typeof useTranslations<"documentReview">>;
-  tAts: ReturnType<typeof useTranslations<"ats">>;
-  onResolveCluster?: (gapId: string) => void;
-  onEditGapSection?: (gapId: string) => void;
-}) {
-  const tSig = useTranslations("reviewSignals");
-  const tOracle = useTranslations("oracleDetail");
-  const detail = itemDetail(item, locale, tAts, tOracle);
-  const doc = documentKind === "cv" ? "cv" : "letter";
-  const label = item.kind === "check" && item.checkId ? tAts(`checks.${baseId(item.checkId)}`) : item.label;
-
-  const body = (
-    <>
-      <span aria-hidden="true" className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[item.severity]}`} />
+    <li data-testid={`review-fallback-${c?.id ?? item.key}`} data-counted={counted ? "true" : "false"} className="flex items-start gap-2 px-1 py-1.5">
+      <span aria-hidden="true" className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${counted ? "bg-critical" : "bg-outline-variant"}`} />
       <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-center gap-1.5 text-sm text-on-surface">
-          {label}
-          {item.signal && (
-            <span
-              data-testid="review-item-signal-tag"
-              data-weight={item.signal.weight}
-              className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                item.signal.weight === "open"
-                  ? "border border-warning bg-warning-container text-gold-dim"
-                  : "bg-surface-container-high text-primary"
-              }`}
-            >
-              {tSig("signalTag", { count: item.signal.rounds })}
-            </span>
-          )}
-        </span>
-        {item.signal && (
-          <span data-testid="review-item-signal-note" className="block text-xs text-on-surface-variant">
-            {item.signal.weight === "open"
-              ? tSig("signalOpen", { count: item.signal.rounds, doc })
-              : tSig("signalLanded", { count: item.signal.rounds, doc })}
-          </span>
-        )}
-        {item.kind === "check" && hasTerminalReviewCard(item.check) ? (
-          <span className="block text-xs text-on-surface-variant">
-            <TerminalReviewDetail check={item.check} documentKind={documentKind} />
-          </span>
-        ) : (
-          detail && <span className="block text-xs text-on-surface-variant">{detail}</span>
-        )}
-        <span className="mt-0.5 flex flex-wrap items-center gap-1">
-          <span className="rounded-full border border-outline-variant px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant">
-            {item.kind === "signal" ? tSig("kindSignal") : t(KIND_LABEL_KEY[item.kind])}
-          </span>
-          {item.producers.map((p) => (
-            <span
-              key={p}
-              data-testid={`review-item-producer-${p}`}
-              className="rounded-full bg-surface-container px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant"
-            >
-              {t(PRODUCER_LABEL_KEY[p])}
-            </span>
-          ))}
-        </span>
+        <span className="block text-sm text-on-surface">{label}</span>
+        {detail && <span className="block text-xs text-on-surface-variant">{detail}</span>}
       </span>
-    </>
-  );
-
-  // #667 / ADR-081 cl. 3 amended 2026-09-11: a group-2 CLAIMABLE cluster lands
-  // the user in the section editor with this gap preselected — the surface
-  // navigates, the insertion is the user's own hand.
-  if (item.kind === "cluster" && item.clusterId && onEditGapSection && group.id === 2) {
-    return (
-      <li>
-        <button
-          type="button"
-          data-testid={`review-item-g${group.id}-${item.key}`}
-          data-handle="section-editor"
-          onClick={() => onEditGapSection(item.clusterId!)}
-          className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-container"
-        >
-          {body}
-        </button>
-      </li>
-    );
-  }
-
-  if (item.kind === "cluster" && item.clusterId && onResolveCluster && group.id !== 2) {
-    return (
-      <li>
-        <button
-          type="button"
-          data-testid={`review-item-g${group.id}-${item.key}`}
-          onClick={() => onResolveCluster(item.clusterId!)}
-          className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-container"
-        >
-          {body}
-        </button>
-      </li>
-    );
-  }
-
-  return (
-    <li data-testid={`review-item-g${group.id}-${item.key}`} className="flex items-start gap-2 px-2 py-1.5">
-      {body}
     </li>
   );
 }
 
-function itemDetail(
-  item: ReviewItem,
-  locale: string,
-  tAts: ReturnType<typeof useTranslations<"ats">>,
-  tOracle: OracleDetailTranslator,
-): string | null {
-  if (item.kind === "advisory" && item.advisory) return localizedMessage(item.advisory.message, locale);
-  if (item.kind === "check" && item.check) return checkDetail(item.check, tAts);
-  return itemOracleDetail(item, tOracle);
-}
-
-/** ADR-052 amended 2026-10-22: an Oracle detail in the UI language when it carries a key. */
-function itemOracleDetail(item: ReviewItem, tOracle: OracleDetailTranslator): string | null {
-  return oracleDetailText(
-    { detail: item.detail, detail_key: item.detailKey, detail_params: item.detailParams },
-    tOracle,
-  );
-}
+/* --------------------------------------------------------- removal line */
 
 /**
- * R2-5 (build 4) — the narrative-evidence row in the UI language: the
- * "only in the skills list" sentence, then the "missing entirely" one, then the
- * rest count. `null` = not this check, or a legacy report without the key.
+ * ADR-099 cl. 5 (UAT-3i) — every claim the loop removed or narrowed because the
+ * profile does not back it, in ONE collapsed, uncounted line. Opened, each item
+ * has ONE exit "Doch, stimmt – wo?" → testimony (ADR-061). A removal that hits
+ * a pinned fact opens the line by itself (ADR-077 cl. 2).
  */
-function narrativeEvidenceDetail(c: ATSCheck, tAts: ReturnType<typeof useTranslations<"ats">>): string | null {
-  const p = c.details_params;
-  if (c.details_key !== "narrative-evidence-underclaim" || !p) return null;
-  const tagOnly = String(p.tagOnly ?? "");
-  const absent = String(p.absent ?? "");
-  const more = Number(p.more ?? 0);
-  const parts: string[] = [];
-  if (tagOnly) parts.push(tAts("checkDetails.narrative-evidence-tag-only", { terms: tagOnly }));
-  if (absent) {
-    parts.push(
-      tagOnly
-        ? tAts("checkDetails.narrative-evidence-absent-also", { terms: absent })
-        : tAts("checkDetails.narrative-evidence-absent", { terms: absent }),
-    );
-  }
-  if (more > 0) parts.push(tAts("checkDetails.narrative-evidence-more", { count: more }));
-  return parts.length > 0 ? parts.join(" ") : null;
-}
-
-/**
- * The ATS auditor's own detail line — the key/params rule from
- * `lib/ats-report.ts`, the same rule `ATSChecksPanel` uses.
- */
-function checkDetail(c: ATSCheck, tAts: ReturnType<typeof useTranslations<"ats">>): string | null {
-  const narrative = narrativeEvidenceDetail(c, tAts);
-  if (narrative !== null) return narrative;
-  if (usesLocalizedDetail(c)) return tAts(`checkDetails.${c.details_key}`, c.details_params ?? undefined);
-  return c.details ?? null;
-}
-
-/**
- * ADR-081 clause 3 / US302 — group 2 names the trade and the handles that
- * already exist. It offers NO action: what it shows is the residue AFTER the
- * coverage loop tried, and an insertion pass is barred by ADR-076. ADR-090
- * amends clause 3 for group 1 only, in the removal direction.
- */
-function Group2Trade({ onOpenPins }: { onOpenPins?: () => void }) {
+function RemovalLine({
+  removals,
+  documentKind,
+  documentId,
+  reviewState,
+  sectionLabel,
+  onRefresh,
+  testimonyMessage,
+}: {
+  removals: DeliveryRemoval[];
+  documentKind: ReviewDocumentKind;
+  documentId: string | null;
+  reviewState: ReviewState | null;
+  sectionLabel?: (sectionId: string) => string;
+  onRefresh: (r: ReviewRefresh) => void;
+  testimonyMessage: (o: TestimonyOutcome) => string;
+}) {
   const t = useTranslations("documentReview");
+  const tErrors = useTranslations("errors");
+  const pinned = removals.some((r) => r.pinned);
+  const [open, setOpen] = useState(false);
+  const [asking, setAsking] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<Record<string, TestimonyOutcome>>({});
+  // D-9: the stored answer the action returned (with the producer's re-check).
+  const [answers, setAnswers] = useState<NonNullable<ReviewState["removal_answers"]>>({});
+  const [error, setError] = useState<string | null>(null);
+  if (removals.length === 0) return null;
+  const expanded = open || pinned;
+
+  const submit = async (r: DeliveryRemoval) => {
+    if (!documentId || busy || !text.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await removalEvidence(documentKind, documentId, r.text, text.trim());
+      setResults((m) => ({ ...m, [normQuote(r.text)]: res.testimony }));
+      setAnswers((m) => ({ ...m, ...(res.review_state?.removal_answers ?? {}) }));
+      setAsking(null);
+      setText("");
+      onRefresh({ review_state: res.review_state });
+    } catch (e) {
+      setError(tErrors("generic", { status: e instanceof ReviewActionError ? e.status || "—" : "—" }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div data-testid="review-group2-trade" className="mx-2 mb-2 rounded-lg bg-surface-container px-3 py-2">
-      <p className="text-xs text-on-surface">{t("group2TradeBody")}</p>
-      <p className="mt-1 text-xs font-medium text-on-surface-variant">{t("group2HandlesTitle")}</p>
-      <ul className="mt-0.5 list-disc pl-4 text-xs text-on-surface-variant">
-        <li data-testid="review-group2-handle-pages">{t("group2HandlePages")}</li>
-        <li data-testid="review-group2-handle-pin">
-          {t("group2HandlePin")}
-          {onOpenPins && (
-            <>
-              {" "}
-              <button
-                type="button"
-                data-testid="review-group2-open-pins"
-                onClick={() => onOpenPins()}
-                className="font-semibold text-primary underline underline-offset-2 hover:text-primary/80"
-              >
-                {t("group2OpenPins")}
-              </button>
-            </>
-          )}
-        </li>
-        <li data-testid="review-group2-handle-regenerate">{t("group2HandleRegenerate")}</li>
-        <li data-testid="review-group2-handle-editor">{t("group2HandleEditor")}</li>
-      </ul>
+    <div data-testid="review-removals" data-expanded={expanded ? "true" : "false"} className="flex flex-col gap-1.5 border-t border-outline-variant pt-2">
+      <button
+        type="button"
+        data-testid="review-removals-toggle"
+        aria-expanded={expanded}
+        disabled={pinned}
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-start gap-2 text-left text-[13px] text-on-surface-variant"
+      >
+        <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 transition-transform ${expanded ? "" : "-rotate-90"}`} aria-hidden="true" />
+        <span>{t("delivery.removalLine", { count: removals.length })}</span>
+      </button>
+      {expanded &&
+        removals.map((r) => {
+          const fold = normQuote(r.text);
+          const answered = results[fold] ?? null;
+          const stored = answers[fold] ?? reviewState?.removal_answers?.[fold];
+          return (
+            <div key={fold} data-testid="review-removal-item" data-pinned={r.pinned ? "true" : "false"} className="flex flex-col gap-1.5 rounded-lg border border-outline-variant px-2.5 py-2">
+              <span className="text-[13px] text-on-surface line-through decoration-outline-variant">{t("delivery.quoted", { text: r.text })}</span>
+              <span className="text-[11.5px] text-on-surface-variant">
+                {r.pinned && (
+                  <span className="mr-1.5 inline-block rounded-full border border-warning/40 bg-warning-container px-1.5 text-[11px] font-bold text-on-surface">
+                    {t("delivery.removalPinned")}
+                  </span>
+                )}
+                {[r.section && sectionLabel ? sectionLabel(r.section) : null, r.narrowed_to ? t("delivery.removalNarrowed", { text: r.narrowed_to }) : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+              {stored && typeof stored.backed === "boolean" ? (
+                // D-9: what the removal's producer says on the profile as it now stands.
+                <p data-testid="review-removal-result" data-status={stored.status} data-backed={stored.backed ? "true" : "false"} className={`text-[13px] ${stored.backed ? "text-success" : "text-on-surface"}`}>
+                  {stored.backed ? (
+                    t("delivery.removalBackedNow", { text: r.text })
+                  ) : (
+                    <>
+                      {t("delivery.removalNotBacked", { text: r.text })}{" "}
+                      <Link href="/profile" data-testid="review-removal-profile" className="font-semibold text-primary underline underline-offset-2">
+                        {t("delivery.removalOpenProfile")}
+                      </Link>
+                    </>
+                  )}
+                </p>
+              ) : answered ? (
+                <p data-testid="review-removal-result" data-status={answered.status} className="text-[13px] text-on-surface">
+                  {testimonyMessage(answered)}
+                </p>
+              ) : stored && (stored.status === "applied" || stored.status === "partial") ? (
+                <p data-testid="review-removal-result" data-status={stored.status} className="text-[13px] text-success">
+                  {t("statusAdded")}
+                </p>
+              ) : stored && stored.status !== "error" ? (
+                // D-9: an answer that changed nothing stays answered after a reload.
+                <p data-testid="review-removal-result" data-status={stored.status} className="text-[13px] text-on-surface">
+                  {t("delivery.removalAnsweredNoChange")}
+                </p>
+              ) : asking === fold ? (
+                <div className="flex flex-col gap-2">
+                  <label htmlFor={`removal-${fold}`} className="text-[13px] font-semibold text-on-surface">
+                    {t("delivery.removalPrompt")}
+                  </label>
+                  <textarea
+                    id={`removal-${fold}`}
+                    data-testid="review-removal-text"
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    disabled={busy}
+                    rows={3}
+                    className="w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      data-testid="review-removal-submit"
+                      disabled={busy || !text.trim()}
+                      onClick={() => void submit(r)}
+                      className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                      {t("addSubmit")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAsking(null);
+                        setText("");
+                      }}
+                      className="min-h-11 rounded-full border border-outline-variant bg-surface-bright px-4 text-sm font-semibold text-on-surface"
+                    >
+                      {t("addCancel")}
+                    </button>
+                  </div>
+                  {error && (
+                    <p role="alert" className="text-[13px] text-critical">
+                      {error}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="review-removal-where"
+                  disabled={!documentId}
+                  onClick={() => {
+                    setAsking(fold);
+                    setText("");
+                  }}
+                  className="flex min-h-10 items-center justify-center rounded-xl border border-outline-variant bg-surface-bright px-3 text-[13px] font-semibold text-on-surface"
+                >
+                  {t("delivery.removalWhere")}
+                </button>
+              )}
+            </div>
+          );
+        })}
     </div>
   );
+}
+
+/**
+ * The Oracle's detail in the UI language — KEYED only. ADR-099 cl. 12: a detail
+ * whose key the catalog does not hold never renders the server's prose.
+ */
+function itemOracleDetail(item: ReviewItem, tOracle: OracleDetailTranslator): string | null {
+  if (!item.detailKey || !tOracle.has(item.detailKey)) return null;
+  return oracleDetailText({ detail: null, detail_key: item.detailKey, detail_params: item.detailParams }, tOracle);
 }

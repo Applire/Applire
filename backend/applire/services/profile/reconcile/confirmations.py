@@ -29,7 +29,8 @@ for doing it right already existed (LLM-generated questions and the outcome
 critic's advisories ship `{"de": …, "en": …}` pairs and follow `ui_language`);
 it had simply never been applied to these paths.
 
-**Ten builders, five ask families.** Every deterministic
+**Eleven builders, six ask families** (family 6, the project-parent ask, is
+D-8 of Hazelnut build 5: the engine rebuilds a model-asked one). Every deterministic
 `RequestConfirmation` in `applire/` is built here — `apply.py` x8 and
 `attribution.py` x2 (the guard's ask, and the narrower "which of your roles at
 this employer" ask its RESOLUTION raises, #723 / ADR-063 am. 2026-09-18) — so a
@@ -291,6 +292,34 @@ def attribution_entry_confirmation(
             f"You have several positions at {anchor_text}. Which one does "
             f"'{sample}' belong to?"
         ),
+        pairs,
+        context,
+    )
+
+
+def project_parent_confirmation(
+    *,
+    project: str,
+    candidates: list[tuple[str, dict[str, str]]],
+    context: dict[str, Any],
+) -> RequestConfirmation:
+    """Family 6 — "which position does this project belong to?" (D-8,
+    Hazelnut build 5).
+
+    The reconciler asks it itself (prompt rule 6), in its own words: an English
+    question in a German interface, and options that carry the prompt's short
+    handles ("System Engineer (id_w4)"). The answer then wrote nothing. The
+    engine REBUILDS such an ask here (``project_parent.bind_project_parent_ask``)
+    once every option names exactly one position: the question in both
+    languages, each option the position's own label, and the keys
+    ``entry:<id>``, so the answer resolves on an id, like family 5.
+    """
+    pairs: list[tuple[dict[str, str], str]] = [
+        (dict(label), f"entry:{entry_id}") for entry_id, label in candidates
+    ]
+    return _build(
+        f"Zu welcher Position geh\u00f6rt das Projekt \u201e{project}\u201c?",
+        f"Which position does the project '{project}' belong to?",
         pairs,
         context,
     )

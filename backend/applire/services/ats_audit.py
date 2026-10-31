@@ -795,7 +795,7 @@ def _longest_shared_run(a: Sequence[str], b: Sequence[str]) -> int:
     return best
 
 
-def bullets_prose_dupe(a: str, b: str) -> bool:
+def bullets_prose_dupe(a: str, b: str, term_grams: frozenset = frozenset()) -> bool:
     """Do two delivered bullets state the same achievement? (ADR-082, #659/#424)
 
     True when EITHER the shorter bullet's content tokens are ``>=
@@ -840,7 +840,28 @@ def bullets_prose_dupe(a: str, b: str) -> bool:
     # a heuristic: this cannot change any verdict, only skip work.
     if not shared:
         return False
-    return _longest_shared_run(ta, tb) >= _PROSE_DUPE_MIN_RUN
+    if not term_grams:
+        return _longest_shared_run(ta, tb) >= _PROSE_DUPE_MIN_RUN
+    # D-19 (Hazelnut build 5, delivery run 3): a shared run that lies inside a
+    # skill the document delivers is that skill NAMED twice ("computer system
+    # validation" in two unrelated bullets), not a copied clause. A fact about
+    # the words (ADR-062 cl.1); with no terms this is exactly the run test above.
+    return bool((_run_grams(ta) & _run_grams(tb)) - term_grams)
+
+
+def _run_grams(tokens: Sequence[str]) -> set[tuple[str, ...]]:
+    n = _PROSE_DUPE_MIN_RUN
+    return {tuple(tokens[i:i + n]) for i in range(len(tokens) - n + 1)}
+
+
+def skill_term_grams(tailored) -> frozenset:
+    """Every MIN_RUN-token run inside a delivered skills entry (D-19)."""
+    grams: set[tuple[str, ...]] = set()
+    for skill in _field(tailored, "skills") or []:
+        name = skill if isinstance(skill, str) else _field(skill, "name")
+        if isinstance(name, str):
+            grams |= _run_grams(_prose_tokens(name))
+    return frozenset(grams)
 
 
 def _field(obj, name):
@@ -916,7 +937,12 @@ def foreign_language_items(tailored, document_language: str) -> list[tuple[str, 
     sees, rather than a per-axis scan. Covered surfaces are exactly the ones a
     deterministic pass can put vault text into after the ADR-038 language pass has
     run — the summary, every work and project bullet (nested and standalone), and
-    every per-role ``industry_context`` furniture line.
+    every skill chip (D-11, Hazelnut build 5: a terminal corrector copied a German
+    vault skill name into an English CV and nothing read the chips). The item
+    predicate's evidence floor keeps a 2–3-word chip silent by construction.
+    The per-role ``industry_context`` line is NOT scanned (founder ruling P-1,
+    Hazelnut build 5): no template and no .docx renders it, and a finding on text
+    the reader never sees has nothing to fix.
 
     The predicate is ``utils.language_detection.item_language_mismatch``, which
     wraps THE detector (ADR-066) with a measured evidence floor. It UNDER-reports
@@ -933,14 +959,12 @@ def foreign_language_items(tailored, document_language: str) -> list[tuple[str, 
     summary = _field(tailored, "summary")
     if isinstance(summary, str) and item_language_mismatch(summary, document_language):
         out.append(("Profil", summary))
-    for w in _field(tailored, "work_history") or []:
-        where = f"{_field(w, 'company') or '?'} / {_field(w, 'role') or '?'}"
-        industry = _field(w, "industry_context")
-        if isinstance(industry, str) and item_language_mismatch(industry, document_language):
-            out.append((f"{where} > Branche", industry))
     for where, text in delivered_bullets(tailored):
         if item_language_mismatch(text, document_language):
             out.append((where, text))
+    for chip in _field(tailored, "skills") or []:
+        if isinstance(chip, str) and item_language_mismatch(chip, document_language):
+            out.append(("Kenntnisse", chip))
     return out
 
 
@@ -990,11 +1014,12 @@ def redundant_bullet_pairs(tailored) -> list[tuple[str, str, str, str]]:
     may not delete).
     """
     delivered = delivered_bullets(tailored)
+    terms = skill_term_grams(tailored)
     pairs: list[tuple[str, str, str, str]] = []
     for i in range(len(delivered)):
         for j in range(i + 1, len(delivered)):
             (wa, a), (wb, b) = delivered[i], delivered[j]
-            if bullets_prose_dupe(a, b):
+            if bullets_prose_dupe(a, b, terms):
                 pairs.append((wa, a, wb, b))
     return pairs
 
@@ -1163,6 +1188,15 @@ def _check(checks: list[ATSCheck], cid: str, ok: bool, details: str | None = Non
     checks.append(ATSCheck(id=cid, status="pass" if ok else "fail", details=None if ok else details))
 
 
+def _key_failed(checks: list[ATSCheck], key: str, params: dict) -> None:
+    """ADR-099 cl. 12 (WP-B): the just-appended row, when failed, carries its
+    detail as a catalog key + data (``ats.checkDetails.<key>``) — the surface never
+    renders the server sentence. The params are the document's own words."""
+    if checks and checks[-1].status == "fail":
+        checks[-1].details_key = key
+        checks[-1].details_params = params
+
+
 def _document_language_check(
     checks: list[ATSCheck], foreign: list[tuple[str, str]], document_language: str
 ) -> None:
@@ -1272,6 +1306,13 @@ class NonClaimNames:
     #: inside one) is a skill, not only a name — "MongoDB Inc." must not hide
     #: "sharded MongoDB clusters", "Software AG" must not mask "software".
     skill_forms: tuple[str, ...] = ()
+    #: D-4 (Hazelnut build 5): the posting's own organisation units — a team,
+    #: division or department it names ("our Developer Experience team",
+    #: "Productivity Solutions Division (PSD)"), normalised, head noun included,
+    #: plus a parenthesised acronym. Read only with ``employer_clause`` (letters):
+    #: a letter sentence about "the Developer Experience team's work" is about the
+    #: employer, and "Developer Experience" in it is no claim of the candidate's.
+    org_units: tuple[str, ...] = ()
 
     def __bool__(self) -> bool:
         return bool(self.titles or self.employers)
@@ -1388,6 +1429,10 @@ def non_claim_names_for_job(job: Any, application: Any | None = None) -> NonClai
     if job is None:
         return None
     posting = non_claim_names(getattr(job, "role_title", None), [getattr(job, "company_name", None)])
+    raw = getattr(job, "raw_text", None)
+    org_units = posting_org_units(raw if isinstance(raw, str) else None)  # D-4 (letters only)
+    if org_units:
+        posting = dataclasses.replace(posting, org_units=org_units)
     if application is None:
         return posting
     from applire.services.posting_labels import effective_posting_labels
@@ -1401,6 +1446,7 @@ def non_claim_names_for_job(job: Any, application: Any | None = None) -> NonClai
     return NonClaimNames(
         titles=_union(effective.titles, posting.titles),
         employers=_union(effective.employers, posting.employers),
+        org_units=posting.org_units,
     )
 
 
@@ -1553,7 +1599,81 @@ def mask_non_claim_spans(text_norm: str, names: NonClaimNames | None) -> str:
     intervals = _name_intervals(text_norm, names.all_names())
     if names.employer_clause:
         intervals += _employer_clause_intervals(text_norm, names.employers, names.skill_forms)
+        if names.org_units:
+            # D-4: the unit's name, and the clause it opens (anchored on the WHOLE
+            # name only — never its first word: "developer" alone is a skill word).
+            intervals += _name_intervals(text_norm, names.org_units)
+            intervals += _org_unit_clause_intervals(text_norm, names.org_units)
     return _mask_intervals(text_norm, intervals)
+
+
+def _org_unit_clause_intervals(text_norm: str, units: Sequence[str]) -> list[tuple[int, int]]:
+    """D-4: the clause a posting's organisation unit opens, ended exactly like an
+    employer clause (:func:`_employer_clause_end`)."""
+    spans: list[tuple[int, int]] = []
+    for u in sorted({x for x in units if x}, key=len, reverse=True):
+        for m in re.finditer(_name_pattern(u), text_norm):
+            end = _employer_clause_end(text_norm, m.end())
+            if end > m.start():
+                spans.append((m.start(), end))
+    return spans
+
+
+#: D-4: a head noun that makes the capitalised words before it the name of an
+#: organisation unit of the employer ("Developer Experience team").
+_ORG_HEADS = (
+    "team", "teams", "division", "department", "business unit", "unit", "group",
+    "organization", "organisation", "abteilung", "bereich", "geschäftsbereich", "sparte",
+)
+#: Capitalised words that open a sentence or a possessive, never a unit's name.
+_ORG_STOP_WORDS = frozenset({
+    "a", "an", "the", "our", "your", "their", "this", "that", "these", "we", "join", "you",
+    "unser", "unsere", "unserem", "unseren", "unserer", "ihr", "ihre", "das", "die", "der",
+    "dem", "den", "ein", "eine", "einem", "einen", "im", "in", "als", "und", "and", "or",
+    "for", "of", "with", "to", "at", "by", "from", "global", "local", "new", "small", "great",
+})
+_ORG_UNIT_RE = re.compile(
+    r"((?:[A-ZÄÖÜ][\w&]*(?:[-\s]+|(?=\s)))+?)\s*"
+    r"(" + "|".join(sorted(_ORG_HEADS, key=len, reverse=True)) + r")(?:['’]s)?\b"
+    r"(?:\s*\(([A-Z]{2,6})\))?",
+    re.IGNORECASE,
+)
+_ORG_CAP_WORD_RE = re.compile(r"[A-ZÄÖÜ][\w&]*")
+#: The posting saying the unit is ITS OWN: "join our …", "unser …" — or an acronym
+#: after it. Without one, "Intensive Care Unit" (a ward in a nurse's title) or
+#: "eines kleinen Controlling-Teams" (a duty) would read as a unit's name.
+_ORG_OWNER_RE = re.compile(r"\b(?:our|unser\w*|join)\b", re.IGNORECASE)
+
+
+def posting_org_units(raw_text: str | None) -> tuple[str, ...]:
+    """D-4: the organisation units the posting names AS ITS OWN — a run of 1–4
+    capitalised words right before a unit head noun, introduced by "our"/"unser…"/
+    "join" or followed by a parenthesised acronym; normalised with the head
+    ("developer experience team"), plus the acronym ("psd"). A FACT about the posting's text (ADR-062 cl. 1): the
+    literal string is what a letter audit masks, never a judgement of meaning."""
+    out: list[str] = []
+    for m in _ORG_UNIT_RE.finditer(raw_text or ""):
+        words = m.group(1).replace("-", " ").split()
+        # the capitalised run directly before the head; IGNORECASE widened [A-Z]
+        run: list[str] = []
+        for w in reversed(words):
+            if not _ORG_CAP_WORD_RE.fullmatch(w) or w.casefold() in _ORG_STOP_WORDS:
+                break
+            run.insert(0, w)
+        run = run[-4:]
+        if not run:
+            continue
+        lead = " ".join(words[: len(words) - len(run)])
+        before = (raw_text or "")[max(0, m.start() - 25): m.start()] + " " + lead
+        acronym = m.group(3)
+        if not acronym and not _ORG_OWNER_RE.search(before):
+            continue
+        name = _norm(" ".join(run) + " " + m.group(2))
+        if name and name not in out:
+            out.append(name)
+        if acronym and _norm(acronym) not in out:
+            out.append(_norm(acronym))
+    return tuple(out)
 
 
 def _keyword_coverage(
@@ -1734,6 +1854,58 @@ def _keyword_coverage(
     # + report-surface parity) — orthogonal to claimable_concepts (literal vault
     # presence) and independent of document presence, same as claimable_concepts.
     keyword_liability_concepts = [e.get("concept", "") for e in keyword_liabilities(ledger)]
+    # D-4c(a) (Hazelnut build 5): per flagged term, the sentences that still carry a
+    # claim-text match after the masks — the review surface counts and locates
+    # only these (it used to count every occurrence in the rendered document,
+    # the masked employer clause included: "an 2 Stellen" for one claim).
+    present_unsupported_sentences = _claim_sentences(text_norm, present_unsupported, non_claim, ledger)
+    # D-4c(b) (ruling D-4c-b, ADR-099 cl. 2): a LETTER term a recorded denial covers
+    # whose every claim sentence also names a term the candidate denied on the
+    # ledger ("IFS, BRC und direkte Lebensmittelproduktion kenne ich nicht") is
+    # the candidate stating their own limit — nothing to fix, never a card (S).
+    # A real claim of the denied thing ("… Lebensmittelproduktion geleitet") names
+    # no denied term and keeps its remove-only card.
+    present_unsupported_in_denial: list[str] = []
+    if non_claim and non_claim.employer_clause and present_denied and present_unsupported_denials:
+        for k in present_unsupported:
+            sents = present_unsupported_sentences.get(k) or []
+            if k in present_unsupported_denials and sents and all(
+                any(keyword_matches(d, x, ledger) for d in present_denied) for x in sents
+            ):
+                present_unsupported_in_denial.append(k)
+    # D-4b (Hazelnut build 5, delivery run 4): the candidate's own denial
+    # sentence ("I have not built CI/CD pipelines or other cloud or DevOps
+    # capabilities.", "I have no experience with AI programming assistants …")
+    # carried a card about the very term it denies. The co-occurrence test
+    # above needs a ledger-denied JD keyword in the sentence, and the cover
+    # needs the recorded denial in the document's language. A term whose every
+    # matched form, in every claim sentence, stands in a negation's scope
+    # (`form_in_denial_segment`, a token-position fact) is not claimed at all —
+    # on a letter of a candidate who has recorded limits, it is the limit.
+    if non_claim and non_claim.employer_clause and denied_concepts:
+        from applire.services.oracle.extract import form_in_denial_segment
+
+        for k in present_unsupported:
+            if k in present_unsupported_in_denial:
+                continue
+            sents = present_unsupported_sentences.get(k) or []
+            # A stem-only hit has no literal form to locate: it stays (safe side).
+            forms = [m.form for m in claim_matches.get(k) or [] if m.form and not m.stem] or [k]
+            if sents and all(
+                any(form_in_denial_segment(x, f) for f in forms)
+                and not any(_form_outside_denial(x, f) for f in forms)
+                for x in sents
+            ):
+                present_unsupported_in_denial.append(k)
+    if present_unsupported_in_denial:
+        moved = set(present_unsupported_in_denial)
+        present_unsupported = [k for k in present_unsupported if k not in moved]
+        present_unsupported_employer_sentence = [
+            k for k in present_unsupported_employer_sentence if k not in moved
+        ]
+        present_unsupported_sentences = {
+            k: v for k, v in present_unsupported_sentences.items() if k not in moved
+        }
     return ATSKeywordCoverage(
         present=present,
         missing=missing,
@@ -1748,7 +1920,38 @@ def _keyword_coverage(
         present_denied_matches={k: matches_by_kw[k] for k in present_denied},
         present_unsupported_denials=present_unsupported_denials,
         present_unsupported_employer_sentence=present_unsupported_employer_sentence,
+        present_unsupported_sentences=present_unsupported_sentences,
+        present_unsupported_in_denial=present_unsupported_in_denial,
     )
+
+
+def _form_outside_denial(sentence: str, form: str) -> bool:
+    """The form occurs in ``sentence`` at least once OUTSIDE a negation's scope."""
+    from applire.services.oracle.extract import form_in_denial_segment
+
+    return bool(re.search(rf"(?<!\w){re.escape(form)}(?!\w)", sentence, re.IGNORECASE)) and (
+        not form_in_denial_segment(sentence, form)
+    )
+
+
+def _claim_sentences(
+    text_norm: str,
+    terms: list[str],
+    non_claim: NonClaimNames | None,
+    ledger: list[dict[str, Any]] | None,
+) -> dict[str, list[str]]:
+    """D-4c(a): for each term, the normalised sentences of ``text_norm`` (unmasked,
+    as delivered) whose MASKED form still matches it — the occurrences the flag
+    read. Same sentence split as the #803 belt; same masks as the flag."""
+    if not terms:
+        return {}
+    sentences = [x for x in _LETTER_SENTENCE_END_RE.split(text_norm) if x and x.strip()]
+    masked = [mask_non_claim_spans(x, non_claim) if non_claim else x for x in sentences]
+    out: dict[str, list[str]] = {}
+    for k in terms:
+        hits = [s.strip() for s, m in zip(sentences, masked) if keyword_matches(k, m, ledger)]
+        out[k] = list(dict.fromkeys(hits))
+    return out
 
 
 #: Sentence ends on the normalised letter text (``_norm`` keeps punctuation).
@@ -1883,14 +2086,18 @@ def _finish(document: Literal["cv", "cover_letter"], checks: list[ATSCheck], cov
     # way passed/failed are (a sum over status equality) — never derived as
     # "whatever's left over", so a status this function doesn't yet know about
     # would undercount everywhere rather than silently inflating one bucket.
-    return ATSReport(
+    from applire.services.finding_registry import stamp_ats_model
+
+    # ADR-099 cl. 2 (WP-B): every check, terminal-review item and keyword bucket
+    # carries its delivery class + resolver from the one registry.
+    return stamp_ats_model(ATSReport(
         document=document,
         checks=checks,
         keywords=coverage,
         passed=sum(1 for c in checks if c.status == "pass"),
         failed=sum(1 for c in checks if c.status == "fail"),
         not_applicable=sum(1 for c in checks if c.status == "not_applicable"),
-    )
+    ))
 
 
 def _free_text_snippets(tailored: TailoredCVData) -> list[str]:
@@ -1978,17 +2185,73 @@ def kept_page_length_check(check: ATSCheck, pages_kept_at: int | None) -> ATSChe
     )
 
 
+#: ADR-099 cl. 7 (WP-B, interface B-2): the review-state key of the letter's
+#: "{n} Seiten behalten" decision (action ``kept``), recorded by the review
+#: surface (``PAGE_LENGTH_KEY`` in frontend lib/api/document-review.ts).
+LETTER_PAGE_KEEP_KEY = "page:page-overflow"
+
+
+def _fold_key(key) -> tuple[str, str] | None:
+    if not isinstance(key, str) or ":" not in key:
+        return None
+    from applire.services.review_state import norm_quote
+
+    producer, _, text = key.partition(":")
+    return producer, norm_quote(text)
+
+
+def letter_page_kept(review_state) -> bool:
+    """The person kept the letter over its page norm (a ``kept`` decision on
+    :data:`LETTER_PAGE_KEEP_KEY`, compared on the review-state key fold)."""
+    want = _fold_key(LETTER_PAGE_KEEP_KEY)
+    decisions = review_state.get("decisions") if isinstance(review_state, dict) else None
+    for d in decisions or []:
+        if isinstance(d, dict) and d.get("action") == "kept" and _fold_key(d.get("finding_key")) == want:
+            return True
+    return False
+
+
+def decide_kept_letter_page_length(report: dict | None, review_state) -> dict | None:
+    """The letter twin of :func:`decide_kept_page_length`: a failed
+    ``page-length-letter`` row reads as DECIDED (``page-length-kept``, class S) once
+    the person chose to keep the length. ``None``/unchanged otherwise."""
+    if not report or not letter_page_kept(review_state):
+        return report
+    from applire.services.finding_registry import annotate_report
+
+    out = dict(report)
+    checks = []
+    for c in report.get("checks") or []:
+        if isinstance(c, dict) and c.get("id") == "page-length" and c.get("details_key") == "page-length-letter":
+            params = c.get("details_params") or {}
+            c = ATSCheck(
+                id="page-length", status="pass",
+                details=f"{params.get('pages')} pages — you chose to keep them (norm {params.get('letterPages')})",
+                details_key="page-length-kept",
+                details_params={"pages": params.get("pages"), "target": params.get("letterPages")},
+            ).model_dump()
+        checks.append(c)
+    out["checks"] = checks
+    out["passed"] = sum(1 for c in checks if isinstance(c, dict) and c.get("status") == "pass")
+    out["failed"] = sum(1 for c in checks if isinstance(c, dict) and c.get("status") == "fail")
+    annotate_report(out)
+    return out
+
+
 def decide_kept_page_length(report: dict | None, pages_kept_at: int | None) -> dict | None:
     """786:237 — the stored CV report with its page-length row decided (see
     :func:`kept_page_length_check`); ``None``/unchanged when nothing applies."""
     if not report or pages_kept_at is None:
         return report
+    from applire.services.finding_registry import annotate_report
+
     out = dict(report)
     out["checks"] = [
         kept_page_length_check(ATSCheck.model_validate(c), pages_kept_at).model_dump()
         if isinstance(c, dict) and c.get("id") == "page-length" else c
         for c in report.get("checks") or []
     ]
+    annotate_report(out)  # ADR-099: the decided row is re-classified (kept → S)
     return out
 
 
@@ -2080,6 +2343,7 @@ def _audit_cv_text(
         ]
         _check(checks, "skills-near-dupe", not near_pairs,
                "near-duplicate skills: " + "; ".join(f"'{a}' ~ '{b}'" for a, b in near_pairs))
+        _key_failed(checks, "skills-near-dupe", {"pairs": "; ".join(f"{a} ~ {b}" for a, b in near_pairs[:5])})
 
         # #391 interim (ADR-076 amendment 4 point 6): measurement-only advisory,
         # never a failure — silent unless at least one rendered skill's ONLY
@@ -2157,6 +2421,9 @@ def _audit_cv_text(
                    for wa, a, wb, b in dupe_pairs[:5]
                )
                + (f" (+{len(dupe_pairs) - 5} more)" if len(dupe_pairs) > 5 else ""))
+        _key_failed(checks, "duplicate-bullets",
+                    {"pairs": " · ".join(f"„{a[:60]}“ ~ „{b[:60]}“" for _wa, a, _wb, b in dupe_pairs[:3]),
+                     "count": len(dupe_pairs)})
 
     # ── #424 (ADR-082 clause 1, 2026-09-13) ─────────────────────────────────
     # The bullet-level check above cannot name the SHAPE when the two copies are
@@ -2176,6 +2443,9 @@ def _audit_cv_text(
                    for wa, a, wb, b in project_pairs[:5]
                )
                + (f" (+{len(project_pairs) - 5} more)" if len(project_pairs) > 5 else ""))
+        _key_failed(checks, "duplicate-project",
+                    {"pairs": " · ".join(f"„{a[:50]}“ ~ „{b[:50]}“" for _wa, a, _wb, b in project_pairs[:3]),
+                     "count": len(project_pairs)})
 
     # ── #724 (ADR-039; ADR-072/ADR-062/ADR-067 amended 2026-09-18) ──────────
     # The delivered document is written in ONE language. On the founder's edge
@@ -2404,6 +2674,10 @@ def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, A
                 "No Keyword Ledger is available for this document, so whether its claims "
                 "are evidenced in the work history could not be judged."
             ),
+            # ADR-099 cl. 12 (WP-B): keyed, so the U row ("Nicht geprüft") renders
+            # in the UI language instead of the server sentence.
+            details_key="narrative-evidence-not-applicable",
+            details_params={},
         )
     # #672 line 40/45 (2026-09-13): the SAME document, also as the structured-section
     # corpus. `verified_narrative_underclaim` has exempted a concept the COMPOSED

@@ -249,17 +249,17 @@ or incomplete; anything you notice outside them is `minor` by definition.
    own figure as the candidate's is.
    ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
    must appear, never extended; flag a missing one by key with its text.
-   ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE honest
-   positioning decision in one paragraph — the gap in the candidate's own terms plus the
-   adjacent strength. BOTH directions are findings: silence on a listed limit that has a
-   transfer (L-1), and a limit the letter states that the entry does NOT list (check 1). Withholding detail
-   ("kann ich nicht nennen") is no limit: writing it in IS a finding (DEL-1). A requirement
+   ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE
+   positioning decision — a scoped claim of what the statement says they DO have, or a
+   transfer, discharges it all: never demand a gap beside one; else a plain-fact gap
+   plus strength. Findings: silence on a limit that has a transfer (L-1), a limit the
+   entry does NOT list (check 1), a gap as "cannot substantiate/prove", several
+   lacks in one clause (DEL-2). Withheld detail ("kann ich nicht nennen"): writing it in IS a finding (DEL-1). A requirement
    lacked WITHOUT a recorded denial owes no sentence; never demand one (DEL-2).
    HALF-DELIVERY IS THE THIRD DIRECTION (#732): the transferring strength stands in the
-   SAME sentence as the words naming the gap. A standalone negative, its strength
-   relegated to a later sentence or a generic list, is the limit WITHOUT its positioning
-   decision — worst right after a sentence stating a strength. Quote it, name the
-   strength the statement carries, and block: this is not `minor` paragraph order.
+   SAME sentence as the words naming the gap. A standalone negative, its strength in a
+   later sentence or a list, is the limit WITHOUT its positioning decision — worst right
+   after a strength. Quote it, name the strength, block: this is not `minor` paragraph order.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a

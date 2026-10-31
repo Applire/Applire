@@ -46,15 +46,36 @@ describe("PageOverflowCard", () => {
     expect(screen.getByTestId("cv-page-overflow-cut").textContent).toBe("Auf 2 Seiten kürzen");
   });
 
-  it("renders nothing when the CV fits, or when nothing could be cut", async () => {
+  it("renders nothing when the CV fits", async () => {
     mockFetch(null);
-    const { container, rerender } = render(withIntl(<PageOverflowCard cvId="cv-1" />));
+    const { container } = render(withIntl(<PageOverflowCard cvId="cv-1" />));
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     expect(container.textContent).toBe("");
-    mockFetch({ ...PROPOSAL, proposed: [] });
-    rerender(withIntl(<PageOverflowCard cvId="cv-2" />));
-    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
-    expect(screen.queryByTestId("cv-page-overflow-card")).toBeNull();
+  });
+
+  // INTERFACE B-2 / ADR-099 cl. 7: the card shows WHENEVER the CV is over its
+  // target — even when nothing can be cut (only "keep" is offered then).
+  it("shows the card with only keep when nothing can be cut (cut_pages null)", async () => {
+    mockFetch({ ...PROPOSAL, proposed: [], cut_available: false, reaches_target: false, cut_pages: null });
+    render(withIntl(<PageOverflowCard cvId="cv-2" />, "de"));
+    const card = await screen.findByTestId("cv-page-overflow-card");
+    expect(screen.getByTestId("cv-page-overflow-keep")).toBeTruthy();
+    expect(screen.queryByTestId("cv-page-overflow-cut")).toBeNull();
+    // U-6 (founder ruling 2026-10-28): it says only that it cannot get shorter —
+    // the ladder never checked what the job asks for.
+    expect(screen.getByTestId("cv-page-overflow-body").textContent).toBe("Kürzer geht es nicht.");
+    expect(card.textContent).toContain("3 Seiten");
+  });
+
+  it("names the closest reachable length when the target cannot be reached", async () => {
+    mockFetch({ ...PROPOSAL, reaches_target: false, cut_pages: 3, actual: 4 });
+    render(withIntl(<PageOverflowCard cvId="cv-3" />));
+    await screen.findByTestId("cv-page-overflow-card");
+    const body = screen.getByTestId("cv-page-overflow-body").textContent ?? "";
+    expect(body).toContain("cannot reach 2 pages");
+    expect(body).toContain("The closest is 3 pages");
+    expect(body).not.toContain("the job asks for");
+    expect(screen.getByTestId("cv-page-overflow-cut")).toBeTruthy();
   });
 
   it("cut posts the choice, names what went, and refreshes the preview", async () => {
@@ -155,5 +176,103 @@ describe("PageOverflowCard", () => {
     mockFetch({ ...PROPOSAL, target: 1, actual: 2 });
     render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
     expect((await screen.findByTestId("cv-page-overflow-cut")).textContent).toBe("Auf 1 Seite kürzen");
+  });
+
+  // U-6 (founder ruling 2026-10-28): the ladder's last rung keeps an old role's
+  // title, company and dates — the card never says such a role "goes".
+  describe("U-6 — an old role is shortened, never named as removed", () => {
+    const OLD: PageOverflow = {
+      ...PROPOSAL,
+      proposed: [
+        { kind: "off_job_skills", items: ["Kosmetik-Verpackungen"] },
+        { kind: "old_role_bullets", items: ["Schichtleiter — Henkel AG"] },
+      ],
+    };
+
+    it("the proposal says leave out OR shorten, and names the old role with what stays (DE)", async () => {
+      mockFetch(OLD);
+      render(withIntl(<PageOverflowCard cvId="cv-u6" />, "de"));
+      await screen.findByTestId("cv-page-overflow-card");
+      const body = screen.getByTestId("cv-page-overflow-body").textContent ?? "";
+      expect(body).toContain("würde Applire zusätzlich Folgendes weglassen oder kürzen:");
+      expect(body).not.toContain("müssten zusätzlich diese Angaben weg");
+      expect(screen.getByTestId("cv-page-overflow-cuts").textContent).toContain(
+        "Ältere Stationen nur mit Titel, Firma und Zeitraum: Schichtleiter — Henkel AG",
+      );
+    });
+
+    it("a removal-only proposal keeps the plain 'would have to go' (EN)", async () => {
+      mockFetch(PROPOSAL);
+      render(withIntl(<PageOverflowCard cvId="cv-u6b" />));
+      await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.getByTestId("cv-page-overflow-body").textContent).toContain("these would also have to go:");
+    });
+
+    it("the unreachable body follows the same rule", async () => {
+      mockFetch({ ...OLD, reaches_target: false, cut_pages: 3, actual: 4 });
+      render(withIntl(<PageOverflowCard cvId="cv-u6c" />));
+      await screen.findByTestId("cv-page-overflow-card");
+      const body = screen.getByTestId("cv-page-overflow-body").textContent ?? "";
+      expect(body).toBe("Applire cannot reach 2 pages. The closest is 3 pages – for that, Applire would leave out or shorten the following:");
+    });
+
+    it.each([
+      ["both", OLD.proposed, "Cut to 2 pages — removed: Kosmetik-Verpackungen; title, company and dates only: Schichtleiter — Henkel AG."],
+      ["old roles only", [OLD.proposed[1]], "Cut to 2 pages — title, company and dates only: Schichtleiter — Henkel AG."],
+    ])("the done line after a cut (%s) never lists the old role as removed", async (_l, proposed, line) => {
+      mockFetch({ ...OLD, proposed, choice: "cut", cut_available: false, uncut_available: true });
+      render(withIntl(<PageOverflowCard cvId="cv-u6d" />));
+      const done = await screen.findByTestId("cv-page-overflow-done");
+      expect(done.textContent).toContain(line);
+      expect(done.textContent).not.toMatch(/removed:[^;]*Schichtleiter/);
+    });
+  });
+
+  // D-23 (B's `auto_cuts`): what the generation already left out is named
+  // ABOVE the body — and nothing renders for an empty list (older rows).
+  describe("D-23 — what Applire already left out", () => {
+    const AUTO: PageOverflow = {
+      ...PROPOSAL,
+      proposed: [],
+      cut_available: false,
+      reaches_target: false,
+      cut_pages: null,
+      auto_cuts: [
+        { kind: "oldest_certification", items: ["REFA-Grundschein"] },
+        { kind: "off_job_skills", items: ["Kosmetik-Verpackungen", "Lackierung"] },
+      ],
+    };
+
+    it.each([
+      ["de", "Damit er höchstens 3 Seiten hat, hat Applire schon weggelassen:", "Ältere Weiterbildungen und Zertifikate: REFA-Grundschein", "Kürzer geht es nicht."],
+      ["en", "To keep it to at most 3 pages, Applire already left out:", "REFA-Grundschein", null],
+    ] as const)("%s: the line and its list sit above the body", async (locale, lead, item, body) => {
+      mockFetch(AUTO);
+      render(withIntl(<PageOverflowCard cvId="cv-auto" />, locale));
+      const box = await screen.findByTestId("cv-page-overflow-auto-cuts");
+      expect(box.textContent).toContain(lead);
+      expect(box.textContent).toContain(item);
+      expect(box.querySelectorAll("li")).toHaveLength(2);
+      const bodyEl = screen.getByTestId("cv-page-overflow-body");
+      if (body) expect(bodyEl.textContent).toBe(body);
+      // above: the auto-cut block precedes the body in document order
+      expect(box.compareDocumentPosition(bodyEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.queryByTestId("cv-page-overflow-cut")).toBeNull(); // no offer-back
+    });
+
+    it.each(["de", "en"] as const)("%s: an empty auto_cuts renders nothing (and an absent field neither)", async (locale) => {
+      mockFetch({ ...AUTO, auto_cuts: [] });
+      const { unmount } = render(withIntl(<PageOverflowCard cvId="cv-e" />, locale));
+      await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.queryByTestId("cv-page-overflow-auto-cuts")).toBeNull();
+      expect(screen.getByTestId("cv-page-overflow-card").textContent).not.toMatch(/weggelassen|left out/);
+      unmount();
+      const { auto_cuts: _drop, ...older } = AUTO;
+      void _drop;
+      mockFetch(older);
+      render(withIntl(<PageOverflowCard cvId="cv-o" />, locale));
+      await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.queryByTestId("cv-page-overflow-auto-cuts")).toBeNull();
+    });
   });
 });

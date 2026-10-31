@@ -24,6 +24,7 @@ response contract are unchanged. Drop-in for the retired lexical merge_profiles.
 from __future__ import annotations
 
 import logging
+from typing import Sequence
 
 from pydantic import BaseModel
 
@@ -34,6 +35,7 @@ from applire.schemas.profile import (
     Conflict,
     FieldChange,
     MasterProfileData,
+    MatchReceipt,
     PendingConfirmation,
     KeptSeparateReceipt,
     RestatedReceipt,
@@ -45,8 +47,10 @@ from applire.services.profile.reconcile.apply import (
     _added,
     _fill_empties,
     _merged,
+    _norm,
     apply_ops,
 )
+from applire.services.profile.reconcile.certificate_identity import bind_translated_certificates
 from applire.services.profile.reconcile.dedupe import classify_certification_dupe
 from applire.services.profile.reconcile.alias_writer import record_bound_aliases
 from applire.services.profile.reconcile.binding_guard import refuse_false_skill_bindings
@@ -229,6 +233,7 @@ def _union_certifications(
     merged: MasterProfileData,
     incoming: MasterProfileData,
     changes: list[FieldChange],
+    matched: Sequence[MatchReceipt] = (),
 ) -> None:
     """#190 (dupe instrument fixed for #618) — deterministically UNION
     ``incoming.certifications`` into ``merged``.
@@ -273,8 +278,30 @@ def _union_certifications(
     name still surfaces as two entries, exactly as before. ``merged`` is the
     apply_ops deep copy, so mutating it here is safe; incoming certs are
     deep-copied in so the two profiles never share objects.
+
+    D-5 (Hazelnut build 5): the reconciler's own ``match_existing`` on a
+    certification is respected FIRST. The model had said "already there" about
+    a translated title the lexical instrument calls DISTINCT, and this pass
+    appended the certificate a second time. ``matched`` is the import's receipt
+    list, keyed by the incoming name exactly as the op wrote it.
     """
+    bound = {
+        _norm(r.incoming): r.entity_id for r in matched
+        if r.section == "certifications" and r.undone_at is None
+    }
+    by_id = {c.id: c for c in merged.certifications if c.id}
     for cert in incoming.certifications:
+        target = by_id.get(bound.get(_norm(cert.name or "")))
+        if target is not None:
+            if _fill_empties(target, {
+                "issuing_organization": cert.issuing_organization,
+                "date_obtained": normalise_partial_date(cert.date_obtained),
+                "expiry_date": normalise_partial_date(cert.expiry_date),
+                "credential_id": cert.credential_id,
+                "credential_url": cert.credential_url,
+            }):
+                changes.append(_merged("certifications", "name", None, target.name))
+            continue
         verdict = classify_certification_dupe(
             name=cert.name,
             issuing_organization=cert.issuing_organization,
@@ -398,7 +425,11 @@ async def reconcile_import(
     # #190 — deterministic certification passthrough (defense in depth). Runs on
     # BOTH the fast path and the segmented fallback (both funnel through `applied`),
     # AFTER apply_ops, so no incoming cert is lost to an LLM misroute into skills.
-    _union_certifications(applied.profile, incoming, applied.changes)
+    _union_certifications(applied.profile, incoming, applied.changes, applied.matched)
+    # D-5 — a certificate this import added under a translated or renamed title
+    # of one the profile held: ONE model call, applied as a match_existing
+    # binding (the witness and the alias writer read it from the emitted ops).
+    emitted_ops = emitted_ops + await bind_translated_certificates(existing, applied, provider)
     # #327 — deterministic skill-provenance recovery, at the same seam and for
     # the same reason as the certification passthrough above. ``enrich_skills``
     # runs on ``incoming`` BEFORE this call, but the merged profile is rebuilt

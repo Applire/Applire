@@ -109,12 +109,37 @@ async def test_no_proposal_when_the_cv_fits_or_carries_a_section_edit(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_unreachable_target_offers_nothing(monkeypatch, fake_render):
+async def test_unreachable_target_proposes_the_closest_reachable_length(monkeypatch, fake_render):
+    """ADR-099 cl. 7 (UAT-2 fix round, U-6) supersedes A-3b's empty proposal: the
+    card is shown whenever the CV is over target, and "kürzen" offers the closest
+    reachable length with the FEWEST cuts that reach it — the payload says so."""
     record = SimpleNamespace(id=uuid.uuid4(), user_id=None, tailored_data=_data(5),
                              section_overrides=None, page_overflow=None)
     await _propose(record, 1, 4, monkeypatch, fake_render)  # the fake never goes below 2
-    assert record.page_overflow["proposed"] == []
-    assert record.page_overflow["cut_data"] is None
+    po = record.page_overflow
+    assert po["reaches_target"] is False and po["cut_pages"] == 2
+    assert po["proposed"] == [{"kind": "oldest_certification", "items": ["Cert 2010", "Cert 2011", "Cert 2012"]}]
+    assert _pages(po["cut_data"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_nothing_shorter_reachable_leaves_only_keep(monkeypatch, fake_render):
+    record = SimpleNamespace(id=uuid.uuid4(), user_id=None, tailored_data=_data(1),
+                             section_overrides=None, page_overflow=None)
+    await _propose(record, 1, 2, monkeypatch, fake_render)  # nothing to cut below 2
+    po = record.page_overflow
+    assert po["proposed"] == [] and po["cut_data"] is None
+    assert po["reaches_target"] is False and po["cut_pages"] is None
+
+
+def test_a_cut_to_the_closest_length_decides_the_page_row():
+    """adv S9: the person's cut on a closest-reachable proposal is the decision
+    on the length — the row reads as decided (kept at the cut length)."""
+    from applire.services.cv import _pages_kept_at
+
+    po = {"choice": "cut", "reaches_target": False, "cut_pages": 2, "actual": 2, "target": 1}
+    assert _pages_kept_at(po) == 2
+    assert _pages_kept_at({**po, "reaches_target": True}) is None
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +306,7 @@ async def test_status_carries_the_decision_without_the_data_copies(client, db, m
         "target": 2, "actual": 4, "full_pages": 4,
         "proposed": [{"kind": "oldest_certification", "items": ["Cert 2010", "Cert 2011", "Cert 2012", "Cert 2013"]}],
         "choice": None, "cut_available": True, "uncut_available": False,
+        "reaches_target": True, "cut_pages": 2, "auto_cuts": [],
     }
 
 

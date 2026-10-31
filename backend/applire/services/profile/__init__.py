@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import copy
 import hashlib
 import json
 import logging
@@ -1085,7 +1086,9 @@ async def get_profile_health(db: AsyncSession, *, user_id: uuid.UUID | None = No
     Health panel renders uniformly."""
     record = await _get_latest(db, user_id)
     if not record:
-        return ProfileHealthResponse(completeness=CompletenessBlock(score=0.0))
+        return ProfileHealthResponse(
+            completeness=CompletenessBlock(score=0.0, delivery_class="S", resolver=None)
+        )
     profile_data = MasterProfileData.model_validate(record.profile_json)
     na_fields = (record.profile_json.get("_meta") or {}).get("na_fields", [])
     return assess_health(profile_data, na_fields=na_fields)
@@ -1147,6 +1150,8 @@ async def resolve_conflict(
     if conflict is None:
         raise LookupError(f"Conflict '{conflict_id}' not found")
 
+    resolution, snapshot = _plan_resolution(conflict, resolution, value)
+
     # Pure adapter first: an unknown resolution is refused before anything
     # touches the database, exactly as it was.
     op = build_resolve_field_op(conflict, resolution=resolution, value=value)
@@ -1162,9 +1167,10 @@ async def resolve_conflict(
         record=record,
         grounding=None,
         # ADR-063 amendment (5) / #339 — snapshot coverage stays with the import
-        # writers. A resolution captured none before and captures none now; the
-        # omission is a parameter that says so, not a silent gap.
-        snapshot=None,
+        # writers, with ONE exception (ADR-099 cl. 11 / ADR-042 am., Hazelnut
+        # build 5): a "Zusammenführen" replaces two bullets with one sentence,
+        # so it takes a MERGE snapshot and "undo last merge" restores both.
+        snapshot=snapshot,
     )
 
     # Flush-not-commit (ADR-063 amended clause 6): the CONFLICT-RESOLUTION door
@@ -1172,7 +1178,96 @@ async def resolve_conflict(
     # candidate is re-asked a dispute they already answered.
     await db.commit()
     await db.refresh(result.record)
-    return _to_response(result.record)
+    response = _to_response(result.record)
+    _LAST_APPLIED_RESOLUTION.set(resolution)
+    return response
+
+
+#: The resolution the last ``resolve_conflict`` call in this task actually
+#: wrote — read by the profile-review session to tell the candidate that an
+#: edited merge sentence went in as their own words ("manual"). A ContextVar,
+#: not a return-type change: ``resolve_conflict`` keeps its response contract.
+import contextvars as _contextvars  # noqa: E402
+
+_LAST_APPLIED_RESOLUTION: _contextvars.ContextVar[str | None] = _contextvars.ContextVar(
+    "applire_last_applied_resolution", default=None
+)
+
+
+def last_applied_resolution() -> str | None:
+    return _LAST_APPLIED_RESOLUTION.get()
+
+
+def _plan_resolution(conflict: Conflict, resolution: str, value: object):
+    """ADR-099 cl. 11 — refuse an outcome this dispute does not offer, and
+    decide how a merge sentence is written.
+
+    * ``both`` only where ``decisions.conflict_shape`` offers ``keep_both``;
+      ``merge`` only on a bullet list.
+    * A merge sentence is re-verified HERE (fact presence, the same check the
+      proposal passed — the candidate may have edited it). Passing → the
+      ``merge`` resolution. Failing → RULING A1-1 (2026-10-28, ADR-061 cl. 2
+      "the decision IS the testimony"): the candidate's own words, written as
+      the ``manual`` resolution of THIS dispute — receipted, trailed and
+      re-floor-guarded like any resolution.
+    Both merge paths take a MERGE snapshot (one undo).
+    """
+    from applire.services.profile.decisions import conflict_shape
+    from applire.services.profile.merge_verifier import verify_merge
+    from applire.services.profile.resolution import normalise_resolution
+
+    resolution = normalise_resolution(resolution)
+    if resolution not in ("both", "merge"):
+        return resolution, None
+    _shape, outcomes = conflict_shape(conflict.section, conflict.field, conflict.entity_id)
+    if resolution == "both":
+        if "keep_both" not in outcomes:
+            raise ValueError(f"keep_both is not offered for {conflict.section}.{conflict.field}")
+        return "both", None
+    if "merge" not in outcomes:
+        raise ValueError(f"merge is not offered for {conflict.section}.{conflict.field}")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("merge needs the merged sentence as value")
+    sources = [str(conflict.existing_value or ""), str(conflict.incoming_value or "")]
+    if verify_merge(value, sources):
+        return "merge", SnapshotClass.MERGE
+    logger.info("resolve_conflict: merge sentence carries a fact absent from both "
+                "sources; written as the candidate's own words (manual, RULING A1-1)")
+    return "manual", SnapshotClass.MERGE
+
+
+async def propose_conflict_merge(
+    conflict_id: str,
+    db: AsyncSession,
+    provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
+):
+    """ADR-099 cl. 11 — "Zusammenführen": ONE model call, verified, no write.
+    ``LookupError`` for an unknown/closed dispute, ``ValueError`` for a
+    dispute that offers no merge (a scalar)."""
+    from applire.services.profile.decisions import conflict_shape, propose_merge
+
+    record = await _get_latest(db, user_id)
+    if not record:
+        raise LookupError("No profile found")
+    profile_data = MasterProfileData.model_validate(record.profile_json)
+    conflict = next(
+        (c for c in (profile_data.metadata.pending_conflicts if profile_data.metadata else [])
+         if c.conflict_id == conflict_id and not c.resolved),
+        None,
+    )
+    if conflict is None:
+        raise LookupError(f"Conflict '{conflict_id}' not found")
+    _shape, outcomes = conflict_shape(conflict.section, conflict.field, conflict.entity_id)
+    if "merge" not in outcomes:
+        raise ValueError(f"merge is not offered for {conflict.section}.{conflict.field}")
+    from applire.services.profile.entity_label import label_for
+
+    label = label_for(profile_data, conflict.entity_id)
+    return await propose_merge(
+        provider, str(conflict.existing_value or ""), str(conflict.incoming_value or ""), label
+    )
 
 
 async def resolve_confirmation(
@@ -1503,6 +1598,8 @@ async def ingest_cv(
         system=recipe.system,
         user_prompt=recipe.build_user_prompt(raw_text),
     )
+    # D-24 — the first extraction's dates, kept to bound the review's remedy.
+    first_draft = copy.deepcopy(data)
     data = await review_and_refine(
         source=raw_text,
         draft=data,
@@ -1516,6 +1613,12 @@ async def ingest_cv(
         chain_id=recipe.chain_id,
         on_settle=_settled.append,
     )
+    # D-24 (Hazelnut build 5) — a date the review removed or changed although
+    # its year stands in the source near the entry is restored (a FACT bound
+    # on the corrector; a fabricated year's removal stands).
+    from applire.services.profile.extraction_dates import keep_source_dates
+
+    keep_source_dates(first_draft, data, raw_text)
     # 783:L41 (ADR-021 amended 2026-10-20) — the loop's own settle report,
     # recorded on the import receipt and response instead of a log line only.
     extraction_review = (
@@ -1786,6 +1889,54 @@ class ApplyMergeOutcome:
     kept_separate: list[KeptSeparateReceipt] = field(default_factory=list)  # FS-6
 
 
+from applire.services.profile.aspiration import aspiration_verdict_ops  # noqa: E402 — RULING B-1
+
+
+async def _identity_verdict_ops(merged: MasterProfileData, provider: LLMProvider) -> list:
+    """U-9 (Hazelnut build 5) — the model's same-position verdict for every
+    candidate pair (identical stated dates) of the profile an import is about to
+    install: ONE ``judge_identity`` call, persisted as a
+    ``RecordEntryIdentityVerdicts`` op in the SAME commit as the import (one
+    history record, one transaction, the pre-merge snapshot stays the head
+    record's — undo-last-merge sees no "later edit"). A failure of any kind
+    returns no op: verdicts stay absent, the pair is simply asked later."""
+    try:
+        from applire.services.profile.decisions import judge_identity
+        from applire.services.profile.entry_identity import unjudged_pairs
+        from applire.services.profile.reconcile.ops import (
+            EntryVerdictItem,
+            RecordEntryIdentityVerdicts,
+        )
+
+        pairs = unjudged_pairs(merged)
+        if not pairs:
+            return []
+
+        def _side(section: str, entry_id: str) -> dict:
+            e = next(x for x in getattr(merged, section) if x.id == entry_id)
+            return {
+                "company" if section == "work_experience" else "organization": e.org_label(),
+                "role": e.role,
+                "start_date": e.start_date,
+                "end_date": e.end_date,
+            }
+
+        shaped = [
+            {"pair_id": f"{sec}:{a}:{b}", "a": _side(sec, a), "b": _side(sec, b)}
+            for sec, a, b in pairs
+        ]
+        verdicts = await judge_identity(provider, shaped)
+        items = [
+            EntryVerdictItem(section=sec, ids=[a, b], verdict=verdicts[f"{sec}:{a}:{b}"])
+            for sec, a, b in pairs
+            if f"{sec}:{a}:{b}" in verdicts
+        ]
+        return [RecordEntryIdentityVerdicts(verdicts=items)] if items else []
+    except Exception:  # noqa: BLE001 — a judge failure must never fail the import
+        logger.warning("entry identity verdicts skipped", exc_info=True)
+        return []
+
+
 async def _apply_merge(
     db: AsyncSession,
     incoming: MasterProfileData,
@@ -1834,6 +1985,13 @@ async def _apply_merge(
         # record and keys the ADR-042 pre-merge snapshot to it, so the id this
         # function returns, the stored record and the snapshot still agree —
         # they just agree on the committer's id instead of a pre-generated one.
+        # D-2 — a not-applied item the vault already holds under another name
+        # is marked before the record is written (one model call, fail-safe).
+        from applire.services.profile.not_applied_presence import mark_already_present
+
+        await mark_already_present(list(enrichment.not_applied), merged, provider)
+        verdict_ops = await _identity_verdict_ops(merged, provider)  # U-9
+        verdict_ops += await aspiration_verdict_ops(merged, provider)  # RULING B-1
         committed = await commit_ops(
             db,
             [
@@ -1846,7 +2004,8 @@ async def _apply_merge(
                     restated=enrichment.restated,  # D-B3V6
                     kept_separate=enrichment.kept_separate,  # FS-6
                     extraction_review=extraction_review,  # 783:L41
-                )
+                ),
+                *verdict_ops,
             ],
             CommitProvenance(source=source, intake="import", actor="candidate"),
             record=existing,
@@ -1884,6 +2043,8 @@ async def _apply_merge(
         created_at=now,
         last_updated=now,
     )
+    verdict_ops = await _identity_verdict_ops(incoming, provider)  # U-9
+    verdict_ops += await aspiration_verdict_ops(incoming, provider)  # RULING B-1
     committed = await commit_ops(
         db,
         [
@@ -1891,7 +2052,8 @@ async def _apply_merge(
                 merged=incoming,
                 changes=enrichment.changes,
                 extraction_review=extraction_review,  # 783:L41
-            )
+            ),
+            *verdict_ops,
         ],
         CommitProvenance(source=source, intake="import", actor="candidate"),
         record=None,

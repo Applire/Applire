@@ -1,0 +1,328 @@
+# Copyright (C) 2026 Tobias Rosenbaum
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""RULING B-1 (Hazelnut build 5, U-7) — "Ist das erreicht?" for a bullet of a
+CURRENT role or a CURRENT project that is worded as a goal or a task still to
+do ("Establish …", "aiming for …"). Projects joined on the A1-3 gap ruling: the
+founder's own U-7 bullets sit on a top-level project.
+
+Three owners, kept apart (ADR-062):
+
+* **Candidate selection is code** — the bullets of a current work entry
+  (``is_current`` or no ``end_date``) or a current project (``is_current``; or
+  no ``end_date`` with a start date or an association to a current work entry)
+  that no verdict has judged yet. A project with an ``end_date`` is never
+  current, whatever it is associated with.
+* **The judgement is the model's** — ONE ``judge_aspirations`` call at the end of
+  a CV import, persisted as ``RecordAspirationVerdicts`` in the import's commit
+  (negatives too, so a bullet is judged once). No marker list decides it.
+* **The answer is the candidate's** — the hub asks the ``aspiration`` thread
+  (class A, resolver ``ask_achieved``). "Ja" + what came out writes that
+  outcome as an achievement in the candidate's own words (ADR-061 cl. 2
+  testimony through the manual door); "Nein" records the bullet in the entry's
+  ``not_yet_reached`` list, which a writer reads as a goal, never a result.
+
+A failed judge call writes no verdicts: nothing is asked (the question is a
+courtesy, never a gate) and the next import judges again.
+"""
+from __future__ import annotations
+
+import hashlib
+import logging
+import re
+import uuid
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from applire.schemas.profile import (
+    MasterProfileData,
+    MasterProfileResponse,
+    ProjectEntry,
+    WorkEntry,
+)
+
+logger = logging.getLogger(__name__)
+
+ANSWER_INTAKE = "aspiration_answer"
+ISSUE_PREFIX = "aspiration:"
+#: The answer's rationale keys (frontend catalogs ``review.rationale.*``).
+RATIONALE_ACHIEVED = "aspiration_achieved"
+RATIONALE_GOAL = "aspiration_goal"
+
+
+class AspirationNotFound(LookupError):
+    """No open ``aspiration`` issue with that id (unknown, or the bullet is gone)."""
+
+
+class AspirationAnswered(Exception):
+    """The bullet was already answered."""
+
+
+class AspirationOutcomeRequired(ValueError):
+    """``achieved`` without what came out."""
+
+
+def aspiration_key(text: str) -> str:
+    return hashlib.sha1(" ".join(text.split()).casefold().encode("utf-8")).hexdigest()[:12]
+
+
+def issue_id(entry_id: str, key: str) -> str:
+    return f"{ISSUE_PREFIX}{entry_id}:{key}"
+
+
+SECTIONS = ("work_experience", "projects")
+Entry = WorkEntry | ProjectEntry
+
+
+#: An end date that names no date but says the entry is still running. A FACT of
+#: the date field (ADR-062), not a judgement: extraction writes "present" as a
+#: literal end date at times (build-5 delivery re-run, founder project).
+_ONGOING_END = frozenset({
+    "present", "current", "now", "today", "ongoing",
+    "heute", "bis heute", "aktuell", "laufend", "derzeit",
+})
+
+
+def _ended(end_date: object) -> bool:
+    """True when ``end_date`` states an end, not an ongoing marker."""
+    if not end_date:
+        return False
+    return " ".join(str(end_date).split()).casefold() not in _ONGOING_END
+
+
+def is_current(entry: WorkEntry) -> bool:
+    return bool(entry.is_current) or (bool(entry.start_date) and not _ended(entry.end_date))
+
+
+def _project_is_current(project: ProjectEntry, current_work: list[WorkEntry]) -> bool:
+    if project.is_current:
+        return True
+    if _ended(project.end_date):
+        return False
+    if project.start_date:
+        return True
+    link = " ".join((project.associated_experience or "").split()).casefold()
+    return bool(link) and any(
+        link in {w.id.casefold(), " ".join((w.company or "").split()).casefold()}
+        for w in current_work
+    )
+
+
+def current_entries(profile: MasterProfileData) -> list[tuple[str, Entry]]:
+    """``(section, entry)`` of every current work entry, then every current project."""
+    work = [w for w in profile.work_experience or [] if is_current(w)]
+    projects = [p for p in profile.projects or [] if _project_is_current(p, work)]
+    return [("work_experience", w) for w in work] + [("projects", p) for p in projects]
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _description_sentences(entry: Entry) -> list[str]:
+    """U-7b — the sentences of a project's ``description``: a goal folded into
+    prose is as able to reach a document as a bullet."""
+    text = getattr(entry, "description", None)
+    if not isinstance(text, str) or not text.strip():
+        return []
+    return [s.strip() for s in _SENTENCE_SPLIT.split(text.strip()) if s.strip()]
+
+
+def _bullets(entry: Entry) -> list[str]:
+    """The candidate lines of an entry: its bullets, then its description's
+    sentences (U-7b)."""
+    lines = [b for b in (*entry.responsibilities, *entry.achievements) if isinstance(b, str) and b.strip()]
+    return lines + [s for s in _description_sentences(entry) if s not in lines]
+
+
+def entry_label(entry: Entry) -> str:
+    if isinstance(entry, ProjectEntry):
+        return entry.name
+    return f"{entry.role} — {entry.company}".strip(" —")
+
+
+def _answered_keys(profile: MasterProfileData) -> set[str]:
+    """Keys of every bullet the candidate answered — by an answer record, or by
+    the stance itself (a bullet in any entry's ``not_yet_reached``). ADV-3: the
+    QUESTION is the normalised bullet text, not (entry, text) — an answer given
+    on one entry holds for every entry carrying that bullet (DE/EN duplicates,
+    and the target of a later merge)."""
+    meta = profile.metadata
+    keys = {a.key for a in (meta.aspiration_answers if meta else [])}
+    for _section, entry in current_entries(profile):
+        keys.update(aspiration_key(t) for t in entry.not_yet_reached)
+    return keys
+
+
+def unjudged_bullets(profile: MasterProfileData) -> list[tuple[str, str, str, str]]:
+    """``(section, entry_id, key, text)`` of every current-role and
+    current-project bullet whose text no verdict judged and no answer settled."""
+    meta = profile.metadata
+    judged = {v.key for v in (meta.aspiration_verdicts if meta else [])} | _answered_keys(profile)
+    out: list[tuple[str, str, str, str]] = []
+    for section, entry in current_entries(profile):
+        for text in _bullets(entry):
+            k = aspiration_key(text)
+            if k not in judged:
+                judged.add(k)
+                out.append((section, entry.id, k, text))
+    return out
+
+
+def holders(profile: MasterProfileData, key: str) -> list[tuple[str, Entry, str]]:
+    """``(section, entry, text)`` of every current entry carrying the bullet ``key``."""
+    out: list[tuple[str, Entry, str]] = []
+    for section, entry in current_entries(profile):
+        text = next((b for b in _bullets(entry) if aspiration_key(b) == key), None)
+        if text is not None:
+            out.append((section, entry, text))
+    return out
+
+
+def open_aspirations(profile: MasterProfileData) -> list[tuple[str, Entry, str, str]]:
+    """``(section, entry, key, text)`` — ONE per bullet text the model judged as
+    goal/task wording that still stands on a current entry and is unanswered;
+    the entry is the first one carrying it."""
+    meta = profile.metadata
+    if meta is None or not meta.aspiration_verdicts:
+        return []
+    flagged = {v.key for v in meta.aspiration_verdicts if v.aspiration}
+    answered = _answered_keys(profile)
+    out: list[tuple[str, Entry, str, str]] = []
+    seen: set[str] = set()
+    for section, entry in current_entries(profile):
+        for text in _bullets(entry):
+            k = aspiration_key(text)
+            if k in flagged and k not in answered and k not in seen:
+                seen.add(k)
+                out.append((section, entry, k, text))
+    return out
+
+
+async def aspiration_verdict_ops(profile: MasterProfileData, provider) -> list:
+    """The import-end judgement (one model call) as a ``RecordAspirationVerdicts``
+    op for the import's own commit; ``[]`` on no candidates or any failure."""
+    try:
+        from applire.services.profile.decisions import judge_aspirations
+        from applire.services.profile.reconcile.ops import (
+            AspirationVerdictItem,
+            RecordAspirationVerdicts,
+        )
+
+        candidates = unjudged_bullets(profile)
+        if not candidates:
+            return []
+        flagged = await judge_aspirations(provider, [t for _, _, _, t in candidates])
+        if flagged is None:
+            return []
+        items = [
+            AspirationVerdictItem(section=sec, entry_id=eid, key=k, text=t, aspiration=i in flagged)
+            for i, (sec, eid, k, t) in enumerate(candidates)
+        ]
+        return [RecordAspirationVerdicts(verdicts=items)]
+    except Exception:  # noqa: BLE001 — a judge failure must never fail the import
+        logger.warning("aspiration verdicts skipped", exc_info=True)
+        return []
+
+
+def find_open_aspiration(profile: MasterProfileData, entry_id: str, key: str):
+    """``(section, entry, text)`` of an open aspiration, or raise (one predicate for the
+    service pre-check and the applier, ADR-066)."""
+    if key in _answered_keys(profile):
+        raise AspirationAnswered(key)
+    for section, entry, k, text in open_aspirations(profile):
+        if k == key and any(e.id == entry_id for _s, e, _t in holders(profile, key)):
+            return section, entry, text
+    raise AspirationNotFound(key)
+
+
+def apply_aspiration_op(op, profile: MasterProfileData, changes: list) -> None:
+    from applire.schemas.profile import (
+        AspirationAnswer,
+        AspirationVerdict,
+        FieldChange,
+        ProfileMetadata,
+    )
+
+    if profile.metadata is None:
+        profile.metadata = ProfileMetadata()
+    meta = profile.metadata
+    if op.op == "record_aspiration_verdicts":
+        judged = {(v.entry_id, v.key) for v in meta.aspiration_verdicts}
+        for item in op.verdicts:
+            if (item.entry_id, item.key) in judged:
+                continue
+            judged.add((item.entry_id, item.key))
+            meta.aspiration_verdicts.append(AspirationVerdict(**item.model_dump()))
+        return
+
+    find_open_aspiration(profile, op.entry_id, op.key)
+    outcome = " ".join((op.outcome or "").split())
+    if op.achieved and not outcome:
+        raise AspirationOutcomeRequired(op.key)
+    # ADV-3: the answer holds for every current entry carrying the bullet.
+    for section, entry, text in holders(profile, op.key):
+        label = entry_label(entry)
+        if op.achieved:
+            if outcome.casefold() not in {a.casefold() for a in entry.achievements}:
+                entry.achievements.append(outcome)
+            changes.append(FieldChange(
+                section=section, field="achievements", action="added",
+                old_value=None, new_value=outcome,
+                rationale=f"Added to {label!r}: the candidate said what came out of a goal-worded bullet.",
+                rationale_key=RATIONALE_ACHIEVED, entity_id=entry.id,
+            ))
+        else:
+            if text not in entry.not_yet_reached:
+                entry.not_yet_reached.append(text)
+            changes.append(FieldChange(
+                section=section, field="not_yet_reached", action="added",
+                old_value=None, new_value=text,
+                rationale=f"Kept as a goal on {label!r}: the candidate said it is not reached yet.",
+                rationale_key=RATIONALE_GOAL, entity_id=entry.id,
+            ))
+        meta.aspiration_answers.append(AspirationAnswer(
+            entry_id=entry.id, key=op.key, answer="achieved" if op.achieved else "goal",
+        ))
+
+
+def parse_issue_id(value: str) -> tuple[str, str]:
+    if not value.startswith(ISSUE_PREFIX):
+        raise AspirationNotFound(value)
+    entry_id, _, key = value[len(ISSUE_PREFIX):].rpartition(":")
+    if not entry_id or not key:
+        raise AspirationNotFound(value)
+    return entry_id, key
+
+
+async def answer_aspiration(
+    db: AsyncSession,
+    *,
+    issue_id: str,
+    achieved: bool,
+    outcome: str | None,
+    user_id: uuid.UUID | None = None,
+) -> MasterProfileResponse:
+    """The hub's "Ist das erreicht?" answer — one ``AnswerAspiration`` op through
+    the committer (``manual_edit``, no grounding, no snapshot)."""
+    from applire.services.profile import _get_latest, _to_response
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.ops import AnswerAspiration
+
+    entry_id, key = parse_issue_id(issue_id)
+    if achieved and not (outcome or "").strip():
+        raise AspirationOutcomeRequired(key)
+    record = await _get_latest(db, user_id)
+    if not record:
+        raise LookupError("No profile found")
+    find_open_aspiration(MasterProfileData.model_validate(record.profile_json), entry_id, key)
+    result = await commit_ops(
+        db,
+        [AnswerAspiration(entry_id=entry_id, key=key, achieved=achieved, outcome=outcome)],
+        CommitProvenance(source="manual_edit", intake=ANSWER_INTAKE, actor="candidate"),
+        record=record,
+        grounding=None,
+        snapshot=None,
+        llm_provider=None,
+    )
+    await db.commit()
+    await db.refresh(result.record)
+    return _to_response(result.record)

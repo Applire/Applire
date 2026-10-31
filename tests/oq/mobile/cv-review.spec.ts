@@ -144,6 +144,22 @@ async function setupCvMocks(page: import("@playwright/test").Page) {
   await page.route(`**/api/cv/${CV_ID}/profile-diff`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], grounded: true }) })
   );
+  // ADR-099 cl. 2 / T-U: a producer that does not answer is a counted
+  // "Nicht geprüft" row — so the fixture says both ran, clean.
+  await page.route(`**/api/cv/${CV_ID}/truthfulness-report`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ report: { version: "2", document_kind: "cv", claims: [], counts: {}, stated_limit: "" } }),
+    })
+  );
+  await page.route(`**/api/cv/${CV_ID}/critic-report`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ report: { ran: true, mount: "cv", advisories: [], dropped_citations: 0 } }),
+    })
+  );
 }
 
 test.describe("Mobile CV review command bar (390x844)", () => {
@@ -180,10 +196,11 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     await page.goto(`/flow/${FLOW_ID}/cv`);
     await expect(page.getByTestId("mobile-command-bar")).toBeVisible({ timeout: 10000 });
 
-    // T-1 (ADR-081 cl. 7 amended 2026-10-22): nothing uncovered → the amber
-    // badge counts the points that need a decision (here the failed
-    // reading-order check), never the passed checks.
-    await expect(page.getByTestId("command-ats-decision-badge")).toHaveText("1", { timeout: 5000 });
+    // ADR-099 cl. 3: ONE number on the phone badge — the A+U rows the headline
+    // counts (here the failed, unclassified reading-order check, counted as its
+    // fallback row), never the passed checks; the second amber badge is gone.
+    await expect(page.getByTestId("command-ats-open-badge")).toHaveText("1", { timeout: 5000 });
+    await expect(page.getByTestId("command-ats-decision-badge")).toHaveCount(0);
     await expect(page.getByTestId("command-ats-badge")).toHaveCount(0);
 
     await page.getByTestId("command-ats").tap();
@@ -192,6 +209,7 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     // E058/ADR-081 cl. 7: the sheet now hosts the SAME live ReviewSurface
     // instance as the desktop "review" tab, never a forked panel.
     await expect(sheet.getByTestId("review-surface")).toBeVisible();
+    await expect(sheet.getByTestId("review-verdict")).toHaveAttribute("data-count", "1");
 
     await page.screenshot({ path: testInfo.outputPath("cv-review-ats-sheet.png"), fullPage: true });
     await testInfo.attach("cv-review-ats-sheet", {
@@ -231,14 +249,10 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     await page.getByTestId("command-ats").tap();
     const sheet = page.getByTestId("command-sheet");
     await expect(sheet).toBeVisible({ timeout: 5000 });
-    // E058/ADR-081 cl. 2/9: the sheet now hosts ReviewSurface, not the compact
-    // ATSChecksPanel — a not_applicable check renders as its own group-4 review
-    // row (lib/review-groups.ts `buildGroup4`, severity "neutral"), never folded
-    // into a pass or a failure. ADR-090 cl. 1 retired the old overview mode's
-    // auto-open-when-sole-group behaviour — every group starts collapsed now,
-    // so group 4 needs its own toggle click before the row is visible.
-    await sheet.getByTestId("review-group-toggle-4").tap();
-    await expect(sheet.getByTestId("review-item-g4-check-na-page-length")).toBeVisible();
+    // ADR-099: group 4 is gone; a not_applicable check is neither a row nor a
+    // pass — it is not counted anywhere (and page length has ONE place, the card).
+    await expect(sheet.getByTestId("review-verdict")).toHaveAttribute("data-count", "0");
+    await expect(sheet.getByTestId("review-fallback-page-length")).toHaveCount(0);
 
     await page.screenshot({
       path: testInfo.outputPath("cv-review-ats-sheet-not-applicable.png"),

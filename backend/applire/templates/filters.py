@@ -37,6 +37,8 @@ from applire.utils.budget_unit import budget_needs_unit
 __all__ = [
     "month_year",
     "budget_display",
+    "role_facts",
+    "period",
     "education_title",
     "register_filters",
     "build_template_env",
@@ -154,6 +156,101 @@ def budget_display(value: object, lang: str = "de") -> str:
     return text
 
 
+#: Founder ruling P-1 (Hazelnut build 5): the team size is shown as a count of
+#: people, without a label.
+_TEAM_WORDS = {
+    "de": ("Person", "Personen"),
+    "en": ("person", "people"),
+}
+
+
+def _attr(entry: object, name: str):
+    if isinstance(entry, dict):
+        return entry.get(name)
+    return getattr(entry, name, None)
+
+
+def role_facts(entry: object, lang: str = "de") -> str:
+    """THE per-role fact line under a job entry, for every CV template AND the
+    .docx export (founder ruling P-1, Hazelnut build 5).
+
+    A blind panel (4 of 6 reviewers) read the old ``Teamgröße: 12 · Budget: … ·
+    Branche: …`` line as "template-generated". The ruling:
+
+    * the industry is never rendered — not alone, not in the line;
+    * the line exists only when it holds a figure — a team size and/or a budget —
+      and it carries no labels: ``12 Personen · ca. 2 Mio. EUR``;
+    * no number → no line (``""``), so the caller's ``{% if %}`` drops the whole
+      element.
+
+    A team size of 0 ("no direct reports") is not rendered: "0 Personen" is
+    exactly the furniture the panel objected to, and it holds no claim a reader
+    could use. The budget goes through :func:`budget_display` first, so a
+    unit-less figure (#382) stays omitted.
+
+    >>> role_facts({"team_size": 12, "budget_managed": "ca. 2 Mio. EUR", "industry_context": "Logistik"}, "de")
+    '12 Personen · ca. 2 Mio. EUR'
+    >>> role_facts({"industry_context": "Logistik"}, "de")
+    ''
+    >>> role_facts({"team_size": 1}, "en")
+    '1 person'
+    """
+    parts: list[str] = []
+    team = _attr(entry, "team_size")
+    if isinstance(team, bool):
+        team = None
+    if isinstance(team, (int, float)) and team > 0:
+        one, many = _TEAM_WORDS.get(lang, _TEAM_WORDS["en"])
+        n = int(team) if float(team).is_integer() else team
+        parts.append(f"{n} {one if n == 1 else many}")
+    budget = budget_display(_attr(entry, "budget_managed"), lang).strip()
+    if budget:
+        parts.append(budget)
+    return " · ".join(parts)
+
+
+def period(entry: object, present: str) -> dict:
+    """THE date range of a CV entry (work, education), for every CV template
+    AND the .docx export — a date FACT (ADR-062 clause 1), so one rule, one
+    producer (D-14, Hazelnut build 5).
+
+    Delivery run 3 shipped "03/2005 – Present" for a role that had ENDED: the
+    extraction dropped the end date (``end_date None``) but kept
+    ``is_current False``, and every renderer read a missing end date as
+    "still there". The rule now reads ``is_current``:
+
+    * an end date renders as itself;
+    * no end date and ``is_current`` True -> "– heute"/"– Present";
+    * no end date and ``is_current`` None (unstated: a legacy record, or an
+      entry kind without the field, e.g. education) -> "– heute"/"– Present",
+      the long-standing reading, kept;
+    * no end date and ``is_current`` False -> the start date ALONE, no dash and
+      no "Present": the role ended and the end is unknown, so nothing is said
+      about it;
+    * no start date -> never "Present" (there is no range to continue).
+
+    Returns ``{"start", "end", "dash"}`` so each template keeps its own
+    separator markup (``&nbsp;–&nbsp;``, ``<br/>– ``) and only the decision is
+    shared; ``dash`` is True exactly when both ends render.
+
+    >>> period({"start_date": "2005-03", "end_date": None, "is_current": False}, "Present")
+    {'start': '03/2005', 'end': '', 'dash': False}
+    >>> period({"start_date": "2005-03", "end_date": None, "is_current": True}, "heute")
+    {'start': '03/2005', 'end': 'heute', 'dash': True}
+    >>> period({"start_date": "2005-03"}, "heute")
+    {'start': '03/2005', 'end': 'heute', 'dash': True}
+    >>> period({"start_date": "2005-03", "end_date": "2009-06", "is_current": True}, "heute")
+    {'start': '03/2005', 'end': '06/2009', 'dash': True}
+    """
+    start = month_year(str(_attr(entry, "start_date") or "").strip())
+    end = month_year(str(_attr(entry, "end_date") or "").strip())
+    if not end and start:
+        current = _attr(entry, "is_current")
+        if current is True or current is None:
+            end = present
+    return {"start": start, "end": end, "dash": bool(start and end)}
+
+
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
@@ -249,6 +346,8 @@ def register_filters(env) -> None:
     """
     env.filters["month_year"] = month_year
     env.filters["budget_display"] = budget_display
+    env.filters["role_facts"] = role_facts
+    env.filters["period"] = period
     env.filters["education_title"] = education_title
 
 

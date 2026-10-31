@@ -1,0 +1,232 @@
+// Copyright (C) 2026 Tobias Rosenbaum
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+/**
+ * U-13 (Hazelnut build 5, delivery run 4): after an answer that changed
+ * nothing, EVERY class-A card that takes an answer keeps an exit that can
+ * clear it — never "Entfernen" alone. The kinds are the registry's own
+ * (`adr099-answer-kinds.json`, written by
+ * `backend/tests/unit/test_u13_every_answer_card_keeps_a_clearing_exit.py`);
+ * a kind the registry adds fails here until it has a row builder.
+ * The end state is the PERSISTED one (a reload): a `no_change` decision on a
+ * still-listed finding.
+ */
+
+import React from "react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withIntl } from "@/lib/test-utils/with-intl";
+import { ReviewSurface, type ReviewSurfaceProps } from "../ReviewSurface";
+import type { ATSReport } from "@/lib/ats-report";
+import type { ReviewState } from "@/lib/api/document-review";
+import { normQuote } from "@/lib/norm-quote";
+import type { TruthfulnessReport } from "@/lib/truthfulness-display";
+import answerKinds from "@/lib/__tests__/fixtures/adr099-answer-kinds.json";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+const api = vi.hoisted(() => ({ addEvidence: vi.fn() }));
+vi.mock("@/lib/api/document-review", async (orig) => {
+  const actual = await orig<typeof import("@/lib/api/document-review")>();
+  return {
+    ...actual,
+    addEvidence: api.addEvidence,
+    markWalked: vi.fn().mockResolvedValue({ review_state: null }),
+    listStations: vi.fn().mockResolvedValue([]),
+  };
+});
+
+type Verdict = NonNullable<TruthfulnessReport>["claims"][number]["verdict"];
+
+const TERM = "AI engineering";
+const SENTENCE = "Combines system architecture and validation experience with current AI engineering.";
+
+function ats(term: boolean): ATSReport {
+  return {
+    checks: [],
+    delivery: { loop_clean: true, removals: [], fixed: [] },
+    keywords: {
+      present: term ? [TERM] : [],
+      missing: [],
+      missing_claimable: [],
+      missing_honest_gap: [],
+      present_unsupported: term ? [TERM] : [],
+      present_unsupported_matches: term ? { [TERM]: [{ form: TERM, stem: false }] } : {},
+      claimable_concepts: [],
+      delivery: { present_unsupported: { delivery_class: "A", resolver: "ask_true" } },
+    },
+  } as unknown as ATSReport;
+}
+
+function truth(verdict: Partial<Verdict> | null): TruthfulnessReport {
+  return {
+    version: "2",
+    document_kind: "cv",
+    counts: {},
+    stated_limit: "",
+    claims: verdict
+      ? [
+          {
+            claim: { text: SENTENCE, location: "summary", kind: "summary" },
+            verdict: { verdict: "unbacked", checker: "numbers", evidence: [], detail: "", ...verdict } as Verdict,
+          },
+        ]
+      : [],
+  };
+}
+
+/** One row builder per registry kind — the report shape its producer writes. */
+function build(kind: string, resolver: string): { props: Partial<ReviewSurfaceProps>; key: string; skill: boolean } {
+  if (kind === "keyword:present_unsupported") {
+    return { props: { atsReport: ats(true), truthReport: truth(null) }, key: `ats:${normQuote(TERM)}`, skill: true };
+  }
+  const [, detailKey] = kind.split(":");
+  const at = kind.startsWith("oracle@") ? kind.slice("oracle@".length) : null;
+  if (!kind.startsWith("oracle")) throw new Error(`no row builder for registry kind ${kind}`);
+  const verdict: Partial<Verdict> = {
+    verdict: (at ?? (resolver === "ask_achieved" ? "inflated" : "unbacked")) as Verdict["verdict"],
+    detail_key: at ? null : detailKey,
+    delivery_class: "A",
+    resolver,
+  } as Partial<Verdict>;
+  return {
+    props: { atsReport: ats(false), truthReport: truth(verdict) },
+    key: `oracle:${normQuote(SENTENCE)}`,
+    skill: detailKey === "skillNoEvidence",
+  };
+}
+
+function noChange(key: string, label: string, extra: { action?: "no_change" | "added"; found?: boolean } = {}): ReviewState {
+  return {
+    walked_at: null,
+    decisions: [
+      { finding_key: key, label, action: extra.action ?? "no_change", at: "2026-10-29T03:00:00Z", undo: null, ...(extra.found !== undefined ? { found: extra.found } : {}) },
+    ],
+  };
+}
+
+/** A lower-case "dein…" is the profile catalog's voice; the review card speaks "Dein…" (U-13 r5). */
+const LOWER_DEIN = /(^|[^.!?–—]\s)dein(e[mnrs]?)?\b/;
+
+function props(over: Partial<ReviewSurfaceProps>): ReviewSurfaceProps {
+  return {
+    documentKind: "cv",
+    documentId: "cv-1",
+    atsReport: ats(false),
+    truthReport: truth(null),
+    criticReport: { ran: true, mount: "cv", advisories: [], dropped_citations: 0 },
+    gapClusters: [],
+    ...over,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("U-13 — every answer card keeps a clearing exit after `no_change`", () => {
+  it("the producer fixture lists the delivery-run card and the D-10 card", () => {
+    const kinds = answerKinds.map((k) => k.kind);
+    expect(kinds).toContain("keyword:present_unsupported");
+    expect(kinds).toContain("oracle:skillNoEvidence");
+  });
+
+  it.each(answerKinds.map((k) => [k.kind, k.resolver]))("%s (%s)", (kind, resolver) => {
+    const b = build(kind, resolver);
+    const label = kind === "keyword:present_unsupported" ? TERM : SENTENCE;
+    render(withIntl(<ReviewSurface {...props({ ...b.props, reviewState: noChange(b.key, label) })} />, "de"));
+    const card = screen.getByTestId("review-card");
+    expect(card.getAttribute("data-finding-key")).toBe(b.key);
+    expect(card.dataset.resolver).toBe(resolver);
+    const remove = within(card).queryByTestId("review-answer-remove");
+    const answers = within(card).getByTestId("review-answers");
+    const exits = Array.from(answers.querySelectorAll("a, button")).filter((el) => el !== remove);
+    // never remove alone
+    expect(exits.length).toBeGreaterThan(0);
+    const why = within(card).queryByTestId("review-card-why")?.textContent ?? "";
+    expect(why).not.toContain("Es bleibt nur");
+    if (resolver === "ask_true") {
+      expect(within(card).getByTestId("review-nochange-profile").getAttribute("href")).toBe("/profile");
+      expect(within(card).getByTestId("review-nochange-recheck")).toBeTruthy();
+      expect(remove).toBeTruthy();
+      expect(why).toContain(b.skill ? "unter Kenntnisse" : "an der passenden Stelle");
+    } else {
+      expect(within(card).getByTestId("review-answer-as-goal")).toBeTruthy();
+    }
+  });
+});
+
+describe("U-13 (delivery run 5) — the card states ONE true state after the answer", () => {
+  const term = () => build("keyword:present_unsupported", "ask_true");
+
+  it("reconcile found the fact (testimony no_change): „mit anderen Worten“, no „Nichts Neues gefunden“, no „nicht“-state", async () => {
+    api.addEvidence.mockResolvedValue({
+      testimony: { status: "no_change", changes: [] }, remove_only: true, still_listed: true, report: null, truthfulness: null, review_state: null,
+    });
+    render(withIntl(<ReviewSurface {...props(term().props)} />, "de"));
+    fireEvent.click(screen.getByTestId("review-answer-yes"));
+    fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "Bei Nordlicht: CI/CD mit GitHub Actions." } });
+    fireEvent.click(screen.getByTestId("review-add-submit"));
+    await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
+    const card = screen.getByTestId("review-card");
+    const why = within(card).getByTestId("review-card-why").textContent ?? "";
+    expect(why).toContain(`Dein Profil nennt „${TERM}“ mit anderen Worten`);
+    expect(why).not.toContain(`„${TERM}“ nicht`);
+    expect(within(card).queryByTestId("review-testimony-result")).toBeNull();
+    expect(card.textContent).not.toContain("Nichts Neues gefunden");
+    expect(card.textContent ?? "").not.toMatch(LOWER_DEIN);
+    // main's copy ruling (r5): truthful and neutral — never "copy the posting's words".
+    const exit = within(card).getByTestId("review-nochange-profile").textContent ?? "";
+    expect(exit).toContain(`Trag „${TERM}“ unter Kenntnisse ein, wenn es stimmt.`);
+    expect(card.textContent).not.toMatch(/im Dokument steht/);
+    expect(within(card).getByTestId("review-nochange-recheck")).toBeTruthy();
+    expect(within(card).getByTestId("review-answer-remove")).toBeTruthy();
+  });
+
+  it("reconcile found nothing it could match (testimony conflict): „nennt … nicht“, never „mit anderen Worten“", async () => {
+    api.addEvidence.mockResolvedValue({
+      testimony: { status: "conflict", changes: [] }, remove_only: true, still_listed: true, report: null, truthfulness: null, review_state: null,
+    });
+    render(withIntl(<ReviewSurface {...props(term().props)} />, "de"));
+    fireEvent.click(screen.getByTestId("review-answer-yes"));
+    fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "Irgendwo." } });
+    fireEvent.click(screen.getByTestId("review-add-submit"));
+    await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
+    const why = within(screen.getByTestId("review-card")).getByTestId("review-card-why").textContent ?? "";
+    expect(why).toContain(`Dein Profil nennt „${TERM}“ nicht`);
+    expect(why).not.toContain("mit anderen Worten");
+  });
+
+  it.each([
+    ["no_change + found", { found: true }, "mit anderen Worten"],
+    ["no_change, found absent (older state)", {}, `„${TERM}“ nicht`],
+    ["no_change + found false", { found: false }, `„${TERM}“ nicht`],
+    ["added, still listed", { action: "added" as const }, "mit anderen Worten"],
+  ])("after a reload: %s", (_name, extra, expected) => {
+    const b = term();
+    render(withIntl(<ReviewSurface {...props({ ...b.props, reviewState: noChange(b.key, TERM, extra) })} />, "de"));
+    const card = screen.getByTestId("review-card");
+    const why = within(card).getByTestId("review-card-why").textContent ?? "";
+    expect(why).toContain(expected);
+    expect(why).not.toContain(expected === "mit anderen Worten" ? `„${TERM}“ nicht` : "mit anderen Worten");
+    expect(card.textContent ?? "").not.toMatch(LOWER_DEIN);
+  });
+
+  it("fact kinds: the same two states", () => {
+    const b = build("oracle:figuresNoEvidence", "ask_true");
+    const { unmount } = render(withIntl(<ReviewSurface {...props({ ...b.props, reviewState: noChange(b.key, SENTENCE, { found: true }) })} />, "de"));
+    expect(screen.getByTestId("review-card-why").textContent).toContain("Dein Profil nennt das mit anderen Worten");
+    unmount();
+    render(withIntl(<ReviewSurface {...props({ ...b.props, reviewState: noChange(b.key, SENTENCE) })} />, "de"));
+    expect(screen.getByTestId("review-card-why").textContent).toContain("Dein Profil nennt das nicht");
+  });
+});
+
+describe("main's copy ruling — the skill exit names the term, neutrally (en)", () => {
+  it("en: Add “TERM” under skills if it is true.", () => {
+    const b = build("keyword:present_unsupported", "ask_true");
+    render(withIntl(<ReviewSurface {...props({ ...b.props, reviewState: noChange(b.key, TERM, { found: true }) })} />, "en"));
+    const card = screen.getByTestId("review-card");
+    expect(within(card).getByTestId("review-nochange-profile").textContent).toContain(`Add “${TERM}” under skills if it is true.`);
+    expect(card.textContent).not.toMatch(/as the document words it/);
+  });
+});

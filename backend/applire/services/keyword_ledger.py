@@ -779,6 +779,59 @@ def _enforce_denial_stance(
     return result
 
 
+#: D-12 (Hazelnut build 5): the evidence an aim-only row carries.
+AIM_ONLY_EVIDENCE = (
+    "Not claimable as held: only a goal the candidate said is not reached yet backs it "
+    "— state it only as that aim."
+)
+
+
+def is_aim_only(entry: dict[str, Any] | None) -> bool:
+    """A row :func:`enforce_aim_only_stance` demoted (D-12)."""
+    return isinstance(entry, dict) and entry.get("aim_only") is True
+
+
+def enforce_aim_only_stance(
+    ledger: list[dict[str, Any]], profile_json: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """D-12 (main, Hazelnut build 5): a CLAIMABLE row whose every backing is the
+    candidate's own "not reached yet" answer — a ``not_yet_reached`` line or a skill
+    only such a line backs (:func:`prompt_view.aim_only_skill_names`) — is not
+    claimable as held. It becomes ``gap``/unclaimable with ``aim_only: True``; the
+    writer block lists it under AIMS ONLY. A row one more narrative line or another
+    claimable skill backs stays as it is. Token presence (ADR-062 cl. 1). Pure."""
+    if not ledger or not profile_json:
+        return list(ledger or [])
+    from applire.services.ats_audit import skill_tokens
+    from applire.services.profile.reconcile.stance import claimable_skill_names
+    from applire.services.prompt_view import aim_and_other_lines, aim_only_skill_names
+
+    nyr, other = aim_and_other_lines(profile_json)
+    if not nyr:
+        return list(ledger)
+    aim_skills = aim_only_skill_names(profile_json)
+    nyr_t = [skill_tokens(x) for x in nyr] + [skill_tokens(x) for x in aim_skills]
+    other_t = [skill_tokens(x) for x in other] + [
+        skill_tokens(x) for x in claimable_skill_names(profile_json) if x not in aim_skills
+    ]
+    out: list[dict[str, Any]] = []
+    for entry in ledger:
+        if not isinstance(entry, dict) or not entry.get("claimable") or is_scope_entry(entry):
+            out.append(entry)
+            continue
+        forms = [t for t in (skill_tokens(f) for f in [entry.get("concept") or "", *(entry.get("surface_forms") or [])]) if t]
+        backs_aim = any(f <= t for f in forms for t in nyr_t)
+        backs_other = any(f <= t for f in forms for t in other_t)
+        if backs_aim and not backs_other:
+            row = {k: v for k, v in entry.items() if k not in ("jd_phrase", "adjacent_evidence")}
+            row.update(status="gap", claimable=False, evidence=AIM_ONLY_EVIDENCE, aim_only=True)
+            logger.info("enforce_aim_only_stance: %r backed only by a not-yet-reached aim — unclaimable", entry.get("concept"))
+            out.append(row)
+        else:
+            out.append(entry)
+    return out
+
+
 def split_ledger_for_prompt(
     keyword_ledger: list[dict[str, Any]] | None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -806,8 +859,8 @@ def split_ledger_for_prompt(
     claimable: list[dict[str, Any]] = []
     forbidden: list[str] = []
     for entry in keyword_ledger or []:
-        if is_scope_entry(entry):
-            continue
+        if is_scope_entry(entry) or is_aim_only(entry):
+            continue  # D-12: an aim-only row is neither — the AIMS ONLY line names it
         if entry.get("claimable"):
             claimable.append(entry)
         else:
@@ -1039,7 +1092,8 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
     is empty so legacy callers and pre-E037 rows add nothing.
     """
     claimable, forbidden = split_ledger_for_prompt(keyword_ledger)
-    if not claimable and not forbidden:
+    aims = [e.get("concept", "") for e in keyword_ledger or [] if is_aim_only(e) and e.get("concept")]
+    if not claimable and not forbidden and not aims:
         return ""
 
     # ADR-084 embedding point 15 (Form B). Every `concept`, `surface_forms`
@@ -1148,7 +1202,21 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
         for concept in denied:
             lines.append(f"  - {concept}")
 
+    lines += _aims_only_lines(aims)
     return "\n".join(lines)
+
+
+def _aims_only_lines(aims: list[str]) -> list[str]:
+    """D-12: the AIMS ONLY section — both ledger blocks render it the same way."""
+    if not aims:
+        return []
+    return [
+        "",
+        "AIMS ONLY (the candidate said these are not reached yet): name one only as the aim "
+        "or mandate the profile's not_yet_reached line states — never as a skill, a held "
+        "competence or a result:",
+        *(f"  - {c}" for c in aims),
+    ]
 
 
 def claimable_surface_forms(
@@ -1349,7 +1417,8 @@ def render_ledger_reviewer_block(
     suggestion, never licence to fabricate. Returns "" for an empty/legacy ledger.
     """
     claimable, forbidden = split_ledger_for_prompt(keyword_ledger)
-    if not claimable and not forbidden:
+    aims = [e.get("concept", "") for e in keyword_ledger or [] if is_aim_only(e) and e.get("concept")]
+    if not claimable and not forbidden and not aims:
         return ""
 
     # ADR-084 embedding point 16 (Form B) — the reviewer's copy of point 15.
@@ -1387,6 +1456,7 @@ def render_ledger_reviewer_block(
     else:
         lines.append("  (none)")
 
+    lines += _aims_only_lines(aims)
     return "\n".join(lines)
 
 
@@ -1774,13 +1844,45 @@ def rank_coverage_demand(
     return ordered[:max_terms_per_round], ordered[max_terms_per_round:]
 
 
+#: D-28 (Hazelnut build 5, delivery run 6): in a letter a coverage term is delivered by its
+#: EVIDENCE, not by its word. The demand "surface Technical leadership …" was executed as
+#: "I provide technical leadership by …, and technical strategy by …" and as the gloss
+#: "an agentic GenAI system—an AI agent and LLM-based solution—". Replay of the four
+#: captured letter reviewer calls (gpt-6-luna, n=5 each): feedback naming the posting
+#: term 17/20 -> 3/20, approved 1/20 -> 5/20. Letters only (a CV keeps the skills-list
+#: placement sentence above).
+LETTER_COVERAGE_BY_EVIDENCE = (
+    'IN A LETTER, A TERM IS DELIVERED BY ITS EVIDENCE: a term above counts as '
+    "delivered when the letter already states the candidate's evidence for it, under "
+    "the position that owns it, even though the posting's word does not appear. Such "
+    'a term raises no issue and does not block approval. Demand only a term whose '
+    'evidence the letter does not state, and ask for that EVIDENCE, never for the '
+    'word: never ask for a term to be named verbatim or "explicitly", as a label ("I '
+    'provide <term> by …"), or as an inserted gloss ("… — a <term> — …").'
+)
+
+
 def render_verified_coverage_block(
     entries: list[dict[str, Any]],
     *,
     bounded: bool = False,
     deferred_count: int = 0,
+    skills_list: bool = False,
+    letter: bool = False,
 ) -> str:
     """Render the verified-absent claimable entries for the REVIEWER (US213, #122).
+
+    ``letter`` (D-28, Hazelnut build 5 delivery run 6): the document is a cover letter.
+    The block then says that a term is delivered by the evidence the letter states, and
+    never asks for the posting's word as a label (:data:`LETTER_COVERAGE_BY_EVIDENCE`).
+
+    ``skills_list`` (D-20, Hazelnut build 5 delivery run 4): the document has a skills
+    list (a CV draft). The block then says where a term is surfaced — in the sentence
+    that carries its evidence, never as a skills-list entry. Without it the demand
+    named no place, the corrector put the posting phrase into the skills list (5/5 in
+    the replay of the captured round), the skills-shape chain removed it as untied
+    (``cv.skill_untied``), and the next round demanded it again as absent: four
+    rounds, the cap, UNVERIFIED. With it 0/5 skills-list placements.
 
     This replaces the reviewer's own coverage *detection* (US202) with ground truth:
     the list is the output of a deterministic literal check, not something to
@@ -1861,6 +1963,18 @@ def render_verified_coverage_block(
         "and the reason in your feedback); a waived term does not block approval. "
         "Grounding strictly outranks coverage — never ask the writer to fabricate.",
     ]
+    if letter:
+        lines += ["", LETTER_COVERAGE_BY_EVIDENCE]
+    if skills_list:
+        lines += [
+            "",
+            "WHERE A TERM IS SURFACED: in the sentence that carries its evidence — the "
+            "summary, or a bullet of the position that owns it — with the candidate's own "
+            "facts around it. Name that place in your issue. Never ask for a term as a "
+            "skills-list entry: the skills list takes only forms the profile itself "
+            "records, a deterministic check removes a posting phrase from it, and the term "
+            "then comes back on this list as absent in the next round.",
+        ]
     if bounded and deferred_count:
         lines += [
             "",
@@ -1947,7 +2061,7 @@ def coverage_reviewer_prompt_fn(
             )
             prompt = (
                 f"{prompt}\n\n"
-                f"{render_verified_coverage_block(blocking, bounded=max_terms_per_round is not None, deferred_count=len(deferred))}"
+                f"{render_verified_coverage_block(blocking, bounded=max_terms_per_round is not None, deferred_count=len(deferred), skills_list=isinstance(draft, dict) and 'skills' in draft, letter=isinstance(draft, dict) and 'body' in draft)}"
             )
         return prompt
 
@@ -2863,6 +2977,12 @@ def refresh_ledger_against_vault(
     ledger, changed = reevaluate_gap_ledger_against_vault(keyword_ledger, profile_json)
     if changed:
         ledger, changed = _keep_whole_token_lifts(keyword_ledger, ledger, seam=seam)
+    # D-12 (Hazelnut build 5): the one demotion this read seam owns — the
+    # candidate's own "not reached yet" answer usually arrives AFTER the analysis
+    # (the interview), so a stale claimable row would otherwise reach the writer.
+    aimed = enforce_aim_only_stance(ledger, profile_json)
+    if any(a is not b for a, b in zip(aimed, ledger)):
+        ledger, changed = aimed, True
     if changed:
         after = [(e.get("concept"), e.get("status")) for e in ledger if isinstance(e, dict)]
         moved = [
@@ -4071,6 +4191,7 @@ def build_keyword_ledger(
     # #486 amendment clause (b) documents recurs.
     vault_corpus = denial_release_corpus(profile_json)
     ledger = _enforce_denial_stance(ledger, denied_concepts, vault_corpus or None)
+    ledger = enforce_aim_only_stance(ledger, profile_json)  # D-12
     # #260: final pass — stamp narrative_backed so downstream consumers (the
     # pre-generation summary, the agent-channel ledger surface) can single
     # out a claimable-but-unstoried hard requirement without re-deriving it.

@@ -75,7 +75,10 @@ A. CROSS-ROLE MISATTRIBUTION: content (a responsibility, achievement, or technol
 B. FABRICATED DATES: a start_date or end_date asserting a year, month, or day NOT present in the
    source for that entry. If the source gives no date, the field must be null — never inferred. This
    is about inventing date COMPONENTS, NOT format: a faithfully reformatted source date (see above)
-   is never a fabricated date.
+   is never a fabricated date. Before you flag a date, find THAT entry's own date line in the
+   source and read both ends of its range. A month written in another language is the same month
+   ("Juli 2011 - Oktober 2013" is 2011-07 to 2013-10). Flag only a component that line does not
+   state; if the extracted date matches it, say nothing about it.
 
 Also check for material defects of these kinds:
 1. DUPLICATE ENTRIES (within work_experience only): the same employer+role appearing twice as

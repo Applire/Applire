@@ -78,13 +78,13 @@ def test_ladder_cuts_in_the_founders_order_and_names_every_cut():
     steps = list(ladder_steps(_heavy(), _tier))
     kinds = [s.cut.kind for s in steps]
     assert kinds == [
-        DUPLICATE_PROJECT, OFF_JOB_SKILLS, REPEATED_INDUSTRY,
+        DUPLICATE_PROJECT, OFF_JOB_SKILLS, OFF_JOB_SKILLS,
         OLDEST_CERTIFICATION, OLDEST_CERTIFICATION, OLDEST_CERTIFICATION,
         OLDEST_CERTIFICATION, OLDEST_EDUCATION, OLDEST_EDUCATION,
     ]
     assert steps[0].cut.items == ("MES-Einführung",)
-    assert steps[1].cut.items == ("Kosmetik-Verpackungen", "Golf")
-    assert steps[2].cut.items == ("Muster Umformtechnik: diskrete  fertigung",)
+    # D-23: off-job chips go one slice at a time, the lowest-ranked (last) first
+    assert [s.cut.items for s in steps[1:3]] == [("Golf",), ("Kosmetik-Verpackungen",)]
     # oldest first: 2008, 2013, 2015, 2019
     assert [s.cut.items[0] for s in steps[3:7]] == [
         "Erste Hilfe", "REFA-Grundschein", "Sicherheitsbeauftragter", "Six Sigma Green Belt",
@@ -95,8 +95,9 @@ def test_ladder_cuts_in_the_founders_order_and_names_every_cut():
     final = steps[-1].data
     assert [p["name"] for p in final["projects"]] == ["Eigenes Projekt"]
     assert final["skills"] == ["Lean Management", "SMED", "MES"]
+    # P-1: the industry line is never rendered — the ladder leaves it alone
     assert [w["industry_context"] for w in final["work_history"]] == [
-        "Diskrete Fertigung", None, "Blechumformung",
+        "Diskrete Fertigung", "diskrete  fertigung", "Blechumformung",
     ]
     assert len(final["education"]) == 2
 
@@ -131,9 +132,22 @@ def test_merge_cuts_folds_one_kind_into_one_entry():
     steps = list(ladder_steps(_heavy(), _tier))
     merged = merge_cuts([s.cut for s in steps])
     assert [m["kind"] for m in merged] == [
-        DUPLICATE_PROJECT, OFF_JOB_SKILLS, REPEATED_INDUSTRY, OLDEST_CERTIFICATION, OLDEST_EDUCATION,
+        DUPLICATE_PROJECT, OFF_JOB_SKILLS, OLDEST_CERTIFICATION, OLDEST_EDUCATION,
     ]
-    assert len(merged[3]["items"]) == 4
+    assert len(merged[2]["items"]) == 4
+
+
+def test_p1_a_repeated_industry_line_is_never_proposed_as_a_cut():
+    """Founder ruling P-1: no template renders the industry line, so a cut of it
+    saves no space and its receipt would name a change the page never shows."""
+    only_industry = {
+        "work_history": [
+            {"id": "a", "company": "A", "role": "R", "bullets": ["x."], "industry_context": "Maschinenbau"},
+            {"id": "b", "company": "B", "role": "R", "bullets": ["y."], "industry_context": "Maschinenbau"},
+        ],
+    }
+    assert list(ladder_steps(only_industry, _tier)) == []
+    assert REPEATED_INDUSTRY not in {s.cut.kind for s in ladder_steps(_heavy(), _tier)}
 
 
 # --- the seam: _measure_and_condense holds every delivery at <= target + 1 ----------
@@ -191,10 +205,10 @@ def _volume_pages(cv):
         d = cv.tailored_data
         units = (
             len(d.get("projects") or []) * 2 + len(d.get("skills") or [])
-            + sum(1 for w in d["work_history"] if w.get("industry_context"))
             + len(d.get("certifications") or []) + len(d.get("education") or [])
         )
-        return max(1, units // 3 - 1)
+        # P-1: the industry line renders nowhere, so it is no page volume
+        return max(1, (units + 1) // 3 - 1)
     return pages
 
 
@@ -217,7 +231,10 @@ async def _measure(cv, db, *, target, condense=False, page_ladder=True):
 
 
 @pytest.mark.asyncio
-async def test_measure_holds_the_delivery_at_target_plus_one(db):
+async def test_measure_holds_the_delivery_at_target_plus_one(db, monkeypatch):
+    # The skills rung's own floor (D-23) is pinned in test_d23_*; here the
+    # fixture's 5 chips must stay cuttable to exercise the order.
+    monkeypatch.setattr("applire.services.cv_page_ladder.AUTO_SKILL_FLOOR", 0)
     cv = await _seed(db, target_pages=2)
     assert _volume_pages(cv)() == 5, "fixture must start well over target + 1"
     measured = await _measure(cv, db, target=2)
@@ -262,10 +279,12 @@ def test_pin_predicate_protects_an_active_cv_skill_pin():
 
 
 @pytest.mark.asyncio
-async def test_the_page_length_finding_names_every_ladder_cut(db):
+async def test_the_page_length_finding_names_every_ladder_cut(db, monkeypatch):
     """Seam: generation's audit (``_update_ats_report`` fed the measurement) carries
     the cuts into the page-length row — the founder's "name each cut"."""
     from applire.services.cv import _update_ats_report
+
+    monkeypatch.setattr("applire.services.cv_page_ladder.AUTO_SKILL_FLOOR", 0)
 
     cv = await _seed(db, target_pages=2)
     measured = await _measure(cv, db, target=2)

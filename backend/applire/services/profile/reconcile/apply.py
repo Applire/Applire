@@ -29,11 +29,12 @@ was given and creates a new entity when ``target`` is ``None``.
 """
 from __future__ import annotations
 
+import json
 import logging
 import types
 import typing
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Literal, Union
 
@@ -107,6 +108,9 @@ from applire.services.profile.reconcile.ops import (
     WithdrawDenial,
     SetAvailability,
     DismissAvailabilityReminder,
+    MergeEntries,
+    KeepEntriesSeparate,
+    RecordEntryIdentityVerdicts,
     RequestConfirmation,
     ResolveConfirmation,
     ResolveField,
@@ -732,6 +736,10 @@ def apply_ops(
         elif isinstance(op, ConfirmMatch):
             # FS-6 (ruling V-4 = A) — the candidate's "Ja, dasselbe".
             _apply_confirm_match(op, new_profile, changes)
+        elif isinstance(op, (MergeEntries, KeepEntriesSeparate, RecordEntryIdentityVerdicts)):
+            # Hazelnut build 5 (U-11 / U-9) — the candidate's entry-merge act and
+            # the two entry-identity bookkeeping writes.
+            _apply_entry_ops(op, new_profile, changes)
         elif isinstance(op, WithdrawDenial):
             # G-5 (ADR-059 amended 2026-10-24) — the explicit un-denial act.
             # Receipts on the denial channel, never `changes`.
@@ -795,6 +803,14 @@ def apply_ops(
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
             extraction_review = op.extraction_review
+        elif getattr(op, "op", None) == "adopt_not_applied":
+            # UAT-3d — "Übernehmen": a not-applied import item taken in.
+            _apply_adopt_not_applied(op, new_profile, changes)
+        elif getattr(op, "op", None) in ("record_aspiration_verdicts", "answer_aspiration"):
+            # RULING B-1 — "Ist das erreicht?" bookkeeping and the answer.
+            from applire.services.profile.aspiration import apply_aspiration_op
+
+            apply_aspiration_op(op, new_profile, changes)
 
     # MD-30 (adv-own-1/201, 2026-10-05) — the class guard behind the per-op one
     # in `_apply_set_personal_info`: NO op in this vocabulary may change a field
@@ -1564,6 +1580,8 @@ def _apply_resolve_field(
     # The winning value comes from the DISPUTE for the two non-manual
     # resolutions, so an adapter cannot claim "incoming" and write something
     # else. Only `manual` reads the op's own `value` — the candidate's words.
+    if op.resolution in ("both", "merge"):
+        return _apply_resolve_both_or_merge(op, conflict, profile, changes)
     if op.resolution == "existing":
         chosen = conflict.existing_value
     elif op.resolution == "incoming":
@@ -1622,6 +1640,131 @@ def _apply_resolve_field(
                 rationale_key="conflict_resolved",
             )
         )
+    return updated
+
+
+#: RULING A1-i1 — the identity fields of a work / volunteer entry on which a
+#: dispute may mean two different entries. Mirrors
+#: ``services.profile.decisions.ENTRY_IDENTITY_FIELDS`` (the door's outcome
+#: set); kept here so the applier needs no service import.
+_ENTRY_SPLIT_SECTIONS = frozenset({"work_experience", "volunteer_activities"})
+_ENTRY_SPLIT_FIELDS = frozenset({"role", "company", "organization", "start_date", "end_date"})
+
+
+def _close_conflict(profile: MasterProfileData, conflict_id: str) -> None:
+    if profile.metadata is not None:
+        profile.metadata.pending_conflicts = [
+            c for c in profile.metadata.pending_conflicts if c.conflict_id != conflict_id
+        ]
+
+
+def _apply_resolve_both_or_merge(
+    op: ResolveField,
+    conflict: Conflict,
+    profile: MasterProfileData,
+    changes: list[FieldChange],
+) -> MasterProfileData:
+    """ADR-099 cl. 11 — "Beide behalten" and "Zusammenführen".
+
+    Structured outcomes: nothing here reads a free-text answer (the defect
+    behind SF-PROFILE.22 was a free-text matcher that heard "beide" and kept
+    one). A shape the outcome does not apply to is REFUSED — the dispute
+    stays open and nothing is written, so a caller bug can never turn into
+    a silent "keep current".
+    """
+    dumped = profile.model_dump(mode="json")
+    section_data = dumped.get(op.section)
+    if not isinstance(section_data, list):
+        logger.info("apply_ops: refused resolve_field %s for %s — not an entry section",
+                    op.resolution, op.conflict_id)
+        return profile
+    entry = _entry_for_conflict(section_data, conflict)
+    if entry is None:
+        logger.info("apply_ops: refused resolve_field %s for %s — entry not found",
+                    op.resolution, op.conflict_id)
+        return profile
+    current = entry.get(conflict.field)
+
+    if isinstance(current, list):
+        existing, incoming = conflict.existing_value, conflict.incoming_value
+        if op.resolution == "both":
+            bullets = list(current)
+            keys = {_norm(b) for b in bullets}
+            for value in (existing, incoming):
+                if _norm(value) and _norm(value) not in keys:
+                    bullets.append(value)
+                    keys.add(_norm(value))
+            entry[conflict.field] = bullets
+            new_value: Any = [existing, incoming]
+            rationale = f"Kept both values on {op.field}."
+            key = "conflict_resolved"
+        else:  # merge
+            merged = op.value.strip() if isinstance(op.value, str) else ""
+            if not merged:
+                logger.info("apply_ops: refused resolve_field merge for %s — empty text",
+                            op.conflict_id)
+                return profile
+            entry[conflict.field] = _rewrite_bullet_list(current, existing, incoming, merged)
+            new_value = merged
+            rationale = f"Merged two values on {op.field} into one."
+            key = "conflict_resolved"
+        updated = MasterProfileData.model_validate(dumped)
+        _close_conflict(updated, op.conflict_id)
+        # One rationale key for every outcome (the catalogs translate
+        # ``conflict_resolved``; the English ``rationale`` names which one).
+        changes.append(
+            FieldChange(
+                section=op.section,
+                field=op.field,
+                action="updated",
+                # Both originals stay on the receipt (SF-VAULT.23: what a merge
+                # replaced is never lost from the record).
+                old_value=[existing, incoming],
+                new_value=new_value,
+                rationale=rationale,
+                rationale_key=key,
+            )
+        )
+        return updated
+
+    # A scalar: only "both" on an entry identity field (RULING A1-i1).
+    if (
+        op.resolution != "both"
+        or op.section not in _ENTRY_SPLIT_SECTIONS
+        or conflict.field not in _ENTRY_SPLIT_FIELDS
+    ):
+        logger.info("apply_ops: refused resolve_field %s for %s — not offered on %s.%s",
+                    op.resolution, op.conflict_id, op.section, conflict.field)
+        return profile
+    import uuid as _uuid
+
+    second = {
+        k: ([] if isinstance(v, list) else v)
+        for k, v in entry.items()
+        if k != "id"
+    }
+    second["id"] = str(_uuid.uuid4())
+    second[conflict.field] = conflict.incoming_value
+    section_data.append(second)
+    updated = MasterProfileData.model_validate(dumped)
+    _close_conflict(updated, op.conflict_id)
+    if updated.metadata is not None:
+        from applire.schemas.profile import EntryPair
+
+        updated.metadata.separate_entry_pairs.append(
+            EntryPair(section=op.section, ids=[entry["id"], second["id"]])
+        )
+    changes.append(
+        FieldChange(
+            section=op.section,
+            field=f"[{second['id']}]",
+            action="added",
+            old_value=conflict.existing_value,
+            new_value=conflict.incoming_value,
+            rationale=f"Kept both values on {op.field} as two separate entries.",
+            rationale_key="conflict_resolved",
+        )
+    )
     return updated
 
 
@@ -1727,6 +1870,33 @@ def _apply_resolve_confirmation(
             record_answer = getattr(_stance, "record_denial_scope_answer", None)
             if record_answer is not None:
                 record_answer(profile.metadata, dict(context))
+        return
+
+    # ── D-8 — family 6: the answer names the project's position ─────────────
+    # The candidate's explicit choice on a question that names the project is
+    # the act itself (§7.4); it replaces a company string or an older parent.
+    if context.get("kind") == "project_parent":
+        from applire.services.profile.reconcile.project_parent import plan_project_parent
+
+        placed = plan_project_parent(
+            context, resolve_option_key(entry.model_dump(), op.chosen_option), profile
+        )
+        if placed is None:
+            not_applied.append(ImportNotApplied(
+                section="projects",
+                label=str(context.get("project") or ""),
+                reason="confirmation_unresolvable",
+            ))
+            return
+        project, parent_id = placed
+        if project.associated_experience == parent_id:
+            not_applied.append(ImportNotApplied(
+                section="projects", label=project.name, reason="confirmation_already_present",
+            ))
+            return
+        old_parent = project.associated_experience
+        project.associated_experience = parent_id
+        changes.append(_updated("projects", "associated_experience", old_parent, parent_id, entity=project))
         return
 
     # ── Bug #723 — the attribution family's answer places its held content ───
@@ -3878,3 +4048,341 @@ def _apply_set_availability(op, profile, source, changes) -> None:
         action="updated" if old else "added",
         old_value=old, new_value=text, rationale_key="availability_recorded",
     ))
+
+
+# ── Hazelnut build 5 (U-11 / U-9): entry merge + entry-identity bookkeeping ───
+
+_ENTRY_ALIAS_OWN_VALUE = {
+    "role_aliases": "role",
+    "company_aliases": "company",
+    "organization_aliases": "organization",
+    "institution_aliases": "institution",
+    "degree_aliases": "degree",
+}
+_ENTRY_DATE_FIELDS = ("start_date", "end_date", "is_current")
+_ENTRY_ID_FIELD_SKIP = {"id", "photo_url"}
+
+
+def fill_empty_scalars(target: Any, source: Any, *, skip: tuple[str, ...] = ()) -> list[str]:
+    """Fill ``target``'s EMPTY scalar fields from ``source``; returns the names
+    filled. Lists, dicts and ids are never touched here."""
+    filled: list[str] = []
+    for name in type(target).model_fields:
+        if name in _ENTRY_ID_FIELD_SKIP or name in skip:
+            continue
+        cur, new = getattr(target, name, None), getattr(source, name, None)
+        if isinstance(cur, (list, dict)) or isinstance(new, (list, dict)):
+            continue
+        if _is_empty(cur) and not _is_empty(new):
+            setattr(target, name, new)
+            filled.append(name)
+    return filled
+
+
+#: List fields a merge never unions: the extraction's completeness hint
+#: (recomputed, not candidate content).
+_MERGE_LIST_SKIP = frozenset({"expected_fields"})
+
+
+def _list_item_key(value: Any) -> str:
+    if isinstance(value, str):
+        return _norm(value)
+    if isinstance(value, BaseModel):
+        return json.dumps(value.model_dump(mode="json"), sort_keys=True, default=str)
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def union_source_lists(target: Any, source: Any, *, skip: Iterable[str] = ()) -> list[str]:
+    """ADV-5 — append every item of every LIST field of ``source`` that
+    ``target`` does not already carry; returns the field names that grew.
+
+    Walks the model's fields, so a list field added later is merged without
+    anybody remembering to name it (the education merge silently lost
+    ``relevant_coursework`` while the list of names was hand-kept). An alias
+    list never gains the entry's own value."""
+    grew: list[str] = []
+    skipped = set(skip) | _MERGE_LIST_SKIP
+    for name in type(target).model_fields:
+        if name in skipped:
+            continue
+        new = getattr(source, name, None)
+        if not isinstance(new, list) or not new:
+            continue
+        cur = getattr(target, name, None)
+        if cur is None:
+            cur = []
+        if not isinstance(cur, list):
+            continue
+        own_attr = _ENTRY_ALIAS_OWN_VALUE.get(name)
+        own = _norm(getattr(target, own_attr, "") or "") if own_attr else None
+        have = {_list_item_key(v) for v in cur}
+        added = False
+        for value in new:
+            key = _list_item_key(value)
+            if key in have or (own is not None and isinstance(value, str) and _norm(value) == own):
+                continue
+            cur.append(value.model_copy(deep=True) if isinstance(value, BaseModel) else value)
+            have.add(key)
+            added = True
+        if added:
+            setattr(target, name, cur)
+            grew.append(name)
+    return grew
+
+
+def entry_label(section: str, entry: Any) -> str:
+    """One human label for an entry in a receipt."""
+    if section == "work_experience":
+        parts = (entry.company, entry.role)
+    elif section == "volunteer_activities":
+        parts = (entry.organization, entry.role)
+    elif section == "projects":
+        parts = (entry.name,)
+    else:
+        parts = (entry.institution, entry.degree)
+    return " / ".join(p for p in parts if p) or entry.id
+
+
+def _repoint_id(value: Any, old: str, new: str) -> Any:
+    return new if value == old else value
+
+
+def _repoint_entry_references(profile: MasterProfileData, old: str, new: str) -> None:
+    """Every field of the vault that holds an entry id moves from ``old`` to ``new``."""
+
+    def _dedupe(ids: list[str]) -> list[str]:
+        seen: list[str] = []
+        for i in ids:
+            if i not in seen:
+                seen.append(i)
+        return seen
+
+    for skill in profile.skills:
+        if old in skill.experience_refs:
+            skill.experience_refs = _dedupe([_repoint_id(r, old, new) for r in skill.experience_refs])
+    for story in profile.signature_stories:
+        if old in story.experience_refs:
+            story.experience_refs = _dedupe([_repoint_id(r, old, new) for r in story.experience_refs])
+    for project in profile.projects:
+        if project.associated_experience == old:
+            project.associated_experience = new
+    meta = profile.metadata
+    if meta is None:
+        return
+    for conflict in meta.pending_conflicts:
+        if conflict.entity_id == old:
+            conflict.entity_id = new
+    for confirmation in meta.pending_confirmations:
+        for key, val in list(confirmation.context.items()):
+            if val == old:
+                confirmation.context[key] = new
+    for rec in meta.enrichment_history:
+        for receipt in (*rec.matched, *rec.restated, *rec.kept_separate):
+            if receipt.entity_id == old:
+                receipt.entity_id = new
+    # ADV-3 (RULING B-1 "ask once") — the aspiration records follow the bullet.
+    # A (target, key) twin is harmless: the question is keyed by the bullet text
+    # (any positive verdict flags it, any answer settles it).
+    for rec in (*meta.aspiration_verdicts, *meta.aspiration_answers):
+        if rec.entry_id == old:
+            rec.entry_id = new
+    for pairs in (meta.separate_entry_pairs, meta.entry_identity_verdicts):
+        kept = []
+        for pair in pairs:
+            if old in pair.ids:
+                ids = sorted(_repoint_id(i, old, new) for i in pair.ids)
+                if ids[0] == ids[1]:
+                    continue  # the pair that was just merged
+                pair.ids = ids
+            kept.append(pair)
+        pairs[:] = kept
+
+
+def _apply_entry_ops(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    if isinstance(op, MergeEntries):
+        _apply_merge_entries(op, profile, changes)
+    elif isinstance(op, KeepEntriesSeparate):
+        _apply_keep_entries_separate(op, profile, changes)
+    else:
+        _apply_record_entry_identity_verdicts(op, profile)
+
+
+def _apply_merge_entries(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """U-11 — see :class:`MergeEntries`."""
+    entries = getattr(profile, op.section)
+    target = next((e for e in entries if e.id == op.target_id), None)
+    source = next((e for e in entries if e.id == op.source_id), None)
+    if target is None or source is None or target is source:
+        raise ValueError(f"merge_entries: unknown or identical entries in {op.section!r}")
+    src_label, tgt_label = entry_label(op.section, source), entry_label(op.section, target)
+
+    for name, values in op.bullets.items():
+        if name in ("responsibilities", "achievements", "technologies") and hasattr(target, name):
+            setattr(target, name, list(values))
+    for name, values in op.aliases.items():
+        if not hasattr(target, name):
+            continue
+        own = _norm(getattr(target, _ENTRY_ALIAS_OWN_VALUE.get(name, ""), ""))
+        current = list(getattr(target, name))
+        have = {_norm(v) for v in current}
+        for v in values:
+            if v and _norm(v) != own and _norm(v) not in have:
+                current.append(v)
+                have.add(_norm(v))
+        setattr(target, name, current)
+    if op.section == "work_experience":
+        have_roles = {_norm(d.role) for d in target.dated_role_aliases}
+        for dated in source.dated_role_aliases:
+            if _norm(dated.role) not in have_roles:
+                target.dated_role_aliases.append(dated)
+                if _norm(dated.role) not in {_norm(r) for r in target.role_aliases}:
+                    target.role_aliases.append(dated.role)
+    # RULING B-1: a "not reached yet" answer is the candidate's word — it moves
+    # with the source's bullets instead of vanishing with the source entry.
+    if hasattr(target, "not_yet_reached"):
+        for line in getattr(source, "not_yet_reached", None) or []:
+            if line not in target.not_yet_reached:
+                target.not_yet_reached.append(line)
+
+    # ADV-5 — every other candidate-authored list of the source survives (the
+    # bullet lists the door decided are not touched again).
+    union_source_lists(target, source, skip=set(op.bullets) | {"dated_role_aliases"})
+    fill_empty_scalars(target, source, skip=_ENTRY_DATE_FIELDS if op.dates is not None else ())
+    for name, value in (op.dates or {}).items():
+        if name in _ENTRY_DATE_FIELDS and hasattr(target, name):
+            setattr(target, name, value)
+
+    _repoint_entry_references(profile, op.source_id, op.target_id)
+    entries[:] = [e for e in entries if e.id != op.source_id]
+
+    changes.append(FieldChange(
+        section=op.section, field="entry", action="merged",
+        old_value=src_label, new_value=tgt_label,
+        rationale=f"The candidate merged {src_label!r} into {tgt_label!r}.",
+        rationale_key="entries_merged", entity_id=op.target_id,
+    ))
+    changes.append(FieldChange(
+        section=op.section, field="entry", action="removed",
+        old_value=src_label, new_value=None,
+        rationale=f"{src_label!r} was merged into {tgt_label!r}; its content and references moved.",
+        rationale_key="entries_merged", entity_id=op.source_id,
+    ))
+
+
+def _ensure_metadata(profile: MasterProfileData):
+    from applire.schemas.profile import ProfileMetadata
+
+    if profile.metadata is None:
+        profile.metadata = ProfileMetadata()
+    return profile.metadata
+
+
+def _apply_keep_entries_separate(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """U-9 — see :class:`KeepEntriesSeparate`. Idempotent."""
+    from applire.schemas.profile import EntryPair
+    from applire.services.profile.entry_identity import pair_key
+
+    meta = _ensure_metadata(profile)
+    key = pair_key(op.section, op.entry_ids[0], op.entry_ids[1])
+    if any(pair_key(p.section, p.ids[0], p.ids[1]) == key for p in meta.separate_entry_pairs):
+        return
+    meta.separate_entry_pairs.append(EntryPair(section=op.section, ids=list(op.entry_ids)))
+    entries = getattr(profile, op.section, None) or []
+    labels = {e.id: entry_label(op.section, e) for e in entries}
+    a, b = (labels.get(i, i) for i in op.entry_ids)
+    changes.append(FieldChange(
+        section="metadata", field="separate_entry_pairs", action="added",
+        old_value=None, new_value=f"{a} | {b}",
+        rationale=f"The candidate keeps {a!r} and {b!r} as separate entries.",
+        rationale_key="entries_kept_separate",
+    ))
+
+
+def _apply_record_entry_identity_verdicts(op, profile: MasterProfileData) -> None:
+    """U-9 — see :class:`RecordEntryIdentityVerdicts`. No receipt: the verdict is
+    the model's judgement, not a change to the candidate's vault."""
+    from applire.schemas.profile import EntryIdentityVerdict
+    from applire.services.profile.entry_identity import pair_key
+
+    meta = _ensure_metadata(profile)
+    judged = {pair_key(v.section, v.ids[0], v.ids[1]) for v in meta.entry_identity_verdicts}
+    for item in op.verdicts:
+        key = pair_key(item.section, item.ids[0], item.ids[1])
+        if key in judged:
+            continue
+        judged.add(key)
+        meta.entry_identity_verdicts.append(
+            EntryIdentityVerdict(section=item.section, ids=list(item.ids), verdict=item.verdict)
+        )
+
+class NotAppliedNotAdoptableError(ValueError):
+    """`AdoptNotApplied` named nothing it may take in. ``code``: ``unknown``
+    (no such trail record / item), ``already_adopted``, ``not_adoptable`` (the
+    item captured no entry — a receipt from before the capture, or a scalar
+    item)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def find_adoptable_item(profile: MasterProfileData, record_id: str, item_key: str):
+    """``(record, item)`` for an adoptable receipt item, or raise
+    :class:`NotAppliedNotAdoptableError` (one predicate for the service
+    pre-check and the applier, ADR-066)."""
+    history = profile.metadata.enrichment_history if profile.metadata else []
+    record = next((r for r in history if r.id == record_id), None)
+    if record is None:
+        raise NotAppliedNotAdoptableError("unknown")
+    candidates = [i for i in record.not_applied if i.item_key == item_key]
+    if not candidates:
+        raise NotAppliedNotAdoptableError("unknown")
+    open_items = [i for i in candidates if i.adopted_at is None]
+    if not open_items:
+        raise NotAppliedNotAdoptableError("already_adopted")
+    item = open_items[0]
+    if not item.entry or item.section not in _SECTION_MODEL or item.already_present_as:
+        # D-2: an item already in the vault under another name is a duplicate.
+        raise NotAppliedNotAdoptableError("not_adoptable")
+    return record, item
+
+
+def _apply_adopt_not_applied(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """UAT-3d — see :class:`AdoptNotApplied`. Appends the captured entry under a
+    fresh id (never a second copy of an entry with the same natural key) and
+    stamps the item ``adopted_at``."""
+    from datetime import datetime, timezone
+
+    _record, item = find_adoptable_item(profile, op.record_id, op.item_key)
+    model = _SECTION_MODEL[item.section]
+    payload = dict(item.entry or {})
+    payload.pop("id", None)
+    try:
+        entry = model.model_validate(payload)
+    except ValueError as exc:
+        raise NotAppliedNotAdoptableError("not_adoptable") from exc
+    entries = getattr(profile, item.section)
+    keys = _ENTRY_NATURAL_KEYS.get(item.section, ())
+    own_key = tuple(_norm(getattr(entry, f, "") or "") for f in keys)
+    already_there = any(
+        tuple(_norm(getattr(e, f, "") or "") for f in keys) == own_key for e in entries
+    )
+    if not already_there:
+        entries.append(entry)
+        changes.append(FieldChange(
+            section=item.section, field=(keys or ("name",))[0],
+            action="added", old_value=None, new_value=item.label,
+            rationale=f"Added {item.label!r}: the candidate adopted it from an import that had not applied it.",
+            rationale_key="not_applied_adopted",
+        ))
+    else:
+        changes.append(FieldChange(
+            section="metadata", field="not_applied", action="updated",
+            old_value=None, new_value=item.label,
+            rationale=f"{item.label!r} was already in the profile; the item was marked adopted.",
+            rationale_key="not_applied_adopted",
+        ))
+    stamp = datetime.now(timezone.utc)
+    for i in _record.not_applied:
+        if i.item_key == op.item_key and i.adopted_at is None:
+            i.adopted_at = stamp

@@ -20,6 +20,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { paginatePreview } from "@/components/document/previewPages";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 const CV_WIDTH = 794; // A4 at 96 dpi
@@ -38,6 +39,7 @@ interface CVDocumentProps {
 export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
   function CVDocument({ cvId, className, onPreviewLoad }, ref) {
     const t = useTranslations("cv");
+    const tDelivery = useTranslations("documentReview.delivery");
     const containerRef = useRef<HTMLDivElement>(null);
     const [htmlContent, setHtmlContent] = useState<string | null>(null);
     const [error, setError] = useState(false);
@@ -85,6 +87,25 @@ export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
     const scale =
       containerWidth > 0 ? Math.min(1, containerWidth / CV_WIDTH) : 1;
 
+    // U-6 (UAT-2): draw the PDF's page breaks into the preview, then tell the
+    // page the preview (re)loaded — marks are placed on the paginated document.
+    const handleLoad = (e: React.SyntheticEvent<HTMLIFrameElement>) => {
+      const doc = e.currentTarget.contentDocument;
+      const done = () => onPreviewLoad?.();
+      if (!doc) return done();
+      const run = () => {
+        try {
+          paginatePreview(doc, (page, total) => tDelivery("pageBand", { page, total }));
+        } catch {
+          // A preview aid only — never block the preview on it.
+        }
+        done();
+      };
+      const fonts = (doc as Document & { fonts?: FontFaceSet }).fonts;
+      if (fonts?.ready) void fonts.ready.then(run, run);
+      else run();
+    };
+
     return (
       <div
         ref={containerRef}
@@ -125,7 +146,7 @@ export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
               display: "block",
             }}
             data-testid="cv-iframe"
-            onLoad={onPreviewLoad}
+            onLoad={handleLoad}
           />
         ) : (
           // Container is wider than A4 — render at natural width, centred
@@ -141,7 +162,7 @@ export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
               margin: "0 auto",
             }}
             data-testid="cv-iframe"
-            onLoad={onPreviewLoad}
+            onLoad={handleLoad}
           />
         )}
       </div>

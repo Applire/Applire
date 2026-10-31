@@ -147,9 +147,26 @@
     .entry-tail .entry-bullets {
       margin-top: 0;
     }
-    .project-item {
+    /* D-35: a SHORT project (<=3 bullets) stays one unit; a LONG one keeps its
+       name + first 2 bullets together (.project-lead) and may break after. */
+    .project-atomic,
+    .project-lead {
       break-inside: avoid;
       page-break-inside: avoid;
+    }
+    .project-lead ~ .entry-bullets { margin-top: 0; }
+    /* D-35: the nested projects never open a page without their role — the
+       block before them (the role's lead or tail) travels with their first block. */
+    .entry-projects {
+      break-before: avoid;
+      page-break-before: avoid;
+    }
+    /* D-35: when projects follow, a long role's last 2 bullets are no longer one
+       unit — only the LAST bullet travels with the projects, so the break costs
+       one bullet's height, not two. */
+    .entry-tail.entry-tail-open {
+      break-inside: auto;
+      page-break-inside: auto;
     }
     .section-atomic {
       break-inside: avoid;
@@ -206,6 +223,9 @@
     /* ---- Projects nested under a position ---- */
     .entry-projects { margin-top: 4pt; }
     .entry-projects-title {
+      /* D-6 (delivery run 4): the sub-label moves with its first project — never alone at a page foot. */
+      break-after: avoid;
+      page-break-after: avoid;
       font-size: 8.5pt;
       font-weight: 600;
       text-transform: uppercase;
@@ -237,6 +257,9 @@
       background: var(--cv-accent-tint);
       border-radius: 2pt;
       color: var(--text);
+      /* U-10: a chip never splits across pages; rows break between chips. */
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     /* ---- Languages ---- */
@@ -317,19 +340,22 @@
     </div>
     {% for job in cv.work_history %}
     {% set n_bullets = job.bullets | length %}
-    <div class="entry{{ ' entry-atomic' if n_bullets <= 3 else '' }}">
+    {# D-35: an entry is atomic only when ALL of it is short — its own bullets
+       PLUS its nested projects' bullets (a 2-bullet role with a 5-bullet project
+       was one unbreakable block and left page 1 ~40 % empty). #}
+    {% set n_proj_bullets = job.projects | map(attribute='bullets') | map('length') | sum %}
+    <div class="entry{{ ' entry-atomic' if n_bullets + n_proj_bullets <= 3 else '' }}">
       {% set head %}
       <div class="entry-meta">
         <div class="entry-title">{{ job.role }}</div>
-        <div class="entry-dates">{{ job.start_date | month_year }} – {{ job.end_date | month_year if job.end_date else labels.present }}</div>
+        <div class="entry-dates">{% set job_period = job | period(labels.present) %}{{ job_period.start }}{% if job_period.dash %} – {% endif %}{{ job_period.end }}</div>
       </div>
       <div class="entry-subtitle">{{ job.company }}</div>
-      {% set role_facts = [] %}
-      {% if job.team_size is not none %}{% set _ = role_facts.append(labels.role_team_size ~ ': ' ~ job.team_size) %}{% endif %}
-      {% set budget_text = job.budget_managed | budget_display(lang) %}{% if budget_text %}{% set _ = role_facts.append(labels.role_budget ~ ': ' ~ budget_text) %}{% endif %}
-      {% if job.industry_context %}{% set _ = role_facts.append(labels.role_industry ~ ': ' ~ job.industry_context) %}{% endif %}
-      {% if role_facts %}
-      <div class="entry-facts">{{ role_facts | join(' · ') }}</div>
+      {# Founder ruling P-1: one fact line, numbers only, no labels, no industry
+         (filters.role_facts — shared with the .docx export). #}
+      {% set role_facts_text = job | role_facts(lang) %}
+      {% if role_facts_text %}
+      <div class="entry-facts">{{ role_facts_text }}</div>
       {% endif %}
       {% endset %}
       {% if n_bullets > 3 %}
@@ -348,13 +374,24 @@
         {% endfor %}
       </ul>
       {% endif %}
-      <div class="entry-tail">
+      <div class="entry-tail{{ ' entry-tail-open' if job.projects else '' }}">
         <ul class="entry-bullets">
           {% for bullet in job.bullets[-2:] %}
           <li>{{ bullet }}</li>
           {% endfor %}
         </ul>
       </div>
+      {% else %}
+      {% if job.projects and n_bullets + n_proj_bullets > 3 %}
+      {# D-35: a short role WITH nested projects breaks like a long one — head +
+         first 2 own bullets keep together (.entry-lead), the rest follow, and the
+         projects travel with the block before them (.entry-projects
+         break-before: avoid): they never open a page on their own. #}
+      <div class="entry-lead">
+        {{ head }}
+        {% if job.bullets %}<ul class="entry-bullets">{% for bullet in job.bullets[:2] %}<li>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
+      </div>
+      {% if n_bullets > 2 %}<ul class="entry-bullets">{% for bullet in job.bullets[2:] %}<li>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
       {% else %}
       {{ head }}
       {% if job.bullets %}
@@ -365,16 +402,25 @@
       </ul>
       {% endif %}
       {% endif %}
+      {% endif %}
       {% if job.projects %}
       <div class="entry-projects">
         <div class="entry-projects-title">{{ labels.projects }}</div>
         {% for project in job.projects %}
-        <div class="project-item">
+        {% set n_pb = project.bullets | length %}
+        <div class="project-item{{ ' project-atomic' if n_pb <= 1 else '' }}">
+          {% if n_pb > 1 %}
+          {# D-35: a project with more than one bullet may break — its name + first bullet keep together. #}
+          <div class="project-lead">
+            <div class="project-name">{{ project.name }}</div>
+            <ul class="entry-bullets">{% for bullet in project.bullets[:1] %}<li>{{ bullet }}</li>{% endfor %}</ul>
+          </div>
+          <ul class="entry-bullets">{% for bullet in project.bullets[1:] %}<li>{{ bullet }}</li>{% endfor %}</ul>
+          {% else %}
           <div class="project-name">{{ project.name }}</div>
           {% if project.bullets %}
-          <ul class="entry-bullets">
-            {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
-          </ul>
+          <ul class="entry-bullets">{% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}</ul>
+          {% endif %}
           {% endif %}
         </div>
         {% endfor %}
@@ -444,7 +490,7 @@
     <div class="entry entry-atomic">
       <div class="entry-meta">
         <div class="entry-title">{{ edu.degree | education_title(edu.field) }}</div>
-        <div class="entry-dates">{{ edu.start_date | month_year }}{% if edu.start_date %} – {% endif %}{{ edu.end_date | month_year if edu.end_date else (labels.present if edu.start_date else "") }}</div>
+        <div class="entry-dates">{% set edu_period = edu | period(labels.present) %}{{ edu_period.start }}{% if edu_period.dash %} – {% endif %}{{ edu_period.end }}</div>
       </div>
       <div class="entry-subtitle">{{ edu.institution }}</div>
     </div>
@@ -480,20 +526,21 @@
   <!-- ===== SKILLS / KENNTNISSE ===== -->
   {% if cv.skills %}
   {% set n_skills = cv.skills | length %}
+  {# U-10 (Hazelnut b5): ONE wrapping chip list. The #622 item-count
+     lead/tail split cut the flex row into three lists (2 / n-4 / 2 chips),
+     so the rows wrapped unevenly. A long list now breaks only BETWEEN chip
+     rows (.skills-grid li is unbreakable) and the heading keeps its first
+     row (.section-header break-after: avoid). #}
   <section class="section{{ ' section-atomic' if n_skills <= 6 else '' }}">
-    {% if n_skills > 6 %}<div class="section-lead">{% endif %}
     <div class="section-header">
       <span class="section-title-en">{{ labels.skills }}</span>
       <div class="section-rule"></div>
     </div>
     <ul class="skills-grid">
       {% for skill in cv.skills %}
-      {% if n_skills > 6 and loop.index == 3 %}</ul></div><ul class="skills-grid">{% endif %}
-      {% if n_skills > 6 and loop.revindex == 2 %}</ul><div class="section-tail"><ul class="skills-grid">{% endif %}
       <li>{{ skill }}</li>
       {% endfor %}
     </ul>
-    {% if n_skills > 6 %}</div>{% endif %}
   </section>
   {% endif %}
 
