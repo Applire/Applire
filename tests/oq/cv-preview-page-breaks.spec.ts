@@ -81,6 +81,46 @@ function headingHtml(fillerPx: number, nested: boolean): string {
   </div></body></html>`;
 }
 
+/**
+ * D-35 (delivery run 8): a role whose nested projects make it long. Head + 2 own
+ * bullets keep together (.entry-lead); the projects never open a page on their
+ * own (.entry-projects break-before: avoid); a project keeps its name + first
+ * bullet together (.project-lead) and may break after it. Fixed heights.
+ */
+function nestedProjectsHtml(fillerPx: number): string {
+  const li = (t: string) => `<li>${t}</li>`;
+  return `<!doctype html><html><head><style>
+    @page { size: A4; margin: 20mm; }
+    body { margin: 0; font: 13px/16px Arial, sans-serif; }
+    @media screen { .page { padding: 20mm; } }
+    ul { margin: 0; padding: 0 0 0 16px; }
+    .filler { height: ${fillerPx}px; }
+    .entry { display: flex; gap: 12px; }
+    .entry-dates { width: 130px; flex: none; }
+    .entry-body { flex: 1; }
+    .entry-title, .project-name, .entry-projects-title { height: 20px; }
+    li { height: 40px; break-inside: avoid; }
+    .entry-lead, .project-lead { break-inside: avoid; }
+    .entry-projects { break-before: avoid; }
+    .entry-projects-title { break-after: avoid; }
+  </style></head><body><div class="page">
+    <div class="filler"></div>
+    <div class="entry">
+      <div class="entry-dates">05/2021&nbsp;–&nbsp;11/2024</div>
+      <div class="entry-body">
+        <div class="entry-lead"><div class="entry-title" data-testid="d35-role">Schichtleiterin</div><ul>${li('a')}${li('b')}</ul></div>
+        <div class="entry-projects">
+          <div class="entry-projects-title">PROJEKTE</div>
+          <div class="project-item">
+            <div class="project-lead"><div class="project-name" data-testid="d35-project">Vorhaben</div><ul>${li('p1')}</ul></div>
+            <ul><li>p2</li><li>p3</li><li data-testid="d35-p4">p4</li><li>p5</li></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></body></html>`;
+}
+
 async function open(page: import('@playwright/test').Page, html: string) {
   await page.route(`**/api/flow/${FLOW_ID}/state`, (route) =>
     route.fulfill({
@@ -127,4 +167,19 @@ test.describe('CV preview page bands — D-6 parity with the PDF', () => {
       expect(await pageOf(frame, 'd6-heading')).toBe(2);
     });
   }
+
+  test('D-35: nested projects never open a page without their role — the role moves with them', async ({ page }) => {
+    // The project's lead (name + first bullet) crosses the edge: it, the label and the role's lead go together.
+    const frame = await open(page, nestedProjectsHtml(CONTENT_PX - 150));
+    expect(await pageOf(frame, 'd35-project')).toBe(2);
+    expect(await pageOf(frame, 'd35-role')).toBe(2);
+  });
+
+  test('D-35: a long nested project breaks after its lead — the role does not move whole', async ({ page }) => {
+    // The project's 4th bullet crosses the edge: only it and what follows go to page 2.
+    const frame = await open(page, nestedProjectsHtml(CONTENT_PX - 240));
+    expect(await pageOf(frame, 'd35-role')).toBe(1);
+    expect(await pageOf(frame, 'd35-project')).toBe(1);
+    expect(await pageOf(frame, 'd35-p4')).toBe(2);
+  });
 });
