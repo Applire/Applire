@@ -2075,9 +2075,9 @@ _RUN5_FIXTURE_DIR = Path(__file__).parents[2] / ".run5fixture"
     not _RUN5_FIXTURE_DIR.exists(), reason="run-5 charter fixture not present in this checkout"
 )
 def test_run5_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
-    """Ground truth (#271): work_experience[0].achievements[3] — "Human-
-    authored documents usually need two to three review rounds, while the
-    right LLMs pass the first round" — is present in the vault but ABSENT
+    """Ground truth (#271): work_experience[0].achievements[3] — "Manually
+    written reports typically go through three to four review cycles, whereas a
+    well-tuned model clears the first cycle" — is present in the vault but ABSENT
     from the run-5 tailored CV (the NordPharm entry survived tailoring with
     only 3 bullets). It must reach the full writer prompt only once the
     Task 2 digest is threaded in via ``vault_evidence_block`` — never via
@@ -2095,8 +2095,8 @@ def test_run5_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
     jd_raw = (_RUN5_FIXTURE_DIR / "jd.txt").read_text(encoding="utf-8")
 
     review_rounds_sentence = (
-        "Human-authored documents usually need two to three review rounds, "
-        "while the right LLMs pass the first round"
+        "Manually written reports typically go through three to four review cycles, "
+        "whereas a well-tuned model clears the first cycle"
     )
 
     # Ground truth precondition: the tailored CV's own condensed bullets

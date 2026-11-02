@@ -7,9 +7,9 @@ runtime, never copied verbatim beyond the short quotes the issue brief itself
 gives): the letter's CANDIDATE PROFILE block is built from the TAILORED CV
 (``cv_data``), condensed to ``work_history[:6]`` x ``bullets[:6]``. The
 run-5 NordPharm entry survived tailoring with only 3 bullets, so
-``work_experience[0].achievements[3]`` — "Human-authored documents usually
-need two to three review rounds, while the right LLMs pass the first
-round" — never reached the CV or the letter, even though both run-4 blind
+``work_experience[0].achievements[3]`` — "Manually written reports typically
+go through three to four review cycles, whereas a well-tuned model clears
+the first cycle" — never reached the CV or the letter, even though both run-4 blind
 panel reviewers named it as the invite-flipping fact. See
 ``services.vault_evidence`` module docstring for the full selection design.
 """
@@ -62,8 +62,8 @@ def test_run5_digest_surfaces_review_rounds_sentence_never_in_cv_or_letter():
     review_rounds = [i for i in items if i.path == "work_experience[0].achievements[3]"]
     assert review_rounds, "achievements[3] (the review-rounds sentence) must be selected"
     assert review_rounds[0].text == (
-        "Human-authored documents usually need two to three review rounds, "
-        "while the right LLMs pass the first round"
+        "Manually written reports typically go through three to four review cycles, "
+        "whereas a well-tuned model clears the first cycle"
     )
     # Verbatim means verbatim — not a paraphrase of the vault text.
     assert review_rounds[0].text in json.dumps(profile)

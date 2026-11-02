@@ -49,9 +49,9 @@ from ``cv_data`` (the TAILORED CV's ``tailored_data``), condensed to
 build_cover_letter_prompt``). The run-5 NordPharm work entry survived tailoring
 with only 3 bullets, so everything the CV's own condensation compressed away
 was invisible to the letter — including the exact sentence both run-4 blind
-panel reviewers named as the invite-flipping fact ("Human-authored documents
-usually need two to three review rounds, while the right LLMs pass the first
-round", ``work_experience[0].achievements[3]`` in the vault) and the
+panel reviewers named as the invite-flipping fact ("Manually written reports
+typically go through three to four review cycles, whereas a well-tuned model
+clears the first cycle", ``work_experience[0].achievements[3]`` in the vault) and the
 mentoring/distributed-team leadership material the JD's own 60/40 weighting
 called for. Neither fact reached the CV or the letter — the CV's
 condensation, not the letter's own selection step, silently dropped them

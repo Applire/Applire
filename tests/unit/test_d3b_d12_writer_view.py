@@ -22,7 +22,7 @@ from applire.services.prompt_view import (
 )
 
 TASK = "Build in privacy by design, GDPR compliance and self-hosting."
-AIM = "Leading an AI platform, establishing AI governance frameworks and risk management protocols."
+AIM = "Leading an AI platform, building AI governance structures and risk management routines."
 
 
 def _vault() -> dict:
@@ -33,7 +33,7 @@ def _vault() -> dict:
              "responsibilities": ["Develop the backend with Python and FastAPI.", TASK],
              "achievements": ["Nordlicht is privacy by design from the start: GDPR-compliant and self-hostable."]},
             {"id": "w2", "company": "Pharma Nord", "role": "Associate Director", "start_date": "2024-12",
-             "responsibilities": ["Lead five tech leads; own change, validation and governance of the systems."]},
+             "responsibilities": ["Manage five squad captains; own change, validation and governance of the systems."]},
         ],
         "projects": [{"id": "p1", "name": "GenAI Platform", "description": AIM, "not_yet_reached": [AIM]}],
         "skills": [

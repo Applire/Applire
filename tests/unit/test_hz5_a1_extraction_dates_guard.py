@@ -7,7 +7,7 @@ corrector's remedy is now bounded by a FACT: a date the first extraction gave
 a work entry is restored when its year stands in the source near that entry.
 A fabricated year's removal stands.
 
-Offline replay of the logged chains: run 5 (2008-08 / 2011-05 nulled) restored
+Offline replay of the logged chains: run 5 (2007-09 / 2010-02 nulled) restored
 2/2; run 3 (2005-09 nulled) restored 1/1; every other entry untouched; a
 control with the draft's start year changed to one the source never states
 near the role stays removed.
@@ -17,13 +17,13 @@ import copy
 from applire.services.profile.extraction_dates import keep_source_dates
 
 SOURCE = """Nordwerk AG
-Systems Engineer
-Oktober 2018 - Mai 2021 (2 Jahre 8 Monate)
+Lab Software Developer
+März 2016 - Januar 2019 (2 Jahre 10 Monate)
 Hamburg
 Ran the lab systems.
 Hochschule Talstadt
 Wissenschaftliche Hilfskraft
-August 2008 - Mai 2011 (2 Jahre 10 Monate)
+September 2007 - Februar 2010 (2 Jahre 6 Monate)
 Talstadt
 Diploma thesis on sensor data.
 """
@@ -31,9 +31,9 @@ Diploma thesis on sensor data.
 
 def _draft():
     return {"work_experience": [
-        {"company": "Nordwerk AG", "role": "Systems Engineer", "start_date": "2018-10", "end_date": "2021-05"},
+        {"company": "Nordwerk AG", "role": "Lab Software Developer", "start_date": "2016-03", "end_date": "2019-01"},
         {"company": "Hochschule Talstadt", "role": "Wissenschaftliche Hilfskraft",
-         "start_date": "2008-08", "end_date": "2011-05"},
+         "start_date": "2007-09", "end_date": "2010-02"},
     ]}
 
 
@@ -49,17 +49,17 @@ def test_a_true_date_the_corrector_nulled_is_restored():
     refined = _nulled(draft)
     notes = keep_source_dates(draft, refined, SOURCE)
     assert notes == ["work_experience[1].start_date", "work_experience[1].end_date"]
-    assert refined["work_experience"][1]["start_date"] == "2008-08"
-    assert refined["work_experience"][1]["end_date"] == "2011-05"
+    assert refined["work_experience"][1]["start_date"] == "2007-09"
+    assert refined["work_experience"][1]["end_date"] == "2010-02"
     assert refined["work_experience"][0] == draft["work_experience"][0]
 
 
 def test_a_true_date_the_corrector_changed_is_restored():
     draft = _draft()
     refined = copy.deepcopy(draft)
-    refined["work_experience"][1]["end_date"] = "2010"
+    refined["work_experience"][1]["end_date"] = "2009"
     keep_source_dates(draft, refined, SOURCE)
-    assert refined["work_experience"][1]["end_date"] == "2011-05"
+    assert refined["work_experience"][1]["end_date"] == "2010-02"
 
 
 def test_a_fabricated_year_stays_removed():
@@ -68,12 +68,12 @@ def test_a_fabricated_year_stays_removed():
     refined = _nulled(draft)
     keep_source_dates(draft, refined, SOURCE)
     assert refined["work_experience"][1]["start_date"] is None
-    assert refined["work_experience"][1]["end_date"] == "2011-05"
+    assert refined["work_experience"][1]["end_date"] == "2010-02"
 
 
 def test_a_year_from_another_entrys_span_does_not_count():
     draft = _draft()
-    draft["work_experience"][0]["start_date"] = "2008-08"  # 2008 is the OTHER entry's year
+    draft["work_experience"][0]["start_date"] = "2007-09"  # 2007 is the OTHER entry's year
     refined = copy.deepcopy(draft)
     refined["work_experience"][0]["start_date"] = None
     keep_source_dates(draft, refined, SOURCE)
@@ -95,5 +95,5 @@ def test_no_profile_value_reaches_the_log(caplog):
         keep_source_dates(draft, _nulled(draft), SOURCE)
     logged = " ".join(r.getMessage() for r in caplog.records)
     assert "work_experience[1].start_date" in logged
-    for value in ("Hochschule", "Hilfskraft", "2008", "2011", "Nordwerk"):
+    for value in ("Hochschule", "Hilfskraft", "2007", "2010", "Nordwerk"):
         assert value not in logged

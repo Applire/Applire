@@ -20,7 +20,7 @@ VAULT = {
     "work_experience": [{
         "id": "w1", "company": "Pharma Nord", "role": "Associate Director", "start_date": "2024-12",
         "responsibilities": ["Lead an agentic GenAI system for validation documents."],
-        "achievements": ["The solution targets an estimated 70% reduction in manual effort for authoring and review."],
+        "achievements": ["The tool is projected to cut manual effort by about 70% across drafting and review."],
     }],
     "skills": [],
 }

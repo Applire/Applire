@@ -5,7 +5,7 @@ vault fact must never camouflage as checker conservatism.
 
 Live-reproduced (run-4 report + LLM debug log, 2026-07-24): the generated
 letter said "mentoring teams of 5+" for a StartupX mentoring story, but the
-ONLY "5" anywhere in the vault is "Lead a team of five tech leads and system
+ONLY "5" anywhere in the vault is "Run a group of five squad captains and platform
 owners" — an unrelated achievement on the candidate's CURRENT, DIFFERENT
 role (E2E Supply Chain). Two independent gaps let this slip past every
 existing check:
@@ -49,7 +49,7 @@ PROFILE = {
             "start_date": "2023-01",
             "end_date": None,
             "achievements": [
-                "Lead a team of five tech leads and system owners.",
+                "Run a group of five squad captains and platform owners.",
             ],
         },
         {
@@ -100,7 +100,7 @@ async def test_same_role_quantifier_figure_stays_grounded():
         "body": {
             "paragraphs": [
                 "As an Engineering Manager at E2E Supply Chain, I lead teams "
-                "of 5+ tech leads and system owners.",
+                "of 5+ squad captains and platform owners.",
             ]
         }
     }

@@ -280,27 +280,27 @@ NORDPHARM_WORK_ENTRY = {
     "role": "Associate Director Platform Systems",
     "industry_context": "Biotechnology, Pharmaceuticals, GxP (GCLP/GMP)",
     "responsibilities": [
-        "Lead cross-functional teams establishing cross domain data flows for clinical "
-        "orders, chain of Identity (COI) and chain of Custody (COC) compliance.",
-        "Establish critical cross domain data flows between GCLP and GCP areas, integrating "
-        "data from clinic facing systems like IRT and EDC systems into the Vantum process.",
-        "IT business partner for CTSM, working closely with IMP-Management and patient operations.",
-        "Manage AI automation project using Databricks and large language models to "
-        "streamline validation document generation, aiming for over 80% efficiency improvement.",
+        "Coordinate squads from several departments defining shared data contracts for clinical "
+        "orders and sample-tracking compliance.",
+        "Define the data hand-offs between lab and trial-site areas, integrating "
+        "feeds from site-facing tools like IRT and EDC into the Corvane process.",
+        "Technical partner for the trial-supply group, collaborating closely with drug-supply planners and patient operations.",
+        "Run a pilot on Databricks with language models to "
+        "speed up drafting of validation paperwork, aiming for above 80% efficiency gain.",
     ],
     "achievements": [
-        "Initiated and lead — as architect and product owner — an agentic GenAI system that "
-        "automates the authoring and review of regulatory submission documentation. "
+        "Conceived and steer an agentic GenAI system — in the roles of lead designer and product owner — that "
+        "drafts and checks regulatory submission documentation. "
         "Built with LangGraph/LangChain and retrieval-augmented generation (RAG) over "
-        "reference documents and the SOPs relevant to each workflow, running on Databricks. "
-        "The system performs internal reviews and approvals, so documents typically need human "
-        "review only once.",
-        "Recruited a cross-team group of volunteers to build the prototype, which was selected "
-        "for full implementation; the solution targets an estimated 70% reduction in manual "
-        "effort for both authoring and reviewing validation documents.",
+        "reference papers and the standard procedures that apply per workflow, running on Databricks. "
+        "The system runs internal checks and sign-offs, so a person has to read each document "
+        "just one time.",
+        "Gathered a mixed group of colleagues from several departments to build the prototype, which was picked "
+        "for full rollout; the solution aims at an estimated 65% cut in manual "
+        "effort for both drafting and checking validation documents.",
     ],
     "technologies": [
-        "Databricks", "Large Language Models", "IRT", "EDC", "Vantum",
+        "Databricks", "Large Language Models", "IRT", "EDC", "Corvane",
         "LangGraph", "LangChain", "Retrieval-Augmented Generation (RAG)",
     ],
 }

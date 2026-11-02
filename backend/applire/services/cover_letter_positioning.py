@@ -37,7 +37,7 @@ _TOKEN_RE = re.compile(r"\b[a-zA-ZÀ-ÿ0-9.#+\-]{2,}\b")
 # #272 Task 1 (RC-C): PHRASE-scoped availability/concurrent-commitment matching —
 # never a bare token. RC-C ground truth: the bare token "parallel" matched an
 # enrichment record whose value was the TITLE of an unrelated neuroscience paper
-# ("Parallel Processing via a Dual Olfactory Pathway in the Honeybee"), and that
+# ("Parallel Signal Routing through a Twin Sensory Channel in the Firefly"), and that
 # string was threaded into the writer prompt as the candidate's own availability
 # testimony. A false negative here (no availability claim made) is SAFE; a false
 # positive puts invented/misattributed content in a signed letter, so every entry

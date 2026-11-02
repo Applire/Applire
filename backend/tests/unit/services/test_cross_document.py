@@ -16,10 +16,10 @@ positioning input, so a strength was positioned as the letter's honest gap.
 models, vector store, rerankers, hands-on ranking, hands-on embedding work,
 Prometheus, Grafana, ELK stacks, production logging, tracing. "retrieval
 systems" was NEVER denied — the verbatim denial statement scopes the
-boundary to configuration only: "...The database was designed by me. The
-actual configuration - embedding models, vector store, reranking - was done
-by our system engineer. My contribution was architecture, database design
-and product ownership. So I have not configured embedding models, vector
+boundary to configuration only: "...The schema was my work. The real
+configuration work (embedding models, vector store and reranking) was handled
+by a platform colleague. I owned architecture, schema design
+and product direction. So I have not configured embedding models, vector
 stores or rerankers myself..."
 """
 from __future__ import annotations
@@ -58,9 +58,9 @@ RUN5_LEDGER = [
 ]
 
 RUN5_DENIAL_STATEMENT = (
-    "The database was designed by me. The actual configuration - embedding "
-    "models, vector store, reranking - was done by our system engineer. My "
-    "contribution was architecture, database design and product ownership. So "
+    "The schema was my work. The real configuration - embedding "
+    "models, vector store and reranking was handled by a platform colleague. I "
+    "owned architecture, schema design and product direction. So "
     "I have not configured embedding models, vector stores or rerankers myself."
 )
 
@@ -625,11 +625,11 @@ def test_the_block_never_calls_an_adjacent_partial_a_plain_gap():
 #
 # Charter run #6 ground truth (``backend/logs/llm/2026-07-26.jsonl``, pinned,
 # never copied verbatim — reproduced here as an invented fixture of the SAME
-# shape): a CV bullet reads "...taught a curriculum of three
-# software-engineering courses ... to a team of engineers from
-# natural-science backgrounds with no prior IT/software experience". The
+# shape): a CV bullet reads "...ran a series of four engineering
+# workshops ... for a group of technicians from
+# laboratory backgrounds with no prior IT/software experience". The
 # claimable concept 'Software engineering' surface-matches the EARLY, POSITIVE
-# "software-engineering courses" text; the negation "no" many words later
+# "engineering workshops" text; the negation "no" many words later
 # belongs to a DIFFERENT noun phrase (the trainees' own background) and must
 # never be attributed to the concept's own occurrence. The second real
 # defect ('AI', surface_forms ['AI', 'Artificial Intelligence']) is a bare

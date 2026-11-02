@@ -219,8 +219,8 @@ def test_find_availability_testimony_empty_inputs():
 
 def test_find_availability_testimony_rejects_paper_title_bare_parallel_match():
     """RC-C ground truth (run-5): an enrichment record — rationale 'Added title to
-    publications via reconciliation', value 'Parallel Processing via a Dual
-    Olfactory Pathway in the Honeybee' — matched on the bare token 'parallel' and
+    publications via reconciliation', value 'Parallel Signal Routing through a Twin
+    Sensory Channel in the Firefly' — matched on the bare token 'parallel' and
     was threaded into the writer prompt as availability testimony. It must NOT
     match under phrase-scoped detection."""
     from applire.services.cover_letter_positioning import find_availability_testimony
@@ -230,7 +230,7 @@ def test_find_availability_testimony_rejects_paper_title_bare_parallel_match():
             "changes": [
                 {
                     "rationale": "Added title to publications via reconciliation.",
-                    "new_value": "Parallel Processing via a Dual Olfactory Pathway in the Honeybee",
+                    "new_value": "Parallel Signal Routing through a Twin Sensory Channel in the Firefly",
                 }
             ]
         }
@@ -244,7 +244,7 @@ def test_find_availability_testimony_rejects_paper_title_as_story_text():
 
     stories = [
         {
-            "title": "Parallel Processing via a Dual Olfactory Pathway in the Honeybee",
+            "title": "Parallel Signal Routing through a Twin Sensory Channel in the Firefly",
             "challenge": "Added title to publications via reconciliation.",
             "mechanism": None,
             "outcome": None,

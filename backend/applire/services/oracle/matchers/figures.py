@@ -637,7 +637,7 @@ def extract_figures(text: str) -> list[Figure]:
 
 # ── #237 (run-4 residual) — spelled-out small numbers, VAULT SIDE ONLY ──────
 # The digit-vs-word gap: a candidate's own vault prose spells small counts out
-# ("a team of five tech leads"), while generated document prose (or the
+# ("a group of five squad captains"), while generated document prose (or the
 # candidate's own quantifier phrasing, "5+") uses digits. Without bridging
 # the two, a genuine vault fact never surfaces as figure evidence at all, and
 # a fabricated-looking claim can only ever land ``unbacked`` (no evidence)

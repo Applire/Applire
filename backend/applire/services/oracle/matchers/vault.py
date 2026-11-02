@@ -382,7 +382,7 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         if not stripped:
             return
         # #237 (run-4 residual): the vault's OWN prose may spell a small
-        # count out ("a team of five tech leads") where generated document
+        # count out ("a group of five squad captains") where generated document
         # prose (or a quantifier phrasing like "5+") uses a digit —
         # ``extract_spelled_figures`` bridges that ONLY on this, the vault-
         # indexing side (see its docstring), so the figure becomes citable

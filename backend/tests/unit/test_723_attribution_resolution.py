@@ -50,7 +50,7 @@ ANCHOR_2023 = "w-nordlicht-2023"
 # batch-level channel can).
 HELD_NAMED = (
     "After joining Nordlicht Biotech in 2018, restructured how the team works "
-    "and taught a curriculum of three software-engineering courses"
+    "and ran a series of four engineering workshops"
 )
 HELD_SIBLING = "Took over team leadership during the team lead's parental leave"
 HELD_TECH_A = "Clean Code"
@@ -61,8 +61,8 @@ HELD_TECH_B = "Software architecture"
 # is why the owning-sentence channel (token overlap) cannot reach them.
 ANSWER_DE = (
     "Als ich 2018 zu Nordlicht Biotech kam, habe ich die Arbeitsweise des "
-    "Teams umgestellt, neue Prozesse definiert und ein Curriculum aus drei "
-    "Software-Engineering-Kursen unterrichtet. Außerdem habe ich während der "
+    "Teams umgestellt, neue Prozesse definiert und eine Reihe aus vier "
+    "Engineering-Workshops geleitet. Außerdem habe ich während der "
     "Elternzeit der Teamleitung die Teamleitung übernommen."
 )
 
@@ -175,7 +175,7 @@ def test_the_batch_channel_is_silent_when_the_answer_names_the_target_itself():
     Nothing is held — over-drop discipline is what makes the guard usable."""
     answer = (
         "Beim Westfalen Laborverbund habe ich die Arbeitsweise des Teams "
-        "umgestellt und ein Curriculum aus drei Kursen unterrichtet."
+        "umgestellt und eine Reihe aus vier Workshops geleitet."
     )
     ops = enforce_attribution(
         [AddBullets(target=PREV_ID, responsibilities=[HELD_SIBLING],

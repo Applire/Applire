@@ -6,7 +6,7 @@ Ground truth (2026-07-24, founder self-audit run-4, dumped from the dev DB):
 on a genuinely honest letter, the Oracle scored {unverifiable: 10, grounded:
 4} — near-zero discriminating power — and the ONE real fabrication
 ("mentoring teams of 5+", a figure borrowed from an unrelated CURRENT-role
-fact, "Lead a team of five tech leads") filed as merely ``unverifiable``,
+fact, "Run a group of five squad captains") filed as merely ``unverifiable``,
 camouflaged as checker conservatism rather than flagged as a problem.
 
 Root causes, confirmed against the live data (see this module's fixtures,
@@ -122,14 +122,14 @@ PROFILE = {
     "personal_info": {"name": "Test Candidate", "location": "Frankfurt, Germany"},
     "professional_summary": {
         "en": (
-            "I'm an engineering and architecture leader who builds — and "
-            "leads teams that build — AI-driven systems people can "
-            "actually trust. For several years I've led teams at Nordvance: "
-            "currently as Associate Director for the end-to-end "
-            "supply-chain systems behind specialty biologics, "
-            "and before that heading an architecture team in regulated "
-            "GxP environments. My focus is increasingly on AI — and it's "
-            "hands-on, not just strategic."
+            "I'm a software and platform manager who ships — and "
+            "coaches squads that ship — data-driven products people can "
+            "depend on. Over the past years I've managed groups at Nordvance: "
+            "presently as Associate Director responsible for the end-to-end "
+            "logistics platforms behind specialty biologics, "
+            "and earlier running a platform group in tightly regulated "
+            "lab settings. My attention is shifting toward machine learning — "
+            "practical work, not only roadmaps."
         )
     },
     "work_experience": [
@@ -141,18 +141,18 @@ PROFILE = {
             "start_date": "2024-12",
             "end_date": None,
             "responsibilities": [
-                "Lead cross-functional teams establishing cross domain "
-                "data flows for clinical orders.",
-                "Lead a team of five tech leads and system owners "
-                "responsible for the IT systems behind Nordvance's "
+                "Coordinate squads from several departments defining shared "
+                "data contracts for clinical orders.",
+                "Run a group of five squad captains and platform owners "
+                "responsible for the software platforms behind Nordvance's "
                 "specialty biologics",
             ],
             "achievements": [
-                "Initiated and led an agentic GenAI system that automates "
-                "the authoring and review of regulatory submission "
-                "documentation, built with LangGraph/LangChain and "
-                "RAG over reference documents, targeting an estimated "
-                "70% reduction in manual effort.",
+                "Conceived and steered an agent-based GenAI tool that drafts "
+                "and checks sections of regulatory filing "
+                "dossiers, built with LangGraph/LangChain and "
+                "RAG over reference papers, aiming at a projected "
+                "65% cut in manual effort.",
             ],
         },
         {
@@ -164,9 +164,9 @@ PROFILE = {
             "start_date": "2021-05",
             "end_date": "2024-11",
             "responsibilities": [
-                "Provide strategic guidance and mentorship to the "
-                "architecture team, cultivating a culture of innovation "
-                "and collaboration.",
+                "Offer coaching and mentorship to the "
+                "platform team, building an atmosphere of experiments "
+                "and cooperation.",
             ],
         },
         {
@@ -177,9 +177,9 @@ PROFILE = {
             "start_date": "2026-05",
             "end_date": None,
             "responsibilities": [
-                "Build an open-source, AI-powered platform that automates "
-                "the creation of tailored job-application documents for "
-                "the DACH market.",
+                "Develop an open-source, AI-driven tool that generates "
+                "customised application documents for "
+                "job seekers in the DACH region.",
             ],
         },
     ],
@@ -192,16 +192,16 @@ LETTER = {
         "paragraphs": [
             "I am excited to apply for the Lead AI Engineer role at "
             "Connect-AI.",
-            "At Nordvance, I led a team to develop an agentic GenAI system "
-            "using LangGraph/LangChain to automate regulatory submission "
-            "documentation, targeting a 70% reduction in "
-            "manual effort. This initiative demonstrates my hands-on "
-            "experience in production AI and cross-functional "
-            "collaboration. Additionally, as Founder of Vaultwright, I "
-            "created an open-source AI platform for tailored "
-            "job-application documents.",
+            "At Nordvance, I steered a team building an agent-based GenAI tool "
+            "using LangGraph/LangChain to draft regulatory filing "
+            "dossiers, aiming at a 65% cut in "
+            "manual effort. This project reflects my practical "
+            "background in production AI and working across "
+            "departments. Additionally, as Founder of Vaultwright, I "
+            "developed an open-source AI tool that generates customised "
+            "application documents.",
             # The run-4 fabrication: a figure borrowed from the CURRENT
-            # role's "team of five tech leads" fact, re-contextualized as
+            # role's "group of five squad captains" fact, re-contextualized as
             # a "mentoring" claim about a different, unnamed context.
             "My track record in technical leadership, mentoring teams of "
             "5+, and owning end-to-end production systems positions me "
