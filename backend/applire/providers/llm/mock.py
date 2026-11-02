@@ -759,8 +759,8 @@ class MockLLMProvider(LLMProvider):
 
         # ADR-099 cl. 11 (Hazelnut build 5, WP-A1) — the profile hub's four
         # decision calls (`prompts/profile_decisions.py`). Real shapes, the
-        # cautious answer: the merge proposal repeats bullet 1 (passes the
-        # fact-presence verifier by construction), a typed reply gets the
+        # cautious answer: the merge proposal repeats bullet 1 (adds nothing
+        # by construction), a typed reply gets the
         # follow-up, an identity pair is "unsure" (the hub still asks), no
         # duplicate bullets.
         if "you combine two cv bullet points" in system_lower:

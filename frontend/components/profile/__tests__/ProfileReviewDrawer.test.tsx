@@ -214,7 +214,7 @@ describe("ProfileReviewDrawer", () => {
     fireEvent.click(screen.getByTestId("conflict-outcome-merge"));
     const box = await screen.findByTestId("conflict-merge-text");
     expect(box).toHaveValue("Rebuilt supplier selection and introduced a dashboard.");
-    expect(proposalMock).toHaveBeenCalledWith("s1", "c-list");
+    expect(proposalMock).toHaveBeenCalledWith("s1", "c-list", undefined); // the first ask carries no pick
     expect(outcomeMock).not.toHaveBeenCalled();
     fireEvent.change(box, { target: { value: "Rebuilt supplier selection for 4 sites and introduced a dashboard." } });
     fireEvent.click(screen.getByTestId("conflict-merge-confirm"));
@@ -299,7 +299,7 @@ describe("ProfileReviewDrawer", () => {
     expect(outcomeMock).not.toHaveBeenCalled();
   });
 
-  it("merge fails closed: a proposal that failed the fact check leaves the other three", async () => {
+  it("merge fails closed: no proposal leaves the other three", async () => {
     startOn(LIST_CONFLICT);
     proposalMock.mockResolvedValue({ proposal: null, verifier: "failed" });
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
@@ -313,23 +313,49 @@ describe("ProfileReviewDrawer", () => {
     expect(screen.queryByTestId("conflict-merge-text")).not.toBeInTheDocument();
   });
 
-  it("an edited merge that failed the server re-check is announced as kept-both + own statement", async () => {
+  it("M-1c: two differing values are asked first; the pick builds the sentence", async () => {
     startOn(LIST_CONFLICT);
-    proposalMock.mockResolvedValue({ proposal: "One sentence.", verifier: "passed" });
-    outcomeMock.mockResolvedValue(
-      reply({ interpreted: { outcome: "manual", verifier: "failed" }, current_conflict: NAME_SCALAR }),
-    );
+    proposalMock
+      .mockResolvedValueOnce({ proposal: null, verifier: "failed", question: { values: ["7 months", "8 months"] } })
+      .mockResolvedValueOnce({ proposal: "Led the rollout in 7 months.", verifier: "passed" });
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
     await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
     fireEvent.click(screen.getByTestId("conflict-outcome-merge"));
-    fireEvent.change(await screen.findByTestId("conflict-merge-text"), {
-      target: { value: "One sentence, and 30 % faster." },
+    const q = await screen.findByTestId("conflict-merge-question");
+    expect(q).toHaveTextContent("The two points give different values. Which is right?");
+    expect(screen.getByTestId("conflict-merge-question-both")).toHaveTextContent("Both are right – different things");
+    // the question replaces "Combine"; the other ways out stay
+    expect(screen.queryByTestId("conflict-outcome-merge")).not.toBeInTheDocument();
+    expect(screen.getByTestId("conflict-outcome-keep_both")).toBeInTheDocument();
+    expect(screen.queryByTestId("conflict-merge-unavailable")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("conflict-merge-question-value-0"));
+    expect(await screen.findByTestId("conflict-merge-text")).toHaveValue("Led the rollout in 7 months.");
+    expect(proposalMock).toHaveBeenLastCalledWith("s1", "c-list", {
+      kind: "value",
+      value: "7 months",
+      other: "8 months",
     });
-    fireEvent.click(screen.getByTestId("conflict-merge-confirm"));
-    const notice = await screen.findByTestId("profile-review-notice");
-    expect(notice).toHaveTextContent(/your own statement. It replaces the two points/);
-    expect(screen.queryByTestId("profile-review-undo")).not.toBeInTheDocument();
+    expect(outcomeMock).not.toHaveBeenCalled();
   });
+
+  it("M-1c: 'both are right' sends both values; no sentence then means no merge", async () => {
+    startOn(LIST_CONFLICT);
+    proposalMock
+      .mockResolvedValueOnce({ proposal: null, verifier: "failed", question: { values: ["7 months", "8 months"] } })
+      .mockResolvedValueOnce({ proposal: null, verifier: "failed", question: { values: ["7 months", "8 months"] } });
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
+    fireEvent.click(screen.getByTestId("conflict-outcome-merge"));
+    fireEvent.click(await screen.findByTestId("conflict-merge-question-both"));
+    // after a pick a second question is never shown — the merge is unavailable
+    await waitFor(() => expect(screen.getByTestId("conflict-merge-unavailable")).toBeInTheDocument());
+    expect(screen.queryByTestId("conflict-merge-question")).not.toBeInTheDocument();
+    expect(proposalMock).toHaveBeenLastCalledWith("s1", "c-list", {
+      kind: "both",
+      values: ["7 months", "8 months"],
+    });
+  });
+
 
   it("U-4/U-5: a typed answer read as an outcome says so", async () => {
     startOn(LIST_CONFLICT);

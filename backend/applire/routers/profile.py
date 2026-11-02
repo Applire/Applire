@@ -44,6 +44,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.models.uploads import UploadRecord
 from applire.schemas.profile import (
     ConflictResolutionRequest,
+    ConflictMergeProposalRequest,
     MergeProposalResponse,
     CVImportJobListItem,
     CVImportJobResponse,
@@ -1059,6 +1060,7 @@ async def resolve_profile_conflict(
 )
 async def conflict_merge_proposal(
     conflict_id: str,
+    body: ConflictMergeProposalRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
     provider: LLMProvider = Depends(_get_provider),
@@ -1066,7 +1068,10 @@ async def conflict_merge_proposal(
     """ADR-099 cl. 11 — one model call, verified, nothing written. 404 for an
     unknown/closed dispute, 422 for one that offers no merge."""
     try:
-        p = await propose_conflict_merge(conflict_id, db, provider, user_id=_uid(current_user))
+        p = await propose_conflict_merge(
+            conflict_id, db, provider, user_id=_uid(current_user),
+            choice=body.choice.as_prompt_choice() if body and body.choice else None,
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
@@ -1076,7 +1081,7 @@ async def conflict_merge_proposal(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
         )
-    return MergeProposalResponse(proposal=p.proposal, verifier=p.verifier, sources=list(p.sources))
+    return MergeProposalResponse.from_proposal(p)
 
 
 @router.post(

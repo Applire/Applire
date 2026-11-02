@@ -1378,9 +1378,8 @@ async def _resolve_conflict_safely(
     user_id: uuid.UUID | None = None,
 ) -> str | None:
     """Apply the user's correction, tolerating an already-resolved conflict.
-    Returns the resolution actually written (``manual`` when an edited merge
-    sentence failed the fact-presence check, RULING A1-1), None when the
-    dispute was already gone."""
+    Returns the resolution actually written, None when the dispute was
+    already gone."""
     from applire.services.profile import last_applied_resolution, resolve_conflict  # lazy: avoid import cycle
 
     try:
@@ -1907,10 +1906,12 @@ async def review_merge_proposal(
     provider: LLMProvider,
     *,
     user_id: uuid.UUID | None = None,
+    choice: dict | None = None,
 ):
     """ADR-099 cl. 11 — "Zusammenführen" inside a profile review: the same
     service as ``POST /api/profile/conflicts/{id}/merge-proposal``, scoped to
-    a dispute this review owns. Nothing is written."""
+    a dispute this review owns. Nothing is written. ``choice`` = the pick on
+    a value question (am. 2026-11-02, M-1c)."""
     from applire.services.profile import propose_conflict_merge
 
     uid = resolve_user_id(user_id, site="session.review_merge_proposal")
@@ -1921,7 +1922,7 @@ async def review_merge_proposal(
     if not any(c.get("conflict_id") == conflict_id for c in clusters.values()):
         # 422, not 404: a 404 on this route means "not your session" (S-10).
         raise ValueError(f"conflict_not_in_review: {conflict_id}")
-    return await propose_conflict_merge(conflict_id, db, provider, user_id=uid)
+    return await propose_conflict_merge(conflict_id, db, provider, user_id=uid, choice=choice)
 
 
 # ---------------------------------------------------------------------------

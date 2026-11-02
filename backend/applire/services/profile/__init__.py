@@ -1204,16 +1204,13 @@ def _plan_resolution(conflict: Conflict, resolution: str, value: object):
 
     * ``both`` only where ``decisions.conflict_shape`` offers ``keep_both``;
       ``merge`` only on a bullet list.
-    * A merge sentence is re-verified HERE (fact presence, the same check the
-      proposal passed — the candidate may have edited it). Passing → the
-      ``merge`` resolution. Failing → RULING A1-1 (2026-10-28, ADR-061 cl. 2
-      "the decision IS the testimony"): the candidate's own words, written as
-      the ``manual`` resolution of THIS dispute — receipted, trailed and
-      re-floor-guarded like any resolution.
-    Both merge paths take a MERGE snapshot (one undo).
+    * A merge sentence the candidate confirmed is written as the ``merge``
+      resolution (ADR-099 am. 2026-11-02, M-1e: no fact-presence re-check —
+      it rejected every correct translation and caught no invented fact; the
+      candidate confirms the sentence beside both originals). It takes a
+      MERGE snapshot (one undo).
     """
     from applire.services.profile.decisions import conflict_shape
-    from applire.services.profile.merge_verifier import verify_merge
     from applire.services.profile.resolution import normalise_resolution
 
     resolution = normalise_resolution(resolution)
@@ -1228,12 +1225,7 @@ def _plan_resolution(conflict: Conflict, resolution: str, value: object):
         raise ValueError(f"merge is not offered for {conflict.section}.{conflict.field}")
     if not isinstance(value, str) or not value.strip():
         raise ValueError("merge needs the merged sentence as value")
-    sources = [str(conflict.existing_value or ""), str(conflict.incoming_value or "")]
-    if verify_merge(value, sources):
-        return "merge", SnapshotClass.MERGE
-    logger.info("resolve_conflict: merge sentence carries a fact absent from both "
-                "sources; written as the candidate's own words (manual, RULING A1-1)")
-    return "manual", SnapshotClass.MERGE
+    return "merge", SnapshotClass.MERGE
 
 
 async def propose_conflict_merge(
@@ -1242,11 +1234,16 @@ async def propose_conflict_merge(
     provider: LLMProvider,
     *,
     user_id: uuid.UUID | None = None,
+    choice: dict | None = None,
 ):
-    """ADR-099 cl. 11 — "Zusammenführen": ONE model call, verified, no write.
+    """ADR-099 cl. 11 — "Zusammenführen": a proposal, no write (am.
+    2026-11-02, M-1e: one model call, the candidate confirms). ``choice`` =
+    the candidate's pick on a value question (M-1c), re-checked here: two
+    distinct values, each written in one of the two stored items.
     ``LookupError`` for an unknown/closed dispute, ``ValueError`` for a
-    dispute that offers no merge (a scalar)."""
+    dispute that offers no merge (a scalar) or a pick the items do not hold."""
     from applire.services.profile.decisions import conflict_shape, propose_merge
+    from applire.services.profile.merge_values import value_in
 
     record = await _get_latest(db, user_id)
     if not record:
@@ -1265,9 +1262,13 @@ async def propose_conflict_merge(
     from applire.services.profile.entity_label import label_for
 
     label = label_for(profile_data, conflict.entity_id)
-    return await propose_merge(
-        provider, str(conflict.existing_value or ""), str(conflict.incoming_value or ""), label
-    )
+    existing, incoming = str(conflict.existing_value or ""), str(conflict.incoming_value or "")
+    if choice is not None:
+        picked = [choice["value"], choice["other"]] if choice.get("kind") == "value" else list(choice["values"])
+        distinct = len({" ".join(str(v).split()).casefold() for v in picked}) == 2
+        if not distinct or not all(value_in(v, existing) or value_in(v, incoming) for v in picked):
+            raise ValueError("choice_not_in_sources")
+    return await propose_merge(provider, existing, incoming, label, choice=choice)
 
 
 async def resolve_confirmation(

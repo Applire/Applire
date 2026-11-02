@@ -4,7 +4,8 @@
 profile hub's decisions. Each sees ONLY what it judges (the two items, the
 candidate's reply, two entries' identity fields) — never the whole profile.
 
-* ``MERGE_SYSTEM``      — "Zusammenführen": one sentence from two bullets.
+* ``MERGE_SYSTEM``      — "Zusammenführen": one sentence from two bullets, or
+                          the two differing values to ask about.
 * ``REPLY_SYSTEM``      — a typed answer to a dispute → outcome | corrected
                           value | ONE follow-up question.
 * ``IDENTITY_SYSTEM``   — two entries with identical dates: the same position?
@@ -12,8 +13,10 @@ candidate's reply, two entries' identity fields) — never the whole profile.
                           the same fact (any language), each with a proposal.
 
 The judgements are the model's (ADR-062 cl. 1); what code checks afterwards is
-only fact presence (``services/profile/merge_verifier.py``) and membership of
-the offered answer set. Every output is a JSON object, and every system
+membership of the offered answer set and, for a merge VALUE QUESTION, that each
+value is written in its bullet and the two really differ
+(``services/profile/merge_values.py``). A merged sentence is not checked by
+code (ADR-099 am. 2026-11-02, M-1e) — the candidate confirms it. Every output is a JSON object, and every system
 prompt names "JSON" (an OpenAI-family JSON mode refuses a request whose
 messages never say it — HTTP 400, found on the first real run, 2026-10-28).
 """
@@ -22,26 +25,69 @@ from __future__ import annotations
 import json
 from typing import Any
 
+# ADR-099 am. 2026-11-02 (founder UAT-3, M-1e): rule 2 replaces "every
+# number, name … must be written in one of them" + "the language of the first
+# bullet", which contradicted each other for a bullet in another language — the
+# model resolved it by copying English passages verbatim (7/30 proposals half
+# German, half English on gpt-6-luna). Nothing checks the sentence in code; the
+# candidate confirms it beside both originals.
 MERGE_SYSTEM = """You combine two CV bullet points about the SAME entry into ONE bullet point.
 
 Rules:
-1. Use only the facts the two bullets state. Every number, name, tool, place,
-   organisation and product in your sentence must be written in one of them.
-   Never add a figure, a scope word ("all", "global", "every") or an outcome
-   that neither bullet states.
-2. Keep each fact's stance: a goal or target stays a goal ("aims to", "targets"),
-   a result stays a result. Keep the tense of the bullets.
-3. Write one CV line: no "I", "my" or "we"; the language of the first bullet.
-4. If the two bullets cannot be one line without dropping a fact, answer null.
+1. Use only the facts the two bullets state. Never add a figure, a name, a tool,
+   a place, an organisation, a scope word ("all", "global", "every") or an
+   outcome that neither bullet states.
+2. Write the whole bullet in the language of bullet 1. When bullet 2 is in another
+   language, translate what it says; numbers, names, tools, products and
+   abbreviations stay exactly as written. Never mix two languages in the bullet.
+3. Keep each fact's stance: a goal or target stays a goal, a result stays a
+   result. Keep the tense of the bullets. No "I", "my" or "we".
+4. If the two bullets give DIFFERENT values for the same thing (a duration, a
+   count, a date, an amount, a place), never pick one and never write both:
+   ask instead, with each value copied as its bullet writes it —
+   {"merged": null, "differing": ["<value from bullet 1>", "<value from bullet 2>"]}.
+   A value is only the part that differs (a number with its unit, a date, a
+   place), never a whole bullet. A fact only ONE bullet states is not a
+   differing value: keep it in the bullet.
+5. When the input gives the candidate's answer about two values, follow it:
+   write the bullet, and never answer "differing" again.
+6. If the two bullets cannot be one line without dropping a fact for any other
+   reason, answer {"merged": null}.
 
-Output ONLY this JSON object: {"merged": "<the one bullet>"} or {"merged": null}"""
+Output ONLY this JSON object: {"merged": "<the one bullet>"} or {"merged": null}
+or {"merged": null, "differing": ["<value 1>", "<value 2>"]}"""
 
 
-def build_merge_prompt(existing: str, incoming: str, entry_label: str | None) -> str:
+def build_merge_prompt(
+    existing: str,
+    incoming: str,
+    entry_label: str | None,
+    choice: dict[str, Any] | None = None,
+) -> str:
+    """``choice`` = the candidate's answer to a value question (ADR-099 am.
+    2026-11-02, M-1c): ``{"kind": "value", "value", "other"}`` or
+    ``{"kind": "both", "values": [v1, v2]}``; ``{"kind": "same", "values"}``
+    is code's own: the model called two values different that are not."""
+    answer = ""
+    if choice and choice.get("kind") == "value":
+        answer = (
+            f'Candidate\'s answer: "{choice["value"]}" is right and "{choice["other"]}" is wrong. '
+            f'Write "{choice["value"]}" only.\n'
+        )
+    elif choice and choice.get("kind") == "both":
+        a, b = choice["values"]
+        answer = (
+            f'Candidate\'s answer: "{a}" and "{b}" are both right — they are different things. '
+            "Keep both in the bullet.\n"
+        )
+    elif choice and choice.get("kind") == "same":
+        a, b = choice["values"]
+        answer = f'"{a}" and "{b}" say the same. Write it once, as bullet 1 writes it.\n'
     return (
         f"Entry: {entry_label or '(unnamed)'}\n"
         f"Bullet 1: {existing}\n"
         f"Bullet 2: {incoming}\n"
+        f"{answer}"
         'Answer with {"merged": ...} now.'
     )
 
@@ -120,9 +166,12 @@ bullets of entry T and of entry S, numbered. Find every pair (one T bullet, one 
 bullet) that states the SAME fact — the same piece of work, possibly in another
 language or other words. Two different pieces of work that share words are NOT
 a pair. For each pair, also propose ONE bullet that keeps EVERY fact of both
-(only facts written in the two bullets; same stance and tense; no "I"; one
-language — the language of the T bullet, never both side by side), or null
-when they cannot be one line without dropping a fact.
+(only facts the two bullets state — never an added figure, name or scope word;
+same stance and tense; no "I"; the whole bullet in the language of the T bullet:
+translate what the S bullet says, numbers, names, tools and abbreviations stay
+exactly as written, never two languages side by side), or null when they cannot
+be one line without dropping a fact or when they give different values for the
+same thing.
 
 Output ONLY this JSON object: {"pairs": [{"t": "T1", "s": "S2", "merged": "<bullet>"|null}]}
 (an empty list when no bullet appears in both)"""

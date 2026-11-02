@@ -21,6 +21,8 @@ from typing import Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, Field, StringConstraints
 
+from applire.schemas.profile import MergeChoice
+
 
 # ---------------------------------------------------------------------------
 # Request schemas
@@ -69,6 +71,8 @@ class SessionMessageRequest(BaseModel):
 
 class MergeProposalRequest(BaseModel):
     conflict_id: str = Field(min_length=1, max_length=200)  # SEC-2
+    # ADR-099 am. 2026-11-02 (M-1c): the pick on a value question.
+    choice: MergeChoice | None = None
 
 
 class CurrentConflict(BaseModel):
@@ -91,8 +95,8 @@ class InterpretedAnswer(BaseModel):
     """ADR-099 cl. 11 — what the last answer was read as. ``outcome`` is the
     outcome written (``keep_current`` / ``take_new`` / ``keep_both`` /
     ``merge``) or ``manual`` (the candidate's own words written as the value:
-    a typed corrected value, or an edited merge sentence that failed the
-    fact-presence check — RULING A1-1). ``corrected_value`` = the value
+    a typed corrected value — RULING A1-1; a confirmed merge sentence is
+    always ``merge`` since ADR-099 am. 2026-11-02, M-1e). ``corrected_value`` = the value
     written for a typed correction. ``follow_up`` = the ONE follow-up asked
     instead (nothing written). ``verifier`` = for a merge only."""
 

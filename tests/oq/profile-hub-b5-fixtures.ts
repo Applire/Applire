@@ -175,6 +175,25 @@ export async function openHub(page: Page): Promise<Wire[]> {
   return wire;
 }
 
+/** ADR-099 am. 2026-11-02 (M-1c): "Combine" first asks which of two differing
+ *  values is right; the pick comes back on the next proposal request. */
+export async function routeMergeQuestion(page: Page, wire: Wire[]) {
+  await page.route("**/api/session/s1/merge-proposal", (route) => {
+    const body = route.request().postData();
+    wire.push({ url: route.request().url(), body: body ? JSON.parse(body) : null });
+    const picked = body ? JSON.parse(body).choice : undefined;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        picked
+          ? { proposal: "Rebuilt supplier selection for 4 sites and cut scrap by 18 %.", verifier: "passed", sources: [] }
+          : { proposal: null, verifier: "failed", sources: [], question: { values: ["18 %", "12 %"] } },
+      ),
+    });
+  });
+}
+
 export async function shot(page: Page, name: string) {
   const dir = process.env.A2_SHOTS_DIR;
   if (dir) await page.screenshot({ path: `${dir}/${name}.png`, fullPage: false });
