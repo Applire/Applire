@@ -88,7 +88,7 @@ def _company_tokens(name: str) -> frozenset[str]:
     """Return significant tokens from a company name.
 
     Strips common legal-form suffixes and stopwords, then returns tokens
-    with more than 3 characters so noise like 'Co', 'BRK', 'SE' don't drive
+    with more than 3 characters so noise like 'Co', 'KVS', 'SE' don't drive
     false matches.
     """
     tokens: list[str] = []
@@ -106,7 +106,7 @@ def _company_names_match(a: str, b: str) -> bool:
 
     Exact match (fast path) or subset match: one name's significant-token
     set is a subset of the other's, indicating one is a shortened form of
-    the same organisation (e.g. 'Roche' ⊆ 'Roche Diagnostics GmbH').
+    the same organisation (e.g. 'Varena' ⊆ 'Varena Diagnostics GmbH').
     """
     a_l = a.strip().lower()
     b_l = b.strip().lower()

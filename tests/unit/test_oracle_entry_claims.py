@@ -36,7 +36,7 @@ VAULT = {
         "id": "w1", "company": "Acme GmbH", "title": "Finanzbuchhalterin", "start_date": "2016-01",
         "responsibilities": ["Monatsabschlüsse nach HGB, Abstimmung mit den Wirtschaftsprüfern"],
     }],
-    "education": [{"institution": "Hochschule Mainz", "degree": "Diplom-Kauffrau (FH)", "field": "BWL",
+    "education": [{"institution": "Hochschule Kassel", "degree": "Diplom-Kauffrau (FH)", "field": "BWL",
                    "degree_aliases": ["Dipl.-Kffr. (FH)", "Diplom-Betriebswirtin (FH)"]}],
     "certifications": [
         {"name": "Industriemeister Metall (IHK)"},
@@ -181,7 +181,7 @@ CV = {
         {"name": "Certified Public Accountant (CPA)"},
     ],
     "education": [
-        {"institution": "Hochschule Mainz", "degree": "Diplom-Kauffrau (FH)", "field": "Business Administration"},
+        {"institution": "Hochschule Kassel", "degree": "Diplom-Kauffrau (FH)", "field": "Business Administration"},
         {"institution": "Universität Köln", "degree": "Dr. rer. pol.", "field": "VWL"},
     ],
 }

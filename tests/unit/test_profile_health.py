@@ -69,7 +69,7 @@ def _full_profile(**overrides) -> MasterProfileData:
         languages=[{"language": "German", "proficiency": "native"}],
         certifications=[{"name": "AWS"}],
         publications=[{"title": "A paper"}],
-        volunteer_activities=[{"organization": "Red Cross", "role": "Volunteer"}],
+        volunteer_activities=[{"organization": "Relief Association", "role": "Volunteer"}],
     )
     base.update(overrides)
     return _profile(**base)

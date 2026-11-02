@@ -57,7 +57,7 @@ async def test_mark_hired_then_add_role(
         "/api/profile/roles",
         json={
             "title": "Director of QA",
-            "company": "Roche",
+            "company": "Varena",
             "start_date": "2026-06-01",
             "close_roles": [
                 {"role_id": existing.id, "end_date": "2026-05-31"}
@@ -77,7 +77,7 @@ async def test_mark_hired_then_add_role(
     profile = MasterProfileData.model_validate(record.profile_json)
     new_role = next(w for w in profile.work_experience if w.id == new_role_id)
     old_role = next(w for w in profile.work_experience if w.id == existing.id)
-    assert new_role.company == "Roche"
+    assert new_role.company == "Varena"
     assert new_role.end_date is None
     assert old_role.end_date == "2026-05-31"
     # The new role should be at the top of the work history

@@ -32,7 +32,7 @@ _LEDGER = [
      "fit_weight": 1.0, "evidence": ""}
     for c, forms in (("DevOps", ["DevOps"]), ("AI copilots", ["AI copilots", "AI programming assistants"]))
 ]
-_NC = non_claim_names("Lead, AI Engineering", ["Agilent Technologies"]).with_employer_clause()
+_NC = non_claim_names("Lead, AI Engineering", ["Corvane Technologies"]).with_employer_clause()
 
 
 def _cov(letter: str, denials=("Cloud- oder DevOps-Erfahrung", "KI-Programmierassistenten")):

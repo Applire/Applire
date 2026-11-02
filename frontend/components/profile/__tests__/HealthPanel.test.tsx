@@ -226,7 +226,7 @@ describe("HealthPanel", () => {
           id: "confirmation:c-2",
           thread: "confirmation",
           profile_mismatch_severity: "review",
-          summary: "'Senior Systems Engineer at Helvetia Pharma' looks close to a position already on your profile. Is it the same one?",
+          summary: "'Senior Systems Engineer at Aldmoor Pharma' looks close to a position already on your profile. Is it the same one?",
           field_ref: null,
           source_record_ref: "testimony",
         },

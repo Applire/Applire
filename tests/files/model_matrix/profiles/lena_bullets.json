@@ -3,7 +3,7 @@
     "name": "Lena Fischer",
     "email": "lena.fischer@example.com",
     "phone": null,
-    "location": "Mainz",
+    "location": "Kassel",
     "address": null,
     "nationality": null,
     "date_of_birth": null,
@@ -14,17 +14,17 @@
   },
   "professional_summary": {
     "de": null,
-    "en": "I'm an engineering leader who builds and leads teams that build AI-driven systems people can trust. For several years I have led teams in regulated environments, set technical strategy and roadmaps, and developed talent. My focus is increasingly on applied AI, hands-on rather than only strategic. What I bring to a leadership role is proven engineering leadership in demanding, regulated settings paired with current AI fluency and the judgment to apply it responsibly."
+    "en": "Engineering manager for regulated manufacturing IT. I run delivery teams, keep validated systems audit-ready and have recently moved into hands-on applied AI. I bring steady leadership in GxP settings and a practical sense of where AI helps and where it does not."
   },
   "work_experience": [
     {
-      "role": "Associate Director Supply Chain Systems",
+      "role": "Head of Supply Chain IT",
       "location": null,
       "start_date": "2019-03",
       "end_date": null,
       "is_current": true,
       "responsibilities": [
-        "Lead the team building the end-to-end supply-chain systems for individualized therapies",
+        "Lead the team building the clinical supply systems for individualized therapies",
         "Own technical strategy and roadmap for manufacturing-adjacent IT"
       ],
       "achievements": [
@@ -37,7 +37,7 @@
       ],
       "expected_fields": null,
       "id": "w-nova",
-      "company": "NovaRNA Biotech GmbH",
+      "company": "Halvard Biotech GmbH",
       "role_aliases": [],
       "industry_context": null,
       "team_size": null,
@@ -61,7 +61,7 @@
       ],
       "expected_fields": null,
       "id": "w-bsd",
-      "company": "Blutspendedienst Nord gGmbH",
+      "company": "Laborverbund Nord gGmbH",
       "role_aliases": [],
       "industry_context": null,
       "team_size": null,
@@ -85,7 +85,7 @@
       ],
       "expected_fields": null,
       "id": "w-helv",
-      "company": "Helvetia Pharma AG",
+      "company": "Aldmoor Pharma AG",
       "role_aliases": [],
       "industry_context": null,
       "team_size": null,

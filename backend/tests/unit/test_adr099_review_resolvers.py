@@ -659,7 +659,7 @@ async def _live_vault(db, profile_json: dict) -> None:
     await db.commit()
 
 
-_PROSE = {"work_experience": [{"company": "Agilent", "role": "Associate Director", "start_date": "2021-05",
+_PROSE = {"work_experience": [{"company": "Corvane", "role": "Associate Director", "start_date": "2021-05",
                                "bullets": ["Defined the technical strategy and the product roadmap for QC software."]}]}
 
 
@@ -677,7 +677,7 @@ async def test_d9_reconcile_finds_it_in_prose_but_the_producer_does_not__answer_
     with patch("applire.services.profile.reconcile.testimony_bridge.submit_testimony") as submit:
         submit.return_value = _canned_testimony("no_change")
         r = _client(db).post(f"/api/cv/{cv_id}/review/removal-evidence",
-                             json={"removal_text": _SKILL, "text": "At Agilent I set the technical strategy and the roadmap."})
+                             json={"removal_text": _SKILL, "text": "At Corvane I set the technical strategy and the roadmap."})
     assert r.status_code == 200, r.text
     answer = r.json()["review_state"]["removal_answers"][rs.norm_quote(_SKILL)]
     assert answer["status"] == "no_change" and answer["backed"] is False
@@ -701,7 +701,7 @@ async def test_d9_an_answer_that_writes_the_skill_is_backed_on_recompute(db):
 
     with patch("applire.services.profile.reconcile.testimony_bridge.submit_testimony", side_effect=_reconcile_writes):
         r = _client(db).post(f"/api/cv/{cv_id}/review/removal-evidence",
-                             json={"removal_text": _SKILL, "text": "Technical strategy and roadmapping: my job at Agilent since 2021."})
+                             json={"removal_text": _SKILL, "text": "Technical strategy and roadmapping: my job at Corvane since 2021."})
     assert r.status_code == 200, r.text
     assert ground_skill_claim(_SKILL, _claimable_index(written), None) is not None
     answer = r.json()["review_state"]["removal_answers"][rs.norm_quote(_SKILL)]

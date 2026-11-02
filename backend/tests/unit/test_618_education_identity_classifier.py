@@ -365,8 +365,8 @@ def test_institution_alias_alone_never_matches_it_asks():
     the zero-evidence gate has to hold here specifically.
     """
     verdict = classify_education_dupe(
-        institution="Provadis Hochschule", degree="", start_date=None, end_date=None,
-        existing=[EducationEntry(institution="Provadis Partner für Bildung GmbH",
+        institution="Rheinau Hochschule", degree="", start_date=None, end_date=None,
+        existing=[EducationEntry(institution="Rheinau Partner für Bildung GmbH",
                                  degree="Fachinformatiker Anwendungsentwicklung",
                                  start_date="2002-09", end_date="2005-01")],
         **_GETTERS,

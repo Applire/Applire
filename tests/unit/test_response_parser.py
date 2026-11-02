@@ -956,8 +956,8 @@ class TestNewProfileServiceDB:
     # address one string inside a role's `achievements` list, so the decision
     # resolved into nothing.
 
-    _OLD_BULLET = "Reduced processing time by 60% for individualized cancer treatments"
-    _NEW_BULLET = "Reduced processing time by 80% for individualized cancer treatments"
+    _OLD_BULLET = "Reduced processing time by 60% for individualized cell therapies"
+    _NEW_BULLET = "Reduced processing time by 80% for individualized cell therapies"
 
     @staticmethod
     def _profile_with_bullet_conflict(resolution_target: str = "achievements"):

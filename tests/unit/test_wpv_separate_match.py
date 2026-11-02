@@ -50,17 +50,17 @@ def _profile_with_receipts() -> MasterProfileData:
             basis="name_table",
         ),
         MatchReceipt(
-            section="work_experience", entity_id="w1", incoming="Roche / Systemanalytiker",
-            existing="Roche Diagnostics GmbH / System Analyst", basis="model",
-            aliases_added={"company_aliases": "Roche"},
+            section="work_experience", entity_id="w1", incoming="Varena / Systemanalytiker",
+            existing="Varena Diagnostics GmbH / System Analyst", basis="model",
+            aliases_added={"company_aliases": "Varena"},
         ),
     ]
     return MasterProfileData(
         skills=[Skill(id="s1", name="Maschinelles Lernen", aliases=["Machine Learning", "ML"])],
         languages=[{"id": "l1", "language": "Englisch"}],
         work_experience=[WorkEntry(
-            id="w1", company="Roche Diagnostics GmbH", role="System Analyst", start_date="2011-06",
-            company_aliases=["Roche"], role_aliases=["Systemanalytiker"],
+            id="w1", company="Varena Diagnostics GmbH", role="System Analyst", start_date="2011-06",
+            company_aliases=["Varena"], role_aliases=["Systemanalytiker"],
         )],
         metadata=ProfileMetadata(enrichment_history=[EnrichmentRecord(
             timestamp=datetime(2026, 10, 7, tzinfo=timezone.utc), source="linkedin_import",
@@ -105,12 +105,12 @@ def test_an_unknown_pair_is_refused():
 def test_engagement_without_an_incoming_entry_is_rebuilt_from_the_pair():
     applied = apply_ops(
         _profile_with_receipts(),
-        [SeparateMatch(entity_id="w1", incoming="Roche / Systemanalytiker")],
+        [SeparateMatch(entity_id="w1", incoming="Varena / Systemanalytiker")],
         "manual_edit",
     )
     work = applied.profile.work_experience
     assert [(w.company, w.role) for w in work] == [
-        ("Roche Diagnostics GmbH", "System Analyst"), ("Roche", "Systemanalytiker"),
+        ("Varena Diagnostics GmbH", "System Analyst"), ("Varena", "Systemanalytiker"),
     ]
     assert work[0].company_aliases == []
     # Adversarial finding 3 (2026-10-07): the undo takes names back BY VALUE —

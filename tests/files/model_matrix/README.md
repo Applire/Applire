@@ -8,7 +8,7 @@ so the same measurement can be repeated on any model, any time.
 
 "Lena Fischer" does not exist. The vault was written by hand for the 2026-09-06
 summary-seed spike: the address is `lena.fischer@example.com`, and every employer
-(NovaRNA Biotech GmbH, Blutspendedienst Nord gGmbH, Helvetia Pharma AG, Rhein
+(Halvard Biotech GmbH, Laborverbund Nord gGmbH, Aldmoor Pharma AG, Rhein
 Consulting GmbH) is invented. No content comes from a real profile, and none ever
 may — E060 §3.1's architecture boundary, and `tests/unit/test_model_matrix_harness.py`
 asserts it (`test_the_vault_fixture_is_synthetic`).
@@ -18,8 +18,8 @@ asserts it (`test_the_vault_fixture_is_synthetic`).
 | Path | What it is |
 |---|---|
 | `shapes.json` | the ten input shapes S1–S10, the station map, and which profile each shape uses |
-| `profiles/lena_full.json` | three stations (NovaRNA current, Blutspendedienst, Helvetia) |
-| `profiles/lena_no_bsd.json` | the same vault with the Blutspendedienst station **absent** |
+| `profiles/lena_full.json` | three stations (Halvard current, Laborverbund, Aldmoor) |
+| `profiles/lena_no_bsd.json` | the same vault with the Laborverbund station **absent** |
 | `profiles/lena_current_only.json` | only the current station — the smallest vault |
 | `profiles/lena_big.json` | five stations, DE+EN summary, nine skills — closer to a used vault |
 | `profiles/lena_bullets.json` | `lena_full` with one extra `w-nova` achievement bullet, for the S9 bullet-conflict shape |
@@ -41,7 +41,7 @@ the harness's station attribution reads exactly those ids.
 | S6 | full | the incident shape: the answer opens with a denial ("not insulin"), then names three stations |
 | S7 | current only | the incident shape against the smallest vault — the shape `glm-5.3-flash` lost 11/20 times |
 | S8 | big | the incident shape against a five-station vault |
-| S9 | bullets | bullet-vs-bullet contradiction: the vault already has one figure for a NovaRNA achievement, the answer restates it with a changed figure — measures whether reconcile rule 13 (CONTRADICTING BULLETS) fires as `flag_conflict` instead of a silent overwrite or an ordinary `add_bullets` |
+| S9 | bullets | bullet-vs-bullet contradiction: the vault already has one figure for a Halvard achievement, the answer restates it with a changed figure — measures whether reconcile rule 13 (CONTRADICTING BULLETS) fires as `flag_conflict` instead of a silent overwrite or an ordinary `add_bullets` |
 | S10 | full | a restated fact, nothing new: the answer repeats a `w-nova` responsibility the vault already carries verbatim, so the CORRECT output is no ops at all. `expected_stations` is deliberately `[]` — `station_coverage` stays `None` for this shape and it must never be folded into a model's `no_write` qualification verdict, whose bar would misread the correct "wrote nothing" outcome as a lost turn |
 
 ## Provenance and the golden prompts

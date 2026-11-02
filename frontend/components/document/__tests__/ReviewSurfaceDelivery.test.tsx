@@ -351,7 +351,7 @@ describe("ADR-099 cl. 5 — the removal line", () => {
     render(withIntl(<ReviewSurface {...sRemovalProps(null)} />, "de"));
     fireEvent.click(screen.getByTestId("review-removals-toggle"));
     fireEvent.click(screen.getByTestId("review-removal-where"));
-    fireEvent.change(screen.getByTestId("review-removal-text"), { target: { value: "Technical strategy and roadmapping at Agilent." } });
+    fireEvent.change(screen.getByTestId("review-removal-text"), { target: { value: "Technical strategy and roadmapping at Corvane." } });
     fireEvent.click(screen.getByTestId("review-removal-submit"));
     const result = await screen.findByTestId("review-removal-result");
     expect(result.dataset.backed).toBe("true");

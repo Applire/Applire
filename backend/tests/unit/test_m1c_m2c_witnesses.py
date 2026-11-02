@@ -42,14 +42,14 @@ from applire.services.profile.reconcile.witness import (
 _NOVA_ID = "w-nova"
 _ANSWER = (
     "While I have not worked with insulin in particular, I have 15+ years of "
-    "experience with manufacturing in the pharmaceutical industry: monoclonal "
-    "antibodies at Helvetia Pharma, blood bags at the Blutspendedienst, and now "
-    "mRNA vaccines at NovaRNA Biotech."
+    "experience with manufacturing in the pharmaceutical industry: sterile "
+    "injectables at Aldmoor Pharma, diagnostic kits at the Laborverbund, and now "
+    "cell therapies at Halvard Biotech."
 )
 _FOLDED_BULLET = (
     "15+ years of experience with manufacturing in the pharmaceutical industry "
-    "across monoclonal antibodies at Helvetia Pharma, blood bags at the "
-    "Blutspendedienst and mRNA vaccines"
+    "across sterile injectables at Aldmoor Pharma, diagnostic kits at the "
+    "Laborverbund and cell therapies"
 )
 
 
@@ -59,8 +59,8 @@ def _one_station_profile() -> MasterProfileData:
         work_experience=[
             WorkEntry(
                 id=_NOVA_ID,
-                company="NovaRNA Biotech GmbH",
-                role="Associate Director Supply Chain Systems",
+                company="Halvard Biotech GmbH",
+                role="Head of Supply Chain IT",
                 is_current=True,
             )
         ],
@@ -71,9 +71,9 @@ def _three_station_profile() -> MasterProfileData:
     return MasterProfileData(
         personal_info=PersonalInfo(full_name="Lena Fischer"),
         work_experience=[
-            WorkEntry(id="w-helv", company="Helvetia Pharma AG", role="IT Lead"),
-            WorkEntry(id="w-bsd", company="Blutspendedienst Nord gGmbH", role="Specialist"),
-            WorkEntry(id=_NOVA_ID, company="NovaRNA Biotech GmbH", role="Director"),
+            WorkEntry(id="w-helv", company="Aldmoor Pharma AG", role="IT Lead"),
+            WorkEntry(id="w-bsd", company="Laborverbund Nord gGmbH", role="Specialist"),
+            WorkEntry(id=_NOVA_ID, company="Halvard Biotech GmbH", role="Director"),
         ],
     )
 
@@ -88,16 +88,16 @@ def _turn(answer: str = _ANSWER) -> dict[str, str]:
 def test_a_bullet_naming_two_absent_employers_is_rerouted_when_the_batch_creates_them():
     """The S7 fold. MUTATION KILL for the in-batch candidate set: drop
     `_batch_company_candidates` from the union in `enforce_attribution` and this
-    test fails — the vault alone cannot name Helvetia or the Blutspendedienst."""
+    test fails — the vault alone cannot name Aldmoor or the Laborverbund."""
     profile = _one_station_profile()
     ops = [
-        UpsertWork(ref="w1", company="Helvetia Pharma"),
-        UpsertWork(ref="w2", company="Blutspendedienst Nord"),
+        UpsertWork(ref="w1", company="Aldmoor Pharma"),
+        UpsertWork(ref="w2", company="Laborverbund Nord"),
         AddBullets(target=_NOVA_ID, achievements=[_FOLDED_BULLET]),
     ]
     out = enforce_attribution(ops, profile=profile, new_info=_turn(), source="interview")
     confirmations = [op for op in out if isinstance(op, RequestConfirmation)]
-    assert confirmations, "the folded bullet was applied to NovaRNA silently"
+    assert confirmations, "the folded bullet was applied to Halvard silently"
     kept = [op for op in out if isinstance(op, AddBullets)]
     assert all(_FOLDED_BULLET not in op.achievements for op in kept)
 
@@ -113,7 +113,7 @@ def test_the_same_fold_is_caught_when_all_three_employers_are_already_in_the_vau
 
 def test_a_bullet_that_names_only_its_own_employer_is_left_alone():
     """Over-drop discipline: naming the TARGET is not a mis-attribution."""
-    bullet = "Rolled out the batch-release system at NovaRNA Biotech"
+    bullet = "Rolled out the batch-release system at Halvard Biotech"
     ops = [AddBullets(target=_NOVA_ID, achievements=[bullet])]
     out = enforce_attribution(
         ops, profile=_one_station_profile(), new_info=_turn(), source="interview"
@@ -138,7 +138,7 @@ def test_set_field_industry_context_folding_three_employers_is_rerouted():
         SetField(
             target=_NOVA_ID,
             field="industry_context",
-            value="Pharmaceutical manufacturing at Helvetia Pharma and the Blutspendedienst",
+            value="Pharmaceutical manufacturing at Aldmoor Pharma and the Laborverbund",
         )
     ]
     out = enforce_attribution(
@@ -152,7 +152,7 @@ def test_the_documented_limit_a_lone_absent_employer_is_not_nameable():
     """The honest boundary of both channels, stated as a test rather than a hope.
 
     On a one-station vault, with NO `upsert_work` in the batch to declare them,
-    "Helvetia Pharma" and "Blutspendedienst" are strings this module has no
+    "Aldmoor Pharma" and "Laborverbund" are strings this module has no
     reason to believe are employers — inferring that would be a judgement, which
     ADR-062 clause 1 forbids the deterministic layer from making. The prompt
     rule (M-2) is what turns them into declared employers, and the moment it
@@ -162,7 +162,7 @@ def test_the_documented_limit_a_lone_absent_employer_is_not_nameable():
         SetField(
             target=_NOVA_ID,
             field="industry_context",
-            value="Pharmaceutical manufacturing at Helvetia Pharma and the Blutspendedienst",
+            value="Pharmaceutical manufacturing at Aldmoor Pharma and the Laborverbund",
         )
     ]
     out = enforce_attribution(
@@ -333,9 +333,9 @@ def test_a_question_does_not_swallow_a_real_answer_that_follows_it():
 
 def test_a_german_concessive_opening_still_yields_its_statement():
     residue = positive_residue(
-        "Obwohl ich kein Insulin gemacht habe, leite ich seit 2021 die Fertigungs-IT bei NovaRNA."
+        "Obwohl ich kein Insulin gemacht habe, leite ich seit 2021 die Fertigungs-IT bei Halvard."
     )
-    assert residue == ["leite ich seit 2021 die Fertigungs-IT bei NovaRNA."]
+    assert residue == ["leite ich seit 2021 die Fertigungs-IT bei Halvard."]
 
 
 def test_a_silent_turn_leaves_a_receipt_on_the_not_applied_channel():

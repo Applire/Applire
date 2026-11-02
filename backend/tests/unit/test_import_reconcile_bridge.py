@@ -277,9 +277,9 @@ async def test_import_real_flag_conflict_still_surfaces_as_conflict():
 
 @pytest.mark.asyncio
 async def test_import_de_en_employer_fold():
-    existing = MasterProfileData(work_experience=[WorkEntry(company="Roche Diagnostics GmbH", role="System Analyst")])
+    existing = MasterProfileData(work_experience=[WorkEntry(company="Varena Diagnostics GmbH", role="System Analyst")])
     rid = existing.work_experience[0].id
-    incoming = MasterProfileData(work_experience=[WorkEntry(company="Roche", role="Systemanalytiker")])
-    stub = _Stub({"ops":[{"op":"upsert_work","ref":"w1","target":rid,"company":"Roche","role":"Systemanalytiker"}],"ambiguities":[]})
+    incoming = MasterProfileData(work_experience=[WorkEntry(company="Varena", role="Systemanalytiker")])
+    stub = _Stub({"ops":[{"op":"upsert_work","ref":"w1","target":rid,"company":"Varena","role":"Systemanalytiker"}],"ambiguities":[]})
     result = await reconcile_import(existing, incoming, "cv_upload", stub)
     assert len(result.merged_profile.work_experience) == 1            # DE/EN fold, no dup

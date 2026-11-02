@@ -33,38 +33,38 @@ from applire.services.profile.reconcile.import_witness import (
 from applire.services.profile.reconciliation import compute_merge_reconciliation
 
 _BSD_ID = "4b0c1b1e-6f0e-4d7c-9a51-2f7f3b0c2a11"
-_ROCHE_ID = "9d3e2c55-0f55-4a39-8f0e-5e1c8b7c4d22"
+_VARENA_ID = "9d3e2c55-0f55-4a39-8f0e-5e1c8b7c4d22"
 
 
 def _vault(**overrides) -> MasterProfileData:
     bsd = dict(
         id=_BSD_ID,
-        company="Bayerischer Blutspendedienst gGmbH",
+        company="Südlicher Laborverbund gGmbH",
         role="Professional System Engineer / IT Quality Officer",
         start_date="2012-08",
         role_aliases=["Systementwickler"],
     )
-    roche = dict(
-        id=_ROCHE_ID,
-        company="Roche Diagnostics GmbH",
+    varena = dict(
+        id=_VARENA_ID,
+        company="Varena Diagnostics GmbH",
         role="System Analyst",
         start_date="2011-06",
         role_aliases=["Systemanalytiker"],
     )
     bsd.update(overrides.get("bsd", {}))
-    roche.update(overrides.get("roche", {}))
-    return MasterProfileData(work_experience=[WorkEntry(**bsd), WorkEntry(**roche)])
+    varena.update(overrides.get("varena", {}))
+    return MasterProfileData(work_experience=[WorkEntry(**bsd), WorkEntry(**varena)])
 
 
 def _linkedin(**overrides) -> MasterProfileData:
     bsd = dict(
-        company="Blutspendedienst des Bayerischen Roten Kreuzes gGmbH",
+        company="Laborverbund des Südlichen Landkreises gGmbH",
         role="Systementwickler",
         start_date="2012-08",
     )
     bsd.update(overrides)
-    roche = dict(company="Roche", role="Systemanalytiker", start_date="2011-06")
-    return MasterProfileData(work_experience=[WorkEntry(**bsd), WorkEntry(**roche)])
+    varena = dict(company="Varena", role="Systemanalytiker", start_date="2011-06")
+    return MasterProfileData(work_experience=[WorkEntry(**bsd), WorkEntry(**varena)])
 
 
 def _labels(items) -> list[str]:
@@ -86,7 +86,7 @@ def test_an_alias_recorded_by_rule_7_carries_the_next_import():
     vault = _vault(bsd={"role_aliases": []})
     ops = _parse_ops([
         {"op": "upsert_work", "ref": "w1", "target": _BSD_ID,
-         "company": "Bayerischer Blutspendedienst gGmbH", "role": "Systementwickler"},
+         "company": "Südlicher Laborverbund gGmbH", "role": "Systementwickler"},
     ])
     first = apply_ops(vault, ops, "cv_upload")
     assert "Systementwickler" in first.profile.work_experience[0].role_aliases
@@ -98,7 +98,7 @@ def test_an_alias_recorded_by_rule_7_carries_the_next_import():
 def test_without_the_alias_the_position_stays_listed():
     items = compute_import_not_applied(_linkedin(), _vault(bsd={"role_aliases": []}), ops=[])
     assert _labels(items) == [
-        "Blutspendedienst des Bayerischen Roten Kreuzes gGmbH / Systementwickler / 2012-08"
+        "Laborverbund des Südlichen Landkreises gGmbH / Systementwickler / 2012-08"
     ]
 
 
@@ -106,7 +106,7 @@ def test_a_different_start_month_stays_listed():
     """A repeat stint with the same title is a distinct CV line (B1)."""
     items = compute_import_not_applied(_linkedin(start_date="2014-03"), _vault(), ops=[])
     assert _labels(items) == [
-        "Blutspendedienst des Bayerischen Roten Kreuzes gGmbH / Systementwickler / 2014-03"
+        "Laborverbund des Südlichen Landkreises gGmbH / Systementwickler / 2014-03"
     ]
 
 
@@ -115,14 +115,14 @@ def test_a_year_only_date_on_either_side_stays_listed():
     assert len(items) == 1
     items = compute_import_not_applied(_linkedin(), _vault(bsd={"start_date": "2012"}), ops=[])
     assert _labels(items) == [
-        "Blutspendedienst des Bayerischen Roten Kreuzes gGmbH / Systementwickler / 2012-08"
+        "Laborverbund des Südlichen Landkreises gGmbH / Systementwickler / 2012-08"
     ]
     # both sides year-only: a shared year is too weak to name one stint
     items = compute_import_not_applied(
         _linkedin(start_date="2012"), _vault(bsd={"start_date": "2012"}), ops=[]
     )
     assert _labels(items) == [
-        "Blutspendedienst des Bayerischen Roten Kreuzes gGmbH / Systementwickler / 2012"
+        "Laborverbund des Südlichen Landkreises gGmbH / Systementwickler / 2012"
     ]
 
 
@@ -154,10 +154,10 @@ def test_an_alias_at_an_unrelated_employer_stays_listed():
 
 
 def test_two_positions_holding_the_alias_in_that_month_rescue_nothing():
-    vault = _vault(roche={"company": "Blutspendedienst Hessen", "start_date": "2012-08",
+    vault = _vault(varena={"company": "Laborverbund Hessen", "start_date": "2012-08",
                           "role_aliases": ["Systementwickler"]})
     incoming = MasterProfileData(work_experience=[
-        WorkEntry(company="Blutspendedienst des Bayerischen Roten Kreuzes gGmbH",
+        WorkEntry(company="Laborverbund des Südlichen Landkreises gGmbH",
                   role="Systementwickler", start_date="2012-08"),
     ])
     items = compute_import_not_applied(incoming, vault, ops=[])

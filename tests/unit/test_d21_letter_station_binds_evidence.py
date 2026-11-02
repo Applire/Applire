@@ -1,10 +1,10 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""D-21 (Hazelnut build 5, delivery run 4): "At Blutspendedienst …, I led
+"""D-21 (Hazelnut build 5, delivery run 4): "At Laborverbund …, I led
 software implementation … and set project and validation standards." graded
-grounded with a BioNTech project as evidence. The project's lone leading
+grounded with a Kestrel Biologics project as evidence. The project's lone leading
 token "Implementation" matched the word "implementation" case-blind, so the
-sentence "named" two companies and the anchor failed open. And "At BioNTech
+sentence "named" two companies and the anchor failed open. And "At Kestrel Biologics
 SE," anchored to nothing because one id's project name overwrote its company
 name. Synthetic data only."""
 
@@ -38,7 +38,7 @@ VAULT = {
 
 
 def _verdicts(*paragraphs: str) -> dict[str, str]:
-    letter = {"recipient": {"company": "Agilent"}, "body": {"paragraphs": list(paragraphs)}}
+    letter = {"recipient": {"company": "Corvane"}, "body": {"paragraphs": list(paragraphs)}}
     report = asyncio.run(build_self_audit_report(VAULT, letter_data=letter, document_language="en"))
     return {c["claim"]["text"]: c["verdict"]["verdict"] for c in report["claims"]}
 

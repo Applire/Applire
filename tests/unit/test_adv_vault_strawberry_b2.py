@@ -233,13 +233,13 @@ async def test_adv_vault_2_engagement_alias_merge_has_no_receipt():
     alias-driven applier match records basis="alias""). The merge never
     reaches the "Schon in deinem Profil" card."""
     vault = MasterProfileData(work_experience=[WorkEntry(
-        id="w1", company="Roche Diagnostics GmbH", role="Data Scientist", start_date="2019-03",
-        company_aliases=["Roche"],
+        id="w1", company="Varena Diagnostics GmbH", role="Data Scientist", start_date="2019-03",
+        company_aliases=["Varena"],
     )])
     incoming = MasterProfileData(work_experience=[WorkEntry(
-        company="Roche", role="Werkstudent Bioinformatik", start_date="2019-03",
+        company="Varena", role="Werkstudent Bioinformatik", start_date="2019-03",
     )])
-    ops = [{"op": "upsert_work", "ref": "w", "company": "Roche",
+    ops = [{"op": "upsert_work", "ref": "w", "company": "Varena",
             "role": "Werkstudent Bioinformatik", "start_date": "2019-03"}]
     result = await reconcile_import(vault, incoming, "cv_upload", _stub(ops))
     assert len(result.merged_profile.work_experience) == 1  # merged through the alias
@@ -347,12 +347,12 @@ def test_adv_vault_6_targeted_upsert_records_a_name_no_document_states():
     the employer, and the AGENT_GUIDE tells agents to pick the alias "that fits
     the document's language"."""
     vault = MasterProfileData(work_experience=[WorkEntry(
-        id="w1", company="Bayerischer Blutspendedienst gGmbH", role="Systementwickler", start_date="2012-08",
+        id="w1", company="Südlicher Laborverbund gGmbH", role="Systementwickler", start_date="2012-08",
     )])
     incoming = MasterProfileData(work_experience=[WorkEntry(
-        company="BSD Bayern", role="Systementwickler", start_date="2012-08",
+        company="LVS Süd", role="Systementwickler", start_date="2012-08",
     )])
-    ops = [UpsertWork(ref="w", target="w1", company="Bavarian Red Cross Blood Service",
+    ops = [UpsertWork(ref="w", target="w1", company="Southern Lab Network Service",
                       role="Systementwickler", start_date="2012-08")]
     after = _import_once(vault, incoming, ops)
     document_names = {w.company for w in incoming.work_experience}
@@ -367,9 +367,9 @@ def test_adv_vault_6_turn_door_restatement_now_reads_as_a_write():
     spelling now returns a non-empty ``changes``, and six readers take
     ``bool(changes)`` to mean "the gap is addressed"."""
     vault = MasterProfileData(work_experience=[WorkEntry(
-        id="w1", company="Roche Diagnostics GmbH", role="Data Scientist", start_date="2019-03",
+        id="w1", company="Varena Diagnostics GmbH", role="Data Scientist", start_date="2019-03",
     )])
-    applied = apply_ops(vault, [UpsertWork(ref="w", target="w1", company="Roche", role="Data Scientist")], "interview")
+    applied = apply_ops(vault, [UpsertWork(ref="w", target="w1", company="Varena", role="Data Scientist")], "interview")
     assert applied.changes == [], (
         f"a pure restatement on a turn door wrote: {[(c.field, c.new_value) for c in applied.changes]}"
     )
@@ -425,20 +425,20 @@ def test_adv_vault_sound_repeat_stint_is_never_bound_or_carried():
     """A repeat stint (same employer and title, another start month) is not
     carried by the binder, the alias reading, the applier, or the alias writer."""
     vault = MasterProfileData(work_experience=[WorkEntry(
-        id="w1", company="Roche Diagnostics GmbH", role="Data Scientist", start_date="2019-03",
-        company_aliases=["Roche"],
+        id="w1", company="Varena Diagnostics GmbH", role="Data Scientist", start_date="2019-03",
+        company_aliases=["Varena"],
     )])
     incoming = MasterProfileData(work_experience=[WorkEntry(
-        company="Roche", role="Data Scientist", start_date="2023-05",
+        company="Varena", role="Data Scientist", start_date="2023-05",
     )])
-    ops = [MatchExisting(target="w1", incoming="Roche / Data Scientist")]
-    assert _labels(compute_import_not_applied(incoming, vault, ops)) == ["Roche / Data Scientist / 2023-05"]
-    assert _labels(compute_import_not_applied(incoming, vault, [])) == ["Roche / Data Scientist / 2023-05"]
-    applied = apply_ops(vault, [UpsertWork(ref="w", company="Roche", role="Data Scientist",
+    ops = [MatchExisting(target="w1", incoming="Varena / Data Scientist")]
+    assert _labels(compute_import_not_applied(incoming, vault, ops)) == ["Varena / Data Scientist / 2023-05"]
+    assert _labels(compute_import_not_applied(incoming, vault, [])) == ["Varena / Data Scientist / 2023-05"]
+    applied = apply_ops(vault, [UpsertWork(ref="w", company="Varena", role="Data Scientist",
                                            start_date="2023-05")], "cv_upload")
     assert len(applied.profile.work_experience) == 2 or applied.pending_confirmations
     after = _import_once(vault.model_copy(deep=True), incoming, ops)
-    assert after.work_experience[0].company_aliases == ["Roche"]
+    assert after.work_experience[0].company_aliases == ["Varena"]
 
 
 # ── the door: cross-user scoping and the history record ───────────────────────

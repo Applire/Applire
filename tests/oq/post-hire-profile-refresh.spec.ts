@@ -148,7 +148,7 @@ test.describe("Post-Hire Profile Refresh", () => {
 
     // Fill required fields
     await jobTitleInput.fill("Director of QA");
-    await companyInput.fill("Roche");
+    await companyInput.fill("Varena");
     await startDateInput.fill("2026-06-01");
 
     // Save button should be enabled
@@ -173,7 +173,7 @@ test.describe("Post-Hire Profile Refresh", () => {
     await expect(saveButton).toBeDisabled();
 
     // Add company
-    await page.getByLabel(/Company/i).fill("Roche");
+    await page.getByLabel(/Company/i).fill("Varena");
     await expect(saveButton).toBeDisabled();
 
     // Add start date — now it should be enabled

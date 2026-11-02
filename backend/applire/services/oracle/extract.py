@@ -874,9 +874,9 @@ def sentence_mentioned_ids(
         loose_candidates, unique_only=False
     )
     # D-21 (Hazelnut build 5, delivery run 4): a lone leading token is matched
-    # as written — "Implementation" (project "Implementation of BioNTech
+    # as written — "Implementation" (project "Implementation of Kestrel Biologics
     # Global QC LIMS") is a name there, "software implementation" is a word.
-    # The case-blind match made a BRK sentence "name" BioNTech too, the anchor
+    # The case-blind match made a KVS sentence "name" Kestrel Biologics too, the anchor
     # failed open, and a misattributed project fact verdicted grounded.
     return found | _match_ids(text, mention_tokens, case_sensitive=True)
 
@@ -953,8 +953,8 @@ def _find_employer_anchor(
     # own chance below. Fail open — this can only remove an anchor.
     # D-21 (Hazelnut build 5, delivery run 4): an id carries EVERY name that
     # maps to it — its employer and the projects nested under it. Keying one
-    # name per id let the last project name overwrite "BioNTech", so "At
-    # BioNTech SE, …" read as three different companies and anchored to none.
+    # name per id let the last project name overwrite "Kestrel Biologics", so "At
+    # Kestrel Biologics SE, …" read as three different companies and anchored to none.
     # Two ids are the same company when they share a name.
     names_of: dict[str, set[str]] = {}
     for n, i in loose_candidates or candidates:

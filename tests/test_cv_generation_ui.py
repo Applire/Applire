@@ -32,7 +32,7 @@ _LINKEDIN = {
     "positions": [
         {
             "title": "Senior Software Engineer",
-            "companyName": "Roche Deutschland GmbH",
+            "companyName": "Varena Deutschland GmbH",
             "startDate": {"month": 1, "year": 2019},
             "endDate": None,
             "description": "Microservices with Python and FastAPI. PostgreSQL, Docker, CI/CD.",

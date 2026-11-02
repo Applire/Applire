@@ -230,7 +230,7 @@ def test_build_cover_letter_prompt_includes_salary():
     from applire.prompts.cover_letter import build_cover_letter_prompt
     prompt = build_cover_letter_prompt(
         cv_data={"contact": {"name": "Marcus Bauer"}, "summary": "QA expert"},
-        jd_text="We are hiring a QA Manager at Roche Diagnostics.",
+        jd_text="We are hiring a QA Manager at Varena Diagnostics.",
         pre_gen_inputs={"salary": "95.000 €", "tone": "formal"},
         detected_language="de",
     )
@@ -534,7 +534,7 @@ def test_build_cover_letter_prompt_includes_company_engagement_block():
         jd_text="We build diagnostics instruments for regulated healthcare labs.",
         pre_gen_inputs={},
         detected_language="en",
-        company_name="Roche Diagnostics",
+        company_name="Varena Diagnostics",
     )
     assert "POSITIONING: COMPANY & DOMAIN ENGAGEMENT" in prompt
     # ADR-084 point 24: the company name is still threaded, and is now inside the
@@ -544,7 +544,7 @@ def test_build_cover_letter_prompt_includes_company_engagement_block():
     from applire.services.untrusted_text import is_covered
 
     assert "TARGET COMPANY:" in prompt
-    assert is_covered(prompt, "Roche Diagnostics")
+    assert is_covered(prompt, "Varena Diagnostics")
 
 
 def test_build_cover_letter_prompt_omits_company_engagement_block_when_no_company_name():
@@ -620,7 +620,7 @@ def test_build_cover_letter_prompt_routes_gap_to_do_not_claim_and_grounds_profil
         "work_history": [
             {
                 "role": "QA Engineer",
-                "company": "Roche",
+                "company": "Varena",
                 "start_date": "2019",
                 "end_date": "2024",
                 "bullets": [
@@ -692,7 +692,7 @@ async def test_generate_cover_letter_creates_pending_record(db):
     job = JobAnalysis(
         id=uuid.uuid4(),
         raw_text_hash="abc123",
-        raw_text="QA Manager at Roche",
+        raw_text="QA Manager at Varena",
         role_title="QA Manager",
         required_skills=[],
         nice_to_have_skills=[],
@@ -778,7 +778,7 @@ async def test_generate_cover_letter_renders_inline_when_no_background_tasks(db)
     job = JobAnalysis(
         id=uuid.uuid4(),
         raw_text_hash="def456",
-        raw_text="QA Manager at Roche",
+        raw_text="QA Manager at Varena",
         role_title="QA Manager",
         required_skills=[],
         nice_to_have_skills=[],
@@ -1673,7 +1673,7 @@ async def test_get_cover_letter_html_renders_template(db):
 
     letter_data = {
         "header": {"name": "Marcus Bauer", "address": "Musterstraße 1", "phone": "", "email": "m@test.com"},
-        "recipient": {"name": "Dr. Müller", "title": "", "company": "Roche", "address": "", "date": "14. April 2026"},
+        "recipient": {"name": "Dr. Müller", "title": "", "company": "Varena", "address": "", "date": "14. April 2026"},
         "subject": "Bewerbung als QA Manager",
         "opening": "Sehr geehrte Frau Dr. Müller,",
         "body": {"paragraphs": ["Ich bewerbe mich auf die ausgeschriebene Stelle."]},

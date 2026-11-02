@@ -79,7 +79,7 @@ def test_a_letter_sentence_keeps_the_same_employer_escape():
     """"At Nordpharm SE" anchors to the current role (tie-break) while the figure sits
     on the earlier tenure: a letter cannot say which tenure, so no accusation."""
     v = _vault()
-    letter = {"recipient": {"company": "Agilent"}, "body": {"paragraphs": [
+    letter = {"recipient": {"company": "Corvane"}, "body": {"paragraphs": [
         "At Nordpharm SE, I led the QC LIMS roll-out across three sites, contributing to Nordpharm's "
         "€4 billion revenue in 2021."]}}
     report = asyncio.run(build_self_audit_report(v, letter_data=letter, document_language="en"))

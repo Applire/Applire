@@ -40,7 +40,7 @@ from applire.services.reviewer import review_and_refine
 _LEDGER = [
     {"concept": "education technology", "surface_forms": ["EdTech"], "claimable": True,
      "status": "partial", "sources": ["keyword"], "fit_weight": 0.0,
-     "evidence": "educational games development at Provadis"},
+     "evidence": "educational games development at Rheinau"},
     {"concept": "code review practices", "surface_forms": ["Code reviews"], "claimable": True,
      "status": "direct", "sources": ["keyword"], "fit_weight": 0.0,
      "evidence": "enforced code review standards"},
@@ -51,7 +51,7 @@ _LEDGER = [
 _DRAFT_WITHOUT_EDTECH = {
     "summary": "Senior IT leader enforcing code review standards.",
     "work_history": [
-        {"company": "Provadis", "role": "Apprentice",
+        {"company": "Rheinau", "role": "Apprentice",
          "bullets": ["Developed educational games using Flash"]},
     ],
     "skills": ["Technical Leadership"],
@@ -60,7 +60,7 @@ _DRAFT_WITHOUT_EDTECH = {
 _DRAFT_WITH_EDTECH = {
     "summary": "Senior IT leader with EdTech experience, enforcing code review standards.",
     "work_history": [
-        {"company": "Provadis", "role": "Apprentice",
+        {"company": "Rheinau", "role": "Apprentice",
          "bullets": ["Developed educational games (EdTech) using Flash"]},
     ],
     "skills": ["Technical Leadership"],

@@ -131,9 +131,9 @@ async def test_project_under_position() -> None:
 
 @pytest.mark.asyncio
 async def test_de_en_employer_merge() -> None:
-    """`Bavarian blood donation service` folds onto `Blutspendedienst`."""
-    keeper = WorkEntry(company="Blutspendedienst", role="IT Administrator")
-    dup = WorkEntry(company="Bavarian blood donation service", role="IT Admin")
+    """`Southern lab network` folds onto `Laborverbund`."""
+    keeper = WorkEntry(company="Laborverbund", role="IT Administrator")
+    dup = WorkEntry(company="Southern lab network", role="IT Admin")
     profile = MasterProfileData(work_experience=[keeper, dup])
 
     provider = _StubProvider(
@@ -143,7 +143,7 @@ async def test_de_en_employer_merge() -> None:
                     "op": "upsert_work",
                     "ref": "w1",
                     "target": keeper.id,
-                    "company": "Bavarian blood donation service",
+                    "company": "Southern lab network",
                     "role": "IT Admin",
                 }
             ],
@@ -157,7 +157,7 @@ async def test_de_en_employer_merge() -> None:
         w for w in outcome.profile.work_experience if w.id == keeper.id
     )
     # company never overwritten; the EN title is recorded as an alias.
-    assert keeper_out.company == "Blutspendedienst"
+    assert keeper_out.company == "Laborverbund"
     assert "IT Admin" in keeper_out.role_aliases
     assert outcome.changed is True
 

@@ -23,25 +23,25 @@ from applire.services.profile.reconcile.dedupe import classify_dupe, classify_en
 
 
 def test_education_near_dupe_matches_long_institution_form():
-    entry = EducationEntry(institution="Julius-Maximilians-Universität Würzburg", degree="Diplom Informatik")
+    entry = EducationEntry(institution="Konrad-Mertens-Universität Talheim", degree="Diplom Informatik")
     v = classify_dupe(
-        {"institution": "Universität Würzburg", "degree": "Diplom Informatik"},
+        {"institution": "Universität Talheim", "degree": "Diplom Informatik"},
         [entry], {"institution": lambda e: e.institution, "degree": lambda e: e.degree},
     )
     assert v.match is entry          # 2-token containment = strict near-dupe → auto-merge
 
 
 def test_education_single_token_degree_containment_is_ambiguous():
-    entry = EducationEntry(institution="Universität Würzburg", degree="Diplom Informatik")
+    entry = EducationEntry(institution="Universität Talheim", degree="Diplom Informatik")
     v = classify_dupe(
-        {"institution": "Universität Würzburg", "degree": "Diplom"},
+        {"institution": "Universität Talheim", "degree": "Diplom"},
         [entry], {"institution": lambda e: e.institution, "degree": lambda e: e.degree},
     )
     assert v.match is None and v.ambiguous == [entry]   # → RequestConfirmation
 
 
 def test_distinct_field_blocks_match():
-    entry = EducationEntry(institution="Universität Würzburg", degree="Diplom Informatik")
+    entry = EducationEntry(institution="Universität Talheim", degree="Diplom Informatik")
     v = classify_dupe(
         {"institution": "TU München", "degree": "Diplom Informatik"},
         [entry], {"institution": lambda e: e.institution, "degree": lambda e: e.degree},

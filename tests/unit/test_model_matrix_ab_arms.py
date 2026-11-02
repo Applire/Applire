@@ -205,7 +205,7 @@ def _turn(shape: str, run: int, ops: list) -> dict:
 def test_s10_silence_never_decides_the_verdict(tmp_path, monkeypatch):
     """S10's correct outcome is no write; the verdict must not read it as a loss."""
     fixtures = mm.Fixtures(mm.FIXTURE_DIR)
-    good = [{"op": "add_bullets", "target": "w-nova", "responsibilities": ["NovaRNA systems"]}]
+    good = [{"op": "add_bullets", "target": "w-nova", "responsibilities": ["Halvard systems"]}]
     rows = [_turn("S6_incident_shape_all_present", i, good) for i in range(1, 4)]
     rows += [_turn("S10_restated_fact_nothing_new", i, []) for i in range(1, 4)]
     path = tmp_path / "arm.jsonl"
@@ -278,7 +278,7 @@ def test_error_kinds_name_the_upstream_sentence(tmp_path):
 
 
 def test_rescore_orders_shapes_numerically_and_keeps_the_runs_cost(tmp_path, monkeypatch):
-    good = [{"op": "add_bullets", "target": "w-nova", "responsibilities": ["NovaRNA systems"]}]
+    good = [{"op": "add_bullets", "target": "w-nova", "responsibilities": ["Halvard systems"]}]
     rows = [_turn("S10_restated_fact_nothing_new", 1, []), _turn("S1_all_present_en", 1, good)]
     path = tmp_path / "arm.jsonl"
     path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")

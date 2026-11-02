@@ -169,7 +169,7 @@ def test_wrong_slot_fires_only_when_the_text_names_another_station(fixtures):
     right = mm.classify(
         fixtures,
         shape,
-        [{"op": "add_bullets", "target": "w-helv", "responsibilities": ["MES at Helvetia Pharma"]}],
+        [{"op": "add_bullets", "target": "w-helv", "responsibilities": ["MES at Aldmoor Pharma"]}],
         [],
         None,
     )
@@ -179,7 +179,7 @@ def test_wrong_slot_fires_only_when_the_text_names_another_station(fixtures):
     wrong = mm.classify(
         fixtures,
         shape,
-        [{"op": "add_bullets", "target": "w-helv", "responsibilities": ["blood bags at NovaRNA"]}],
+        [{"op": "add_bullets", "target": "w-helv", "responsibilities": ["diagnostic kits at Halvard"]}],
         [],
         None,
     )
@@ -231,7 +231,7 @@ def test_a_turn_that_only_matches_existing_entries_is_a_lost_turn(fixtures):
     matched_only = mm.classify(
         fixtures,
         shape,
-        [{"op": "match_existing", "target": "w-helv", "incoming": "Helvetia Pharma"}],
+        [{"op": "match_existing", "target": "w-helv", "incoming": "Aldmoor Pharma"}],
         [],
         None,
     )
@@ -500,7 +500,7 @@ def test_score_mode_reads_the_spike_record_format(tmp_path, capsys, fixtures):
                         {
                             "op": "add_bullets",
                             "target": "w-nova",
-                            "achievements": ["blood bags at the blood donation service"],
+                            "achievements": ["diagnostic kits at the lab network"],
                         }
                     ],
                     "rejected_ops": [],
@@ -556,7 +556,7 @@ def test_rejection_is_explained_by_field_and_error_type():
     """"12 malformed ops" is not actionable; "ref missing" and "team_size not an
     int" are different prompt problems with different fixes."""
     missing_ref = mm.explain_rejection(
-        "upsert_work", "{'op': 'upsert_work', 'company': 'NovaRNA', 'role': 'Lead'}"
+        "upsert_work", "{'op': 'upsert_work', 'company': 'Halvard', 'role': 'Lead'}"
     )
     assert missing_ref["errors"] == ["upsert_work.ref:missing"]
     assert missing_ref["keys"] == ["company", "op", "role"]
@@ -583,7 +583,7 @@ def test_log_reader_captures_the_engines_dropped_op_warning():
         logging.getLogger("applire.services.profile.reconcile.engine").warning(
             "reconcile: dropped malformed op (op=%s): %r",
             "upsert_work",
-            {"op": "upsert_work", "company": "NovaRNA", "role": "Lead"},
+            {"op": "upsert_work", "company": "Halvard", "role": "Lead"},
         )
     finally:
         mm._reject_sink.reset(token)

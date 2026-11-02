@@ -144,9 +144,9 @@ state a month), (2) lists the incoming role, normalised, among its own
 ``role_aliases``, and (3) shares at least one content word with the incoming
 organisation name (legal form and function words removed). The near-dupe
 organisation relation is deliberately not required: the real case is a German
-LinkedIn export naming "Blutspendedienst des Bayerischen Roten Kreuzes gGmbH"
-for the vault's "Bayerischer Blutspendedienst gGmbH" (``_field_relation``:
-DISTINCT) and "Roche" for "Roche Diagnostics GmbH" (AMBIGUOUS). The model saw
+LinkedIn export naming "Laborverbund des Südlichen Landkreises gGmbH"
+for the vault's "Südlicher Laborverbund gGmbH" (``_field_relation``:
+DISTINCT) and "Varena" for "Varena Diagnostics GmbH" (AMBIGUOUS). The model saw
 both, found the title already recorded as an alternate title (rule 7) and
 emitted nothing, so no other arm could fire. An alias in E is a fact the vault
 already holds (written by an extraction or a merge the model made, or by the
@@ -305,7 +305,7 @@ def _flat_set_field_bound_keys(
     ``set_field(target=<existing id>, field="degree", value="Diplom")`` and a
     sibling for ``field``, the applier WROTE both (``education|updated|field``
     in the same receipt), and the witness still listed
-    ``Julius-Maximilians-Universität Würzburg / Diplom`` as
+    ``Konrad-Mertens-Universität Talheim / Diplom`` as
     ``no_op_carried_entry`` — the institution differs by a city suffix, the
     degree by the translation, so no natural key is EQUAL after ``_norm``. The
     receipt contradicted itself, ``merge_status`` went ``partial``, and the

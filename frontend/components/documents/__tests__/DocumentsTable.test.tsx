@@ -39,7 +39,7 @@ const ITEMS: DocumentItem[] = [
     cv_id: "cv-1",
     flow_id: "flow-1",
     role_title: "Head of Validation",
-    company_name: "Roche",
+    company_name: "Varena",
     template: "classic_german",
     status: "ready",
     created_at: new Date().toISOString(),
@@ -123,7 +123,7 @@ describe("DocumentsTable", () => {
   it("text search filters rows by company", () => {
     renderTable();
     fireEvent.change(screen.getByPlaceholderText("searchPlaceholder"), {
-      target: { value: "Roche" },
+      target: { value: "Varena" },
     });
     expect(screen.getByText("Head of Validation")).toBeInTheDocument();
     expect(screen.queryByText("QA Lead")).not.toBeInTheDocument();

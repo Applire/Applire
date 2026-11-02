@@ -19,7 +19,7 @@ async def test_add_role_minimal(seed_profile, async_client: AsyncClient):
         "/api/profile/roles",
         json={
             "title": "Director of QA",
-            "company": "Roche",
+            "company": "Varena",
             "start_date": "2026-06-01",
             "close_roles": [],
             "source": "manual",

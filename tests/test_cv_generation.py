@@ -23,7 +23,7 @@ _LINKEDIN = {
     "positions": [
         {
             "title": "Senior Account Manager",
-            "companyName": "Roche Deutschland GmbH",
+            "companyName": "Varena Deutschland GmbH",
             "startDate": {"month": 3, "year": 2020},
             "endDate": None,
             "description": (
