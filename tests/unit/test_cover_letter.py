@@ -450,8 +450,8 @@ def test_system_prompt_forbids_claiming_gaps_in_possessive_framing():
 
 
 def test_system_prompt_requires_anchoring_position_owned_achievements():
-    """#283 — run-6 ground truth: a corrector folded NordPharm's "record-
-    breaking QC LIMS implementation in 7 months across 3 sites" into a
+    """#283 — run-6 ground truth: a corrector folded NordPharm's "fast-
+    track ERP cutover in 7 months across 3 sites" into a
     sentence that named no employer, in a letter that separately named a
     DIFFERENT employer (Applire) elsewhere. The deterministic #254 figure
     guard could not resolve ownership and correctly dropped '7' and '3',
