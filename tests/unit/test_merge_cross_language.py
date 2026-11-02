@@ -192,6 +192,20 @@ async def test_differing_values_become_a_question_in_one_call():
 
 
 @pytest.mark.asyncio
+async def test_the_same_number_worded_twice_is_never_asked():
+    """Measured on gpt-6-luna (4/5): "innerhalb von 7 Monaten" vs "7-month
+    project completion" was offered as a choice although both say 7."""
+    s = Script(
+        merge=[{"merged": None, "differing": ["innerhalb von 7 Monaten", "7-month project completion"]},
+               {"merged": MERGED_DE}],
+        pivot=[{"text": PIVOT}],
+    )
+    en7 = "Delivered the PSD2 payment platform with the SAP team, 7-month project completion."
+    p = await decisions.propose_merge(s, DE, en7)
+    assert p.question is None and s.calls == ["merge", "pivot", "merge"]
+
+
+@pytest.mark.asyncio
 async def test_a_value_no_bullet_writes_is_never_asked():
     s = Script(merge=[{"merged": None, "differing": ["7 Monaten", "9 months"]}], pivot=[{"text": EN8}])
     p = await decisions.propose_merge(s, DE, EN8)

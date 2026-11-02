@@ -36,6 +36,7 @@ from applire.services.profile.merge_verifier import (
     choice_violations,
     invariant_tokens,
     value_in,
+    values_differ,
     verify_merge,
 )
 
@@ -176,7 +177,7 @@ def _accept(
             bad = choice_violations(sentence, list(choice["values"]))
         if not bad:
             return sentence, None
-        logger.info("propose_merge: the sentence does not honour the candidate's pick: %s", bad)
+        logger.info("propose_merge: the sentence does not honour the candidate's pick (%d)", len(bad))
         return None, None
     if sentence is not None:
         logger.info("propose_merge: verifier rejected the proposal (fact not in either source)")
@@ -186,7 +187,7 @@ def _accept(
         and differing is not None
         and value_in(differing[0], first)
         and value_in(differing[1], second)
-        and _norm(differing[0]) != _norm(differing[1])
+        and values_differ(differing[0], differing[1])
     ):
         return None, differing
     return None, None

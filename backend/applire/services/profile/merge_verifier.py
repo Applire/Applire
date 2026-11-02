@@ -25,7 +25,7 @@ import re
 import unicodedata
 from typing import Iterable
 
-__all__ = ["choice_violations", "invariant_tokens", "merge_violations", "value_in", "verify_merge"]
+__all__ = ["choice_violations", "invariant_tokens", "merge_violations", "value_in", "values_differ", "verify_merge"]
 
 # A number with optional thousands/decimal separators: 7,500 · 7.500 · 3.5 · 60
 _NUMBER_RE = re.compile(r"\d+(?:[.,']\d+)*")
@@ -221,6 +221,18 @@ def value_in(value: str, text: str) -> bool:
         return nums <= _standalone_numbers(text)
     v = " ".join(_nfc(value).split()).casefold().strip(" .,;:")
     return bool(v) and v in " ".join(_nfc(text).split()).casefold()
+
+
+def values_differ(a: str, b: str) -> bool:
+    """Two values the model calls different really are: numeric ones carry
+    different numbers ("innerhalb von 7 Monaten" and "7-month project
+    completion" do not — the same 7, worded twice, is nothing to ask), other
+    ones differ in wording."""
+    na, nb = _standalone_numbers(a), _standalone_numbers(b)
+    if na or nb:
+        return na != nb
+    norm = lambda v: " ".join(_nfc(v).split()).casefold().strip(" .,;:")  # noqa: E731
+    return norm(a) != norm(b)
 
 
 def choice_violations(candidate: str, values: Iterable[str], rejected: str | None = None) -> list[str]:
