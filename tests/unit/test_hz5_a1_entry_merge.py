@@ -267,12 +267,12 @@ async def test_an_unmentioned_pair_is_keep_both(session):
 
 
 @pytest.mark.asyncio
-async def test_an_unverifiable_merged_text_is_still_written_and_logged(session, caplog):
+async def test_the_candidates_merged_text_is_written_without_a_fact_check(session):
+    """ADR-099 am. 2026-11-02 (M-1e): the confirmed text is written as it is;
+    no code check, no log line (the candidate confirmed it beside both)."""
     await _seed(session)
-    with caplog.at_level("INFO"):
-        resp = await _commit(session, duplicates=[_choice("merge", "Completely invented Zürich achievement 99%")])
-    assert "Completely invented Zürich achievement 99%" in _wa(resp).responsibilities
-    assert any("not verifiable" in r.message for r in caplog.records)
+    resp = await _commit(session, duplicates=[_choice("merge", "Völlig eigener Satz mit 99 % und Zürich")])
+    assert "Völlig eigener Satz mit 99 % und Zürich" in _wa(resp).responsibilities
 
 
 @pytest.mark.asyncio

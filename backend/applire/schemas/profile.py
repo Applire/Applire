@@ -2108,7 +2108,7 @@ class ConflictMergeProposalRequest(BaseModel):
 
 class MergeProposalResponse(BaseModel):
     """ADR-099 cl. 11 — "Zusammenführen": the model's one sentence, or ``None``
-    when it failed the fact-presence check (then only the other outcomes are
+    when it could not make one (then only the other outcomes are
     offered). ``sources`` = [existing, incoming], shown beside the proposal.
     ``question`` (ADR-099 am. 2026-11-02, M-1c): set instead of a proposal
     when the two give different values — ask the candidate first."""
