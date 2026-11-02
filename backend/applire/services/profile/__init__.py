@@ -1242,11 +1242,16 @@ async def propose_conflict_merge(
     provider: LLMProvider,
     *,
     user_id: uuid.UUID | None = None,
+    choice: dict | None = None,
 ):
-    """ADR-099 cl. 11 — "Zusammenführen": ONE model call, verified, no write.
-    ``LookupError`` for an unknown/closed dispute, ``ValueError`` for a
-    dispute that offers no merge (a scalar)."""
+    """ADR-099 cl. 11 — "Zusammenführen": verified, no write. Up to three
+    model calls when the two items are in two languages (am. 2026-11-02,
+    M-1a). ``choice`` = the candidate's pick on a value question (M-1c),
+    re-checked here: every value must be written in one of the two stored
+    items. ``LookupError`` for an unknown/closed dispute, ``ValueError`` for a
+    dispute that offers no merge (a scalar) or a pick the items do not hold."""
     from applire.services.profile.decisions import conflict_shape, propose_merge
+    from applire.services.profile.merge_verifier import value_in
 
     record = await _get_latest(db, user_id)
     if not record:
@@ -1265,9 +1270,12 @@ async def propose_conflict_merge(
     from applire.services.profile.entity_label import label_for
 
     label = label_for(profile_data, conflict.entity_id)
-    return await propose_merge(
-        provider, str(conflict.existing_value or ""), str(conflict.incoming_value or ""), label
-    )
+    existing, incoming = str(conflict.existing_value or ""), str(conflict.incoming_value or "")
+    if choice is not None:
+        picked = [choice["value"], choice["other"]] if choice.get("kind") == "value" else list(choice["values"])
+        if not all(value_in(v, existing) or value_in(v, incoming) for v in picked):
+            raise ValueError("choice_not_in_sources")
+    return await propose_merge(provider, existing, incoming, label, choice=choice)
 
 
 async def resolve_confirmation(

@@ -10,6 +10,9 @@
 // the model for ONE sentence built only from the two items; the candidate
 // confirms or edits it before anything is written (no write without
 // confirmation), and a proposal that failed the fact check removes the option.
+// When the two give DIFFERENT values for one thing (ADR-099 am. 2026-11-02,
+// M-1c), "Combine" first asks which is right — or both — and the sentence is
+// built from that answer.
 //
 // Values are quoted with the reader's own quotation marks and wrap in full —
 // U-3b: English '…' inside German text and a chip cut off mid-word.
@@ -21,6 +24,8 @@ import { conflictSourceLabel, describeConflict } from "@/lib/conflict-display";
 import {
   type ConflictOutcome,
   type CurrentConflict,
+  type MergeChoice,
+  type MergeStep,
   visibleOutcomes,
 } from "@/lib/profile-review";
 
@@ -33,8 +38,9 @@ export interface ConflictCardProps {
   /** The merge proposal failed its fact check for THIS conflict. */
   mergeUnavailable: boolean;
   onOutcome: (outcome: Exclude<ConflictOutcome, "merge">) => void;
-  /** Ask for a proposal; resolves to the text, or null when none passed the check. */
-  onRequestMerge: () => Promise<string | null>;
+  /** Ask for a proposal (with the pick on an earlier value question); resolves
+   *  to the text, a value question, or null when no merge is offered. */
+  onRequestMerge: (choice?: MergeChoice) => Promise<MergeStep | null>;
   onConfirmMerge: (text: string) => void;
 }
 
@@ -50,6 +56,7 @@ export function ConflictCard({
   const tHealth = useTranslations("health");
   const tProfile = useTranslations("profile");
   const [mergeText, setMergeText] = useState<string | null>(null);
+  const [question, setQuestion] = useState<[string, string] | null>(null);
   const [proposing, setProposing] = useState(false);
 
   const heading = describeConflict(conflict, tHealth, tProfile).heading;
@@ -57,13 +64,17 @@ export function ConflictCard({
     conflictSourceLabel(tProfile, conflict.incoming_source) || tHealth("conflictSourceUnknown");
   const isRoleScalar =
     conflict.shape === "scalar" && ROLE_ENTRY_SECTIONS.has(conflict.section ?? "");
-  const outcomes = visibleOutcomes(conflict, mergeUnavailable);
+  // While the value question is open, its answers replace "Combine".
+  const outcomes = visibleOutcomes(conflict, mergeUnavailable).filter(
+    (o) => !(o === "merge" && question !== null),
+  );
 
-  const startMerge = async () => {
+  const startMerge = async (choice?: MergeChoice) => {
     setProposing(true);
     try {
-      const proposal = await onRequestMerge();
-      if (proposal !== null) setMergeText(proposal);
+      const step = await onRequestMerge(choice);
+      setQuestion(step?.kind === "question" ? step.values : null);
+      if (step?.kind === "text") setMergeText(step.text);
     } finally {
       setProposing(false);
     }
@@ -112,6 +123,41 @@ export function ConflictCard({
               {t("quoted", { value: conflict.incoming_value_display ?? "" })}
             </p>
           </div>
+          {question !== null && !mergeUnavailable && (
+            <div
+              data-testid="conflict-merge-question"
+              className="flex flex-col gap-2 rounded-lg border border-outline-variant bg-surface-container px-3 py-2"
+            >
+              <p className="text-sm text-on-surface">{t("mergeQuestion")}</p>
+              <div className="flex flex-wrap gap-2">
+                {question.map((value, i) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant="outline"
+                    data-testid={`conflict-merge-question-value-${i}`}
+                    disabled={busy || proposing}
+                    className="h-auto min-h-9 whitespace-normal bg-white py-1.5 text-left"
+                    onClick={() =>
+                      void startMerge({ kind: "value", value, other: question[1 - i] })
+                    }
+                  >
+                    {value}
+                  </Button>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                data-testid="conflict-merge-question-both"
+                disabled={busy || proposing}
+                className="h-auto min-h-9 w-fit whitespace-normal bg-white py-1.5 text-left"
+                onClick={() => void startMerge({ kind: "both", values: question })}
+              >
+                {proposing ? t("mergeLoading") : t("mergeQuestionBoth")}
+              </Button>
+            </div>
+          )}
           {mergeUnavailable && conflict.outcomes.includes("merge") && (
             <p
               data-testid="conflict-merge-unavailable"

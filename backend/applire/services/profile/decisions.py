@@ -22,15 +22,22 @@ from applire.prompts.profile_decisions import (
     DUPLICATES_SYSTEM,
     IDENTITY_SYSTEM,
     MERGE_SYSTEM,
+    PIVOT_SYSTEM,
     REPLY_SYSTEM,
     build_aspiration_prompt,
     build_present_prompt,
     build_duplicates_prompt,
     build_identity_prompt,
     build_merge_prompt,
+    build_pivot_prompt,
     build_reply_prompt,
 )
-from applire.services.profile.merge_verifier import verify_merge
+from applire.services.profile.merge_verifier import (
+    choice_violations,
+    invariant_tokens,
+    value_in,
+    verify_merge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,30 +101,135 @@ class MergeProposal:
     proposal: str | None
     verifier: Literal["passed", "failed"]
     sources: tuple[str, str]
+    #: ADR-099 am. 2026-11-02 (M-1c): the two differing values to ask about,
+    #: each written in its own bullet; set only when ``proposal`` is None.
+    question: tuple[str, str] | None = None
 
 
-async def propose_merge(provider, existing: str, incoming: str, entry_label: str | None = None) -> MergeProposal:
-    """ONE model call; the verifier decides whether its sentence may be offered.
-    Never retried (adv-decision C3: fail closed → the other three outcomes)."""
-    sources = (str(existing or ""), str(incoming or ""))
-    proposal: str | None = None
+async def _merge_round(
+    provider, first: str, second: str, entry_label: str | None, choice: dict[str, Any] | None
+) -> tuple[str | None, tuple[str, str] | None]:
+    """ONE merge call → (sentence or None, differing values or None)."""
     try:
         with _stage("profile_merge_proposal"):
             data = await provider.aparse_json(
-                build_merge_prompt(sources[0], sources[1], entry_label),
+                build_merge_prompt(first, second, entry_label, choice),
                 system=MERGE_SYSTEM,
                 temperature=0.1,
                 max_tokens=600,
             )
-        raw = data.get("merged") if isinstance(data, dict) else None
-        proposal = _sentence_or_none(raw)
     except Exception:  # noqa: BLE001 — a failed call is a failed proposal, never a 500
         logger.warning("propose_merge: model call failed; offering no merge", exc_info=True)
-        proposal = None
-    if proposal is not None and verify_merge(proposal, sources):
-        return MergeProposal(proposal, "passed", sources)
-    if proposal is not None:
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    differing = data.get("differing")
+    pair = None
+    if isinstance(differing, list) and len(differing) == 2:
+        a, b = (_sentence_or_none(v) for v in differing)
+        if a and b:
+            pair = (a, b)
+    return _sentence_or_none(data.get("merged")), pair
+
+
+async def _pivot(provider, first: str, second: str) -> str | None:
+    """M-1a — ``second`` in ``first``'s language, or None: the call failed,
+    the text came back unchanged (the same language — nothing to translate),
+    or a number, acronym or inner-capital name was dropped or added."""
+    try:
+        with _stage("profile_merge_pivot"):
+            data = await provider.aparse_json(
+                build_pivot_prompt(first, second),
+                system=PIVOT_SYSTEM,
+                temperature=0.0,
+                max_tokens=400,
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning("propose_merge: pivot call failed; offering no merge", exc_info=True)
+        return None
+    text = _sentence_or_none(data.get("text") if isinstance(data, dict) else None)
+    if text is None or _norm(text) == _norm(second):
+        return None
+    if invariant_tokens(text) != invariant_tokens(second):
+        logger.info("propose_merge: pivot rejected (a number or name changed in translation)")
+        return None
+    return text
+
+
+def _accept(
+    sentence: str | None,
+    differing: tuple[str, str] | None,
+    first: str,
+    second: str,
+    choice: dict[str, Any] | None,
+    allow_question: bool,
+) -> tuple[str | None, tuple[str, str] | None]:
+    """The deterministic half of a round: a sentence that passes the
+    fact-presence check (and, after a pick, honours it), else a question whose
+    values are each written in their own bullet, else nothing."""
+    if sentence is not None and verify_merge(sentence, (first, second)):
+        if choice is None:
+            return sentence, None
+        if choice.get("kind") == "value":
+            bad = choice_violations(sentence, [choice["value"]], rejected=choice["other"])
+        else:
+            bad = choice_violations(sentence, list(choice["values"]))
+        if not bad:
+            return sentence, None
+        logger.info("propose_merge: the sentence does not honour the candidate's pick: %s", bad)
+        return None, None
+    if sentence is not None:
         logger.info("propose_merge: verifier rejected the proposal (fact not in either source)")
+    if (
+        allow_question
+        and choice is None
+        and differing is not None
+        and value_in(differing[0], first)
+        and value_in(differing[1], second)
+        and _norm(differing[0]) != _norm(differing[1])
+    ):
+        return None, differing
+    return None, None
+
+
+async def propose_merge(
+    provider,
+    existing: str,
+    incoming: str,
+    entry_label: str | None = None,
+    *,
+    choice: dict[str, Any] | None = None,
+    allow_question: bool = True,
+    pivot_only: bool = False,
+) -> MergeProposal:
+    """"Zusammenführen": a verified sentence, a value question, or nothing.
+
+    Round 1 merges the two as they are (one call — a same-language pair that
+    passes costs exactly what it did). On null or a failed check, translate
+    first (M-1a): bullet 2 in bullet 1's language, then round 2 on the
+    same-language pair, verified against [bullet 1, translation]. At most three
+    calls; the second merge call has a different input, so it is not a retry
+    of the first (adv-decision C3 holds for each input). ``choice`` = the
+    candidate's pick on an earlier question (M-1c). ``pivot_only`` skips
+    round 1 (the U-11 duplicates call already was one)."""
+    sources = (str(existing or ""), str(incoming or ""))
+    first, second = sources
+    if not pivot_only:
+        sentence, differing = await _merge_round(provider, first, second, entry_label, choice)
+        merged, question = _accept(sentence, differing, first, second, choice, allow_question)
+        if merged is not None:
+            return MergeProposal(merged, "passed", sources)
+        if question is not None:
+            return MergeProposal(None, "failed", sources, question)
+    pivot = await _pivot(provider, first, second)
+    if pivot is not None:
+        sentence, differing = await _merge_round(provider, first, pivot, entry_label, choice)
+        merged, question = _accept(sentence, differing, first, pivot, choice, allow_question)
+        if merged is not None:
+            return MergeProposal(merged, "passed", sources)
+        if question is not None and value_in(question[1], second):
+            # the value is shown as the candidate's own bullet backs it
+            return MergeProposal(None, "failed", sources, question)
     return MergeProposal(None, "failed", sources)
 
 
@@ -268,6 +380,14 @@ async def find_duplicate_pairs(
         merged = _sentence_or_none(row.get("merged"))
         if merged is not None and not verify_merge(merged, (target_bullets[ti], source_bullets[si])):
             merged = None
+        if merged is None:
+            # M-1a/M-1d: a pair in two languages — translate first, then merge;
+            # the value question is the conflict card's only.
+            p = await propose_merge(
+                provider, target_bullets[ti], source_bullets[si],
+                allow_question=False, pivot_only=True,
+            )
+            merged = p.proposal
         pairs.append(DuplicatePair(ti, si, merged))
     return pairs
 

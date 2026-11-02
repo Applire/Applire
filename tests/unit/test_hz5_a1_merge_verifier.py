@@ -109,7 +109,9 @@ class _Stub:
 async def test_propose_merge_fails_closed_on_an_added_fact():
     stub = _Stub({"merged": "Merged 15 reporting tools and introduced a supplier scorecard."})
     p = await decisions.propose_merge(stub, A, B, "Head @ Lumen")
-    assert (p.proposal, p.verifier, stub.calls) == (None, "failed", 1)  # never retried
+    # never retried on the same input: the one extra call is the translate-first
+    # pivot (ADR-099 am. 2026-11-02), which this stub answers without a "text"
+    assert (p.proposal, p.verifier, stub.calls) == (None, "failed", 2)
 
 
 @pytest.mark.asyncio

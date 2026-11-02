@@ -21,7 +21,7 @@ import unicodedata
 import uuid
 import re
 from datetime import date, datetime, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -2064,14 +2064,69 @@ class ConflictResolutionRequest(BaseModel):
     value: Any | None = None
 
 
+class MergeQuestion(BaseModel):
+    """ADR-099 am. 2026-11-02 (M-1c) — the two bullets give different values
+    for the same thing: the card asks which is right (or both). Each value is
+    written in its own bullet (checked by code)."""
+
+    values: list[str] = Field(min_length=2, max_length=2)
+
+
+class MergeChoice(BaseModel):
+    """The candidate's answer to a :class:`MergeQuestion`, sent back with the
+    next proposal request (stateless: the server re-checks every value is
+    written in the two stored items — 422 otherwise). ``kind="value"``:
+    ``value`` is right, ``other`` is wrong. ``kind="both"``: both ``values``
+    are right, they are different things."""
+
+    kind: Literal["value", "both"]
+    value: str | None = Field(default=None, max_length=300)
+    other: str | None = Field(default=None, max_length=300)
+    values: list[Annotated[str, Field(max_length=300)]] | None = Field(
+        default=None, min_length=2, max_length=2
+    )
+
+    @model_validator(mode="after")
+    def _shape(self) -> "MergeChoice":
+        if self.kind == "value" and not (self.value and self.other):
+            raise ValueError("a value choice needs value and other")
+        if self.kind == "both" and not self.values:
+            raise ValueError("a both choice needs values")
+        return self
+
+    def as_prompt_choice(self) -> dict[str, Any]:
+        if self.kind == "value":
+            return {"kind": "value", "value": self.value, "other": self.other}
+        return {"kind": "both", "values": list(self.values or [])}
+
+
+class ConflictMergeProposalRequest(BaseModel):
+    """Optional body of ``POST /api/profile/conflicts/{id}/merge-proposal``."""
+
+    choice: MergeChoice | None = None
+
+
 class MergeProposalResponse(BaseModel):
     """ADR-099 cl. 11 — "Zusammenführen": the model's one sentence, or ``None``
     when it failed the fact-presence check (then only the other outcomes are
-    offered). ``sources`` = [existing, incoming], shown beside the proposal."""
+    offered). ``sources`` = [existing, incoming], shown beside the proposal.
+    ``question`` (ADR-099 am. 2026-11-02, M-1c): set instead of a proposal
+    when the two give different values — ask the candidate first."""
 
     proposal: str | None = None
     verifier: Literal["passed", "failed"]
     sources: list[str]
+    question: MergeQuestion | None = None
+
+    @classmethod
+    def from_proposal(cls, p: Any) -> "MergeProposalResponse":
+        """From a ``decisions.MergeProposal`` (both doors use this)."""
+        return cls(
+            proposal=p.proposal,
+            verifier=p.verifier,
+            sources=list(p.sources),
+            question=MergeQuestion(values=list(p.question)) if p.question else None,
+        )
 
 
 class ConflictSummary(BaseModel):

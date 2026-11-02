@@ -47,6 +47,8 @@ import {
   type CommitOutcome,
   type ConflictOutcome,
   type CurrentConflict,
+  type MergeChoice,
+  type MergeStep,
   type ReviewReply,
   type ReviewTurn,
   ReviewApiError,
@@ -54,6 +56,7 @@ import {
   answerWithText,
   interpretedOutcome,
   mergeBecameOwnStatement,
+  mergeStepOf,
   requestMergeProposal,
   startReview,
 } from "@/lib/profile-review";
@@ -345,12 +348,13 @@ export function ProfileReviewDrawer({
     void run(value, () => answerWithText(sessionId, value), conflict, true);
   };
 
-  const proposeMerge = async (): Promise<string | null> => {
+  const proposeMerge = async (choice?: MergeChoice): Promise<MergeStep | null> => {
     if (!sessionId || !conflict) return null;
     const id = conflict.conflict_id;
     try {
-      const p = await requestMergeProposal(sessionId, id);
-      if (p.verifier === "passed" && p.proposal) return p.proposal;
+      const step = mergeStepOf(await requestMergeProposal(sessionId, id, choice));
+      // after a pick the answer is a sentence or nothing — never a second question
+      if (step && !(choice && step.kind === "question")) return step;
     } catch {
       /* a failed proposal call is the same as a failed check: no merge offered */
     }

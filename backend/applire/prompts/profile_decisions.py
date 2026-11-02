@@ -4,7 +4,9 @@
 profile hub's decisions. Each sees ONLY what it judges (the two items, the
 candidate's reply, two entries' identity fields) — never the whole profile.
 
-* ``MERGE_SYSTEM``      — "Zusammenführen": one sentence from two bullets.
+* ``MERGE_SYSTEM``      — "Zusammenführen": one sentence from two bullets, or
+                          the two differing values to ask about.
+* ``PIVOT_SYSTEM``      — bullet 2 in bullet 1's language, before a merge.
 * ``REPLY_SYSTEM``      — a typed answer to a dispute → outcome | corrected
                           value | ONE follow-up question.
 * ``IDENTITY_SYSTEM``   — two entries with identical dates: the same position?
@@ -32,17 +34,70 @@ Rules:
 2. Keep each fact's stance: a goal or target stays a goal ("aims to", "targets"),
    a result stays a result. Keep the tense of the bullets.
 3. Write one CV line: no "I", "my" or "we"; the language of the first bullet.
-4. If the two bullets cannot be one line without dropping a fact, answer null.
+4. If the two bullets give DIFFERENT values for the same thing (a duration, a
+   count, a date, an amount, a place), never pick one and never write both:
+   ask instead, with each value copied as its bullet writes it —
+   {"merged": null, "differing": ["<value from bullet 1>", "<value from bullet 2>"]}.
+   When the input gives the candidate's answer about the values, follow it and
+   do not ask again.
+5. If the two bullets cannot be one line without dropping a fact for any other
+   reason, answer {"merged": null}.
 
-Output ONLY this JSON object: {"merged": "<the one bullet>"} or {"merged": null}"""
+Output ONLY this JSON object: {"merged": "<the one bullet>"} or {"merged": null}
+or {"merged": null, "differing": ["<value 1>", "<value 2>"]}"""
 
 
-def build_merge_prompt(existing: str, incoming: str, entry_label: str | None) -> str:
+def build_merge_prompt(
+    existing: str,
+    incoming: str,
+    entry_label: str | None,
+    choice: dict[str, Any] | None = None,
+) -> str:
+    """``choice`` = the candidate's answer to a value question (ADR-099 am.
+    2026-11-02, M-1c): ``{"kind": "value", "value", "other"}`` or
+    ``{"kind": "both", "values": [v1, v2]}``."""
+    answer = ""
+    if choice and choice.get("kind") == "value":
+        answer = (
+            f'The candidate says "{choice["value"]}" is right and "{choice["other"]}" is wrong: '
+            f'write "{choice["value"]}" only.\n'
+        )
+    elif choice and choice.get("kind") == "both":
+        a, b = choice["values"]
+        answer = (
+            f'The candidate says "{a}" and "{b}" are both right — they are different things: '
+            "keep both.\n"
+        )
     return (
         f"Entry: {entry_label or '(unnamed)'}\n"
         f"Bullet 1: {existing}\n"
         f"Bullet 2: {incoming}\n"
+        f"{answer}"
         'Answer with {"merged": ...} now.'
+    )
+
+
+# ADR-099 am. 2026-11-02 (M-1a): "Zusammenführen" across two languages. The
+# merge sentence must be in ONE language, and the fact-presence check accepts
+# only words a source writes, so a merge of a German and an English bullet
+# never passed. This call puts bullet 2 into bullet 1's language FIRST; code
+# accepts it only when its numbers, acronyms and inner-capital names equal
+# bullet 2's (``merge_verifier.invariant_tokens``).
+PIVOT_SYSTEM = """You get two CV bullet points. Rewrite bullet 2 in the language bullet 1 is
+written in. If bullet 2 is already in that language, return it exactly unchanged.
+
+Translate only: keep every number, name, tool, product, organisation and
+abbreviation exactly as bullet 2 writes it; add nothing, drop nothing; a goal
+stays a goal and a result stays a result; keep the tense; no "I".
+
+Output ONLY this JSON object: {"text": "<bullet 2 in the language of bullet 1>"}"""
+
+
+def build_pivot_prompt(existing: str, incoming: str) -> str:
+    return (
+        f"Bullet 1: {existing}\n"
+        f"Bullet 2: {incoming}\n"
+        'Answer with {"text": ...} now.'
     )
 
 

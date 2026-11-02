@@ -1342,6 +1342,8 @@
     "mergeBack": "Zurück zur Auswahl",
     "mergeSources": "Die beiden Punkte",
     "mergeUnavailable": "Applire konnte keinen gemeinsamen Satz bilden, der nur Angaben aus beiden Punkten enthält. Wähle eine der anderen Möglichkeiten.",
+    "mergeQuestion": "Die beiden Punkte nennen verschiedene Werte. Was stimmt?",
+    "mergeQuestionBoth": "Beides stimmt – verschiedene Dinge",
     "mergeBecameTestimony": "Dein Text enthält Angaben, die in keinem der beiden Punkte stehen – deshalb ist er kein zusammengeführter Punkt, sondern deine eigene Angabe. Er ersetzt die beiden Punkte in deinem Profil.",
     "mergeDone": "Zusammengeführt und gespeichert.",
     "typedPlaceholder": "Oder sag es in eigenen Worten – z. B. „Beides stimmt, das sind zwei verschiedene Erfolge“",

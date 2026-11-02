@@ -249,7 +249,8 @@ async def post_merge_proposal(
     ``merge_confirm``)."""
     try:
         p = await review_merge_proposal(
-            session_id, body.conflict_id, db, provider, user_id=user.id
+            session_id, body.conflict_id, db, provider, user_id=user.id,
+            choice=body.choice.as_prompt_choice() if body.choice else None,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -261,7 +262,7 @@ async def post_merge_proposal(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_internal_error_detail(),
         )
-    return MergeProposalResponse(proposal=p.proposal, verifier=p.verifier, sources=list(p.sources))
+    return MergeProposalResponse.from_proposal(p)
 
 
 @router.post(

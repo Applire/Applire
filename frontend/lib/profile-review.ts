@@ -77,7 +77,20 @@ export interface MergeProposal {
   proposal: string | null;
   verifier: "passed" | "failed";
   sources?: string[];
+  /** ADR-099 am. 2026-11-02 (M-1c): the two points give different values —
+   *  ask which is right before any sentence is proposed. */
+  question?: { values: string[] } | null;
 }
+
+/** The candidate's answer to a merge `question`, sent with the next proposal request. */
+export type MergeChoice =
+  | { kind: "value"; value: string; other: string }
+  | { kind: "both"; values: [string, string] };
+
+/** What "Combine" yields next: a sentence to confirm, or a value question. */
+export type MergeStep =
+  | { kind: "text"; text: string }
+  | { kind: "question"; values: [string, string] };
 
 /** A request the backend refused with a machine code (`outcome_required`, …). */
 export class ReviewApiError extends Error {
@@ -142,10 +155,23 @@ export function answerWithText(sessionId: string, message: string): Promise<Revi
   return postJson(`/api/session/${sessionId}/message`, { message }) as Promise<ReviewReply>;
 }
 
-export function requestMergeProposal(sessionId: string, conflictId: string): Promise<MergeProposal> {
-  return postJson(`/api/session/${sessionId}/merge-proposal`, {
-    conflict_id: conflictId,
-  }) as Promise<MergeProposal>;
+export function requestMergeProposal(
+  sessionId: string,
+  conflictId: string,
+  choice?: MergeChoice,
+): Promise<MergeProposal> {
+  return postJson(
+    `/api/session/${sessionId}/merge-proposal`,
+    choice ? { conflict_id: conflictId, choice } : { conflict_id: conflictId },
+  ) as Promise<MergeProposal>;
+}
+
+/** The next merge step from a proposal response, or null (no merge offered). */
+export function mergeStepOf(p: MergeProposal): MergeStep | null {
+  if (p.verifier === "passed" && p.proposal) return { kind: "text", text: p.proposal };
+  const v = p.question?.values;
+  if (v && v.length === 2 && v[0] && v[1]) return { kind: "question", values: [v[0], v[1]] };
+  return null;
 }
 
 /**

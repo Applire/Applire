@@ -21,6 +21,8 @@ from typing import Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, Field, StringConstraints
 
+from applire.schemas.profile import MergeChoice
+
 
 # ---------------------------------------------------------------------------
 # Request schemas
@@ -69,6 +71,8 @@ class SessionMessageRequest(BaseModel):
 
 class MergeProposalRequest(BaseModel):
     conflict_id: str = Field(min_length=1, max_length=200)  # SEC-2
+    # ADR-099 am. 2026-11-02 (M-1c): the pick on a value question.
+    choice: MergeChoice | None = None
 
 
 class CurrentConflict(BaseModel):

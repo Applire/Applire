@@ -25,7 +25,7 @@ import re
 import unicodedata
 from typing import Iterable
 
-__all__ = ["merge_violations", "verify_merge"]
+__all__ = ["choice_violations", "invariant_tokens", "merge_violations", "value_in", "verify_merge"]
 
 # A number with optional thousands/decimal separators: 7,500 · 7.500 · 3.5 · 60
 _NUMBER_RE = re.compile(r"\d+(?:[.,']\d+)*")
@@ -179,3 +179,62 @@ def verify_merge(candidate: str | None, sources: Iterable[str], *, mode: str = "
     if not candidate or not candidate.strip():
         return False
     return not merge_violations(candidate, sources, mode=mode)
+
+
+# ── ADR-099 am. 2026-11-02 (M-1a, M-1c): translate-first and the value question ──
+
+
+def invariant_tokens(text: str) -> set[str]:
+    """The tokens a translation must carry unchanged: every number, every
+    all-caps part of a word ("QC", "LIMS" in "QC-LIMS-Anbieter") and every
+    part with an inner capital ("BioNTech", "KPIs"). A capitalised German noun
+    is NOT one — it changes with the language."""
+    out = {f"#{n}" for n in _numbers(text)}
+    for m in _WORD_RE.finditer(_nfc(text)):
+        for part in re.split(r"[-/&+.]", m.group(0)):
+            core = part.strip("#")
+            if not core or any(ch.isdigit() for ch in core):
+                continue  # a digit-bearing part is covered by its number
+            letters = [ch for ch in core if ch.isalpha()]
+            if len(letters) >= 2 and all(ch.isupper() for ch in letters):
+                out.add(core)
+            elif any(ch.isupper() for ch in core[1:]):
+                out.add(core)
+    return out
+
+
+# A number standing on its own ("8", "8-month", "7,500") — not the digit
+# inside a name ("PSD2", "ISO9001"), which a value is never written as.
+_STANDALONE_NUMBER_RE = re.compile(r"(?<![^\W\d_])\d+(?:[.,']\d+)*")
+
+
+def _standalone_numbers(text: str) -> set[str]:
+    return {_norm_number(m.group(0)) for m in _STANDALONE_NUMBER_RE.finditer(_nfc(text))}
+
+
+def value_in(value: str, text: str) -> bool:
+    """A differing value is written in ``text``: its numbers are (a numeric
+    value — "8 Monaten" is written in "8-month project completion"), or its
+    whole normalised wording is."""
+    nums = _standalone_numbers(value)
+    if nums:
+        return nums <= _standalone_numbers(text)
+    v = " ".join(_nfc(value).split()).casefold().strip(" .,;:")
+    return bool(v) and v in " ".join(_nfc(text).split()).casefold()
+
+
+def choice_violations(candidate: str, values: Iterable[str], rejected: str | None = None) -> list[str]:
+    """The candidate's pick on a value question, checked in the sentence the
+    model wrote from it: every chosen value is in it (``values``: one for a
+    pick, both for "Beides stimmt"), and no number of the ``rejected`` value
+    that the chosen one lacks (a non-numeric rejected value: its wording).
+    Empty list = the sentence honours the pick."""
+    out = [v for v in values if not value_in(v, candidate)]
+    if rejected:
+        rej_nums = _standalone_numbers(rejected) - set().union(*(_standalone_numbers(v) for v in values))
+        if _standalone_numbers(rejected):
+            out += sorted(n for n in rej_nums if n in _standalone_numbers(candidate))
+        elif value_in(rejected, candidate) and not any(value_in(rejected, v) for v in values):
+            out.append(rejected)
+    return out
+
