@@ -9,7 +9,7 @@
 // combine; a role entry's scalar → three; other scalars → two). "Combine" asks
 // the model for ONE sentence built only from the two items; the candidate
 // confirms or edits it before anything is written (no write without
-// confirmation), and a proposal that failed the fact check removes the option.
+// confirmation), and when no proposal can be made the option disappears.
 // When the two give DIFFERENT values for one thing (ADR-099 am. 2026-11-02,
 // M-1c), "Combine" first asks which is right — or both — and the sentence is
 // built from that answer.
@@ -35,7 +35,7 @@ const ROLE_ENTRY_SECTIONS = new Set(["work_experience", "volunteer_activities"])
 export interface ConflictCardProps {
   conflict: CurrentConflict;
   busy: boolean;
-  /** The merge proposal failed its fact check for THIS conflict. */
+  /** No merge proposal could be made for THIS conflict. */
   mergeUnavailable: boolean;
   onOutcome: (outcome: Exclude<ConflictOutcome, "merge">) => void;
   /** Ask for a proposal (with the pick on an earlier value question); resolves

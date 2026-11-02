@@ -1378,9 +1378,8 @@ async def _resolve_conflict_safely(
     user_id: uuid.UUID | None = None,
 ) -> str | None:
     """Apply the user's correction, tolerating an already-resolved conflict.
-    Returns the resolution actually written (``manual`` when an edited merge
-    sentence failed the fact-presence check, RULING A1-1), None when the
-    dispute was already gone."""
+    Returns the resolution actually written, None when the dispute was
+    already gone."""
     from applire.services.profile import last_applied_resolution, resolve_conflict  # lazy: avoid import cycle
 
     try:

@@ -33,7 +33,6 @@ from applire.schemas.entry_merge import (
 from applire.schemas.profile import MasterProfileData, MasterProfileResponse
 from applire.services.profile.commit import CommitProvenance, SnapshotClass, commit_ops
 from applire.services.profile.decisions import find_duplicate_pairs
-from applire.services.profile.merge_verifier import verify_merge
 from applire.services.profile.reconcile.apply import fill_empty_scalars, union_source_lists
 from applire.services.profile.reconcile.ops import KeepEntriesSeparate, MergeEntries
 
@@ -223,11 +222,6 @@ def _resolve_bullets(
             elif c.outcome == "merge":
                 if not (c.merged_text and c.merged_text.strip()):
                     raise MergedTextRequired(c.pair_id)
-                if not verify_merge(c.merged_text, [c.target_text, c.source_text]):
-                    logger.info(
-                        "entry merge: the candidate's merged sentence for %s is not verifiable "
-                        "against its two sources; written as the candidate's own text", c.pair_id,
-                    )
                 result[idx] = c.merged_text.strip()
                 consumed.add(s_n)
             # keep_both: the source bullet is appended below like any unique one

@@ -679,7 +679,8 @@ class ResolveField(BaseModel):
     #:   incoming value, no bullets) and the pair is recorded as kept-separate.
     #:   Any other field refuses it (nothing to keep "both" of).
     #: * ``"merge"`` — "Zusammenführen": a bullet LIST only; ``value`` replaces
-    #:   the contested pair. The door verifies the sentence; the receipt names
+    #:   the contested pair (no code check of the sentence, ADR-099 am. 2026-11-02,
+    #:   M-1e — the candidate confirmed it); the receipt names
     #:   both originals and the door takes a MERGE snapshot (one undo).
     resolution: Literal["existing", "incoming", "manual", "both", "merge"]
 

@@ -153,17 +153,18 @@ async def test_merge_confirm_passing_writes_the_sentence_and_one_undo_restores_b
 
 
 @pytest.mark.asyncio
-async def test_merge_confirm_failing_the_verifier_is_written_as_manual(db):
-    """RULING A1-1 — the candidate's edited sentence carries a figure neither
-    bullet states: written as the manual resolution, reported as such."""
+async def test_merge_confirm_is_written_as_merge_without_a_fact_check(db):
+    """ADR-099 am. 2026-11-02 (M-1e) — the sentence the candidate confirms is
+    written as the merge, edited or not, in any language; no code re-check
+    (before: an edit with a figure neither bullet states became ``manual``)."""
     from applire.services.session import send_message
 
     rec = await _seed(db, _conflict("c1", "achievements", A_EXISTING, A_INCOMING))
     created = await _review(db, Stub())
-    edited = "Merged 15 reporting tools into one central lakehouse."
+    edited = "12 Reporting-Tools in ein zentrales Lakehouse überführt; Lieferanten-Scorecard eingeführt."
     resp = await send_message(created.session_id, "", db, Stub(), outcome="merge_confirm",
                               merged_text=edited)
-    assert (resp.interpreted.outcome, resp.interpreted.verifier) == ("manual", "failed")
+    assert (resp.interpreted.outcome, resp.interpreted.verifier) == ("merge", "passed")
     assert _ach(await _vault(db, rec)) == [edited]
 
 
@@ -213,7 +214,7 @@ async def test_an_outcome_the_dispute_does_not_offer_is_refused(db, outcome):
         ("keep_both", None, [A_EXISTING, A_INCOMING]),
         ("merge", "Introduced a supplier scorecard and merged 12 reporting tools.",
          ["Introduced a supplier scorecard and merged 12 reporting tools."]),
-        ("merge", "Merged 15 reporting tools.", ["Merged 15 reporting tools."]),  # → manual
+        ("merge", "12 Reporting-Tools zusammengeführt.", ["12 Reporting-Tools zusammengeführt."]),
     ],
 )
 async def test_rest_resolve_door_writes_the_same_outcomes(db, resolution, value, expected):
@@ -222,8 +223,8 @@ async def test_rest_resolve_door_writes_the_same_outcomes(db, resolution, value,
     rec = await _seed(db, _conflict("c1", "achievements", A_EXISTING, A_INCOMING))
     await resolve_conflict("c1", resolution, value, db)
     assert _ach(await _vault(db, rec)) == expected
-    if value == "Merged 15 reporting tools.":
-        assert last_applied_resolution() == "manual"
+    if resolution == "merge":
+        assert last_applied_resolution() == "merge"  # M-1e: no re-check, never manual
 
 
 @pytest.mark.asyncio
@@ -319,13 +320,13 @@ async def test_unknown_issue_id_is_not_found(db):
 
 
 @pytest.mark.asyncio
-async def test_session_merge_proposal_is_verified_and_writes_nothing(db):
+async def test_session_merge_proposal_writes_nothing(db):
     from applire.services.session import review_merge_proposal
 
     rec = await _seed(db, _conflict("c1", "achievements", A_EXISTING, A_INCOMING))
     created = await _review(db, Stub())
-    bad = Stub({"merged": "Merged 15 reporting tools and introduced a scorecard."})
-    p = await review_merge_proposal(created.session_id, "c1", db, bad)
+    none = Stub({"merged": None})
+    p = await review_merge_proposal(created.session_id, "c1", db, none)
     assert (p.proposal, p.verifier) == (None, "failed")
     good_text = "Introduced a supplier scorecard and merged 12 reporting tools."
     p = await review_merge_proposal(created.session_id, "c1", db, Stub({"merged": good_text}))

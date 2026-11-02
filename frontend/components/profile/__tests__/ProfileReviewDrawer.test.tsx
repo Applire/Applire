@@ -299,7 +299,7 @@ describe("ProfileReviewDrawer", () => {
     expect(outcomeMock).not.toHaveBeenCalled();
   });
 
-  it("merge fails closed: a proposal that failed the fact check leaves the other three", async () => {
+  it("merge fails closed: no proposal leaves the other three", async () => {
     startOn(LIST_CONFLICT);
     proposalMock.mockResolvedValue({ proposal: null, verifier: "failed" });
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
@@ -356,23 +356,6 @@ describe("ProfileReviewDrawer", () => {
     });
   });
 
-  it("an edited merge that failed the server re-check is announced as kept-both + own statement", async () => {
-    startOn(LIST_CONFLICT);
-    proposalMock.mockResolvedValue({ proposal: "One sentence.", verifier: "passed" });
-    outcomeMock.mockResolvedValue(
-      reply({ interpreted: { outcome: "manual", verifier: "failed" }, current_conflict: NAME_SCALAR }),
-    );
-    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
-    await waitFor(() => screen.getByTestId("conflict-outcome-merge"));
-    fireEvent.click(screen.getByTestId("conflict-outcome-merge"));
-    fireEvent.change(await screen.findByTestId("conflict-merge-text"), {
-      target: { value: "One sentence, and 30 % faster." },
-    });
-    fireEvent.click(screen.getByTestId("conflict-merge-confirm"));
-    const notice = await screen.findByTestId("profile-review-notice");
-    expect(notice).toHaveTextContent(/your own statement. It replaces the two points/);
-    expect(screen.queryByTestId("profile-review-undo")).not.toBeInTheDocument();
-  });
 
   it("U-4/U-5: a typed answer read as an outcome says so", async () => {
     startOn(LIST_CONFLICT);

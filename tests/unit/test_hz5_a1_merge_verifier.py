@@ -1,84 +1,19 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""ADR-099 cl. 11 / SF-VAULT.23 — T-merge: the fact-presence verifier and the
-decision helpers around the profile hub's merge / typed-answer calls."""
+"""ADR-099 cl. 11 / SF-VAULT.23 — the decision helpers around the profile
+hub's merge / typed-answer calls. (The fact-presence verifier these tests once
+pinned was removed by ADR-099 am. 2026-11-02, M-1e.)"""
 from __future__ import annotations
 
 import json
-import random
-import re
 
 import pytest
 
 from applire.prompts.reconcile import RECONCILE_SYSTEM_PROMPT
 from applire.services.profile import decisions
-from applire.services.profile.merge_verifier import merge_violations, verify_merge
 
 A = "Introduced a supplier scorecard for vendor selection and platform design."
 B = "Merged 12 reporting tools into one central lakehouse, streamlining vendor selection and platform scalability."
-
-
-def test_merge_that_reuses_only_source_facts_passes():
-    s = ("Introduced a supplier scorecard and merged 12 reporting tools into one central "
-         "lakehouse, streamlining vendor selection, platform design and scalability.")
-    assert merge_violations(s, [A, B]) == []
-
-
-@pytest.mark.parametrize(
-    "candidate, bad",
-    [
-        ("Merged 15 reporting tools into one central lakehouse.", "15"),
-        ("Merged 12 reporting tools into one Snowflake lakehouse.", "Snowflake"),
-        ("Introduced a supplier scorecard at ACME for vendor selection.", "ACME"),
-        ("Cut costs by 30% via ISO 9001.", "9001"),
-    ],
-)
-def test_a_number_or_name_absent_from_both_sources_fails(candidate, bad):
-    assert bad in merge_violations(candidate, [A, B, "Cut costs by 30%"])
-
-
-def test_thousands_separators_and_german_compounds():
-    assert merge_violations("Saved 7,500 EUR per month.", ["saved 7.500 EUR per month"]) == []
-    assert merge_violations(
-        "Einführung einer Lieferanten-Scorecard für die Lieferantenauswahl.",
-        ["Einführung einer Scorecard für die Lieferantenauswahl"],
-    ) == []
-    # a German noun neither source writes is new content → fails closed
-    assert merge_violations("Einführung einer Scorecard für Rechenzentren.",
-                            ["Einführung einer Scorecard für die Lieferantenauswahl"]) == ["Rechenzentren"]
-
-
-def test_empty_candidate_never_passes():
-    assert verify_merge("", [A, B]) is False
-    assert verify_merge(None, [A, B]) is False
-
-
-_POOL_NUM = [str(n) for n in (3, 4, 7, 12, 15, 19, 30, 45, 60, 250, 7500)]
-_POOL_NAME = ["SAP", "Snowflake", "Kafka", "BioPharm", "ISO", "LIMS", "Leipzig", "Azure", "dbt", "MES"]
-_POOL_WORD = ["led", "built", "cut", "the", "platform", "for", "across", "sites", "team", "costs", "by", "into", "one"]
-
-
-def _sentence(rng: random.Random) -> str:
-    words = [rng.choice(_POOL_WORD) for _ in range(6)]
-    words.insert(rng.randrange(len(words)), rng.choice(_POOL_NUM))
-    words.insert(rng.randrange(len(words)), rng.choice(_POOL_NAME))
-    return "Led " + " ".join(words) + "."
-
-
-@pytest.mark.parametrize("seed", range(40))
-def test_property_a_passing_merge_adds_no_number_or_name(seed):
-    """T-merge property: whatever the verifier passes carries no number and no
-    name token absent from both sources (checked by an independent tokeniser)."""
-    rng = random.Random(seed)
-    s1, s2 = _sentence(rng), _sentence(rng)
-    candidate = _sentence(rng) if rng.random() < 0.5 else s1[:-1] + " and " + s2[0].lower() + s2[1:]
-    if verify_merge(candidate, [s1, s2]):
-        src = (s1 + " " + s2).casefold()
-        for num in re.findall(r"\d+", candidate):
-            assert num in re.findall(r"\d+", s1 + " " + s2)
-        for name in _POOL_NAME:
-            if re.search(rf"\b{re.escape(name)}\b", candidate):
-                assert name.casefold() in src
 
 
 def test_conflict_shape_per_field():
@@ -106,12 +41,11 @@ class _Stub:
 
 
 @pytest.mark.asyncio
-async def test_propose_merge_fails_closed_on_an_added_fact():
-    stub = _Stub({"merged": "Merged 15 reporting tools and introduced a supplier scorecard."})
+async def test_propose_merge_is_one_call_and_offers_the_models_sentence():
+    """ADR-099 am. 2026-11-02 (M-1e): no code check of the sentence, no retry."""
+    stub = _Stub({"merged": "Merged 12 reporting tools and introduced a supplier scorecard."})
     p = await decisions.propose_merge(stub, A, B, "Head @ Lumen")
-    # never retried on the same input: the one extra call is the translate-first
-    # pivot (ADR-099 am. 2026-11-02), which this stub answers without a "text"
-    assert (p.proposal, p.verifier, stub.calls) == (None, "failed", 2)
+    assert (p.verifier, stub.calls) == ("passed", 1)
 
 
 @pytest.mark.asyncio

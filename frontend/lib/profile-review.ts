@@ -31,8 +31,8 @@ export interface CurrentConflict {
 
 /** How the server read and applied an answer (INTERFACE A1, A1-1 applied).
  *  `manual` = the candidate's own words were written as this dispute's
- *  resolution: a typed corrected value (`corrected_value`), or a confirmed
- *  merge whose text failed the fact check (`verifier: "failed"`). A
+ *  resolution: a typed corrected value (`corrected_value`). A confirmed merge
+ *  is always `merge` (ADR-099 am. 2026-11-02, M-1e: no fact re-check). A
  *  `follow_up` means nothing was written. */
 export interface Interpreted {
   outcome?: ConflictOutcome | "manual" | null;
@@ -41,12 +41,6 @@ export interface Interpreted {
   verifier?: "passed" | "failed" | null;
   /** INTERFACE A1-4 — the dispute was gone already; nothing was written. */
   already_answered?: boolean | null;
-}
-
-/** A confirmed merge's text failed the fact check and went in as the
- *  candidate's own statement, replacing the two points (ruling A1-1). */
-export function mergeBecameOwnStatement(i: Interpreted | null | undefined): boolean {
-  return i?.outcome === "manual" && i?.verifier === "failed";
 }
 
 export interface ReviewTurn {
@@ -177,8 +171,7 @@ export function mergeStepOf(p: MergeProposal): MergeStep | null {
 /**
  * The outcomes to render for a conflict. The backend's set is authoritative
  * (list → four, role-entry scalar → three, other scalar → two); `merge` drops
- * out once a proposal failed the fact check (ADR-099 cl. 11: fail closed →
- * only the other three).
+ * out once no proposal could be made (ADR-099 cl. 11 → only the other three).
  */
 export function visibleOutcomes(
   conflict: Pick<CurrentConflict, "outcomes">,

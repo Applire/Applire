@@ -1344,7 +1344,6 @@
     "mergeUnavailable": "Applire could not build one sentence that uses only what the two points say. Choose one of the other options.",
     "mergeQuestion": "The two points give different values. Which is right?",
     "mergeQuestionBoth": "Both are right – different things",
-    "mergeBecameTestimony": "Your text contains details that are in neither point – so it is not a combined point but your own statement. It replaces the two points in your profile.",
     "mergeDone": "Combined and saved.",
     "typedPlaceholder": "Or say it in your own words – e.g. \"Both are right, they are two different achievements\"",
     "typedPlaceholderScalar": "Or say it in your own words – e.g. \"Actually it was 05/2015\"",

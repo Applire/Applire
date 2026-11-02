@@ -55,7 +55,6 @@ import {
   answerWithOutcome,
   answerWithText,
   interpretedOutcome,
-  mergeBecameOwnStatement,
   mergeStepOf,
   requestMergeProposal,
   startReview,
@@ -265,8 +264,6 @@ export function ProfileReviewDrawer({
       const read = result.interpreted ?? null;
       if (read?.already_answered) {
         setNotice({ tone: "warn", text: t("alreadyAnswered") });
-      } else if (mergeBecameOwnStatement(read)) {
-        setNotice({ tone: "warn", text: t("mergeBecameTestimony") });
       } else if (read?.corrected_value) {
         setNotice({ tone: "ok", text: t("correctedSaved", { value: read.corrected_value }) });
       } else if (read?.follow_up) {

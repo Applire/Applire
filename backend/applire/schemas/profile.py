@@ -2058,8 +2058,8 @@ class ConflictResolutionRequest(BaseModel):
         "manual"   — supply a custom value via `value`
     """
     # ADR-099 cl. 11 (Hazelnut build 5): + "keep_both" (only where the dispute
-    # offers it) and "merge" (bullet lists; ``value`` = the merged sentence,
-    # re-verified — a sentence that fails is written as "manual", RULING A1-1).
+    # offers it) and "merge" (bullet lists; ``value`` = the merged sentence the
+    # candidate confirmed — written as "merge", ADR-099 am. 2026-11-02, M-1e).
     resolution: Literal["existing", "incoming", "manual", "keep_both", "merge"]
     value: Any | None = None
 
@@ -2080,9 +2080,9 @@ class MergeChoice(BaseModel):
     are right, they are different things."""
 
     kind: Literal["value", "both"]
-    value: str | None = Field(default=None, max_length=300)
-    other: str | None = Field(default=None, max_length=300)
-    values: list[Annotated[str, Field(max_length=300)]] | None = Field(
+    value: str | None = Field(default=None, max_length=120)
+    other: str | None = Field(default=None, max_length=120)
+    values: list[Annotated[str, Field(max_length=120)]] | None = Field(
         default=None, min_length=2, max_length=2
     )
 
