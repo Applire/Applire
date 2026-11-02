@@ -414,6 +414,10 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   responsibility "Targets a 70% reduction …", which the restatement check holds
   back 4/4). Control: the same turn plus a REACHED figure ("cut the effort by
   35 %, measured over 40 documents") is still an achievement 4/4.
+* **27,786 (2026-11-02, invented names in the worked examples).** The examples
+  in the attribution rules named a real person's employers and product domains;
+  they now use invented ones (same structure, same rule text, -16 chars). Not
+  re-measured: only names inside examples changed, no rule wording.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
