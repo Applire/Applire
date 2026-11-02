@@ -25,7 +25,7 @@ Anna,Bauer,Senior Account Manager | Pharma & Life Sciences,Munich Germany,Experi
 
 _POSITIONS_CSV = """\
 Title,Company Name,Description,Location,Started On,Finished On
-Senior Account Manager,Roche Deutschland GmbH,Managed key accounts in the oncology division.,Munich,Mar 2020,
+Senior Account Manager,Varena Deutschland GmbH,Managed key accounts in the oncology division.,Munich,Mar 2020,
 Account Manager,Novartis AG,Responsible for DACH territory sales.,Munich,Jun 2017,Feb 2020
 """
 
@@ -111,7 +111,7 @@ def test_full_export_contains_work_history():
     from applire.services.linkedin import parse_linkedin_zip
 
     result = parse_linkedin_zip(_FULL_ZIP)
-    assert "Roche" in result
+    assert "Varena" in result
     assert "Novartis" in result
 
 
@@ -156,7 +156,7 @@ def test_partial_export_still_contains_profile_data():
 
     result = parse_linkedin_zip(_NO_SKILLS_ZIP)
     assert "Anna" in result
-    assert "Roche" in result
+    assert "Varena" in result
 
 
 def test_partial_export_no_skills_section_header():
@@ -184,7 +184,7 @@ def test_lowercase_filenames_are_found():
     )
     result = parse_linkedin_zip(zip_bytes)
     assert "Anna" in result
-    assert "Roche" in result
+    assert "Varena" in result
     assert "Veeva" in result or "Salesforce" in result
 
 
@@ -201,7 +201,7 @@ def test_nested_path_filenames_are_found():
     )
     result = parse_linkedin_zip(zip_bytes)
     assert "Anna" in result
-    assert "Roche" in result
+    assert "Varena" in result
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@ def test_pdf_bytes_raises_value_error():
 
 _SAMPLE_PROFILE_TEXT = (
     "Anna Bauer\nSenior Account Manager | Pharma & Life Sciences\n"
-    "Munich, Germany\n\nExperience\nRoche Deutschland GmbH\n"
+    "Munich, Germany\n\nExperience\nVarena Deutschland GmbH\n"
     "Senior Account Manager\nMar 2020 – Present\n\nSkills\nPython, Salesforce"
 )
 
@@ -276,7 +276,7 @@ def test_linkedin_pdf_contains_extracted_text():
         result = parse_linkedin_pdf(b"fake-pdf-bytes")
     assert "Anna" in result
     assert "Bauer" in result
-    assert "Roche" in result
+    assert "Varena" in result
 
 
 def test_linkedin_pdf_multipage_text_is_joined():

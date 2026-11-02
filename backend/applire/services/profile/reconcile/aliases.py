@@ -7,7 +7,7 @@ known by: which field holds which entry's aliases, whether a name IS one of an
 entry's names, and the import-path writer that records a name the reconciler
 bound to an existing entry.
 
-Doctrine (ADR-062 clause 1). Whether "Roche" and "Roche Diagnostics GmbH" are
+Doctrine (ADR-062 clause 1). Whether "Varena" and "Varena Diagnostics GmbH" are
 one employer is a JUDGEMENT, and it stays the model's: an alias is only ever
 born from a binding the model made (`match_existing`, or an upsert with a
 `target`), and its TEXT is the incoming document's own wording — never a

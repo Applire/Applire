@@ -56,7 +56,7 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   No regression on ``gpt-5.6-luna``.
 * **17,599 (M-2, 2026-09-09).** Rule 1 gains "ONE SENTENCE NAMING SEVERAL
   EMPLOYERS IS SEVERAL FACTS", the split-per-employer instruction and the worked
-  NovaRNA/Helvetia/Blutspendedienst example (the document-harm class, 7 of 11
+  Halvard/Aldmoor/Laborverbund example (the document-harm class, 7 of 11
   models — taxonomy §3.3).
   *Measured:* ``ministral-8b`` sub-par → **caveat** (S7 malformed 20 %→0 %; its
   remaining rejection is one ``upsert_work.ref:missing``). No regression on the
@@ -414,6 +414,10 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   responsibility "Targets a 70% reduction …", which the restatement check holds
   back 4/4). Control: the same turn plus a REACHED figure ("cut the effort by
   35 %, measured over 40 documents") is still an achievement 4/4.
+* **27,786 (2026-11-02, invented names in the worked examples).** The examples
+  in the attribution rules named a real person's employers and product domains;
+  they now use invented ones (same structure, same rule text, -16 chars). Not
+  re-measured: only names inside examples changed, no rule wording.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -621,11 +625,11 @@ Operations:
    ONE SENTENCE NAMING SEVERAL EMPLOYERS IS SEVERAL FACTS. Bind each clause to
    the employer THAT CLAUSE names — never fold the whole sentence onto whichever
    employer the profile happens to hold already. Worked example: the profile
-   holds only "NovaRNA Biotech" and the answer says "15+ years in pharmaceutical
-   manufacturing: monoclonal antibodies at Helvetia Pharma, blood bags at the
-   Blutspendedienst, and now mRNA vaccines at NovaRNA". Emit add_bullets on
-   NovaRNA's `id` for the mRNA clause ONLY; an upsert_work with target: null for
-   Helvetia Pharma and another for the Blutspendedienst, each carrying its own
+   holds only "Halvard Biotech" and the answer says "15+ years in pharmaceutical
+   manufacturing: sterile injectables at Aldmoor Pharma, diagnostic kits at the
+   Laborverbund, and now cell therapies at Halvard". Emit add_bullets on
+   Halvard's `id` for the cell-therapy clause ONLY; an upsert_work with target: null for
+   Aldmoor Pharma and another for the Laborverbund, each carrying its own
    clause; and the "15+ years" span on upsert_skill.years_experience, where a
    span covering several jobs belongs. Never emit an add_bullets or a set_field
    whose own words name an employer other than its target — a fact credited to
@@ -648,8 +652,8 @@ Operations:
 4. TRUTHFULNESS (ADR-040). A fact's CONTENT comes only from the new information:
    encode ONLY what it EXPLICITLY states, and never infer, embellish or fabricate
    a date, title, metric or any other detail it does not state. This governs WHAT
-   a fact says, not WHICH entity it belongs to — deciding that "Blutspendedienst
-   Nord" and "the blood donation service" are the same employer is rule 1's
+   a fact says, not WHICH entity it belongs to — deciding that "Laborverbund
+   Nord" and "the lab network" are the same employer is rule 1's
    semantic match, is required of you, and is not an inference this rule forbids.
 
 5. set_field / set_personal_info only FILL a gap (an empty field). For a value
@@ -823,7 +827,7 @@ Operations:
 
 13. CONTRADICTING BULLETS. Two bullets can contradict each other without any
     scalar field being touched: the profile already carries "Reduced processing
-    time by 60% for individualized cancer treatments" and the new information
+    time by 60% for individualized cell therapies" and the new information
     states "… by 80% …" for the SAME achievement of the SAME entity. Whether two
     differently-worded bullets assert the same underlying fact is YOUR judgement
     — nothing downstream can make it, and if you say nothing the profile simply

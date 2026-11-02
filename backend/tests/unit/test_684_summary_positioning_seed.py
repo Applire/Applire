@@ -423,8 +423,8 @@ def test_a_role_less_upsert_work_for_a_new_station_is_parsed_and_applied_dateles
     from applire.services.profile.reconcile.engine import _parse_ops
 
     raw = [
-        {"op": "upsert_work", "ref": "w1", "company": "Blutspendedienst Nord gGmbH"},
-        {"op": "upsert_work", "ref": "w2", "company": "BioNTech SE", "role": None},
+        {"op": "upsert_work", "ref": "w1", "company": "Laborverbund Nord gGmbH"},
+        {"op": "upsert_work", "ref": "w2", "company": "Kestrel Biologics SE", "role": None},
     ]
     rejected: list[str] = []
     ops = _parse_ops(raw, rejected=rejected)
@@ -438,7 +438,7 @@ def test_a_role_less_upsert_work_for_a_new_station_is_parsed_and_applied_dateles
     result = apply_ops(profile, ops, "interview")
 
     created = {w.company: w for w in result.profile.work_experience}
-    assert set(created) == {"Blutspendedienst Nord gGmbH", "BioNTech SE"}
+    assert set(created) == {"Laborverbund Nord gGmbH", "Kestrel Biologics SE"}
     for entry in created.values():
         assert entry.role == ""          # nothing invented
         assert entry.start_date is None  # dateless — the follow-up asks

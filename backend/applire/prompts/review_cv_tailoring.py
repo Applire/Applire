@@ -97,11 +97,11 @@
 #   sentence ("contributed to the company's €X revenue by rolling out …"); never a sentence of
 #   its own, never "separately", never a figure from another entry. The "scale of the operation"
 #   alternative is gone: in delivery run 4 the reviewer used it to split a joined line (4/5 on
-#   replay) and the correctors wrote "Separately, BioNTech reported €19 billion …". Replay n=5,
+#   replay) and the correctors wrote "Separately, Kestrel Biologics reported €4 billion …". Replay n=5,
 #   gpt-6-luna: writer joined 3/5 → 5/5; figure from another entry attached 0/5 → 0/5.
 # Prompt version: v6 (#289, 2026-08-07 — check 5 gains AGENCY vs PROXIMITY, the
 #   reviewer-side half of the writer's new rule 6 clause. Charter run #5 Finding 7
-#   ("supporting €19bn revenue"): correctly owned, correctly grounded, and read by a
+#   ("supporting €4bn revenue"): correctly owned, correctly grounded, and read by a
 #   blind hiring manager as unearned causation. NO new reviewer input is wired for it —
 #   ``build_review_prompt`` already hands this reviewer the WHOLE profile JSON verbatim
 #   as its source of truth, so the vault's own statement behind every figure is already

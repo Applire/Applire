@@ -1,20 +1,20 @@
 {
   "version": 1,
   "source": "Documents/Runs/Nougat/summary-seed-spike-2026-09-06/replay_multistation.py (spike 2026-09-06/07, #684 / #688)",
-  "synthetic": "Invented candidate 'Lena Fischer' (example.com address) at invented employers (NovaRNA Biotech, Blutspendedienst Nord, Helvetia Pharma, Rhein Consulting). No real profile data — see README.md.",
+  "synthetic": "Invented candidate 'Lena Fischer' (example.com address) at invented employers (Halvard Biotech, Laborverbund Nord, Aldmoor Pharma, Rhein Consulting). No real profile data — see README.md.",
   "stations": {
     "helv": {
       "id": "w-helv",
       "keywords": [
-        "helvetia"
+        "aldmoor"
       ]
     },
     "bsd": {
       "id": "w-bsd",
       "keywords": [
-        "blutspende",
-        "blood donation",
-        "blood bag",
+        "laborverbund",
+        "lab network",
+        "diagnostic kit",
         "blutbeutel",
         "blutkomponenten"
       ]
@@ -22,7 +22,7 @@
     "nova": {
       "id": "w-nova",
       "keywords": [
-        "novarna"
+        "halvard"
       ]
     }
   },
@@ -31,7 +31,7 @@
       "profile": "lena_full",
       "gap": "pharmaceutical manufacturing systems experience (GMP)",
       "question": "Do you have hands-on experience with IT systems in pharmaceutical manufacturing (GMP environments)? If so, where and in what role?",
-      "answer": "Yes, 15+ years. At Helvetia Pharma I was responsible for the manufacturing IT of the monoclonal antibody production line - MES and electronic batch records. At Blutspendedienst Nord I ran the LIMS and the production systems for blood components, i.e. blood bags. And at NovaRNA I lead the supply-chain systems behind mRNA vaccine manufacturing and the individualized cancer vaccines.",
+      "answer": "Yes, 15+ years. At Aldmoor Pharma I was responsible for the manufacturing IT of the sterile injectable production line - MES and electronic batch records. At Laborverbund Nord I ran the LIMS and the production systems for lab samples, i.e. diagnostic kits. And at Halvard I lead the supply-chain systems behind cell therapy manufacturing and the individualized cell therapies.",
       "lang": "en",
       "expected_stations": [
         "helv",
@@ -43,7 +43,7 @@
       "profile": "lena_no_bsd",
       "gap": "pharmaceutical manufacturing systems experience (GMP)",
       "question": "Do you have hands-on experience with IT systems in pharmaceutical manufacturing (GMP environments)? If so, where and in what role?",
-      "answer": "Yes, 15+ years. At Helvetia Pharma I was responsible for the manufacturing IT of the monoclonal antibody production line - MES and electronic batch records. At Blutspendedienst Nord I ran the LIMS and the production systems for blood components, i.e. blood bags. And at NovaRNA I lead the supply-chain systems behind mRNA vaccine manufacturing and the individualized cancer vaccines.",
+      "answer": "Yes, 15+ years. At Aldmoor Pharma I was responsible for the manufacturing IT of the sterile injectable production line - MES and electronic batch records. At Laborverbund Nord I ran the LIMS and the production systems for lab samples, i.e. diagnostic kits. And at Halvard I lead the supply-chain systems behind cell therapy manufacturing and the individualized cell therapies.",
       "lang": "en",
       "expected_stations": [
         "helv",
@@ -54,7 +54,7 @@
       "profile": "lena_full",
       "gap": "pharmaceutical manufacturing systems experience (GMP)",
       "question": "Haben Sie praktische Erfahrung mit IT-Systemen in der pharmazeutischen Produktion (GMP-Umfeld)? Wenn ja, wo und in welcher Rolle?",
-      "answer": "Ja, seit über 15 Jahren. Bei Helvetia Pharma habe ich die Fertigungs-IT für die Antikörperproduktion verantwortet - MES und elektronische Chargenprotokolle. Beim Blutspendedienst Nord war ich für das LIMS und die Produktionssysteme der Blutkomponenten (Blutbeutel) zuständig. Und bei NovaRNA leite ich die Supply-Chain-Systeme hinter der mRNA-Impfstoffherstellung und den individualisierten Krebsimpfstoffen.",
+      "answer": "Ja, seit über 15 Jahren. Bei Aldmoor Pharma habe ich die Fertigungs-IT für die Antikörperproduktion verantwortet - MES und elektronische Chargenprotokolle. Beim Laborverbund Nord war ich für das LIMS und die Produktionssysteme der Blutkomponenten (Blutbeutel) zuständig. Und bei Halvard leite ich die Supply-Chain-Systeme hinter der Zelltherapieherstellung und den individualisierten Krebsimpfstoffen.",
       "lang": "de",
       "expected_stations": [
         "helv",
@@ -66,7 +66,7 @@
       "profile": "lena_full",
       "gap": "pharmaceutical manufacturing systems experience (GMP)",
       "question": "Do you have experience with pharmaceutical manufacturing systems in an IT context?",
-      "answer": "15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at Helvetia Pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines at NovaRNA.",
+      "answer": "15+ years of experience with manufacturing in the pharmaceutical industry - sterile injectables at Aldmoor Pharma, diagnostic kits at the lab network and now cell therapies and individualized cell therapies at Halvard.",
       "lang": "en",
       "expected_stations": [
         "helv",
@@ -78,7 +78,7 @@
       "profile": "lena_no_bsd",
       "gap": "pharmaceutical manufacturing systems experience (GMP)",
       "question": "Do you have experience with pharmaceutical manufacturing systems in an IT context?",
-      "answer": "15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at Helvetia Pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines at NovaRNA.",
+      "answer": "15+ years of experience with manufacturing in the pharmaceutical industry - sterile injectables at Aldmoor Pharma, diagnostic kits at the lab network and now cell therapies and individualized cell therapies at Halvard.",
       "lang": "en",
       "expected_stations": [
         "helv",
@@ -89,7 +89,7 @@
       "profile": "lena_full",
       "gap": "insulin manufacturing",
       "question": "Do you have experience with IT systems for insulin manufacturing?",
-      "answer": "While I have not worked with insulin in particular, I have 15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at helvetia pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines",
+      "answer": "While I have not worked with insulin in particular, I have 15+ years of experience with manufacturing in the pharmaceutical industry - sterile injectables at aldmoor pharma, diagnostic kits at the lab network and now cell therapies and individualized cell therapies",
       "lang": "en",
       "expected_stations": [
         "helv",
@@ -101,7 +101,7 @@
       "profile": "lena_current_only",
       "gap": "insulin manufacturing",
       "question": "Do you have experience with IT systems for insulin manufacturing?",
-      "answer": "While I have not worked with insulin in particular, I have 15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at helvetia pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines",
+      "answer": "While I have not worked with insulin in particular, I have 15+ years of experience with manufacturing in the pharmaceutical industry - sterile injectables at aldmoor pharma, diagnostic kits at the lab network and now cell therapies and individualized cell therapies",
       "lang": "en",
       "expected_stations": [
         "nova"
@@ -111,7 +111,7 @@
       "profile": "lena_big",
       "gap": "insulin manufacturing",
       "question": "Do you have experience with IT systems for insulin manufacturing?",
-      "answer": "While I have not worked with insulin in particular, I have 15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at helvetia pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines",
+      "answer": "While I have not worked with insulin in particular, I have 15+ years of experience with manufacturing in the pharmaceutical industry - sterile injectables at aldmoor pharma, diagnostic kits at the lab network and now cell therapies and individualized cell therapies",
       "lang": "en",
       "expected_stations": [
         "helv",
@@ -122,7 +122,7 @@
     "S9_bullet_conflict_nova": {
       "profile": "lena_bullets",
       "gap": "release-testing cycle time for individualized therapies",
-      "question": "By how much did you improve the batch-release turnaround for the individualized therapies at NovaRNA?",
+      "question": "By how much did you improve the batch-release turnaround for the individualized therapies at Halvard?",
       "answer": "We cut the batch-release turnaround for the individualized therapies by 65% — that was the big one for us.",
       "lang": "en",
       "expected_stations": [
@@ -133,7 +133,7 @@
       "profile": "lena_full",
       "gap": "ownership of manufacturing-adjacent IT strategy",
       "question": "Who owns the technical strategy and roadmap for manufacturing-adjacent IT in your current role?",
-      "answer": "That is me — at NovaRNA I own the technical strategy and roadmap for manufacturing-adjacent IT.",
+      "answer": "That is me — at Halvard I own the technical strategy and roadmap for manufacturing-adjacent IT.",
       "lang": "en",
       "expected_stations": [],
       "note": "Deliberately empty expected_stations: the correct output for this turn is NO ops at all (the answer restates a vault line verbatim), so station_coverage must stay None and this shape must never feed a model's no_write qualification verdict."

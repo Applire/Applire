@@ -17,10 +17,10 @@
 
 """#618 — a two-source import wrote the same education entry twice.
 
-The reported shape (Provadis apprenticeship, real issue text): source A already
-sits in the vault as "Computer System Developer / Provadis Partner für Bildung
+The reported shape (Rheinau apprenticeship, real issue text): source A already
+sits in the vault as "Computer System Developer / Rheinau Partner für Bildung
 GmbH, 09/2002-01/2005"; source B restates the SAME qualification as
-"Fachinformatiker Anwendungsentwicklung / Provadis Hochschule, 2002-2005", and
+"Fachinformatiker Anwendungsentwicklung / Rheinau Hochschule, 2002-2005", and
 both end up on the delivered CV as separate education entries.
 
 **A refinement of the work order's hypothesis, pinned by
@@ -56,7 +56,7 @@ model output that (like the hypothesis) tries it anyway.
 
 ``apply_ops`` is deliberately UNCHANGED beyond that prompt-accuracy fix —
 **as of 2026-08-31, when this file was written.** Widening plain
-``classify_dupe`` to fold "Provadis Hochschule" into "Provadis Partner für
+``classify_dupe`` to fold "Rheinau Hochschule" into "Rheinau Partner für
 Bildung GmbH" would be a semantic judgement ADR-062 clause 1 reserves for the
 model (see the natural-key test below, still true of ``classify_dupe``
 itself); and widening ``resolve()`` to also search education/certification/
@@ -99,13 +99,13 @@ from applire.services.profile.reconcile.ops import SetField, UpsertEducation
 SOURCE = "cv_upload (second source)"
 
 # The exact strings from the #618 issue text.
-_EXISTING_INSTITUTION = "Provadis Partner für Bildung GmbH"
+_EXISTING_INSTITUTION = "Rheinau Partner für Bildung GmbH"
 _EXISTING_DEGREE = "Computer System Developer"
-_ALTERNATE_INSTITUTION = "Provadis Hochschule"
+_ALTERNATE_INSTITUTION = "Rheinau Hochschule"
 _ALTERNATE_DEGREE = "Fachinformatiker Anwendungsentwicklung"
 
 
-def _provadis_profile() -> MasterProfileData:
+def _rheinau_profile() -> MasterProfileData:
     return MasterProfileData(
         education=[
             EducationEntry(
@@ -173,7 +173,7 @@ def test_set_field_now_reaches_an_education_entry():
     ``test_set_field_reaches_every_section.py``; this test keeps the pointer so
     the reasoning above stays attached to the #618 story it shaped.
     """
-    profile = _provadis_profile()
+    profile = _rheinau_profile()
     existing_id = profile.education[0].id
 
     result = apply_ops(profile, [SetField(target=existing_id, field="grade", value="1,9")], SOURCE)
@@ -217,7 +217,7 @@ def test_the_applier_natural_key_cannot_recognise_this_pair():
     """
     verdict = classify_dupe(
         {"institution": _ALTERNATE_INSTITUTION, "degree": _ALTERNATE_DEGREE},
-        _provadis_profile().education,
+        _rheinau_profile().education,
         {"institution": lambda e: e.institution, "degree": lambda e: e.degree},
     )
     assert verdict.match is None
@@ -249,7 +249,7 @@ def test_a_batch_with_this_pair_now_asks_instead_of_duplicating():
     overlapping date range as strong-enough evidence to ask, even though it
     still can't fold the degree text itself (test above, unchanged).
     """
-    profile = _provadis_profile()
+    profile = _rheinau_profile()
     existing_id = profile.education[0].id
 
     ops = [
@@ -288,7 +288,7 @@ def test_a_compliant_batch_restates_the_existing_wording_and_stays_a_single_entr
     target-less op: re-emit upsert_education using the EXISTING vault wording
     (not the new source's alternate phrasing), carrying only the genuinely new
     field — classify_dupe's exact-match branch folds it into the ONE record."""
-    profile = _provadis_profile()
+    profile = _rheinau_profile()
 
     ops = [
         UpsertEducation(
@@ -310,6 +310,6 @@ def test_a_compliant_batch_with_nothing_new_to_add_emits_no_op_at_all():
     """The simplest compliant case: the second source adds no new fact beyond
     what is already recorded, so the correct batch is empty for this entity —
     never a redundant upsert "just in case"."""
-    profile = _provadis_profile()
+    profile = _rheinau_profile()
     result = apply_ops(profile, [], SOURCE)
     assert len(result.profile.education) == 1

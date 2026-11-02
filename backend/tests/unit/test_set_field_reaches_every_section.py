@@ -59,7 +59,7 @@ def _profile(**section):
 @pytest.mark.parametrize(
     "section,entry,field,value",
     [
-        ("education", EducationEntry(institution="Provadis", degree="Fachinformatiker"),
+        ("education", EducationEntry(institution="Rheinau", degree="Fachinformatiker"),
          "end_date", "2005-01"),
         ("certifications", Certification(name="REFA-Grundschein"), "credential_id", "R-123"),
         ("languages", Language(language="Englisch"), "level", "B2"),
@@ -78,7 +78,7 @@ def test_set_field_fills_an_empty_field_on_a_non_experience_section(section, ent
 @pytest.mark.parametrize(
     "section,entry,field,value",
     [
-        ("education", EducationEntry(institution="Provadis", degree="Fachinformatiker"),
+        ("education", EducationEntry(institution="Rheinau", degree="Fachinformatiker"),
          "end_date", "2005-01"),
         ("certifications", Certification(name="REFA-Grundschein"), "credential_id", "R-123"),
     ],
@@ -110,7 +110,7 @@ def test_an_unknown_target_is_still_a_no_op_and_not_a_crash():
     """The fix must not turn an unresolvable handle into an exception — a
     reconciler hallucinating an id is a known shape and stays a quiet no-op."""
     result = apply_ops(
-        _profile(education=[EducationEntry(institution="Provadis", degree="X")]),
+        _profile(education=[EducationEntry(institution="Rheinau", degree="X")]),
         [SetField(target="00000000-0000-0000-0000-000000000000", field="end_date", value="2005")],
         source="linkedin_import",
     )
@@ -121,7 +121,7 @@ def test_a_project_parent_still_refuses_a_non_experience_referent():
     """`resolve` (parent/evidence/add_bullets) stays experience-only: widening it
     would let a project hang off an education entry. Pinned so a later
     'simplification' does not merge the two resolvers."""
-    edu = EducationEntry(institution="Provadis", degree="Fachinformatiker")
+    edu = EducationEntry(institution="Rheinau", degree="Fachinformatiker")
     result = apply_ops(
         _profile(education=[edu]),
         [UpsertProject(ref="p1", name="MES-Rollout", parent=str(edu.id))],

@@ -22,7 +22,7 @@ The `sample_cv.pdf` file is used by E2E and integration tests. This file should 
 ### Header
 ```
 MARCUS CHEN
-Email: marcus.chen@example.com | Phone: +49 6131 123456 | Location: Mainz, Germany
+Email: marcus.chen@example.com | Phone: +49 6131 123456 | Location: Kassel, Germany
 LinkedIn: linkedin.com/in/marcuschen
 ```
 
@@ -90,7 +90,7 @@ body_style = ParagraphStyle(name='Body', parent=styles['BodyText'], fontSize=10,
 # Build content
 content = [
     Paragraph("MARCUS CHEN", title_style),
-    Paragraph("marcus.chen@example.com | +49 6131 123456 | Mainz, Germany", body_style),
+    Paragraph("marcus.chen@example.com | +49 6131 123456 | Kassel, Germany", body_style),
     Spacer(1, 0.2*inch),
     Paragraph("PROFESSIONAL SUMMARY", heading_style),
     Paragraph("Experienced software engineer with 6+ years developing full-stack applications.", body_style),

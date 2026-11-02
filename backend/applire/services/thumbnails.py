@@ -62,7 +62,7 @@ _SAMPLE_DATA = TailoredCVData(
     summary="Erfahrene Senior Software Ingenieurin mit 8 Jahren Erfahrung in Python, FastAPI und PostgreSQL.",
     work_history=[
         TailoredWorkEntry(
-            company="Roche GmbH",
+            company="Varena GmbH",
             role="Senior Software Engineer",
             start_date="Jan 2019",
             end_date=None,

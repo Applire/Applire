@@ -10,7 +10,7 @@ from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
 def test_valid_minimal_request():
     req = AddRoleRequest(
         title="Director of QA",
-        company="Roche",
+        company="Varena",
         start_date="2026-06-01",
         close_roles=[],
         source="manual",
@@ -23,7 +23,7 @@ def test_valid_minimal_request():
 def test_close_roles_entries_have_role_id_and_end_date():
     req = AddRoleRequest(
         title="Director",
-        company="Roche",
+        company="Varena",
         start_date="2026-06-01",
         close_roles=[CloseRoleEntry(role_id="abc", end_date="2026-05-31")],
         source="manual",

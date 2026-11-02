@@ -613,7 +613,7 @@ def test_merge_repoints_the_aspiration_records_and_does_not_re_ask():
         RecordAspirationVerdicts,
     )
 
-    goal = "Establish AI governance frameworks and risk management protocols"
+    goal = "Build AI oversight structures and risk management routines"
     p = MasterProfileData.model_validate({"work_experience": [
         {"id": "wa", "company": "Talwerk GmbH", "role": "Head of AI", "start_date": "2024-01",
          "is_current": True, "responsibilities": ["Lead the AI platform team"]},

@@ -89,7 +89,7 @@ def test_match_receipt_new_fields_are_optional_for_old_records():
 
 
 def test_alias_module_norm_equals_the_committers():
-    for value in ("Café", "Café", "  ROCHE ", None, 3):
+    for value in ("Café", "Café", "  VARENA ", None, 3):
         assert A.norm(value) == _norm(value)
 
 
@@ -195,7 +195,7 @@ def test_targeted_upsert_volunteer_records_organization_alias():
     vault = MasterProfileData(volunteer_activities=[VolunteerActivity(
         id="v1", organization="Deutsches Rotes Kreuz e.V.", role="Sanitäter", start_date="2015-01",
     )])
-    ops = [UpsertVolunteer(ref="v", target="v1", organization="German Red Cross", role="Sanitäter")]
+    ops = [UpsertVolunteer(ref="v", target="v1", organization="German Relief Association", role="Sanitäter")]
     incoming = MasterProfileData(volunteer_activities=[VolunteerActivity(
         organization="DRK Kreisverband", role="Sanitäter", start_date="2015-01",
     )])
@@ -320,7 +320,7 @@ def test_reimport_after_aliases_lists_nothing_without_any_model_op():
     incoming = _load("case_b_incoming_linkedin_de.json")
     # first import: the model's bindings (as luna emitted them in the replay)
     ops = [
-        UpsertWork(ref="w1", target="w-bsd", company="Blutspendedienst des Hessischen Roten Kreuzes gGmbH",
+        UpsertWork(ref="w1", target="w-bsd", company="Laborverbund des Hessischen Roten Kreuzes gGmbH",
                    role="Systementwickler", start_date="2012-08"),
         UpsertWork(ref="w2", target="w-nov", company="Novartis", role="Systemanalytiker", start_date="2011-06"),
         MatchExisting(target="w-lims", incoming="Labvantage / LIMS Consultant"),
@@ -351,12 +351,12 @@ def test_recorded_name_carried_by_two_entries_carries_nothing():
 
 def test_recorded_company_alias_needs_a_stated_equal_month():
     merged = MasterProfileData(work_experience=[WorkEntry(
-        company="Roche Diagnostics GmbH", role="System Analyst", start_date="2011-06",
-        company_aliases=["Roche"], role_aliases=["Systemanalytiker"],
+        company="Varena Diagnostics GmbH", role="System Analyst", start_date="2011-06",
+        company_aliases=["Varena"], role_aliases=["Systemanalytiker"],
     )])
-    same = MasterProfileData(work_experience=[WorkEntry(company="Roche", role="Systemanalytiker", start_date="2011-06")])
-    year_only = MasterProfileData(work_experience=[WorkEntry(company="Roche", role="Systemanalytiker", start_date="2011")])
-    other = MasterProfileData(work_experience=[WorkEntry(company="Roche", role="Systemanalytiker", start_date="2019-06")])
+    same = MasterProfileData(work_experience=[WorkEntry(company="Varena", role="Systemanalytiker", start_date="2011-06")])
+    year_only = MasterProfileData(work_experience=[WorkEntry(company="Varena", role="Systemanalytiker", start_date="2011")])
+    other = MasterProfileData(work_experience=[WorkEntry(company="Varena", role="Systemanalytiker", start_date="2019-06")])
     assert compute_import_not_applied(same, merged, []) == []
     assert len(compute_import_not_applied(year_only, merged, [])) == 1
     assert len(compute_import_not_applied(other, merged, [])) == 1
@@ -406,12 +406,12 @@ def test_alias_writer_positional_sanity():
 
 def test_alias_writer_needs_equal_stated_months_for_engagements():
     vault = MasterProfileData(work_experience=[WorkEntry(
-        id="w1", company="Roche Diagnostics GmbH", role="System Analyst", start_date="2011-06",
+        id="w1", company="Varena Diagnostics GmbH", role="System Analyst", start_date="2011-06",
     )])
     # an undated LinkedIn-text entry: the BINDING treats a missing date as a
     # wildcard (#715), the ALIAS writer does not (it needs both months stated)
-    incoming = MasterProfileData(work_experience=[WorkEntry(company="Roche", role="System Analyst", start_date=None)])
-    ops = [MatchExisting(target="w1", incoming="Roche / System Analyst")]
+    incoming = MasterProfileData(work_experience=[WorkEntry(company="Varena", role="System Analyst", start_date=None)])
+    ops = [MatchExisting(target="w1", incoming="Varena / System Analyst")]
     applied = apply_ops(vault, ops, "cv_upload")
     record_bound_aliases(incoming, applied.profile, ops, applied.matched, applied.changes)
     assert applied.profile.work_experience[0].company_aliases == []
@@ -477,10 +477,10 @@ def test_engagement_alias_match_in_the_applier_leaves_an_alias_receipt():
     """Finding 2 (ADR-046 am. cl. 7): the applier's own engagement alias match
     is receipted, independent of the import bridge."""
     vault = MasterProfileData(work_experience=[WorkEntry(
-        id="w1", company="Roche Diagnostics GmbH", role="Data Scientist", start_date="2019-03",
-        company_aliases=["Roche"],
+        id="w1", company="Varena Diagnostics GmbH", role="Data Scientist", start_date="2019-03",
+        company_aliases=["Varena"],
     )])
-    applied = apply_ops(vault, [UpsertWork(ref="w", company="Roche", role="Data Scientist",
+    applied = apply_ops(vault, [UpsertWork(ref="w", company="Varena", role="Data Scientist",
                                            start_date="2019-03")], "cv_upload")
     assert [(m.basis, m.entity_id) for m in applied.matched] == [("alias", "w1")]
 

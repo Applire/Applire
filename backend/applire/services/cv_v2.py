@@ -739,7 +739,7 @@ def _parent_role_names_project(project: dict, composed: "TailoredCVData", profil
     """D-20 (build 5 run 5): the vault project's parent role is on the CV and one of
     its bullets already names the project — every distinctive token of the project's
     name (generic kind words and the employer's own name removed; at least two left)
-    occurs in that bullet. "Implementation of BioNTech Global QC LIMS" is then
+    occurs in that bullet. "Implementation of Kestrel Biologics Global QC LIMS" is then
     mentioned by "Spearheaded … the global QC LIMS introduction …". A token fact
     (ADR-062 cl. 1): the advisory asked back a project the corrector had just
     removed as a duplicate of exactly that bullet, and the loop ran to its cap."""

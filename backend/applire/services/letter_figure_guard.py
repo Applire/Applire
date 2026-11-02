@@ -21,7 +21,7 @@ Live bug (2026-07-24): a generated letter stated "mentoring teams of 5+" — a
 headcount the candidate explicitly declined to give. The figure was not
 invented from nothing: the ADR-021 review loop's CORRECTOR call, which sees
 the WHOLE profile in its prompt, borrowed "5" from an entirely unrelated
-vault fact ("Lead a team of five tech leads and system owners", a different
+vault fact ("Run a group of five squad captains and platform owners", a different
 current role) and attached it to the mentoring claim. The writer's own draft
 never contained it — only the corrector output does, so ANY guard that runs
 once on the initial draft misses the bug. This module is called on the FINAL

@@ -22,7 +22,7 @@ def test_document_item_schema():
         cv_id=uuid.uuid4(),
         flow_id=None,
         role_title="Senior Engineer",
-        company_name="Roche",
+        company_name="Varena",
         template="classic_german",
         status=CVGenerationStatus.ready,
         created_at=now,
@@ -191,13 +191,13 @@ async def test_list_documents_returns_own_cvs(db):
     """list_documents returns CVs belonging to the requesting user."""
     from applire.services.documents import list_documents
 
-    cv = await _seed_cv(db, _USER_A, "Senior Engineer", "Roche")
+    cv = await _seed_cv(db, _USER_A, "Senior Engineer", "Varena")
     result = await list_documents(user_id=_USER_A, db=db)
 
     assert result.total == 1
     assert result.items[0].cv_id == cv.id
     assert result.items[0].role_title == "Senior Engineer"
-    assert result.items[0].company_name == "Roche"
+    assert result.items[0].company_name == "Varena"
     assert result.items[0].flow_id is not None
 
 

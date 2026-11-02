@@ -1790,7 +1790,7 @@ def _apply_resolve_confirmation(
     (`attribution.enforce_attribution` — `kept` minus `flagged`) and carry it in
     the question's own `context["flagged"]`. Nothing applied it. So the
     bookkeeping-only resolution wrote `metadata|updated|pending_confirmations`
-    and nothing else: the candidate answered "move it to BioNTech", was told
+    and nothing else: the candidate answered "move it to Kestrel Biologics", was told
     "Recorded your answer to a confirmation question", and the attested bullet
     existed in no role afterwards — twice in one edge run, `triage:vault-
     integrity`.

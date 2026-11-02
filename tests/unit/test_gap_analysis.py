@@ -127,7 +127,7 @@ class TestTenureInference:
     def test_tenure_4y_with_matching_industry(self):
         """4+ year pharma role → 'GxP compliance' becomes a B candidate."""
         entry = _work_entry(
-            company="Roche",
+            company="Varena",
             start_years_ago=6,
             end_years_ago=0,
             industry="pharmaceutical regulatory GxP",
@@ -141,7 +141,7 @@ class TestTenureInference:
     def test_tenure_under_4y_not_inferred(self):
         """3-year role should not trigger tenure inference."""
         entry = _work_entry(
-            company="Roche",
+            company="Varena",
             start_years_ago=3,
             end_years_ago=0,
             industry="pharmaceutical GxP",
@@ -449,9 +449,9 @@ class TestPreClassification:
         assert pc.unresolved == []
 
     def test_inferred_candidate_has_requirement_and_reason(self):
-        ic = InferredCandidate(requirement="GxP", reason="6y at Roche")
+        ic = InferredCandidate(requirement="GxP", reason="6y at Varena")
         assert ic.requirement == "GxP"
-        assert ic.reason == "6y at Roche"
+        assert ic.reason == "6y at Varena"
 
 
 # ---------------------------------------------------------------------------

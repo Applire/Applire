@@ -44,10 +44,10 @@ describe("UnaskedRequirementsPanel — Jetzt beantworten (ADR-099 cl. 9)", () =>
     expect((await screen.findByTestId("unasked-requirements-question")).textContent).toBe("Wo hast Du im Reinraum gearbeitet?");
     expect(calls[0].body).toEqual({ job_id: "job-1", requirement_concepts: ["Reinraumerfahrung", "GMP-Dokumentation"] });
 
-    fireEvent.change(screen.getByTestId("unasked-requirements-text"), { target: { value: "Bei Agilent, 2 Jahre ISO 7." } });
+    fireEvent.change(screen.getByTestId("unasked-requirements-text"), { target: { value: "Bei Corvane, 2 Jahre ISO 7." } });
     fireEvent.click(screen.getByTestId("unasked-requirements-send"));
     await waitFor(() => expect(onAnswered).toHaveBeenCalledTimes(1));
-    expect(calls[1]).toEqual({ url: expect.stringMatching(/\/api\/session\/s-1\/message$/), body: { message: "Bei Agilent, 2 Jahre ISO 7." } });
+    expect(calls[1]).toEqual({ url: expect.stringMatching(/\/api\/session\/s-1\/message$/), body: { message: "Bei Corvane, 2 Jahre ISO 7." } });
     expect(screen.queryByTestId("unasked-requirements-turn")).toBeNull();
   });
 

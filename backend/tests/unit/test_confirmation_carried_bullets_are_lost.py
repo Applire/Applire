@@ -83,7 +83,7 @@ def _profile_with_a_near_dupe_employer() -> MasterProfileData:
             "work_experience": [
                 {
                     "id": "w-helv",
-                    "company": "Helvetia Pharma GmbH",
+                    "company": "Aldmoor Pharma GmbH",
                     "role": "Systems Engineer",
                 }
             ],
@@ -95,7 +95,7 @@ def _profile_with_a_near_dupe_employer() -> MasterProfileData:
 def _ambiguous_batch() -> list:
     """An ambiguous `upsert_work` plus an `AddBullets` targeting its local ref."""
     return [
-        UpsertWork(ref="w1", company="Helvetia Pharma", role="Systems Engineer"),
+        UpsertWork(ref="w1", company="Aldmoor Pharma", role="Systems Engineer"),
         AddBullets(
             target="w1",
             responsibilities=["Verantwortlich für die Qualifizierung der MES-Anbindung"],
@@ -110,7 +110,7 @@ def test_an_ambiguous_entity_op_parks_a_confirmation_and_creates_nothing():
     result = apply_ops(profile, _ambiguous_batch(), "interview")
 
     assert len(result.pending_confirmations) == 1
-    # The ambiguous op did not create a second Helvetia entry.
+    # The ambiguous op did not create a second Aldmoor entry.
     assert len(result.profile.work_experience) == 1
 
 

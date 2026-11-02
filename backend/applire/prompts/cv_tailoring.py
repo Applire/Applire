@@ -106,7 +106,7 @@
 #   sentence ("contributed to the company's €X revenue by rolling out …"); never a sentence of
 #   its own, never "separately", never a figure from another entry. The "scale of the operation"
 #   alternative is gone: in delivery run 4 the reviewer used it to split a joined line (4/5 on
-#   replay) and the correctors wrote "Separately, BioNTech reported €19 billion …". Replay n=5,
+#   replay) and the correctors wrote "Separately, Kestrel Biologics reported €4 billion …". Replay n=5,
 #   gpt-6-luna: writer joined 3/5 → 5/5; figure from another entry attached 0/5 → 0/5.
 # Prompt version: v10 (#375, 2026-08-07 — rule 6 gains A FIGURE KEEPS ITS OWN SUBJECT,
 #   folded with v9's #289 clause: both landed on rule 6 in the same flavour and are one
@@ -133,7 +133,7 @@
 #   states that boundary; the vault sentence is likewise already in this prompt verbatim,
 #   so nothing needed threading. ADR-062 clause 7: needs charter-run verification.)
 # Prompt version: v9 (#289, 2026-08-07 — rule 6 gains AGENCY, NOT PROXIMITY.
-#   Charter run #5 Finding 7: the CV rendered "supporting €19bn revenue"; the blind
+#   Charter run #5 Finding 7: the CV rendered "supporting €4bn revenue"; the blind
 #   hiring manager called it "a vague, unsubstantiated causal association rather than a
 #   measured contribution". Every existing control passed it — the figure guard (#254)
 #   because the figure's vault backing belongs to the very position the bullet anchors

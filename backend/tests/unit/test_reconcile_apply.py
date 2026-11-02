@@ -120,14 +120,14 @@ def test_project_under_position():
 
 
 def test_de_en_employer_semantic_match():
-    work = WorkEntry(company="Blutspendedienst")
+    work = WorkEntry(company="Laborverbund")
     profile = MasterProfileData(work_experience=[work])
 
     ops = [
         UpsertWork(
             ref="w1",
             target=work.id,
-            company="Bavarian blood donation service",
+            company="Southern lab network",
             role="IT Qualitätsbeauftragter",
         )
     ]
@@ -136,8 +136,8 @@ def test_de_en_employer_semantic_match():
     # applier trusts the LLM-chosen target — no new entry
     assert len(result.profile.work_experience) == 1
     entry = result.profile.work_experience[0]
-    # company was empty? no — it's "Blutspendedienst", so not overwritten
-    assert entry.company == "Blutspendedienst"
+    # company was empty? no — it's "Laborverbund", so not overwritten
+    assert entry.company == "Laborverbund"
     # role was empty, so the incoming role fills it
     assert entry.role == "IT Qualitätsbeauftragter"
 
@@ -273,8 +273,8 @@ def test_flag_conflict_both_sides_differ_still_recorded():
 # is a JUDGEMENT and belongs to the reconciler model — the applier only routes
 # the verdict it is handed onto the existing conflict channel.
 
-_BULLET_OLD = "Reduced processing time by 60% for individualized cancer treatments"
-_BULLET_NEW = "Reduced processing time by 80% for individualized cancer treatments"
+_BULLET_OLD = "Reduced processing time by 60% for individualized cell therapies"
+_BULLET_NEW = "Reduced processing time by 80% for individualized cell therapies"
 
 
 def test_a_bullet_level_contradiction_is_parked_as_a_conflict():
@@ -646,13 +646,13 @@ def test_upsert_volunteer():
     profile = MasterProfileData()
     ops = [
         UpsertVolunteer(
-            ref="v1", target=None, organization="Red Cross", role="Helper", cause="Health"
+            ref="v1", target=None, organization="Relief Association", role="Helper", cause="Health"
         )
     ]
     result = apply_ops(profile, ops, SOURCE)
     assert len(result.profile.volunteer_activities) == 1
     v = result.profile.volunteer_activities[0]
-    assert v.organization == "Red Cross"
+    assert v.organization == "Relief Association"
     assert v.cause == "Health"
 
 
@@ -703,8 +703,8 @@ def test_upsert_education_dedup():
 
 def test_upsert_education_near_dupe_merges_and_fills_dates():
     """#177: 'Diplom ×3' — spelling variants of one institution must not stack."""
-    profile = _profile_with_education("Julius-Maximilians-Universität Würzburg", "Diplom Informatik")
-    ops = [UpsertEducation(institution="Universität Würzburg", degree="Diplom Informatik",
+    profile = _profile_with_education("Konrad-Mertens-Universität Talheim", "Diplom Informatik")
+    ops = [UpsertEducation(institution="Universität Talheim", degree="Diplom Informatik",
                            start_date="1998-10", end_date="2004-03")]
     result = apply_ops(profile, ops, source="test")
     assert len(result.profile.education) == 1
@@ -718,8 +718,8 @@ def test_upsert_education_near_dupe_merges_and_fills_dates():
 
 
 def test_upsert_education_ambiguous_asks_instead_of_appending():
-    profile = _profile_with_education("Universität Würzburg", "Diplom Informatik")
-    ops = [UpsertEducation(institution="Universität Würzburg", degree="Diplom")]
+    profile = _profile_with_education("Universität Talheim", "Diplom Informatik")
+    ops = [UpsertEducation(institution="Universität Talheim", degree="Diplom")]
     result = apply_ops(profile, ops, source="test")
     assert len(result.profile.education) == 1                    # not appended
     assert len(result.pending_confirmations) == 1

@@ -7,7 +7,7 @@ company's €X revenue by rolling out …"). Never a sentence of its own, never
 not hold. The reviewer never flags or splits that connection.
 
 Delivery run 4 trace: the writer joined it, the tailoring reviewer asked to split it
-4/5, the corrector wrote "BioNTech reported €19 billion …", and the terminal corrector
+4/5, the corrector wrote "Kestrel Biologics reported €4 billion …", and the terminal corrector
 added "Separately". These pins hold the wording; compliance was measured by replay."""
 
 from __future__ import annotations

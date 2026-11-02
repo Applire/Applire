@@ -56,8 +56,8 @@ def _profile(**sections) -> MasterProfileData:
 
 FAMILIES = {
     "work_experience": (
-        {"work_experience": [{"id": "e1", "company": "Helvetia Pharma GmbH", "role": "Systems Engineer"}]},
-        lambda: UpsertWork(ref="n1", company="Helvetia Pharma", role="Systems Engineer"),
+        {"work_experience": [{"id": "e1", "company": "Aldmoor Pharma GmbH", "role": "Systems Engineer"}]},
+        lambda: UpsertWork(ref="n1", company="Aldmoor Pharma", role="Systems Engineer"),
     ),
     "projects": (
         {"projects": [{"id": "e1", "name": "LucaNet Konsolidierung", "role": "Lead"}]},
@@ -134,7 +134,7 @@ def test_the_waiver_is_keyed_to_ONE_op_and_leaves_the_rest_adjudicated(section):
     keyed too."""
     vault, make_op = FAMILIES[section]
     other = {
-        "work_experience": UpsertWork(ref="n2", company="Helvetia Pharma", role="Systems Engineer"),
+        "work_experience": UpsertWork(ref="n2", company="Aldmoor Pharma", role="Systems Engineer"),
         "projects": UpsertProject(ref="n2", name="LucaNet Konsolidierung", role="Lead"),
         "volunteer_activities": UpsertVolunteer(ref="n2", organization="Tafel Nord", role="Helfer"),
     }[section]
@@ -157,11 +157,11 @@ def test_a_merge_keeps_the_existing_value_and_receipts_the_divergence():
     """Founder ruling V-5: conflicting fields keep the existing value and the
     divergence becomes a dispute. `_fill_empties` already did the first half in
     silence; the second half is what makes the drop visible."""
-    vault = {"work_experience": [{"id": "e1", "company": "Helvetia Pharma GmbH",
+    vault = {"work_experience": [{"id": "e1", "company": "Aldmoor Pharma GmbH",
                                   "role": "Systems Engineer", "start_date": "2011-04"}]}
     result = apply_ops(
         _profile(**vault),
-        [UpsertWork(ref="n1", company="Helvetia Pharma", role="Systems Engineer",
+        [UpsertWork(ref="n1", company="Aldmoor Pharma", role="Systems Engineer",
                     start_date="2012-01", location="Basel")],
         "interview",
         user_confirmed_engagement=UserConfirmedEngagement(ref="n1", decision="merge", target_id="e1"),
@@ -223,8 +223,8 @@ def test_a_merge_whose_target_was_edited_away_creates_rather_than_loses():
     """The safe direction. Creating a duplicate the candidate can merge later is
     recoverable; silently dropping their answer a second time is not."""
     result = apply_ops(
-        _profile(work_experience=[{"id": "e1", "company": "Helvetia Pharma GmbH", "role": "Systems Engineer"}]),
-        [UpsertWork(ref="n1", company="Helvetia Pharma", role="Systems Engineer")],
+        _profile(work_experience=[{"id": "e1", "company": "Aldmoor Pharma GmbH", "role": "Systems Engineer"}]),
+        [UpsertWork(ref="n1", company="Aldmoor Pharma", role="Systems Engineer")],
         "interview",
         user_confirmed_engagement=UserConfirmedEngagement(ref="n1", decision="merge", target_id="gone"),
     )

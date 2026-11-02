@@ -87,9 +87,9 @@ fact on the wrong employer on the one-station shape S7 —
 
 So the second channel asks a different, narrower question that cannot be
 ambiguous: **do this bullet's OWN words name an employer other than the entity
-it targets?** A bullet whose text says "monoclonal antibodies at Helvetia
-Pharma, blood bags at the Blutspendedienst, and now mRNA vaccines at NovaRNA"
-while targeting NovaRNA is mis-attributed no matter how many employers it
+it targets?** A bullet whose text says "sterile injectables at Aldmoor
+Pharma, diagnostic kits at the Laborverbund, and now cell therapies at Halvard"
+while targeting Halvard is mis-attributed no matter how many employers it
 names — the count is not evidence of ambiguity here, it is the defect.
 
 Two deliberate widenings, both facts and not judgements (ADR-062 clause 1):
@@ -449,11 +449,11 @@ def _muted_sentences(
     ``_anchor_company``'s literal, legal-form-stripped CORE-name match — badly
     under-counts: measured over all 80 captured #684 spike records, the compact
     three-station sentence reads as naming exactly ONE employer, because
-    "NovaRNA" is not the core "NovaRNA Biotech" and "the blood donation service"
-    is not "Blutspendedienst Nord". So the ambiguity rule never engaged and
+    "Halvard" is not the core "Halvard Biotech" and "the lab network"
+    is not "Laborverbund Nord". So the ambiguity rule never engaged and
     **23 of 29 flagged items were over-fires**: correctly targeted bullets
-    ("blood bags at the blood donation service" -> Blutspendedienst) each asked
-    about against Helvetia Pharma, 10/10 runs on that shape.
+    ("diagnostic kits at the lab network" -> Laborverbund) each asked
+    about against Aldmoor Pharma, 10/10 runs on that shape.
 
     The fix keys the same rule on evidence the model itself produced instead:
     a sentence anchors nothing when the batch **PARTITIONS** it — draws guarded
@@ -511,10 +511,10 @@ def _batch_anchor(
 ) -> tuple[str, str] | None:
     """The employer the WHOLE answer is about, when the batch contradicts it.
 
-    #723's unflagged sibling: the answer was "Als ich 2018 zu BioNTech kam …
+    #723's unflagged sibling: the answer was "Als ich 2018 zu Kestrel Biologics kam …
     Teamleitung während der Elternzeit", the reconciler put every bullet of it
     under the PREVIOUS employer, and the guard flagged only the one bullet whose
-    own text repeats "BioNTech". The sibling and the ``technologies`` from the
+    own text repeats "Kestrel Biologics". The sibling and the ``technologies`` from the
     same answer merged silently — the bullet's own words say nothing (channel 2
     is blind), and the owning-sentence channel cannot reach across the answer's
     German and the bullet's English (token coverage ~0).
@@ -799,7 +799,7 @@ def _anchor_entries(anchor_text: str, profile: MasterProfileData) -> list[WorkEn
     `anchor_employer` is a DISPLAY string, and `_build_confirmation` joins
     several with " / " when one op was flagged against more than one employer.
     Matching is on the same legal-form-stripped core the guard anchors on, so
-    "BioNTech SE" in the ask and "BioNTech" in the vault are one employer — and
+    "Kestrel Biologics SE" in the ask and "Kestrel Biologics" in the vault are one employer — and
     a candidate with three stints there yields three entries, which is exactly
     the cardinality founder ruling V-1 governs.
     """

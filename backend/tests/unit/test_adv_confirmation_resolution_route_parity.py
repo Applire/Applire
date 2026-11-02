@@ -84,14 +84,14 @@ def _real_engagement_confirmation() -> PendingConfirmation:
         {
             "personal_info": {"name": "Lena Fischer"},
             "work_experience": [
-                {"id": "w-helv", "company": "Helvetia Pharma GmbH", "role": "Systems Engineer"}
+                {"id": "w-helv", "company": "Aldmoor Pharma GmbH", "role": "Systems Engineer"}
             ],
         }
     )
     result = apply_ops(
         profile,
         [
-            UpsertWork(ref="n1", company="Helvetia Pharma", role="Systems Engineer"),
+            UpsertWork(ref="n1", company="Aldmoor Pharma", role="Systems Engineer"),
             AddBullets(target="n1", responsibilities=[BULLET]),
         ],
         "testimony",
@@ -114,7 +114,7 @@ async def _seed(db, confirmation: PendingConfirmation) -> MasterProfile:
         {
             "personal_info": {"name": "Lena Fischer"},
             "work_experience": [
-                {"id": "w-helv", "company": "Helvetia Pharma GmbH", "role": "Systems Engineer"}
+                {"id": "w-helv", "company": "Aldmoor Pharma GmbH", "role": "Systems Engineer"}
             ],
         }
     )

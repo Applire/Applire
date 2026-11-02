@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """#289 — proximity-vs-contribution framing: drift-guard tests for the wording.
 
-Charter run #5 (2026-07-25), Finding 7: the CV rendered "supporting €19bn
+Charter run #5 (2026-07-25), Finding 7: the CV rendered "supporting €4bn
 revenue" — a vault-grounded figure, correctly owned by the candidate's employer
 and role, so the #254 figure guard and the Oracle both passed it. The blind
 hiring manager called it *"a vague, unsubstantiated causal association rather

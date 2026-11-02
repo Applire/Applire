@@ -21,7 +21,7 @@ Ground truth (2026-07-24, live LLM debug log): the writer draft never
 contained "5+"; the ADR-021 CORRECTOR call — reacting to a reviewer demand to
 cover the absent keyword "Team management" — minted "mentoring teams of 5+"
 by borrowing the headcount from an unrelated vault fact ("Lead a team of
-five tech leads and system owners", a different current role).
+five squad captains and platform owners", a different current role).
 """
 import sys
 from pathlib import Path
@@ -50,7 +50,7 @@ PROFILE = {
             "company": "DataCore Systems",
             "role": "Platform Engineering Lead",
             "achievements": [
-                "Lead a team of five tech leads and system owners across the "
+                "Run a group of five squad captains and platform owners across the "
                 "platform organisation.",
             ],
         },
@@ -148,7 +148,7 @@ def test_headcount_survives_when_clause_actually_names_datacore():
     survive — the guard targets misattribution, not the figure itself."""
     letter = _letter(
         [
-            "At DataCore Systems, I lead a team of five tech leads and system "
+            "At DataCore Systems, I run a group of five squad captains and platform "
             "owners across the platform organisation.",
         ]
     )
@@ -250,8 +250,8 @@ def test_an_unanchored_sentence_is_the_reviewers_call_not_the_floors():
 
 
 # ── #283 shape: multi-employer letter, achievement paragraph unanchored ─────
-# Invented fixture mirroring the run-6 ground truth (NordPharm "record-breaking
-# QC LIMS implementation, 7 months, 3 sites" — belongs to an OLDER position at
+# Invented fixture mirroring the run-6 ground truth (Northwind "fast-track
+# ERP cutover, 7 months, 3 sites" — belongs to an OLDER position at
 # the SAME employer the letter names in a DIFFERENT paragraph; the letter
 # separately names a second, unrelated employer too, so the "letter names
 # exactly one employer" escape can never fire).
@@ -271,8 +271,8 @@ MULTI_ROLE_PROFILE = {
             "role": "Systems Architect",
             "is_current": False,
             "achievements": [
-                "Led a record-breaking LIMS rollout (7 months, 3 sites) as "
-                "solution architect.",
+                "Led a fast-track ERP cutover (7 months, 3 sites) as "
+                "lead engineer.",
             ],
         },
         {
@@ -287,7 +287,7 @@ MULTI_ROLE_PROFILE = {
 
 def test_the_283_achievement_paragraph_now_goes_to_the_reviewer_intact():
     """The #283 shape: paragraph 1 names Northwind Labs, paragraph 2 carries
-    the LIMS achievement and names nobody, and the letter also names Riverstone.
+    the ERP achievement and names nobody, and the letter also names Riverstone.
 
     The old pin asserted the achievement sentence was deleted and called that
     "the guard working AS INTENDED — the fix belongs at the prompt level". #299
@@ -301,7 +301,7 @@ def test_the_283_achievement_paragraph_now_goes_to_the_reviewer_intact():
             "At Northwind Labs, I currently serve as Director of Platform "
             "Engineering.",
             "My technical leadership spans strategic direction, and I have "
-            "delivered record-breaking projects like the LIMS rollout in 7 "
+            "delivered fast-track projects like the ERP cutover in 7 "
             "months across 3 sites while working fully remote.",
             "As founder of Riverstone, I also built an open-source developer "
             "platform.",
@@ -325,8 +325,8 @@ def test_same_sentence_anchor_lets_the_figures_survive():
         [
             "At Northwind Labs, I currently serve as Director of Platform "
             "Engineering.",
-            "At Northwind Labs, I also delivered record-breaking projects "
-            "like the LIMS rollout in 7 months across 3 sites while working "
+            "At Northwind Labs, I also delivered fast-track projects "
+            "like the ERP cutover in 7 months across 3 sites while working "
             "fully remote.",
             "As founder of Riverstone, I also built an open-source developer "
             "platform.",
@@ -341,12 +341,12 @@ def test_same_sentence_anchor_lets_the_figures_survive():
 def test_cross_role_borrowed_figure_still_dropped_even_when_anchored_elsewhere():
     """Guard against #254 regression: an anchor naming the WRONG employer must
     never launder a figure that genuinely belongs to a different one. The
-    LIMS figures belong to Northwind Labs, not Riverstone — anchoring the
+    ERP figures belong to Northwind Labs, not Riverstone — anchoring the
     sentence to Riverstone must still strip them."""
     letter = _letter(
         [
-            "As founder of Riverstone, I delivered record-breaking projects "
-            "like the LIMS rollout in 7 months across 3 sites while working "
+            "As founder of Riverstone, I delivered fast-track projects "
+            "like the ERP cutover in 7 months across 3 sites while working "
             "fully remote.",
         ]
     )
@@ -372,8 +372,8 @@ def test_a_follow_on_sentence_keeps_a_legitimately_owned_figure():
     letter = _letter(
         [
             "At Northwind Labs, I currently serve as Director of Platform "
-            "Engineering. I delivered record-breaking projects like the LIMS "
-            "rollout in 7 months across 3 sites.",
+            "Engineering. I delivered fast-track projects like the ERP "
+            "cutover in 7 months across 3 sites.",
             "As founder of Riverstone, I also built an open-source developer "
             "platform.",
         ]
@@ -386,13 +386,13 @@ def test_a_follow_on_sentence_keeps_a_legitimately_owned_figure():
 
 def test_a_sentence_that_names_its_own_employer_is_still_checked_against_it():
     """The floor's own shape: the second sentence names Riverstone in its own
-    words, and the LIMS figures are Northwind's, so it still goes. This is the
+    words, and the ERP figures are Northwind's, so it still goes. This is the
     #254 catch, and it is what survives #299's demotion."""
     letter = _letter(
         [
             "At Northwind Labs, I currently serve as Director of Platform "
-            "Engineering. As founder of Riverstone, I delivered the LIMS "
-            "rollout in 7 months across 3 sites.",
+            "Engineering. As founder of Riverstone, I delivered the ERP "
+            "cutover in 7 months across 3 sites.",
         ]
     )
     result = guard_letter_figures(letter, MULTI_ROLE_PROFILE)

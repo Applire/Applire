@@ -302,8 +302,8 @@ _COUNTRY_SEGMENTS = frozenset({
     "germany", "deutschland", "de", "austria", "österreich", "oesterreich", "at",
     "switzerland", "schweiz", "suisse", "svizzera", "ch", "liechtenstein", "li",
 })
-#: Dateline (build 5 run 5, 4/4 panelists): "Mainz, Rheinland-Pfalz, Deutschland"
-#: was dated "Rheinland-Pfalz, 29 October 2026" — the last non-country segment was
+#: Dateline (build 5 run 5, 4/4 panelists): "Kassel, Hessen, Deutschland"
+#: was dated "Hessen, 29 October 2026" — the last non-country segment was
 #: the STATE. A closed list of DACH states/regions that are no city (the city-states
 #: Berlin, Hamburg, Bremen, Wien and cantons named like their capital — Zürich,
 #: Bern, Basel, Luzern, Salzburg … — are deliberately absent: they ARE places).
@@ -341,7 +341,7 @@ def _not_a_place(segment: str) -> bool:
 def date_line_place(location: str | None) -> str | None:
     """The place of a DIN 5008 ``Ort, Datum`` line from a recorded location: the
     last comma segment that is not a country, a state or an area, without a
-    leading postcode ("Mainz, Rheinland-Pfalz, Deutschland" → "Mainz"; a location
+    leading postcode ("Kassel, Hessen, Deutschland" → "Kassel"; a location
     naming no city → ``None``, the line is the date alone) —
     "Frankfurt am Main, Germany" → "Frankfurt am Main", "Maximilianstraße 12,
     80539 München" → "München". A cut of the recorded string, never a lookup;

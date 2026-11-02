@@ -392,13 +392,13 @@ def _edu_institution_relation(a: str | None, b: str | None) -> int | None:
 
     PLAIN — the existing ``classify_dupe`` behaviour (:func:`_field_relation`
     on the raw name), unchanged, so an already-working case like "Universität
-    Würzburg" contained in "Julius-Maximilians-Universität Würzburg" keeps
+    Talheim" contained in "Konrad-Mertens-Universität Talheim" keeps
     matching (the word "Universität" surviving as a token is exactly what
     lets that 2-token containment clear the >= 2 floor).
 
     STRIPPED — the noise-dropped relation (:func:`_edu_institution_tokens`),
     which catches an alias pair where the generic word IS what differs:
-    "Provadis Partner für Bildung GmbH" / "Provadis Hochschule"-shaped pairs
+    "Rheinau Partner für Bildung GmbH" / "Rheinau Hochschule"-shaped pairs
     share no raw token at all, but both reduce to a single shared distinctive
     token once legal-form/institution-type noise is dropped from both sides.
 

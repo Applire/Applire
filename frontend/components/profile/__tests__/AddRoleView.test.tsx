@@ -50,7 +50,7 @@ describe("AddRoleView — manual mode", () => {
     expect(saveBtn).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/Job title/i), { target: { value: "Director" } });
-    fireEvent.change(screen.getByLabelText(/Company/i), { target: { value: "Roche" } });
+    fireEvent.change(screen.getByLabelText(/Company/i), { target: { value: "Varena" } });
     fireEvent.change(screen.getByLabelText(/Start date/i), { target: { value: "2026-06-01" } });
 
     expect(saveBtn).not.toBeDisabled();
@@ -104,7 +104,7 @@ describe("AddRoleView — application pre-fill", () => {
         return new Response(JSON.stringify({
           id: "abc",
           role_title: "Director of QA",
-          company_name: "Roche",
+          company_name: "Varena",
           flow_session_id: "f1",
         }));
       }
@@ -114,7 +114,7 @@ describe("AddRoleView — application pre-fill", () => {
     const { AddRoleView: View } = await import("../AddRoleView");
     render(withIntl(<View openRoles={[]} />, "en"));
     expect(await screen.findByDisplayValue("Director of QA")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Roche")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Varena")).toBeInTheDocument();
   });
 });
 

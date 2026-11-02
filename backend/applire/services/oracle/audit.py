@@ -2223,7 +2223,7 @@ async def _verify_claim_unchecked(
         # entry is explicit (``TailoredWorkEntry.id``), so a figure is checked
         # against THAT entry's own evidence (its nested projects carry its id)
         # without the same-employer escape. The escape exists for a letter
-        # sentence anchored by name, where "At BioNTech" cannot say which
+        # sentence anchored by name, where "At Kestrel Biologics" cannot say which
         # tenure. A figure the vault holds only under another entry — even at
         # the same company — is misattributed under this one; held in both, it
         # is grounded under either. A fact: digits and units + entry ownership.

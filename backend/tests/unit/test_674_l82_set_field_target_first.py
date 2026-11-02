@@ -31,7 +31,7 @@ from applire.services.profile.reconcile.import_witness import (
 from applire.services.profile.reconcile.ops import SetField
 
 JMU_ID = "e-jmu"
-PROVADIS_ID = "e-provadis"
+RHEINAU_ID = "e-rheinau"
 EN_LANG_ID = "l-english"
 
 
@@ -45,10 +45,10 @@ def _merged_education() -> MasterProfileData:
             # (`_apply_set_field` refuses a populated slot), which is why the
             # binder keys on the OP and not on the receipt's `changes`: on the
             # real record this entry produced no change at all.
-            EducationEntry(id=JMU_ID, institution="JMU Würzburg",
+            EducationEntry(id=JMU_ID, institution="KMU Talheim",
                            degree="Diploma (equivalent to M.Sc.)",
                            field="Biologie, allgemein", start_date="1998", end_date="2004"),
-            EducationEntry(id=PROVADIS_ID, institution="Provadis Hochschule",
+            EducationEntry(id=RHEINAU_ID, institution="Rheinau Hochschule",
                            degree="Fachinformatiker", field="Anwendungsentwicklung"),
         ]
     )
@@ -58,9 +58,9 @@ def _incoming_education() -> MasterProfileData:
     """The DE LinkedIn export: same two entries, translated / suffixed names."""
     return MasterProfileData(
         education=[
-            EducationEntry(institution="Julius-Maximilians-Universität Würzburg",
+            EducationEntry(institution="Konrad-Mertens-Universität Talheim",
                            degree="Diplom", field="Biologie, allgemein"),
-            EducationEntry(institution="Provadis Hochschule für Wirtschaft",
+            EducationEntry(institution="Rheinau Hochschule für Wirtschaft",
                            degree="Fachinformatiker", field="Anwendungsentwicklung"),
         ]
     )
@@ -69,7 +69,7 @@ def _incoming_education() -> MasterProfileData:
 def _education_ops() -> list:
     return [
         SetField(target=JMU_ID, field="degree", value="Diplom"),
-        SetField(target=PROVADIS_ID, field="field", value="Anwendungsentwicklung"),
+        SetField(target=RHEINAU_ID, field="field", value="Anwendungsentwicklung"),
     ]
 
 
@@ -85,19 +85,19 @@ def test_a_set_field_against_an_existing_id_carries_its_translated_twin():
 
 def test_the_same_pair_without_the_binder_is_the_defect_it_fixes():
     """The mutation this test exists to kill, stated as data: strip the ops and
-    the JMU entry lands `no_op_carried_entry` — so the BINDER, not the fixture's
+    the KMU entry lands `no_op_carried_entry` — so the BINDER, not the fixture's
     similarity, is what carries it.
 
-    The Provadis twin is deliberately NOT part of this assertion: arm (b)'s
-    `classify_education_dupe` already folds "Provadis Hochschule für Wirtschaft"
-    onto "Provadis Hochschule", so it would be carried either way. Only the
+    The Rheinau twin is deliberately NOT part of this assertion: arm (b)'s
+    `classify_education_dupe` already folds "Rheinau Hochschule für Wirtschaft"
+    onto "Rheinau Hochschule", so it would be carried either way. Only the
     entry no other arm reaches proves the new one fires (the guard-mutation
     rule: build the test on a shape ONLY the guard rescues)."""
     items = compute_import_not_applied(
         _incoming_education(), _merged_education(), []
     )
     assert [i.label for i in items] == [
-        "Julius-Maximilians-Universität Würzburg / Diplom"
+        "Konrad-Mertens-Universität Talheim / Diplom"
     ]
     assert items[0].reason == "no_op_carried_entry"
 
@@ -124,7 +124,7 @@ def test_a_set_field_targeting_another_section_rescues_nothing():
         [SetField(target=EN_LANG_ID, field="degree", value="Diplom")],
     )
     assert [i.label for i in items] == [
-        "Julius-Maximilians-Universität Würzburg / Diplom"
+        "Konrad-Mertens-Universität Talheim / Diplom"
     ]
 
 
@@ -135,7 +135,7 @@ def test_a_set_field_whose_target_resolves_to_nothing_rescues_nothing():
         [SetField(target="no-such-id", field="degree", value="Diplom")],
     )
     assert [i.label for i in items] == [
-        "Julius-Maximilians-Universität Würzburg / Diplom"
+        "Konrad-Mertens-Universität Talheim / Diplom"
     ]
 
 

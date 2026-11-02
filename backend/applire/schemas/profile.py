@@ -295,7 +295,7 @@ class WorkEntry(ExperienceBase):
     # (e.g. "Team Lead" for leadership roles, "2nd Level Support" for technical roles).
     role_aliases: list[str] = Field(default_factory=list)
     # ADR-046 amended 2026-10-07 (#716) — other names of this employer the
-    # vault recognised ("Roche" for "Roche Diagnostics GmbH").
+    # vault recognised ("Varena" for "Varena Diagnostics GmbH").
     company_aliases: list[str] = Field(default_factory=list)
 
     @field_validator("company_aliases", mode="before")

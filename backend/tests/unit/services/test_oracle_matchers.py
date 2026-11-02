@@ -290,8 +290,8 @@ def test_ground_skill_claim_surface_and_near_dupe():
 #
 # Ground truth pinned against the dev DB profile 63cc8964-8100-4ae7-9b3b-
 # 508ebea9414f: vault skill "Team Leadership and Mentorship" plus a NordPharm
-# responsibility "Provided strategic guidance and mentorship to the
-# architecture team..." back the CV skill "Mentoring", but the panel flagged
+# responsibility "Offered coaching and mentorship to the
+# platform team..." back the CV skill "Mentoring", but the panel flagged
 # it unbacked because neither the literal-substring nor the strict
 # skills_near_dupe/containment check folds the gerund "Mentoring" to the
 # vault's "...Mentorship" noun form (different single tokens by construction
@@ -304,9 +304,9 @@ BUG244_PROFILE = {
     "personal_info": {"name": "Anna Bauer"},
     "professional_summary": {
         "en": (
-            "Clinical-adjacent leadership includes GCLP team management, "
-            "establishing the clinical front end for specialty biologics "
-            "production."
+            "Trial-adjacent leadership covers lab-site team management, "
+            "building the study front end for specialty biologics "
+            "manufacturing."
         )
     },
     "work_experience": [
@@ -315,12 +315,12 @@ BUG244_PROFILE = {
             "company": "NordPharm SE",
             "role": "Associate Director",
             "responsibilities": [
-                "Set strategic direction, roadmap and release planning for "
-                "supply-chain systems in alignment with global process "
-                "owners and domain architects",
-                "Provided strategic guidance and mentorship to the "
-                "architecture team, cultivating a culture of innovation "
-                "and collaboration",
+                "Own strategic direction, roadmap and release calendar for "
+                "logistics platforms together with company-wide process "
+                "leads and area designers",
+                "Offered coaching and mentorship to the "
+                "platform team, building an atmosphere of experiments "
+                "and cooperation",
             ],
         }
     ],
@@ -553,7 +553,7 @@ def test_spelled_german_tenure_is_not_a_vault_figure():
 def test_spelled_number_that_is_not_a_duration_still_indexes():
     """Control for the test above — the #237 "team of five" bridge stands."""
     got = [(f.kind, f.value) for f in extract_spelled_figures(
-        "a team of five tech leads"
+        "a group of five squad captains"
     )]
     assert got == [("number", "5")]
 

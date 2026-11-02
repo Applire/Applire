@@ -155,13 +155,13 @@ describe("RecognisedMatches (#717)", () => {
 
 describe("AliasChips (#709/#716)", () => {
   const entries = [
-    { id: "w1", company: "Roche Diagnostics GmbH", role: "System Analyst", company_aliases: ["Roche"], role_aliases: ["Systemanalytiker"] },
+    { id: "w1", company: "Varena Diagnostics GmbH", role: "System Analyst", company_aliases: ["Varena"], role_aliases: ["Systemanalytiker"] },
     { id: "w2", company: "Acme", role: "Dev", role_aliases: [] },
   ];
 
   it("reads every alias field of the section", () => {
     expect(aliasesOf("work_experience", entries[0])).toEqual([
-      { field: "company_aliases", value: "Roche" },
+      { field: "company_aliases", value: "Varena" },
       { field: "role_aliases", value: "Systemanalytiker" },
     ]);
     expect(aliasesOf("work_experience", entries[1])).toEqual([]);
@@ -189,7 +189,7 @@ describe("AliasChips (#709/#716)", () => {
       ),
     );
     expect(screen.getByText("Auch bekannt als")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "„Roche“ als weiteren Namen entfernen" }));
+    fireEvent.click(screen.getByRole("button", { name: "„Varena“ als weiteren Namen entfernen" }));
     await waitFor(() => expect(onUpdated).toHaveBeenCalled());
     const body = String((fetchMock.mock.calls[0][1] as RequestInit).body);
     expect(body).not.toContain("company_aliases");

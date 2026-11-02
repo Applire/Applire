@@ -785,7 +785,7 @@ _SAMPLE_LETTER_SOURCE = (
 
 _SAMPLE_LETTER = {
     "header": {"name": "Max Muster", "address": "Berlin"},
-    "recipient": {"name": "Dr. Müller", "company": "Roche", "date": None},
+    "recipient": {"name": "Dr. Müller", "company": "Varena", "date": None},
     "body": {
         "paragraphs": [
             "Sehr geehrte Frau Dr. Müller,",
@@ -934,7 +934,7 @@ class TestCoverLetterServiceReviewIntegration:
 
         mock_job = MagicMock()
         mock_job.raw_text = "We are hiring a Backend Engineer."
-        mock_job.company_name = "Roche"
+        mock_job.company_name = "Varena"
         mock_job.keywords = []
 
         mock_cv = MagicMock()
@@ -1014,7 +1014,7 @@ class TestCoverLetterServiceReviewIntegration:
         mock_cl.letter_data = {}; mock_cl.section_overrides = {}
         mock_job = MagicMock()
         mock_job.raw_text = "We are hiring a Backend Engineer."
-        mock_job.company_name = "Roche"; mock_job.keywords = []
+        mock_job.company_name = "Varena"; mock_job.keywords = []
         mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
         mock_profile = MagicMock()
         mock_profile.profile_json = {"work_history": cv_tailored["work_history"], "skills": cv_tailored["skills"]}
@@ -1105,8 +1105,8 @@ class TestCoverLetterPositioningIntegration:
         mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
         mock_cl.letter_data = {}; mock_cl.section_overrides = {}
         mock_job = MagicMock()
-        mock_job.raw_text = "Roche builds diagnostics instruments for regulated healthcare labs."
-        mock_job.company_name = "Roche Diagnostics"
+        mock_job.raw_text = "Varena builds diagnostics instruments for regulated healthcare labs."
+        mock_job.company_name = "Varena Diagnostics"
         mock_job.keywords = []
         mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
         mock_profile = MagicMock()
@@ -1144,7 +1144,7 @@ class TestCoverLetterPositioningIntegration:
         assert "TARGET COMPANY:" in generation_prompt
         # ADR-084 points 13 + 24: both the company name and the JD's own domain
         # text still reach the writer, and both are now inside the marking.
-        assert is_covered(generation_prompt, "Roche Diagnostics")
+        assert is_covered(generation_prompt, "Varena Diagnostics")
         assert is_covered(generation_prompt, "diagnostics instruments")
 
     @pytest.mark.asyncio
@@ -1470,8 +1470,8 @@ class TestCoverLetterPositioningIntegration:
         mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
         mock_cl.letter_data = {}; mock_cl.section_overrides = {}
         mock_job = MagicMock()
-        mock_job.raw_text = "Roche builds diagnostics instruments for regulated healthcare labs."
-        mock_job.company_name = "Roche Diagnostics"
+        mock_job.raw_text = "Varena builds diagnostics instruments for regulated healthcare labs."
+        mock_job.company_name = "Varena Diagnostics"
         mock_job.keywords = []
         mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
         mock_profile = MagicMock()
@@ -1702,7 +1702,7 @@ class TestMintedFigureCheckWordingNarrowed:
 
 class TestPositionAnchoringRequirement:
     """#283 — the run-6 ground truth: a corrector chasing keyword coverage
-    folded an achievement (NordPharm's "record-breaking QC LIMS implementation
+    folded an achievement (NordPharm's "fast-track ERP cutover
     in 7 months across 3 sites") into a paragraph whose sentence never named
     the employer. The letter separately named a DIFFERENT employer (Applire)
     elsewhere, so neither the sentence-level anchor nor the whole-letter
@@ -1812,7 +1812,7 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
         mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
         mock_cl.letter_data = {}; mock_cl.section_overrides = {}
         mock_job = MagicMock()
-        mock_job.raw_text = "Roche builds diagnostics instruments for regulated healthcare labs."
+        mock_job.raw_text = "Varena builds diagnostics instruments for regulated healthcare labs."
         mock_job.company_name = company_name
         mock_job.keywords = []
         mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
@@ -1840,7 +1840,7 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
 
         cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         mock_cl, mock_job, mock_cv, mock_profile, mock_gap, letter_raw = self._base_mocks(
-            company_name="Roche Diagnostics",
+            company_name="Varena Diagnostics",
         )
 
         shared_result = MagicMock()
@@ -1874,7 +1874,7 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
         src = calls[0]["source"]
         assert "positioning_requested" in src
         assert "company_domain_engagement" in src
-        assert "Roche Diagnostics" in src
+        assert "Varena Diagnostics" in src
         assert '"required": true' in src.lower()
 
     @pytest.mark.asyncio
@@ -2071,7 +2071,7 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
 
         cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         mock_cl, mock_job, mock_cv, mock_profile, mock_gap, letter_raw = self._base_mocks(
-            company_name="Roche Diagnostics",
+            company_name="Varena Diagnostics",
         )
 
         shared_result = MagicMock()
@@ -2125,7 +2125,7 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
         assert retry_calls, "corrector retry call not observed"
         retry_prompt = retry_calls[0].args[0]
         assert "positioning_requested" in retry_prompt
-        assert "Roche Diagnostics" in retry_prompt
+        assert "Varena Diagnostics" in retry_prompt
 
 
 # ---------------------------------------------------------------------------

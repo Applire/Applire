@@ -50,7 +50,7 @@ ANCHOR_2023 = "w-nordlicht-2023"
 # batch-level channel can).
 HELD_NAMED = (
     "After joining Nordlicht Biotech in 2018, restructured how the team works "
-    "and taught a curriculum of three software-engineering courses"
+    "and ran a series of four engineering workshops"
 )
 HELD_SIBLING = "Took over team leadership during the team lead's parental leave"
 HELD_TECH_A = "Clean Code"
@@ -61,8 +61,8 @@ HELD_TECH_B = "Software architecture"
 # is why the owning-sentence channel (token overlap) cannot reach them.
 ANSWER_DE = (
     "Als ich 2018 zu Nordlicht Biotech kam, habe ich die Arbeitsweise des "
-    "Teams umgestellt, neue Prozesse definiert und ein Curriculum aus drei "
-    "Software-Engineering-Kursen unterrichtet. Außerdem habe ich während der "
+    "Teams umgestellt, neue Prozesse definiert und eine Reihe aus vier "
+    "Engineering-Workshops geleitet. Außerdem habe ich während der "
     "Elternzeit der Teamleitung die Teamleitung übernommen."
 )
 
@@ -80,7 +80,7 @@ def _profile(anchor_roles: int = 3) -> MasterProfileData:
     return MasterProfileData(
         work_experience=[
             *roles,
-            WorkEntry(id=PREV_ID, company="Westfalen Blutspendedienst gGmbH",
+            WorkEntry(id=PREV_ID, company="Westfalen Laborverbund gGmbH",
                       role="IT Systems Lead", start_date="2012-01", end_date="2018-09"),
         ]
     )
@@ -174,8 +174,8 @@ def test_the_batch_channel_is_silent_when_the_answer_names_the_target_itself():
     """Negative control: same shape, an answer about the employer the op targets.
     Nothing is held — over-drop discipline is what makes the guard usable."""
     answer = (
-        "Beim Westfalen Blutspendedienst habe ich die Arbeitsweise des Teams "
-        "umgestellt und ein Curriculum aus drei Kursen unterrichtet."
+        "Beim Westfalen Laborverbund habe ich die Arbeitsweise des Teams "
+        "umgestellt und eine Reihe aus vier Workshops geleitet."
     )
     ops = enforce_attribution(
         [AddBullets(target=PREV_ID, responsibilities=[HELD_SIBLING],
@@ -433,14 +433,14 @@ def test_flagged_content_with_no_recognised_option_key_is_parked_not_dropped():
 # ── #674 line 34: the sentence anchor and the model's own partition ──────────
 
 # Exactly ONE of the three stations is nameable against the vault: "Nordlicht
-# Biotech" matches, "the blood donation service" is a gloss of Westfalen
-# Blutspendedienst, and the third clause names no company at all. That is the
+# Biotech" matches, "the lab network" is a gloss of Westfalen
+# Laborverbund, and the third clause names no company at all. That is the
 # shape #243's "two or more employers → fail open" cannot see, measured 23/29 on
 # the captured #684 records.
 _THREE_STATIONS = (
-    "15+ years in pharmaceutical manufacturing — monoclonal antibodies at "
-    "Nordlicht Biotech, blood bags at the blood donation service and now mRNA "
-    "vaccines and personalised cancer vaccines."
+    "15+ years in pharmaceutical manufacturing — sterile injectables at "
+    "Nordlicht Biotech, diagnostic kits at the lab network and now cell "
+    "therapies and personalised cell therapies."
 )
 
 
@@ -449,7 +449,7 @@ def _three_station_profile() -> MasterProfileData:
         work_experience=[
             WorkEntry(id="w-sued", company="Südwind Therapeutics GmbH",
                       role="Director Supply Chain", start_date="2019-03", is_current=True),
-            WorkEntry(id=PREV_ID, company="Westfalen Blutspendedienst gGmbH",
+            WorkEntry(id=PREV_ID, company="Westfalen Laborverbund gGmbH",
                       role="IT Systems Lead", start_date="2012-01", end_date="2019-02"),
             WorkEntry(id=ANCHOR_2018, company="Nordlicht Biotech SE",
                       role="Systems Engineer", start_date="2005-09", end_date="2011-12"),
@@ -460,16 +460,16 @@ def _three_station_profile() -> MasterProfileData:
 def test_a_sentence_the_model_partitioned_anchors_nothing():
     """#674 line 34. The sentence names three stations but only ONE of them
     matches a vault company literally ("Nordlicht Biotech"; "Südwind
-    Therapeutics" is there too but "the blood donation service" is a gloss), so
+    Therapeutics" is there too but "the lab network" is a gloss), so
     #243's "two or more employers → fail open" never engaged and every
     correctly-targeted bullet of the sentence was asked about against the one
     name that matched. The model gave each employer its OWN share — that is a
     partition, and a partition silences the anchor."""
     ops = enforce_attribution(
         [
-            AddBullets(target="w-sued", responsibilities=["mRNA vaccines"]),
-            AddBullets(target=PREV_ID, responsibilities=["Blood bags"]),
-            AddBullets(target=ANCHOR_2018, responsibilities=["Monoclonal antibodies"]),
+            AddBullets(target="w-sued", responsibilities=["cell therapies"]),
+            AddBullets(target=PREV_ID, responsibilities=["Diagnostic kits"]),
+            AddBullets(target=ANCHOR_2018, responsibilities=["Sterile injectables"]),
         ],
         profile=_three_station_profile(),
         new_info={"answer": _THREE_STATIONS},
@@ -486,7 +486,7 @@ def test_the_same_text_given_to_two_employers_is_not_a_partition():
     employers. That is not a split, it is the model contradicting itself, and
     the anchor must still speak — otherwise the fix for line 34 would delete
     the guard's founding regression."""
-    shared = "Monoclonal antibodies"
+    shared = "Sterile injectables"
     ops = enforce_attribution(
         [
             AddBullets(target=ANCHOR_2018, achievements=[shared]),

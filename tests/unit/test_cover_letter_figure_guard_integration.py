@@ -52,7 +52,7 @@ PROFILE_JSON = {
             "company": "DataCore Systems",
             "role": "Platform Engineering Lead",
             "achievements": [
-                "Lead a team of five tech leads and system owners across the "
+                "Run a group of five squad captains and platform owners across the "
                 "platform organisation.",
             ],
         },

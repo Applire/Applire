@@ -7,7 +7,7 @@ from applire.schemas.profile import WorkEntry
 
 
 def test_new_workentry_gets_id():
-    we = WorkEntry(company="Roche", role="Engineer")
+    we = WorkEntry(company="Varena", role="Engineer")
     assert isinstance(we.id, str)
     # round-trips as UUID
     uuid.UUID(we.id)
@@ -15,7 +15,7 @@ def test_new_workentry_gets_id():
 
 def test_explicit_id_is_preserved():
     fixed = "11111111-1111-1111-1111-111111111111"
-    we = WorkEntry(id=fixed, company="Roche", role="Engineer")
+    we = WorkEntry(id=fixed, company="Varena", role="Engineer")
     assert we.id == fixed
 
 

@@ -3,7 +3,7 @@ Mayen · Vollzeit · unbefristet · Berichtslinie: Geschäftsführung
 
 Über uns
 Eifelpack Verpackungssysteme fertigt Kunststoff- und Verbundverpackungen für Konsumgüter-
-und Lebensmittelkunden in Europa. 480 Mitarbeitende, vier Werke in Rheinland-Pfalz, Teil
+und Lebensmittelkunden in Europa. 480 Mitarbeitende, vier Werke in Hessen, Teil
 einer international tätigen Verpackungsgruppe. Das Werk Mayen ist unser größtes Werk.
 
 Ihre Aufgaben
