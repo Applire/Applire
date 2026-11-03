@@ -74,6 +74,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 
+import json
 import re
 
 import logging
@@ -408,6 +409,17 @@ class TerminalReviewOutcome:
     #: A statement about the delivery, never about one verdict: it never affects
     #: :attr:`status`, and :meth:`worse_of` keeps whichever side carries it.
     repeated_demands: tuple[RepeatedDemand, ...] = field(default=())
+    #: R-2 — the document the LAST verdict of this outcome was rendered over, in the
+    #: producer's composed shape (CV: the raw ``TailoredCVData`` compose of the reviewed
+    #: draft; letter: the composed letter dict). Carried through :meth:`worse_of` with
+    #: the verdict it belongs to. A measurement input only: never compared, never
+    #: persisted, never rendered.
+    reviewed_subject: Any = field(default=None, compare=False, repr=False)
+    #: R-2 — what changed between ``reviewed_subject`` and the delivered document
+    #: (``review_delta``), set at the producer's hand-off to the audit. ``None`` = not
+    #: measured. Read by :func:`build_terminal_review_check` when the outcome's findings
+    #: do not stand against the delivered draft.
+    unreviewed_changes: list[dict] | None = field(default=None, compare=False)
 
     @property
     def findings_stand_against_delivered(self) -> bool:
@@ -531,6 +543,7 @@ class TerminalReviewOutcome:
                     correction=winner.correction,
                     repeated_demands=self.repeated_demands or other.repeated_demands,
                     plain_notes=tuple(dict.fromkeys(winner.plain_notes + loser.plain_notes)),
+                    reviewed_subject=winner.reviewed_subject,
                 )
         order = {"fail": 2, "not_applicable": 1, "pass": 0}
 
@@ -560,6 +573,7 @@ class TerminalReviewOutcome:
             correction=keep.correction,
             repeated_demands=self.repeated_demands or other.repeated_demands,
             plain_notes=tuple(dict.fromkeys(keep.plain_notes + drop.plain_notes)),
+            reviewed_subject=keep.reviewed_subject,
         )
 
 
@@ -637,6 +651,7 @@ def settle_to_outcome(
     reviewed_draft: dict[str, Any] | None = None,
     structured_output: bool = False,
     delivered_draft: dict[str, Any] | None = None,
+    reviewed_subject: Any = None,
 ) -> TerminalReviewOutcome:
     """Project a loop settle onto the reportable outcome. Pure.
 
@@ -678,6 +693,7 @@ def settle_to_outcome(
         rounds=settle.rounds,
         correction=correction,
         plain_notes=tuple(getattr(settle, "plain_notes", ()) or ()),
+        reviewed_subject=reviewed_subject,
     )
 
 
@@ -982,11 +998,34 @@ def _body(outcome: TerminalReviewOutcome) -> str:
     )
 
 
+def unreviewed_changes_hash(changes: list) -> str:
+    """Ruling P-1: the first 16 hex chars of sha256 over the canonical JSON of the
+    persisted delta — what a later "Passt so" decision binds to."""
+    import hashlib
+
+    dumped = [c.model_dump() if hasattr(c, "model_dump") else c for c in changes]
+    canonical = json.dumps(dumped, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def _persistable_changes(
+    outcome: "TerminalReviewOutcome", explicit: list[dict] | None
+) -> list[dict] | None:
+    """R-2: the delta is only a statement when the delivered draft is NOT the one the
+    last verdict read; otherwise (reviewed delivery) and when empty, ``None`` — an
+    empty list is never persisted."""
+    if outcome.findings_stand_against_delivered:
+        return None
+    changes = explicit if explicit is not None else outcome.unreviewed_changes
+    return list(changes) if changes else None
+
+
 def build_terminal_review_check(
     outcome: TerminalReviewOutcome | None,
     *,
     previous: dict | None = None,
     document: str = "cv",
+    unreviewed_changes: list[dict] | None = None,
 ) -> ATSCheck:
     """The ADR-039 check for this document's terminal review. NEVER returns ``None``.
 
@@ -1008,7 +1047,10 @@ def build_terminal_review_check(
     del document  # both documents share the id and the vocabulary; kept for call-site clarity
     if outcome is not None:
         key, count = _state_key(outcome)
+        changes = _persistable_changes(outcome, unreviewed_changes)
         return ATSCheck(
+            unreviewed_changes=changes,
+            unreviewed_changes_hash=unreviewed_changes_hash(changes) if changes else None,
             id=TERMINAL_REVIEW_CHECK_ID,
             status=outcome.status,
             details=_details(outcome),

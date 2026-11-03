@@ -111,6 +111,16 @@ class DeliveryState(BaseModel):
     authored_by_agent: bool = False
 
 
+class SectionChangeModel(BaseModel):
+    """One section's text before and after a change — the shape the review router
+    returns for a take-out and the terminal-review check persists for the
+    reviewed-to-delivered delta (R-2)."""
+
+    section_id: str
+    before: str
+    after: str
+
+
 class ATSCheck(BaseModel):
     id: str                      # stable machine id, e.g. "contact-name", "work-2", "reading-order"
     # E057/ADR-079 clause 4: a THIRD status, `not_applicable`, for a check that
@@ -154,6 +164,15 @@ class ATSCheck(BaseModel):
     # a renderer treats None as "unclassified", never as "S".
     delivery_class: Optional[DeliveryClass] = None
     resolver: Optional[str] = None
+    # R-2 (UAT-3 review cards): on the terminal-review check, the passages that
+    # changed AFTER the last review verdict and were never re-reviewed — what the
+    # "earlier draft" card shows. `None` = not measured (every legacy report, every
+    # reviewed delivery); `[]` is never persisted.
+    unreviewed_changes: Optional[list[SectionChangeModel]] = None
+    # Ruling P-1: first 16 hex chars of sha256 over the canonical JSON of the list
+    # above — the basis a later "Passt so" decision binds to. Set together with the
+    # list; both None when not measured.
+    unreviewed_changes_hash: Optional[str] = None
 
 
 class KeywordMatch(BaseModel):

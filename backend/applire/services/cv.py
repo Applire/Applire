@@ -5085,6 +5085,7 @@ async def _render_cv_background(
                 # #563 (D): stays None when the review layer is disabled — which the
                 # ADR-039 check reports as `not_applicable`, never as a clean pass.
                 terminal_outcome = None
+                final_raw = None  # R-2: raw compose of the final prose draft
                 if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
                     tr = await _terminal_review(
                         record, db,
@@ -5108,6 +5109,7 @@ async def _render_cv_background(
                     terminal_rounds = tr.rounds
                     reentry_exhausted = tr.reentry_exhausted
                     terminal_outcome = tr.outcome
+                    final_raw = tr.final_raw
 
                 # SUBJECT-IDENTITY gate (#538 evidence layer 1): the content the
                 # terminal verdict covered must BE the delivered content. The audits
@@ -5122,9 +5124,12 @@ async def _render_cv_background(
                         # #703: the delivery's repeated demands, measured against
                         # the composed CV this audit reads.
                         terminal_review=with_repeated_demands(
-                            terminal_outcome if v2_terminal is None
-                            else v2_terminal.report_delivered(
-                                terminal_outcome, prose_draft, record.tailored_data
+                            _with_unreviewed_delta(
+                                terminal_outcome if v2_terminal is None
+                                else v2_terminal.report_delivered(
+                                    terminal_outcome, prose_draft, record.tailored_data
+                                ),
+                                final_raw, record,
                             ),
                             cv_demand_record, record.tailored_data
                         ),
@@ -5175,6 +5180,7 @@ async def _render_cv_background(
                         prose_draft, measured = tr.prose_draft, tr.measured
                         terminal_rounds += tr.rounds
                         reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
+                        final_raw = tr.final_raw
                         # Fold, never replace: a clean re-entry round must not erase an
                         # earlier exhaustion that already shipped content.
                         terminal_outcome = (
@@ -6171,6 +6177,39 @@ class TerminalReviewResult:
     # earlier exhaustion that already shipped content. `None` only when the review
     # layer produced no settle at all. Reported as the ADR-039 `terminal-review` check.
     outcome: "TerminalReviewOutcome | None" = None
+    # R-2: the RAW compose of ``prose_draft`` (no condense, no ladder) — the
+    # "final" side of the reviewed→delivered delta (``review_delta``).
+    final_raw: "TailoredCVData | None" = None
+
+
+def _with_unreviewed_delta(
+    outcome: "TerminalReviewOutcome | None",
+    final_raw: "TailoredCVData | None",
+    record: GeneratedCV,
+) -> "TerminalReviewOutcome | None":
+    """R-2: attach what changed after the last verdict to an outcome whose findings do
+    not stand against the delivered draft. Fail-open — a report line never fails a CV."""
+    if (
+        outcome is None
+        or outcome.findings_stand_against_delivered
+        or outcome.reviewed_subject is None
+    ):
+        return outcome
+    try:
+        from dataclasses import replace as _dc_replace
+
+        from applire.services.review_delta import cv_unreviewed_changes
+
+        changes = cv_unreviewed_changes(
+            outcome.reviewed_subject,
+            TailoredCVData.model_validate(record.tailored_data),
+            record.content_snapshot,
+            final_raw=final_raw,
+        )
+        return _dc_replace(outcome, unreviewed_changes=changes or None)
+    except Exception:
+        logger.exception("unreviewed-delta measurement failed for CV %s — not recorded", record.id)
+        return outcome
 
 
 def _cv_prose_shape_ok(draft: Any) -> bool:
@@ -6485,6 +6524,14 @@ async def _terminal_review(
     outcome_cell: dict[str, TerminalReviewOutcome | None] = {"outcome": None}
 
     def _record_settle(settle) -> None:
+        # R-2: the RAW compose of the draft this verdict read (not the cached,
+        # possibly post-condense subject) — the "reviewed" side of the delta.
+        reviewed_subject = None
+        if reviewed_cell["draft"] is not None:
+            try:
+                reviewed_subject = _compose(reviewed_cell["draft"])
+            except Exception:
+                logger.exception("raw compose of the reviewed draft failed — no delta")
         outcome_cell["outcome"] = settle_to_outcome(
             settle,
             chain_id="cv_terminal_review",
@@ -6492,6 +6539,7 @@ async def _terminal_review(
             # `max_retries <= 0` short-circuit (no reviewer prompt was ever built), and
             # `settle_to_outcome` then reports exactly as it did before.
             reviewed_draft=reviewed_cell["draft"],
+            reviewed_subject=reviewed_subject,
         ).worse_of(outcome_cell["outcome"])
 
     def _record_demand(concepts) -> None:
@@ -6658,12 +6706,18 @@ async def _terminal_review(
                 record.id, rounds,
             )
             break
+    final_raw = None
+    try:
+        final_raw = _compose(current)
+    except Exception:
+        logger.exception("raw compose of the final draft failed for CV %s — no delta", record.id)
     return TerminalReviewResult(
         prose_draft=current,
         measured=measure_cell["measured"],
         rounds=rounds,
         reentry_exhausted=reentry_exhausted,
         outcome=outcome_cell["outcome"],
+        final_raw=final_raw,
     )
 
 

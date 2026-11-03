@@ -59,6 +59,13 @@ export type ATSCheck = {
   // reports persisted before the field = unclassified, never "S".
   delivery_class?: DeliveryClass | null;
   resolver?: string | null;
+  /**
+   * R-2: on the terminal-review check, the passages changed after the last
+   * review verdict and never re-reviewed. Absent/null = not measured.
+   */
+  unreviewed_changes?: { section_id: string; before: string; after: string }[] | null;
+  /** R-2 / ruling P-1: 16-hex content hash of `unreviewed_changes`. */
+  unreviewed_changes_hash?: string | null;
 };
 
 /** ADR-099 cl. 2 — F fixed before delivery · A one action · U did not run · S silent. */
