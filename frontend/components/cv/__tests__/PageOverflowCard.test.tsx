@@ -63,7 +63,7 @@ describe("PageOverflowCard", () => {
     expect(screen.queryByTestId("cv-page-overflow-cut")).toBeNull();
     // U-6 (founder ruling 2026-10-28): it says only that it cannot get shorter —
     // the ladder never checked what the job asks for.
-    expect(screen.getByTestId("cv-page-overflow-body").textContent).toBe("Kürzer geht es nicht.");
+    expect(screen.getByTestId("cv-page-overflow-body").textContent).toContain("kürzt Applire nicht ohne Dich.");
     expect(card.textContent).toContain("3 Seiten");
   });
 
@@ -169,7 +169,7 @@ describe("PageOverflowCard", () => {
   it("the kept line and the keep button name full_pages when the row carries it", async () => {
     mockFetch({ ...PROPOSAL, actual: 3, full_pages: 3, choice: "keep" });
     render(withIntl(<PageOverflowCard cvId="cv-1" />, "de"));
-    expect((await screen.findByTestId("cv-page-overflow-done")).textContent).toContain("3 Seiten — so von dir gewählt.");
+    expect((await screen.findByTestId("cv-page-overflow-done")).textContent).toContain("3 Seiten – so von Dir gewählt.");
   });
 
   it("target 1 reads singular", async () => {
@@ -244,7 +244,7 @@ describe("PageOverflowCard", () => {
     };
 
     it.each([
-      ["de", "Damit er höchstens 3 Seiten hat, hat Applire schon weggelassen:", "Ältere Weiterbildungen und Zertifikate: REFA-Grundschein", "Kürzer geht es nicht."],
+      ["de", "Damit er höchstens 3 Seiten hat, hat Applire schon weggelassen:", "Ältere Weiterbildungen und Zertifikate: REFA-Grundschein", null],
       ["en", "To keep it to at most 3 pages, Applire already left out:", "REFA-Grundschein", null],
     ] as const)("%s: the line and its list sit above the body", async (locale, lead, item, body) => {
       mockFetch(AUTO);
@@ -273,6 +273,233 @@ describe("PageOverflowCard", () => {
       render(withIntl(<PageOverflowCard cvId="cv-o" />, locale));
       await screen.findByTestId("cv-page-overflow-card");
       expect(screen.queryByTestId("cv-page-overflow-auto-cuts")).toBeNull();
+    });
+  });
+
+  // R-1 (UAT-3): the person may shorten roles themselves when Applire cannot.
+  describe("R-1 — the role menu", () => {
+    const ROLES = [
+      { index: 0, title: "Teamleiter", company: "Muster GmbH", dates: "2010 – 2014", bullets: 4 },
+      { index: 1, title: "Sachbearbeiter", company: "Beispiel AG", dates: "2005 – 2010", bullets: 1 },
+    ];
+    const NOTHING: PageOverflow = {
+      ...PROPOSAL,
+      proposed: [],
+      cut_available: false,
+      reaches_target: false,
+      cut_pages: null,
+      shortenable_roles: ROLES,
+    };
+
+    function mockMenu(opts: { status?: PageOverflow; previewPages?: number; apply?: () => Response } = {}) {
+      const calls: { url: string; init?: RequestInit }[] = [];
+      const signals: (AbortSignal | undefined)[] = [];
+      const applied: PageOverflow = {
+        ...PROPOSAL,
+        actual: 2,
+        full_pages: 3,
+        choice: "cut",
+        proposed: [{ kind: "old_role_bullets", items: ["Teamleiter — Muster GmbH — 2014"] }],
+        cut_available: false,
+        uncut_available: true,
+      };
+      global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        if (String(url).endsWith("/page-overflow/preview")) {
+          signals.push(init?.signal ?? undefined);
+          return { ok: true, status: 200, json: async () => ({ pages: opts.previewPages ?? 2 }) } as Response;
+        }
+        if (init?.method === "POST") {
+          if (opts.apply) return opts.apply();
+          return { ok: true, status: 200, json: async () => applied } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ page_overflow: opts.status ?? NOTHING }) } as Response;
+      }) as typeof fetch;
+      return { calls, signals };
+    }
+    const previews = (calls: { url: string }[]) => calls.filter((c) => c.url.endsWith("/page-overflow/preview"));
+
+    afterEach(() => vi.useRealTimers());
+
+    it("nothing to cut: the explanation, keep with its sub-line, and the pick option (DE)", async () => {
+      mockMenu();
+      render(withIntl(<PageOverflowCard cvId="cv-m" />, "de"));
+      const card = await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.getByTestId("cv-page-overflow-body").textContent).toContain("Davon ist nichts mehr übrig");
+      expect(screen.getByTestId("cv-page-overflow-keep").textContent).toContain("3 Seiten behalten");
+      expect(card.textContent).toContain("Bei langer Berufserfahrung oder Führungsrollen sind 3 Seiten üblich.");
+      expect(screen.getByTestId("cv-page-overflow-pick").textContent).toContain("Stationen selbst kürzen");
+      expect(screen.queryByTestId("cv-page-overflow-cut")).toBeNull();
+    });
+
+    it("no shortenable roles: explanation and keep, but no pick option", async () => {
+      mockMenu({ status: { ...NOTHING, shortenable_roles: [] } });
+      render(withIntl(<PageOverflowCard cvId="cv-m" />, "de"));
+      await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.getByTestId("cv-page-overflow-body").textContent).toContain("Davon ist nichts mehr übrig");
+      expect(screen.getByTestId("cv-page-overflow-keep")).toBeTruthy();
+      expect(screen.queryByTestId("cv-page-overflow-pick")).toBeNull();
+    });
+
+    it("unreachable with a closest cut: both the cut and the pick are offered", async () => {
+      mockMenu({ status: { ...PROPOSAL, reaches_target: false, cut_pages: 3, actual: 4, shortenable_roles: ROLES } });
+      render(withIntl(<PageOverflowCard cvId="cv-m" />));
+      await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.getByTestId("cv-page-overflow-cut")).toBeTruthy();
+      expect(screen.getByTestId("cv-page-overflow-pick")).toBeTruthy();
+    });
+
+    it("opening lists one checkbox row per role; apply is disabled until one is ticked", async () => {
+      mockMenu();
+      render(withIntl(<PageOverflowCard cvId="cv-m" />, "de"));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      const rows = await screen.findAllByTestId("cv-page-overflow-role");
+      expect(rows).toHaveLength(2);
+      expect(rows[0].textContent).toContain("Teamleiter · Muster GmbH");
+      expect(rows[0].textContent).toContain("2010 – 2014 · 4 Stichpunkte");
+      expect(rows[1].textContent).toContain("1 Stichpunkt");
+      expect(screen.getByText("Welche Stationen sollen nur noch mit Titel, Firma und Zeitraum erscheinen?")).toBeTruthy();
+      expect((screen.getByTestId("cv-page-overflow-apply") as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("ticking previews once after 800 ms; a second tick aborts the first request", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const { calls, signals } = mockMenu({ previewPages: 2 });
+      render(withIntl(<PageOverflowCard cvId="cv-m" />));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      const boxes = await screen.findAllByRole("checkbox");
+      fireEvent.click(boxes[0]);
+      expect(screen.getByTestId("cv-page-overflow-preview").textContent).toBe("Counting pages …");
+      await vi.advanceTimersByTimeAsync(799);
+      expect(previews(calls)).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(2);
+      expect(previews(calls)).toHaveLength(1);
+      expect(JSON.parse(String(previews(calls)[0].init!.body))).toEqual({ roles: [0] });
+      await waitFor(() =>
+        expect(screen.getByTestId("cv-page-overflow-preview").textContent).toBe("With this selection: 2 pages"),
+      );
+      expect(screen.getByTestId("cv-page-overflow-preview").getAttribute("data-fits")).toBe("true");
+      // a second tick before the debounce elapses issues only one more request,
+      // and a tick during a flight aborts that flight
+      fireEvent.click(boxes[1]);
+      await vi.advanceTimersByTimeAsync(801);
+      expect(previews(calls)).toHaveLength(2);
+      expect(JSON.parse(String(previews(calls)[1].init!.body))).toEqual({ roles: [0, 1] });
+      expect(signals[0]?.aborted).toBe(true);
+    });
+
+    it("a slow first request is aborted when the selection changes during its flight", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const signals: AbortSignal[] = [];
+      global.fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+        if (String(url).endsWith("/page-overflow/preview")) {
+          signals.push(init!.signal!);
+          return new Promise<Response>(() => {}); // never resolves
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ page_overflow: NOTHING }) } as Response);
+      }) as typeof fetch;
+      render(withIntl(<PageOverflowCard cvId="cv-m" />));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      const boxes = await screen.findAllByRole("checkbox");
+      fireEvent.click(boxes[0]);
+      await vi.advanceTimersByTimeAsync(801);
+      expect(signals).toHaveLength(1);
+      expect(signals[0].aborted).toBe(false);
+      fireEvent.click(boxes[1]);
+      expect(signals[0].aborted).toBe(true);
+    });
+
+    it("a preview above the target shows the warning line", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      mockMenu({ previewPages: 3 });
+      render(withIntl(<PageOverflowCard cvId="cv-m" />, "de"));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      fireEvent.click((await screen.findAllByRole("checkbox"))[0]);
+      await vi.advanceTimersByTimeAsync(801);
+      await waitFor(() =>
+        expect(screen.getByTestId("cv-page-overflow-preview").textContent).toBe("Mit dieser Auswahl: weiter 3 Seiten"),
+      );
+      expect(screen.getByTestId("cv-page-overflow-preview").getAttribute("data-fits")).toBe("false");
+    });
+
+    it("apply posts the chosen roles, refreshes the preview, names the measured pages and the roles, and undo posts keep", async () => {
+      const { calls } = mockMenu();
+      const onContentChanged = vi.fn();
+      render(withIntl(<PageOverflowCard cvId="cv-m" onContentChanged={onContentChanged} />, "de"));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      fireEvent.click((await screen.findAllByRole("checkbox"))[0]);
+      const apply = screen.getByTestId("cv-page-overflow-apply") as HTMLButtonElement;
+      expect(apply.textContent).toBe("Diese Station kürzen");
+      fireEvent.click(apply);
+      const done = await screen.findByTestId("cv-page-overflow-done");
+      const post = calls.find((c) => c.init?.method === "POST" && !c.url.endsWith("/preview"))!;
+      expect(post.url).toContain("/api/cv/cv-m/page-overflow");
+      expect(JSON.parse(String(post.init!.body))).toEqual({ choice: "cut", roles: [0] });
+      expect(done.textContent).toContain(
+        "Gekürzt auf 2 Seiten – nur noch mit Titel, Firma und Zeitraum: Teamleiter (Muster GmbH).",
+      );
+      expect(onContentChanged).toHaveBeenCalledTimes(1);
+      const undo = screen.getByTestId("cv-page-overflow-switch");
+      expect(undo.textContent).toBe("Rückgängig");
+      fireEvent.click(undo);
+      await waitFor(() => {
+        const last = calls.filter((c) => c.init?.method === "POST").pop()!;
+        expect(JSON.parse(String(last.init!.body))).toEqual({ choice: "keep" });
+      });
+    });
+
+    it("a 409 on apply re-reads /status and closes the menu", async () => {
+      let statusReads = 0;
+      global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") return { ok: false, status: 409, json: async () => ({}) } as Response;
+        statusReads += 1;
+        void url;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ page_overflow: statusReads === 1 ? NOTHING : { ...NOTHING, shortenable_roles: [] } }),
+        } as Response;
+      }) as typeof fetch;
+      render(withIntl(<PageOverflowCard cvId="cv-m" />));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      fireEvent.click((await screen.findAllByRole("checkbox"))[0]);
+      fireEvent.click(screen.getByTestId("cv-page-overflow-apply"));
+      await waitFor(() => expect(statusReads).toBe(2));
+      await waitFor(() => expect(screen.queryByTestId("cv-page-overflow-role")).toBeNull());
+      expect(screen.queryByTestId("cv-page-overflow-pick")).toBeNull();
+      expect(screen.queryByTestId("cv-page-overflow-error")).toBeNull();
+    });
+
+    it("a failed apply shows the error line and keeps the menu", async () => {
+      mockMenu({ apply: () => ({ ok: false, status: 500, json: async () => ({}) }) as Response });
+      render(withIntl(<PageOverflowCard cvId="cv-m" />));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      fireEvent.click((await screen.findAllByRole("checkbox"))[0]);
+      fireEvent.click(screen.getByTestId("cv-page-overflow-apply"));
+      expect((await screen.findByTestId("cv-page-overflow-error")).textContent).toContain("That did not work");
+      expect(screen.getAllByTestId("cv-page-overflow-role")).toHaveLength(2);
+    });
+
+    it("cancel closes the menu without a request", async () => {
+      const { calls } = mockMenu();
+      render(withIntl(<PageOverflowCard cvId="cv-m" />));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      fireEvent.click(screen.getByTestId("cv-page-overflow-pick-cancel"));
+      expect(screen.queryByTestId("cv-page-overflow-role")).toBeNull();
+      expect(calls.filter((c) => c.init?.method === "POST")).toHaveLength(0);
+    });
+
+    it("kept state offers 'shorten roles after all' only when roles are shortenable, and it reopens the menu", async () => {
+      mockMenu({ status: { ...NOTHING, choice: "keep" } });
+      const { unmount } = render(withIntl(<PageOverflowCard cvId="cv-m" />, "de"));
+      expect((await screen.findByTestId("cv-page-overflow-done")).textContent).toContain("3 Seiten – so von Dir gewählt.");
+      fireEvent.click(screen.getByTestId("cv-page-overflow-kept-pick"));
+      expect(screen.getAllByTestId("cv-page-overflow-role")).toHaveLength(2);
+      unmount();
+      mockMenu({ status: { ...NOTHING, choice: "keep", shortenable_roles: [] } });
+      render(withIntl(<PageOverflowCard cvId="cv-m2" />, "de"));
+      await screen.findByTestId("cv-page-overflow-done");
+      expect(screen.queryByTestId("cv-page-overflow-kept-pick")).toBeNull();
     });
   });
 });

@@ -12,7 +12,7 @@
 // page mounts it with one line.
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -58,6 +58,20 @@ export interface PageOverflow {
 
 const WARNING_ICON = "warning";
 
+/** R-1: the preview request waits this long after the last tick. */
+const PREVIEW_DEBOUNCE_MS = 800;
+
+/** The checkbox label: "title · company" (composed here, not a catalog key). */
+function roleListLabel(r: { title: string; company: string }): string {
+  return `${r.title} · ${r.company}`;
+}
+
+/** "role — company — end_date" → "role (company)"; anything else stays as it is. */
+function roleDoneLabel(label: string): string {
+  const parts = label.split(" — ");
+  return parts.length >= 2 ? `${parts[0]} (${parts[1]})` : label;
+}
+
 const KIND_KEYS: Record<PageOverflowCutKind, string> = {
   duplicate_project: "pageOverflowKindDuplicateProject",
   off_job_skills: "pageOverflowKindOffJobSkills",
@@ -81,9 +95,16 @@ interface PageOverflowCardProps {
 export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageOverflowCardProps) {
   const t = useTranslations("cv");
   const tReview = useTranslations("documentReview.delivery");
+  const tDoc = useTranslations("documentReview");
+  const tCommon = useTranslations("common");
   const [overflow, setOverflow] = useState<PageOverflow | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  // R-1: the role menu.
+  const [pickOpen, setPickOpen] = useState(false);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [previewResult, setPreviewResult] = useState<{ key: string; pages: number } | null>(null);
+  const previewAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     // The page mounts the card with key={cvId}, so a new CV starts from null.
@@ -107,6 +128,40 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
   useEffect(() => {
     onOpenChange?.(open);
   }, [open, onOpenChange]);
+
+  // R-1: debounce the page-count preview of the ticked roles; one request in
+  // flight — a new tick (or closing the menu) aborts the previous one.
+  useEffect(() => {
+    previewAbort.current?.abort();
+    previewAbort.current = null;
+    if (!pickOpen || picked.length === 0) return;
+    const key = picked.join(",");
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      previewAbort.current = controller;
+      fetch(`${API_BASE}/api/cv/${cvId}/page-overflow/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roles: picked }),
+        signal: controller.signal,
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`preview ${res.status}`);
+          return res.json() as Promise<{ pages: number }>;
+        })
+        .then((data) => {
+          if (!controller.signal.aborted) setPreviewResult({ key, pages: data.pages });
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          setFailed(true);
+        });
+    }, PREVIEW_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [pickOpen, picked, cvId]);
 
   if (!overflow) return null;
   if (overflow.choice === null && overflow.actual <= overflow.target) return null;
@@ -158,6 +213,127 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
     }
   }
 
+  const shortenable = overflow.shortenable_roles ?? [];
+  const canPick = shortenable.length > 0;
+  // The mock's answer buttons carry a sub-line whenever the card is the "your call" one.
+  const showSubs = canPick || cutPages === null;
+
+  function togglePicked(index: number) {
+    setFailed(false);
+    setPicked((cur) => (cur.includes(index) ? cur.filter((i) => i !== index) : [...cur, index].sort((a, b) => a - b)));
+  }
+
+  function closePick() {
+    setPickOpen(false);
+    setPicked([]);
+  }
+
+  async function applyPick() {
+    if (busy || picked.length === 0) return;
+    setBusy(true);
+    setFailed(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/cv/${cvId}/page-overflow`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ choice: "cut", roles: picked }),
+      });
+      if (res.status === 409) {
+        // Same MD3-3 path: the CV changed under the menu — re-read, close.
+        const fresh = await fetch(`${API_BASE}/api/cv/${cvId}/status`);
+        const data = fresh.ok ? ((await fresh.json()) as { page_overflow?: PageOverflow | null }) : null;
+        if (data?.page_overflow) {
+          setOverflow(data.page_overflow);
+          closePick();
+          return;
+        }
+      }
+      if (!res.ok) throw new Error(`page-overflow ${res.status}`);
+      setOverflow((await res.json()) as PageOverflow);
+      closePick();
+      onContentChanged?.();
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const previewKey = picked.join(",");
+  const previewPages = previewResult && previewResult.key === previewKey ? previewResult.pages : null;
+  const previewLine =
+    picked.length === 0 ? null : (
+      <p
+        className={`mt-2 text-[13px] font-semibold ${
+          previewPages === null
+            ? "text-on-surface-variant"
+            : previewPages <= target
+              ? "text-success"
+              : "text-warning"
+        }`}
+        data-testid="cv-page-overflow-preview"
+        data-fits={previewPages === null ? undefined : String(previewPages <= target)}
+        aria-live="polite"
+      >
+        {previewPages === null
+          ? t("pageOverflowPreviewWait")
+          : previewPages <= target
+            ? t("pageOverflowPreviewPages", { pages: previewPages })
+            : t("pageOverflowPreviewStill", { pages: previewPages })}
+      </p>
+    );
+
+  const pickMenu = pickOpen ? (
+    <div className="mt-3 border-t border-outline-variant pt-3" data-testid="cv-page-overflow-pick-menu">
+      <p className="mb-2 text-[13px] font-semibold">{t("pageOverflowPickQuestion")}</p>
+      <ul className="flex flex-col gap-1">
+        {shortenable.map((r) => (
+          <li key={r.index}>
+            <label
+              className="flex cursor-pointer items-start gap-2 rounded-lg border border-outline-variant px-3 py-2 text-[13px] leading-snug"
+              data-testid="cv-page-overflow-role"
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 shrink-0"
+                checked={picked.includes(r.index)}
+                onChange={() => togglePicked(r.index)}
+              />
+              <span className="min-w-0 break-words">
+                <span className="font-semibold">{roleListLabel(r)}</span>
+                <span className="block text-on-surface-variant">
+                  {t("pageOverflowRoleMeta", { dates: r.dates, count: r.bullets })}
+                </span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      {previewLine}
+      <p className="mt-2 text-xs text-on-surface-variant">{t("pageOverflowPickNote")}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => void applyPick()}
+          disabled={busy || picked.length === 0}
+          className="rounded-lg bg-primary px-4 py-2 text-[13px] font-bold text-white hover:opacity-90 disabled:opacity-50"
+          data-testid="cv-page-overflow-apply"
+        >
+          {t("pageOverflowPickApply", { count: picked.length })}
+        </button>
+        <button
+          type="button"
+          onClick={closePick}
+          disabled={busy}
+          className="rounded-lg border border-outline-variant bg-white px-4 py-2 text-[13px] font-semibold text-on-surface disabled:opacity-50"
+          data-testid="cv-page-overflow-pick-cancel"
+        >
+          {tCommon("cancel")}
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   const error = failed ? (
     <p className="mt-2 text-xs text-critical" role="alert" data-testid="cv-page-overflow-error">
       {t("pageOverflowError")}
@@ -167,6 +343,15 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
   if (overflow.choice !== null) {
     const cut = overflow.choice === "cut";
     const canSwitch = cut ? overflow.uncut_available : overflow.cut_available;
+    // R-1: a person's own cut = exactly one old_role_bullets entry whose labels are
+    // "role — company — end_date" (the ladder's own such cut reads the same).
+    const userCut =
+      cut &&
+      overflow.proposed.length === 1 &&
+      overflow.proposed[0].kind === "old_role_bullets" &&
+      overflow.proposed[0].items.length > 0 &&
+      overflow.proposed[0].items.every((l) => l.split(" — ").length >= 3);
+    const userRoles = userCut ? overflow.proposed[0].items.map(roleDoneLabel).join(", ") : "";
     return (
       <div
         className="shrink-0 rounded-lg border border-outline-variant bg-surface-container px-3 py-2 text-[13px] text-on-surface"
@@ -174,7 +359,9 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
         data-choice={overflow.choice}
       >
         <span>
-          {cut
+          {userCut
+            ? t("pageOverflowUserCutDone", { pages: actual, roles: userRoles })
+            : cut
             ? removed && shortened
               ? t("pageOverflowCutDoneBoth", { target, items: removed, roles: shortened })
               : shortened
@@ -195,9 +382,25 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
             className="ml-1 font-semibold text-primary underline underline-offset-2 disabled:opacity-50"
             data-testid="cv-page-overflow-switch"
           >
-            {cut ? t("pageOverflowUndoCut", { actual: full }) : t("pageOverflowUndoKeep", { target })}
+            {userCut
+              ? tDoc("actionUndo")
+              : cut
+                ? t("pageOverflowUndoCut", { actual: full })
+                : t("pageOverflowUndoKeep", { target })}
           </button>
         )}
+        {!cut && canPick && !pickOpen && (
+          <button
+            type="button"
+            onClick={() => setPickOpen(true)}
+            disabled={busy}
+            className="ml-1 font-semibold text-primary underline underline-offset-2 disabled:opacity-50"
+            data-testid="cv-page-overflow-kept-pick"
+          >
+            {t("pageOverflowKeptPick")}
+          </button>
+        )}
+        {!cut && pickMenu}
         {error}
       </div>
     );
@@ -230,7 +433,7 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
       )}
       <p className="mb-1 text-[13px] leading-snug text-on-surface-variant" data-testid="cv-page-overflow-body">
         {cutPages === null
-          ? tD("cvPageNothingToCut")
+          ? t("pageOverflowWhyNothing")
           : unreachable
             ? tD("cvPageUnreachable", { target, reachable: cutPages, mode })
             : t("pageOverflowBody", { target, mode })}
@@ -247,11 +450,28 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
           type="button"
           onClick={() => void choose("keep")}
           disabled={busy}
-          className="rounded-lg bg-primary px-4 py-2 text-[13px] font-bold text-white hover:opacity-90 disabled:opacity-50"
+          className="rounded-lg bg-primary px-4 py-2 text-left text-[13px] font-bold text-white hover:opacity-90 disabled:opacity-50"
           data-testid="cv-page-overflow-keep"
         >
           {t("pageOverflowKeep", { actual: full })}
+          {showSubs && (
+            <span className="block text-xs font-normal opacity-90" data-testid="cv-page-overflow-keep-sub">
+              {t("pageOverflowKeepSub", { actual: full })}
+            </span>
+          )}
         </button>
+        {canPick && !pickOpen && (
+          <button
+            type="button"
+            onClick={() => setPickOpen(true)}
+            disabled={busy}
+            className="rounded-lg border border-outline-variant bg-white px-4 py-2 text-left text-[13px] font-semibold text-on-surface disabled:opacity-50"
+            data-testid="cv-page-overflow-pick"
+          >
+            {t("pageOverflowPick")}
+            <span className="block text-xs font-normal text-on-surface-variant">{t("pageOverflowPickSub")}</span>
+          </button>
+        )}
         {cutPages !== null && (
           <button
             type="button"
@@ -269,6 +489,7 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
           {t("pageOverflowCutGone")}
         </p>
       )}
+      {pickMenu}
       <p className="mt-2 text-xs text-on-surface-variant">{t("pageOverflowNote")}</p>
       {error}
     </section>
