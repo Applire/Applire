@@ -117,6 +117,19 @@ def test_cv_delta_excludes_ladder_cuts():
     assert [c["section_id"] for c in got2] == ["introduction"]
 
 
+def test_cv_delta_before_side_omits_ladder_cut_lines():
+    reviewed = _cv(bullets1=("A", "B", "C"))
+    final_raw = _cv(bullets1=("A", "B2", "C"))     # the corrector changed B -> B2
+    delivered = _cv(bullets1=("A", "B2"))          # the ladder then cut C
+    got = review_delta.cv_unreviewed_changes(
+        reviewed, delivered, build_content_snapshot(delivered), final_raw=final_raw
+    )
+    assert len(got) == 1
+    assert got[0]["before"] == "A\nB"
+    assert got[0]["after"] == "A\nB2"
+    assert "C" not in got[0]["before"].split("\n") + got[0]["after"].split("\n")
+
+
 def _letter(*paragraphs):
     return {"header": {"name": "X"}, "body": {"paragraphs": list(paragraphs)}, "signature": {}}
 
@@ -301,5 +314,6 @@ async def test_letter_producer_wires_delta(db):
     assert len(check.unreviewed_changes_hash) == 16
     cl = await db.get(GeneratedCoverLetter, ids[2].id)
     persisted = {c["id"]: c for c in (cl.ats_report or {}).get("checks", [])}.get("terminal-review")
-    if persisted is not None:  # the audit ran for real: the delta is on the row
-        assert persisted["unreviewed_changes"][0]["section_id"] == "body"
+    assert persisted is not None, cl.ats_report
+    assert persisted["unreviewed_changes"][0]["section_id"] == "body"
+    assert len(persisted["unreviewed_changes_hash"]) == 16

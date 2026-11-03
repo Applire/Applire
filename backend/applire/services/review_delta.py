@@ -100,6 +100,14 @@ def cv_unreviewed_changes(
             visible = bool(removed) and not any(ln in delivered_lines for ln in removed)
         if not visible:
             continue
+        # Lines the ladder/condense cut AFTER the verdict (in the final raw section,
+        # gone from the delivered one) are the page card's business: drop them from
+        # the "before" side too, or they read as struck-through corrector work.
+        cut = {ln for ln in after_lines if ln not in delivered_lines}
+        if cut:
+            kept = [ln for ln in before_lines if ln not in cut]
+            if kept:
+                before = "\n".join(kept)
         out.append({
             "section_id": key_to_sid.get(key, key),
             "before": _clip(before),
