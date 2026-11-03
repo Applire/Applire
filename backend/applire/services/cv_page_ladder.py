@@ -43,7 +43,7 @@ from __future__ import annotations
 import copy
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Collection, Iterator
 
 # The kinds a cut can have — stable ids the frontend and the ATS finding key on.
 DUPLICATE_PROJECT = "duplicate_project"
@@ -206,7 +206,6 @@ def ladder_steps(
     # 6. an old role's bullets and nested projects, oldest first (proposal only)
     if old_roles_before is None:
         return
-    pin_idx = pinned_bullets or (lambda _e, _t: set())
     done: set[int] = set()
     while True:
         work = current.get("work_history") or []
@@ -218,23 +217,95 @@ def ladder_steps(
         ]
         if not old:
             return
-        i, role = min(old, key=lambda iw: (_year_key(iw[1].get("end_date")), -iw[0]))
+        i, _role = min(old, key=lambda iw: (_year_key(iw[1].get("end_date")), -iw[0]))
         done.add(i)
-        bullets = [b for b in role.get("bullets") or [] if isinstance(b, str)]
-        keep_b = pin_idx(role, bullets)
-        kept_projects = [
-            p for p in role.get("projects") or []
-            if isinstance(p, dict) and pin_idx(role, [b for b in p.get("bullets") or [] if isinstance(b, str)])
-        ]
-        new_bullets = [b for j, b in enumerate(bullets) if j in keep_b]
-        if len(new_bullets) == len(bullets) and len(kept_projects) == len(role.get("projects") or []):
+        current, cut = shorten_roles(current, [i], pinned_bullets=pinned_bullets)
+        if not cut.items:
             continue  # everything on it is pinned: nothing to cut
-        role["bullets"] = new_bullets
-        role["projects"] = kept_projects
-        label = " — ".join(
-            x for x in (role.get("role"), role.get("company"), str(role.get("end_date") or "")) if x
-        )
-        yield LadderStep(copy.deepcopy(current), LadderCut(OLD_ROLE_BULLETS, (label,)))
+        yield LadderStep(copy.deepcopy(current), cut)
+
+
+def _strip_plan(role: dict, pinned_bullets: Callable[[dict, list[str]], set[int]] | None):
+    """What the U-6 strip leaves on one role: ``(bullets, projects, removed)`` —
+    ``removed`` counts the bullets that go (a removed project's bullets included);
+    None when nothing on the role can go (empty, or all of it pinned)."""
+    pin_idx = pinned_bullets or (lambda _e, _t: set())
+    bullets = [b for b in role.get("bullets") or [] if isinstance(b, str)]
+    keep_b = pin_idx(role, bullets)
+    projects = [p for p in role.get("projects") or [] if isinstance(p, dict)]
+    kept_projects = [
+        p for p in projects
+        if pin_idx(role, [b for b in p.get("bullets") or [] if isinstance(b, str)])
+    ]
+    new_bullets = [b for j, b in enumerate(bullets) if j in keep_b]
+    if len(new_bullets) == len(bullets) and len(kept_projects) == len(role.get("projects") or []):
+        return None
+    removed = len(bullets) - len(new_bullets) + sum(
+        len([b for b in p.get("bullets") or [] if isinstance(b, str)])
+        for p in projects if p not in kept_projects
+    )
+    return new_bullets, kept_projects, removed
+
+
+def _role_label(role: dict) -> str:
+    return " — ".join(
+        x for x in (role.get("role"), role.get("company"), str(role.get("end_date") or "")) if x
+    )
+
+
+def shorten_roles(
+    data: dict,
+    indices: Collection[int],
+    *,
+    pinned_bullets: Callable[[dict, list[str]], set[int]] | None = None,
+) -> tuple[dict, LadderCut]:
+    """The U-6 strip, shared by ladder rung 6 and the person's own pick (R-1): each
+    ``work_history`` role at ``indices`` keeps its title, company and dates and loses
+    its bullets and nested projects, except what a CV pin protects. Returns the new
+    data (the input is untouched) and ONE ``old_role_bullets`` cut naming each role
+    that actually lost something as ``role — company — end_date``; ``items`` is empty
+    when everything on the chosen roles is pinned or already bare."""
+    out = copy.deepcopy(data)
+    work = out.get("work_history") or []
+    labels: list[str] = []
+    for i in sorted(set(indices)):
+        if not (0 <= i < len(work)) or not isinstance(work[i], dict):
+            continue
+        plan = _strip_plan(work[i], pinned_bullets)
+        if plan is None:
+            continue
+        work[i]["bullets"], work[i]["projects"] = plan[0], plan[1]
+        labels.append(_role_label(work[i]))
+    return out, LadderCut(OLD_ROLE_BULLETS, tuple(labels))
+
+
+def shortenable_roles(
+    data: dict,
+    *,
+    pinned_bullets: Callable[[dict, list[str]], set[int]] | None = None,
+) -> list[dict[str, Any]]:
+    """The roles the person may pick to shorten (R-1): non-current ``work_history``
+    entries that still have bullets or projects and are not entirely pinned. Each
+    entry: ``index`` (into ``work_history``), ``title``, ``company``, ``dates`` (as the
+    CV renders them) and ``bullets`` (how many would be removed)."""
+    from applire.templates.filters import period
+
+    out: list[dict[str, Any]] = []
+    for i, w in enumerate(data.get("work_history") or []):
+        if not isinstance(w, dict) or w.get("is_current"):
+            continue
+        if not w.get("end_date") and w.get("is_current") is not False:
+            continue  # no end date and not stated as ended: the CV renders it as current
+        plan = _strip_plan(w, pinned_bullets)
+        if plan is None or plan[2] == 0:
+            continue
+        p = period(w, "")
+        dates = f"{p['start']} – {p['end']}" if p["dash"] else (p["start"] or p["end"])
+        out.append({
+            "index": i, "title": str(w.get("role") or ""), "company": str(w.get("company") or ""),
+            "dates": dates, "bullets": plan[2],
+        })
+    return out
 
 
 def merge_cuts(cuts: list[LadderCut]) -> list[dict[str, Any]]:

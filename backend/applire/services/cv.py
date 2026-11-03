@@ -37,6 +37,7 @@ _render_cv_background:
 
 import base64 as _base64
 import hashlib
+import asyncio
 import json as _json
 import logging
 import re
@@ -3798,7 +3799,11 @@ async def get_cv_status(
         signature_available=signature_available,
         # #786 L-3: the x+1 decision (None = the CV fits its target).
         page_overflow=(
-            page_overflow_public(record) if status == CVGenerationStatus.ready else None
+            page_overflow_public(
+                record,
+                pins=await _cv_pins(record, db) if _wants_shortenable_roles(record) else (),
+            )
+            if status == CVGenerationStatus.ready else None
         ),
     )
 
@@ -5821,7 +5826,45 @@ def _page_undo_plan(record: GeneratedCV, po: dict) -> tuple[dict, list[str] | No
     )
 
 
-def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = None) -> dict | None:
+def _wants_shortenable_roles(record: GeneratedCV) -> bool:
+    """R-1: the person may pick roles to shorten only while no cut is applied, no
+    section edit sits on the CV (the cut path's ``unedited`` gate) and the ladder
+    cannot reach the target (``cut_pages`` None or ``reaches_target`` False)."""
+    po = record.page_overflow
+    if not po or po.get("choice") == "cut" or record.section_overrides:
+        return False
+    return po.get("cut_pages") is None or po.get("reaches_target") is False
+
+
+def _shortenable_roles_now(record: GeneratedCV, pins: Sequence = ()) -> list[dict]:
+    if not _wants_shortenable_roles(record):
+        return []
+    from applire.services.cv_page_ladder import shortenable_roles
+
+    return shortenable_roles(record.tailored_data or {}, pinned_bullets=_ladder_bullet_pins(pins))
+
+
+async def _cv_pins(record: GeneratedCV, db: AsyncSession) -> list:
+    """The application's active CV pins, rebuilt out of band (``condense_ctx.pins``
+    exists only during generation). Fail-safe: no pins on a load failure — the
+    protected bullets then show as removable, so callers must re-check on write."""
+    try:
+        from applire.services.application import get_application_for_job
+        from applire.services.fact_pins import load_pins
+        from applire.services.pin_reach import active_pins
+
+        app = await get_application_for_job(record.job_analysis_id, record.user_id, db)
+        if app is None or not app.pinned_facts:
+            return []
+        return active_pins(load_pins(app), "cv")
+    except Exception:
+        logger.exception("fact-pin load failed for page-overflow CV %s", record.id)
+        return []
+
+
+def page_overflow_public(
+    record: GeneratedCV, *, user_id: uuid.UUID | None = None, pins: Sequence = (),
+) -> dict | None:
     """The x+1 decision as the CV page reads it — never the stored data copies.
     ``cut_available``: "Kürzen" can be applied to the CV as it stands (same content as
     at the proposal, no section edit on top, a proposal that reaches the target).
@@ -5855,6 +5898,8 @@ def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = Non
         # D-23: what the automatic ladder cut before the card was shown ([] on
         # older rows and when nothing was cut).
         "auto_cuts": po.get("auto_cuts") or [],
+        # R-1: the roles the person may shorten (see ``_wants_shortenable_roles``).
+        "shortenable_roles": _shortenable_roles_now(record, pins),
     }
 
 
@@ -5871,6 +5916,27 @@ def _snapshot_keeping_ids(old: dict | None, tailored: TailoredCVData) -> dict:
         if isinstance(idx, int) and idx < len(old_positions) and old_positions[idx].get("id"):
             pos["id"] = old_positions[idx]["id"]
     return snap
+
+
+async def _render_pages(record: GeneratedCV, db: AsyncSession) -> int:
+    """Render the row as it stands now (one Chromium launch) and count its pages."""
+    from applire.services.ats_audit import extract_text_and_pages
+
+    html = await get_cv_html(record.id, db, user_id=record.user_id)
+    return extract_text_and_pages(await _html_to_pdf(html))[1]
+
+
+async def _measure_data(record: GeneratedCV, data: dict, db: AsyncSession) -> int:
+    """R-1: the page count ``record`` would have with ``data`` as its content — a
+    candidate render. The row is swapped in memory only (autoflush off, restored in
+    ``finally``): nothing reaches the database."""
+    original = record.tailored_data
+    try:
+        with db.sync_session.no_autoflush:
+            record.tailored_data = data
+            return await _render_pages(record, db)
+    finally:
+        record.tailored_data = original
 
 
 async def _measure_current(record: GeneratedCV, db: AsyncSession) -> "MeasuredRender | None":
@@ -5890,12 +5956,61 @@ async def _measure_current(record: GeneratedCV, db: AsyncSession) -> "MeasuredRe
     return MeasuredRender(text, count, False, target, DEFAULT_REGION)
 
 
+class PageOverflowBadRoles(ValueError):
+    """R-1: a role index that is not on the CV's shortenable list — 422."""
+
+
+#: R-1: previews launch a fresh Chromium each (``_html_to_pdf`` has no pool and no
+#: limit, REFUTE item 7) — serialise them so a burst cannot exhaust the host.
+_PREVIEW_RENDERS = asyncio.Semaphore(1)
+
+
+async def _checked_user_cut(
+    record: GeneratedCV, roles: list[int], db: AsyncSession
+) -> tuple[dict, "LadderCut"]:
+    """The cut for the person's ``roles`` over the CV as it stands. Raises
+    ``PageOverflowBadRoles`` for an index outside ``shortenable_roles``."""
+    from applire.services.cv_page_ladder import shorten_roles
+
+    pins = await _cv_pins(record, db)
+    allowed = {r["index"] for r in _shortenable_roles_now(record, pins)}
+    bad = sorted(set(roles) - allowed)
+    if bad:
+        raise PageOverflowBadRoles(f"roles {bad} cannot be shortened on this CV")
+    return shorten_roles(
+        record.tailored_data or {}, roles, pinned_bullets=_ladder_bullet_pins(pins)
+    )
+
+
+async def preview_page_overflow_roles(
+    cv_id: uuid.UUID,
+    roles: list[int],
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> int:
+    """R-1: the page count the CV would have with ``roles`` shortened. One render of
+    the candidate, no write, outside ``document_lock``. Raises ``LookupError`` (404),
+    ``PageOverflowConflict`` (409) or ``PageOverflowBadRoles`` (422)."""
+    owner = resolve_owner(user_id, site="cv.preview_page_overflow_roles")
+    try:
+        record = await owned_cv(db, cv_id, owner)
+    except LookupError:
+        raise LookupError(f"CV {cv_id} not found") from None
+    if record.status != CVGenerationStatus.ready.value or not record.page_overflow:
+        raise PageOverflowConflict("this CV has no page decision to make")
+    async with _PREVIEW_RENDERS:
+        candidate, _cut = await _checked_user_cut(record, roles, db)
+        return await _measure_data(record, candidate, db)
+
+
 async def set_page_overflow_choice(
     cv_id: uuid.UUID,
     choice: str,
     db: AsyncSession,
     *,
     user_id: uuid.UUID | None = None,
+    roles: list[int] | None = None,
 ) -> dict:
     """Apply the person's x+1 choice ("keep" | "cut") and remember it on the CV.
 
@@ -5922,6 +6037,23 @@ async def set_page_overflow_choice(
         if record.status != CVGenerationStatus.ready.value or not record.page_overflow:
             raise PageOverflowConflict("this CV has no page decision to make")
         po = dict(record.page_overflow)
+        if roles is not None:
+            # R-1: the person's own pick replaces the stored proposal. It is built from
+            # the CV as it stands, so the cut path below sees a proposal that matches it.
+            if choice != "cut":
+                raise PageOverflowBadRoles("roles is only valid with choice=cut")
+            if po.get("choice") == "cut":
+                raise PageOverflowConflict("a cut is already applied: undo it first")
+            if record.section_overrides:
+                raise PageOverflowConflict("the CV has section edits: nothing can be shortened")
+            candidate, cut = await _checked_user_cut(record, roles, db)
+            if not cut.items:
+                raise PageOverflowConflict("nothing to shorten on the chosen roles")
+            po.update(
+                cut_data=candidate, basis_hash=_subject_hash(record.tailored_data),
+                proposed=[cut.as_dict()], cut_pages=None, reaches_target=False,
+            )
+            record.page_overflow = po
         if po.get("choice") == choice:
             return page_overflow_public(record)
         public = page_overflow_public(record)
@@ -5973,6 +6105,10 @@ async def set_page_overflow_choice(
             if measured is not None:
                 po = dict(po)
                 po["actual"] = measured.page_count
+                if roles is not None:
+                    # R-1: the pick's own length, measured on the applied content.
+                    po["cut_pages"] = measured.page_count
+                    po["reaches_target"] = measured.page_count <= (po.get("target") or 0)
                 record.page_overflow = po
             await _update_ats_report(record, db, measured=measured)
         return page_overflow_public(record)

@@ -47,6 +47,13 @@ export interface PageOverflow {
    * pages, per kind. `[]` (or absent) on older rows and when nothing was cut.
    */
   auto_cuts?: { kind: PageOverflowCutKind; items: string[] }[];
+  /**
+   * R-1: non-current roles the person may shorten to title, company and dates when
+   * the ladder cannot reach the target. `index` is the position in the CV's work
+   * history; `dates` as the CV renders them; `bullets` how many would be removed.
+   * `[]` or absent otherwise.
+   */
+  shortenable_roles?: { index: number; title: string; company: string; dates: string; bullets: number }[];
 }
 
 const WARNING_ICON = "warning";
