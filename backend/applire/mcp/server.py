@@ -629,6 +629,33 @@ def _marked_document(payload, tool: str):
     return mark_tool_result(payload, fields, kind="generated_document")
 
 
+# Final review I-2 — an ats-report check can carry `unreviewed_changes[]`: the
+# verbatim before/after text of the sections Applire changed after its last
+# check. That is the writer's output (kind `generated_document`), on a payload
+# that ALREADY carries the job-posting `untrusted_content` (keywords). The
+# single-object `untrusted_content` cannot hold two kinds without changing its
+# shape for every client that reads it today, so the second kind rides in a
+# sibling top-level key of the SAME object shape. Added only when a delta is
+# actually present.
+_UNREVIEWED_DELTA_FIELDS = [
+    "report.checks[].unreviewed_changes[].before",
+    "report.checks[].unreviewed_changes[].after",
+]
+
+
+def _with_unreviewed_delta_marking(payload):
+    from applire.services.untrusted_text import untrusted_content
+
+    if not isinstance(payload, dict):
+        return payload
+    checks = ((payload.get("report") or {}).get("checks")) or []
+    if any(isinstance(c, dict) and c.get("unreviewed_changes") for c in checks):
+        payload["untrusted_generated_content"] = untrusted_content(
+            _UNREVIEWED_DELTA_FIELDS, "generated_document"
+        )
+    return payload
+
+
 def _marked(payload, kind: str):
     """Attach the ADR-084 `untrusted_content` object for *kind*.
 
@@ -1448,7 +1475,7 @@ async def get_cv_ats_report(cv_id: str) -> dict:
             result = await cv_svc.get_cv_ats_report(cid, db, user_id=uid)
         except LookupError as exc:
             raise not_found(str(exc))
-    return _marked(result.model_dump(mode="json"), "ats_report")
+    return _with_unreviewed_delta_marking(_marked(result.model_dump(mode="json"), "ats_report"))
 
 
 async def _audit_stored_document(record, kind: str, db) -> dict:
@@ -1825,7 +1852,7 @@ async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:
             result = await cover_letter_svc.get_cover_letter_ats_report(cid, db, user_id=uid)
         except LookupError as exc:
             raise not_found(str(exc))
-    return _marked(result.model_dump(mode="json"), "ats_report")
+    return _with_unreviewed_delta_marking(_marked(result.model_dump(mode="json"), "ats_report"))
 
 
 @agent_tool(
