@@ -30,7 +30,7 @@ from applire.models.user import User
 from applire.db.session import get_db
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.ats import ATSReportResponse
+from applire.schemas.ats import ATSReportResponse, SectionChangeModel
 from applire.schemas.oracle import TruthfulnessReport
 from applire.schemas.testimony import TestimonyResult
 from applire.services import review_actions as ra
@@ -117,10 +117,7 @@ class RemovalEvidenceResponse(ReviewStateResponse):
     testimony: TestimonyResult
 
 
-class SectionChange(BaseModel):
-    section_id: str
-    before: str
-    after: str
+SectionChange = SectionChangeModel  # one shape for the take-out and the R-2 delta
 
 
 class SupportedResponse(ReviewReportResponse):

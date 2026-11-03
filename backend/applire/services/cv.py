@@ -37,6 +37,7 @@ _render_cv_background:
 
 import base64 as _base64
 import hashlib
+import asyncio
 import json as _json
 import logging
 import re
@@ -3798,7 +3799,8 @@ async def get_cv_status(
         signature_available=signature_available,
         # #786 L-3: the x+1 decision (None = the CV fits its target).
         page_overflow=(
-            page_overflow_public(record) if status == CVGenerationStatus.ready else None
+            await _public_with_pins(record, db)
+            if status == CVGenerationStatus.ready else None
         ),
     )
 
@@ -5085,6 +5087,7 @@ async def _render_cv_background(
                 # #563 (D): stays None when the review layer is disabled — which the
                 # ADR-039 check reports as `not_applicable`, never as a clean pass.
                 terminal_outcome = None
+                final_raw = None  # R-2: raw compose of the final prose draft
                 if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
                     tr = await _terminal_review(
                         record, db,
@@ -5108,6 +5111,7 @@ async def _render_cv_background(
                     terminal_rounds = tr.rounds
                     reentry_exhausted = tr.reentry_exhausted
                     terminal_outcome = tr.outcome
+                    final_raw = tr.final_raw
 
                 # SUBJECT-IDENTITY gate (#538 evidence layer 1): the content the
                 # terminal verdict covered must BE the delivered content. The audits
@@ -5122,9 +5126,12 @@ async def _render_cv_background(
                         # #703: the delivery's repeated demands, measured against
                         # the composed CV this audit reads.
                         terminal_review=with_repeated_demands(
-                            terminal_outcome if v2_terminal is None
-                            else v2_terminal.report_delivered(
-                                terminal_outcome, prose_draft, record.tailored_data
+                            _with_unreviewed_delta(
+                                terminal_outcome if v2_terminal is None
+                                else v2_terminal.report_delivered(
+                                    terminal_outcome, prose_draft, record.tailored_data
+                                ),
+                                final_raw, record,
                             ),
                             cv_demand_record, record.tailored_data
                         ),
@@ -5175,6 +5182,7 @@ async def _render_cv_background(
                         prose_draft, measured = tr.prose_draft, tr.measured
                         terminal_rounds += tr.rounds
                         reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
+                        final_raw = tr.final_raw
                         # Fold, never replace: a clean re-entry round must not erase an
                         # earlier exhaustion that already shipped content.
                         terminal_outcome = (
@@ -5815,7 +5823,76 @@ def _page_undo_plan(record: GeneratedCV, po: dict) -> tuple[dict, list[str] | No
     )
 
 
-def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = None) -> dict | None:
+def _ladder_reach(po: dict) -> tuple[bool | None, int | None]:
+    """``(reaches_target, cut_pages)`` of a stored page decision, with the defaults
+    for a row stored before ADR-099 cl. 7 (a proposal then always reached). One
+    reading for the public payload and the role menu."""
+    has_cut = bool(po.get("cut_data"))
+    return (
+        po.get("reaches_target", True if has_cut else None),
+        po.get("cut_pages", po.get("target") if has_cut else None),
+    )
+
+
+def _wants_shortenable_roles(record: GeneratedCV) -> bool:
+    """R-1: the person may pick roles to shorten only while no cut is applied, no
+    section edit sits on the CV (the cut path's ``unedited`` gate) and the ladder
+    cannot reach the target (``cut_pages`` None or ``reaches_target`` False)."""
+    po = record.page_overflow
+    if not po or po.get("choice") == "cut" or record.section_overrides:
+        return False
+    reaches, cut_pages = _ladder_reach(po)
+    return cut_pages is None or reaches is False
+
+
+def _shortenable_roles_now(record: GeneratedCV, pins: Sequence | None = ()) -> list[dict]:
+    if pins is None or not _wants_shortenable_roles(record):
+        return []
+    from applire.services.cv_page_ladder import shortenable_roles
+
+    return shortenable_roles(record.tailored_data or {}, pinned_bullets=_ladder_bullet_pins(pins))
+
+
+class PageOverflowPinsUnavailable(PageOverflowConflict):
+    """R-1: the fact pins could not be loaded, so a write that must protect them
+    (ADR-077 cl. 4) refuses — 409, the route's "cannot do this now" code."""
+
+
+async def _cv_pins(record: GeneratedCV, db: AsyncSession) -> list:
+    """The application's active CV pins, rebuilt out of band (``condense_ctx.pins``
+    exists only during generation). FAIL-CLOSED: a load failure raises
+    ``PageOverflowPinsUnavailable`` — apply and preview must never strip bullets a
+    pin protects."""
+    try:
+        from applire.services.application import get_application_for_job
+        from applire.services.fact_pins import load_pins
+        from applire.services.pin_reach import active_pins
+
+        app = await get_application_for_job(record.job_analysis_id, record.user_id, db)
+        if app is None or not app.pinned_facts:
+            return []
+        return active_pins(load_pins(app), "cv")
+    except Exception as exc:
+        logger.exception("fact-pin load failed for page-overflow CV %s", record.id)
+        raise PageOverflowPinsUnavailable("the fact pins could not be loaded; try again") from exc
+
+
+async def _public_with_pins(record: GeneratedCV, db: AsyncSession) -> dict | None:
+    """``page_overflow_public`` for a door with a session: loads the pins when the
+    role list is wanted. The read-only listing degrades to an EMPTY list when the
+    pins cannot load (never over-offers)."""
+    pins: Sequence | None = ()
+    if _wants_shortenable_roles(record):
+        try:
+            pins = await _cv_pins(record, db)
+        except PageOverflowPinsUnavailable:
+            pins = None
+    return page_overflow_public(record, pins=pins)
+
+
+def page_overflow_public(
+    record: GeneratedCV, *, user_id: uuid.UUID | None = None, pins: Sequence | None = (),
+) -> dict | None:
     """The x+1 decision as the CV page reads it — never the stored data copies.
     ``cut_available``: "Kürzen" can be applied to the CV as it stands (same content as
     at the proposal, no section edit on top, a proposal that reaches the target).
@@ -5834,6 +5911,7 @@ def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = Non
     )
     plan = _page_undo_plan(record, po)
     uncut_available = plan is not None and not plan[2]
+    reaches_target, cut_pages = _ladder_reach(po)
     return {
         "target": po.get("target"),
         "actual": po.get("actual"),
@@ -5844,11 +5922,13 @@ def page_overflow_public(record: GeneratedCV, *, user_id: uuid.UUID | None = Non
         "uncut_available": uncut_available,
         # ADR-099 cl. 7: False = "kürzen" reaches only ``cut_pages`` (closest
         # reachable); None on a proposal stored before the field (it reached).
-        "reaches_target": po.get("reaches_target", True if po.get("cut_data") else None),
-        "cut_pages": po.get("cut_pages", po.get("target") if po.get("cut_data") else None),
+        "reaches_target": reaches_target,
+        "cut_pages": cut_pages,
         # D-23: what the automatic ladder cut before the card was shown ([] on
         # older rows and when nothing was cut).
         "auto_cuts": po.get("auto_cuts") or [],
+        # R-1: the roles the person may shorten (see ``_wants_shortenable_roles``).
+        "shortenable_roles": _shortenable_roles_now(record, pins),
     }
 
 
@@ -5865,6 +5945,27 @@ def _snapshot_keeping_ids(old: dict | None, tailored: TailoredCVData) -> dict:
         if isinstance(idx, int) and idx < len(old_positions) and old_positions[idx].get("id"):
             pos["id"] = old_positions[idx]["id"]
     return snap
+
+
+async def _render_pages(record: GeneratedCV, db: AsyncSession) -> int:
+    """Render the row as it stands now (one Chromium launch) and count its pages."""
+    from applire.services.ats_audit import extract_text_and_pages
+
+    html = await get_cv_html(record.id, db, user_id=record.user_id)
+    return extract_text_and_pages(await _html_to_pdf(html))[1]
+
+
+async def _measure_data(record: GeneratedCV, data: dict, db: AsyncSession) -> int:
+    """R-1: the page count ``record`` would have with ``data`` as its content — a
+    candidate render. The row is swapped in memory only (autoflush off, restored in
+    ``finally``): nothing reaches the database."""
+    original = record.tailored_data
+    try:
+        with db.sync_session.no_autoflush:
+            record.tailored_data = data
+            return await _render_pages(record, db)
+    finally:
+        record.tailored_data = original
 
 
 async def _measure_current(record: GeneratedCV, db: AsyncSession) -> "MeasuredRender | None":
@@ -5884,12 +5985,65 @@ async def _measure_current(record: GeneratedCV, db: AsyncSession) -> "MeasuredRe
     return MeasuredRender(text, count, False, target, DEFAULT_REGION)
 
 
+class PageOverflowBadRoles(ValueError):
+    """R-1: a role index that is not on the CV's shortenable list — 422."""
+
+
+#: R-1: previews launch a fresh Chromium each (``_html_to_pdf`` has no pool and no
+#: limit, REFUTE item 7) — serialise them so a burst cannot exhaust the host.
+_PREVIEW_RENDERS = asyncio.Semaphore(1)
+
+
+async def _checked_user_cut(
+    record: GeneratedCV, roles: list[int], db: AsyncSession
+) -> tuple[dict, "LadderCut"]:
+    """The cut for the person's ``roles`` over the CV as it stands. Raises
+    ``PageOverflowBadRoles`` for an index outside ``shortenable_roles``."""
+    from applire.services.cv_page_ladder import shorten_roles
+
+    pins = await _cv_pins(record, db)
+    allowed = {r["index"] for r in _shortenable_roles_now(record, pins)}
+    bad = sorted(set(roles) - allowed)
+    if bad:
+        raise PageOverflowBadRoles(f"roles {bad} cannot be shortened on this CV")
+    return shorten_roles(
+        record.tailored_data or {}, roles, pinned_bullets=_ladder_bullet_pins(pins)
+    )
+
+
+async def preview_page_overflow_roles(
+    cv_id: uuid.UUID,
+    roles: list[int],
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> int:
+    """R-1: the page count the CV would have with ``roles`` shortened. One render of
+    the candidate, no write, outside ``document_lock``. Raises ``LookupError`` (404),
+    ``PageOverflowConflict`` (409) or ``PageOverflowBadRoles`` (422)."""
+    owner = resolve_owner(user_id, site="cv.preview_page_overflow_roles")
+    try:
+        record = await owned_cv(db, cv_id, owner)
+    except LookupError:
+        raise LookupError(f"CV {cv_id} not found") from None
+    if record.status != CVGenerationStatus.ready.value or not record.page_overflow:
+        raise PageOverflowConflict("this CV has no page decision to make")
+    async with _PREVIEW_RENDERS:
+        candidate, _cut = await _checked_user_cut(record, roles, db)
+        return await _measure_data(record, candidate, db)
+
+
+#: R-1/D2: the ladder's stored proposal fields a person's role pick overwrites.
+_LADDER_PICK_FIELDS = ("cut_data", "basis_hash", "proposed", "cut_pages", "reaches_target")
+
+
 async def set_page_overflow_choice(
     cv_id: uuid.UUID,
     choice: str,
     db: AsyncSession,
     *,
     user_id: uuid.UUID | None = None,
+    roles: list[int] | None = None,
 ) -> dict:
     """Apply the person's x+1 choice ("keep" | "cut") and remember it on the CV.
 
@@ -5916,9 +6070,34 @@ async def set_page_overflow_choice(
         if record.status != CVGenerationStatus.ready.value or not record.page_overflow:
             raise PageOverflowConflict("this CV has no page decision to make")
         po = dict(record.page_overflow)
+        if roles is not None:
+            # R-1: the person's own pick replaces the stored proposal. It is built from
+            # the CV as it stands, so the cut path below sees a proposal that matches it.
+            if choice != "cut":
+                raise PageOverflowBadRoles("roles is only valid with choice=cut")
+            if po.get("choice") == "cut":
+                raise PageOverflowConflict("a cut is already applied: undo it first")
+            if record.section_overrides:
+                raise PageOverflowConflict("the CV has section edits: nothing can be shortened")
+            candidate, cut = await _checked_user_cut(record, roles, db)
+            if not cut.items:
+                raise PageOverflowConflict("nothing to shorten on the chosen roles")
+            # D2: remember what the ladder had stored, so an undo returns to that card.
+            # Only the keys that were present: an absent key must come back absent.
+            po["ladder_before_pick"] = {
+                k: copy.deepcopy(po[k]) for k in _LADDER_PICK_FIELDS if k in po
+            }
+            # m-3: and the choice it was made from — a pick off the kept line must
+            # return to the kept line, not to undecided.
+            po["ladder_before_pick"]["choice"] = po.get("choice")
+            po.update(
+                cut_data=candidate, basis_hash=_subject_hash(record.tailored_data),
+                proposed=[cut.as_dict()], cut_pages=None, reaches_target=False,
+            )
+            record.page_overflow = po
         if po.get("choice") == choice:
-            return page_overflow_public(record)
-        public = page_overflow_public(record)
+            return await _public_with_pins(record, db)
+        public = page_overflow_public(record)  # flags only; roles not needed
         new_data: dict | None = None
         new_skills: list[str] | None = None
         if choice == "cut":
@@ -5943,6 +6122,16 @@ async def set_page_overflow_choice(
                 )
             new_data, new_skills, _ = plan
             po["full_data"] = None
+            before_pick = po.pop("ladder_before_pick", None)
+            if before_pick is not None:
+                # D2: an undo of the PERSON's cut is not a decision to keep: the card
+                # returns to what it showed before the pick — undecided, or the kept
+                # line the pick was made from (m-3).
+                for k in _LADDER_PICK_FIELDS:
+                    po.pop(k, None)
+                before_pick = copy.deepcopy(before_pick)
+                choice = before_pick.pop("choice", None)
+                po.update(before_pick)
         po["choice"] = choice
         record.page_overflow = po
         logger.info("PAGE_OVERFLOW_CHOICE cv_id=%s choice=%s", record.id, choice)
@@ -5967,9 +6156,13 @@ async def set_page_overflow_choice(
             if measured is not None:
                 po = dict(po)
                 po["actual"] = measured.page_count
+                if roles is not None:
+                    # R-1: the pick's own length, measured on the applied content.
+                    po["cut_pages"] = measured.page_count
+                    po["reaches_target"] = measured.page_count <= (po.get("target") or 0)
                 record.page_overflow = po
             await _update_ats_report(record, db, measured=measured)
-        return page_overflow_public(record)
+        return await _public_with_pins(record, db)
 
 
 async def _measure_and_condense(
@@ -6171,6 +6364,39 @@ class TerminalReviewResult:
     # earlier exhaustion that already shipped content. `None` only when the review
     # layer produced no settle at all. Reported as the ADR-039 `terminal-review` check.
     outcome: "TerminalReviewOutcome | None" = None
+    # R-2: the RAW compose of ``prose_draft`` (no condense, no ladder) — the
+    # "final" side of the reviewed→delivered delta (``review_delta``).
+    final_raw: "TailoredCVData | None" = None
+
+
+def _with_unreviewed_delta(
+    outcome: "TerminalReviewOutcome | None",
+    final_raw: "TailoredCVData | None",
+    record: GeneratedCV,
+) -> "TerminalReviewOutcome | None":
+    """R-2: attach what changed after the last verdict to an outcome whose findings do
+    not stand against the delivered draft. Fail-open — a report line never fails a CV."""
+    if (
+        outcome is None
+        or outcome.findings_stand_against_delivered
+        or outcome.reviewed_subject is None
+    ):
+        return outcome
+    try:
+        from dataclasses import replace as _dc_replace
+
+        from applire.services.review_delta import cv_unreviewed_changes
+
+        changes = cv_unreviewed_changes(
+            outcome.reviewed_subject,
+            TailoredCVData.model_validate(record.tailored_data),
+            record.content_snapshot,
+            final_raw=final_raw,
+        )
+        return _dc_replace(outcome, unreviewed_changes=changes or None)
+    except Exception:
+        logger.exception("unreviewed-delta measurement failed for CV %s — not recorded", record.id)
+        return outcome
 
 
 def _cv_prose_shape_ok(draft: Any) -> bool:
@@ -6485,6 +6711,14 @@ async def _terminal_review(
     outcome_cell: dict[str, TerminalReviewOutcome | None] = {"outcome": None}
 
     def _record_settle(settle) -> None:
+        # R-2: the RAW compose of the draft this verdict read (not the cached,
+        # possibly post-condense subject) — the "reviewed" side of the delta.
+        reviewed_subject = None
+        if reviewed_cell["draft"] is not None:
+            try:
+                reviewed_subject = _compose(reviewed_cell["draft"])
+            except Exception:
+                logger.exception("raw compose of the reviewed draft failed — no delta")
         outcome_cell["outcome"] = settle_to_outcome(
             settle,
             chain_id="cv_terminal_review",
@@ -6492,6 +6726,7 @@ async def _terminal_review(
             # `max_retries <= 0` short-circuit (no reviewer prompt was ever built), and
             # `settle_to_outcome` then reports exactly as it did before.
             reviewed_draft=reviewed_cell["draft"],
+            reviewed_subject=reviewed_subject,
         ).worse_of(outcome_cell["outcome"])
 
     def _record_demand(concepts) -> None:
@@ -6658,12 +6893,18 @@ async def _terminal_review(
                 record.id, rounds,
             )
             break
+    final_raw = None
+    try:
+        final_raw = _compose(current)
+    except Exception:
+        logger.exception("raw compose of the final draft failed for CV %s — no delta", record.id)
     return TerminalReviewResult(
         prose_draft=current,
         measured=measure_cell["measured"],
         rounds=rounds,
         reentry_exhausted=reentry_exhausted,
         outcome=outcome_cell["outcome"],
+        final_raw=final_raw,
     )
 
 

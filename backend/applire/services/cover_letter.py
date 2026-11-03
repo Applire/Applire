@@ -2532,7 +2532,8 @@ async def _render_cover_letter_body(
                         # #703: the delivery's repeated demands, measured against
                         # the letter this audit reads.
                         terminal_review=with_repeated_demands(
-                            terminal_outcome, demand_record, cl.letter_data
+                            _with_unreviewed_delta(terminal_outcome, cl),
+                            demand_record, cl.letter_data,
                         ),
                     )
                     delivered_hash = subject_hash(cl.letter_data)
@@ -3329,6 +3330,28 @@ def _log_subject_identity_letter(
     )
 
 
+def _with_unreviewed_delta(outcome, cl: GeneratedCoverLetter):
+    """R-2: attach what changed after the last verdict to an outcome whose findings do
+    not stand against the delivered letter. Measured against the FINAL
+    ``cl.letter_data`` — the post-loop condense, the final floor, a rejected patch and
+    the settle-time limit cut all rewrite it after the verdict, and each is an
+    unreviewed change. Fail-open: a report line never fails a letter."""
+    if (
+        outcome is None
+        or outcome.findings_stand_against_delivered
+        or outcome.reviewed_subject is None
+    ):
+        return outcome
+    try:
+        from applire.services.review_delta import letter_unreviewed_changes
+
+        changes = letter_unreviewed_changes(outcome.reviewed_subject, cl.letter_data or {})
+        return dataclasses.replace(outcome, unreviewed_changes=changes or None)
+    except Exception:
+        logger.exception("unreviewed-delta measurement failed for letter %s — not recorded", cl.id)
+        return outcome
+
+
 @dataclass
 class LetterTerminalReviewResult:
     """Outcome of one `_terminal_review_letter` invocation (#539)."""
@@ -3829,13 +3852,16 @@ async def _terminal_review_letter(
     # corrector revised it after this verdict and nobody re-read it") instead of
     # the settle-path inference. Both `review_and_refine` call sites below (the
     # terminal loop and the length-floor round) hand this function the draft.
-    reviewed_cell: dict[str, dict | None] = {"draft": None}
+    # R-2: `subject` = the COMPOSED letter that verdict read (v1's `draft` is the raw
+    # prose draft) — the "reviewed" side of the reviewed→delivered delta.
+    reviewed_cell: dict[str, dict | None] = {"draft": None, "subject": None}
 
     def _reviewer_prompt(source: str, d: dict) -> str:
         # v2: the reviewed subject is the COMPOSED letter (code-owned header), the
         # same dict the delivery persists — else F-4's identity check never matches
         # a v2 letter (found building W3-3a). v1 keeps the raw draft (R-3).
         reviewed_cell["draft"] = _subject_of(d) if is_v2 else d
+        reviewed_cell["subject"] = copy.deepcopy(_subject_of(d))
         return _wrapped(source, _subject_of(d))
 
     # ADR-076 amended 2026-08-29 (3-L1, #547 residual): the TERMINAL mount's
@@ -3877,7 +3903,7 @@ async def _terminal_review_letter(
     outcome_cell: dict = {"raw": []}
 
     def _record_settle(settle) -> None:
-        outcome_cell["raw"].append((settle, reviewed_cell["draft"]))
+        outcome_cell["raw"].append((settle, reviewed_cell["draft"], reviewed_cell["subject"]))
 
     def _reject_unreviewed_patch(reviewed: dict, patch: dict, *, site: str) -> bool:
         """784:71 — True when the corrector ``patch`` that would ship UNREVIEWED
@@ -3899,7 +3925,7 @@ async def _terminal_review_letter(
         from applire.services.terminal_review_outcome import settle_to_outcome
 
         outcome = None
-        for settle, reviewed_draft in outcome_cell["raw"]:
+        for settle, reviewed_draft, reviewed_subject in outcome_cell["raw"]:
             this = settle_to_outcome(
                 settle,
                 chain_id="letter_terminal_review",
@@ -3910,6 +3936,7 @@ async def _terminal_review_letter(
                 # what ACTUALLY shipped, not this round's own settled draft — see
                 # `measure_correction`'s `delivered_draft` docstring.
                 delivered_draft=delivered_draft,
+                reviewed_subject=reviewed_subject,
             )
             outcome = this.worse_of(outcome)
         return outcome

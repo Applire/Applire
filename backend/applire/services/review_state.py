@@ -311,6 +311,8 @@ def with_decision(
     at: str | None = None,
     receipt: list[dict] | None = None,
     found: bool | None = None,
+    basis: str | None = None,
+    with_basis: bool = False,
 ) -> dict:
     """Record ``action`` on ``key``, REPLACING any earlier decision on the same
     finding (its ``undo.before`` is superseded by the new action's, cl. 6).
@@ -336,6 +338,12 @@ def with_decision(
         entry["receipt"] = [{"path": r.get("path"), "text": r.get("text")} for r in receipt]
     if found is not None:
         entry["found"] = bool(found)
+    if with_basis:
+        # R-2b: "Passt so" on ``send:terminal-review`` — the hash of the delta the
+        # user read (None for a legacy check without one). Counts only while it
+        # equals the check's CURRENT ``unreviewed_changes_hash``. Rows without the
+        # field (every older decision) stay readable.
+        entry["basis"] = basis
     out["decisions"].append(entry)
     return out
 

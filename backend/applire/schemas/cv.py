@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from applire.constants import MAX_TARGET_PAGES
 from applire.models.cv import CVGenerationStatus
@@ -134,6 +134,18 @@ class CVPageOverflowCut(BaseModel):
     items: list[str] = Field(default_factory=list)
 
 
+class ShortenableRole(BaseModel):
+    """R-1: one role the person may shorten to title, company and dates. ``index`` is
+    the position in the CV's ``work_history``; ``dates`` as the CV renders them;
+    ``bullets`` how many would be removed (nested project bullets included, pinned
+    ones excluded). The frontend composes the label from title and company."""
+    index: int
+    title: str
+    company: str
+    dates: str
+    bullets: int
+
+
 class CVPageOverflow(BaseModel):
     """The x+1 decision on one CV (#786 L-3). ``choice`` null = not yet asked
     back; ``cut_available`` = "Kürzen" can be applied to the CV as it stands (no
@@ -158,11 +170,54 @@ class CVPageOverflow(BaseModel):
     # ladder already removed before the card was shown — the card names it
     # (ADR-099: an automatic cut is never silent). [] when nothing was cut.
     auto_cuts: list[CVPageOverflowCut] = Field(default_factory=list)
+    # R-1 (review-cards UAT-3, additive): the non-current roles the person may
+    # shorten to title/company/dates when the ladder cannot reach the target.
+    # [] otherwise (target reachable, a cut applied, or section edits on the CV).
+    shortenable_roles: list[ShortenableRole] = Field(default_factory=list)
+
+
+MAX_SHORTEN_ROLES = 30
+
+
+def _check_roles(roles: list[int]) -> list[int]:
+    if not roles:
+        raise ValueError("roles must not be empty")
+    if len(roles) > MAX_SHORTEN_ROLES:
+        raise ValueError(f"at most {MAX_SHORTEN_ROLES} roles")
+    if len(set(roles)) != len(roles):
+        raise ValueError("roles must not repeat")
+    return roles
 
 
 class CVPageOverflowChoiceRequest(BaseModel):
-    """POST /api/cv/{cv_id}/page-overflow body."""
+    """POST /api/cv/{cv_id}/page-overflow body. ``roles`` (R-1) is only valid with
+    ``choice="cut"``: the person's own pick of roles to shorten, instead of the
+    stored proposal."""
     choice: Literal["keep", "cut"]
+    roles: Optional[list[int]] = None
+
+    @model_validator(mode="after")
+    def _roles_only_with_cut(self):
+        if self.roles is not None:
+            if self.choice != "cut":
+                raise ValueError("roles is only valid with choice=cut")
+            _check_roles(self.roles)
+        return self
+
+
+class CVPageOverflowPreviewRequest(BaseModel):
+    """POST /api/cv/{cv_id}/page-overflow/preview body."""
+    roles: list[int]
+
+    @field_validator("roles")
+    @classmethod
+    def _valid_roles(cls, v: list[int]) -> list[int]:
+        return _check_roles(v)
+
+
+class CVPageOverflowPreview(BaseModel):
+    """The page count the CV would have with those roles shortened."""
+    pages: int
 
 
 CVStatusResponse.model_rebuild()

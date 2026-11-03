@@ -43,6 +43,24 @@ describe("EditContextStrip", () => {
     expect(screen.getByTestId("edit-context-back").textContent).toContain("Zurück zur Prüfung");
   });
 
+  it("the earlier-draft context says the passage was changed after the last check, not that it is uncovered (D1)", () => {
+    render(withIntl(<EditContextStrip context={{ kind: "unreviewed", label: "Wahrheitsprüfung" }} receipt={null} />, "de"));
+    const strip = screen.getByTestId("edit-context-unreviewed");
+    expect(strip.textContent).toContain("Aus der Prüfung");
+    expect(screen.getByTestId("edit-context-label").textContent).toBe("Wahrheitsprüfung");
+    expect(strip.textContent).toContain(
+      "Applire hat diese Stelle nach der letzten Prüfung geändert und sie nicht mehr geprüft. Lies sie gegen und ändere, was nicht stimmt.",
+    );
+    expect(strip.textContent).not.toContain("nicht durch Dein Profil gedeckt");
+  });
+
+  it("the earlier-draft context in English", () => {
+    render(withIntl(<EditContextStrip context={{ kind: "unreviewed", label: "Truthfulness" }} receipt={null} />, "en"));
+    expect(screen.getByTestId("edit-context-unreviewed").textContent).toContain(
+      "Applire changed this passage after the last check and did not check it again. Read it and change what is not right.",
+    );
+  });
+
   it("states the group-2 trade as the user's own writing", () => {
     render(withIntl(<EditContextStrip context={{ kind: "gap", label: "SAP PP" }} receipt={null} />, "en"));
     expect(screen.getByTestId("edit-context-gap").textContent).toContain(

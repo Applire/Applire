@@ -13,7 +13,7 @@ concurrency:
 jobs:
   backend-unit-tests:
     name: Backend Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       checks: write
       contents: read
@@ -133,7 +133,7 @@ jobs:
 
   integration-and-e2e-tests:
     name: Integration & E2E Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 45, was 30: PR #802 passed in 29m43s (main ~24 min) and a run timed out
     # during PQ on a slow browser download (785:220).
     timeout-minutes: 45
@@ -383,7 +383,7 @@ jobs:
   # A SKIP here is a failure: a lane that skips proves nothing (#438).
   postgres-only-tests:
     name: Postgres-only Tests (races, constraints, migrations)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -464,7 +464,7 @@ jobs:
   # on the same stack when it exists, signed in by the `auth_session` fixture.
   real-auth-lane:
     name: Real-auth Lane (login on, nginx on :8091)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -615,7 +615,7 @@ jobs:
 
   frontend-unit-tests:
     name: Frontend Unit Tests (Vitest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       checks: write
       contents: read
@@ -649,7 +649,7 @@ jobs:
 
   frontend-lint:
     name: Frontend Lint (ESLint + i18n parity)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
 
@@ -674,7 +674,7 @@ jobs:
 
   frontend-build-check:
     name: Frontend Production Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
 
@@ -701,7 +701,7 @@ jobs:
 
   module-system-check:
     name: Module System Validation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
@@ -736,7 +736,7 @@ jobs:
 
   test-summary:
     name: Test Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [backend-unit-tests, integration-and-e2e-tests, postgres-only-tests, real-auth-lane, frontend-unit-tests, frontend-lint, frontend-build-check, module-system-check]
     if: always()
     permissions:

@@ -16,6 +16,7 @@ import { useTranslations } from "next-intl";
 
 export type EditContext =
   | { kind: "finding"; label: string; form: string }
+  | { kind: "unreviewed"; label: string }
   | { kind: "gap"; label: string }
   | { kind: "letter"; facts: string[] };
 
@@ -73,9 +74,11 @@ export function EditContextStrip({ context, receipt, onBack, onDismiss }: EditCo
           <p className="text-[13px] leading-snug text-on-surface">
             {context.kind === "finding"
               ? t("fromFindingBody", { form: context.form })
-              : context.kind === "gap"
-                ? t("fromGapBody", { label: context.label })
-                : t("fromLetterBody")}
+              : context.kind === "unreviewed"
+                ? t("fromUnreviewedBody")
+                : context.kind === "gap"
+                  ? t("fromGapBody", { label: context.label })
+                  : t("fromLetterBody")}
           </p>
           {context.kind === "letter" && context.facts.length > 0 && (
             <ul className="flex flex-wrap gap-1" data-testid="edit-context-facts">

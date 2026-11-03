@@ -61,7 +61,7 @@ import {
   type DeliveryClass,
   type DeliveryRemoval,
 } from "./ats-report";
-import type { ReviewAction, ReviewDecision, ReviewState } from "./api/document-review";
+import { TERMINAL_REVIEW_KEY, type ReviewAction, type ReviewDecision, type ReviewState, type SectionChange } from "./api/document-review";
 import type { LocateTarget } from "./locate-in-preview";
 import { normQuote } from "./norm-quote";
 import {
@@ -947,6 +947,23 @@ export interface UnknownRow {
   producer?: ReviewProducer;
   /** A check whose own class is U (e.g. `terminal-review` not run). */
   check?: ATSCheck;
+  /** R-2: the passages changed after the last review (`earlierDraft` with a stored delta). */
+  changes?: SectionChange[];
+  /** R-2: the user pressed "Passt so" on THIS delta — a decided line, not counted, never hidden. */
+  acknowledged: boolean;
+}
+
+/**
+ * R-2 / rulings P-1, P-3 — the "changed after the last check" row is acknowledged iff the
+ * review state holds a `kept` decision on `send:terminal-review` whose `basis` equals the
+ * check's CURRENT `unreviewed_changes_hash` (`null` for a legacy check without a delta).
+ * A different delta voids the acknowledgement: the row is counted again.
+ */
+export function isUnreviewedAcknowledged(check: ATSCheck, reviewState: ReviewState | null | undefined): boolean {
+  const current = check.unreviewed_changes_hash ?? null;
+  return (reviewState?.decisions ?? []).some(
+    (d) => d.finding_key === TERMINAL_REVIEW_KEY && d.action === "kept" && (d.basis ?? null) === current,
+  );
 }
 
 /**
@@ -1067,15 +1084,15 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   // each. The outcome critic answering `ran:false` / `judgement_error` is U as
   // well (cl. 2 names `ran:false`); it runs only inside the writing loop now
   // (cl. 8), so its one action is a new version, not a re-check.
-  if (atsReport == null) unknown.push({ key: "producer-ats", resolver: "recheck", producer: "ats" });
+  if (atsReport == null) unknown.push({ key: "producer-ats", resolver: "recheck", producer: "ats", acknowledged: false });
   if (truthReport == null || (truthReport.judgement_unavailable ?? 0) > 0) {
-    unknown.push({ key: "producer-oracle", resolver: "recheck", producer: "oracle" });
+    unknown.push({ key: "producer-oracle", resolver: "recheck", producer: "oracle", acknowledged: false });
   }
   const critic = inputs.criticReport;
   // ADV-11: a critic that RAISED leaves the report NULL (no review_degradation
   // entry either) — the same "did not answer" as ran:false, never silence.
   if (critic == null || critic.ran === false || critic.reason === "judgement_error") {
-    unknown.push({ key: "producer-critic", resolver: "regenerate", producer: "critic" });
+    unknown.push({ key: "producer-critic", resolver: "regenerate", producer: "critic", acknowledged: false });
   }
 
   // Group 1 — one question per kind.
@@ -1086,7 +1103,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
       continue;
     }
     if (eff === "U") {
-      unknown.push({ key: `g1-${item.key}`, resolver: (item.resolver as "recheck" | "regenerate") ?? "recheck" });
+      unknown.push({ key: `g1-${item.key}`, resolver: (item.resolver as "recheck" | "regenerate") ?? "recheck", acknowledged: false });
       continue;
     }
     // A (or unclassified: the card falls back to today's handles).
@@ -1132,10 +1149,14 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
       continue;
     }
     if (eff === "U") {
+      const earlier = unknownState({ key: "", resolver: "recheck", check: c, acknowledged: false }) === "earlierDraft";
+      const delta = earlier && (c.unreviewed_changes?.length ?? 0) > 0 ? c.unreviewed_changes! : undefined;
       unknown.push({
         key: `check-${c.id}`,
         resolver: c.resolver === "regenerate" ? "regenerate" : "recheck",
         check: c,
+        changes: delta,
+        acknowledged: earlier && isUnreviewedAcknowledged(c, inputs.reviewState),
       });
       continue;
     }
@@ -1154,7 +1175,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     countedOpenRows(questions).length +
     translate.length +
     (pageLength && !inputs.pageCardFromPage ? 1 : 0) +
-    unknown.length +
+    unknown.filter((u) => !u.acknowledged).length +
     fallback.filter((f) => f.counted).length +
     (degraded ? 1 : 0) +
     (inputs.extraCounted ?? 0);

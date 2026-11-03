@@ -105,7 +105,13 @@ interface ContentTabProps {
    * the one whose content holds the `placeIndex`-th place of `targets` (same
    * normalisation as *Show me where*); no match → the section list stays open.
    */
-  pendingFinding?: { targets: LocateTarget[] | null; placeIndex: number; nonce: number } | null;
+  pendingFinding?: {
+    targets: LocateTarget[] | null;
+    placeIndex: number;
+    nonce: number;
+    /** D1: the section the request names; opened before any text matching when it exists. */
+    sectionId?: string | null;
+  } | null;
   onPendingFindingConsumed?: () => void;
 }
 
@@ -299,7 +305,11 @@ export const ContentTab = forwardRef<ContentTabHandle, ContentTabProps>(function
     if (consumedFindingNonce.current === pendingFinding.nonce) return;
     if (sectionsLoading) return;
     consumedFindingNonce.current = pendingFinding.nonce;
-    const sectionId = sectionHoldingPlace(sections, pendingFinding.targets, pendingFinding.placeIndex);
+    const named = pendingFinding.sectionId;
+    const sectionId =
+      named && sections.some((s) => s.section_id === named)
+        ? named
+        : sectionHoldingPlace(sections, pendingFinding.targets, pendingFinding.placeIndex);
     if (sectionId) handleBrowseToEdit(sectionId, []);
     onPendingFindingConsumed?.();
   }, [pendingFinding, sectionsLoading, sections, handleBrowseToEdit, onPendingFindingConsumed]);

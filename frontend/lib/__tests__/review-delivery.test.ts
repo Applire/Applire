@@ -297,7 +297,7 @@ describe("buildDeliveryView — checks", () => {
 describe("buildDeliveryView — unknown producers and removals", () => {
   it("a producer that did not run is a U row (Jetzt prüfen), counted", () => {
     const v = buildDeliveryView(inputs({ truthReport: null }));
-    expect(v.unknown).toEqual([{ key: "producer-oracle", resolver: "recheck", producer: "oracle" }]);
+    expect(v.unknown).toEqual([{ key: "producer-oracle", resolver: "recheck", producer: "oracle", acknowledged: false }]);
     expect(v.count).toBe(1);
     const w = buildDeliveryView(inputs({ atsReport: null }));
     expect(w.unknown.map((u) => u.producer)).toEqual(["ats"]);

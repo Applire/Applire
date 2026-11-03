@@ -112,6 +112,8 @@ REST_BODIES: dict[tuple[str, str], dict] = {
     ("PATCH", "/api/cv/{cv_id}/color"): {"accent_hex": "#12233E"},
     # #786 L-3: the x+1 choice.
     ("POST", "/api/cv/{cv_id}/page-overflow"): {"choice": "cut"},
+    # R-1: the page-count preview of the person's own role pick.
+    ("POST", "/api/cv/{cv_id}/page-overflow/preview"): {"roles": [1]},
     ("PATCH", "/api/applications/{application_id}"): {"notes": "Changed by B."},
     ("POST", "/api/applications/{application_id}/pins"): {
         "entry_type": "skill", "entry_id": "s1", "quote": "Python",

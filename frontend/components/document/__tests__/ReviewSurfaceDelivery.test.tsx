@@ -37,6 +37,7 @@ const api = vi.hoisted(() => ({
   removalEvidence: vi.fn(),
   shortenLetter: vi.fn(),
   keepLetterLength: vi.fn(),
+  keepUnreviewed: vi.fn(),
 }));
 vi.mock("@/lib/api/document-review", async (orig) => {
   const actual = await orig<typeof import("@/lib/api/document-review")>();
@@ -423,8 +424,9 @@ describe("ADV-10 / ADV-11 — the „Nicht geprüft“ words match the producer'
     "terminal-review-not-run": { title: "Nicht geprüft: Schlussprüfung", body: "Die Schlussprüfung lief für dieses Dokument nicht" },
     "terminal-review-incomplete": { title: "Nicht zu Ende geprüft: Schlussprüfung", body: "nicht zu Ende laufen" },
     "terminal-review-unnamed": { title: "Nicht zu Ende geprüft: Schlussprüfung", body: "nicht zu Ende laufen" },
-    "terminal-review-unverified": { title: "Auf einer früheren Fassung geprüft: Schlussprüfung", body: "lief auf einer früheren Fassung" },
-    "terminal-review-unverified-clean": { title: "Auf einer früheren Fassung geprüft: Schlussprüfung", body: "lief auf einer früheren Fassung" },
+    // R-2: the fixture rows carry no delta (a legacy document) → the reworded legacy card.
+    "terminal-review-unverified": { title: "Nach der letzten Prüfung noch überarbeitet", body: "nicht gespeichert" },
+    "terminal-review-unverified-clean": { title: "Nach der letzten Prüfung noch überarbeitet", body: "nicht gespeichert" },
     "duplicate-bullets": { title: "Gefunden, aber nicht behoben:", body: "hat etwas gefunden" },
   };
 
@@ -438,8 +440,10 @@ describe("ADV-10 / ADV-11 — the „Nicht geprüft“ words match the producer'
       expect(box.querySelector("h4")!.textContent).toContain(WORDS[key].title);
       expect(within(box).getByTestId("review-unknown-body").textContent).toContain(WORDS[key].body);
       if (key !== "terminal-review-not-run") expect(box.textContent).not.toContain("lief für dieses Dokument nicht");
-      expect(within(box).getAllByRole("button")).toHaveLength(1);
+      const legacy = key.startsWith("terminal-review-unverified");
+      expect(within(box).getAllByRole("button")).toHaveLength(legacy ? 2 : 1);
       expect(within(box).getByTestId("review-unknown-regenerate")).toBeTruthy();
+      if (legacy) expect(within(box).getByTestId("review-unknown-ok")).toBeTruthy();
       expect(count()).toBe("1");
     },
   );
@@ -450,5 +454,155 @@ describe("ADV-10 / ADV-11 — the „Nicht geprüft“ words match the producer'
     expect(box.querySelector("h4")!.textContent).toBe("Nicht geprüft: Kohärenz-Hinweis");
     expect(within(box).getByTestId("review-unknown-regenerate")).toBeTruthy();
     expect(count()).toBe("1");
+  });
+});
+
+
+describe("R-2 — the „changed after the last check“ card", () => {
+  const clean: TruthfulnessReport = { version: "2", document_kind: "cv", counts: {}, stated_limit: "", claims: [] };
+  const HASH = "0123456789abcdef";
+  const CHANGES = [
+    { section_id: "summary", before: "Alt eins. Gemeinsamer Satz.", after: "Neu eins. Gemeinsamer Satz." },
+    { section_id: "work_history[0]", before: "Alte Aufgabe.", after: "Neue Aufgabe." },
+  ];
+  const unverified = (over: Record<string, unknown> = {}) =>
+    ({
+      id: "terminal-review",
+      status: "warn",
+      details_key: "terminal-review-unverified",
+      delivery_class: "U",
+      resolver: "regenerate",
+      notes: [{ kind: "finding", plain: "Eine Zahl wirkt aufgebläht." }, { kind: "finding" }],
+      unreviewed_changes: CHANGES,
+      unreviewed_changes_hash: HASH,
+      ...over,
+    }) as NonNullable<ATSReport>["checks"][number];
+  const withCheck = (check: ReturnType<typeof unverified>, over: Partial<ReviewSurfaceProps> = {}) =>
+    props({ truthReport: clean, atsReport: ats(undefined, [check]), onRegenerate: vi.fn(), ...over });
+  const keptState = (basis: string | null, action = "kept") => ({
+    walked_at: null,
+    decisions: [{ finding_key: "send:terminal-review", label: "x", action, at: "t", undo: null, basis }],
+  });
+
+  it("with changes: notes, before/after hunks and two actions, no regenerate; counted once", () => {
+    render(withIntl(<ReviewSurface {...withCheck(unverified(), { onEditFinding: vi.fn() })} />, "de"));
+    const box = screen.getByTestId("review-unknown");
+    expect(box.querySelector("h4")!.textContent).toBe("Lies diese 2 Stellen bitte selbst gegen");
+    expect(within(box).getByTestId("review-unknown-body").textContent).toContain("Deinen Lebenslauf zum Schluss geprüft");
+    expect(box.textContent).toContain("Die Prüfung hatte angemerkt:");
+    expect(box.textContent).toContain("Eine Zahl wirkt aufgebläht.");
+    expect(box.textContent).toContain("Danach geändert:");
+    const changes = within(box).getByTestId("review-unknown-changes");
+    expect(within(changes).getAllByTestId("review-takeout-hunk")).toHaveLength(2);
+    expect(within(box).getByTestId("review-unknown-ok").textContent).toContain("Passt so");
+    expect(within(box).getByTestId("review-unknown-edit").textContent).toContain("Selbst bearbeiten");
+    expect(within(box).queryByTestId("review-unknown-regenerate")).toBeNull();
+    expect(count()).toBe("1");
+  });
+
+  it("no plain note → no „Die Prüfung hatte angemerkt“ block; the letter says „Anschreiben“", () => {
+    render(withIntl(<ReviewSurface {...withCheck(unverified({ notes: [{ kind: "finding" }] }), { documentKind: "cover-letter" })} />, "de"));
+    const box = screen.getByTestId("review-unknown");
+    expect(box.textContent).not.toContain("Die Prüfung hatte angemerkt");
+    expect(within(box).getByTestId("review-unknown-body").textContent).toContain("Dein Anschreiben");
+  });
+
+  it("Passt so calls keepUnreviewed and applies the returned state", async () => {
+    const onRefresh = vi.fn();
+    api.keepUnreviewed.mockResolvedValue({ review_state: keptState(HASH) });
+    render(withIntl(<ReviewSurface {...withCheck(unverified(), { onRefresh })} />, "de"));
+    fireEvent.click(screen.getByTestId("review-unknown-ok"));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", true));
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledWith({ review_state: keptState(HASH) }, { documentChanged: false }));
+  });
+
+  it("acknowledged (state survives a reload): one decided line, no buttons, count 0, never hidden; Rückgängig withdraws", async () => {
+    const onRefresh = vi.fn();
+    api.keepUnreviewed.mockResolvedValue({ review_state: { walked_at: null, decisions: [] } });
+    render(withIntl(<ReviewSurface {...withCheck(unverified(), { reviewState: keptState(HASH), onRefresh })} />, "de"));
+    const line = screen.getByTestId("review-unknown-acknowledged");
+    expect(line.textContent).toContain("Von Dir gegengelesen: 2 Stellen, die Applire nach der letzten Prüfung geändert hat.");
+    expect(screen.queryByTestId("review-unknown-ok")).toBeNull();
+    expect(screen.queryByTestId("review-unknown-edit")).toBeNull();
+    expect(count()).toBe("0");
+    fireEvent.click(screen.getByTestId("review-unknown-ok-undo"));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", false));
+    await waitFor(() => expect(onRefresh).toHaveBeenCalled());
+  });
+
+  it("a decision on another delta (basis differs) does not acknowledge: the card is back and counted", () => {
+    render(withIntl(<ReviewSurface {...withCheck(unverified(), { reviewState: keptState("aaaaaaaaaaaaaaaa") })} />, "de"));
+    expect(screen.queryByTestId("review-unknown-acknowledged")).toBeNull();
+    expect(screen.getByTestId("review-unknown-ok")).toBeTruthy();
+    expect(count()).toBe("1");
+  });
+
+  it("legacy (no delta): reworded copy, Passt so + regenerate", () => {
+    const onRegenerate = vi.fn();
+    render(
+      withIntl(<ReviewSurface {...withCheck(unverified({ unreviewed_changes: null, unreviewed_changes_hash: null }), { onRegenerate })} />, "de"),
+    );
+    const box = screen.getByTestId("review-unknown");
+    expect(box.querySelector("h4")!.textContent).toBe("Nach der letzten Prüfung noch überarbeitet");
+    expect(within(box).queryByTestId("review-unknown-changes")).toBeNull();
+    expect(within(box).getByTestId("review-unknown-ok")).toBeTruthy();
+    fireEvent.click(within(box).getByTestId("review-unknown-regenerate"));
+    expect(onRegenerate).toHaveBeenCalled();
+    expect(count()).toBe("1");
+  });
+
+  it("legacy acknowledged with basis null → decided line, count 0", () => {
+    render(
+      withIntl(
+        <ReviewSurface {...withCheck(unverified({ unreviewed_changes: null, unreviewed_changes_hash: null }), { reviewState: keptState(null) })} />,
+        "de",
+      ),
+    );
+    const line = screen.getByTestId("review-unknown-acknowledged");
+    expect(line.textContent).toContain("Von Dir gegengelesen.");
+    expect(line.textContent).not.toContain("0 Stellen");
+    expect(count()).toBe("0");
+  });
+
+  it("Selbst bearbeiten (CV) opens the editor with targets from the first after-hunk", () => {
+    const onEditFinding = vi.fn();
+    render(withIntl(<ReviewSurface {...withCheck(unverified(), { onEditFinding })} />, "de"));
+    fireEvent.click(screen.getByTestId("review-unknown-edit"));
+    expect(onEditFinding).toHaveBeenCalledTimes(1);
+    const req = onEditFinding.mock.calls[0][0];
+    expect(req.findingKey).toBe("send:terminal-review");
+    expect(req.targets).toEqual([{ form: "Neu eins." }]);
+    expect(req.placeIndex).toBe(0);
+  });
+
+  it("Selbst bearbeiten carries the delta's section_id so the page opens THAT section (D1)", () => {
+    const onEditFinding = vi.fn();
+    render(withIntl(<ReviewSurface {...withCheck(unverified(), { onEditFinding })} />, "de"));
+    fireEvent.click(screen.getByTestId("review-unknown-edit"));
+    expect(onEditFinding.mock.calls[0][0].sectionId).toBe(CHANGES[0].section_id);
+  });
+
+  it("Selbst bearbeiten (letter) calls onEditFinding too (the page opens the body)", () => {
+    const onEditFinding = vi.fn();
+    render(withIntl(<ReviewSurface {...withCheck(unverified(), { documentKind: "cover-letter", documentId: "cl-1", onEditFinding })} />, "de"));
+    fireEvent.click(screen.getByTestId("review-unknown-edit"));
+    expect(onEditFinding).toHaveBeenCalledTimes(1);
+  });
+
+  it("stale delta (the after text is not in the live document) still renders and edit still opens the editor", () => {
+    const onEditFinding = vi.fn();
+    const stale = [{ section_id: "summary", before: "Vorher ganz anders.", after: "Nachher steht nirgends mehr." }];
+    render(withIntl(<ReviewSurface {...withCheck(unverified({ unreviewed_changes: stale }), { onEditFinding })} />, "de"));
+    expect(screen.getByTestId("review-unknown-changes")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("review-unknown-edit"));
+    expect(onEditFinding).toHaveBeenCalledTimes(1);
+  });
+
+  it("English copy", () => {
+    render(withIntl(<ReviewSurface {...withCheck(unverified())} />, "en"));
+    const box = screen.getByTestId("review-unknown");
+    expect(box.querySelector("h4")!.textContent).toBe("Please re-read these 2 passages yourself");
+    expect(within(box).getByTestId("review-unknown-ok").textContent).toContain("Looks right");
+    expect(box.textContent).toContain("The check had noted:");
   });
 });

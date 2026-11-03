@@ -21,9 +21,106 @@ export const PROPOSAL = {
   uncut_available: false,
 };
 
-export async function setupPageOverflowMocks(page: Page): Promise<{ posts: unknown[] }> {
+// R-1: nothing the ladder may cut on its own — the card is "your call": keep, or pick roles.
+export const SHORTENABLE_ROLES = [
+  { index: 2, title: "Leiter Logistik", company: "Nordwind Logistik GmbH", dates: "2004 – 2008", bullets: 4 },
+  { index: 3, title: "Teamleiter Qualität", company: "Kranich Systems AG", dates: "2001 – 2004", bullets: 3 },
+  { index: 4, title: "Sachbearbeiter Einkauf", company: "Kranich Systems AG", dates: "1998 – 2001", bullets: 2 },
+];
+
+// The CV's /sections payload: the page labels review hunks (`introduction`, `position::<id>`) from it.
+export const PO_POSITION_ID = "5f0c2d9e-3b1a-4c7e-9a52-6d8e1f4b7a30";
+export const PO_SECTIONS = {
+  sections: [
+    { section_id: "introduction", label: "Profil", content: "Leitete das Lagerteam.", has_override: false, gaps: [] },
+    {
+      section_id: `position::${PO_POSITION_ID}`,
+      label: "Leiter Logistik — Nordwind Logistik GmbH",
+      content: "Senkte die Handlingkosten spürbar.",
+      has_override: false,
+      gaps: [],
+    },
+  ],
+  general_gaps: [],
+};
+
+export const NOTHING_TO_CUT = {
+  target: 2,
+  actual: 3,
+  full_pages: 3,
+  proposed: [] as { kind: string; items: string[] }[],
+  choice: null as null | "keep" | "cut",
+  cut_available: false,
+  uncut_available: false,
+  reaches_target: false,
+  cut_pages: null as number | null,
+  auto_cuts: [] as { kind: string; items: string[] }[],
+  shortenable_roles: SHORTENABLE_ROLES,
+};
+
+export interface PageOverflowMockOptions {
+  /** `default` = the ladder proposes cuts; `nothing-to-cut` = only the role menu is left (R-1). */
+  scenario?: "default" | "nothing-to-cut";
+  uiLanguage?: "en" | "de";
+}
+
+export interface PageOverflowMockLog {
+  /** Every POST /page-overflow body. */
+  posts: unknown[];
+  /** Every POST /page-overflow/preview body. */
+  previews: unknown[];
+}
+
+export async function setupPageOverflowMocks(
+  page: Page,
+  opts: PageOverflowMockOptions = {},
+): Promise<PageOverflowMockLog> {
   const posts: unknown[] = [];
-  let current = { ...PROPOSAL };
+  const previews: unknown[] = [];
+  let current: Record<string, unknown> = opts.scenario === "nothing-to-cut" ? { ...NOTHING_TO_CUT } : { ...PROPOSAL };
+  // Every call the CV page makes is stubbed: a missing mock passes against a dead port
+  // locally and fails in CI against the seeded backend.
+  await page.route("**/api/settings", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        default_color_profile_id: null,
+        default_accent_hex: null,
+        ui_language: opts.uiLanguage ?? "en",
+        ui_language_explicit: true,
+        hide_predownload_notice: false,
+        dismissed_explainers: [],
+        target_cv_pages: 2,
+      }),
+    }),
+  );
+  // The shell layout and the CV page read the profile (photo); the page reads the job's gap row.
+  await page.route("**/api/profile", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: { personal_info: { full_name: "Jörg Müller", photo_url: null } } }),
+    }),
+  );
+  await page.route(`**/api/job/${JOB_ID}/gaps`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ category_a: [], category_b: [], category_c: [], gap_clusters: [], keyword_ledger: [] }),
+    }),
+  );
+  // Only read when the flow state carries an application_id (this fixture's does not).
+  await page.route("**/api/applications/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ id: "app-pageoverflow", user_status: "tracking", applied_at: null, submitted_cv_id: null }),
+    }),
+  );
+  await page.route("**/api/flow/*/advance", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
+  );
   await page.route(`**/api/flow/${PO_FLOW_ID}/state`, (route) =>
     route.fulfill({
       status: 200,
@@ -58,25 +155,72 @@ export async function setupPageOverflowMocks(page: Page): Promise<{ posts: unkno
       }),
     }),
   );
+  // R-1: the page count with the ticked roles shortened — two or more roles bring it to the target.
+  await page.route(`**/api/cv/${PO_CV_ID}/page-overflow/preview`, async (route) => {
+    const body = route.request().postDataJSON() as { roles: number[] };
+    previews.push(body);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ pages: body.roles.length >= 2 ? 2 : 3 }),
+    });
+  });
   await page.route(`**/api/cv/${PO_CV_ID}/page-overflow`, async (route) => {
-    const body = route.request().postDataJSON() as { choice: "keep" | "cut" };
+    const body = route.request().postDataJSON() as { choice: "keep" | "cut"; roles?: number[] };
     posts.push(body);
-    current = {
-      ...current,
-      choice: body.choice,
-      cut_available: body.choice !== "cut",
-      uncut_available: body.choice === "cut",
-    };
+    if (body.choice === "cut" && body.roles?.length) {
+      // The person's own cut: ONE old_role_bullets entry, labels "role — company — end year".
+      const picked = SHORTENABLE_ROLES.filter((r) => body.roles!.includes(r.index));
+      current = {
+        ...current,
+        actual: 2,
+        choice: "cut",
+        cut_available: false,
+        uncut_available: true,
+        proposed: [
+          {
+            kind: "old_role_bullets",
+            items: picked.map((r) => `${r.title} — ${r.company} — ${r.dates.split(" – ")[1]}`),
+          },
+        ],
+      };
+    } else {
+      current = {
+        ...current,
+        choice: body.choice,
+        cut_available: body.choice !== "cut",
+        uncut_available: body.choice === "cut",
+      };
+    }
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(current) });
   });
   await page.route(`**/api/cv/${PO_CV_ID}/ats-report`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ report: null }) }),
   );
+  await page.route(`**/api/cv/${PO_CV_ID}/truthfulness-report`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        report: { version: "1", document_kind: "cv", claims: [], counts: {}, stated_limit: "" },
+      }),
+    }),
+  );
+  await page.route(`**/api/cv/${PO_CV_ID}/critic-report`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ report: { ran: true, mount: "cv", advisories: [], dropped_citations: 0 } }),
+    }),
+  );
+  await page.route(`**/api/cv/${PO_CV_ID}/review/kept`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ review_state: null }) }),
+  );
   await page.route(`**/api/cv/${PO_CV_ID}/sections`, (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ sections: [], general_gaps: [] }) }),
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(PO_SECTIONS) }),
   );
   await page.route(`**/api/cv/${PO_CV_ID}/profile-diff`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], grounded: true }) }),
   );
-  return { posts };
+  return { posts, previews };
 }
