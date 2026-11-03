@@ -603,7 +603,7 @@
     "pageOverflowPreviewStill": "With this selection: still {pages, plural, one {# page} other {# pages}}",
     "pageOverflowPreviewWait": "Counting pages …",
     "pageOverflowPickNote": "Your profile stays as it is. What these roles carry from your interview will no longer be in the CV.",
-    "pageOverflowPickApply": "{count, plural, one {Shorten this role} other {Shorten these # roles}}",
+    "pageOverflowPickApply": "{count, plural, =0 {Shorten roles} one {Shorten this role} other {Shorten these # roles}}",
     "pageOverflowUserCutDone": "Shortened to {pages, plural, one {# page} other {# pages}} – title, company and dates only: {roles}.",
     "pageOverflowKeptPick": "Shorten roles after all",
     "pageOverflowCut": "Cut to {target, plural, one {# page} other {# pages}}",

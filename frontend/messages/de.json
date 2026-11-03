@@ -603,7 +603,7 @@
     "pageOverflowPreviewStill": "Mit dieser Auswahl: weiter {pages, plural, one {# Seite} other {# Seiten}}",
     "pageOverflowPreviewWait": "Seitenzahl wird berechnet …",
     "pageOverflowPickNote": "Dein Profil bleibt, wie es ist. Was in diesen Stationen aus Deinem Interview stammt, steht dann nicht mehr im Lebenslauf.",
-    "pageOverflowPickApply": "{count, plural, one {Diese Station kürzen} other {Diese # Stationen kürzen}}",
+    "pageOverflowPickApply": "{count, plural, =0 {Stationen kürzen} one {Diese Station kürzen} other {Diese # Stationen kürzen}}",
     "pageOverflowUserCutDone": "Gekürzt auf {pages, plural, one {# Seite} other {# Seiten}} – nur noch mit Titel, Firma und Zeitraum: {roles}.",
     "pageOverflowKeptPick": "Doch Stationen kürzen",
     "pageOverflowCut": "Auf {target, plural, one {# Seite} other {# Seiten}} kürzen",
