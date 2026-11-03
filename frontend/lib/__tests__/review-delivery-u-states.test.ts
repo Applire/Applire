@@ -23,7 +23,7 @@
  * an unclean loop); no row here is hand-written.
  */
 import { describe, expect, it } from "vitest";
-import { buildDeliveryView, unknownState, type DeliveryInputs, type UnknownState } from "../review-groups";
+import { buildDeliveryView, isUnreviewedAcknowledged, unknownState, type DeliveryInputs, type UnknownState } from "../review-groups";
 import type { ATSCheck, ATSReport } from "../ats-report";
 import produced from "./fixtures/adr099-u-states.json";
 
@@ -81,5 +81,36 @@ describe("ADV-11 — a critic that raised (report NULL) is the same Nicht geprü
     const v = buildDeliveryView(inputs([], true));
     expect(v.unknown).toEqual([]);
     expect(v.count).toBe(0);
+  });
+});
+
+describe("R-2 — isUnreviewedAcknowledged: acknowledged only while the decision's basis equals the check's CURRENT delta hash", () => {
+  const check = (hash: string | null | undefined) =>
+    ({ id: "terminal-review", status: "warn", details_key: "terminal-review-unverified", unreviewed_changes_hash: hash }) as unknown as ATSCheck;
+  const state = (basis: string | null | undefined, action = "kept", key = "send:terminal-review") =>
+    ({ walked_at: null, decisions: [{ finding_key: key, label: "x", action, at: "t", undo: null, ...(basis === undefined ? {} : { basis }) }] }) as never;
+
+  it("same hash → acknowledged", () => expect(isUnreviewedAcknowledged(check("bbb"), state("bbb"))).toBe(true));
+  it("the delta changed (basis aaa, check bbb) → NOT acknowledged", () => expect(isUnreviewedAcknowledged(check("bbb"), state("aaa"))).toBe(false));
+  it("legacy: no hash and basis null → acknowledged", () => expect(isUnreviewedAcknowledged(check(null), state(null))).toBe(true));
+  it("legacy: absent hash and absent basis → acknowledged", () => expect(isUnreviewedAcknowledged(check(undefined), state(undefined))).toBe(true));
+  it("a hashed delta and a legacy (null) decision → not acknowledged", () => expect(isUnreviewedAcknowledged(check("bbb"), state(null))).toBe(false));
+  it("other action or other key → not acknowledged", () => {
+    expect(isUnreviewedAcknowledged(check("bbb"), state("bbb", "added"))).toBe(false);
+    expect(isUnreviewedAcknowledged(check("bbb"), state("bbb", "kept", "critic:x"))).toBe(false);
+    expect(isUnreviewedAcknowledged(check("bbb"), null)).toBe(false);
+  });
+
+  it("in the view: a void decision leaves the row counted; a matching one removes it from the count but keeps it listed", () => {
+    const row = { ...(produced as ATSCheck[]).find((r) => r.details_key === "terminal-review-unverified")!, unreviewed_changes: [{ section_id: "summary", before: "a.", after: "b." }], unreviewed_changes_hash: "bbb" } as ATSCheck;
+    const base = inputs([row], true);
+    const stale = buildDeliveryView({ ...base, reviewState: state("aaa") });
+    expect(stale.count).toBe(1);
+    expect(stale.unknown[0].acknowledged).toBe(false);
+    const ack = buildDeliveryView({ ...base, reviewState: state("bbb") });
+    expect(ack.count).toBe(0);
+    expect(ack.unknown).toHaveLength(1);
+    expect(ack.unknown[0].acknowledged).toBe(true);
+    expect(ack.unknown[0].changes).toHaveLength(1);
   });
 });

@@ -57,6 +57,7 @@ import {
   confirmSupported,
   keepLetterLength,
   listStations,
+  keepUnreviewed,
   markWalked,
   moveToStation,
   PAGE_LENGTH_KEY,
@@ -67,6 +68,7 @@ import {
   SEND_LANGUAGE_KEY,
   shortenLetter,
   takeOut,
+  TERMINAL_REVIEW_KEY,
   translateSpans,
   undoDecision,
   type ReviewDocumentKind,
@@ -107,12 +109,10 @@ import type { DegradedReviewStep } from "@/lib/review-degradation";
 const UNKNOWN_TITLE_KEY = {
   notRun: "delivery.unknownTitle",
   unfinished: "delivery.unknownTitleUnfinished",
-  earlierDraft: "delivery.unknownTitleEarlierDraft",
   foundNotFixed: "delivery.unknownTitleFoundNotFixed",
 } as const;
-const UNKNOWN_BODY_KEY: Record<Exclude<UnknownState, "notRun">, string> = {
+const UNKNOWN_BODY_KEY: Record<Exclude<UnknownState, "notRun" | "earlierDraft">, string> = {
   unfinished: "delivery.unknownBodyUnfinished",
-  earlierDraft: "delivery.unknownBodyEarlierDraft",
   foundNotFixed: "delivery.unknownBodyFoundNotFixed",
 } as const;
 
@@ -209,7 +209,7 @@ export interface ReviewSurfaceProps {
   onOpenPins?: () => void;
 }
 
-type Busy = "answer" | "remove" | "move" | "goal" | "undo" | "translate" | "recheck" | "page" | null;
+type Busy = "keep" | "answer" | "remove" | "move" | "goal" | "undo" | "translate" | "recheck" | "page" | null;
 
 interface EditResult {
   key: string;
@@ -528,6 +528,33 @@ export function ReviewSurface({
     } finally {
       setBusy(null);
     }
+  };
+
+  /** R-2b "Passt so" / "Rückgängig" on the "changed after the last check" card. */
+  const runKeepUnreviewed = async (keep: boolean) => {
+    if (!documentId || busy) return;
+    setBusy("keep");
+    setError(null);
+    try {
+      applyRefresh(await keepUnreviewed(documentKind, documentId, keep), false);
+    } catch (e) {
+      fail("keep-unreviewed", e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** "Selbst bearbeiten": the editor on the first changed passage (the page opens the body on the letter). */
+  const editUnreviewed = (u: UnknownRow) => {
+    endPhoneLocate();
+    const first = u.changes?.[0];
+    const form = first ? (changedPassages(first.before, first.after).find((h) => h.after.length > 0)?.after[0] ?? null) : null;
+    onEditFinding?.({
+      findingKey: TERMINAL_REVIEW_KEY,
+      label: producerName(u),
+      targets: form ? [{ form }] : null,
+      placeIndex: 0,
+    });
   };
 
   const editRow = (row: Group1Row) => {
@@ -1226,6 +1253,82 @@ export function ReviewSurface({
   const filledBtn =
     "flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-primary bg-primary px-3 text-sm font-semibold text-white disabled:opacity-50";
 
+  /** R-2 — the terminal review ran on an earlier draft: what changed afterwards, read by the user. */
+  const renderUnreviewed = (u: UnknownRow) => {
+    const n = u.changes?.length ?? 0;
+    if (u.acknowledged) {
+      return (
+        <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} data-state="earlierDraft" className={`${boxClass} border-dashed`}>
+          <p data-testid="review-unknown-acknowledged" className="flex items-start gap-2 text-[13px] leading-snug text-on-surface">
+            <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" strokeWidth={2.4} aria-hidden="true" />
+            <span className="flex-1">{t("delivery.unreviewedAcknowledged", { count: n })}</span>
+            <button
+              type="button"
+              data-testid="review-unknown-ok-undo"
+              disabled={busy !== null}
+              onClick={() => void runKeepUnreviewed(false)}
+              className="text-[13px] font-semibold text-primary underline disabled:opacity-50"
+            >
+              {t("actionUndo")}
+            </button>
+          </p>
+        </div>
+      );
+    }
+    const notes = (u.check?.notes ?? []).filter((x) => x.kind === "finding" && x.plain && x.plain.trim());
+    const okBtn = (
+      <button type="button" data-testid="review-unknown-ok" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true)} className={primaryBtn}>
+        {busy === "keep" && spin}
+        {t("delivery.unreviewedOk")}
+      </button>
+    );
+    return (
+      <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} data-state="earlierDraft" className={`${boxClass} border-dashed`}>
+        <h4 className="font-heading text-[14.5px] font-bold text-on-surface">
+          {u.changes ? t("delivery.unreviewedTitle", { count: n }) : t("delivery.unreviewedLegacyTitle")}
+        </h4>
+        <p data-testid="review-unknown-body" data-state="earlierDraft" className="text-[13px] leading-snug text-on-surface-variant">
+          {u.changes ? t(isLetter ? "delivery.unreviewedBodyLetter" : "delivery.unreviewedBodyCv", { count: n }) : t("delivery.unreviewedLegacyBody")}
+        </p>
+        {u.changes && notes.length > 0 && (
+          <div data-testid="review-unknown-notes" className="flex flex-col gap-1">
+            <span className="text-[13px] font-semibold text-on-surface">{t("delivery.unreviewedNotesLead")}</span>
+            <ul className="list-disc space-y-0.5 pl-4 text-[13px] leading-snug text-on-surface-variant">
+              {notes.map((x, i) => (
+                <li key={i}>{x.plain}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {u.changes && (
+          <div data-testid="review-unknown-changes" className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-semibold text-on-surface">{t("delivery.unreviewedChangesLead")}</span>
+            {renderChanges(u.changes)}
+          </div>
+        )}
+        {u.changes ? (
+          <div className="flex flex-wrap gap-2">
+            {okBtn}
+            {onEditFinding && (
+              <button type="button" data-testid="review-unknown-edit" disabled={busy !== null} onClick={() => editUnreviewed(u)} className={outlineBtn}>
+                {t("delivery.unreviewedEdit")}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {okBtn}
+            {onRegenerate && (
+              <button type="button" data-testid="review-unknown-regenerate" onClick={onRegenerate} className={outlineBtn}>
+                {t("delivery.regenerate")}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const translateEdit = edit && edit.key === SEND_LANGUAGE_KEY ? edit : null;
   const pageEdit = edit && edit.key === PAGE_LENGTH_KEY ? edit : null;
   const translateUndo = reviewState?.decisions.some((d) => d.finding_key === SEND_LANGUAGE_KEY && d.undo);
@@ -1406,12 +1509,15 @@ export function ReviewSurface({
       ))}
 
       {/* ADR-099 cl. 2/9 — class U: "Nicht geprüft" never collapses. */}
-      {view.unknown.map((u) => (
+      {view.unknown.map((u) =>
+        unknownState(u) === "earlierDraft" ? (
+          renderUnreviewed(u)
+        ) : (
         <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} className={`${boxClass} border-dashed`}>
-          <h4 className="font-heading text-[14.5px] font-bold text-on-surface">{t(UNKNOWN_TITLE_KEY[unknownState(u)], { producer: producerName(u) })}</h4>
+          <h4 className="font-heading text-[14.5px] font-bold text-on-surface">{t(UNKNOWN_TITLE_KEY[unknownState(u) as Exclude<UnknownState, "earlierDraft">], { producer: producerName(u) })}</h4>
           <p data-testid="review-unknown-body" data-state={unknownState(u)} className="text-[13px] leading-snug text-on-surface-variant">
             {unknownState(u) !== "notRun"
-              ? t(UNKNOWN_BODY_KEY[unknownState(u) as Exclude<UnknownState, "notRun">])
+              ? t(UNKNOWN_BODY_KEY[unknownState(u) as Exclude<UnknownState, "notRun" | "earlierDraft">])
               : u.resolver === "regenerate"
                 ? u.check && baseId(u.check.id) === "terminal-review"
                   ? t("delivery.terminalNotRunBody")
@@ -1433,7 +1539,8 @@ export function ReviewSurface({
             </button>
           )}
         </div>
-      ))}
+        ),
+      )}
       {error?.scope === "recheck" && (
         <p data-testid="review-action-error" role="alert" className="text-[13px] text-critical">
           {error.text}
