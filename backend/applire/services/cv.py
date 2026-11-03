@@ -5823,6 +5823,17 @@ def _page_undo_plan(record: GeneratedCV, po: dict) -> tuple[dict, list[str] | No
     )
 
 
+def _ladder_reach(po: dict) -> tuple[bool | None, int | None]:
+    """``(reaches_target, cut_pages)`` of a stored page decision, with the defaults
+    for a row stored before ADR-099 cl. 7 (a proposal then always reached). One
+    reading for the public payload and the role menu."""
+    has_cut = bool(po.get("cut_data"))
+    return (
+        po.get("reaches_target", True if has_cut else None),
+        po.get("cut_pages", po.get("target") if has_cut else None),
+    )
+
+
 def _wants_shortenable_roles(record: GeneratedCV) -> bool:
     """R-1: the person may pick roles to shorten only while no cut is applied, no
     section edit sits on the CV (the cut path's ``unedited`` gate) and the ladder
@@ -5830,7 +5841,8 @@ def _wants_shortenable_roles(record: GeneratedCV) -> bool:
     po = record.page_overflow
     if not po or po.get("choice") == "cut" or record.section_overrides:
         return False
-    return po.get("cut_pages") is None or po.get("reaches_target") is False
+    reaches, cut_pages = _ladder_reach(po)
+    return cut_pages is None or reaches is False
 
 
 def _shortenable_roles_now(record: GeneratedCV, pins: Sequence | None = ()) -> list[dict]:
@@ -5899,6 +5911,7 @@ def page_overflow_public(
     )
     plan = _page_undo_plan(record, po)
     uncut_available = plan is not None and not plan[2]
+    reaches_target, cut_pages = _ladder_reach(po)
     return {
         "target": po.get("target"),
         "actual": po.get("actual"),
@@ -5909,8 +5922,8 @@ def page_overflow_public(
         "uncut_available": uncut_available,
         # ADR-099 cl. 7: False = "kürzen" reaches only ``cut_pages`` (closest
         # reachable); None on a proposal stored before the field (it reached).
-        "reaches_target": po.get("reaches_target", True if po.get("cut_data") else None),
-        "cut_pages": po.get("cut_pages", po.get("target") if po.get("cut_data") else None),
+        "reaches_target": reaches_target,
+        "cut_pages": cut_pages,
         # D-23: what the automatic ladder cut before the card was shown ([] on
         # older rows and when nothing was cut).
         "auto_cuts": po.get("auto_cuts") or [],

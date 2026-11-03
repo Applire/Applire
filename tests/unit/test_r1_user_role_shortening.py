@@ -220,6 +220,21 @@ def test_shortenable_roles_only_when_target_unreachable():
     assert [r["index"] for r in pinned["shortenable_roles"]] == [1, 2]
 
 
+def test_a_row_stored_before_b2_offers_no_roles_when_the_public_payload_says_it_reaches():
+    """m-2: `cut_data` present, no `cut_pages` / `reaches_target` keys. The public
+    payload defaults those to "reaches the target"; the role menu must read the
+    same defaults (it once read cut_pages as None and offered the menu)."""
+    from applire.services.cv import page_overflow_public
+
+    rec, _ = _record()
+    po = {k: v for k, v in rec.page_overflow.items() if k not in ("cut_pages", "reaches_target")}
+    po["cut_data"] = _cv()
+    rec.page_overflow = po
+    out = page_overflow_public(rec)
+    assert out["reaches_target"] is True and out["cut_pages"] == 1
+    assert out["shortenable_roles"] == []
+
+
 @pytest.mark.asyncio
 async def test_preview_renders_candidate_without_writing(client, db):
     rec, full = _record()
