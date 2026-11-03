@@ -359,7 +359,42 @@ describe("PageOverflowCard", () => {
       expect(rows[0].textContent).toContain("2010 – 2014 · 4 Stichpunkte");
       expect(rows[1].textContent).toContain("1 Stichpunkt");
       expect(screen.getByText("Welche Stationen sollen nur noch mit Titel, Firma und Zeitraum erscheinen?")).toBeTruthy();
-      expect((screen.getByTestId("cv-page-overflow-apply") as HTMLButtonElement).disabled).toBe(true);
+      const apply = screen.getByTestId("cv-page-overflow-apply") as HTMLButtonElement;
+      expect(apply.disabled).toBe(true);
+      expect(apply.textContent).toBe("Stationen kürzen");
+    });
+
+    it("the disabled apply button reads 'Shorten roles' in English, not 'these 0 roles'", async () => {
+      mockMenu();
+      render(withIntl(<PageOverflowCard cvId="cv-m" />, "en"));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      expect((await screen.findByTestId("cv-page-overflow-apply")).textContent).toBe("Shorten roles");
+    });
+
+    it("an undo of the person's cut (response choice: null) brings back the open card with both answers (D2)", async () => {
+      let posts = 0;
+      const reopened: PageOverflow = { ...NOTHING, actual: 3, full_pages: 3, choice: null };
+      mockMenu({
+        apply: () => {
+          posts += 1;
+          const body =
+            posts === 1
+              ? { ...PROPOSAL, actual: 2, full_pages: 3, choice: "cut", cut_available: false, uncut_available: true,
+                  proposed: [{ kind: "old_role_bullets", items: ["Teamleiter — Muster GmbH — 2014"] }] }
+              : reopened;
+          return { ok: true, status: 200, json: async () => body } as Response;
+        },
+      });
+      render(withIntl(<PageOverflowCard cvId="cv-m" />, "de"));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-pick"));
+      fireEvent.click((await screen.findAllByRole("checkbox"))[0]);
+      fireEvent.click(screen.getByTestId("cv-page-overflow-apply"));
+      fireEvent.click(await screen.findByTestId("cv-page-overflow-switch"));
+      const card = await screen.findByTestId("cv-page-overflow-card");
+      expect(screen.queryByTestId("cv-page-overflow-done")).toBeNull();
+      expect(screen.getByTestId("cv-page-overflow-keep")).toBeTruthy();
+      expect(screen.getByTestId("cv-page-overflow-pick").textContent).toContain("Stationen selbst kürzen");
+      expect(card.textContent).not.toContain("so von Dir gewählt");
     });
 
     it("ticking previews once after 800 ms; a second tick aborts the first request", async () => {

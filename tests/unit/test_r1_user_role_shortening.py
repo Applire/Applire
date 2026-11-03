@@ -445,7 +445,7 @@ async def test_keep_after_user_cut_restores_full_data(client, db):
 
     r = await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "keep"})
     assert r.status_code == 200, r.text
-    assert r.json()["choice"] == "keep"
+    assert r.json()["choice"] is None, "an undo of the person's cut returns to the undecided card"
     await db.refresh(rec)
     assert rec.tailored_data == full
     assert r.json()["actual"] == _pages(full)
@@ -470,6 +470,79 @@ async def test_keep_after_a_later_edit_reinserts_the_shortened_bullets(client, d
     await db.refresh(rec)
     assert rec.tailored_data["summary"] == "Edited summary."
     assert rec.tailored_data["work_history"][1]["bullets"] == full["work_history"][1]["bullets"]
+
+
+_LADDER_FIELDS = ("cut_data", "basis_hash", "proposed", "cut_pages", "reaches_target")
+
+
+def _ladder(rec) -> dict:
+    return {k: rec.page_overflow.get(k) for k in _LADDER_FIELDS}
+
+
+@pytest.mark.asyncio
+async def test_undo_of_a_person_cut_returns_to_the_open_card(client, db):
+    """D2: the person never chose "keep" — the undo restores the ladder's pre-pick state."""
+    rec, full = _record()
+    db.add(rec)
+    await db.commit()
+    before = copy.deepcopy(_ladder(rec))
+    assert (await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "cut", "roles": [1, 3]})).status_code == 200
+    await db.refresh(rec)
+    assert rec.page_overflow["ladder_before_pick"], "the pre-pick ladder state is stored for the undo"
+
+    r = await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "keep"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    await db.refresh(rec)
+    assert body["choice"] is None and rec.page_overflow["choice"] is None
+    assert _ladder(rec) == before
+    assert "ladder_before_pick" not in rec.page_overflow
+    assert rec.tailored_data == full
+    assert body["cut_available"] is False and body["uncut_available"] is False
+    assert [x["index"] for x in body["shortenable_roles"]] == [1, 2, 3]
+    assert "ladder_before_pick" not in body
+    assert body["actual"] == _pages(full) and body["proposed"] == []
+    assert client.audits[-1] == full, "re-audited on the restored content"
+
+
+@pytest.mark.asyncio
+async def test_undo_of_a_person_cut_after_a_later_edit_returns_to_the_open_card(client, db):
+    """D2, the re-insert path: a later edit stays, the card still re-opens undecided."""
+    rec, full = _record()
+    db.add(rec)
+    await db.commit()
+    before = copy.deepcopy(_ladder(rec))
+    assert (await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "cut", "roles": [1]})).status_code == 200
+    await db.refresh(rec)
+    edited = copy.deepcopy(rec.tailored_data)
+    edited["summary"] = "Edited summary."
+    rec.tailored_data = edited
+    await db.commit()
+
+    r = await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "keep"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    await db.refresh(rec)
+    assert rec.tailored_data["summary"] == "Edited summary."
+    assert body["choice"] is None and rec.page_overflow["choice"] is None
+    assert _ladder(rec) == before
+    assert "ladder_before_pick" not in rec.page_overflow and "ladder_before_pick" not in body
+    assert body["proposed"] == [] and body["cut_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_person_cut_can_be_picked_again_after_its_undo(client, db):
+    rec, _ = _record()
+    db.add(rec)
+    await db.commit()
+    for roles in ([1, 3], [2]):
+        assert (await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "cut", "roles": roles})).status_code == 200
+        r = await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "keep"})
+        assert r.json()["choice"] is None
+
+
+# A ladder cut's undo still stores "keep" (the person did choose the length there):
+# tests/unit/test_cv_page_overflow.py::test_cut_swaps_in_the_proposal_and_keep_restores_it
 
 
 def _without(data: dict, *indices: int) -> dict:

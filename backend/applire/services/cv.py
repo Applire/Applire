@@ -6020,6 +6020,10 @@ async def preview_page_overflow_roles(
         return await _measure_data(record, candidate, db)
 
 
+#: R-1/D2: the ladder's stored proposal fields a person's role pick overwrites.
+_LADDER_PICK_FIELDS = ("cut_data", "basis_hash", "proposed", "cut_pages", "reaches_target")
+
+
 async def set_page_overflow_choice(
     cv_id: uuid.UUID,
     choice: str,
@@ -6065,6 +6069,11 @@ async def set_page_overflow_choice(
             candidate, cut = await _checked_user_cut(record, roles, db)
             if not cut.items:
                 raise PageOverflowConflict("nothing to shorten on the chosen roles")
+            # D2: remember what the ladder had stored, so an undo returns to that card.
+            # Only the keys that were present: an absent key must come back absent.
+            po["ladder_before_pick"] = {
+                k: copy.deepcopy(po[k]) for k in _LADDER_PICK_FIELDS if k in po
+            }
             po.update(
                 cut_data=candidate, basis_hash=_subject_hash(record.tailored_data),
                 proposed=[cut.as_dict()], cut_pages=None, reaches_target=False,
@@ -6097,6 +6106,14 @@ async def set_page_overflow_choice(
                 )
             new_data, new_skills, _ = plan
             po["full_data"] = None
+            before_pick = po.pop("ladder_before_pick", None)
+            if before_pick is not None:
+                # D2: an undo of the PERSON's cut is not a decision to keep: the card
+                # returns to what the ladder showed before the pick, undecided.
+                for k in _LADDER_PICK_FIELDS:
+                    po.pop(k, None)
+                po.update(copy.deepcopy(before_pick))
+                choice = None
         po["choice"] = choice
         record.page_overflow = po
         logger.info("PAGE_OVERFLOW_CHOICE cv_id=%s choice=%s", record.id, choice)
