@@ -1267,7 +1267,7 @@ export function ReviewSurface({
         <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} data-state="earlierDraft" className={`${boxClass} border-dashed`}>
           <p data-testid="review-unknown-acknowledged" className="flex items-start gap-2 text-[13px] leading-snug text-on-surface">
             <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" strokeWidth={2.4} aria-hidden="true" />
-            <span className="flex-1">{t("delivery.unreviewedAcknowledged", { count: n })}</span>
+            <span className="flex-1">{n > 0 ? t("delivery.unreviewedAcknowledged", { count: n }) : t("delivery.unreviewedLegacyAcknowledged")}</span>
             <button
               type="button"
               data-testid="review-unknown-ok-undo"

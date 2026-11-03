@@ -2190,6 +2190,7 @@
       "unreviewedOk": "Passt so",
       "unreviewedEdit": "Selbst bearbeiten",
       "unreviewedAcknowledged": "Von Dir gegengelesen: {count, plural, one {# Stelle} other {# Stellen}}, die Applire nach der letzten Prüfung geändert hat.",
+      "unreviewedLegacyAcknowledged": "Von Dir gegengelesen.",
       "unreviewedLegacyTitle": "Nach der letzten Prüfung noch überarbeitet",
       "unreviewedLegacyBody": "Applire hat dieses Dokument nach der letzten Prüfung noch einmal überarbeitet und das Ergebnis nicht mehr geprüft. Welche Stellen das waren, ist bei diesem älteren Dokument nicht gespeichert. Lies es vor dem Senden selbst durch – oder lass Applire eine neue Fassung schreiben.",
       "recheck": "Jetzt prüfen",

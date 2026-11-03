@@ -2190,6 +2190,7 @@
       "unreviewedOk": "Looks right",
       "unreviewedEdit": "Edit it myself",
       "unreviewedAcknowledged": "Re-read by you: {count, plural, one {# passage} other {# passages}} Applire changed after the last check.",
+      "unreviewedLegacyAcknowledged": "Re-read by you.",
       "unreviewedLegacyTitle": "Revised after the last check",
       "unreviewedLegacyBody": "Applire revised this document once more after the last check and did not check the result again. Which passages changed is not stored for this older document. Read it yourself before sending – or let Applire write a new version.",
       "recheck": "Check now",

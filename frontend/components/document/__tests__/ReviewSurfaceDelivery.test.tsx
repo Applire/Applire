@@ -558,7 +558,9 @@ describe("R-2 — the „changed after the last check“ card", () => {
         "de",
       ),
     );
-    expect(screen.getByTestId("review-unknown-acknowledged")).toBeTruthy();
+    const line = screen.getByTestId("review-unknown-acknowledged");
+    expect(line.textContent).toContain("Von Dir gegengelesen.");
+    expect(line.textContent).not.toContain("0 Stellen");
     expect(count()).toBe("0");
   });
 
