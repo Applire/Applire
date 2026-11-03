@@ -304,6 +304,99 @@ test.describe('E058 — clause 9, a producer that did not run', () => {
   });
 });
 
+test.describe('R-2 — the "changed after the last check" card', () => {
+  const HASH = '0123456789abcdef';
+  const EARLIER_DRAFT = {
+    id: 'terminal-review',
+    status: 'warn',
+    delivery_class: 'U',
+    resolver: 'regenerate',
+    details_key: 'terminal-review-unverified',
+    notes: [
+      { kind: 'finding', plain: 'The 30 % saving in the Nordwind Logistik role reads inflated.' },
+      { kind: 'finding', plain: 'The Kranich Systems team size is not in the profile.' },
+    ],
+    unreviewed_changes: [
+      { section_id: 'summary', before: 'Led the warehouse. Shared sentence.', after: 'Led the warehouse team. Shared sentence.' },
+      { section_id: 'work_history[0]', before: 'Cut costs by 30 %.', after: 'Reduced handling costs.' },
+    ],
+    unreviewed_changes_hash: HASH,
+  };
+  const CLEAN_KEYWORDS = { ...ATS_SHORT.keywords, present_unsupported: [] };
+
+  test('two changes and two notes: hunks, "Looks right" drops the count by one and survives a reload', async ({ page }) => {
+    await stubBackend(page, { ats: { ...ATS_SHORT, keywords: CLEAN_KEYWORDS, checks: [...ATS_SHORT.checks, EARLIER_DRAFT] } });
+    // The server remembers the decision, as the real review-state does (basis = the delta's hash).
+    let reviewState: unknown = null;
+    const kept: unknown[] = [];
+    await page.route(`**/api/cv/${CV_ID}/ats-report`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ report: { ...ATS_SHORT, keywords: CLEAN_KEYWORDS, checks: [...ATS_SHORT.checks, EARLIER_DRAFT] }, review_state: reviewState }),
+      }),
+    );
+    await page.route(`**/api/cv/${CV_ID}/review/kept`, async (r) => {
+      const body = r.request().postDataJSON() as { finding_key: string; keep: boolean };
+      kept.push(body);
+      reviewState = {
+        walked_at: null,
+        decisions: body.keep
+          ? [{ finding_key: body.finding_key, label: 'x', action: 'kept', at: '2026-11-03T10:00:00Z', undo: null, basis: HASH }]
+          : [],
+      };
+      await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ review_state: reviewState }) });
+    });
+
+    await page.goto(CV_PAGE_URL);
+    const box = page.getByTestId('review-unknown');
+    await expect(box).toBeVisible({ timeout: 15_000 });
+    await expect(box.locator('h4')).toHaveText('Please re-read these 2 passages yourself');
+    await expect(box).toContainText('The check had noted:');
+    await expect(box).toContainText('The 30 % saving in the Nordwind Logistik role reads inflated.');
+    await expect(box).toContainText('The Kranich Systems team size is not in the profile.');
+    await expect(box).toContainText('Changed afterwards:');
+    await expect(box.getByTestId('review-unknown-changes').getByTestId('review-takeout-hunk')).toHaveCount(2);
+    await expect(box.getByTestId('review-unknown-ok')).toHaveText(/Looks right/);
+    await expect(box.getByTestId('review-unknown-edit')).toBeVisible();
+    // The old "new version" button is gone from a card that has a delta.
+    await expect(box.getByTestId('review-unknown-regenerate')).toHaveCount(0);
+    await expect(page.getByTestId('review-verdict')).toHaveAttribute('data-count', '1');
+
+    await box.getByTestId('review-unknown-ok').click();
+    const line = page.getByTestId('review-unknown-acknowledged');
+    await expect(line).toContainText('Re-read by you: 2 passages Applire changed after the last check.');
+    expect(kept).toEqual([{ finding_key: 'send:terminal-review', keep: true }]);
+    // The badge drops by exactly the acknowledged row; the line stays listed, its buttons are gone.
+    await expect(page.getByTestId('review-verdict')).toHaveAttribute('data-count', '0');
+    await expect(page.getByTestId('review-unknown-ok')).toHaveCount(0);
+    await expect(page.getByTestId('review-unknown-edit')).toHaveCount(0);
+
+    // Remembered: the decision comes back with the report after a reload.
+    await page.reload();
+    await expect(page.getByTestId('review-unknown-acknowledged')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('review-verdict')).toHaveAttribute('data-count', '0');
+
+    // Undo withdraws it: the card is back and counted again.
+    await page.getByTestId('review-unknown-ok-undo').click();
+    await expect(page.getByTestId('review-unknown-ok')).toBeVisible();
+    await expect(page.getByTestId('review-verdict')).toHaveAttribute('data-count', '1');
+    expect(kept[kept.length - 1]).toEqual({ finding_key: 'send:terminal-review', keep: false });
+  });
+
+  test('an older document without a stored delta keeps the legacy card with "Looks right" and a new version', async ({ page }) => {
+    const legacy = { ...EARLIER_DRAFT, unreviewed_changes: null, unreviewed_changes_hash: null };
+    await stubBackend(page, { ats: { ...ATS_SHORT, keywords: CLEAN_KEYWORDS, checks: [...ATS_SHORT.checks, legacy] } });
+    await page.goto(CV_PAGE_URL);
+    const box = page.getByTestId('review-unknown');
+    await expect(box).toBeVisible({ timeout: 15_000 });
+    await expect(box.locator('h4')).toHaveText('Revised after the last check');
+    await expect(box.getByTestId('review-unknown-changes')).toHaveCount(0);
+    await expect(box.getByTestId('review-unknown-ok')).toBeVisible();
+    await expect(box.getByTestId('review-unknown-regenerate')).toBeVisible();
+  });
+});
+
 test.describe('#786 / T-2 — a review step of the writing loop that did not run', () => {
   test('the note names the check above the verdict and offers a new version', async ({ page }) => {
     await stubBackend(page, {

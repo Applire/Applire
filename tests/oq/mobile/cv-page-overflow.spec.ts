@@ -40,4 +40,37 @@ test.describe("CV x+1 card (mobile 390x844)", () => {
     expect(posts).toEqual([{ choice: "cut" }]);
     await page.screenshot({ path: testInfo.outputPath("cv-page-overflow-mobile-cut.png") });
   });
+
+  // R-1: the role menu inside the review sheet — reachable, no horizontal overflow.
+  test("nothing to cut: role menu in the sheet, preview, apply, no overflow", async ({ page }) => {
+    const { posts } = await setupPageOverflowMocks(page, { scenario: "nothing-to-cut" });
+    await page.goto(`/flow/${PO_FLOW_ID}/cv`);
+    await expect(page.getByTestId("mobile-command-bar")).toBeVisible({ timeout: 15000 });
+    await page.getByTestId("command-ats").tap();
+    const sheet = page.getByTestId("command-sheet");
+    const card = sheet.getByTestId("cv-page-overflow-card");
+    await expect(card).toBeVisible({ timeout: 15000 });
+
+    await card.getByTestId("cv-page-overflow-pick").tap();
+    const roles = card.getByTestId("cv-page-overflow-role");
+    await expect(roles).toHaveCount(3);
+    await roles.nth(0).scrollIntoViewIfNeeded();
+    await roles.nth(0).getByRole("checkbox").check();
+    await roles.nth(1).getByRole("checkbox").check();
+    await expect(card.getByTestId("cv-page-overflow-preview")).toContainText("With this selection: 2 pages", {
+      timeout: 10000,
+    });
+    await card.getByTestId("cv-page-overflow-apply").scrollIntoViewIfNeeded();
+    await expect(card.getByTestId("cv-page-overflow-apply")).toBeInViewport();
+
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.body.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
+
+    await card.getByTestId("cv-page-overflow-apply").tap();
+    await expect(sheet.getByTestId("cv-page-overflow-done")).toContainText("Shortened to 2 pages");
+    expect(posts).toEqual([{ choice: "cut", roles: [2, 3] }]);
+  });
 });
