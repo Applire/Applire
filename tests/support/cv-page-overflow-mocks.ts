@@ -28,6 +28,22 @@ export const SHORTENABLE_ROLES = [
   { index: 4, title: "Sachbearbeiter Einkauf", company: "Kranich Systems AG", dates: "1998 – 2001", bullets: 2 },
 ];
 
+// The CV's /sections payload: the page labels review hunks (`introduction`, `position::<id>`) from it.
+export const PO_POSITION_ID = "5f0c2d9e-3b1a-4c7e-9a52-6d8e1f4b7a30";
+export const PO_SECTIONS = {
+  sections: [
+    { section_id: "introduction", label: "Profil", content: "Leitete das Lagerteam.", has_override: false, gaps: [] },
+    {
+      section_id: `position::${PO_POSITION_ID}`,
+      label: "Leiter Logistik — Nordwind Logistik GmbH",
+      content: "Senkte die Handlingkosten spürbar.",
+      has_override: false,
+      gaps: [],
+    },
+  ],
+  general_gaps: [],
+};
+
 export const NOTHING_TO_CUT = {
   target: 2,
   actual: 3,
@@ -178,7 +194,7 @@ export async function setupPageOverflowMocks(
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ review_state: null }) }),
   );
   await page.route(`**/api/cv/${PO_CV_ID}/sections`, (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ sections: [], general_gaps: [] }) }),
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(PO_SECTIONS) }),
   );
   await page.route(`**/api/cv/${PO_CV_ID}/profile-diff`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], grounded: true }) }),

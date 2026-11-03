@@ -306,6 +306,21 @@ test.describe('E058 — clause 9, a producer that did not run', () => {
 
 test.describe('R-2 — the "changed after the last check" card', () => {
   const HASH = '0123456789abcdef';
+  // The backend's real ids (review_delta.py): `introduction`, `position::<snapshot position id>`.
+  const POSITION_ID = '5f0c2d9e-3b1a-4c7e-9a52-6d8e1f4b7a30';
+  const SECTIONS = {
+    sections: [
+      { section_id: 'introduction', label: 'Introduction', content: 'Led the warehouse team.', has_override: false, gaps: [] },
+      {
+        section_id: `position::${POSITION_ID}`,
+        label: 'Head of Logistics — Nordwind Logistik GmbH',
+        content: 'Reduced handling costs.',
+        has_override: false,
+        gaps: [],
+      },
+    ],
+    general_gaps: [],
+  };
   const EARLIER_DRAFT = {
     id: 'terminal-review',
     status: 'warn',
@@ -317,15 +332,15 @@ test.describe('R-2 — the "changed after the last check" card', () => {
       { kind: 'finding', plain: 'The Kranich Systems team size is not in the profile.' },
     ],
     unreviewed_changes: [
-      { section_id: 'summary', before: 'Led the warehouse. Shared sentence.', after: 'Led the warehouse team. Shared sentence.' },
-      { section_id: 'work_history[0]', before: 'Cut costs by 30 %.', after: 'Reduced handling costs.' },
+      { section_id: 'introduction', before: 'Led the warehouse. Shared sentence.', after: 'Led the warehouse team. Shared sentence.' },
+      { section_id: `position::${POSITION_ID}`, before: 'Cut costs by 30 %.', after: 'Reduced handling costs.' },
     ],
     unreviewed_changes_hash: HASH,
   };
   const CLEAN_KEYWORDS = { ...ATS_SHORT.keywords, present_unsupported: [] };
 
   test('two changes and two notes: hunks, "Looks right" drops the count by one and survives a reload', async ({ page }) => {
-    await stubBackend(page, { ats: { ...ATS_SHORT, keywords: CLEAN_KEYWORDS, checks: [...ATS_SHORT.checks, EARLIER_DRAFT] } });
+    await stubBackend(page, { sections: SECTIONS, ats: { ...ATS_SHORT, keywords: CLEAN_KEYWORDS, checks: [...ATS_SHORT.checks, EARLIER_DRAFT] } });
     // The server remembers the decision, as the real review-state does (basis = the delta's hash).
     let reviewState: unknown = null;
     const kept: unknown[] = [];
@@ -356,7 +371,13 @@ test.describe('R-2 — the "changed after the last check" card', () => {
     await expect(box).toContainText('The 30 % saving in the Nordwind Logistik role reads inflated.');
     await expect(box).toContainText('The Kranich Systems team size is not in the profile.');
     await expect(box).toContainText('Changed afterwards:');
+    const changes = box.getByTestId('review-unknown-changes').getByTestId('review-takeout-change');
+    await expect(changes).toHaveCount(2);
     await expect(box.getByTestId('review-unknown-changes').getByTestId('review-takeout-hunk')).toHaveCount(2);
+    // The headings are the page's section labels, never the raw ids.
+    await expect(changes.nth(0)).toContainText('Introduction');
+    await expect(changes.nth(1)).toContainText('Head of Logistics — Nordwind Logistik GmbH');
+    await expect(box.getByTestId('review-unknown-changes')).not.toContainText('position::');
     await expect(box.getByTestId('review-unknown-ok')).toHaveText(/Looks right/);
     await expect(box.getByTestId('review-unknown-edit')).toBeVisible();
     // The old "new version" button is gone from a card that has a delta.
