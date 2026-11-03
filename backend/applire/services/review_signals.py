@@ -43,6 +43,24 @@ def cross_document_items(record) -> list:
         return []
 
 
+#: R-2b: the one non-``critic`` key *keep* accepts. Producer ``send`` (NOT ``ats``:
+#: ``ats`` is a group-1 producer and would inflate "k of n decided").
+TERMINAL_REVIEW_KEY = "send:terminal-review"
+_UNVERIFIED_KEYS = ("terminal-review-unverified", "terminal-review-unverified-clean")
+
+
+def unverified_terminal_check(record) -> dict | None:
+    """The document's persisted ``terminal-review`` check when it reads *changed
+    after the last check* (an unverified state), else None."""
+    report = getattr(record, "ats_report", None)
+    if not isinstance(report, dict):
+        return None
+    for c in report.get("checks") or []:
+        if isinstance(c, dict) and c.get("id") == "terminal-review":
+            return c if c.get("details_key") in _UNVERIFIED_KEYS else None
+    return None
+
+
 async def keep(
     kind: Kind,
     doc_id: uuid.UUID,
@@ -53,7 +71,8 @@ async def keep(
     user_id: uuid.UUID | None = None,
 ) -> ActionOutcome:
     """Record (``keep=True``) or withdraw (``keep=False``) the ``kept`` decision on a
-    cross-document item. ValueError (→ 422) on a key that is not a ``critic:`` key;
+    cross-document item, or on the terminal-review row (``send:terminal-review``,
+    R-2b "Passt so"). ValueError (→ 422) on any other key;
     FindingNotListed (→ 409) when the live report does not list the item."""
     from applire.services.owner_resolution import resolve_owner
 
@@ -62,12 +81,23 @@ async def keep(
     # 404 whatever the key looks like.
     await load_document(kind, doc_id, db, user_id=owner)
     producer, norm = rs.split_key(key)
-    if producer != "critic":
+    if key != TERMINAL_REVIEW_KEY and producer != "critic":
         raise ValueError(f"not a cross-document key: {key!r}")
     async with rs.document_lock(kind, doc_id):
         record = await load_document(kind, doc_id, db, user_id=owner)
         state = rs.load_state(record.review_state)
-        if keep:
+        if key == TERMINAL_REVIEW_KEY:
+            if keep:
+                check = unverified_terminal_check(record)
+                if check is None:
+                    raise ValueError(f"{key!r} exists only on an unverified terminal review")
+                state = rs.with_decision(
+                    state, TERMINAL_REVIEW_KEY, "terminal-review", "kept",
+                    basis=check.get("unreviewed_changes_hash") or None, with_basis=True,
+                )
+            else:
+                state = rs.without_decision(state, TERMINAL_REVIEW_KEY)
+        elif keep:
             item = next(
                 (i for i in cross_document_items(record) if rs.split_key(i.key)[1] == norm),
                 None,

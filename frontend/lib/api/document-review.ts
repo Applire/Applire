@@ -59,6 +59,10 @@ export interface ReviewDecision {
   receipt?: Array<{ path: string; text: string }>;
   /** U-13: `no_change` only — the reconciler found the answer's fact already in the profile. */
   found?: boolean;
+  /** R-2b: `send:terminal-review` `kept` only — the `unreviewed_changes_hash` the user read
+   * (`null` for a legacy check without a delta). Acknowledged only while it equals the
+   * check's CURRENT `unreviewed_changes_hash`. */
+  basis?: string | null;
 }
 
 /** ADR-090 cl. 6 — the persisted per-document review state. `null` = none yet. */
@@ -212,6 +216,15 @@ export function markEdited(kind: ReviewDocumentKind, id: string, findingKey: str
 /** #702 (RULING R-2): record (`keep`) or withdraw the `kept` decision on a cross-document item. */
 export function keepCrossDocument(kind: ReviewDocumentKind, id: string, findingKey: string, keep = true) {
   return post<{ review_state: ReviewState | null }>(kind, id, "kept", { finding_key: findingKey, keep });
+}
+
+/** The terminal-review row's decision key (producer `send`, never `ats`). */
+export const TERMINAL_REVIEW_KEY = "send:terminal-review";
+
+/** R-2b "Passt so": record (`keep`) or withdraw the `kept` decision on the "changed after the
+ * last check" card. The server reads the basis hash from the persisted check. */
+export function keepUnreviewed(kind: ReviewDocumentKind, id: string, keep = true) {
+  return keepCrossDocument(kind, id, TERMINAL_REVIEW_KEY, keep);
 }
 
 // ── ADR-099 resolvers (UAT-2 fix round, WP-C) ─────────────────────────────
