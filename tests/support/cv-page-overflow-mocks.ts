@@ -95,6 +95,29 @@ export async function setupPageOverflowMocks(
       }),
     }),
   );
+  // The shell layout and the CV page read the profile (photo); the page reads the job's gap row.
+  await page.route("**/api/profile", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: { personal_info: { full_name: "Jörg Müller", photo_url: null } } }),
+    }),
+  );
+  await page.route(`**/api/job/${JOB_ID}/gaps`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ category_a: [], category_b: [], category_c: [], gap_clusters: [], keyword_ledger: [] }),
+    }),
+  );
+  // Only read when the flow state carries an application_id (this fixture's does not).
+  await page.route("**/api/applications/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ id: "app-pageoverflow", user_status: "tracking", applied_at: null, submitted_cv_id: null }),
+    }),
+  );
   await page.route("**/api/flow/*/advance", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
   );

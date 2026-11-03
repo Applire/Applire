@@ -159,6 +159,8 @@ async function stubBackend(page: Page, opts: StubOptions = {}) {
     sections === null ? r.fulfill({ status: 500, body: '' }) : json(r, sections),
   );
   await page.route(`**/api/application/**`, (r) => json(r, {}));
+  // The CV page reads /api/applications/{id} only when the flow state has an application_id (FLOW_STATE has none).
+  await page.route(`**/api/applications/**`, (r) => json(r, {}));
   // R2-10 (F1-2): the job's gap row — review group 3 shows ITS open count
   // (fit-weighted rows at status gap), never the ATS posting-keyword misses.
   await page.route('**/api/job/*/gaps', (r) =>

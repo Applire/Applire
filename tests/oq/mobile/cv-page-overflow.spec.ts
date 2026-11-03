@@ -28,7 +28,7 @@ test.describe("CV x+1 card (mobile 390x844)", () => {
     await expect(sheet.getByTestId("cv-page-overflow-cut")).toBeInViewport();
 
     const overflow = await page.evaluate(() => ({
-      scrollWidth: document.body.scrollWidth,
+      scrollWidth: Math.max(document.body.scrollWidth, document.documentElement.scrollWidth),
       innerWidth: window.innerWidth,
     }));
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
@@ -64,7 +64,7 @@ test.describe("CV x+1 card (mobile 390x844)", () => {
     await expect(card.getByTestId("cv-page-overflow-apply")).toBeInViewport();
 
     const overflow = await page.evaluate(() => ({
-      scrollWidth: document.body.scrollWidth,
+      scrollWidth: Math.max(document.body.scrollWidth, document.documentElement.scrollWidth),
       innerWidth: window.innerWidth,
     }));
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
