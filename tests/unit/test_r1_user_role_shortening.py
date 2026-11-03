@@ -353,7 +353,7 @@ async def test_apply_user_roles_409_on_section_overrides(client, db):
     r = await client.post(f"/api/cv/{rec.id}/page-overflow/preview", json={"roles": [1]})
     assert r.status_code == 422  # nothing is shortenable on an edited CV
     r = await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "cut", "roles": [1]})
-    assert r.status_code in (409, 422), r.text
+    assert r.status_code == 409, r.text
     await db.refresh(rec)
     assert rec.page_overflow["choice"] is None and rec.tailored_data == _cv()
 
@@ -478,3 +478,85 @@ def _without(data: dict, *indices: int) -> dict:
         out["work_history"][i]["bullets"] = []
         out["work_history"][i]["projects"] = []
     return out
+
+
+def _break_pins(monkeypatch):
+    import applire.services.application as application
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("pin store down")
+
+    monkeypatch.setattr(application, "get_application_for_job", _boom)
+
+
+def _with_pins(monkeypatch, pins):
+    import applire.services.application as application
+
+    app = SimpleNamespace(pinned_facts=[p.model_dump(mode="json") for p in pins])
+
+    async def _get(*_a, **_k):
+        return app
+
+    monkeypatch.setattr(application, "get_application_for_job", _get)
+
+
+@pytest.mark.asyncio
+async def test_apply_refuses_when_pins_cannot_load(client, db, monkeypatch):
+    rec, full = _record()
+    db.add(rec)
+    await db.commit()
+    before = copy.deepcopy(rec.page_overflow)
+    _break_pins(monkeypatch)
+    r = await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "cut", "roles": [1]})
+    assert r.status_code == 409, r.text
+    await db.refresh(rec)
+    assert rec.tailored_data == full and rec.page_overflow == before
+    assert client.renders == [] and client.audits == []
+
+
+@pytest.mark.asyncio
+async def test_preview_refuses_when_pins_cannot_load(client, db, monkeypatch):
+    rec, _ = _record()
+    db.add(rec)
+    await db.commit()
+    _break_pins(monkeypatch)
+    r = await client.post(f"/api/cv/{rec.id}/page-overflow/preview", json={"roles": [1]})
+    assert r.status_code == 409, r.text
+    assert client.renders == []
+
+
+@pytest.mark.asyncio
+async def test_status_lists_no_roles_when_pins_cannot_load(client, db, monkeypatch):
+    import applire.services.signature as signature
+
+    monkeypatch.setattr(signature, "resolve_signature_effective", AsyncMock(return_value=False))
+    monkeypatch.setattr(signature, "resolve_signature_available", AsyncMock(return_value=False))
+    rec, _ = _record()
+    db.add(rec)
+    await db.commit()
+    _break_pins(monkeypatch)
+    r = await client.get(f"/api/cv/{rec.id}/status")
+    assert r.status_code == 200, r.text
+    assert r.json()["page_overflow"]["shortenable_roles"] == []
+
+
+@pytest.mark.asyncio
+async def test_choice_response_lists_roles_with_pins(client, db, monkeypatch):
+    rec, _ = _record()
+    db.add(rec)
+    await db.commit()
+    _with_pins(monkeypatch, [
+        _pin("w3", "Calibrated analysers."),       # w3 fully pinned
+        _pin("w1", "Cut cost by a third."),        # w1 partly pinned
+    ])
+    url = f"/api/cv/{rec.id}/page-overflow"
+    r = await client.post(url, json={"choice": "cut", "roles": [1, 2]})
+    assert r.status_code == 200, r.text
+    r = await client.post(url, json={"choice": "keep"})
+    assert r.status_code == 200, r.text
+    roles = {x["index"]: x for x in r.json()["shortenable_roles"]}
+    assert set(roles) == {1, 2}, "the fully pinned role must not be offered"
+    assert roles[1]["bullets"] == 2, "the pinned bullet is not counted"
+    # the early-return door (same choice again) carries the same list
+    r = await client.post(url, json={"choice": "keep"})
+    assert {x["index"] for x in r.json()["shortenable_roles"]} == {1, 2}

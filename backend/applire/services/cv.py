@@ -3799,10 +3799,7 @@ async def get_cv_status(
         signature_available=signature_available,
         # #786 L-3: the x+1 decision (None = the CV fits its target).
         page_overflow=(
-            page_overflow_public(
-                record,
-                pins=await _cv_pins(record, db) if _wants_shortenable_roles(record) else (),
-            )
+            await _public_with_pins(record, db)
             if status == CVGenerationStatus.ready else None
         ),
     )
@@ -5836,18 +5833,24 @@ def _wants_shortenable_roles(record: GeneratedCV) -> bool:
     return po.get("cut_pages") is None or po.get("reaches_target") is False
 
 
-def _shortenable_roles_now(record: GeneratedCV, pins: Sequence = ()) -> list[dict]:
-    if not _wants_shortenable_roles(record):
+def _shortenable_roles_now(record: GeneratedCV, pins: Sequence | None = ()) -> list[dict]:
+    if pins is None or not _wants_shortenable_roles(record):
         return []
     from applire.services.cv_page_ladder import shortenable_roles
 
     return shortenable_roles(record.tailored_data or {}, pinned_bullets=_ladder_bullet_pins(pins))
 
 
+class PageOverflowPinsUnavailable(PageOverflowConflict):
+    """R-1: the fact pins could not be loaded, so a write that must protect them
+    (ADR-077 cl. 4) refuses — 409, the route's "cannot do this now" code."""
+
+
 async def _cv_pins(record: GeneratedCV, db: AsyncSession) -> list:
     """The application's active CV pins, rebuilt out of band (``condense_ctx.pins``
-    exists only during generation). Fail-safe: no pins on a load failure — the
-    protected bullets then show as removable, so callers must re-check on write."""
+    exists only during generation). FAIL-CLOSED: a load failure raises
+    ``PageOverflowPinsUnavailable`` — apply and preview must never strip bullets a
+    pin protects."""
     try:
         from applire.services.application import get_application_for_job
         from applire.services.fact_pins import load_pins
@@ -5857,13 +5860,26 @@ async def _cv_pins(record: GeneratedCV, db: AsyncSession) -> list:
         if app is None or not app.pinned_facts:
             return []
         return active_pins(load_pins(app), "cv")
-    except Exception:
+    except Exception as exc:
         logger.exception("fact-pin load failed for page-overflow CV %s", record.id)
-        return []
+        raise PageOverflowPinsUnavailable("the fact pins could not be loaded; try again") from exc
+
+
+async def _public_with_pins(record: GeneratedCV, db: AsyncSession) -> dict | None:
+    """``page_overflow_public`` for a door with a session: loads the pins when the
+    role list is wanted. The read-only listing degrades to an EMPTY list when the
+    pins cannot load (never over-offers)."""
+    pins: Sequence | None = ()
+    if _wants_shortenable_roles(record):
+        try:
+            pins = await _cv_pins(record, db)
+        except PageOverflowPinsUnavailable:
+            pins = None
+    return page_overflow_public(record, pins=pins)
 
 
 def page_overflow_public(
-    record: GeneratedCV, *, user_id: uuid.UUID | None = None, pins: Sequence = (),
+    record: GeneratedCV, *, user_id: uuid.UUID | None = None, pins: Sequence | None = (),
 ) -> dict | None:
     """The x+1 decision as the CV page reads it — never the stored data copies.
     ``cut_available``: "Kürzen" can be applied to the CV as it stands (same content as
@@ -6055,8 +6071,8 @@ async def set_page_overflow_choice(
             )
             record.page_overflow = po
         if po.get("choice") == choice:
-            return page_overflow_public(record)
-        public = page_overflow_public(record)
+            return await _public_with_pins(record, db)
+        public = page_overflow_public(record)  # flags only; roles not needed
         new_data: dict | None = None
         new_skills: list[str] | None = None
         if choice == "cut":
@@ -6111,7 +6127,7 @@ async def set_page_overflow_choice(
                     po["reaches_target"] = measured.page_count <= (po.get("target") or 0)
                 record.page_overflow = po
             await _update_ats_report(record, db, measured=measured)
-        return page_overflow_public(record)
+        return await _public_with_pins(record, db)
 
 
 async def _measure_and_condense(
