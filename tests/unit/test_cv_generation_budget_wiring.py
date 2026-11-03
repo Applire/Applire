@@ -435,7 +435,8 @@ async def test_render_cv_background_hands_the_final_measure_to_the_page_cut_prop
 
     async def spy_terminal(record, db, **kw):
         return SimpleNamespace(prose_draft=kw["prose_draft"], measured=kw["measured"],
-                               rounds=0, reentry_exhausted=False, outcome=None)
+                               rounds=0, reentry_exhausted=False, outcome=None,
+                               final_raw=None)
 
     async def spy_propose(record, db, ctx, m):
         proposals.append((ctx, m))
