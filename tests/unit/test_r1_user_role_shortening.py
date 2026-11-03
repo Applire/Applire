@@ -556,6 +556,32 @@ async def test_a_person_cut_can_be_picked_again_after_its_undo(client, db):
         assert r.json()["choice"] is None
 
 
+@pytest.mark.asyncio
+async def test_undo_of_a_person_cut_picked_from_the_kept_line_returns_to_keep(client, db):
+    """m-3: keep -> pick roles -> undo. The person HAD chosen keep; the undo must not
+    drop it back to undecided, and the page-length row returns to its kept state."""
+    rec, full = _record()
+    db.add(rec)
+    await db.commit()
+    r = await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "keep"})
+    assert r.status_code == 200 and r.json()["choice"] == "keep", r.text
+    assert (await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "cut", "roles": [1, 3]})).status_code == 200
+    await db.refresh(rec)
+    assert rec.page_overflow["choice"] == "cut"
+    assert rec.page_overflow["ladder_before_pick"]["choice"] == "keep"
+
+    r = await client.post(f"/api/cv/{rec.id}/page-overflow", json={"choice": "keep"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    await db.refresh(rec)
+    assert body["choice"] == "keep" and rec.page_overflow["choice"] == "keep"
+    assert "ladder_before_pick" not in rec.page_overflow and "ladder_before_pick" not in body
+    assert rec.tailored_data == full
+    from applire.services.cv import _pages_kept_at
+
+    assert _pages_kept_at(rec.page_overflow) == _pages(full), "the page-length row is decided by the kept line again"
+
+
 # A ladder cut's undo still stores "keep" (the person did choose the length there):
 # tests/unit/test_cv_page_overflow.py::test_cut_swaps_in_the_proposal_and_keep_restores_it
 

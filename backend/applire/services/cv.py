@@ -6087,6 +6087,9 @@ async def set_page_overflow_choice(
             po["ladder_before_pick"] = {
                 k: copy.deepcopy(po[k]) for k in _LADDER_PICK_FIELDS if k in po
             }
+            # m-3: and the choice it was made from — a pick off the kept line must
+            # return to the kept line, not to undecided.
+            po["ladder_before_pick"]["choice"] = po.get("choice")
             po.update(
                 cut_data=candidate, basis_hash=_subject_hash(record.tailored_data),
                 proposed=[cut.as_dict()], cut_pages=None, reaches_target=False,
@@ -6122,11 +6125,13 @@ async def set_page_overflow_choice(
             before_pick = po.pop("ladder_before_pick", None)
             if before_pick is not None:
                 # D2: an undo of the PERSON's cut is not a decision to keep: the card
-                # returns to what the ladder showed before the pick, undecided.
+                # returns to what it showed before the pick — undecided, or the kept
+                # line the pick was made from (m-3).
                 for k in _LADDER_PICK_FIELDS:
                     po.pop(k, None)
-                po.update(copy.deepcopy(before_pick))
-                choice = None
+                before_pick = copy.deepcopy(before_pick)
+                choice = before_pick.pop("choice", None)
+                po.update(before_pick)
         po["choice"] = choice
         record.page_overflow = po
         logger.info("PAGE_OVERFLOW_CHOICE cv_id=%s choice=%s", record.id, choice)
