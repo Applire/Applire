@@ -148,6 +148,11 @@ export interface EditFindingRequest {
   targets: LocateTarget[] | null;
   /** 0-based place the user was looking at (0 when not located). */
   placeIndex: number;
+  /**
+   * The section the page opens, when the request knows it (the "changed after the
+   * last check" delta names it). The page opens it before any text matching.
+   */
+  sectionId?: string | null;
 }
 
 /**
@@ -554,6 +559,7 @@ export function ReviewSurface({
       label: producerName(u),
       targets: form ? [{ form }] : null,
       placeIndex: 0,
+      sectionId: first?.section_id ?? null,
     });
   };
 

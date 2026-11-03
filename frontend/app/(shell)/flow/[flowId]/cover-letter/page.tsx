@@ -59,6 +59,7 @@ import {
   markEdited,
   refreshedReport,
   refreshedState,
+  TERMINAL_REVIEW_KEY,
   type ReviewRefresh,
   type ReviewState,
 } from "@/lib/api/document-review";
@@ -617,9 +618,16 @@ export default function CoverLetterPage({
   }
 
   function handleEditFinding(req: EditFindingRequest) {
-    editFindingKey.current = req.findingKey;
+    // D1: the "changed after the last check" card is not a finding — a save from it
+    // is a plain save (the row stays counted until "Passt so"), never a re-audit.
+    const unreviewed = req.findingKey === TERMINAL_REVIEW_KEY;
+    editFindingKey.current = unreviewed ? null : req.findingKey;
     editFindingLabel.current = req.label;
-    setEditContext({ kind: "finding", label: req.label, form: req.targets?.[0]?.form ?? req.label });
+    setEditContext(
+      unreviewed
+        ? { kind: "unreviewed", label: req.label }
+        : { kind: "finding", label: req.label, form: req.targets?.[0]?.form ?? req.label },
+    );
     setSaveReceipt(null);
     setActiveSidebarTab("edit");
     setOpenBodyNonce((n) => (n ?? 0) + 1);

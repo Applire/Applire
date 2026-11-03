@@ -2864,6 +2864,7 @@
     "saveFailed": "Speichern fehlgeschlagen. Bitte erneut versuchen.",
     "fromReviewKicker": "Aus der Prüfung",
     "fromFindingBody": "„{form}“ ist nicht durch Dein Profil gedeckt. Formuliere die Stelle so, dass sie stimmt — oder nimm sie heraus.",
+    "fromUnreviewedBody": "Applire hat diese Stelle nach der letzten Prüfung geändert und sie nicht mehr geprüft. Lies sie gegen und ändere, was nicht stimmt.",
     "fromGapBody": "Dein Profil deckt „{label}“ — es ist beim Kürzen herausgefallen. Wenn Du es hier unterbringst, schreibst Du es selbst.",
     "fromLetterKicker": "Aus dem Anschreiben",
     "fromLetterBody": "Diese Angaben stehen in Deinem Anschreiben, aber nirgends im Lebenslauf. Öffne den Abschnitt, zu dem sie gehören, und schreib sie dazu — oder lass es.",

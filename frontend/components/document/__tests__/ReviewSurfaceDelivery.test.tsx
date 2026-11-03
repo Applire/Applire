@@ -573,6 +573,13 @@ describe("R-2 — the „changed after the last check“ card", () => {
     expect(req.placeIndex).toBe(0);
   });
 
+  it("Selbst bearbeiten carries the delta's section_id so the page opens THAT section (D1)", () => {
+    const onEditFinding = vi.fn();
+    render(withIntl(<ReviewSurface {...withCheck(unverified(), { onEditFinding })} />, "de"));
+    fireEvent.click(screen.getByTestId("review-unknown-edit"));
+    expect(onEditFinding.mock.calls[0][0].sectionId).toBe(CHANGES[0].section_id);
+  });
+
   it("Selbst bearbeiten (letter) calls onEditFinding too (the page opens the body)", () => {
     const onEditFinding = vi.fn();
     render(withIntl(<ReviewSurface {...withCheck(unverified(), { documentKind: "cover-letter", documentId: "cl-1", onEditFinding })} />, "de"));

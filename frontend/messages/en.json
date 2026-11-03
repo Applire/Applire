@@ -2864,6 +2864,7 @@
     "saveFailed": "Saving failed. Please try again.",
     "fromReviewKicker": "From the review",
     "fromFindingBody": "“{form}” is not covered by your profile. Reword the passage so it is true — or take it out.",
+    "fromUnreviewedBody": "Applire changed this passage after the last check and did not check it again. Read it and change what is not right.",
     "fromGapBody": "Your profile covers “{label}” — it was cut for length. If you put it back here, you write it yourself.",
     "fromLetterKicker": "From the cover letter",
     "fromLetterBody": "Your cover letter states these, but your CV never does. Open the section they belong to and add them — or leave it.",

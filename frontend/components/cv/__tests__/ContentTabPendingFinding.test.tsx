@@ -135,6 +135,46 @@ describe("ContentTab — pendingFinding (ADR-090 cl. 5)", () => {
     expect(onConsumed).toHaveBeenCalledTimes(1);
   });
 
+  it("opens the section named by sectionId even when an EARLIER section holds the same text (D1)", async () => {
+    // The delta says the change is in "skills"; "intro" merely contains the same word.
+    const sections = [
+      { section_id: "intro", label: "Introduction", content: "Instandhaltung im Werk", has_override: false, gaps: [] },
+      { section_id: "skills", label: "Skills", content: "Instandhaltung, Python", has_override: false, gaps: [] },
+    ];
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ sections, general_gaps: [] }),
+    } as Response);
+    render(
+      withIntl(
+        <ContentTab
+          {...BASE}
+          flowSummary={{ ...BASE.flowSummary, cv_summary: { sections } }}
+          pendingFinding={{ targets: [{ form: "Instandhaltung" }], placeIndex: 0, nonce: 3, sectionId: "skills" }}
+          onPendingFindingConsumed={vi.fn()}
+        />,
+      ),
+    );
+    await waitFor(() => expect(screen.getByTestId("section-textarea")).toBeTruthy());
+    expect((screen.getByTestId("section-textarea") as HTMLTextAreaElement).value).toBe("Instandhaltung, Python");
+  });
+
+  it("falls back to text matching when no section has the named id (D1)", async () => {
+    render(
+      withIntl(
+        <ContentTab
+          {...BASE}
+          pendingFinding={{ targets: [{ form: "AI governance" }], placeIndex: 0, nonce: 4, sectionId: "position::gone" }}
+          onPendingFindingConsumed={vi.fn()}
+        />,
+      ),
+    );
+    await waitFor(() => expect(screen.getByTestId("section-textarea")).toBeTruthy());
+    expect((screen.getByTestId("section-textarea") as HTMLTextAreaElement).value).toBe(
+      "Delivered AI governance training",
+    );
+  });
+
   it("does nothing without a pending finding", async () => {
     render(withIntl(<ContentTab {...BASE} />));
     await waitFor(() => expect(screen.getByText("Introduction")).toBeTruthy());
