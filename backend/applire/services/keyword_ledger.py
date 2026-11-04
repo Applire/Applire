@@ -62,6 +62,10 @@ KEYWORD_ONLY_WEIGHT = 0.0
 # deliberately not taken mid-flavour (recorded as debt in the ADR).
 _VALID_STATUS = {"direct", "partial", "gap", "denied"}
 
+#: ADR-100 M-2 — the ledger row's key for the persisted denial the gap
+#: classifier bound it to (the record's own ``DeniedConcept.concept``).
+DENIED_BY_KEY = "denied_by"
+
 # The one place the honest marker is spelled, so the floor and every write seam
 # that records a denial cite identical evidence text.
 DENIED_EVIDENCE = "Candidate explicitly stated a limit here (interview)."
@@ -410,6 +414,12 @@ def _collapse_prefix_duplicates(
         # ADR-100 cl. 4 — the merged row keeps a verified-quote path to the
         # vault when any member carried one (the canonical's own first).
         backing = next((m["backing"] for m in [canonical, *members] if m.get("backing")), None)
+        # ADR-100 M-2 — a member the classifier bound to a recorded denial keeps
+        # the merged row bound (the denial floor below verifies the id; a denial
+        # outranks the merge exactly as it outranks a claim).
+        denied_by = next(
+            (m[DENIED_BY_KEY] for m in [canonical, *members] if m.get(DENIED_BY_KEY)), None
+        )
         # ADR-048 amended 2026-08-13 (#526): start from the canonical entry and
         # OVERRIDE. This used to be a fixed key literal, which silently dropped
         # every field outside it — `adjacent_evidence` among them, so a JD naming
@@ -429,6 +439,7 @@ def _collapse_prefix_duplicates(
                 "evidence": evidence if canonical.get("claimable") else "",
                 "claimable": canonical.get("claimable", False),
                 **({"backing": backing} if backing and canonical.get("claimable") else {}),
+                **({DENIED_BY_KEY: denied_by} if denied_by else {}),
             }
         )
     return merged
@@ -556,6 +567,34 @@ def _declared_denial_level(
         return None
     matched_levels = [by_concept.get(_norm(m), "direct") for m in matched]
     return "partial" if "partial" in matched_levels else "direct"
+
+
+def _bound_denial(
+    entry: dict[str, Any],
+    entries: list[tuple[str, str]],
+) -> tuple[str, str] | None:
+    """The live persisted denial the row is BOUND to by id, as
+    ``(record concept, denial_level)`` — or ``None`` (ADR-100 amended
+    2026-11-04, M-2).
+
+    The gap classifier sees the candidate's active recorded denials, each keyed
+    by its record's ``concept`` (``prompts/gap_analysis.py`` RECORDED DENIALS),
+    and cites one in ``denied_by`` for a requirement that denial rules out —
+    which requirement a denial rules out is a Judgment, made in any language.
+    This function is the Fact half: the cited id must equal (``_norm``) the
+    ``concept`` of a denial in ``entries`` — the live list, so a withdrawn
+    record (G-5, moved to ``withdrawn_denials``) binds nothing. Never a
+    reading of the denial's words: an unknown id is no binding, and the row
+    falls back to the string matcher.
+    """
+    cited = entry.get(DENIED_BY_KEY)
+    if not isinstance(cited, str) or not _norm(cited):
+        return None
+    key = _norm(cited)
+    for concept, level in entries:
+        if _norm(concept) == key:
+            return concept, level
+    return None
 
 
 def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
@@ -713,7 +752,11 @@ def _enforce_denial_stance(
     """
     entries = _denied_concept_entries(denied_concepts)
     if not entries:
-        return ledger
+        # M-2: with no live denial, no binding can be live either.
+        return [
+            {k: v for k, v in e.items() if k != DENIED_BY_KEY} if DENIED_BY_KEY in e else e
+            for e in ledger
+        ]
 
     all_denied_concepts = [d_concept for d_concept, _level in entries]
 
@@ -721,6 +764,83 @@ def _enforce_denial_stance(
     for entry in ledger:
         concept = entry.get("concept", "")
         forms = entry.get("surface_forms") or [concept]
+        # ADR-100 amended 2026-11-04 (M-2) — the BOUND arm, first. The gap
+        # classifier cited a recorded denial by id for this requirement (a
+        # Judgment, any language); the id is a live record (a Fact). The row
+        # is the candidate's own "no": `denied`, at the record's level —
+        # partial wins over any denial the string matcher also declares
+        # (ADR-064's tie-break, unchanged). No release: a bound denial is
+        # declared by the candidate's own record, and a declared denial is
+        # never released (`containment_release_form`).
+        bound = _bound_denial(entry, entries)
+        if (
+            bound is not None
+            # the record's words reach this row literally at all (corpus None:
+            # the pure string relation, before any release is considered)
+            and _entry_is_denied(concept, forms, [bound[0]], None)
+            and containment_release_form(concept, forms, [bound[0]], vault_corpus)
+            is not None
+        ):
+            # The release the string matcher carried (SF-GAP.10 / #486): the
+            # record's words contain this requirement as a PART, and the vault
+            # attests it outside that compound — the record is no "no" on this
+            # requirement, whatever the citation says. Same-language only by
+            # construction; it keeps the one NO the old arm said there.
+            logger.info(
+                "_enforce_denial_stance: ignored binding of %r to %r — the vault "
+                "attests it outside the denied compound (SF-GAP.10, ADR-100 M-2)",
+                concept,
+                bound[0],
+            )
+            bound = None
+        if bound is not None and entry.get("status") not in ("gap", "denied"):
+            # The classifier's output contradicts itself: it cites a denial AND
+            # grades the requirement claimable (the prompt binds only with
+            # "gap"). Which half is wrong is unknowable here, so the fail-safe
+            # direction (ADR-062 cl. 5): the claim is refused, the testimony is
+            # NOT asserted — the containment floor's shape, `_floored_row`. (A
+            # same-language too-broad citation — "CSS" cited to "no Tailwind
+            # CSS" while the vault attests CSS — was already released above.)
+            logger.warning(
+                "_enforce_denial_stance: floored %r without asserting a denial — "
+                "the classifier cited the recorded denial %r but graded it %r "
+                "(ADR-100 M-2)",
+                concept,
+                bound[0],
+                entry.get("status"),
+            )
+            result.append(
+                _floored_row({k: v for k, v in entry.items() if k != DENIED_BY_KEY})
+            )
+            continue
+        if bound is not None:
+            record_concept, level = bound
+            declared = _declared_denial_level(concept, forms, entries)
+            if declared == "partial":
+                level = "partial"
+            logger.info(
+                "_enforce_denial_stance: recorded %r as denied (was %r/claimable=%r) — "
+                "the classifier bound it to the recorded denial %r (ADR-100 M-2)",
+                concept,
+                entry.get("status"),
+                entry.get("claimable"),
+                record_concept,
+            )
+            result.append(
+                _denied_row({**entry, DENIED_BY_KEY: record_concept}, level)
+            )
+            continue
+        if DENIED_BY_KEY in entry:
+            # A cited id that names no live record binds nothing — the row takes
+            # the string matcher's path exactly as before M-2.
+            if entry.get(DENIED_BY_KEY):
+                logger.info(
+                    "_enforce_denial_stance: dropped binding %r on %r — no live, "
+                    "unreleased recorded denial has that id (ADR-100 M-2)",
+                    entry.get(DENIED_BY_KEY),
+                    concept,
+                )
+            entry = {k: v for k, v in entry.items() if k != DENIED_BY_KEY}
         # "Is this entry denied AT ALL?" is decided with ONE call against the
         # FULL joint list of denied concepts — that is what lets
         # ``_independently_affirmed`` blank every denied phrase out of the
@@ -4280,6 +4400,13 @@ def build_keyword_ledger(
         quote = item.get("evidence_quote")
         if claimable and isinstance(quote, str) and quote.strip():
             entry["backing"] = {"quote": quote.strip(), "instrument": "quote"}
+        # ADR-100 amended 2026-11-04 (M-2) — the recorded denial the classifier
+        # cited for this requirement, carried as cited and unverified:
+        # `_enforce_denial_stance` below accepts it only when it is the id of a
+        # live record, and drops it otherwise.
+        denied_by = item.get(DENIED_BY_KEY)
+        if isinstance(denied_by, str) and denied_by.strip():
+            entry[DENIED_BY_KEY] = denied_by.strip()
         # #415 (ruling W-4): the posting's own qualifying sentence, verbatim. Carried
         # ONLY on a claimable entry — on a gap or a denial there is nothing to surface,
         # and quoting the posting's demand next to "never claim this" would read as an

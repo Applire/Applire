@@ -825,7 +825,9 @@ _LEDGER_PUBLISHABLE_KEYS = frozenset(
     # ADR-100: `evidence_quote` is the candidate's OWN profile text, copied
     # verbatim — publishable by construction, and only ever used after the floor
     # has verified it exists in the claimable vault (`backing.unit_path`).
-    {"concept", "status", "evidence", "surface_forms", "adjacent_evidence", "evidence_quote"}
+    # ADR-100 M-2: `denied_by` is the id of the candidate's OWN recorded denial
+    # (its `concept`), checked by the ledger floor against the live records.
+    {"concept", "status", "evidence", "surface_forms", "adjacent_evidence", "evidence_quote", "denied_by"}
 )
 
 
@@ -862,6 +864,10 @@ def ledger_input_from_classification(c: dict[str, Any], *, user_id: uuid.UUID | 
         # ADR-100 cl. 2 — the classifier's verbatim vault span; verified at the
         # ledger's persist seams (`assert_claimable_backed`), never trusted here.
         "evidence_quote": c.get("evidence_quote"),
+        # ADR-100 amended 2026-11-04 (M-2) — the id of the recorded denial the
+        # classifier says rules this requirement out; checked against the live
+        # records by the ledger's denial floor, never trusted here.
+        "denied_by": c.get("denied_by"),
     }
 
 
