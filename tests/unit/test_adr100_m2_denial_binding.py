@@ -394,3 +394,27 @@ def test_ledger_input_carries_the_citation_unverified():
         {"requirement": "Reference designs", "status": "gap", "denied_by": "Referenzdesigns"}
     )
     assert row["denied_by"] == "Referenzdesigns"
+
+
+# ── withdrawal releases (founder ruling WP2-1) ──────────────────────────────
+
+
+def test_SEAM_merge_withdrawal_releases_a_previously_bound_row():
+    """A row bound and persisted `denied`; the candidate withdraws the denial (G-5
+    removes it from the live list); the next analysis no longer binds. The ADR-089
+    merge must NOT carry the previous `denied` over the fresh `gap` (both rank 0),
+    and the re-floor must not resurrect it."""
+    from applire.services.gap import merge_ledger_per_requirement
+
+    [previous] = _enforce_denial_stance(
+        [_gap_row("Reference designs", **{DENIED_BY_KEY: "Referenzdesigns"})], [DE_DENIAL], None
+    )
+    assert previous["status"] == "denied"
+    fresh = [_gap_row("Reference designs")]
+    merged, carried = merge_ledger_per_requirement(
+        fresh, [previous], jd_terms=["Reference designs"], touched_members=[]
+    )
+    assert carried == []
+    out = _apply_floors_to_merged(merged, carried, denied_concepts=[], profile_json=VAULT)
+    assert out[0]["status"] == "gap"
+    assert DENIED_BY_KEY not in out[0]
