@@ -120,6 +120,49 @@ def test_the_answer_contains_the_chip_even_when_the_candidate_extends_it():
         assert got[0]["names_without_claiming"] == TERMS
 
 
+_DIRECT = "Bei der Veltrup Diagnostik habe ich die Anbindung der Labor-LIMS an SAP S/4HANA verantwortet."
+
+
+def _with_prefix_chip():
+    """The R2-2 shape invites it: a DIRECT chip that is the PARTIAL chip's
+    affirmed half (adversarial G3-1)."""
+    assert CHIP.startswith(_DIRECT[:-1])
+    return {_DIRECT: {"level": "direct", "names_without_claiming": []}, **_offered()}
+
+
+def test_a_chip_found_only_inside_a_longer_selected_chip_was_not_selected():
+    from applire.services.choice_grounding import offered_choices_in_answer
+
+    assert [c["text"] for c in offered_choices_in_answer(CHIP, _with_prefix_chip())] == [CHIP]
+    both = _DIRECT + " " + CHIP
+    assert sorted(c["text"] for c in offered_choices_in_answer(both, _with_prefix_chip())) == sorted(
+        [_DIRECT, CHIP]
+    ), "a shorter chip ALSO selected on its own is still found"
+
+
+def test_a_prefix_chip_does_not_disarm_the_gate():
+    from applire.services.choice_grounding import offered_choices_in_answer
+    from applire.services.profile.reconcile.stance import offered_choice_gate
+
+    offered = _with_prefix_chip()
+    info = {"answer": CHIP, "offered_choices": offered_choices_in_answer(CHIP, offered)}
+    assert offered_choice_gate(list(TERMS), info, "interview")[0] == []
+    # Even when a caller hands both texts over, the longest is cut first.
+    info["offered_choices"] = [{"text": _DIRECT, "names_without_claiming": []}] + info["offered_choices"]
+    assert offered_choice_gate(list(TERMS), info, "interview")[0] == []
+
+
+def test_a_quote_variant_is_cut_by_the_same_normaliser_that_found_it():
+    """Adversarial G3-2: an agent sends the chip with straight apostrophes."""
+    from applire.services.profile.reconcile.stance import offered_choice_gate
+
+    curly = CHIP_EN.replace("does not yet document", "doesn’t yet document").replace("I owned", "I’ve owned")
+    offered = {curly: {"level": "partial", "names_without_claiming": ["Boomi", "Kafka"]}}
+    info = _new_info(curly.replace("’", "'"), offered)
+    assert info.get("offered_choices"), "containment found it"
+    assert offered_choice_gate(["Boomi", "Kafka"], info, "interview")[0] == []
+
+
 def test_an_edited_chip_or_a_typed_answer_carries_no_fact():
     from applire.services.choice_grounding import offered_choices_in_answer
 
@@ -154,14 +197,34 @@ def test_the_founder_shape_every_clause_denial_is_dropped():
     assert unclaimed == TERMS
 
 
-def test_a_typed_denial_after_the_chip_is_kept_and_only_it():
+def test_with_any_typed_word_every_denial_is_kept_the_reconciler_decides():
+    """MD6-7 (main default after adversarial G3-3): beside typed words the gate
+    keeps every denial — which of them the typed words state is a judgement
+    the reconciler makes (rule 9 + the fact; measured on both models)."""
     from applire.services.profile.reconcile.stance import offered_choice_gate
 
     answer = CHIP + " Mit Kafka habe ich wirklich nie gearbeitet."
     kept, dropped, unclaimed = offered_choice_gate(list(TERMS), _new_info(answer), "interview")
-    assert kept == ["Kafka"]
-    assert "Kafka" not in dropped and len(dropped) == 5
+    assert kept == TERMS and dropped == []
     assert "Kafka" not in unclaimed, "a name the candidate typed is theirs to claim or deny"
+    assert sorted(unclaimed) == sorted(t for t in TERMS if t != "Kafka"), "the veto stays"
+
+
+@pytest.mark.parametrize(
+    ("typed", "denials"),
+    [
+        (" Und das stimmt auch: mit keinem davon habe ich je gearbeitet.", TERMS),  # reference back
+        (" I have honestly never used Kafka.", ["Kafka"]),  # another language
+        (" Amazon Web Services habe ich nie benutzt.", ["AWS"]),  # a synonym
+    ],
+)
+def test_a_typed_no_the_gate_cannot_see_is_kept(typed, denials):
+    """Adversarial G3-3 (2026-11-04): each of these is the candidate's real no,
+    and none names the concept in the clause's own wording."""
+    from applire.services.profile.reconcile.stance import offered_choice_gate
+
+    kept, dropped, _ = offered_choice_gate(list(denials), _new_info(CHIP + typed), "interview")
+    assert kept == list(denials) and dropped == []
 
 
 def test_a_typed_denial_without_any_chip_is_the_identity():
@@ -174,9 +237,8 @@ def test_a_typed_denial_without_any_chip_is_the_identity():
 def test_a_denial_string_naming_a_clause_concept_is_dropped_too():
     from applire.services.profile.reconcile.stance import offered_choice_gate
 
-    answer = CHIP + " Kubernetes habe ich nie betrieben."  # typed words: not the chip-only arm
     kept, dropped, _ = offered_choice_gate(
-        ["hands-on Boomi", "AWS cloud"], _new_info(answer), "interview"
+        ["hands-on Boomi", "AWS cloud"], _new_info(CHIP), "interview"
     )
     assert kept == [] and dropped == ["hands-on Boomi", "AWS cloud"]
 
@@ -186,8 +248,7 @@ def test_a_denial_of_the_chips_affirmed_half_is_dropped():
     only its affirmed half names has no source in the candidate's words."""
     from applire.services.profile.reconcile.stance import offered_choice_gate
 
-    answer = CHIP + " Kubernetes habe ich nie betrieben."  # typed words: not the chip-only arm
-    kept, dropped, _ = offered_choice_gate(["SAP S/4HANA"], _new_info(answer), "interview")
+    kept, dropped, _ = offered_choice_gate(["SAP S/4HANA"], _new_info(CHIP), "interview")
     assert kept == [] and dropped == ["SAP S/4HANA"]
 
 
@@ -321,6 +382,8 @@ async def test_engine_without_the_fact_keeps_the_models_denials():
 
 @pytest.mark.asyncio
 async def test_engine_keeps_a_typed_denial_beside_the_chip_and_demotes_on_it():
+    """The measured model output for the mixed arm (both models, 10/10):
+    the typed Kafka only. Beside typed words the gate passes it through."""
     from applire.schemas.profile import MasterProfileData
     from applire.services.profile.reconcile.engine import reconcile
 
@@ -329,7 +392,7 @@ async def test_engine_keeps_a_typed_denial_beside_the_chip_and_demotes_on_it():
     answer = CHIP + " Mit Kafka habe ich wirklich nie gearbeitet."
     result = await reconcile(
         MasterProfileData.model_validate(prof), _new_info(answer), "interview",
-        _Reply(denials=TERMS), "de",
+        _Reply(denials=["Kafka"]), "de",
     )
     assert result.denials == ["Kafka"]
     assert [o.name for o in result.ops if type(o).__name__ == "DemoteSkill"] == ["Kafka"]

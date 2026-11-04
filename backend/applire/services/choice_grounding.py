@@ -993,33 +993,68 @@ def _containment_form(text: str) -> str:
     return _norm(_fold_quotes(text)).rstrip(" .!?;:,")
 
 
+#: What a cut offered text leaves behind in the answer form: not whitespace,
+#: not a word character, so two cuts never fuse and a cut never reads as typing.
+OFFERED_CUT_MARK = " \u241e "
+
+
+def cut_offered_texts(answer: Any, texts: Any) -> tuple[str, list[str]]:
+    """``(remainder, cut)`` — THE one cut of offered texts out of an answer.
+
+    Both sides use :func:`_containment_form` (quotes folded, ``_norm``-ed,
+    trailing sentence punctuation dropped), so containment and cut cannot
+    disagree (adversarial G3-2, 2026-11-04: an agent sent "doesn't" for the
+    chip's "doesn’t", containment matched and the cut missed). Longest text
+    first, and a text is cut only where it still occurs after the longer ones
+    were cut (adversarial G3-1: a DIRECT chip that is a prefix of the PARTIAL
+    chip "matched" inside it, was cut first and broke the PARTIAL text). A
+    shorter text the candidate ALSO selected on its own is still found. Returns
+    the remainder form and the texts actually cut, longest first."""
+    remainder = _containment_form(answer) if isinstance(answer, str) else ""
+    forms = []
+    for text in texts or []:
+        form = _containment_form(str(text))
+        if form:
+            forms.append((form, str(text)))
+    cut: list[str] = []
+    for form, text in sorted(forms, key=lambda f: len(f[0]), reverse=True):
+        if form in remainder:
+            remainder = remainder.replace(form, OFFERED_CUT_MARK)
+            cut.append(text)
+    return remainder, cut
+
+
 def offered_choices_in_answer(answer: Any, offered: Any) -> list[dict]:
     """The offered choices this ANSWER contains, as
     ``[{"text", "names_without_claiming"}]`` — a FACT (normalised containment
-    of a text Applire delivered), never a reading of what the answer means.
+    of a text Applire delivered, :func:`cut_offered_texts`), never a reading of
+    what the answer means.
 
     Containment, not equality: a choice is a starting point the candidate may
-    select AND extend. A choice offered at the ``denial`` level (a restated
-    earlier no, ADR-064 amended 2026-10-24 (ii)) is excluded — it is the
-    candidate's own no, so it carries no exemption. An answer that EDITS the
-    choice text matches nothing; the reconcile prompt's rule 9 still applies.
+    select AND extend. Only MAXIMAL matches count: a choice found only inside a
+    longer selected choice was not selected. A choice offered at the
+    ``denial`` level (a restated earlier no, ADR-064 amended 2026-10-24 (ii))
+    is excluded — it is the candidate's own no, so it carries no exemption. An
+    answer that EDITS the choice text matches nothing; the reconcile prompt's
+    rule 9 still applies.
     """
     if not isinstance(answer, str) or not isinstance(offered, dict) or not offered:
         return []
-    answer_form = _containment_form(answer)
-    if not answer_form:
+    if not _containment_form(answer):
         return []
+    eligible = {
+        str(text): (meta if isinstance(meta, dict) else {})
+        for text, meta in offered.items()
+        if not (isinstance(meta, dict) and meta.get("level") == "denial")
+    }
+    _, cut = cut_offered_texts(answer, list(eligible))
     out: list[dict] = []
-    for text, meta in offered.items():
-        meta = meta if isinstance(meta, dict) else {}
-        if meta.get("level") == "denial":
+    for text in eligible:
+        if text not in cut:
             continue
-        form = _containment_form(str(text))
-        if not form or form not in answer_form:
-            continue
-        terms = meta.get("names_without_claiming")
+        terms = eligible[text].get("names_without_claiming")
         out.append({
-            "text": str(text),
+            "text": text,
             "names_without_claiming": [
                 str(t).strip() for t in (terms if isinstance(terms, list) else [])
                 if isinstance(t, str) and str(t).strip()
