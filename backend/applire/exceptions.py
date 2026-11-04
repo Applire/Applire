@@ -78,6 +78,26 @@ class LLMTruncatedError(LLMError):
     """
 
 
+class LLMRefusalError(LLMError):
+    """The provider's safety classifier declined the request (HTTP 200, no answer).
+
+    WP-0 (2026-11-04): Claude Sonnet 5.5 ends a declined request with
+    ``stop_reason="refusal"`` and empty content; the provider used to return that
+    empty text as the answer (an empty letter from ``acomplete``, a parse error
+    from ``aparse_json``). ``category`` is the provider's own label (e.g.
+    ``reasoning_extraction``); ``str(exc)`` is a short static description.
+    """
+
+    def __init__(self, provider: str, *, category: str | None = None, model: str = "") -> None:
+        self.provider = provider
+        self.category = category
+        self.model = model
+        super().__init__(
+            f"{provider} model {model or '?'} declined the request "
+            f"(refusal, category={category or 'unknown'})."
+        )
+
+
 class LLMResponseParseError(LLMError, json.JSONDecodeError):
     """The provider answered, but the reply is not one usable JSON object.
 

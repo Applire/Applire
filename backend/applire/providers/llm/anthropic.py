@@ -55,7 +55,12 @@ from anthropic import AsyncAnthropic
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from applire.config import settings
-from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
+from applire.exceptions import (
+    LLMProviderUnavailableError,
+    LLMRateLimitError,
+    LLMRefusalError,
+    LLMTimeoutError,
+)
 from applire.providers.llm.base import LLMProvider, raise_if_truncated, unclassified_provider_error
 from applire.providers.llm.json_reply import parse_json_reply
 from applire.providers.llm.reasoning import finalise_completion, note_trace
@@ -269,7 +274,16 @@ class AnthropicProvider(LLMProvider):
             getattr(usage, "input_tokens", "?"),
             getattr(usage, "output_tokens", "?"),
         )
-        raise_if_truncated(getattr(response, "stop_reason", None), model=self._model)
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "refusal":
+            # A declined request carries no answer; never hand its empty text on.
+            details = getattr(response, "stop_details", None)
+            category = getattr(details, "category", None)
+            logger.warning(
+                "LLM refusal [anthropic] model=%s category=%s", self._model, category
+            )
+            raise LLMRefusalError("Anthropic", category=category, model=self._model)
+        raise_if_truncated(stop_reason, model=self._model)
         return _text(response)
 
 

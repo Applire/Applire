@@ -443,6 +443,22 @@ async def test_anthropic_disable_thinking_shape_per_model(monkeypatch, model, ex
         assert "disabled" not in str(kw)          # a 400 on Sonnet 5.5
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["acomplete", "aparse_json"])
+async def test_anthropic_refusal_raises_instead_of_returning_empty_text(monkeypatch, entry):
+    from applire.exceptions import LLMRefusalError
+    provider = _anthropic_provider(monkeypatch, "claude-sonnet-5-5")
+    resp = MagicMock()
+    resp.content = []
+    resp.stop_reason = "refusal"
+    resp.stop_details = MagicMock(category="reasoning_extraction")
+    resp.usage = MagicMock(input_tokens=9392, output_tokens=0)
+    provider._client.messages.create = AsyncMock(return_value=resp)
+    with pytest.raises(LLMRefusalError) as info:
+        await getattr(provider, entry)("go")
+    assert info.value.category == "reasoning_extraction"
+
+
 def test_anthropic_generation_parses_dated_and_legacy_ids():
     from applire.providers.llm.anthropic import _generation
     assert _generation("claude-sonnet-4-20250514") == ("sonnet", (4, 0))

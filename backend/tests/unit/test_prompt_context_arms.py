@@ -206,6 +206,36 @@ async def test_an_unrepairable_break_retries_once_without_the_field(monkeypatch)
     assert retry["system"].startswith("CONTEXT")  # the preamble stays
 
 
+class _Refusing(_Recorder):
+    """Declines the first call like the Anthropic provider on a `reasoning_extraction` refusal."""
+
+    async def aparse_json(self, prompt, **kwargs):
+        from applire.exceptions import LLMRefusalError
+        self.calls.append({"prompt": prompt, **kwargs})
+        if len(self.calls) == 1:
+            raise LLMRefusalError("Anthropic", category="reasoning_extraction", model="claude-sonnet-5-5")
+        return dict(self.reply)
+
+
+@pytest.mark.asyncio
+async def test_a_refused_analysis_call_retries_once_without_the_field(monkeypatch):
+    # WP-0 (2026-11-04): Sonnet 5.5 declined 20/20 gap calls carrying the analysis field.
+    monkeypatch.setenv("PROMPT_CONTEXT", "c")
+    p = _Refusing(reply={"body": ["ok"]})
+    out = await preamble.aparse_json(p, "cover_letter:writer", "P", system="SYS", max_tokens=100)
+    assert out == {"body": ["ok"]}
+    first, retry = p.calls
+    assert '"analysis"' in first["prompt"]
+    assert retry["prompt"] == "P" and retry["max_tokens"] == 100
+
+
+@pytest.mark.parametrize("instruction", [preamble._ANALYSIS_WRITER, preamble._ANALYSIS_REVIEWER])
+def test_the_analysis_instruction_does_not_ask_to_work_out_before_answering(instruction):
+    # "in which you work out, before you write anything else" was refused 3/3 by
+    # Claude Sonnet 5.5 (`reasoning_extraction`); "that notes (1)…" passed 3/3.
+    assert "work out" not in instruction and "before you" not in instruction
+
+
 @pytest.mark.asyncio
 async def test_a_retry_that_breaks_too_raises_into_the_sites_own_handling(monkeypatch):
     monkeypatch.setenv("PROMPT_CONTEXT", "c")
