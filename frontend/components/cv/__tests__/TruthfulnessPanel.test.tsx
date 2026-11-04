@@ -379,6 +379,29 @@ describe("TruthfulnessPanel — ADR-068 judgement-checker provenance chip (SF-OR
     expect(within(claimRow).getByTestId("truthfulness-judgement-badge")).toBeInTheDocument();
   });
 
+  it("ADR-100 M-3: a backing_judgement grant carries the AI-judged badge in the drawer", () => {
+    const report: TruthfulnessReport = {
+      ...JUDGEMENT_CLAIM_REPORT,
+      claims: [
+        {
+          claim: { text: "Coupled the MES with the lab systems.", location: "summary[0]", kind: "sentence" },
+          verdict: {
+            verdict: "grounded",
+            checker: "backing_judgement",
+            evidence: [],
+            detail: null,
+            detail_key: "backingEquivalent",
+          },
+        },
+      ],
+      counts: { grounded: 1 },
+    };
+    render(withIntl(<TruthfulnessPanel report={report} />));
+    fireEvent.click(screen.getByTestId("truthfulness-details-button"));
+    const claimRow = screen.getByTestId("truthfulness-drawer-claim-summary[0]");
+    expect(within(claimRow).getByTestId("truthfulness-judgement-badge")).toBeInTheDocument();
+  });
+
   it("a grounded literal-checker claim in the drawer has no judgement badge", () => {
     render(withIntl(<TruthfulnessPanel report={JUDGEMENT_CLAIM_REPORT} />));
     fireEvent.click(screen.getByTestId("truthfulness-details-button"));

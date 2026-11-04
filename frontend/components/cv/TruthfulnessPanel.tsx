@@ -50,6 +50,9 @@ const JUDGEMENT_CHECKERS = new Set([
   "cross_language_judgement",
   "restatement_judgement",
   "sentence_triage",
+  // ADR-100 M-3: the judge, handed the ledger's verified backing quote first,
+  // ruled the sentence a faithful restatement — still a model's opinion.
+  "backing_judgement",
 ]);
 
 function isJudgementChecker(checker: string): boolean {

@@ -1833,3 +1833,53 @@ async def test_v2_letter_condense_commit_failure_still_reaches_ready(
     assert cl.status == "ready", (
         f"a condense-commit failure must still flip the letter to ready, got {cl.status!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# ADR-100 M-3: both letter truth-audit call sites hand the Oracle the job ledger
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_letter_truth_audits_receive_the_keyword_ledger(db_with_cover_letter):
+    """Seam test, both call sites of ``_letter_truth_audit``: the generation-time
+    truth round and the delivered report read the job's keyword ledger (its
+    verified backing quotes), as the CV's ``_truth_audit`` always did. Before
+    M-3 the letter audit received none — every interview-answered sentence of
+    the 11-04 E2E letter stayed ``noCloseEvidence``."""
+    from applire.models.gap import GapAnalysis
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    ledger = [
+        {"concept": "Python", "surface_forms": ["Python"], "claimable": True,
+         "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "5y"},
+    ]
+    session.add(GapAnalysis(
+        id=uuid.uuid4(), job_analysis_id=ctx["job_id"], profile_id=ctx["profile_id"],
+        match_score=50, keyword_ledger=ledger,
+        created_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+    ))
+    await session.commit()
+
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = _stub_letter_data()
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    audit = AsyncMock(return_value=None)
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter._letter_truth_audit", new=audit), \
+         patch("applire.services.cover_letter._in_loop_letter_critic", new=AsyncMock(return_value=[])), \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.keyword_ledger.refresh_persist_and_rescore", new=AsyncMock(return_value=ledger)), \
+         patch("applire.services.cover_letter._latest_keyword_ledger", new=AsyncMock(return_value=ledger)), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=_make_ats_report("cover_letter")):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(ctx["cl_id"], None, ctx["job_id"])
+
+    assert audit.await_count >= 2, audit.await_args_list
+    assert [c.kwargs.get("keyword_ledger") for c in audit.await_args_list] == [ledger] * audit.await_count

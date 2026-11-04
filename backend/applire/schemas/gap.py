@@ -154,6 +154,16 @@ class KeywordLedgerEntry(BaseModel):
         }
 
     @model_validator(mode="after")
+    def _publish_only_a_floor_verified_backing(self) -> "KeywordLedgerEntry":
+        """Only the floor's stamp is evidence: a claimable row whose quote resolved
+        (``unit_path`` set by ``_stamp_backing``). An unclaimable row (an aim-only
+        row keeps the classifier's raw, unverified quote) or a pathless one reads
+        as ``None`` — never handed to an agent as the person's evidence."""
+        if self.backing is not None and (not self.claimable or not self.backing.unit_path):
+            self.backing = None
+        return self
+
+    @model_validator(mode="after")
     def _derive_floored_by_denial(self) -> "KeywordLedgerEntry":
         from applire.services.keyword_ledger import is_denial_floored
 

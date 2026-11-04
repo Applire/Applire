@@ -65,11 +65,26 @@ def test_malformed_stored_backing_reads_absent_never_500(bad):
     assert dumped["keyword_ledger"][0]["backing"] is None
 
 
-def test_non_string_unit_path_and_instrument_drop_to_none():
-    dumped = _response([_row(backing={"quote": _QUOTE, "unit_path": 3, "instrument": ["x"]})])
+def test_non_string_instrument_drops_to_none():
+    dumped = _response([_row(backing={"quote": _QUOTE, "unit_path": "skills[0]", "instrument": ["x"]})])
     assert dumped.model_dump(mode="json")["keyword_ledger"][0]["backing"] == {
-        "quote": _QUOTE, "unit_path": None, "instrument": None,
+        "quote": _QUOTE, "unit_path": "skills[0]", "instrument": None,
     }
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"backing": {"quote": _QUOTE, "unit_path": 3}},  # no floor stamp
+        {"backing": {"quote": _QUOTE}},
+        {"claimable": False, "status": "gap", "aim_only": True},  # raw classifier quote on an aim row
+    ],
+    ids=["non-str-path", "pathless", "unclaimable"],
+)
+def test_only_a_floor_verified_backing_is_published(over):
+    """Review (#788): an unverified quote must never reach an agent as evidence."""
+    dumped = _response([_row(**over)]).model_dump(mode="json")
+    assert dumped["keyword_ledger"][0]["backing"] is None
 
 
 @pytest.mark.asyncio

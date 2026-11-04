@@ -2359,6 +2359,7 @@ async def _render_cover_letter_body(
                             letter_data,
                             form_inputs=pre_gen or None,
                             document_language=detected_language,
+                            keyword_ledger=keyword_ledger,
                         ),
                         profile_json=profile.profile_json if profile else {},
                         source_material=grounding_source,
@@ -4612,10 +4613,12 @@ async def _letter_truth_audit(
     *,
     form_inputs: dict | None,
     document_language: str | None,
+    keyword_ledger: list[dict] | None = None,
 ) -> dict | None:
     """ADR-099 cl. 4(b) — the ONE truthfulness instrument of a letter: the truth
     round in generation and the delivered report call this with the same provider,
-    form inputs and document language. Never raises."""
+    form inputs, document language and (ADR-100 M-3) the job's keyword ledger,
+    whose verified backing quotes the Oracle reads. Never raises."""
     from applire.services.oracle.selfaudit import build_self_audit_report
 
     return await build_self_audit_report(
@@ -4624,6 +4627,7 @@ async def _letter_truth_audit(
         provider=get_provider(),
         form_inputs=form_inputs,
         document_language=document_language,
+        keyword_ledger=keyword_ledger,
     )
 
 
@@ -4949,6 +4953,7 @@ async def _update_ats_report_letter(
                 cl.document_language
                 or (resolve_jd_language(judgement_job) if judgement_job else None)
             ),
+            keyword_ledger=ledger,
         )
     except Exception:
         logger.exception(

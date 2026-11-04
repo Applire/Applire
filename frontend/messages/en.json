@@ -2948,7 +2948,9 @@
     "otherLanguageNotChecked": "No entry in your profile has this name, and part of your profile is in another language — names are not checked across languages, so this stays open rather than marked as wrong.",
     "honestDenial": "An honest denial or a task someone else did — nothing about you that your profile would need to back.",
     "figuresFromStatedLimit": "The figure comes from a limit you stated yourself — an honest restatement, not a new claim.",
-    "groundedUnion": "Backed by several entries of your profile together."
+    "groundedUnion": "Backed by several entries of your profile together.",
+    "ledgerBackingQuote": "The job analysis backed “{skill}” with a verified word-for-word quote from your profile.",
+    "backingEquivalent": "Judged by the AI a faithful restatement of the profile evidence the job analysis recorded for a requirement named here."
   },
   "deniedConcepts": {
     "title": "What doesn't apply to you, by your own answers",

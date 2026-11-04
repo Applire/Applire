@@ -59,6 +59,7 @@ def _capture(monkeypatch):
 
     monkeypatch.setattr(server.oracle_svc, "audit_document", _fake_audit)
     monkeypatch.setattr(server.cv_svc, "_latest_keyword_ledger", _no_ledger)
+    monkeypatch.setattr(server.cover_letter_svc, "_latest_keyword_ledger", _no_ledger)
     monkeypatch.setattr(server, "get_provider", lambda: None)
     return server, seen
 
@@ -102,3 +103,36 @@ async def test_letter_branch_job_less_unpinned_leaves_the_language_none(monkeypa
     record = _record(letter_data={"body": {"paragraphs": ["x"]}}, document_language=None)
     await server._audit_stored_document(record, "cover_letter", _FakeDB({}, job=None))
     assert seen["kwargs"]["document_language"] is None
+
+
+@pytest.mark.asyncio
+async def test_letter_branch_threads_the_keyword_ledger(monkeypatch):
+    """ADR-100 M-3: the agent door audits a letter with the job's ledger (its
+    verified backing quotes), read through the letter chain's own read — the
+    one the delivered report uses."""
+    server, seen = _capture(monkeypatch)
+    ledger = [{"concept": "MES", "claimable": True, "status": "direct"}]
+    asked: dict = {}
+
+    async def _letter_ledger(db, job_id, **kw):
+        asked["job_id"] = job_id
+        return ledger
+
+    monkeypatch.setattr(server.cover_letter_svc, "_latest_keyword_ledger", _letter_ledger)
+    record = _record(letter_data={"body": {"paragraphs": ["x"]}}, document_language="en")
+    await server._audit_stored_document(record, "cover_letter", _FakeDB({}))
+    assert seen["kwargs"]["keyword_ledger"] is ledger
+    assert asked["job_id"] == record.job_analysis_id
+
+
+@pytest.mark.asyncio
+async def test_letter_branch_ledger_failure_audits_against_the_vault_alone(monkeypatch):
+    server, seen = _capture(monkeypatch)
+
+    async def _boom(*a, **kw):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(server.cover_letter_svc, "_latest_keyword_ledger", _boom)
+    record = _record(letter_data={"body": {"paragraphs": ["x"]}}, document_language="en")
+    await server._audit_stored_document(record, "cover_letter", _FakeDB({}))
+    assert seen["kwargs"]["keyword_ledger"] is None
