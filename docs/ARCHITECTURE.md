@@ -1169,7 +1169,7 @@ delivering every term it was asked for.
 
 ---
 
-**ADR-076 — amended 2026-11-04: the get-up-to-speed clause is not a claim.** Every check that judges a letter sentence accepts a named gap's "I will get up to speed on X" clause. That covers the reviewer, the final review, the corrector, the truthfulness triage and the invented-limit signal. The clause says nothing about the past, so it needs no source and is never flagged as filler. It becomes a claim only when it adds a figure, an employer, a project, a certificate or a trait ("as a fast learner"). The deterministic invented-limit signal treats a lack that the gap ladder names as grounded, just as it treats a recorded "no".
+**ADR-076 — amended 2026-11-04: the get-up-to-speed clause is not a claim.** Every check that judges a letter sentence accepts a named gap's "I will get up to speed on X" clause. That covers the reviewer, the final review, the corrector, the truthfulness triage and the invented-limit signal. The clause says nothing about the past, so it needs no source and is never flagged as filler. Anything in the clause about the candidate's past or abilities (a skill, a tool, experience, a figure, an employer, a project, a certificate or a trait such as "as a fast learner") is a claim and is checked. A sentence that also states a transfer is checked as a claim too. The condense that shortens an over-length letter must keep each named gap's sentence and the motivation. The deterministic invented-limit signal treats a lack that the gap ladder names as grounded, just as it treats a recorded "no".
 
 ### ADR-077 — A Fact Pin Is the User's Seat at the Budget Table (accepted + built 2026-08-25, amended 2026-08-26)
 
