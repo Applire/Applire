@@ -1897,6 +1897,23 @@ def _keyword_coverage(
                 for x in sents
             ):
                 present_unsupported_in_denial.append(k)
+    # Letter #784 (WP3, ADR-100 tiers, Hazelnut collectors 2026-11-04): on a LETTER,
+    # a ledger-DENIED term whose every claim sentence names it inside a negation's
+    # scope is the candidate's own stated limit — the disclosure the writer is
+    # REQUIRED to make for a key requirement (ADR-075 (b)). `present_denied` is a
+    # literal presence test that cannot see the negation (a Hint), and rendered it as
+    # a Fact with a remove-only card: the 11-04 letter's "While I have no Kubernetes
+    # experience, …" was flagged `present_denied` / `remove_only`. Same token-position
+    # fact as D-4b (`form_in_denial_segment`); the term joins the S bucket.
+    if non_claim and non_claim.employer_clause and present_denied:
+        own_limit = _denied_terms_in_own_limit(
+            text_norm, present_denied, matches_by_kw, non_claim, ledger
+        )
+        if own_limit:
+            present_denied = [k for k in present_denied if k not in own_limit]
+            present_unsupported_in_denial.extend(
+                k for k in own_limit if k not in present_unsupported_in_denial
+            )
     if present_unsupported_in_denial:
         moved = set(present_unsupported_in_denial)
         present_unsupported = [k for k in present_unsupported if k not in moved]
@@ -1923,6 +1940,36 @@ def _keyword_coverage(
         present_unsupported_sentences=present_unsupported_sentences,
         present_unsupported_in_denial=present_unsupported_in_denial,
     )
+
+
+def _denied_terms_in_own_limit(
+    text_norm: str,
+    present_denied: list[str],
+    matches_by_kw: dict[str, Any],
+    non_claim: "NonClaimNames | None",
+    ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """Letter #784 (WP3): the ``present_denied`` terms whose every claim sentence
+    names them only inside a negation's scope — the candidate stating their own
+    limit, never a claim of it. A stem-only hit has no literal form to locate and
+    stays flagged (safe side), as in D-4b."""
+    from applire.services.oracle.extract import form_in_denial_segment
+
+    sentences = _claim_sentences(text_norm, present_denied, non_claim, ledger)
+    out: list[str] = []
+    for k in present_denied:
+        sents = sentences.get(k) or []
+        forms = [
+            (m.form if not isinstance(m, dict) else m.get("form", ""))
+            for m in matches_by_kw.get(k) or []
+            if not (m.stem if not isinstance(m, dict) else m.get("stem"))
+        ]
+        forms = [f for f in forms if f] or [k]
+        # `form_in_denial_segment` is False when any occurrence of the form in the
+        # sentence stands outside a negation's scope (a claim beside a disclosure).
+        if sents and all(any(form_in_denial_segment(x, f) for f in forms) for x in sents):
+            out.append(k)
+    return out
 
 
 def _form_outside_denial(sentence: str, form: str) -> bool:
@@ -2608,7 +2655,7 @@ def _audit_cv_text(
     # check is invisible to every counter and reads as a clean, complete audit of
     # something that was never examined (the #634 class, ADR-079 clause 4).
     checks.append(_terminal_review_check(terminal_review, previous_report))
-    checks.append(_narrative_evidence_check(tailored, ledger))
+    checks.append(_narrative_evidence_check(tailored, ledger, vault_index))
 
     coverage = _keyword_coverage(
         t, keywords, ledger, vault_text_norm, vault_index, non_claim,
@@ -2652,7 +2699,9 @@ NARRATIVE_EVIDENCE_CHECK_ID = "narrative-evidence"
 _NARRATIVE_EVIDENCE_DETAIL_MAX = 6
 
 
-def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, Any]] | None) -> ATSCheck:
+def _narrative_evidence_check(
+    tailored: TailoredCVData, ledger: list[dict[str, Any]] | None, vault_index: Any = None
+) -> ATSCheck:
     """#542 / ADR-076 clause 5: is the evidence behind the CV's own claims on the page?
 
     ``fail`` when a claimable ledger concept at the JD's own requirement rank reaches
@@ -2692,9 +2741,33 @@ def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, A
     # audit runs after assembly on both doors), so this is the same dict, read twice
     # through the two corpora the signal defines.
     composed = tailored.model_dump(mode="json")
-    missing = verified_narrative_underclaim(composed, ledger, structured_document=composed)
+    missing = verified_narrative_underclaim(
+        composed, ledger, structured_document=composed, vault_index=vault_index
+    )
+    # ADR-100 cl. 9 (Writer #786 / WP3, 2026-11-04): a literal scan never vetoes
+    # meaning. A concept whose VERIFIED backing sits in a work entry this CV renders
+    # is a Hint — its evidence may be there in other words or another language (the
+    # 11-04 E2E CV: "Team leadership (claimed but not evidenced)" beside "Led
+    # laboratory IT with a team of six", backing work_experience[0].responsibilities[0]).
+    # Code cannot read that bullet's meaning, so it does not fail the check on it; it
+    # names it, at its true strength.
+    unconfirmed = [c for c in missing if c.evidence_entry]
+    missing = [c for c in missing if not c.evidence_entry]
     if not missing:
-        return ATSCheck(id=NARRATIVE_EVIDENCE_CHECK_ID, status="pass", details=None)
+        if not unconfirmed:
+            return ATSCheck(id=NARRATIVE_EVIDENCE_CHECK_ID, status="pass", details=None)
+        return ATSCheck(
+            id=NARRATIVE_EVIDENCE_CHECK_ID,
+            status="pass",
+            details=(
+                "Not named in the posting's words in any bullet, with the profile's evidence "
+                "for it recorded under a position this CV shows (whether that bullet states it "
+                "is a reading, not a scan): "
+                + ", ".join(f"{c.concept} ({c.evidence_entry})" for c in unconfirmed[:_NARRATIVE_EVIDENCE_DETAIL_MAX])
+                + "."
+            ),
+            driver={"concepts": 0, "unconfirmed": len(unconfirmed)},
+        )
     # Bounded by RANK, not by a character cap: `verified_narrative_underclaim` returns
     # `fit_weight`-descending, so the first entries are the ones most central to this
     # role. A raw character truncation would cut the list at an arbitrary concept and
@@ -2728,7 +2801,7 @@ def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, A
             "absentCount": len(absent),
             "more": len(rest),
         },
-        driver={"concepts": len(missing)},
+        driver={"concepts": len(missing), **({"unconfirmed": len(unconfirmed)} if unconfirmed else {})},
     )
 
 
