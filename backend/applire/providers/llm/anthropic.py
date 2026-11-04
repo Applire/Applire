@@ -146,7 +146,16 @@ class AnthropicProvider(LLMProvider):
         timeout: int = 30,
     ) -> None:
         super().__init__(timeout=timeout)
-        self._client = AsyncAnthropic(api_key=api_key or settings.anthropic_api_key)
+        # The SDK refuses a NON-streaming request whose max_tokens implies more than
+        # 10 minutes (> ~21k tokens: "Streaming is required …", a ValueError) unless
+        # the client carries an explicit timeout. Reconcile asks for 32768 and the
+        # truncation retry doubles 16384, so both failed on every call (WP-0,
+        # 2026-11-04). Applire bounds each call itself (asyncio.wait_for on
+        # self._timeout), so the HTTP timeout is that same budget plus a margin.
+        self._client = AsyncAnthropic(
+            api_key=api_key or settings.anthropic_api_key,
+            timeout=float(timeout) + 30.0,
+        )
         self._model = model or settings.anthropic_model or _DEFAULT_MODEL
         self._shape = _request_shape(self._model)
 
