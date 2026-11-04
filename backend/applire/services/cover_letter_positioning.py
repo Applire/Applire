@@ -554,12 +554,19 @@ def render_role_titles_block(titles: list[RoleTitle]) -> str:
 def _core_employer_name(name: str | None) -> str:
     from applire.services.ats_audit import _LEGAL_FORM_RE, _norm
 
-    n = _norm(name or "").strip(" ,.")
+    # The legal-form pattern needs the trailing dot of "e.V." / "S.A." / "B.V." /
+    # "N.V.", so a dot is stripped only AFTER the form is gone — and a dot that is
+    # sentence punctuation ("… GmbH.") is tried without (fix round, adversarial G2-2).
+    n = _norm(name or "").strip(" ,")
     prev = None
     while prev != n:
         prev = n
-        n = _LEGAL_FORM_RE.sub("", n).strip(" ,.")
-    return n
+        for cand in (n, n.rstrip(". ")):
+            cut = _LEGAL_FORM_RE.sub("", cand)
+            if cut != cand:
+                n = cut.strip(" ,")
+                break
+    return n.strip(" ,.")
 
 
 def employer_stations(profile_json: dict | None, company: str | None) -> list[dict]:
@@ -567,7 +574,11 @@ def employer_stations(profile_json: dict | None, company: str | None) -> list[di
 
     ``[{"role", "company", "start_date", "end_date", "ended"}]`` in profile order; ``[]``
     when the company is unknown or no position matches. ``ended`` is a fact: the entry
-    is not current and carries an end date. Pure; malformed tolerant."""
+    is not current and its end date states an end. "Current" is ONE implementation
+    (ADR-066): ``profile.aspiration``'s rule — the flag, or a start date with no end
+    or an ongoing marker ("present", "heute", "bis heute" … — extraction writes
+    those literally; fix round, adversarial G2-1). Pure; malformed tolerant."""
+    from applire.services.profile.aspiration import _ended
     target = _core_employer_name(company)
     if not target:
         return []
@@ -577,14 +588,16 @@ def employer_stations(profile_json: dict | None, company: str | None) -> list[di
             continue
         if _core_employer_name(entry.get("company")) != target:
             continue
-        current = bool(entry.get("is_current"))
-        end = "present" if current else (entry.get("end_date") or "")
+        raw_end = entry.get("end_date")
+        current = bool(entry.get("is_current")) or (
+            bool(entry.get("start_date")) and not _ended(raw_end)
+        )
         out.append({
             "role": entry.get("role") or "",
             "company": entry.get("company") or "",
             "start_date": entry.get("start_date") or "",
-            "end_date": end,
-            "ended": not current and bool(end),
+            "end_date": "present" if current else (raw_end or ""),
+            "ended": not current and _ended(raw_end),
         })
     return out
 

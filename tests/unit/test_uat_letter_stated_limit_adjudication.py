@@ -306,7 +306,8 @@ class TestThe732PositioningRules:
         assert "is a gap WITHOUT its decision: block" in p
         # Hazelnut b6 follow-up: a clause-only gap sentence (G-1 / L-3 = A) is whole —
         # luna's reviewer read HALF-DELIVERY as "add a transfer" to it (synthetic loops).
-        assert "Closing on the einarbeiten clause is whole" in p
+        # fix round L2-2: whole ONLY where no transfer is held
+        assert "No transfer held: the einarbeiten clause makes it whole" in p
 
     @pytest.mark.parametrize("door", ["REVIEW_SYSTEM_PROMPT",
                                       "TERMINAL_REVIEW_SYSTEM_PROMPT"])

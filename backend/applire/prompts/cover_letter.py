@@ -603,7 +603,7 @@ def build_cover_letter_prompt(
     # surface, honest gaps never to claim. Grounding strictly outranks coverage.
     from applire.services.keyword_ledger import render_ledger_prompt_block
 
-    ledger_block = render_ledger_prompt_block(keyword_ledger)
+    ledger_block = render_ledger_prompt_block(keyword_ledger, audience="letter")
     if ledger_block:
         lines += ["", ledger_block]
 
@@ -759,9 +759,13 @@ LETTER_REQUIRED_CONTENT: tuple[str, ...] = (
     "The closing paragraph: a genuine call-to-action / interest statement, not a "
     "bare availability stub. Never end the letter on a standalone line like "
     "\"Notice period can be discussed.\" with nothing else in that paragraph.",
-    "The honest-gap / transfer argument, if the current letter makes one: the "
-    "candidate's own grounded reasoning for why their experience transfers despite "
-    "a gap in the job description.",
+    "Each named gap's ONE sentence, if the current letter makes one: the gap with "
+    "its transfer (the candidate's own grounded reasoning for why their experience "
+    "transfers) or its closing get-up-to-speed clause (\"… I will get up to speed on "
+    "it quickly\" / \"… arbeite ich mich schnell ein\"). Keep it ONE sentence with "
+    "both halves; never cut the clause or the sentence.",
+    "The motivation: the sentence(s) saying why this role at this employer — "
+    "shorten, never drop.",
     "The company/domain engagement: any concrete reference to this employer or "
     "its domain, not a generic sentence that could apply to any company.",
     "The availability / notice-period line, if present.",

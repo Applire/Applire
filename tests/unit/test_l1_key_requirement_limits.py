@@ -81,5 +81,6 @@ def test_every_door_says_a_gap_is_named_with_transfer_or_left_out():
 
 
 def test_the_ledger_denied_list_no_longer_licenses_an_unowed_admission():
-    block = _flat(render_ledger_prompt_block([{"concept": "IFS", "status": "denied"}]))
+    # the LETTER audience (MD6-3 fix round: the CV keeps its pre-build-6 header)
+    block = _flat(render_ledger_prompt_block([{"concept": "IFS", "status": "denied"}], audience="letter"))
     assert "only where its key-requirement gaps block names it" in block

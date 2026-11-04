@@ -236,7 +236,7 @@ def test_the_block_states_the_rule_and_its_bans():
         "in the same sentence", "never a list of lacks", "\"not recorded\"",
         "\"beyond my profile\"", "every further concept a listed statement names",
         "silence there is correct, never a finding", "the einarbeiten clause",
-        "no figure, employer, project, certificate or trait adjective",
+        "no skill, tool, experience, duration, figure, employer, project, certificate or trait adjective",
         "\"fast learner\"", "free wording",
     ):
         assert phrase in flat, phrase

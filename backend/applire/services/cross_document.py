@@ -744,8 +744,11 @@ EINARBEITEN_CLAUSE_RULE = (
     "for a NAMED gap, that gap's sentence closes with ONE forward-looking clause of "
     "intent to get up to speed on it quickly, in the letter language and the "
     "candidate's own voice. It is the ONLY sentence part the grounding rules allow "
-    "without a source: no figure, employer, project, certificate or trait adjective "
-    "in it (\"fast learner\", \"proven ability\", \"steile Lernkurve\" are not it). "
+    "without a source, so it says NOTHING about the candidate's past or abilities: no "
+    "skill, tool, experience, duration, figure, employer, project, certificate or trait "
+    "adjective in it (\"fast learner\", \"proven ability\", \"steile Lernkurve\", "
+    "\"dank meiner Erfahrung mit X\" are not it — a transfer goes BEFORE the clause, "
+    "as the sentence's grounded half). "
     "Free wording; it is never an unsupported generalisation, never filler, and never "
     "a claim to be verified."
 )
