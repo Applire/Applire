@@ -29,7 +29,7 @@ def test_the_constraint_only_entry_says_the_limits_are_owed_nothing():
     text = _flat(entry["instruction"])
     assert "required" not in entry
     assert text.startswith("CONSTRAINT ONLY — owed nothing.")
-    assert "the letter never mentions them" in text
+    assert "The letter discloses none of them beyond the gap(s) ``gap_positioning`` names" in text
     assert "a review never demands one — a letter that writes one has a finding" in text
     # the invitation that read as a demand is gone from THIS entry
     assert "an honest denial names" not in text

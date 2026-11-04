@@ -264,21 +264,29 @@ def test_an_adjacent_partial_may_not_be_stated_as_a_limit():
     assert "INVENTED LIMIT" in block
     # RULING DEL-2: surfacing the adjacent capability, or leaving the requirement out
     assert "leaving the requirement out is the other" in block
-    # and the shared instruction gates the de-emphasis on the candidate's own words
-    assert "only where the entry says the candidate was ASKED AND SAID NO" in block
+    # G-1: a lack the candidate stated lives in the KEY-REQUIREMENT GAPS content only;
+    # this block's shared instruction says so and offers no de-emphasis that names a gap
+    assert "Gaps the letter names are listed ONLY in the KEY-REQUIREMENT GAPS content" in block
+    assert "names the gap" not in block
 
 
-def test_a_denied_entry_keeps_the_honest_de_emphasis():
-    """The other half of the same rule: where the candidate WAS asked and said no,
-    naming the gap plainly is grounded and stays a legal response (ADR-075 clause 1)."""
-    from applire.services.cross_document import render_unaddressed_hard_requirements_block
+def test_a_denied_row_is_never_listed_and_a_denied_entry_carries_no_denial_framing():
+    """G-1 (2026-11-04) retires the "THE CANDIDATE WAS ASKED AND STATED THEY DO NOT HAVE
+    THIS" entry line: a `claimable: false` row (gap / denied) is a key-requirement gap and
+    belongs to the KEY-REQUIREMENT GAPS content, never to this block. Even if a caller
+    hands one in, the block frames no denial and offers no statement of a lack."""
+    from applire.services.cross_document import (
+        find_unaddressed_hard_requirements,
+        render_unaddressed_hard_requirements_block,
+    )
 
-    block = render_unaddressed_hard_requirements_block([
-        {"concept": "IFS", "evidence": "nie für Lebensmittelkunden produziert",
-         "status": "denied", "claimable": False},
-    ])
-    assert "THE CANDIDATE WAS ASKED AND STATED THEY DO NOT HAVE THIS" in block
-    assert "never state it as something they LACK" not in block
+    row = {"concept": "IFS", "status": "denied", "claimable": False, "fit_weight": 1.0,
+           "sources": ["required"], "evidence": "nie für Lebensmittelkunden produziert"}
+    assert find_unaddressed_hard_requirements([row], {"body": "Ein Text."}) == []
+
+    block = render_unaddressed_hard_requirements_block([row])
+    assert "THE CANDIDATE WAS ASKED AND STATED" not in block
+    assert "ONLY in the KEY-REQUIREMENT GAPS content" in block
 
 
 def test_grounding_reads_the_denial_LABEL_and_never_its_statement():

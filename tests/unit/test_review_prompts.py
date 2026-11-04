@@ -1187,7 +1187,14 @@ class TestCoverLetterPositioningIntegration:
         }
         mock_gap = MagicMock()
         mock_gap.category_c = ["regulated industries experience"]
-        mock_gap.keyword_ledger = []
+        # G-1 (2026-11-04): the testimony is the transfer of a NAMED key-requirement gap,
+        # not of the category-C list — so the job's ledger must carry the gap as a
+        # key-tier, not-claimable row for a Signature Story to attach to it.
+        mock_gap.keyword_ledger = [{
+            "concept": "regulated industries experience",
+            "surface_forms": ["regulated industries experience"],
+            "status": "gap", "claimable": False, "fit_weight": 1.0, "sources": ["required"],
+        }]
 
         mock_db = self._wire(mock_cl, mock_job, mock_cv, mock_profile, mock_gap, None)
 
@@ -1883,7 +1890,7 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
         conditional positioning_requested entries are absent — matching the
         writer's silence-over-invention discipline. #272 Task 2: "closing" is
         NOT conditional (every letter needs a real closing paragraph), so it is
-        always present, unlike the other three."""
+        always present, unlike the other three; so is G-2's "motivation"."""
         import uuid
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1923,8 +1930,11 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
         src = calls[0]["source"]
         import json as _json
         parsed = _json.loads(src)
-        assert set(parsed["positioning_requested"].keys()) == {"closing"}
+        # `closing` and (G-2, 2026-11-04) `motivation` are the two unconditional entries;
+        # `gap_positioning` appears only when the posting has a key-requirement gap.
+        assert set(parsed["positioning_requested"].keys()) == {"closing", "motivation"}
         assert parsed["positioning_requested"]["closing"]["required"] is True
+        assert parsed["positioning_requested"]["motivation"]["required"] is True
 
     @pytest.mark.asyncio
     async def test_unaddressed_hard_requirements_never_enters_the_constant_channel(self):
@@ -1943,20 +1953,18 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
         import uuid
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from applire.services.keyword_ledger import DENIED_EVIDENCE
-
-        # A denied+required concept: unclaimable, so it reaches the UNADDRESSED
-        # block, and it carries the candidate's own limit, so ADR-074's Restfall
-        # exclusion does NOT apply to it (that path has its own test).
+        # G-1 (2026-11-04): only an ADJACENT partial (claimable through a stand-in) reaches
+        # the UNADDRESSED block; a denied / gap row is a key-requirement gap owned by
+        # `gap_positioning`, so it is no longer listed here.
         ledger = [{
             "concept": "BaFin supervision",
             "surface_forms": ["BaFin supervision"],
             "sources": ["required"],
             "fit_weight": 1.0,
-            "status": "denied",
-            "evidence": DENIED_EVIDENCE,
-            "claimable": False,
-            "denial_level": "direct",
+            "status": "partial",
+            "evidence": "Built automated regression suites",
+            "adjacent_evidence": "Test Automation",
+            "claimable": True,
         }]
 
         cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
@@ -2026,6 +2034,14 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
                 }
             ],
             category_c=["LegalTech domain experience"],
+            # G-1: the testimony fires for a NAMED key-requirement gap (key-tier,
+            # not-claimable ledger row), not for the category-C list
+            keyword_ledger=[{
+                "concept": "LegalTech domain experience",
+                "surface_forms": ["LegalTech domain experience"],
+                "status": "denied", "claimable": False, "fit_weight": 1.0,
+                "sources": ["required"],
+            }],
         )
 
         shared_result = MagicMock()
