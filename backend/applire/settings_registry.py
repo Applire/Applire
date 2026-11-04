@@ -579,7 +579,7 @@ _register_all(
         SettingEntry(
             env_var="ANTHROPIC_MODEL",
             source="config",
-            default="claude-sonnet-4-6",
+            default="claude-sonnet-5-5",
             section="LLM provider",
             introduced_in="0.37.0",
             description=(

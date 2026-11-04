@@ -345,14 +345,18 @@ async def test_anthropic_acomplete_omits_system_when_none(monkeypatch):
     assert "system" not in provider._client.messages.create.call_args.kwargs
 
 
-@pytest.mark.asyncio
-async def test_anthropic_aparse_json_prefills_and_parses(monkeypatch):
+def _anthropic_provider(monkeypatch, model: str):
     import applire.config as cfg
-    monkeypatch.setattr(cfg.settings, "anthropic_model", "m")
+    monkeypatch.setattr(cfg.settings, "anthropic_model", model)
     with patch("anthropic.AsyncAnthropic"):
         from applire.providers.llm.anthropic import AnthropicProvider
-        provider = AnthropicProvider(api_key="test-key")
-    # The model continues from the prefilled "{"
+        return AnthropicProvider(api_key="test-key")
+
+
+@pytest.mark.asyncio
+async def test_anthropic_aparse_json_prefills_and_parses_on_a_prefill_model(monkeypatch):
+    # Claude Haiku 4.5 still accepts an assistant prefill: the model continues "{".
+    provider = _anthropic_provider(monkeypatch, "claude-haiku-4-5")
     provider._client.messages.create = AsyncMock(
         return_value=_anthropic_response('"skills": ["Python"], "u": "Fähigkeit"}')
     )
@@ -364,15 +368,94 @@ async def test_anthropic_aparse_json_prefills_and_parses(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_anthropic_aparse_json_tolerates_trailing_fence(monkeypatch):
-    import applire.config as cfg
-    monkeypatch.setattr(cfg.settings, "anthropic_model", "m")
-    with patch("anthropic.AsyncAnthropic"):
-        from applire.providers.llm.anthropic import AnthropicProvider
-        provider = AnthropicProvider(api_key="test-key")
+    provider = _anthropic_provider(monkeypatch, "claude-haiku-4-5")
     provider._client.messages.create = AsyncMock(
         return_value=_anthropic_response('"ok": true}\n```')
     )
     assert await provider.aparse_json("go") == {"ok": True}
+
+
+# WP-0 (2026-11-04): Claude Sonnet 5.5 answered every call with HTTP 400
+# "`temperature` is deprecated for this model" (req_011CghhUPQYFwLNhFFfKkP9G); an
+# assistant prefill and `thinking: {type: "disabled"}` are 400s there too.
+_CURRENT_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5", "claude-fable-5-1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", _CURRENT_MODELS + ["claude-unknown-9"])
+async def test_anthropic_current_models_get_no_sampling_and_no_prefill(monkeypatch, model):
+    provider = _anthropic_provider(monkeypatch, model)
+    provider._client.messages.create = AsyncMock(
+        return_value=_anthropic_response('```json\n{"ok": true}\n```')
+    )
+    assert await provider.aparse_json("go", temperature=0.1) == {"ok": True}
+    kw = provider._client.messages.create.call_args.kwargs
+    assert "temperature" not in kw and "top_p" not in kw and "top_k" not in kw
+    assert kw["messages"] == [{"role": "user", "content": "go"}]   # ends on the user turn
+    assert "thinking" not in kw                                     # model default when not asked
+
+    provider._client.messages.create = AsyncMock(return_value=_anthropic_response("hi"))
+    await provider.acomplete("x", temperature=0.3)
+    assert "temperature" not in provider._client.messages.create.call_args.kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-3-5-haiku-20241022"])
+async def test_anthropic_older_models_keep_temperature(monkeypatch, model):
+    provider = _anthropic_provider(monkeypatch, model)
+    provider._client.messages.create = AsyncMock(return_value=_anthropic_response("hi"))
+    await provider.acomplete("x", temperature=0.3)
+    assert provider._client.messages.create.call_args.kwargs["temperature"] == 0.3
+
+
+@pytest.mark.asyncio
+async def test_anthropic_sonnet_4_6_takes_no_prefill(monkeypatch):
+    # The 4.6 generation still samples at a set temperature but rejects a prefill.
+    provider = _anthropic_provider(monkeypatch, "claude-sonnet-4-6")
+    provider._client.messages.create = AsyncMock(return_value=_anthropic_response('{"a": 1}'))
+    assert await provider.aparse_json("go") == {"a": 1}
+    kw = provider._client.messages.create.call_args.kwargs
+    assert kw["messages"] == [{"role": "user", "content": "go"}]
+    assert kw["temperature"] == 0.1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("claude-sonnet-5-5", {"thinking": {"type": "between_tools"}}),
+        ("anthropic.claude-sonnet-5-5", {"thinking": {"type": "between_tools"}}),
+        ("claude-haiku-5-5", {"thinking": {"type": "disabled"}}),
+        ("claude-opus-4-8", {"thinking": {"type": "disabled"}}),
+        ("claude-opus-5-5", {"output_config": {"effort": "low"}}),
+        ("claude-fable-5-1", {"output_config": {"effort": "low"}}),
+        ("claude-sonnet-4-6", {}),
+        ("claude-unknown-9", {}),
+    ],
+)
+async def test_anthropic_disable_thinking_shape_per_model(monkeypatch, model, expected):
+    provider = _anthropic_provider(monkeypatch, model)
+    provider._client.messages.create = AsyncMock(return_value=_anthropic_response('{"a": 1}'))
+    await provider.aparse_json("go", disable_thinking=True)
+    kw = provider._client.messages.create.call_args.kwargs
+    assert {k: kw[k] for k in ("thinking", "output_config") if k in kw} == expected
+    if model.endswith("sonnet-5-5"):
+        assert "disabled" not in str(kw)          # a 400 on Sonnet 5.5
+
+
+def test_anthropic_generation_parses_dated_and_legacy_ids():
+    from applire.providers.llm.anthropic import _generation
+    assert _generation("claude-sonnet-4-20250514") == ("sonnet", (4, 0))
+    assert _generation("claude-sonnet-4-5-20250929") == ("sonnet", (4, 5))
+    assert _generation("claude-3-7-sonnet-20250219") == ("sonnet", (3, 7))
+    assert _generation("claude-opus-4-5@20251101") == ("opus", (4, 5))
+    assert _generation("gpt-6-luna") is None
+
+
+def test_anthropic_default_model_is_current():
+    from applire.config import Settings
+    from applire.providers.llm.anthropic import _DEFAULT_MODEL
+    assert Settings.model_fields["anthropic_model"].default == _DEFAULT_MODEL == "claude-sonnet-5-5"
 
 
 @pytest.mark.asyncio
