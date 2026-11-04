@@ -716,3 +716,181 @@ def availability_finding_text(sentences: list[str]) -> str:
         "but the candidate gave no availability for this letter (computed by code): "
         f"{quotes} Remove that statement; the closing needs only interest and a call to action."
     )
+
+
+# ── R-3 (founder, 2026-11-04): the TOOL DURATIONS fact ──────────────────────
+#
+# Letter #784 (11-04 E2E, synthetic LIMS twin): the letter stated "over 12 years"
+# of Python/SQL and "over 7 years of MuleSoft". Under R-3 both figures are TRUE —
+# a duration is the union of the date ranges of the positions that reference the
+# tool, in their technologies OR a bullet, and a technologies tag counts — but the
+# delivered CV showed MuleSoft under no position and Python/SQL only under the
+# earlier one, so both blind reviewers read the letter as inflated against its own
+# CV. The writer's first draft (luna, 4/4) stated no duration at all: the figures
+# entered through the review loop's vault view, whose hedge offered every computed
+# span as "over N years" with no word about the CV.
+#
+# So this is the ONE channel a letter gets a duration from (ADR-066): computed per
+# tool from the same join that stores the vault's ``computed`` value and that the
+# Oracle's duration check reads (``skill_enrichment.evidenced_positions``), worded
+# by the same hedge (``prompt_view.span_hedges``), plus the second fact R-3 makes
+# the condition: under WHICH of those positions the CV shows the tool (whole-token
+# presence of the tool's name in that CV entry — a fact about the document).
+# Option A (WP3-1): a duration is stated only when the CV shows the tool under
+# every position it is counted from; otherwise the letter names the tool without
+# a duration. With no CV (the letter's no-CV branch) there is nothing to be
+# consistent with, and the R-3 figure stands.
+
+#: Categories whose span is a tenure; a language level is a tier, not a duration.
+_DURATION_CATEGORIES = frozenset({"technical", "soft", "domain"})
+
+#: At most this many lines — the block lists only the tools the posting asks for
+#: first, then the rest by span; a writer prompt is not the place for every tag.
+TOOL_DURATIONS_MAX = 12
+
+
+@dataclass(frozen=True)
+class ToolDuration:
+    """One tool's computed duration and the positions it is counted from."""
+
+    tool: str
+    years: float
+    since: str  # the earliest counted start, "MM/YYYY"
+    positions: tuple[tuple[str, str], ...]  # (experience id, label), in vault order
+    cv_positions: tuple[str, ...]  # ids of those positions the CV shows the tool under
+    has_cv: bool
+
+    @property
+    def stateable(self) -> bool:
+        """R-3 consistency: the CV shows the tool under EVERY counted position (or
+        there is no CV to be consistent with)."""
+        if not self.has_cv:
+            return True
+        return bool(self.positions) and all(pid in self.cv_positions for pid, _ in self.positions)
+
+
+def _cv_entry_texts(cv_data: dict[str, Any] | None) -> dict[str, str]:
+    """Normalised text per CV work entry, by id: role + bullets + nested project
+    names and bullets — what a reader sees under that position."""
+    from applire.services.ats_audit import _norm
+
+    out: dict[str, str] = {}
+    for w in (cv_data or {}).get("work_history") or []:
+        if not isinstance(w, dict) or not w.get("id"):
+            continue
+        parts: list[str] = [str(w.get("role") or "")]
+        parts += [str(b) for b in w.get("bullets") or [] if isinstance(b, str)]
+        for p in w.get("projects") or []:
+            if isinstance(p, dict):
+                parts.append(str(p.get("name") or ""))
+                parts += [str(b) for b in p.get("bullets") or [] if isinstance(b, str)]
+        out[str(w["id"])] = _norm(" \n ".join(parts))
+    return out
+
+
+def tool_duration_facts(
+    profile_json: dict[str, Any] | None,
+    cv_data: dict[str, Any] | None,
+    *,
+    priority: list[str] | None = None,
+) -> list[ToolDuration]:
+    """Per tool: the R-3 duration, the positions it is counted from, and under which
+    of them the CV shows it. Facts only (ADR-062 cl. 1): whole-token name presence and
+    date arithmetic. ``cv_data=None`` = no CV exists. ``priority`` (e.g. the ledger's
+    claimable concepts) orders matching tools first. Fail-open: ``[]``."""
+    if not isinstance(profile_json, dict):
+        return []
+    try:
+        from applire.schemas.profile import MasterProfileData
+        from applire.services.skill_enrichment import _demonstrates, evidenced_positions
+
+        model = MasterProfileData.model_validate(profile_json)
+    except Exception:  # noqa: BLE001 — a prompt input must never fail generation
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def _add(n: object) -> None:
+        if isinstance(n, str) and n.strip() and n.strip().casefold() not in seen:
+            seen.add(n.strip().casefold())
+            names.append(n.strip())
+
+    for s in profile_json.get("skills") or []:
+        if isinstance(s, dict) and s.get("category") in _DURATION_CATEGORIES:
+            _add(s.get("name"))
+    for w in profile_json.get("work_experience") or []:
+        if isinstance(w, dict):
+            for t in w.get("technologies") or []:
+                _add(t)
+    cv_texts = _cv_entry_texts(cv_data) if cv_data is not None else {}
+    facts: list[ToolDuration] = []
+    for name in names:
+        try:
+            got = evidenced_positions(model, name, bound="floor")
+        except Exception:  # noqa: BLE001
+            got = None
+        if got is None:
+            continue
+        years, rows = got
+        if years < 1:
+            continue
+        positions: list[tuple[str, str]] = []
+        for entry, _s, _e in rows:
+            pid = str(getattr(entry, "id", "") or "")
+            label = entry.org_label() or ""
+            if (pid, label) not in positions:
+                positions.append((pid, label))
+        since = min(s for _, s, _ in rows)
+        cv_positions = tuple(
+            pid for pid, _ in positions if pid and pid in cv_texts and _demonstrates(name, cv_texts[pid])
+        )
+        facts.append(ToolDuration(
+            tool=name, years=years, since=f"{since.month:02d}/{since.year}",
+            positions=tuple(positions), cv_positions=cv_positions,
+            has_cv=cv_data is not None,
+        ))
+    wanted = [p.casefold() for p in priority or [] if isinstance(p, str)]
+    facts.sort(key=lambda f: (f.tool.casefold() not in wanted, -f.years))
+    return facts[:TOOL_DURATIONS_MAX]
+
+
+def render_tool_durations_block(facts: list[ToolDuration], language: str | None) -> str:
+    """The TOOL DURATIONS block — writer user prompt and the review loop's source.
+    The obligation travels with the block (a task that belongs to one input block
+    goes in that block). ``""`` when no tool has a span of a year or more."""
+    from applire.services.prompt_view import span_hedges
+
+    if not facts:
+        return ""
+    lang = "de" if (language or "").strip().lower() == "de" else "en"
+    lines = [
+        "TOOL DURATIONS (computed by the system from the candidate's dated positions; a "
+        "position counts for a tool when it lists the tool among its technologies or names "
+        "it in its own text):"
+    ]
+    for f in facts:
+        hedge = span_hedges(f.years)
+        if hedge is None:
+            continue
+        counted = ", ".join(label for _, label in f.positions)
+        line = f"  - {f.tool} — since {f.since}, counted from: {counted}. "
+        if f.stateable:
+            line += "May be stated as " + " or ".join(f'"{h}"' for h in hedge[lang]) + "."
+        else:
+            shown = [label for pid, label in f.positions if pid in f.cv_positions]
+            where = ("only under " + ", ".join(shown)) if shown else "under none of them"
+            line += (
+                f"The CV shows {f.tool} {where}: state NO duration for {f.tool} "
+                "(name it without one)."
+            )
+        lines.append(line)
+    if len(lines) == 1:
+        return ""
+    lines.append(
+        "How long the candidate has worked with a tool, skill or technology is stated ONLY "
+        "as its line above allows, in one of the wordings given — never another figure, "
+        "never rounded up, never a span you add up across positions yourself, and never a "
+        "figure from a ledger evidence text or a summary. A tool with no line here gets no "
+        "duration."
+    )
+    return "\n".join(lines)

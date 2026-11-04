@@ -407,6 +407,7 @@ def build_cover_letter_prompt(
     scope_positioning_block: str | None = None,
     pinned_facts_block: str | None = None,
     recorded_name_forms_block: str | None = None,
+    tool_durations_block: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -522,6 +523,11 @@ def build_cover_letter_prompt(
     # alias at all — on v1, and on a vault without aliases, the prompt is unchanged.
     if recorded_name_forms_block:
         lines += ["", recorded_name_forms_block]
+    # R-3 (founder, 2026-11-04): the per-tool duration fact, beside the positions it
+    # is counted from — the letter's only source for "N years of <tool>" (v2 only;
+    # services/letter_v2.tool_duration_facts). Absent → the prompt is unchanged.
+    if tool_durations_block:
+        lines += ["", tool_durations_block]
 
     # #177 / ADR-051 §6 amended: feedforward body-word budget from REGION_NORMS —
     # the CV's guarantee shape, extended to letters. Placed before the JD block so
