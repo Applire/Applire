@@ -84,6 +84,7 @@ def test_a_gap_is_a_key_tier_not_claimable_row_recorded_or_not():
     (_row("X", weight=0.0), "keyword-only"),
     (_row("X", status="partial", claimable=True, adjacent_evidence="Y"), "adjacent partial (DEL-2)"),
     (_row("X", status="direct", claimable=True), "claimable"),
+    (_row("X", status="gap", claimable=True), "claimable wins over a gap status (defensive)"),
     (_row("X", bar={"kind": "scope"}), "scope row (ADR-069)"),
     (_row("X", aim_only=True), "aim-only (D-12)"),
     (_row("X", status="partial"), "a partial is not a gap/denied status"),
