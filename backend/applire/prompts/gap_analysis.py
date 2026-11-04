@@ -344,9 +344,10 @@ _STATEMENTS_LABEL = (
 # ADR-100 amended 2026-11-04 (M-2): the label names what an id is for, and that the
 # statements are the candidate's own words about a LIMIT — never evidence for a claim.
 _DENIALS_LABEL = (
-    "RECORDED DENIALS (limits the candidate stated, recorded as facts; for a requirement one of "
-    'them rules out, put its "id" in "denied_by" and classify "gap"; never quote them as '
-    "evidence_quote):"
+    "RECORDED DENIALS (limits the candidate stated, recorded as facts). TASK, for EACH entry: find "
+    "the requirement(s) in REQUIREMENTS it rules out — the posting may name it in another "
+    "language — and give each of them \"denied_by\": that entry's \"id\", copied exactly, and "
+    'status "gap". Never quote these entries as evidence_quote:'
 )
 
 
@@ -499,8 +500,8 @@ def build_user_prompt(
         f"{fence(json.dumps(job_analysis, ensure_ascii=False, indent=2), header='JOB ANALYSIS')}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile_wo_meta, ensure_ascii=False, indent=2)}\n\n"
         f"{statements_block}"
-        f"{denials_block}"
         f"{scope_block}"
         f"PRE-CLASSIFICATION:\n{json.dumps(pre_dict, ensure_ascii=False, indent=2)}\n\n"
+        f"{denials_block}"
         f"{fence(json.dumps(requirements, ensure_ascii=False, indent=2), header='REQUIREMENTS')}"
     )
