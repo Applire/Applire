@@ -109,8 +109,7 @@ Rules:
   area. When the profile does not evidence a strength, do not assert it; express interest instead.
   This possessive-framing restriction is scoped to CANDIDATE COMPETENCE claims only (US264/#255)
   — the SAME term may still appear (a) as a factual reference to the EMPLOYER's own domain or
-  product, sourced ONLY from the JOB DESCRIPTION text or the candidate's own record of that
-  employer (see COMPANY & DOMAIN ENGAGEMENT below), and (b) inside the HONEST GAP / TRANSFER ARGUMENT paragraph (see POSITIONING below), where
+  product, sourced ONLY as COMPANY & DOMAIN ENGAGEMENT below allows, and (b) inside the HONEST GAP / TRANSFER ARGUMENT paragraph (see POSITIONING below), where
   naming the term as an absence you do NOT have — before pivoting to real, grounded experience
   — is honesty, not a claim.
 - NO UNSUPPORTED GENERALIZATIONS (wave-7 — a run-6 Oracle audit found roughly a third of the
@@ -124,10 +123,9 @@ Rules:
   generic claim that could apply to any candidate — write the specific, sourced fact instead, or
   leave the sentence out. This does NOT apply to the greeting and closing courtesy lines, the
   availability/notice-period line, the honest-gap/transfer-argument paragraph (see POSITIONING
-  below) — the einarbeiten clause of a gap the KEY-REQUIREMENT GAPS block names included, the
-  one sentence part allowed without a source (RULING G-1, MD6-2) —, the 1–2 MOTIVATION
-  sentences (see POSITIONING below), or a short connective clause that introduces a grounded
-  claim — those stay exactly as the other rules in this prompt already require them.
+  below; a named gap's einarbeiten clause included, MD6-2), the MOTIVATION sentences, or a
+  short connective clause that introduces a grounded claim — those stay exactly as the other
+  rules in this prompt already require them.
 - POSITION ANCHORING — ONE ANCHOR PER EMPLOYER RUN, PER PARAGRAPH (#283, scope corrected #565):
   a sentence that states an achievement, responsibility, or figure/metric belonging to ONE
   specific employer or position — not something true of the candidate everywhere — must be
@@ -185,21 +183,15 @@ Rules:
   never invent any of the three when the corresponding input is absent from the user message:
   * COMPANY & DOMAIN ENGAGEMENT: when a TARGET COMPANY line appears, engage that employer
     concretely in the opening or motivation paragraph — reference what they build, sell, or
-    operate in, using ONLY the JOB DESCRIPTION text given above it or, where THE CANDIDATE'S
-    OWN RECORD OF THIS EMPLOYER line appears, what the CANDIDATE PROFILE states about the
-    candidate's own work there (ADR-057, RULING G-2). Never invent a company product, market,
-    or achievement that neither source states.
-  * MOTIVATION (RULING G-2): a Personal motivation line in PRE-GENERATION INPUTS is used as
-    given. Without one, write 1–2 sentences of motivation in the opening or motivation
-    paragraph, derived from the grounded fit — what in THIS posting meets what the candidate
-    has done (CANDIDATE PROFILE), and what they know of this employer from their own record.
-    Never invent a feeling, a personal history, an event or an employer fact.
-  * HONEST GAP / TRANSFER ARGUMENT: when a GAP TESTIMONY block appears, its gap is one the
-    KEY-REQUIREMENT GAPS block names, and the testimony is that gap's transfer: write its ONE
-    sentence in the honest-gap paragraph from it — the gap named directly, then the
-    candidate's OWN transfer argument, using ONLY the facts and reasoning stated in that block,
-    never a transfer argument the candidate did not state. A gap is named ONLY where the
-    KEY-REQUIREMENT GAPS block names it.
+    operate in, using ONLY the JOB DESCRIPTION text above it or THE CANDIDATE'S OWN RECORD OF
+    THIS EMPLOYER (G-2). Never invent a company product, market, or achievement neither states.
+  * MOTIVATION (G-2): a typed Personal motivation is used as given; without one, write 1–2
+    sentences of it in the opening from the grounded fit — what in THIS posting meets what
+    the candidate has done, and their own record of this employer. No invented feeling,
+    history or event.
+  * HONEST GAP / TRANSFER ARGUMENT: a GAP TESTIMONY block holds the candidate's OWN transfer
+    for a gap the KEY-REQUIREMENT GAPS block names: that gap's sentence uses ONLY its facts
+    and reasoning, never a transfer they did not state.
   * AVAILABILITY / CONCURRENT COMMITMENTS: when an AVAILABILITY TESTIMONY block appears,
     address availability/commitment using ONLY the facts stated in that testimony. When it is
     absent, make NO availability or commitment claim beyond what PRE-GENERATION INPUTS states.
@@ -224,20 +216,16 @@ Rules:
   never belongs in the honest-gap paragraph. A statement that only withholds detail ("kann
   ich nicht nennen", no figure or example) is NOT a limit: use the detail it gives, never
   write the withholding into the letter (DEL-1).
-  (b) OBLIGATION — THE GAP LADDER (RULING G-1, ADR-075 amended 2026-11-04): a KEY-REQUIREMENT
-  GAPS block names the gap(s) THIS letter states — counted and chosen by code: up to two are
-  each named, from three on only the most urgent. Each named gap gets ONE sentence in ONE
-  honest-gap paragraph: the gap first, then in the SAME SENTENCE a transfer grounded in the
-  profile ("no IFS/BRC experience, but ten years of ISO-9001 audit practice"), else the
-  einarbeiten clause that block describes — never a standalone negative, least of all right
-  after a sentence stating a strength (#732), never a litany. A recorded statement that names
-  several concepts is ONE gap: name the concept the block names, never the statement's list.
-- EVERY OTHER UNMET JD HARD REQUIREMENT IS POSITIONED OR LEFT OUT, ON A RANKED LADDER
-  (#270, #732): take the HIGHEST rung TRUE of the candidate — (1) a scoped claim at exactly
-  the rung their material reaches; (2) a transfer argument where an adjacent capability
-  carries over, with no negation beside it; (3) where NEITHER holds, the letter LEAVES IT
-  OUT. A requirement the KEY-REQUIREMENT GAPS block does not name is never stated as a lack
-  — never a sentence about what they cannot claim, name or prove (DEL-2).
+  (b) OBLIGATION — THE GAP LADDER (G-1): a KEY-REQUIREMENT GAPS block names the gap(s) this
+  letter states, chosen by code. Each gets ONE sentence in ONE honest-gap paragraph: the gap
+  first, then in the SAME SENTENCE a grounded transfer ("no IFS/BRC experience, but ten
+  years of ISO-9001 audit practice"), else that block's einarbeiten clause — never a
+  standalone negative, least of all right after a strength (#732), never a litany. A
+  statement naming several concepts is ONE gap: name only the concept the block names.
+- EVERY OTHER UNMET JD HARD REQUIREMENT (#270, #732): take the HIGHEST rung TRUE of the
+  candidate — (1) a scoped claim at exactly the rung their material reaches; (2) a transfer
+  argument, with no negation beside it; (3) else the letter LEAVES IT OUT — never stated as
+  a lack, never what they cannot claim, name or prove (DEL-2).
 """
 
 
@@ -684,8 +672,9 @@ def build_cover_letter_prompt(
             "CANDIDATE'S OWN TESTIMONY (verbatim — ground the paragraph in this; invent "
             "nothing beyond it):",
             testimony_text,
-            "Write exactly ONE honest paragraph acknowledging this gap and delivering the "
-            "candidate's own transfer argument from the testimony above.",
+            "This is the transfer for a gap the KEY-REQUIREMENT GAPS block names: in the "
+            "honest-gap paragraph, ONE sentence names this gap and delivers the candidate's "
+            "own transfer argument from the testimony above (RULING G-1).",
         ]
 
     lines += [

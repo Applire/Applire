@@ -884,7 +884,9 @@ def _constraining_stated_limits_entry(limits: list[str]) -> dict:
 # entry below names only what the letter owes.
 
 
-def build_gap_positioning_entry(gaps: list, named: list, language: str | None) -> dict | None:
+def build_gap_positioning_entry(
+    gaps: list, named: list, language: str | None, *, user_id: "uuid.UUID | None" = None
+) -> dict | None:
     """RULING G-1 (ADR-075 amended 2026-11-04): the REQUIRED ``gap_positioning`` entry
     of ``positioning_requested`` — the review loop's copy of the writer's
     KEY-REQUIREMENT GAPS block. ``None`` when the posting has no key-requirement gap.
@@ -922,7 +924,9 @@ def build_gap_positioning_entry(gaps: list, named: list, language: str | None) -
     }
 
 
-def build_motivation_entry(typed_motivation: str | None, employer_record: list) -> dict:
+def build_motivation_entry(
+    typed_motivation: str | None, employer_record: list, *, user_id: "uuid.UUID | None" = None
+) -> dict:
     """RULING G-2 / MD6-5 (ADR-057 amended 2026-11-04): the REQUIRED ``motivation``
     entry. A typed motivation always wins and is used as given; otherwise the writer
     derives 1–2 sentences from the grounded fit. ``employer_record`` is
@@ -1853,8 +1857,9 @@ async def _render_cover_letter_body(
                         "testimony": gt_testimony_text,
                         "required": True,
                         "instruction": (
-                            "REQUIRED content: exactly one honest paragraph naming this gap "
-                            "and delivering the candidate's OWN transfer argument, grounded "
+                            "REQUIRED content: in the honest-gap paragraph, ONE sentence "
+                            "naming this gap (a ``gap_positioning`` gap, RULING G-1) and "
+                            "delivering the candidate's OWN transfer argument, grounded "
                             "verbatim in 'testimony' above. Its absence is a review issue. "
                             "Naming the gap itself is honesty, not a forbidden claim."
                         ),

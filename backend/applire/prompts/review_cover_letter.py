@@ -159,10 +159,9 @@ another:
 - CANDIDATE SOURCE (grounded CV data, master profile, the candidate's own stated inputs
   on motivation/salary/availability) — the only basis for a claim about the CANDIDATE.
   The candidate's own stated inputs are true by definition; never flag them.
-- ``job_description`` (inside the source), and the candidate's OWN record of that
-  employer — a position there the CANDIDATE SOURCE records (``company_domain_engagement``
-  names it as ``candidate_record``) and what it states about their work there — the only
-  basis for a claim about the EMPLOYER: their product, market, domain, or achievements.
+- ``job_description`` (inside the source), and the candidate's own work AT the employer
+  (``candidate_record``) — the only basis for a claim about the EMPLOYER: their product,
+  market, domain, or achievements.
 - Any DETERMINISTIC BLOCK appended below, each titled in CAPS (VERIFIED COVERAGE CHECK,
   FIGURE OWNERSHIP, DO-NOT-CLAIM PRESENCE, RECORDED JOB TITLES, and others) — computed
   before you ran, and GROUND TRUTH. Do not re-derive, second-guess, or extend one. Each
@@ -174,7 +173,7 @@ someone. Ask only: WHO?
 - About the CANDIDATE (they have, did, know, achieved something) → check it against the
   CANDIDATE SOURCE. The DO NOT CLAIM list applies here, and ONLY here.
 - About the EMPLOYER (what they build, sell, or operate) → check it against
-  ``job_description`` and the candidate's own record of that employer. The DO NOT CLAIM list does NOT apply: a term on that list is
+  ``job_description`` or ``candidate_record``. The DO NOT CLAIM list does NOT apply: a term on that list is
   perfectly legitimate as an employer fact.
 - Naming a concept as something the candidate does NOT have — an honest gap, a stated
   limit — is not a claim to it: "While I have not worked in LegalTech directly, ..."
@@ -207,21 +206,16 @@ or incomplete; anything you notice outside them is `minor` by definition.
      statement instead.
    - AN INVENTED LIMIT IS AN UNGROUNDED CLAIM, in the direction that costs the candidate
      most. "I have no direct experience with X" is a statement about the candidate, and it
-     is grounded ONLY by one of their own STATED LIMITS or by a gap
-     ``positioning_requested.gap_positioning`` names (RULING G-1). If the letter disclaims
-     something neither names — especially something the Keyword Ledger marks claimable —
+     is grounded ONLY by one of their own STATED LIMITS or a ``gap_positioning`` gap. If
+     the letter disclaims something neither names — especially something the Keyword Ledger marks claimable —
      flag it here and say which evidence it throws away. Note that a stated limit names
      the candidate's adjacent STRENGTHS ("no IFS/BRC experience, but ten years of ISO-9001
      audit practice"); those named strengths are grounded, not limited.
-   - THE EINARBEITEN CLAUSE (RULING G-1, MD6-2) — the ONE sentence part that needs no
-     source. A gap ``gap_positioning`` names may close, in its own sentence, with ONE
-     forward-looking clause of the candidate's intent to get up to speed on it quickly —
-     any wording ("in X arbeite ich mich schnell ein", "X werde ich mir zügig aneignen",
-     "I will get up to speed on X quickly"). It asserts nothing about the candidate's past,
-     so it is never an ungrounded claim, never unsupported filler and never `minor`
-     padding; never flag it, never ask to cut, soften or source it. It stops being that
-     clause only when it carries a figure, an employer, a project, a certificate or a
-     trait adjective ("fast learner", "proven ability") — those parts are checked as usual.
+   - THE EINARBEITEN CLAUSE (G-1, MD6-2): a ``gap_positioning`` gap's sentence may close
+     with ONE clause of intent to get up to speed on it quickly, any wording ("in X arbeite
+     ich mich schnell ein"). It claims nothing about the past: never flag, cut, soften or
+     source it, not even as `minor` — unless it carries a figure, employer, project,
+     certificate or trait ("fast learner").
 2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure belonging to one
    specific employer must be attributable to it, and the unit is the EMPLOYER RUN inside
    one PARAGRAPH, not the sentence (#565). The run's first sentence names the employer;
@@ -242,10 +236,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
    writer to delete the achievement or figure to make the problem go away — a figure
    dropped for lack of an anchor is a worse letter, not a safer one.
 3. INVENTED EMPLOYER FACT. A claim about the target employer's product, market, domain,
-   or achievements that is neither in ``job_description`` nor in the candidate's own
-   record of that employer (their work there, as the CANDIDATE SOURCE states it — RULING
-   G-2). Treat it exactly like an invented candidate fact. A motivation sentence drawn from
-   that record is grounded.
+   or achievements that is in neither ``job_description`` nor ``candidate_record`` (G-2).
+   Treat it exactly like an invented candidate fact.
 4. REQUIRED CONTENT NOT DELIVERED. The source's ``positioning_requested`` block names
    content the writer was required to produce — ``company_domain_engagement``,
    ``gap_transfer_argument``, ``availability``, ``scope_positioning``,
@@ -263,26 +255,14 @@ or incomplete; anything you notice outside them is `minor` by definition.
    own figure as the candidate's is.
    ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
    must appear, never extended; flag a missing one by key with its text.
-   ``gap_positioning`` (RULING G-1): code counted this posting's key-requirement gaps
-   and chose the ones the letter names — ONLY the gaps its ``named`` list holds. Each owes
-   ONE sentence in one honest-gap paragraph: the gap first, then in the SAME sentence a
-   transfer grounded in the source, else the einarbeiten clause (check 1). Findings: a
-   named gap the letter does not name; a gap worded as "not recorded", "beyond my
-   profile", "cannot claim / prove / substantiate"; a gap the entry does NOT name, or
-   several lacks in one clause or a list (never a list). NEVER DEMAND A CONCEPT THE ENTRY
-   DOES NOT NAME — not another gap of the posting, not "the rest" of a named gap's
-   recorded statement: one statement is ONE positioning decision, and its other concepts
-   are owed nothing (MD6-4). ``stated_limits`` is a constraint only: never contradict
-   it, never demand that it be disclosed. Withheld detail ("kann ich nicht nennen"):
-   writing it in IS a finding (DEL-1).
-   ``motivation`` (RULING G-2): 1–2 sentences on why THIS role, in the opening or
-   motivation paragraph — the candidate's typed motivation as given, or derived from the
-   grounded fit (posting × the candidate's record, their record of the employer
-   included). Findings: none at all; an invented feeling, personal history or event.
-   HALF-DELIVERY IS THE THIRD DIRECTION (#732): the transferring strength stands in the
-   SAME sentence as the words naming the gap. A standalone negative, its strength in a
-   later sentence or a list, is the limit WITHOUT its positioning decision — worst right
-   after a strength. Quote it, name the strength, block: this is not `minor` paragraph order.
+   ``gap_positioning`` (G-1): the gap(s) code chose for the letter to name, ONE sentence
+   each as its instruction says. NEVER DEMAND A CONCEPT ``named`` DOES NOT HOLD — not
+   another gap, not the rest of a named gap's statement: one statement is ONE decision
+   (MD6-4); a gap it does not name, or several in one clause, is the finding.
+   ``stated_limits`` is a constraint only. Withheld detail ("kann ich nicht nennen")
+   written in IS a finding (DEL-1).
+   HALF-DELIVERY (#732): a standalone negative, its strength in a later sentence or a
+   list, is the gap WITHOUT its positioning decision. Quote it, name the strength, block.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate supports whose posting
      words the letter lacks. You judge two things: is its evidence already stated
@@ -300,11 +280,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
      in either document — if the CV asserts it and the letter disclaims it, the LETTER
      is what is wrong, because the ledger says the vault supports the claim. A concept
      may be named as a gap only when ``gap_positioning`` names it (RULING G-1, DEL-2). Judge this by reading the two documents; no block lists
-     conflicts for you. The admit-and-affirm sentence check 1 describes — the gap and the
-     strength that transfers inside ONE sentence — is the CORRECT shape for a gap, not a
-     denial of its second half: never flag, soften or split it. That covers the FUSED
-     sentence only: a negative sentence with no such second half is check 4's
-     half-delivery finding (#732).
+     conflicts for you. The FUSED gap sentence (gap and transfer in ONE sentence) is the
+     CORRECT shape, not a denial of its second half: never flag, soften or split it.
    - KEYWORD LEDGER — DO NOT CLAIM. A ledger honest-gap concept may never stand as
      something the candidate HAS, has done, or knows. The SUBJECT TEST decides whose fact
      the sentence states; inside a sentence about the CANDIDATE the line is grammatical
@@ -331,8 +308,8 @@ WHAT IS `minor` HERE. Everything not in checks 1-6:
 paragraph order, sentence length, a weak opening, tone, word choice, a grammatical slip
 — and soft filler that asserts nothing checkable about the candidate. Filler is real, and worth recording, but nothing false is stated, so it
 never justifies regenerating the letter. Record it as `minor` and move on. Never use it
-to soften, narrow, or cut an honest gap, its einarbeiten clause, or a scoped limit —
-trimming padding must never become trimming honesty.
+to soften, narrow, or cut an honest gap or a scoped limit — trimming padding must never
+become trimming honesty.
 
 """
 
@@ -371,8 +348,7 @@ their letter, and they decide.
    - the posting's requirement list echoed in the posting's order.
    Report the pattern and quote two examples of it. Two things you must NOT do: never propose
    dropping a figure or a fact to break a pattern — a line vaguer than the truth is the worse
-   defect — and never touch the sentence naming a gap ``gap_positioning`` names, its
-   einarbeiten clause included. Blind readers name that
+   defect — and never touch a ``gap_positioning`` gap's sentence. Blind readers name that
    admission as the strongest single reason to trust a letter; it must survive any voice work.
 
 """
