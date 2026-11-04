@@ -1145,15 +1145,19 @@ def offered_choice_gate(
     the synthetic same-shape replay), and they reached the letter as the
     candidate's own limits.
 
-    FACTS only (ADR-062 cl. 1), no reading of meaning:
+    FACTS only (ADR-062 cl. 1), no reading of meaning — main default MD6-7
+    (2026-11-04, after the adversarial pass G3-3):
 
     * the **typed remainder** = the answer with every offered choice's text cut
-      out (normalised) — the words the candidate wrote themselves;
-    * a denial is **dropped** when the item is one of an offered choice's
-      ``names_without_claiming`` (equal, or named inside the denial string) or
-      occurs in that choice's text, AND neither it nor its matched name occurs
-      in the typed remainder. "mit X habe ich nicht gearbeitet" typed after the
-      chip keeps X;
+      out (``choice_grounding.cut_offered_texts``: one normaliser for
+      containment and cut, longest text first);
+    * a **chip-only answer** (no word left in the typed remainder) has no word
+      of the candidate's own, so every denial of the turn is **dropped**,
+      whatever language the reconciler wrote it in;
+    * an answer with ANY typed word keeps every denial: whether "mit keinem
+      davon habe ich je gearbeitet" refers back to the clause is a judgement,
+      and the reconciler makes it (rule 9 + the ``offered_choices`` fact,
+      measured on both models);
     * **unclaimed** = the offered names that do not occur in the typed remainder.
       The caller passes them to ``enforce_stance`` as vetoes: a name the system
       wrote without claiming it cannot be claimed by the same system text (the
@@ -1161,54 +1165,26 @@ def offered_choice_gate(
       memory ``feedback_a_new_yes_arm_drops_the_old_arms_implicit_nos``). They
       are never recorded as denials and never demote anything.
 
-    * an answer that is ONLY offered text (nothing typed beside it) drops every
-      denial of the turn, whatever language the reconciler wrote it in.
-
     Off the interview door, or without offered choices, it is the identity.
-    Known residual (FMEA, control false positive): a denial the candidate types
-    in another language than the reconciler's denial string is dropped when the
-    chip names that concept.
     """
+    from applire.services.choice_grounding import OFFERED_CUT_MARK, cut_offered_texts
+
     offered = _offered_choices(new_info, source)
     if not offered:
         return list(denials), [], []
     answer = new_info.get("answer") if isinstance(new_info, dict) else None
-    remainder = _norm(answer if isinstance(answer, str) else "")
-    for choice in offered:
-        form = _norm(choice["text"]).rstrip(" .!?;:,")
-        if form:
-            remainder = remainder.replace(form, " ␞ ")
+    remainder, _cut = cut_offered_texts(answer, [c["text"] for c in offered])
     names = list(dict.fromkeys(t for c in offered for t in c["names_without_claiming"]))
     unclaimed = [t for t in names if not _bounded_present(t, remainder)]
-    texts_norm = [_norm(c["text"]) for c in offered]
-    # The candidate typed NOTHING beside the offered text(s): no denial of this
-    # turn can come from their own words. Catches the reconciler's denial
-    # string in another language than the choice (offline replay of the
-    # as-built luna runs, EN vault + DE chip: "reference architectures" for the
-    # chip's "Referenzarchitekturen" matched neither arm below).
-    typed_nothing = not re.search(r"\w", remainder.replace("\u241e", ""))
-
-    kept: list[str] = []
-    dropped: list[str] = []
-    for denial in denials:
-        if typed_nothing:
-            dropped.append(denial)
-            continue
-        d_norm = _norm(denial)
-        matched = [t for t in names if _norm(t) == d_norm or _bounded_present(t, d_norm)]
-        in_offer = bool(matched) or any(_bounded_present(denial, t) for t in texts_norm)
-        typed = _bounded_present(denial, remainder) or any(_bounded_present(t, remainder) for t in matched)
-        if in_offer and not typed:
-            dropped.append(denial)
-        else:
-            kept.append(denial)
-    if dropped:
-        logger.info(
-            "reconcile stance: %d denial(s) dropped — named only inside an offered "
-            "choice the candidate selected, never in their own words (G-3, ADR-064 "
-            "amended 2026-11-04): %r", len(dropped), dropped,
-        )
-    return kept, dropped, unclaimed
+    typed_nothing = not re.search(r"\w", remainder.replace(OFFERED_CUT_MARK.strip(), ""))
+    if not typed_nothing or not denials:
+        return list(denials), [], unclaimed
+    logger.info(
+        "reconcile stance: %d denial(s) dropped — the answer is only offered "
+        "choice text, no word of the candidate's own (G-3, ADR-064 amended "
+        "2026-11-04, MD6-7): %r", len(denials), list(denials),
+    )
+    return [], list(denials), unclaimed
 
 
 async def enforce_stance(
@@ -1929,40 +1905,117 @@ def park_denial_scope_confirmations(
 #: ``scan/out.json``: "steht in meinem Profil noch nichts" 92, "my profile does
 #: not yet document" 81, "… in meinem Profil … nicht dokumentiert" 4). Matched
 #: on ``_norm``-ed text. A new wording is a code change with a test.
-_PROFILE_SILENCE_MARKERS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"steht in meinem profil (?:(?:noch|bisher|derzeit) )*nichts"),
-    re.compile(
-        r"in meinem profil (?:(?:ist|sind|steht|stehen|wird|werden) )?[^.;]{0,120}?"
-        r"(?:(?:noch|bisher|derzeit) )*nicht (?:dokumentiert|beschrieben|erwähnt|enthalten|belegt)"
+_PROFILE_SILENCE_MARKERS: tuple[tuple[re.Pattern[str], bool], ...] = (
+    # (pattern, the clause ENDS at the marker) — True where the concepts come
+    # BEFORE the marker ("zu X steht in meinem Profil noch nichts"), so a
+    # sentence the candidate continued after it ("…, und mit X habe ich nie
+    # gearbeitet", adversarial H-3) is not part of the clause.
+    (re.compile(r"steht in meinem profil (?:(?:noch|bisher|derzeit) )*nichts"), True),
+    (
+        re.compile(
+            r"in meinem profil (?:(?:ist|sind|steht|stehen|wird|werden) )?[^.;]{0,120}?"
+            r"(?:(?:noch|bisher|derzeit) )*nichts? "
+            r"(?:dokumentiert|beschrieben|erwähnt|enthalten|belegt)"
+        ),
+        True,
     ),
-    re.compile(
-        r"my profile (?:does not|doesn't|does n't) (?:yet )?"
-        r"(?:document|mention|cover|show|list|include|describe)"
+    (
+        re.compile(
+            r"(?:is|are) not (?:yet )?"
+            r"(?:documented|mentioned|covered|shown|listed|included|described) in my profile"
+        ),
+        True,
     ),
-    re.compile(r"my profile (?:has|says) nothing (?:yet )?(?:on|about)"),
+    (
+        re.compile(
+            r"my profile (?:does not|doesn't|does n't) (?:yet )?"
+            r"(?:document|mention|cover|show|list|include|describe)"
+        ),
+        False,
+    ),
+    (re.compile(r"my profile (?:has|says) nothing (?:yet )?(?:on|about)"), False),
 )
 #: Where the clause starts: the last of these before a marker (or the start of
 #: the statement). The R2-2 shape joins its halves with ", aber" / ", but"; the
 #: scan also found ";" and a sentence break.
 _CLAUSE_START = re.compile(r";|[.!?](?=\s)|,?\s(?:aber|but|jedoch|however)\b")
 _CLAUSE_END = re.compile(r"[.;!?](?=\s|$)")
+#: The closed inflection endings a concept may carry inside the clause (adversarial
+#: H-2: "zu … Arbeitssicherheitsmanagementsystemen" for the denied "…systeme"; the
+#: DE dative plural, EN/DE plural). Lexical, last token only, never below a
+#: four-letter stem — a fact about the word form (ADR-062 cl. 1).
+_INFLECTION_ENDINGS: tuple[str, ...] = ("en", "es", "er", "n", "e", "s")
+_INFLECTION_MIN_STEM = 4
+
+
+def inflected_present(concept: str, text_norm: str) -> bool:
+    """Word-boundary presence of ``concept`` in ``text_norm`` up to one closed
+    inflection ending on its last token (:data:`_INFLECTION_ENDINGS`), in both
+    directions: "…systeme" finds "…systemen", "Referenzarchitekturen" finds
+    "Referenzarchitektur". Shorter last tokens ("AWS", "ESB") match exactly. Pure."""
+    form = _norm(concept or "")
+    if not form:
+        return False
+    head, _, last = form.rpartition(" ")
+    stems = {last}
+    if len(last) >= _INFLECTION_MIN_STEM:
+        for ending in _INFLECTION_ENDINGS:
+            if last.endswith(ending) and len(last) - len(ending) >= _INFLECTION_MIN_STEM:
+                stems.add(last[: -len(ending)])
+    tail = (
+        "(?:" + "|".join(_INFLECTION_ENDINGS) + ")?"
+        if len(last) >= _INFLECTION_MIN_STEM
+        else ""
+    )
+    alts = "|".join(re.escape(x) for x in sorted(stems, key=len, reverse=True))
+    prefix = re.escape(head + " ") if head else ""
+    return re.search(rf"(?<![a-z0-9]){prefix}(?:{alts}){tail}(?![a-z0-9])", text_norm) is not None
 
 
 def profile_silence_clauses(statement: str) -> list[str]:
     """The ``_norm``-ed profile-silence clauses of ``statement`` — each from the
-    separator before a :data:`_PROFILE_SILENCE_MARKERS` hit to the end of its
-    sentence. A fact about the wording (ADR-062 cl. 1). Pure."""
+    separator before a :data:`_PROFILE_SILENCE_MARKERS` hit to the marker's end
+    (concepts before it) or to the end of its sentence (concepts after it). A
+    fact about the wording (ADR-062 cl. 1). Pure."""
     text = _norm(statement or "")
     out: list[str] = []
-    for pattern in _PROFILE_SILENCE_MARKERS:
+    for pattern, ends_at_marker in _PROFILE_SILENCE_MARKERS:
         for m in pattern.finditer(text):
             starts = [s.end() for s in _CLAUSE_START.finditer(text, 0, m.start())]
             start = starts[-1] if starts else 0
-            end_m = _CLAUSE_END.search(text, m.end())
-            end = end_m.start() if end_m else len(text)
+            if ends_at_marker:
+                end = m.end()
+            else:
+                end_m = _CLAUSE_END.search(text, m.end())
+                end = end_m.start() if end_m else len(text)
             clause = text[start:end].strip(" ,")
             if clause and clause not in out:
                 out.append(clause)
+    return out
+
+
+def _redenied_concepts(metadata: Any) -> set[str]:
+    """The ``_norm``-ed concepts a LATER turn denied again (adversarial H-1).
+
+    ``DeniedConcept.statement`` is write-once (#348), so a typed "Mit Kafka habe
+    ich nie gearbeitet" after the chip refreshes the chip-minted row and keeps
+    the chip's words. What the later turn DID leave is its receipt:
+    ``record_denials`` emits an ``updated`` ``denied_concepts`` change only for
+    a re-denial from ANOTHER statement or source (or a probe escalation), and
+    the committer files it on that turn's ``enrichment_history`` record. A
+    fact about the trail (ADR-062 cl. 1)."""
+    history = metadata.get("enrichment_history") if isinstance(metadata, dict) else None
+    out: set[str] = set()
+    for record in history or []:
+        for change in (record.get("changes") if isinstance(record, dict) else None) or []:
+            if (
+                isinstance(change, dict)
+                and change.get("section") == "metadata"
+                and change.get("field") == "denied_concepts"
+                and change.get("action") == "updated"
+                and isinstance(change.get("new_value"), str)
+            ):
+                out.add(_norm(change["new_value"]))
     return out
 
 
@@ -1972,16 +2025,19 @@ def offered_choice_denial_hits(profile_json: dict[str, Any] | None) -> list[dict
 
     The offered choice itself was never persisted (only its text, as the
     candidate's answer), so detection is phrase-coupled (RULING A-1): an
-    ``interview``-source denial whose concept occurs inside a profile-silence
-    clause of its own statement (:func:`profile_silence_clauses`) and NOWHERE
-    else in that statement — a concept the candidate also typed outside the
-    clause ("Mit Kafka habe ich nie gearbeitet") is their own word and is never
-    offered for withdrawal. A miss asks nothing; a false hit only asks (the
-    candidate keeps the denial with one click). Pure, malformed tolerant."""
+    ``interview``-source denial whose concept occurs (:func:`inflected_present`)
+    inside a profile-silence clause of its own statement
+    (:func:`profile_silence_clauses`), NOWHERE else in that statement, and that
+    no later turn denied again (:func:`_redenied_concepts`). A concept the
+    candidate typed themselves — beside the clause or in a later turn — is
+    their own no and is never offered for withdrawal. A miss asks nothing; a
+    false hit only asks. The 0086 data migration carries a verbatim copy of
+    this block (parity-tested). Pure, malformed tolerant."""
     if not isinstance(profile_json, dict):
         return []
     metadata = profile_json.get("metadata")
     raw = metadata.get("denied_concepts") if isinstance(metadata, dict) else None
+    redenied = _redenied_concepts(metadata)
     groups: dict[str, dict[str, Any]] = {}
     for d in raw or []:
         if not isinstance(d, dict) or d.get("source") != "interview":
@@ -1989,17 +2045,15 @@ def offered_choice_denial_hits(profile_json: dict[str, Any] | None) -> list[dict
         concept, statement = d.get("concept"), d.get("statement")
         if not (isinstance(concept, str) and concept.strip() and isinstance(statement, str)):
             continue
-        # Exact word-boundary presence (no plural fold): the 0086 data migration
-        # carries a verbatim copy of this detector, and the two must agree
-        # (pinned by a parity test) — so the predicate is the smallest one.
-        c_norm = _norm(concept)
+        if _norm(concept) in redenied:
+            continue
         clauses = profile_silence_clauses(statement)
-        if not clauses or not any(_word_present(c_norm, c) for c in clauses):
+        if not clauses or not any(inflected_present(concept, c) for c in clauses):
             continue
         rest = _norm(statement)
         for c in clauses:
             rest = rest.replace(c, f" {_CORPUS_FRAGMENT_BOUNDARY} ")
-        if _word_present(c_norm, rest):
+        if inflected_present(concept, rest):
             continue
         key = hashlib.sha1(_norm(statement).encode("utf-8")).hexdigest()[:16]
         group = groups.setdefault(
@@ -2072,23 +2126,60 @@ def offered_choice_denial_confirmation(hit: dict[str, Any]) -> PendingConfirmati
 
 
 def park_offered_choice_confirmations(
-    metadata: ProfileMetadata | None, profile_json: dict[str, Any] | None
+    metadata: ProfileMetadata | None,
+    profile_json: dict[str, Any] | None,
+    turn_changes: list[FieldChange] | None = None,
 ) -> list[PendingConfirmation]:
     """Park one A-1 heal question per affected statement
-    (:func:`offered_choice_denial_hits`), never twice: a statement with an open
-    or answered item (``metadata.denial_scope_answered``) is skipped. Called on
-    every intake by the committer, beside :func:`park_denial_scope_confirmations`.
-    No vault write besides the parked question."""
+    (:func:`offered_choice_denial_hits`), never twice: a statement with an
+    answered item (``metadata.denial_scope_answered``) is skipped, and an OPEN
+    item is kept as long as it still asks about exactly the concepts the
+    detector finds. Called on every intake by the committer, beside
+    :func:`park_denial_scope_confirmations`.
+
+    ``turn_changes`` = this write's own denial receipts, which reach
+    ``enrichment_history`` only after this call: a re-denial in this very turn
+    takes its concept out of the question at once (adversarial H-1). An open
+    item whose concepts changed (re-denied, or withdrawn elsewhere) is replaced
+    by one that asks about the rest, or removed when nothing is left — the
+    question never offers to withdraw a no the candidate gave in their own
+    words. No vault write besides the parked questions."""
     if metadata is None:
         return []
+    pj = profile_json
+    if turn_changes and isinstance(profile_json, dict):
+        md = dict(profile_json.get("metadata") or {})
+        md["enrichment_history"] = list(md.get("enrichment_history") or []) + [
+            {"changes": [c.model_dump(mode="json") for c in turn_changes]}
+        ]
+        pj = {**profile_json, "metadata": md}
+    hits = {
+        denial_scope_key({**hit, "conflict_kind": OFFERED_CHOICE_CONFLICT}): hit
+        for hit in offered_choice_denial_hits(pj)
+    }
+    kept_open: list[PendingConfirmation] = []
+    open_keys: set[str] = set()
+    for c in metadata.pending_confirmations:
+        ctx = c.context or {}
+        if (
+            c.source == DENIAL_SCOPE_SOURCE
+            and ctx.get("conflict_kind") == OFFERED_CHOICE_CONFLICT
+            and not c.resolved
+        ):
+            key = denial_scope_key(ctx)
+            hit = hits.get(key)
+            if hit is None or list(ctx.get("denial_concepts") or []) != hit["denial_concepts"]:
+                continue  # stale: re-parked below from the current hit, or gone
+            open_keys.add(key)
+        kept_open.append(c)
+    metadata.pending_confirmations = kept_open
     asked = {
         denial_scope_key(c.context or {})
         for c in metadata.pending_confirmations
         if c.source == DENIAL_SCOPE_SOURCE
-    } | set(metadata.denial_scope_answered)
+    } | set(metadata.denial_scope_answered) | open_keys
     parked: list[PendingConfirmation] = []
-    for hit in offered_choice_denial_hits(profile_json):
-        key = denial_scope_key({**hit, "conflict_kind": OFFERED_CHOICE_CONFLICT})
+    for key, hit in hits.items():
         if not key or key in asked:
             continue
         asked.add(key)

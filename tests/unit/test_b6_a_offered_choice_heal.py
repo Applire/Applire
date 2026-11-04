@@ -170,6 +170,59 @@ def test_two_statements_two_hits_and_the_earliest_date():
     assert hits[0]["denial_date"] == "2026-11-01"
 
 
+@pytest.mark.parametrize(
+    ("statement", "concepts", "expected"),
+    [
+        # adversarial H-2: the DE dative plural after "zu"
+        ("Ich habe Arbeitsschutzunterweisungen mitgestaltet; zu ISO 45001 und "
+         "Arbeitssicherheitsmanagementsystemen steht in meinem Profil noch nichts.",
+         ["ISO 45001", "Arbeitssicherheitsmanagementsysteme"],
+         ["ISO 45001", "Arbeitssicherheitsmanagementsysteme"]),
+        # the reverse direction: the concept is plural, the clause singular
+        ("Ich habe Schnittstellen gebaut, aber zu einer Referenzarchitektur steht in meinem Profil noch nichts.",
+         ["Referenzarchitekturen"], ["Referenzarchitekturen"]),
+        # the two wordings the adversarial pass added
+        ("Ich habe REST-APIs gebaut, aber zu Kafka ist in meinem Profil noch nichts dokumentiert.",
+         ["Kafka"], ["Kafka"]),
+        ("I built REST APIs, but Kafka is not yet documented in my profile.", ["Kafka"], ["Kafka"]),
+        # a short token stays exact: "AWS" is not found in "LAWS"
+        ("Ich habe Verträge geprüft, aber zu LAWS steht in meinem Profil noch nichts.", ["AWS"], []),
+    ],
+)
+def test_inflected_and_added_wordings_are_found(statement, concepts, expected):
+    from applire.services.profile.reconcile.stance import offered_choice_denial_hits
+
+    hits = offered_choice_denial_hits(_vault([_row(c, statement) for c in concepts]))
+    assert sorted(c for h in hits for c in h["denial_concepts"]) == sorted(expected)
+
+
+def test_a_denial_typed_as_a_continuation_of_the_clause_sentence_is_not_offered():
+    """Adversarial H-3: the candidate removed the chip's full stop and went on."""
+    from applire.services.profile.reconcile.stance import offered_choice_denial_hits
+
+    s = CHIP.rstrip(".") + ", und mit Kafka habe ich tatsächlich nie gearbeitet."
+    (hit,) = offered_choice_denial_hits(_vault([_row(t, s) for t in CLAUSE_TERMS]))
+    assert "Kafka" not in hit["denial_concepts"] and len(hit["denial_concepts"]) == 5
+
+
+def test_a_later_receipted_redenial_is_never_offered():
+    from applire.services.profile.reconcile.stance import offered_choice_denial_hits
+
+    vault = _vault(_founder_shape_rows())
+    vault["metadata"]["enrichment_history"] = [{
+        "id": "e1", "timestamp": "2026-11-05T09:00:00Z", "source": "interview",
+        "changes": [{"section": "metadata", "field": "denied_concepts", "action": "updated",
+                     "old_value": "Kafka", "new_value": "Kafka",
+                     "rationale": "Re-confirmed limit: no hands-on Kafka (candidate's own testimony)"}],
+    }]
+    (hit,) = offered_choice_denial_hits(vault)
+    assert "Kafka" not in hit["denial_concepts"] and len(hit["denial_concepts"]) == 5
+    # An "added" receipt (the chip turn's own) excludes nothing.
+    vault["metadata"]["enrichment_history"][0]["changes"][0]["action"] = "added"
+    (hit,) = offered_choice_denial_hits(vault)
+    assert hit["denial_concepts"] == CLAUSE_TERMS
+
+
 @pytest.mark.parametrize("bad", [None, [], "x", {"metadata": None}, {"metadata": {"denied_concepts": ["x", None]}}])
 def test_malformed_vaults_hit_nothing(bad):
     from applire.services.profile.reconcile.stance import offered_choice_denial_hits
@@ -302,6 +355,55 @@ async def test_the_committer_parks_the_question_on_an_ordinary_write(db_session)
     assert len(_offered_items(record.profile_json)) == 1, "the next write does not park it again"
 
 
+@pytest.mark.asyncio
+async def test_a_later_typed_redenial_through_the_committer_is_not_offered(db_session):
+    """Adversarial H-1, on the real write path: the chip row's statement is
+    write-once, so only the later turn's receipt tells the two apart."""
+    from applire.services.profile.commit import CommitProvenance, TurnGrounding, commit_ops
+
+    record = await _seed(db_session, _vault([_row(t, CHIP) for t in CLAUSE_TERMS]))
+    typed = "Mit Kafka habe ich wirklich nie gearbeitet."
+    await commit_ops(
+        db_session, [],
+        CommitProvenance(source="interview", intake="interview_turn", session_id=str(uuid.uuid4())),
+        record=record,
+        grounding=TurnGrounding(text=typed, question="Und Kafka?", gap="Kafka", denials=["Kafka"]),
+    )
+    await db_session.commit()
+    await db_session.refresh(record)
+    kafka = next(d for d in record.profile_json["metadata"]["denied_concepts"] if d["concept"] == "Kafka")
+    assert kafka["statement"] == CHIP, "write-once (#348): the chip's words stay"
+    (item,) = _offered_items(record.profile_json)
+    assert "Kafka" not in item["context"]["denial_concepts"]
+    assert len(item["context"]["denial_concepts"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_an_open_question_drops_a_concept_the_candidate_later_denies(db_session):
+    """The item was parked first (at upgrade or an earlier write); a later
+    typed re-denial of Kafka replaces it with one that no longer offers Kafka."""
+    from applire.services.profile.commit import CommitProvenance, TurnGrounding, commit_ops
+
+    record = await _seed(db_session, _vault([_row(t, CHIP) for t in CLAUSE_TERMS]))
+    await _ordinary_write(db_session, record)
+    (before,) = _offered_items(record.profile_json)
+    assert "Kafka" in before["context"]["denial_concepts"]
+    await commit_ops(
+        db_session, [],
+        CommitProvenance(source="interview", intake="interview_turn", session_id=str(uuid.uuid4())),
+        record=record,
+        grounding=TurnGrounding(text="Kafka nie.", question="Und Kafka?", gap="Kafka", denials=["Kafka"]),
+    )
+    await db_session.commit()
+    await db_session.refresh(record)
+    (after,) = _offered_items(record.profile_json)
+    assert after["confirmation_id"] != before["confirmation_id"]
+    assert after["context"]["denial_concepts"] == [t for t in CLAUSE_TERMS if t != "Kafka"]
+    await _ordinary_write(db_session, record)
+    (again,) = _offered_items(record.profile_json)
+    assert again["confirmation_id"] == after["confirmation_id"], "an unchanged item stays as it is"
+
+
 def test_the_health_hub_answers_it_in_place():
     from applire.schemas.profile import MasterProfileData
     from applire.services.profile.health import assess_health
@@ -388,6 +490,16 @@ _PARITY_CONCEPTS = CLAUSE_TERMS + [
 ]
 
 
+_INFLECTED_STATEMENTS = [
+    "Ich habe Unterweisungen gemacht; zu ISO 45001 und Arbeitssicherheitsmanagementsystemen steht in "
+    "meinem Profil noch nichts.",
+    "Ich habe REST-APIs gebaut, aber zu Kafka ist in meinem Profil noch nichts dokumentiert.",
+    "I built REST APIs, but Kafka and SLOs are not yet documented in my profile.",
+    CHIP.rstrip(".") + ", und mit Kafka habe ich tatsächlich nie gearbeitet.",
+]
+_INFLECTED_CONCEPTS = ["Arbeitssicherheitsmanagementsysteme", "ISO 45001", "SLO", "Referenzarchitektur", "LAWS"]
+
+
 def test_the_migrations_copy_agrees_with_the_app():
     """A migration never imports application code, so it carries a copy; the
     copy and the app must not drift apart before the migration ships."""
@@ -397,9 +509,16 @@ def test_the_migrations_copy_agrees_with_the_app():
     rows = [_row(c, s, date=f"2026-11-0{i % 9 + 1}")
             for i, s in enumerate(_PARITY_STATEMENTS) for c in _PARITY_CONCEPTS]
     rows += [_row(c, CHIP, source="agent_interview") for c in CLAUSE_TERMS]
+    rows += [_row(c, s) for s in _INFLECTED_STATEMENTS for c in _INFLECTED_CONCEPTS]
     vault = _vault(rows)
-    for s in _PARITY_STATEMENTS:
+    vault["metadata"]["enrichment_history"] = [{"changes": [
+        {"section": "metadata", "field": "denied_concepts", "action": "updated", "new_value": "ESB"},
+        {"section": "skills", "field": "denied_concepts", "action": "updated", "new_value": "iPaaS"},
+    ]}]
+    for s in _PARITY_STATEMENTS + _INFLECTED_STATEMENTS:
         assert mod.profile_silence_clauses(s) == stance.profile_silence_clauses(s)
+        for c in _PARITY_CONCEPTS + _INFLECTED_CONCEPTS:
+            assert mod.inflected_present(c, s.lower()) == stance.inflected_present(c, s.lower())
     app_hits, mig_hits = stance.offered_choice_denial_hits(vault), mod.offered_choice_denial_hits(vault)
     assert app_hits == mig_hits and len(app_hits) >= 5
     for hit in app_hits:

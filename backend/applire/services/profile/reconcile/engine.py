@@ -227,10 +227,11 @@ async def reconcile(
         if a is not None
     ]
     denials = _parse_denials(data.get("denials"))
-    # G-3 (ADR-064 / ADR-059 amended 2026-11-04) — a denial named only inside a
-    # choice Applire offered and the candidate selected is not the candidate's
-    # no: dropped HERE, before the stance guard, the demotion emitter and every
-    # door's `record_denials` read `denials`. The offered names the candidate's
+    # G-3 (ADR-064 / ADR-059 amended 2026-11-04; MD6-7) — an answer that is
+    # ONLY a choice Applire offered carries no word of the candidate's own, so
+    # its denials are not the candidate's no: dropped HERE, before the stance
+    # guard, the demotion emitter and every door's `record_denials` read
+    # `denials`. Beside any typed word the reconciler's judgement stands. The offered names the candidate's
     # own words do not repeat stay vetoes for the stance guard (`unclaimed`):
     # Applire's text names them WITHOUT claiming, so it cannot ground a claim.
     # The identity on every door but the built-in interview.

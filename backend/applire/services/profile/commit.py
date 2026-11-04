@@ -757,7 +757,7 @@ async def commit_ops(
     # A-1 heal (RULING A-1 = B / A-2 = A, 2026-11-04) — a denial an offered
     # "not yet in my profile" choice minted before G-3 parks ONE question per
     # statement; the 0086 data migration parks the same item at upgrade.
-    park_offered_choice_confirmations(profile.metadata, post_op_json)
+    park_offered_choice_confirmations(profile.metadata, post_op_json, denial_changes)
 
     # ── Invariant 2 — the persisted-denial re-floor ──────────────────────────
     # It runs HERE, after the ops land and before the assignment, so it sees the
