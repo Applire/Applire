@@ -67,6 +67,7 @@ outranks claim).
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from datetime import datetime
@@ -86,7 +87,12 @@ from applire.schemas.profile import (
     PendingConfirmation,
     ProfileMetadata,
 )
-from applire.services.ats_audit import _fold_variants, _norm, surface_present
+from applire.services.ats_audit import (
+    _CORPUS_FRAGMENT_BOUNDARY,
+    _fold_variants,
+    _norm,
+    surface_present,
+)
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     DemoteSkill,
@@ -1836,6 +1842,10 @@ def denial_scope_key(item: dict[str, Any] | None) -> str:
     a parked item's ``context``: ``"<denial>|<bare term>"``, both ``_norm``-ed."""
     if not isinstance(item, dict):
         return ""
+    if item.get("conflict_kind") == OFFERED_CHOICE_CONFLICT:
+        # A-1 heal — one question per STATEMENT, keyed by its hash.
+        stmt = str(item.get("statement_key") or "")
+        return f"{OFFERED_CHOICE_CONFLICT}|{stmt}" if stmt else ""
     denial = _norm(str(item.get("denial_concept") or ""))
     bare = _norm(str(item.get("bare_term") or ""))
     return f"{denial}|{bare}" if denial else ""
@@ -1894,6 +1904,183 @@ def park_denial_scope_confirmations(
         if hit.get("kind") == "literal" and when is not None:
             hit = {**hit, "cv_date": when.date().isoformat()}
         conf = denial_scope_confirmation(hit)
+        metadata.pending_confirmations.append(conf)
+        parked.append(conf)
+    return parked
+
+
+#: A-1 heal (founder RULING A-1 = B, 2026-11-04; ADR-064 amended 2026-11-04) —
+#: the profile-silence clause of an Applire-offered R2-2 choice, as it reached
+#: persisted denial statements before G-3's forward fix. Lexical and CLOSED
+#: (ADR-062 cl. 1): the wording family the interview prompt asks for, plus the
+#: variants a scan of 376 drafted choices with ``denied_terms`` found (WP-A,
+#: ``scan/out.json``: "steht in meinem Profil noch nichts" 92, "my profile does
+#: not yet document" 81, "… in meinem Profil … nicht dokumentiert" 4). Matched
+#: on ``_norm``-ed text. A new wording is a code change with a test.
+_PROFILE_SILENCE_MARKERS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"steht in meinem profil (?:(?:noch|bisher|derzeit) )*nichts"),
+    re.compile(
+        r"in meinem profil (?:(?:ist|sind|steht|stehen|wird|werden) )?[^.;]{0,120}?"
+        r"(?:(?:noch|bisher|derzeit) )*nicht (?:dokumentiert|beschrieben|erwähnt|enthalten|belegt)"
+    ),
+    re.compile(
+        r"my profile (?:does not|doesn't|does n't) (?:yet )?"
+        r"(?:document|mention|cover|show|list|include|describe)"
+    ),
+    re.compile(r"my profile (?:has|says) nothing (?:yet )?(?:on|about)"),
+)
+#: Where the clause starts: the last of these before a marker (or the start of
+#: the statement). The R2-2 shape joins its halves with ", aber" / ", but"; the
+#: scan also found ";" and a sentence break.
+_CLAUSE_START = re.compile(r";|[.!?](?=\s)|,?\s(?:aber|but|jedoch|however)\b")
+_CLAUSE_END = re.compile(r"[.;!?](?=\s|$)")
+
+
+def profile_silence_clauses(statement: str) -> list[str]:
+    """The ``_norm``-ed profile-silence clauses of ``statement`` — each from the
+    separator before a :data:`_PROFILE_SILENCE_MARKERS` hit to the end of its
+    sentence. A fact about the wording (ADR-062 cl. 1). Pure."""
+    text = _norm(statement or "")
+    out: list[str] = []
+    for pattern in _PROFILE_SILENCE_MARKERS:
+        for m in pattern.finditer(text):
+            starts = [s.end() for s in _CLAUSE_START.finditer(text, 0, m.start())]
+            start = starts[-1] if starts else 0
+            end_m = _CLAUSE_END.search(text, m.end())
+            end = end_m.start() if end_m else len(text)
+            clause = text[start:end].strip(" ,")
+            if clause and clause not in out:
+                out.append(clause)
+    return out
+
+
+def offered_choice_denial_hits(profile_json: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """A-1 heal — the persisted denials an R2-2 choice minted before G-3, grouped
+    by statement: ``[{"statement_key", "denial_concepts", "denial_date"}]``.
+
+    The offered choice itself was never persisted (only its text, as the
+    candidate's answer), so detection is phrase-coupled (RULING A-1): an
+    ``interview``-source denial whose concept occurs inside a profile-silence
+    clause of its own statement (:func:`profile_silence_clauses`) and NOWHERE
+    else in that statement — a concept the candidate also typed outside the
+    clause ("Mit Kafka habe ich nie gearbeitet") is their own word and is never
+    offered for withdrawal. A miss asks nothing; a false hit only asks (the
+    candidate keeps the denial with one click). Pure, malformed tolerant."""
+    if not isinstance(profile_json, dict):
+        return []
+    metadata = profile_json.get("metadata")
+    raw = metadata.get("denied_concepts") if isinstance(metadata, dict) else None
+    groups: dict[str, dict[str, Any]] = {}
+    for d in raw or []:
+        if not isinstance(d, dict) or d.get("source") != "interview":
+            continue
+        concept, statement = d.get("concept"), d.get("statement")
+        if not (isinstance(concept, str) and concept.strip() and isinstance(statement, str)):
+            continue
+        # Exact word-boundary presence (no plural fold): the 0086 data migration
+        # carries a verbatim copy of this detector, and the two must agree
+        # (pinned by a parity test) — so the predicate is the smallest one.
+        c_norm = _norm(concept)
+        clauses = profile_silence_clauses(statement)
+        if not clauses or not any(_word_present(c_norm, c) for c in clauses):
+            continue
+        rest = _norm(statement)
+        for c in clauses:
+            rest = rest.replace(c, f" {_CORPUS_FRAGMENT_BOUNDARY} ")
+        if _word_present(c_norm, rest):
+            continue
+        key = hashlib.sha1(_norm(statement).encode("utf-8")).hexdigest()[:16]
+        group = groups.setdefault(
+            key, {"statement_key": key, "denial_concepts": [], "denial_date": ""}
+        )
+        group["denial_concepts"].append(concept)
+        date = d.get("date") if isinstance(d.get("date"), str) else ""
+        if date and (not group["denial_date"] or date < group["denial_date"]):
+            group["denial_date"] = date
+    return list(groups.values())
+
+
+#: The offered-choice item's ``context.conflict_kind`` and its two answers.
+OFFERED_CHOICE_CONFLICT = "offered_choice"
+#: "Ja, zurücknehmen" — every concept of the statement is withdrawn (G-5).
+OFFERED_CHOICE_NOT_A_NO = "not_a_no"
+#: "Doch, das fehlt mir" — the denials stay; never asked again.
+OFFERED_CHOICE_LACKS_IT = "lacks_it"
+OFFERED_CHOICE_OPTION_KEYS: tuple[str, ...] = (OFFERED_CHOICE_NOT_A_NO, OFFERED_CHOICE_LACKS_IT)
+
+
+def _join_de(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} und {items[-1]}"
+
+
+def _join_en(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def offered_choice_denial_confirmation(hit: dict[str, Any]) -> PendingConfirmation:
+    """THE builder of the A-1 heal question (founder RULING A-1 = B, copy
+    ``Runs/Hazelnut/build-6/a/COPY.md``): ONE Health item per affected
+    statement, answered in place as the ``denial_scope`` family. Stored
+    language-independent (ADR-063 #669). Pure."""
+    concepts = [str(c) for c in hit.get("denial_concepts") or [] if str(c).strip()]
+    iso = str(hit.get("denial_date") or "")
+    d_de, d_en = _date_de(iso), _date_en(iso)
+    lead_de = f"Am {d_de} hast du im Interview" if d_de else "Im Interview hast du"
+    lead_en = f"On {d_en} you picked" if d_en else "In the interview you picked"
+    where_en = " in the interview" if d_en else ""
+    question_de = (
+        f"{lead_de} eine vorgeschlagene Antwort gewählt. Diese Antwort sagte nur, dass in deinem "
+        f"Profil zu {_join_de(concepts)} noch nichts steht, nicht dass dir das fehlt. "
+        "Gespeichert wurde es trotzdem als „trifft nicht zu“. Sollen wir das zurücknehmen?"
+    )
+    question_en = (
+        f"{lead_en} a suggested answer{where_en}. It only said that your profile does not "
+        f"mention {_join_en(concepts)} yet, not that you lack them. It was still saved as "
+        "“does not apply”. Should we take that back?"
+    )
+    options = {
+        OFFERED_CHOICE_NOT_A_NO: {"de": "Ja, zurücknehmen", "en": "Yes, take it back"},
+        OFFERED_CHOICE_LACKS_IT: {"de": "Doch, das fehlt mir", "en": "No, I do lack that"},
+    }
+    keys = list(OFFERED_CHOICE_OPTION_KEYS)
+    return PendingConfirmation(
+        question=question_en,
+        options=[options[k]["en"] for k in keys],
+        context={
+            "kind": DENIAL_SCOPE_SOURCE,
+            "conflict_kind": OFFERED_CHOICE_CONFLICT,
+            "denial_concepts": concepts,
+            "statement_key": str(hit.get("statement_key") or ""),
+        },
+        source=DENIAL_SCOPE_SOURCE,
+        question_i18n={"de": question_de, "en": question_en},
+        options_i18n=[dict(options[k]) for k in keys],
+        option_keys=keys,
+    )
+
+
+def park_offered_choice_confirmations(
+    metadata: ProfileMetadata | None, profile_json: dict[str, Any] | None
+) -> list[PendingConfirmation]:
+    """Park one A-1 heal question per affected statement
+    (:func:`offered_choice_denial_hits`), never twice: a statement with an open
+    or answered item (``metadata.denial_scope_answered``) is skipped. Called on
+    every intake by the committer, beside :func:`park_denial_scope_confirmations`.
+    No vault write besides the parked question."""
+    if metadata is None:
+        return []
+    asked = {
+        denial_scope_key(c.context or {})
+        for c in metadata.pending_confirmations
+        if c.source == DENIAL_SCOPE_SOURCE
+    } | set(metadata.denial_scope_answered)
+    parked: list[PendingConfirmation] = []
+    for hit in offered_choice_denial_hits(profile_json):
+        key = denial_scope_key({**hit, "conflict_kind": OFFERED_CHOICE_CONFLICT})
+        if not key or key in asked:
+            continue
+        asked.add(key)
+        conf = offered_choice_denial_confirmation(hit)
         metadata.pending_confirmations.append(conf)
         parked.append(conf)
     return parked
