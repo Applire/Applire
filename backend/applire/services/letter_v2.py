@@ -865,8 +865,8 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
     lang = "de" if (language or "").strip().lower() == "de" else "en"
     lines = [
         "TOOL DURATIONS (computed by the system from the candidate's dated positions; a "
-        "position counts for a tool when it lists the tool among its technologies or names "
-        "it in its own text):"
+        "reference for durations only — it never asks for a tool to be named, and how it "
+        "was computed is never described in the letter):"
     ]
     for f in facts:
         hedge = span_hedges(f.years)
@@ -880,8 +880,7 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
             shown = [label for pid, label in f.positions if pid in f.cv_positions]
             where = ("only under " + ", ".join(shown)) if shown else "under none of them"
             line += (
-                f"The CV shows {f.tool} {where}: state NO duration for {f.tool} "
-                "(name it without one)."
+                f"The CV shows {f.tool} {where}: state NO duration for {f.tool}."
             )
         lines.append(line)
     if len(lines) == 1:
