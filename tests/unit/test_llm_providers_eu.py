@@ -459,6 +459,29 @@ async def test_anthropic_refusal_raises_instead_of_returning_empty_text(monkeypa
     assert info.value.category == "reasoning_extraction"
 
 
+def test_anthropic_client_carries_an_explicit_timeout():
+    # Without it the SDK raises ValueError ("Streaming is required …") for any
+    # max_tokens above ~21k — every reconcile call (32768) failed on Sonnet 5.5.
+    from applire.providers.llm.anthropic import AnthropicProvider
+    with patch("applire.providers.llm.anthropic.AsyncAnthropic") as client_cls:
+        AnthropicProvider(api_key="k", model="claude-sonnet-5-5", timeout=120)
+    assert client_cls.call_args.kwargs["timeout"] == 150.0
+
+
+def test_anthropic_sdk_accepts_a_reconcile_budget_without_streaming():
+    # The real SDK guard, not a mock: an explicit client timeout skips it.
+    import anthropic
+    from anthropic._constants import DEFAULT_TIMEOUT
+    from applire.constants import RECONCILE_MAX_TOKENS
+    bare = anthropic.AsyncAnthropic(api_key="k")
+    assert bare.timeout == DEFAULT_TIMEOUT
+    with pytest.raises(ValueError):
+        bare._calculate_nonstreaming_timeout(RECONCILE_MAX_TOKENS, None)
+    from applire.providers.llm.anthropic import AnthropicProvider
+    provider = AnthropicProvider(api_key="k", model="claude-sonnet-5-5", timeout=120)
+    assert provider._client.timeout != DEFAULT_TIMEOUT
+
+
 def test_anthropic_generation_parses_dated_and_legacy_ids():
     from applire.providers.llm.anthropic import _generation
     assert _generation("claude-sonnet-4-20250514") == ("sonnet", (4, 0))
