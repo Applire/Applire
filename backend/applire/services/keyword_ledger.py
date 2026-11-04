@@ -1934,6 +1934,8 @@ _LETTER_COVERAGE_HEAD_BOUNDED = (
     "central each is to this role: raise coverage for no term it does not carry:"
 )
 _LETTER_COVERAGE_TASK = (
+    "For EACH term above, quote in your analysis the letter's sentence that states its "
+    'evidence, or write "none" (ADR-100 cl. 6: a Hint is a task with a checkable answer). '
     "Only a term whose evidence the letter does not state blocks: set approved=false and "
     "name it in your issues so the writer surfaces the evidence from the candidate's own "
     "source. EXCEPTION — the grounding waiver: if surfacing it would stretch beyond what "

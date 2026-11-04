@@ -64,3 +64,13 @@ def test_the_grounding_waiver_stays_and_the_letter_obligation_follows_the_eviden
         [{"concept": "Technical leadership", "surface_forms": ["Technical leadership"]}])
     assert LETTER_COVERAGE_BY_EVIDENCE not in render_verified_coverage_block(
         [{"concept": "Technical leadership", "surface_forms": ["Technical leadership"]}])
+
+
+def test_wp3_the_letter_block_asks_for_a_quote_or_none_per_term():
+    """ADR-100 cl. 6: a Hint reaches a model as a task with a checkable answer."""
+    block = render_verified_coverage_block(
+        [{"concept": "Technical leadership", "surface_forms": ["Technical leadership"]}], letter=True)
+    assert 'quote in your analysis the letter\'s sentence that states its evidence, or write "none"' in block
+    assert "quote in your analysis" not in render_verified_coverage_block(
+        [{"concept": "Technical leadership", "surface_forms": ["Technical leadership"]}])
+
