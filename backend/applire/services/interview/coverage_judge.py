@@ -26,7 +26,16 @@ what the Fact admits (ADR-100 cl. 1/3):
   completion recompute and the denial floors, ADR-089 cl. 5);
 * its ``evidence_quote`` resolves in one claimable vault unit
   (``keyword_ledger._verified_backing_path`` = ``quote_in_vault`` + the floor's
-  denial and aim stances);
+  denial and aim stances) **that an answer of THIS session wrote** — the unit
+  carries an enrichment receipt (``build_vault_index``'s ``receipt_ids``) of an
+  ``interview`` / ``agent_interview`` record with this ``source_session_id``.
+  The re-judge exists to read the answers; a lift resting on text the vault held
+  before the session is a re-roll of the analysis's own verdict, not news (the
+  churn ADR-089 cl. 2 was written against). Measured, the control replay on the
+  pre-answer 11-04 vault: claude-sonnet-5-5 lifted ERP / API strategy /
+  Integration governance to ``direct`` on ``technologies`` and
+  ``professional_summary`` units the luna analysis had graded ``partial`` (2/2
+  runs); luna lifted nothing (0/2);
 * the ledger builder's own denial floor ran on the fresh row (a denied verdict
   ranks 0), and a member the record already reads ``declined`` is no target.
 
@@ -56,6 +65,20 @@ _RANK = {"direct": 2, "partial": 1}
 #: The ledger lists, strongest source first: a row named by several lists is
 #: re-judged under the strongest (the rules differ per list).
 _LISTS = (("required", "required_skills"), ("nice_to_have", "nice_to_have_skills"), ("keyword", "keywords"))
+
+
+def _session_answer_record_ids(profile_json: dict[str, Any], session_id: str) -> set[str]:
+    """Ids of the enrichment records this interview session's answers wrote."""
+    history = ((profile_json or {}).get("metadata") or {}).get("enrichment_history") or []
+    return {
+        str(rec.get("id"))
+        for rec in history
+        if isinstance(rec, dict)
+        and rec.get("id")
+        and rec.get("source") in ("interview", "agent_interview")
+        and session_id
+        and str(rec.get("source_session_id") or "") == str(session_id)
+    }
 
 
 def _rank(status: Any) -> int:
@@ -121,6 +144,7 @@ async def rejudge_open_members(
     job_inputs: dict[str, Any],
     profile_json: dict[str, Any],
     provider: Any,
+    session_id: str,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Re-judge ``members`` (one cluster's) against the post-turn vault.
 
@@ -175,7 +199,13 @@ async def rejudge_open_members(
         )
         from applire.services.oracle.matchers.vault import build_vault_index
 
-        index = build_vault_index(claimable_vault)
+        import types
+
+        answered = _session_answer_record_ids(profile_json, session_id)
+        full_index = build_vault_index(claimable_vault)
+        index = types.SimpleNamespace(
+            units=[u for u in full_index.units if answered.intersection(getattr(u, "receipt_ids", None) or ())]
+        )
     except Exception as exc:  # noqa: BLE001 — fail closed on claimability: nothing moves
         logger.warning("interview coverage re-judge failed (%s: %s) — no row lifted", type(exc).__name__, exc)
         return list(ledger or []), []

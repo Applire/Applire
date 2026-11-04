@@ -41,7 +41,16 @@ VAULT = {
         }
     ],
     "skills": [{"name": "Python", "status": "confirmed"}],
-    "metadata": {"denied_concepts": []},
+    "metadata": {
+        "denied_concepts": [],
+        # the answers of THIS session wrote both bullets (receipts, ADR-046)
+        "enrichment_history": [{
+            "id": "rec-1", "source": "interview", "source_session_id": "s-1",
+            "timestamp": "2026-11-04T10:00:00Z",
+            "changes": [{"section": "work_experience", "field": "responsibilities",
+                         "action": "added", "new_value": [_MES_BULLET, _TEAM]}],
+        }],
+    },
 }
 
 JOB = {
@@ -110,9 +119,9 @@ def _by(ledger):
     return {r["concept"]: r for r in ledger}
 
 
-async def _run(ledger, members, provider, vault=VAULT):
+async def _run(ledger, members, provider, vault=VAULT, session_id="s-1"):
     return await cj.rejudge_open_members(
-        ledger, members, job_inputs=JOB, profile_json=vault, provider=provider
+        ledger, members, job_inputs=JOB, profile_json=vault, provider=provider, session_id=session_id
     )
 
 
@@ -250,3 +259,22 @@ async def test_the_input_ledger_is_not_mutated():
     prov = FakeProvider([_cls("MES", "direct", _MES_BULLET)])
     await _run(ledger, ["MES"], prov)
     assert ledger == before
+
+
+@pytest.mark.asyncio
+async def test_a_quote_in_text_the_vault_held_before_the_session_lifts_nothing():
+    """The control replay (11-04, pre-answer vault): Sonnet lifted rows on
+    `technologies` / summary units the analysis had graded partial — a re-roll,
+    not the answer. Only a unit an answer of THIS session wrote may back a lift."""
+    prov = FakeProvider([_cls("MES", "direct", _MES_BULLET)])
+    out, lifted = await _run(_ledger(), ["MES"], prov, session_id="another-session")
+    assert lifted == [] and _by(out)["MES"]["status"] == "gap"
+
+
+@pytest.mark.asyncio
+async def test_a_cv_record_is_not_an_answer():
+    vault = copy.deepcopy(VAULT)
+    vault["metadata"]["enrichment_history"][0]["source"] = "cv_upload"
+    prov = FakeProvider([_cls("MES", "direct", _MES_BULLET)])
+    out, lifted = await _run(_ledger(), ["MES"], prov, vault=vault)
+    assert lifted == []

@@ -2473,6 +2473,7 @@ async def _rejudge_cluster_coverage(
     *,
     current_gap: str,
     updated_profile: dict,
+    session_id: str,
 ) -> list[str]:
     """ADR-100 cl. 9 / ADR-089 cl. 2 amended 2026-11-04 (WP4, Interview #787):
     after an answered turn that changed the vault, re-judge the cluster's
@@ -2513,6 +2514,7 @@ async def _rejudge_cluster_coverage(
     new_ledger, lifted = await rejudge_open_members(
         row.keyword_ledger, members,
         job_inputs=_job_inputs(job), profile_json=updated_profile or {}, provider=provider,
+        session_id=session_id,
     )
     if lifted:
         # Same seam discipline as #188: the affirmative invariant at the
@@ -4284,6 +4286,7 @@ async def _send_message_turn(
     if addressed or getattr(turn, "no_write_receipt", None) == "no_write_already_known":
         await _rejudge_cluster_coverage(
             state, db, provider, current_gap=current_gap, updated_profile=updated_profile,
+            session_id=str(record.id),
         )
 
     # --- ADR-089 clauses 2/3: the per-gap record. Classify the cluster's open

@@ -35,17 +35,26 @@ from test_gap_followups_session import (  # noqa: F401 — `db` is a fixture
 _BULLET = "Betrieb von Kubernetes-Clustern für zwölf Dienste mit Terraform als Infrastrukturcode."
 
 
+def _answer_record(session_id):
+    return {"id": f"rec-{session_id}", "source": "interview", "source_session_id": session_id,
+            "timestamp": "2026-11-04T10:00:00Z",
+            "changes": [{"section": "work_experience", "field": "responsibilities",
+                         "action": "added", "new_value": [_BULLET]}]}
+
+
 def _bullet_bridge(*, write=True, receipt=None):
     """Writes ONE responsibility bullet (the answer, as the reconciler would)."""
     from applire.models.profile import authorized_profile_write
     from applire.schemas.profile import FieldChange
     from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
 
-    async def _run(db, *, profile_record, **_kwargs):
+    async def _run(db, *, profile_record, session_id=None, **_kwargs):
         pj = copy.deepcopy(profile_record.profile_json)
         changes = []
         if write:
             pj["work_experience"][0].setdefault("responsibilities", []).append(_BULLET)
+            pj.setdefault("metadata", {}).setdefault("enrichment_history", []).append(
+                _answer_record(session_id))
             changes.append(FieldChange(section="work_experience", field="responsibilities",
                                        action="added", new_value=_BULLET))
         with authorized_profile_write():
@@ -139,13 +148,16 @@ async def test_seam_an_already_known_answer_is_judged_against_the_vault_an_earli
     job, profile, row = await _seed(db, clusters=[
         _cluster(_INFRA, "Cloud infrastructure", ["Kubernetes", "Terraform"]),
     ], ledger=[_row("Kubernetes"), _row("Terraform")])
+    writer = _writer("Tell me about your infrastructure work?", "Anything else?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    # an earlier turn of THIS session wrote the bullet (its receipt names the session)
     pj = copy.deepcopy(profile.profile_json)
     pj["work_experience"][0]["responsibilities"] = [_BULLET]
+    pj.setdefault("metadata", {}).setdefault("enrichment_history", []).append(
+        _answer_record(str(created.session_id)))
     with authorized_profile_write():
         profile.profile_json = pj
     await db.commit()
-    writer = _writer("Tell me about your infrastructure work?", "Anything else?")
-    created = await _gap_click(db, job, _INFRA, writer)
     provider = _provider([_verdict("Kubernetes", _BULLET), _verdict("Terraform", _BULLET)])
     resp = await _answer(db, created.session_id, "Das habe ich oben schon beschrieben.",
                          _bullet_bridge(write=False, receipt="no_write_already_known"), writer, provider)
