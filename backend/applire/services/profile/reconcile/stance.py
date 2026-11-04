@@ -1161,6 +1161,9 @@ def offered_choice_gate(
       memory ``feedback_a_new_yes_arm_drops_the_old_arms_implicit_nos``). They
       are never recorded as denials and never demote anything.
 
+    * an answer that is ONLY offered text (nothing typed beside it) drops every
+      denial of the turn, whatever language the reconciler wrote it in.
+
     Off the interview door, or without offered choices, it is the identity.
     Known residual (FMEA, control false positive): a denial the candidate types
     in another language than the reconciler's denial string is dropped when the
@@ -1178,10 +1181,19 @@ def offered_choice_gate(
     names = list(dict.fromkeys(t for c in offered for t in c["names_without_claiming"]))
     unclaimed = [t for t in names if not _bounded_present(t, remainder)]
     texts_norm = [_norm(c["text"]) for c in offered]
+    # The candidate typed NOTHING beside the offered text(s): no denial of this
+    # turn can come from their own words. Catches the reconciler's denial
+    # string in another language than the choice (offline replay of the
+    # as-built luna runs, EN vault + DE chip: "reference architectures" for the
+    # chip's "Referenzarchitekturen" matched neither arm below).
+    typed_nothing = not re.search(r"\w", remainder.replace("\u241e", ""))
 
     kept: list[str] = []
     dropped: list[str] = []
     for denial in denials:
+        if typed_nothing:
+            dropped.append(denial)
+            continue
         d_norm = _norm(denial)
         matched = [t for t in names if _norm(t) == d_norm or _bounded_present(t, d_norm)]
         in_offer = bool(matched) or any(_bounded_present(denial, t) for t in texts_norm)

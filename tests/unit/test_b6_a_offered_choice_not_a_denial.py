@@ -174,8 +174,9 @@ def test_a_typed_denial_without_any_chip_is_the_identity():
 def test_a_denial_string_naming_a_clause_concept_is_dropped_too():
     from applire.services.profile.reconcile.stance import offered_choice_gate
 
+    answer = CHIP + " Kubernetes habe ich nie betrieben."  # typed words: not the chip-only arm
     kept, dropped, _ = offered_choice_gate(
-        ["hands-on Boomi", "AWS cloud"], _new_info(CHIP), "interview"
+        ["hands-on Boomi", "AWS cloud"], _new_info(answer), "interview"
     )
     assert kept == [] and dropped == ["hands-on Boomi", "AWS cloud"]
 
@@ -185,15 +186,41 @@ def test_a_denial_of_the_chips_affirmed_half_is_dropped():
     only its affirmed half names has no source in the candidate's words."""
     from applire.services.profile.reconcile.stance import offered_choice_gate
 
-    kept, dropped, _ = offered_choice_gate(["SAP S/4HANA"], _new_info(CHIP), "interview")
+    answer = CHIP + " Kubernetes habe ich nie betrieben."  # typed words: not the chip-only arm
+    kept, dropped, _ = offered_choice_gate(["SAP S/4HANA"], _new_info(answer), "interview")
     assert kept == [] and dropped == ["SAP S/4HANA"]
 
 
-def test_an_unrelated_denial_is_kept():
+def test_a_chip_only_answer_drops_a_denial_in_another_language_too():
+    """Offline replay of the as-built gpt-6-luna run on the EN vault: the
+    reconciler wrote the chip's "Referenzarchitekturen" as "reference
+    architectures". Nothing was typed beside the chip, so no denial of the turn
+    is the candidate's own."""
     from applire.services.profile.reconcile.stance import offered_choice_gate
 
-    kept, dropped, _ = offered_choice_gate(["Kubernetes"], _new_info(CHIP), "interview")
-    assert kept == ["Kubernetes"] and dropped == []
+    raw = ["Boomi", "Kafka", "AWS", "iPaaS", "ESB", "reference architectures"]
+    kept, dropped, _ = offered_choice_gate(raw, _new_info(CHIP), "interview")
+    assert kept == [] and dropped == raw
+
+
+def test_with_typed_words_beside_the_chip_an_unmatched_denial_is_kept():
+    """The control for the arm above: once the candidate typed something, a
+    denial no offered name covers may be theirs and is kept."""
+    from applire.services.profile.reconcile.stance import offered_choice_gate
+
+    answer = CHIP + " Kubernetes habe ich nie betrieben."
+    kept, _, _ = offered_choice_gate(["reference architectures", "Kubernetes"], _new_info(answer), "interview")
+    assert kept == ["reference architectures", "Kubernetes"]
+
+
+def test_an_unrelated_denial_is_kept_only_when_the_candidate_typed_words():
+    from applire.services.profile.reconcile.stance import offered_choice_gate
+
+    typed = _new_info(CHIP + " Kubernetes habe ich nie betrieben.")
+    assert offered_choice_gate(["Kubernetes"], typed, "interview")[0] == ["Kubernetes"]
+    assert offered_choice_gate(["Kubernetes"], _new_info(CHIP), "interview")[0] == [], (
+        "a chip-only answer carries no word of the candidate's own"
+    )
 
 
 def test_the_english_chip_shape_is_gated_the_same_way():
