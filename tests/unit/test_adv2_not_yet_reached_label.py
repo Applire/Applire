@@ -55,7 +55,10 @@ def test_every_document_source_view_is_built_labelled():
     assert 'prompt_profile = prompt_profile_view(profile_json, aims="label")' in cv
     assert "source_material = _json.dumps(prompt_profile" in cv
     letter = (SERVICES / "cover_letter.py").read_text(encoding="utf-8")
-    assert letter.count('aims="label"') == 2
+    # R-3 (WP3, 2026-11-04): the v2 no-CV writer view is rebuilt with
+    # derived_spans="drop" — a third view, labelled like the other two.
+    assert letter.count('aims="label"') == 3
+    assert letter.count("prompt_profile_view(") == letter.count('aims="label"')
 
 
 def test_the_narrow_action_excerpt_carries_the_label():
