@@ -1099,6 +1099,100 @@ async def _resolve_token(
     return status
 
 
+#: The NEW INFORMATION key an interview turn carries the offered choices it
+#: contains under (ADR-064 amended 2026-11-04, G-3) — written by
+#: ``interview_bridge.reconcile_interview_turn`` only.
+OFFERED_CHOICES_KEY = "offered_choices"
+
+
+def _offered_choices(new_info: Any, source: str) -> list[dict]:
+    """The turn's offered choices, defensively typed; ``[]`` off the built-in
+    interview door (only ``source="interview"`` — Applire's own UI/MCP turn —
+    ever carries Applire-written choice text)."""
+    if source != "interview" or not isinstance(new_info, dict):
+        return []
+    raw = new_info.get(OFFERED_CHOICES_KEY)
+    out: list[dict] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+            continue
+        terms = item.get("names_without_claiming")
+        out.append({
+            "text": item["text"],
+            "names_without_claiming": [
+                t for t in (terms if isinstance(terms, list) else []) if isinstance(t, str) and t.strip()
+            ],
+        })
+    return out
+
+
+def offered_choice_gate(
+    denials: list[str], new_info: Any, source: str
+) -> tuple[list[str], list[str], list[str]]:
+    """G-3 (ADR-064 / ADR-059 amended 2026-11-04) — ``(kept, dropped, unclaimed)``.
+
+    A choice Applire offered and the candidate selected states no limit by
+    construction (R2-2): its "…, aber zu X steht in meinem Profil noch nichts"
+    clause names X WITHOUT claiming it, and the PROFILE's silence is not the
+    candidate's no. Founder UAT 2026-11-04: the reconciler nevertheless turned
+    one clicked chip into seven ``direct`` denials (as built, gpt-6-luna 2/10 on
+    the synthetic same-shape replay), and they reached the letter as the
+    candidate's own limits.
+
+    FACTS only (ADR-062 cl. 1), no reading of meaning:
+
+    * the **typed remainder** = the answer with every offered choice's text cut
+      out (normalised) — the words the candidate wrote themselves;
+    * a denial is **dropped** when the item is one of an offered choice's
+      ``names_without_claiming`` (equal, or named inside the denial string) or
+      occurs in that choice's text, AND neither it nor its matched name occurs
+      in the typed remainder. "mit X habe ich nicht gearbeitet" typed after the
+      chip keeps X;
+    * **unclaimed** = the offered names that do not occur in the typed remainder.
+      The caller passes them to ``enforce_stance`` as vetoes: a name the system
+      wrote without claiming it cannot be claimed by the same system text (the
+      dropped denial was, by accident, what stripped such an op before —
+      memory ``feedback_a_new_yes_arm_drops_the_old_arms_implicit_nos``). They
+      are never recorded as denials and never demote anything.
+
+    Off the interview door, or without offered choices, it is the identity.
+    Known residual (FMEA, control false positive): a denial the candidate types
+    in another language than the reconciler's denial string is dropped when the
+    chip names that concept.
+    """
+    offered = _offered_choices(new_info, source)
+    if not offered:
+        return list(denials), [], []
+    answer = new_info.get("answer") if isinstance(new_info, dict) else None
+    remainder = _norm(answer if isinstance(answer, str) else "")
+    for choice in offered:
+        form = _norm(choice["text"]).rstrip(" .!?;:,")
+        if form:
+            remainder = remainder.replace(form, " ␞ ")
+    names = list(dict.fromkeys(t for c in offered for t in c["names_without_claiming"]))
+    unclaimed = [t for t in names if not _bounded_present(t, remainder)]
+    texts_norm = [_norm(c["text"]) for c in offered]
+
+    kept: list[str] = []
+    dropped: list[str] = []
+    for denial in denials:
+        d_norm = _norm(denial)
+        matched = [t for t in names if _norm(t) == d_norm or _bounded_present(t, d_norm)]
+        in_offer = bool(matched) or any(_bounded_present(denial, t) for t in texts_norm)
+        typed = _bounded_present(denial, remainder) or any(_bounded_present(t, remainder) for t in matched)
+        if in_offer and not typed:
+            dropped.append(denial)
+        else:
+            kept.append(denial)
+    if dropped:
+        logger.info(
+            "reconcile stance: %d denial(s) dropped — named only inside an offered "
+            "choice the candidate selected, never in their own words (G-3, ADR-064 "
+            "amended 2026-11-04): %r", len(dropped), dropped,
+        )
+    return kept, dropped, unclaimed
+
+
 async def enforce_stance(
     ops: list[ReconcileOp],
     *,

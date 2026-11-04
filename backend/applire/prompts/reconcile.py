@@ -418,6 +418,22 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   in the attribution rules named a real person's employers and product domains;
   they now use invented ones (same structure, same rule text, -16 chars). Not
   re-measured: only names inside examples changed, no rule wording.
+* **28,324 (Hazelnut build 6 WP-A, 2026-11-04, G-3).** Rule 9's "A DENIAL NAMES
+  AN ITEM, NEVER MISSING EVIDENCE" gains the profile-silence clause ("..., but
+  my profile does not yet document X" / "..., aber zu X ... steht in meinem
+  Profil noch nichts" is no denial) and names the NEW INFORMATION's
+  ``offered_choices`` (Applire-written choice text the person selected; its
+  ``names_without_claiming`` are never denials nor facts), +538 chars. Founder
+  UAT 2026-11-04: one clicked R2-2 chip became seven ``direct`` denials.
+  *Measured* (synthetic same-shape turn: 6 clause concepts + an affirmed half,
+  in-process ``engine.reconcile``, n=5 per arm; records in
+  ``Runs/Hazelnut/build-6/a/``): ``gpt-6-luna`` (Requesty, reasoning off) as
+  built denied all six concepts in 2/10 turns (DE vault 1/5, EN vault 1/5),
+  after the rule 0/10 without the fact and 0/5 with it (raw model output,
+  before ``stance.offered_choice_gate``); ``claude-sonnet-5-5`` 0/10 -> 0/10
+  (+0/5 with the fact). Kept: a typed "Mit Boomi habe ich nicht gearbeitet"
+  -> ["Boomi"] 10/10, a chip plus a typed Kafka no -> ["Kafka"] only 10/10;
+  the affirmed half recorded in every turn of every arm.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -762,7 +778,14 @@ Operations:
    nothing: put nothing in "denials" for it, and still record every fact the
    rest of the answer states. Contrast: "mit SAP MM habe ich nicht gearbeitet"
    → "denials": ["SAP MM"]; "konkrete Zahlen zum Projekt kann ich nicht nennen"
-   → no denial.
+   → no denial. Likewise a clause about what the PROFILE does not yet
+   document ("..., but my profile does not yet document X or Y", "..., aber zu
+   X und Y steht in meinem Profil noch nichts") says the record is silent, not
+   that the person lacks X: no denial. "offered_choices" in the NEW
+   INFORMATION are answer texts Applire wrote and the person selected; their
+   "names_without_claiming" are named in exactly such a clause and are never
+   denials (nor facts) — only the person's own words elsewhere in the answer
+   can deny or claim them.
    A DENIAL WITH AN EXCEPTION KEEPS THE EXCEPTION (783:L101). "Beyond X I
    have no experience in Y" / "no other Y than X" affirms X, which is part of
    Y: name the denied item WITH the exception, never bare Y — bare Y would deny
