@@ -1472,6 +1472,9 @@ async def _render_cover_letter_body(
                 from applire.services.profile import get_profile_for_user
 
                 profile = await get_profile_for_user(db, user_id)
+                # R-3: whether a CV exists decides the TOOL DURATIONS consistency
+                # condition (no CV → nothing to be consistent with).
+                tailored_cv = cv_data if cv_data else None
                 if profile is not None and not cv_data:
                     # ADR-061 clause 3: no CV exists yet, so this raw profile stands in
                     # as the writer's evidence — an unconfirmed skill/language/
@@ -1517,6 +1520,17 @@ async def _render_cover_letter_body(
                 is_v2 = pipeline == "v2"
                 if is_v2:
                     logger.info("LETTER_PIPELINE=v2 cl=%s language=%s", cl_id, detected_language)
+                    if tailored_cv is None and profile is not None:
+                        # R-3: on v2 the letter's ONLY duration channel is the TOOL
+                        # DURATIONS block below; the no-CV vault view carries no
+                        # derived span of its own (v1 keeps #747's hedge view).
+                        from applire.services.prompt_view import prompt_profile_view
+                        from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+                        cv_data = prompt_profile_view(
+                            exclude_unconfirmed(profile.profile_json or {}), derived_spans="drop",
+                            aims="label",  # ADV-2
+                        )
 
                 # ADR-048 / US201: load the latest Keyword Ledger for this job (read-only,
                 # mirrors cv.py) so the prompt surfaces claimable terms with their profile
@@ -1918,12 +1932,35 @@ async def _render_cover_letter_body(
                 from applire.services.letter_v2 import (
                     recorded_name_forms,
                     render_recorded_name_forms_block,
+                    render_tool_durations_block,
+                    tool_duration_facts,
                 )
 
                 writer_system = build_system_prompt(detected_language, pipeline=pipeline)
                 recorded_name_forms_block = (
                     render_recorded_name_forms_block(
                         recorded_name_forms(profile.profile_json if profile else {}),
+                        detected_language,
+                    )
+                    or None
+                    if is_v2
+                    else None
+                )
+
+                # R-3 (founder, 2026-11-04; WP3-1): per tool, the computed duration,
+                # the positions it is counted from and whether the CV shows the tool
+                # under them — the writer's, reviewer's and corrector's one duration
+                # channel. v2 only; "" (no block) when no tool spans a year.
+                tool_durations_block = (
+                    render_tool_durations_block(
+                        tool_duration_facts(
+                            exclude_unconfirmed(profile.profile_json) if profile else {},
+                            tailored_cv,
+                            priority=[
+                                e.get("concept", "") for e in keyword_ledger or []
+                                if isinstance(e, dict) and e.get("claimable")
+                            ],
+                        ),
                         detected_language,
                     )
                     or None
@@ -1966,6 +2003,7 @@ async def _render_cover_letter_body(
                     scope_positioning_block=scope_positioning_block,
                     pinned_facts_block=pinned_facts_block,
                     recorded_name_forms_block=recorded_name_forms_block,
+                    tool_durations_block=tool_durations_block,
                 )
                 # Explicit budget to match CV generation (cv.py): a signed letter must
                 # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
@@ -2002,7 +2040,9 @@ async def _render_cover_letter_body(
                         # "Kubernetes is also a confirmed skill." Dropped here only.
                         "profile": (
                             prompt_profile_view(
-                                exclude_unconfirmed(profile.profile_json), derived_spans="hedge",
+                                # R-3: v2 reads durations from TOOL DURATIONS only.
+                                exclude_unconfirmed(profile.profile_json),
+                                derived_spans="drop" if is_v2 else "hedge",
                                 entry_status="drop_confirmed",
                                 aims="label",  # ADV-2: the reviewer + corrector re-read this
                             )
@@ -2069,9 +2109,12 @@ async def _render_cover_letter_body(
                 from applire.services.cover_letter_positioning import (
                     render_role_titles_block,
                     vault_role_titles,
+                    with_cv_role_forms,
                 )
+                _vault_profile = profile.profile_json if profile else {}
                 role_titles_block = render_role_titles_block(
-                    vault_role_titles(profile.profile_json if profile else {})
+                    # Ruling R-2: the CV's translated title is the same title.
+                    with_cv_role_forms(vault_role_titles(_vault_profile), _vault_profile, tailored_cv)
                 )
                 if role_titles_block:
                     grounding_source = f"{grounding_source}\n\n{role_titles_block}"
@@ -2079,6 +2122,10 @@ async def _render_cover_letter_body(
                     # v2 only (None on v1): the reviewer and the corrector read the
                     # same recorded forms the writer was given.
                     grounding_source = f"{grounding_source}\n\n{recorded_name_forms_block}"
+                if tool_durations_block:
+                    # R-3 (v2 only): the same duration fact the writer was given — the
+                    # 11-04 durations entered in the review loop, not the first draft.
+                    grounding_source = f"{grounding_source}\n\n{tool_durations_block}"
                 # #270(c): compose (never replace) coverage_reviewer_prompt_fn with a
                 # SECOND deterministic wrapper — each reviewer iteration also carries the JD
                 # hard requirements the CURRENT draft has not addressed, recomputed fresh
@@ -2359,6 +2406,7 @@ async def _render_cover_letter_body(
                             letter_data,
                             form_inputs=pre_gen or None,
                             document_language=detected_language,
+                            keyword_ledger=keyword_ledger,
                         ),
                         profile_json=profile.profile_json if profile else {},
                         source_material=grounding_source,
@@ -4612,10 +4660,12 @@ async def _letter_truth_audit(
     *,
     form_inputs: dict | None,
     document_language: str | None,
+    keyword_ledger: list[dict] | None = None,
 ) -> dict | None:
     """ADR-099 cl. 4(b) — the ONE truthfulness instrument of a letter: the truth
     round in generation and the delivered report call this with the same provider,
-    form inputs and document language. Never raises."""
+    form inputs, document language and (ADR-100 M-3) the job's keyword ledger,
+    whose verified backing quotes the Oracle reads. Never raises."""
     from applire.services.oracle.selfaudit import build_self_audit_report
 
     return await build_self_audit_report(
@@ -4624,6 +4674,7 @@ async def _letter_truth_audit(
         provider=get_provider(),
         form_inputs=form_inputs,
         document_language=document_language,
+        keyword_ledger=keyword_ledger,
     )
 
 
@@ -4854,6 +4905,7 @@ async def _update_ats_report_letter(
     # re-audit doors run no terminal review, and dropping the check there would let a
     # later section edit launder a letter that shipped on an exhausted review.
     previous_report = cl.ats_report if isinstance(cl.ats_report, dict) else None
+    ledger: list[dict] | None = None  # read in the ATS block; the truth audit reuses it
     try:
         from applire.services.ats_audit import audit_cover_letter, non_claim_names_for_job
         from applire.services.cover_letter_pdf import render_pdf
@@ -4937,6 +4989,15 @@ async def _update_ats_report_letter(
         # deleted) leaves it ``None`` — the seam then stays off, fail-open,
         # exactly like the pre-ADR-068 report.
         judgement_job = await db.get(JobAnalysis, cl.job_analysis_id)
+        # ADR-100 M-3: the job ledger (its verified backing quotes). The ATS block
+        # above may have failed before reading it (a PDF render error) — the
+        # truth audit needs no PDF, so it reads the ledger itself then; a ledger
+        # that cannot be read audits against the vault alone.
+        if ledger is None:
+            try:
+                ledger = await _latest_keyword_ledger(db, cl.job_analysis_id, user_id=cl.user_id)
+            except Exception:
+                logger.exception("letter truth audit: keyword ledger unavailable for %s", cl.id)
         cl.truthfulness_report = await _letter_truth_audit(
             profile_row.profile_json if profile_row else {},
             audited,
@@ -4949,6 +5010,7 @@ async def _update_ats_report_letter(
                 cl.document_language
                 or (resolve_jd_language(judgement_job) if judgement_job else None)
             ),
+            keyword_ledger=ledger,
         )
     except Exception:
         logger.exception(

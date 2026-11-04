@@ -430,11 +430,19 @@ def test_SEAM_gap_prompt_excludes_metadata_entirely_including_denials():
         _profile_json(),
         PreClassification(),
     )
-    profile_block = prompt.split("CANDIDATE PROFILE:")[1]
+    # ADR-100 M-2 (2026-11-04): the denials now reach the classifier in their own
+    # labelled RECORDED DENIALS block (with ids), never inside the profile block —
+    # the F4 property is about the PROFILE block, so the slice ends where the next
+    # labelled block starts.
+    after = prompt.split("CANDIDATE PROFILE:")[1]
+    profile_block = after.split("\n\nRECORDED DENIALS")[0].split("\n\nPRE-CLASSIFICATION")[0]
     assert '"metadata"' not in profile_block
     assert RECEIPT_MARKER not in profile_block
     assert DENIAL_MARKER not in profile_block
     assert "w-datacore" in profile_block
+    denials_block = after.split("RECORDED DENIALS", 1)[1].split("PRE-CLASSIFICATION")[0]
+    assert DENIAL_MARKER in denials_block
+    assert RECEIPT_MARKER not in denials_block
 
 
 # ──────────────── tier 4 — the size bound (the regression) ────────────────

@@ -232,7 +232,7 @@ class Settings(BaseSettings):
     requesty_reasoning_effort: str = ""      # "" = model default; "low"|"medium"|"high"|"max" bound reasoning when it stays on
     # Anthropic — native Messages API; BYO-API-key only (Claude subscriptions are not usable)
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_model: str = "claude-sonnet-5-5"
     llm_timeout: int = 120                 # seconds; raise for thinking/reasoning models (e.g. Qwen3, o3)
     # Operator-declared hard output cap for the chosen model, in tokens. 0 = unset
     # (no known cap). When set, every requested max_tokens is clamped to it so we never

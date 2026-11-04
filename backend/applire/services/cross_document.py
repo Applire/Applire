@@ -533,6 +533,14 @@ def select_jd_relevant_limits(
         weight = float(weight) if isinstance(weight, (int, float)) else 0.0
         key = ats_norm(concept)
         denied_rows[key] = max(denied_rows.get(key, 0.0), weight)
+        # ADR-100 M-2 (WP2, 2026-11-04): a row the classifier bound to a record
+        # by id joins that record under the record's own concept — the posting's
+        # term and the candidate's words may be in different languages
+        # ("Reference designs" bound to "Referenzdesigns").
+        bound = entry.get("denied_by")
+        if isinstance(bound, str) and bound.strip():
+            bkey = ats_norm(bound.strip())
+            denied_rows[bkey] = max(denied_rows.get(bkey, 0.0), weight)
     if not denied_rows:
         return []
 

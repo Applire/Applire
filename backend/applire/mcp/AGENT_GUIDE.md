@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-10-21 · re-fetch anytime with `get_guide`*
+*Revision 2026-11-04 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -24,6 +24,13 @@ renders. Applire never competes with you; you never bypass its checks.
   exactly like an id that does not exist. The token is re-checked on every call:
   if the person revokes it (or an admin disables the account), the next call is
   refused — tell the human; a new token and a restart are the fix, not a retry.
+- **No token yet, fresh install?** No tool mints one — a token is the person's
+  own grant, so ask the human. On a brand-new install nobody can sign in until
+  the instance is claimed: the operator opens `/setup` with the one-time code
+  from `docker compose logs backend` (or runs `docker compose exec backend
+  python -m applire.admin create-admin --email …`), signs in, creates an
+  **agent** token under Settings → Tokens and copies all 56 characters
+  (`apl_` + 8 + `_` + 43). An **api** token is refused by this server.
 - **Check what's already there.** Call `get_profile` first. If the candidate
   already has a vault, work from it — don't re-import blindly or assume it's
   empty. On a brand-new account `get_profile` answers `not_found` ("No profile
@@ -283,6 +290,10 @@ Editing a generated letter's sections is UI-only.
   Calling `analyze_gaps` is itself the check against the CURRENT profile, so
   its `inputs_changed` is always `false`; the field exists for the UI, which
   shows a stored analysis and offers a re-check when the profile changed.
+  A claimable `keyword_ledger` row carries `backing.quote`: the candidate's own
+  profile words it stands on, copied verbatim (`unit_path` says where) — show it
+  when you explain why a requirement counts as met; `null` means no verified
+  quote (never "not in the profile").
   Check `keyword_liabilities` on the
   result: a hard requirement you already hold per the ledger but with no
   bullet/achievement/story behind it anywhere — a bare skills-list echo, not

@@ -1611,3 +1611,39 @@ def test_v2_terminal_reads_the_identifier_check_on_the_shipped_draft():
     tailored, _notes = _compose(prose, vault)
     found = [f.check for f in term.delivered_findings(prose, tailored.model_dump())]
     assert "cv.identifier_not_in_profile" in found
+
+
+# ── Ruling R-2 (WP3, ADR-094 cl. 5 amended 2026-11-04): role titles translate ──
+
+def test_r2_a_single_form_role_title_is_delivered_as_the_writers_translation():
+    prose = _prose()
+    prose["work"][1]["role"] = "Engineer"  # "Ingenieur", no alias recorded
+
+    tailored, notes = _compose(prose)
+
+    assert tailored.work_history[1].role == "Engineer"
+    assert not [n for n in notes.names_not_recorded if W2 in n[0]]
+    assert "cv.recorded_name" not in _by_check(_checks(prose))
+
+
+def test_r2_the_company_keeps_the_recorded_name_check():
+    prose = _prose()
+    prose["work"][1]["company"] = "Brenner Inc."
+
+    tailored, notes = _compose(prose)
+
+    assert tailored.work_history[1].company == "Brenner AG"
+    assert [loc for loc, *_ in notes.names_not_recorded] == [f"work {W2} company"]
+
+
+def test_r2_the_v2_writer_prompt_translates_titles_and_keeps_names():
+    from applire.prompts.cv_tailoring import SYSTEM_PROMPT, V2_REFINEMENT_ADDENDUM, V2_SYSTEM_PROMPT
+
+    flat = " ".join(V2_SYSTEM_PROMPT.split())
+    assert "A JOB TITLE is the exception (ruling R-2)" in flat
+    assert "never upgraded" in flat
+    assert "an employer, an institution or a degree is written as one of the RECORDED NAMES" in flat
+    # rule 8 no longer calls a job title a never-translated name in v2 — v1 unchanged
+    assert "employers, job titles (GxP" not in V2_SYSTEM_PROMPT
+    assert "employers, job titles (GxP" in SYSTEM_PROMPT
+    assert "Names (company, degree, institution)" in V2_REFINEMENT_ADDENDUM

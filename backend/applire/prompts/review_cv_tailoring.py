@@ -573,8 +573,9 @@ SHAPE NOTE (v2, ADR-094): the draft contains the prose — `summary`, `work` (ea
 returns by id: per work entry `role`, `company`, `industry_context`; the `education` rows and
 the `languages` rows (see the VAULT FIELDS block in the source). Dates, certifications and
 contact details are joined by code and are NOT in this draft; their absence is correct.
-Check the returned fields like any claim: a role, company, degree or institution must be
-one of its RECORDED NAMES (never an upgraded title); an industry line, field of study or
+Check the returned fields like any claim: a company, degree or institution must be one of
+its RECORDED NAMES; a role, a recorded name or its established equivalent in the document
+language (ruling R-2; never an upgraded title); an industry line, field of study or
 language level must render the profile's value faithfully.
 
 """
@@ -585,8 +586,8 @@ it will be delivered. Dates, certifications, quantified role figures (team_size 
 budget_managed) and contact details were joined from the profile by code — ground truth BY
 CONSTRUCTION, never an issue. Everything else was WRITTEN by the writer, including role and
 company names, industry lines, education rows and language rows: check those against the
-profile like any claim (a name must be one of its recorded names; never accept an inflated
-title). Nested projects are the writer's own; nothing re-adds a project after this round.
+profile like any claim (a name must be one of its recorded names, a role title may be its
+established equivalent in the document language; never accept an inflated title). Nested projects are the writer's own; nothing re-adds a project after this round.
 
 POSITION NOTE for check 2 (role ownership): in THIS terminal round the deterministic,
 id-anchored attribution audit has ALREADY run (it precedes composition); after this

@@ -18,26 +18,34 @@
 """Anthropic provider — native Messages API (ADR 009, amended 2026-06-14).
 
 Uses the native `anthropic` SDK rather than the OpenAI-compat shim. The Messages API
-differs from OpenAI in three ways that require adapter logic (the "provider-specific
+differs from OpenAI in ways that require adapter logic (the "provider-specific
 adapter logic" Negative in ADR-009 made concrete):
 
   - `system` is a top-level parameter, not a message with role "system".
   - `max_tokens` is mandatory on every call.
-  - There is no native `response_format=json_object`. `aparse_json` therefore forces
-    valid JSON via **assistant-prefill**: the assistant turn is seeded with "{", so
-    the model can only continue a JSON object; we prepend "{" to the reply and parse.
+  - There is no native `response_format=json_object`. Models before the 4.6
+    generation get an **assistant-prefill** "{" so they can only continue a JSON
+    object; every later model rejects a prefill with HTTP 400, so `aparse_json`
+    sends the prompt alone and the tolerant `parse_json_reply` reads the reply.
+  - The request surface depends on the model generation (see `_request_shape`):
+    sampling parameters (`temperature`) are accepted only up to the 4.6
+    generation — Claude Sonnet 5.5 answers any value with HTTP 400 "`temperature`
+    is deprecated for this model" — and how thinking is turned off differs per
+    model (`{type: "disabled"}` is itself a 400 on Sonnet 5.5 and Opus 5.5).
 
 BYO-API-key only. A Claude Pro/Max/Team *subscription* cannot be used — Anthropic
 prohibits subscription-OAuth tokens in third-party apps (enforced 2026-01-09).
 
 Env vars consumed (see applire/config.py):
   ANTHROPIC_API_KEY  — required
-  ANTHROPIC_MODEL    — optional, defaults to claude-sonnet-4-6
+  ANTHROPIC_MODEL    — optional, defaults to claude-sonnet-5-5
 """
 
 import asyncio
 import logging
+import re
 import time
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -47,11 +55,84 @@ from anthropic import AsyncAnthropic
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from applire.config import settings
-from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
+from applire.exceptions import (
+    LLMProviderUnavailableError,
+    LLMRateLimitError,
+    LLMRefusalError,
+    LLMTimeoutError,
+)
 from applire.providers.llm.base import LLMProvider, raise_if_truncated, unclassified_provider_error
 from applire.providers.llm.json_reply import parse_json_reply
 from applire.providers.llm.reasoning import finalise_completion, note_trace
 from applire.providers.llm.usage import note_usage
+
+_DEFAULT_MODEL = "claude-sonnet-5-5"
+
+# Generation of a Claude model id, e.g. "claude-sonnet-5-5" -> ("sonnet", (5, 5)),
+# "claude-sonnet-4-20250514" -> ("sonnet", (4, 0)), "claude-3-5-haiku-20241022" ->
+# ("haiku", (3, 5)). A Bedrock "anthropic." prefix and a Vertex "@date" suffix are
+# ignored. An id this does not recognise parses to None and gets the CURRENT
+# surface (no sampling, no prefill, thinking left at the model's default): the
+# newer the model, the narrower the surface, so the unknown case is the safe one.
+_NEW_ID = re.compile(r"^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$")
+_OLD_ID = re.compile(r"^claude-(\d+)(?:-(\d{1,2}))?-(opus|sonnet|haiku)(?:-\d{8})?$")
+
+
+_BEDROCK_REGION = re.compile(r"^(?:us|eu|apac|global|jp|au)\.")
+_BEDROCK_VERSION = re.compile(r"-v\d+(?::\d+)?$")
+
+
+def _generation(model: str) -> tuple[str, tuple[int, int]] | None:
+    # Vertex "@date", Bedrock "[region.]anthropic.<id>-v1:0" → the plain id.
+    mid = model.strip().lower().split("@", 1)[0]
+    mid = _BEDROCK_VERSION.sub("", _BEDROCK_REGION.sub("", mid).removeprefix("anthropic."))
+    if m := _NEW_ID.match(mid):
+        return m.group(1), (int(m.group(2)), int(m.group(3) or 0))
+    if m := _OLD_ID.match(mid):
+        return m.group(3), (int(m.group(1)), int(m.group(2) or 0))
+    return None
+
+
+# How `disable_thinking=True` is expressed per model (claude-api skill, model
+# migration guide, 2026-11). Models absent here either do not think unless asked
+# (the 4.6 generation and older) or cannot turn thinking off at all (Opus 5.5,
+# Fable, Mythos — there the lowest effort is the closest request).
+_THINKING_OFF: dict[tuple[str, tuple[int, int]], dict[str, Any]] = {
+    ("sonnet", (5, 5)): {"thinking": {"type": "between_tools"}},  # "disabled" is a 400
+    ("haiku", (5, 5)): {"thinking": {"type": "disabled"}},        # "between_tools" is a 400
+    ("sonnet", (5, 0)): {"thinking": {"type": "disabled"}},
+    ("opus", (5, 0)): {"thinking": {"type": "disabled"}},
+    ("opus", (4, 8)): {"thinking": {"type": "disabled"}},
+    ("opus", (4, 7)): {"thinking": {"type": "disabled"}},
+    ("opus", (5, 5)): {"output_config": {"effort": "low"}},
+}
+_ALWAYS_THINKING = ("fable", "mythos")
+
+
+@dataclass(frozen=True)
+class _RequestShape:
+    """What one model accepts on a Messages request (see `_request_shape`)."""
+
+    sampling: bool   # temperature is sent
+    prefill: bool    # aparse_json seeds the assistant turn with "{"
+
+
+def _request_shape(model: str) -> _RequestShape:
+    gen = _generation(model)
+    if gen is None:
+        return _RequestShape(sampling=False, prefill=False)
+    _, version = gen
+    return _RequestShape(sampling=version <= (4, 6), prefill=version < (4, 6))
+
+
+def _thinking_off_kwargs(model: str) -> dict[str, Any]:
+    gen = _generation(model)
+    if gen is None:
+        return {}
+    if gen[0] in _ALWAYS_THINKING:
+        return {"output_config": {"effort": "low"}}
+    return dict(_THINKING_OFF.get(gen, {}))
+
 
 _retry = retry(
     retry=retry_if_exception_type(anthropic.RateLimitError),
@@ -71,8 +152,18 @@ class AnthropicProvider(LLMProvider):
         timeout: int = 30,
     ) -> None:
         super().__init__(timeout=timeout)
-        self._client = AsyncAnthropic(api_key=api_key or settings.anthropic_api_key)
-        self._model = model or settings.anthropic_model or "claude-sonnet-4-6"
+        # The SDK refuses a NON-streaming request whose max_tokens implies more than
+        # 10 minutes (> ~21k tokens: "Streaming is required …", a ValueError) unless
+        # the client carries an explicit timeout. Reconcile asks for 32768 and the
+        # truncation retry doubles 16384, so both failed on every call (WP-0,
+        # 2026-11-04). Applire bounds each call itself (asyncio.wait_for on
+        # self._timeout), so the HTTP timeout is that same budget plus a margin.
+        self._client = AsyncAnthropic(
+            api_key=api_key or settings.anthropic_api_key,
+            timeout=float(timeout) + 30.0,
+        )
+        self._model = model or settings.anthropic_model or _DEFAULT_MODEL
+        self._shape = _request_shape(self._model)
 
     async def acomplete(
         self,
@@ -86,7 +177,7 @@ class AnthropicProvider(LLMProvider):
         messages = [{"role": "user", "content": prompt}]
         try:
             return await asyncio.wait_for(
-                self._create(messages, system, temperature, max_tokens),
+                self._create(messages, system, temperature, max_tokens, disable_thinking),
                 timeout=self._timeout,
             )
         except asyncio.TimeoutError:
@@ -125,14 +216,15 @@ class AnthropicProvider(LLMProvider):
         disable_thinking: bool | None = None,
         json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        # Assistant-prefill "{" forces the model to continue a JSON object.
-        messages = [
-            {"role": "user", "content": prompt},
-            {"role": "assistant", "content": "{"},
-        ]
+        # Assistant-prefill "{" forces the model to continue a JSON object — on the
+        # models that still accept a prefill. Later models get the prompt alone
+        # (a prefill is a 400 there); `parse_json_reply` strips one opening fence.
+        messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
+        if self._shape.prefill:
+            messages.append({"role": "assistant", "content": "{"})
         try:
             text = await asyncio.wait_for(
-                self._create(messages, system, temperature, max_tokens),
+                self._create(messages, system, temperature, max_tokens, disable_thinking),
                 timeout=self._timeout,
             )
         except asyncio.TimeoutError:
@@ -163,18 +255,27 @@ class AnthropicProvider(LLMProvider):
         # R2-13: the reply continues the prefilled "{"; one tolerant parse for
         # every provider (first JSON value; a non-JSON tail is discarded, a
         # second JSON value raises — the old cut at the LAST "}" kept neither).
-        return parse_json_reply("{" + text, provider="Anthropic", model=self._model)
+        reply = "{" + text if self._shape.prefill else text
+        return parse_json_reply(reply, provider="Anthropic", model=self._model)
 
     @_retry
     async def _create(
-        self, messages: list, system: str | None, temperature: float, max_tokens: int
+        self,
+        messages: list,
+        system: str | None,
+        temperature: float,
+        max_tokens: int,
+        disable_thinking: bool | None = None,
     ) -> str:
         kwargs: dict[str, Any] = {
             "model": self._model,
             "max_tokens": max_tokens,        # required by the Messages API
-            "temperature": temperature,
             "messages": messages,
         }
+        if self._shape.sampling:
+            kwargs["temperature"] = temperature
+        if disable_thinking:
+            kwargs.update(_thinking_off_kwargs(self._model))
         if system:
             kwargs["system"] = system        # top-level param, not a message
         t0 = time.monotonic()
@@ -188,7 +289,16 @@ class AnthropicProvider(LLMProvider):
             getattr(usage, "input_tokens", "?"),
             getattr(usage, "output_tokens", "?"),
         )
-        raise_if_truncated(getattr(response, "stop_reason", None), model=self._model)
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "refusal":
+            # A declined request carries no answer; never hand its empty text on.
+            details = getattr(response, "stop_details", None)
+            category = getattr(details, "category", None)
+            logger.warning(
+                "LLM refusal [anthropic] model=%s category=%s", self._model, category
+            )
+            raise LLMRefusalError("Anthropic", category=category, model=self._model)
+        raise_if_truncated(stop_reason, model=self._model)
         return _text(response)
 
 

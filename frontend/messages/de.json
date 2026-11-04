@@ -2948,7 +2948,9 @@
     "otherLanguageNotChecked": "Kein Eintrag in Deinem Profil heißt so, und ein Teil Deines Profils ist in einer anderen Sprache — über Sprachen hinweg prüfen wir Namen nicht, deshalb bleibt das offen statt als Fehler markiert.",
     "honestDenial": "Eine ehrliche Verneinung oder eine Aufgabe, die jemand anderes erledigt hat — keine Aussage über Dich, die Dein Profil belegen müsste.",
     "figuresFromStatedLimit": "Die Zahl stammt aus einer Grenze, die Du selbst angegeben hast — eine ehrliche Wiedergabe, keine neue Behauptung.",
-    "groundedUnion": "Belegt durch mehrere Einträge Deines Profils zusammen."
+    "groundedUnion": "Belegt durch mehrere Einträge Deines Profils zusammen.",
+    "ledgerBackingQuote": "„{skill}“ hat die Job-Analyse mit einem wörtlichen, geprüften Zitat aus Deinem Profil belegt.",
+    "backingEquivalent": "Von der KI als treue Wiedergabe des Profil-Belegs beurteilt, den die Job-Analyse für eine hier genannte Anforderung festgehalten hat."
   },
   "deniedConcepts": {
     "title": "Was laut deinen Antworten nicht auf dich zutrifft",

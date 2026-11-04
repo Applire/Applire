@@ -15,6 +15,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v10 (ADR-100 amended 2026-11-04, M-2): RECORDED DENIALS + "denied_by". The ledger
+#   floor matched a persisted denial to a requirement by string (alias groups, head nouns,
+#   containment over concept + surface_forms), so a German denial ("Referenzdesigns") reached the
+#   English requirement ("Reference designs") only when the model happened to list the German
+#   spelling among its surface forms (invariance gate 11-04: luna 2/8 cross-language; Claude zh-en
+#   0/4). The classifier now sees the active recorded denials with ids and cites the one that rules
+#   a requirement out; code checks only that the id is a live record. Which requirement a denial
+#   rules out is the model's judgment, in any language; the string matcher stays as the fallback.
+#
 # Prompt version: v9 (ADR-100, 2026-11-04 — founder UAT-3 follow-up): JUDGE MEANING, AND QUOTE IT
 #   replaces v7/v8's OWN-WORDS rule. The old rule told the model a later check would refuse any
 #   term the profile does not spell, so its verdict moved with the vault's language before any
@@ -150,6 +159,8 @@ You will receive:
   2. CANDIDATE PROFILE — structured master profile (skills may include years_experience)
   3. CANDIDATE INTERVIEW STATEMENTS — (only when present) answers the candidate gave in gap
      interviews; these may CONFIRM or DENY experience
+  3b. RECORDED DENIALS — (only when present) limits the candidate stated and the system recorded,
+     each with an "id"
   4. PRE-CLASSIFICATION — a rule-based pre-pass with: matched (direct), inferred_b (likely, confirm
      or reject), unresolved (no rule signal — you decide)
   5. REQUIREMENTS — the exact list you must classify: required + nice-to-have + ATS keywords
@@ -205,6 +216,12 @@ Rules:
     "gap" — never "direct" or "partial" — and never cite a denial as supporting evidence.
     A skill being merely MENTIONED in the profile or statements is not a signal; what counts
     is what the candidate actually did.
+  - RECORDED DENIALS: when an entry there rules this requirement out — in whatever language or
+    wording either is written — set "denied_by" to that entry's "id", copied exactly, and classify
+    "gap". A denial rules out the thing it names, and anything that is that thing ("no Azure" rules
+    out "Microsoft Azure"; "keine Referenzdesigns" rules out "Reference designs"). It does NOT rule
+    out a broader requirement it names only a part or a narrower form of ("no Tailwind CSS" does
+    not rule out "CSS"), nor a requirement that is merely related. Omit "denied_by" otherwise.
   - COMPOUND requirements that name multiple technologies (e.g. "Cloud environment
     qualification (AWS, Azure)"): each named technology also gets its OWN entry, classified on
     its own evidence — that entry, its "status" and its "reason" are where the candidate's
@@ -261,7 +278,8 @@ Schema:
       "evidence_quote": "REQUIRED when status is direct or partial: one span copied VERBATIM from ONE CANDIDATE PROFILE entry, in the profile's own language, that shows this competence. Omit for gap.",
       "classification_note": "INTERNAL, never shown to any writer or reviewer: why this status follows — including any declared-proficiency ceiling you applied. Omit when you have nothing to add beyond reason.",
       "adjacent_evidence": "ONLY when status is partial AND the reason is that the candidate has a DIFFERENT but adjacent capability: the profile's own name for that capability. Omit otherwise.",
-      "surface_forms": ["other NAMES for this same competence — see SURFACE FORMS below. e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"]
+      "surface_forms": ["other NAMES for this same competence — see SURFACE FORMS below. e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"],
+      "denied_by": "ONLY when an entry of RECORDED DENIALS rules this requirement out: that entry's id, copied exactly. Omit otherwise."
     }
   ],
   "scope_classifications": [
@@ -321,6 +339,51 @@ _STATEMENTS_LABEL = (
     "CONFIRM or DENY experience; a denial or negative statement about a skill is evidence "
     'AGAINST it: classify that requirement "gap", never "direct"/"partial"):'
 )
+
+
+# ADR-100 amended 2026-11-04 (M-2): the label names what an id is for, and that the
+# statements are the candidate's own words about a LIMIT — never evidence for a claim.
+_DENIALS_LABEL = (
+    "RECORDED DENIALS (limits the candidate stated, recorded as facts). TASK, for EACH entry: find "
+    "the requirement(s) in REQUIREMENTS it rules out — the posting may name it in another "
+    "language — and give each of them \"denied_by\": that entry's \"id\", copied exactly, and "
+    'status "gap". Never quote these entries as evidence_quote:'
+)
+
+
+def recorded_denials_view(profile: dict) -> list[dict[str, str]]:
+    """The candidate's active recorded denials as the gap classifier sees them:
+    ``{"id": <record concept>, "statement": <the candidate's own words>}``, in
+    record order, one per distinct id (ADR-100 amended 2026-11-04, M-2).
+
+    The id is the record's ``concept`` verbatim — the key ``record_denials``
+    already dedupes by and the one the ledger floor
+    (``keyword_ledger._bound_denial``) checks a cited id against, so the two
+    sides read one list. Withdrawn denials live in ``withdrawn_denials`` and
+    are never shown. Pure; tolerant of any malformed metadata.
+    """
+    meta = profile.get("metadata") if isinstance(profile, dict) else None
+    records = meta.get("denied_concepts") if isinstance(meta, dict) else None
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for d in records if isinstance(records, list) else []:
+        if not isinstance(d, dict):
+            continue
+        concept = d.get("concept")
+        if not isinstance(concept, str) or not concept.strip():
+            continue
+        key = " ".join(concept.casefold().split())
+        if key in seen:
+            continue
+        seen.add(key)
+        statement = d.get("statement")
+        out.append(
+            {
+                "id": concept.strip(),
+                "statement": statement.strip() if isinstance(statement, str) else "",
+            }
+        )
+    return out
 
 
 _INTERVIEW_SOURCES = ("interview", "agent_interview")
@@ -395,6 +458,17 @@ def build_user_prompt(
         if statements
         else ""
     )
+    # ADR-100 amended 2026-11-04 (M-2) — the candidate's ACTIVE recorded denials
+    # (a withdrawn one has left `denied_concepts`), each keyed by its record's own
+    # `concept`: the id the classifier cites in `denied_by` and the ledger floor
+    # checks against the same live list. Rendered from `metadata`, which the
+    # profile view above strips, so it is never a quote source (ADR-100 cl. 2).
+    denials = recorded_denials_view(profile)
+    denials_block = (
+        f"{_DENIALS_LABEL}\n{json.dumps(denials, ensure_ascii=False, indent=2)}\n\n"
+        if denials
+        else ""
+    )
     # ADR-069 clause 2: the scope block is assembled by services/gap.py — the JD's
     # stated bar verbatim plus the candidate's typed vault values WITH their field
     # semantics. Only the sufficiency JUDGEMENT is the model's; the facts, the
@@ -428,5 +502,6 @@ def build_user_prompt(
         f"{statements_block}"
         f"{scope_block}"
         f"PRE-CLASSIFICATION:\n{json.dumps(pre_dict, ensure_ascii=False, indent=2)}\n\n"
+        f"{denials_block}"
         f"{fence(json.dumps(requirements, ensure_ascii=False, indent=2), header='REQUIREMENTS')}"
     )

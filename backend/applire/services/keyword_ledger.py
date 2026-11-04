@@ -62,6 +62,10 @@ KEYWORD_ONLY_WEIGHT = 0.0
 # deliberately not taken mid-flavour (recorded as debt in the ADR).
 _VALID_STATUS = {"direct", "partial", "gap", "denied"}
 
+#: ADR-100 M-2 — the ledger row's key for the persisted denial the gap
+#: classifier bound it to (the record's own ``DeniedConcept.concept``).
+DENIED_BY_KEY = "denied_by"
+
 # The one place the honest marker is spelled, so the floor and every write seam
 # that records a denial cite identical evidence text.
 DENIED_EVIDENCE = "Candidate explicitly stated a limit here (interview)."
@@ -410,6 +414,12 @@ def _collapse_prefix_duplicates(
         # ADR-100 cl. 4 — the merged row keeps a verified-quote path to the
         # vault when any member carried one (the canonical's own first).
         backing = next((m["backing"] for m in [canonical, *members] if m.get("backing")), None)
+        # ADR-100 M-2 — a member the classifier bound to a recorded denial keeps
+        # the merged row bound (the denial floor below verifies the id; a denial
+        # outranks the merge exactly as it outranks a claim).
+        denied_by = next(
+            (m[DENIED_BY_KEY] for m in [canonical, *members] if m.get(DENIED_BY_KEY)), None
+        )
         # ADR-048 amended 2026-08-13 (#526): start from the canonical entry and
         # OVERRIDE. This used to be a fixed key literal, which silently dropped
         # every field outside it — `adjacent_evidence` among them, so a JD naming
@@ -429,6 +439,7 @@ def _collapse_prefix_duplicates(
                 "evidence": evidence if canonical.get("claimable") else "",
                 "claimable": canonical.get("claimable", False),
                 **({"backing": backing} if backing and canonical.get("claimable") else {}),
+                **({DENIED_BY_KEY: denied_by} if denied_by else {}),
             }
         )
     return merged
@@ -556,6 +567,34 @@ def _declared_denial_level(
         return None
     matched_levels = [by_concept.get(_norm(m), "direct") for m in matched]
     return "partial" if "partial" in matched_levels else "direct"
+
+
+def _bound_denial(
+    entry: dict[str, Any],
+    entries: list[tuple[str, str]],
+) -> tuple[str, str] | None:
+    """The live persisted denial the row is BOUND to by id, as
+    ``(record concept, denial_level)`` — or ``None`` (ADR-100 amended
+    2026-11-04, M-2).
+
+    The gap classifier sees the candidate's active recorded denials, each keyed
+    by its record's ``concept`` (``prompts/gap_analysis.py`` RECORDED DENIALS),
+    and cites one in ``denied_by`` for a requirement that denial rules out —
+    which requirement a denial rules out is a Judgment, made in any language.
+    This function is the Fact half: the cited id must equal (``_norm``) the
+    ``concept`` of a denial in ``entries`` — the live list, so a withdrawn
+    record (G-5, moved to ``withdrawn_denials``) binds nothing. Never a
+    reading of the denial's words: an unknown id is no binding, and the row
+    falls back to the string matcher.
+    """
+    cited = entry.get(DENIED_BY_KEY)
+    if not isinstance(cited, str) or not _norm(cited):
+        return None
+    key = _norm(cited)
+    for concept, level in entries:
+        if _norm(concept) == key:
+            return concept, level
+    return None
 
 
 def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
@@ -713,7 +752,11 @@ def _enforce_denial_stance(
     """
     entries = _denied_concept_entries(denied_concepts)
     if not entries:
-        return ledger
+        # M-2: with no live denial, no binding can be live either.
+        return [
+            {k: v for k, v in e.items() if k != DENIED_BY_KEY} if DENIED_BY_KEY in e else e
+            for e in ledger
+        ]
 
     all_denied_concepts = [d_concept for d_concept, _level in entries]
 
@@ -721,6 +764,83 @@ def _enforce_denial_stance(
     for entry in ledger:
         concept = entry.get("concept", "")
         forms = entry.get("surface_forms") or [concept]
+        # ADR-100 amended 2026-11-04 (M-2) — the BOUND arm, first. The gap
+        # classifier cited a recorded denial by id for this requirement (a
+        # Judgment, any language); the id is a live record (a Fact). The row
+        # is the candidate's own "no": `denied`, at the record's level —
+        # partial wins over any denial the string matcher also declares
+        # (ADR-064's tie-break, unchanged). No release: a bound denial is
+        # declared by the candidate's own record, and a declared denial is
+        # never released (`containment_release_form`).
+        bound = _bound_denial(entry, entries)
+        if (
+            bound is not None
+            # the record's words reach this row literally at all (corpus None:
+            # the pure string relation, before any release is considered)
+            and _entry_is_denied(concept, forms, [bound[0]], None)
+            and containment_release_form(concept, forms, [bound[0]], vault_corpus)
+            is not None
+        ):
+            # The release the string matcher carried (SF-GAP.10 / #486): the
+            # record's words contain this requirement as a PART, and the vault
+            # attests it outside that compound — the record is no "no" on this
+            # requirement, whatever the citation says. Same-language only by
+            # construction; it keeps the one NO the old arm said there.
+            logger.info(
+                "_enforce_denial_stance: ignored binding of %r to %r — the vault "
+                "attests it outside the denied compound (SF-GAP.10, ADR-100 M-2)",
+                concept,
+                bound[0],
+            )
+            bound = None
+        if bound is not None and entry.get("status") not in ("gap", "denied"):
+            # The classifier's output contradicts itself: it cites a denial AND
+            # grades the requirement claimable (the prompt binds only with
+            # "gap"). Which half is wrong is unknowable here, so the fail-safe
+            # direction (ADR-062 cl. 5): the claim is refused, the testimony is
+            # NOT asserted — the containment floor's shape, `_floored_row`. (A
+            # same-language too-broad citation — "CSS" cited to "no Tailwind
+            # CSS" while the vault attests CSS — was already released above.)
+            logger.warning(
+                "_enforce_denial_stance: floored %r without asserting a denial — "
+                "the classifier cited the recorded denial %r but graded it %r "
+                "(ADR-100 M-2)",
+                concept,
+                bound[0],
+                entry.get("status"),
+            )
+            result.append(
+                _floored_row({k: v for k, v in entry.items() if k != DENIED_BY_KEY})
+            )
+            continue
+        if bound is not None:
+            record_concept, level = bound
+            declared = _declared_denial_level(concept, forms, entries)
+            if declared == "partial":
+                level = "partial"
+            logger.info(
+                "_enforce_denial_stance: recorded %r as denied (was %r/claimable=%r) — "
+                "the classifier bound it to the recorded denial %r (ADR-100 M-2)",
+                concept,
+                entry.get("status"),
+                entry.get("claimable"),
+                record_concept,
+            )
+            result.append(
+                _denied_row({**entry, DENIED_BY_KEY: record_concept}, level)
+            )
+            continue
+        if DENIED_BY_KEY in entry:
+            # A cited id that names no live record binds nothing — the row takes
+            # the string matcher's path exactly as before M-2.
+            if entry.get(DENIED_BY_KEY):
+                logger.info(
+                    "_enforce_denial_stance: dropped binding %r on %r — no live, "
+                    "unreleased recorded denial has that id (ADR-100 M-2)",
+                    entry.get(DENIED_BY_KEY),
+                    concept,
+                )
+            entry = {k: v for k, v in entry.items() if k != DENIED_BY_KEY}
         # "Is this entry denied AT ALL?" is decided with ONE call against the
         # FULL joint list of denied concepts — that is what lets
         # ``_independently_affirmed`` blank every denied phrase out of the
@@ -1569,6 +1689,8 @@ def _coverage_split(
     ]
     if not claimable:
         return [], []
+    from applire.services.cv_gap_hints import structured_backing_delivered
+
     text_norm = ats_norm("\n".join(_draft_strings(draft)))
     present: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
@@ -1576,7 +1698,13 @@ def _coverage_split(
         forms = list(entry.get("surface_forms") or [])
         if entry.get("concept"):
             forms.append(entry["concept"])
-        (present if any(surface_present(f, text_norm) for f in forms) else missing).append(entry)
+        # ADR-100 Fact (WP3, 2026-11-04): a row whose verified backing is a LANGUAGES /
+        # CERTIFICATIONS / EDUCATION row the draft's same section carries is delivered
+        # by that section ("German language skills" beside "German: Native speaker").
+        delivered = any(surface_present(f, text_norm) for f in forms) or (
+            isinstance(draft, dict) and structured_backing_delivered(entry, draft)
+        )
+        (present if delivered else missing).append(entry)
     return present, missing
 
 
@@ -1905,6 +2033,36 @@ LETTER_COVERAGE_BY_EVIDENCE = (
     'provide <term> by …"), or as an inserted gloss ("… — a <term> — …").'
 )
 
+#: Letter #784 (WP3, ADR-100 tiers, Hazelnut collectors 2026-11-04): on a LETTER the
+#: scan below is a HINT — it reads the posting's WORDS and cannot see the same evidence
+#: written in other words or another language. The block used to open "this is ground
+#: truth … ABSENT" and close "You MUST set approved=false", with D-28's
+#: "delivered by its evidence" appended after: a block that states its own negation.
+#: Replay of the captured 11-04 state (luna, full loop): round 1 "team leadership
+#: evidence is delivered through leading six employees", round 3 "does not deliver the
+#: team-leadership evidence required by the coverage check" — REVIEW_EXHAUSTED on that
+#: one issue. On a letter the head and the obligation are stated at their true strength,
+#: as one confirm-or-demand task per term.
+_LETTER_COVERAGE_HEAD = (
+    "VERIFIED COVERAGE CHECK (deterministic literal scan of the posting's WORDS — it "
+    "cannot see the same evidence written in other words or another language). For these "
+    "claimable requirements the posting's words do not appear in the draft:"
+)
+_LETTER_COVERAGE_HEAD_BOUNDED = (
+    _LETTER_COVERAGE_HEAD[:-1]
+    + ". The list below IS THIS ROUND'S COMPLETE DEMAND SET, already ranked by how "
+    "central each is to this role: raise coverage for no term it does not carry:"
+)
+_LETTER_COVERAGE_TASK = (
+    "For EACH term above, quote in your analysis the letter's sentence that states its "
+    'evidence, or write "none" (ADR-100 cl. 6: a Hint is a task with a checkable answer). '
+    "Only a term whose evidence the letter does not state blocks: set approved=false and "
+    "name it in your issues so the writer surfaces the evidence from the candidate's own "
+    "source. EXCEPTION — the grounding waiver: if surfacing it would stretch beyond what "
+    "that source states, WAIVE it instead (name the term and the reason in your feedback). "
+    "Grounding strictly outranks coverage — never ask the writer to fabricate."
+)
+
 
 def render_verified_coverage_block(
     entries: list[dict[str, Any]],
@@ -1962,6 +2120,8 @@ def render_verified_coverage_block(
             "this round. Demand every term on it and no other — do not add a coverage "
             "demand for a term the list does not carry."
         )
+    if letter:
+        head = _LETTER_COVERAGE_HEAD_BOUNDED if bounded else _LETTER_COVERAGE_HEAD
     lines = [head, items_note("concept terms and surface forms")]
     any_owner = False
     for entry in entries:
@@ -1998,17 +2158,18 @@ def render_verified_coverage_block(
             "by no position in particular (summary, skills, education) — nothing is "
             "claimed either way there, and the anchoring judgement stays yours.",
         ]
-    lines += [
-        "",
-        "You MUST set approved=false while any term above remains both absent and "
-        "un-waived, and name the terms in your issues so the writer surfaces them from "
-        "the candidate's own source. EXCEPTION — the grounding waiver: if surfacing a "
-        "term would stretch beyond what that source states, WAIVE it instead (name the term "
-        "and the reason in your feedback); a waived term does not block approval. "
-        "Grounding strictly outranks coverage — never ask the writer to fabricate.",
-    ]
     if letter:
-        lines += ["", LETTER_COVERAGE_BY_EVIDENCE]
+        lines += ["", LETTER_COVERAGE_BY_EVIDENCE, "", _LETTER_COVERAGE_TASK]
+    else:
+        lines += [
+            "",
+            "You MUST set approved=false while any term above remains both absent and "
+            "un-waived, and name the terms in your issues so the writer surfaces them from "
+            "the candidate's own source. EXCEPTION — the grounding waiver: if surfacing a "
+            "term would stretch beyond what that source states, WAIVE it instead (name the term "
+            "and the reason in your feedback); a waived term does not block approval. "
+            "Grounding strictly outranks coverage — never ask the writer to fabricate.",
+        ]
     if skills_list:
         lines += [
             "",
@@ -3317,6 +3478,20 @@ def _annotate_narrative_backed(
     is the honest opposite: every entry comes back unbacked. Runs as a final
     pass over the fully-built ledger so it never has to special-case the
     duplicate-collapse / gap-stance / denial-stance orderings above.
+
+    ADR-100 amended 2026-11-04 (WP4, Interview #787) — two arms, like the
+    affirmative floor: **(i)** the literal one above (a cheap positive), **or
+    (ii)** the row's ``backing.quote`` resolves, by :func:`_verified_backing_path`
+    (``quote_in_vault`` plus the floor's denial and aim stances), in a NARRATIVE
+    unit — a responsibility or achievement of a position, project or
+    volunteering entry, or a signature-story field, the exact field set
+    :func:`_narrative_texts` reads. (ii) is a Fact: the span exists verbatim in
+    one unit and the unit's path names its kind. Whether the span SHOWS the
+    requirement stays the classifier's judgement (ADR-100 cl. 5). Measured on
+    the 11-04 E2E tier (German vault, English posting): six interviewed rows
+    were `direct` with a German quote in a responsibility and still read as
+    liabilities — never `covered` on their clusters (ADR-089 A-1), and "Team
+    leadership" became an interview topic of its own.
     """
     if profile_json is None:
         return [{**e, "narrative_backed": True} for e in ledger]
@@ -3324,14 +3499,63 @@ def _annotate_narrative_backed(
     from applire.services.ats_audit import surface_present
 
     corpus = profile_narrative_corpus(profile_json)
+    quote_arm = _narrative_quote_arm(profile_json) if any(
+        isinstance(e.get("backing"), dict) for e in ledger
+    ) else None
     out: list[dict[str, Any]] = []
     for e in ledger:
         forms = list(e.get("surface_forms") or [e.get("concept", "")])
         if e.get("concept"):
             forms.append(e["concept"])
         backed = bool(corpus) and any(surface_present(f, corpus) for f in forms)
+        if not backed and quote_arm is not None:
+            backed = quote_arm(e)
         out.append({**e, "narrative_backed": backed})
     return out
+
+
+#: The vault-index unit paths that are NARRATIVE (#260): the field set
+#: :func:`_narrative_texts` reads, as ``build_vault_index`` names its units.
+_NARRATIVE_UNIT_PATH = re.compile(
+    r"^(?:(?:work_experience|projects|volunteer_activities)\[\d+\]\.(?:responsibilities|achievements)\[\d+\]"
+    r"|signature_stories\[\d+\]\.(?:title|challenge|mechanism|outcome|benchmark))$"
+)
+
+
+def _narrative_quote_arm(profile_json: dict[str, Any]):
+    """The quote arm of the narrative stamp (ADR-100 amended 2026-11-04): a
+    predicate ``row -> bool`` over a vault index narrowed to NARRATIVE units, or
+    ``None`` when the vault cannot be indexed (the literal arm alone decides —
+    the pre-amendment behaviour, never a stronger claim)."""
+    import types
+
+    try:
+        from applire.services.oracle.matchers.vault import build_vault_index
+
+        index = build_vault_index(exclude_unconfirmed(profile_json))
+    except Exception:  # noqa: BLE001 — a stamp, never a reason to fail a ledger build
+        return None
+    narrative = types.SimpleNamespace(
+        units=[u for u in index.units if _NARRATIVE_UNIT_PATH.match(getattr(u, "path", "") or "")]
+    )
+    denials = [
+        concept for concept, _level in _denied_concept_entries(
+            ((profile_json or {}).get("metadata") or {}).get("denied_concepts")
+        )
+    ]
+    corpus = denial_release_corpus(profile_json) or None
+    from applire.services.prompt_view import aim_and_other_lines
+
+    aims = aim_and_other_lines(profile_json)[0]
+
+    def _arm(entry: dict[str, Any]) -> bool:
+        if not isinstance(entry.get("backing"), dict):
+            return False
+        return _verified_backing_path(
+            entry, narrative, denials=denials, corpus=corpus, aims=aims
+        ) is not None
+
+    return _arm
 
 
 def keyword_liabilities(keyword_ledger: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -4280,6 +4504,13 @@ def build_keyword_ledger(
         quote = item.get("evidence_quote")
         if claimable and isinstance(quote, str) and quote.strip():
             entry["backing"] = {"quote": quote.strip(), "instrument": "quote"}
+        # ADR-100 amended 2026-11-04 (M-2) — the recorded denial the classifier
+        # cited for this requirement, carried as cited and unverified:
+        # `_enforce_denial_stance` below accepts it only when it is the id of a
+        # live record, and drops it otherwise.
+        denied_by = item.get(DENIED_BY_KEY)
+        if isinstance(denied_by, str) and denied_by.strip():
+            entry[DENIED_BY_KEY] = denied_by.strip()
         # #415 (ruling W-4): the posting's own qualifying sentence, verbatim. Carried
         # ONLY on a claimable entry — on a gap or a denial there is nothing to surface,
         # and quoting the posting's demand next to "never claim this" would read as an

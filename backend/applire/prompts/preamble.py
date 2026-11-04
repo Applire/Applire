@@ -39,6 +39,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Iterator
 
+from applire.exceptions import LLMRefusalError
+
 logger = logging.getLogger(__name__)
 
 PROMPT_CONTEXT_ENV = "PROMPT_CONTEXT"
@@ -272,7 +274,7 @@ def _primer(site: str, arm: str) -> Iterator[None]:
 
 _ANALYSIS_WRITER = (
     'Your JSON object begins with the key "analysis", before every other key: a string of at '
-    "most 120 words in which you work out, before you write anything else, (1) what this "
+    "most 120 words that notes (1) what this "
     "posting most needs, (2) which verified facts carry it, and (3) the trap at this step — "
     "another language slipping in, a point made twice, a claim the facts do not support, a real "
     'strength undersold. Write it as plain sentences with no double quotation marks inside it. '
@@ -281,7 +283,7 @@ _ANALYSIS_WRITER = (
 )
 _ANALYSIS_REVIEWER = (
     'Your JSON object begins with the key "analysis", before every other key: a string of at '
-    "most 120 words in which you work out, before you judge, (1) what would make this document "
+    "most 120 words that notes (1) what would make this document "
     "fail with its reader, and (2) for each finding you are about to raise, the source line "
     "that backs it. Write it as plain sentences with no double quotation marks inside it. "
     'The system removes "analysis"; it is never shown. Then give every other key '
@@ -376,6 +378,13 @@ async def aparse_json(provider: Any, site: str, prompt: str, **kwargs: Any) -> A
         c_kwargs["json_schema"] = with_analysis_schema(kwargs["json_schema"])
     try:
         result = await provider.aparse_json(f"{prompt}\n\n{_analysis_instruction(site)}", **c_kwargs)
+    except LLMRefusalError as exc:
+        # WP-0 (2026-11-04): a safety classifier can read the analysis field as a
+        # request for hidden reasoning (Claude Sonnet 5.5, `reasoning_extraction`,
+        # 20/20 gap calls with the earlier "work out, before you write" wording).
+        # The call the site made before arm c is the fallback here too.
+        logger.warning("PROMPT_CONTEXT_ANALYSIS_REFUSED site=%s category=%s", site, exc.category)
+        return await provider.aparse_json(plain_prompt, **plain_kwargs)
     except json.JSONDecodeError as exc:
         # A reply broken by the analysis field never ends a run (ruling W3-6 (2)): repair
         # the JSON when the break is inside the analysis value, otherwise retry the call
