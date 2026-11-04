@@ -3654,6 +3654,7 @@ def _claimable_backing_violation(
     denials: list[str],
     vault_corpus: str | None,
     vault_index: Any,
+    aims: list[str] | tuple[str, ...] = (),
 ) -> str | None:
     """The invariant's predicate for ONE claimable row — ``None`` when the row
     is backed, otherwise the reason string (see :data:`_HEAL_TO_DENIED`).
@@ -3719,20 +3720,41 @@ def _claimable_backing_violation(
     # (ADR-100 cl. 5). Founder UAT-3 (2026-11-04): five interview-answered rows
     # healed to `gap` here because the vault was German and the posting
     # English; the synthetic twin measured 0.20–0.68 against a truth of 0.80.
-    if _verified_backing_path(entry, vault_index) is not None:
+    if _verified_backing_path(entry, vault_index, denials=denials, corpus=vault_corpus, aims=aims) is not None:
         return None
     return "no_vault_evidence_unit"
 
 
-def _verified_backing_path(entry: dict[str, Any], vault_index: Any) -> str | None:
+def _verified_backing_path(
+    entry: dict[str, Any],
+    vault_index: Any,
+    *,
+    denials: list[str] | tuple[str, ...] = (),
+    corpus: str | None = None,
+    aims: list[str] | tuple[str, ...] = (),
+) -> str | None:
     """The vault unit the row's ``backing.quote`` resolves in, or ``None``
-    (ADR-100 cl. 3 — :func:`applire.services.citation.quote_in_vault`)."""
+    (ADR-100 cl. 3 — :func:`applire.services.citation.quote_in_vault`).
+
+    Two stances outrank a quote, exactly as they outrank the literal arm
+    (adversarial pass 2026-11-04, both reproduced on the branch):
+    - cl. 7, a DENIAL: a quote naming a concept the candidate denied backs
+      nothing. The row's own concept is matched against denials above; a
+      cross-language concept ("supplier audits") would otherwise stand on a
+      quote naming the denied "Lieferantenaudits". Fail-safe: the row heals to
+      `gap`, never to `denied` — the denial is not of the row's own concept.
+    - D-12, an AIM: no span of a ``not_yet_reached`` line backs anything, even
+      where a description or responsibility repeats its words.
+    """
     backing = entry.get("backing")
     if vault_index is None or not isinstance(backing, dict):
         return None
+    quote = backing.get("quote")
+    if denials and isinstance(quote, str) and is_denied_concept(quote, list(denials), corpus):
+        return None
     from applire.services.citation import quote_in_vault
 
-    return quote_in_vault(backing.get("quote"), getattr(vault_index, "units", None))
+    return quote_in_vault(quote, getattr(vault_index, "units", None), exclude=aims)
 
 
 #: ADR-100 cl. 6 — the floor's own provenance on a row it healed for want of a
@@ -3740,7 +3762,7 @@ def _verified_backing_path(entry: dict[str, Any], vault_index: Any) -> str | Non
 UNBACKED_NO_VERIFIABLE_QUOTE = "no_verifiable_quote"
 
 
-def _stamp_backing(entry: dict[str, Any], vault_index: Any) -> dict[str, Any]:
+def _stamp_backing(entry: dict[str, Any], vault_index: Any, **context: Any) -> dict[str, Any]:
     """A backed row leaves the floor with an honest ``backing`` (ADR-100 cl. 4):
     a quote that resolves is stamped with its unit path; a quote that does not
     resolve is dropped (the row was backed by the literal arm or is exempt —
@@ -3750,7 +3772,7 @@ def _stamp_backing(entry: dict[str, Any], vault_index: Any) -> dict[str, Any]:
     backing = entry.get("backing")
     if vault_index is None or not isinstance(backing, dict):
         return entry
-    path = _verified_backing_path(entry, vault_index)
+    path = _verified_backing_path(entry, vault_index, **context)
     if path is None:
         out = dict(entry)
         out.pop("backing", None)
@@ -3894,6 +3916,9 @@ def assert_claimable_backed(
         ((profile_json or {}).get("metadata") or {}).get("denied_concepts")
     )
     denials = [concept for concept, _level in denial_entries]
+    from applire.services.prompt_view import aim_and_other_lines
+
+    aims = aim_and_other_lines(profile_json)[0] if isinstance(profile_json, dict) else []
 
     healed: list[dict[str, Any]] = []
     violations: list[dict[str, Any]] = []
@@ -3901,9 +3926,9 @@ def assert_claimable_backed(
         if not isinstance(entry, dict) or not entry.get("claimable"):
             healed.append(entry)
             continue
-        reason = _claimable_backing_violation(entry, denials, vault_corpus, vault_index)
+        reason = _claimable_backing_violation(entry, denials, vault_corpus, vault_index, aims)
         if reason is None:
-            healed.append(_stamp_backing(entry, vault_index))
+            healed.append(_stamp_backing(entry, vault_index, denials=denials, corpus=vault_corpus, aims=aims))
             continue
         was = entry.get("status")
         logger.warning(

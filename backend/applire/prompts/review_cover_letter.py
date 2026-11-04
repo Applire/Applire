@@ -288,9 +288,6 @@ or incomplete; anything you notice outside them is `minor` by definition.
      role — the term may appear as an ASPIRATION, never as a POSSESSION. Presence is not
      yours: the DO-NOT-CLAIM PRESENCE block lists the terms this draft carries, and an
      issue about any other term must QUOTE the draft words carrying it.
-   - KEYWORD LEDGER — QUOTE CHECK. When the ledger block carries a QUOTE CHECK task, do it:
-     a quoted claimable concept the letter claims must be shown by its profile quote at the
-     claimed level; otherwise raise a finding quoting both the letter sentence and the quote.
 
 6. REDUNDANCY. Flag any place where the letter states the same fact, achievement or
    employer name more than once — one measure or project restated in two paragraphs, or a

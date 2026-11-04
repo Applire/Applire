@@ -822,7 +822,10 @@ def _compute_embedding_similarity(
 #: — which is what makes ADR-061's 2026-08-02 amendment structural rather than
 #: rule-dependent (see :func:`ledger_input_from_classification`).
 _LEDGER_PUBLISHABLE_KEYS = frozenset(
-    {"concept", "status", "evidence", "surface_forms", "adjacent_evidence"}
+    # ADR-100: `evidence_quote` is the candidate's OWN profile text, copied
+    # verbatim — publishable by construction, and only ever used after the floor
+    # has verified it exists in the claimable vault (`backing.unit_path`).
+    {"concept", "status", "evidence", "surface_forms", "adjacent_evidence", "evidence_quote"}
 )
 
 
@@ -1277,7 +1280,9 @@ async def _reask_unverified_quotes(
 ) -> dict:
     """ADR-100 cl. 2 — a missing model field is fixed at the PRODUCER: rows
     graded ``direct``/``partial`` whose ``evidence_quote`` does not pass the
-    Fact (:func:`applire.services.citation.quote_in_vault`) get ONE targeted
+    Fact (:func:`applire.services.citation.quote_in_vault`) and whose own term
+    the floor's literal arm cannot ground either (so the floor WOULD heal them)
+    get ONE targeted
     re-ask naming only those rows. What is still unquoted afterwards meets the
     ledger floor's literal arm and heals there — never a downstream repair.
 
@@ -1290,15 +1295,24 @@ async def _reask_unverified_quotes(
     from applire.services.citation import quote_in_vault
     from applire.services.oracle.matchers.vault import build_vault_index
 
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+
     try:
-        units = build_vault_index(exclude_unconfirmed(profile_json)).units
+        index = build_vault_index(exclude_unconfirmed(profile_json))
     except Exception:  # the floor degrades the same way; never fail the analysis here
         return data
+
+    def _literal_hit(c: dict) -> bool:
+        # the floor's literal arm backs this row already: its quote is not needed
+        probes = [c.get("requirement"), *(c.get("surface_forms") or [])]
+        return any(isinstance(p, str) and p.strip() and ground_skill_claim(p, index) is not None for p in probes)
+
     bad = [
         c for c in classifications
         if isinstance(c, dict)
         and c.get("status") in ("direct", "partial")
-        and quote_in_vault(c.get("evidence_quote"), units) is None
+        and quote_in_vault(c.get("evidence_quote"), index.units) is None
+        and not _literal_hit(c)
     ]
     if not bad:
         return data

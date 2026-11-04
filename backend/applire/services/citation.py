@@ -93,7 +93,17 @@ def _is_cjk(ch: str) -> bool:
 
 
 def _latin_alnum(ch: str) -> bool:
-    return ch.isascii() and ch.isalnum()
+    # A letter or digit of a script written WITH spaces ("Ü", "é", "ж" too): a
+    # quote may not start or end inside such a word ("bersetzung" ⊄ "Übersetzung").
+    return ch.isalnum() and not _is_cjk(ch)
+
+
+def _occurrences(text: str, needle: str) -> list[int]:
+    out, i = [], text.find(needle)
+    while i >= 0:
+        out.append(i)
+        i = text.find(needle, i + 1)
+    return out
 
 
 def _typed(path: str) -> bool:
@@ -104,7 +114,7 @@ def _typed(path: str) -> bool:
     )
 
 
-def quote_in_vault(quote: str | None, units: Any) -> str | None:
+def quote_in_vault(quote: str | None, units: Any, *, exclude: Any = ()) -> str | None:
     """THE Fact a vault quote must pass to BACK a claim (ADR-100 cl. 3; ADR-066:
     one predicate for this question). Returns the path of the unit the quote
     resolves in, or ``None``.
@@ -127,7 +137,9 @@ def quote_in_vault(quote: str | None, units: Any) -> str | None:
     That is a judgement (ADR-062 cl. 1) and belongs to the classifier that
     cited it and to the reviewers, who see the quote (ADR-100 cl. 1/5).
     Units that only say where or when (``personal_info``, date lines) never
-    back a requirement.
+    back a requirement, and no match may overlap an ``exclude`` span (the
+    candidate's own "not reached yet" lines, D-12: an aim is not a holding,
+    wherever else the profile repeats its words).
     """
     if not isinstance(quote, str) or not quote.strip():
         return None
@@ -135,16 +147,21 @@ def quote_in_vault(quote: str | None, units: Any) -> str | None:
     if not q:
         return None
     long_enough = len(q.split()) >= _MIN_WORDS or sum(map(_is_cjk, q)) >= _MIN_CJK_CHARS
+    excluded = [x for x in (normalize_citation(e) for e in exclude or () if isinstance(e, str)) if x]
     for unit in units or ():
         path = getattr(unit, "path", "") or ""
         if any(m in path for m in _NON_EVIDENCE_PATH_MARKERS):
             continue
         u = normalize_citation(getattr(unit, "text", "") or "")
-        if q == u:
+        blocked = [(i, i + len(x)) for x in excluded for i in _occurrences(u, x)]
+        if q == u and not blocked:
             return path
         start = u.find(q)
         while start >= 0:
             end = start + len(q)
+            if any(a < end and start < b for a, b in blocked):
+                start = u.find(q, start + 1)
+                continue
             bounded = not (start > 0 and _latin_alnum(u[start - 1]) and _latin_alnum(q[0])) and not (
                 end < len(u) and _latin_alnum(u[end]) and _latin_alnum(q[-1])
             )

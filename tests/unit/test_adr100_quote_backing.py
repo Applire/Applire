@@ -138,6 +138,20 @@ class TestQuoteInVault:
     def test_anything_else_does_not(self, quote):
         assert quote_in_vault(quote, self.UNITS) is None
 
+    @pytest.mark.parametrize("quote,unit", [
+        ("bersetzung", "Übersetzung"),  # F3: a non-ASCII letter is a word character
+        ("überwachung", "Prüfmittelüberwachung"),
+        ("ätige Leitung der", "Tätige Leitung der Abteilung"),
+    ])
+    def test_a_quote_may_not_start_or_end_inside_a_non_ascii_word(self, quote, unit):
+        assert quote_in_vault(quote, _units(("skills[0]", unit))) is None
+
+    def test_an_excluded_span_blocks_only_the_matches_that_overlap_it(self):
+        units = _units(("projects[0].description", "Plan: Kubernetes-Betrieb aufbauen. Betrieb der LIMS-Plattform seit 2020"))
+        assert quote_in_vault("Kubernetes-Betrieb aufbauen", units, exclude=["Plan: Kubernetes-Betrieb aufbauen."]) is None
+        assert quote_in_vault("Betrieb der LIMS-Plattform seit 2020", units,
+                              exclude=["Plan: Kubernetes-Betrieb aufbauen."]) == "projects[0].description"
+
 
 def test_a_typed_value_still_needs_a_token_boundary():
     """A typed unit lifts the length minimum, never the boundary: "SQL" is not
@@ -186,6 +200,33 @@ class TestTheFloorAcceptsAVerifiedQuote:
         healed, violations = assert_claimable_backed([_row("ERP integration", ERP_QUOTE)], vault, seam="t")
         assert violations[0]["reason"] == "denied_concept"
         assert healed[0]["status"] == "denied" and "backing" not in healed[0]
+
+    def test_a_quote_naming_a_denied_concept_backs_no_cross_language_row(self):
+        """Adversarial pass 2026-11-04 (F1): the denial matched the row's own
+        concept only, so "supplier audits" stood on a quote naming the denied
+        "Lieferantenaudits". It heals to gap — fail-safe, never to `denied`."""
+        vault = copy.deepcopy(VAULT)
+        unit = "Teilnahme an Lieferantenaudits bei drei Zulieferern in Norddeutschland"
+        vault["work_experience"][0]["responsibilities"].append(unit)
+        vault["metadata"] = {"denied_concepts": [{"concept": "Lieferantenaudits", "statement": "nie selbst",
+                                                   "source": "interview", "date": "2026-11-01",
+                                                   "denial_level": "direct"}]}
+        healed, violations = assert_claimable_backed([_row("supplier audits", unit)], vault, seam="t")
+        assert healed[0]["claimable"] is False and healed[0]["status"] == "gap"
+        assert [v["reason"] for v in violations] == ["no_vault_evidence_unit"]
+
+    def test_a_not_yet_reached_line_backs_nothing_wherever_its_words_repeat(self):
+        """F2 (D-12): an aim repeated as a project description is still an aim."""
+        aim = "Aufbau eines Kubernetes-Betriebs für die Laborplattform ist geplant und noch nicht erreicht"
+        vault = copy.deepcopy(VAULT)
+        vault["work_experience"][0]["not_yet_reached"] = [aim]
+        vault["projects"] = [{"id": "p1", "name": "Plattform", "associated_experience": "w1",
+                              "description": aim, "technologies": []}]
+        healed, _ = assert_claimable_backed([_row("container orchestration", aim)], vault, seam="t")
+        assert healed[0]["claimable"] is False
+        # the exclusion is the aim's span only: the rest of the vault still backs
+        again, violations = assert_claimable_backed([_row("ERP integration", ERP_QUOTE)], vault, seam="t")
+        assert violations == [] and again[0]["claimable"] is True
 
     def test_an_edited_vault_entry_heals_the_row_at_the_next_floor_run(self):
         healed, _ = assert_claimable_backed([_row("ERP integration", ERP_QUOTE)], VAULT, seam="t")
@@ -364,3 +405,21 @@ async def test_a_failed_reask_keeps_the_first_answer(monkeypatch):
     monkeypatch.setattr(gap_mod._prompt_context, "aparse_json", boom)
     first = {"classifications": [{"requirement": "ERP integration", "status": "direct", "evidence_quote": "x y z"}]}
     assert await gap_mod._reask_unverified_quotes(object(), "USER", first, VAULT) is first
+
+
+@pytest.mark.asyncio
+async def test_no_reask_for_a_row_the_literal_arm_already_backs(monkeypatch):
+    """The re-ask costs a provider call; a row whose own term grounds literally
+    (the floor keeps it without a quote) never triggers one."""
+    from applire.services import gap as gap_mod
+
+    calls: list[str] = []
+
+    async def count(provider, site, prompt, **kwargs):  # the re-ask swallows errors: count, never raise
+        calls.append(prompt)
+        return {"classifications": []}
+
+    monkeypatch.setattr(gap_mod._prompt_context, "aparse_json", count)
+    first = {"classifications": [{"requirement": "Python", "status": "direct", "reason": "r"}]}
+    await gap_mod._reask_unverified_quotes(object(), "USER", first, VAULT)
+    assert calls == []

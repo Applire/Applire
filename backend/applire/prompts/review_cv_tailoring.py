@@ -235,9 +235,8 @@ Check for ALL of the following:
    entry. NEVER ask for the figure to be removed, rounded away or made vaguer — a line
    vaguer than the truth is the opposite defect and is equally damaging.
 6. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
-   CLAIMABLE keywords (terms the candidate truthfully supports; a quoted one carries the profile
-   quote the analysis cited) and a DO NOT CLAIM list (terms with no evidence found or verified in
-   the profile). Three checks:
+   CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (no
+   evidence found for them in the profile). Two checks:
    (a) VERIFIED COVERAGE (US213, #122): do NOT scan for absent claimable keywords yourself — a
        deterministic literal check runs before you and, when claimable keywords are verifiably
        absent, a VERIFIED COVERAGE CHECK block is appended to your input naming them with their
@@ -249,9 +248,6 @@ Check for ALL of the following:
        to fabricate, stretch, or force a term that does not genuinely fit.
    (b) FORBIDDEN CLAIM: if any DO NOT CLAIM (honest-gap) concept appears in the CV presented as
        something the candidate has, has done, or knows, flag it — this is a fabrication.
-   (c) QUOTE CHECK: when the block carries a QUOTE CHECK task, do it — for each quoted concept
-       the CV claims, the quote must show that competence at the claimed level; otherwise flag it,
-       quoting both the CV sentence and the profile quote.
 7. PINNED FACT NOT DELIVERED (ADR-077): when a PINNED FACTS CHECK block is appended to your
    input, its DEMAND list is ground truth from a deterministic word-for-word scan — do not
    re-derive it. Each DEMAND entry is a BLOCKING issue: put the quote itself, in double
