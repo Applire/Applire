@@ -4275,9 +4275,13 @@ async def _send_message_turn(
     # changed the vault gets its cluster's still-open members re-judged by the
     # classifier (one call, upward only, verified quote) BEFORE the per-gap
     # record classifies them — so `open_concepts` follows the answer instead of
-    # waiting for the completion recompute. A denial-only turn wrote nothing to
-    # judge (`addressed` is False).
-    if addressed:
+    # waiting for the completion recompute. Two triggers, both facts the turn
+    # already carries: the turn wrote (`addressed`), or the reconciler held the
+    # answer back as already in the vault (`no_write_already_known`, #763) —
+    # the 11-04 E2E shape: the integration-testing bullet was written by the
+    # ARCHITECTURE turn, so the testing turn wrote nothing and its member stayed
+    # open on an evidenced vault. A denial-only turn has nothing to judge.
+    if addressed or getattr(turn, "no_write_receipt", None) == "no_write_already_known":
         await _rejudge_cluster_coverage(
             state, db, provider, current_gap=current_gap, updated_profile=updated_profile,
         )

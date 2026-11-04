@@ -35,7 +35,7 @@ from test_gap_followups_session import (  # noqa: F401 — `db` is a fixture
 _BULLET = "Betrieb von Kubernetes-Clustern für zwölf Dienste mit Terraform als Infrastrukturcode."
 
 
-def _bullet_bridge(*, write=True):
+def _bullet_bridge(*, write=True, receipt=None):
     """Writes ONE responsibility bullet (the answer, as the reconciler would)."""
     from applire.models.profile import authorized_profile_write
     from applire.schemas.profile import FieldChange
@@ -52,7 +52,7 @@ def _bullet_bridge(*, write=True):
             profile_record.profile_json = pj
         await db.flush()
         return InterviewTurnResult(profile_dict=pj, changes=changes, addressed=bool(changes),
-                                   denial_recorded=False, denied_concepts=[])
+                                   denial_recorded=False, denied_concepts=[], no_write_receipt=receipt)
 
     return AsyncMock(side_effect=_run)
 
@@ -127,3 +127,28 @@ async def test_seam_a_turn_that_wrote_nothing_makes_no_classifier_call(db):
 
     assert provider.classifier_calls == []
     assert "Kubernetes" in (resp.cluster_coverage.open_concepts if resp.cluster_coverage else ["Kubernetes"])
+
+
+@pytest.mark.asyncio
+async def test_seam_an_already_known_answer_is_judged_against_the_vault_an_earlier_turn_wrote(db):
+    """The 11-04 E2E shape: the bullet is already in the vault (written by an
+    earlier turn on another cluster); this turn writes nothing and the
+    reconciler says so (`no_write_already_known`)."""
+    from applire.models.profile import MasterProfile, authorized_profile_write
+
+    job, profile, row = await _seed(db, clusters=[
+        _cluster(_INFRA, "Cloud infrastructure", ["Kubernetes", "Terraform"]),
+    ], ledger=[_row("Kubernetes"), _row("Terraform")])
+    pj = copy.deepcopy(profile.profile_json)
+    pj["work_experience"][0]["responsibilities"] = [_BULLET]
+    with authorized_profile_write():
+        profile.profile_json = pj
+    await db.commit()
+    writer = _writer("Tell me about your infrastructure work?", "Anything else?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    provider = _provider([_verdict("Kubernetes", _BULLET), _verdict("Terraform", _BULLET)])
+    resp = await _answer(db, created.session_id, "Das habe ich oben schon beschrieben.",
+                         _bullet_bridge(write=False, receipt="no_write_already_known"), writer, provider)
+
+    assert len(provider.classifier_calls) == 1
+    assert resp.cluster_coverage.open_concepts == []
