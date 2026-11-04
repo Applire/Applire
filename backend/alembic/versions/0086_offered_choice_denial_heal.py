@@ -18,7 +18,8 @@ letters sees it as well. The committer parks the same item on every later write
 (``offered_choice|<statement hash>``), so the question is never parked twice.
 
 This file holds a VERBATIM copy of the detector and the copy
-(``stance.profile_silence_clauses`` / ``offered_choice_denial_hits`` /
+(``stance.inflected_present`` / ``profile_silence_clauses`` /
+``_redenied_concepts`` / ``offered_choice_denial_hits`` /
 ``offered_choice_denial_confirmation``) because a migration never imports
 application code: that code keeps changing after the migration has shipped (the
 0083 precedent). ``tests/unit/test_b6_a_offered_choice_heal.py`` pins that the two
@@ -59,22 +60,6 @@ log = logging.getLogger("alembic.runtime.migration")
 
 _BOUNDARY = "␞"
 
-_PROFILE_SILENCE_MARKERS = (
-    re.compile(r"steht in meinem profil (?:(?:noch|bisher|derzeit) )*nichts"),
-    re.compile(
-        r"in meinem profil (?:(?:ist|sind|steht|stehen|wird|werden) )?[^.;]{0,120}?"
-        r"(?:(?:noch|bisher|derzeit) )*nicht (?:dokumentiert|beschrieben|erwähnt|enthalten|belegt)"
-    ),
-    re.compile(
-        r"my profile (?:does not|doesn't|does n't) (?:yet )?"
-        r"(?:document|mention|cover|show|list|include|describe)"
-    ),
-    re.compile(r"my profile (?:has|says) nothing (?:yet )?(?:on|about)"),
-)
-_CLAUSE_START = re.compile(r";|[.!?](?=\s)|,?\s(?:aber|but|jedoch|however)\b")
-_CLAUSE_END = re.compile(r"[.;!?](?=\s|$)")
-
-
 def _norm(s: str) -> str:
     s = s.replace("­", "")
     s = unicodedata.normalize("NFKC", s)
@@ -82,30 +67,139 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).lower().strip()
 
 
-def _word_present(form_norm: str, text_norm: str) -> bool:
-    return re.search(rf"(?<![a-z0-9]){re.escape(form_norm)}(?![a-z0-9])", text_norm) is not None
+_PROFILE_SILENCE_MARKERS: tuple[tuple[re.Pattern[str], bool], ...] = (
+    # (pattern, the clause ENDS at the marker) — True where the concepts come
+    # BEFORE the marker ("zu X steht in meinem Profil noch nichts"), so a
+    # sentence the candidate continued after it ("…, und mit X habe ich nie
+    # gearbeitet", adversarial H-3) is not part of the clause.
+    (re.compile(r"steht in meinem profil (?:(?:noch|bisher|derzeit) )*nichts"), True),
+    (
+        re.compile(
+            r"in meinem profil (?:(?:ist|sind|steht|stehen|wird|werden) )?[^.;]{0,120}?"
+            r"(?:(?:noch|bisher|derzeit) )*nichts? "
+            r"(?:dokumentiert|beschrieben|erwähnt|enthalten|belegt)"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"(?:is|are) not (?:yet )?"
+            r"(?:documented|mentioned|covered|shown|listed|included|described) in my profile"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"my profile (?:does not|doesn't|does n't) (?:yet )?"
+            r"(?:document|mention|cover|show|list|include|describe)"
+        ),
+        False,
+    ),
+    (re.compile(r"my profile (?:has|says) nothing (?:yet )?(?:on|about)"), False),
+)
+#: Where the clause starts: the last of these before a marker (or the start of
+#: the statement). The R2-2 shape joins its halves with ", aber" / ", but"; the
+#: scan also found ";" and a sentence break.
+_CLAUSE_START = re.compile(r";|[.!?](?=\s)|,?\s(?:aber|but|jedoch|however)\b")
+_CLAUSE_END = re.compile(r"[.;!?](?=\s|$)")
+#: The closed inflection endings a concept may carry inside the clause (adversarial
+#: H-2: "zu … Arbeitssicherheitsmanagementsystemen" for the denied "…systeme"; the
+#: DE dative plural, EN/DE plural). Lexical, last token only, never below a
+#: four-letter stem — a fact about the word form (ADR-062 cl. 1).
+_INFLECTION_ENDINGS: tuple[str, ...] = ("en", "es", "er", "n", "e", "s")
+_INFLECTION_MIN_STEM = 4
+
+
+def inflected_present(concept: str, text_norm: str) -> bool:
+    """Word-boundary presence of ``concept`` in ``text_norm`` up to one closed
+    inflection ending on its last token (:data:`_INFLECTION_ENDINGS`), in both
+    directions: "…systeme" finds "…systemen", "Referenzarchitekturen" finds
+    "Referenzarchitektur". Shorter last tokens ("AWS", "ESB") match exactly. Pure."""
+    form = _norm(concept or "")
+    if not form:
+        return False
+    head, _, last = form.rpartition(" ")
+    stems = {last}
+    if len(last) >= _INFLECTION_MIN_STEM:
+        for ending in _INFLECTION_ENDINGS:
+            if last.endswith(ending) and len(last) - len(ending) >= _INFLECTION_MIN_STEM:
+                stems.add(last[: -len(ending)])
+    tail = (
+        "(?:" + "|".join(_INFLECTION_ENDINGS) + ")?"
+        if len(last) >= _INFLECTION_MIN_STEM
+        else ""
+    )
+    alts = "|".join(re.escape(x) for x in sorted(stems, key=len, reverse=True))
+    prefix = re.escape(head + " ") if head else ""
+    return re.search(rf"(?<![a-z0-9]){prefix}(?:{alts}){tail}(?![a-z0-9])", text_norm) is not None
 
 
 def profile_silence_clauses(statement: str) -> list[str]:
+    """The ``_norm``-ed profile-silence clauses of ``statement`` — each from the
+    separator before a :data:`_PROFILE_SILENCE_MARKERS` hit to the marker's end
+    (concepts before it) or to the end of its sentence (concepts after it). A
+    fact about the wording (ADR-062 cl. 1). Pure."""
     text = _norm(statement or "")
     out: list[str] = []
-    for pattern in _PROFILE_SILENCE_MARKERS:
+    for pattern, ends_at_marker in _PROFILE_SILENCE_MARKERS:
         for m in pattern.finditer(text):
             starts = [s.end() for s in _CLAUSE_START.finditer(text, 0, m.start())]
             start = starts[-1] if starts else 0
-            end_m = _CLAUSE_END.search(text, m.end())
-            end = end_m.start() if end_m else len(text)
+            if ends_at_marker:
+                end = m.end()
+            else:
+                end_m = _CLAUSE_END.search(text, m.end())
+                end = end_m.start() if end_m else len(text)
             clause = text[start:end].strip(" ,")
             if clause and clause not in out:
                 out.append(clause)
     return out
 
 
-def offered_choice_denial_hits(profile_json: Any) -> list[dict[str, Any]]:
+def _redenied_concepts(metadata: Any) -> set[str]:
+    """The ``_norm``-ed concepts a LATER turn denied again (adversarial H-1).
+
+    ``DeniedConcept.statement`` is write-once (#348), so a typed "Mit Kafka habe
+    ich nie gearbeitet" after the chip refreshes the chip-minted row and keeps
+    the chip's words. What the later turn DID leave is its receipt:
+    ``record_denials`` emits an ``updated`` ``denied_concepts`` change only for
+    a re-denial from ANOTHER statement or source (or a probe escalation), and
+    the committer files it on that turn's ``enrichment_history`` record. A
+    fact about the trail (ADR-062 cl. 1)."""
+    history = metadata.get("enrichment_history") if isinstance(metadata, dict) else None
+    out: set[str] = set()
+    for record in history or []:
+        for change in (record.get("changes") if isinstance(record, dict) else None) or []:
+            if (
+                isinstance(change, dict)
+                and change.get("section") == "metadata"
+                and change.get("field") == "denied_concepts"
+                and change.get("action") == "updated"
+                and isinstance(change.get("new_value"), str)
+            ):
+                out.add(_norm(change["new_value"]))
+    return out
+
+
+def offered_choice_denial_hits(profile_json: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """A-1 heal — the persisted denials an R2-2 choice minted before G-3, grouped
+    by statement: ``[{"statement_key", "denial_concepts", "denial_date"}]``.
+
+    The offered choice itself was never persisted (only its text, as the
+    candidate's answer), so detection is phrase-coupled (RULING A-1): an
+    ``interview``-source denial whose concept occurs (:func:`inflected_present`)
+    inside a profile-silence clause of its own statement
+    (:func:`profile_silence_clauses`), NOWHERE else in that statement, and that
+    no later turn denied again (:func:`_redenied_concepts`). A concept the
+    candidate typed themselves — beside the clause or in a later turn — is
+    their own no and is never offered for withdrawal. A miss asks nothing; a
+    false hit only asks. The 0086 data migration carries a verbatim copy of
+    this block (parity-tested). Pure, malformed tolerant."""
     if not isinstance(profile_json, dict):
         return []
     metadata = profile_json.get("metadata")
     raw = metadata.get("denied_concepts") if isinstance(metadata, dict) else None
+    redenied = _redenied_concepts(metadata)
     groups: dict[str, dict[str, Any]] = {}
     for d in raw or []:
         if not isinstance(d, dict) or d.get("source") != "interview":
@@ -113,14 +207,15 @@ def offered_choice_denial_hits(profile_json: Any) -> list[dict[str, Any]]:
         concept, statement = d.get("concept"), d.get("statement")
         if not (isinstance(concept, str) and concept.strip() and isinstance(statement, str)):
             continue
-        c_norm = _norm(concept)
+        if _norm(concept) in redenied:
+            continue
         clauses = profile_silence_clauses(statement)
-        if not clauses or not any(_word_present(c_norm, c) for c in clauses):
+        if not clauses or not any(inflected_present(concept, c) for c in clauses):
             continue
         rest = _norm(statement)
         for c in clauses:
             rest = rest.replace(c, f" {_BOUNDARY} ")
-        if _word_present(c_norm, rest):
+        if inflected_present(concept, rest):
             continue
         key = hashlib.sha1(_norm(statement).encode("utf-8")).hexdigest()[:16]
         group = groups.setdefault(
