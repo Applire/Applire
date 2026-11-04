@@ -161,6 +161,13 @@ def test_a_quote_variant_is_cut_by_the_same_normaliser_that_found_it():
     info = _new_info(curly.replace("’", "'"), offered)
     assert info.get("offered_choices"), "containment found it"
     assert offered_choice_gate(["Boomi", "Kafka"], info, "interview")[0] == []
+    # ... and the reverse: a phone keyboard curls the apostrophes of a chip
+    # Applire delivered straight.
+    straight = curly.replace("’", "'")
+    offered = {straight: {"level": "partial", "names_without_claiming": ["Boomi", "Kafka"]}}
+    info = _new_info(curly, offered)
+    assert info.get("offered_choices"), "containment found it"
+    assert offered_choice_gate(["Boomi", "Kafka"], info, "interview")[0] == []
 
 
 def test_an_edited_chip_or_a_typed_answer_carries_no_fact():
