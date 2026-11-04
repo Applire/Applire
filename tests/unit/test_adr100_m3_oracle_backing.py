@@ -173,6 +173,15 @@ def test_reader_excludes_a_quote_in_an_aim_line():
     assert _backed_concepts([row]) == []
 
 
+def test_reader_excludes_an_aim_the_profile_repeats_elsewhere():
+    """D-12 "wherever else the profile repeats its words": the aim line is not a
+    unit, but a project description repeating it is — the quote still backs nothing."""
+    vault = copy.deepcopy(VAULT)
+    vault["projects"] = [{"name": "Gremium", "description": "Geplant: " + Q_AIM}]
+    row = _row("Integration governance", ["Integration governance"], Q_AIM, "projects[0].description")
+    assert _backed_concepts([row], vault) == []
+
+
 def test_reader_excludes_a_quote_in_an_unconfirmed_entry():
     vault = copy.deepcopy(VAULT)
     vault["skills"].append({"name": "Projektleitung Laborsysteme", "status": "unconfirmed"})
@@ -299,9 +308,13 @@ async def test_letter_without_ledger_unchanged_with_ledger_judged():
 
 
 @pytest.mark.asyncio
-async def test_credential_rule_decides_a_backing_candidate_before_the_judge():
-    """E-2 runs above the pipeline: a same-language claim adding a credential no
-    entry names is `unbacked`, the candidate leaves the batch (no IndexError)."""
+async def test_a_credential_no_entry_names_is_unbacked_and_never_judged():
+    """A same-language claim adding a credential no entry names: the seam's own
+    facts check opens no candidate (the credential is not in the offered units)
+    and E-2 then answers the fallback with `unbacked`. E-2's ``backing`` arm in
+    ``_apply_credential_rule`` is shadowed by that check (an equivalent mutant —
+    the offered units are a subset of the vault E-2 reads); kept as defence in
+    depth for a future widening of the offered set."""
     en_vault = copy.deepcopy(VAULT)
     # E-2 never checks a pair whose vault may state evidence in another language
     # (``holds_other_language``) — so this vault is English throughout.
