@@ -537,3 +537,67 @@ def render_role_titles_block(titles: list[RoleTitle]) -> str:
         "never ask for a title this list does not carry.",
     ]
     return "\n".join(lines)
+
+
+# ── G-2 (ADR-057 amended 2026-11-04): the candidate's own record of the employer ──
+# Founder UAT 11-04 (log rec 30): the reviewer blocked "Your work in biotechnology
+# and individualized cancer treatments makes reliable, compliant integration
+# especially meaningful to me" — sourced from the candidate's own station AT the
+# target employer — because the engagement was grounded "ONLY in the job
+# description". Whether the candidate's profile records a position at the target
+# employer is a FACT (a name match, ADR-062 cl. 1); what to say about it is the
+# writer's. One normaliser for the legal form: `ats_audit._LEGAL_FORM_RE`, on the
+# `ats_audit._norm`ed name (ADR-066). Exact core-name equality, never a substring:
+# "Müller" must not match "Müller-Logistik".
+
+
+def _core_employer_name(name: str | None) -> str:
+    from applire.services.ats_audit import _LEGAL_FORM_RE, _norm
+
+    n = _norm(name or "").strip(" ,.")
+    prev = None
+    while prev != n:
+        prev = n
+        n = _LEGAL_FORM_RE.sub("", n).strip(" ,.")
+    return n
+
+
+def employer_stations(profile_json: dict | None, company: str | None) -> list[dict]:
+    """The candidate's recorded positions at ``company`` (the target employer).
+
+    ``[{"role", "company", "start_date", "end_date"}]`` in profile order; ``[]`` when
+    the company is unknown or no position matches. Pure; malformed tolerant."""
+    target = _core_employer_name(company)
+    if not target:
+        return []
+    out: list[dict] = []
+    for entry in (profile_json or {}).get("work_experience") or []:
+        if not isinstance(entry, dict):
+            continue
+        if _core_employer_name(entry.get("company")) != target:
+            continue
+        out.append({
+            "role": entry.get("role") or "",
+            "company": entry.get("company") or "",
+            "start_date": entry.get("start_date") or "",
+            "end_date": entry.get("end_date") or ("present" if entry.get("is_current") else ""),
+        })
+    return out
+
+
+def render_employer_record(stations: list[dict]) -> str:
+    """One line for the writer's COMPANY & DOMAIN ENGAGEMENT block; ``""`` when the
+    candidate has no recorded position at the target employer."""
+    if not stations:
+        return ""
+    held = "; ".join(
+        f"{s['role']} at {s['company']} ({s['start_date']}–{s['end_date']})".strip()
+        for s in stations
+    )
+    return (
+        "THE CANDIDATE'S OWN RECORD OF THIS EMPLOYER: the profile records a position "
+        f"there — {held}. What the profile states about the work done there (the "
+        "products, therapies, systems or markets the candidate worked on) is the "
+        "candidate's own knowledge of this employer: it may ground the engagement and "
+        "the motivation, exactly as the job description does."
+    )

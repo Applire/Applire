@@ -109,8 +109,8 @@ Rules:
   area. When the profile does not evidence a strength, do not assert it; express interest instead.
   This possessive-framing restriction is scoped to CANDIDATE COMPETENCE claims only (US264/#255)
   — the SAME term may still appear (a) as a factual reference to the EMPLOYER's own domain or
-  product, sourced ONLY from the JOB DESCRIPTION text (see COMPANY & DOMAIN ENGAGEMENT below),
-  and (b) inside the HONEST GAP / TRANSFER ARGUMENT paragraph (see POSITIONING below), where
+  product, sourced ONLY from the JOB DESCRIPTION text or the candidate's own record of that
+  employer (see COMPANY & DOMAIN ENGAGEMENT below), and (b) inside the HONEST GAP / TRANSFER ARGUMENT paragraph (see POSITIONING below), where
   naming the term as an absence you do NOT have — before pivoting to real, grounded experience
   — is honesty, not a claim.
 - NO UNSUPPORTED GENERALIZATIONS (wave-7 — a run-6 Oracle audit found roughly a third of the
@@ -124,8 +124,10 @@ Rules:
   generic claim that could apply to any candidate — write the specific, sourced fact instead, or
   leave the sentence out. This does NOT apply to the greeting and closing courtesy lines, the
   availability/notice-period line, the honest-gap/transfer-argument paragraph (see POSITIONING
-  below), or a short connective clause that introduces a grounded claim — those stay exactly as
-  the other rules in this prompt already require them.
+  below) — the einarbeiten clause of a gap the KEY-REQUIREMENT GAPS block names included, the
+  one sentence part allowed without a source (RULING G-1, MD6-2) —, the 1–2 MOTIVATION
+  sentences (see POSITIONING below), or a short connective clause that introduces a grounded
+  claim — those stay exactly as the other rules in this prompt already require them.
 - POSITION ANCHORING — ONE ANCHOR PER EMPLOYER RUN, PER PARAGRAPH (#283, scope corrected #565):
   a sentence that states an achievement, responsibility, or figure/metric belonging to ONE
   specific employer or position — not something true of the candidate everywhere — must be
@@ -183,13 +185,21 @@ Rules:
   never invent any of the three when the corresponding input is absent from the user message:
   * COMPANY & DOMAIN ENGAGEMENT: when a TARGET COMPANY line appears, engage that employer
     concretely in the opening or motivation paragraph — reference what they build, sell, or
-    operate in, using ONLY the JOB DESCRIPTION text given above it. Never invent a company
-    product, market, or achievement that is not stated in that JOB DESCRIPTION text.
-  * HONEST GAP / TRANSFER ARGUMENT: when a GAP TESTIMONY block appears, write exactly ONE
-    honest paragraph that (a) names/acknowledges the stated gap directly and (b) delivers the
-    candidate's OWN transfer argument, using ONLY the facts and reasoning stated in that block —
-    never invent a transfer argument the candidate did not state. When no GAP TESTIMONY block
-    is present, do not mention any gap at all.
+    operate in, using ONLY the JOB DESCRIPTION text given above it or, where THE CANDIDATE'S
+    OWN RECORD OF THIS EMPLOYER line appears, what the CANDIDATE PROFILE states about the
+    candidate's own work there (ADR-057, RULING G-2). Never invent a company product, market,
+    or achievement that neither source states.
+  * MOTIVATION (RULING G-2): a Personal motivation line in PRE-GENERATION INPUTS is used as
+    given. Without one, write 1–2 sentences of motivation in the opening or motivation
+    paragraph, derived from the grounded fit — what in THIS posting meets what the candidate
+    has done (CANDIDATE PROFILE), and what they know of this employer from their own record.
+    Never invent a feeling, a personal history, an event or an employer fact.
+  * HONEST GAP / TRANSFER ARGUMENT: when a GAP TESTIMONY block appears, its gap is one the
+    KEY-REQUIREMENT GAPS block names, and the testimony is that gap's transfer: write its ONE
+    sentence in the honest-gap paragraph from it — the gap named directly, then the
+    candidate's OWN transfer argument, using ONLY the facts and reasoning stated in that block,
+    never a transfer argument the candidate did not state. A gap is named ONLY where the
+    KEY-REQUIREMENT GAPS block names it.
   * AVAILABILITY / CONCURRENT COMMITMENTS: when an AVAILABILITY TESTIMONY block appears,
     address availability/commitment using ONLY the facts stated in that testimony. When it is
     absent, make NO availability or commitment claim beyond what PRE-GENERATION INPUTS states.
@@ -214,22 +224,20 @@ Rules:
   never belongs in the honest-gap paragraph. A statement that only withholds detail ("kann
   ich nicht nennen", no figure or example) is NOT a limit: use the detail it gives, never
   write the withholding into the letter (DEL-1).
-  (b) OBLIGATION: a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block lists the KEY
-  requirements of THIS posting that the candidate DENIED in their own words. Each owes ONE
-  positioning decision on the ranked ladder of the next rule; either
-  higher rung DISCHARGES the limit with no negation beside it. Where the gap IS named: gap first, transferring
-  strength second, in the SAME SENTENCE, as their statement says it ("no IFS/BRC experience,
-  but ten years of ISO-9001 audit practice") — never a standalone negative, least of all
-  right after a sentence stating a strength (#732). ONE honest-gap paragraph, never a litany.
-- EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION, AND THE THREE ARE RANKED
+  (b) OBLIGATION — THE GAP LADDER (RULING G-1, ADR-075 amended 2026-11-04): a KEY-REQUIREMENT
+  GAPS block names the gap(s) THIS letter states — counted and chosen by code: up to two are
+  each named, from three on only the most urgent. Each named gap gets ONE sentence in ONE
+  honest-gap paragraph: the gap first, then in the SAME SENTENCE a transfer grounded in the
+  profile ("no IFS/BRC experience, but ten years of ISO-9001 audit practice"), else the
+  einarbeiten clause that block describes — never a standalone negative, least of all right
+  after a sentence stating a strength (#732), never a litany. A recorded statement that names
+  several concepts is ONE gap: name the concept the block names, never the statement's list.
+- EVERY OTHER UNMET JD HARD REQUIREMENT IS POSITIONED OR LEFT OUT, ON A RANKED LADDER
   (#270, #732): take the HIGHEST rung TRUE of the candidate — (1) a scoped claim at exactly
   the rung their material reaches; (2) a transfer argument where an adjacent capability
-  carries over — the gap named, if at all, only in (b)'s fused form and only where a REQUIRED:
-  STATED LIMITS entry names it; (3) where NEITHER holds, the letter LEAVES IT OUT — never a
-  bare admission (RULING L-1).
-  Rungs (1) and (2) DISCHARGE the requirement, with no separate negation. A requirement
-  lacked WITHOUT a recorded denial is de-emphasised: the letter LEAVES IT OUT, never a
-  sentence about what they cannot claim, name or prove (DEL-2).
+  carries over, with no negation beside it; (3) where NEITHER holds, the letter LEAVES IT
+  OUT. A requirement the KEY-REQUIREMENT GAPS block does not name is never stated as a lack
+  — never a sentence about what they cannot claim, name or prove (DEL-2).
 """
 
 
@@ -401,13 +409,14 @@ def build_cover_letter_prompt(
     gap_testimony: dict[str, Any] | None = None,
     availability_testimony: str | None = None,
     stated_limits_block: str | None = None,
-    required_limits_block: str | None = None,
+    gap_ladder_block: str | None = None,
     unaddressed_requirements_block: str | None = None,
     vault_evidence_block: str | None = None,
     scope_positioning_block: str | None = None,
     pinned_facts_block: str | None = None,
     recorded_name_forms_block: str | None = None,
     tool_durations_block: str | None = None,
+    employer_record: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -456,9 +465,16 @@ def build_cover_letter_prompt(
     unaddressed_requirements_block: rendered UNADDRESSED HARD REQUIREMENTS text (#270(c),
         :func:`applire.services.cross_document.render_unaddressed_hard_requirements_block`,
         called with ``letter_data=None`` since no draft exists yet) — JD hard-requirement
-        honest gaps. Since founder ruling DEL-2 (2026-10-18) de-emphasis means leaving the
-        requirement out; a lack is stated only where a recorded denial names it. Optional so legacy/
-        degraded callers do not break; omitted/empty → adds nothing.
+        ADJACENT partials only since G-1 (2026-11-04): de-emphasis means leaving the
+        requirement out (DEL-2). Optional so legacy/degraded callers do not break;
+        omitted/empty → adds nothing.
+    gap_ladder_block: the KEY-REQUIREMENT GAPS block (RULING G-1,
+        :func:`applire.services.cross_document.render_gap_ladder_block`) — the gaps this
+        letter names, counted and chosen by code. Replaces the REQUIRED: STATED LIMITS
+        block (deleted 2026-11-04). Omitted/empty → adds nothing.
+    employer_record: the candidate's own recorded position(s) at the target employer
+        (RULING G-2, :func:`applire.services.cover_letter_positioning.render_employer_record`),
+        rendered inside the COMPANY & DOMAIN ENGAGEMENT block. Omitted/empty → adds nothing.
     vault_evidence_block: rendered STRONGEST VAULT EVIDENCE text (#271,
         :func:`applire.services.vault_evidence.render_vault_evidence_block`) — the
         vault's strongest JD-relevant material, selected independently of what
@@ -587,9 +603,13 @@ def build_cover_letter_prompt(
             f"TARGET COMPANY: {fence_inline(company_name)}",
             "Engage this employer concretely in the opening or motivation paragraph — "
             "reference what they build, sell, or operate in, using ONLY the JOB DESCRIPTION "
-            "text above. Never invent a company product, market, or achievement that is not "
+            "text above"
+            + (" or the candidate's own record of this employer below" if employer_record else "")
+            + ". Never invent a company product, market, or achievement that is not "
             "stated there.",
         ]
+        if employer_record:
+            lines.append(employer_record)
 
     # ADR-048 §8 / US201: the Keyword Ledger — claimable terms (with profile evidence) to
     # surface, honest gaps never to claim. Grounding strictly outranks coverage.
@@ -604,19 +624,17 @@ def build_cover_letter_prompt(
     if stated_limits_block:
         lines += ["", stated_limits_block]
 
-    # ADR-075 / #532: the AFFIRMATIVE half — the denials THIS posting asks about,
-    # each owing a positioning decision. Threaded ONLY when
-    # cross_document.select_jd_relevant_limits found one; absent → adds nothing,
-    # so a candidate with no JD-relevant denial is asked for nothing (the
-    # ADR-074 discipline). Rendered separately from stated_limits_block because
-    # that block is shared with the CV writer, whose rule 3a forbids gap
-    # disclosure on a CV.
-    if required_limits_block:
-        lines += ["", required_limits_block]
+    # RULING G-1 (ADR-075 amended 2026-11-04): the gaps THIS letter names —
+    # counted, ranked and chosen by cross_document.key_requirement_gaps /
+    # gaps_to_name; absent → adds nothing. Rendered separately from
+    # stated_limits_block because that block is shared with the CV writer,
+    # whose rule 3a forbids gap disclosure on a CV (MD6-3).
+    if gap_ladder_block:
+        lines += ["", gap_ladder_block]
 
-    # #270(c): unmet JD hard requirements (claimable: false, "required") that
-    # the writer must weigh; de-emphasis = leaving the requirement out (DEL-2,
-    # 2026-10-18), a lack is stated only for a recorded denial. Threaded ONLY when genuinely found
+    # #270(c): JD hard requirements claimable only through an ADJACENT capability
+    # (G-1 2026-11-04: not-claimable rows are gaps, listed above only); de-emphasis
+    # = leaving the requirement out (DEL-2). Threaded ONLY when genuinely found
     # (services.cross_document.find_unaddressed_hard_requirements); absent →
     # adds nothing.
     if unaddressed_requirements_block:
@@ -710,6 +728,14 @@ def build_cover_letter_prompt(
         )
     if motivation:
         lines.append(f"Personal motivation (incorporate naturally): {motivation}")
+    else:
+        # RULING G-2 / MD6-5 (2026-11-04): no typed motivation → the writer derives
+        # it from the grounded fit (system rule MOTIVATION); the line says so here,
+        # where the absence is visible.
+        lines.append(
+            "Personal motivation: none typed — derive 1–2 sentences from the grounded fit "
+            "(see MOTIVATION); never invent a feeling, a personal history or an event."
+        )
 
     # E048/US264 (ADR-057 amended 2026-07-24): the panel's #3 blocker — an obvious
     # concurrent-roles/availability question went unaddressed. The caller only passes
