@@ -36,6 +36,20 @@ class RequirementBreakdownItem(BaseModel):
     reason: str = ""
 
 
+class LedgerBacking(BaseModel):
+    """ADR-100 cl. 4 — the verbatim profile span a claimable row stands on.
+
+    ``quote`` is the candidate's OWN profile text, copied character for
+    character by the gap classifier and verified by the floor
+    (``citation.quote_in_vault``); ``unit_path`` is the vault unit it resolves
+    in at the last floor run; ``instrument`` names the arm that stamped it.
+    """
+
+    quote: str
+    unit_path: str | None = None
+    instrument: str | None = None
+
+
 class KeywordLedgerEntry(BaseModel):
     """One JD expectation in the Keyword Ledger (ADR-048, E037)."""
 
@@ -113,6 +127,31 @@ class KeywordLedgerEntry(BaseModel):
     # bucket ("ruled out by your answer"), never as an open requirement; the
     # floor itself (no credit, never claimed) is unchanged.
     floored_by_denial: bool = False
+    # ADR-100 M-3 / Agent #788 — the row's verified backing quote (the person's
+    # own profile text) and the unit it resolves in. Declared for the reason the
+    # `adjacent_evidence` comment records: an undeclared key is stripped by
+    # `GapAnalysisResponse.model_validate`, so the 11-04 E2E run's agent saw no
+    # `backing` on any row while the DB carried it on every claimable one.
+    # ``None`` on a row the floor did not back by a verifiable quote.
+    backing: LedgerBacking | None = None
+
+    @field_validator("backing", mode="before")
+    @classmethod
+    def _malformed_backing_reads_absent(cls, value: object) -> object:
+        """A persisted-read path (like ``denial_level`` below): a stored
+        ``backing`` without a usable quote reads as absent, never as a 500."""
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            return None
+        quote = value.get("quote")
+        if not isinstance(quote, str) or not quote.strip():
+            return None
+        return {
+            "quote": quote,
+            "unit_path": value.get("unit_path") if isinstance(value.get("unit_path"), str) else None,
+            "instrument": value.get("instrument") if isinstance(value.get("instrument"), str) else None,
+        }
 
     @model_validator(mode="after")
     def _derive_floored_by_denial(self) -> "KeywordLedgerEntry":
