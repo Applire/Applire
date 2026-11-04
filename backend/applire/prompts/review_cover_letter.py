@@ -212,10 +212,10 @@ or incomplete; anything you notice outside them is `minor` by definition.
      the candidate's adjacent STRENGTHS ("no IFS/BRC experience, but ten years of ISO-9001
      audit practice"); those named strengths are grounded, not limited.
    - THE EINARBEITEN CLAUSE (G-1, MD6-2): a ``gap_positioning`` gap's sentence may close
-     with ONE clause of intent to get up to speed on it quickly, any wording ("in X arbeite
-     ich mich schnell ein"). It claims nothing about the past: never flag, cut, soften or
-     source it, not even as `minor` — unless it carries a figure, employer, project,
-     certificate or trait ("fast learner").
+     with ONE clause of intent to get up to speed on it, any wording ("in X arbeite ich
+     mich schnell ein"). It claims nothing about the past: never flag, cut, soften or
+     source it, not even as `minor` — but any skill, tool, experience, figure,
+     employer or trait in it is a claim.
 2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure belonging to one
    specific employer must be attributable to it, and the unit is the EMPLOYER RUN inside
    one PARAGRAPH, not the sentence (#565). The run's first sentence names the employer;
@@ -262,7 +262,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
    ``stated_limits`` is a constraint only. Withheld detail ("kann ich nicht nennen")
    written in IS a finding (DEL-1).
    HALF-DELIVERY (#732): a standalone negative, its strength in a later sentence or a
-   list, is a gap WITHOUT its decision: block. Closing on the einarbeiten clause is whole.
+   list, is a gap WITHOUT its decision: block. No transfer held: the einarbeiten clause
+   makes it whole.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate supports whose posting
      words the letter lacks. You judge two things: is its evidence already stated
@@ -516,8 +517,9 @@ Rules:
   gap(s) THIS letter states, chosen by code: each gets ONE sentence in ONE honest-gap
   paragraph — the gap first, then in the SAME sentence the transfer the source grounds,
   else ONE forward-looking clause of intent to get up to speed on it quickly (the
-  einarbeiten clause: free wording, no figure, employer, project, certificate or trait
-  adjective; it needs no source — keep it). Never a list of lacks, never a gap the entry
+  einarbeiten clause: free wording; nothing about their past or abilities — no skill,
+  tool, experience, figure, employer, project, certificate or trait; it needs no source
+  — keep it). Never a list of lacks, never a gap the entry
   does not name, never "not recorded / beyond my profile / cannot claim", even where the
   candidate's statement words it so; never soften or delete a named gap's sentence: an
   unprompted admission of a gap is the single thing blind readers name as the reason to

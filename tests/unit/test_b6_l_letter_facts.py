@@ -212,7 +212,9 @@ def test_reviewer_doors(v2):
         assert "or a ``gap_positioning`` gap" in flat           # check 1: grounds a lack
         assert "``candidate_record``" in flat                    # AUTHORITY / check 3 (G-2)
         assert "``stated_limits`` is a constraint only" in flat
-        assert "closing on the einarbeiten clause is whole" in flat   # HALF-DELIVERY narrowed
+        # HALF-DELIVERY narrowed (b6 follow-up), then bounded to the no-transfer case (fix
+        # round L2-2: unbounded, the reviewer stopped asking for a HELD transfer 14/30 -> 8/30)
+        assert "no transfer held: the einarbeiten clause makes it whole" in flat
     assert "never touch a ``gap_positioning`` gap's sentence" in _flat(terminal)
     flat = _flat(corrector)
     assert "never write a lack the gap ladder does not name" in flat
@@ -240,9 +242,9 @@ def test_oracle_triage_recognises_the_clause_and_keeps_its_first_line():
 
     assert p.startswith("You are the Truthfulness Oracle's sentence triage classifier.\n")
     flat = _flat(p)
-    assert "a sentence that names a gap and closes with such a clause is candidate-limit" in flat
+    assert "a sentence that names a gap and closes with such a clause, and states nothing else, is candidate-limit" in flat
     assert "\"positive\" here means a claim about the candidate's past" in flat
-    assert "(\"as a fast learner\") — then candidate-claim" in flat
+    assert "(\"as a fast learner\", \"thanks to my dbt experience\") — then candidate-claim" in flat
 
 
 def test_writer_user_prompt_threads_the_ladder_the_record_and_the_motivation_line():

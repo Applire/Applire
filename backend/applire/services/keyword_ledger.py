@@ -1208,7 +1208,9 @@ def retention_forms(entry: dict[str, Any]) -> list[str]:
 LISTED_ONLY_MARKER = "[listed only — no role bullet or story states it]"
 
 
-def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> str:
+def render_ledger_prompt_block(
+    keyword_ledger: list[dict[str, Any]] | None, *, audience: str = "cv"
+) -> str:
     """Render the Keyword Ledger as a prompt fragment shared by the CV and cover-letter
     generators (ADR-048 §8 / US200/US201).
 
@@ -1216,6 +1218,11 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
     its literal surface forms + the profile evidence that supports it, and lists the
     honest-gap concepts under an explicit DO NOT CLAIM heading. Returns "" when the ledger
     is empty so legacy callers and pre-E037 rows add nothing.
+
+    ``audience`` ("cv" | "letter") selects the EXPLICITLY DENIED header's variant
+    (Hazelnut build 6 fix round, adversarial MD6-3): the letter's names the G-1
+    KEY-REQUIREMENT GAPS block, which exists only in the letter prompt; the CV's is
+    the pre-build-6 text, byte for byte (RULING MD6-3: the CV is unchanged).
     """
     claimable, forbidden = split_ledger_for_prompt(keyword_ledger)
     aims = [e.get("concept", "") for e in keyword_ledger or [] if is_aim_only(e) and e.get("concept")]
@@ -1340,9 +1347,15 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
             "EXPLICITLY DENIED BY THE CANDIDATE (they were asked and stated they do NOT "
             "have these). Never claim them, and never soften or walk back the denial. "
             "Unlike the list above these are the candidate's OWN stated position, so a "
-            "cover letter MAY name one honestly — ONLY where its KEY-REQUIREMENT GAPS "
-            "block names it, in that block's one-sentence form (RULING G-1); "
-            "otherwise the letter, like a CV, simply omits them:",
+            + (
+                "cover letter MAY name one honestly — ONLY where its KEY-REQUIREMENT GAPS "
+                "block names it, in that block's one-sentence form (RULING G-1); "
+                "otherwise the letter, like a CV, simply omits them:"
+                if audience == "letter" else
+                "cover letter MAY name one honestly — ONLY where a REQUIRED: STATED LIMITS "
+                "block lists it, with what they do bring in the same sentence (RULING L-1); "
+                "otherwise the letter, like a CV, simply omits them:"
+            ),
         ]
         for concept in denied:
             lines.append(f"  - {concept}")
