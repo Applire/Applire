@@ -303,8 +303,10 @@ class TestThe732PositioningRules:
         # compressed by G-1 (replace, not append): one paragraph in check 4
         assert "HALF-DELIVERY (#732)" in p
         assert "a standalone negative, its strength in a later sentence or a list" in p
-        assert "is the gap WITHOUT its positioning decision" in p
-        assert "Quote it, name the strength, block" in p
+        assert "is a gap WITHOUT its decision: block" in p
+        # Hazelnut b6 follow-up: a clause-only gap sentence (G-1 / L-3 = A) is whole —
+        # luna's reviewer read HALF-DELIVERY as "add a transfer" to it (synthetic loops).
+        assert "Closing on the einarbeiten clause is whole" in p
 
     @pytest.mark.parametrize("door", ["REVIEW_SYSTEM_PROMPT",
                                       "TERMINAL_REVIEW_SYSTEM_PROMPT"])

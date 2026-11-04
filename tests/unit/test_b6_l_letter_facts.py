@@ -59,8 +59,19 @@ def test_a_longer_or_shorter_name_never_matches():
     assert employer_stations(PROFILE, "Nordlicht Therapeutics Holding") == []
 
 
-def test_a_current_station_reads_present():
-    assert employer_stations(PROFILE, "Kestrel Logistik")[0]["end_date"] == "present"
+def test_a_current_station_reads_present_and_not_ended():
+    station = employer_stations(PROFILE, "Kestrel Logistik")[0]
+    assert station["end_date"] == "present" and station["ended"] is False
+
+
+def test_ended_is_a_fact_of_the_record():
+    assert employer_stations(PROFILE, "Nordlicht Therapeutics")[0]["ended"] is True
+    no_end = {"work_experience": [{"company": "Kestrel GmbH", "role": "R", "start_date": "2019"}]}
+    assert employer_stations(no_end, "Kestrel")[0]["ended"] is False   # unknown end: not claimed ended
+    both = {"work_experience": [{"company": "Kestrel GmbH", "role": "R", "end_date": "2020-01",
+                                 "is_current": True}]}
+    assert employer_stations(both, "Kestrel")[0] == {
+        "role": "R", "company": "Kestrel GmbH", "start_date": "", "end_date": "present", "ended": False}
 
 
 @pytest.mark.parametrize("profile, company", [
@@ -70,11 +81,21 @@ def test_unknown_company_or_profile_yields_nothing(profile, company):
     assert employer_stations(profile, company) == []
 
 
-def test_the_record_line_names_the_station_and_its_use():
+def test_the_record_line_names_the_station_its_time_frame_and_its_bounds():
     line = render_employer_record(employer_stations(PROFILE, "Nordlicht Therapeutics"))
-    assert "Integration Architect at Nordlicht Therapeutics SE (2014-03–2018-12)" in line
-    assert "may ground the engagement and the motivation" in line
+    assert "Integration Architect at Nordlicht Therapeutics SE (2014-03–2018-12, ENDED)" in line
+    assert "Only what the profile states under THAT position" in line
+    assert "an achievement recorded under another employer stays with that employer" in line
+    assert "An ENDED position is the past: write it in the past tense and within its dates" in line
+    assert "grounds no present-tense knowledge of the employer today" in line
+    assert "own knowledge of this employer" not in line          # the overreach invitation is gone
     assert render_employer_record([]) == ""
+
+
+def test_a_current_station_gets_no_past_tense_rule():
+    line = render_employer_record(employer_stations(PROFILE, "Kestrel Logistik"))
+    assert "(2019-01–present)" in line and "ENDED" not in line
+    assert "Only what the profile states under THAT position" in line
 
 
 # ── the REQUIRED entries ─────────────────────────────────────────────────────
@@ -118,6 +139,9 @@ def test_motivation_entry_typed_wins_else_derived():
     derived = build_motivation_entry(None, [{"role": "R"}])
     assert "typed" not in derived and "derived from the grounded fit" in derived["instruction"]
     assert "candidate_record" in derived["instruction"]
+    assert "within its dates" in derived["instruction"]
+    assert "grounds no present-tense knowledge of the employer today" in derived["instruction"]
+    assert "knows of this employer" not in derived["instruction"]
     assert "candidate_record" not in build_motivation_entry("", [])["instruction"]
     assert "never an invented feeling" in _flat(derived["instruction"])
 
@@ -188,6 +212,7 @@ def test_reviewer_doors(v2):
         assert "or a ``gap_positioning`` gap" in flat           # check 1: grounds a lack
         assert "``candidate_record``" in flat                    # AUTHORITY / check 3 (G-2)
         assert "``stated_limits`` is a constraint only" in flat
+        assert "closing on the einarbeiten clause is whole" in flat   # HALF-DELIVERY narrowed
     assert "never touch a ``gap_positioning`` gap's sentence" in _flat(terminal)
     flat = _flat(corrector)
     assert "never write a lack the gap ladder does not name" in flat
