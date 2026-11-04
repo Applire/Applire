@@ -443,14 +443,30 @@ def _backing_candidate(
     if not named:
         return None
     anchor: str | None = source_id
-    if anchor is None and len(claim.sentence_named_ids) == 1:
-        anchor = next(iter(claim.sentence_named_ids))
+    named_here = claim.sentence_named_ids
+    if anchor is None and not named_here:
+        # A CV summary (or external text) carries no per-sentence names from the
+        # extractor — ask the letter path's own loose matcher, so "… at Company B"
+        # never takes Company A's quote.
+        try:
+            from applire.services.oracle.extract import (
+                _employer_anchor_candidates,
+                sentence_mentioned_ids,
+            )
+
+            named_here = sentence_mentioned_ids(claim.text, _employer_anchor_candidates(profile, loose=True))
+        except Exception:  # pragma: no cover — defensive: no names, the letter/any rules apply
+            named_here = frozenset()
+
+    def _group(ids: frozenset[str]) -> frozenset[str]:
+        return frozenset(i for n in ids for i in ({n} | set(idx.same_employer_ids.get(n, frozenset()))))
+
     if anchor is not None:
-        allowed: frozenset[str] | None = frozenset({anchor}) | idx.same_employer_ids.get(anchor, frozenset())
+        allowed: frozenset[str] | None = _group(frozenset({anchor}))
+    elif named_here:
+        allowed = _group(frozenset(named_here))
     elif letter_named_ids:
-        allowed = frozenset(
-            i for n in letter_named_ids for i in ({n} | set(idx.same_employer_ids.get(n, frozenset())))
-        )
+        allowed = _group(frozenset(letter_named_ids))
     else:
         allowed = None
 

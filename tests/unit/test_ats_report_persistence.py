@@ -1883,3 +1883,24 @@ async def test_letter_truth_audits_receive_the_keyword_ledger(db_with_cover_lett
 
     assert audit.await_count >= 2, audit.await_args_list
     assert [c.kwargs.get("keyword_ledger") for c in audit.await_args_list] == [ledger] * audit.await_count
+
+
+@pytest.mark.asyncio
+async def test_letter_truth_audit_reads_the_ledger_when_the_pdf_render_failed(db_with_cover_letter):
+    """ADR-100 M-3: the ATS block reads the ledger after the PDF render; when the
+    render fails the truth audit (no PDF needed) still gets the ledger — found by
+    the full gate as an UnboundLocalError that left the report NULL."""
+    from applire.services.cover_letter import _update_ats_report_letter
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl = await session.get(GeneratedCoverLetter, ctx["cl_id"])
+    ledger = [{"concept": "Python", "surface_forms": ["Python"], "claimable": True, "status": "direct"}]
+    audit = AsyncMock(return_value={"claims": []})
+    with patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(side_effect=RuntimeError("chromium died"))), \
+         patch("applire.services.cover_letter._latest_keyword_ledger", new=AsyncMock(return_value=ledger)), \
+         patch("applire.services.cover_letter._letter_truth_audit", new=audit):
+        await _update_ats_report_letter(cl, session)
+    assert audit.await_args.kwargs["keyword_ledger"] == ledger
+    assert cl.truthfulness_report == {"claims": []}

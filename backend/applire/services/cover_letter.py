@@ -4858,6 +4858,7 @@ async def _update_ats_report_letter(
     # re-audit doors run no terminal review, and dropping the check there would let a
     # later section edit launder a letter that shipped on an exhausted review.
     previous_report = cl.ats_report if isinstance(cl.ats_report, dict) else None
+    ledger: list[dict] | None = None  # read in the ATS block; the truth audit reuses it
     try:
         from applire.services.ats_audit import audit_cover_letter, non_claim_names_for_job
         from applire.services.cover_letter_pdf import render_pdf
@@ -4941,6 +4942,15 @@ async def _update_ats_report_letter(
         # deleted) leaves it ``None`` — the seam then stays off, fail-open,
         # exactly like the pre-ADR-068 report.
         judgement_job = await db.get(JobAnalysis, cl.job_analysis_id)
+        # ADR-100 M-3: the job ledger (its verified backing quotes). The ATS block
+        # above may have failed before reading it (a PDF render error) — the
+        # truth audit needs no PDF, so it reads the ledger itself then; a ledger
+        # that cannot be read audits against the vault alone.
+        if ledger is None:
+            try:
+                ledger = await _latest_keyword_ledger(db, cl.job_analysis_id, user_id=cl.user_id)
+            except Exception:
+                logger.exception("letter truth audit: keyword ledger unavailable for %s", cl.id)
         cl.truthfulness_report = await _letter_truth_audit(
             profile_row.profile_json if profile_row else {},
             audited,

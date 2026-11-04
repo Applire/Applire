@@ -568,3 +568,17 @@ async def test_letter_truth_audit_hands_the_ledger_to_the_self_audit(monkeypatch
     await cover_letter._letter_truth_audit(VAULT, {"body": {"paragraphs": ["x"]}}, form_inputs=None,
                                            document_language="en", keyword_ledger=LEDGER)
     assert seen["keyword_ledger"] is LEDGER
+
+
+@pytest.mark.asyncio
+async def test_summary_naming_another_employer_gets_no_foreign_backing():
+    """Found by the planted-mismatch replay: a CV summary has no extractor anchor,
+    so "… at Möwenhafen" was offered Kestrel's quote (the judge said no; the
+    deterministic line now does)."""
+    judge = _Judge(answer=True)
+    report = await audit_document(
+        "cv", VAULT, provider=judge, document_language="en", keyword_ledger=LEDGER,
+        tailored_data=_cv(summary="Integration lead who ran MES integration at Möwenhafen Spedition AG."),
+    )
+    assert _by_loc(report)["summary[0]"].verdict != "grounded"
+    assert all(Q_MES not in b for b in judge.batches)
