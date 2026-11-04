@@ -581,6 +581,8 @@ Keyword coverage itself is unchanged and stays status-blind: a denied requiremen
 
 Two consequences worth stating plainly, because both are visible. First, **a match score you have already been shown can move** — down as well as up. Applire would rather show you a number that matches the document you are about to send than a flattering one that does not; the guard that stops the score falling elsewhere (where extra evidence can only ever raise it) is deliberately not applied here. Second, the check that says *a claim must have something in your profile behind it* now also runs on the way into a document, so a profile that **shrank** since the analysis is caught before the CV is written, not after.
 
+**Amended (2026-11-04, ADR-100).** The classifier no longer needs the profile to name the requirement in the posting's words for a `direct`; it judges meaning in any language and cites one verbatim span from the profile, which the ledger's backing check verifies.
+
 ---
 
 ### ADR-041 — Master Profile Health (Integrity Tiering & Standalone Review)
@@ -796,6 +798,8 @@ There is also a testing consequence worth stating plainly for contributors. CI m
 The general lesson for contributors: a check that runs last is a check nothing else can catch. If you add a deterministic pass after the review loop, assume its mistakes ship.
 
 **Status:** The rule is in force for new code. Six existing sites are known violations (five from the original survey, a sixth found after it closed) and are being replaced incrementally rather than all at once. **One is now clear:** the interview's answer-choice filter used a phrase list to decide "is this text a denial?", and was found to be silently deleting honest denial choices as if they were unsupported claims. It was deleted rather than tuned — the generator now states each choice's level and the filter compares that fact. Five remain.
+
+**Amended (2026-11-04, ADR-100).** A third tier sits between fact and judgement: a *hint* — something code finds by comparing text with text. It never blocks and reaches a model only as a confirm-or-reject task with a quote. "This span exists verbatim in one profile entry" is a fact.
 
 ---
 
@@ -1509,6 +1513,24 @@ Rows carry their class and resolver from the producer (`delivery_class`, `resolv
 The CV and letter previews now draw the PDF's page breaks ("— PAGE 2 OF 3 —"): the preview applies the template's own print rules and `@page` margins and moves blocks the way the PDF engine does. On synthetic two- to four-page documents across all seven templates and both document kinds, the preview's page count matched the rendered PDF in 28 of 28 cases. The PDF stays the authority for the page count.
 
 **Hardened after the delivery runs (2026-10-29).** The CV review loops gained a shape check, the counterpart of the letter's: a corrector reply without CV prose counts as a failed correction, and the last good draft ships — before this, such a reply could ship an empty CV. A figure from the candidate's documents is written as part of its own role or project, never as an unrelated sentence. The automatic page shortening keeps at least eight skills and names what it cut on the page card. An acronym and its fixed expansion count as one skill. A second import keeps a role's dates. Two code advisories no longer ask back what another check just removed. A project the profile ties to a role is placed under that role by code, in the composed CV and in every view the review rounds read, so a corrector cannot create a second copy. A role keeps at least one bullet of its own, and the PDF templates and the preview break a role together with its nested projects. In the letter, a limit the posting does not ask about is owed nothing, and coverage means the evidence, never the posting's word. In the interview, an answer that records a "no" closes the topic: there is no follow-up on it.
+
+### ADR-100 — Code Checks Facts, the Model Judges with a Verbatim Quote (accepted 2026-11-04, not yet built)
+
+A founder test after a gap interview showed answered requirements ("LIMS integration", "API strategy") falling back to *gaps* and the match score dropping. The candidate's profile said the same things in German; the job posting was in English. The gap classifier had judged the requirements met; a later check then looked for the posting's literal words in the profile, found none, and demoted the rows. The writer was then told the concepts were "NOT in the profile".
+
+ADR-100 separates what code may decide from what a model decides:
+
+- **Fact** — code decides and may block: ids, enums, counts, dates, figures, schema shape, a recorded denial, and *"this quoted span exists word for word in one profile entry"*.
+- **Hint** — code finds something by comparing text with text ("term not literally found", "language mix suspected"); a model decides. A hint never blocks and reaches a model only as a task: confirm or reject, quoting the text that decides it.
+- **Judgment** — a model decides meaning and cites a verbatim span from the profile. Code checks only that the span exists; whether it supports the claim is checked by a second model (the document reviewers).
+
+Applied to the keyword ledger: the gap classifier judges each requirement by meaning, in any language, and must quote one span from one profile entry (`evidence_quote`). The ledger's backing floor accepts a row when the literal check finds the term **or** the quote verifies (`quote_in_vault`: one entry, token-bounded, a minimum length, CJK-aware). The quote is stored on the row (`backing`) and re-checked whenever the floor runs again, so an edited or deleted entry still demotes the row. Ledger `status` / `claimable` stay the only fields downstream code reads. Prompts state a result at its real strength ("no verifiable quote" rather than "not in the profile").
+
+Two questions stay apart: *is a claim backed by the profile?* (the above) and *does the document contain the posting's ATS term?* The second stays a literal check on the document, because applicant tracking systems match literally; a term may be written into the document when the claim is backed, even if the profile phrases it differently.
+
+Acceptance gate for this and every later change under the ADR: the same synthetic case as profile in German, English and Chinese against postings in English, German and French must give the same result within run-to-run variation. On that case the new rule scored 0.76–0.80 in every combination (ground truth 0.80), where the literal floor ranged 0.20–0.68. A consequence users will notice: match scores rise toward what the profile actually supports.
+
+This reverses the August rule that a "direct" match needs the profile's own words for the requirement, and amends ADR-048, ADR-061, ADR-062 and ADR-066.
 
 ### Master Profile JSONB Shape
 

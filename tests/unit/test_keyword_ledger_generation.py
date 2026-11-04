@@ -89,8 +89,8 @@ class TestCvTailoringConsumesLedger:
         low = prompt.lower()
         assert "do not claim" in low or "do-not-claim" in low or "never claim" in low
         # Rust must live under the do-not-claim heading, never in the claimable block.
-        claimable_block, sep, forbidden_block = low.partition("do not claim (honest gaps")
-        assert sep, "expected an explicit do-not-claim (honest gaps) heading"
+        claimable_block, sep, forbidden_block = low.partition("do not claim (the analysis found no evidence")
+        assert sep, "expected an explicit do-not-claim heading (ADR-100 cl. 6 wording)"
         assert "rust" in forbidden_block
         assert "rust" not in claimable_block
 
@@ -135,8 +135,8 @@ class TestCvSegmentedSummaryConsumesLedger:
     def test_honest_gap_term_is_in_do_not_claim_section_not_as_a_strength(self):
         prompt = self._prompt()
         low = prompt.lower()
-        claimable_block, sep, forbidden_block = low.partition("do not claim (honest gaps")
-        assert sep, "expected an explicit do-not-claim (honest gaps) heading"
+        claimable_block, sep, forbidden_block = low.partition("do not claim (the analysis found no evidence")
+        assert sep, "expected an explicit do-not-claim heading (ADR-100 cl. 6 wording)"
         assert "rust" in forbidden_block
         assert "rust" not in claimable_block
 
@@ -205,8 +205,8 @@ class TestCoverLetterConsumesLedger:
         prompt = self._prompt()
         low = prompt.lower()
         assert "do not claim" in low or "do-not-claim" in low or "never claim" in low
-        claimable_block, sep, forbidden_block = low.partition("do not claim (honest gaps")
-        assert sep, "expected an explicit do-not-claim (honest gaps) heading"
+        claimable_block, sep, forbidden_block = low.partition("do not claim (the analysis found no evidence")
+        assert sep, "expected an explicit do-not-claim heading (ADR-100 cl. 6 wording)"
         assert "rust" in forbidden_block
         assert "rust" not in claimable_block
 

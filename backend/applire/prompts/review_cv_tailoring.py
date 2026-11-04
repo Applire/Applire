@@ -235,8 +235,8 @@ Check for ALL of the following:
    entry. NEVER ask for the figure to be removed, rounded away or made vaguer — a line
    vaguer than the truth is the opposite defect and is equally damaging.
 6. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
-   CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (honest
-   gaps NOT in the profile). Two checks:
+   CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (no
+   evidence found for them in the profile). Two checks:
    (a) VERIFIED COVERAGE (US213, #122): do NOT scan for absent claimable keywords yourself — a
        deterministic literal check runs before you and, when claimable keywords are verifiably
        absent, a VERIFIED COVERAGE CHECK block is appended to your input naming them with their

@@ -15,6 +15,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v9 (ADR-100, 2026-11-04 — founder UAT-3 follow-up): JUDGE MEANING, AND QUOTE IT
+#   replaces v7/v8's OWN-WORDS rule. The old rule told the model a later check would refuse any
+#   term the profile does not spell, so its verdict moved with the vault's language before any
+#   code ran ("La formulation exacte n'apparaît pas" — a DE vault + FR posting graded partial,
+#   the same case EN-EN graded direct). The model now judges meaning in any language and cites
+#   ONE verbatim span (`evidence_quote`, required for direct/partial); the ledger floor checks
+#   only that the span exists in one claimable vault unit (`citation.quote_in_vault`).
+#   Measured on the synthetic LIMS twin (luna, thinking off; 6 language constellations x 2):
+#   score 0.76-0.80 everywhere (truth 0.80) vs 0.20-0.68 under v8 + the literal floor; 164/176
+#   claimed rows quoted a whole vault entry verbatim. 08-11 replay (the v7 Digitalisierung
+#   case): every quote verifies, no evidence-less required row.
+#
 # Prompt version: v8 (Hazelnut build 3 / WP-G, 2026-10-22): the OWN-WORDS rule names the case
 #   it never drew — the profile naming the SAME competence in other words ("Jahresabschluss
 #   (HGB)" for "Jahresabschluss-Reporting") is another NAME for it: list that wording among
@@ -144,7 +156,7 @@ You will receive:
 
 Classify EVERY entry in REQUIREMENTS (required, nice_to_have, AND keywords) into exactly one status:
   • "direct"  — the candidate clearly has this AND meets any stated years/seniority bar AND the
-                CANDIDATE PROFILE names the requirement itself (see THE PROFILE'S OWN WORDS below)
+                CANDIDATE PROFILE states it, in any language or wording (see JUDGE MEANING below)
   • "partial" — likely/inferred from context (adjacent skills, employer/domain), OR the skill is
                 present but the candidate's years are below a stated bar or cannot be confirmed
   • "gap"     — no signal in the profile
@@ -175,21 +187,19 @@ Rules:
       (b) BELOW THE BAR — the candidate has exactly the named thing, just less of it than asked.
           Omit "adjacent_evidence" entirely; there is nothing else to promote.
     Never invent an adjacency to fill the field, and never set it on a "direct" entry.
-  - THE PROFILE'S OWN WORDS DECIDE "direct". Classify a requirement "direct" only when the
-    CANDIDATE PROFILE actually names it — the requirement's own term, or one of the
-    "surface_forms" you list for it. When the profile supports the requirement only through
-    DIFFERENTLY-NAMED capabilities (the posting asks for "Digitalisierung"; the profile says
-    "MES-Einführung" and "Industrie-4.0-Roadmap"), that is case (a) ADJACENT above: classify it
-    "partial" and set "adjacent_evidence" to the profile's own name(s) for those capabilities.
-    Never "direct". The profile naming the SAME competence in its own wording is different:
-    "Lean Management (5S, SMED, KVP)" for "Lean-Produktion", "Jahresabschluss (HGB)" for
-    "Jahresabschluss-Reporting", "Backend engineer" for "Backend engineering" are other NAMES
-    for the requirement itself, not other capabilities — list that wording among its
-    "surface_forms" exactly as the profile writes it and classify "direct". This is not a wording preference: a claim to a term the profile does not
-    contain is refused by a later check, and the requirement then reaches the CV and cover-letter
-    writers carrying NO evidence at all — strictly worse for the candidate than the honest
-    "partial" you could have given them. Judge whether the profile NAMES the thing; do not judge
-    whether the words are a good match.
+  - JUDGE MEANING, AND QUOTE IT. Classify by what the CANDIDATE PROFILE states, in whatever
+    language or wording it uses: the profile may be written in another language than the posting,
+    and a translation or paraphrase of the requirement IS the requirement. "direct" = the profile
+    states this competence itself; "partial" = it states an adjacent capability, or less of it than
+    asked (cases (a)/(b) above); "gap" = nothing in the profile bears on it. A bare list entry (a
+    skill name with no described use) is at most "partial" for a requirement that asks for a
+    practice or a responsibility.
+    For every "direct" or "partial" entry set "evidence_quote": ONE span copied character for
+    character from ONE entry of the CANDIDATE PROFILE (one responsibility, one achievement, one
+    skill, one summary sentence), in the profile's own language: never translated, never stitched
+    from two entries, never taken from the CANDIDATE INTERVIEW STATEMENTS. The span must itself show
+    the competence; a span that merely shares a word with the requirement does not. If no such
+    span exists, the status is "gap". Code checks only that the span exists verbatim.
   - STANCE: a denial or negative statement by the candidate ("I have no hands-on Azure
     experience", "AWS, not Azure") is evidence AGAINST that skill. Classify such a requirement
     "gap" — never "direct" or "partial" — and never cite a denial as supporting evidence.
@@ -248,6 +258,7 @@ Schema:
       "requirement": "exact requirement string from REQUIREMENTS",
       "status": "direct|partial|gap",
       "reason": "PUBLISHED TO THE DOCUMENT WRITERS as the candidate's claimable evidence for this requirement: what the profile shows the candidate genuinely has. Never state a ceiling, a shortfall, or your grading logic here — those go in classification_note.",
+      "evidence_quote": "REQUIRED when status is direct or partial: one span copied VERBATIM from ONE CANDIDATE PROFILE entry, in the profile's own language, that shows this competence. Omit for gap.",
       "classification_note": "INTERNAL, never shown to any writer or reviewer: why this status follows — including any declared-proficiency ceiling you applied. Omit when you have nothing to add beyond reason.",
       "adjacent_evidence": "ONLY when status is partial AND the reason is that the candidate has a DIFFERENT but adjacent capability: the profile's own name for that capability. Omit otherwise.",
       "surface_forms": ["other NAMES for this same competence — see SURFACE FORMS below. e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"]
