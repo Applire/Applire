@@ -276,3 +276,17 @@ def test_unaddressed_block_never_frames_a_denial_per_concept():
     )
     assert "ASKED AND STATED" not in block
     assert "KEY-REQUIREMENT GAPS" in block
+
+
+def test_d29_one_home_per_fact_survives_in_the_gap_ladder_rule_on_both_doors():
+    """D-29 lived in the deleted REQUIRED block; the gap ladder rule is its one home now —
+    rendered into the writer block AND the loop's gap_positioning instruction."""
+    from applire.services.cover_letter import build_gap_positioning_entry
+
+    gaps = key_requirement_gaps(_ledger(), DENIED, JD)
+    named = gaps_to_name(gaps)
+    for text in (render_gap_ladder_block(gaps, named, "en"),
+                 build_gap_positioning_entry(gaps, named, "en")["instruction"]):
+        flat = _flat(text)
+        assert "one home per fact" in flat
+        assert "never introduces it again" in flat

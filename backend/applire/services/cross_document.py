@@ -757,13 +757,21 @@ def _einarbeiten_examples(language: str | None, label: str) -> str:
 
 
 def gap_ladder_rule(language: str | None, named: list[KeyGap]) -> str:
-    """The G-1 sentence rule, with examples for the first named gap."""
+    """The G-1 sentence rule, with examples for the first named gap.
+
+    Carries D-29's ONE HOME PER FACT over from the deleted REQUIRED block (Hazelnut
+    build 5, delivery run 6: the writer re-introduced the candidate's main system in
+    the gap paragraph; replay luna n=10×2, second introduction 8/20 -> 3/20)."""
     label = named[0].label if named else "X"
     return (
         "For EACH named gap write ONE sentence, inside the single honest-gap paragraph: "
         "the gap first, as a plain fact about the work (\"Mit X habe ich noch nicht "
         "gearbeitet\", \"X is new to me\"), then — in the SAME sentence — a transfer "
         "argument grounded in the profile (a recorded capability that carries over). "
+        "ONE HOME PER FACT (D-29): when the transfer is a system or project the letter "
+        "already introduced, the gap sentence names it back in a few words (\"no X "
+        "experience, but that system …\") and never introduces it again (no second \"At "
+        "<employer>, I lead …\"). "
         "Where the profile holds no such transfer, the sentence closes with the "
         f"einarbeiten clause instead, e.g. {_einarbeiten_examples(language, label)} "
         "Never a list of lacks, never several gaps in one clause, never \"not recorded\", "
