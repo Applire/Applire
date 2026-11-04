@@ -943,9 +943,13 @@ def build_motivation_entry(
     entry["instruction"] = (
         "REQUIRED content (RULING G-2): no motivation was typed, so the letter carries 1–2 "
         "sentences of motivation in the opening or motivation paragraph, derived from the "
-        "grounded fit — what in this posting meets what the candidate has done, and what "
-        "the candidate knows of this employer from their own record"
-        + (" (``candidate_record``: they held a position there)" if employer_record else "")
+        "grounded fit — what in this posting meets what the candidate has done"
+        + (
+            ", and the candidate's own work at this employer (``candidate_record``: only "
+            "what the profile records under THAT position, within its dates; an ``ended`` "
+            "position is the past and grounds no present-tense knowledge of the employer "
+            "today)" if employer_record else ""
+        )
         + ". Never an invented feeling, personal history or event. Its absence is a review "
         "issue; a motivation sentence that names the grounded fit is not a finding."
     )
@@ -1831,8 +1835,8 @@ async def _render_cover_letter_body(
                             "paragraph, grounded ONLY in the job_description text above"
                             + (
                                 " or in the candidate's own record of this employer "
-                                "(``candidate_record`` and what the profile states about "
-                                "their work there — RULING G-2)"
+                                "(``candidate_record`` and what the profile records under "
+                                "THAT position, within its dates — RULING G-2)"
                                 if employer_record else ""
                             )
                             + ". Its absence from the letter body is a review issue."

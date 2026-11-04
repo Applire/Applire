@@ -212,7 +212,7 @@ def test_reviewer_check_four_enumerates_the_required_gap_entry_by_name():
         check4 = p[p.index("4. REQUIRED CONTENT NOT DELIVERED"):p.index("5. A DETERMINISTIC BLOCK")]
         low = _flat(check4)
         assert "``gap_positioning``" in low and "``motivation``" in low
-        assert "positioning decision" in low
+        assert "without its decision: block" in low   # HALF-DELIVERY (narrowed b6 follow-up)
         assert "``stated_limits`` is a constraint only" in low
         # The reviewer must also be told the INVERSE direction, or it accepts an
         # invented limit as compliance: check 1's INVENTED LIMIT bullet must exist.

@@ -262,7 +262,7 @@ or incomplete; anything you notice outside them is `minor` by definition.
    ``stated_limits`` is a constraint only. Withheld detail ("kann ich nicht nennen")
    written in IS a finding (DEL-1).
    HALF-DELIVERY (#732): a standalone negative, its strength in a later sentence or a
-   list, is the gap WITHOUT its positioning decision. Quote it, name the strength, block.
+   list, is a gap WITHOUT its decision: block. Closing on the einarbeiten clause is whole.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate supports whose posting
      words the letter lacks. You judge two things: is its evidence already stated

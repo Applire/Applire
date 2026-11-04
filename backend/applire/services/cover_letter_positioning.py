@@ -565,8 +565,9 @@ def _core_employer_name(name: str | None) -> str:
 def employer_stations(profile_json: dict | None, company: str | None) -> list[dict]:
     """The candidate's recorded positions at ``company`` (the target employer).
 
-    ``[{"role", "company", "start_date", "end_date"}]`` in profile order; ``[]`` when
-    the company is unknown or no position matches. Pure; malformed tolerant."""
+    ``[{"role", "company", "start_date", "end_date", "ended"}]`` in profile order; ``[]``
+    when the company is unknown or no position matches. ``ended`` is a fact: the entry
+    is not current and carries an end date. Pure; malformed tolerant."""
     target = _core_employer_name(company)
     if not target:
         return []
@@ -576,28 +577,47 @@ def employer_stations(profile_json: dict | None, company: str | None) -> list[di
             continue
         if _core_employer_name(entry.get("company")) != target:
             continue
+        current = bool(entry.get("is_current"))
+        end = "present" if current else (entry.get("end_date") or "")
         out.append({
             "role": entry.get("role") or "",
             "company": entry.get("company") or "",
             "start_date": entry.get("start_date") or "",
-            "end_date": entry.get("end_date") or ("present" if entry.get("is_current") else ""),
+            "end_date": end,
+            "ended": not current and bool(end),
         })
     return out
 
 
 def render_employer_record(stations: list[dict]) -> str:
     """One line for the writer's COMPANY & DOMAIN ENGAGEMENT block; ``""`` when the
-    candidate has no recorded position at the target employer."""
+    candidate has no recorded position at the target employer.
+
+    Hazelnut b6 follow-up (2026-11-04): the line states each station's time frame and
+    whether it has ENDED (facts, ADR-062) and binds the engagement to that station's
+    own facts. The first wording called the station "the candidate's own knowledge of
+    this employer" with no tense or ownership bound; on the synthetic former-employer
+    case a delivered letter claimed present-tense insider knowledge ("kenne ich … aus
+    eigener Praxis", station ended 2018) and a first draft moved another employer's
+    achievements onto the target employer."""
     if not stations:
         return ""
     held = "; ".join(
-        f"{s['role']} at {s['company']} ({s['start_date']}–{s['end_date']})".strip()
+        f"{s['role']} at {s['company']} ({s['start_date']}–{s['end_date']}"
+        f"{', ENDED' if s.get('ended') else ''})".strip()
         for s in stations
     )
-    return (
+    line = (
         "THE CANDIDATE'S OWN RECORD OF THIS EMPLOYER: the profile records a position "
-        f"there — {held}. What the profile states about the work done there (the "
-        "products, therapies, systems or markets the candidate worked on) is the "
-        "candidate's own knowledge of this employer: it may ground the engagement and "
-        "the motivation, exactly as the job description does."
+        f"there — {held}. Only what the profile states under THAT position (the "
+        "products, therapies, systems or markets worked on there) may ground the "
+        "engagement and the motivation; an achievement recorded under another employer "
+        "stays with that employer and is never placed here."
     )
+    if any(s.get("ended") for s in stations):
+        line += (
+            " An ENDED position is the past: write it in the past tense and within its "
+            "dates (\"as … there from YYYY to YYYY, I …\") — it grounds no present-tense "
+            "knowledge of the employer today (its current teams, systems or ways of working)."
+        )
+    return line

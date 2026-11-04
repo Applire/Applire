@@ -203,7 +203,8 @@ async def test_SEAM_writer_gets_both_gaps_of_two_and_the_named_statement_leaves_
 async def test_SEAM_writer_gets_the_candidates_own_record_of_the_employer(letter_db, monkeypatch):
     captured = await _run(letter_db, LEDGER_3, JD_3, monkeypatch)
     record = captured["writer_kwargs"]["employer_record"]
-    assert "Integration Architect at Nordlicht Therapeutics SE" in record
+    assert "Integration Architect at Nordlicht Therapeutics SE (2014-03–2018-12, ENDED)" in record
+    assert "An ENDED position is the past" in record
 
 
 @pytest.mark.asyncio
@@ -214,7 +215,10 @@ async def test_SEAM_loop_source_carries_the_same_gaps_the_motivation_and_the_rec
     assert pr["gap_positioning"]["gap_count"] == 3
     assert [n["gap"] for n in pr["gap_positioning"]["named"]] == ["Kafka"]
     assert pr["motivation"]["required"] is True and "typed" not in pr["motivation"]
-    assert pr["company_domain_engagement"]["candidate_record"][0]["role"] == "Integration Architect"
+    record = pr["company_domain_engagement"]["candidate_record"][0]
+    assert record["role"] == "Integration Architect" and record["ended"] is True
+    assert "within its dates" in pr["company_domain_engagement"]["instruction"]
+    assert "within its dates" in pr["motivation"]["instruction"]
     assert "required" not in pr["stated_limits"]           # constraint only (G-1)
     assert pr["stated_limits"]["limits"] == [STATEMENT]
 
