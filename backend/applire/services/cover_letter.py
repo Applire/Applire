@@ -1472,6 +1472,9 @@ async def _render_cover_letter_body(
                 from applire.services.profile import get_profile_for_user
 
                 profile = await get_profile_for_user(db, user_id)
+                # R-3: whether a CV exists decides the TOOL DURATIONS consistency
+                # condition (no CV → nothing to be consistent with).
+                tailored_cv = cv_data if cv_data else None
                 if profile is not None and not cv_data:
                     # ADR-061 clause 3: no CV exists yet, so this raw profile stands in
                     # as the writer's evidence — an unconfirmed skill/language/
@@ -1517,6 +1520,17 @@ async def _render_cover_letter_body(
                 is_v2 = pipeline == "v2"
                 if is_v2:
                     logger.info("LETTER_PIPELINE=v2 cl=%s language=%s", cl_id, detected_language)
+                    if tailored_cv is None and profile is not None:
+                        # R-3: on v2 the letter's ONLY duration channel is the TOOL
+                        # DURATIONS block below; the no-CV vault view carries no
+                        # derived span of its own (v1 keeps #747's hedge view).
+                        from applire.services.prompt_view import prompt_profile_view
+                        from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+                        cv_data = prompt_profile_view(
+                            exclude_unconfirmed(profile.profile_json or {}), derived_spans="drop",
+                            aims="label",  # ADV-2
+                        )
 
                 # ADR-048 / US201: load the latest Keyword Ledger for this job (read-only,
                 # mirrors cv.py) so the prompt surfaces claimable terms with their profile
@@ -1918,12 +1932,35 @@ async def _render_cover_letter_body(
                 from applire.services.letter_v2 import (
                     recorded_name_forms,
                     render_recorded_name_forms_block,
+                    render_tool_durations_block,
+                    tool_duration_facts,
                 )
 
                 writer_system = build_system_prompt(detected_language, pipeline=pipeline)
                 recorded_name_forms_block = (
                     render_recorded_name_forms_block(
                         recorded_name_forms(profile.profile_json if profile else {}),
+                        detected_language,
+                    )
+                    or None
+                    if is_v2
+                    else None
+                )
+
+                # R-3 (founder, 2026-11-04; WP3-1): per tool, the computed duration,
+                # the positions it is counted from and whether the CV shows the tool
+                # under them — the writer's, reviewer's and corrector's one duration
+                # channel. v2 only; "" (no block) when no tool spans a year.
+                tool_durations_block = (
+                    render_tool_durations_block(
+                        tool_duration_facts(
+                            exclude_unconfirmed(profile.profile_json) if profile else {},
+                            tailored_cv,
+                            priority=[
+                                e.get("concept", "") for e in keyword_ledger or []
+                                if isinstance(e, dict) and e.get("claimable")
+                            ],
+                        ),
                         detected_language,
                     )
                     or None
@@ -1966,6 +2003,7 @@ async def _render_cover_letter_body(
                     scope_positioning_block=scope_positioning_block,
                     pinned_facts_block=pinned_facts_block,
                     recorded_name_forms_block=recorded_name_forms_block,
+                    tool_durations_block=tool_durations_block,
                 )
                 # Explicit budget to match CV generation (cv.py): a signed letter must
                 # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
@@ -2002,7 +2040,9 @@ async def _render_cover_letter_body(
                         # "Kubernetes is also a confirmed skill." Dropped here only.
                         "profile": (
                             prompt_profile_view(
-                                exclude_unconfirmed(profile.profile_json), derived_spans="hedge",
+                                # R-3: v2 reads durations from TOOL DURATIONS only.
+                                exclude_unconfirmed(profile.profile_json),
+                                derived_spans="drop" if is_v2 else "hedge",
                                 entry_status="drop_confirmed",
                                 aims="label",  # ADV-2: the reviewer + corrector re-read this
                             )
@@ -2069,9 +2109,12 @@ async def _render_cover_letter_body(
                 from applire.services.cover_letter_positioning import (
                     render_role_titles_block,
                     vault_role_titles,
+                    with_cv_role_forms,
                 )
+                _vault_profile = profile.profile_json if profile else {}
                 role_titles_block = render_role_titles_block(
-                    vault_role_titles(profile.profile_json if profile else {})
+                    # Ruling R-2: the CV's translated title is the same title.
+                    with_cv_role_forms(vault_role_titles(_vault_profile), _vault_profile, tailored_cv)
                 )
                 if role_titles_block:
                     grounding_source = f"{grounding_source}\n\n{role_titles_block}"
@@ -2079,6 +2122,10 @@ async def _render_cover_letter_body(
                     # v2 only (None on v1): the reviewer and the corrector read the
                     # same recorded forms the writer was given.
                     grounding_source = f"{grounding_source}\n\n{recorded_name_forms_block}"
+                if tool_durations_block:
+                    # R-3 (v2 only): the same duration fact the writer was given — the
+                    # 11-04 durations entered in the review loop, not the first draft.
+                    grounding_source = f"{grounding_source}\n\n{tool_durations_block}"
                 # #270(c): compose (never replace) coverage_reviewer_prompt_fn with a
                 # SECOND deterministic wrapper — each reviewer iteration also carries the JD
                 # hard requirements the CURRENT draft has not addressed, recomputed fresh

@@ -1,6 +1,10 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""#747 — SEAM: the letter's two vault renderings hedge a derived span.
+"""#747 — SEAM: the letter's two vault renderings and a derived span.
+
+R-3 (founder, 2026-11-04, Hazelnut collectors WP3): on the v2 pipeline (the default)
+the two renderings carry NO derived span; the TOOL DURATIONS fact is the letter's
+one duration channel. v1 keeps the #747 hedge below.
 
 `services/cover_letter.py` renders the vault twice for the letter chain: as the
 writer's `cv_data` on the no-CV branch, and inside `grounding_source`, which the
@@ -112,9 +116,9 @@ def _skills_by_name(profile_block: dict) -> dict:
     return {s["name"]: s for s in (profile_block.get("skills") or [])}
 
 
-@pytest.mark.asyncio
-async def test_SEAM_both_letter_renderings_hedge_the_derived_span(letter_seeded):
-    db, job, cl = letter_seeded
+async def _run(db, job, cl) -> dict:
+    """Drive the real background task once; capture the review loop's sources and
+    the writer prompt's keyword arguments."""
     captured: dict = {}
 
     async def fake_loop(**kw):
@@ -123,6 +127,7 @@ async def test_SEAM_both_letter_renderings_hedge_the_derived_span(letter_seeded)
 
     def fake_writer_prompt(**kw):
         captured["cv_data"] = kw.get("cv_data")
+        captured["writer_kwargs"] = kw
         return "PROMPT"
 
     provider = MagicMock()
@@ -140,19 +145,98 @@ async def test_SEAM_both_letter_renderings_hedge_the_derived_span(letter_seeded)
         sl.return_value.__aenter__.return_value = db
         from applire.services.cover_letter import _render_cover_letter_background
         await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+    return captured
 
-    # Call site 1 — grounding_source (reviewer + corrector, every round).
+
+@pytest.mark.asyncio
+async def test_SEAM_v2_letter_renderings_carry_no_derived_span_and_one_TOOL_DURATIONS_fact(
+    letter_seeded, monkeypatch
+):
+    """R-3 (founder, 2026-11-04): on v2 (the default) the letter's ONLY duration channel
+    is the TOOL DURATIONS block — in the writer prompt AND the review loop's source.
+    Both vault renderings drop a derived span (``derived_spans="drop"``); the 11-04
+    "over 7 years of MuleSoft" entered through the review loop's hedge view."""
+    monkeypatch.delenv("LETTER_PIPELINE", raising=False)
+    db, job, cl = letter_seeded
+    captured = await _run(db, job, cl)
+
     sources = [s for s in captured.get("sources", []) if s]
     assert sources, "the letter review loop was never called with a grounding source"
     for src in sources:
         obj, _ = json.JSONDecoder().raw_decode(src)
         skills = _skills_by_name(obj.get("profile") or {})
         assert "years_experience" not in skills["SAP CO"], skills["SAP CO"]
-        assert skills["SAP CO"]["years_experience_derived"]["at_least"] == 7
+        assert "years_experience_derived" not in skills["SAP CO"], skills["SAP CO"]
         assert "years_experience" not in skills["Excel"]
-        assert skills["HGB"]["years_experience"] == 9
+        assert skills["HGB"]["years_experience"] == 9  # transcribed: the candidate's own
+        assert "TOOL DURATIONS" in src
+        assert '"über 7 Jahre"' in src  # no CV → the R-3 figure stands, hedged
 
-    # Call site 2 — the writer's cv_data on the no-CV branch.
     cv_skills = _skills_by_name(captured.get("cv_data") or {})
     assert "years_experience" not in cv_skills["SAP CO"], cv_skills["SAP CO"]
-    assert cv_skills["SAP CO"]["years_experience_derived"]["at_least"] == 7
+    assert "years_experience_derived" not in cv_skills["SAP CO"]
+    block = captured["writer_kwargs"].get("tool_durations_block") or ""
+    assert block.startswith("TOOL DURATIONS"), block
+    assert "SAP CO — since" in block and '"über 7 Jahre"' in block
+
+
+@pytest.mark.asyncio
+async def test_SEAM_v1_letter_renderings_keep_the_747_hedge(letter_seeded, monkeypatch):
+    """v1 (the opt-out) is unchanged: #747's hedge view, no TOOL DURATIONS block."""
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
+    db, job, cl = letter_seeded
+    captured = await _run(db, job, cl)
+    sources = [s for s in captured.get("sources", []) if s]
+    assert sources
+    for src in sources:
+        obj, _ = json.JSONDecoder().raw_decode(src)
+        skills = _skills_by_name(obj.get("profile") or {})
+        assert skills["SAP CO"]["years_experience_derived"]["at_least"] == 7
+        assert "TOOL DURATIONS" not in src
+    assert not captured["writer_kwargs"].get("tool_durations_block")
+
+
+@pytest.mark.asyncio
+async def test_SEAM_R2_letter_grounding_source_carries_the_cv_form_of_a_translated_title(
+        letter_seeded, monkeypatch):
+    """Ruling R-2 (WP3): with a CV that translated the single-form title, the letter's
+    RECORDED JOB TITLES block in the grounding source names the CV's form for the same
+    position — else the letter reviewer blocks the CV's own title "character for
+    character" (cover_letter._render_cover_letter_body → with_cv_role_forms)."""
+    from applire.models.cv import GeneratedCV
+
+    monkeypatch.setenv("LETTER_PIPELINE", "v2")
+    db, job, cl = letter_seeded
+    cv = GeneratedCV(
+        job_analysis_id=job.id, profile_id=cl.profile_id,
+        tailored_data={"work_history": [{
+            "id": "w-schwarzwald", "company": "Schwarzwald Präzision GmbH",
+            "role": "Finanzcontrollerin", "start_date": "2018-01", "bullets": ["SAP CO/FI key user."],
+        }]},
+    )
+    db.add(cv)
+    await db.commit()
+    await db.refresh(cv)
+    captured: dict = {}
+
+    async def fake_loop(**kw):
+        captured.setdefault("sources", []).append(kw.get("source"))
+        return kw["draft"]
+
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(
+        return_value={"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "x", "Mit freundlichen Grüßen"]}})
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as sl, \
+         patch("applire.services.cover_letter.get_provider", return_value=provider), \
+         patch("applire.services.cover_letter.build_cover_letter_prompt", return_value="PROMPT"), \
+         patch("applire.services.cover_letter.review_and_refine",
+               new=AsyncMock(side_effect=fake_loop)), \
+         patch("applire.services.cover_letter_pdf.render_pdf",
+               new=AsyncMock(side_effect=RuntimeError("no browser in unit test"))):
+        sl.return_value.__aenter__.return_value = db
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=cv.id, job_id=job.id)
+    sources = [s for s in captured.get("sources", []) if s]
+    assert sources
+    for src in sources:
+        assert 'the CV states this same title in its language as "Finanzcontrollerin"' in src

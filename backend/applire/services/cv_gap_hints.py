@@ -273,6 +273,13 @@ class UnderclaimedConcept:
     fit_weight: float
     surface_forms: tuple[str, ...]
     tag_only: bool
+    #: ADR-100 tier (Writer #786 / WP3, 2026-11-04): the company of the CV work entry
+    #: that holds the row's VERIFIED backing quote, when the document renders that
+    #: entry with bullets. The scan read the posting's WORDS; the candidate's evidence
+    #: may sit in that entry in other words or another language ("Led laboratory IT
+    #: with a team of six" for "Team leadership"). Set → the absence is a HINT for a
+    #: reader to confirm, never a Fact that the requirement is unevidenced.
+    evidence_entry: str | None = None
 
 
 # The prose-vs-composed shape adapter now lives in ``keyword_ledger`` — the module
@@ -399,12 +406,74 @@ def structured_section_texts(document: dict[str, Any] | None) -> list[str]:
     return out
 
 
+def _verified_backing(entry: dict[str, Any]) -> dict[str, Any] | None:
+    backing = entry.get("backing") or {}
+    if backing.get("unit_path") and (backing.get("quote") or "").strip():
+        return backing
+    return None
+
+
+def structured_backing_delivered(entry: dict[str, Any], document: dict[str, Any] | None) -> bool:
+    """ADR-100 Fact (WP3, 2026-11-04): the row's verified backing cites a unit of a
+    vault-joined structured section (LANGUAGES / CERTIFICATIONS / EDUCATION), and the
+    document's SAME section carries the backing quote — a language by its canonical
+    English name too (``LANGUAGE_NAME_DE_EN``, the table ``structured_section_texts``
+    already reads). Then the requirement is DELIVERED by that section, whatever words
+    the posting used: the 11-04 E2E CV terminal review demanded the literal "German
+    language skills" five rounds running beside "German: Native speaker" (backing
+    ``languages[0]`` = "Deutsch") and stopped on a cycle. Both halves are facts — a
+    persisted, code-verified quote and a string in a code-joined section — so no
+    judgement of meaning is made here (ADR-062 cl. 1)."""
+    backing = _verified_backing(entry)
+    if not backing or not document:
+        return False
+    section = str(backing["unit_path"]).split("[", 1)[0].split(".", 1)[0]
+    if section not in _STRUCTURED_SECTIONS:
+        return False
+    corpus = _norm(join_corpus_fragments(structured_section_texts({section: document.get(section) or []})))
+    if not corpus:
+        return False
+    quote = backing["quote"].strip()
+    forms = [quote]
+    if section == "languages":
+        from applire.services.cv import _LANGUAGE_NAME_CANON
+
+        canon = _LANGUAGE_NAME_CANON.get(quote.casefold())
+        if canon:
+            forms.append(canon)
+    return any(surface_present(f, corpus) for f in forms)
+
+
+def backing_evidence_entry(
+    entry: dict[str, Any], document: dict[str, Any] | None, vault_index: Any
+) -> str | None:
+    """The company of the document's work entry that owns the row's verified backing
+    unit, when that entry is rendered with at least one bullet — else None. Owner ids
+    come from the Oracle's vault index (``EvidenceUnit.owner_ids``, the same index
+    space the backing's ``unit_path`` was verified in: ``exclude_unconfirmed``)."""
+    backing = _verified_backing(entry)
+    if not backing or vault_index is None or not document:
+        return None
+    owners: frozenset[str] = frozenset()
+    for unit in getattr(vault_index, "units", None) or []:
+        if unit.path == backing["unit_path"]:
+            owners = unit.owner_ids
+            break
+    if not owners:
+        return None
+    for item in (document.get("work_history") or document.get("work") or []):
+        if isinstance(item, dict) and item.get("id") in owners and (item.get("bullets") or []):
+            return str(item.get("company") or item.get("id"))
+    return None
+
+
 def verified_narrative_underclaim(
     draft: dict[str, Any] | None,
     keyword_ledger: list[dict[str, Any]] | None,
     *,
     min_fit_weight: float | None = None,
     structured_document: dict[str, Any] | None = None,
+    vault_index: Any = None,
 ) -> list[UnderclaimedConcept]:
     """Claimable, JD-required concepts absent from the document's NARRATIVE corpus.
 
@@ -449,6 +518,8 @@ def verified_narrative_underclaim(
             continue
         if structured_norm and any(surface_present(f, structured_norm) for f in forms):
             continue
+        if structured_backing_delivered(entry, structured_document):
+            continue
         out.append(
             UnderclaimedConcept(
                 concept=(entry.get("concept") or "").strip(),
@@ -456,6 +527,7 @@ def verified_narrative_underclaim(
                 fit_weight=float(entry.get("fit_weight") or 0.0),
                 surface_forms=forms,
                 tag_only=any(surface_present(f, document_norm) for f in forms),
+                evidence_entry=backing_evidence_entry(entry, structured_document or draft, vault_index),
             )
         )
     return sorted(
@@ -479,6 +551,17 @@ def _issue_text(concept: UnderclaimedConcept) -> str:
     a term could push the corrector into stretching the evidence, which is the
     over-claim this whole direction exists to avoid making worse.
     """
+    if concept.evidence_entry:
+        # ADR-100 tier (WP3): the scan read words, the backing sits in this entry —
+        # a Hint the corrector confirms against the bullets, never a "not evidenced".
+        return (
+            f'No bullet uses the posting\'s words for "{concept.concept}"; the candidate\'s '
+            f"verified evidence for it is recorded under {concept.evidence_entry}. If a bullet "
+            "there already states that evidence in other words, it is delivered: leave it "
+            "unchanged and never insert the posting's word. Only if none does, surface it "
+            "there as narrative in the candidate's own terms; a skills-list entry does NOT "
+            "satisfy this, and never stretch beyond the evidence."
+        )
     where = (
         f'the CV claims "{concept.concept}" but no work-entry or project bullet shows it'
         if concept.tag_only
@@ -533,6 +616,7 @@ def underclaim_signal_issues_fn(
     limit: int = UNDERCLAIM_ISSUE_LIMIT,
     on_demand: Callable[[Sequence[UnderclaimedConcept]], None] | None = None,
     structured_document_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
+    vault_index: Any = None,
 ) -> Callable[[dict[str, Any]], Sequence[ReviewIssue]]:
     """Bind a ledger to :func:`underclaim_signal_issues` for ``review_and_refine``'s
     ``signal_issues_fn`` parameter — recomputed per round on the CURRENT draft, exactly
@@ -557,7 +641,7 @@ def underclaim_signal_issues_fn(
     def fn(draft: dict[str, Any]) -> Sequence[ReviewIssue]:
         structured = structured_document_fn(draft) if structured_document_fn else None
         concepts = verified_narrative_underclaim(
-            draft, keyword_ledger, structured_document=structured
+            draft, keyword_ledger, structured_document=structured, vault_index=vault_index
         )[:limit]
         if on_demand is not None:
             on_demand(concepts)

@@ -244,7 +244,9 @@ def prompt_profile_view(
     floor of the evidenced span, ``below`` = its ceiling, and the only
     wording the letter may use for it), and drops an ``llm_estimated`` span
     (no dated evidence: the Oracle could never check it). A ``transcribed``
-    span is the candidate's own number and is unchanged.
+    span is the candidate's own number and is unchanged. ``"drop"`` (R-3,
+    2026-11-04) removes a derived span outright: the letter's renderings, whose
+    only duration channel is the TOOL DURATIONS fact (``letter_v2``).
 
     ``entry_status`` (A-10, ADR-078 amended 2026-10-23) is a third clause-4
     narrowing: ``"keep"`` (default) leaves every entry's ``status``;
@@ -324,6 +326,8 @@ def prompt_profile_view(
 
     if derived_spans == "hedge":
         view = _hedge_derived_spans(view)
+    elif derived_spans == "drop":
+        view = _drop_derived_spans(view)
     if entry_status == "drop_confirmed":
         view = _drop_confirmed_status(view)
     if aims == "label":
@@ -505,28 +509,65 @@ def _hedge_derived_spans(view: dict[str, Any]) -> dict[str, Any]:
             span = evidenced_span_years(model, str(skill["name"]), bound="floor")
         if span is not None:
             years, _orgs = span
-            at_least = int(years)
-            if at_least < 1:
+            hedge = span_hedges(years)
+            if hedge is None:
                 # Under a year: no count a letter could state honestly.
                 out.append(rendered)
                 continue
-            # "knapp N+1" only when the span is within half a year of N+1 —
-            # the same N-0.5 floor the Oracle applies to "knapp/fast" (ADR-052
-            # amended 2026-10-07); 7.1 years is "über 7", never "knapp 8".
-            below = at_least + 1 if years - at_least >= 0.5 else None
-            over_de = "über ein Jahr" if at_least == 1 else f"über {at_least} Jahre"
-            over_en = "over one year" if at_least == 1 else f"over {at_least} years"
-            hedges_de = [over_de] + ([f"knapp {below} Jahre"] if below else [])
-            hedges_en = [over_en] + ([f"almost {below} years"] if below else [])
-            derived: dict[str, Any] = {"at_least": at_least}
-            if below:
-                derived["below"] = below
+            derived: dict[str, Any] = {"at_least": hedge["at_least"]}
+            if hedge["below"]:
+                derived["below"] = hedge["below"]
             derived["say"] = (
                 "derived from role dates, not stated by the candidate — only "
                 "hedged and never rounded up: "
-                + " / ".join(f'"{h}"' for h in hedges_de + hedges_en)
+                + " / ".join(f'"{h}"' for h in hedge["de"] + hedge["en"])
                 + '; never a flat "seit N Jahren" / "for N years"'
             )
             rendered["years_experience_derived"] = derived
         out.append(rendered)
+    return {**view, "skills": out}
+
+
+def span_hedges(years: float) -> dict[str, Any] | None:
+    """The wordings a letter may use for a span DERIVED from role dates (ruling T-1).
+
+    ``{"at_least": N, "below": N+1 | None, "de": [...], "en": [...]}`` — never
+    rounded up: 7.6 years is "über 7" / "knapp 8", never "8". ``None`` under one
+    year (no count a letter could state honestly). One wording for the hedge view
+    and the letter's TOOL DURATIONS fact (R-3, ``letter_v2``), so the two cannot
+    disagree with each other or with the Oracle's duration check (ADR-066)."""
+    at_least = int(years)
+    if at_least < 1:
+        return None
+    # "knapp N+1" only when the span is within half a year of N+1 — the same
+    # N-0.5 floor the Oracle applies to "knapp/fast" (ADR-052 amended
+    # 2026-10-07); 7.1 years is "über 7", never "knapp 8".
+    below = at_least + 1 if years - at_least >= 0.5 else None
+    over_de = "über ein Jahr" if at_least == 1 else f"über {at_least} Jahre"
+    over_en = "over one year" if at_least == 1 else f"over {at_least} years"
+    return {
+        "at_least": at_least,
+        "below": below,
+        "de": [over_de] + ([f"knapp {below} Jahre"] if below else []),
+        "en": [over_en] + ([f"almost {below} years"] if below else []),
+    }
+
+
+def _drop_derived_spans(view: dict[str, Any]) -> dict[str, Any]:
+    """``derived_spans="drop"`` (R-3, Hazelnut collectors 2026-11-04): a skill's
+    DERIVED span (``computed`` / ``llm_estimated``) leaves the view entirely. The
+    letter states a duration only from its TOOL DURATIONS fact
+    (``letter_v2.tool_duration_facts``), which also knows whether the CV shows the
+    tool under the positions the span is counted from; a second channel offering
+    the same span without that condition is what put "over 7 years of MuleSoft" into
+    the 11-04 letter. A ``transcribed`` span is the candidate's own number: kept."""
+    skills = view.get("skills")
+    if not isinstance(skills, list):
+        return view
+    out: list[Any] = []
+    for skill in skills:
+        if isinstance(skill, dict) and skill.get("source") in DERIVED_SPAN_SOURCES:
+            out.append({k: v for k, v in skill.items() if k != "years_experience"})
+        else:
+            out.append(skill)
     return {**view, "skills": out}

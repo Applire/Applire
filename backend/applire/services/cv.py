@@ -6418,6 +6418,15 @@ def _cv_prose_shape_ok(draft: Any) -> bool:
     )
 
 
+def _terminal_vault_index(profile_json: dict | None) -> Any:
+    """The vault index the ledger's backing ``unit_path`` was verified in (gap.py builds
+    it the same way: ``build_vault_index(exclude_unconfirmed(profile))``). None on any
+    failure — the under-claim demand then keeps its literal wording."""
+    from applire.services.ats_audit import grounding_vault_index
+
+    return grounding_vault_index(profile_json)
+
+
 async def _terminal_review(
     record: GeneratedCV,
     db: AsyncSession,
@@ -6759,6 +6768,9 @@ async def _terminal_review(
         # reviewer just read, since `review_and_refine` evaluates the signal on the same
         # `current_draft` it handed the reviewer.
         structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+        # ADR-100 tier (WP3, 2026-11-04): a row's verified backing in a rendered entry
+        # turns the demand into a confirm-or-surface Hint (cv_gap_hints._issue_text).
+        vault_index=_terminal_vault_index(raw_profile_json or profile_json),
     )
 
     # #659 (ruling W-1, 2026-09-13): the redundant bullet pairs the ATS audit computes

@@ -261,12 +261,12 @@ or incomplete; anything you notice outside them is `minor` by definition.
    later sentence or a list, is the limit WITHOUT its positioning decision — worst right
    after a strength. Quote it, name the strength, block: this is not `minor` paragraph order.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
-   - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
-     letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
-     term would stretch past its stated evidence, waive it (name the term and why) and it
-     stops blocking. Grounding outranks coverage, always. The block is already ranked and
-     already capped for this round: demand the terms it lists and no others, and cite that
-     term's own evidence from the block inside your issue text; a demand with no evidence
+   - VERIFIED COVERAGE CHECK — claimable terms the candidate supports whose posting
+     words the letter lacks. You judge two things: is its evidence already stated
+     (then it is delivered), and the GROUNDING WAIVER: a term that would stretch past its
+     evidence is waived (say why). Grounding outranks coverage, always. The block is
+     already ranked and already capped for this round: demand the terms it lists and no
+     others, and cite that term's own evidence from the block inside your issue text; a demand with no evidence
      cited is not a valid demand, and a term you cannot tie to evidence is waived, never
      demanded to fill a slot. Never phrase a demand in a way the writer can only satisfy
      by listing terms: three or more claimable terms strung together as a flat enumeration

@@ -48,11 +48,29 @@ def test_a_cv_draft_keeps_its_own_placement_rule_only():
     assert LETTER_COVERAGE_BY_EVIDENCE not in prompt
 
 
-def test_the_grounding_waiver_and_the_must_line_stay():
+def test_the_grounding_waiver_stays_and_the_letter_obligation_follows_the_evidence_rule():
+    """WP3 (ADR-100 tiers, 2026-11-04): on a letter the scan is a Hint. The CV's "You
+    MUST set approved=false while any term above remains absent" is gone from the letter
+    block — it stated the negation of LETTER_COVERAGE_BY_EVIDENCE — and the obligation
+    now names only a term whose evidence the letter does not state, AFTER the rule."""
     block = render_verified_coverage_block(
         [{"concept": "Technical leadership", "surface_forms": ["Technical leadership"]}], letter=True)
-    assert "You MUST set approved=false" in block
+    assert "You MUST set approved=false" not in block
+    assert "ground truth" not in block
     assert "Grounding strictly outranks coverage" in block
-    assert block.index("Grounding strictly outranks coverage") < block.index(LETTER_COVERAGE_BY_EVIDENCE)
+    assert block.index(LETTER_COVERAGE_BY_EVIDENCE) < block.index(
+        "Only a term whose evidence the letter does not state blocks")
+    assert "You MUST set approved=false" in render_verified_coverage_block(
+        [{"concept": "Technical leadership", "surface_forms": ["Technical leadership"]}])
     assert LETTER_COVERAGE_BY_EVIDENCE not in render_verified_coverage_block(
         [{"concept": "Technical leadership", "surface_forms": ["Technical leadership"]}])
+
+
+def test_wp3_the_letter_block_asks_for_a_quote_or_none_per_term():
+    """ADR-100 cl. 6: a Hint reaches a model as a task with a checkable answer."""
+    block = render_verified_coverage_block(
+        [{"concept": "Technical leadership", "surface_forms": ["Technical leadership"]}], letter=True)
+    assert 'quote in your analysis the letter\'s sentence that states its evidence, or write "none"' in block
+    assert "quote in your analysis" not in render_verified_coverage_block(
+        [{"concept": "Technical leadership", "surface_forms": ["Technical leadership"]}])
+

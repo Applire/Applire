@@ -1689,6 +1689,8 @@ def _coverage_split(
     ]
     if not claimable:
         return [], []
+    from applire.services.cv_gap_hints import structured_backing_delivered
+
     text_norm = ats_norm("\n".join(_draft_strings(draft)))
     present: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
@@ -1696,7 +1698,13 @@ def _coverage_split(
         forms = list(entry.get("surface_forms") or [])
         if entry.get("concept"):
             forms.append(entry["concept"])
-        (present if any(surface_present(f, text_norm) for f in forms) else missing).append(entry)
+        # ADR-100 Fact (WP3, 2026-11-04): a row whose verified backing is a LANGUAGES /
+        # CERTIFICATIONS / EDUCATION row the draft's same section carries is delivered
+        # by that section ("German language skills" beside "German: Native speaker").
+        delivered = any(surface_present(f, text_norm) for f in forms) or (
+            isinstance(draft, dict) and structured_backing_delivered(entry, draft)
+        )
+        (present if delivered else missing).append(entry)
     return present, missing
 
 
@@ -2025,6 +2033,36 @@ LETTER_COVERAGE_BY_EVIDENCE = (
     'provide <term> by …"), or as an inserted gloss ("… — a <term> — …").'
 )
 
+#: Letter #784 (WP3, ADR-100 tiers, Hazelnut collectors 2026-11-04): on a LETTER the
+#: scan below is a HINT — it reads the posting's WORDS and cannot see the same evidence
+#: written in other words or another language. The block used to open "this is ground
+#: truth … ABSENT" and close "You MUST set approved=false", with D-28's
+#: "delivered by its evidence" appended after: a block that states its own negation.
+#: Replay of the captured 11-04 state (luna, full loop): round 1 "team leadership
+#: evidence is delivered through leading six employees", round 3 "does not deliver the
+#: team-leadership evidence required by the coverage check" — REVIEW_EXHAUSTED on that
+#: one issue. On a letter the head and the obligation are stated at their true strength,
+#: as one confirm-or-demand task per term.
+_LETTER_COVERAGE_HEAD = (
+    "VERIFIED COVERAGE CHECK (deterministic literal scan of the posting's WORDS — it "
+    "cannot see the same evidence written in other words or another language). For these "
+    "claimable requirements the posting's words do not appear in the draft:"
+)
+_LETTER_COVERAGE_HEAD_BOUNDED = (
+    _LETTER_COVERAGE_HEAD[:-1]
+    + ". The list below IS THIS ROUND'S COMPLETE DEMAND SET, already ranked by how "
+    "central each is to this role: raise coverage for no term it does not carry:"
+)
+_LETTER_COVERAGE_TASK = (
+    "For EACH term above, quote in your analysis the letter's sentence that states its "
+    'evidence, or write "none" (ADR-100 cl. 6: a Hint is a task with a checkable answer). '
+    "Only a term whose evidence the letter does not state blocks: set approved=false and "
+    "name it in your issues so the writer surfaces the evidence from the candidate's own "
+    "source. EXCEPTION — the grounding waiver: if surfacing it would stretch beyond what "
+    "that source states, WAIVE it instead (name the term and the reason in your feedback). "
+    "Grounding strictly outranks coverage — never ask the writer to fabricate."
+)
+
 
 def render_verified_coverage_block(
     entries: list[dict[str, Any]],
@@ -2082,6 +2120,8 @@ def render_verified_coverage_block(
             "this round. Demand every term on it and no other — do not add a coverage "
             "demand for a term the list does not carry."
         )
+    if letter:
+        head = _LETTER_COVERAGE_HEAD_BOUNDED if bounded else _LETTER_COVERAGE_HEAD
     lines = [head, items_note("concept terms and surface forms")]
     any_owner = False
     for entry in entries:
@@ -2118,17 +2158,18 @@ def render_verified_coverage_block(
             "by no position in particular (summary, skills, education) — nothing is "
             "claimed either way there, and the anchoring judgement stays yours.",
         ]
-    lines += [
-        "",
-        "You MUST set approved=false while any term above remains both absent and "
-        "un-waived, and name the terms in your issues so the writer surfaces them from "
-        "the candidate's own source. EXCEPTION — the grounding waiver: if surfacing a "
-        "term would stretch beyond what that source states, WAIVE it instead (name the term "
-        "and the reason in your feedback); a waived term does not block approval. "
-        "Grounding strictly outranks coverage — never ask the writer to fabricate.",
-    ]
     if letter:
-        lines += ["", LETTER_COVERAGE_BY_EVIDENCE]
+        lines += ["", LETTER_COVERAGE_BY_EVIDENCE, "", _LETTER_COVERAGE_TASK]
+    else:
+        lines += [
+            "",
+            "You MUST set approved=false while any term above remains both absent and "
+            "un-waived, and name the terms in your issues so the writer surfaces them from "
+            "the candidate's own source. EXCEPTION — the grounding waiver: if surfacing a "
+            "term would stretch beyond what that source states, WAIVE it instead (name the term "
+            "and the reason in your feedback); a waived term does not block approval. "
+            "Grounding strictly outranks coverage — never ask the writer to fabricate.",
+        ]
     if skills_list:
         lines += [
             "",
