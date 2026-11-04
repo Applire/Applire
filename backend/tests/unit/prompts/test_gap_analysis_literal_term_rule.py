@@ -15,22 +15,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""A `direct` requires the profile's own words (ADR-048 amended 2026-08-13, #526).
+"""The classifier judges MEANING and quotes it (ADR-100, 2026-11-04; supersedes the
+ADR-048 2026-08-13 "own words" rule, #526).
 
 **What these tests are, and are not.** They are PINS on the prompt text and on the
 downstream shape the rule routes into. They are NOT evidence that the model obeys
 the rule — no unit test can be, because CI mocks the provider. That evidence is the
-captured-call replay of the run-1 classification against the real provider, and it
-is a real gate rather than a formality: in run 1 the model had the (a) ADJACENT
-branch available and used `adjacent_evidence` **zero times across 32
-classifications**.
+real-provider invariance gate of ADR-100 cl. 8 (synthetic LIMS twin, six language
+constellations).
 
-The seam being closed: two instruments decide whether the candidate "has" a
-requirement, and they ask different questions. This prompt judges by MEANING; the
-ADR-061/#318 affirmative floor grounds by LITERAL TERM, using the Oracle's own
-`ground_skill_claim`. Nothing reconciled them, so a `direct` graded on
-differently-named vault evidence was demoted to `gap` with its evidence blanked —
-and the adjacency the classifier had just cited was discarded with it.
+History, kept because the file name still carries it: v7 told the model a later
+check would refuse any term the profile does not spell, which closed the meaning-vs-
+literal seam by making the classifier's verdict depend on the vault's LANGUAGE
+(founder UAT-3: a German vault scored "C — Lücken" against an English posting on
+five concepts the interview had just established). v9 closes the same seam the
+other way: the model judges meaning in any language and cites one verbatim vault
+span; the floor checks only that the span exists (``citation.quote_in_vault``).
 """
 
 import pytest
@@ -42,29 +42,33 @@ from applire.services.keyword_ledger import (
 )
 
 
-def test_the_direct_status_definition_requires_the_profile_to_name_the_term():
+def test_the_direct_status_definition_is_language_neutral():
     """The status list itself carries the condition — a reader who only skims the
-    three bullets must still see it."""
+    three bullets must see that a differently-worded or other-language statement
+    counts, and must NOT see the retired own-words condition."""
     direct_line = next(
         line for line in SYSTEM_PROMPT.splitlines() if line.strip().startswith('• "direct"')
     )
     idx = SYSTEM_PROMPT.splitlines().index(direct_line)
     block = "\n".join(SYSTEM_PROMPT.splitlines()[idx:idx + 2])
-    assert "names the requirement itself" in block
+    assert "in any language or wording" in block
+    assert "names the requirement itself" not in block
+    assert "THE PROFILE'S OWN WORDS DECIDE" not in SYSTEM_PROMPT
 
 
-def test_the_rule_routes_the_differently_named_case_to_partial_plus_adjacent():
-    """The rule must name the destination, not merely forbid `direct` — a
-    prohibition with no alternative is how the run-1 dead cell was produced in the
-    first place."""
-    assert "THE PROFILE'S OWN WORDS DECIDE" in SYSTEM_PROMPT
-    rule = SYSTEM_PROMPT.split("THE PROFILE'S OWN WORDS DECIDE", 1)[1].split("  - ", 1)[0]
-    assert "surface_forms" in rule
-    assert '"partial"' in rule and '"adjacent_evidence"' in rule
-    assert 'Never "direct"' in rule
-    # It must also say WHY, because the consequence is invisible from here: the
-    # cost of getting this wrong lands two components downstream.
-    assert "no evidence at all" in rule.lower()
+def test_the_rule_asks_for_one_verbatim_quote_and_routes_its_absence_to_gap():
+    """The rule must name what backs a verdict, and what happens without it — a
+    claim with no quotable span is a gap, never a `direct` on the model's word."""
+    rule = SYSTEM_PROMPT.split("JUDGE MEANING, AND QUOTE IT", 1)[1].split("\n  - ", 1)[0]
+    assert '"evidence_quote"' in rule
+    assert "ONE entry" in rule and "never translated" in rule and "never stitched" in rule
+    assert "INTERVIEW STATEMENTS" in rule  # a paraphrase is not a source
+    assert 'the status is "gap"' in rule
+    # a shared word is not evidence (SF-GAP.28)
+    assert "merely shares a word" in rule
+    # and the schema carries the field, or the rule asks for something un-emittable
+    schema = SYSTEM_PROMPT.split("Respond ONLY", 1)[1] if "Respond ONLY" in SYSTEM_PROMPT else SYSTEM_PROMPT
+    assert '"evidence_quote": "REQUIRED when status is direct or partial' in schema
 
 
 def test_the_rule_does_not_reopen_the_invented_adjacency_it_depends_on():

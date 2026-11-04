@@ -407,6 +407,9 @@ def _collapse_prefix_duplicates(
                 seen_evidence.add(_norm(ev))
                 evidence_parts.append(ev)
         evidence = join_evidence_parts(evidence_parts)
+        # ADR-100 cl. 4 — the merged row keeps a verified-quote path to the
+        # vault when any member carried one (the canonical's own first).
+        backing = next((m["backing"] for m in [canonical, *members] if m.get("backing")), None)
         # ADR-048 amended 2026-08-13 (#526): start from the canonical entry and
         # OVERRIDE. This used to be a fixed key literal, which silently dropped
         # every field outside it — `adjacent_evidence` among them, so a JD naming
@@ -425,6 +428,7 @@ def _collapse_prefix_duplicates(
                 "status": g["status"],
                 "evidence": evidence if canonical.get("claimable") else "",
                 "claimable": canonical.get("claimable", False),
+                **({"backing": backing} if backing and canonical.get("claimable") else {}),
             }
         )
     return merged
@@ -590,6 +594,7 @@ def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
     # itself, so there is no substitute to promote — and the letter's UNADDRESSED
     # block reads the field unconditionally.
     out.pop("adjacent_evidence", None)
+    out.pop("backing", None)  # ADR-100 cl. 7: a denial outranks a quote
     return out
 
 
@@ -614,6 +619,7 @@ def _floored_row(entry: dict[str, Any]) -> dict[str, Any]:
     # ADR-048 amended 2026-08-13 (#526) — same reason as `_denied_row`: the row
     # has left the claimable adjacent-partial shape, so the pointer leaves too.
     out.pop("adjacent_evidence", None)
+    out.pop("backing", None)  # ADR-100 cl. 7: a denial floor outranks a quote
     return out
 
 
@@ -1176,18 +1182,37 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
         if e.get("status") == "denied" and e.get("concept")
     ]
     denied_norms = {_norm(c) for c in denied}
+    # ADR-100 cl. 6 — each list says what the system actually knows: the
+    # analysis found no evidence, or the evidence it named could not be verified
+    # against the profile. Never "NOT in the profile" — no check here can know that.
+    unverified_norms = {
+        _norm(e.get("concept", ""))
+        for e in (keyword_ledger or [])
+        if e.get("unbacked") == UNBACKED_NO_VERIFIABLE_QUOTE
+    }
     unknown = [c for c in forbidden if _norm(c) not in denied_norms]
+    unverified = [c for c in unknown if _norm(c) in unverified_norms]
+    unknown = [c for c in unknown if _norm(c) not in unverified_norms]
 
     lines += [
         "",
-        "DO NOT CLAIM (honest gaps — NOT in the profile; never present these as something "
-        "the candidate has, has done, or knows):",
+        "DO NOT CLAIM (the analysis found no evidence for these in the profile; never present "
+        "these as something the candidate has, has done, or knows):",
     ]
     if unknown:
         for concept in unknown:
             lines.append(f"  - {concept}")
     else:
         lines.append("  (none)")
+    if unverified:
+        lines += [
+            "",
+            "DO NOT CLAIM (no verifiable profile quote backs these — the analysis named "
+            "evidence, but no span of the profile could be checked; never present these as "
+            "something the candidate has, has done, or knows):",
+        ]
+        for concept in unverified:
+            lines.append(f"  - {concept}")
 
     if denied:
         lines += [
@@ -1434,16 +1459,35 @@ def render_ledger_reviewer_block(
         "your grounding judgments — do NOT scan the draft for absent ones yourself; a "
         "deterministic VERIFIED COVERAGE CHECK handles absence detection (US213, #122):",
     ]
+    quoted = False
     if claimable:
         for entry in claimable:
             forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
-            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]")
+            backing = entry.get("backing") if isinstance(entry.get("backing"), dict) else {}
+            quote = backing.get("quote") if backing.get("unit_path") else None
+            quoted = quoted or bool(quote)
+            cited = f' — profile quote: "{quote}"' if quote else ""
+            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]{cited}")
     else:
         lines.append("  (none)")
+    if quoted:
+        # ADR-100 cl. 5 — the second line on a backing: code verified only that
+        # the quote EXISTS in the profile; whether it SHOWS the concept is a
+        # judgement, and this reviewer is where it is made (a Hint-tier task).
+        lines += [
+            "",
+            "QUOTE CHECK (task): a profile quote above was verified by code only to EXIST "
+            "word for word in the profile, not to show the concept. For each quoted concept "
+            "the draft claims, confirm the quote shows that competence at the level the draft "
+            "states; if it does not (it shares a word but shows something else, or a bare "
+            "skill name is claimed as a practice), raise a finding quoting both the draft "
+            "sentence and the profile quote.",
+        ]
 
     lines += [
         "",
-        "DO NOT CLAIM (honest gaps — NOT in the profile). Flag any of these that the draft "
+        "DO NOT CLAIM (no evidence in the profile found or verified by the analysis). Flag "
+        "any of these that the draft "
         "presents as something the candidate has, has done, or knows — that is a fabrication. "
         "Whose fact? Judge the SENTENCE, not the term (#420): a sentence stating the "
         "EMPLOYER's product/market from the job_description (\"Ihr Umfeld der ...\", their "
@@ -3667,7 +3711,53 @@ def _claimable_backing_violation(
 
     if any(ground_skill_claim(p, vault_index) is not None for p in probes):
         return None
+    # ADR-100 cl. 4 (ii) — the literal arm is a cheap POSITIVE, never the veto:
+    # a miss falls through to the classifier's own verbatim vault span. "This
+    # span exists in one claimable vault unit" is a Fact (ADR-062 cl. 1), and
+    # language-neutral by construction; whether the span SUPPORTS the
+    # requirement is the classifier's judgement, checked by the reviewers
+    # (ADR-100 cl. 5). Founder UAT-3 (2026-11-04): five interview-answered rows
+    # healed to `gap` here because the vault was German and the posting
+    # English; the synthetic twin measured 0.20–0.68 against a truth of 0.80.
+    if _verified_backing_path(entry, vault_index) is not None:
+        return None
     return "no_vault_evidence_unit"
+
+
+def _verified_backing_path(entry: dict[str, Any], vault_index: Any) -> str | None:
+    """The vault unit the row's ``backing.quote`` resolves in, or ``None``
+    (ADR-100 cl. 3 — :func:`applire.services.citation.quote_in_vault`)."""
+    backing = entry.get("backing")
+    if vault_index is None or not isinstance(backing, dict):
+        return None
+    from applire.services.citation import quote_in_vault
+
+    return quote_in_vault(backing.get("quote"), getattr(vault_index, "units", None))
+
+
+#: ADR-100 cl. 6 — the floor's own provenance on a row it healed for want of a
+#: verifiable vault quote (``unbacked`` key). Distinct from a classifier `gap`.
+UNBACKED_NO_VERIFIABLE_QUOTE = "no_verifiable_quote"
+
+
+def _stamp_backing(entry: dict[str, Any], vault_index: Any) -> dict[str, Any]:
+    """A backed row leaves the floor with an honest ``backing`` (ADR-100 cl. 4):
+    a quote that resolves is stamped with its unit path; a quote that does not
+    resolve is dropped (the row was backed by the literal arm or is exempt —
+    its unverified quote must not reach a reviewer as evidence). Re-resolved at
+    every floor run, so an edited or deleted vault entry cannot leave a stale
+    path behind. Pure; returns the input row unchanged when nothing moves."""
+    backing = entry.get("backing")
+    if vault_index is None or not isinstance(backing, dict):
+        return entry
+    path = _verified_backing_path(entry, vault_index)
+    if path is None:
+        out = dict(entry)
+        out.pop("backing", None)
+        return out
+    if backing.get("unit_path") == path:
+        return entry
+    return {**entry, "backing": {**backing, "unit_path": path}}
 
 
 def assert_claimable_backed(
@@ -3813,7 +3903,7 @@ def assert_claimable_backed(
             continue
         reason = _claimable_backing_violation(entry, denials, vault_corpus, vault_index)
         if reason is None:
-            healed.append(entry)
+            healed.append(_stamp_backing(entry, vault_index))
             continue
         was = entry.get("status")
         logger.warning(
@@ -3858,6 +3948,13 @@ def assert_claimable_backed(
             # shape, means the pointer does not survive the heal either.
             gap_row = {**entry, "status": "gap", "claimable": False, "evidence": ""}
             gap_row.pop("adjacent_evidence", None)
+            gap_row.pop("backing", None)  # its quote did not resolve: it backs nothing
+            if reason == "no_vault_evidence_unit":
+                # ADR-100 cl. 6 — rendered at its true strength: the classifier
+                # may have judged this supported, but no span of the vault could
+                # be checked. Not "absent from the profile". Read only by the
+                # renderers; every branching reader keeps reading `status`.
+                gap_row["unbacked"] = UNBACKED_NO_VERIFIABLE_QUOTE
             # ADR-074 amended 2026-08-13 — the ONE exception, and the line it
             # draws is deliberate: a pointer survives the demotion that is about
             # VOCABULARY (clause 5 — the vault says the same thing in other
@@ -3882,13 +3979,17 @@ def assert_claimable_backed(
                     # 12-run baseline matrix (luna): 9 healed core rows (Jahresab-
                     # schluss-Reporting, Management-Reporting, Backend engineering,
                     # Shift work, ...), 7 of them with verified material.
-                    healed.append({
+                    g1_row = {
                         **entry,
                         "status": "partial",
                         "claimable": True,
                         "evidence": material,
                         "adjacent_evidence": material,
-                    })
+                    }
+                    # ADR-100 cl. 9: the legacy path — the row's own quote (if
+                    # any) did not resolve, so it is not carried as a backing.
+                    g1_row.pop("backing", None)
+                    healed.append(g1_row)
                     logger.info(
                         "assert_claimable_backed[%s]: %r healed to an ADJACENT partial on "
                         "vault-verified material %r (ADR-061/074 amended 2026-10-22)",
@@ -4146,6 +4247,14 @@ def build_keyword_ledger(
         adjacent = adjacent_evidence_text(item.get("adjacent_evidence"))
         if status == "partial" and adjacent:
             entry["adjacent_evidence"] = adjacent
+        # ADR-100 cl. 2/4 — the classifier's verbatim vault span for this
+        # requirement. Carried as cited, unverified: `assert_claimable_backed`
+        # checks it (`quote_in_vault`) at every persist seam and drops it when
+        # it does not resolve, so no reader ever sees an unchecked quote as a
+        # backing. Only on a claimable row — a gap or a denial backs nothing.
+        quote = item.get("evidence_quote")
+        if claimable and isinstance(quote, str) and quote.strip():
+            entry["backing"] = {"quote": quote.strip(), "instrument": "quote"}
         # #415 (ruling W-4): the posting's own qualifying sentence, verbatim. Carried
         # ONLY on a claimable entry — on a gap or a denial there is nothing to surface,
         # and quoting the posting's demand next to "never claim this" would read as an
