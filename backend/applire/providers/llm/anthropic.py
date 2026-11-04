@@ -78,8 +78,14 @@ _NEW_ID = re.compile(r"^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d{1,2
 _OLD_ID = re.compile(r"^claude-(\d+)(?:-(\d{1,2}))?-(opus|sonnet|haiku)(?:-\d{8})?$")
 
 
+_BEDROCK_REGION = re.compile(r"^(?:us|eu|apac|global|jp|au)\.")
+_BEDROCK_VERSION = re.compile(r"-v\d+(?::\d+)?$")
+
+
 def _generation(model: str) -> tuple[str, tuple[int, int]] | None:
-    mid = model.split("@", 1)[0].removeprefix("anthropic.")
+    # Vertex "@date", Bedrock "[region.]anthropic.<id>-v1:0" → the plain id.
+    mid = model.strip().lower().split("@", 1)[0]
+    mid = _BEDROCK_VERSION.sub("", _BEDROCK_REGION.sub("", mid).removeprefix("anthropic."))
     if m := _NEW_ID.match(mid):
         return m.group(1), (int(m.group(2)), int(m.group(3) or 0))
     if m := _OLD_ID.match(mid):

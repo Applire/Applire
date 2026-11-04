@@ -89,8 +89,10 @@ def _targets(
     ledger: list[dict[str, Any]], members: list[str], denied_records: list[dict[str, Any]]
 ) -> list[int]:
     """Indices of the rows to re-judge: the deciding rows of every member the
-    record reads ``open``, that are not already ``direct`` and not denied."""
-    from applire.services.keyword_ledger import is_denial_floored
+    record reads ``open``, that are not already ``direct``, not denied, and not
+    a scope bar — a bar has its own floor and a quote cannot show its figure
+    (adversarial pass 2026-11-04)."""
+    from applire.services.keyword_ledger import is_denial_floored, is_scope_entry
 
     facts = gap_coverage.classify_members(members, ledger, denied_records)
     picked: list[int] = []
@@ -99,7 +101,11 @@ def _targets(
             continue
         rows = gap_coverage._rows_for(member, ledger)
         for row in gap_coverage._deciding_rows(member, rows):
-            if row.get("status") in ("denied", "direct") or is_denial_floored(row):
+            if (
+                row.get("status") in ("denied", "direct")
+                or is_denial_floored(row)
+                or is_scope_entry(row)
+            ):
                 continue
             idx = next(i for i, r in enumerate(ledger) if r is row)
             if idx not in picked:

@@ -491,6 +491,14 @@ def test_anthropic_generation_parses_dated_and_legacy_ids():
     assert _generation("gpt-6-luna") is None
 
 
+def test_anthropic_generation_parses_bedrock_ids():
+    from applire.providers.llm.anthropic import _generation
+    assert _generation("anthropic.claude-sonnet-4-5-20250929-v1:0") == ("sonnet", (4, 5))
+    assert _generation("us.anthropic.claude-3-5-sonnet-20241022-v2:0") == ("sonnet", (3, 5))
+    assert _generation("eu.anthropic.claude-haiku-5-5") == ("haiku", (5, 5))
+    assert _generation(" Claude-Sonnet-5-5 ") == ("sonnet", (5, 5))
+
+
 def test_anthropic_default_model_is_current():
     from applire.config import Settings
     from applire.providers.llm.anthropic import _DEFAULT_MODEL

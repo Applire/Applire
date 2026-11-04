@@ -398,7 +398,15 @@ def evidenced_positions(
     its default is ``"floor"``."""
     if bound not in ("upper", "floor"):
         raise ValueError(f"bound must be 'upper' or 'floor', not {bound!r}")
-    rows = _evidencing_entries(profile, skill_name, date.today(), bound)
+    today = date.today()
+    # A dated end in the future (a contract end, a notice period) counts only up
+    # to today, and a range that contributes no time names no position
+    # (adversarial pass 2026-11-04: 2024-01 → 2031-01 read as "over 7 years").
+    rows = [
+        (entry, s, min(e, today))
+        for entry, s, e in _evidencing_entries(profile, skill_name, today, bound)
+        if s < min(e, today)
+    ]
     if not rows:
         return None
     return _union_years([(s, e) for _, s, e in rows]), rows

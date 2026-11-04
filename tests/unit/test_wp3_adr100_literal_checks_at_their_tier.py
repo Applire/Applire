@@ -15,6 +15,7 @@ three literal scans rendered at their true strength. Synthetic data only.
 
 from __future__ import annotations
 
+import pytest
 import types
 
 from applire.schemas.cv import TailoredCVData
@@ -179,6 +180,31 @@ def test_a_stated_limit_moves_out_of_present_denied():
 def test_a_claim_of_the_denied_term_stays_present_denied():
     denied, in_denial = _letter_buckets("I ran Kubernetes clusters for every laboratory system.")
     assert denied == ["Kubernetes"] and in_denial == []
+
+
+@pytest.mark.parametrize("sentence", [
+    "I never stopped using Kubernetes daily.",
+    "No problem: Kubernetes is my daily tool.",
+    "There is no better platform than Kubernetes, which I operate daily.",
+    "Without any hesitation I deployed Kubernetes at scale.",
+    "I have no doubt about Kubernetes; I run it in production.",
+    "I have no doubt about my Kubernetes experience.",
+    "I never stopped gaining practical Kubernetes knowledge.",
+])
+def test_an_unrelated_negation_does_not_turn_a_claim_into_a_stated_limit(sentence):
+    # Adversarial pass 2026-11-04: a negation cue earlier in the clause is not a
+    # disclosure unless the sentence says what is lacking.
+    denied, in_denial = _letter_buckets(sentence)
+    assert denied == ["Kubernetes"] and in_denial == []
+
+
+@pytest.mark.parametrize("sentence", [
+    "I have not worked with Kubernetes so far.",
+    "I have no hands-on exposure to Kubernetes yet.",
+])
+def test_a_stated_limit_naming_what_is_lacking_still_moves(sentence):
+    denied, in_denial = _letter_buckets(sentence)
+    assert denied == [] and in_denial == ["Kubernetes"]
 
 
 def test_one_claim_sentence_beside_a_disclosure_keeps_it_flagged():

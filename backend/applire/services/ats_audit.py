@@ -1967,9 +1967,39 @@ def _denied_terms_in_own_limit(
         forms = [f for f in forms if f] or [k]
         # `form_in_denial_segment` is False when any occurrence of the form in the
         # sentence stands outside a negation's scope (a claim beside a disclosure).
-        if sents and all(any(form_in_denial_segment(x, f) for f in forms) for x in sents):
+        # A negation cue anywhere earlier in the clause is not enough to read a
+        # LETTER sentence as a disclosure ("I have no doubt about Kubernetes",
+        # adversarial pass 2026-11-04): the sentence must also say what is lacking
+        # (experience, knowledge, use …) and carry no claim-affirming idiom.
+        if sents and all(
+            _reads_as_own_limit(x) and any(form_in_denial_segment(x, f) for f in forms)
+            for x in sents
+        ):
             out.append(k)
     return out
+
+
+#: What a stated limit says is lacking — a closed vocabulary (EN + DE).
+_OWN_LIMIT_DISCLOSURE_RE = re.compile(
+    r"\b(?:experience|exposure|hands-on|familiar|knowledge|worked|used|practice|"
+    r"practical|erfahrung|kenntnisse?|praxis|vertraut|gearbeitet|eingesetzt|genutzt|"
+    r"verwendet|kenne)\b",
+    re.IGNORECASE,
+)
+#: Negation idioms that AFFIRM what follows ("never stopped using", "no doubt").
+_OWN_LIMIT_REVERSAL_RE = re.compile(
+    r"\b(?:never stopped|no doubt|no problem|no question|no better|nothing better|"
+    r"without (?:any )?(?:hesitation|doubt|question)|not hesitate|"
+    r"kein zweifel|keine frage|ohne zweifel|ohne zu zögern|nichts besseres)\b",
+    re.IGNORECASE,
+)
+
+
+def _reads_as_own_limit(sentence: str) -> bool:
+    """The sentence names what the candidate lacks and no affirming idiom."""
+    return bool(_OWN_LIMIT_DISCLOSURE_RE.search(sentence)) and not _OWN_LIMIT_REVERSAL_RE.search(
+        sentence
+    )
 
 
 def _form_outside_denial(sentence: str, form: str) -> bool:

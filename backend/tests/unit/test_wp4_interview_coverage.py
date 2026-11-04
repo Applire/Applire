@@ -278,3 +278,22 @@ async def test_a_cv_record_is_not_an_answer():
     prov = FakeProvider([_cls("MES", "direct", _MES_BULLET)])
     out, lifted = await _run(_ledger(), ["MES"], prov, vault=vault)
     assert lifted == []
+
+
+# --- scope bars are never re-judged (adversarial pass 2026-11-04) --------------
+
+@pytest.mark.asyncio
+async def test_a_scope_bar_row_is_never_lifted():
+    led = [_row("Führungsspanne ~120 MA", "gap", bar={"kind": "headcount", "value": 120})]
+    prov = FakeProvider([_cls("Führungsspanne ~120 MA", "direct", quote=_TEAM)])
+    _out, lifted = await _run(led, ["Führungsspanne ~120 MA"], prov)
+    assert lifted == []
+
+
+@pytest.mark.asyncio
+async def test_the_same_row_without_a_bar_is_lifted():
+    # Control: the scope test fails only because of the bar, not the fixture.
+    led = [_row("Führungsspanne ~120 MA", "gap")]
+    prov = FakeProvider([_cls("Führungsspanne ~120 MA", "direct", quote=_TEAM)])
+    _out, lifted = await _run(led, ["Führungsspanne ~120 MA"], prov)
+    assert lifted == ["Führungsspanne ~120 MA"]

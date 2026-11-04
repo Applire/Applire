@@ -104,6 +104,25 @@ def test_present_end_runs_to_today():
     assert f.years >= 2.9
 
 
+def test_a_future_end_date_counts_only_up_to_today():
+    # Adversarial pass 2026-11-04: a contract end in the future read as years served.
+    y = date.today().year
+    work = [_w("w1", "Alpha GmbH", f"{y - 2}-01", f"{y + 5}-01", tech=["Rust"])]
+    f = _one(tool_duration_facts(_profile(work), None), "Rust")
+    assert f.years < 3.1
+
+
+def test_a_range_that_contributes_no_time_names_no_position_or_since():
+    y = date.today().year
+    work = [
+        _w("w1", "Alpha GmbH", f"{y - 3}-01", None, tech=["Rust"]),
+        _w("w2", "Beta AG", f"{y + 1}-01", f"{y + 4}-01", tech=["Rust"]),
+    ]
+    f = _one(tool_duration_facts(_profile(work), None), "Rust")
+    assert [pid for pid, _ in f.positions] == ["w1"]
+    assert f.since == f"01/{y - 3}"
+
+
 # ── 2. since / positions ──────────────────────────────────────────────────
 
 def test_since_is_the_earliest_start_month_year():
