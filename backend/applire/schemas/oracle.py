@@ -86,6 +86,11 @@ CheckerId = Literal[
     # own statement for that letter, shown neutral ("aus deiner Eingabe im
     # Formular") on a ``not_applicable`` verdict. Nothing reaches the vault.
     "letter_form_input",
+    # ADR-100 M-3 (founder ruling R-4 = option B): the equivalence judge, handed
+    # the keyword ledger's verified backing quote as its FIRST evidence
+    # candidate, judged that THIS sentence is supported (activity, level,
+    # figures, employer). Grant-only: a "no" keeps the deterministic verdict.
+    "backing_judgement",
 ]
 
 Stance = Literal["aspirational", "achieved"]

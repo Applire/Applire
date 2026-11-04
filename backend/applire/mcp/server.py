@@ -159,7 +159,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 # 2026-08-25 while the document it returned said 2026-07-25. An agent that
 # caches by version could not tell it had a stale document. Pinned in both
 # directions by `test_guide_version_matches_the_guides_own_revision_line`.
-GUIDE_VERSION = "2026-10-21"
+GUIDE_VERSION = "2026-11-04"
 
 logger = logging.getLogger(__name__)
 
@@ -1512,19 +1512,25 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
     # ADR-048/US203; it persists and re-scores per the 2026-09-05 amendment,
     # exactly as the generation-time read does). Fail-safe: a ledger that
     # cannot be loaded audits against the vault alone, never fails the audit.
+    # ADR-100 M-3: a letter reads the ledger too (its verified backing quotes),
+    # through the letter chain's own read — the one its delivered report uses.
     keyword_ledger: list[dict] | None = None
-    if kind == "cv":
-        try:
+    try:
+        if kind == "cv":
             keyword_ledger = await cv_svc._latest_keyword_ledger(
                 db, record.job_analysis_id, profile_json=profile_json or None,
                 user_id=record.user_id,
             )
-        except Exception:
-            logger.exception(
-                "agent door: keyword ledger unavailable for CV %s — auditing "
-                "skill chips against the vault alone",
-                record.id,
+        else:
+            keyword_ledger = await cover_letter_svc._latest_keyword_ledger(
+                db, record.job_analysis_id, user_id=record.user_id,
             )
+    except Exception:
+        logger.exception(
+            "agent door: keyword ledger unavailable for %s %s — auditing "
+            "against the vault alone",
+            kind, record.id,
+        )
     # 788:106: the self-audit's own derivation (record's pinned language, else
     # the JD's; job-less -> None keeps the seam off, fail-open).
     document_language = getattr(record, "document_language", None)
@@ -1554,6 +1560,7 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
                 document_language=document_language,
                 # B3-10: the letter's own form inputs, as the self-audit reads them.
                 form_inputs=getattr(record, "pre_gen_inputs", None) or None,
+                keyword_ledger=keyword_ledger,
                 entailment=False,  # D2-4: the self-audit's setting (selfaudit.py)
             )
     except ownership.OwnedNotFound:

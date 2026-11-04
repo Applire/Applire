@@ -44,7 +44,7 @@ from typing import Literal
 
 from applire.constants import ORACLE_JUDGEMENT_MAX_TOKENS
 
-JudgementMode = Literal["cross_language", "restatement"]
+JudgementMode = Literal["cross_language", "restatement", "backing"]
 
 # The mock provider fingerprints on this EXACT first line (never reword
 # without updating providers/llm/mock.py and
@@ -65,7 +65,15 @@ ORACLE_JUDGEMENT_SYSTEM_PROMPT = (
     "language, but rendered as different content or blended with wording "
     "the evidence does not support. Judge whether the CLAIM's own content "
     "genuinely comes from this evidence, not merely whether a number "
-    "matches.\n\n"
+    "matches.\n"
+    "- backing: the VAULT EVIDENCE was recorded by an earlier analysis as the "
+    "candidate's own evidence for a skill or requirement this CLAIM names, and "
+    "is usually worded differently or written in another language. Naming the "
+    "same skill is NOT enough: corresponds is true only when every fact the "
+    "CLAIM states about the candidate — the activity, its level and scope, any "
+    "number, and the employer or position — is supported by the evidence. An "
+    "evidence span that belongs to a position is followed by a (position: …) "
+    "line; that line is context, never a quote.\n\n"
     "FAITHFULNESS INCLUDES ALTITUDE: a CLAIM that raises seniority, scope, "
     "responsibility, or ownership above what the VAULT EVIDENCE states is "
     "NOT equivalent, even when the topic and any figures line up. For "
@@ -112,20 +120,30 @@ def judgement_call_max_tokens(item_count: int) -> int:
 
 
 def build_judgement_user_prompt(
-    items: list[tuple[str, list[str], JudgementMode]],
+    items: list[tuple[str, list[str], JudgementMode]]
+    | list[tuple[str, list[str], JudgementMode, list[str | None]]],
 ) -> str:
     """User prompt for one batched judgement call.
 
     *items* is (claim_text, candidate vault unit texts, mode) tuples, ordered
     — the model is asked to answer with the SAME 0-based index so the caller
     can match responses back to candidates positionally even if the model's
-    own "index" field is malformed or missing.
+    own "index" field is malformed or missing. An optional fourth element
+    (ADR-100 M-3, mode ``backing``) gives each unit's position label, rendered
+    on its own ``(position: …)`` line so the employer half of the claim is
+    judgeable while the quotable text stays exactly the unit's own.
     """
     blocks: list[str] = []
-    for i, (claim_text, unit_texts, mode) in enumerate(items):
-        evidence_lines = "\n".join(
-            f"  [{j}] {text}" for j, text in enumerate(unit_texts)
-        ) or "  (no candidate evidence)"
+    for i, item in enumerate(items):
+        claim_text, unit_texts, mode = item[0], item[1], item[2]
+        labels = list(item[3]) if len(item) > 3 else []
+        lines: list[str] = []
+        for j, text in enumerate(unit_texts):
+            lines.append(f"  [{j}] {text}")
+            label = labels[j] if j < len(labels) else None
+            if label:
+                lines.append(f"      (position: {label})")
+        evidence_lines = "\n".join(lines) or "  (no candidate evidence)"
         blocks.append(
             f"ITEM {i} (mode: {mode}):\n"
             f"CLAIM: {claim_text}\n"
