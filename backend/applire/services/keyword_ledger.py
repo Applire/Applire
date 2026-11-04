@@ -3317,6 +3317,20 @@ def _annotate_narrative_backed(
     is the honest opposite: every entry comes back unbacked. Runs as a final
     pass over the fully-built ledger so it never has to special-case the
     duplicate-collapse / gap-stance / denial-stance orderings above.
+
+    ADR-100 amended 2026-11-04 (WP4, Interview #787) — two arms, like the
+    affirmative floor: **(i)** the literal one above (a cheap positive), **or
+    (ii)** the row's ``backing.quote`` resolves, by :func:`_verified_backing_path`
+    (``quote_in_vault`` plus the floor's denial and aim stances), in a NARRATIVE
+    unit — a responsibility or achievement of a position, project or
+    volunteering entry, or a signature-story field, the exact field set
+    :func:`_narrative_texts` reads. (ii) is a Fact: the span exists verbatim in
+    one unit and the unit's path names its kind. Whether the span SHOWS the
+    requirement stays the classifier's judgement (ADR-100 cl. 5). Measured on
+    the 11-04 E2E tier (German vault, English posting): six interviewed rows
+    were `direct` with a German quote in a responsibility and still read as
+    liabilities — never `covered` on their clusters (ADR-089 A-1), and "Team
+    leadership" became an interview topic of its own.
     """
     if profile_json is None:
         return [{**e, "narrative_backed": True} for e in ledger]
@@ -3324,14 +3338,63 @@ def _annotate_narrative_backed(
     from applire.services.ats_audit import surface_present
 
     corpus = profile_narrative_corpus(profile_json)
+    quote_arm = _narrative_quote_arm(profile_json) if any(
+        isinstance(e.get("backing"), dict) for e in ledger
+    ) else None
     out: list[dict[str, Any]] = []
     for e in ledger:
         forms = list(e.get("surface_forms") or [e.get("concept", "")])
         if e.get("concept"):
             forms.append(e["concept"])
         backed = bool(corpus) and any(surface_present(f, corpus) for f in forms)
+        if not backed and quote_arm is not None:
+            backed = quote_arm(e)
         out.append({**e, "narrative_backed": backed})
     return out
+
+
+#: The vault-index unit paths that are NARRATIVE (#260): the field set
+#: :func:`_narrative_texts` reads, as ``build_vault_index`` names its units.
+_NARRATIVE_UNIT_PATH = re.compile(
+    r"^(?:(?:work_experience|projects|volunteer_activities)\[\d+\]\.(?:responsibilities|achievements)\[\d+\]"
+    r"|signature_stories\[\d+\]\.(?:title|challenge|mechanism|outcome|benchmark))$"
+)
+
+
+def _narrative_quote_arm(profile_json: dict[str, Any]):
+    """The quote arm of the narrative stamp (ADR-100 amended 2026-11-04): a
+    predicate ``row -> bool`` over a vault index narrowed to NARRATIVE units, or
+    ``None`` when the vault cannot be indexed (the literal arm alone decides —
+    the pre-amendment behaviour, never a stronger claim)."""
+    import types
+
+    try:
+        from applire.services.oracle.matchers.vault import build_vault_index
+
+        index = build_vault_index(exclude_unconfirmed(profile_json))
+    except Exception:  # noqa: BLE001 — a stamp, never a reason to fail a ledger build
+        return None
+    narrative = types.SimpleNamespace(
+        units=[u for u in index.units if _NARRATIVE_UNIT_PATH.match(getattr(u, "path", "") or "")]
+    )
+    denials = [
+        concept for concept, _level in _denied_concept_entries(
+            ((profile_json or {}).get("metadata") or {}).get("denied_concepts")
+        )
+    ]
+    corpus = denial_release_corpus(profile_json) or None
+    from applire.services.prompt_view import aim_and_other_lines
+
+    aims = aim_and_other_lines(profile_json)[0]
+
+    def _arm(entry: dict[str, Any]) -> bool:
+        if not isinstance(entry.get("backing"), dict):
+            return False
+        return _verified_backing_path(
+            entry, narrative, denials=denials, corpus=corpus, aims=aims
+        ) is not None
+
+    return _arm
 
 
 def keyword_liabilities(keyword_ledger: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
