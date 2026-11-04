@@ -237,3 +237,16 @@ def test_a_claim_in_the_same_sentence_as_the_disclosure_keeps_it_flagged():
     denied, _ = _letter_buckets(
         "Kubernetes clusters I operated at two sites, though I have no Kubernetes certification.")
     assert denied == ["Kubernetes"]
+
+
+# ── Ruling R-2, letter side: the CV's translated title is the same title ─────
+
+def test_r2_the_letter_titles_block_carries_the_cv_form_of_a_translated_title():
+    from applire.services.cover_letter_positioning import (
+        render_role_titles_block, vault_role_titles, with_cv_role_forms)
+
+    block = render_role_titles_block(with_cv_role_forms(vault_role_titles(_PROFILE), _PROFILE, _cv()))
+    assert '"Leiterin Labor-IT"' in block
+    assert 'the CV states this same title in its language as "Head of Laboratory IT"' in block
+    assert "the CV states this same title" not in render_role_titles_block(
+        with_cv_role_forms(vault_role_titles(_PROFILE), _PROFILE, None))

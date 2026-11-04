@@ -377,6 +377,42 @@ class RoleTitle:
     aliases: tuple[str, ...]  # WorkEntry.role_aliases — equally legitimate titles
     org: str  # employer / organisation / project the title is recorded under
     span: str  # "2017-04 – present"; "" when the vault records no dates
+    #: Ruling R-2 (WP3, 2026-11-04): the title as the delivered CV states it for this
+    #: same position when it differs — the CV writer translates a single-form title
+    #: into the document language, and the letter must be able to say what the CV says.
+    cv_form: str = ""
+
+
+def with_cv_role_forms(
+    titles: list[RoleTitle], profile_json: dict | None, cv_data: dict | None
+) -> list[RoleTitle]:
+    """Attach, per work position, the role title the tailored CV delivered (matched by
+    the vault entry id the CV's ``work_history`` carries). A FACT: two stored strings
+    joined by id; no judgement of whether the translation is faithful (the CV's own
+    reviewers judged that). Unchanged list without a CV."""
+    import dataclasses
+
+    if not titles or not isinstance(cv_data, dict) or not isinstance(profile_json, dict):
+        return titles
+    cv_roles = {
+        str(w.get("id")): (w.get("role") or "").strip()
+        for w in (cv_data.get("work_history") or [])
+        if isinstance(w, dict) and w.get("id")
+    }
+    by_title_org: dict[tuple[str, str], str] = {}
+    for entry in profile_json.get("work_experience") or []:
+        if not isinstance(entry, dict):
+            continue
+        form = cv_roles.get(str(entry.get("id") or ""), "")
+        title = (entry.get("role") or "").strip()
+        if form and title and form != title and form not in (entry.get("role_aliases") or []):
+            by_title_org[(title, (entry.get("company") or "").strip())] = form
+    return [
+        dataclasses.replace(t, cv_form=by_title_org[(t.title, t.org)])
+        if (t.title, t.org) in by_title_org
+        else t
+        for t in titles
+    ]
 
 
 def _title_span(entry: dict) -> str:
@@ -477,6 +513,8 @@ def render_role_titles_block(titles: list[RoleTitle]) -> str:
         if t.aliases:
             also = ", ".join(f'"{a}"' for a in t.aliases)
             line += f"; also recorded for this same position as {also}"
+        if t.cv_form:
+            line += f'; the CV states this same title in its language as "{t.cv_form}"'
         lines.append(line)
     lines += [
         "",
@@ -485,7 +523,8 @@ def render_role_titles_block(titles: list[RoleTitle]) -> str:
         "responsible for is not a title claim, and must never be flagged as "
         "one. But where the letter does name the role the candidate holds or "
         "held at one of their own positions, that name must be one of the "
-        "titles above, for that same position, character for character. A "
+        "titles above (or the CV's form listed with it), for that same position, "
+        "character for character. A "
         "title assembled out of a responsibility, an achievement, a "
         "certification or a ledger term is ungrounded even though every word "
         "of it appears somewhere in the vault: set approved=false and name the "

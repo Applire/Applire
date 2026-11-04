@@ -194,3 +194,49 @@ async def test_SEAM_v1_letter_renderings_keep_the_747_hedge(letter_seeded, monke
         assert skills["SAP CO"]["years_experience_derived"]["at_least"] == 7
         assert "TOOL DURATIONS" not in src
     assert not captured["writer_kwargs"].get("tool_durations_block")
+
+
+@pytest.mark.asyncio
+async def test_SEAM_R2_letter_grounding_source_carries_the_cv_form_of_a_translated_title(
+        letter_seeded, monkeypatch):
+    """Ruling R-2 (WP3): with a CV that translated the single-form title, the letter's
+    RECORDED JOB TITLES block in the grounding source names the CV's form for the same
+    position — else the letter reviewer blocks the CV's own title "character for
+    character" (cover_letter._render_cover_letter_body → with_cv_role_forms)."""
+    from applire.models.cv import GeneratedCV
+
+    monkeypatch.setenv("LETTER_PIPELINE", "v2")
+    db, job, cl = letter_seeded
+    cv = GeneratedCV(
+        job_analysis_id=job.id, profile_id=cl.profile_id,
+        tailored_data={"work_history": [{
+            "id": "w-schwarzwald", "company": "Schwarzwald Präzision GmbH",
+            "role": "Finanzcontrollerin", "start_date": "2018-01", "bullets": ["SAP CO/FI key user."],
+        }]},
+    )
+    db.add(cv)
+    await db.commit()
+    await db.refresh(cv)
+    captured: dict = {}
+
+    async def fake_loop(**kw):
+        captured.setdefault("sources", []).append(kw.get("source"))
+        return kw["draft"]
+
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(
+        return_value={"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "x", "Mit freundlichen Grüßen"]}})
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as sl, \
+         patch("applire.services.cover_letter.get_provider", return_value=provider), \
+         patch("applire.services.cover_letter.build_cover_letter_prompt", return_value="PROMPT"), \
+         patch("applire.services.cover_letter.review_and_refine",
+               new=AsyncMock(side_effect=fake_loop)), \
+         patch("applire.services.cover_letter_pdf.render_pdf",
+               new=AsyncMock(side_effect=RuntimeError("no browser in unit test"))):
+        sl.return_value.__aenter__.return_value = db
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=cv.id, job_id=job.id)
+    sources = [s for s in captured.get("sources", []) if s]
+    assert sources
+    for src in sources:
+        assert 'the CV states this same title in its language as "Finanzcontrollerin"' in src

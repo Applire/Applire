@@ -304,6 +304,17 @@ def compose_v2(
         update: dict[str, Any] = {}
         for fld, alias_key in (("role", "role_aliases"), ("company", "company_aliases")):
             picked, member = pick_recorded(p.get(fld), v.get(fld), v.get(alias_key))
+            if not member and fld == "role" and len(recorded_names(v.get(fld), v.get(alias_key))) == 1:
+                # Ruling R-2 (WP3, ADR-094 cl. 5 amended 2026-11-04): a role title the
+                # vault records in ONE form only is TRANSLATED by the writer when the
+                # document is in another language ("Leiterin Labor-IT" -> "Head of
+                # Laboratory IT"). Membership cannot decide a translation; whether it is
+                # faithful and not upgraded is the reviewers' judgement (shape notes in
+                # review_cv_tailoring). A title with recorded aliases keeps the check —
+                # the candidate's own form in the document language is then the one to
+                # pick — and employer, institution and degree always keep it.
+                update[fld] = str(p.get(fld)).strip()
+                continue
             update[fld] = picked
             if not member:
                 notes.names_not_recorded.append(

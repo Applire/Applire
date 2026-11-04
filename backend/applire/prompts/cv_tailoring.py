@@ -464,11 +464,14 @@ _V2_FACTS_PARAGRAPH = (
     "a reader reads as LANGUAGE is yours, in the OUTPUT LANGUAGE, and is returned by id from the "
     "VAULT FIELDS block: each work entry's `role` and `company`, its `industry_context` and "
     "`budget_managed` line, every "
-    "`education` row and every `languages` row. NAMES are never translated or invented: a job "
-    "title, an employer, an institution or a degree is written as one of the RECORDED NAMES the "
+    "`education` row and every `languages` row. NAMES are never translated or invented: an "
+    "employer, an institution or a degree is written as one of the RECORDED NAMES the "
     "block lists for it (the stored name or a name the candidate used in another document) — "
     "choose the recorded form that is in the OUTPUT LANGUAGE when one exists, otherwise the "
-    "stored name. DESCRIPTIONS are translated: a field of study, an industry line, a language "
+    "stored name. A JOB TITLE is the exception (ruling R-2): a recorded form in the OUTPUT "
+    "LANGUAGE, else its established equivalent there, same function and seniority, never "
+    "upgraded (\"Leiterin Labor-IT\" → \"Head of Laboratory IT\"); with none it stays as "
+    "recorded. DESCRIPTIONS are translated: a field of study, an industry line, a language "
     "level (translate its words; every code and qualifier the profile states stays, and never "
     "add a level code the profile does not state — \"Fluent\" is \"Fließend\", not "
     "\"Fließend (C1)\"; \"Basic (A1, A2 course started)\" is \"Grundkenntnisse (A1, A2-Kurs begonnen)\"). "
@@ -537,6 +540,11 @@ V2_LISTED_ONLY_RULE = (
 
 assert SYSTEM_PROMPT.count(_V2_RULE2_ANCHOR) == 1, "v1 rule 2 moved — re-anchor _V2_RULE2_ANCHOR"
 
+#: Ruling R-2 (WP3, 2026-11-04): in v2 the writer returns the role title and translates it
+#: (``_V2_FACTS_PARAGRAPH``), so rule 8's name list must not also call a job title a name
+#: that is "never translated" — the self-contradiction pattern. v1 joins titles by code.
+_RULE8_JOB_TITLES = "employers, job titles (GxP"
+
 #: RULING B-1 / interface A1-3 (Hazelnut build 5): the candidate's own "not reached
 #: yet" testimony per entry (a data fact, ADR-062) — v2 only: the v1 writer must stay
 #: smaller than its reviewer (test_545) and sits 4 characters under it.
@@ -552,6 +560,7 @@ V2_SYSTEM_PROMPT = (
     .replace(_V1_SCHEMA, _V2_SCHEMA)
     .replace(_V2_BUDGET_SENTENCE, _V2_BUDGET_REPLACEMENT)
     .replace(_V2_RULE2_ANCHOR, _V2_RULE2_ANCHOR + " " + V2_LISTED_ONLY_RULE)
+    .replace(_RULE8_JOB_TITLES, "employers (GxP")
 )
 
 #: #767 — the v2 writer's response as a JSON schema (``LLM_STRUCTURED_OUTPUT=auto``;
@@ -619,7 +628,8 @@ def build_v2_fields_block(
     lines = [
         "VAULT FIELDS — return each of these in your JSON, by id, in the OUTPUT LANGUAGE. "
         "For a NAME use one of its RECORDED NAMES exactly (pick the one in the OUTPUT "
-        "LANGUAGE when there is one); translate only descriptions."
+        "LANGUAGE when there is one); translate only descriptions and a role title no "
+        "recorded name gives in the OUTPUT LANGUAGE."
     ]
     for w in profile.get("work_experience") or []:
         if not isinstance(w, dict) or not w.get("id"):
@@ -674,9 +684,11 @@ def build_v2_fields_block(
 V2_REFINEMENT_ADDENDUM = """
 - CV PIPELINE v2: your JSON also carries `role`, `company` and `industry_context` per work
   entry and the `education` and `languages` rows (see the VAULT FIELDS block in the
-  CANDIDATE PROFILE). Keep them in your output. Names (role, company, degree, institution)
-  are one of the RECORDED NAMES listed there, never a translation you make up; descriptions
-  (industry line, field of study, language level) are in the document language. Nothing
+  CANDIDATE PROFILE). Keep them in your output. Names (company, degree, institution) are
+  one of the RECORDED NAMES listed there, never a translation you make up; a role title is
+  a recorded name in the document language or else its established equivalent there (never
+  upgraded); descriptions (industry line, field of study, language level) are in the
+  document language. Nothing
   trims or re-adds content after you: a project you omit is not re-joined, and a bullet over
   a role's budget is yours to cut or merge. A CODE CHECKS finding in the feedback is a fact
   about the draft — fix it.

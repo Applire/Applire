@@ -2109,9 +2109,12 @@ async def _render_cover_letter_body(
                 from applire.services.cover_letter_positioning import (
                     render_role_titles_block,
                     vault_role_titles,
+                    with_cv_role_forms,
                 )
+                _vault_profile = profile.profile_json if profile else {}
                 role_titles_block = render_role_titles_block(
-                    vault_role_titles(profile.profile_json if profile else {})
+                    # Ruling R-2: the CV's translated title is the same title.
+                    with_cv_role_forms(vault_role_titles(_vault_profile), _vault_profile, tailored_cv)
                 )
                 if role_titles_block:
                     grounding_source = f"{grounding_source}\n\n{role_titles_block}"
