@@ -40,6 +40,16 @@ from applire.services.cross_document import (
 # Run-5 ground truth fixtures
 # ---------------------------------------------------------------------------
 
+
+def _adjacent(entry: dict, adjacent: str = "architecture and database design") -> dict:
+    """G-1 (ADR-075 amended 2026-11-04): ``find_unaddressed_hard_requirements`` lists the
+    ADJACENT partial only (claimable through a stand-in, ``adjacent_evidence`` set). A
+    ``claimable: false`` row (gap / denied) is a key-requirement gap owned by
+    ``key_requirement_gaps`` and is never listed — fixtures about the block's cap /
+    ordering / rendering therefore use adjacent partials."""
+    return {**entry, "claimable": True, "status": "partial", "evidence": "",
+            "adjacent_evidence": adjacent}
+
 RUN5_LEDGER = [
     {
         "concept": "retrieval systems",
@@ -108,7 +118,7 @@ RUN5_LETTER_DATA = {
 # Two more claimable entries pad the ledger to 6, exercising that claimable
 # concepts are never reported as unaddressed regardless of letter content.
 RUN5_LEDGER_FULL = RUN5_LEDGER + [
-    {
+    _adjacent({
         "concept": "embeddings",
         "claimable": False,
         "sources": ["required"],
@@ -116,8 +126,8 @@ RUN5_LEDGER_FULL = RUN5_LEDGER + [
         "surface_forms": ["embeddings", "embedding models"],
         "status": "denied",
         "evidence": DENIED_EVIDENCE,
-    },
-    {
+    }),
+    _adjacent({
         "concept": "ranking",
         "claimable": False,
         "sources": ["required"],
@@ -125,8 +135,8 @@ RUN5_LEDGER_FULL = RUN5_LEDGER + [
         "surface_forms": ["ranking", "rerankers"],
         "status": "denied",
         "evidence": DENIED_EVIDENCE,
-    },
-    {
+    }),
+    _adjacent({
         "concept": "observability",
         "claimable": False,
         "sources": ["required"],
@@ -134,7 +144,7 @@ RUN5_LEDGER_FULL = RUN5_LEDGER + [
         "surface_forms": ["observability", "tracing"],
         "status": "denied",
         "evidence": DENIED_EVIDENCE,
-    },
+    }),
     {
         "concept": "Databricks",
         "claimable": True,
@@ -323,14 +333,17 @@ def test_render_stated_limits_block_forbids_inventing_a_limit():
 
 def test_find_unaddressed_hard_requirements_returns_unmet_required_concepts():
     ledger = [
-        {"concept": "Kubernetes", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Kubernetes"]},
-        {"concept": "GraphQL", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": 0.4, "surface_forms": ["GraphQL"]},
+        # G-1: adjacent partials (claimable through a stand-in) are the only kind listed
+        {"concept": "Kubernetes", "claimable": True, "status": "partial", "adjacent_evidence": "Docker Swarm", "evidence": "", "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Kubernetes"]},
+        {"concept": "GraphQL", "claimable": True, "status": "partial", "adjacent_evidence": "REST APIs", "evidence": "", "sources": ["required"], "fit_weight": 0.4, "surface_forms": ["GraphQL"]},
+        # A denied row is a key-requirement gap (`key_requirement_gaps`), never listed here.
+        {"concept": "Helm", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Helm"]},
         # ADR-074: required, unclaimable, and NOTHING on it — never asked. Excluded
         # from generation, told to the candidate instead.
         {"concept": "Terraform", "claimable": False, "status": "gap", "evidence": "", "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Terraform"]},
         # Not required — never reported even though unmet.
-        {"concept": "Rust", "claimable": False, "sources": ["nice_to_have"], "fit_weight": 0.9, "surface_forms": ["Rust"]},
-        # Claimable — never reported (it is not a gap at all).
+        {"concept": "Rust", "claimable": True, "adjacent_evidence": "C++", "sources": ["nice_to_have"], "fit_weight": 0.9, "surface_forms": ["Rust"]},
+        # Claimable without a stand-in — never reported (it is not a gap at all).
         {"concept": "Python", "claimable": True, "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Python"]},
     ]
     letter_data = {"body": {"paragraphs": ["I bring strong Python experience."]}}
@@ -341,7 +354,7 @@ def test_find_unaddressed_hard_requirements_returns_unmet_required_concepts():
 
 def test_find_unaddressed_hard_requirements_empty_when_addressed():
     ledger = [
-        {"concept": "Kubernetes", "claimable": False, "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Kubernetes"]},
+        {"concept": "Kubernetes", "claimable": True, "adjacent_evidence": "Docker Swarm", "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Kubernetes"]},
     ]
     letter_data = {"body": {"paragraphs": ["I am eager to grow into Kubernetes."]}}
     assert find_unaddressed_hard_requirements(ledger, letter_data) == []
@@ -349,7 +362,7 @@ def test_find_unaddressed_hard_requirements_empty_when_addressed():
 
 def test_find_unaddressed_hard_requirements_caps_at_three_highest_weight():
     ledger = [
-        {"concept": f"Gap{i}", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
+        _adjacent({"concept": f"Gap{i}", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]})
         for i, w in enumerate([0.9, 0.8, 0.7, 0.6, 0.5], start=1)
     ]
     result = find_unaddressed_hard_requirements(ledger, {"body": {"paragraphs": []}})
@@ -458,11 +471,12 @@ def test_render_unaddressed_hard_requirements_block_names_concepts_and_forbids_a
     assert "ranking" in block
     assert "does NOT have the named requirement" in block
     assert "never" in block.lower()
-    assert "litany" in block.lower()
     # RULING DEL-2: leaving a lacked requirement out is not a finding
     assert "silence" not in block.lower()
-    assert "leaves the requirement out" in block
-    assert "is NOT a finding" in block
+    assert "leave the requirement out" in block
+    assert "leaves out is NOT a finding" in block
+    # G-1: a gap the letter NAMES is the KEY-REQUIREMENT GAPS content's, never listed here
+    assert "ONLY in the KEY-REQUIREMENT GAPS content" in block
 
 
 def test_the_positioning_snapshot_builder_is_gone():
@@ -523,7 +537,7 @@ def test_reviewer_prompt_fn_omits_block_when_letter_addresses_all_three():
 
 def test_reviewer_prompt_fn_caps_unaddressed_at_three_and_logs_drop(caplog):
     ledger = [
-        {"concept": f"Gap{i}", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
+        _adjacent({"concept": f"Gap{i}", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]})
         for i, w in enumerate([0.9, 0.8, 0.7, 0.6], start=1)
     ]
     reviewer_fn = unaddressed_requirements_reviewer_prompt_fn(
@@ -577,11 +591,13 @@ def test_the_block_never_quotes_a_span_out_of_a_denial_statement():
          "source": "interview"},
     ]
     del denied  # the parameter is gone; the statements reach the prompt via STATED LIMITS
-    block = render_unaddressed_hard_requirements_block([EMBEDDINGS_ENTRY])
+    block = render_unaddressed_hard_requirements_block([_adjacent(EMBEDDINGS_ENTRY)])
     assert "What I do bring" not in block
     assert "TRANSFER-ARGUMENT TESTIMONY" not in block
-    # ...and it still tells the writer where the candidate's own words live.
-    assert "STATED LIMITS" in block
+    # G-1: the block no longer frames a denial at all (an adjacent partial was never
+    # asked about); a named gap's statement lives in the KEY-REQUIREMENT GAPS content.
+    assert "STATED LIMITS" not in block
+    assert "KEY-REQUIREMENT GAPS" in block
 
 
 def test_the_block_no_longer_accepts_a_denied_concepts_argument():

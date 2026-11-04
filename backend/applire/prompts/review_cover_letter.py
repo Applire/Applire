@@ -159,8 +159,9 @@ another:
 - CANDIDATE SOURCE (grounded CV data, master profile, the candidate's own stated inputs
   on motivation/salary/availability) — the only basis for a claim about the CANDIDATE.
   The candidate's own stated inputs are true by definition; never flag them.
-- ``job_description`` (inside the source) — the only basis for a claim about the
-  EMPLOYER: their product, market, domain, or achievements.
+- ``job_description`` (inside the source), and the candidate's own work AT the employer
+  (``candidate_record``) — the only basis for a claim about the EMPLOYER: their product,
+  market, domain, or achievements.
 - Any DETERMINISTIC BLOCK appended below, each titled in CAPS (VERIFIED COVERAGE CHECK,
   FIGURE OWNERSHIP, DO-NOT-CLAIM PRESENCE, RECORDED JOB TITLES, and others) — computed
   before you ran, and GROUND TRUTH. Do not re-derive, second-guess, or extend one. Each
@@ -172,7 +173,7 @@ someone. Ask only: WHO?
 - About the CANDIDATE (they have, did, know, achieved something) → check it against the
   CANDIDATE SOURCE. The DO NOT CLAIM list applies here, and ONLY here.
 - About the EMPLOYER (what they build, sell, or operate) → check it against
-  ``job_description``. The DO NOT CLAIM list does NOT apply: a term on that list is
+  ``job_description`` or ``candidate_record``. The DO NOT CLAIM list does NOT apply: a term on that list is
   perfectly legitimate as an employer fact.
 - Naming a concept as something the candidate does NOT have — an honest gap, a stated
   limit — is not a claim to it: "While I have not worked in LegalTech directly, ..."
@@ -205,11 +206,16 @@ or incomplete; anything you notice outside them is `minor` by definition.
      statement instead.
    - AN INVENTED LIMIT IS AN UNGROUNDED CLAIM, in the direction that costs the candidate
      most. "I have no direct experience with X" is a statement about the candidate, and it
-     is grounded ONLY by one of their own STATED LIMITS. If the letter disclaims something
-     no stated limit disclaims — especially something the Keyword Ledger marks claimable —
+     is grounded ONLY by one of their own STATED LIMITS or a ``gap_positioning`` gap. If
+     the letter disclaims something neither names — especially something the Keyword Ledger marks claimable —
      flag it here and say which evidence it throws away. Note that a stated limit names
      the candidate's adjacent STRENGTHS ("no IFS/BRC experience, but ten years of ISO-9001
      audit practice"); those named strengths are grounded, not limited.
+   - THE EINARBEITEN CLAUSE (G-1, MD6-2): a ``gap_positioning`` gap's sentence may close
+     with ONE clause of intent to get up to speed on it quickly, any wording ("in X arbeite
+     ich mich schnell ein"). It claims nothing about the past: never flag, cut, soften or
+     source it, not even as `minor` — unless it carries a figure, employer, project,
+     certificate or trait ("fast learner").
 2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure belonging to one
    specific employer must be attributable to it, and the unit is the EMPLOYER RUN inside
    one PARAGRAPH, not the sentence (#565). The run's first sentence names the employer;
@@ -230,12 +236,12 @@ or incomplete; anything you notice outside them is `minor` by definition.
    writer to delete the achievement or figure to make the problem go away — a figure
    dropped for lack of an anchor is a worse letter, not a safer one.
 3. INVENTED EMPLOYER FACT. A claim about the target employer's product, market, domain,
-   or achievements that is not in ``job_description``. Treat it exactly like an invented
-   candidate fact.
+   or achievements that is in neither ``job_description`` nor ``candidate_record`` (G-2).
+   Treat it exactly like an invented candidate fact.
 4. REQUIRED CONTENT NOT DELIVERED. The source's ``positioning_requested`` block names
    content the writer was required to produce — ``company_domain_engagement``,
    ``gap_transfer_argument``, ``availability``, ``scope_positioning``,
-   ``pinned_facts``, ``stated_limits`` (when ``required``),
+   ``pinned_facts``, ``gap_positioning``, ``motivation``,
    ``closing``. Each
    entry carries its own grounding and instruction. A required entry the body does not
    deliver is an issue: name it BY KEY and point
@@ -249,17 +255,14 @@ or incomplete; anything you notice outside them is `minor` by definition.
    own figure as the candidate's is.
    ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
    must appear, never extended; flag a missing one by key with its text.
-   ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE
-   positioning decision — a scoped claim of what the statement says they DO have, or a
-   transfer, discharges it all: never demand a gap beside one; else a plain-fact gap
-   plus strength. Findings: silence on a limit that has a transfer (L-1), a limit the
-   entry does NOT list (check 1), a gap as "cannot substantiate/prove", several
-   lacks in one clause (DEL-2). Withheld detail ("kann ich nicht nennen"): writing it in IS a finding (DEL-1). A requirement
-   lacked WITHOUT a recorded denial owes no sentence; never demand one (DEL-2).
-   HALF-DELIVERY IS THE THIRD DIRECTION (#732): the transferring strength stands in the
-   SAME sentence as the words naming the gap. A standalone negative, its strength in a
-   later sentence or a list, is the limit WITHOUT its positioning decision — worst right
-   after a strength. Quote it, name the strength, block: this is not `minor` paragraph order.
+   ``gap_positioning`` (G-1): the gap(s) code chose for the letter to name, ONE sentence
+   each as its instruction says. NEVER DEMAND A CONCEPT ``named`` DOES NOT HOLD — not
+   another gap, not the rest of a named gap's statement: one statement is ONE decision
+   (MD6-4); a gap it does not name, or several in one clause, is the finding.
+   ``stated_limits`` is a constraint only. Withheld detail ("kann ich nicht nennen")
+   written in IS a finding (DEL-1).
+   HALF-DELIVERY (#732): a standalone negative, its strength in a later sentence or a
+   list, is the gap WITHOUT its positioning decision. Quote it, name the strength, block.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate supports whose posting
      words the letter lacks. You judge two things: is its evidence already stated
@@ -276,12 +279,9 @@ or incomplete; anything you notice outside them is `minor` by definition.
      Such a concept is never a DO-NOT-CLAIM term and must never be named as an absence
      in either document — if the CV asserts it and the letter disclaims it, the LETTER
      is what is wrong, because the ledger says the vault supports the claim. A concept
-     is an honest gap only when the candidate's own recorded denial names it (DEL-2). Judge this by reading the two documents; no block lists
-     conflicts for you. The admit-and-affirm sentence check 1 describes — the gap and the
-     strength that transfers inside ONE sentence — is the CORRECT shape for a gap, not a
-     denial of its second half: never flag, soften or split it. That covers the FUSED
-     sentence only: a negative sentence with no such second half is check 4's
-     half-delivery finding (#732).
+     may be named as a gap only when ``gap_positioning`` names it (RULING G-1, DEL-2). Judge this by reading the two documents; no block lists
+     conflicts for you. The FUSED gap sentence (gap and transfer in ONE sentence) is the
+     CORRECT shape, not a denial of its second half: never flag, soften or split it.
    - KEYWORD LEDGER — DO NOT CLAIM. A ledger honest-gap concept may never stand as
      something the candidate HAS, has done, or knows. The SUBJECT TEST decides whose fact
      the sentence states; inside a sentence about the CANDIDATE the line is grammatical
@@ -348,7 +348,7 @@ their letter, and they decide.
    - the posting's requirement list echoed in the posting's order.
    Report the pattern and quote two examples of it. Two things you must NOT do: never propose
    dropping a figure or a fact to break a pattern — a line vaguer than the truth is the worse
-   defect — and never touch an admission of a recorded denial. Blind readers name that
+   defect — and never touch a ``gap_positioning`` gap's sentence. Blind readers name that
    admission as the strongest single reason to trust a letter; it must survive any voice work.
 
 """
@@ -499,27 +499,30 @@ Rules:
 - Do not invent facts. If the reviewer's feedback quotes candidate source content, use those
   passages as the factual basis. Otherwise restrict your changes to removing or softening the
   ungrounded claims while keeping the letter coherent and well-written.
-- NEVER WRITE A LACK THE CANDIDATE DID NOT STATE (RULING DEL-2, ADR-076): state that the
-  candidate lacks, cannot name or cannot claim something ONLY where their own recorded denial
-  names it (an EXPLICITLY DENIED or required ``stated_limits`` entry). When a review asks you
-  to "position" a requirement the candidate lacks without such a denial, surface the adjacent
+- NEVER WRITE A LACK THE GAP LADDER DOES NOT NAME (RULINGS DEL-2, G-1, ADR-076): state that
+  the candidate lacks something ONLY for a gap ``positioning_requested.gap_positioning``
+  names, and never as what they cannot name, prove or claim. When a review asks you to
+  "position" any other requirement the candidate lacks, or to name further concepts of a
+  named gap's statement, surface the adjacent
   strength on its own merits or leave the requirement out — never write a disclaimer or a
   "limited experience" sentence. A stated limit that only withholds detail ("kann ich nicht
   nennen", no figure or example) is NOT a limit: use the detail it gives, never write the
   withholding into the letter (RULING DEL-1).
 - PRESERVE REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255): when the
   CANDIDATE SOURCE carries a ``positioning_requested`` block, its company/domain engagement,
-  honest gap/transfer argument, availability, ``scope_positioning``, ``pinned_facts``
-  and — when the entry carries ``required`` — ``stated_limits``
-  paragraphs are REQUIRED content — do not strip or dilute them while fixing an
-  unrelated issue. A ``required`` ``stated_limits`` entry (ADR-075) lists concepts THIS
-  posting asks about and the candidate has denied in their own words: each owes ONE
-  honest positioning decision — the gap in their terms, then the adjacent strength that
-  transfers — folded into the SAME honest-gap paragraph, never a litany. Never state a
-  limit the entry does not list, and never soften or delete one it states with its
-  transferring strength (a bare admission with none is removed — RULING L-1): an unprompted
-  admission of a gap is the single thing blind readers name as the reason to trust a
-  letter. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
+  honest gap/transfer argument, availability, ``scope_positioning``, ``pinned_facts``,
+  ``gap_positioning`` and ``motivation`` paragraphs are REQUIRED content — do not strip or
+  dilute them while fixing an unrelated issue. ``gap_positioning`` (RULING G-1) names the
+  gap(s) THIS letter states, chosen by code: each gets ONE sentence in ONE honest-gap
+  paragraph — the gap first, then in the SAME sentence the transfer the source grounds,
+  else ONE forward-looking clause of intent to get up to speed on it quickly (the
+  einarbeiten clause: free wording, no figure, employer, project, certificate or trait
+  adjective; it needs no source — keep it). Never a list of lacks, never a gap the entry
+  does not name, never "not recorded / beyond my profile / cannot claim", even where the
+  candidate's statement words it so; never soften or delete a named gap's sentence: an
+  unprompted admission of a gap is the single thing blind readers name as the reason to
+  trust a letter. ``motivation`` (RULING G-2): keep the 1–2 motivation sentences; one
+  drawn from the candidate's own record of the employer is grounded. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
   text pinned by the candidate — keep each pinned fact stated (verbatim in
   substance) and never extend it beyond what the quote says. A
   ``scope_positioning`` statement (ADR-070) states the candidate's own scale evidence — a
@@ -582,20 +585,22 @@ Rules:
   statement about the field that asserts nothing about THIS candidate), either cut it or replace
   it with a specific, sourced claim from the CANDIDATE SOURCE — never keep the same generic
   sentence reworded. Do NOT apply this to the greeting/closing courtesy lines, the
-  availability/notice-period line, the honest-gap/transfer-argument paragraph, or a short
+  availability/notice-period line, the honest-gap/transfer-argument paragraph (the
+  einarbeiten clause of a named gap included), the motivation sentences, or a short
   connective clause introducing a grounded claim — those are not filler even if the reviewer's
   feedback is terse; when a flagged sentence turns out to be one of these, leave it rather than
   guess. NEVER let this rule shrink, soften, or remove an honest gap disclosure or a stated
   limit while "cutting padding" — removing honesty is worse than leaving a padding sentence
   in place, so a doubtful case stays untouched.
-- NEVER INVENT A LIMIT, AND NEVER DROP ONE. ``positioning_requested.stated_limits`` holds the
-  candidate's own words about what they cannot claim, and they are the ONLY limits that
-  exist. Keep every one the draft already states. Do NOT add a limit to any other claim —
+- NEVER INVENT A LIMIT. ``positioning_requested.stated_limits`` holds the candidate's own
+  words about what they cannot claim, and they and the gaps ``gap_positioning`` names are
+  the ONLY limits that exist; a stated limit is never contradicted, and it is disclosed
+  only as far as ``gap_positioning`` names it. Do NOT add a limit to any other claim —
   in particular, a concept named INSIDE one of those statements as something the candidate
   DOES have is a STRENGTH, not a limit (an honest denial names the adjacent strengths that
   transfer). Anything the Keyword Ledger marks claimable stays fully claimable unless a
   stated limit denies it, and is never moved into the honest-gap paragraph. Writing "I have
-  no direct experience with X" when no stated limit says so is an UNGROUNDED CLAIM about the
+  no direct experience with X" when neither says so is an UNGROUNDED CLAIM about the
   candidate — it costs them their own best evidence, and it is as untrue as an inflation.
 - Preserve the language, tone, structure, and every part the reviewer did not flag.
 - Leave recipient.date as null — the system inserts the letter date after generation.

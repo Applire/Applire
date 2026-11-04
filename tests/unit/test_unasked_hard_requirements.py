@@ -129,9 +129,14 @@ def test_the_letter_block_never_receives_an_unasked_requirement():
     ledger = [
         _row(concept="Digitalisierung"),
         _row(concept="IFS", status="denied", evidence=DENIED_EVIDENCE, sources=["required"]),
+        # an ADJACENT partial (claimable through a stand-in) is the one kind that remains
+        _row(concept="Arbeitsvorbereitung", status="partial", claimable=True,
+             evidence="x", adjacent_evidence="Feinplanung", sources=["required"]),
     ]
     out = find_unaddressed_hard_requirements(ledger, None)
-    assert [e["concept"] for e in out] == ["IFS"]
+    # G-1 (2026-11-04): a `claimable: false` row — the unasked gap AND the denial — is a
+    # key-requirement gap owned by `key_requirement_gaps`, never listed here
+    assert [e["concept"] for e in out] == ["Arbeitsvorbereitung"]
 
 
 def test_the_no_vault_context_fallback_is_gone():

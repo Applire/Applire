@@ -130,11 +130,12 @@ def test_the_voice_check_protects_the_honesty_move_and_forbids_vaguening(prompt)
     anchor. A voice check that lets the corrector trim it would trade the one thing that
     argued AGAINST a polish tool for the appearance of not being one."""
     low = _flat(prompt).lower()
-    # RULING DEL-2 (2026-10-18): on the LETTER the protected admission is the one a
-    # recorded denial names — an "unprompted" admission of an unrecorded gap is the
-    # defect the ruling removed, so the letter door no longer protects it.
+    # RULING DEL-2 (2026-10-18) / G-1 (2026-11-04): on the LETTER the protected
+    # admission is the sentence of a gap ``gap_positioning`` names — an "unprompted"
+    # admission of an unnamed gap is the defect the rulings removed, so the letter
+    # door no longer protects it (and "a recorded denial" is no longer the test).
     assert ("unprompted admission of a gap or a limit" in low
-            or "never touch an admission of a recorded denial" in low)
+            or "never touch a ``gap_positioning`` gap's sentence" in low)
     assert "vaguer than the truth is the worse defect" in low
 
 
