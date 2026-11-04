@@ -59,6 +59,7 @@ from applire.services.profile.reconcile.ops import (
 from applire.services.profile.reconcile.stance import (
     demote_ops_for_denials,
     enforce_stance,
+    offered_choice_gate,
 )
 
 logger = logging.getLogger(__name__)
@@ -226,13 +227,22 @@ async def reconcile(
         if a is not None
     ]
     denials = _parse_denials(data.get("denials"))
+    # G-3 (ADR-064 / ADR-059 amended 2026-11-04) — a denial named only inside a
+    # choice Applire offered and the candidate selected is not the candidate's
+    # no: dropped HERE, before the stance guard, the demotion emitter and every
+    # door's `record_denials` read `denials`. The offered names the candidate's
+    # own words do not repeat stay vetoes for the stance guard (`unclaimed`):
+    # Applire's text names them WITHOUT claiming, so it cannot ground a claim.
+    # The identity on every door but the built-in interview.
+    denials, _dropped, unclaimed = offered_choice_gate(denials, new_info, source)
     # Stance guard (#127, ADR-061): the model's own denials outrank its ops;
     # interview-turn token claims are resolved via the testimony predicate
     # (deterministic accept + LLM adjudication of the uncertain band, citation
     # verified in code). `provider` carries the adjudication call — same
     # provider the reconcile call itself just used.
     ops = await enforce_stance(
-        ops, denials=denials, new_info=new_info, source=source, provider=provider,
+        ops, denials=denials + [u for u in unclaimed if u not in denials],
+        new_info=new_info, source=source, provider=provider,
     )
     # Attribution guard (#243): a multi-employer answer's clause must never
     # silently land on a DIFFERENT employer's entity — deterministic backstop

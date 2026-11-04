@@ -933,3 +933,96 @@ def filter_ungrounded_choices(
             continue
         kept.append(text)  # trust the tag — nothing left to ground
     return kept or None
+
+
+# ── G-3 (ADR-064 amended 2026-11-04) — the offered choice travels as a FACT ──
+#
+# Founder UAT 2026-11-04: a clicked R2-2 chip ("…, aber zu X, Y steht in meinem
+# Profil noch nichts") became one ``direct`` DeniedConcept per named concept.
+# The chip's own ``denied_terms`` declaration ("named WITHOUT claiming") stopped
+# at ``filter_ungrounded_choices``, which flattens choices to ``list[str]``; the
+# answer turn carried the text only, and the reconciler read the clause as a no.
+# These two helpers carry the declaration — a fact the generator stated about
+# its own choice (ADR-062 cl. 6, read exactly as ``_denied_terms_of`` reads it)
+# — from the question to the turn that answers it. They never read a choice's
+# wording to guess anything.
+
+#: How many delivered choices a session remembers (newest win). A turn answers
+#: the question on screen, so only the latest few matter; the bound keeps the
+#: session row small on a long interview.
+OFFERED_CHOICE_KEEP = 40
+
+
+def record_offered_choices(state: Any, drafted: Any, delivered: Any) -> None:
+    """Remember the DELIVERED choices' own declarations in
+    ``state["offered_choice_terms"]`` = ``{text: {"level", "names_without_claiming"}}``.
+
+    ``drafted`` is the reviewed draft as it entered ``filter_ungrounded_choices``
+    (dicts carrying ``level`` / ``denied_terms``); ``delivered`` is that filter's
+    ``list[str]`` result (``None`` when nothing survived). A delivered text with
+    no matching drafted dict is still remembered, with ``level=None`` and no
+    terms — it is system-authored text either way. A no-op on anything that is
+    not a dict state or a non-empty delivered list. Mutates ``state`` in place.
+    """
+    if not isinstance(state, dict) or not isinstance(delivered, list) or not delivered:
+        return
+    by_text: dict[str, tuple[str | None, list[str]]] = {}
+    for choice in drafted if isinstance(drafted, list) else []:
+        text, level = _level_of(choice)
+        if text:
+            by_text[text] = (level, _denied_terms_of(choice))
+    previous = state.get("offered_choice_terms")
+    offered: dict[str, dict] = dict(previous) if isinstance(previous, dict) else {}
+    for raw in delivered:
+        text = str(raw).strip()
+        if not text:
+            continue
+        level, terms = by_text.get(text, (None, []))
+        offered.pop(text, None)  # re-insert so the newest offer sorts last
+        offered[text] = {"level": level, "names_without_claiming": terms}
+    while len(offered) > OFFERED_CHOICE_KEEP:
+        offered.pop(next(iter(offered)))
+    state["offered_choice_terms"] = offered
+
+
+def _containment_form(text: str) -> str:
+    """The normalised form an offered text is looked up in an answer by:
+    quotes folded, ``_norm``-ed, trailing sentence punctuation dropped (a
+    candidate who selects a chip and continues the sentence removes its full
+    stop)."""
+    return _norm(_fold_quotes(text)).rstrip(" .!?;:,")
+
+
+def offered_choices_in_answer(answer: Any, offered: Any) -> list[dict]:
+    """The offered choices this ANSWER contains, as
+    ``[{"text", "names_without_claiming"}]`` — a FACT (normalised containment
+    of a text Applire delivered), never a reading of what the answer means.
+
+    Containment, not equality: a choice is a starting point the candidate may
+    select AND extend. A choice offered at the ``denial`` level (a restated
+    earlier no, ADR-064 amended 2026-10-24 (ii)) is excluded — it is the
+    candidate's own no, so it carries no exemption. An answer that EDITS the
+    choice text matches nothing; the reconcile prompt's rule 9 still applies.
+    """
+    if not isinstance(answer, str) or not isinstance(offered, dict) or not offered:
+        return []
+    answer_form = _containment_form(answer)
+    if not answer_form:
+        return []
+    out: list[dict] = []
+    for text, meta in offered.items():
+        meta = meta if isinstance(meta, dict) else {}
+        if meta.get("level") == "denial":
+            continue
+        form = _containment_form(str(text))
+        if not form or form not in answer_form:
+            continue
+        terms = meta.get("names_without_claiming")
+        out.append({
+            "text": str(text),
+            "names_without_claiming": [
+                str(t).strip() for t in (terms if isinstance(terms, list) else [])
+                if isinstance(t, str) and str(t).strip()
+            ],
+        })
+    return out
