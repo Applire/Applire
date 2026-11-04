@@ -91,7 +91,14 @@ def test_a_paraphrased_quote_does_not_count():
 
 
 def test_a_quote_naming_a_denied_concept_backs_no_narrative():
-    vault = _vault(metadata={"denied_concepts": [{"concept": "Pipettierroboter", "statement": "nie", "denial_level": "direct"}]})
+    vault = _vault(metadata={"denied_concepts": [{
+        "concept": "Messdatenstrecke", "statement": "Eine Messdatenstrecke habe ich nie selbst aufgebaut.",
+        "source": "interview", "date": "2026-11-04", "denial_level": "direct",
+    }]})
+    # the fixture must index, or the arm is None and the assertion passes vacuously
+    from applire.services.keyword_ledger import _narrative_quote_arm
+
+    assert _narrative_quote_arm(vault) is not None
     [row] = _annotate_narrative_backed([_row("Data pipelines", _BULLET)], vault)
     assert row["narrative_backed"] is False
 
