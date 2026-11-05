@@ -290,8 +290,8 @@ def find_unaddressed_hard_requirements(
         # G-1 (ADR-075 amended 2026-11-04): a NOT-claimable row is a gap, and gaps
         # are counted, ranked and named by `key_requirement_gaps` alone. Listed
         # here per concept, a denied row re-demanded each concept of a statement
-        # the letter had already positioned (founder log recs 26/28: "Anypoint",
-        # then "MuleSoft") — the per-concept enumeration MD6-4 forbids. What is
+        # the letter had already positioned (founder UAT 11-04: one concept per
+        # reviewer round) — the per-concept enumeration MD6-4 forbids. What is
         # left is the ADJACENT partial: claimable through a stand-in (DEL-2).
         if not (entry.get("claimable") and entry.get("adjacent_evidence")):
             continue
@@ -564,9 +564,9 @@ def select_jd_relevant_limits(
 
 # ── G-1: the key-requirement gap ladder (ADR-075 amended 2026-11-04) ─────────
 #
-# Founder UAT 2026-11-04: the letter delivered "… while MuleSoft, Anypoint, AWS,
-# iPaaS, ESB, reference designs and integration platform operations remain beyond
-# the experience recorded in my profile". The writer's first draft named ONE gap
+# Founder UAT 2026-11-04: the letter delivered every concept of one recorded
+# statement as a single "… remain beyond the experience recorded in my profile"
+# list. The writer's first draft named ONE gap
 # with its transfer; the reviewer then demanded the rest of the one statement
 # (recs 26/28) because the REQUIRED stated-limits entry read "each one gets ONE
 # positioning decision … silence is not one of the options" over a statement that

@@ -540,10 +540,9 @@ def render_role_titles_block(titles: list[RoleTitle]) -> str:
 
 
 # ── G-2 (ADR-057 amended 2026-11-04): the candidate's own record of the employer ──
-# Founder UAT 11-04 (log rec 30): the reviewer blocked "Your work in biotechnology
-# and individualized cancer treatments makes reliable, compliant integration
-# especially meaningful to me" — sourced from the candidate's own station AT the
-# target employer — because the engagement was grounded "ONLY in the job
+# Founder UAT 11-04: the reviewer blocked a motivation sentence about the target
+# employer's field — sourced from the candidate's own station AT the target
+# employer — because the engagement was grounded "ONLY in the job
 # description". Whether the candidate's profile records a position at the target
 # employer is a FACT (a name match, ADR-062 cl. 1); what to say about it is the
 # writer's. One normaliser for the legal form: `ats_audit._LEGAL_FORM_RE`, on the
