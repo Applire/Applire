@@ -131,12 +131,13 @@ def test_a_must_have_gap_outranks_an_earlier_responsibilities_gap():
     assert [g.label for g in gaps[:2]] == ["Boomi", "Google Cloud"]
 
 
-def test_inside_the_section_l1_order_still_decides():
+def test_inside_the_section_its_own_counts_decide():
     ledger = [_row("reference designs"), _row("Boomi"), _row("integration governance")]
     gaps = key_requirement_gaps(ledger, [], JD_INLINE)
-    # Boomi + integration governance are both in "A Perfect Match"; governance is named
-    # three times in the posting, Boomi twice → mentions decide inside the section.
-    assert [g.label for g in gaps] == ["integration governance", "Boomi", "reference designs"]
+    # Boomi + integration governance are both in "A Perfect Match", once each there;
+    # governance's two extra mentions sit outside the section and never lift it
+    # (RULING D-6 = A, fix round 3), so first position in the section decides.
+    assert [g.label for g in gaps] == ["Boomi", "integration governance", "reference designs"]
     assert [g.in_requirements for g in gaps] == [True, True, False]
 
 
