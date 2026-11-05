@@ -594,7 +594,8 @@ class KeyGap:
     weight: float
     mentions: int
     first_position: int
-    #: RULING D-2 = A: a concept of the posting's candidate-requirements section.
+    #: RULING D-2 = A: a concept of the posting's candidate-requirements section;
+    #: then ``mentions``/``first_position`` count within that section (D-6 = A).
     in_requirements: bool = False
 
     @property
@@ -751,8 +752,12 @@ def key_requirement_gaps(
     recorded ``DeniedConcept`` share that record's statement and form ONE gap; every
     other row is its own gap. Ranked by the posting's requirements section first
     (RULING D-2 = A: a concept named there ahead of one only in the
-    responsibilities), then weight, posting mentions (descending), first position
-    and ledger order (L-1); a gap's ``label`` is its top concept by the same order.
+    responsibilities); inside the section by weight, then mentions and first
+    position counted WITHIN the section (RULING D-6 = A — a responsibilities mention
+    never lifts a must-have gap); outside it by weight, posting mentions
+    (descending), first position (L-1); then ledger order. A gap's ``label`` is its
+    top concept by the same order; ``mentions``/``first_position`` are the counts its
+    rank used (section-scoped when ``in_requirements``).
     A row the ADR-100 backing check demoted (``unbacked``) is no gap (MD6-9).
     Pure; ``None``/malformed tolerant."""
     jd_norm = ats_norm(jd_text or "")
@@ -779,8 +784,12 @@ def key_requirement_gaps(
             statement = statement_of.get(ats_norm(bound.strip()))
         key = f"s:{ats_norm(statement)}" if statement else f"c:{ats_norm(concept)}"
         forms = _ledger_forms(entry)
-        mentions, first = posting_mentions(forms, jd_norm)
-        in_req = bool(req_norm) and posting_mentions(forms, req_norm)[0] > 0
+        # RULING D-6 = A: inside the requirements section, mentions and first
+        # position are counted WITHIN the section only — a responsibilities mention
+        # never lifts a must-have gap. Outside it, L-1 over the whole posting.
+        req_mentions, req_first = posting_mentions(forms, req_norm) if req_norm else (0, _NO_POSITION)
+        in_req = req_mentions > 0
+        mentions, first = (req_mentions, req_first) if in_req else posting_mentions(forms, jd_norm)
         if key not in groups:
             groups[key] = []
             group_statement[key] = statement
@@ -795,13 +804,14 @@ def key_requirement_gaps(
         members.sort(key=lambda m: (not m[0], -m[1], -m[2], m[3], m[4]))
         top = members[0]
         concepts = tuple(dict.fromkeys(m[5] for m in members))
+        pool = [m for m in members if m[0] == top[0]]  # D-6: counts of ONE context
         gap = KeyGap(
             label=top[5],
             concepts=concepts,
             statement=group_statement[key],
             weight=top[1],
-            mentions=max(m[2] for m in members),
-            first_position=min(m[3] for m in members),
+            mentions=max(m[2] for m in pool),
+            first_position=min(m[3] for m in pool),
             in_requirements=top[0],
         )
         gaps.append((
