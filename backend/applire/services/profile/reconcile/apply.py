@@ -1856,6 +1856,21 @@ def _apply_resolve_confirmation(
     # explicit choice on a question that names the denial is the confirmation
     # cl. 3 requires; no model and no import ever reaches this branch.
     context = entry.context or {}
+    if context.get("kind") == "denial_scope" and context.get("conflict_kind") == "offered_choice":
+        # A-1 heal (founder RULING A-1 = B, 2026-11-04) — the question names
+        # every concept an offered "not yet in my profile" choice was recorded
+        # as denying; "Ja, zurücknehmen" withdraws ALL of them (G-5's act, one
+        # receipt each), "Doch, das fehlt mir" keeps them. Either answer is
+        # remembered, so the statement is never asked again.
+        from applire.services.profile.reconcile import stance as _stance
+
+        chosen = resolve_option_key(entry.model_dump(), op.chosen_option)
+        if chosen == _stance.OFFERED_CHOICE_NOT_A_NO and denials is not None:
+            for concept in context.get("denial_concepts") or []:
+                _apply_withdraw_denial(str(concept or ""), profile, denials)
+        if chosen in _stance.OFFERED_CHOICE_OPTION_KEYS:
+            _stance.record_denial_scope_answer(profile.metadata, dict(context))
+        return
     if context.get("kind") == "denial_scope":
         chosen = resolve_option_key(entry.model_dump(), op.chosen_option)
         if chosen == "cv_holds" and denials is not None:

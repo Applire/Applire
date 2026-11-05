@@ -849,10 +849,10 @@ _STATED_LIMITS_CONSTRAINT = (
 # terminal reviewer on the two-denial draft flagged them 0/5 -> 2/5.
 _STATED_LIMITS_NOT_OWED = (
     "CONSTRAINT ONLY — owed nothing. These are the candidate's own words about what "
-    "they cannot claim, and the ONLY limits the vault holds. This posting's key "
-    "requirements do not ask about them, so the letter never mentions them: no "
-    "disclosure, no gap, no \"no (further) experience\" sentence drawn from one, and a "
-    "review never demands one — a letter that writes one has a finding. A draft must "
+    "they cannot claim, and the ONLY limits the vault holds. The letter discloses "
+    "none of them beyond the gap(s) ``gap_positioning`` names (RULING G-1): no "
+    "further disclosure, no gap, no \"no (further) experience\" sentence drawn from "
+    "one, and a review never demands one — a letter that writes one has a finding. A draft must "
     "not contradict one — and must not invent one either. A concept named inside a "
     "statement as something the candidate DOES have is a strength, not a limit: claim "
     "it plainly. Everything the Keyword Ledger marks claimable stays fully claimable "
@@ -875,98 +875,90 @@ def _constraining_stated_limits_entry(limits: list[str]) -> dict:
     return {"limits": limits, "instruction": _STATED_LIMITS_NOT_OWED}
 
 
-def build_stated_limits_entry(
-    denied_concepts: list[dict] | None,
-    keyword_ledger: list[dict] | None,
-    *,
-    user_id: uuid.UUID | None = None,
+# `build_stated_limits_entry` — DELETED 2026-11-04 (RULING G-1, ADR-075 amended).
+# It made every JD-relevant recorded statement REQUIRED content, "each one gets ONE
+# positioning decision … silence is not one of the options". On the founder's UAT
+# (11-04) one statement named seven concepts and the reviewer demanded them one by
+# one (log recs 26/28); the corrector bundled all seven. The unit, the count and the
+# pick are now code (`cross_document.key_requirement_gaps` / `gaps_to_name`), and the
+# entry below names only what the letter owes.
+
+
+def build_gap_positioning_entry(
+    gaps: list, named: list, language: str | None, *, user_id: "uuid.UUID | None" = None
 ) -> dict | None:
-    """The ADR-075 affirmative entry, or ``None`` when nothing is owed (#532).
+    """RULING G-1 (ADR-075 amended 2026-11-04): the REQUIRED ``gap_positioning`` entry
+    of ``positioning_requested`` — the review loop's copy of the writer's
+    KEY-REQUIREMENT GAPS block. ``None`` when the posting has no key-requirement gap.
 
-    The obligation this builds is the one gate charter run 1 delivered *by
-    accident*: an unprompted honest disclosure of a denied, JD-relevant concept
-    was the single property BOTH blind panel reviewers named as their reason for
-    `ja`, and the 2026-08-13 verification letter — same case, same inputs —
-    carried none, because no component ever required it (SF-WRITE.22).
+    Three hooks, as ADR-021's 2026-08-13 amendment requires of a ``required`` flag
+    (it is not self-enforcing): this entry, reviewer check 4 naming ``gap_positioning``,
+    and the corrector's PRESERVE bullet naming it. ``named`` carries per gap the
+    label and, when recorded, the candidate's own statement — the reviewer's ground for
+    "this gap is the candidate's"; ``not_owed`` the other concepts of a named statement,
+    so no round can read them as obligations (MD6-4)."""
+    from applire.services.cross_document import GAP_LADDER_NAME_ALL_UP_TO, gap_ladder_rule
 
-    Three things make this entry different from the constraint it replaces:
-
-    1. ``required: True``. ADR-021's own 2026-08-13 amendment records that the
-       flag is **not self-enforcing** — the deleted ``unaddressed_hard_
-       requirements`` entry read ``required: true`` for ten rounds while the
-       corrector dropped both its concepts. So the flag ships with the other two
-       hooks (reviewer check 4 by name, a named corrector bullet), never alone.
-    2. ``limits`` is the SELECTED set, not every denial the vault holds —
-       :func:`cross_document.select_jd_relevant_limits`, capped and ranked.
-    3. The instruction is affirmative **and** states its own trap. A reviewer
-       told only "name the limits" will accept an invented limit as compliance;
-       an invented limit is an ungrounded claim in the direction that costs the
-       candidate most (check 1), and it is what run 1's disclosure was a repair
-       *of*.
-
-    Returns ``None`` when no denial is JD-relevant, so the letter is never asked
-    for content the vault cannot ground.
-    """
-    from applire.services.cross_document import select_jd_relevant_limits
-
-    limits = select_jd_relevant_limits(denied_concepts, key_requirement_ledger(keyword_ledger))
-    if not limits:
+    if not named:
         return None
+    total = len(gaps)
+    not_owed = sorted({c for g in named for c in g.concepts if c != g.label})
     return {
-        "limits": limits,
         "required": True,
+        "gap_count": total,
+        "named": [
+            {"gap": g.label, "statement": g.statement or None, "recorded": g.recorded}
+            for g in named
+        ],
+        "not_owed": not_owed,
         "instruction": (
-            "REQUIRED content (ADR-075). These are the candidate's own words about "
-            "KEY requirements of THIS posting that they have denied. Each one gets ONE "
-            "positioning decision on the ranked ladder: a scoped claim of what the "
-            "statement says they DO have (\"runs on Databricks\" for a limit on "
-            "platforms beyond it), or a transfer argument, DISCHARGES all of it, the "
-            "part they lack beyond that scope included, with no negation beside it. "
-            "Only where neither carries it is the gap named — as a "
-            "plain fact about the work, gap first and the adjacent strength that "
-            "transfers second, in ONE sentence (\"no IFS/BRC experience, but ten years "
-            "of ISO-9001 audit practice\"), never as what they cannot substantiate, "
-            "prove or claim, even where their statement words it so (DEL-2), and never "
-            "several lacks bundled into one clause — all in ONE honest paragraph, never "
-            "a litany, never an apology. "
-            "Where the statement offers NO transferring strength, the letter leaves "
-            "that limit out: a bare admission is never the decision (RULING L-1). "
-            "A standalone negative sentence, with the strength relegated to a later "
-            "sentence or a generic list, is this content HALF-delivered (#732), and "
-            "worst of all directly after a sentence stating a strength. "
-            "Silence — neither a scoped claim, a transfer argument nor the fused gap "
-            "sentence — on a listed limit whose statement carries a transfer argument "
-            "is not one of the options. The inverse "
-            "is equally binding: never state a limit that is NOT listed here. "
-            "Everything the Keyword Ledger marks claimable stays fully claimable, "
-            "and disclaiming it would throw away the candidate's own best evidence. "
-            + _STATED_LIMITS_CONSTRAINT
+            f"REQUIRED content (RULING G-1). Code counted {total} key requirement(s) of "
+            "this posting the candidate's profile does not meet and chose the gap(s) the "
+            "letter names: "
+            + ("each of them. " if total <= GAP_LADDER_NAME_ALL_UP_TO else
+               "from three on, ONLY the most urgent one. ")
+            + gap_ladder_rule(language, named)
+            + " ``not_owed`` lists further concepts of a named gap's statement: never "
+            "demanded, never named — the statement is ONE positioning decision (MD6-4)."
         ),
     }
 
 
-def key_requirement_ledger(
-    keyword_ledger: list[dict] | None,
-    *,
-    user_id: "uuid.UUID | None" = None,
-) -> list[dict]:
-    """RULING L-1 = A (founder 2026-10-24, ADR-075 amended): the letter names a
-    recorded gap only where the posting's KEY requirement is that gap — the
-    required tier (``keyword_ledger.REQUIRED_WEIGHT``). A denial of a nice-to-have
-    or keyword-only concept (IFS/BRC "von Vorteil", "BaFin exposure", a keyword
-    such as "Payment institution") is never volunteered: it is dropped from the
-    ``denied`` rows this view hands :func:`cross_document.select_jd_relevant_limits`,
-    so it lands in the never-disclosed CONSTRAINT ONLY block instead of the
-    REQUIRED one. Every other row passes through unchanged; pure."""
-    from applire.services.keyword_ledger import REQUIRED_WEIGHT
+def build_motivation_entry(
+    typed_motivation: str | None, employer_record: list, *, user_id: "uuid.UUID | None" = None
+) -> dict:
+    """RULING G-2 / MD6-5 (ADR-057 amended 2026-11-04): the REQUIRED ``motivation``
+    entry. A typed motivation always wins and is used as given; otherwise the writer
+    derives 1–2 sentences from the grounded fit. ``employer_record`` is
+    :func:`cover_letter_positioning.employer_stations` (a fact; may be empty)."""
+    typed = (typed_motivation or "").strip()
+    entry: dict = {"required": True}
+    if typed:
+        entry["typed"] = typed
+        entry["instruction"] = (
+            "REQUIRED content: the candidate's own typed motivation, used as given, in 1–2 "
+            "sentences of the opening or motivation paragraph. Its absence is a review issue."
+        )
+        return entry
+    entry["instruction"] = (
+        "REQUIRED content (RULING G-2): no motivation was typed, so the letter carries 1–2 "
+        "sentences of motivation in the opening or motivation paragraph, derived from the "
+        "grounded fit — what in this posting meets what the candidate has done"
+        + (
+            ", and the candidate's own work at this employer (``candidate_record``: only "
+            "what the profile records under THAT position, within its dates; an ``ended`` "
+            "position is the past and grounds no present-tense knowledge of the employer "
+            "today)" if employer_record else ""
+        )
+        + ". Never an invented feeling, personal history or event. Its absence is a review "
+        "issue; a motivation sentence that names the grounded fit is not a finding."
+    )
+    return entry
 
-    def _key(entry: dict) -> bool:
-        if not isinstance(entry, dict) or entry.get("status") != "denied":
-            return True
-        weight = entry.get("fit_weight")
-        return isinstance(weight, (int, float)) and float(weight) >= REQUIRED_WEIGHT
 
-    return [e for e in (keyword_ledger or []) if _key(e)]
+# `key_requirement_ledger` — DELETED 2026-11-04 (G-1): the key-tier cut it made for
+# the REQUIRED stated-limits entry (RULING L-1 = A) now lives in
+# `cross_document.key_requirement_gaps`, which also counts unrecorded gaps.
 
 
 async def patch_cover_letter_section(
@@ -1581,27 +1573,14 @@ async def _render_cover_letter_body(
                     find_availability_testimony,
                     find_gap_testimony,
                 )
-                from applire.services.gap import askable_gap_inputs
-                from applire.services.cross_document import exclude_claimable_concepts
-
                 profile_json = profile.profile_json if profile is not None else {}
                 signature_stories = profile_json.get("signature_stories") or []
-                # #270 Fix A (the run-5 regression): askable_gap_inputs() deliberately
-                # folds #260 keyword LIABILITIES (claimable, required, no narrative
-                # depth) into the clusterable gap list so they stay reachable via
-                # resolve_gap — correct for clustering, but a CLAIMABLE concept must
-                # never be positioned as THIS letter's honest gap (the ledger already
-                # says the vault positively supports it). Filter at this call site
-                # only; askable_gap_inputs itself is untouched (other callers depend
-                # on the #260 fold).
-                gap_testimony = (
-                    find_gap_testimony(
-                        exclude_claimable_concepts(askable_gap_inputs(gap), keyword_ledger),
-                        signature_stories,
-                    )
-                    if gap is not None
-                    else None
-                )
+                # The gap testimony (E048/US264) is selected below, over the G-1
+                # NAMED gaps only (ADR-075 amended 2026-11-04). Until then it picked
+                # the first category-C gap of the gap analysis (#270 Fix A filtered
+                # claimable concepts out of that list) — a gap of its own, outside any
+                # count, which the G-1 ladder cannot admit. A named gap is not
+                # claimable by construction, so the #270 regression cannot recur.
 
                 work_experience = profile_json.get("work_experience") or []
                 enrichment_history = (
@@ -1647,24 +1626,46 @@ async def _render_cover_letter_body(
                 from applire.services.cross_document import (
                     collect_stated_limits,
                     find_unaddressed_hard_requirements,
+                    gaps_to_name,
+                    key_requirement_gaps,
                     letter_constraint_only_limits,
-                    render_required_limits_block,
+                    named_gap_concepts,
+                    render_gap_ladder_block,
                     render_stated_limits_block,
-                    select_jd_relevant_limits,
                     render_unaddressed_hard_requirements_block,
                 )
-                # denied_concepts already resolved above (#272 Task 1 hoist).
-                # RULING DEL-3: only the statements this posting does NOT ask
-                # about, as a never-disclosed constraint; the owed ones reach the
-                # writer through `required_limits_block` alone.
+                # RULING G-1 / L-1 = B (ADR-075 amended 2026-11-04): ONE deterministic
+                # count and pick, shared by the writer block, the review loop's
+                # `gap_positioning` entry and the invented-limit fact — so no round can
+                # re-litigate which gaps are owed. denied_concepts resolved above.
+                key_gaps = key_requirement_gaps(keyword_ledger, denied_concepts, job.raw_text)
+                named_gaps = gaps_to_name(key_gaps)
+                named_concepts = named_gap_concepts(named_gaps)
+                # RULING DEL-3 (narrowed by G-1): every statement the ladder does not
+                # name, as a never-disclosed constraint; a named one reaches the writer
+                # through `gap_ladder_block` alone.
                 stated_limits_block = render_stated_limits_block(
-                    letter_constraint_only_limits(denied_concepts, key_requirement_ledger(keyword_ledger)),
+                    letter_constraint_only_limits(denied_concepts, named_gaps),
                     for_letter=True,
                 )
-                # ADR-075 / #532 — the affirmative half, selected deterministically
-                # from THIS job's ledger; empty string when nothing is owed.
-                required_limits_block = render_required_limits_block(
-                    select_jd_relevant_limits(denied_concepts, key_requirement_ledger(keyword_ledger))
+                gap_ladder_block = render_gap_ladder_block(
+                    key_gaps, named_gaps, detected_language
+                )
+                # RULING G-2 (ADR-057 amended 2026-11-04): the candidate's own recorded
+                # position(s) at the target employer — a FACT (name match); what it
+                # means for the motivation is the writer's.
+                from applire.services.cover_letter_positioning import (
+                    employer_stations,
+                    render_employer_record,
+                )
+
+                employer_record = employer_stations(profile_json, job_company_name)
+                # E048/US264 under G-1: the candidate's own transfer testimony is the
+                # transfer of a NAMED gap, never a gap of its own — the letter names
+                # only what the ladder names. Overrides the category-C pick above.
+                gap_testimony = (
+                    find_gap_testimony([g.label for g in named_gaps], signature_stories)
+                    if named_gaps else None
                 )
 
                 # #270(c): unmet JD hard requirements (claimable: false, required) that need
@@ -1700,10 +1701,9 @@ async def _render_cover_letter_body(
                     logger.warning(
                         "LETTER_UNASKED_REQUIREMENTS cl=%s count=%d concepts=%r — JD hard "
                         "requirement(s) with no evidence, no adjacent capability and no "
-                        "stated limit. Excluded from generation (ADR-074): asserting is "
-                        "ungrounded, denying invents a limit the candidate never stated, "
-                        "and silence is the only honest option left. Surfaced to the "
-                        "candidate instead.",
+                        "stated limit. Never asserted (ADR-074); named only where the G-1 "
+                        "gap ladder names it (ADR-075 amended 2026-11-04). Surfaced to the "
+                        "candidate.",
                         cl_id,
                         len(_unasked),
                         [e.get("concept", "") for e in _unasked],
@@ -1796,12 +1796,19 @@ async def _render_cover_letter_body(
                     ),
                 }
                 if collect_stated_limits(denied_concepts):
-                    positioning_requested["stated_limits"] = (
-                        build_stated_limits_entry(denied_concepts, keyword_ledger)
-                        or _constraining_stated_limits_entry(
-                            collect_stated_limits(denied_concepts)
-                        )
+                    # G-1: constraint only, always — what the letter owes is
+                    # `gap_positioning` (below), never a statement as a whole.
+                    positioning_requested["stated_limits"] = _constraining_stated_limits_entry(
+                        collect_stated_limits(denied_concepts)
                     )
+                _gap_entry = build_gap_positioning_entry(
+                    key_gaps, named_gaps, detected_language
+                )
+                if _gap_entry is not None:
+                    positioning_requested["gap_positioning"] = _gap_entry
+                positioning_requested["motivation"] = build_motivation_entry(
+                    pre_gen.get("motivation"), employer_record
+                )
                 # NOTE (ADR-021 amended 2026-08-13, #526): there is deliberately no
                 # `positioning_requested["unaddressed_hard_requirements"]` entry. Every
                 # other key here is a STANDING obligation, true of the letter regardless
@@ -1825,10 +1832,20 @@ async def _render_cover_letter_body(
                         "instruction": (
                             "REQUIRED content: the letter must concretely engage this "
                             "employer's product/domain/market in the opening or motivation "
-                            "paragraph, grounded ONLY in the job_description text above. Its "
-                            "absence from the letter body is a review issue."
+                            "paragraph, grounded ONLY in the job_description text above"
+                            + (
+                                " or in the candidate's own record of this employer "
+                                "(``candidate_record`` and what the profile records under "
+                                "THAT position, within its dates — RULING G-2)"
+                                if employer_record else ""
+                            )
+                            + ". Its absence from the letter body is a review issue."
                         ),
                     }
+                    if employer_record:
+                        positioning_requested["company_domain_engagement"][
+                            "candidate_record"
+                        ] = employer_record
                 if gap_testimony:
                     gt_story = gap_testimony.get("story") or {}
                     gt_testimony_text = " ".join(
@@ -1844,8 +1861,9 @@ async def _render_cover_letter_body(
                         "testimony": gt_testimony_text,
                         "required": True,
                         "instruction": (
-                            "REQUIRED content: exactly one honest paragraph naming this gap "
-                            "and delivering the candidate's OWN transfer argument, grounded "
+                            "REQUIRED content: in the honest-gap paragraph, ONE sentence "
+                            "naming this gap (a ``gap_positioning`` gap, RULING G-1) and "
+                            "delivering the candidate's OWN transfer argument, grounded "
                             "verbatim in 'testimony' above. Its absence is a review issue. "
                             "Naming the gap itself is honesty, not a forbidden claim."
                         ),
@@ -1992,12 +2010,13 @@ async def _render_cover_letter_body(
                     gap_testimony=gap_testimony,
                     availability_testimony=availability_testimony,
                     stated_limits_block=stated_limits_block,
-                    # ADR-075 / #532: the affirmative half reaches the WRITER as its
-                    # own block. `positioning_requested` is the review loop's `source`
-                    # and never reaches this call, so the obligation would otherwise
-                    # exist only from round 2 onwards — on the one call that decides
-                    # whether the disclosure is ever drafted at all.
-                    required_limits_block=required_limits_block,
+                    # RULING G-1: the gap ladder reaches the WRITER as its own block.
+                    # `positioning_requested` is the review loop's `source` and never
+                    # reaches this call, so the obligation would otherwise exist only
+                    # from round 2 onwards — on the one call that decides whether the
+                    # disclosure is ever drafted at all.
+                    gap_ladder_block=gap_ladder_block,
+                    employer_record=render_employer_record(employer_record) or None,
                     unaddressed_requirements_block=unaddressed_requirements_block,
                     vault_evidence_block=vault_evidence_block,
                     scope_positioning_block=scope_positioning_block,
@@ -2348,6 +2367,7 @@ async def _render_cover_letter_body(
                         denied_concepts=denied_concepts,
                         language=detected_language,
                         availability_given=availability_given,
+                        named_gaps=named_concepts,
                     )
                     if is_v2
                     else None
@@ -2534,6 +2554,7 @@ async def _render_cover_letter_body(
                     # candidate's own persisted denials.
                     keyword_ledger=keyword_ledger,
                     denied_concepts=denied_concepts,
+                    named_gaps=named_concepts,
                     # ADR-094 clause L (ruling W2-1, B3): v2 has no post-loop
                     # final length floor — enforced inside, from ``pipeline``.
                     pipeline=pipeline,
@@ -2636,6 +2657,7 @@ async def _render_cover_letter_body(
                         final_floor=False,
                         keyword_ledger=keyword_ledger,
                         denied_concepts=denied_concepts,
+                        named_gaps=named_concepts,
                         # writer collector #601: the re-entry used to pass no
                         # pins= and to drop its own pin_floor_hits, so a pin whose
                         # carrier the compose tail deleted DURING a re-entry was
@@ -3068,6 +3090,7 @@ def _letter_v2_findings(
     keyword_ledger: list | None,
     denied_concepts: list | None,
     availability_given: bool = True,
+    named_gaps: list[str] | None = None,
 ) -> list[LetterFinding]:
     """Every v2 deterministic finding except the language one (which has its own
     fact, block and ATS row in ``services/letter_v2``).
@@ -3093,7 +3116,9 @@ def _letter_v2_findings(
             ))
     except Exception:  # pragma: no cover - a check never breaks generation
         logger.warning("letter v2: figure findings failed", exc_info=True)
-    for limit in ungrounded_limits(letter_data, keyword_ledger, denied_concepts):
+    for limit in ungrounded_limits(
+        letter_data, keyword_ledger, denied_concepts, named_gaps=named_gaps
+    ):
         out.append(LetterFinding("limit", limit.issue_text(), subjects=(limit.concept,)))
     try:
         # RULING W2-3: an employer/institution named in the body must be a
@@ -3137,7 +3162,7 @@ _V2_ADVISORY_FAMILIES = frozenset({"figure", "limit"})
 
 
 def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, language,
-                  availability_given: bool = True):
+                  availability_given: bool = True, named_gaps: list[str] | None = None):
     """ADR-094 clause L4 through W1's findings interface (``review_and_refine``'s
     ``checks_fn``): every v2 letter finding as a ``CheckFinding`` on the COMPOSED
     draft of the round. Language, salutation, sign-off and closing are BLOCKING
@@ -3172,7 +3197,7 @@ def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, 
         for f in _letter_v2_findings(
             composed, profile_json=profile_json,
             keyword_ledger=keyword_ledger, denied_concepts=denied_concepts,
-            availability_given=availability_given,
+            availability_given=availability_given, named_gaps=named_gaps,
         ):
             if per_family.get(f.family, 0) >= _V2_FINDINGS_PER_FAMILY:
                 continue
@@ -3458,6 +3483,7 @@ async def _terminal_review_letter(
     final_floor: bool = True,
     keyword_ledger: list | None = None,
     denied_concepts: list | None = None,
+    named_gaps: list[str] | None = None,
     pipeline: str = "v1",
     v2_signal_fn=None,
     availability_given: bool = True,
@@ -3564,7 +3590,9 @@ async def _terminal_review_letter(
     )
 
     def _limits_ok(composed: dict) -> bool:
-        return has_no_ungrounded_limit(composed, keyword_ledger, denied_concepts)
+        return has_no_ungrounded_limit(
+            composed, keyword_ledger, denied_concepts, named_gaps=named_gaps
+        )
 
     subject_by_draft: dict[str, dict] = {_canon(draft): cl.letter_data}
     pdf_cell: dict[str, bytes | None] = {"pdf": pdf_bytes}
@@ -3608,7 +3636,7 @@ async def _terminal_review_letter(
     # the reviewer approves it never fires at all, which is exactly why clause 2c's
     # cut exists underneath it.
     _limit_signal_fn = limit_signal_issues_fn(
-        keyword_ledger, denied_concepts, _subject_of
+        keyword_ledger, denied_concepts, _subject_of, named_gaps=named_gaps
     )
     _v2_checks = None
 
@@ -3775,6 +3803,7 @@ async def _terminal_review_letter(
                     keyword_ledger=keyword_ledger,
                     denied_concepts=denied_concepts,
                     availability_given=availability_given,
+                    named_gaps=named_gaps,
                 )
             )
             extra = tuple(post_condense_notes) + delivery_notes
@@ -3806,7 +3835,9 @@ async def _terminal_review_letter(
                 outcome=outcome,
                 limit_cuts=(),
             )
-        cut, findings = cut_ungrounded_limits(delivered, keyword_ledger, denied_concepts)
+        cut, findings = cut_ungrounded_limits(
+            delivered, keyword_ledger, denied_concepts, named_gaps=named_gaps
+        )
         # Adversarial finding, 2026-09-20: fold NOW, against whichever draft is
         # ACTUALLY about to ship — this settle-time cut's own output when it
         # fires, `delivered` otherwise — never against a round's own settled
@@ -4355,6 +4386,7 @@ async def _terminal_review_letter(
                                     f.concept for f in ungrounded_limits(
                                         _subject_of(condensed_draft),
                                         keyword_ledger, denied_concepts,
+                                        named_gaps=named_gaps,
                                     )
                                 })),
                             )

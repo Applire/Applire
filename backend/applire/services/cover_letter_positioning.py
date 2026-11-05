@@ -537,3 +537,99 @@ def render_role_titles_block(titles: list[RoleTitle]) -> str:
         "never ask for a title this list does not carry.",
     ]
     return "\n".join(lines)
+
+
+# ── G-2 (ADR-057 amended 2026-11-04): the candidate's own record of the employer ──
+# Founder UAT 11-04: the reviewer blocked a motivation sentence about the target
+# employer's field — sourced from the candidate's own station AT the target
+# employer — because the engagement was grounded "ONLY in the job
+# description". Whether the candidate's profile records a position at the target
+# employer is a FACT (a name match, ADR-062 cl. 1); what to say about it is the
+# writer's. One normaliser for the legal form: `ats_audit._LEGAL_FORM_RE`, on the
+# `ats_audit._norm`ed name (ADR-066). Exact core-name equality, never a substring:
+# "Müller" must not match "Müller-Logistik".
+
+
+def _core_employer_name(name: str | None) -> str:
+    from applire.services.ats_audit import _LEGAL_FORM_RE, _norm
+
+    # The legal-form pattern needs the trailing dot of "e.V." / "S.A." / "B.V." /
+    # "N.V.", so a dot is stripped only AFTER the form is gone — and a dot that is
+    # sentence punctuation ("… GmbH.") is tried without (fix round, adversarial G2-2).
+    n = _norm(name or "").strip(" ,")
+    prev = None
+    while prev != n:
+        prev = n
+        for cand in (n, n.rstrip(". ")):
+            cut = _LEGAL_FORM_RE.sub("", cand)
+            if cut != cand:
+                n = cut.strip(" ,")
+                break
+    return n.strip(" ,.")
+
+
+def employer_stations(profile_json: dict | None, company: str | None) -> list[dict]:
+    """The candidate's recorded positions at ``company`` (the target employer).
+
+    ``[{"role", "company", "start_date", "end_date", "ended"}]`` in profile order; ``[]``
+    when the company is unknown or no position matches. ``ended`` is a fact: the entry
+    is not current and its end date states an end. "Current" is ONE implementation
+    (ADR-066): ``profile.aspiration``'s rule — the flag, or a start date with no end
+    or an ongoing marker ("present", "heute", "bis heute" … — extraction writes
+    those literally; fix round, adversarial G2-1). Pure; malformed tolerant."""
+    from applire.services.profile.aspiration import _ended
+    target = _core_employer_name(company)
+    if not target:
+        return []
+    out: list[dict] = []
+    for entry in (profile_json or {}).get("work_experience") or []:
+        if not isinstance(entry, dict):
+            continue
+        if _core_employer_name(entry.get("company")) != target:
+            continue
+        raw_end = entry.get("end_date")
+        current = bool(entry.get("is_current")) or (
+            bool(entry.get("start_date")) and not _ended(raw_end)
+        )
+        out.append({
+            "role": entry.get("role") or "",
+            "company": entry.get("company") or "",
+            "start_date": entry.get("start_date") or "",
+            "end_date": "present" if current else (raw_end or ""),
+            "ended": not current and _ended(raw_end),
+        })
+    return out
+
+
+def render_employer_record(stations: list[dict]) -> str:
+    """One line for the writer's COMPANY & DOMAIN ENGAGEMENT block; ``""`` when the
+    candidate has no recorded position at the target employer.
+
+    Hazelnut b6 follow-up (2026-11-04): the line states each station's time frame and
+    whether it has ENDED (facts, ADR-062) and binds the engagement to that station's
+    own facts. The first wording called the station "the candidate's own knowledge of
+    this employer" with no tense or ownership bound; on the synthetic former-employer
+    case a delivered letter claimed present-tense insider knowledge ("kenne ich … aus
+    eigener Praxis", station ended 2018) and a first draft moved another employer's
+    achievements onto the target employer."""
+    if not stations:
+        return ""
+    held = "; ".join(
+        f"{s['role']} at {s['company']} ({s['start_date']}–{s['end_date']}"
+        f"{', ENDED' if s.get('ended') else ''})".strip()
+        for s in stations
+    )
+    line = (
+        "THE CANDIDATE'S OWN RECORD OF THIS EMPLOYER: the profile records a position "
+        f"there — {held}. Only what the profile states under THAT position (the "
+        "products, therapies, systems or markets worked on there) may ground the "
+        "engagement and the motivation; an achievement recorded under another employer "
+        "stays with that employer and is never placed here."
+    )
+    if any(s.get("ended") for s in stations):
+        line += (
+            " An ENDED position is the past: write it in the past tense and within its "
+            "dates (\"as … there from YYYY to YYYY, I …\") — it grounds no present-tense "
+            "knowledge of the employer today (its current teams, systems or ways of working)."
+        )
+    return line

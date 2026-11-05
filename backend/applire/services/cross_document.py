@@ -94,6 +94,7 @@ from __future__ import annotations
 
 import logging
 import unicodedata
+from dataclasses import dataclass
 from typing import Any
 
 from applire.services.ats_audit import _norm as ats_norm
@@ -244,16 +245,14 @@ def find_unaddressed_hard_requirements(
     positioning decision and whose surface forms appear NOWHERE in the letter
     body.
 
-    Two kinds qualify (ADR-048 amended 2026-07-27, clause 6):
-
-      * ``claimable: false`` — a genuine honest gap, whether ``gap`` (nobody
-        knows) or ``denied`` (the candidate said no in their own words);
-      * an ADJACENT ``partial`` — claimable, but only because the candidate has
-        a *different* capability standing in for the named one. It reads as
-        "covered" to every other mechanism while the JD's actual requirement is
-        unmet, so it needs positioning just as much: promote the adjacent
-        capability, never assert the JD's term. A below-the-bar ``partial``
-        (no pointer) is genuinely the named skill and is deliberately excluded.
+    Since G-1 (ADR-075 amended 2026-11-04) ONE kind qualifies: an ADJACENT
+    ``partial`` — claimable, but only because the candidate has a *different*
+    capability standing in for the named one. It reads as "covered" to every
+    other mechanism while the JD's actual requirement is unmet: promote the
+    adjacent capability, never assert the JD's term, never state it as a lack
+    (DEL-2). A below-the-bar ``partial`` (no pointer) is genuinely the named
+    skill and is deliberately excluded. A ``claimable: false`` row (``gap`` /
+    ``denied``) is a GAP and belongs to :func:`key_requirement_gaps` alone.
 
     Capped at the ``cap`` (default 3) highest ``fit_weight`` entries — this
     never silently truncates: every dropped entry is logged at ``info``
@@ -288,7 +287,13 @@ def find_unaddressed_hard_requirements(
         # cell has no fourth move.
         if is_unasked_requirement(entry):
             continue
-        if entry.get("claimable") and not entry.get("adjacent_evidence"):
+        # G-1 (ADR-075 amended 2026-11-04): a NOT-claimable row is a gap, and gaps
+        # are counted, ranked and named by `key_requirement_gaps` alone. Listed
+        # here per concept, a denied row re-demanded each concept of a statement
+        # the letter had already positioned (founder UAT 11-04: one concept per
+        # reviewer round) — the per-concept enumeration MD6-4 forbids. What is
+        # left is the ADJACENT partial: claimable through a stand-in (DEL-2).
+        if not (entry.get("claimable") and entry.get("adjacent_evidence")):
             continue
         if "required" not in (entry.get("sources") or []):
             continue
@@ -346,25 +351,15 @@ def find_unaddressed_hard_requirements(
 # where the entry is rendered, rather than here, so the rule and the entry
 # cannot drift apart (ADR-075 amended 2026-09-11).
 _UNADDRESSED_INSTRUCTION = (
-    "JD hard requirements the letter does not mention anywhere. The candidate "
-    "does NOT have the named requirement itself — either the Keyword Ledger "
-    "marks it unclaimable, or it is claimable only through a DIFFERENT, "
-    "adjacent capability named below. Never assert the requirement's own term "
-    "as something they have, have done, or know. "
-    "Positioning (ADR-076 amended by RULING DEL-2): where an adjacent capability is "
-    "named below, the letter may give that capability prominence on its own merits, in "
-    "the candidate's own words, WITHOUT naming the lacked requirement; otherwise "
-    "DE-EMPHASIS, which means the letter leaves the requirement out. A requirement listed "
-    "here that the letter leaves out is NOT a finding. The letter names a lack only where "
-    "the entry says the candidate was ASKED AND SAID NO — briefly, in their own terms. "
-    "Never write what the candidate cannot claim, name or prove about any other "
-    "requirement listed here. "
-    "Where a STATED LIMITS block is present, the candidate's own wording for "
-    "the transfer argument is in it, verbatim — read it there and build on it; "
-    "an honest denial normally states the gap and the adjacent strength in one "
-    "breath, and that is the shape to reproduce, gap acknowledged first. "
-    "Fold every response into the SAME single honest-gap paragraph — never a "
-    "litany of separate gap admissions. "
+    "JD hard requirements the letter does not mention anywhere, each claimable only "
+    "through a DIFFERENT, adjacent capability named below — the candidate does NOT "
+    "have the named requirement itself. Never assert the requirement's own term as "
+    "something they have, have done, or know, and never state it as something they "
+    "lack either (ADR-076, RULING DEL-2): the letter may give the adjacent capability "
+    "prominence on its own merits, in the candidate's own words, or leave the "
+    "requirement out. A requirement listed here that the letter leaves out is NOT a "
+    "finding. Gaps the letter names are listed ONLY in the KEY-REQUIREMENT GAPS "
+    "content (RULING G-1), never here. "
     "A concept NOT listed here is not a gap: if the Keyword Ledger marks it "
     "claimable with no adjacent-capability note, it is supported by the vault "
     "and must be claimed plainly, never hedged."
@@ -420,12 +415,6 @@ def render_unaddressed_hard_requirements_block(
         # both letter loops to exhaustion in gate charter run 1.
         evidence = e.get("evidence", "") or e.get("adjacent_evidence", "")
         lines.append(f"  - {e.get('concept', '')} — context: {evidence}")
-        if e.get("status") == "denied":
-            lines.append(
-                "    THE CANDIDATE WAS ASKED AND STATED THEY DO NOT HAVE THIS. It is "
-                "their own position, not an unknown — name it plainly if you name it "
-                "at all, and never soften or walk it back."
-            )
         if e.get("adjacent_evidence"):
             lines.append(
                 "    ADJACENT CAPABILITY IN THE VAULT: "
@@ -573,6 +562,373 @@ def select_jd_relevant_limits(
     return [statement for _, _, _, statement in kept]
 
 
+# ── G-1: the key-requirement gap ladder (ADR-075 amended 2026-11-04) ─────────
+#
+# Founder UAT 2026-11-04: the letter delivered every concept of one recorded
+# statement as a single "… remain beyond the experience recorded in my profile"
+# list. The writer's first draft named ONE gap
+# with its transfer; the reviewer then demanded the rest of the one statement
+# (recs 26/28) because the REQUIRED stated-limits entry read "each one gets ONE
+# positioning decision … silence is not one of the options" over a statement that
+# names seven concepts. Replay (luna, n=5 per arm): the per-concept ledger rows
+# were not the cause (1/10 captured, 1/10 without them in the UNADDRESSED block,
+# 2/10 without them in the profile too) — the obligation's unit was.
+#
+# G-1 moves the unit into code. Which requirements are gaps, how they are
+# counted, which one is most urgent and how many are named are FACTS (ADR-062
+# clause 1, computed here, one implementation for writer, reviewer, corrector and
+# the limit fact); whether a transfer exists and the sentence are the model's.
+
+
+@dataclass(frozen=True)
+class KeyGap:
+    """One key-requirement gap — the unit G-1 counts and names.
+
+    ``label`` is the concept the letter names; ``concepts`` every ledger concept
+    the unit covers (one recorded statement naming several concepts is ONE gap,
+    MD6-4); ``statement`` the candidate's own words when the gap is recorded."""
+
+    label: str
+    concepts: tuple[str, ...]
+    statement: str | None
+    weight: float
+    mentions: int
+    first_position: int
+    #: RULING D-2 = A: a concept of the posting's candidate-requirements section;
+    #: then ``mentions``/``first_position`` count within that section (D-6 = A).
+    in_requirements: bool = False
+
+    @property
+    def recorded(self) -> bool:
+        return bool(self.statement)
+
+
+#: G-1: up to this many gaps are each named; from one more on only the most urgent.
+GAP_LADDER_NAME_ALL_UP_TO = 2
+
+_NO_POSITION = 10**9
+
+
+def _token_bounded(text: str, start: int, end: int) -> bool:
+    before = text[start - 1] if start > 0 else " "
+    after = text[end] if end < len(text) else " "
+    return not before.isalnum() and not after.isalnum()
+
+
+def posting_mentions(forms: list[str], jd_norm: str) -> tuple[int, int]:
+    """How often the posting names any of ``forms`` (distinct whole-token start
+    positions over the shared singular/plural fold) and where it first does.
+
+    A FACT about the posting text — the ranking signal G-1's "most urgent" uses
+    (RULING L-1 = B): every key row weighs 1.0, so the order inside
+    the key tier comes from the posting itself. ``(0, _NO_POSITION)`` when absent."""
+    from applire.services.ats_audit import _fold_variants
+
+    starts: set[int] = set()
+    for form in forms:
+        n = ats_norm(form or "")
+        if not n:
+            continue
+        for variant in _fold_variants(n):
+            i = jd_norm.find(variant)
+            while i >= 0:
+                if _token_bounded(jd_norm, i, i + len(variant)):
+                    starts.add(i)
+                i = jd_norm.find(variant, i + 1)
+    if not starts:
+        return 0, _NO_POSITION
+    return len(starts), min(starts)
+
+
+# RULING D-2 = A (founder 2026-11-04, delivery run build 6): a gap from the
+# posting's requirements of the CANDIDATE ("Your profile", "A Perfect Match",
+# "Ihr Profil") ranks ahead of one that occurs only in the responsibilities. The
+# job analysis does not keep the two apart (Corvalis: "Capacity management", a
+# responsibilities line, sits in ``required_skills`` beside the must-have
+# SnapLogic), so the section is read off the posting's own headings — a fact
+# about the text (ADR-062 cl. 1). Unrecognised layout → no section → L-1's order.
+_REQUIREMENTS_HEADINGS = (
+    "your profile", "your qualifications", "your skills", "your experience", "profile",
+    "requirements", "qualifications", "minimum qualifications", "basic qualifications",
+    "required qualifications", "required skills", "must have", "must-haves",
+    "what you bring", "what you'll bring", "what you will bring", "what you need",
+    "what we're looking for", "what we are looking for", "who you are", "about you",
+    "a perfect match", "skills and experience", "your background",
+    "ihr profil", "dein profil", "profil", "anforderungen", "anforderungsprofil",
+    "qualifikationen", "ihre qualifikationen", "deine qualifikationen",
+    "was sie mitbringen", "was du mitbringst", "das bringen sie mit",
+    "das bringst du mit", "voraussetzungen", "ihre kompetenzen", "deine kompetenzen",
+    "das zeichnet sie aus", "das zeichnet dich aus", "was wir erwarten",
+    "was wir von ihnen erwarten", "was wir von dir erwarten",
+)
+#: Every other section heading — each one ENDS a requirements section.
+_OTHER_HEADINGS = (
+    "your responsibilities", "responsibilities", "key responsibilities", "your role",
+    "the role", "about the role", "your tasks", "tasks", "your contribution",
+    "your mission", "what you will do", "what you'll do", "your impact",
+    "ihre aufgaben", "deine aufgaben", "aufgaben", "aufgabengebiet",
+    "ihr aufgabengebiet", "dein aufgabengebiet", "das erwartet sie", "das erwartet dich",
+    "was sie erwartet", "was dich erwartet", "ihre rolle", "deine rolle", "die rolle",
+    "nice to have", "nice-to-have", "preferred qualifications", "bonus points",
+    "wünschenswert", "von vorteil",
+    "what we offer", "we offer", "our offer", "your benefits", "benefits", "why us",
+    "why join us", "wir bieten", "was wir bieten", "unser angebot", "das bieten wir",
+    "ihre benefits", "deine benefits", "ihre vorteile", "deine vorteile",
+    "about us", "who we are", "über uns", "wer wir sind", "das sind wir",
+    "contact", "kontakt", "how to apply", "interested?", "interessiert?",
+    "ihre bewerbung", "deine bewerbung",
+)
+
+
+def _heading_regexes() -> tuple[Any, Any]:
+    import re
+
+    alts = sorted({*_REQUIREMENTS_HEADINGS, *_OTHER_HEADINGS}, key=len, reverse=True)
+    body = "|".join(re.escape(a) for a in alts)
+    # A heading on its own line (markdown marks allowed, a short "(must have)" tail),
+    # or a capitalised heading run into the text and closed by a colon.
+    line = re.compile(rf"(?im)^[ \t#*>]*(?P<h>{body})(?![\w-])[^\n:]{{0,30}}?:?[ \t*]*$")
+    inline = re.compile(rf"(?i)(?<![\w-])(?P<h>{body})[ \t]*:")
+    return line, inline
+
+
+_HEADING_LINE_RE, _HEADING_INLINE_RE = _heading_regexes()
+
+
+def posting_requirements_text(jd_text: str | None) -> str:
+    """The posting's candidate-requirements section(s) — from each requirements
+    heading to the next recognised heading — joined; ``""`` when the posting has no
+    recognisable requirements heading (RULING D-2 = A). Pure."""
+    text = jd_text or ""
+    marks: dict[int, tuple[int, bool]] = {}
+    for m in _HEADING_LINE_RE.finditer(text):
+        marks.setdefault(m.start("h"), (m.end(), m.group("h").lower() in _REQUIREMENTS_HEADINGS))
+    for m in _HEADING_INLINE_RE.finditer(text):
+        if not m.group("h")[0].isupper():
+            continue  # "… the following requirements:" is prose, not a heading
+        marks.setdefault(m.start("h"), (m.end(), m.group("h").lower() in _REQUIREMENTS_HEADINGS))
+    starts = sorted(marks)
+    parts = []
+    for i, start in enumerate(starts):
+        end, is_requirements = marks[start]
+        if not is_requirements:
+            continue
+        stop = next((s for s in starts[i + 1:] if s >= end), len(text))
+        parts.append(text[end:stop])
+    return "\n".join(parts)
+
+
+def _is_key_gap_row(entry: Any) -> bool:
+    from applire.services.keyword_ledger import REQUIRED_WEIGHT, is_aim_only, is_scope_entry
+
+    if not isinstance(entry, dict) or entry.get("claimable"):
+        return False
+    if entry.get("status") not in ("gap", "denied"):
+        return False
+    if is_scope_entry(entry) or is_aim_only(entry):
+        return False
+    if entry.get("unbacked"):
+        # MD6-9 (D-3): the classifier judged this supported and only the quote
+        # failed (ADR-100 cl. 6) — not known to be missing, so never "X is new to
+        # me"; the letter leaves it out, like DEL-2 leaves an unsupported row out.
+        return False
+    weight = entry.get("fit_weight")
+    return isinstance(weight, (int, float)) and float(weight) >= REQUIRED_WEIGHT
+
+
+def key_requirement_gaps(
+    keyword_ledger: list[dict[str, Any]] | None,
+    denied_concepts: list[Any] | None,
+    jd_text: str | None,
+) -> list[KeyGap]:
+    """Every key-requirement gap of THIS posting, most urgent first (G-1, MD6-1/4).
+
+    A gap is a key-tier row (``fit_weight >= REQUIRED_WEIGHT``) the ledger marks NOT
+    claimable — ``gap`` or ``denied``, ADR-074's never-asked rows included (G-1:
+    "also without a recorded denial") — never a scope or aim-only row. An ADJACENT
+    partial is claimable through a stand-in and is not a gap (DEL-2 keeps it).
+
+    Rows whose concept (or ``denied_by`` binding, ADR-100 M-2) is a concept of one
+    recorded ``DeniedConcept`` share that record's statement and form ONE gap; every
+    other row is its own gap. Ranked by the posting's requirements section first
+    (RULING D-2 = A: a concept named there ahead of one only in the
+    responsibilities); inside the section by weight, then mentions and first
+    position counted WITHIN the section (RULING D-6 = A — a responsibilities mention
+    never lifts a must-have gap); outside it by weight, posting mentions
+    (descending), first position (L-1); then ledger order. A gap's ``label`` is its
+    top concept by the same order; ``mentions``/``first_position`` are the counts its
+    rank used (section-scoped when ``in_requirements``).
+    A row the ADR-100 backing check demoted (``unbacked``) is no gap (MD6-9).
+    Pure; ``None``/malformed tolerant."""
+    jd_norm = ats_norm(jd_text or "")
+    req_norm = ats_norm(posting_requirements_text(jd_text))
+    statement_of: dict[str, str] = {}
+    for denial in denied_concepts or []:
+        concept = (_get(denial, "concept", "") or "").strip()
+        statement = (_get(denial, "statement", "") or "").strip()
+        if concept and statement:
+            statement_of.setdefault(ats_norm(concept), statement)
+
+    groups: dict[str, list[tuple[bool, float, int, int, int, str]]] = {}
+    group_statement: dict[str, str | None] = {}
+    order: list[str] = []
+    for index, entry in enumerate(keyword_ledger or []):
+        if not _is_key_gap_row(entry):
+            continue
+        concept = (entry.get("concept") or "").strip()
+        if not concept:
+            continue
+        statement = statement_of.get(ats_norm(concept))
+        bound = entry.get("denied_by")
+        if not statement and isinstance(bound, str) and bound.strip():
+            statement = statement_of.get(ats_norm(bound.strip()))
+        key = f"s:{ats_norm(statement)}" if statement else f"c:{ats_norm(concept)}"
+        forms = _ledger_forms(entry)
+        # RULING D-6 = A: inside the requirements section, mentions and first
+        # position are counted WITHIN the section only — a responsibilities mention
+        # never lifts a must-have gap. Outside it, L-1 over the whole posting.
+        req_mentions, req_first = posting_mentions(forms, req_norm) if req_norm else (0, _NO_POSITION)
+        in_req = req_mentions > 0
+        mentions, first = (req_mentions, req_first) if in_req else posting_mentions(forms, jd_norm)
+        if key not in groups:
+            groups[key] = []
+            group_statement[key] = statement
+            order.append(key)
+        groups[key].append(
+            (in_req, float(entry.get("fit_weight") or 0.0), mentions, first, index, concept)
+        )
+
+    gaps: list[tuple[tuple, KeyGap]] = []
+    for key in order:
+        members = groups[key]
+        members.sort(key=lambda m: (not m[0], -m[1], -m[2], m[3], m[4]))
+        top = members[0]
+        concepts = tuple(dict.fromkeys(m[5] for m in members))
+        pool = [m for m in members if m[0] == top[0]]  # D-6: counts of ONE context
+        gap = KeyGap(
+            label=top[5],
+            concepts=concepts,
+            statement=group_statement[key],
+            weight=top[1],
+            mentions=max(m[2] for m in pool),
+            first_position=min(m[3] for m in pool),
+            in_requirements=top[0],
+        )
+        gaps.append((
+            (not gap.in_requirements, -gap.weight, -gap.mentions, gap.first_position, top[4]),
+            gap,
+        ))
+    gaps.sort(key=lambda g: g[0])
+    return [g for _, g in gaps]
+
+
+def gaps_to_name(gaps: list[KeyGap]) -> list[KeyGap]:
+    """G-1: up to two gaps → each is named; three or more → only the most urgent."""
+    if len(gaps) <= GAP_LADDER_NAME_ALL_UP_TO:
+        return list(gaps)
+    return list(gaps[:1])
+
+
+def named_gap_concepts(named: list[KeyGap]) -> list[str]:
+    """Every ledger concept a NAMED gap covers — the grounded set the invented-limit
+    fact (``limit_grounding``) adds to the candidate's own denials (ADR-076 am.
+    2026-11-04 clause 3). Order kept, deduped."""
+    return list(dict.fromkeys(c for g in named for c in g.concepts))
+
+
+#: RULING L-2 = C (founder 2026-11-04): the no-transfer clause is a DESCRIBED family,
+#: free wording; these are examples only. Keyed by the letter language.
+EINARBEITEN_EXAMPLES: dict[str, tuple[str, str]] = {
+    "de": ("…; in {gap} werde ich mich schnell einarbeiten.", "…; in {gap} arbeite ich mich schnell ein."),
+    "en": ("…, and I will get up to speed on {gap} quickly.", "…; I get up to speed on {gap} quickly."),
+}
+
+#: MD6-2: the one grounding carve-out, stated ONCE and rendered into every door that
+#: judges a letter sentence (writer block, positioning entry; the reviewer, corrector
+#: and Oracle prompts state it in their own register and reference this name).
+EINARBEITEN_CLAUSE_RULE = (
+    "THE EINARBEITEN CLAUSE (RULING G-1, MD6-2): where the profile holds no transfer "
+    "for a NAMED gap, that gap's sentence closes with ONE forward-looking clause of "
+    "intent to get up to speed on it quickly, in the letter language and the "
+    "candidate's own voice. It is the ONLY sentence part the grounding rules allow "
+    "without a source, so it says NOTHING about the candidate's past or abilities: no "
+    "skill, tool, experience, duration, figure, employer, project, certificate or trait "
+    "adjective in it (\"fast learner\", \"proven ability\", \"steile Lernkurve\", "
+    "\"dank meiner Erfahrung mit X\" are not it — a transfer goes BEFORE the clause, "
+    "as the sentence's grounded half). "
+    "Free wording; it is never an unsupported generalisation, never filler, and never "
+    "a claim to be verified."
+)
+
+
+def _einarbeiten_examples(language: str | None, label: str) -> str:
+    a, b = EINARBEITEN_EXAMPLES.get((language or "de").lower()[:2], EINARBEITEN_EXAMPLES["en"])
+    return f"\"{a.format(gap=label)}\" or \"{b.format(gap=label)}\""
+
+
+def gap_ladder_rule(language: str | None, named: list[KeyGap]) -> str:
+    """The G-1 sentence rule, with examples for the first named gap.
+
+    Carries D-29's ONE HOME PER FACT over from the deleted REQUIRED block (Hazelnut
+    build 5, delivery run 6: the writer re-introduced the candidate's main system in
+    the gap paragraph; replay luna n=10×2, second introduction 8/20 -> 3/20)."""
+    label = named[0].label if named else "X"
+    return (
+        "For EACH named gap write ONE sentence, inside the single honest-gap paragraph: "
+        "the gap first, as a plain fact about the work (\"Mit X habe ich noch nicht "
+        "gearbeitet\", \"X is new to me\"), then — in the SAME sentence — a transfer "
+        "argument grounded in the profile (a recorded capability that carries over). "
+        "ONE HOME PER FACT (D-29): when the transfer is a system or project the letter "
+        "already introduced, the gap sentence names it back in a few words (\"no X "
+        "experience, but that system …\") and never introduces it again (no second \"At "
+        "<employer>, I lead …\"). "
+        "Where the profile holds no such transfer, the sentence closes with the "
+        f"einarbeiten clause instead, e.g. {_einarbeiten_examples(language, label)} "
+        "Never a list of lacks, never several gaps in one clause, never \"not recorded\", "
+        "\"beyond my profile\", \"cannot claim / prove / substantiate\" — even where the "
+        "candidate's statement words it so. Name ONLY the gap(s) listed: every other "
+        "gap of this posting, and every further concept a listed statement names, stays "
+        "unnamed — silence there is correct, never a finding. "
+        + EINARBEITEN_CLAUSE_RULE
+    )
+
+
+def render_gap_ladder_block(
+    gaps: list[KeyGap], named: list[KeyGap], language: str | None
+) -> str:
+    """The WRITER's G-1 block (replaces the REQUIRED: STATED LIMITS block). ``""``
+    when the posting has no key-requirement gap."""
+    if not named:
+        return ""
+    from applire.services.untrusted_text import items_note
+
+    total = len(gaps)
+    head = (
+        f"This posting has {total} key requirement(s) the candidate's profile does not "
+        "meet (counted by code; one recorded statement naming several concepts counts "
+        "once). "
+        + ("Each is named below." if total <= GAP_LADDER_NAME_ALL_UP_TO else
+           "From three on ONLY the most urgent one is named — the one below.")
+    )
+    lines = [
+        "=== KEY-REQUIREMENT GAPS (computed — RULING G-1) ===",
+        head,
+        gap_ladder_rule(language, named),
+        items_note("gap terms"),
+        "NAME IN THE LETTER:",
+    ]
+    for gap in named:
+        if gap.statement:
+            lines.append(
+                f"  - {gap.label} — the candidate's own words (recorded): \"{gap.statement}\""
+            )
+        else:
+            lines.append(
+                f"  - {gap.label} — not in the profile; the candidate was not asked about it"
+            )
+    return "\n".join(lines)
+
+
 #: RULING DEL-1 (founder 2026-10-18, Hazelnut delivery F1/F2): an interview answer
 #: that only withholds detail was recorded as a limit, and the letter wrote the
 #: withholding in ("konkrete Entwicklungsbeispiele kann ich nicht nennen"). Letter
@@ -586,99 +942,42 @@ WITHHOLDING_IS_NOT_A_LIMIT = (
 #: RULING DEL-2 (founder 2026-10-18, ADR-076 positioning contract): de-emphasis
 #: means the letter LEAVES the lacked requirement out; the letter states a lack ONLY
 #: where the candidate's own recorded denial names it.
+#: Narrowed 2026-11-04 (G-1, ADR-076 amended): the gap ladder's NAMED gaps are the
+#: other source of a lack — recorded or not.
 LACK_ONLY_FROM_OWN_DENIAL = (
-    "The letter states that the candidate lacks, cannot name or cannot claim something "
-    "ONLY where the candidate's own recorded denial names it (an EXPLICITLY DENIED or "
-    "REQUIRED: STATED LIMITS entry). For any other requirement the candidate lacks, "
-    "de-emphasis means the letter leaves it out — leaving it out is not a defect."
+    "The letter states that the candidate lacks something ONLY for a gap the "
+    "KEY-REQUIREMENT GAPS content names (RULING G-1), and never as what they cannot "
+    "name, prove or claim. For any other requirement the candidate lacks, de-emphasis "
+    "means the letter leaves it out — leaving it out is not a defect."
 )
 
 
-def render_required_limits_block(limits: list[str]) -> str:
-    """The AFFIRMATIVE half of ADR-075, for the LETTER writer's user prompt only.
-
-    Why this exists as its own block rather than as a flag the writer reads:
-    ``positioning_requested`` is the review loop's ``source`` and never reaches
-    the initial writer call at all — `build_cover_letter_prompt` renders the
-    POSITIONING sections and :func:`render_stated_limits_block`, not that JSON.
-    A writer rule keyed on *"when the positioning block marks stated_limits
-    REQUIRED"* would therefore name a marker the writer cannot see, and would be
-    a no-op on the very call that decides whether the disclosure exists at all
-    (`applire-prompt-first` step 3, pattern 6). Found by writing the replay, not
-    by reading the code.
-
-    It is deliberately NOT folded into :func:`render_stated_limits_block`, which
-    the CV writer also receives (`services/cv.py`): CV writer rule 3a says a CV
-    is not the place to disclose a gap, so the obligation must not reach it.
-
-    Returns ``""`` when nothing is owed, so a candidate with no JD-relevant
-    denial adds nothing — the ADR-074 discipline, applied to this block too.
-    """
-    if not limits:
-        return ""
-    # D-29 (Hazelnut build 5, delivery run 6, panel 2/2): "the same SINGLE honest-gap
-    # paragraph" plus the same-sentence strength (#732) made the writer introduce the
-    # candidate's main system a second time in the gap paragraph ("At <employer>, I lead
-    # … that runs on <platform>"). Replay of the two captured writer calls (gpt-6-luna,
-    # n=10 each): second introduction 8/20 -> 3/20, Copilot-type limit still positioned
-    # 17/20 -> 17/20. A corrector-side rule did not undo an existing restatement and was
-    # not landed.
-    lines = [
-        "=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT (ADR-075) ===",
-        "Each statement below is the candidate's own wording about a concept THIS "
-        "posting asks for and they have denied. Every one of them needs ONE positioning "
-        "decision in the body, taken on the RANKED ladder (ADR-075 amended 2026-09-20): "
-        "a scoped claim at the highest rung that is true, else a transfer argument; where "
-        "the statement offers NEITHER, the letter LEAVES THE LIMIT OUT — never a bare "
-        "admission (RULING L-1). A scoped claim or a transfer argument "
-        "DISCHARGES the limit — it needs no negation beside it, and adding one anyway is "
-        "the defect, not the discipline.",
-        "Where the gap IS named, it comes first and the strength that transfers second, "
-        "in ONE sentence, the way the statement below already says it (#732), as a plain "
-        "fact about the work (\"no X experience, but …\") — never as what the candidate "
-        "cannot substantiate, prove or claim, even where the statement words it so "
-        "(DEL-2), and never several lacks bundled into one clause. Never split "
-        "it into a negative sentence plus a separate list of adjacent strengths, and never "
-        "let a standalone negative sentence follow directly on a sentence stating a "
-        "strength — that pair is what a reader quotes back as the reason to decline. All "
-        "of it inside the SAME single honest-gap paragraph, never a litany, never an "
-        "apology. ONE HOME PER FACT: when the transferring strength is a system or "
-        "project the letter already introduced, the gap sentence names it back in a few "
-        "words (\"no X experience, but that system …\") and never introduces it again (no "
-        "second \"At <employer>, I lead …\"); a scoped claim about that system (where it "
-        "runs, what it uses) joins the paragraph that introduced it.",
-        "Never state a limit that is NOT listed here: an invented limit is as untrue "
-        "as an inflated claim and throws away the candidate's own best evidence.",
-        WITHHOLDING_IS_NOT_A_LIMIT,
-    ]
-    lines.extend(f"  - {text}" for text in limits)
-    return "\n".join(lines)
+# `render_required_limits_block` — DELETED 2026-11-04 (G-1, ADR-075 amended). The
+# REQUIRED: STATED LIMITS block owed every JD-relevant recorded statement "ONE
+# positioning decision"; over a statement naming seven concepts the reviewer read
+# seven obligations (founder UAT 11-04). Its successor is `render_gap_ladder_block`:
+# the unit, the count and the pick are code, and only the named gap is owed.
 
 
 def letter_constraint_only_limits(
     denied_concepts: list[Any] | None,
-    keyword_ledger: list[dict[str, Any]] | None,
+    named: list[KeyGap] | None,
 ) -> list[str]:
-    """RULING DEL-3 (ADR-075 amended 2026-10-18): the INPUT FILTER on the letter.
+    """The INPUT FILTER on the letter (RULING DEL-3, narrowed by G-1 2026-11-04).
 
-    The letter owes a recorded denial only when it concerns a requirement of THIS
-    posting — :func:`select_jd_relevant_limits`, matched on the Keyword-Ledger row
-    in code, is the one place that decides it, and those statements reach the
-    writer ONLY through :func:`render_required_limits_block` (the obligation).
+    Every recorded statement reaches the writer — it can still be the one a claim
+    contradicts — but only a statement of a NAMED gap reaches it as something the
+    letter says (through :func:`render_gap_ladder_block`). Every other statement is
+    returned here and rendered as a constraint the letter never discloses: a
+    denial this posting never asked about (DEL-3), a key-requirement denial G-1
+    does not name (three or more gaps), a nice-to-have denial (L-1 = A).
 
-    Every other statement is returned here: it still reaches the writer, because
-    it can still be the one a claim contradicts (never claimed), but it is
-    rendered as a constraint the letter never discloses. Before this filter the
-    writer received every denial the vault holds, framed with "an honest denial
-    names the adjacent strengths", and wrote non-JD interview non-answers into
-    the letter as admissions (Hazelnut delivery, logged rows 69-78: the
-    Investitionssumme, Digitalisierungsprojekte and Entwicklungsbeispiele lines).
-
-    A JD-relevant statement the ADR-075 cap dropped lands here too: the cap
-    exists so a letter never turns into a list of things the candidate cannot
-    do. Pure; ``None``/empty tolerant; order preserved.
+    Before DEL-3 the writer received every denial framed with "an honest denial
+    names the adjacent strengths", and wrote non-JD interview non-answers into the
+    letter as admissions (Hazelnut delivery, logged rows 69-78). Pure; ``None``/
+    empty tolerant; order preserved.
     """
-    owed = {ats_norm(s) for s in select_jd_relevant_limits(denied_concepts, keyword_ledger)}
+    owed = {ats_norm(g.statement) for g in named or [] if g.statement}
     return [s for s in collect_stated_limits(denied_concepts) if ats_norm(s) not in owed]
 
 

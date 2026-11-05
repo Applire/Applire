@@ -1213,21 +1213,25 @@ async def test_seam_del3_only_the_postings_denial_reaches_the_writer_obligation(
     with patch("applire.services.keyword_ledger.refresh_persist_and_rescore", side_effect=_ledger):
         rec = await _run(db, await _seed_with_denials(db), payload=_draft(_GERMAN_BODY))
     writer_prompt = rec["systems"][0][0]
-    req = writer_prompt.index("=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT")
+    req = writer_prompt.index("=== KEY-REQUIREMENT GAPS")
     con = writer_prompt.index("=== STATED LIMITS — CONSTRAINT ONLY")
     req_block = writer_prompt[req:writer_prompt.find("\n\n===", req)]
     con_block = writer_prompt[con:writer_prompt.find("\n\n===", con)]
-    # the owed denial is an obligation, and only there
+    # the posting's denial is the named gap (G-1), and only there
     assert _DEL3_OWED in req_block and _DEL3_OWED not in con_block
     # the other denial still reaches the writer (never claimed) — as a constraint only
     assert _DEL3_OTHER in con_block and _DEL3_OTHER not in req_block
-    # the loop's source owes only the posting's denial too (the vault itself, which the
-    # source also carries, still holds both statements)
+    # the loop's source: `gap_positioning` owes only the posting's denial; `stated_limits`
+    # is constraint-only and carries every statement (the vault itself holds both)
     drafting = next(l for l in rec["loops"] if l["chain_id"] == "cover_letter")
+    g = drafting["source"].index('"gap_positioning": {')
+    gap_entry = drafting["source"][g:drafting["source"].index('"instruction"', g)]
+    assert '"required": true' in gap_entry
+    assert _DEL3_OWED in gap_entry and _DEL3_OTHER not in gap_entry
     k = drafting["source"].index('"stated_limits": {')
     entry = drafting["source"][k:drafting["source"].index('"instruction"', k)]
-    assert '"required": true' in entry or _DEL3_OWED in entry
-    assert _DEL3_OWED in entry and _DEL3_OTHER not in entry
+    assert '"required": true' not in entry
+    assert _DEL3_OWED in entry and _DEL3_OTHER in entry
 
 
 @pytest.mark.asyncio

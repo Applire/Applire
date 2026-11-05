@@ -51,6 +51,7 @@ from applire.services.profile.commit import (
 from applire.services.profile.entity_label import label_for
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.restatement import hold_back_restatements
+from applire.services.profile.reconcile.stance import OFFERED_CHOICES_KEY
 from applire.utils.display import format_display_value
 
 _SOURCE = "interview"
@@ -141,6 +142,7 @@ async def reconcile_interview_turn(
     lang: str = "en",
     record_source: str = _SOURCE,
     intake: str = "interview",
+    offered_choices: list[dict] | None = None,
 ) -> InterviewTurnResult:
     """Reconcile one interview answer into the vault. ONE write path.
 
@@ -169,6 +171,19 @@ async def reconcile_interview_turn(
     """
     before = MasterProfileData.model_validate(profile_record.profile_json)
     new_info = {"gap": gap, "question": question, "answer": answer}
+    # G-3 (ADR-064 amended 2026-11-04): the choices Applire offered that this
+    # answer contains (``choice_grounding.offered_choices_in_answer``), each
+    # with the concepts it names WITHOUT claiming. Carried only when there is
+    # one, so an ordinary turn's NEW INFORMATION is unchanged. A list, not a
+    # string: the grounding corpus (``stance._raw_grounding_text``) reads the
+    # string fields only, so Applire's choice text never becomes testimony
+    # through this key — the answer itself already carries what was selected.
+    if offered_choices:
+        new_info[OFFERED_CHOICES_KEY] = [
+            {"text": c["text"], "names_without_claiming": list(c.get("names_without_claiming") or [])}
+            for c in offered_choices
+            if isinstance(c, dict) and isinstance(c.get("text"), str)
+        ]
     result = await reconcile(before, new_info, _SOURCE, provider, lang)
     # D-17 (Hazelnut build 5, ADR-046 + ADR-063 amended) — the import's
     # restatement check on this door too: an answer that retells a held fact

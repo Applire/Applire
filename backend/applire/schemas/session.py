@@ -370,3 +370,10 @@ class InterviewState(TypedDict):
     # the way the turn that asked it did. Cleared at the start of every
     # answered turn; absent on every other kind of question.
     follow_up_concepts: list[str]
+    # G-3 (ADR-064 amended 2026-11-04) — the choices this session delivered,
+    # keyed by their text: {"level": str | None, "names_without_claiming":
+    # [str]} — the generator's own declaration, kept so the turn that answers
+    # can tell the reconciler which concepts a selected choice named WITHOUT
+    # claiming (`choice_grounding.record_offered_choices`; bounded, newest
+    # last). Missing on a row persisted before this field existed.
+    offered_choice_terms: dict

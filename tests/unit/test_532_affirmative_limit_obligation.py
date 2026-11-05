@@ -143,85 +143,105 @@ def test_the_shared_writer_block_is_unchanged_so_the_cv_is_unaffected():
 
 
 # ── 2. hook one: the source entry is REQUIRED and affirmative ───────────────
+# G-1 (2026-11-04): the REQUIRED entry is `gap_positioning` (code names the gap);
+# `stated_limits` is constraint-only. The key-tier cut lives in `key_requirement_gaps`.
+
+GAP_LEDGER = [
+    {"concept": "IFS", "status": "denied", "claimable": False, "fit_weight": 1.0,
+     "sources": ["required"]},
+    {"concept": "US-GAAP", "status": "denied", "claimable": False, "fit_weight": 0.5,
+     "sources": ["nice_to_have"]},
+    {"concept": "ISO 9001", "status": "direct", "claimable": True, "fit_weight": 1.0,
+     "sources": ["required"]},
+]
 
 
 def test_the_positioning_entry_is_required_and_affirmative():
-    from applire.services.cover_letter import build_stated_limits_entry
+    from applire.services.cover_letter import build_gap_positioning_entry
+    from applire.services.cross_document import gaps_to_name, key_requirement_gaps
 
-    entry = build_stated_limits_entry(DENIED, LEDGER)
+    gaps = key_requirement_gaps(GAP_LEDGER, DENIED, "IFS und ISO 9001")
+    entry = build_gap_positioning_entry(gaps, gaps_to_name(gaps), "de")
     assert entry is not None
     assert entry["required"] is True
-    # RULING L-1 = A: the entry carries only the KEY-requirement denials
-    from applire.services.cover_letter import key_requirement_ledger
-
-    assert entry["limits"] == select_jd_relevant_limits(DENIED, key_requirement_ledger(LEDGER))
+    # RULING L-1 = A/B: only the KEY-requirement gap is named, with its own statement
+    assert [n["gap"] for n in entry["named"]] == ["IFS"]
+    assert entry["named"][0]["statement"] == DENIED[0]["statement"]
     low = _flat(entry["instruction"])
     # the affirmative half
-    assert "positioning decision" in low
+    assert "same sentence" in low and "einarbeiten" in low
     # the trap, in the same breath
-    assert "never" in low and "invent" in low
+    assert "name only the gap(s) listed" in low
 
 
-def test_no_jd_relevant_denial_means_no_required_entry():
-    """A candidate whose denials this posting does not ask about owes the letter
-    nothing — the entry is absent rather than present-and-empty, so check 4
-    cannot demand content that does not exist."""
-    from applire.services.cover_letter import build_stated_limits_entry
+def test_stated_limits_is_constraint_only_never_required():
+    from applire.services.cover_letter import _constraining_stated_limits_entry
 
-    assert build_stated_limits_entry(DENIED, []) is None
-    assert build_stated_limits_entry([], LEDGER) is None
+    entry = _constraining_stated_limits_entry(["Mit IFS habe ich keine Erfahrung."])
+    assert entry["limits"] == ["Mit IFS habe ich keine Erfahrung."]
+    assert "required" not in entry
+
+
+def test_no_key_requirement_gap_means_no_required_entry():
+    """A candidate whose denials this posting does not ask about at the key tier
+    owes the letter nothing — the entry is absent rather than present-and-empty, so
+    check 4 cannot demand content that does not exist."""
+    from applire.services.cover_letter import build_gap_positioning_entry
+    from applire.services.cross_document import gaps_to_name, key_requirement_gaps
+
+    nice_only = [GAP_LEDGER[1], GAP_LEDGER[2]]  # nice-to-have denial + a claimable row
+    for ledger in (nice_only, []):
+        gaps = key_requirement_gaps(ledger, DENIED, "IFS US-GAAP ISO 9001")
+        assert gaps == []
+        assert build_gap_positioning_entry(gaps, gaps_to_name(gaps), "de") is None
+    assert build_gap_positioning_entry([], [], "de") is None
 
 
 # ── 3. hook two: the reviewer enumerates it BY NAME (ADR-083 clause 1) ──────
 
 
-def test_reviewer_check_four_enumerates_stated_limits_by_name():
+def test_reviewer_check_four_enumerates_the_required_gap_entry_by_name():
     """ADR-075 clause 2 named the mechanism and ADR-021's amendment measured
-    why: `required: true` alone is not self-enforcing — the deleted
-    `unaddressed_hard_requirements` entry read `required: true` for ten rounds
-    while the corrector dropped both its concepts. What made the OTHER entries
+    why: `required: true` alone is not self-enforcing. What makes the entries
     work is that each is also enumerated by name here and carries its own
-    corrector bullet. Both doors, because `_CHECKS` is shared."""
+    corrector bullet. Both doors, because `_CHECKS` is shared. Since G-1 the
+    enumerated key is `gap_positioning` (and `motivation`); `stated_limits` is a
+    constraint, and the INVERSE direction (an invented limit) stays check 1's."""
     for prompt in (reviewer.REVIEW_SYSTEM_PROMPT, reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT):
         p = prompt
         check4 = p[p.index("4. REQUIRED CONTENT NOT DELIVERED"):p.index("5. A DETERMINISTIC BLOCK")]
-        assert "stated_limits" in check4
         low = _flat(check4)
-        assert "positioning decision" in low
+        assert "``gap_positioning``" in low and "``motivation``" in low
+        assert "without its decision: block" in low   # HALF-DELIVERY (narrowed b6 follow-up)
+        assert "``stated_limits`` is a constraint only" in low
         # The reviewer must also be told the INVERSE direction, or it accepts an
-        # invented limit as compliance. Check 4 states it and points at check 1 —
-        # and the pointer must RESOLVE: ADR-021's 2026-08-13 clause 4 is exactly
-        # the incident of a model sent to a named rule that was not there.
-        assert "the entry does not list (check 1)" in low
+        # invented limit as compliance: check 1's INVENTED LIMIT bullet must exist.
         assert "an invented limit is an ungrounded claim" in _flat(p)
 
 
 def test_the_corrector_carries_its_own_named_bullet():
     low = _flat(reviewer.COVER_LETTER_REFINEMENT_PROMPT)
-    assert "stated_limits" in low
-    assert "positioning decision" in low
+    assert "``gap_positioning``" in low and "``motivation``" in low
+    assert "never write a lack the gap ladder does not name" in low
 
 
-# ── 4. hook three: the writer is told, at any requirement tier ──────────────
+# ── 4. hook three: the writer is told, in the system prompt ─────────────────
 
 
-def test_the_writer_owes_a_positioning_decision_to_a_denied_concept_at_any_tier():
-    """The tier gap is the whole point: the writer's #270 rule is affirmative
-    but scoped to a `required` JD concept, and IFS/BRC were `nice_to_have`."""
+def test_the_writer_owes_the_gap_ladder_sentence_for_the_named_gap():
+    """The obligation is carried by the KEY-REQUIREMENT GAPS block (code picks the
+    gap, at the key tier only); the writer's rule says what a named gap gets."""
     low = _flat(writer.SYSTEM_PROMPT)
-    assert "denied" in low
-    # RULING L-1 = A (2026-10-24) narrowed "any requirement tier" to the KEY
-    # requirements: the tier cut is code (`key_requirement_ledger`), the writer
-    # is told the block holds key requirements only.
-    assert "key requirements of this posting" in low
-    assert "positioning decision" in low
+    assert "obligation — the gap ladder (g-1)" in low
+    assert "a key-requirement gaps block names the gap(s) this letter states" in low
+    assert "chosen by code" in low
+    assert "same sentence" in low and "einarbeiten clause" in low
 
 
 def test_the_writer_rule_does_not_reopen_adr_074():
     """ADR-074's Restfall (a `gap` nobody was ever asked about) has no honest
-    move and stays excluded. The new obligation reaches only concepts the
-    candidate DENIED in their own words, which always carry substantive
-    material."""
+    move and stays excluded from the STATED LIMITS rule: the constraint half speaks
+    of the candidate's own words, and everything claimable stays claimable."""
     low = _flat(writer.SYSTEM_PROMPT)
     i = low.index("stated limits")
     window = low[i:i + 2500]
@@ -243,57 +263,55 @@ def test_the_letter_reviewer_ratchets_still_hold():
 # ── 6. the writer's INPUT carries what the writer's RULE names ──────────────
 #
 # Found by designing the replay, not by reading the code: the writer's user
-# prompt renders the POSITIONING sections and `render_stated_limits_block` — it
-# never carries `positioning_requested`, which is the review loop's `source`. A
-# writer rule keyed on "when the positioning block marks stated_limits REQUIRED"
-# would therefore name a marker the writer cannot see, and would be inert on the
-# ONE call that decides whether the disclosure is drafted at all
-# (`applire-prompt-first` step 3, pattern 6). The obligation reaches the writer
-# as its own rendered block instead.
+# prompt never carries `positioning_requested` (the review loop's `source`). A
+# writer rule keyed on a positioning marker would be inert on the ONE call that
+# decides whether the gap sentence is drafted at all (`applire-prompt-first` step
+# 3, pattern 6). The obligation reaches the writer as its own rendered block.
 
 
-def test_the_affirmative_block_is_rendered_only_when_something_is_owed():
-    from applire.services.cross_document import render_required_limits_block
+def test_the_gap_block_is_rendered_only_when_something_is_owed():
+    from applire.services.cross_document import (
+        gaps_to_name,
+        key_requirement_gaps,
+        render_gap_ladder_block,
+    )
 
-    assert render_required_limits_block([]) == ""
-    block = render_required_limits_block(["Mit IFS habe ich keine Erfahrung."])
+    assert render_gap_ladder_block([], [], "de") == ""
+    gaps = key_requirement_gaps(GAP_LEDGER, DENIED, "IFS")
+    block = render_gap_ladder_block(gaps, gaps_to_name(gaps), "de")
     low = _flat(block)
-    assert "required" in low
-    # RULING C-3 (founder, 2026-09-20) reverses ADR-075 clause 1's unconditional
-    # naming: a scoped claim or a transfer argument DISCHARGES the obligation, so the
-    # block no longer says "silence is not one of the options" about the GAP. What it
-    # still says, and what #532 was really about, is that the limit owes a positioning
-    # DECISION — silence on the decision remains impossible.
-    assert "silence on one of these is not one of the options" not in low
-    assert "ranked ladder" in low
-    assert "discharges the limit" in low
-    # RULING L-1 = A: with neither rung true the limit is LEFT OUT (was: a named gap)
-    assert "leaves the limit out" in low and "a named gap only where neither exists" not in low
-    assert "never state a limit that is not listed here" in low
-    assert "Mit IFS habe ich keine Erfahrung." in block
+    assert "key-requirement gaps" in low
+    # RULING C-3 (2026-09-20) / G-1: the sentence is gap + transfer (or the einarbeiten
+    # clause); a list of lacks and a bare admission are both banned.
+    assert "in the same sentence" in low
+    assert "never a list of lacks" in low
+    assert "silence there is correct, never a finding" in low
+    assert DENIED[0]["statement"].lower() in low
 
 
 def test_the_writer_user_prompt_carries_the_block_the_writer_rule_names():
-    """The seam test. The rule says "when a REQUIRED: STATED LIMITS ... block
-    appears in the user message" — so the user message must be able to carry
-    one, under exactly that heading."""
+    """The seam test. The rule says "a KEY-REQUIREMENT GAPS block names the gap(s)"
+    — so the user message must be able to carry one, under exactly that heading."""
     from applire.prompts.cover_letter import SYSTEM_PROMPT, build_cover_letter_prompt
-    from applire.services.cross_document import render_required_limits_block
+    from applire.services.cross_document import (
+        gaps_to_name,
+        key_requirement_gaps,
+        render_gap_ladder_block,
+    )
 
-    heading = "REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT"
-    assert heading in SYSTEM_PROMPT.upper() or heading.lower() in _flat(SYSTEM_PROMPT)
+    heading = "KEY-REQUIREMENT GAPS"
+    assert heading in SYSTEM_PROMPT
 
+    gaps = key_requirement_gaps(GAP_LEDGER, DENIED, "IFS")
     prompt = build_cover_letter_prompt(
         cv_data={"contact": {"name": "A. Test"}, "summary": "Controller"},
         jd_text="Senior Controller",
         pre_gen_inputs={},
         detected_language="de",
-        required_limits_block=render_required_limits_block(
-            ["Mit IFS oder BRC habe ich keine Erfahrung."]
-        ),
+        gap_ladder_block=render_gap_ladder_block(gaps, gaps_to_name(gaps), "de"),
     )
     assert heading in prompt
-    assert "Mit IFS oder BRC habe ich keine Erfahrung." in prompt
+    assert DENIED[0]["statement"] in prompt
 
     # and nothing is added when nothing is owed
     empty = build_cover_letter_prompt(
@@ -301,20 +319,20 @@ def test_the_writer_user_prompt_carries_the_block_the_writer_rule_names():
         jd_text="Senior Controller",
         pre_gen_inputs={},
         detected_language="de",
-        required_limits_block="",
+        gap_ladder_block="",
     )
     assert heading not in empty
 
 
 def test_the_generation_path_builds_the_block_from_the_jobs_own_ledger():
-    """The call-site seam: `_render_cover_letter_background` must derive the
-    block from `select_jd_relevant_limits(denied_concepts, keyword_ledger)` —
-    the two persisted facts — and pass it to the writer prompt."""
+    """The call-site seam: the render body must derive the gaps from the two
+    persisted facts (`key_requirement_gaps(keyword_ledger, denied_concepts, ...)`)
+    and pass the block to the writer prompt."""
     import inspect
 
     from applire.services import cover_letter as svc
 
     src = inspect.getsource(svc._render_cover_letter_body)  # ADR-092: the body behind the owner-context entry
-    assert "render_required_limits_block(" in src
-    assert "select_jd_relevant_limits(denied_concepts, key_requirement_ledger(keyword_ledger))" in src
-    assert "required_limits_block=required_limits_block," in src
+    assert "key_requirement_gaps(keyword_ledger, denied_concepts, job.raw_text)" in src
+    assert "render_gap_ladder_block(" in src
+    assert "gap_ladder_block=gap_ladder_block," in src

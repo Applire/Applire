@@ -933,3 +933,131 @@ def filter_ungrounded_choices(
             continue
         kept.append(text)  # trust the tag — nothing left to ground
     return kept or None
+
+
+# ── G-3 (ADR-064 amended 2026-11-04) — the offered choice travels as a FACT ──
+#
+# Founder UAT 2026-11-04: a clicked R2-2 chip ("…, aber zu X, Y steht in meinem
+# Profil noch nichts") became one ``direct`` DeniedConcept per named concept.
+# The chip's own ``denied_terms`` declaration ("named WITHOUT claiming") stopped
+# at ``filter_ungrounded_choices``, which flattens choices to ``list[str]``; the
+# answer turn carried the text only, and the reconciler read the clause as a no.
+# These two helpers carry the declaration — a fact the generator stated about
+# its own choice (ADR-062 cl. 6, read exactly as ``_denied_terms_of`` reads it)
+# — from the question to the turn that answers it. They never read a choice's
+# wording to guess anything.
+
+#: How many delivered choices a session remembers (newest win). A turn answers
+#: the question on screen, so only the latest few matter; the bound keeps the
+#: session row small on a long interview.
+OFFERED_CHOICE_KEEP = 40
+
+
+def record_offered_choices(state: Any, drafted: Any, delivered: Any) -> None:
+    """Remember the DELIVERED choices' own declarations in
+    ``state["offered_choice_terms"]`` = ``{text: {"level", "names_without_claiming"}}``.
+
+    ``drafted`` is the reviewed draft as it entered ``filter_ungrounded_choices``
+    (dicts carrying ``level`` / ``denied_terms``); ``delivered`` is that filter's
+    ``list[str]`` result (``None`` when nothing survived). A delivered text with
+    no matching drafted dict is still remembered, with ``level=None`` and no
+    terms — it is system-authored text either way. A no-op on anything that is
+    not a dict state or a non-empty delivered list. Mutates ``state`` in place.
+    """
+    if not isinstance(state, dict) or not isinstance(delivered, list) or not delivered:
+        return
+    by_text: dict[str, tuple[str | None, list[str]]] = {}
+    for choice in drafted if isinstance(drafted, list) else []:
+        text, level = _level_of(choice)
+        if text:
+            by_text[text] = (level, _denied_terms_of(choice))
+    previous = state.get("offered_choice_terms")
+    offered: dict[str, dict] = dict(previous) if isinstance(previous, dict) else {}
+    for raw in delivered:
+        text = str(raw).strip()
+        if not text:
+            continue
+        level, terms = by_text.get(text, (None, []))
+        offered.pop(text, None)  # re-insert so the newest offer sorts last
+        offered[text] = {"level": level, "names_without_claiming": terms}
+    while len(offered) > OFFERED_CHOICE_KEEP:
+        offered.pop(next(iter(offered)))
+    state["offered_choice_terms"] = offered
+
+
+def _containment_form(text: str) -> str:
+    """The normalised form an offered text is looked up in an answer by:
+    quotes folded, ``_norm``-ed, trailing sentence punctuation dropped (a
+    candidate who selects a chip and continues the sentence removes its full
+    stop)."""
+    return _norm(_fold_quotes(text)).rstrip(" .!?;:,")
+
+
+#: What a cut offered text leaves behind in the answer form: not whitespace,
+#: not a word character, so two cuts never fuse and a cut never reads as typing.
+OFFERED_CUT_MARK = " \u241e "
+
+
+def cut_offered_texts(answer: Any, texts: Any) -> tuple[str, list[str]]:
+    """``(remainder, cut)`` — THE one cut of offered texts out of an answer.
+
+    Both sides use :func:`_containment_form` (quotes folded, ``_norm``-ed,
+    trailing sentence punctuation dropped), so containment and cut cannot
+    disagree (adversarial G3-2, 2026-11-04: an agent sent "doesn't" for the
+    chip's "doesn’t", containment matched and the cut missed). Longest text
+    first, and a text is cut only where it still occurs after the longer ones
+    were cut (adversarial G3-1: a DIRECT chip that is a prefix of the PARTIAL
+    chip "matched" inside it, was cut first and broke the PARTIAL text). A
+    shorter text the candidate ALSO selected on its own is still found. Returns
+    the remainder form and the texts actually cut, longest first."""
+    remainder = _containment_form(answer) if isinstance(answer, str) else ""
+    forms = []
+    for text in texts or []:
+        form = _containment_form(str(text))
+        if form:
+            forms.append((form, str(text)))
+    cut: list[str] = []
+    for form, text in sorted(forms, key=lambda f: len(f[0]), reverse=True):
+        if form in remainder:
+            remainder = remainder.replace(form, OFFERED_CUT_MARK)
+            cut.append(text)
+    return remainder, cut
+
+
+def offered_choices_in_answer(answer: Any, offered: Any) -> list[dict]:
+    """The offered choices this ANSWER contains, as
+    ``[{"text", "names_without_claiming"}]`` — a FACT (normalised containment
+    of a text Applire delivered, :func:`cut_offered_texts`), never a reading of
+    what the answer means.
+
+    Containment, not equality: a choice is a starting point the candidate may
+    select AND extend. Only MAXIMAL matches count: a choice found only inside a
+    longer selected choice was not selected. A choice offered at the
+    ``denial`` level (a restated earlier no, ADR-064 amended 2026-10-24 (ii))
+    is excluded — it is the candidate's own no, so it carries no exemption. An
+    answer that EDITS the choice text matches nothing; the reconcile prompt's
+    rule 9 still applies.
+    """
+    if not isinstance(answer, str) or not isinstance(offered, dict) or not offered:
+        return []
+    if not _containment_form(answer):
+        return []
+    eligible = {
+        str(text): (meta if isinstance(meta, dict) else {})
+        for text, meta in offered.items()
+        if not (isinstance(meta, dict) and meta.get("level") == "denial")
+    }
+    _, cut = cut_offered_texts(answer, list(eligible))
+    out: list[dict] = []
+    for text in eligible:
+        if text not in cut:
+            continue
+        terms = eligible[text].get("names_without_claiming")
+        out.append({
+            "text": text,
+            "names_without_claiming": [
+                str(t).strip() for t in (terms if isinstance(terms, list) else [])
+                if isinstance(t, str) and str(t).strip()
+            ],
+        })
+    return out

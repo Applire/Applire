@@ -86,6 +86,7 @@ from applire.services.profile.reconcile.stance import (
     denial_release_corpus,
     is_denied_concept,
 )
+from applire.services.choice_grounding import offered_choices_in_answer
 from applire.services.interview.sufficiency import (
     _concept_matches_ledger_key,
     concept_is_required,
@@ -4119,6 +4120,14 @@ async def _send_message_turn(
             provider=provider,
             session_id=str(record.id),
             lang=lang,
+            # G-3 (ADR-064 amended 2026-11-04) — the choices Applire offered
+            # that this answer contains, with what each names WITHOUT claiming
+            # (recorded by `question_generator_with_profile`): a clicked "…,
+            # aber zu X steht in meinem Profil noch nichts" is never recorded
+            # as the candidate's no on X.
+            offered_choices=offered_choices_in_answer(
+                message, state.get("offered_choice_terms")
+            ),
         )
     except ReconcileFailedError:
         # R2-13 (P-1, Hazelnut build 4) — the reconcile call failed after its

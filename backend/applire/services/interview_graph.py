@@ -70,7 +70,7 @@ from applire.prompts.review_question_language import (
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import llm_log_stage
 from applire.schemas.session import InterviewState
-from applire.services.choice_grounding import filter_ungrounded_choices
+from applire.services.choice_grounding import filter_ungrounded_choices, record_offered_choices
 from applire.services.interview_quant import detect_unquantified_concepts
 from applire.services.reviewer import review_and_refine
 from applire.utils.display import format_display_value
@@ -557,9 +557,12 @@ async def question_generator_with_profile(
             # Same code-level truthfulness guarantee as MODE A (#110/ADR-062) —
             # a chip that asserts an un-evidenced JD/cluster term, or
             # misattributes one to the wrong employer, never reaches the user.
+            drafted_choices = reviewed["choices"]
             reviewed["choices"] = filter_ungrounded_choices(
-                reviewed["choices"], cluster, profile, gap_category
+                drafted_choices, cluster, profile, gap_category
             )
+            # G-3 (ADR-064 amended 2026-11-04) — same fact as MODE A below.
+            record_offered_choices(state, drafted_choices, reviewed["choices"])
             reviewed["question"] = str(reviewed.get("question", "")).strip()
             return reviewed
 
@@ -715,9 +718,17 @@ async def question_generator_with_profile(
     # choice_grounding.py guessing it from a phrase-marker list. This call
     # also flattens back to list[str] — the API contract in
     # schemas/session.py (choices: list[str] | None) is unchanged.
+    drafted_choices = reviewed["choices"]
     reviewed["choices"] = filter_ungrounded_choices(
-        reviewed["choices"], cluster, profile, gap_category
+        drafted_choices, cluster, profile, gap_category
     )
+    # G-3 (ADR-064 amended 2026-11-04): the delivered choices' own `level` and
+    # `denied_terms` ("named WITHOUT claiming") are flattened away above, but
+    # the turn that answers this question needs them — a clicked "…, aber zu X
+    # steht in meinem Profil noch nichts" must reach the reconciler as what it
+    # is. Kept in the session state as a fact (`offered_choice_terms`); the
+    # API contract (`choices: list[str]`) is unchanged.
+    record_offered_choices(state, drafted_choices, reviewed["choices"])
     reviewed["question"] = str(reviewed.get("question", "")).strip()
     reviewed.update(follow_up_split)
     return reviewed
