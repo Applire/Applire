@@ -15,6 +15,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v5 (2026-11-05, Hazelnut build 6 delivery run D-5 / MD6-11 — an
+#   established loanword of the required language's business usage (Lean Management,
+#   Shopfloor-Board, Key-User …) and every POSTING TERM is that language: never flagged,
+#   never translated. "Stakeholder/Change Management" leave the must-translate examples
+#   (they ARE such loanwords in German). Replay: Runs/Hazelnut/build-6/l/report.md.)
 # Prompt version: v4 (2026-10-22, #786 L43 / Hazelnut build 3 ruling — the pass no longer
 #   carries the US213 keyword-coverage demand: the "VERIFIED COVERAGE CHECK" exception, its
 #   waiver sentence and the refiner's "use the exact job-description keyword" line are gone,
@@ -86,10 +91,20 @@ Crucial boundary (this is where models slip):
   A product or tool name is a NAMED ARTEFACT — something a company ships, sells or
   installs, and that keeps that name in every language. A FIELD OF WORK or a
   CAPABILITY described in ordinary English words is not one, however technical it
-  sounds: "Large Language Models", "Agentic Systems", "Data Integrity", "Stakeholder
-  Management", "Continuous Improvement", "Change Management" are competency phrases
-  and MUST be translated. The test is not "does this sound technical" — it is "could
-  I install it, buy it, or look it up in a vendor's catalogue".
+  sounds: "Large Language Models", "Agentic Systems", "Data Integrity", "Continuous
+  Improvement" are competency phrases and MUST be translated. The test is not "does
+  this sound technical" — it is "could I install it, buy it, or look it up in a
+  vendor's catalogue".
+- ESTABLISHED LOANWORDS and POSTING TERMS ARE the required language (a third boundary —
+  here models slip the other way): an English term the required language's business
+  usage has adopted as-is, and the compounds built on it (in German e.g. Lean
+  Management, Shopfloor-Management, Shopfloor-Board, Lean-Multiplikator, Key-User,
+  Rollout, Roadmap, Change Management, Stakeholder-Management), is correct as written —
+  the test is whether a native business text or job posting in that language uses it
+  unchanged. Every term in POSTING TERMS (the job posting's own words, when given) is
+  correct as written too. Never flag or translate either one: "Schlankes Management"
+  for Lean Management is a language-pass defect. An English phrase or sentence that
+  is not such a term is still translated.
 - The skills list may already carry the SAME competency twice, once in each language
   ("Große Sprachmodelle" next to "Large Language Models") — the candidate's records
   grew in two languages. Translate the foreign one anyway, and use the EXACT wording
@@ -150,15 +165,50 @@ unfamiliar one — IS the name; copy it exactly and never expand it into its ful
 even while translating the label's ordinary descriptive words around it. If a previous
 draft already spelled one out (e.g. "Good Practice" for "GxP"), restore the acronym
 form — that is a correction, not a translation.
+ESTABLISHED LOANWORDS and POSTING TERMS stay exactly as written, even where the feedback
+names one: an English term the required language's business usage has adopted as-is and
+its compounds (in German e.g. Lean Management, Shopfloor-Board, Key-User, Rollout), and
+every term in POSTING TERMS (the job posting's own words). Translating one ("Schlankes
+Management") is a defect, not a fix.
 Output ONLY the corrected CV JSON in the exact same schema — no markdown, no commentary.
 """
 
 
-def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
+#: MD6-11 (D-5): the job posting's own terms, handed to both sides of the pass.
+_POSTING_TERMS_CAP = 60
+
+
+def language_pass_posting_terms(job_dict: dict | None) -> tuple[str, ...]:
+    """MD6-11 (Hazelnut build 6, delivery run D-5): the posting's own words — the job
+    analysis's required, nice-to-have and keyword lists, deduped in order. The
+    language pass keeps each one as written; the caller passes them only when the
+    posting is written in the document language. Pure."""
+    seen: dict[str, str] = {}
+    for key in ("required_skills", "nice_to_have_skills", "keywords"):
+        for term in (job_dict or {}).get(key) or []:
+            if isinstance(term, str) and term.strip():
+                seen.setdefault(term.strip().casefold(), term.strip())
+    return tuple(seen.values())[:_POSTING_TERMS_CAP]
+
+
+def _posting_terms_line(posting_terms) -> str:
+    terms = [t for t in (posting_terms or ()) if isinstance(t, str) and t.strip()]
+    if not terms:
+        return ""
+    return (
+        "POSTING TERMS (the job posting's own words — correct as written, never "
+        f"translated): {json.dumps(terms, ensure_ascii=False)}\n"
+    )
+
+
+def build_cv_language_review_prompt(
+    required_language: str, draft: dict, posting_terms=()
+) -> str:
     """User-turn prompt asking the LLM to check the CV's language compliance.
 
     Surfaces the language-bearing fields (summary, bullets, skills) so the reviewer
-    can name specific leftovers. `draft` is the tailored CV JSON.
+    can name specific leftovers. `draft` is the tailored CV JSON. ``posting_terms``
+    (MD6-11) adds the POSTING TERMS line; empty → the prompt is unchanged.
     """
     summary = draft.get("summary", "")
     bullets: list[str] = []
@@ -190,6 +240,7 @@ def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
         + (f"budget lines: {json.dumps(budget_lines, ensure_ascii=False)}\n" if budget_lines else "")
         + f"skills: {json.dumps(skills, ensure_ascii=False)}\n"
         + _v2_field_lines(draft)
+        + _posting_terms_line(posting_terms)
         + "\n"
         f"Are the summary, every bullet (work and project), every industry and budget line and "
         f"every skill written "
@@ -228,7 +279,7 @@ _V2_REFINE_NOTE = (
 
 
 def build_cv_language_refinement_prompt(
-    previous_draft: dict, feedback: str, source: str = ""
+    previous_draft: dict, feedback: str, source: str = "", posting_terms=()
 ) -> str:
     """User-turn prompt asking the LLM to rewrite `previous_draft` into the required language.
 
@@ -238,7 +289,8 @@ def build_cv_language_refinement_prompt(
     target = f" ({source})" if source else ""
     return (
         f"Reviewer feedback: {feedback}\n\n"
-        f"Previous draft:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
+        + _posting_terms_line(posting_terms)
+        + f"Previous draft:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         f"Rewrite the summary, all bullets, and all skills into the required language{target}, "
         "translating in place and preserving every fact."
         + (_V2_REFINE_NOTE if ("education" in previous_draft or "languages" in previous_draft) else "")

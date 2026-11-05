@@ -594,6 +594,8 @@ class KeyGap:
     weight: float
     mentions: int
     first_position: int
+    #: RULING D-2 = A: a concept of the posting's candidate-requirements section.
+    in_requirements: bool = False
 
     @property
     def recorded(self) -> bool:
@@ -637,6 +639,84 @@ def posting_mentions(forms: list[str], jd_norm: str) -> tuple[int, int]:
     return len(starts), min(starts)
 
 
+# RULING D-2 = A (founder 2026-11-04, delivery run build 6): a gap from the
+# posting's requirements of the CANDIDATE ("Your profile", "A Perfect Match",
+# "Ihr Profil") ranks ahead of one that occurs only in the responsibilities. The
+# job analysis does not keep the two apart (Corvalis: "Capacity management", a
+# responsibilities line, sits in ``required_skills`` beside the must-have
+# SnapLogic), so the section is read off the posting's own headings — a fact
+# about the text (ADR-062 cl. 1). Unrecognised layout → no section → L-1's order.
+_REQUIREMENTS_HEADINGS = (
+    "your profile", "your qualifications", "your skills", "your experience", "profile",
+    "requirements", "qualifications", "minimum qualifications", "basic qualifications",
+    "required qualifications", "required skills", "must have", "must-haves",
+    "what you bring", "what you'll bring", "what you will bring", "what you need",
+    "what we're looking for", "what we are looking for", "who you are", "about you",
+    "a perfect match", "skills and experience", "your background",
+    "ihr profil", "dein profil", "profil", "anforderungen", "anforderungsprofil",
+    "qualifikationen", "ihre qualifikationen", "deine qualifikationen",
+    "was sie mitbringen", "was du mitbringst", "das bringen sie mit",
+    "das bringst du mit", "voraussetzungen", "ihre kompetenzen", "deine kompetenzen",
+    "das zeichnet sie aus", "das zeichnet dich aus", "was wir erwarten",
+    "was wir von ihnen erwarten", "was wir von dir erwarten",
+)
+#: Every other section heading — each one ENDS a requirements section.
+_OTHER_HEADINGS = (
+    "your responsibilities", "responsibilities", "key responsibilities", "your role",
+    "the role", "about the role", "your tasks", "tasks", "your contribution",
+    "your mission", "what you will do", "what you'll do", "your impact",
+    "ihre aufgaben", "deine aufgaben", "aufgaben", "aufgabengebiet",
+    "ihr aufgabengebiet", "dein aufgabengebiet", "das erwartet sie", "das erwartet dich",
+    "was sie erwartet", "was dich erwartet", "ihre rolle", "deine rolle", "die rolle",
+    "nice to have", "nice-to-have", "preferred qualifications", "bonus points",
+    "wünschenswert", "von vorteil",
+    "what we offer", "we offer", "our offer", "your benefits", "benefits", "why us",
+    "why join us", "wir bieten", "was wir bieten", "unser angebot", "das bieten wir",
+    "ihre benefits", "deine benefits", "ihre vorteile", "deine vorteile",
+    "about us", "who we are", "über uns", "wer wir sind", "das sind wir",
+    "contact", "kontakt", "how to apply", "interested?", "interessiert?",
+    "ihre bewerbung", "deine bewerbung",
+)
+
+
+def _heading_regexes() -> tuple[Any, Any]:
+    import re
+
+    alts = sorted({*_REQUIREMENTS_HEADINGS, *_OTHER_HEADINGS}, key=len, reverse=True)
+    body = "|".join(re.escape(a) for a in alts)
+    # A heading on its own line (markdown marks allowed, a short "(must have)" tail),
+    # or a capitalised heading run into the text and closed by a colon.
+    line = re.compile(rf"(?im)^[ \t#*>]*(?P<h>{body})(?![\w-])[^\n:]{{0,30}}?:?[ \t*]*$")
+    inline = re.compile(rf"(?i)(?<![\w-])(?P<h>{body})[ \t]*:")
+    return line, inline
+
+
+_HEADING_LINE_RE, _HEADING_INLINE_RE = _heading_regexes()
+
+
+def posting_requirements_text(jd_text: str | None) -> str:
+    """The posting's candidate-requirements section(s) — from each requirements
+    heading to the next recognised heading — joined; ``""`` when the posting has no
+    recognisable requirements heading (RULING D-2 = A). Pure."""
+    text = jd_text or ""
+    marks: dict[int, tuple[int, bool]] = {}
+    for m in _HEADING_LINE_RE.finditer(text):
+        marks.setdefault(m.start("h"), (m.end(), m.group("h").lower() in _REQUIREMENTS_HEADINGS))
+    for m in _HEADING_INLINE_RE.finditer(text):
+        if not m.group("h")[0].isupper():
+            continue  # "… the following requirements:" is prose, not a heading
+        marks.setdefault(m.start("h"), (m.end(), m.group("h").lower() in _REQUIREMENTS_HEADINGS))
+    starts = sorted(marks)
+    parts = []
+    for i, start in enumerate(starts):
+        end, is_requirements = marks[start]
+        if not is_requirements:
+            continue
+        stop = next((s for s in starts[i + 1:] if s >= end), len(text))
+        parts.append(text[end:stop])
+    return "\n".join(parts)
+
+
 def _is_key_gap_row(entry: Any) -> bool:
     from applire.services.keyword_ledger import REQUIRED_WEIGHT, is_aim_only, is_scope_entry
 
@@ -645,6 +725,11 @@ def _is_key_gap_row(entry: Any) -> bool:
     if entry.get("status") not in ("gap", "denied"):
         return False
     if is_scope_entry(entry) or is_aim_only(entry):
+        return False
+    if entry.get("unbacked"):
+        # MD6-9 (D-3): the classifier judged this supported and only the quote
+        # failed (ADR-100 cl. 6) — not known to be missing, so never "X is new to
+        # me"; the letter leaves it out, like DEL-2 leaves an unsupported row out.
         return False
     weight = entry.get("fit_weight")
     return isinstance(weight, (int, float)) and float(weight) >= REQUIRED_WEIGHT
@@ -664,10 +749,14 @@ def key_requirement_gaps(
 
     Rows whose concept (or ``denied_by`` binding, ADR-100 M-2) is a concept of one
     recorded ``DeniedConcept`` share that record's statement and form ONE gap; every
-    other row is its own gap. Ranked by weight, then posting mentions (descending),
-    then first position, then ledger order; a gap's ``label`` is its top concept by
-    the same order. Pure; ``None``/malformed tolerant."""
+    other row is its own gap. Ranked by the posting's requirements section first
+    (RULING D-2 = A: a concept named there ahead of one only in the
+    responsibilities), then weight, posting mentions (descending), first position
+    and ledger order (L-1); a gap's ``label`` is its top concept by the same order.
+    A row the ADR-100 backing check demoted (``unbacked``) is no gap (MD6-9).
+    Pure; ``None``/malformed tolerant."""
     jd_norm = ats_norm(jd_text or "")
+    req_norm = ats_norm(posting_requirements_text(jd_text))
     statement_of: dict[str, str] = {}
     for denial in denied_concepts or []:
         concept = (_get(denial, "concept", "") or "").strip()
@@ -675,7 +764,7 @@ def key_requirement_gaps(
         if concept and statement:
             statement_of.setdefault(ats_norm(concept), statement)
 
-    groups: dict[str, list[tuple[float, int, int, int, str]]] = {}
+    groups: dict[str, list[tuple[bool, float, int, int, int, str]]] = {}
     group_statement: dict[str, str | None] = {}
     order: list[str] = []
     for index, entry in enumerate(keyword_ledger or []):
@@ -689,28 +778,36 @@ def key_requirement_gaps(
         if not statement and isinstance(bound, str) and bound.strip():
             statement = statement_of.get(ats_norm(bound.strip()))
         key = f"s:{ats_norm(statement)}" if statement else f"c:{ats_norm(concept)}"
-        mentions, first = posting_mentions(_ledger_forms(entry), jd_norm)
+        forms = _ledger_forms(entry)
+        mentions, first = posting_mentions(forms, jd_norm)
+        in_req = bool(req_norm) and posting_mentions(forms, req_norm)[0] > 0
         if key not in groups:
             groups[key] = []
             group_statement[key] = statement
             order.append(key)
-        groups[key].append((float(entry.get("fit_weight") or 0.0), mentions, first, index, concept))
+        groups[key].append(
+            (in_req, float(entry.get("fit_weight") or 0.0), mentions, first, index, concept)
+        )
 
     gaps: list[tuple[tuple, KeyGap]] = []
     for key in order:
         members = groups[key]
-        members.sort(key=lambda m: (-m[0], -m[1], m[2], m[3]))
+        members.sort(key=lambda m: (not m[0], -m[1], -m[2], m[3], m[4]))
         top = members[0]
-        concepts = tuple(dict.fromkeys(m[4] for m in members))
+        concepts = tuple(dict.fromkeys(m[5] for m in members))
         gap = KeyGap(
-            label=top[4],
+            label=top[5],
             concepts=concepts,
             statement=group_statement[key],
-            weight=top[0],
-            mentions=max(m[1] for m in members),
-            first_position=min(m[2] for m in members),
+            weight=top[1],
+            mentions=max(m[2] for m in members),
+            first_position=min(m[3] for m in members),
+            in_requirements=top[0],
         )
-        gaps.append(((-gap.weight, -gap.mentions, gap.first_position, top[3]), gap))
+        gaps.append((
+            (not gap.in_requirements, -gap.weight, -gap.mentions, gap.first_position, top[4]),
+            gap,
+        ))
     gaps.sort(key=lambda g: g[0])
     return [g for _, g in gaps]
 
