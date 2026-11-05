@@ -3658,6 +3658,38 @@ def _is_denial_receipt_change(change: Any) -> bool:
     )
 
 
+#: Metadata keys whose text is a denial's testimony or the system's own question
+#: about one, never positive vault content (D-4 / MD6-10, Hazelnut build 6):
+#: ``denied_concepts`` (live denials), ``withdrawn_denials`` (denials the
+#: candidate took back — the statement is the SAME testimony, it does not turn
+#: into evidence by being withdrawn), ``pending_confirmations`` (the questions
+#: the system parks, which restate the concepts they ask about) and
+#: ``denial_scope_answered`` (the answered questions' ``<denial>|<term>`` keys).
+_DENIAL_TEXT_METADATA_KEYS: tuple[str, ...] = (
+    "denied_concepts",
+    "withdrawn_denials",
+    "pending_confirmations",
+    "denial_scope_answered",
+)
+
+
+def _is_question_receipt_change(change: Any) -> bool:
+    """Is this ``FieldChange`` the receipt of a resolved confirmation question?
+
+    Written by ``reconcile.apply._apply_resolve_confirmation``:
+    ``section == "metadata"``, ``field == "pending_confirmations"``,
+    ``old_value`` = the question the SYSTEM wrote, ``new_value`` = the option
+    the candidate picked from the system's menu. Neither is vault content (a
+    paraphrase is not a source, ADR-061/048 amended): the A-1 heal question
+    says "zu Microsoft Azure … noch nichts steht", and its receipt outlives the
+    question. Whatever the answer changed lands as its own receipt elsewhere."""
+    return (
+        isinstance(change, dict)
+        and change.get("section") == "metadata"
+        and change.get("field") == "pending_confirmations"
+    )
+
+
 def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
     """Filtered copy of ``profile_json`` with denial-testimony text removed
     (wave-6, #270-adjacent).
@@ -3670,10 +3702,22 @@ def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
       the verbatim ``statement`` (you cannot deny embeddings without writing
       the word "embeddings", and the *statement* is free testimony prose, not
       just the concept phrase ``_independently_affirmed`` already blanks).
+    * ``metadata.withdrawn_denials`` exactly the same way (D-4 / MD6-10,
+      Hazelnut build 6): a withdrawn denial keeps its verbatim statement for
+      the history, and withdrawing it revokes the "no" without turning the
+      words into a "yes". Left in, a withdrawn R2-2 chip clause ("…, aber zu
+      Microsoft Azure steht in meinem Profil noch nichts") verified
+      ``Microsoft Azure`` as ADJACENT vault material in
+      :func:`assert_claimable_backed`, and would literally ground the term
+      for every other coverage reader.
+    * ``metadata.pending_confirmations`` and ``denial_scope_answered`` — the
+      system's own questions (and answered-question keys), which restate the
+      concepts they ask about (see :data:`_DENIAL_TEXT_METADATA_KEYS`).
     * ``metadata.enrichment_history[].changes`` entries that ARE a denial
       receipt (see :func:`_is_denial_receipt_change`) — the durable audit
       trail carries the same concept text (``new_value``/``old_value``) plus
-      the "Noted limit: …" rationale.
+      the "Noted limit: …" rationale — or the receipt of a resolved question
+      (:func:`_is_question_receipt_change`), which restates the question.
 
     Every other field — including every OTHER enrichment-history change —
     passes through untouched, so a genuinely evidenced broad concept
@@ -3688,7 +3732,8 @@ def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
         return profile_json
 
     filtered_metadata = dict(metadata)
-    filtered_metadata.pop("denied_concepts", None)
+    for key in _DENIAL_TEXT_METADATA_KEYS:
+        filtered_metadata.pop(key, None)
 
     history = metadata.get("enrichment_history")
     if isinstance(history, list):
@@ -3701,7 +3746,11 @@ def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(changes, list):
                 new_history.append(record)
                 continue
-            kept = [c for c in changes if not _is_denial_receipt_change(c)]
+            kept = [
+                c
+                for c in changes
+                if not _is_denial_receipt_change(c) and not _is_question_receipt_change(c)
+            ]
             new_history.append(record if kept == changes else {**record, "changes": kept})
         filtered_metadata["enrichment_history"] = new_history
 
