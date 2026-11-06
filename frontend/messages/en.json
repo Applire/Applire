@@ -1361,6 +1361,7 @@
     "typedPlaceholder": "Or say it in your own words – e.g. \"Both are right, they are two different achievements\"",
     "typedPlaceholderScalar": "Or say it in your own words – e.g. \"Actually it was 05/2015\"",
     "typedUnderstood": "Understood: {outcome}.",
+    "answerSaved": "Saved: {answer}",
     "correctedSaved": "Understood – \"{value}\" is saved.",
     "outcomeRequired": "For this point, please continue with one of the options.",
     "undo": "Undo",

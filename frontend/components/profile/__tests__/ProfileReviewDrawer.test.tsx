@@ -429,6 +429,49 @@ describe("ProfileReviewDrawer", () => {
     expect(screen.queryByTestId("conflict-card")).not.toBeInTheDocument();
   });
 
+  // UAT 2026-11-06: the thread used to run across items — a card was never kept
+  // but the answers to it were, so they read as answers to the last plain
+  // question still on screen. Now an answered item leaves the view; a notice
+  // names what was saved.
+  it("UAT 11-06: an answered plain question leaves the view when the next item comes", async () => {
+    startOn(null, {
+      first_question: "Is it the same education?",
+      choices: ["Same education — merge", "Two different ones"],
+      current_gap_id: "g-edu",
+    });
+    textMock.mockResolvedValue(reply({ current_conflict: LIST_CONFLICT, current_gap_id: "g-list" }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    fireEvent.click(await screen.findByRole("button", { name: "Same education — merge" }));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    expect(screen.queryByText("Is it the same education?")).not.toBeInTheDocument();
+    expect(screen.queryByText("Same education — merge")).not.toBeInTheDocument();
+    expect(screen.getByTestId("profile-review-notice")).toHaveTextContent("Saved: Same education — merge");
+  });
+
+  it("UAT 11-06: a tapped outcome is not left behind under the next card", async () => {
+    startOn(LIST_CONFLICT, { current_gap_id: "g-list" });
+    outcomeMock.mockResolvedValue(reply({ current_conflict: NAME_SCALAR, current_gap_id: "g-name" }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    fireEvent.click(await screen.findByTestId("conflict-outcome-keep_current"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toHaveTextContent("Max Muster"));
+    // the next card's own chip carries the label; no bubble outside it does
+    for (const el of screen.getAllByText("Keep current")) expect(el.closest("button")).not.toBeNull();
+    expect(screen.getByTestId("profile-review-notice")).toHaveTextContent("Saved: Keep current");
+  });
+
+  it("UAT 11-06: the same item asked again keeps its thread", async () => {
+    startOn(null, { first_question: "Which role does 'SQL' belong to?", current_gap_id: "g-sql" });
+    textMock.mockResolvedValue(reply({ question: "Which role, the first or the second?", current_gap_id: "g-sql" }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await screen.findByText("Which role does 'SQL' belong to?");
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "the old one" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    expect(await screen.findByText("Which role, the first or the second?")).toBeInTheDocument();
+    expect(screen.getByText("Which role does 'SQL' belong to?")).toBeInTheDocument();
+    expect(screen.getByText("the old one")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-review-notice")).not.toBeInTheDocument();
+  });
+
   it("an item closed meanwhile (404 issue_not_found) falls back to the generic walk", async () => {
     startMock
       .mockRejectedValueOnce(new ReviewApiError(404, "issue_not_found: conflict:gone", "issue_not_found"))

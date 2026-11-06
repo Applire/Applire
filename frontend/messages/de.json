@@ -1361,6 +1361,7 @@
     "typedPlaceholder": "Oder sag es in eigenen Worten – z. B. „Beides stimmt, das sind zwei verschiedene Erfolge“",
     "typedPlaceholderScalar": "Oder sag es in eigenen Worten – z. B. „Eigentlich war es 05/2015“",
     "typedUnderstood": "Verstanden: {outcome}.",
+    "answerSaved": "Gespeichert: {answer}",
     "correctedSaved": "Verstanden – „{value}“ ist gespeichert.",
     "outcomeRequired": "Für diesen Punkt geht es nur noch über die Auswahl weiter.",
     "undo": "Rückgängig machen",

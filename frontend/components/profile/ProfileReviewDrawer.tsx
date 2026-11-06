@@ -30,6 +30,11 @@
 // interpreted by the backend into an outcome, a corrected value or ONE
 // follow-up; after that follow-up only the outcome buttons remain — the same
 // question never comes back verbatim.
+//
+// UAT 2026-11-06: the thread holds the CURRENT item only. A card was never
+// kept in it but the answers to it were, so they read as answers to the last
+// plain question still on screen; once an item is answered the thread is
+// cleared and a notice names what was saved.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -184,6 +189,9 @@ export function ProfileReviewDrawer({
   const [noConflicts, setNoConflicts] = useState(false);
   const [error, setError] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
+  // The item on screen (`current_gap_id`): a reply naming the same one, or
+  // carrying a follow-up, stays in its thread; any other reply moves on.
+  const itemIdRef = useRef<string | null>(null);
 
   const outcomeLabel = useCallback(
     (o: ConflictOutcome, c: CurrentConflict | null) =>
@@ -198,6 +206,7 @@ export function ProfileReviewDrawer({
   // One turn of the walk: the item on screen is the card when the backend names
   // a conflict, otherwise the question bubble + its choices.
   const applyTurn = useCallback((turn: ReviewTurn) => {
+    itemIdRef.current = turn.current_gap_id ?? null;
     setChoices(turn.choices);
     setConflict(turn.current_conflict ?? null);
     setFollowUpUsed(Boolean(turn.follow_up_used));
@@ -260,8 +269,11 @@ export function ProfileReviewDrawer({
   }, [open, onClose]);
 
   const afterReply = useCallback(
-    (result: ReviewReply, onScreen: CurrentConflict | null, typed: boolean) => {
+    (result: ReviewReply, onScreen: CurrentConflict | null, typed: boolean, userLine: string) => {
       const read = result.interpreted ?? null;
+      const sameItem =
+        Boolean(read?.follow_up) ||
+        (result.current_gap_id != null && result.current_gap_id === itemIdRef.current);
       if (read?.already_answered) {
         setNotice({ tone: "warn", text: t("alreadyAnswered") });
       } else if (read?.corrected_value) {
@@ -272,15 +284,20 @@ export function ProfileReviewDrawer({
         if (result.current_conflict || !result.question) {
           setMessages((prev) => [...prev, { role: "assistant", content: read.follow_up! }]);
         }
-      } else if (typed) {
-        // Only a TYPED answer is echoed back; a tapped outcome needs no echo.
-        const o = interpretedOutcome(read);
-        if (o) setNotice({ tone: "ok", text: t("typedUnderstood", { outcome: outcomeLabel(o, onScreen) }) });
+      } else if (typed && interpretedOutcome(read)) {
+        // A TYPED answer is echoed back as the outcome it was read as.
+        const o = interpretedOutcome(read)!;
+        setNotice({ tone: "ok", text: t("typedUnderstood", { outcome: outcomeLabel(o, onScreen) }) });
+      } else if (!sameItem) {
+        // The answer leaves the view with its item; a confirmed merge keeps
+        // its own notice (with the Undo) set by `sendOutcome`.
+        setNotice((prev) => prev ?? { tone: "ok", text: t("answerSaved", { answer: shorten(userLine) }) });
       }
       if (result.complete) {
         setDone(true);
         return;
       }
+      if (!sameItem) setMessages([]);
       setProgress((p) => (p ? { ...p, remaining: result.gaps_remaining ?? p.remaining, first: false } : p));
       applyTurn(result);
     },
@@ -298,7 +315,7 @@ export function ProfileReviewDrawer({
       setError("");
       setMessages((prev) => [...prev, { role: "user", content: userLine }]);
       try {
-        afterReply(await call(), onScreen, typed);
+        afterReply(await call(), onScreen, typed, userLine);
       } catch (e: unknown) {
         if (e instanceof ReviewApiError && e.code === "outcome_required") {
           // The ONE follow-up was spent: only the buttons remain (U-4/U-5).
@@ -573,6 +590,11 @@ export function ProfileReviewDrawer({
       </div>
     </>
   );
+}
+
+/** A long typed answer is named by its start in the saved notice. */
+function shorten(line: string, max = 120): string {
+  return line.length > max ? `${line.slice(0, max).trimEnd()}…` : line;
 }
 
 function ReviewNotice({
