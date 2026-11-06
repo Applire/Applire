@@ -22,6 +22,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from applire.config import settings as app_settings
 from applire.db.session import Base
 from applire.models.llm_usage import LlmUsage
 from applire.models.retention_run import RetentionRun
@@ -383,7 +384,7 @@ async def test_credit_only_mode_spends_no_model_call(monkeypatch):
     """`OPS_PROVIDER_PROBE=credit` — the balance is an account endpoint, free."""
     stub = _StubProvider()
     _install_provider(monkeypatch, stub, family="mistral")
-    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "credit")
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "credit")
     result = await probes.probe_provider(force=True)
     assert stub.calls == 0
     assert result.detail["reachability"] == "unknown"
@@ -393,7 +394,7 @@ async def test_credit_only_mode_spends_no_model_call(monkeypatch):
 async def test_reachability_only_mode_never_reads_a_balance(monkeypatch):
     stub = _StubProvider()
     _install_provider(monkeypatch, stub, family="openrouter")
-    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "reachability")
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "reachability")
     called = {"n": 0}
 
     async def _never():
@@ -412,7 +413,7 @@ async def test_reachability_only_mode_never_reads_a_balance(monkeypatch):
 async def test_the_probe_mode_tolerates_the_old_on_off_spelling(monkeypatch):
     stub = _StubProvider()
     _install_provider(monkeypatch, stub, family="mistral")
-    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "on")
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "on")
     assert (await probes.probe_provider(force=True)).detail["reachability"] == "ok"
 
 
@@ -562,7 +563,7 @@ async def test_provider_probe_is_cached_so_a_request_cannot_spend_credit(monkeyp
 async def test_provider_probe_spends_nothing_when_switched_off(monkeypatch):
     stub = _StubProvider()
     _install_provider(monkeypatch, stub)
-    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "off")
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "off")
     result = await probes.probe_provider(force=True)
     assert stub.calls == 0
     assert result.status == probes.UNKNOWN
@@ -570,6 +571,49 @@ async def test_provider_probe_spends_nothing_when_switched_off(monkeypatch):
     # whole probe is off — the answer does not become unknowable, it stays
     # inapplicable.
     assert result.detail["credit"] == "n/a"
+
+
+@pytest.mark.asyncio
+async def test_a_panel_override_switches_the_probe_off_over_the_env_value(monkeypatch):
+    """ADR-093 amended 2026-11-06 / FMEA SF-SETTINGS.9: the mode is read through
+    the overlay on every call, so a panel `off` stops the spend while env says `both`."""
+    import applire.config as cfg
+
+    stub = _StubProvider()
+    _install_provider(monkeypatch, stub)
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "both")
+    cfg.set_overlay_latest({"ops_provider_probe": "off"})
+    try:
+        result = await probes.probe_provider(force=True)
+    finally:
+        cfg.set_overlay_latest({})
+    assert stub.calls == 0
+    assert result.message == "provider probe switched off"
+
+
+@pytest.mark.asyncio
+async def test_a_mode_switch_is_not_answered_from_the_previous_modes_cache(monkeypatch):
+    """The cache fingerprint carries the mode (ADR-093 amended 2026-11-06)."""
+    stub = _StubProvider()
+    _install_provider(monkeypatch, stub)
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "both")
+    assert (await probes.probe_provider(force=True)).detail["reachability"] == "ok"
+    assert stub.calls == 1
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "credit")
+    result = await probes.probe_provider()
+    assert stub.calls == 1  # `credit` never spends a model call
+    assert result.detail["reachability"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [("both", "both"), ("OFF", "off"), (" credit ", "credit"), ("on", "both"),
+     ("true", "both"), ("false", "off"), ("0", "off"), ("bogus", "both"), ("", "both")],
+)
+def test_the_settings_field_keeps_the_env_tolerance(raw, expected):
+    from applire.config import Settings
+
+    assert Settings(ops_provider_probe=raw).ops_provider_probe == expected
 
 
 @pytest.mark.asyncio

@@ -73,7 +73,11 @@ OPS_ERROR_WINDOW_MINUTES: int = int(os.environ.get("OPS_ERROR_WINDOW_MINUTES", "
 # The reachability half costs about 96 chrome-sized calls a day at the default
 # interval, against 89-105 for a single application. The credit half costs
 # nothing: it is an account endpoint, not a model call.
-OPS_PROVIDER_PROBE: str = os.environ.get("OPS_PROVIDER_PROBE", "both").strip().lower()
+#
+# The mode itself is NOT read here: since ADR-093's 2026-11-06 amendment it is an
+# admin panel key, so it lives on ``config.Settings`` (``ops_provider_probe``)
+# where the overlay resolves it. A module-level read would freeze the switch
+# (FMEA SF-SETTINGS.9).
 OPS_PROVIDER_PROBE_MODES = ("off", "reachability", "credit", "both")
 # Minimum minutes between two provider probes; the result is cached for this
 # long and the endpoint only ever serves the cache.
@@ -102,14 +106,29 @@ LLM_USAGE_TRACKING: str = os.environ.get("LLM_USAGE_TRACKING", "on").strip().low
 LLM_USAGE_RETENTION_DAYS: int = int(os.environ.get("LLM_USAGE_RETENTION_DAYS", "365"))
 
 
-def _probe_mode() -> str:
-    """The configured mode, tolerating the two obvious spellings of "on"/"off"."""
-    value = OPS_PROVIDER_PROBE
+def normalise_probe_mode(raw: object) -> str:
+    """One of the four modes, tolerating the obvious spellings of "on"/"off".
+
+    Anything unrecognised falls back to the default ``both``.
+    """
+    value = str(raw or "").strip().lower()
     if value in ("on", "true", "1", "yes"):
         return "both"
     if value in ("false", "0", "no"):
         return "off"
     return value if value in OPS_PROVIDER_PROBE_MODES else "both"
+
+
+def _probe_mode() -> str:
+    """The EFFECTIVE mode: the admin panel override, else the environment (ADR-093)."""
+    from applire.config import settings
+
+    return normalise_probe_mode(settings.ops_provider_probe)
+
+
+def provider_probe_mode() -> str:
+    """The effective mode, for the probe cache fingerprint."""
+    return _probe_mode()
 
 
 def provider_probe_enabled() -> bool:
@@ -225,7 +244,8 @@ def ops_registry_entries() -> list[dict[str, object]]:
             "semantics_changed_in": None,
             "default": "both",
             "example": "both",
-            "source": "constants",
+            # A Settings field since ADR-093's 2026-11-06 amendment (panel key).
+            "source": "config",
             "description": (
                 "Which checks the instance runs against your LLM provider: "
                 "'both' (default), 'reachability' (a tiny test call, about 96 a "
@@ -233,7 +253,9 @@ def ops_registry_entries() -> list[dict[str, object]]:
                 "one - costs nothing), or 'off'. With 'off' the instance cannot "
                 "tell you that your provider credit ran out. Ollama and other "
                 "local endpoints have no balance to read; the credit check "
-                "reports 'not applicable' for them."
+                "reports 'not applicable' for them. An admin can also set this "
+                "in the admin panel (Administration > Settings); a value set "
+                "there wins over this one."
             ),
         },
         {
@@ -254,8 +276,8 @@ def ops_registry_entries() -> list[dict[str, object]]:
             "source": "constants",
             "description": (
                 "Remaining provider credit below which the ops health endpoint "
-                "reports 'low'. Only providers that publish a balance "
-                "(OpenRouter, Requesty) can report anything but 'unknown'."
+                "reports 'low'. Only providers whose balance Applire can read "
+                "(OpenRouter today) can report anything but 'unknown'."
             ),
         },
         {

@@ -427,8 +427,8 @@ _kick_task: "asyncio.Task | None" = None
 
 
 def _provider_fingerprint() -> str:
-    """Which provider/model/key a cached result is about (ADR-093: a runtime
-    switch must not be answered from the previous provider's cache for 15 min).
+    """Which provider/model/key/probe mode a cached result is about (ADR-093: a
+    runtime switch must not be answered from the previous cache for 15 min).
     A hash of the key, never the key."""
     import hashlib
 
@@ -438,7 +438,9 @@ def _provider_fingerprint() -> str:
     model = str(getattr(settings, f"{family}_model", "") or "")
     key = str(getattr(settings, f"{family}_api_key", "") or "")
     digest = hashlib.sha256(key.encode()).hexdigest()[:12]
-    return f"{family}|{model}|{digest}"
+    # The mode too (ADR-093 amended 2026-11-06): a panel switch of the probe
+    # mode must not be answered from the previous mode's cached result.
+    return f"{family}|{model}|{digest}|{ops_config.provider_probe_mode()}"
 
 
 def reset_provider_cache() -> None:
@@ -658,6 +660,12 @@ def _classify_unavailable(text_form: str) -> tuple[str, str]:
 _CREDIT_READERS: dict[str, str] = {
     "openrouter": "credits",
 }
+
+
+def has_balance_reader(family: str) -> bool:
+    """Whether the free `credit` half can read a balance for ``family`` at all
+    (ADR-093 amended 2026-11-06: the panel names the families where it cannot)."""
+    return family in _CREDIT_READERS
 
 
 async def _probe_credit(family: str) -> tuple[str, dict[str, Any]]:
