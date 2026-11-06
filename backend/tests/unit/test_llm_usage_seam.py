@@ -78,6 +78,26 @@ def test_every_provider_usage_shape_is_read(provider_name, response):
     assert usage.total_tokens == 33
 
 
+def test_anthropic_cached_prompt_tokens_are_counted():
+    """ADR-009 amended 2026-11-06: Anthropic's `input_tokens` is the uncached
+    remainder only. Without the cache fields the row would drop by the cached
+    share the day the adapter starts caching, and still read as measured."""
+    from anthropic.types import Usage as AnthropicUsage
+
+    response = type("Message", (), {"usage": AnthropicUsage(
+        input_tokens=40,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=2600,
+        output_tokens=300,
+    )})()
+    assert extract_usage(response) == Usage(2640, 300)
+    response.usage = AnthropicUsage(
+        input_tokens=40, cache_creation_input_tokens=2600, cache_read_input_tokens=None,
+        output_tokens=300,
+    )
+    assert extract_usage(response) == Usage(2640, 300)
+
+
 def test_a_response_without_usage_reads_as_none_and_costs_nothing():
     """US313 AC — 'zero overhead when a provider omits usage'.
 

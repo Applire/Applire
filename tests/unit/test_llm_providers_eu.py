@@ -328,9 +328,28 @@ async def test_anthropic_acomplete_passes_system_and_max_tokens(monkeypatch):
     result = await provider.acomplete("Say hi", system="be terse", max_tokens=1234)
     assert result == "hi"
     kw = provider._client.messages.create.call_args.kwargs
-    assert kw["system"] == "be terse"
+    assert kw["system"] == [
+        {"type": "text", "text": "be terse", "cache_control": {"type": "ephemeral"}}
+    ]
     assert kw["max_tokens"] == 1234           # Anthropic requires max_tokens
     assert kw["messages"] == [{"role": "user", "content": "Say hi"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["acomplete", "aparse_json"])
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-haiku-4-5"])
+async def test_anthropic_caches_the_system_prompt_only(monkeypatch, entry, model):
+    # ADR-009 amended 2026-11-06: one breakpoint at the end of the system prompt;
+    # the per-call user prompt (and a prefill) is never marked, and no top-level
+    # automatic cache_control would move the breakpoint behind it.
+    provider = _anthropic_provider(monkeypatch, model)
+    reply = '"a": 1}' if provider._shape.prefill else '{"a": 1}'  # haiku-4-5 continues a "{"
+    provider._client.messages.create = AsyncMock(return_value=_anthropic_response(reply))
+    await getattr(provider, entry)("the varying task", system="the stable rules")
+    kw = provider._client.messages.create.call_args.kwargs
+    assert kw["system"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in kw
+    assert "cache_control" not in str(kw["messages"])
 
 
 @pytest.mark.asyncio

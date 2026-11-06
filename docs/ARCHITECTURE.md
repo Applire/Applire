@@ -202,7 +202,7 @@ All TTL values are configurable via environment variables in `applire/constants.
 | `mistral` (shipped fallback) | Mistral AI SDK | EU-hosted, strong German proficiency |
 | `requesty` | Requesty (OpenAI-compat gateway) | EU-hosted (Frankfurt, zero-retention); defaults to the EU endpoint. An EU-resident path to Claude/GPT/Gemini via Bedrock/Azure/Vertex EU deployments |
 | `openrouter` | OpenRouter API | Multi-model gateway; access Mistral, Claude, and others with one key (not EU-hosted) |
-| `anthropic` | Anthropic Messages API | Claude via a Console **API key** (BYO-key) — a Claude Pro/Max/Team *subscription* cannot be used. US-hosted |
+| `anthropic` | Anthropic Messages API | Claude via a Console **API key** (BYO-key) — a Claude Pro/Max/Team *subscription* cannot be used. US-hosted. The system prompt is sent with one prompt-cache breakpoint (ADR-009, 2026-11-06); usage rows count cached tokens in full |
 | `openai` | OpenAI SDK | Also supports LM Studio and any OpenAI-compatible endpoint via `OPENAI_BASE_URL` |
 | `ollama` | Ollama REST API | Fully offline, no API costs, no key required |
 

@@ -277,16 +277,25 @@ class AnthropicProvider(LLMProvider):
         if disable_thinking:
             kwargs.update(_thinking_off_kwargs(self._model))
         if system:
-            kwargs["system"] = system        # top-level param, not a message
+            # Top-level param, not a message. One cache breakpoint at its end
+            # (ADR-009 amended 2026-11-06): the system prompt repeats byte-for-byte
+            # per pipeline site, the user prompt almost never does — so no marker
+            # in `messages`. A prefix below the model's minimum is simply not cached.
+            kwargs["system"] = [
+                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+            ]
         t0 = time.monotonic()
         response = await self._client.messages.create(**kwargs)
         elapsed = time.monotonic() - t0
         note_usage(response)  # ADR-086 clause 7 — token accounting seam
         usage = getattr(response, "usage", None)
         logger.info(
-            "LLM response [anthropic] model=%s latency=%.2fs input_tokens=%s output_tokens=%s",
+            "LLM response [anthropic] model=%s latency=%.2fs input_tokens=%s "
+            "cache_read=%s cache_write=%s output_tokens=%s",
             self._model, elapsed,
             getattr(usage, "input_tokens", "?"),
+            getattr(usage, "cache_read_input_tokens", "?"),
+            getattr(usage, "cache_creation_input_tokens", "?"),
             getattr(usage, "output_tokens", "?"),
         )
         stop_reason = getattr(response, "stop_reason", None)

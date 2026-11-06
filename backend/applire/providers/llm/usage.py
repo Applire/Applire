@@ -176,9 +176,15 @@ def extract_usage(response: Any) -> Usage | None:
     prompt = _as_int(getattr(usage, "prompt_tokens", None))
     completion = _as_int(getattr(usage, "completion_tokens", None))
     if prompt is None and completion is None:
-        # Anthropic names them differently.
+        # Anthropic names them differently, and its `input_tokens` is only the
+        # UNCACHED remainder: the cache write and the cache read are reported
+        # beside it. Summed, the row keeps meaning "prompt tokens processed"
+        # once the adapter caches the system prompt (ADR-009 amended 2026-11-06).
         prompt = _as_int(getattr(usage, "input_tokens", None))
         completion = _as_int(getattr(usage, "output_tokens", None))
+        if prompt is not None:
+            for field in ("cache_creation_input_tokens", "cache_read_input_tokens"):
+                prompt += _as_int(getattr(usage, field, None)) or 0
     if prompt is None and completion is None:
         return None
     return Usage(
