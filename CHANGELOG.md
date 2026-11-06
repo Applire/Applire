@@ -6,6 +6,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Unreleased — profile review: one item at a time
+- **"Profil prüfen" shows only the item you are answering** (founder UAT 2026-11-06). Before, the dialog dropped each conflict card once it was answered but kept your answer to it. Those answers then appeared under the last plain question still on screen, as if they answered it, and the current card sat above the older answers. Now each answered item leaves the dialog together with your answer, and a notice names what was saved ("Gespeichert: Aktuellen behalten"). A follow-up question and your reply to it stay in view until the item is answered.
+
 ### Unreleased — Anthropic provider: prompt caching
 - **The Anthropic provider caches the instructions it sends on every call, so Claude costs less** (ADR-009 amended 2026-11-06). Each step of the pipeline sends the same instructions every time it runs; only your profile, the posting and the draft change. Applire now marks those instructions as cacheable, and Anthropic bills a repeat of them within five minutes at about a tenth of the normal input price. Replayed on two recent end-to-end runs, input cost falls by about 10–17 %; what the model sees and writes is unchanged. Nothing to configure. Instructions shorter than the model's caching minimum are sent as before at no extra cost. The token counts on the admin usage page keep counting cached tokens in full, so they show the volume sent, not the discounted price; the server log line shows the cached share (`cache_read`, `cache_write`). The gateway providers (`requesty`, `openrouter`) are unchanged.
 
