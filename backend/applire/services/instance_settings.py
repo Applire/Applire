@@ -77,6 +77,20 @@ KEY_REQUIRED: dict[str, bool] = {
     "ollama": False,
 }
 BOOL_KEYS = frozenset({"SCRAPER_FETCH_LINKEDIN_GUEST_PAGES", "RETENTION_ENABLED"})
+
+
+def _probe_modes() -> tuple[str, ...]:
+    from applire.services.ops.config import OPS_PROVIDER_PROBE_MODES
+
+    return OPS_PROVIDER_PROBE_MODES
+
+
+#: The closed choices of each enum key (ADR-093 cl. 2; the probe mode joined
+#: 2026-11-06). A panel write outside its key's choices is ``invalid_setting_value``.
+ENUM_CHOICES: dict[str, tuple[str, ...]] = {
+    "LLM_PROVIDER": PROVIDERS,
+    "OPS_PROVIDER_PROBE": _probe_modes(),
+}
 #: ADR-093 cl. 8 — tracked across boots for the "stayed on" proof.
 TRACKED_KEYS: tuple[str, ...] = (
     "LLM_PROVIDER",
@@ -114,7 +128,7 @@ class KeyMeta:
     key: str
     field: str
     kind: Kind
-    group: Literal["llm", "scraper", "retention"]
+    group: Literal["llm", "scraper", "retention", "ops"]
     provider: str | None
     secret: bool
 
@@ -129,15 +143,20 @@ def _meta_for(key: str) -> KeyMeta:
             provider = family
     if entry.secret:
         kind: Kind = "secret"
-    elif key == "LLM_PROVIDER":
+    elif key in ENUM_CHOICES:
         kind = "enum"
     elif key in BOOL_KEYS:
         kind = "bool"
     else:
         kind = "string"
-    group = "llm" if key.startswith(("LLM_",)) or provider else (
-        "scraper" if key.startswith("SCRAPER_") else "retention"
-    )
+    if key.startswith(("LLM_",)) or provider:
+        group = "llm"
+    elif key.startswith("SCRAPER_"):
+        group = "scraper"
+    elif key.startswith("OPS_"):
+        group = "ops"
+    else:
+        group = "retention"
     return KeyMeta(key=key, field=key.lower(), kind=kind, group=group, provider=provider, secret=entry.secret)
 
 
@@ -404,6 +423,8 @@ def _refuse_unready(unready: tuple[str, str] | None) -> None:
 
 
 def providers_status() -> list[dict[str, Any]]:
+    from applire.services.ops.probes import has_balance_reader
+
     active = (effective("llm_provider") or "").strip().lower()
     out = []
     for p in PROVIDERS:
@@ -416,6 +437,9 @@ def providers_status() -> list[dict[str, Any]]:
                 "has_key": _has_effective_key(p),
                 "ready": provider_ready(p),
                 "active": p == active,
+                # ADR-093 amended 2026-11-06: whether the probe's free `credit`
+                # half can read a balance for this family at all.
+                "balance_check": has_balance_reader(p),
             }
         )
     return out
@@ -475,7 +499,7 @@ async def build_response(db: AsyncSession) -> dict[str, Any]:
             "group": meta.group,
             "kind": meta.kind,
             "provider": meta.provider,
-            "choices": list(PROVIDERS) if meta.kind == "enum" else None,
+            "choices": list(ENUM_CHOICES[key]) if meta.kind == "enum" else None,
             "source": source,
             "updated_at": row.updated_at if row is not None else None,
             "updated_by_user_id": row.updated_by_user_id if row is not None else None,
@@ -533,8 +557,9 @@ def _validate(key: str, value: Any) -> Any:
         )
     if meta.kind == "enum":
         value = value.lower()
-        if value not in PROVIDERS:
-            raise SettingsError("invalid_setting_value", 422, "Not a selectable provider.", key=key)
+        if value not in ENUM_CHOICES[key]:
+            message = "Not a selectable provider." if key == "LLM_PROVIDER" else "Not one of the choices."
+            raise SettingsError("invalid_setting_value", 422, message, key=key)
     return value
 
 

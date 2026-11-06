@@ -189,7 +189,7 @@ class OpsHealthResponse(BaseModel):
 # ===========================================================================
 
 SettingKind = Literal["enum", "string", "bool", "secret"]
-SettingGroup = Literal["llm", "scraper", "retention"]
+SettingGroup = Literal["llm", "scraper", "retention", "ops"]
 #: Where the effective value comes from (ADR-093 cl. 3, ruling C1-2):
 #: ``panel`` = an admin override stored in the database (wins over env);
 #: ``env`` = the operator set it in the environment / ``.env``;
@@ -241,6 +241,9 @@ class ProviderStatus(BaseModel):
     #: ``has_key or not key_required`` — the provider can be made active.
     ready: bool
     active: bool
+    #: Whether the ops probe's free ``credit`` half can read a balance for this
+    #: provider (ADR-093 amended 2026-11-06). Additive.
+    balance_check: bool = False
     # No per-model verdict (ADR-093 amended 2026-10-10, clause 10): the panel
     # links docs/llm-models.md, which is the only place a model is judged.
 

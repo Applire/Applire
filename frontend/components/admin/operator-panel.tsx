@@ -36,7 +36,7 @@ const API_BASE =
 type Translator = ReturnType<typeof useTranslations>;
 
 type OverallStatus = "ok" | "degraded" | "down";
-type ComponentStatus = "ok" | "degraded" | "down" | "unknown";
+type ComponentStatus = "ok" | "degraded" | "down" | "unknown" | "off";
 
 type ComponentName =
   | "database"
@@ -260,8 +260,9 @@ export function OperatorPanel() {
   if (!report) return null; // nothing to show before the first response lands
 
   const presentComponents = COMPONENT_ORDER.filter((name) => report.components[name]);
+  // `off` = a check the operator switched off (ADR-086 amended 2026-11-06): not a problem.
   const problemCount = presentComponents.filter(
-    (name) => report.components[name]!.status !== "ok",
+    (name) => !["ok", "off"].includes(report.components[name]!.status),
   ).length;
 
   const accent: "ok" | "warning" | "critical" =

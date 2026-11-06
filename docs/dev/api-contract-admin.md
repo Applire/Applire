@@ -49,6 +49,7 @@ provider is visible at `GET /api/ops/health` (`llm_provider`) and on the dashboa
 | `OLLAMA_MODEL` | llm | string | `ollama` | no key |
 | `SCRAPER_FETCH_LINKEDIN_GUEST_PAGES` | scraper | bool | — | #726, default **true** (ruling E-3) |
 | `RETENTION_ENABLED` | retention | bool | — | #738, default **true** |
+| `OPS_PROVIDER_PROBE` | ops | enum | — | `choices`: `off`, `reachability`, `credit`, `both`; default **both** (ADR-093 amended 2026-11-06). Which halves of the ops provider probe run; `reachability` spends a small model call per probe interval, `credit` reads a balance for free where `providers[].balance_check` is true |
 
 Base URLs, timeouts, reasoning knobs and every other setting stay **env-only**. A base URL decides where every CV is sent, so it is not a panel field (ADR-093 cl. 2).
 
@@ -62,6 +63,8 @@ Base URLs, timeouts, reasoning knobs and every other setting stay **env-only**. 
 ### 2.3 `providers` (`ProviderStatus[]`)
 
 One row per selectable provider: the effective `model`, plus `key_required`, `has_key`, `ready` (= `has_key or not key_required`) and `active`. The provider select should disable or warn for rows with `ready == false`.
+
+`balance_check` (additive, ADR-093 amended 2026-11-06): `true` when the ops probe's `credit` half can read a balance for this provider (OpenRouter today). With `OPS_PROVIDER_PROBE=credit` and an active provider whose `balance_check` is `false`, the probe measures nothing; the panel says so.
 
 **No qualification fields (ADR-093 amended 2026-10-10).** `qualification`, `qualification_reason` and `qualification_as_of` (CONTRACT-CHANGE MD2-6 (1)) were removed: the panel links `docs/llm-models.md` and shows no per-model verdict. A client must not expect them.
 

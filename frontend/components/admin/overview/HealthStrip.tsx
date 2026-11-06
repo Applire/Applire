@@ -16,13 +16,14 @@ import type { DashboardHealth } from "@/lib/api/admin";
 import { CardLink } from "../common";
 
 const KNOWN_COMPONENTS = new Set(["database", "migrations", "retention", "disk", "backup", "provider", "errors"]);
-const KNOWN_STATUS = new Set(["ok", "degraded", "down", "unknown"]);
+const KNOWN_STATUS = new Set(["ok", "degraded", "down", "unknown", "off"]);
 
 export function HealthStrip({ health }: { health: DashboardHealth }) {
   const t = useTranslations("adminDashboard");
   const tOps = useTranslations("ops");
   const locale = useLocale();
-  const bad = health.components.filter((c) => c.status !== "ok");
+  // `off` = a check the operator switched off (ADR-086 amended 2026-11-06): not a problem.
+  const bad = health.components.filter((c) => c.status !== "ok" && c.status !== "off");
   const kind = health.status === "down" ? "critical" : health.status === "ok" ? "ok" : "warning";
   const verdict =
     kind === "ok" ? t("healthOk") : kind === "critical" ? t("healthDown", { count: bad.length }) : t("healthDegraded", { count: bad.length });

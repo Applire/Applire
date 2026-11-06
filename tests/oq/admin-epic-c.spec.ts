@@ -76,6 +76,24 @@ test.describe("Administration — Epic C", () => {
     expect(bodies).toEqual([{ changes: { SCRAPER_FETCH_LINKEDIN_GUEST_PAGES: false } }, { changes: { RETENTION_ENABLED: false } }]);
   });
 
+  test("the provider check: Off is one PUT, shows its consequence, and resets to .env", async ({ page }) => {
+    const log = await stubEpicC(page);
+    await page.goto("/admin/settings");
+    const card = page.getByTestId("admin-settings-probe");
+    await expect(card.getByRole("radio")).toHaveCount(4);
+    await expect(card.locator('input[value="both"]')).toBeChecked();
+    // requesty is active and publishes no balance Applire can read (ADR-093 amended 2026-11-06).
+    await expect(page.getByTestId("admin-settings-probe-no-balance")).toContainText("requesty");
+    await page.getByTestId("admin-settings-probe-off").click();
+    await expect(page.getByTestId("admin-settings-probe-off-warning")).toBeVisible();
+    await expect(page.getByTestId("admin-settings-probe-source")).toHaveAttribute("data-source", "panel");
+    const bodies = log.filter((r) => r.method === "PUT").map((r) => JSON.parse(r.body!));
+    expect(bodies).toEqual([{ changes: { OPS_PROVIDER_PROBE: "off" } }]);
+    await page.getByTestId("admin-settings-probe-reset").click();
+    await expect(card.locator('input[value="both"]')).toBeChecked();
+    await expect(page.getByTestId("admin-settings-probe-off-warning")).toHaveCount(0);
+  });
+
   test("usage lists every account and asks for the chosen window", async ({ page }) => {
     const log = await stubEpicC(page);
     await page.goto("/admin/usage");

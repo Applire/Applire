@@ -185,6 +185,50 @@ async def test_get_lists_the_closed_panel_set_and_never_a_secret_value(env, monk
     assert not {"qualification", "qualification_reason", "qualification_as_of"} & set(luna)
 
 
+# --- the provider probe mode (ADR-093 amended 2026-11-06) --------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_probe_mode_is_a_four_choice_ops_enum_and_names_balance_readers(env):
+    _, client, _, _ = env
+    body = (await client.get("/api/admin/settings")).json()
+    item = _item(body, "OPS_PROVIDER_PROBE")
+    assert item["group"] == "ops" and item["kind"] == "enum"
+    assert item["choices"] == ["off", "reachability", "credit", "both"]
+    assert item["value"] == "both"
+    readable = {p["id"] for p in body["providers"] if p["balance_check"]}
+    # Only OpenRouter has a balance reader today (probes._CREDIT_READERS).
+    assert readable == {"openrouter"}
+
+
+@pytest.mark.asyncio
+async def test_switching_the_probe_off_from_the_panel_is_effective_and_audited(env):
+    db, client, _, _ = env
+    r = await _put(client, {"OPS_PROVIDER_PROBE": "off"})
+    assert r.status_code == 200, r.text
+    item = _item(r.json(), "OPS_PROVIDER_PROBE")
+    assert item["value"] == "off" and item["source"] == "panel" and item["env_value"] == "both"
+
+    from applire.services.ops import config as ops_config
+
+    assert ops_config.provider_probe_enabled() is False
+    rows = (await db.execute(select(AuditEvent).where(AuditEvent.action == "settings.changed"))).scalars().all()
+    detail = next(r.detail for r in rows if r.detail["key"] == "OPS_PROVIDER_PROBE")
+    assert detail["to_value"] == "off"
+
+    r = await client.delete("/api/admin/settings/OPS_PROVIDER_PROBE", headers=ORIGIN)
+    assert r.status_code == 200, r.text
+    assert ops_config.provider_probe_enabled() is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["never", "on", "", True])
+async def test_a_probe_mode_outside_the_four_choices_is_refused(env, value):
+    _, client, _, _ = env
+    r = await _put(client, {"OPS_PROVIDER_PROBE": value})
+    assert r.status_code == 422, r.text
+
+
 # --- the switch (#710 acceptance) --------------------------------------------------
 
 

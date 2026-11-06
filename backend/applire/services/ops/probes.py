@@ -41,6 +41,10 @@ OK = "ok"
 DEGRADED = "degraded"
 DOWN = "down"
 UNKNOWN = "unknown"
+#: A check the operator deliberately switched off (founder ruling 2026-11-06,
+#: ADR-086 amended): shown, but it does not count toward the overall verdict.
+#: Only the provider probe can be off; a probe that failed is ``unknown``.
+OFF = "off"
 
 
 @dataclass(frozen=True)
@@ -427,8 +431,8 @@ _kick_task: "asyncio.Task | None" = None
 
 
 def _provider_fingerprint() -> str:
-    """Which provider/model/key a cached result is about (ADR-093: a runtime
-    switch must not be answered from the previous provider's cache for 15 min).
+    """Which provider/model/key/probe mode a cached result is about (ADR-093: a
+    runtime switch must not be answered from the previous cache for 15 min).
     A hash of the key, never the key."""
     import hashlib
 
@@ -438,7 +442,9 @@ def _provider_fingerprint() -> str:
     model = str(getattr(settings, f"{family}_model", "") or "")
     key = str(getattr(settings, f"{family}_api_key", "") or "")
     digest = hashlib.sha256(key.encode()).hexdigest()[:12]
-    return f"{family}|{model}|{digest}"
+    # The mode too (ADR-093 amended 2026-11-06): a panel switch of the probe
+    # mode must not be answered from the previous mode's cached result.
+    return f"{family}|{model}|{digest}|{ops_config.provider_probe_mode()}"
 
 
 def reset_provider_cache() -> None:
@@ -475,7 +481,7 @@ async def probe_provider(force: bool = False) -> ProbeResult:
     if not ops_config.provider_probe_enabled():
         return ProbeResult(
             "provider",
-            UNKNOWN,
+            OFF,
             "provider probe switched off",
             {
                 "provider": family,
@@ -508,6 +514,17 @@ async def probe_provider(force: bool = False) -> ProbeResult:
         status = DOWN
     elif reachability == "rate_limited" or credit == "low":
         status = DEGRADED
+    elif not ops_config.reachability_probe_enabled():
+        # `credit` mode (founder ruling 2026-11-06): count what was measured.
+        # A readable balance is the instance's only signal; no balance reader
+        # for this provider means nothing was measured by the operator's choice.
+        if credit == "ok":
+            status = OK
+        elif credit == "n/a":
+            status = OFF
+            message = "credit-only check: this provider has no balance to read"
+        else:
+            status = UNKNOWN
     elif reachability == "unknown":
         status = UNKNOWN
     else:
@@ -658,6 +675,12 @@ def _classify_unavailable(text_form: str) -> tuple[str, str]:
 _CREDIT_READERS: dict[str, str] = {
     "openrouter": "credits",
 }
+
+
+def has_balance_reader(family: str) -> bool:
+    """Whether the free `credit` half can read a balance for ``family`` at all
+    (ADR-093 amended 2026-11-06: the panel names the families where it cannot)."""
+    return family in _CREDIT_READERS
 
 
 async def _probe_credit(family: str) -> tuple[str, dict[str, Any]]:

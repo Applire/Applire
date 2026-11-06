@@ -434,6 +434,14 @@ expanded when something is not).
 | `credit` | the balance read only — this costs nothing; it is an account endpoint, not a model call |
 | `off` | neither. Your instance can then no longer tell you that your provider credit ran out |
 
+With `off`, or with `credit` on a provider that publishes no balance, the provider line on the
+monitoring page reads **switched off**, and it does not turn the overall status to "needs a look": it
+was your choice, not a fault. With `credit` on OpenRouter, the line reflects your balance.
+
+An administrator can also change this without editing `.env`: **Administration → Settings → Check the
+connection to the AI provider** offers the same four choices. A value set there wins over `.env` and
+is recorded in the audit log; "Reset to .env value" removes it.
+
 `OPS_PROVIDER_PROBE_INTERVAL_MINUTES` (default 15) sets the minimum gap between two checks. The
 endpoint only ever serves the cached result, so calling it never spends your credit.
 
