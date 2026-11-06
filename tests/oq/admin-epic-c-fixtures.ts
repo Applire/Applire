@@ -49,7 +49,7 @@ const item = (key: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-export function settingsBody(o: { provider?: "requesty" | "openrouter"; panel?: boolean; retention?: boolean; linkedin?: boolean; openrouterKey?: boolean } = {}) {
+export function settingsBody(o: { provider?: "requesty" | "openrouter"; panel?: boolean; retention?: boolean; linkedin?: boolean; openrouterKey?: boolean; probe?: string } = {}) {
   const active = o.provider ?? "requesty";
   const choices = ["mistral", "openrouter", "requesty", "anthropic", "openai", "ollama"];
   return {
@@ -63,11 +63,12 @@ export function settingsBody(o: { provider?: "requesty" | "openrouter"; panel?: 
       item("MISTRAL_API_KEY", { provider: "mistral", kind: "secret", is_set: false, env_is_set: false, source: "default" }),
       item("SCRAPER_FETCH_LINKEDIN_GUEST_PAGES", { group: "scraper", kind: "bool", value: o.linkedin ?? true, source: o.linkedin === false ? "panel" : "default" }),
       item("RETENTION_ENABLED", { group: "retention", kind: "bool", value: o.retention ?? true, source: o.retention === false ? "panel" : "default", updated_at: o.retention === false ? ago(30) : null, updated_by_email: o.retention === false ? PEOPLE.anna.email : null }),
+      item("OPS_PROVIDER_PROBE", { group: "ops", kind: "enum", choices: ["off", "reachability", "credit", "both"], value: o.probe ?? "both", source: o.probe ? "panel" : "default", env_value: "both" }),
     ],
     providers: [
-      { id: "mistral", model: "mistral-small-latest", key_required: true, has_key: false, ready: false, active: active === ("mistral" as string) },
-      { id: "openrouter", model: "openai/gpt-5.6-luna", key_required: true, has_key: !!o.openrouterKey, ready: !!o.openrouterKey, active: active === "openrouter" },
-      { id: "requesty", model: "openai/gpt-5.6-luna", key_required: true, has_key: true, ready: true, active: active === "requesty" },
+      { id: "mistral", model: "mistral-small-latest", key_required: true, has_key: false, ready: false, active: active === ("mistral" as string), balance_check: false },
+      { id: "openrouter", model: "openai/gpt-5.6-luna", key_required: true, has_key: !!o.openrouterKey, ready: !!o.openrouterKey, active: active === "openrouter", balance_check: true },
+      { id: "requesty", model: "openai/gpt-5.6-luna", key_required: true, has_key: true, ready: true, active: active === "requesty", balance_check: false },
       { id: "anthropic", model: "claude-sonnet-4-6", key_required: true, has_key: false, ready: false, active: false },
       { id: "openai", model: "gpt-4o", key_required: false, has_key: false, ready: true, active: false },
       { id: "ollama", model: "llama3.2", key_required: false, has_key: false, ready: true, active: false },
@@ -203,6 +204,7 @@ export async function stubEpicC(page: Page, o: EpicCStubOptions = {}) {
       if ("OPENROUTER_API_KEY" in changes) state.openrouterKey = true;
       if ("RETENTION_ENABLED" in changes) state.retention = changes.RETENTION_ENABLED as boolean;
       if ("SCRAPER_FETCH_LINKEDIN_GUEST_PAGES" in changes) state.linkedin = changes.SCRAPER_FETCH_LINKEDIN_GUEST_PAGES as boolean;
+      if ("OPS_PROVIDER_PROBE" in changes) state.probe = changes.OPS_PROVIDER_PROBE as string;
       settings = settingsBody(state);
       return json(route, settings);
     }
@@ -211,6 +213,7 @@ export async function stubEpicC(page: Page, o: EpicCStubOptions = {}) {
         state.provider = "requesty";
         state.panel = false;
       }
+      if (path.endsWith("/OPS_PROVIDER_PROBE")) state.probe = undefined;
       settings = settingsBody(state);
       return json(route, settings);
     }

@@ -1445,7 +1445,7 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 
 ### ADR-093 — Runtime Instance Settings: an Admin Override Store over the Settings Registry (accepted 2026-10, Strawberry)
 
-**Decision:** an administrator can override a closed, registry-declared set of settings while the instance runs: `LLM_PROVIDER`, the per-provider `*_MODEL` and `*_API_KEY`, `SCRAPER_FETCH_LINKEDIN_GUEST_PAGES` and `RETENTION_ENABLED`. Base URLs, timeouts and every other setting stay environment-only.
+**Decision:** an administrator can override a closed, registry-declared set of settings while the instance runs: `LLM_PROVIDER`, the per-provider `*_MODEL` and `*_API_KEY`, `SCRAPER_FETCH_LINKEDIN_GUEST_PAGES`, `RETENTION_ENABLED` and (since 2026-11) `OPS_PROVIDER_PROBE`. Base URLs, timeouts and every other setting stay environment-only.
 
 - **Store and precedence.** Overrides live in `instance_settings` (one row per key, author and time). A panel value wins over the environment, each value reports its source (`panel` / `env` / `default`), and deleting the override returns to the environment value.
 - **The overlay.** `config.Settings` resolves the panel fields through an override snapshot, so every existing reader (provider constructors, OCR, ops probes) sees the effective value without being changed. The web middleware and the MCP tool wrapper refresh the snapshot and **pin** it per request / tool call. Background work inherits the pin, so a generation and its review loop run on one provider even if an administrator switches mid-way. The retention worker refreshes at the start of each run.
@@ -1454,6 +1454,7 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 - **Retention switch.** Off suspends only the calendar TTLs on personal data. It never suspends account erasure, a cancelled application's purge or housekeeping. The Cloud Edition ignores it.
 - **LinkedIn switch.** Off refuses `linkedin.com` / `lnkd.in` URLs before any fetch, at both doors, with a machine-readable reason (`linkedin_guest_fetch_disabled`).
 - **Admin views.** Admin-only endpoints for the dashboard (health, users, failed jobs without content, usage, retention, notices), per-person usage, and the audit log. All of them are metadata only. Contract: `docs/dev/api-contract-admin.md`.
+- **Provider check (amended 2026-11-06).** The ops provider probe's mode (`off` / `reachability` / `credit` / `both`) is a panel setting, so an operator can stop its token spend on an idle instance without editing `.env`. The mode is a `config.Settings` field the probe reads on every call, its cache is keyed on the mode as well as the provider, and the settings payload says per provider whether a balance can be read at all (OpenRouter today).
 - **No model verdicts in the panel (amended 2026-10-10).** The provider card links `docs/llm-models.md` and judges no model; the guide is the only place a model is measured and published. (A per-model hint read from a bundled data file shipped briefly during the release and was removed: a verdict can depend on settings such as reasoning on/off that the lookup did not see.)
 
 ### ADR-094 — Generation Pipeline v2: the Model Writes, Code Checks (2026-10, Hazelnut; the default since 0.44, `CV_PIPELINE=v1` opts out)

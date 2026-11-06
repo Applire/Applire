@@ -434,6 +434,10 @@ expanded when something is not).
 | `credit` | the balance read only — this costs nothing; it is an account endpoint, not a model call |
 | `off` | neither. Your instance can then no longer tell you that your provider credit ran out |
 
+An administrator can also change this without editing `.env`: **Administration → Settings → Check the
+connection to the AI provider** offers the same four choices. A value set there wins over `.env` and
+is recorded in the audit log; "Reset to .env value" removes it.
+
 `OPS_PROVIDER_PROBE_INTERVAL_MINUTES` (default 15) sets the minimum gap between two checks. The
 endpoint only ever serves the cached result, so calling it never spends your credit.
 
