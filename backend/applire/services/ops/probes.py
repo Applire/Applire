@@ -41,6 +41,10 @@ OK = "ok"
 DEGRADED = "degraded"
 DOWN = "down"
 UNKNOWN = "unknown"
+#: A check the operator deliberately switched off (founder ruling 2026-11-06,
+#: ADR-086 amended): shown, but it does not count toward the overall verdict.
+#: Only the provider probe can be off; a probe that failed is ``unknown``.
+OFF = "off"
 
 
 @dataclass(frozen=True)
@@ -477,7 +481,7 @@ async def probe_provider(force: bool = False) -> ProbeResult:
     if not ops_config.provider_probe_enabled():
         return ProbeResult(
             "provider",
-            UNKNOWN,
+            OFF,
             "provider probe switched off",
             {
                 "provider": family,
@@ -510,6 +514,17 @@ async def probe_provider(force: bool = False) -> ProbeResult:
         status = DOWN
     elif reachability == "rate_limited" or credit == "low":
         status = DEGRADED
+    elif not ops_config.reachability_probe_enabled():
+        # `credit` mode (founder ruling 2026-11-06): count what was measured.
+        # A readable balance is the instance's only signal; no balance reader
+        # for this provider means nothing was measured by the operator's choice.
+        if credit == "ok":
+            status = OK
+        elif credit == "n/a":
+            status = OFF
+            message = "credit-only check: this provider has no balance to read"
+        else:
+            status = UNKNOWN
     elif reachability == "unknown":
         status = UNKNOWN
     else:

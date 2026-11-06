@@ -566,7 +566,8 @@ async def test_provider_probe_spends_nothing_when_switched_off(monkeypatch):
     monkeypatch.setattr(app_settings, "ops_provider_probe", "off")
     result = await probes.probe_provider(force=True)
     assert stub.calls == 0
-    assert result.status == probes.UNKNOWN
+    # A deliberate choice, not a fault (founder ruling 2026-11-06).
+    assert result.status == probes.OFF
     # `mistral` publishes no balance, so the credit half is `n/a` even when the
     # whole probe is off — the answer does not become unknowable, it stays
     # inapplicable.
@@ -661,6 +662,57 @@ def test_unknown_is_never_folded_into_ok():
         ProbeResult("b", probes.UNKNOWN),
     ]
     assert aggregate.verdict_of(results) == probes.DEGRADED
+
+
+def test_a_check_switched_off_does_not_count_toward_the_verdict():
+    """Founder ruling 2026-11-06 (ADR-086 amended): a probe the operator switched
+    off must not leave the instance permanently `degraded`."""
+    from applire.services.ops.probes import ProbeResult
+
+    assert aggregate.verdict_of([ProbeResult("a", probes.OK), ProbeResult("provider", probes.OFF)]) == probes.OK
+    assert aggregate.verdict_of(
+        [ProbeResult("provider", probes.OFF), ProbeResult("b", probes.UNKNOWN)]
+    ) == probes.DEGRADED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "family, balance, expected",
+    [
+        ("openrouter", 50.0, probes.OK),       # the balance read is the signal
+        ("openrouter", 0.1, probes.DEGRADED),  # low credit still warns
+        ("openrouter", None, probes.UNKNOWN),  # a failed read is a real unknown
+        ("mistral", None, probes.OFF),         # nothing to read: measured nothing by choice
+    ],
+)
+async def test_credit_only_counts_what_it_measured(monkeypatch, family, balance, expected):
+    stub = _StubProvider()
+    _install_provider(monkeypatch, stub, family=family)
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "credit")
+
+    async def _balance():
+        return balance
+
+    monkeypatch.setattr(probes, "_openrouter_credit", _balance)
+    result = await probes.probe_provider(force=True)
+    assert stub.calls == 0
+    assert result.status == expected
+
+
+@pytest.mark.asyncio
+async def test_an_unconfigured_provider_under_both_stays_a_counted_unknown(monkeypatch):
+    """Only the operator's choice is `off`; a reachability probe that could not
+    even build the provider is still `unknown` and still counts."""
+    import applire.providers.llm as llm
+
+    def _broken():
+        raise RuntimeError("no provider")
+
+    _install_provider(monkeypatch, _StubProvider(), family="mistral")
+    monkeypatch.setattr(llm, "get_provider", _broken)
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "both")
+    result = await probes.probe_provider(force=True)
+    assert result.status == probes.UNKNOWN
 
 
 def test_a_single_down_component_downs_the_verdict():

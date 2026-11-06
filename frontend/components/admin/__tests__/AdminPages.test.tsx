@@ -11,6 +11,7 @@ import en from "@/messages/en.json";
 import de from "@/messages/de.json";
 import { InstanceSignal } from "@/components/dashboard/InstanceSignal";
 import { AdminOverview } from "../overview/AdminOverview";
+import { HealthStrip } from "../overview/HealthStrip";
 import { UsageView } from "../usage/UsageView";
 import { AuditLog } from "../audit/AuditLog";
 
@@ -144,6 +145,23 @@ describe("Administration → Übersicht", () => {
     expect(screen.getByTestId("admin-overview-retention-off")).toHaveTextContent("2 other people");
     expect(await screen.findByTestId("admin-audit-card")).toHaveTextContent("Role: User → Admin");
     expect(await screen.findAllByTestId("admin-overview-top-user")).toHaveLength(2);
+  });
+});
+
+describe("Administration → Übersicht: a check the operator switched off (ADR-086 amended 2026-11-06)", () => {
+  it("an `off` provider check is no problem chip and the strip reads healthy", () => {
+    const health = {
+      ...DASH.health,
+      status: "ok",
+      components: [
+        { name: "database", status: "ok", checked_at: null },
+        { name: "provider", status: "off", checked_at: null },
+      ],
+    };
+    render(withIntl(<HealthStrip health={health as never} />));
+    expect(screen.getByTestId("admin-health-strip")).toHaveAttribute("data-status", "ok");
+    expect(screen.getByTestId("admin-health-verdict")).toHaveTextContent(en.adminDashboard.healthOk);
+    expect(screen.queryByTestId("admin-health-chip-provider")).toBeNull();
   });
 });
 

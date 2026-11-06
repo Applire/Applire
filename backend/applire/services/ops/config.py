@@ -16,8 +16,11 @@ TTLs — deliberately **not** fields on ``config.Settings``. Two reasons:
    provider process, including the MCP stdio server. A module of plain ints and
    strings does not.
 
-Every value is read **once at import**, like ``constants.py``. Tests that need a
-different value monkeypatch the module attribute, not the environment.
+Every value here is read **once at import**, like ``constants.py``. Tests that
+need a different value monkeypatch the module attribute, not the environment.
+The one exception is the provider probe MODE: an admin panel key since ADR-093's
+2026-11-06 amendment, so it is ``config.Settings.ops_provider_probe`` and read
+per call (:func:`_probe_mode`); only its choices and its registry entry live here.
 """
 
 import os

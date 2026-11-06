@@ -124,7 +124,7 @@ function ProviderProbeCard({ data, onSaved }: { data: InstanceSettingsResponse; 
   const creditReadsNothing = active !== undefined && active.balance_check !== true;
 
   async function choose(mode: string) {
-    if (mode === value) return;
+    if (busy || mode === value) return;
     setBusy(true);
     const r = await updateInstanceSettings({ [SETTING_KEYS.providerProbe]: mode });
     setBusy(false);
@@ -150,7 +150,7 @@ function ProviderProbeCard({ data, onSaved }: { data: InstanceSettingsResponse; 
         <SourceBadge source={item.source} testId="admin-settings-probe-source" />
       </div>
       <p className="mb-2 text-[14px] text-on-surface-variant">{t("probeHint")}</p>
-      <div role="radiogroup" aria-labelledby="admin-probe-label" className="my-3 flex flex-col gap-2">
+      <div role="radiogroup" aria-labelledby="admin-probe-label" aria-busy={busy} className="my-3 flex flex-col gap-2">
         {PROBE_CHOICES.map((c) => {
           const checked = c.mode === value;
           return (
@@ -164,7 +164,8 @@ function ProviderProbeCard({ data, onSaved }: { data: InstanceSettingsResponse; 
                 name="admin-provider-probe"
                 value={c.mode}
                 checked={checked}
-                disabled={busy}
+                // Not `disabled` while saving: a disabled radio drops keyboard focus.
+                aria-describedby={`admin-probe-hint-${c.mode}`}
                 onChange={() => void choose(c.mode)}
                 className="mt-1 accent-teal"
               />
@@ -173,7 +174,9 @@ function ProviderProbeCard({ data, onSaved }: { data: InstanceSettingsResponse; 
                   {t(c.label)}
                   {c.mode === "both" && <span className="ml-2 text-[12px] font-normal text-on-surface-variant">{t("probeDefault")}</span>}
                 </b>
-                <span className="text-[13px] text-on-surface-variant">{t(c.hint)}</span>
+                <span id={`admin-probe-hint-${c.mode}`} className="text-[13px] text-on-surface-variant">
+                  {t(c.hint)}
+                </span>
                 {c.mode === "credit" && creditReadsNothing && (
                   <span data-testid="admin-settings-probe-no-balance" className="mt-1 text-[12.5px] text-gold-dim">
                     {t("probeCreditNoBalance", { provider: active.id })}

@@ -2276,7 +2276,8 @@
       "ok": "fine",
       "degraded": "needs a look",
       "down": "down",
-      "unknown": "unknown"
+      "unknown": "unknown",
+      "off": "switched off"
     },
     "diskFree": "{percent} % free ({free} of {total})",
     "retentionLastRun": "Last ran {hours} h ago",

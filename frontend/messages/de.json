@@ -2276,7 +2276,8 @@
       "ok": "in Ordnung",
       "degraded": "prüfen",
       "down": "ausgefallen",
-      "unknown": "unbekannt"
+      "unknown": "unbekannt",
+      "off": "ausgeschaltet"
     },
     "diskFree": "{percent} % frei ({free} von {total})",
     "retentionLastRun": "Zuletzt vor {hours} h gelaufen",
