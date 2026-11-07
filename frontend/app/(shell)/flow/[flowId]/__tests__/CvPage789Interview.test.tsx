@@ -70,7 +70,7 @@ import CVPage from "../cv/page";
 
 type Calls = { url: string; init?: RequestInit }[];
 
-function mockFetch(opts: { step: string; predates: boolean; edited?: boolean }): Calls {
+function mockFetch(opts: { step: string; predates: boolean; updated?: boolean; edited?: boolean }): Calls {
   const calls: Calls = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -88,6 +88,7 @@ function mockFetch(opts: { step: string; predates: boolean; edited?: boolean }):
             pdf_url: "/x.pdf",
             expires_at: "2099-01-01T00:00:00Z",
             predates_interview: opts.predates,
+            profile_updated_since: opts.updated ?? opts.predates,
           },
         }),
       } as Response;
@@ -161,10 +162,10 @@ describe("CVPage — 789:254 the post-interview version", () => {
   it("on a complete flow the old CV stays, with the strip and its one action — no automatic generation", async () => {
     const calls = mockFetch({ step: "complete", predates: true });
     await mount();
-    const strip = (await screen.findAllByTestId("cv-predates-interview"))[0];
-    expect(strip.textContent).toContain("älter als dein Interview");
+    const strip = (await screen.findAllByTestId("cv-profile-updated"))[0];
+    expect(strip.textContent).toContain("Dein Profil wurde seit der Erstellung dieses Lebenslaufs aktualisiert");
     expect(generateCalls(calls)).toHaveLength(0);
-    fireEvent.click(screen.getAllByTestId("cv-predates-interview-action")[0]);
+    fireEvent.click(screen.getAllByTestId("cv-profile-updated-action")[0]);
     // The one action is the existing new-version path (#737 dialog first).
     fireEvent.click(await screen.findByTestId("edit-new-version-confirm"));
     await waitFor(() => expect(generateCalls(calls)).toHaveLength(1));
@@ -175,7 +176,16 @@ describe("CVPage — 789:254 the post-interview version", () => {
     await mount();
     await waitFor(() => expect(advanceBodies(calls)).toContainEqual({ step: "complete", artifact_id: "cv-old" }));
     expect(generateCalls(calls)).toHaveLength(0);
-    expect(screen.queryByTestId("cv-predates-interview")).toBeNull();
+    expect(screen.queryByTestId("cv-profile-updated")).toBeNull();
+  });
+
+  it("F-2 (2): a profile change from another door (import, manual edit) shows the strip and starts nothing", async () => {
+    const calls = mockFetch({ step: "cv_generation", predates: false, updated: true });
+    await mount();
+    expect((await screen.findAllByTestId("cv-profile-updated"))[0]).toBeInTheDocument();
+    // The auto-start stays interview-only (F-4): the flow is finished, no generation.
+    await waitFor(() => expect(advanceBodies(calls)).toContainEqual({ step: "complete", artifact_id: "cv-old" }));
+    expect(generateCalls(calls)).toHaveLength(0);
   });
 
   it("789:252 — the phone switch to the letter is mounted above the preview", async () => {

@@ -237,7 +237,7 @@ test.describe('Sprint 14: Profile Photo — Profile page PhotoManager', () => {
     await expect(page.getByRole('button', { name: 'Replace' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
     await expect(
-      page.getByText('✓ Photo will appear in your Lebenslauf and Swiss CV templates')
+      page.getByText('✓ Saved. The photo appears in the templates with a photo slot')
     ).toBeVisible();
   });
 

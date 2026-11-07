@@ -105,8 +105,16 @@ interface FlowState {
   // D-1: the backend's CVSummary is {cv_id, pdf_url, expires_at} — no sections.
   // Section labels come from GET /api/cv/{id}/sections (`cvSections`).
   // 789:254 (ADR-016 amended 2026-11-07): `predates_interview` — an interview
-  // door added a fact after this CV was generated (a fact, ADR-062 cl. 1).
-  cv_summary?: { cv_id: string; pdf_url: string; expires_at: string; predates_interview?: boolean } | null;
+  // door added a fact after this CV was generated (drives the F-4 auto-start);
+  // `profile_updated_since` (F-2 (2)) — the profile's CONTENT changed after it,
+  // from any door (drives the strip). Both facts, ADR-062 cl. 1.
+  cv_summary?: {
+    cv_id: string;
+    pdf_url: string;
+    expires_at: string;
+    predates_interview?: boolean;
+    profile_updated_since?: boolean;
+  } | null;
   cover_letter_summary?: { cover_letter_id: string } | null;
 }
 
@@ -1145,20 +1153,20 @@ export default function CVPage({
             <>
               {/* 789:252 — the phone's way to the letter (the panel is hidden below md). */}
               <MobileDocumentSwitch flowId={flowId} activeDoc="cv" documentLanguage={docLanguage} />
-              {/* 789:254 — the CV on screen predates facts the interview added
-                  (mirror of L-3 on the letter). Not dismissible: it goes once a
-                  newer CV is recorded. */}
-              {flowState?.cv_summary?.predates_interview && flowState.cv_summary.cv_id === cvId && (
+              {/* 789:254 + F-2 (2) — the profile changed after the CV on screen
+                  (any door: interview, import, manual edit, agent). Not
+                  dismissible: it goes once a newer CV is recorded. */}
+              {flowState?.cv_summary?.profile_updated_since && flowState.cv_summary.cv_id === cvId && (
                 <div
                   className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-outline-variant bg-surface-container px-3 py-2"
-                  data-testid="cv-predates-interview"
+                  data-testid="cv-profile-updated"
                   role="status"
                 >
                   <Info className="w-4 h-4 shrink-0 text-primary" aria-hidden="true" />
-                  <p className="flex-1 min-w-[12rem] text-sm text-on-surface">{t("predatesInterview")}</p>
+                  <p className="flex-1 min-w-[12rem] text-sm text-on-surface">{t("profileUpdatedSince")}</p>
                   <button
                     type="button"
-                    data-testid="cv-predates-interview-action"
+                    data-testid="cv-profile-updated-action"
                     onClick={() =>
                       requestNewVersion(() => {
                         setRegenFromInterview(true);
@@ -1167,7 +1175,7 @@ export default function CVPage({
                     }
                     className="text-xs font-bold px-3 py-1.5 rounded-full bg-primary text-white hover:opacity-90"
                   >
-                    {t("predatesInterviewAction")}
+                    {t("profileUpdatedAction")}
                   </button>
                 </div>
               )}
