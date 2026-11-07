@@ -45,6 +45,7 @@ import {
   type RestatedReceiptItem,
   type KeptSeparateItem,
 } from "@/lib/import-cv";
+import { ImportReadyCard } from "@/components/profile/ImportReadyCard";
 import { RecognisedMatches } from "@/components/profile/RecognisedMatches";
 import { RestatedBullets } from "@/components/profile/RestatedBullets";
 import { analyzeGapsAsync } from "@/lib/gap-analysis";
@@ -391,6 +392,9 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
         {/* ── Left column ── */}
         <div>
+          {/* 789:258 / 789:262 — after an import with no posting: what was read,
+              the questions waiting in the hub, and the next step. */}
+          {flowId && <ImportReadyCard flowId={flowId} reloadKey={history} />}
           <input
             ref={mainInputRef}
             data-testid="main-file-input"
