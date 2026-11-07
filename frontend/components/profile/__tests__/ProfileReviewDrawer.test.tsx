@@ -745,4 +745,60 @@ describe("ProfileReviewDrawer", () => {
     await waitFor(() => expect(screen.getByText("Profil prüfen")).toBeInTheDocument());
   });
 
+
+  // ── UX audit round 4 (Emma) ────────────────────────────────────────────────
+  const BOOL_CONFLICT: CurrentConflict = {
+    ...ROLE_SCALAR,
+    conflict_id: "c-cur",
+    entity_label: "Nurse @ Mediora Health",
+    field: "is_current",
+    existing_value_display: "true (current position, no end date)",
+    incoming_value_display: "false (ended 2024-02)",
+  };
+
+  it("R4: a boolean dispute reads as words, never a machine literal", async () => {
+    startOn(BOOL_CONFLICT, { current_gap_id: "conflict:c-cur" });
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "de"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    expect(screen.getByTestId("conflict-card-current")).toHaveTextContent("„aktuell“");
+    expect(screen.getByTestId("conflict-card-incoming")).toHaveTextContent("„beendet“");
+    expect(screen.getByTestId("conflict-card").textContent).not.toMatch(/true|false|null|position/);
+  });
+
+  it("R4: an answer the server cannot apply shows one sentence and skips to the next item", async () => {
+    startOn(BOOL_CONFLICT, { current_gap_id: "conflict:c-cur" });
+    outcomeMock.mockRejectedValueOnce(
+      new ReviewApiError(409, null, "1 validation error for MasterProfileData work_experience.3.is_current"),
+    );
+    render(
+      withIntl(
+        <ProfileReviewDrawer open onClose={vi.fn()} reviewIds={["conflict:c-cur", "conflict:c-next"]} />,
+        "de",
+      ),
+    );
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("conflict-outcome-take_new"));
+    const failed = await screen.findByTestId("profile-review-apply-failed");
+    expect(failed).toHaveTextContent("Diese Antwort konnte nicht übernommen werden.");
+    expect(document.body.textContent).not.toMatch(/validation error|MasterProfileData/);
+
+    startMock.mockResolvedValueOnce({
+      ...BASE, session_id: "s2", first_question: "", gaps_total: 2, gaps_remaining: 2,
+      current_conflict: NAME_SCALAR, current_gap_id: "conflict:c-next",
+    });
+    fireEvent.click(screen.getByTestId("profile-review-skip"));
+    await waitFor(() => expect(startMock).toHaveBeenLastCalledWith("conflict:c-next"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card-current")).toHaveTextContent("Max Muster"));
+    expect(screen.queryByTestId("profile-review-apply-failed")).toBeNull();
+  });
+
+  it("R4: a 503 'not saved' keeps the server's own sentence (retry, no skip)", async () => {
+    startOn(BOOL_CONFLICT, { current_gap_id: "conflict:c-cur" });
+    outcomeMock.mockRejectedValueOnce(new ReviewApiError(503, null, "Deine Antwort konnte nicht gespeichert werden."));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} reviewIds={["conflict:c-cur", "conflict:c-next"]} />, "de"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("conflict-outcome-take_new"));
+    expect(await screen.findByText("Deine Antwort konnte nicht gespeichert werden.")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-review-skip")).toBeNull();
+  });
 });

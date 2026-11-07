@@ -90,6 +90,14 @@ from applire.services.profile.reconcile.attribution import (
     plan_attribution_resolution,
 )
 from applire.services.profile.label_text import truncate_at_word
+from applire.services.profile.reconcile.role_end import (
+    BOOL_CONFLICT_FIELDS,
+    DATE_CONFLICT_FIELDS,
+    DATED_ENTRY_SECTIONS,
+    UNREADABLE,
+    coerce_conflict_value,
+    role_end_verdict,
+)
 from applire.services.profile.reconcile.witness import compute_no_write
 from applire.services.profile.reconcile import aliases as _aliases
 from applire.services.profile.language_names import canonical_language, same_language
@@ -718,7 +726,7 @@ def apply_ops(
             # certification/language/publication/skill/signature_story id
             # resolved to None: no exception, no conflicts entry, no witness —
             # a silently discarded dispute. See resolve_any's own docstring.
-            _apply_flag_conflict(op, resolve_any, source, conflicts)
+            _apply_flag_conflict(op, resolve_any, source, conflicts, changes)
         elif isinstance(op, SetAvailability):
             # D-B3V7 (ADR-063 amended 2026-10-22; rulings 787:L3 + V-4).
             _apply_set_availability(op, new_profile, source, changes)
@@ -837,6 +845,10 @@ def apply_ops(
     # #822 (ADR-063 amended 2026-11-07) — a role is never stored both ended and
     # current. Same seat and same reason as the role-facts projection above:
     # after every op, on the single committer, whatever the batch touched.
+    # UX audit round 4 (Emma, Sonnet) — a dispute that only states a role's end
+    # (new this batch, or stored by an earlier one) is the fact itself: the end
+    # date is written and the role closes just below. Heals stored disputes too.
+    settle_role_end_conflicts(new_profile, conflicts, changes)
     close_ended_roles(new_profile, changes)
 
     # Defense in depth (ADR-046): the write-time coercion above is the real fix,
@@ -1595,6 +1607,13 @@ def _apply_resolve_field(
         chosen = conflict.incoming_value
     else:
         chosen = op.value
+    if op.field in BOOL_CONFLICT_FIELDS | DATE_CONFLICT_FIELDS:
+        # UX audit round 4 — a dispute stored before typed values (or a typed
+        # answer) may hold the model's prose ("false (ended 2024-02)"); the
+        # field's own type is written, so the answer never 409s on validation.
+        typed = coerce_conflict_value(op.field, chosen)
+        if typed is not UNREADABLE:
+            chosen = typed
 
     dumped = profile.model_dump(mode="json")
     section_data = dumped.get(op.section)
@@ -4073,17 +4092,60 @@ def _apply_set_summary(op, profile, source, changes, conflicts, not_applied):
     )
 
 
-def _apply_flag_conflict(op, resolve, source, conflicts):
+def _fill_end_date(entity, section: str, end_date: str, changes: list[FieldChange]) -> None:
+    """Write a passed end date into an entry that had none (role_end ``fill_end``)."""
+    old = getattr(entity, "end_date", None)
+    entity.end_date = end_date
+    changes.append(
+        FieldChange(
+            section=section,
+            field=f"[{entity.id}].end_date",
+            action="updated",
+            old_value=old,
+            new_value=end_date,
+            rationale=f"The role ended ({end_date}); a source states the end date.",
+            rationale_key="role_ended_by_date",
+        )
+    )
+
+
+def _apply_flag_conflict(op, resolve, source, conflicts, changes=None):
+    existing_value, incoming_value = op.existing, op.incoming
+    entity = resolve(op.target)
+    if op.field in BOOL_CONFLICT_FIELDS | DATE_CONFLICT_FIELDS:
+        # UX audit round 4 — a typed field's dispute holds typed values; the
+        # model's prose gloss ("false (ended 2024-02)") is read, never stored.
+        existing_value = coerce_conflict_value(op.field, op.existing)
+        incoming_value = coerce_conflict_value(op.field, op.incoming)
+        if existing_value is UNREADABLE or incoming_value is UNREADABLE:
+            logger.warning(
+                "apply_ops: flag_conflict on %s.%s not admitted — a value is not a %s "
+                "(existing=%r, incoming=%r)",
+                op.target, op.field,
+                "boolean" if op.field in BOOL_CONFLICT_FIELDS else "date",
+                op.existing, op.incoming,
+            )
+            return
+        section = _section_for(entity) if entity is not None else ""
+        if section in DATED_ENTRY_SECTIONS:
+            verdict = role_end_verdict(
+                op.field, getattr(entity, "end_date", None), incoming_value, date.today()
+            )
+            if verdict == "fill_end":
+                if changes is not None:
+                    _fill_end_date(entity, section, incoming_value, changes)
+                return
+            if verdict == "settled":
+                return  # close_ended_roles clears is_current with its receipt
     # Absence is not a conflict. Only record a conflict when BOTH sides carry
     # competing information (non-empty) AND they actually differ. A None/empty
     # side means "no competing information" — the value should just be filled,
     # not disputed. This is the deterministic guard against false-positive
     # conflicts like ``team_size: '6' vs 'None'``.
-    if _is_empty(op.existing) or _is_empty(op.incoming):
+    if _is_empty(existing_value) or _is_empty(incoming_value):
         return
-    if _norm(op.existing) == _norm(op.incoming):
+    if _norm(existing_value) == _norm(incoming_value):
         return
-    entity = resolve(op.target)
     section = _section_for(entity) if entity is not None else ""
     conflicts.append(
         Conflict(
@@ -4096,11 +4158,55 @@ def _apply_flag_conflict(op, resolve, source, conflicts):
             # bullet list — whether two bullets contradict is the reconciler
             # model's judgement, ADR-062 clause 1); it only routes the verdict.
             entity_id=getattr(entity, "id", None),
-            existing_value=op.existing,
-            incoming_value=op.incoming,
+            existing_value=existing_value,
+            incoming_value=incoming_value,
             source=source,
         )
     )
+
+
+def settle_role_end_conflicts(
+    profile: MasterProfileData,
+    conflicts: list[Conflict],
+    changes: list[FieldChange],
+    *,
+    today: date | None = None,
+) -> int:
+    """Drop every open dispute (new in ``conflicts`` or stored in
+    ``pending_conflicts``) that only states a role's end, writing the end date
+    where the entry has none (``role_end_verdict``). The end-date fills run
+    first so an ``is_current`` dispute on the same entry is then settled.
+    Returns the number of disputes dropped."""
+    today = today or date.today()
+    meta = profile.metadata
+    stored = list(meta.pending_conflicts) if meta is not None else []
+    entries = {
+        getattr(e, "id", None): (section, e)
+        for section in DATED_ENTRY_SECTIONS
+        for e in (getattr(profile, section, None) or [])
+    }
+    dropped: set[str] = set()
+    for wanted in ("end_date", "is_current"):
+        for c in [*conflicts, *stored]:
+            if c.resolved or c.field != wanted or c.conflict_id in dropped:
+                continue
+            hit = entries.get(c.entity_id)
+            if hit is None or c.section != hit[0]:
+                continue
+            incoming = coerce_conflict_value(c.field, c.incoming_value)
+            if incoming is UNREADABLE:
+                continue
+            verdict = role_end_verdict(c.field, getattr(hit[1], "end_date", None), incoming, today)
+            if verdict is None:
+                continue
+            if verdict == "fill_end":
+                _fill_end_date(hit[1], hit[0], incoming, changes)
+            dropped.add(c.conflict_id)
+    if dropped:
+        conflicts[:] = [c for c in conflicts if c.conflict_id not in dropped]
+        if meta is not None:
+            meta.pending_conflicts = [c for c in meta.pending_conflicts if c.conflict_id not in dropped]
+    return len(dropped)
 
 
 def _apply_set_availability(op, profile, source, changes) -> None:
