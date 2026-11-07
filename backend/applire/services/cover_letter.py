@@ -1997,19 +1997,20 @@ async def _render_cover_letter_body(
                 # the positions it is counted from and whether the CV shows the tool
                 # under them — the writer's, reviewer's and corrector's one duration
                 # channel. v2 only; "" (no block) when no tool spans a year.
-                tool_durations_block = (
-                    render_tool_durations_block(
-                        tool_duration_facts(
-                            exclude_unconfirmed(profile.profile_json) if profile else {},
-                            tailored_cv,
-                            priority=[
-                                e.get("concept", "") for e in keyword_ledger or []
-                                if isinstance(e, dict) and e.get("claimable")
-                            ],
-                        ),
-                        detected_language,
+                tool_facts = (
+                    tool_duration_facts(
+                        exclude_unconfirmed(profile.profile_json) if profile else {},
+                        tailored_cv,
+                        priority=[
+                            e.get("concept", "") for e in keyword_ledger or []
+                            if isinstance(e, dict) and e.get("claimable")
+                        ],
                     )
-                    or None
+                    if is_v2
+                    else []
+                )
+                tool_durations_block = (
+                    render_tool_durations_block(tool_facts, detected_language) or None
                     if is_v2
                     else None
                 )
@@ -2557,7 +2558,10 @@ async def _render_cover_letter_body(
                 if is_v2 and _critic_adv:
                     from applire.services.letter_v2 import combine_signal_fns as _combine
 
-                    v2_signal_fn = _combine(v2_signal_fn, _letter_critic_fn(_critic_adv))
+                    v2_signal_fn = _combine(
+                        v2_signal_fn,
+                        _letter_critic_fn(_critic_adv, tool_facts, detected_language),
+                    )
                 tr = await _terminal_review_letter(
                     cl, db,
                     draft=letter_data,
@@ -4762,12 +4766,37 @@ async def _in_loop_letter_critic(cl, db: AsyncSession, letter_data: dict) -> lis
         return []
 
 
-def _letter_critic_fn(advisories: list):
+def _letter_critic_fn(advisories: list, tool_facts: list | None = None, language: str | None = None):
     """The critic's numeric inconsistencies as ADVISORY letter findings (residue S,
     ADR-099 cl. 8). Rides only while the letter still carries the quoted
     sentence (a presence fact); the profile value is never pasted — the corrector
-    re-reads the candidate profile."""
+    re-reads the candidate profile.
+
+    R4-1 (founder 2026-11-07): when the finding is about a tool with a TOOL
+    DURATIONS fact (the tool named whole-token in the advisory's concept or the
+    quoted sentence), the finding names THAT fact's allowed wording
+    (``ToolDuration.allowed_wordings`` — the block's own producer), so the critic
+    and the duration line can no longer point the corrector at two figures
+    (ux-audit-4 Felix: the reviser kept "over 10 years" "because the system line
+    allows" it, against the critic)."""
+    from applire.services.ats_audit import _norm, surface_present_whole_token
     from applire.services.reviewer import CheckFinding
+
+    def _duration_rule(concept: str, state: str) -> str:
+        hay = _norm(f"{concept} {state}")
+        for f in tool_facts or []:
+            if not surface_present_whole_token(f.tool, hay):
+                continue
+            allowed = f.allowed_wordings(language)
+            if not allowed:
+                return f" For {f.tool} state no duration."
+            own = "the candidate's own figure" if f.stated_years is not None else "the duration reference"
+            return (
+                f" For {f.tool} use {own}: "
+                + " or ".join(f'"{w}"' for w in allowed)
+                + " — or no duration."
+            )
+        return ""
 
     def fn(draft: dict) -> list:
         paras = ((draft or {}).get("body") or {}).get("paragraphs") or []
@@ -4783,6 +4812,7 @@ def _letter_critic_fn(advisories: list):
                     f'The sentence "{state}" states a figure for {a.concept} that differs '
                     "from the CV. Re-read the candidate profile and state the figure the "
                     "profile records, or drop the figure; never add a fact."
+                    + _duration_rule(str(a.concept or ""), state)
                 ),
                 blocking=False,
                 subjects=(state,),
