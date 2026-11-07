@@ -2244,10 +2244,14 @@ def _second_person_intervals(sentence_norm: str, sentence_cased: str | None) -> 
 _EMPLOYER_FACT_DETAIL_KEY = "triageEmployerFact"
 
 
-def letter_employer_fact_quotes(truth_report: dict | None) -> list[str]:
-    """The normalised texts of the letter claims the Truthfulness Oracle judged to
-    be about the employer (``not_applicable`` + ``triageEmployerFact``). Pure;
-    malformed input → ``[]``."""
+#: UX audit 4 (b): the Oracle's "built from what you typed into the letter form"
+#: verdict (``oracle/audit._form_mark``; ADR-061/048 am. 2026-10-23, ruling B3-10):
+#: the candidate's own statement for THIS letter, never checked against nor
+#: added to the profile.
+_LETTER_FORM_DETAIL_KEY = "fromLetterForm"
+
+
+def _letter_claim_quotes(truth_report: dict | None, detail_key: str) -> list[str]:
     out: list[str] = []
     claims = truth_report.get("claims") if isinstance(truth_report, dict) else None
     for c in claims if isinstance(claims, list) else []:
@@ -2257,13 +2261,26 @@ def letter_employer_fact_quotes(truth_report: dict | None) -> list[str]:
         text = (c.get("claim") or {}).get("text")
         if (
             isinstance(v, dict) and v.get("verdict") == "not_applicable"
-            and v.get("detail_key") == _EMPLOYER_FACT_DETAIL_KEY
+            and v.get("detail_key") == detail_key
             and isinstance(text, str) and text.strip()
         ):
             n = _norm(text).rstrip(" .;:,")
             if n and n not in out:
                 out.append(n)
     return out
+
+
+def letter_employer_fact_quotes(truth_report: dict | None) -> list[str]:
+    """The normalised texts of the letter claims the Truthfulness Oracle judged to
+    be about the employer (``not_applicable`` + ``triageEmployerFact``). Pure;
+    malformed input → ``[]``."""
+    return _letter_claim_quotes(truth_report, _EMPLOYER_FACT_DETAIL_KEY)
+
+
+def letter_form_input_quotes(truth_report: dict | None) -> list[str]:
+    """UX audit 4 (b): the normalised texts of the letter claims the Oracle marked
+    as built from the letter form (``not_applicable`` + ``fromLetterForm``)."""
+    return _letter_claim_quotes(truth_report, _LETTER_FORM_DETAIL_KEY)
 
 
 def _quote_intervals(sentence_norm: str, quotes: Sequence[str]) -> list[tuple[int, int]]:
@@ -2279,53 +2296,86 @@ def _quote_intervals(sentence_norm: str, quotes: Sequence[str]) -> list[tuple[in
     return spans
 
 
+def _terms_held_only_in(
+    terms: list[str], sentences: Any, matches: Any, quotes: list[str]
+) -> list[str]:
+    """The terms whose every claim sentence, with ``quotes`` masked, no longer
+    matches the term or one of its recorded forms. A term without locating data
+    stays (safe side)."""
+    out: list[str] = []
+    for k in terms:
+        sents = sentences.get(k) if isinstance(sentences, dict) else None
+        if not sents:
+            continue
+        forms = [k] + [
+            m.get("form") for m in ((matches or {}).get(k) or []) if isinstance(m, dict) and m.get("form")
+        ]
+        if all(
+            not any(
+                keyword_matches(f, _mask_intervals(s, _quote_intervals(s, quotes)), None)
+                for f in forms
+            )
+            for s in sents
+            if isinstance(s, str)
+        ):
+            out.append(k)
+    return out
+
+
 def apply_letter_employer_facts(ats_report: dict | None, truth_report: dict | None) -> dict | None:
     """#803 reopened (build 7, ruling R2-7; ADR-090/ADR-068 amended): a flagged
     letter term whose every claim sentence (``present_unsupported_sentences``)
     carries it only inside text the Oracle's sentence triage classified as about
     the employer joins ``present_unsupported_employer_sentence`` — the neutral,
-    still-listed row with no add-to-profile exit (T-2 = B). One reader of the
-    Oracle's persisted verdict (ADR-066), not a second "is this about the
-    employer" judgement. Called by the letter's single audit-and-persist seam
-    right after the truthfulness report is written. Returns a NEW dict when it
-    moves a term, the same object otherwise; never raises (a failure leaves the
-    report as audited)."""
+    still-listed row with no add-to-profile exit (T-2 = B).
+
+    UX audit 4 (b): a term held only in sentences the Oracle marked as built from
+    the letter FORM (``fromLetterForm`` — the candidate's own statement for this
+    letter, which ruling B3-10 never checks against nor adds to the profile, and
+    which the review already shows in its neutral form section, FO-1 = A) leaves
+    ``present_unsupported`` for ``present_unsupported_form_input`` (class S, no
+    card — as D-4c(b) moves the candidate's own limit). A sentence holding both
+    kinds is masked with both before that second test.
+
+    One reader of the Oracle's persisted verdicts (ADR-066), not a second
+    judgement. Called by the letter's single audit-and-persist seam right after
+    the truthfulness report is written. Returns a NEW dict when it moves a term,
+    the same object otherwise; never raises (a failure leaves the report as
+    audited)."""
     try:
         if not isinstance(ats_report, dict) or ats_report.get("document") != "cover_letter":
             return ats_report
-        quotes = letter_employer_fact_quotes(truth_report)
+        ef_quotes = letter_employer_fact_quotes(truth_report)
+        form_quotes = letter_form_input_quotes(truth_report)
         kw = ats_report.get("keywords")
-        if not quotes or not isinstance(kw, dict):
+        if not (ef_quotes or form_quotes) or not isinstance(kw, dict):
             return ats_report
         terms = [k for k in kw.get("present_unsupported") or [] if isinstance(k, str)]
         es = [k for k in kw.get("present_unsupported_employer_sentence") or [] if isinstance(k, str)]
+        fi = [k for k in kw.get("present_unsupported_form_input") or [] if isinstance(k, str)]
         sentences = kw.get("present_unsupported_sentences") or {}
         matches = kw.get("present_unsupported_matches") or {}
-        moved: list[str] = []
-        for k in terms:
-            if k in es:
-                continue
-            sents = sentences.get(k) if isinstance(sentences, dict) else None
-            if not sents:
-                continue  # no locating data → the row stays as audited (safe side)
-            forms = [k] + [
-                m.get("form") for m in (matches.get(k) or []) if isinstance(m, dict) and m.get("form")
-            ]
-            if all(
-                not any(
-                    keyword_matches(f, _mask_intervals(s, _quote_intervals(s, quotes)), None)
-                    for f in forms
-                )
-                for s in sents
-                if isinstance(s, str)
-            ):
-                moved.append(k)
-        if not moved:
+        open_terms = [k for k in terms if k not in es and k not in fi]
+        to_es = _terms_held_only_in(open_terms, sentences, matches, ef_quotes) if ef_quotes else []
+        rest = [k for k in open_terms if k not in to_es]
+        to_fi = (
+            _terms_held_only_in(rest, sentences, matches, ef_quotes + form_quotes) if form_quotes else []
+        )
+        if not (to_es or to_fi):
             return ats_report
         import copy as _copy
 
         out = _copy.deepcopy(ats_report)
-        out["keywords"]["present_unsupported_employer_sentence"] = es + moved
+        if to_es:
+            out["keywords"]["present_unsupported_employer_sentence"] = es + to_es
+        if to_fi:
+            okw = out["keywords"]
+            okw["present_unsupported_form_input"] = fi + to_fi
+            okw["present_unsupported"] = [k for k in okw.get("present_unsupported") or [] if k not in to_fi]
+            for key in ("present_unsupported_matches", "present_unsupported_sentences",
+                        "present_unsupported_denials"):
+                if isinstance(okw.get(key), dict):
+                    okw[key] = {k: v for k, v in okw[key].items() if k not in to_fi}
         return out
     except Exception:  # pragma: no cover — defensive: the report stays as audited
         import logging
