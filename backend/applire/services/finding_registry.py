@@ -205,6 +205,7 @@ _DOC: dict[str, Entry] = {
     "keyword:missing_honest_gap": _e("A", "open_gap_analysis"),  # group 3, one link
     "keyword:present_other_language": _e("S"),  # ADV-6 (a): the bucket behind the row
     "keyword:present_unsupported_in_denial": _e("S"),  # D-4c-b: the candidate's own stated limit
+    "keyword:present_unsupported_form_input": _e("S"),  # UX audit 4 (b): the letter form (B3-10)
     "keyword:present_unsupported_sentences": _e("S"),  # D-4c(a): locating data, no finding
     "keyword:present": _e("S"),
     "keyword:missing": _e("S"),                           # back-compat union of the two missing buckets
@@ -365,7 +366,7 @@ def _stamp(row: dict, kinds: list[str], unregistered: list[str], clean: Optional
 #: keyword buckets stamped on ``ATSKeywordCoverage.delivery``
 KEYWORD_BUCKETS: tuple[str, ...] = (
     "present_unsupported", "present_unsupported_employer_sentence",
-    "present_unsupported_denials", "present_denied", "missing_claimable",
+    "present_unsupported_form_input", "present_unsupported_denials", "present_denied", "missing_claimable",
     "missing_honest_gap", "present_other_language", "present_unsupported_in_denial",
 )
 
