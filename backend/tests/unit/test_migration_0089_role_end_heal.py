@@ -91,12 +91,14 @@ _END_DATES = [None, "", "2024-02", "2026-11", "2026-12", "2026", "2025", "2026-1
 _INCOMING = [None, True, False, "2024-02", "2026-11", "2027-01", "2025", "2026-11-06", "2026-11-08"]
 
 
+@pytest.mark.parametrize("current", [None, True, False])
 @pytest.mark.parametrize("end", _END_DATES)
 @pytest.mark.parametrize("incoming", _INCOMING)
 @pytest.mark.parametrize("field", ["is_current", "end_date", "company"])
-def test_the_verdict_agrees_with_the_app(field, end, incoming):
+def test_the_verdict_agrees_with_the_app(field, end, incoming, current):
     mod = _migration()
-    assert mod.role_end_verdict(field, end, incoming, TODAY) == role_end.role_end_verdict(field, end, incoming, TODAY)
+    got = mod.role_end_verdict(field, end, incoming, TODAY, current)
+    assert got == role_end.role_end_verdict(field, end, incoming, TODAY, current)
 
 
 # ── whole-heal parity: the dict heal == settle_role_end_conflicts + close_ended_roles ──
@@ -178,6 +180,22 @@ def _scenarios() -> dict[str, MasterProfileData]:
     stale = _role("Mediora Health", end_date="2022-08")  # no dispute, 0087-shape leftover
     out["stale current with no dispute"] = _vault([stale], [])
 
+    # MD7-14 — round-4 pass 3: the candidate set the end date by hand; the dispute stayed.
+    vida = _role("VidaCare", end_date="2020-01", is_current=False)
+    out["end already equal (MD7-14)"] = _vault([vida], [_conflict(vida.id, "end_date", "none (current position)", "2020-01")])
+
+    vida2 = _role("VidaCare", end_date="01.2020", is_current=False)
+    out["end equal after normalising"] = _vault([vida2], [_conflict(vida2.id, "end_date", "none", "2020-01")])
+
+    differ = _role("VidaCare", end_date="2020-01", is_current=False)
+    out["end differs stays"] = _vault([differ], [_conflict(differ.id, "end_date", "2020-01", "2020-03")])
+
+    cur = _role("Cerova Clinic", start_date="2024-03")
+    out["is_current already equal"] = _vault([cur], [_conflict(cur.id, "is_current", "false (ended)", "true (current)")])
+
+    cur2 = _role("Cerova Clinic", start_date="2024-03")
+    out["is_current differs stays"] = _vault([cur2], [_conflict(cur2.id, "is_current", True, False)])
+
     mixed = _role("Mediora Health")
     real = _role("Cerova Clinic", end_date="2021-01", is_current=False)
     out["mixed vault"] = _vault([mixed, real], [
@@ -214,6 +232,7 @@ def test_the_emma_pair_heals_to_the_fact():
 
 
 @pytest.mark.parametrize("name", [
+    "end differs stays", "is_current differs stays",
     "two past dates stay", "later source says current stays", "future end stays", "unreadable stays",
     "resolved untouched", "section mismatch stays", "unknown entity stays", "other field stays",
 ])
@@ -223,6 +242,14 @@ def test_a_genuine_or_unreadable_dispute_stays(name):
     before = copy.deepcopy(data)
     assert mod.heal(data, today=TODAY) == (0, 0)
     assert data == before
+
+
+def test_md7_14_a_dispute_the_entry_already_answers_is_dropped():
+    mod = _migration()
+    data = _SCENARIOS["end already equal (MD7-14)"].model_dump(mode="json")
+    assert mod.heal(data, today=TODAY) == (1, 0)
+    assert (data["work_experience"][0]["end_date"], data["work_experience"][0]["is_current"]) == ("2020-01", False)
+    assert data["metadata"]["pending_conflicts"] == []
 
 
 def test_heal_tolerates_shapes_it_does_not_own():
@@ -255,11 +282,13 @@ def test_the_migration_heals_live_rows_on_a_real_database(caplog):
     emma = _SCENARIOS["emma pair"].model_dump(mode="json")
     genuine = _SCENARIOS["two past dates stay"].model_dump(mode="json")
     stale = _SCENARIOS["stale current with no dispute"].model_dump(mode="json")
+    settled = _SCENARIOS["end already equal (MD7-14)"].model_dump(mode="json")
     with engine.begin() as conn:
         conn.execute(table.insert(), [
             {"id": "emma", "profile_json": emma, "deleted_at": None},
             {"id": "genuine", "profile_json": genuine, "deleted_at": None},
             {"id": "stale", "profile_json": stale, "deleted_at": None},
+            {"id": "settled", "profile_json": settled, "deleted_at": None},
             {"id": "deleted", "profile_json": emma, "deleted_at": datetime(2026, 11, 1)},
         ])
 
@@ -282,10 +311,12 @@ def test_the_migration_heals_live_rows_on_a_real_database(caplog):
     assert after["genuine"] == genuine, "a genuine two-past-dates dispute stays"
     assert after["deleted"] == emma, "a deleted vault is not touched"
     assert after["stale"]["work_experience"][0]["is_current"] is False, "a close-only vault is written too"
+    assert after["settled"]["metadata"]["pending_conflicts"] == [], "MD7-14: end already equal -> 0 disputes"
+    assert after["settled"]["work_experience"] == settled["work_experience"]
     MasterProfileData.model_validate(healed)  # the app loads what the migration wrote
 
     log_text = " ".join(r.getMessage() for r in caplog.records if r.getMessage().startswith("0089"))
-    assert "2 vault(s): 2 role-end dispute(s) dropped, 2 role(s) closed" in log_text
+    assert "3 vault(s): 3 role-end dispute(s) dropped, 2 role(s) closed" in log_text
     assert "Mediora" not in log_text and "2024-02" not in log_text, "counts, never content"
 
     again = run(mod.upgrade)
