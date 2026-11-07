@@ -47,6 +47,9 @@ class AdminUserMetadata(BaseModel):
     #: LLM tokens (``llm_usage.total_tokens``) of the last 30 days (W0B-1, CONTRACT-CHANGE
     #: 1b-1); ``None`` while ``llm_usage`` carries no ``user_id`` (before migration 0075).
     ai_tokens_30d: int | None = None
+    #: 789:267 (Hazelnut build 7, WP-O; CONTRACT-CHANGE, additive): live agent + api
+    #: tokens — the number "Alle Tokens widerrufen" would revoke. A count only (S-4).
+    active_token_count: int | None = None
 
 
 class AdminUserItem(BaseModel):
@@ -383,6 +386,13 @@ class DashboardComponent(BaseModel):
     #: provider: the dashboard never pings it inline, adv-admin ADM-5); ``None`` =
     #: measured in this request, or never measured yet.
     checked_at: datetime | None = None
+    #: 785:251 (Hazelnut build 7, WP-O): the backup is not set up yet and still
+    #: inside its first-run grace (probe ``ok``, no ``last_backup_at``). ``ok`` is
+    #: true to "nothing is overdue", not to "a backup exists" — the console shows
+    #: this as a neutral to-do, never as green "in Ordnung". Additive.
+    not_set_up: bool = False
+    #: When the first backup is due (the grace window's end), with ``not_set_up``.
+    due_by: datetime | None = None
 
 
 class DashboardHealth(BaseModel):

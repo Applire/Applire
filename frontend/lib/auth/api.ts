@@ -35,6 +35,8 @@ export interface AuthState {
   smtp_enabled: boolean;
   /** The test harness serves this instance — red banner on every page. */
   harness: boolean;
+  /** This instance was upgraded (data from before accounts), not installed fresh; only while setup is required. */
+  upgraded_install?: boolean;
 }
 
 /** `POST /api/auth/links/inspect` */

@@ -191,6 +191,20 @@ describe("Einstellungen → Verbindungsprüfung zum Anbieter (ADR-093 amended 20
     expect(screen.queryByTestId("admin-settings-probe-no-balance")).toBeNull();
   });
 
+  it("the .env line shows the radio's own label for a known mode (789:267g)", async () => {
+    route({ settings: settings({ probe: "off", probeSource: "panel" }) });
+    render(withIntl(<InstanceSettings />, "de"));
+    expect(await screen.findByTestId("admin-settings-probe-env")).toHaveTextContent("In der .env steht: Erreichbarkeit und Guthaben");
+  });
+
+  it("an unknown .env mode stays raw", async () => {
+    const base = settings();
+    const withRaw = { ...base, items: base.items.map((i: { key: string }) => (i.key === "OPS_PROVIDER_PROBE" ? { ...i, env_value: "weird" } : i)) };
+    route({ settings: withRaw });
+    render(withIntl(<InstanceSettings />, "de"));
+    expect(await screen.findByTestId("admin-settings-probe-env")).toHaveTextContent("In der .env steht: weird");
+  });
+
   it("reset to .env sends DELETE for the probe key", async () => {
     const deleted: string[] = [];
     route({ settings: settings({ probe: "off", probeSource: "panel" }), del: (k) => (deleted.push(k), res(200, settings())) });

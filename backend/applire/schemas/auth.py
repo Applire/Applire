@@ -106,6 +106,11 @@ class AuthStateResponse(BaseModel):
     smtp_enabled: bool
     #: ADR-091 cl. 3(d): the test harness is serving this instance (red banner).
     harness: bool
+    #: 789:267 (Hazelnut build 7, WP-O; additive): this instance was upgraded, not
+    #: installed fresh (no ``instance.first_started_at`` stamp, ADR-087 R-2) — the
+    #: /setup page's "used Applire without an account before?" box is shown only
+    #: then. Instance mode, not user data; always false once setup is done.
+    upgraded_install: bool = False
 
 
 # ---------------------------------------------------------------------------

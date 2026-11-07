@@ -2711,7 +2711,13 @@ async def _render_cover_letter_body(
                     )
                     if err_cl is not None:
                         err_cl.status = CoverLetterStatus.failed.value
-                        err_cl.error_message = scrub_secrets(str(exc))[:500]
+                        # 788:134 / MD7-5 (Hazelnut build 7, WP-O): the classified
+                        # sentence, never the provider's raw text (that stays in
+                        # the logger.exception line above); the status door reads
+                        # the stable error_code back from it.
+                        from applire.services.generation_errors import letter_failure_message
+
+                        err_cl.error_message = letter_failure_message(exc)
                         await err_db.commit()
 
 

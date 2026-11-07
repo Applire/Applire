@@ -227,7 +227,9 @@ test.describe("Administration → People", () => {
     expect(deleted[0]).toContain("/api/admin/users/00000000-0000-0000-0000-0000000000a4");
 
     await row(page, ADMIN_USER.email).getByTestId("admin-user-menu").click();
-    await page.getByTestId("admin-user-action-delete").click();
+    // 789:281 — the own row offers only revoke-tokens and "open your account".
+    await expect(page.getByTestId("admin-user-menu-list").getByRole("menuitem")).toHaveText(["Revoke all tokens", "Open your account"]);
+    await page.getByTestId("admin-user-action-openAccount").click();
     await expect(page).toHaveURL(/\/settings$/);
     expect(deleted).toHaveLength(1);
   });
@@ -246,6 +248,8 @@ test.describe("Administration → People", () => {
     await page.goto("/admin/users");
     await row(page, "jonas.keller@example.org").getByTestId("admin-user-menu").click();
     await page.getByTestId("admin-user-action-resetLink").click();
+    // 789:280 — a confirm comes first; the link is issued only on confirm.
+    await page.getByTestId("admin-confirm-dialog-confirm").click();
     await expect(page.getByTestId("admin-link-dialog")).toContainText("Reset link for jonas.keller@example.org");
     await expect(page.getByTestId("admin-link-text")).toContainText("valid for one hour");
     await expect(page.getByTestId("admin-link-url")).toHaveText("http://applire.test/reset#rst-9");

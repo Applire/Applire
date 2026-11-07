@@ -119,7 +119,9 @@ def test_admin_user_item_has_exactly_the_agreed_fields():
         "id", "email", "role", "status", "created_at", "last_login_at", "last_active_at",
         "invite_expires_at", "metadata"}
     assert set(admin_schemas.AdminUserMetadata.model_fields) == {
-        "application_count", "document_count", "storage_bytes", "ai_tokens_30d"}
+        "application_count", "document_count", "storage_bytes", "ai_tokens_30d",
+        # 789:267 (Hazelnut build 7, WP-O): a count of live tokens, never a token.
+        "active_token_count"}
     for model in (admin_schemas.AdminUserItem, admin_schemas.AdminUserMetadata,
                   admin_schemas.IssuedLink, admin_schemas.AdminUserCreatedResponse):
         assert model.model_config.get("extra") != "allow", model

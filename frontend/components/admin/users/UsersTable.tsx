@@ -28,6 +28,7 @@ import {
   ShieldMinus,
   Trash2,
   UserCheck,
+  UserRound,
   UserX,
   type LucideIcon,
 } from "lucide-react";
@@ -44,10 +45,14 @@ export type UserAction =
   | "disable"
   | "enable"
   | "revokeTokens"
+  | "openAccount"
   | "delete";
 
 /** Which actions a row offers, by status and role (mock §2). Delete is always last. */
-export function actionsFor(user: AdminUser): UserAction[] {
+export function actionsFor(user: AdminUser, isSelf = false): UserAction[] {
+  // Own row: the server guards (last admin) stay, but the menu only offers what is
+  // safe and useful here — revoke own tokens, or go to the account page (789:281).
+  if (isSelf) return ["revokeTokens", "openAccount"];
   if (user.status === "pending") return ["reinvite", "delete"];
   if (user.status === "disabled") return ["enable", "revokeTokens", "delete"];
   return [
@@ -67,6 +72,7 @@ const ACTION_META: Record<UserAction, { labelKey: string; icon: LucideIcon }> = 
   disable: { labelKey: "actionDisable", icon: UserX },
   enable: { labelKey: "actionEnable", icon: UserCheck },
   revokeTokens: { labelKey: "actionRevokeTokens", icon: KeyRound },
+  openAccount: { labelKey: "actionOpenAccount", icon: UserRound },
   delete: { labelKey: "actionDelete", icon: Trash2 },
 };
 
@@ -171,7 +177,7 @@ export function UsersTable({
                     : t("tokensUnit", { count: formatCompact(u.metadata.ai_tokens_30d, locale) })}
                 </td>
                 <td className="px-3 py-3 text-right">
-                  <RowMenu user={u} onAction={onAction} />
+                  <RowMenu user={u} isSelf={u.id === meId} onAction={onAction} />
                 </td>
               </tr>
             );
@@ -182,7 +188,15 @@ export function UsersTable({
   );
 }
 
-function RowMenu({ user, onAction }: { user: AdminUser; onAction: (a: UserAction, u: AdminUser) => void }) {
+function RowMenu({
+  user,
+  isSelf,
+  onAction,
+}: {
+  user: AdminUser;
+  isSelf: boolean;
+  onAction: (a: UserAction, u: AdminUser) => void;
+}) {
   const t = useTranslations("adminUsers");
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -218,7 +232,7 @@ function RowMenu({ user, onAction }: { user: AdminUser; onAction: (a: UserAction
     };
   }, [open]);
 
-  const actions = actionsFor(user);
+  const actions = actionsFor(user, isSelf);
 
   return (
     <>

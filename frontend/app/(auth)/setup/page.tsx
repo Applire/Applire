@@ -166,9 +166,11 @@ export default function SetupPage() {
       )}
       <AuthTitle>{t("setupTitle")}</AuthTitle>
       <AuthSubtitle>{t("setupIntro")}</AuthSubtitle>
-      <AuthAlert tone="info" icon="inventory_2" testId="setup-upgrade-note">
-        {t("setupUpgradeNote")}
-      </AuthAlert>
+      {authState?.upgraded_install === true && (
+        <AuthAlert tone="info" icon="inventory_2" testId="setup-upgrade-note">
+          {t("setupUpgradeNote")}
+        </AuthAlert>
+      )}
 
       <form onSubmit={submit} noValidate>
         <Field id="setup-code" label={t("setupCodeLabel")} error={codeError ? t("errorSetupCode") : null}>

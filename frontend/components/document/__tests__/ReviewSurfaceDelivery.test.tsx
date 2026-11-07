@@ -132,7 +132,9 @@ describe("ADR-099 cl. 6 — one question per resolver, with only its answers", (
     fireEvent.click(screen.getByTestId("review-answer-yes"));
     fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "Bei Nordwind, 2021." } });
     fireEvent.click(screen.getByTestId("review-add-submit"));
-    await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
+    // 785:248: wait for the reply's own text — "answer-yes gone" holds as soon as
+    // the answer form opens, before the submit resolves (the CI flake, #813 run).
+    await waitFor(() => expect(screen.getByTestId("review-card-why").textContent ?? "").toContain("Dein Profil nennt das mit anderen Worten"));
     const card = screen.getByTestId("review-card");
     expect(within(card).getByTestId("review-card-why").textContent).toContain("Dein Profil nennt das mit anderen Worten");
     expect(within(card).getByTestId("review-nochange-profile").getAttribute("href")).toBe("/profile");
@@ -160,10 +162,14 @@ describe("ADR-099 cl. 6 — one question per resolver, with only its answers", (
     fireEvent.click(screen.getByTestId("review-answer-yes"));
     fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "Bei Nordlicht: Delphi 5 auf .NET." } });
     fireEvent.click(screen.getByTestId("review-add-submit"));
-    await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
+    // 785:248 (Hazelnut build 7): "answer-yes gone" is not the signal that the
+    // no_change reply has rendered — the pending state hides it too, and CI read
+    // the pre-reply `why` (#813 run, 2026-11-03). Wait for the reply's own text.
+    await waitFor(() =>
+      expect(screen.getByTestId("review-card-why").textContent ?? "").toContain("mit anderen Worten"),
+    );
     const card = screen.getByTestId("review-card");
     const why = within(card).getByTestId("review-card-why").textContent ?? "";
-    expect(why).toContain("mit anderen Worten");
     expect(why).not.toContain("Es bleibt nur: entfernen.");
     expect(within(card).getByTestId("review-nochange-profile").getAttribute("href")).toBe("/profile");
     fireEvent.click(within(card).getByTestId("review-nochange-recheck"));
