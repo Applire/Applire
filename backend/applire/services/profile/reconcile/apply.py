@@ -4129,7 +4129,8 @@ def _apply_flag_conflict(op, resolve, source, conflicts, changes=None):
         section = _section_for(entity) if entity is not None else ""
         if section in DATED_ENTRY_SECTIONS:
             verdict = role_end_verdict(
-                op.field, getattr(entity, "end_date", None), incoming_value, date.today()
+                op.field, getattr(entity, "end_date", None), incoming_value, date.today(),
+                getattr(entity, "is_current", None),
             )
             if verdict == "fill_end":
                 if changes is not None:
@@ -4196,7 +4197,10 @@ def settle_role_end_conflicts(
             incoming = coerce_conflict_value(c.field, c.incoming_value)
             if incoming is UNREADABLE:
                 continue
-            verdict = role_end_verdict(c.field, getattr(hit[1], "end_date", None), incoming, today)
+            verdict = role_end_verdict(
+                c.field, getattr(hit[1], "end_date", None), incoming, today,
+                getattr(hit[1], "is_current", None),
+            )
             if verdict is None:
                 continue
             if verdict == "fill_end":

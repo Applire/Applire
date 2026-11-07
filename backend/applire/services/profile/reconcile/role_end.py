@@ -100,22 +100,36 @@ def _passed(end_date: Any, today: date) -> bool:
 
 
 def role_end_verdict(
-    field: str, entity_end_date: Any, incoming: Any, today: date
+    field: str, entity_end_date: Any, incoming: Any, today: date, entity_is_current: Any = None
 ) -> str | None:
     """``"fill_end"`` / ``"settled"`` when a conflict on a dated entry only
-    states that the role has ended, else ``None`` (a real dispute).
+    states that the role has ended, or restates what the entry already holds,
+    else ``None`` (a real dispute).
 
     ``incoming`` is the COERCED incoming value. ``"fill_end"``: the entry has no
     end date and the incoming end date has passed — the end date is written.
     ``"settled"``: the incoming side says not current and the entry's own end
-    date has passed — the committer closes the role (#822)."""
+    date has passed — the committer closes the role (#822); OR (ruling MD7-14)
+    the incoming value equals the entry's stored value (end date normalised
+    equal; the same ``is_current``) — a dispute the vault already answers is
+    not a question. A "current" restated on a role whose end date has passed
+    is not settled by equality: the committer closes that role."""
     has_end = normalise_partial_date(entity_end_date) is not None
     if field == "end_date":
         if not has_end and incoming is not None and _passed(incoming, today):
             return "fill_end"
+        if normalise_partial_date(incoming) == normalise_partial_date(entity_end_date):
+            return "settled"
         return None
     if field == "is_current":
         if incoming is False and has_end and _passed(entity_end_date, today):
+            return "settled"
+        if (
+            isinstance(incoming, bool)
+            and isinstance(entity_is_current, bool)
+            and incoming == entity_is_current
+            and not (incoming and _passed(entity_end_date, today))
+        ):
             return "settled"
         return None
     return None

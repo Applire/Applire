@@ -158,7 +158,7 @@ def test_coerce_conflict_value(field, value, expected):
         ("end_date", None, "2024-02", "fill_end"),
         ("end_date", None, "2026-11", None),  # the current month has not passed
         ("end_date", "2023-05", "2024-02", None),
-        ("end_date", None, None, None),
+        ("end_date", None, None, "settled"),  # MD7-14: the entry already has no end date
         ("is_current", "2024-02", False, "settled"),
         ("is_current", None, False, None),
         ("is_current", "2024-02", True, None),
@@ -220,3 +220,70 @@ def test_settle_counts_and_leaves_unrelated_disputes():
     changes: list = []
     assert settle_role_end_conflicts(profile, [], changes, today=TODAY) == 1
     assert settle_role_end_conflicts(profile, [], changes, today=TODAY) == 0
+
+
+# ── MD7-14 — a dispute the vault already answers is not a question ─────────────
+# Round-4 pass 3: the candidate set VidaCare's end date by hand (2020-01, not
+# current); the stored dispute "none (current position)" vs "2020-01" stayed.
+
+
+@pytest.mark.parametrize(
+    ("field", "entity_end", "entity_current", "incoming", "verdict"),
+    [
+        ("end_date", "2020-01", False, "2020-01", "settled"),
+        ("end_date", "01.2020", False, "2020-01", "settled"),  # normalised equal
+        ("end_date", "2020-01-31", False, "2020-01", None),  # a different precision is a different value
+        ("end_date", "2020-01", False, "2020-02", None),  # different → a real dispute
+        ("end_date", "2027-06", True, "2027-06", "settled"),  # a future date the entry already holds
+        ("end_date", None, True, "2027-06", None),  # a future date the entry does not hold
+        ("is_current", None, True, True, "settled"),
+        ("is_current", "2020-01", False, False, "settled"),
+        ("is_current", None, False, False, "settled"),
+        ("is_current", "2027-06", True, True, "settled"),  # ends in the future: still current
+        ("is_current", "2020-01", True, True, None),  # "current" on an ended role: the committer closes it
+        ("is_current", None, True, False, None),  # different → a real dispute
+        ("is_current", "2024-02", False, True, None),
+        ("is_current", None, None, True, None),  # the entry states nothing
+    ],
+)
+def test_md7_14_the_verdict_settles_what_the_entry_holds(field, entity_end, entity_current, incoming, verdict):
+    assert role_end_verdict(field, entity_end, incoming, TODAY, entity_current) == verdict
+
+
+def test_md7_14_a_stored_end_date_dispute_the_entry_answers_heals_on_any_write():
+    role = _current_role(company="VidaCare", end_date="2020-01", is_current=False)
+    profile = _stored(role, "end_date", "none (current position)", "2020-01")
+    result = apply_ops(profile, [], "manual_edit")
+    entry = result.profile.work_experience[0]
+    assert (entry.end_date, entry.is_current) == ("2020-01", False)
+    assert result.profile.metadata.pending_conflicts == []
+    assert not [c for c in result.changes if c.field == f"[{role.id}].end_date"], "nothing is rewritten"
+
+
+def test_md7_14_a_stored_dispute_with_a_different_value_stays():
+    role = _current_role(company="VidaCare", end_date="2020-01", is_current=False)
+    profile = _stored(role, "end_date", "2020-01", "2020-03")
+    result = apply_ops(profile, [], "manual_edit")
+    assert [(c.field, c.incoming_value) for c in result.profile.metadata.pending_conflicts] == [("end_date", "2020-03")]
+    assert result.profile.work_experience[0].end_date == "2020-01"
+
+
+def test_md7_14_a_stored_is_current_dispute_the_entry_answers_heals():
+    role = _current_role()
+    profile = _stored(role, "is_current", "false (ended)", "true (current position)")
+    assert settle_role_end_conflicts(profile, [], [], today=TODAY) == 1
+    assert profile.metadata.pending_conflicts == []
+    assert profile.work_experience[0].is_current is True
+
+
+def test_md7_14_a_new_dispute_restating_the_entry_is_not_admitted():
+    role = _current_role(company="VidaCare", end_date="2020-01", is_current=False)
+    profile = MasterProfileData(work_experience=[role])
+    result = apply_ops(
+        profile,
+        [FlagConflict(target=role.id, field="end_date", existing="none (current position)", incoming="2020-01")],
+        "cv_upload",
+    )
+    assert result.conflicts == []
+    assert result.profile.work_experience[0].end_date == "2020-01"
+
