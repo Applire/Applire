@@ -114,14 +114,14 @@ export function PhotoPromptStep({ onContinue, currentPhotoUrl, onPhotoChange }: 
       <div className="grid grid-cols-2 gap-3">
         <button
           data-testid="photo-prompt-upload"
-          className="border-2 border-primary bg-primary text-white rounded-lg p-4 text-center hover:opacity-90 transition-opacity"
+          className="border border-outline-variant bg-white rounded-lg p-4 text-center hover:bg-surface-container transition-colors"
           onClick={() => setShowUpload(true)}
         >
-          <span className="material-symbols-outlined block mb-1" aria-hidden="true" style={{ fontSize: 24 }}>
+          <span className="material-symbols-outlined block mb-1 text-on-surface-variant" aria-hidden="true" style={{ fontSize: 24 }}>
             {UPLOAD_ICON}
           </span>
-          <p className="text-xs font-semibold">{t("uploadPhoto")}</p>
-          <p className="text-xs text-white/80 mt-0.5">{t("uploadPhotoSaved")}</p>
+          <p className="text-xs font-medium text-on-surface">{t("uploadPhoto")}</p>
+          <p className="text-xs text-on-surface-variant mt-0.5">{t("uploadPhotoSaved")}</p>
         </button>
         <button
           data-testid="photo-prompt-skip"

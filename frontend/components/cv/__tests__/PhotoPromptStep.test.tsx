@@ -48,12 +48,13 @@ describe("PhotoPromptStep (#789 — the remembered 'no photo')", () => {
     expect(await screen.findByTestId("photo-prompt-upload")).toBeTruthy();
   });
 
-  it("upload is the primary choice and never claims a stored photo; skip is secondary", async () => {
+  it("789:263: both choices carry the same visual weight; upload never claims a stored photo", async () => {
     getSettings.mockResolvedValue({ dismissed_explainers: [] });
     render(withIntl(<PhotoPromptStep onContinue={vi.fn()} />));
     const upload = await screen.findByTestId("photo-prompt-upload");
-    expect(upload.className).toContain("bg-primary");
+    expect(upload.className).not.toContain("bg-primary");
     expect(screen.getByTestId("photo-prompt-skip").className).not.toContain("bg-primary");
+    expect(upload.className).toBe(screen.getByTestId("photo-prompt-skip").className);
     expect(upload.textContent).not.toContain("Saved to your profile");
     // No emoji glyphs (Material Symbols identifiers instead).
     expect(document.body.textContent ?? "").not.toMatch(/[\u{1F4F7}⏭]/u);
