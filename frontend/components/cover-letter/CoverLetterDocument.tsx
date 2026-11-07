@@ -32,8 +32,8 @@ interface CoverLetterDocumentProps {
    * guess.
    */
   generationInputs?: { availability?: string | null; motivation?: string | null } | null;
-  /** #820: the letter is older than the interview that was added afterwards. */
-  predatesInterview?: boolean;
+  /** #820 / ruling F-2: the profile's content changed after this letter was created (any source). */
+  profileUpdatedSince?: boolean;
   /** 789:249: true = no motivation was typed and the writer derived one (RULING G-2); null/absent = unknown. */
   motivationDerived?: boolean | null;
   /** 789:253: opens the letter form; the hint's action button renders only when given. */
@@ -47,7 +47,7 @@ export function CoverLetterDocument({
   coverLetterId,
   onPreviewLoad,
   generationInputs,
-  predatesInterview,
+  profileUpdatedSince,
   motivationDerived,
   onCompleteForm,
 }: CoverLetterDocumentProps) {
@@ -132,20 +132,20 @@ export function CoverLetterDocument({
 
   return (
     <div className="flex flex-col w-full h-full">
-      {predatesInterview && (
+      {profileUpdatedSince && (
         <div
           className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs text-on-surface-variant bg-surface-container border-b border-outline-variant"
-          data-testid="cover-letter-predates-interview"
+          data-testid="cover-letter-profile-updated"
         >
-          <p className="min-w-0 flex-1">{t("predatesInterview")}</p>
+          <p className="min-w-0 flex-1">{t("profileUpdatedSince")}</p>
           {onCompleteForm && (
             <button
               type="button"
               onClick={onCompleteForm}
               className="shrink-0 rounded-full border border-outline-variant bg-white px-3 py-1 text-xs font-medium text-on-surface hover:bg-surface-container-high"
-              data-testid="cover-letter-predates-interview-action"
+              data-testid="cover-letter-profile-updated-action"
             >
-              {t("predatesInterviewAction")}
+              {t("profileUpdatedSinceAction")}
             </button>
           )}
         </div>

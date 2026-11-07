@@ -95,8 +95,8 @@ interface CLState {
   expiresAt: string | null;
   /** E054/US289: the letter's PINNED language (clause 3b); null = legacy row. */
   documentLanguage: "de" | "en" | null;
-  /** #820: the letter was written before the interview that has since been added. */
-  predatesInterview: boolean;
+  /** #820 / ruling F-2: the profile's content changed after this letter was created (any source). */
+  profileUpdatedSince: boolean;
   /** #820/789:249: true = no motivation was typed and the writer derived one (RULING G-2); null = unknown (legacy row). */
   motivationDerived: boolean | null;
 }
@@ -267,7 +267,7 @@ export default function CoverLetterPage({
           matchScore: null,
           expiresAt: null,
           documentLanguage: null,
-          predatesInterview: false,
+          profileUpdatedSince: false,
           motivationDerived: null,
         });
         setPhase("not_found");
@@ -291,7 +291,7 @@ export default function CoverLetterPage({
         signature_available?: boolean;
         // #786 / T-2 (ADR-081 cl. 9 amended): null = not recorded.
         review_degradation?: DegradedReviewStep[] | null;
-        predates_interview?: boolean;
+        profile_updated_since?: boolean;
         motivation_derived?: boolean | null;
         error_code?: string | null;
       };
@@ -323,7 +323,7 @@ export default function CoverLetterPage({
             : null,
         expiresAt: flowData.cv_summary?.expires_at ?? null,
         documentLanguage: statusData.document_language ?? null,
-        predatesInterview: statusData.predates_interview === true,
+        profileUpdatedSince: statusData.profile_updated_since === true,
         motivationDerived: statusData.motivation_derived ?? null,
       });
 
@@ -428,7 +428,7 @@ export default function CoverLetterPage({
           section_overrides?: Record<string, unknown> | null;
           document_language?: "de" | "en" | null;
           review_degradation?: DegradedReviewStep[] | null;
-          predates_interview?: boolean;
+          profile_updated_since?: boolean;
           motivation_derived?: boolean | null;
           error_code?: string | null;
         };
@@ -444,7 +444,7 @@ export default function CoverLetterPage({
                   letterData: data.letter_data ?? null,
                   sectionOverrides: data.section_overrides ?? null,
                   documentLanguage: data.document_language ?? null,
-                  predatesInterview: data.predates_interview === true,
+                  profileUpdatedSince: data.profile_updated_since === true,
                   motivationDerived: data.motivation_derived ?? null,
                 }
               : prev
@@ -1013,7 +1013,7 @@ export default function CoverLetterPage({
             key={previewKey}
             coverLetterId={clState!.coverLetterId}
             generationInputs={clState!.preGenInputs as { availability?: string | null; motivation?: string | null } | null}
-            predatesInterview={clState!.predatesInterview}
+            profileUpdatedSince={clState!.profileUpdatedSince}
             motivationDerived={clState!.motivationDerived}
             onCompleteForm={requestRegenerate}
             onPreviewLoad={() => setPreviewVersion((v) => v + 1)}

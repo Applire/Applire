@@ -165,10 +165,11 @@ class CoverLetterStatusResponse(BaseModel):
     # schemas.cv.CVStatusResponse.signature_available's twin comment / the
     # F-4b report for the full reasoning.
     signature_available: bool = False
-    # RULING L-1 (#820, ADR-075 amended 2026-11-07; ADR-095 additive): an interview
-    # door added facts to the profile AFTER this letter was generated — the letter
-    # view offers to recreate it. Same value on REST and the MCP status tool.
-    predates_interview: bool = False
+    # #820 cue (ADR-075 amended 2026-11-07; founder ruling F-2; ADR-095 additive): the
+    # profile's CONTENT changed after this letter was generated (any source:
+    # interview, import, manual edit, agent door) — the letter view offers to
+    # recreate it. Same value on REST and the MCP status tool.
+    profile_updated_since: bool = False
     # 789:249 (WP-L, build 7): True when no motivation was typed and the writer
     # derived one (RULING G-2); None for a row that recorded nothing (legacy, agent).
     motivation_derived: Optional[bool] = None

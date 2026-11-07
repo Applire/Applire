@@ -36,19 +36,19 @@ vi.mock("next/link", () => ({
 vi.mock("@/components/cover-letter/CoverLetterDocument", () => ({
   CoverLetterDocument: ({
     generationInputs,
-    predatesInterview,
+    profileUpdatedSince,
     motivationDerived,
     onCompleteForm,
   }: {
     generationInputs?: unknown;
-    predatesInterview?: boolean;
+    profileUpdatedSince?: boolean;
     motivationDerived?: boolean | null;
     onCompleteForm?: () => void;
   }) => (
     <div
       data-testid="cl-document"
       data-inputs={JSON.stringify(generationInputs ?? null)}
-      data-predates={String(predatesInterview)}
+      data-profile-updated={String(profileUpdatedSince)}
       data-derived={JSON.stringify(motivationDerived ?? null)}
     >
       <button type="button" data-testid="cl-doc-complete-form" onClick={onCompleteForm} />
@@ -544,15 +544,15 @@ describe("CoverLetterPage — WP-L (#820 cue, failed view)", () => {
     });
   }
 
-  it("#820: passes predates_interview + motivation_derived to the document, and the form callback opens the modal", async () => {
+  it("#820: passes profile_updated_since + motivation_derived to the document, and the form callback opens the modal", async () => {
     mockStatus([{
       status: "ready", letter_data: { header: { name: "Max" } },
       pre_gen_inputs: { availability: "", motivation: "" },
-      predates_interview: true, motivation_derived: true,
+      profile_updated_since: true, motivation_derived: true,
     }]);
     await act(async () => { renderPage(); });
     const doc = await screen.findByTestId("cl-document", {}, { timeout: 5000 });
-    expect(doc.getAttribute("data-predates")).toBe("true");
+    expect(doc.getAttribute("data-profile-updated")).toBe("true");
     expect(doc.getAttribute("data-derived")).toBe("true");
     const { fireEvent } = await import("@testing-library/react");
     expect(screen.queryByTestId("cl-modal")).not.toBeInTheDocument();
@@ -560,11 +560,11 @@ describe("CoverLetterPage — WP-L (#820 cue, failed view)", () => {
     expect(screen.getByTestId("cl-modal")).toBeInTheDocument();
   });
 
-  it("#820: legacy status without the fields reads as predates=false, derived=null", async () => {
+  it("#820: legacy status without the fields reads as profileUpdatedSince=false, derived=null", async () => {
     mockStatus([{ status: "ready", letter_data: { header: { name: "Max" } } }]);
     await act(async () => { renderPage(); });
     const doc = await screen.findByTestId("cl-document", {}, { timeout: 5000 });
-    expect(doc.getAttribute("data-predates")).toBe("false");
+    expect(doc.getAttribute("data-profile-updated")).toBe("false");
     expect(doc.getAttribute("data-derived")).toBe("null");
   });
 

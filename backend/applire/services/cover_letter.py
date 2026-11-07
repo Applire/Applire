@@ -384,13 +384,14 @@ async def get_cover_letter_status(
     )
     signature_available = await resolve_signature_available(db, user_id=uid)
 
-    # RULING L-1 (#820) cue: the interview added facts after this letter was written.
-    from applire.services.cover_letter_positioning import letter_predates_interview
+    # #820 cue, founder ruling F-2: the profile's content changed after this letter
+    # was written (any source) — the letter view offers to recreate it.
+    from applire.services.profile_freshness import profile_updated_since as _updated_since
 
-    predates_interview = False
+    profile_updated_since = False
     if cl.status == CoverLetterStatus.ready.value and cl.profile_id is not None:
         profile_row = await db.get(MasterProfile, cl.profile_id)
-        predates_interview = letter_predates_interview(
+        profile_updated_since = _updated_since(
             cl.created_at, profile_row.profile_json if profile_row is not None else None
         )
     stored_inputs = cl.pre_gen_inputs or {}
@@ -425,7 +426,7 @@ async def get_cover_letter_status(
         signature_override=cl.signature_override,
         signature_effective=signature_effective,
         signature_available=signature_available,
-        predates_interview=predates_interview,
+        profile_updated_since=profile_updated_since,
         motivation_derived=(
             motivation_derived if isinstance(motivation_derived, bool) else None
         ),

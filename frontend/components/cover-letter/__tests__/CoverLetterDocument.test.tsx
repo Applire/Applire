@@ -180,22 +180,22 @@ describe("CoverLetterDocument", () => {
       return render(<CoverLetterDocument coverLetterId={CL_ID} {...props} />);
     }
 
-    it("#820: shows the predates-interview cue only when flagged, and its button calls back", () => {
+    it("#820: shows the profile-updated cue only when flagged, and its button calls back", () => {
       const onCompleteForm = vi.fn();
-      renderProps({ predatesInterview: true, onCompleteForm });
-      expect(screen.getByTestId("cover-letter-predates-interview").textContent).toContain("predatesInterview");
-      fireEvent.click(screen.getByTestId("cover-letter-predates-interview-action"));
+      renderProps({ profileUpdatedSince: true, onCompleteForm });
+      expect(screen.getByTestId("cover-letter-profile-updated").textContent).toContain("profileUpdatedSince");
+      fireEvent.click(screen.getByTestId("cover-letter-profile-updated-action"));
       expect(onCompleteForm).toHaveBeenCalledTimes(1);
     });
 
     it("#820: no cue when the flag is false or absent", () => {
-      renderProps({ predatesInterview: false });
-      expect(screen.queryByTestId("cover-letter-predates-interview")).toBeNull();
+      renderProps({ profileUpdatedSince: false });
+      expect(screen.queryByTestId("cover-letter-profile-updated")).toBeNull();
     });
 
     it("the cue comes before the hint when both apply", () => {
-      renderProps({ predatesInterview: true, generationInputs: { availability: "", motivation: "" } });
-      const cue = screen.getByTestId("cover-letter-predates-interview");
+      renderProps({ profileUpdatedSince: true, generationInputs: { availability: "", motivation: "" } });
+      const cue = screen.getByTestId("cover-letter-profile-updated");
       const hint = screen.getByTestId("cover-letter-preview-hint");
       expect(cue.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });

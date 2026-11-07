@@ -634,47 +634,17 @@ def render_employer_record(stations: list[dict]) -> str:
         )
     return line
 
-# ── RULING L-1 (#820) cue: "this letter predates your interview — recreate?" ────
+# ── RULING L-1 (#820) cue — superseded by founder ruling F-2 (2026-11-07) ───────
 #
-# UX audit round 3 (Felix): after the interview the skip-path letter ("I have not
-# worked with Apache Kafka …") stayed the current version under the new 79 % ring, and
-# nothing said it predates the interview. A FACT (ADR-062 cl. 1): two timestamps and a
-# record source — never a judgement about what the letter says.
-
-#: Enrichment-record sources that are an interview door (the guided interview, the
-#: agent interview, MCP testimony).
-INTERVIEW_SOURCES = frozenset({"interview", "agent_interview", "testimony"})
-
-
-def _as_aware_utc(value: object):
-    from datetime import datetime, timezone
-
-    if isinstance(value, str):
-        try:
-            value = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    if not isinstance(value, datetime):
-        return None
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+# The cue now fires on ANY profile content change since the document was created,
+# not only an interview's. The one predicate lives in
+# ``services/profile_freshness.profile_updated_since``. This name stays as an alias
+# for WP-F's CV summary (built against it on its branch); main drops it at
+# integration.
 
 
 def letter_predates_interview(letter_created_at: object, profile_json: dict | None) -> bool:
-    """True when an interview door added at least one fact to the profile AFTER this
-    letter was generated: an ``enrichment_history`` record whose ``source`` is in
-    :data:`INTERVIEW_SOURCES`, with at least one change, newer than
-    ``letter_created_at``. Pure; ``False`` on anything unreadable (no cue is the
-    pre-L-1 behaviour)."""
-    created = _as_aware_utc(letter_created_at)
-    if created is None:
-        return False
-    trail = ((profile_json or {}).get("metadata") or {}).get("enrichment_history") or []
-    for record in trail:
-        if not isinstance(record, dict) or record.get("source") not in INTERVIEW_SOURCES:
-            continue
-        if not [c for c in (record.get("changes") or []) if isinstance(c, dict)]:
-            continue
-        ts = _as_aware_utc(record.get("timestamp"))
-        if ts is not None and ts > created:
-            return True
-    return False
+    """Alias of :func:`applire.services.profile_freshness.profile_updated_since`."""
+    from applire.services.profile_freshness import profile_updated_since
+
+    return profile_updated_since(letter_created_at, profile_json)
