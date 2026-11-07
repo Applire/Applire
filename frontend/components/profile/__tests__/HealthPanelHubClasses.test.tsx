@@ -176,6 +176,19 @@ describe("HealthPanel — hub per delivery class", () => {
     expect(screen.queryByTestId("health-not-applied-go-to-section")).toBeNull();
   });
 
+  it("a not-applied issue across several sections keeps Beheben for the #705 per-section receipt (WP-V)", () => {
+    const multi = notApplied([true]);
+    multi.not_applied_items = [
+      { section: "skills", label: "Triage", reason: "op_rejected" },
+      { section: "education", label: "BSc", reason: "op_rejected" },
+    ];
+    const onResolve = vi.fn();
+    render(withIntl(<HealthPanel health={health([multi])} onResolve={onResolve} actions={{ onGoToSection: vi.fn() }} />, "en"));
+    expect(screen.queryByTestId("health-not-applied-go-to-section")).toBeNull();
+    fireEvent.click(screen.getByTestId("health-resolve"));
+    expect(onResolve).toHaveBeenCalledTimes(1);
+  });
+
   it("UAT-3d: the unit is chosen and saved in place", async () => {
     const onSaveUnit = vi.fn().mockResolvedValue(true);
     render(withIntl(<HealthPanel health={health([unit])} onResolve={vi.fn()} actions={{ onSaveUnit }} />, "de"));

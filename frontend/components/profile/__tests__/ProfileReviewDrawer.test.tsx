@@ -496,11 +496,26 @@ describe("ProfileReviewDrawer", () => {
       .mockRejectedValueOnce(new ReviewApiError(404, "issue_not_found: not_applied:r1", "issue_not_found"))
       .mockResolvedValueOnce({ ...BASE, session_id: "s2", first_question: "", gaps_total: 0, gaps_remaining: 0 });
     const onSettled = vi.fn();
-    const issue = { id: "not_applied:r1", thread: "not_applied" as const, profile_mismatch_severity: "review" as const, summary: "x" };
+    const issue = { id: "accuracy:r1", thread: "accuracy" as const, profile_mismatch_severity: "review" as const, summary: "x" };
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onSettled={onSettled} />, "en"));
     expect(await screen.findByTestId("profile-review-settled")).toHaveTextContent("This item is already settled.");
     expect(onSettled).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("profile-review-issue")).not.toBeInTheDocument();
+  });
+
+  it("a not-applied receipt opens its #705 receipt without starting a review session (789:255)", async () => {
+    startMock.mockClear();
+    const issue = {
+      id: "not_applied:r1", thread: "not_applied" as const, profile_mismatch_severity: "review" as const,
+      summary: "2 items did not reach your profile",
+      not_applied_items: [
+        { section: "skills", label: "Triage", reason: "op_rejected" },
+        { section: "education", label: "BSc", reason: "op_rejected" },
+      ],
+    };
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} />, "en"));
+    expect(await screen.findByTestId("profile-review-not-applied-groups")).toBeInTheDocument();
+    expect(startMock).not.toHaveBeenCalled();
   });
 
   it("a follow-up on a plain question is shown once (the question carries it)", async () => {

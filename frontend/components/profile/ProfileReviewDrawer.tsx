@@ -239,6 +239,16 @@ export function ProfileReviewDrawer({
     setError("");
     setLoading(true);
 
+    // Hazelnut build 7 (WP-V, 789:255) — a not-applied receipt is not a review
+    // item: the session has no question for it (404 issue_not_found). Its drawer
+    // is the #705 per-section receipt, shown without starting a session.
+    if (issue?.thread === "not_applied") {
+      setNoConflicts(true);
+      setDone(true);
+      setLoading(false);
+      return;
+    }
+
     // U-2 — start on the issue the user clicked, not the generic walk.
     // An item closed meanwhile answers 404 issue_not_found → the generic walk.
     let itemGone = false;
