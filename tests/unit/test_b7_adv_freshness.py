@@ -301,3 +301,81 @@ async def test_letter_status_skips_its_own_card_and_keeps_the_cv_side_write(db):
     assert own.profile_updated_since is False
     cv_side = await _letter_with(_rec(3, document=("cv", CV_ID)))
     assert cv_side.profile_updated_since is True
+
+
+# ── A-8: an undone merge leaves a dated record ──────────────────────────────
+
+
+async def _merge_then_undo(db):
+    """Seed a profile, run a real merge shape (snapshot + merged JSON with the
+    merge's trail record), then the real ``undo_last_merge``. Returns the
+    profile and the merge's timestamp."""
+    from applire.services.profile.snapshots import capture_pre_merge_snapshot, undo_last_merge
+    from tests.support.profile_factory import set_profile_json
+
+    now = datetime.now(timezone.utc)
+    merge_at = now - timedelta(hours=2)
+    pre = {
+        "skills": [{"name": "Python"}],
+        "metadata": {"enrichment_history": [
+            {"id": "E0", "timestamp": (merge_at - timedelta(days=1)).isoformat(), "source": "cv_upload",
+             "changes": [{"section": "skills", "field": "[0]", "action": "added", "new_value": "Python"}]},
+        ]},
+    }
+    profile = await _seed_profile(db, pre)
+    await capture_pre_merge_snapshot(db, profile_id=profile.id, profile_json=pre, enrichment_record_id="M1")
+    merged = {
+        "skills": [{"name": "Python"}, {"name": "Kafka"}],
+        "metadata": {"enrichment_history": [
+            *pre["metadata"]["enrichment_history"],
+            {"id": "M1", "timestamp": merge_at.isoformat(), "source": "cv_upload",
+             "changes": [{"section": "skills", "field": "[1]", "action": "added", "new_value": "Kafka"}]},
+        ]},
+    }
+    set_profile_json(profile, merged)
+    await db.commit()
+    result = await undo_last_merge(db, user_id=profile.user_id)
+    assert result.restored is True
+    await db.refresh(profile)
+    return profile, merge_at
+
+
+@pytest.mark.asyncio
+async def test_a_document_written_from_the_undone_merge_reads_as_behind(db):
+    """Proof (wt-adv-hz7 d8259838), on the real undo: a CV written from the
+    merged profile still carries "Kafka"; the profile no longer holds it."""
+    profile, merge_at = await _merge_then_undo(db)
+    written_from_merge = merge_at + timedelta(minutes=30)
+    assert profile_updated_since(written_from_merge, profile.profile_json, sections=CV_FEEDING_SECTIONS) is True
+    assert profile_updated_since(written_from_merge, profile.profile_json) is True  # the letter's call
+
+    # The content is the pre-merge content, and the record says what came back out.
+    assert [s["name"] for s in profile.profile_json["skills"]] == ["Python"]
+    head = profile.profile_json["metadata"]["enrichment_history"][-1]
+    assert head["source"] == "undo"
+    assert [(c["section"], c["field"], c["action"], c["old_value"]) for c in head["changes"]] == [
+        ("skills", "[1]", "removed", "Kafka")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_negative_documents_after_the_undo_or_before_the_merge_stay_quiet(db):
+    profile, merge_at = await _merge_then_undo(db)
+    after_undo = datetime.now(timezone.utc) + timedelta(minutes=1)
+    assert profile_updated_since(after_undo, profile.profile_json, sections=CV_FEEDING_SECTIONS) is False
+    # Written before the merge: it never held "Kafka" and matches the profile again.
+    before_merge = merge_at - timedelta(minutes=30)
+    assert profile_updated_since(before_merge, profile.profile_json, sections=CV_FEEDING_SECTIONS) is False
+    # The undo is no interview answer (F-4 auto-start).
+    cv = SimpleNamespace(id=CV_ID, created_at=merge_at + timedelta(minutes=30))
+    assert _cv_predates_interview(cv, profile.profile_json) is False
+
+
+def test_an_undo_record_without_a_bound_counts_for_every_older_document():
+    """An unreadable ``reverts_since`` leaves the bound off — the cue shows (the
+    safe direction for a document that may carry undone content)."""
+    profile = {"metadata": {"enrichment_history": [
+        {"timestamp": (CREATED + timedelta(minutes=5)).isoformat(), "source": "undo", "reverts_since": None,
+         "changes": [{"section": "skills", "field": "[1]", "action": "removed"}]},
+    ]}}
+    assert profile_updated_since(CREATED - timedelta(days=3), profile, sections=CV_FEEDING_SECTIONS) is True

@@ -37,6 +37,8 @@ export const ENRICHMENT_SOURCE_KEYS: Record<string, string> = {
   manual_role_add: "sources.manual_role_add",
   agent_interview: "sources.agent_interview",
   testimony: "sources.testimony",
+  // Hazelnut b7 adversarial A-8: the record an "undo last merge" leaves.
+  undo: "sources.undo",
 };
 
 /**

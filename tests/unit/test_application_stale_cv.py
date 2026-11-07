@@ -672,3 +672,21 @@ async def test_a_write_made_from_the_letter_is_still_growth_for_the_cv(db):
     await db.commit()
     hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
     assert hint is not None and [(g.section, g.count) for g in hint.gained] == [("skills", 1)]
+
+
+@pytest.mark.asyncio
+async def test_an_undone_merge_nudges_only_a_cv_written_from_it(db):
+    """Adversarial A-8: the undo's record (``source="undo"``, ``reverts_since`` =
+    the merge) puts a CV written AFTER the merge behind — it still carries the
+    undone facts — and leaves a CV older than the merge alone."""
+    merge_at = _NOW - timedelta(days=3)
+    undo = _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills", "removed")])
+    undo.update(source="undo", reverts_since=_iso(merge_at))
+    db.add(_make_profile([undo]))
+    from_merge = await _make_application(db)
+    older = await _make_application(db)
+    db.add(_make_cv(from_merge.job_analysis_id, created_at=merge_at + timedelta(hours=1)))
+    db.add(_make_cv(older.job_analysis_id, created_at=merge_at - timedelta(hours=1)))
+    await db.commit()
+    assert (await get_application(from_merge.id, _STUB_USER_ID, db)).stale_cv is not None
+    assert (await get_application(older.id, _STUB_USER_ID, db)).stale_cv is None

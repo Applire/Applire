@@ -924,7 +924,8 @@
       "manual_edit": "Manual edit",
       "manual_role_add": "Manually added role",
       "agent_interview": "Agent interview",
-      "testimony": "Your own notes"
+      "testimony": "Your own notes",
+      "undo": "Undone"
     },
     "testimony": {
       "title": "Your own notes",

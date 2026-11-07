@@ -58,6 +58,12 @@ What does NOT count, by construction:
   document still gets the cue. A record without the tag (written before it
   existed) counts as before.
 
+An "undo last merge" (adversarial A-8) restores the pre-merge JSON, trail
+included, and appends ONE dated ``undo`` record listing what it took back
+(``snapshots._with_undo_record``): a document created after the merge and
+before the undo still carries the undone content and reads as behind; one
+created before the merge (``reverts_since``) or after the undo does not.
+
 The dossier's re-tailor nudge (E039/US221 ``stale_cv``, ``services/application.py``)
 imports its section list and limit test from here — one rule (ADR-066).
 """
@@ -168,7 +174,8 @@ def profile_updated_since(
     ``sections`` — the sections the document is written from (``None`` = any
     profile section; the CV passes :data:`CV_FEEDING_SECTIONS`). ``sources`` —
     the doors that count (``None`` = any: interview, agent interview, testimony,
-    CV upload/paste, LinkedIn/XING import, manual edit, role add; the CV
+    CV upload/paste, LinkedIn/XING import, manual edit, role add, the undo of
+    a merge (A-8); the CV
     page's auto-start passes :data:`INTERVIEW_SOURCES`); a record a document's
     own surface wrote is never one of a narrowed set. ``document_id`` — the
     document asking: records that document's own surface wrote are skipped
@@ -191,6 +198,12 @@ def profile_updated_since(
         ts = parse_trail_timestamp(record.get("timestamp"))
         if ts is None or ts <= created:
             continue
+        if record.get("source") == "undo":
+            # A-8: the undo took back what a merge wrote; a document created
+            # before that merge never held it and matches the profile again.
+            since = parse_trail_timestamp(record.get("reverts_since"))
+            if since is not None and created < since:
+                continue
         for change in record.get("changes") or []:
             if isinstance(change, dict) and _is_content_change(change, sections):
                 return True

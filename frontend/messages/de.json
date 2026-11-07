@@ -924,7 +924,8 @@
       "manual_edit": "Manuelle Bearbeitung",
       "manual_role_add": "Manuell hinzugefügte Rolle",
       "agent_interview": "Agent-Interview",
-      "testimony": "Eigene Notizen"
+      "testimony": "Eigene Notizen",
+      "undo": "Rückgängig gemacht"
     },
     "testimony": {
       "title": "Eigene Notizen",

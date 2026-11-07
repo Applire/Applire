@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -131,6 +131,79 @@ def _keep_user_managed_fields(restored: dict | None, current: dict | None) -> di
     return out
 
 
+#: How an undo reads each change it takes back.
+_REVERSED_ACTION = {"added": "removed", "removed": "added", "updated": "updated", "merged": "updated"}
+
+
+def _trail(profile_json: dict | None) -> list:
+    metadata = (profile_json or {}).get("metadata")
+    history = metadata.get("enrichment_history") if isinstance(metadata, dict) else None
+    return history if isinstance(history, list) else []
+
+
+def _with_undo_record(restored: dict, current: dict | None) -> dict:
+    """The restored profile, with ONE dated ``undo`` record on its trail
+    (Hazelnut b7 adversarial A-8, main MD7-10).
+
+    The restore puts the pre-merge trail back, so without it the newest record
+    would predate every document written from the merged content — the "Profil
+    aktualisiert" strip and the dossier's re-tailor nudge
+    (``services/profile_freshness``) would say nothing while the document still
+    carries the undone facts. The record lists every change the undo takes back
+    — the changes of each trail record the restore drops, reversed
+    (added → removed, removed → added, otherwise updated; old/new swapped) — so
+    the "what changed & why" surface reads it like any other record, and a
+    document created after the undone merge and before the undo reads as
+    behind. ``reverts_since`` (the earliest dropped record's timestamp) keeps a
+    document OLDER than the merge quiet: it never held the undone content, and
+    the profile is back to what it was written from. Always appended, even with
+    no change: the trail is unconditional (ADR-063 invariant 3).
+    """
+    from applire.schemas.profile import EnrichmentRecord, FieldChange
+
+    from applire.services.profile_freshness import parse_trail_timestamp
+
+    kept = {r.get("id") for r in _trail(restored) if isinstance(r, dict)}
+    changes: list[FieldChange] = []
+    taken_back: list[datetime | None] = []
+    for record in reversed(_trail(current)):
+        if not isinstance(record, dict) or record.get("id") in kept:
+            continue
+        taken_back.append(parse_trail_timestamp(record.get("timestamp")))
+        for change in reversed(record.get("changes") or []):
+            if not isinstance(change, dict):
+                continue
+            action = _REVERSED_ACTION.get(change.get("action"))
+            section, field = change.get("section"), change.get("field")
+            if action is None or not isinstance(section, str) or not isinstance(field, str):
+                continue
+            changes.append(
+                FieldChange(
+                    section=section,
+                    field=field,
+                    action=action,
+                    old_value=change.get("new_value"),
+                    new_value=change.get("old_value"),
+                    entity_id=change.get("entity_id"),
+                )
+            )
+    # A document older than everything taken back never held it; an unreadable
+    # timestamp leaves the bound off (the cue then shows — the safe direction).
+    reverts_since = min(taken_back) if taken_back and None not in taken_back else None
+    undo = EnrichmentRecord(
+        timestamp=datetime.now(timezone.utc),
+        source="undo",
+        reverts_since=reverts_since,
+        changes=changes,
+    )
+
+    out = dict(restored)
+    metadata = dict(out.get("metadata") or {}) if isinstance(out.get("metadata"), dict) else {}
+    metadata["enrichment_history"] = [*_trail(restored), undo.model_dump(mode="json")]
+    out["metadata"] = metadata
+    return out
+
+
 async def undo_last_merge(
     db: AsyncSession,
     *,
@@ -144,6 +217,9 @@ async def undo_last_merge(
     — i.e. the current profile head is no longer the merge this snapshot preceded.
     Idempotent: after a successful undo all snapshots are consumed, so a repeat
     call is a no-op (single-level "undo last merge"; multi-level history deferred).
+    The restored trail ends in one dated ``undo`` record (A-8,
+    :func:`_with_undo_record`), so documents written from the undone content
+    read as behind the profile.
     """
     profile = await _latest_profile(db, user_id)
     if profile is None:
@@ -173,7 +249,10 @@ async def undo_last_merge(
     ):
         raise UndoStale()
 
-    profile.profile_json = _keep_user_managed_fields(snapshot.profile_json, profile.profile_json)
+    profile.profile_json = _with_undo_record(
+        _keep_user_managed_fields(snapshot.profile_json, profile.profile_json),
+        profile.profile_json,
+    )
     # Consume the whole snapshot chain so a retry is a no-op (idempotent) and no
     # accidental multi-level peel-back occurs (MVP = undo the last merge only).
     await db.execute(

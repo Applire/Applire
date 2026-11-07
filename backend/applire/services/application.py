@@ -784,7 +784,7 @@ async def _enrich_stale_cv(
     if not profile_json:
         return
     trail = (profile_json.get("metadata") or {}).get("enrichment_history") or []
-    records: list[tuple[datetime, list[dict], int, str | None]] = []
+    records: list[tuple[datetime, list[dict], int, str | None, datetime | None]] = []
     for rec in trail:
         ts = _parse_trail_timestamp(rec.get("timestamp"))
         if ts is None:
@@ -798,7 +798,13 @@ async def _enrich_stale_cv(
         if changes or limits:
             # A-5 (MD7-10): the document whose own surface made this write.
             origin = rec.get("document_id")
-            records.append((ts, changes, limits, str(origin) if origin is not None else None))
+            # A-8: an undo record puts only CVs newer than the undone merge behind.
+            since = (
+                _parse_trail_timestamp(rec.get("reverts_since"))
+                if rec.get("source") == "undo"
+                else None
+            )
+            records.append((ts, changes, limits, str(origin) if origin is not None else None, since))
     if not records:
         return
 
@@ -831,10 +837,13 @@ async def _enrich_stale_cv(
         cv_created_at = _as_utc(latest.created_at)
         # A-5: a write this CV's own surface made (review card, section assist,
         # section edit → profile) is already in it — never "the profile grew".
-        relevant = [r for r in records if r[3] != str(latest.id)]
+        relevant = [
+            r for r in records
+            if r[3] != str(latest.id) and not (r[4] is not None and cv_created_at < r[4])
+        ]
         if not relevant:
             continue
-        enriched_at = max(ts for ts, _, _, _ in relevant)
+        enriched_at = max(r[0] for r in relevant)
         if enriched_at <= cv_created_at:
             continue
         dismissed_at = _as_utc(item.stale_cv_dismissed_at)
@@ -843,7 +852,7 @@ async def _enrich_stale_cv(
 
         section_counts: dict[str, int] = {}
         new_limits = 0
-        for ts, changes, limits, _ in relevant:
+        for ts, changes, limits, _, _ in relevant:
             if ts <= cv_created_at:
                 continue
             new_limits += limits
