@@ -5,7 +5,7 @@ language pass as it was handed.
 
 UX audit round 3: the language reviewer flagged the posting's own "Supply Chain" chip
 and the refiner translated it, although both prompts say POSTING TERMS stay as written;
-the CV lost the keyword. The replay from persisted input did not recur (0/20 + 0/20),
+the CV lost the keyword. The replay from persisted input did not recur (reviewer 0/30, refiner 0/15),
 so the restore is a structural settle guard (ADR-069 cl. 4), not a prompt sentence.
 Synthetic data.
 """

@@ -1177,9 +1177,10 @@ def _settle_posting_term_chips(
     one". UX audit round 3 (2026-11-07 LLM log, records 341/346): the luna reviewer
     flagged "Skill: Supply Chain" anyway and the refiner obeyed — the CV lost the
     posting's keyword as "Lieferkette". Replayed from the persisted input that
-    failure did not recur (reviewer 0/20 flags, refiner 0/20 translations; luna with
-    reasoning off and on, Sonnet 5.5), so a louder prompt sentence cannot be shown to
-    change anything; the loss is rare and silent, and this restores exactly it.
+    failure did not recur (as captured: reviewer rounds 1+2 0/30 flags, refiner 0/15
+    translations; luna reasoning off and on, Sonnet 5.5, n=5 each), so a louder prompt
+    sentence cannot be shown to change anything (a v6 wrapper sentence was measured
+    and not kept); the loss is rare and silent, and this restores exactly it.
     Applies to the ``skills`` chips only — a posting term inside a prose bullet is
     not restorable without judging the sentence around it.
     """
