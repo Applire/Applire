@@ -1960,6 +1960,7 @@
       "confirmation_resolved": "Deine Antwort auf eine Rückfrage wurde festgehalten.",
       "role_added": "Als neu angetretene Position ergänzt.",
       "role_closed": "Diese Position als beendet markiert.",
+      "role_ended_by_date": "Als beendet markiert – das angegebene Enddatum liegt in der Vergangenheit.",
       "gap_marked_na": "Diese Lücke als „nicht zutreffend“ markiert.",
       "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert.",
       "denial_noted": "Als selbst genannte Einschränkung vermerkt.",

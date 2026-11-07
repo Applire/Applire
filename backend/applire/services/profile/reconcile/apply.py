@@ -36,6 +36,7 @@ import typing
 import unicodedata
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Literal, Union
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -831,6 +832,11 @@ def apply_ops(
     # project. Unconditional and idempotent — it must also correct an entry an
     # unrelated op merely touched, and an entry no op touched at all.
     project_profile_role_facts(new_profile)
+
+    # #822 (ADR-063 amended 2026-11-07) — a role is never stored both ended and
+    # current. Same seat and same reason as the role-facts projection above:
+    # after every op, on the single committer, whatever the batch touched.
+    close_ended_roles(new_profile, changes)
 
     # Defense in depth (ADR-046): the write-time coercion above is the real fix,
     # but apply_ops must NEVER hand back a profile that won't re-load. Round-trip
@@ -2125,6 +2131,71 @@ def _apply_close_role(
                 rationale_key="role_closed",
             )
         )
+
+
+#: The sections whose entries carry the #155 ``is_current`` tri-state.
+_DATED_ENTRY_SECTIONS = ("work_experience", "projects", "volunteer_activities")
+
+
+def end_date_has_passed(end_date: Any, today: date) -> bool:
+    """True when a stated end date lies before ``today``, read at the precision
+    it states (ADR-013 amended, 783:L65) — a FACT, ADR-062 cl. 1.
+
+    A full date ends the day before today at the latest; a month ends only once
+    the month is over (a role ending this month is still running); a bare year
+    only once the year is over. An unparseable value (``"heute"``) or a future
+    date (a fixed-term contract) is not an end that has passed.
+    """
+    norm = normalise_partial_date(end_date)
+    if not norm:
+        return False
+    if len(norm) == 10:
+        return norm < today.isoformat()
+    if len(norm) == 7:
+        return norm < today.strftime("%Y-%m")
+    if len(norm) == 4:
+        return norm < str(today.year)
+    return False
+
+
+def close_ended_roles(
+    profile: MasterProfileData,
+    changes: list[FieldChange],
+    *,
+    today: date | None = None,
+) -> None:
+    """#822 (ADR-063 amended 2026-11-07) — clear ``is_current`` on every entry
+    whose stated end date has passed, with one receipt per entry.
+
+    The contradiction this resolves is already in the stored entry (an end date
+    AND "current"); the pass never closes a role without a past end date, and it
+    is NOT an "only one current role" rule — a parallel role with no end date
+    stays open (ADR-063 amendment 2026-08-09 note). The flag-only write is the
+    resolution of a stated date, not the ``CloseRole`` act: no op gains the flip.
+    Shared by migration 0087's one-off repair, so the predicate has one home.
+    """
+    today = today or date.today()
+    for section in _DATED_ENTRY_SECTIONS:
+        for entry in getattr(profile, section, None) or []:
+            if getattr(entry, "is_current", None) is not True:
+                continue
+            if not end_date_has_passed(getattr(entry, "end_date", None), today):
+                continue
+            entry.is_current = False
+            changes.append(
+                FieldChange(
+                    section=section,
+                    field=f"[{entry.id}].is_current",
+                    action="updated",
+                    old_value=True,
+                    new_value=False,
+                    rationale=(
+                        f"Its end date ({entry.end_date}) has passed, so this "
+                        "is no longer marked as current."
+                    ),
+                    rationale_key="role_ended_by_date",
+                )
+            )
 
 
 def _apply_set_profile_meta(

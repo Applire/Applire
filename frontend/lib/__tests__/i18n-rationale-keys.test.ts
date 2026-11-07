@@ -69,6 +69,8 @@ const BACKEND_RATIONALE_KEYS = [
   "reconcile_updated",
   "role_added",
   "role_closed",
+  // #822 — reconcile/apply.py::close_ended_roles
+  "role_ended_by_date",
   // backend/applire/services/profile/__init__.py
   "profile_updated",
 ];

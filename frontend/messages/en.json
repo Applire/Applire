@@ -1960,6 +1960,7 @@
       "confirmation_resolved": "Recorded your answer to a confirmation question.",
       "role_added": "Added as the role you have just started.",
       "role_closed": "Marked this role as ended.",
+      "role_ended_by_date": "Marked as ended – its end date has passed.",
       "gap_marked_na": "Marked this gap as not applicable to you.",
       "denial_probe_asked": "Recorded that the follow-up about this limit has been asked — your stated limit itself is unchanged.",
       "denial_noted": "Noted as a limit you told us about.",
