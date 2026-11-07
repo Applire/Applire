@@ -17,7 +17,7 @@ import pytest
 from applire.services.oracle import audit_document
 
 PROFILE = {
-    "personal_info": {"name": "Jonas Beispiel"},
+    "personal_info": {"name": "Jonas Beispiel", "location": "Musterstadt"},
     "professional_summary": {"de": "Produktionsleiter mit zwölf Jahren Erfahrung in der Kunststofffertigung."},
     "skills": [
         {"name": "Supply Chain", "category": "technical"},
@@ -116,6 +116,7 @@ async def test_the_judge_sees_the_matchers_units_skills_first_never_the_personal
     assert "Schnittstelle zu Einkauf" in prompt
     assert prompt.index("Shopfloor-Management") < prompt.index("Schnittstelle zu Einkauf")
     assert "Jonas Beispiel" not in prompt
+    assert "Musterstadt" not in prompt  # personal_info.location is a claimable unit, never skill evidence
 
 
 @pytest.mark.asyncio
