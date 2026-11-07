@@ -242,6 +242,5 @@ def test_786_290_the_note_names_the_profile_as_the_candidate_knows_it():
     from applire.prompts.review_severity import review_output_schema
 
     schema = review_output_schema("i", "f", plain_note=True)
-    assert "dein Profil" in schema
-    assert "never the source, the vault or the input" in schema
-    assert "dein Profil" not in review_output_schema("i", "f", plain_note=False)
+    assert "say your profile, never source" in schema
+    assert "never source" not in review_output_schema("i", "f", plain_note=False)

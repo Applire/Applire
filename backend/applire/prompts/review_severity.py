@@ -85,12 +85,12 @@ _STRUCTURAL_FIELDS = """,
 # 786:290 (ux-audit-3, WP-T build 7): the input calls the profile "source"
 # (34x, "CANDIDATE PROFILE (source of truth)"), and luna's notes said "Die Quelle
 # belegt …" to the candidate (LLM log 2026-11-07 l.378/384). The note names the
-# profile the way the candidate knows it.
+# profile the way the candidate knows it. REPLACED, not appended (+2 chars): the
+# terminal-reviewer ratchets (letter 17,000 / CV 14,750) had 5 / 17 chars left;
+# "the prompt names" is carried by note_language_line's own sentence.
 _PLAIN_NOTE_FIELD = """,
      "note": "the same point for the candidate: ONE short plain sentence in the NOTE \
-LANGUAGE the prompt names. To the candidate the CANDIDATE PROFILE is their profile (German: \
-dein Profil) — never the source, the vault or the input; no field names, indices, ids, check \
-numbers or document-craft words such as bullet, skill list or body text\""""
+LANGUAGE; say your profile, never source; no field names, ids, check numbers\""""
 
 
 def note_language_line(document_language: str | None) -> str:
