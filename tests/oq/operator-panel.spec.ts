@@ -161,7 +161,7 @@ test.describe("Operator panel", () => {
       "aria-expanded",
       "true"
     );
-    await expect(page.getByTestId("operator-panel-row-retention")).toContainText("51 h ago");
+    await expect(page.getByTestId("operator-panel-row-retention")).toContainText("51 hours ago");
     await expect(page.getByTestId("operator-panel-row-backup")).toContainText("No backup yet");
   });
 
@@ -171,7 +171,7 @@ test.describe("Operator panel", () => {
     // field that disappears for four of six providers reads as a bug.
     await mount(page, degraded());
     await expect(page.getByTestId("operator-panel-row-provider")).toContainText(
-      "This provider reports no balance"
+      "Balance: Applire cannot read it for this provider"
     );
   });
 
