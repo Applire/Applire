@@ -59,6 +59,11 @@ class CVSummary(BaseModel):
     cv_id: uuid.UUID
     pdf_url: str
     expires_at: datetime
+    # 789:254 (ADR-016 amended 2026-11-07, WP-F): an interview door added at
+    # least one fact to the owner's profile AFTER this CV was generated — the
+    # letter's L-1 predicate (`letter_predates_interview`), a fact, never a
+    # judgement (ADR-062 cl. 1). Additive; False when unreadable.
+    predates_interview: bool = False
 
 
 class CoverLetterSummary(BaseModel):

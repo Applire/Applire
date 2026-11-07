@@ -58,6 +58,7 @@ from applire.services.cv_assist import (
     submit_assist_answer,
 )
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
+from applire.services.flow.orchestrator import record_generated_cv
 
 router = APIRouter(prefix="/api/cv", tags=["cv"])
 
@@ -86,7 +87,7 @@ async def post_generate(
     # the port from request.base_url, pointing agents/UIs at the wrong origin.
     base_url = settings.applire_base_url.rstrip("/")
     try:
-        return await generate_cv(
+        response = await generate_cv(
             body.job_id,
             db,
             provider,
@@ -96,6 +97,12 @@ async def post_generate(
             target_pages=body.target_pages,
             user_id=_auth.id,
         )
+        # 789:248 (ADR-016 amended 2026-11-07, WP-F): record the finished CV on
+        # its flow server-side. Scheduled AFTER generate_cv's render task —
+        # a response's background tasks run in order — so the person may leave
+        # the page while it is written. Web door only (the agent keeps its ledger).
+        background_tasks.add_task(record_generated_cv, response.cv_id, user_id=_auth.id)
+        return response
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except HTTPException:
