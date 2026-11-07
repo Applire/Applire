@@ -161,6 +161,8 @@
     "masterProfileCreated": "Dein Profil steht:",
     "masterProfileUpdated": "Dein Profil ist aktualisiert:",
     "cvParsedPartial": "{parsed} von {total} Lebensläufen wurden gelesen — die übrigen konnten nicht verarbeitet und nicht zum Profil hinzugefügt werden.",
+    "cvParsedPartialNamed": "{parsed} von {total} Lebensläufen wurden gelesen. Nicht gelesen: {files} – nichts davon ist in deinem Profil. Unter „Mein Profil → Letzte Uploads“ kannst du sie erneut hochladen.",
+    "failedFileQuoted": "„{name}“",
     "jdEchoTitle": "Das haben wir aus der Stellenanzeige gelesen",
     "jdEchoSubtitle": "Prüfe kurz, ob das zur Anzeige passt. Stimmt etwas nicht, passt auch der Abgleich darüber nicht.",
     "jdEchoRole": "Rolle",

@@ -161,6 +161,8 @@
     "masterProfileCreated": "Your profile is ready:",
     "masterProfileUpdated": "Your profile is updated:",
     "cvParsedPartial": "{parsed} of {total} CVs were read — the rest couldn't be parsed and weren't added to your profile.",
+    "cvParsedPartialNamed": "{parsed} of {total} CVs were read. Not read: {files} – nothing from them is in your profile. You can upload them again under “My Profile → Recent uploads”.",
+    "failedFileQuoted": "“{name}”",
     "jdEchoTitle": "What we read from the job ad",
     "jdEchoSubtitle": "Check this matches the posting. If something is off, the match above is off too.",
     "jdEchoRole": "Role",
