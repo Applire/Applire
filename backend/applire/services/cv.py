@@ -132,7 +132,13 @@ from applire.constants import (
     LLM_REVIEW_MAX_RETRIES,
     SEGMENT_MAX_TOKENS,
 )
-from applire.exceptions import LLMProviderUnavailableError, LLMTimeoutError, LLMTruncatedError
+from applire.exceptions import (
+    LLMProviderUnavailableError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+    LLMTruncatedError,
+    is_provider_outage,
+)
 
 
 def classify_generation_error(exc: BaseException, *, user_id: uuid.UUID | None = None) -> str:
@@ -151,6 +157,12 @@ def classify_generation_error(exc: BaseException, *, user_id: uuid.UUID | None =
     # MD3-2 (Hazelnut build 3, WP-FR): an outage of the WRITER call (the reviewer
     # seats degrade instead, ADR-021) is its own retryable code, never the generic one.
     if isinstance(exc, LLMProviderUnavailableError):
+        return "provider_unavailable"
+    # A-7 (adversarial, Hazelnut build 7): ONE verdict with the raised-error door
+    # (`internal_errors._retry_prefix`) — a 429 that outlived the provider's own
+    # retries and an unclassified 5xx are transient on both doors. The code family
+    # is the existing retryable one; `llm_timeout` stays O's separate code.
+    if isinstance(exc, LLMRateLimitError) or is_provider_outage(exc):
         return "provider_unavailable"
     return "generation_failed"
 

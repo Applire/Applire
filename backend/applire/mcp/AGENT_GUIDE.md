@@ -621,8 +621,10 @@ apply it.
   runs for minutes without progress output; that is normal.
 - **A failed generation says whether to retry.** `status: failed` carries
   `error_code` and `retryable`. `retryable: true` (`llm_timeout`,
-  `provider_unavailable`, `llm_truncated`) is the provider's side: send the
-  same call once more, unchanged; if it fails again, tell the human and stop.
+  `provider_unavailable`, `llm_truncated`) is the provider's side (a timeout, a
+  rate limit, a 5xx or a cut-off answer — the same verdict as a raised
+  `provider_rate_limited (safe to retry …)`): send the same call once more,
+  unchanged; if it fails again, tell the human and stop.
   `retryable: false` (`generation_failed`): do not loop — report it. A raised
   error that begins `provider_timeout (safe to retry …)` means the same.
 - **UI visibility**: a rendered or generated document appears in the user's
