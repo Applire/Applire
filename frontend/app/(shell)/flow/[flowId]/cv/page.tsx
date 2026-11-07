@@ -26,6 +26,8 @@ import { useRouter } from "next/navigation";
 import { TemplateSelector } from "@/components/cv/TemplateSelector";
 import { TargetPagesSelect } from "@/components/cv/TargetPagesSelect";
 import { GenerationProgress } from "@/components/cv/GenerationProgress";
+import { CvLanguageChoice } from "@/components/cv/CvLanguageChoice";
+import { MobileDocumentSwitch } from "@/components/document/MobileDocumentSwitch";
 import { CVDocument, type CVDocumentHandle } from "@/components/cv/CVDocument";
 import { PageOverflowCard } from "@/components/cv/PageOverflowCard";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
@@ -47,7 +49,7 @@ type PageNav = { kind: "tab"; id: string } | { kind: "sheet"; proceed: () => voi
 import { crossDocumentHandle, letterOnlyFacts } from "@/components/review/CrossDocumentSection";
 import { DesignTab } from "@/components/cv/DesignTab";
 import { CVActionsTab } from "@/components/cv/CVActionsTab";
-import { ClipboardCheck, Palette, Zap } from "lucide-react";
+import { ClipboardCheck, Info, Palette, Zap } from "lucide-react";
 import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
@@ -90,6 +92,7 @@ const CV_TEMPLATES: readonly CVTemplate[] = ["classic_german", "modern_swiss", "
 
 interface FlowState {
   job_id: string;
+  current_step?: string;
   application_id?: string | null;
   job_summary?: { role_title: string } | null;
   gap_summary?: {
@@ -101,7 +104,9 @@ interface FlowState {
   } | null;
   // D-1: the backend's CVSummary is {cv_id, pdf_url, expires_at} — no sections.
   // Section labels come from GET /api/cv/{id}/sections (`cvSections`).
-  cv_summary?: { cv_id: string; pdf_url: string; expires_at: string } | null;
+  // 789:254 (ADR-016 amended 2026-11-07): `predates_interview` — an interview
+  // door added a fact after this CV was generated (a fact, ADR-062 cl. 1).
+  cv_summary?: { cv_id: string; pdf_url: string; expires_at: string; predates_interview?: boolean } | null;
   cover_letter_summary?: { cover_letter_id: string } | null;
 }
 
@@ -123,6 +128,11 @@ export default function CVPage({
   const [template, setTemplate] = useState<CVTemplate>("classic_german");
   const [flowState, setFlowState] = useState<FlowState | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  // 789:254: the flow came back from the interview (cv_generation) with a CV
+  // that predates it — start the new version once on arrival (F-4 = A).
+  const [interviewRegenPending, setInterviewRegenPending] = useState(false);
+  // The generation running now writes the post-interview version (subtitle).
+  const [regenFromInterview, setRegenFromInterview] = useState(false);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   // ADR-040 (amended 2026-07-04): the pre-download AI-content notice (nudge, not gate).
@@ -352,6 +362,18 @@ export default function CVPage({
         if (fs.cv_summary?.cv_id) {
           setCvId(fs.cv_summary.cv_id);
           setPhase("preview");
+          if (fs.current_step === "cv_generation") {
+            if (fs.cv_summary.predates_interview) {
+              // 789:254: "Lebenslauf erstellen" after the interview really
+              // writes a new version (same template + page target; the #737
+              // confirmation first when the CV carries own edits).
+              setInterviewRegenPending(true);
+            } else {
+              // The CV is current and the flow never reached `complete` (the
+              // page was left before the browser advanced it) — finish it.
+              void advanceFlow(fs.cv_summary.cv_id);
+            }
+          }
           return;
         }
 
@@ -544,7 +566,45 @@ export default function CVPage({
     };
   }, [cvId, phase]);
 
-  async function handleGenerate(tpl: CVTemplate) {
+  // 789:254 (F-4): the post-interview new version, once per arrival. Reads the
+  // shown CV's own template + page target and its edited sections first, so
+  // the new version is "the same CV, with the interview" and a section edit
+  // that would not carry over is named in the #737 dialog before anything runs.
+  // One shot: clearing the pending flag re-runs this effect, so a cleanup-based
+  // cancel would drop the reads in flight; the ref keeps it to one run instead.
+  const interviewRegenStarted = useRef(false);
+  useEffect(() => {
+    if (!interviewRegenPending || !cvId || !flowState || interviewRegenStarted.current) return;
+    interviewRegenStarted.current = true;
+    setInterviewRegenPending(false);
+    Promise.all([
+      fetch(`${API_BASE}/api/cv/${cvId}/status`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`${API_BASE}/api/cv/${cvId}/sections`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([status, sections]: [
+      { template?: string | null; target_pages?: number | null } | null,
+      { sections?: SectionItem[] } | null,
+    ]) => {
+      const tpl =
+        status?.template && (CV_TEMPLATES as readonly string[]).includes(status.template)
+          ? (status.template as CVTemplate)
+          : template;
+      const pages = status?.target_pages ?? targetPages;
+      const start = () => {
+        setRegenFromInterview(true);
+        void handleGenerate(tpl, pages);
+      };
+      const list = sections?.sections ?? [];
+      if (list.length > 0) setCvSections(list);
+      if (list.some((sec) => sec.has_override)) {
+        setNewVersionAction(() => start);
+      } else {
+        start();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one shot per arrival
+  }, [interviewRegenPending, cvId, flowState]);
+
+  async function handleGenerate(tpl: CVTemplate, pages: number = targetPages) {
     if (!flowState) return;
     setTemplate(tpl);
     setIsGenerating(true);
@@ -552,7 +612,7 @@ export default function CVPage({
       const res = await fetch(`${API_BASE}/api/cv/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: flowState.job_id, template: tpl, target_pages: targetPages }),
+        body: JSON.stringify({ job_id: flowState.job_id, template: tpl, target_pages: pages }),
       });
       if (!res.ok) return;
       const data: { cv_id: string; status: string; expires_at: string } = await res.json();
@@ -565,6 +625,7 @@ export default function CVPage({
 
   function handleReady(readyCvId: string) {
     setCvId(readyCvId);
+    setRegenFromInterview(false);
     fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1082,6 +1143,34 @@ export default function CVPage({
         <DocumentWorkspace
           preview={
             <>
+              {/* 789:252 — the phone's way to the letter (the panel is hidden below md). */}
+              <MobileDocumentSwitch flowId={flowId} activeDoc="cv" documentLanguage={docLanguage} />
+              {/* 789:254 — the CV on screen predates facts the interview added
+                  (mirror of L-3 on the letter). Not dismissible: it goes once a
+                  newer CV is recorded. */}
+              {flowState?.cv_summary?.predates_interview && flowState.cv_summary.cv_id === cvId && (
+                <div
+                  className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-outline-variant bg-surface-container px-3 py-2"
+                  data-testid="cv-predates-interview"
+                  role="status"
+                >
+                  <Info className="w-4 h-4 shrink-0 text-primary" aria-hidden="true" />
+                  <p className="flex-1 min-w-[12rem] text-sm text-on-surface">{t("predatesInterview")}</p>
+                  <button
+                    type="button"
+                    data-testid="cv-predates-interview-action"
+                    onClick={() =>
+                      requestNewVersion(() => {
+                        setRegenFromInterview(true);
+                        void handleGenerate(template);
+                      })
+                    }
+                    className="text-xs font-bold px-3 py-1.5 rounded-full bg-primary text-white hover:opacity-90"
+                  >
+                    {t("predatesInterviewAction")}
+                  </button>
+                </div>
+              )}
               <CVDocument
                 cvId={cvId}
                 ref={cvDocRef}
@@ -1286,7 +1375,17 @@ export default function CVPage({
           onGenerate={handleGenerate}
           isLoading={isGenerating}
           extraControls={
-            <TargetPagesSelect value={targetPages} onChange={(v) => setTargetPages(v ?? 2)} />
+            <>
+              <TargetPagesSelect value={targetPages} onChange={(v) => setTargetPages(v ?? 2)} />
+              {/* 789:264 — the language follows the posting unless chosen here. */}
+              {flowState?.application_id && flowState.job_id && (
+                <CvLanguageChoice
+                  applicationId={flowState.application_id}
+                  jobId={flowState.job_id}
+                  apiBase={API_BASE}
+                />
+              )}
+            </>
           }
         />
       )}
@@ -1295,6 +1394,7 @@ export default function CVPage({
         <GenerationProgress
           cvId={cvId}
           flowId={flowId}
+          subtitle={regenFromInterview ? t("regeneratingFromInterview") : undefined}
           onReady={handleReady}
           onRetry={() => setPhase("template_select")}
         />
