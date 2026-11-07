@@ -139,8 +139,10 @@ export default function CVPage({
   // 789:254: the flow came back from the interview (cv_generation) with a CV
   // that predates it — start the new version once on arrival (F-4 = A).
   const [interviewRegenPending, setInterviewRegenPending] = useState(false);
-  // The generation running now writes the post-interview version (subtitle).
-  const [regenFromInterview, setRegenFromInterview] = useState(false);
+  // Why the generation running now is written (its subtitle): the F-4
+  // post-interview auto-start says "interview"; the F-2 strip's [Neu erstellen]
+  // is source-neutral (the change may be an import or a manual edit — A-12).
+  const [regenReason, setRegenReason] = useState<"interview" | "profile" | null>(null);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   // ADR-040 (amended 2026-07-04): the pre-download AI-content notice (nudge, not gate).
@@ -598,7 +600,7 @@ export default function CVPage({
           : template;
       const pages = status?.target_pages ?? targetPages;
       const start = () => {
-        setRegenFromInterview(true);
+        setRegenReason("interview");
         void handleGenerate(tpl, pages);
       };
       const list = sections?.sections ?? [];
@@ -633,7 +635,7 @@ export default function CVPage({
 
   function handleReady(readyCvId: string) {
     setCvId(readyCvId);
-    setRegenFromInterview(false);
+    setRegenReason(null);
     fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1169,7 +1171,7 @@ export default function CVPage({
                     data-testid="cv-profile-updated-action"
                     onClick={() =>
                       requestNewVersion(() => {
-                        setRegenFromInterview(true);
+                        setRegenReason("profile");
                         void handleGenerate(template);
                       })
                     }
@@ -1405,9 +1407,19 @@ export default function CVPage({
         <GenerationProgress
           cvId={cvId}
           flowId={flowId}
-          subtitle={regenFromInterview ? t("regeneratingFromInterview") : undefined}
+          subtitle={
+            regenReason === "interview"
+              ? t("regeneratingFromInterview")
+              : regenReason === "profile"
+                ? t("regeneratingFromProfile")
+                : undefined
+          }
           onReady={handleReady}
-          onRetry={() => setPhase("template_select")}
+          onRetry={() => {
+            // The next generation is picked by hand — no inherited reason.
+            setRegenReason(null);
+            setPhase("template_select");
+          }}
         />
       )}
 

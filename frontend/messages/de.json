@@ -500,6 +500,7 @@
     "profileUpdatedSince": "Dein Profil wurde seit der Erstellung dieses Lebenslaufs aktualisiert – die Änderungen stehen noch nicht darin.",
     "profileUpdatedAction": "Neu erstellen",
     "regeneratingFromInterview": "Neue Fassung mit deinen Antworten aus dem Interview",
+    "regeneratingFromProfile": "Neue Fassung mit deinem aktuellen Profil",
     "languageFollowsPosting": "Wie die Stellenanzeige – wähle hier, wenn dein Lebenslauf in der anderen Sprache sein soll.",
     "generationFailed": "Generierung fehlgeschlagen.",
     "generationFailedTruncated": "Dein Lebenslauf ließ sich nicht in einem Durchgang erstellen — er ist dem aktuellen KI-Modell vielleicht zu umfangreich. Bitte versuche es erneut.",

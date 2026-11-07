@@ -171,6 +171,16 @@ describe("CVPage — 789:254 the post-interview version", () => {
     await waitFor(() => expect(generateCalls(calls)).toHaveLength(1));
   });
 
+  it("A-12: the strip's new version names the current profile, not the interview (the change may be an import or an edit)", async () => {
+    const calls = mockFetch({ step: "complete", predates: false, updated: true });
+    await mount();
+    fireEvent.click((await screen.findAllByTestId("cv-profile-updated-action"))[0]);
+    fireEvent.click(await screen.findByTestId("edit-new-version-confirm"));
+    await waitFor(() => expect(generateCalls(calls)).toHaveLength(1));
+    expect(await screen.findByText("Neue Fassung mit deinem aktuellen Profil")).toBeInTheDocument();
+    expect(screen.queryByText("Neue Fassung mit deinen Antworten aus dem Interview")).toBeNull();
+  });
+
   it("a current CV at cv_generation is not regenerated; the page finishes the flow instead", async () => {
     const calls = mockFetch({ step: "cv_generation", predates: false });
     await mount();
