@@ -1375,7 +1375,10 @@ export default function CVPage({
           onGenerate={handleGenerate}
           isLoading={isGenerating}
           extraControls={
-            <>
+            // 789:264 — two controls in TemplateSelector's one right-aligned row
+            // pushed the page-target label off a 390 px screen: stacked on the
+            // phone, side by side from `sm`.
+            <div className="flex w-full flex-col items-end gap-4 sm:flex-row sm:items-start sm:justify-end sm:gap-6">
               <TargetPagesSelect value={targetPages} onChange={(v) => setTargetPages(v ?? 2)} />
               {/* 789:264 — the language follows the posting unless chosen here. */}
               {flowState?.application_id && flowState.job_id && (
@@ -1385,7 +1388,7 @@ export default function CVPage({
                   apiBase={API_BASE}
                 />
               )}
-            </>
+            </div>
           }
         />
       )}

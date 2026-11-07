@@ -51,7 +51,7 @@ export function CvLanguageChoice({ applicationId, jobId, apiBase }: CvLanguageCh
   if (detected === undefined || override === undefined) return null;
 
   return (
-    <div data-testid="cv-language-choice" className="flex flex-col gap-1">
+    <div data-testid="cv-language-choice" className="flex max-w-xs flex-col items-end gap-1 text-right">
       <DocumentLanguageControl
         applicationId={applicationId}
         detectedLanguage={detected}
