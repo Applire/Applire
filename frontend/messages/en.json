@@ -2196,6 +2196,7 @@
       "unreviewedLegacyTitle": "Revised after the last check",
       "unreviewedLegacyBody": "Applire revised this document once more after the last check and did not check the result again. Which passages changed is not stored for this older document. Read it yourself before sending – or let Applire write a new version.",
       "recheck": "Check now",
+      "removedPassage": "This passage was removed.",
       "recheckStill": "The check is not available right now. Try again later.",
       "terminalNotRunBody": "The final review did not run for this document. It only runs while writing – a new version catches up on it.",
       "writingOnlyBody": "This check did not run for this document. It only runs while writing – a new version catches up on it.",

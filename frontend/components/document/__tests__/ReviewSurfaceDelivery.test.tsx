@@ -500,6 +500,18 @@ describe("R-2 — the „changed after the last check“ card", () => {
     expect(count()).toBe("1");
   });
 
+  it("786:290 — a passage removed with nothing in its place says so; a rewrite does not", () => {
+    const removal = [
+      { section_id: "work_history[0]", before: "Schnittstelle zu Einkauf. Führt zwei Bereiche.", after: "Führt zwei Bereiche." },
+    ];
+    render(withIntl(<ReviewSurface {...withCheck(unverified({ unreviewed_changes: [...removal, CHANGES[1]] }))} />, "de"));
+    const hunks = within(screen.getByTestId("review-unknown-changes")).getAllByTestId("review-takeout-hunk");
+    expect(hunks).toHaveLength(2);
+    expect(within(hunks[0]).getByTestId("review-takeout-before").textContent).toContain("Schnittstelle zu Einkauf.");
+    expect(within(hunks[0]).getByTestId("review-takeout-removed").textContent).toBe("Diese Stelle wurde gestrichen.");
+    expect(within(hunks[1]).queryByTestId("review-takeout-removed")).toBeNull();
+  });
+
   it("no plain note → no „Die Prüfung hatte angemerkt“ block; the letter says „Anschreiben“", () => {
     render(withIntl(<ReviewSurface {...withCheck(unverified({ notes: [{ kind: "finding" }] }), { documentKind: "cover-letter" })} />, "de"));
     const box = screen.getByTestId("review-unknown");

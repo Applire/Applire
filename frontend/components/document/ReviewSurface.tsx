@@ -928,6 +928,12 @@ export function ReviewSurface({
                 {u}
               </span>
             ))}
+            {/* 786:290 — a pure removal says so, never struck text with nothing beneath. */}
+            {h.before.length > 0 && h.after.length === 0 && (
+              <span data-testid="review-takeout-removed" className="text-xs italic leading-snug text-on-surface-variant">
+                {t("delivery.removedPassage")}
+              </span>
+            )}
             {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
             {h.elidedAfter && <span aria-hidden="true" className="text-xs text-on-surface-variant">…</span>}
           </div>
