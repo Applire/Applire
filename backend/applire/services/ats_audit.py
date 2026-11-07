@@ -1173,6 +1173,83 @@ def keyword_matches(
     return out
 
 
+def _form_names_its_own_word(
+    form_norm: str,
+    text_norm: str,
+    own_norms: set[str],
+    vault_words: frozenset[str] = frozenset(),
+) -> bool:
+    """UX audit 4 (Kaile, Sonnet 5.5; ADR-062 cl. 1 — a word boundary is a fact):
+    does some occurrence of ``form_norm`` (or a fold variant) in ``text_norm`` claim
+    the term?
+
+    Two occurrences do not:
+
+    * **A sibling compound.** The term is itself a compound ending in the form
+      (``own_norms`` holds "konzernkonsolidierung" for the bare ledger form
+      "konsolidierung"), and the document word puts ANOTHER modifier in front of
+      it: "Kapitalkonsolidierung" is no claim of "Konzernkonsolidierung". A form
+      that is the whole term keeps its substring reach ("Führung" in
+      "Mitarbeiterführung", "Lebensmittel" in "Lebensmittelproduktion").
+    * **The profile's own word.** The document word occurs verbatim in the
+      profile's positive text (``vault_words``: "konsolidierten" in "erstellt die
+      konsolidierten Quartalszahlen mit") — the same literal-grounding question
+      as ``literally_grounded``, asked of the word that carries the match.
+
+    Every other occurrence claims the term, as before."""
+    for v in _fold_variants(form_norm):
+        own_compounds = [o for o in own_norms if " " not in o and len(o) > len(v) and o.endswith(v)]
+        start = 0
+        while (i := text_norm.find(v, start)) >= 0:
+            start = i + 1
+            a = i
+            while a > 0 and _WORD_CHAR_RE.match(text_norm[a - 1]):
+                a -= 1
+            b = i + len(v)
+            while b < len(text_norm) and _WORD_CHAR_RE.match(text_norm[b]):
+                b += 1
+            word = text_norm[a:b]
+            if word in own_norms:
+                return True
+            if word in vault_words:
+                continue
+            if a < i and own_compounds:
+                continue  # another modifier in front: a sibling compound
+            return True
+    return False
+
+
+_WORD_CHAR_RE = re.compile(r"\w")
+
+
+def _vault_words(vault_text_norm: str | None) -> frozenset[str]:
+    return frozenset(re.findall(r"\w+", vault_text_norm)) if vault_text_norm else frozenset()
+
+
+def claim_keyword_matches(
+    keyword: str,
+    text_norm: str,
+    ledger: list[dict[str, Any]] | None = None,
+    vault_words: frozenset[str] = frozenset(),
+) -> list[KeywordMatch]:
+    """The CLAIM half of :func:`keyword_matches` — the forms that name the term in
+    a word of its own that the profile does not already carry
+    (:func:`_form_names_its_own_word`). Presence, coverage and the score keep the
+    generous substring predicate; only the unsupported-claim accusation, its
+    recorded forms and its located sentences read this. A stem-only hit is a
+    whole-token fact already and stays."""
+    out = keyword_matches(keyword, text_norm, ledger)
+    if not out:
+        return out
+    own = {
+        v for f in _keyword_search_forms(keyword, ledger) for v in _fold_variants(_norm(f))
+    }
+    return [
+        m for m in out
+        if m.stem or _form_names_its_own_word(_norm(m.form), text_norm, own, vault_words)
+    ]
+
+
 def keyword_present(keyword: str, text_norm: str, ledger: list[dict[str, Any]] | None = None) -> bool:
     """Presence per keyword = any of {keyword literal} ∪ owning entry surface_forms ∪ concept
     passes :func:`surface_present` (see :func:`_keyword_search_forms` for ownership)."""
@@ -1772,9 +1849,14 @@ def _keyword_coverage(
                 skill_forms.append(e["concept"])
         non_claim = non_claim.excluding_skills(skill_forms)
         claim_text_norm = mask_non_claim_spans(text_norm, non_claim)
-        claim_matches = {k: keyword_matches(k, claim_text_norm, ledger) for k in present}
     else:
-        claim_matches = matches_by_kw
+        claim_text_norm = text_norm
+    # UX audit 4: a form that only sits inside a different compound, or only in a
+    # word the profile itself carries, is no claim.
+    vault_words = _vault_words(vault_text_norm)
+    claim_matches = {
+        k: claim_keyword_matches(k, claim_text_norm, ledger, vault_words) for k in present
+    }
     present_unsupported = [
         k for k in present
         if _norm(k) in unclaimable_norm
@@ -1876,7 +1958,9 @@ def _keyword_coverage(
     # claim-text match after the masks — the review surface counts and locates
     # only these (it used to count every occurrence in the rendered document,
     # the masked employer clause included: "an 2 Stellen" for one claim).
-    present_unsupported_sentences = _claim_sentences(text_norm, present_unsupported, non_claim, ledger)
+    present_unsupported_sentences = _claim_sentences(
+        text_norm, present_unsupported, non_claim, ledger, vault_words
+    )
     # D-4c(b) (ruling D-4c-b, ADR-099 cl. 2): a LETTER term a recorded denial covers
     # whose every claim sentence also names a term the candidate denied on the
     # ledger ("IFS, BRC und direkte Lebensmittelproduktion kenne ich nicht") is
@@ -2041,17 +2125,24 @@ def _claim_sentences(
     terms: list[str],
     non_claim: NonClaimNames | None,
     ledger: list[dict[str, Any]] | None,
+    vault_words: frozenset[str] | None = None,
 ) -> dict[str, list[str]]:
     """D-4c(a): for each term, the normalised sentences of ``text_norm`` (unmasked,
     as delivered) whose MASKED form still matches it — the occurrences the flag
-    read. Same sentence split as the #803 belt; same masks as the flag."""
+    read. Same sentence split as the #803 belt; same masks as the flag.
+    ``vault_words`` (UX audit 4): the unsupported-claim caller passes the claim
+    matcher's profile words (:func:`claim_keyword_matches`); ``None`` keeps the
+    plain presence matcher (the ``present_denied`` reader)."""
     if not terms:
         return {}
     sentences = [x for x in _LETTER_SENTENCE_END_RE.split(text_norm) if x and x.strip()]
     masked = [mask_non_claim_spans(x, non_claim) if non_claim else x for x in sentences]
     out: dict[str, list[str]] = {}
     for k in terms:
-        hits = [s.strip() for s, m in zip(sentences, masked) if keyword_matches(k, m, ledger)]
+        hits = [s.strip() for s, m in zip(sentences, masked) if (
+            claim_keyword_matches(k, m, ledger, vault_words) if vault_words is not None
+            else keyword_matches(k, m, ledger)
+        )]
         out[k] = list(dict.fromkeys(hits))
     return out
 
