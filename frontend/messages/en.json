@@ -2959,6 +2959,7 @@
     "noCloseEvidence": "Nothing in your profile is close enough to check this reliably.",
     "attributionUnresolved": "The only evidence in your profile belongs to one position, but the sentence names no employer — which position it belongs to cannot be checked reliably.",
     "crossLanguageEquivalent": "Restates an entry of your profile in another language.",
+    "skillEquivalent": "Your profile names this as “{quote}”.",
     "qualificationNamed": "An entry in your profile names this qualification.",
     "otherLanguageNotChecked": "No entry in your profile has this name, and part of your profile is in another language — names are not checked across languages, so this stays open rather than marked as wrong.",
     "honestDenial": "An honest denial or a task someone else did — nothing about you that your profile would need to back.",

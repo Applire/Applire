@@ -2959,6 +2959,7 @@
     "noCloseEvidence": "In Deinem Profil steht nichts, das nah genug daran ist, um es sicher zu prüfen.",
     "attributionUnresolved": "Der einzige Beleg in Deinem Profil gehört zu einer bestimmten Station, aber der Satz nennt keinen Arbeitgeber — welcher Station er gehört, lässt sich nicht sicher prüfen.",
     "crossLanguageEquivalent": "Gibt einen Eintrag Deines Profils gleichwertig in einer anderen Sprache wieder.",
+    "skillEquivalent": "Dein Profil nennt das als „{quote}“.",
     "qualificationNamed": "Ein Eintrag in Deinem Profil nennt diese Qualifikation.",
     "otherLanguageNotChecked": "Kein Eintrag in Deinem Profil heißt so, und ein Teil Deines Profils ist in einer anderen Sprache — über Sprachen hinweg prüfen wir Namen nicht, deshalb bleibt das offen statt als Fehler markiert.",
     "honestDenial": "Eine ehrliche Verneinung oder eine Aufgabe, die jemand anderes erledigt hat — keine Aussage über Dich, die Dein Profil belegen müsste.",
