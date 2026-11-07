@@ -284,3 +284,23 @@ def test_job_analysis_prompt_keeps_a_bracketed_name_of_the_same_thing_as_one_req
     assert 'put the bracketed name into "keywords"' in flat
     # the example-list and optional-qualifier shapes keep their own rules
     assert "a bracketed example LIST" in flat
+
+
+def test_783_242_a_compound_denial_no_longer_floors_the_requirement_it_mentions():
+    """783:242 (post-merge E2E, SF-GAP.10/.32): the candidate denied writing
+    reference designs FOR integration platforms; "Integration platforms" went
+    direct -> gap by containment. Under G-1 the row keeps the classifier's grade."""
+    from applire.services.keyword_ledger import _enforce_denial_stance
+
+    denial = {
+        "concept": "Referenzdesigns für Integrationsplattformen",
+        "statement": "Referenzdesigns für Integrationsplattformen habe ich nie geschrieben.",
+        "source": "interview", "date": "2026-11-01", "denial_level": "direct",
+    }
+    row = {
+        "concept": "Integration platforms",
+        "surface_forms": ["Integration platforms", "Integrationsplattformen"],
+        "sources": ["required"], "fit_weight": 1.0, "status": "direct",
+        "claimable": True, "evidence": "Schnittstellenplattform aufgebaut",
+    }
+    assert _enforce_denial_stance([dict(row)], [denial], None) == [row]
