@@ -145,15 +145,23 @@ async def test_cross_language_deny_keeps_the_deterministic_unbacked():
     assert report.judgement_unavailable == 0
 
 
+class _SameLanguageDenyProvider:
+    async def aparse_json(self, prompt, *, system=None, **kwargs):
+        return {"items": [{"index": 0, "corresponds": False, "vault_quote": None}]}
+
+
 @pytest.mark.asyncio
-async def test_same_language_miss_never_calls_the_judgement_provider():
-    """Trigger negative: document_language == vault dominant_language — the
-    deterministic miss stands exactly as pre-ADR-068, no judgement call."""
+async def test_same_language_miss_asks_only_the_grant_only_skill_judgement():
+    """Trigger negative for Seam A proper: document_language == vault
+    dominant_language never asks the cross-language question. 790:90 (build 7,
+    ADR-068 amended): the same-language SKILL miss asks the grant-only
+    skill-equivalence question instead; a "no" keeps the deterministic miss
+    exactly as pre-ADR-068 and counts nothing as unavailable."""
     report = await audit_document(
         "cv",
         CROSS_LANG_PROFILE,
         tailored_data=CROSS_LANG_TAILORED,
-        provider=_NeverCalledProvider(),
+        provider=_SameLanguageDenyProvider(),
         document_language="de",
     )
     (result,) = [r for r in report.claims if r.claim.location == "skills[0]"]

@@ -5050,6 +5050,12 @@ async def _update_ats_report_letter(
             ),
             keyword_ledger=ledger,
         )
+        # #803 reopened (WP-T build 7, MD7-2): a letter term the Oracle's sentence
+        # triage placed in a sentence about the employer joins the neutral
+        # employer-sentence row (ats_audit owns the rule; never raises).
+        from applire.services.ats_audit import apply_letter_employer_facts
+
+        cl.ats_report = apply_letter_employer_facts(cl.ats_report, cl.truthfulness_report)
     except Exception:
         logger.exception(
             "Truthfulness self-audit failed for cover letter %s — report left NULL", cl.id

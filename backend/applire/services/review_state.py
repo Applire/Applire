@@ -124,6 +124,12 @@ class GroupOneFinding:
     #: cover this ATS term (``keywords.present_unsupported_denials``) — the
     #: add-evidence door refuses such a finding. Empty for Oracle-only rows.
     denials: list[str] = field(default_factory=list)
+    #: #803 (T-2 = B; reopened build 7): the ATS term sits only where the letter
+    #: speaks about the employer (``keywords.present_unsupported_employer_sentence``)
+    #: and no Oracle claim folds into the row — listed (take-out, edit), never
+    #: counted, and the add-evidence / supported doors refuse it. The review
+    #: surface's ``employerSentence`` (review-groups.ts) reads the same two facts.
+    employer_sentence: bool = False
 
     def wording(self) -> list[str]:
         """The document wording this finding stands on — what *take it out*
@@ -183,6 +189,9 @@ def group_one_findings(ats_report: dict | None, truth_report: dict | None) -> li
     denials_map = kw.get("present_unsupported_denials")
     if not isinstance(denials_map, dict):
         denials_map = {}
+    employer_sentence = {
+        k for k in (kw.get("present_unsupported_employer_sentence") or []) if isinstance(k, str)
+    }
     claims = _flagged_claims(truth_report, list(kw.get("claimable_concepts") or []))
     claims_by_norm: dict[str, int] = {}
     for i, c in enumerate(claims):
@@ -210,6 +219,7 @@ def group_one_findings(ats_report: dict | None, truth_report: dict | None) -> li
             claim_text=(claim or {}).get("text"), claim_location=(claim or {}).get("location"),
             claim_figures=figs,
             denials=[d for d in (denials_map.get(term) or []) if isinstance(d, str) and d],
+            employer_sentence=term in employer_sentence and claim is None,
         ))
     for i, c in enumerate(claims):
         if i in consumed:

@@ -119,6 +119,17 @@ class TakeOutProtectedName(Exception):
     Refused before any model call (→ 409); the user edits."""
 
 
+class FindingAboutEmployer(Exception):
+    """#803 (R2-7, reopened build 7): the finding's term sits only where the letter
+    speaks about the employer (``GroupOneFinding.employer_sentence``). Writing it
+    into the profile would record the EMPLOYER's business as the candidate's
+    experience (`triage:vault-integrity`). Refused before any model call (→ 409
+    ``finding_about_employer``); take-out and edit stay."""
+
+    def __init__(self, key: str):
+        super().__init__(f"finding {key!r} is about the employer, not the candidate")
+
+
 class FindingDenied(Exception):
     """Build-2 delivery F2 (SF-REVIEW.18): one of the candidate's own recorded
     denials covers the finding's term (``GroupOneFinding.denials``), so writing
@@ -350,6 +361,8 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
         finding = _listed_or_raise(record, key)
         if finding.denials:
             raise FindingDenied(key, finding.denials)
+        if finding.employer_sentence:
+            raise FindingAboutEmployer(key)
         testimony = await submit_testimony(text, db, provider, user_id=owner)
         await reaudit(kind, record, db)
         vault_changed = testimony.status in ("applied", "partial")
@@ -477,6 +490,8 @@ async def confirm_supported(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSe
         finding = _listed_or_raise(record, key)
         if finding.denials:
             raise FindingDenied(key, finding.denials)
+        if finding.employer_sentence:
+            raise FindingAboutEmployer(key)
         profile = await get_profile_for_user(db, owner)
         profile_json = (profile.profile_json if profile else None) or {}
         found = support_in_profile(finding.wording(), profile_json, user_id=owner)

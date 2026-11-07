@@ -233,7 +233,7 @@ class _EntailmentBudget:
 class _SeamCandidate:
     """One claim deferred to the batched judgement pass."""
 
-    seam: Literal["cross_language", "restatement", "letter_form", "backing"]
+    seam: Literal["cross_language", "restatement", "letter_form", "backing", "skill_equivalence"]
     claim_text: str
     units: list[EvidenceUnit]
     # cross_language only: corresponds=false/uncertain -> this verdict stands
@@ -312,6 +312,38 @@ def _cross_language_candidate(
             "ORACLE_JUDGEMENT_UNAVAILABLE reason=no_sink seam=cross_language"
         )
         return unavailable
+    judgement_sink.append(candidate)
+    return candidate
+
+
+def _skill_equivalence_candidate(
+    claim_text: str,
+    skill_units: list[EvidenceUnit],
+    deny_verdict: ClaimVerdict,
+    judgement_sink: "list[_SeamCandidate] | None",
+) -> "_SeamCandidate | None":
+    """790:90 (WP-T build 7, ADR-068 amended): Seam A's equivalence judgement for a
+    SAME-language literal skill miss, asked against the claimable vault units the
+    deterministic skill matcher reads (skill units first).
+
+    Seam A's trigger (:func:`_cross_language_trigger`) reads only the vault's
+    dominant language, so a German CV whose skill list carries "Lieferkette" — the
+    language pass's own translation of the German vault's loanword skill
+    "Supply Chain" (grounded on a bullet) — was accused ("steht nirgends in
+    Deinem Profil") and the card
+    looped (ux-audit-3, Marcus). Grant-only, like Seam A: a "no"/"uncertain"/an
+    unavailable judgement keeps exactly today's deterministic verdict (``deny``),
+    so this seam can only ever remove an accusation, never add one. ``None`` when
+    there is no skill unit or no batching sink (the caller keeps ``deny``)."""
+    if not skill_units or judgement_sink is None:
+        return None
+    candidate = _SeamCandidate(
+        seam="skill_equivalence",
+        claim_text=claim_text,
+        units=skill_units,
+        deny_verdict=deny_verdict,
+        unavailable_verdict=deny_verdict,
+    )
     judgement_sink.append(candidate)
     return candidate
 
@@ -512,6 +544,21 @@ def _backing_candidate(
     return candidate
 
 
+# The judgement prompt renders each evidence span as "  [j] text"
+# (prompts/oracle_judgement.build_judgement_user_prompt). A model that copies
+# the line, index included, cites a real span in OUR format: 790:90's luna probe
+# (2026-11-07) granted "Lieferkette" ↔ "Supply Chain" 3/3 and quoted "[12] Supply
+# Chain" 2/3, which the citation check dropped. Strip only that leading index —
+# the rest must still be verbatim in one unit.
+_EVIDENCE_INDEX_PREFIX_RE = re.compile(r"^\s*\[\d+\]\s*")
+
+
+def _strip_evidence_index(quote: object) -> object:
+    if isinstance(quote, str):
+        return _EVIDENCE_INDEX_PREFIX_RE.sub("", quote, count=1)
+    return quote
+
+
 def _resolve_seam_candidate(
     candidate: _SeamCandidate, response_item: dict[str, Any] | None
 ) -> tuple[ClaimVerdict, bool, str | None]:
@@ -525,9 +572,26 @@ def _resolve_seam_candidate(
     if not isinstance(response_item, dict):
         return candidate.unavailable_verdict, True, "malformed_item"
     corresponds = response_item.get("corresponds")
-    quote = response_item.get("vault_quote")
+    quote = _strip_evidence_index(response_item.get("vault_quote"))
     unit_texts = [u.text for u in candidate.units]
     citation_ok = citation_present(quote, unit_texts)
+
+    if candidate.seam == "skill_equivalence":
+        # 790:90 — grant-only; a miss or an unusable answer keeps today's verdict
+        # (``deny``) and is NOT counted as an unavailable judgement: nothing
+        # degraded, the accusation simply stands as before.
+        if corresponds is True and citation_ok:
+            matched_unit = _find_citing_unit(quote, candidate.units)
+            return ClaimVerdict(
+                verdict="grounded",
+                checker="cross_language_judgement",  # Seam A's judge (ADR-068 cl. 5 chip)
+                evidence=_evidence_refs([matched_unit] if matched_unit else candidate.units),
+                detail=f'Your profile names this skill as "{quote}".',
+                detail_key="skillEquivalent",
+                detail_params={"skill": candidate.claim_text, "quote": str(quote)},
+            ), False, None
+        assert candidate.deny_verdict is not None
+        return candidate.deny_verdict, False, None
 
     if candidate.seam == "cross_language":
         if corresponds is True:
@@ -660,8 +724,10 @@ async def _run_judgement_batches(
     """
     if not candidates:
         return []
+    # 790:90: the skill-equivalence seam's fallback IS today's verdict — its
+    # unavailability degrades nothing and is not counted.
     results: list[tuple[ClaimVerdict, bool]] = [
-        (c.unavailable_verdict, True) for c in candidates
+        (c.unavailable_verdict, c.seam != "skill_equivalence") for c in candidates
     ]
     if provider is None:
         for c in candidates:
@@ -687,7 +753,10 @@ async def _run_judgement_batches(
             (
                 c.claim_text,
                 [u.text for u in c.units],
-                "restatement" if c.seam == "letter_form" else c.seam,
+                # 790:90: the skill-equivalence seam asks Seam A's question.
+                "restatement" if c.seam == "letter_form"
+                else "cross_language" if c.seam == "skill_equivalence"
+                else c.seam,
                 list(c.unit_labels or []),
             )
             for c in batch
@@ -2380,6 +2449,27 @@ async def _verify_claim_unchecked(
         )
         if seam is not None:
             return seam
+        # 790:90 (WP-T build 7, ADR-068 amended): a same-language literal miss over
+        # a single-language vault gets the same bounded equivalence judgement,
+        # against the vault's skill units only — "Lieferkette" ↔ "Supply Chain".
+        # Grant-only: the mixed-vault arm below and a denial-covered skill are
+        # unchanged.
+        if (
+            document_language is not None  # the caller opted out → ADR-068 fails open
+            and not holds_other_language(idx, document_language)
+            and not _denial_covers(claim.text, idx)
+        ):
+            # The pool is what the deterministic matcher reads for a skill (every
+            # claimable unit — "Supply Chain" grounded on a Weberit bullet before
+            # the language pass translated it), skill units first; never the
+            # personal block. A translation shares no token, so no lexical cut.
+            pool = skill_units + [
+                u for u in idx.units
+                if u not in skill_units and not u.path.startswith("personal_info")
+            ]
+            eq = _skill_equivalence_candidate(claim.text, pool, deny, judgement_sink)
+            if eq is not None:
+                return eq
         # #790 line L12 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20):
         # seam A's trigger reads only the vault's DOMINANT language, so a
         # same-language pair over a mixed-language vault ("Markenidentität" on
