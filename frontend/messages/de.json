@@ -1889,7 +1889,6 @@
     "summary": {
       "lead": "{count, plural, one {Deine Antworten haben # neue Angabe in dein Profil gebracht.} other {Deine Antworten haben # neue Angaben in dein Profil gebracht.}} Prüf kurz die wichtigsten — alles Weitere steht unten.",
       "points": "{count, plural, one {# neuer Punkt} other {# neue Punkte}}",
-      "tools": "{count, plural, one {# Werkzeug} other {# Werkzeuge}}",
       "entities": "{count} Stationen",
       "entityCount": "{label}: {count}",
       "added": "{count} neu",

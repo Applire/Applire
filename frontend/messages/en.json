@@ -1889,7 +1889,6 @@
     "summary": {
       "lead": "{count, plural, one {Your answers added # new detail to your profile.} other {Your answers added # new details to your profile.}} Check the key ones — everything else is below.",
       "points": "{count, plural, one {# new point} other {# new points}}",
-      "tools": "{count, plural, one {# tool} other {# tools}}",
       "entities": "{count} positions",
       "entityCount": "{label}: {count}",
       "added": "{count} new",
