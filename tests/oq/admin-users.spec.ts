@@ -190,8 +190,12 @@ test.describe("Administration → People", () => {
     );
   });
 
-  test("disabling the last admin is refused in the action's own dialog (409 last_admin)", async ({ page }) => {
-    await stubUsers(page);
+  test("a 409 last_admin refusal is shown in the action's own dialog; the own row offers no disable", async ({ page }) => {
+    // The own row only offers "revoke tokens" / "open account" (789:281), so the
+    // server's last-admin guard is reached from the UI only by a concurrent change:
+    // another admin's row, while that person became the only active admin.
+    const otherAdmin = "jonas.keller@example.org";
+    await stubUsers(page, USERS.map((u) => (u.email === otherAdmin ? { ...u, role: "admin" } : u)));
     await page.route("**/api/admin/users/*", (route) =>
       route.request().method() === "PATCH"
         ? json(route, { detail: { error_code: "last_admin", message: "x" } }, 409)
@@ -199,10 +203,16 @@ test.describe("Administration → People", () => {
     );
     await page.goto("/admin/users");
     await row(page, ADMIN_USER.email).getByTestId("admin-user-menu").click();
+    await expect(page.getByTestId("admin-user-action-revokeTokens")).toBeVisible();
+    await expect(page.getByTestId("admin-user-action-disable")).toHaveCount(0);
+    await expect(page.getByTestId("admin-user-action-makeUser")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    await row(page, otherAdmin).getByTestId("admin-user-menu").click();
     await page.getByTestId("admin-user-action-disable").click();
     await page.getByTestId("admin-confirm-dialog-confirm").click();
     await expect(page.getByTestId("admin-confirm-dialog-error")).toContainText(
-      `Not possible: ${ADMIN_USER.email} is the only active admin.`,
+      `Not possible: ${otherAdmin} is the only active admin.`,
     );
   });
 

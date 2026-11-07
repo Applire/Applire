@@ -142,7 +142,7 @@ export function UsersAdmin() {
     let err: string | null = null;
     if (action === "makeAdmin") err = await patch(u, { role: "admin" });
     else if (action === "disable") err = await patch(u, { disabled: true });
-    if (action === "resetLink") {
+    else if (action === "resetLink") {
       // Confirmed: issue the link; the result (or its failure) has its own dialog.
       setBusy(false);
       setConfirm(null);
