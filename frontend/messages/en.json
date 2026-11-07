@@ -722,7 +722,16 @@
     "saveAvailabilityToProfileHint": "Then it is already filled in for your next letter.",
     "motivationCount": "{count, number} / {max, number} characters",
     "unsavedFormTitle": "Details not used yet",
-    "unsavedFormBody": "You entered details for your cover letter and have not created a letter with them yet. If you leave this page now, they are lost."
+    "unsavedFormBody": "You entered details for your cover letter and have not created a letter with them yet. If you leave this page now, they are lost.",
+    "predatesInterview": "This letter predates your interview – what you added there is not in it yet.",
+    "predatesInterviewAction": "Create it again",
+    "previewHintAction": "Add it in the form",
+    "failedTitle": "The cover letter could not be created.",
+    "failedHint": "Your inputs are saved – create it again.",
+    "failedRetry": "Create it again",
+    "failedReason_llm_timeout": "The AI took too long. Your inputs are saved – create it again.",
+    "failedReason_provider_unavailable": "The AI service could not be reached. Your inputs are saved – create it again.",
+    "failedReason_llm_truncated": "The AI's answer was cut off. Your inputs are saved – create it again."
   },
   "settings": {
     "title": "Settings",

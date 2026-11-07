@@ -722,7 +722,16 @@
     "saveAvailabilityToProfileHint": "Dann ist sie beim nächsten Anschreiben schon eingetragen.",
     "motivationCount": "{count, number} / {max, number} Zeichen",
     "unsavedFormTitle": "Angaben noch nicht verwendet",
-    "unsavedFormBody": "Du hast Angaben für dein Anschreiben eingetragen und noch kein Anschreiben damit erstellt. Wenn du die Seite jetzt verlässt, sind sie weg."
+    "unsavedFormBody": "Du hast Angaben für dein Anschreiben eingetragen und noch kein Anschreiben damit erstellt. Wenn du die Seite jetzt verlässt, sind sie weg.",
+    "predatesInterview": "Dieses Anschreiben ist älter als dein Interview – was du dort ergänzt hast, steht noch nicht darin.",
+    "predatesInterviewAction": "Neu erstellen",
+    "previewHintAction": "Im Formular ergänzen",
+    "failedTitle": "Das Anschreiben konnte nicht erstellt werden.",
+    "failedHint": "Deine Eingaben sind gespeichert – erstelle es erneut.",
+    "failedRetry": "Erneut erstellen",
+    "failedReason_llm_timeout": "Die KI hat zu lange gebraucht. Deine Eingaben sind gespeichert – erstelle es erneut.",
+    "failedReason_provider_unavailable": "Der KI-Dienst war nicht erreichbar. Deine Eingaben sind gespeichert – erstelle es erneut.",
+    "failedReason_llm_truncated": "Die Antwort der KI brach ab. Deine Eingaben sind gespeichert – erstelle es erneut."
   },
   "settings": {
     "title": "Einstellungen",

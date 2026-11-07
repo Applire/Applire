@@ -34,8 +34,25 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/components/cover-letter/CoverLetterDocument", () => ({
-  CoverLetterDocument: ({ generationInputs }: { generationInputs?: unknown }) => (
-    <div data-testid="cl-document" data-inputs={JSON.stringify(generationInputs ?? null)} />
+  CoverLetterDocument: ({
+    generationInputs,
+    predatesInterview,
+    motivationDerived,
+    onCompleteForm,
+  }: {
+    generationInputs?: unknown;
+    predatesInterview?: boolean;
+    motivationDerived?: boolean | null;
+    onCompleteForm?: () => void;
+  }) => (
+    <div
+      data-testid="cl-document"
+      data-inputs={JSON.stringify(generationInputs ?? null)}
+      data-predates={String(predatesInterview)}
+      data-derived={JSON.stringify(motivationDerived ?? null)}
+    >
+      <button type="button" data-testid="cl-doc-complete-form" onClick={onCompleteForm} />
+    </div>
   ),
 }));
 // Sidebar tab bodies are stubbed — the page renders them via the shared
@@ -505,5 +522,83 @@ describe("CoverLetterPage — polling loop", () => {
     );
     // No job_id known — no CTA can be offered, but the page must not hang on fake copy.
     expect(screen.queryByText("Generating cover letter…")).not.toBeInTheDocument();
+  });
+});
+
+describe("CoverLetterPage — WP-L (#820 cue, failed view)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    window.sessionStorage.clear();
+  });
+
+  function mockStatus(statuses: Array<Record<string, unknown>>) {
+    let n = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) return { ok: true, json: async () => FLOW_STATE_RESPONSE } as Response;
+      if (url.includes("/status")) {
+        const body = statuses[Math.min(n++, statuses.length - 1)];
+        return { ok: true, json: async () => body } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+  }
+
+  it("#820: passes predates_interview + motivation_derived to the document, and the form callback opens the modal", async () => {
+    mockStatus([{
+      status: "ready", letter_data: { header: { name: "Max" } },
+      pre_gen_inputs: { availability: "", motivation: "" },
+      predates_interview: true, motivation_derived: true,
+    }]);
+    await act(async () => { renderPage(); });
+    const doc = await screen.findByTestId("cl-document", {}, { timeout: 5000 });
+    expect(doc.getAttribute("data-predates")).toBe("true");
+    expect(doc.getAttribute("data-derived")).toBe("true");
+    const { fireEvent } = await import("@testing-library/react");
+    expect(screen.queryByTestId("cl-modal")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("cl-doc-complete-form"));
+    expect(screen.getByTestId("cl-modal")).toBeInTheDocument();
+  });
+
+  it("#820: legacy status without the fields reads as predates=false, derived=null", async () => {
+    mockStatus([{ status: "ready", letter_data: { header: { name: "Max" } } }]);
+    await act(async () => { renderPage(); });
+    const doc = await screen.findByTestId("cl-document", {}, { timeout: 5000 });
+    expect(doc.getAttribute("data-predates")).toBe("false");
+    expect(doc.getAttribute("data-derived")).toBe("null");
+  });
+
+  it("789:247: a failed status on load shows the failed view (not 'no letter yet'), retry opens the modal", async () => {
+    mockStatus([{ status: "failed", error_message: "Internal English detail", error_code: null }]);
+    await act(async () => { renderPage(); });
+    await screen.findByTestId("cl-failed", {}, { timeout: 5000 });
+    expect(screen.queryByTestId("cl-not-found")).not.toBeInTheDocument();
+    expect(screen.getByText("The cover letter could not be created.")).toBeInTheDocument();
+    expect(screen.getByText("Your inputs are saved – create it again.")).toBeInTheDocument();
+    expect(screen.queryByText(/Internal English detail/)).not.toBeInTheDocument();
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.click(screen.getByTestId("cl-failed-retry"));
+    expect(screen.getByTestId("cl-modal")).toBeInTheDocument();
+  });
+
+  it("789:247: a failure arriving via the poll shows the failed view too", async () => {
+    mockStatus([{ status: "generating" }, { status: "failed", error_code: "llm_timeout" }]);
+    await act(async () => { renderPage(); });
+    await screen.findByTestId("cl-failed", {}, { timeout: 8000 });
+    expect(screen.queryByTestId("cl-not-found")).not.toBeInTheDocument();
+    expect(screen.getByText("The AI took too long. Your inputs are saved – create it again.")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["provider_unavailable", "The AI service could not be reached. Your inputs are saved – create it again."],
+    ["llm_truncated", "The AI's answer was cut off. Your inputs are saved – create it again."],
+    ["generation_failed", "Your inputs are saved – create it again."],
+    ["some_future_code", "Your inputs are saved – create it again."],
+  ])("error_code %s maps to its localized sentence", async (code, text) => {
+    mockStatus([{ status: "failed", error_code: code, error_message: "raw english" }]);
+    await act(async () => { renderPage(); });
+    await screen.findByTestId("cl-failed", {}, { timeout: 5000 });
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(screen.queryByText(/raw english/)).not.toBeInTheDocument();
   });
 });
