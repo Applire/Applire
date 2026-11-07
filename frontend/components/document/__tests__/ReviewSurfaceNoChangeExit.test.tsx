@@ -166,7 +166,9 @@ describe("U-13 (delivery run 5) — the card states ONE true state after the ans
     fireEvent.click(screen.getByTestId("review-answer-yes"));
     fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "Bei Nordlicht: CI/CD mit GitHub Actions." } });
     fireEvent.click(screen.getByTestId("review-add-submit"));
-    await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
+    // 785:248: wait for the reply's own text — "answer-yes gone" holds as soon as
+    // the answer form opens, before the submit resolves (the CI flake, #813 run).
+    await waitFor(() => expect(screen.getByTestId("review-card-why").textContent ?? "").toContain("mit anderen Worten"));
     const card = screen.getByTestId("review-card");
     const why = within(card).getByTestId("review-card-why").textContent ?? "";
     expect(why).toContain(`Dein Profil nennt „${TERM}“ mit anderen Worten`);
@@ -190,7 +192,9 @@ describe("U-13 (delivery run 5) — the card states ONE true state after the ans
     fireEvent.click(screen.getByTestId("review-answer-yes"));
     fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "Irgendwo." } });
     fireEvent.click(screen.getByTestId("review-add-submit"));
-    await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
+    // 785:248: wait for the reply's own text — "answer-yes gone" holds as soon as
+    // the answer form opens, before the submit resolves (the CI flake, #813 run).
+    await waitFor(() => expect(screen.getByTestId("review-card-why").textContent ?? "").toContain(`Dein Profil nennt „${TERM}“ nicht`));
     const why = within(screen.getByTestId("review-card")).getByTestId("review-card-why").textContent ?? "";
     expect(why).toContain(`Dein Profil nennt „${TERM}“ nicht`);
     expect(why).not.toContain("mit anderen Worten");
