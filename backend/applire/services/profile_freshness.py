@@ -46,7 +46,8 @@ What does NOT count, by construction:
 * ``metadata``-only receipts — a resolved confirmation question
   (``pending_confirmations``), a re-confirmed or escalated limit
   (``denied_concepts`` ``updated``): they say what the system asked or noted, not
-  what the profile now holds; whatever an answer changed lands as its own change;
+  what the profile now holds; whatever an answer changed lands as its own change.
+  A NEW or WITHDRAWN limit (``added`` / ``removed``) does count;
 * ``MasterProfile.updated_at`` — it moves on every column write, bookkeeping
   included, so it is never read here.
 
@@ -64,6 +65,7 @@ __all__ = [
     "CV_FEEDING_SECTIONS",
     "INTERVIEW_SOURCES",
     "is_new_limit",
+    "is_withdrawn_limit",
     "parse_trail_timestamp",
     "profile_updated_since",
 ]
@@ -109,6 +111,18 @@ def is_new_limit(change: dict) -> bool:
     )
 
 
+def is_withdrawn_limit(change: dict) -> bool:
+    """A recorded denial taken back (``WithdrawDenial``, e.g. "Ja, zurücknehmen"
+    on the 0086/0088 heal question). Under L-2 a letter states the person's
+    recorded denials, so one written before the withdrawal states a "no" the
+    person no longer gives — content, not bookkeeping."""
+    return (
+        change.get("section") == "metadata"
+        and change.get("field") == "denied_concepts"
+        and change.get("action") == "removed"
+    )
+
+
 def parse_trail_timestamp(value: object) -> datetime | None:
     """A trail ``timestamp`` (datetime or ISO string, naive = UTC) as an aware
     UTC datetime; ``None`` when unreadable."""
@@ -123,7 +137,7 @@ def parse_trail_timestamp(value: object) -> datetime | None:
 
 
 def _is_content_change(change: dict, sections: Collection[str] | None) -> bool:
-    if is_new_limit(change):
+    if is_new_limit(change) or is_withdrawn_limit(change):
         return True
     section = change.get("section")
     if sections is None:
