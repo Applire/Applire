@@ -267,6 +267,8 @@ export default function CoverLetterPage({
           matchScore: null,
           expiresAt: null,
           documentLanguage: null,
+          predatesInterview: false,
+          motivationDerived: null,
         });
         setPhase("not_found");
         return;
