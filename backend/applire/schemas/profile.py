@@ -1417,6 +1417,11 @@ class ImportReceiptSummary(BaseModel):
     kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)
     restated: list[RestatedReceipt] = Field(default_factory=list)
     not_applied_total: int = 0
+    #: 783:260 (Hazelnut build 7) — the last import CREATED the profile. Its
+    #: record carries one bookkeeping change ("initial import"), not one per
+    #: item, so ``groups`` are the profile's current section sizes and
+    #: ``added_total`` their sum — the UI says "created", never "added 1".
+    created: bool = False
 
 
 class DeniedConcept(BaseModel):

@@ -2840,6 +2840,7 @@
     "lastImportTitle": "Your import of {date} — {file}",
     "lastImportTitleNoFile": "Your import of {date}",
     "lastImportLead": "We added {added, plural, one {# item} other {# items}} to your profile and recognised {matched, plural, one {# as already there} other {# as already there}}. Nothing was deleted.",
+    "createdLead": "Your profile was created from this file. It now holds {added, plural, one {# entry} other {# entries}}.",
     "groupCount": "{count, plural, one {# item} other {# items}}",
     "notAppliedNote": "{count, plural, one {# item from the file did not reach your profile.} other {# items from the file did not reach your profile.}}",
     "techLog": "Show technical log",

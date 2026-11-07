@@ -2840,6 +2840,7 @@
     "lastImportTitle": "Dein Import vom {date} — {file}",
     "lastImportTitleNoFile": "Dein Import vom {date}",
     "lastImportLead": "Wir haben {added, plural, one {# Angabe} other {# Angaben}} in dein Profil übernommen und {matched, plural, one {# als schon vorhanden} other {# als schon vorhanden}} erkannt. Nichts wurde gelöscht.",
+    "createdLead": "Dein Profil wurde aus dieser Datei angelegt. Es enthält jetzt {added, plural, one {# Eintrag} other {# Einträge}}.",
     "groupCount": "{count, plural, one {# Angabe} other {# Angaben}}",
     "notAppliedNote": "{count, plural, one {# Angabe aus der Datei ist nicht in deinem Profil angekommen.} other {# Angaben aus der Datei sind nicht in deinem Profil angekommen.}}",
     "techLog": "Technisches Protokoll anzeigen",

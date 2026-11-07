@@ -86,7 +86,9 @@ export function ImportReadyCard({ flowId, reloadKey }: { flowId: string; reloadK
         {t("readyTitle")}
       </p>
       <p data-testid="import-ready-lead" className="mt-1 text-[13px] text-on-surface-variant">
-        {ts("lastImportLead", { added: summary.added_total, matched })}
+        {summary.created
+          ? ts("createdLead", { added: summary.added_total })
+          : ts("lastImportLead", { added: summary.added_total, matched })}
       </p>
       {questions > 0 && (
         <p data-testid="import-ready-questions" className="mt-3 flex flex-wrap items-center gap-2 text-[13px] font-semibold text-primary">
