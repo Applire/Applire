@@ -1261,6 +1261,12 @@
     "conflictCurrentValueLabel": "Aktueller Wert",
     "conflictNewValueLabel": "Neuer Wert aus {source}",
     "conflictValueRow": "{label}: „{value}“",
+    "conflictValue": {
+      "current": "aktuell",
+      "ended": "beendet",
+      "noEndDate": "kein Enddatum (aktuell)",
+      "noDate": "kein Datum"
+    },
     "fieldLabel": {
       "start_date": "Startdatum",
       "end_date": "Enddatum",
@@ -1344,6 +1350,8 @@
   },
   "profileReview": {
     "alreadySettled": "Dieser Punkt ist schon erledigt.",
+    "answerNotApplied": "Diese Antwort konnte nicht übernommen werden. Dein Profil ist unverändert.",
+    "skipItem": "Diesen Punkt überspringen",
     "title": "Profil prüfen",
     "loading": "Deine Prüfung wird vorbereitet…",
     "done": "Alles erledigt – dein Profil ist aktuell.",
