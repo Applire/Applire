@@ -1904,3 +1904,41 @@ async def test_letter_truth_audit_reads_the_ledger_when_the_pdf_render_failed(db
         await _update_ats_report_letter(cl, session)
     assert audit.await_args.kwargs["keyword_ledger"] == ledger
     assert cl.truthfulness_report == {"claims": []}
+
+
+@pytest.mark.asyncio
+async def test_803_letter_seam_applies_the_oracle_employer_fact_verdict(db_with_cover_letter):
+    """#803 reopened (WP-T build 7, MD7-2) — the ONE call site: the letter's
+    audit-and-persist seam hands the just-written truthfulness report to
+    ``apply_letter_employer_facts``, so a term the sentence triage placed in an
+    employer sentence is persisted in the neutral row (no add-to-profile exit)."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+    from applire.services.cover_letter import _update_ats_report_letter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl = await session.get(GeneratedCoverLetter, ctx["cl_id"])
+    sentence = "die fertigung von verbundverpackungen für konsumgüter beeindruckt mich."
+    ats = ATSReport(
+        document="cover_letter",
+        checks=[ATSCheck(id="contact-name", status="pass")],
+        keywords=ATSKeywordCoverage(
+            present=["Verbundverpackungen"], missing=[],
+            present_unsupported=["Verbundverpackungen"],
+            present_unsupported_sentences={"Verbundverpackungen": [sentence]},
+        ),
+        passed=1, failed=0,
+    )
+    truth = {"claims": [{
+        "claim": {"text": "Die Fertigung von Verbundverpackungen für Konsumgüter beeindruckt mich."},
+        "verdict": {"verdict": "not_applicable", "detail_key": "triageEmployerFact"},
+    }]}
+    with patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.cover_letter._latest_keyword_ledger", new=AsyncMock(return_value=None)), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=ats), \
+         patch("applire.services.cover_letter._letter_truth_audit", new=AsyncMock(return_value=truth)):
+        await _update_ats_report_letter(cl, session)
+    kw = cl.ats_report["keywords"]
+    assert kw["present_unsupported"] == ["Verbundverpackungen"]
+    assert kw["present_unsupported_employer_sentence"] == ["Verbundverpackungen"]

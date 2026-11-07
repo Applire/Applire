@@ -1460,6 +1460,71 @@ async def test_supported_on_a_term_a_recorded_denial_covers_returns_409_finding_
     assert response.json()["detail"]["error"] == "finding_denied"
 
 
+# ── #803 reopened (build 7): an employer-sentence term is never written ──────
+
+
+def _employer_sentence_report():
+    report = _ats_report("cover-letter", ["Verbundverpackungen"],
+                         {"Verbundverpackungen": [{"form": "Verbundverpackungen", "stem": False}]})
+    report["keywords"]["present_unsupported_employer_sentence"] = ["Verbundverpackungen"]
+    return report
+
+
+@pytest.mark.asyncio
+async def test_803_add_evidence_on_an_employer_sentence_term_returns_409_and_writes_nothing(db):
+    """R2-7: a "yes" would write the EMPLOYER's business into the candidate's
+    vault (`triage:vault-integrity`) — the door refuses before any model call."""
+    cl_id = await seed_letter(db, ats_report=_employer_sentence_report())
+    with patch(
+        "applire.services.profile.reconcile.testimony_bridge.submit_testimony",
+    ) as mock_submit:
+        response = _client(db).post(
+            f"/api/cover-letter/{cl_id}/review/add-evidence",
+            json={"finding_key": rs.finding_key("ats", "Verbundverpackungen"),
+                  "text": "Ja, Rheinwerk fertigt Verbundverpackungen."},
+        )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "finding_about_employer"
+    mock_submit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_803_supported_on_an_employer_sentence_term_returns_409(db):
+    cl_id = await seed_letter(db, ats_report=_employer_sentence_report())
+    response = _client(db).post(
+        f"/api/cover-letter/{cl_id}/review/supported",
+        json={"finding_key": rs.finding_key("ats", "Verbundverpackungen")},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "finding_about_employer"
+
+
+def test_803_an_employer_sentence_row_is_listed_but_not_flagged_for_the_agent():
+    """The panel never counts the row (`countedOpenRows`); the agent's
+    `flagged`/`stop_and_fix` read the same population (ADR-058 A-1b)."""
+    from applire.services.truthfulness_summary import summarize
+
+    report = _employer_sentence_report()
+    rows = rs.group_one_findings(report, {"claims": []})
+    assert [r.label for r in rows] == ["Verbundverpackungen"] and rows[0].employer_sentence
+    from applire.schemas.oracle import TruthfulnessReport
+
+    empty = TruthfulnessReport.from_results("cover_letter", []).model_dump(mode="json")
+    s = summarize(empty, report)
+    assert s.available and s.flagged == 0 and s.stop_and_fix is False
+    report["keywords"]["present_unsupported_employer_sentence"] = []
+    assert summarize(empty, report).flagged == 1  # the same term, a claim → counted
+
+
+def test_803_a_folded_oracle_claim_keeps_the_row_red():
+    """Same rule as review-groups.ts (`employerSentence.has(term) && !overlap`)."""
+    report = _employer_sentence_report()
+    truth = {"claims": [{"claim": {"text": "Verbundverpackungen", "kind": "skill"},
+                          "verdict": {"verdict": "unbacked", "detail_key": "skillNoEvidence"}}]}
+    rows = rs.group_one_findings(report, truth)
+    assert rows[0].employer_sentence is False
+
+
 # ---------------------------------------------------------------------------
 # 786:232 — `edited` does not re-audit content the background re-audit already
 # audited (the section PATCH's own re-audit ran under the same lock first).
