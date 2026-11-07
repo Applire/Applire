@@ -833,19 +833,9 @@ def key_requirement_gaps(
 
 
 def _denial_scope_wording(entry: dict[str, Any]) -> str | None:
-    """#821 contract (WP-G, build 7): ``keyword_ledger.denial_scope_wording``. The
-    local fallback (same rule) exists only until the G branch is integrated."""
-    try:
-        from applire.services.keyword_ledger import denial_scope_wording
-    except ImportError:  # pragma: no cover — pre-integration fallback, same rule
-        if not isinstance(entry, dict) or entry.get("status") != "denied":
-            return None
-        wording = entry.get("denied_by")
-        if not isinstance(wording, str) or not wording.strip():
-            return None
-        if ats_norm(wording) == ats_norm(entry.get("concept", "") or ""):
-            return None
-        return wording.strip()
+    """#821 contract (WP-G, build 7): ``keyword_ledger.denial_scope_wording``."""
+    from applire.services.keyword_ledger import denial_scope_wording
+
     return denial_scope_wording(entry)
 
 
