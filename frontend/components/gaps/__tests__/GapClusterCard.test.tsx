@@ -373,7 +373,11 @@ describe("GapClusterCard — lead G posting terms", () => {
     expect(eks).toHaveAttribute("data-requirement", "false");
     expect(eks.className).toContain("bg-surface-container");
     expect(eks.className).not.toContain("border-dashed");
-    expect(eks).toHaveTextContent("keine gezählte Anforderung");
+    // 787:214 — the labelled line already says what the chips are; the
+    // accounting phrase is not repeated into every chip (and so every theme).
+    expect(eks).not.toHaveTextContent("keine gezählte Anforderung");
+    expect(eks).toHaveAttribute("title", "Begriff aus der Anzeige – zählt nicht als Anforderung");
+    expect(document.body.textContent).not.toContain("keine gezählte Anforderung");
     expect(eks).not.toHaveTextContent("(offen)");
     expect(k8s.className).toContain("border-dashed");
   });

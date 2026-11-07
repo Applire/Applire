@@ -136,10 +136,13 @@ function MemberChip({
         data-testid="gap-member"
         data-state={state}
         data-requirement="false"
+        // 787:214 — the chip sits on a line labelled "Begriffe aus der Anzeige:",
+        // so the explanation lives in the title, not repeated as hidden text
+        // into every chip of every theme.
+        title={t("postingTermTitle")}
         className={cn("relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs", TERM_CHIP)}
       >
         {term}
-        <span className="sr-only">{t("postingTermSr")}</span>
       </span>
     );
   }
