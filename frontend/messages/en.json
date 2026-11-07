@@ -349,6 +349,7 @@
     "interviewOpenFailed": "The interview could not be opened just now. Please reload the page and try again.",
     "cvAdvanceFailed": "The CV step could not be opened just now. Please reload the page and try again.",
     "memberDeniedBySr": "(you said: “{wording}”)",
+    "memberWordingQuoted": "“{wording}”",
     "memberRuledOutSr": "(ruled out by your answer)",
     "coverageRuledOut": "Ruled out by your answer",
     "foldedMembersLabel": "Added to this topic later:"

@@ -180,7 +180,7 @@ function MemberChip({
           "ECMO" decline. Shown when it adds something beyond the concept. */}
       {showWording && (
         <span aria-hidden="true" className="italic">
-          {"„"}{wording}{"“"}
+          {t("memberWordingQuoted", { wording })}
         </span>
       )}
       {sr && <span className="sr-only">{sr}</span>}
