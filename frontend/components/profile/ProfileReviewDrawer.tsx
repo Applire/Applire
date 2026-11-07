@@ -150,6 +150,9 @@ export interface ProfileReviewDrawerProps {
   // section and the labels it takes there, instead of `onAction`'s single
   // button landing on "one of the affected sections" chosen at random.
   onSectionAction?: (section: string, labels: string[]) => void;
+  // Hazelnut build 7 (WP-V) — the clicked item no longer exists (404
+  // `issue_not_found`): the page refreshes the hub so the stale card goes.
+  onSettled?: () => void;
 }
 
 export function ProfileReviewDrawer({
@@ -158,6 +161,7 @@ export function ProfileReviewDrawer({
   issue,
   onAction,
   onSectionAction,
+  onSettled,
 }: ProfileReviewDrawerProps) {
   const t = useTranslations("profileReview");
   // #626 — the same localized composition HealthPanel uses, so a `conflict`
@@ -187,6 +191,9 @@ export function ProfileReviewDrawer({
   // The conflict-walk had nothing to do (gaps_total 0). With an `issue` in hand
   // this is the merge-loss/accuracy case → show the issue + action, not all-clear.
   const [noConflicts, setNoConflicts] = useState(false);
+  // The clicked item answered 404 `issue_not_found` and nothing else is open:
+  // say so in one sentence instead of rendering an empty panel.
+  const [settled, setSettled] = useState(false);
   const [error, setError] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
   // The item on screen (`current_gap_id`): a reply naming the same one, or
@@ -228,21 +235,38 @@ export function ProfileReviewDrawer({
     setAnswer("");
     setDone(false);
     setNoConflicts(false);
+    setSettled(false);
     setError("");
     setLoading(true);
 
+    // Hazelnut build 7 (WP-V, 789:255) — a not-applied receipt is not a review
+    // item: the session has no question for it (404 issue_not_found). Its drawer
+    // is the #705 per-section receipt, shown without starting a session.
+    if (issue?.thread === "not_applied") {
+      setNoConflicts(true);
+      setDone(true);
+      setLoading(false);
+      return;
+    }
+
     // U-2 — start on the issue the user clicked, not the generic walk.
     // An item closed meanwhile answers 404 issue_not_found → the generic walk.
+    let itemGone = false;
     startReview(issue?.id ?? null)
       .catch((e: unknown) => {
-        if (issue && e instanceof ReviewApiError && e.status === 404) return startReview(null);
+        if (issue && e instanceof ReviewApiError && e.status === 404) {
+          itemGone = true;
+          onSettled?.();
+          return startReview(null);
+        }
         throw e;
       })
       .then((s) => {
         setSessionId(s.session_id);
         // gaps_total 0 → nothing to review: land straight on the all-clear state.
         if (s.gaps_total === 0) {
-          setNoConflicts(true);
+          if (itemGone) setSettled(true);
+          else setNoConflicts(true);
           setDone(true);
           return;
         }
@@ -428,6 +452,16 @@ export function ProfileReviewDrawer({
           </div>
         )}
 
+        {done && settled && (
+          <div
+            data-testid="profile-review-settled"
+            className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"
+          >
+            <p className="text-sm font-medium text-neutral-dark">{t("alreadySettled")}</p>
+            <Button variant="outline" onClick={onClose}>{t("close")}</Button>
+          </div>
+        )}
+
         {done && issue && noConflicts && (
           // The conflict-walk had nothing to resolve, but the user came here
           // from a real flagged issue (e.g. merge dropped skills). Show the
@@ -472,7 +506,7 @@ export function ProfileReviewDrawer({
           </div>
         )}
 
-        {done && !(issue && noConflicts) && (
+        {done && !settled && !(issue && noConflicts) && (
           <div
             data-testid="profile-review-done"
             className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"

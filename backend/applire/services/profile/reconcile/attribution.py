@@ -117,6 +117,7 @@ from typing import Any
 
 from applire.schemas.profile import MasterProfileData, ProjectEntry, WorkEntry
 from applire.services.ats_audit import skill_tokens
+from applire.services.profile.label_text import truncate_at_word
 from applire.services.profile.reconcile.confirmations import (
     attribution_confirmation,
     attribution_entry_confirmation,
@@ -787,10 +788,7 @@ _LABEL_CHARS = 120
 
 
 def _held_label(field: str, text: str) -> str:
-    body = " ".join((text or "").split())
-    if len(body) > _LABEL_CHARS:
-        body = body[: _LABEL_CHARS - 1].rstrip() + "…"
-    return f"{field}: {body}"
+    return f"{field}: {truncate_at_word(text or '', _LABEL_CHARS)}"
 
 
 def _anchor_entries(anchor_text: str, profile: MasterProfileData) -> list[WorkEntry]:

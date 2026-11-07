@@ -79,6 +79,26 @@ describe("ProfileSectionCard — structured rendering (F8)", () => {
     expect(screen.getByText(/Mar 2020 → present/)).toBeInTheDocument();
   });
 
+  it("#822: renders the stated end date even when is_current is still true", () => {
+    const work = [
+      {
+        role: "Product Manager",
+        company: "Northwind Health",
+        start_date: "2016-04",
+        end_date: "2020-01",
+        is_current: true,
+      },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="work_experience" value={work} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText(/Apr 2016 → Jan 2020/)).toBeInTheDocument();
+    expect(screen.queryByText(/present/)).not.toBeInTheDocument();
+  });
+
   it("renders the end date for an ended position (is_current === false)", () => {
     const work = [
       {

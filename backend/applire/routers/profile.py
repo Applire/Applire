@@ -835,7 +835,12 @@ async def get_upload_history(
         .limit(10)
     )
     records = result.scalars().all()
-    return [
+    # C9 (UX audit round 3) — a failed import is in the history too, until the
+    # same file was read later (``unrecovered_failed_imports``).
+    from applire.services.profile.import_jobs import list_failed_imports
+
+    failed = await list_failed_imports(db, user_id=user.id, records=list(records))
+    read_items = [
         UploadHistoryItem(
             id=r.id,
             original_filename=r.original_filename,
@@ -852,6 +857,24 @@ async def get_upload_history(
         )
         for r in records
     ]
+    failed_items = [
+        UploadHistoryItem(
+            id=j.id,
+            original_filename=j.filename,
+            mime_type="",
+            byte_size=0,
+            created_at=j.created_at,
+            status="failed",
+            error_code=j.error_code,
+        )
+        for j in failed
+    ]
+    items = sorted(
+        [*read_items, *failed_items],
+        key=lambda i: i.created_at if i.created_at.tzinfo else i.created_at.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    return items[:10]
 
 
 @router.get(

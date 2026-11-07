@@ -260,6 +260,64 @@ async def list_import_jobs(
     return list(result.scalars().all())
 
 
+
+def unrecovered_failed_imports(jobs: list, records: list) -> list:
+    """C9 (UX audit round 3, Emma) — the failed imports "Letzte Uploads" must show.
+
+    A failed import job left no ``UploadRecord`` (its transaction rolled back), so
+    the history listed only the files that were read and the failed one was
+    invisible. A failed job is shown until the same file name was read later: an
+    ``UploadRecord`` with that name created after the job, or a later job with that
+    name that is still running or done. A fact about rows (ADR-062 cl. 1); newest
+    first, one row per file name.
+    """
+    def _key(name: object) -> str:
+        return str(name or "").strip().casefold()
+
+    later_reads: dict[str, list] = {}
+    for r in records:
+        later_reads.setdefault(_key(getattr(r, "original_filename", "")), []).append(r.created_at)
+    for j in jobs:
+        if getattr(j, "status", None) in (*ACTIVE_IMPORT_STATUSES, CVImportStatus.ready.value):
+            later_reads.setdefault(_key(j.filename), []).append(j.created_at)
+
+    out: list = []
+    seen: set[str] = set()
+    failed = [j for j in jobs if getattr(j, "status", None) == CVImportStatus.failed.value]
+    for job in sorted(failed, key=lambda j: j.created_at, reverse=True):
+        key = _key(job.filename)
+        if key in seen:
+            continue
+        seen.add(key)
+        if any(_aware(t) > _aware(job.created_at) for t in later_reads.get(key, [])):
+            continue
+        out.append(job)
+    return out
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+async def list_failed_imports(
+    db: AsyncSession, *, user_id: uuid.UUID | None, records: list, limit: int = 20
+) -> list[CVImportJob]:
+    """The user's failed imports not read since (see :func:`unrecovered_failed_imports`),
+    within the jobs' retention horizon."""
+    stmt = (
+        select(CVImportJob)
+        .where(
+            CVImportJob.deleted_at.is_(None),
+            CVImportJob.user_id == resolve_owner(user_id),
+            CVImportJob.expires_at > datetime.now(timezone.utc),
+        )
+        .order_by(CVImportJob.created_at.desc())
+        .limit(limit)
+    )
+    jobs = list((await db.execute(stmt)).scalars().all())
+    jobs = [j for j in jobs if isinstance(j, CVImportJob)]
+    return unrecovered_failed_imports(jobs, records)
+
 async def run_import_job_background(
     import_id: uuid.UUID,
     file_bytes: bytes,

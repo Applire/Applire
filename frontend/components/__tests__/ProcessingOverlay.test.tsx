@@ -457,7 +457,7 @@ describe("ProcessingOverlay — up-front import queue (blind PQ F1)", () => {
     );
 
     await waitFor(
-      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-queue/gaps")),
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
       { timeout: 5000 }
     );
 
@@ -498,9 +498,15 @@ describe("ProcessingOverlay — up-front import queue (blind PQ F1)", () => {
       )
     );
 
-    // The second file still got queued and the pipeline completed with 1 of 2.
+    // The second file still got queued. C9: the run pauses on the failed file,
+    // names it, and moves on only when the person chooses to.
+    const pause = await screen.findByTestId("processing-partial-pause", {}, { timeout: 5000 });
+    expect(pause).toBeInTheDocument();
+    expect(screen.getByTestId("processing-file-errors")).toHaveTextContent("cv1.pdf");
+    expect(mockPush).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("continue-without-failed"));
     await waitFor(
-      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-poststop/gaps")),
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
       { timeout: 5000 }
     );
     const pushedUrl = mockPush.mock.calls[0][0] as string;
@@ -558,7 +564,7 @@ describe("ProcessingOverlay — #615 not_applied note", () => {
     expect(note).toHaveTextContent("Englisch");
 
     await waitFor(
-      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-partial-import/gaps")),
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
       { timeout: 5000 },
     );
   });
@@ -589,7 +595,7 @@ describe("ProcessingOverlay — #615 not_applied note", () => {
     render(withIntl(<ProcessingOverlay files={[f1]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />));
 
     await waitFor(
-      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-clean-import/gaps")),
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
       { timeout: 5000 },
     );
     expect(screen.queryByTestId("processing-not-applied")).toBeNull();
@@ -653,7 +659,7 @@ describe("ProcessingOverlay — happy path navigation", () => {
     );
   });
 
-  it("navigates to /flow/{id}/gaps without job when no JD is provided", async () => {
+  it("RULING V-4 = B: with no JD it lands on the import summary, never the bounced /gaps", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = typeof input === "string" ? input : input.toString();
 
@@ -683,7 +689,7 @@ describe("ProcessingOverlay — happy path navigation", () => {
 
     await waitFor(
       () => {
-        expect(mockPush).toHaveBeenCalledWith("/flow/flow-nojob/gaps");
+        expect(mockPush).toHaveBeenCalledWith("/profile#import-summary");
       },
       { timeout: 5000 }
     );
@@ -799,17 +805,70 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
       withIntl(<ProcessingOverlay files={[f1, f2]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />)
     );
 
+    // C9 (UX audit round 3): the failed file is named with a Retry, and the run
+    // waits for the person's choice instead of routing on with a bare count.
+    await screen.findByTestId("processing-partial-pause", {}, { timeout: 5000 });
+    expect(screen.getByTestId("processing-file-errors")).toHaveTextContent("cv2.pdf");
+    expect(screen.getByTestId("retry-file-1")).toBeInTheDocument();
+    expect(mockPush).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("continue-without-failed"));
+
     await waitFor(
       () => {
-        expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-partial/gaps"));
+        expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile"));
       },
       { timeout: 5000 }
     );
     const pushedUrl = mockPush.mock.calls[0][0] as string;
     expect(pushedUrl).toContain("cv_parsed=1");
     expect(pushedUrl).toContain("cv_total=2");
+    expect(pushedUrl).not.toContain("cv2.pdf");
+    expect(JSON.parse(sessionStorage.getItem("applire.failedImports.flow-partial") ?? "[]")).toEqual(["cv2.pdf"]);
     // Partial failure must NOT surface the hard-error block
     expect(screen.queryByTestId("processing-error")).toBeNull();
+  });
+
+  it("C9: a successful Retry of the paused file continues by itself, with no partial count", async () => {
+    let uploadCall = 0;
+    let secondAttempt = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-retry" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        const failed = url.includes("imp-2") && !secondAttempt;
+        return {
+          ok: true,
+          status: 200,
+          json: async () =>
+            failed
+              ? { status: "failed", error_code: "llm_timeout", result: null }
+              : { status: "ready", error_code: null, result: {} },
+        } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        uploadCall++;
+        return { ok: true, status: 202, json: async () => ({ import_id: `imp-${uploadCall}`, status: "pending" }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "cv1.pdf", { type: "application/pdf" });
+    const f2 = new File(["cv2"], "linkedin.pdf", { type: "application/pdf" });
+    render(
+      withIntl(<ProcessingOverlay files={[f1, f2]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />)
+    );
+    await screen.findByTestId("processing-partial-pause", {}, { timeout: 5000 });
+    secondAttempt = true;
+    fireEvent.click(screen.getByTestId("retry-file-1"));
+
+    await waitFor(
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
+      { timeout: 5000 },
+    );
+    const pushedUrl = mockPush.mock.calls[0][0] as string;
+    expect(pushedUrl).not.toContain("cv_parsed");
   });
 
   it("guided onboarding skips uploads, creates a guided session, advances to interview, and routes there (US156)", async () => {

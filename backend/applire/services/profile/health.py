@@ -436,6 +436,18 @@ def _item_label(item: ImportNotApplied) -> str:
     return item.label
 
 
+#: Hazelnut build 7 (WP-V, 789:255) — reasons whose content the profile already
+#: carries (the model's own `already_known` judgement, or `_append_dedup`
+#: suppressing an exact duplicate). Such an item is settled: it joins
+#: `already_present_as` in the silent (class S) path, never an open card.
+_SETTLED_REASONS = frozenset({"no_write_already_known", "confirmation_already_present"})
+
+
+def _is_settled(item: ImportNotApplied) -> bool:
+    """The one presence predicate of the hub (an entry match OR a settled reason)."""
+    return bool(item.already_present_as) or item.reason in _SETTLED_REASONS
+
+
 def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
     """Founder ruling V-6 (2026-09-09) — the `not_applied` receipt gets a reader.
 
@@ -465,14 +477,14 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
     # already present is built from them as a silent (class S) record.
     open_items = [
         i.model_copy(update={
-            "adoptable": bool(i.entry) and i.adopted_at is None and not i.already_present_as
+            "adoptable": bool(i.entry) and i.adopted_at is None and not _is_settled(i)
         })
         for i in record.not_applied
         if i.adopted_at is None
     ]
     if not open_items:
         return None
-    asked = [i for i in open_items if not i.already_present_as]
+    asked = [i for i in open_items if not _is_settled(i)]
     open_items = asked or open_items
     reasons = sorted(
         {_NOT_APPLIED_REASON.get(i.reason, i.reason) for i in open_items}
@@ -584,7 +596,7 @@ def _registry_kind(issue: HealthIssue) -> str:
         # `conflict_shape` is the one decider; "merge" is only in the list shape.
         return "health:conflict_list" if "merge" in (issue.outcomes or []) else "health:conflict_scalar"
     if thread == "not_applied":
-        if all(i.already_present_as for i in (issue.not_applied_items or [])):
+        if all(_is_settled(i) for i in (issue.not_applied_items or [])):
             return "health:not_applied_already_present"  # D-2
         adoptable = any(i.adoptable for i in (issue.not_applied_items or []))
         return "health:not_applied" if adoptable else "health:not_applied_unadoptable"

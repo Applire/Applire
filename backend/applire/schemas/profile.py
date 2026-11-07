@@ -1417,6 +1417,11 @@ class ImportReceiptSummary(BaseModel):
     kept_separate: list[KeptSeparateReceipt] = Field(default_factory=list)
     restated: list[RestatedReceipt] = Field(default_factory=list)
     not_applied_total: int = 0
+    #: 783:260 (Hazelnut build 7) — the last import CREATED the profile. Its
+    #: record carries one bookkeeping change ("initial import"), not one per
+    #: item, so ``groups`` are the profile's current section sizes and
+    #: ``added_total`` their sum — the UI says "created", never "added 1".
+    created: bool = False
 
 
 class DeniedConcept(BaseModel):
@@ -2565,3 +2570,9 @@ class UploadHistoryItem(BaseModel):
     # parked CV's extracted name, shown when re-opening the resolve dialog.
     gate_status: str | None = None
     staged_name: str | None = None
+    # C9 (UX audit round 3) — a failed import is listed too, so the person can
+    # see which file was not read and upload it again. ``"read"`` for every
+    # stored upload; ``"failed"`` rows carry the job's stable ``error_code``
+    # (never the raw provider text) and no file metadata (none was stored).
+    status: Literal["read", "failed"] = "read"
+    error_code: str | None = None
