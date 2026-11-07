@@ -4747,7 +4747,7 @@ class TestInterviewDoorGroundsTheContainmentFloor:
         assert entry["evidence"] == ""
 
     @pytest.mark.asyncio
-    async def test_a_denial_the_vault_does_not_contradict_still_floors_the_row(
+    async def test_a_denial_the_vault_does_not_contradict_leaves_the_row_open(
         self, sqlite_session
     ):
         """The floor is narrowed, not disabled: nothing affirms RAG outside
@@ -4765,10 +4765,13 @@ class TestInterviewDoorGroundsTheContainmentFloor:
             sqlite_session, ["RAG pipeline"], "RAG", ["Python"],
             "I have never built a RAG pipeline.",
         )
+        # #821 (G-1, ADR-059 amended 2026-11-07): "RAG pipeline" does not name
+        # "RAG" — the open row stays an honest unknown, neither floored nor
+        # asserted, and the denial's words never upgrade it.
         assert entry["claimable"] is False
         assert entry["status"] == "gap"
-        assert entry["evidence"] == DENIAL_FLOOR_EVIDENCE
-        assert entry["evidence"] != DENIED_EVIDENCE
+        assert entry["evidence"] == ""
+        assert entry["evidence"] not in (DENIAL_FLOOR_EVIDENCE, DENIED_EVIDENCE)
 
 
 # ===========================================================================

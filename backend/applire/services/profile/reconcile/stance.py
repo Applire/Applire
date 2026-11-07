@@ -1903,7 +1903,9 @@ def park_denial_scope_confirmations(
 #: (ADR-062 cl. 1): the wording family the interview prompt asks for, plus the
 #: variants a scan of 376 drafted choices with ``denied_terms`` found (WP-A,
 #: ``scan/out.json``: "steht in meinem Profil noch nichts" 92, "my profile does
-#: not yet document" 81, "… in meinem Profil … nicht dokumentiert" 4). Matched
+#: not yet document" 81, "… in meinem Profil … nicht dokumentiert" 4) and, since 783:245,
+#: the older "kann ich bisher nicht belegen" / "keine ausdrücklich belegte Erfahrung" /
+#: "mein Profil dokumentiert noch keine …" family. Matched
 #: on ``_norm``-ed text. A new wording is a code change with a test.
 _PROFILE_SILENCE_MARKERS: tuple[tuple[re.Pattern[str], bool], ...] = (
     # (pattern, the clause ENDS at the marker) — True where the concepts come
@@ -1934,6 +1936,80 @@ _PROFILE_SILENCE_MARKERS: tuple[tuple[re.Pattern[str], bool], ...] = (
         False,
     ),
     (re.compile(r"my profile (?:has|says) nothing (?:yet )?(?:on|about)"), False),
+    # 783:245 (founder 2026-11-05) — the OLDER evidence-silence wording of the same
+    # class (114 of 376 scanned chips): the evidence is missing, not the person's
+    # experience. Corpus-derived (Runs/Hazelnut/build-7/g/heal-report.md); a new
+    # wording is a code change with a test. Concepts BEFORE the marker -> True.
+    (
+        re.compile(
+            r"(?:kann|können) ich (?:(?:bisher|derzeit|noch|bislang|aktuell|daraus|dazu|dafür|"
+            r"jedoch|aber) )*nicht (?:belegen|nachweisen|ableiten)"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"(?:kann|können)(?: ich)? (?:(?:aber|jedoch|bisher|derzeit) )*kein\w* [^.;]{0,120}? "
+            r"(?:belegen|nachweisen)"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"(?:(?:noch|bisher|bislang|derzeit) )+nicht "
+            r"(?:(?:konkret|ausdrücklich|explizit|eindeutig|ausreichend) )*"
+            r"(?:belegt|beschrieben|dokumentiert|nachgewiesen|ausgewiesen)"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"steht (?:darin |in meinem profil )(?:(?:noch|bisher|bislang|derzeit) )*(?:nichts|kein\w*)"
+        ),
+        True,
+    ),
+    (re.compile(r"steht (?:(?:noch|bisher|bislang|derzeit) )*nichts darin"), True),
+    (
+        re.compile(r"mein profil kein\w* [^.;]{0,100}? (?:dokumentiert|beschreibt|enthält)"),
+        True,
+    ),
+    (
+        re.compile(
+            r"dokumentiert mein profil (?:(?:noch|bisher|bislang|derzeit|jedoch) )*(?:nichts|kein\w*)"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"mein profil dokumentiert (?!dazu|darüber)(?:[^\s.;]+ ){0,12}?"
+            r"(?:(?:noch|bisher|bislang|derzeit) )+nicht\b(?: (?:ausdrücklich|konkret|explizit))?"
+        ),
+        True,
+    ),
+    # Concepts AFTER the marker (to the end of the sentence) -> False.
+    (
+        re.compile(
+            r"kein\w* (?:(?:ausdrücklich|explizit|direkt|konkret|eindeutig) )*"
+            r"(?:belegte|ausgewiesene|dokumentierte|nachgewiesene|beschriebene)\w*"
+        ),
+        False,
+    ),
+    (
+        re.compile(
+            r"mein profil dokumentiert (?:(?:dazu|darüber hinaus|zusätzlich|jedoch|aber|bislang|bisher|"
+            r"noch|derzeit) )*(?:nichts|kein\w*|nicht(?=,))"
+        ),
+        False,
+    ),
+    (
+        re.compile(r"my documented experience does not (?:yet )?(?:cover|include|show|mention|document)"),
+        False,
+    ),
+    (re.compile(r"i have not yet documented"), False),
+    (
+        re.compile(r"it does not yet (?:document|mention|cover|show|list|include|describe)"),
+        False,
+    ),
 )
 #: Where the clause starts: the last of these before a marker (or the start of
 #: the statement). The R2-2 shape joins its halves with ", aber" / ", but"; the

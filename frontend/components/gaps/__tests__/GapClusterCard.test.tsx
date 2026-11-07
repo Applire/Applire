@@ -373,7 +373,11 @@ describe("GapClusterCard — lead G posting terms", () => {
     expect(eks).toHaveAttribute("data-requirement", "false");
     expect(eks.className).toContain("bg-surface-container");
     expect(eks.className).not.toContain("border-dashed");
-    expect(eks).toHaveTextContent("keine gezählte Anforderung");
+    // 787:214 — the labelled line already says what the chips are; the
+    // accounting phrase is not repeated into every chip (and so every theme).
+    expect(eks).not.toHaveTextContent("keine gezählte Anforderung");
+    expect(eks).toHaveAttribute("title", "Begriff aus der Anzeige – zählt nicht als Anforderung");
+    expect(document.body.textContent).not.toContain("keine gezählte Anforderung");
     expect(eks).not.toHaveTextContent("(offen)");
     expect(k8s.className).toContain("border-dashed");
   });
@@ -472,6 +476,36 @@ describe("G-4 — a requirement floored by the candidate's answer", () => {
     const chips = screen.getAllByTestId("gap-member");
     expect(chips[1]).toHaveTextContent("(laut deiner Angabe nicht vorhanden)");
     expect(chips[1]).not.toHaveAttribute("data-floored");
+  });
+});
+
+describe("#821 G-1 — a declined member is quoted by the candidate's own wording", () => {
+  const scoped = makeCluster({
+    gaps: [],
+    coverage: "declined",
+    outcome: { asked: 1, covered: [], declined: ["PSD2"], session_ids: [] },
+    member_statuses: [{ member: "PSD2", status: "declined", denied_by: ["no PSD2 licence"] }],
+  });
+
+  it("the chip's screen-reader text quotes the denial wording", () => {
+    render(withIntl(<GapClusterCard cluster={scoped} view={clusterView(scoped)} />, "de"));
+    const chip = screen.getByTestId("gap-member");
+    expect(chip).toHaveTextContent("PSD2");
+    expect(chip).toHaveTextContent("(du sagtest: „no PSD2 licence“)");
+    expect(chip).not.toHaveTextContent("laut deiner Angabe nicht vorhanden");
+  });
+
+  it("a floored member never quotes a wording, even if one is attached", () => {
+    const f = makeCluster({
+      gaps: [],
+      coverage: "declined",
+      outcome: { asked: 1, covered: [], declined: ["Payout flows"], session_ids: [] },
+      member_statuses: [{ member: "Payout flows", status: "declined", floored: true, denied_by: ["x"] }],
+    });
+    render(withIntl(<GapClusterCard cluster={f} view={clusterView(f)} />, "de"));
+    const chip = screen.getByTestId("gap-member");
+    expect(chip).toHaveTextContent("(durch deine Antwort ausgeschlossen)");
+    expect(chip).not.toHaveTextContent("du sagtest");
   });
 });
 

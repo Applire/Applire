@@ -100,8 +100,8 @@ def test_prompt_no_invented_limit_with_a_single_exception():
     assert "keine erfahrung mit x" in low
     assert "means unknown, never no" in low
     assert "the one exception: the candidate already said that no themselves" in low
-    assert "name exactly those concepts, never a broader area" in low
-    assert "never one the profile summary or the earlier answers evidence in other words" in low
+    # 787:206 (G-3 A): the PARTIAL bullet no longer names uncovered concepts at all.
+    assert "never treat a concept the profile summary or the earlier answers evidence in other words as uncovered" in low
 
 
 def test_prompt_partial_marks_gaps_as_not_in_the_profile():
@@ -109,10 +109,13 @@ def test_prompt_partial_marks_gaps_as_not_in_the_profile():
     # R2-2: a PARTIAL choice that must mark what it does not cover says the
     # PROFILE does not document it, in both languages, never that the candidate
     # lacks it. Evidence in any wording still counts (787 M2).
+    # 787:206 (G-3 A, build 7): the clause in the system's words is withdrawn —
+    # a PARTIAL choice states what the profile shows and leaves the rest out.
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert "but my profile does not yet document X or Y" in flat
-    assert "aber zu X und Y steht in meinem Profil noch nichts" in flat
-    assert "what the PROFILE does not show yet" in flat
+    assert "A PARTIAL choice states only what the profile DOES show" in flat
+    assert "never mentions a concept it does not cover" in flat
+    assert 'no "..., but my profile does not yet document X"' in flat
+    assert "The candidate adds what is missing in their own words" in flat
     assert 'a "Teamleiter" role is evidence of team leadership' in flat
     assert 'a "Scrum Master" skill of agile methods' in flat
 
@@ -253,7 +256,9 @@ def test_direct_caveat_still_present_later_too():
 def test_the_profile_clause_is_joined_with_the_pivot_and_listed_in_denied_terms():
     # R2-2 rule arm run 1: "; zu X steht in meinem Profil noch nichts" carries no
     # _PIVOT_MARKERS phrase, so the grounding filter dropped the honest chip.
+    # 787:206 (G-3 A): there is no profile clause left to join; denied_terms
+    # lists a concept only on a restated earlier no.
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert 'joined with ", but" (German ", aber")' in flat
-    assert "never a semicolon, a dash or a new sentence" in flat
-    assert 'every concept it names is listed in "denied_terms"' in flat
+    assert 'joined with ", but"' not in flat
+    assert "Only a choice that restates the candidate's OWN earlier no" in flat
+    assert "DIRECT or PARTIAL, lists []" in flat

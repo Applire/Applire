@@ -15,6 +15,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v11 (ADR-059 amended 2026-11-07, #821, founder ruling G-1): a denial rules out
+#   only what it names. The string floor's containment branch is withdrawn, so this rule is now the
+#   only bridge from a narrow recorded denial to a broader requirement; it gains the scoped shape the
+#   UX audit round 3 met ("no ECMO certification", "not independently" ≠ "ECMO"; "no formal security
+#   certification" ≠ "Security"): a qualifier narrows the denial, and the broader requirement is ruled
+#   out only when the candidate's statement says they lack the broader thing too.
+#
 # Prompt version: v10 (ADR-100 amended 2026-11-04, M-2): RECORDED DENIALS + "denied_by". The ledger
 #   floor matched a persisted denial to a requirement by string (alias groups, head nouns,
 #   containment over concept + surface_forms), so a German denial ("Referenzdesigns") reached the
@@ -221,7 +228,13 @@ Rules:
     "gap". A denial rules out the thing it names, and anything that is that thing ("no Azure" rules
     out "Microsoft Azure"; "keine Referenzdesigns" rules out "Reference designs"). It does NOT rule
     out a broader requirement it names only a part or a narrower form of ("no Tailwind CSS" does
-    not rule out "CSS"), nor a requirement that is merely related. Omit "denied_by" otherwise.
+    not rule out "CSS"), nor a requirement that is merely related. A denial scoped by a qualifier
+    — a certification or licence, independent or lead responsibility, a formal programme, one
+    product — rules out that scoped thing only: "no ECMO certification, never managed the circuit
+    independently" does not rule out "ECMO" when the statement says they cared for ECMO patients,
+    and "no formal security certification" does not rule out "Security". Cite it for the broader
+    requirement only when the statement says the candidate lacks the broader thing itself. Omit
+    "denied_by" otherwise.
   - COMPOUND requirements that name multiple technologies (e.g. "Cloud environment
     qualification (AWS, Azure)"): each named technology also gets its OWN entry, classified on
     its own evidence — that entry, its "status" and its "reason" are where the candidate's

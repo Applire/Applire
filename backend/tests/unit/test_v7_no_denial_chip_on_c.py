@@ -36,6 +36,7 @@ def test_the_c_prompt_asks_for_no_denial_choice():
     prompt = build_question_prompt(CLUSTER, PROFILE, [], gap_category="C")
     assert "Offer NO denial choice" in prompt
     assert "only valid scope for a denial" not in prompt
-    # R2-2: a PARTIAL chip marks a gap as "not in the profile", never as a lack.
-    assert "does not yet document a concept" in prompt
-    assert "never that the candidate lacks it" in prompt
+    # 787:206 (G-3 A): a PARTIAL chip leaves an uncovered concept out — neither
+    # "not in the profile" nor a lack.
+    assert "leaves an uncovered concept out" in prompt
+    assert "never says the profile does not document it, and never that the candidate lacks it" in " ".join(prompt.split())

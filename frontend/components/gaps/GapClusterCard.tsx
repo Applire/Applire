@@ -121,11 +121,13 @@ function MemberChip({
   state,
   requirement = true,
   floored = false,
+  deniedBy,
 }: {
   term: string;
   state: MemberState;
   requirement?: boolean;
   floored?: boolean;
+  deniedBy?: string[];
 }) {
   const t = useTranslations("gaps");
   if (!requirement) {
@@ -134,10 +136,13 @@ function MemberChip({
         data-testid="gap-member"
         data-state={state}
         data-requirement="false"
+        // 787:214 — the chip sits on a line labelled "Begriffe aus der Anzeige:",
+        // so the explanation lives in the title, not repeated as hidden text
+        // into every chip of every theme.
+        title={t("postingTermTitle")}
         className={cn("relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs", TERM_CHIP)}
       >
         {term}
-        <span className="sr-only">{t("postingTermSr")}</span>
       </span>
     );
   }
@@ -151,7 +156,9 @@ function MemberChip({
           : state === "declined"
             ? floored
               ? t("memberRuledOutSr")
-              : t("memberDeclinedSr")
+              : deniedBy && deniedBy.length > 0
+                ? t("memberDeniedBySr", { wording: deniedBy.join("; ") })
+                : t("memberDeclinedSr")
             : null;
   // `relative` anchors the absolutely positioned sr-only label to the chip.
   // Without it the label anchors outside the page's scroll column, stays put
@@ -260,7 +267,13 @@ export function GapClusterCard({
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
               <span className="text-xs text-on-surface-variant">{t("clusterCardConstituentLabel")}</span>
               {requirementMembers.map((m) => (
-                <MemberChip key={m.term} term={m.term} state={m.state} floored={m.floored === true} />
+                <MemberChip
+                  key={m.term}
+                  term={m.term}
+                  state={m.state}
+                  floored={m.floored === true}
+                  deniedBy={m.deniedBy}
+                />
               ))}
             </div>
           )}
