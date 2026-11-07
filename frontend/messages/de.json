@@ -388,7 +388,7 @@
     "endConfirm": "Möchtest du das Interview beenden? Was du bisher gesagt hast, bleibt in deinem Profil.",
     "matchWithJob": "Übereinstimmung mit der Stelle",
     "matchBeforeInterview": "Stand vor dem Interview",
-    "trackerHeading": "{count, plural, =0 {Nichts mehr offen} one {# offene Anforderung} other {# offene Anforderungen}} · {topics, plural, one {# Thema} other {# Themen}}",
+    "trackerHeading": "{count, plural, =0 {Nichts mehr offen} one {# offene Anforderung} other {# offene Anforderungen}} · {topics} von {total, plural, one {# Thema} other {# Themen}} offen",
     "introEyebrow": "Interview",
     "introEyebrowRole": "Interview · {role}",
     "introTitle": "Bevor es losgeht",
@@ -410,6 +410,7 @@
     "reopenedSummaryLead": "Was wir aus deinen Antworten in dein Profil übernommen haben. Das Interview ist abgeschlossen; du kannst es dir hier jederzeit wieder ansehen.",
     "backToCV": "Zurück zum Lebenslauf",
     "reasonNoneOpen": "Interview abgeschlossen — keine Anforderung mehr offen",
+    "completionOpenNames": "Noch offen: {names}{more, plural, =0 {} other { und # weitere}}",
     "completionOpenRequirements": "{count, plural, one {# Anforderung ist noch offen} other {# Anforderungen sind noch offen}}. Deine Antworten sind in deinem Profil gespeichert.",
     "openRequirementsStat": "{count, plural, one {Anforderung noch offen} other {Anforderungen noch offen}}"
   },

@@ -388,7 +388,7 @@
     "endConfirm": "Do you want to end the interview? What you said so far stays in your profile.",
     "matchWithJob": "Match with the job",
     "matchBeforeInterview": "Before the interview",
-    "trackerHeading": "{count, plural, =0 {Nothing open} one {# open requirement} other {# open requirements}} · {topics, plural, one {# topic} other {# topics}}",
+    "trackerHeading": "{count, plural, =0 {Nothing open} one {# open requirement} other {# open requirements}} · {topics} of {total, plural, one {# topic} other {# topics}} open",
     "introEyebrow": "Interview",
     "introEyebrowRole": "Interview · {role}",
     "introTitle": "Before we start",
@@ -410,6 +410,7 @@
     "reopenedSummaryLead": "What we added to your profile from your answers. The interview is finished; you can come back to this page any time.",
     "backToCV": "Back to the CV",
     "reasonNoneOpen": "Interview complete — no requirement open",
+    "completionOpenNames": "Still open: {names}{more, plural, =0 {} other { and # more}}",
     "completionOpenRequirements": "{count, plural, one {# requirement is still open} other {# requirements are still open}}. Your answers are saved to your profile.",
     "openRequirementsStat": "{count, plural, one {requirement still open} other {requirements still open}}"
   },

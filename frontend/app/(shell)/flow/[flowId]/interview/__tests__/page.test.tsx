@@ -1343,6 +1343,25 @@ describe("Hazelnut b3 #789 — interview intro, one count, match ring", () => {
   });
 });
 
+describe("787:207 — the sidebar heading counts the topics it lists", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("names the open topics OUT OF the listed topics (Priya: '5 topics' above a list of 8)", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    const heading = await screen.findByTestId("tracker-open-count");
+    const listed = document.querySelectorAll('[data-testid^="gap-cluster-"]').length;
+    expect(listed).toBe(2);
+    expect(heading.textContent).toContain('"total":2');
+    expect(heading.textContent).toContain('"topics":1');
+  });
+});
+
 describe("#821 G-1 — the sidebar quotes the candidate's own wording", () => {
   beforeEach(() => {
     mockPush.mockReset();
@@ -1583,6 +1602,40 @@ describe("R2-10 — the completion screen agrees with the open count", () => {
     expect(document.body.textContent).toContain('completionOpenRequirements({"count":5})');
     expect(document.body.textContent).not.toContain("gapsResolved");
     expect(screen.queryByText("7")).not.toBeInTheDocument(); // topics walked is not shown as "closed"
+  });
+
+  it("787:207 — names the open requirements it counts, and shows the profile page's completeness", async () => {
+    const user = userEvent.setup();
+    const inner = withLedger(2);
+    // the turn says 0.52 (the audit's end screen); the profile health says 0.92
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/profile/health")) {
+        return { ok: true, json: async () => ({ issues: [], completeness: { score: 0.92 } }) };
+      }
+      return inner(input, init);
+    }) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    await sendAnswer(user, "Done.");
+
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    const names = await screen.findByTestId("completion-open-names");
+    expect(names.textContent).toContain('"names":"Req0, Req1"');
+    expect(names.textContent).not.toContain("E-commerce"); // a posting term is not a requirement
+    await waitFor(() => expect(screen.getByTestId("completeness-gauge")).toHaveAttribute("data-pct", "92"));
+  });
+
+  it("787:207 — no open names line when nothing is open", async () => {
+    const user = userEvent.setup();
+    global.fetch = withLedger(0) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    await sendAnswer(user, "Done.");
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("completion-open-count").textContent).toContain("0"));
+    expect(screen.queryByTestId("completion-open-names")).not.toBeInTheDocument();
   });
 
   it("with nothing open: says no requirement is open", async () => {
