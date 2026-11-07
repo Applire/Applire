@@ -221,9 +221,8 @@ def period(entry: object, present: str, kind: str = "work") -> dict:
 
     * an end date renders as itself;
     * no end date and ``is_current`` True -> "– heute"/"– Present";
-    * no end date and ``is_current`` None (unstated: a legacy record, or an
-      entry kind without the field, e.g. education) -> "– heute"/"– Present",
-      the long-standing reading, kept;
+    * no end date and ``is_current`` None (unstated: a legacy work record) ->
+      "– heute"/"– Present", the long-standing reading, kept;
     * no end date and ``is_current`` False -> the start date ALONE, no dash and
       no "Present": the role ended and the end is unknown, so nothing is said
       about it;
@@ -232,7 +231,8 @@ def period(entry: object, present: str, kind: str = "work") -> dict:
       a lone date there is a completion year ("Ausbildung Industriemechaniker,
       2004"), so no end date renders the date ALONE — never "– heute" (round 4:
       Sonnet stored the year as ``start_date``; the panel read "2004 – heute").
-      Only an explicit ``is_current`` True continues the range.
+      Only an explicit ``is_current`` True continues the range (MD7-13: an
+      open study then shows its start alone until an end date is stated).
 
     Returns ``{"start", "end", "dash"}`` so each template keeps its own
     separator markup (``&nbsp;–&nbsp;``, ``<br/>– ``) and only the decision is
