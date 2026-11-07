@@ -237,6 +237,10 @@ async def generate_cover_letter(
         "availability": request.availability,
         "motivation": request.motivation,
         "tone": request.tone,
+        # 789:249 (WP-L, build 7): RULING G-2 — with no typed motivation the writer
+        # derives one from the grounded fit (REQUIRED content), so the letter view
+        # never says "no reason for the change" about it. A fact about this request.
+        "motivation_derived": not (request.motivation or "").strip(),
     }
 
     # E054 / ADR-038 amendment clause 3: resolve the document language ONCE,
@@ -380,6 +384,18 @@ async def get_cover_letter_status(
     )
     signature_available = await resolve_signature_available(db, user_id=uid)
 
+    # RULING L-1 (#820) cue: the interview added facts after this letter was written.
+    from applire.services.cover_letter_positioning import letter_predates_interview
+
+    predates_interview = False
+    if cl.status == CoverLetterStatus.ready.value and cl.profile_id is not None:
+        profile_row = await db.get(MasterProfile, cl.profile_id)
+        predates_interview = letter_predates_interview(
+            cl.created_at, profile_row.profile_json if profile_row is not None else None
+        )
+    stored_inputs = cl.pre_gen_inputs or {}
+    motivation_derived = stored_inputs.get("motivation_derived")
+
     return CoverLetterStatusResponse(
         cover_letter_id=cl.id,
         status=cl.status,
@@ -409,6 +425,10 @@ async def get_cover_letter_status(
         signature_override=cl.signature_override,
         signature_effective=signature_effective,
         signature_available=signature_available,
+        predates_interview=predates_interview,
+        motivation_derived=(
+            motivation_derived if isinstance(motivation_derived, bool) else None
+        ),
     )
 
 
