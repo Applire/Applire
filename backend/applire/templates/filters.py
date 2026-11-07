@@ -209,7 +209,7 @@ def role_facts(entry: object, lang: str = "de") -> str:
     return " · ".join(parts)
 
 
-def period(entry: object, present: str) -> dict:
+def period(entry: object, present: str, kind: str = "work") -> dict:
     """THE date range of a CV entry (work, education), for every CV template
     AND the .docx export — a date FACT (ADR-062 clause 1), so one rule, one
     producer (D-14, Hazelnut build 5).
@@ -228,6 +228,11 @@ def period(entry: object, present: str) -> dict:
       no "Present": the role ended and the end is unknown, so nothing is said
       about it;
     * no start date -> never "Present" (there is no range to continue).
+    * ``kind="education"``: an education entry has no ``is_current`` field, and
+      a lone date there is a completion year ("Ausbildung Industriemechaniker,
+      2004"), so no end date renders the date ALONE — never "– heute" (round 4:
+      Sonnet stored the year as ``start_date``; the panel read "2004 – heute").
+      Only an explicit ``is_current`` True continues the range.
 
     Returns ``{"start", "end", "dash"}`` so each template keeps its own
     separator markup (``&nbsp;–&nbsp;``, ``<br/>– ``) and only the decision is
@@ -241,12 +246,14 @@ def period(entry: object, present: str) -> dict:
     {'start': '03/2005', 'end': 'heute', 'dash': True}
     >>> period({"start_date": "2005-03", "end_date": "2009-06", "is_current": True}, "heute")
     {'start': '03/2005', 'end': '06/2009', 'dash': True}
+    >>> period({"start_date": "2004", "end_date": None}, "heute", "education")
+    {'start': '2004', 'end': '', 'dash': False}
     """
     start = month_year(str(_attr(entry, "start_date") or "").strip())
     end = month_year(str(_attr(entry, "end_date") or "").strip())
     if not end and start:
         current = _attr(entry, "is_current")
-        if current is True or current is None:
+        if current is True or (current is None and kind != "education"):
             end = present
     return {"start": start, "end": end, "dash": bool(start and end)}
 

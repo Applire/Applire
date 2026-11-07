@@ -490,7 +490,7 @@
     <div class="entry entry-atomic">
       <div class="entry-meta">
         <div class="entry-title">{{ edu.degree | education_title(edu.field) }}</div>
-        <div class="entry-dates">{% set edu_period = edu | period(labels.present) %}{{ edu_period.start }}{% if edu_period.dash %} – {% endif %}{{ edu_period.end }}</div>
+        <div class="entry-dates">{% set edu_period = edu | period(labels.present, "education") %}{{ edu_period.start }}{% if edu_period.dash %} – {% endif %}{{ edu_period.end }}</div>
       </div>
       <div class="entry-subtitle">{{ edu.institution }}</div>
     </div>
