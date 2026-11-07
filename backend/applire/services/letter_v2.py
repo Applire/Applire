@@ -759,6 +759,13 @@ class ToolDuration:
     positions: tuple[tuple[str, str], ...]  # (experience id, label), in vault order
     cv_positions: tuple[str, ...]  # ids of those positions the CV shows the tool under
     has_cv: bool
+    #: R4-1 (founder 2026-11-07, amends R-3): the figure the candidate states for
+    #: this tool in their own text (``VaultIndex.stated_skill_tenures`` — the
+    #: Oracle's #747 reader) or as a ``transcribed`` skill duration; ``None`` = none.
+    stated_years: float | None = None
+    #: where they state it — a profile path and the sentence ("" for the skills list)
+    stated_source: str = ""
+    stated_quote: str = ""
 
     @property
     def stateable(self) -> bool:
@@ -767,6 +774,26 @@ class ToolDuration:
         if not self.has_cv:
             return True
         return bool(self.positions) and all(pid in self.cv_positions for pid, _ in self.positions)
+
+    def allowed_wordings(self, language: str | None) -> list[str]:
+        """The ONE answer to "how may the letter state this tool's duration" — the
+        TOOL DURATIONS line and the critic's numeric finding both read it.
+        R4-1 "Eigene Zahl schlägt Rechnung": the candidate's own figure, as they
+        state it; otherwise R-3's hedge of the computed span when the CV is
+        consistent with it; otherwise ``[]`` (no duration)."""
+        from applire.services.prompt_view import span_hedges
+
+        lang = "de" if (language or "").strip().lower() == "de" else "en"
+        if self.stated_years is not None:
+            n = self.stated_years
+            num = str(int(n)) if float(n).is_integer() else f"{n:g}".replace(".", "," if lang == "de" else ".")
+            if lang == "de":
+                return [f"{num} Jahr" if num == "1" else f"{num} Jahre"]
+            return [f"{num} year" if num == "1" else f"{num} years"]
+        hedge = span_hedges(self.years)
+        if hedge is None or not self.stateable:
+            return []
+        return list(hedge[lang])
 
 
 def _cv_entry_texts(cv_data: dict[str, Any] | None) -> dict[str, str]:
@@ -786,6 +813,49 @@ def _cv_entry_texts(cv_data: dict[str, Any] | None) -> dict[str, str]:
                 parts += [str(b) for b in p.get("bullets") or [] if isinstance(b, str)]
         out[str(w["id"])] = _norm(" \n ".join(parts))
     return out
+
+
+_SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _person_stated_tool_years(profile_json: dict[str, Any]) -> dict[str, tuple[float, str, str]]:
+    """R4-1: per skill (casefolded name) the figure the candidate's OWN record
+    states — ``(years, source path, sentence)``. One producer with the Oracle: the
+    vault index's #747 reader (``stated_skill_tenures``: a duration in the
+    candidate's own evidence text with the skill as its subject) and the
+    ``transcribed`` skill durations; the larger wins, as on the Oracle's escape.
+    System-authored text (ledger evidence, gap reasons, this block) is no vault
+    unit and never a source. Fail-open: ``{}``."""
+    try:
+        from applire.services.oracle.matchers.vault import build_vault_index
+
+        idx = build_vault_index(profile_json)
+    except Exception:  # noqa: BLE001 — a prompt input must never fail generation
+        return {}
+    out: dict[str, tuple[float, str, str]] = {}
+    for name, years in idx.stated_skill_tenures.items():
+        path, text = idx.stated_skill_tenure_sources.get(name, ("", ""))
+        sentence = next(
+            (x for x in _SENTENCE_END_RE.split(text or "") if name.casefold() in x.casefold()),
+            text or "",
+        )
+        out[name.casefold()] = (float(years), path, sentence.strip()[:200])
+    for name, years in idx.transcribed_skill_years.items():
+        if years and float(years) > out.get(name.casefold(), (0.0, "", ""))[0]:
+            out[name.casefold()] = (float(years), "skills", "")
+    return out
+
+
+def _source_label(path: str) -> str:
+    head = (path or "").split(".", 1)[0].split("[", 1)[0]
+    return {
+        "professional_summary": "their profile summary",
+        "work_experience": "a position in their profile",
+        "projects": "a project in their profile",
+        "signature_stories": "a story in their profile",
+        "skills": "their skills list",
+        "metadata": "their stated limits",
+    }.get(head, "their profile")
 
 
 def tool_duration_facts(
@@ -823,17 +893,25 @@ def tool_duration_facts(
             for t in w.get("technologies") or []:
                 _add(t)
     cv_texts = _cv_entry_texts(cv_data) if cv_data is not None else {}
+    stated = _person_stated_tool_years(profile_json)
     facts: list[ToolDuration] = []
     for name in names:
+        own = stated.get(name.casefold())
         try:
             got = evidenced_positions(model, name, bound="floor")
         except Exception:  # noqa: BLE001
             got = None
-        if got is None:
+        if got is None or got[0] < 1:
+            if own is None:
+                continue
+            # R4-1: the candidate's own figure stands without a computed span.
+            facts.append(ToolDuration(
+                tool=name, years=0.0, since="", positions=(), cv_positions=(),
+                has_cv=cv_data is not None, stated_years=own[0],
+                stated_source=own[1], stated_quote=own[2],
+            ))
             continue
         years, rows = got
-        if years < 1:
-            continue
         positions: list[tuple[str, str]] = []
         for entry, _s, _e in rows:
             pid = str(getattr(entry, "id", "") or "")
@@ -848,9 +926,11 @@ def tool_duration_facts(
             tool=name, years=years, since=f"{since.month:02d}/{since.year}",
             positions=tuple(positions), cv_positions=cv_positions,
             has_cv=cv_data is not None,
+            stated_years=own[0] if own else None,
+            stated_source=own[1] if own else "", stated_quote=own[2] if own else "",
         ))
     wanted = [p.casefold() for p in priority or [] if isinstance(p, str)]
-    facts.sort(key=lambda f: (f.tool.casefold() not in wanted, -f.years))
+    facts.sort(key=lambda f: (f.tool.casefold() not in wanted, -max(f.years, f.stated_years or 0.0)))
     return facts[:TOOL_DURATIONS_MAX]
 
 
@@ -858,24 +938,37 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
     """The TOOL DURATIONS block — writer user prompt and the review loop's source.
     The obligation travels with the block (a task that belongs to one input block
     goes in that block). ``""`` when no tool has a span of a year or more."""
-    from applire.services.prompt_view import span_hedges
-
     if not facts:
         return ""
     lang = "de" if (language or "").strip().lower() == "de" else "en"
     lines = [
-        "TOOL DURATIONS (computed by the system from the candidate's dated positions; a "
+        "TOOL DURATIONS (per tool: the candidate's OWN figure where their profile states "
+        "one, otherwise the span computed by the system from their dated positions; a "
         "reference for durations only — it never asks for a tool to be named, and how it "
-        "was computed is never described in the letter):"
+        "was found is never described in the letter):"
     ]
     for f in facts:
-        hedge = span_hedges(f.years)
-        if hedge is None:
+        allowed = f.allowed_wordings(lang)
+        quoted = " or ".join(f'"{h}"' for h in allowed)
+        if f.stated_years is not None:
+            # R4-1 (founder 2026-11-07): "Eigene Zahl schlägt Rechnung".
+            where = _source_label(f.stated_source)
+            said = f': "{f.stated_quote.rstrip('.!?')}"' if f.stated_quote else ""
+            line = (
+                f"  - {f.tool} — the candidate's own figure, from {where}{said}. "
+                f"State it as {quoted} or state no duration — never a larger figure, never "
+                "\"over\" or \"almost\" another number, whatever their positions add up to."
+            )
+            lines.append(line)
+            continue
+        from applire.services.prompt_view import span_hedges
+
+        if span_hedges(f.years) is None:
             continue
         counted = ", ".join(label for _, label in f.positions)
         line = f"  - {f.tool} — since {f.since}, counted from: {counted}. "
-        if f.stateable:
-            line += "May be stated as " + " or ".join(f'"{h}"' for h in hedge[lang]) + "."
+        if allowed:
+            line += "May be stated as " + quoted + "."
         else:
             shown = [label for pid, label in f.positions if pid in f.cv_positions]
             where = ("only under " + ", ".join(shown)) if shown else "under none of them"
@@ -889,7 +982,7 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
         "How long the candidate has worked with a tool, skill or technology is stated ONLY "
         "as its line above allows, in one of the wordings given — never another figure, "
         "never rounded up, never a span you add up across positions yourself, and never a "
-        "figure from a ledger evidence text or a summary. A tool with no line here gets no "
-        "duration."
+        "figure from a ledger evidence text or a summary other than the candidate's own "
+        "sentence quoted above. A tool with no line here gets no duration."
     )
     return "\n".join(lines)

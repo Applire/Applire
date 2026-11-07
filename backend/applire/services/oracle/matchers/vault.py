@@ -135,6 +135,11 @@ class VaultIndex:
     # Erfahrung im industriellen Mittelstand" without the vault-wide bare
     # number finding 4a removed.
     stated_tenure_windows: list[tuple[float, frozenset[str]]] = field(default_factory=list)
+    # R4-1 (founder 2026-11-07, "Eigene Zahl schlägt Rechnung"): for each skill in
+    # ``stated_skill_tenures``, where the candidate states that figure — the
+    # evidence unit's path (or ``metadata.denied_concepts``) and the sentence.
+    # Read by the letter's TOOL DURATIONS line, which cites it.
+    stated_skill_tenure_sources: dict[str, tuple[str, str]] = field(default_factory=dict)
     #: ADR-052 amended 2026-10-23 (ruling B3-9, WP-FO) — the claimable vault's
     #: ENTRY names a CV's certification/education entry may match: ``(path, name)``
     #: for every certification ``name``, education ``degree`` and ``degree_aliases``
@@ -367,6 +372,7 @@ def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) ->
         transcribed_skill_years=dict(index.transcribed_skill_years),
         stated_skill_tenures=dict(index.stated_skill_tenures),
         stated_tenure_windows=list(index.stated_tenure_windows),
+        stated_skill_tenure_sources=dict(index.stated_skill_tenure_sources),
         credential_entries=index.credential_entries,
     )
 
@@ -674,6 +680,9 @@ SUBJECT_WINDOW_AFTER = 60
 _SUBJECT_BARRIER_RE = __import__("re").compile(
     r"[,;.!?]|\b(?:und|and|sowie|oder|or|plus|as well as|while|während)\b"
 )
+# R4-1: the punctuation half of the barrier, and a second duration in the gap.
+_SUBJECT_PUNCT_RE = __import__("re").compile(r"[,;.!?()]|\b(?:while|während)\b")
+_GAP_DURATION_RE = __import__("re").compile(r"\b(?:years?|jahre?n?)\b")
 
 
 def skills_near_duration(
@@ -700,6 +709,9 @@ def skills_near_duration(
     dur_start = len(_norm(text[ws:pos]))
     dur_end = dur_start + len(_norm(raw.strip()))
     out: list[tuple[str, int]] = []
+    #: R4-1: (start, name, gap) of every whole-token occurrence AFTER the duration
+    after: list[tuple[int, str, str]] = []
+    before_without_barrier = False
     for name in names:
         if not surface_present_whole_token(name, window):
             continue
@@ -712,6 +724,7 @@ def skills_near_duration(
             elif m.start() >= dur_end:
                 gap = window[dur_end:m.start()]
                 d = m.start() - dur_end
+                after.append((m.start(), name, gap))
             else:
                 gap, d = "", 0
             # A list or clause boundary between the duration and the skill
@@ -722,9 +735,27 @@ def skills_near_duration(
             # adversarial finding 4, 2026-10-07).
             if _SUBJECT_BARRIER_RE.search(gap):
                 continue
+            if m.end() <= dur_start:
+                before_without_barrier = True
             best = d if best is None else min(best, d)
         if best is not None:
             out.append((name, best))
+    # R4-1 (founder 2026-11-07; ux-audit-4 Felix): a conjunction BEFORE the first
+    # skill after the duration joins the words that lead to it, not two items —
+    # "8 years of experience designing and operating Python services". The FIRST
+    # skill named after the duration is its subject across "and"/"und" when no
+    # skill stands before the duration ("SAP CO (knapp acht Jahre) und SAP FI"
+    # keeps SAP CO alone) and no punctuation or second duration lies between.
+    # Every later skill keeps the conjunction barrier ("… Python services
+    # (Django and FastAPI)" is about Python only).
+    if after and not before_without_barrier:
+        start, name, gap = min(after)
+        if (
+            not _SUBJECT_PUNCT_RE.search(gap)
+            and not _GAP_DURATION_RE.search(gap)
+            and name not in {n for n, _ in out}
+        ):
+            out.append((name, start - dur_end))
     return out
 
 
@@ -791,15 +822,20 @@ def _skill_duration_facts(
         statement = getattr(d, "statement", None)
         if isinstance(statement, str):
             texts.append(statement)
+    paths = [u.path for u in units] + ["metadata.denied_concepts"] * (len(texts) - len(units))
     stated: dict[str, float] = {}
-    for text in texts:
+    sources: dict[str, tuple[str, str]] = {}
+    for path, text in zip(paths, texts):
         for t in extract_tenure_claims(text):
             for name, _dist in skills_near_duration(text, t.raw, names):
-                stated[name] = max(stated.get(name, 0.0), t.years)
+                if t.years > stated.get(name, 0.0):
+                    stated[name] = t.years
+                    sources[name] = (path, text)
     return {
         "skill_spans": spans,
         "transcribed_skill_years": transcribed,
         "stated_skill_tenures": stated,
+        "stated_skill_tenure_sources": sources,
         "stated_tenure_windows": [
             (t.years, duration_window_tokens(text, t.raw))
             for text in texts
