@@ -304,3 +304,53 @@ def test_783_242_a_compound_denial_no_longer_floors_the_requirement_it_mentions(
         "claimable": True, "evidence": "Schnittstellenplattform aufgebaut",
     }
     assert _enforce_denial_stance([dict(row)], [denial], None) == [row]
+
+
+# ── 790:78 (R2-6 (5)): "never asked" reads what the interview did ────────────
+
+
+def _felix_round2_response(asked: int, gaps=("Settlement", "Payout flows"), declined=()):
+    from applire.schemas.gap import GapAnalysisResponse
+
+    row = {
+        "concept": "Payment settlement", "surface_forms": ["Payment settlement", "settlement"],
+        "sources": ["required"], "fit_weight": 1.0, "status": "gap", "evidence": "",
+        "claimable": False,
+    }
+    other = {
+        "concept": "Domain modelling", "surface_forms": ["Domain modelling"],
+        "sources": ["required"], "fit_weight": 1.0, "status": "gap", "evidence": "",
+        "claimable": False,
+    }
+    cluster = {
+        "id": "cluster-settlement", "label": "Payment Settlement & Payouts", "category": "C",
+        "gaps": list(gaps), "jd_skills": [], "jd_context": "",
+        "outcome": {"asked": asked, "covered": [], "declined": list(declined), "session_ids": []},
+    }
+    return GapAnalysisResponse.model_validate({
+        "id": "00000000-0000-0000-0000-000000000001",
+        "job_analysis_id": "00000000-0000-0000-0000-000000000002",
+        "profile_id": "00000000-0000-0000-0000-000000000003",
+        "match_score": 0.5, "critical_gaps": [], "minor_gaps": [], "strengths": [],
+        "keyword_gaps": [], "category_a": [], "category_b": [], "category_c": [],
+        "keyword_ledger": [row, other], "gap_clusters": [cluster],
+        "created_at": "2026-11-07T00:00:00Z",
+    })
+
+
+def test_790_78_a_row_an_asked_member_speaks_for_is_not_never_asked():
+    resp = _felix_round2_response(asked=2)
+    names = [e.concept for e in resp.unasked_requirements]
+    assert "Payment settlement" not in names
+    # an unrelated open row stays listed — "ai" in "domain" is no join
+    assert "Domain modelling" in names
+
+
+def test_790_78_an_unasked_cluster_still_lists_the_row():
+    resp = _felix_round2_response(asked=0)
+    assert "Payment settlement" in [e.concept for e in resp.unasked_requirements]
+
+
+def test_790_78_a_bare_substring_never_marks_a_row_asked():
+    resp = _felix_round2_response(asked=1, gaps=("AI",))
+    assert "Domain modelling" in [e.concept for e in resp.unasked_requirements]

@@ -79,6 +79,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -341,6 +342,50 @@ def _has_claimable_signal(member: str, rows: list[dict[str, Any]]) -> bool:
 # ---------------------------------------------------------------------------
 # Public contract
 # ---------------------------------------------------------------------------
+
+
+def asked_requirement_concepts(
+    clusters: list[dict[str, Any]] | None, keyword_ledger: list[dict[str, Any]] | None
+) -> set[str]:
+    """790:78 / R2-6 (5) — the ledger rows (casefolded ``concept``) a gap cluster
+    the interview ASKED about (``outcome.asked > 0``) or recorded a decline on
+    speaks for. "Never asked" is a claim about what the system did, so it is
+    read off the system's own records: the cluster's outcome, and the same
+    member-to-row join coverage uses (a member's OWN rows, else rows naming it as
+    a whole word — never a bare substring, which would let "AI" speak for
+    "domain"). Felix round 2: the row "Payment settlement" sat under the asked
+    member "Settlement" and was still listed as never asked, because the notice
+    compared names only. A fact (ADR-062 cl. 1)."""
+    out: set[str] = set()
+    for cluster in clusters or []:
+        if not isinstance(cluster, dict):
+            continue
+        outcome = _outcome_of(cluster)
+        if not outcome["asked"] and not outcome["declined"]:
+            continue
+        names = all_members(cluster) + _str_list(cluster.get("jd_skills"))
+        for name in names:
+            key = _norm(name)
+            if not key:
+                continue
+            rows = _rows_for(name, keyword_ledger)
+            speaking = _own_rows(name, rows) or [
+                row for row in rows
+                if any(_word_bounded(key, _norm(n)) or _word_bounded(_norm(n), key)
+                       for n in _row_names(row))
+            ]
+            for row in speaking:
+                concept = (row.get("concept") or "").strip().casefold()
+                if concept:
+                    out.add(concept)
+    return out
+
+
+def _word_bounded(part: str, whole: str) -> bool:
+    """``part`` occurs in ``whole`` as whole words (normalised strings)."""
+    if not part or not whole or len(part) > len(whole):
+        return False
+    return re.search(rf"(?<!\w){re.escape(part)}(?!\w)", whole) is not None
 
 
 def all_members(cluster: dict[str, Any]) -> list[str]:
