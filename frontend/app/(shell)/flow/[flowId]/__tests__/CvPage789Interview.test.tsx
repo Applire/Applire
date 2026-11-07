@@ -70,7 +70,13 @@ import CVPage from "../cv/page";
 
 type Calls = { url: string; init?: RequestInit }[];
 
-function mockFetch(opts: { step: string; predates: boolean; updated?: boolean; edited?: boolean }): Calls {
+function mockFetch(opts: {
+  step: string;
+  predates: boolean;
+  updated?: boolean;
+  edited?: boolean;
+  sectionsFail?: boolean;
+}): Calls {
   const calls: Calls = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -94,6 +100,7 @@ function mockFetch(opts: { step: string; predates: boolean; updated?: boolean; e
       } as Response;
     }
     if (url.includes("/sections")) {
+      if (opts.sectionsFail) return { ok: false, status: 503, json: async () => ({}) } as Response;
       return {
         ok: true,
         json: async () => ({
@@ -154,6 +161,15 @@ describe("CVPage — 789:254 the post-interview version", () => {
     await mount();
     // The dialog is open and names the edited section; no generation yet.
     expect(await screen.findByText(/Nicht übernommen wird Deine Bearbeitung/)).toBeInTheDocument();
+    expect(generateCalls(calls)).toHaveLength(0);
+    fireEvent.click(screen.getByTestId("edit-new-version-confirm"));
+    await waitFor(() => expect(generateCalls(calls)).toHaveLength(1));
+  });
+
+  it("A-9: when the CV's sections cannot be read, the auto-start asks first — never a silent overwrite", async () => {
+    const calls = mockFetch({ step: "cv_generation", predates: true, sectionsFail: true });
+    await mount();
+    expect(await screen.findByTestId("edit-new-version-dialog")).toBeInTheDocument();
     expect(generateCalls(calls)).toHaveLength(0);
     fireEvent.click(screen.getByTestId("edit-new-version-confirm"));
     await waitFor(() => expect(generateCalls(calls)).toHaveLength(1));

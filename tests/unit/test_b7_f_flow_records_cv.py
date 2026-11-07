@@ -453,3 +453,51 @@ async def test_a_write_from_this_cv_raises_neither_fact_and_a_letter_side_write_
     await db.commit()
     state = await _state(db, flow)
     assert (state.cv_summary.profile_updated_since, state.cv_summary.predates_interview) == (True, False)
+
+
+# ── adversarial A-9 (MD7-10): the auto-start fires at most once per stale CV ──
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,deleted", [("failed", False), ("generating", False), ("failed", True)],
+                         ids=["failed", "still-running", "failed-then-deleted"])
+async def test_an_attempt_after_the_interview_does_not_re_arm_the_auto_start(db, status, deleted):
+    """A post-interview generation was started and failed (or still runs): the
+    flow keeps the old CV at cv_generation (record_generated_cv records only
+    ``ready``), and the next arrival must not start another paid generation.
+    The strip stays — [Neu erstellen] remains the way."""
+    user, job, profile = await _seed(db, history=[_record_at(T0 + timedelta(hours=1))])
+    old = await _cv(db, job, profile, created_at=T0)
+    flow = await _flow(db, user, job, "cv_generation", cv=old)
+    assert (await _state(db, flow)).cv_summary.predates_interview is True
+
+    await _cv(db, job, profile, created_at=T0 + timedelta(hours=2), status=status, deleted=deleted)
+    state = await _state(db, flow)
+    assert state.current_step == "cv_generation" and state.cv_summary.cv_id == old.id
+    assert state.cv_summary.predates_interview is False
+    assert state.cv_summary.profile_updated_since is True
+
+
+@pytest.mark.asyncio
+async def test_negative_new_interview_facts_after_a_failed_attempt_arm_it_once_more(db):
+    user, job, profile = await _seed(db, history=[_record_at(T0 + timedelta(hours=3))])
+    old = await _cv(db, job, profile, created_at=T0)
+    await _cv(db, job, profile, created_at=T0 + timedelta(hours=2), status="failed")
+    flow = await _flow(db, user, job, "cv_generation", cv=old)
+    assert (await _state(db, flow)).cv_summary.predates_interview is True
+
+
+@pytest.mark.asyncio
+async def test_negative_another_persons_attempt_on_the_shared_posting_does_not_count(db):
+    """S-17: the posting is shared — only the caller's own generations count."""
+    from applire.models.user import User
+
+    user, job, profile = await _seed(db, history=[_record_at(T0 + timedelta(hours=1))])
+    old = await _cv(db, job, profile, created_at=T0)
+    other = User(id=uuid.uuid4(), email=f"other-{uuid.uuid4()}@example.org")
+    other_profile = make_master_profile(user_id=other.id, profile_json={"personal_info": {}})
+    db.add_all([other, other_profile])
+    await db.commit()
+    await _cv(db, job, other_profile, created_at=T0 + timedelta(hours=2), status="failed", user_id=other.id)
+    flow = await _flow(db, user, job, "cv_generation", cv=old)
+    assert (await _state(db, flow)).cv_summary.predates_interview is True

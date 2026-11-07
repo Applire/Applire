@@ -576,7 +576,9 @@ export default function CVPage({
     };
   }, [cvId, phase]);
 
-  // 789:254 (F-4): the post-interview new version, once per arrival. Reads the
+  // 789:254 (F-4): the post-interview new version, once per stale CV — the
+  // server stops offering it (`predates_interview`) once a generation for this
+  // job was started after the interview facts, failed or not (A-9). Reads the
   // shown CV's own template + page target and its edited sections first, so
   // the new version is "the same CV, with the interview" and a section edit
   // that would not carry over is named in the #737 dialog before anything runs.
@@ -605,7 +607,9 @@ export default function CVPage({
       };
       const list = sections?.sections ?? [];
       if (list.length > 0) setCvSections(list);
-      if (list.some((sec) => sec.has_override)) {
+      // A-9: an unreadable section state fails CLOSED — the #737 question is
+      // asked (never a silent overwrite of edits nobody could check for).
+      if (sections === null || !Array.isArray(sections.sections) || list.some((sec) => sec.has_override)) {
         setNewVersionAction(() => start);
       } else {
         start();

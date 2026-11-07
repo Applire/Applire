@@ -63,7 +63,10 @@ class CVSummary(BaseModel):
     # profile content AFTER this CV was generated —
     # `profile_freshness.profile_updated_since(…, sources=INTERVIEW_SOURCES)`,
     # a fact, never a judgement (ADR-062 cl. 1). Drives the F-4 auto-start.
-    # Additive; False when unreadable.
+    # A-9: measured against the newest generation STARTED for this job when
+    # that is newer than the CV, so a failed post-interview attempt does not
+    # re-arm the auto-start (at most once per stale CV). Additive; False when
+    # unreadable.
     predates_interview: bool = False
     # F-2 (2) (founder 2026-11-07): the profile's CONTENT changed after this CV
     # was generated, from ANY door (interview, import, manual edit, agent) —
