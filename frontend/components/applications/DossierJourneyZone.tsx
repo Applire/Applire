@@ -22,6 +22,7 @@ import { useTranslations } from "next-intl";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { FLOW_STEP_ORDER, flowStepState } from "@/lib/flow-steps";
 
 interface DossierJourneyZoneProps {
   flowSessionId: string;
@@ -33,6 +34,12 @@ interface DossierJourneyZoneProps {
    * "analyzing" by step but not running (UX audit felix-020).
    */
   running: boolean;
+  /**
+   * 789:257 — the flow's interview session status (`interview_summary.status`
+   * from GET /api/flow/{id}/state). `undefined` = still loading (a passed
+   * interview draws neutral, never done); `null` = no interview happened.
+   */
+  interviewStatus?: string | null;
 }
 
 /**
@@ -42,7 +49,7 @@ interface DossierJourneyZoneProps {
  * flow index almost instantly and is never a step a user "returns to"), and
  * `complete` reuses the last (`cv_generation`) dot rather than adding a 5th.
  */
-const STEP_ORDER = ["cv_import", "gap_analysis", "interview", "cv_generation"] as const;
+const STEP_ORDER = FLOW_STEP_ORDER;
 type VisibleStep = (typeof STEP_ORDER)[number];
 
 const STEP_LABEL_KEYS: Record<VisibleStep, string> = {
@@ -52,7 +59,7 @@ const STEP_LABEL_KEYS: Record<VisibleStep, string> = {
   cv_generation: "stepCV",
 };
 
-type MilestoneState = "done" | "active" | "pending";
+type MilestoneState = "done" | "active" | "pending" | "skipped";
 
 /**
  * Journey zone (E041/US233) — a translated step strip that puts the user
@@ -69,7 +76,7 @@ type MilestoneState = "done" | "active" | "pending";
  * locked boundary in `lib/flow-routing.ts`). Only the letter-draft link stays
  * here: the header's letter button opens the PDF, a different destination.
  */
-export function DossierJourneyZone({ flowSessionId, currentStep, running }: DossierJourneyZoneProps) {
+export function DossierJourneyZone({ flowSessionId, currentStep, running, interviewStatus }: DossierJourneyZoneProps) {
   const t = useTranslations("applications");
   const tFlow = useTranslations("flow");
 
@@ -95,13 +102,24 @@ export function DossierJourneyZone({ flowSessionId, currentStep, running }: Doss
         data-testid="dossier-journey-strip"
       >
         {STEP_ORDER.map((step, idx) => {
-          const state: MilestoneState = isComplete
-            ? "done"
-            : idx === currentIndex
+          // 789:257 — the SAME rule as the flow stepper (lib/flow-steps.ts): a
+          // passed interview is "done" only when its session completed. The
+          // segment "" matches no route, so "active" is derived here.
+          const passed = isComplete || idx < currentIndex;
+          const interviewLoading = step === "interview" && interviewStatus === undefined;
+          const state: MilestoneState =
+            !isComplete && idx === currentIndex
               ? "active"
-              : idx < currentIndex
-                ? "done"
-                : "pending";
+              : passed && interviewLoading
+                ? "pending"
+                : flowStepState(
+                    step,
+                    {
+                      current_step: currentStep,
+                      interview_summary: interviewStatus ? { status: interviewStatus } : null,
+                    },
+                    "",
+                  );
 
           return (
             <li
@@ -115,7 +133,8 @@ export function DossierJourneyZone({ flowSessionId, currentStep, running }: Doss
                   "inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full whitespace-nowrap",
                   state === "done" && "bg-success/10 text-success",
                   state === "active" && "bg-primary text-white",
-                  state === "pending" && "bg-surface-container text-on-surface-variant"
+                  state === "pending" && "bg-surface-container text-on-surface-variant",
+                  state === "skipped" && "bg-white text-primary border border-dashed border-primary"
                 )}
               >
                 {state === "done" && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
@@ -123,6 +142,7 @@ export function DossierJourneyZone({ flowSessionId, currentStep, running }: Doss
                   <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" aria-hidden="true" />
                 )}
                 {tFlow(STEP_LABEL_KEYS[step])}
+                {state === "skipped" && <span className="sr-only">{tFlow("stepSkippedSr")}</span>}
               </span>
               {idx < STEP_ORDER.length - 1 && (
                 <span

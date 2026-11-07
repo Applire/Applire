@@ -36,13 +36,42 @@ describe("DossierJourneyZone (US233; #789 — one re-entry action, a truthful sp
     });
 
     it("renders all step milestones as done, none of them links", () => {
-      render(withIntl(<DossierJourneyZone flowSessionId="flow-1" currentStep="complete" running={false} />));
+      render(withIntl(<DossierJourneyZone flowSessionId="flow-1" currentStep="complete" running={false} interviewStatus="complete" />));
       const milestones = screen.getAllByTestId("dossier-journey-milestone");
       expect(milestones).toHaveLength(4);
       milestones.forEach((m) => {
         expect(m.dataset.state).toBe("done");
         expect(within(m).queryByRole("link")).not.toBeInTheDocument();
       });
+    });
+  });
+
+  describe("789:257 — interview done only when its session completed", () => {
+    it("draws a passed-but-skipped interview as skipped (dashed, sr-only suffix, no check)", () => {
+      render(withIntl(<DossierJourneyZone flowSessionId="flow-1" currentStep="cv_generation" running={false} interviewStatus={null} />));
+      const m = screen.getAllByTestId("dossier-journey-milestone");
+      expect(m[2].dataset.state).toBe("skipped");
+      expect(m[2].className).toContain("border-dashed");
+      expect(m[2].querySelector("svg")).toBeNull();
+      expect(m[2].querySelector(".sr-only")).not.toBeNull();
+      expect(m[1].dataset.state).toBe("done");
+    });
+
+    it("draws the interview done after a completed interview", () => {
+      render(withIntl(<DossierJourneyZone flowSessionId="flow-1" currentStep="cv_generation" running={false} interviewStatus="complete" />));
+      expect(screen.getAllByTestId("dossier-journey-milestone")[2].dataset.state).toBe("done");
+    });
+
+    it("on a complete flow the interview is skipped when it was not completed", () => {
+      render(withIntl(<DossierJourneyZone flowSessionId="flow-1" currentStep="complete" running={false} interviewStatus="in_progress" />));
+      const m = screen.getAllByTestId("dossier-journey-milestone");
+      expect(m[2].dataset.state).toBe("skipped");
+      expect(m[3].dataset.state).toBe("done");
+    });
+
+    it("renders a passed interview neutral (pending) while the status is still loading", () => {
+      render(withIntl(<DossierJourneyZone flowSessionId="flow-1" currentStep="cv_generation" running={false} />));
+      expect(screen.getAllByTestId("dossier-journey-milestone")[2].dataset.state).toBe("pending");
     });
   });
 

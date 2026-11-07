@@ -185,6 +185,25 @@ export default function ApplicationDetailPage() {
   const [retailoring, setRetailoring] = useState(false);
   // Header Re-tailor (US231) — distinct in-flight flag from the banner nudge.
   const [headerRetailoring, setHeaderRetailoring] = useState(false);
+  // 789:257 — interview status for the dossier strip: undefined = loading,
+  // null = no interview session (or the fetch failed).
+  const [interviewStatus, setInterviewStatus] = useState<string | null | undefined>(undefined);
+  const flowSessionId = application?.flow_session_id ?? null;
+  useEffect(() => {
+    if (!flowSessionId) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/api/flow/${flowSessionId}/state`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((state: { interview_summary?: { status?: string } | null } | null) => {
+        if (!cancelled) setInterviewStatus(state?.interview_summary?.status ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setInterviewStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [flowSessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -722,6 +741,7 @@ export default function ApplicationDetailPage() {
                   flowSessionId={application.flow_session_id}
                   currentStep={application.flow_current_step}
                   running={!!application.workflow_running}
+                  interviewStatus={interviewStatus}
                 />
               )}
             </div>
