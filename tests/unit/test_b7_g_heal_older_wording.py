@@ -62,19 +62,19 @@ OLD_WORDINGS = [
     ),
     (
         "Ich habe Qualitätsprozesse begleitet, jedoch keine ausdrücklich ausgewiesene Erfahrung mit "
-        "IFS oder BRC.",
-        ["IFS", "BRC"],
+        "TISAX oder VDA 6.3.",
+        ["TISAX", "VDA 6.3"],
     ),
     # "ist noch nicht (konkret) belegt / habe ich bisher nicht beschrieben"
     (
-        "Ich habe Budgets verantwortet, aber meine direkte Erfahrung mit Investitionsplanung ist noch "
+        "Ich habe Budgets verantwortet, aber meine direkte Erfahrung mit Lagerbewertung ist noch "
         "nicht konkret belegt.",
-        ["Investitionsplanung"],
+        ["Lagerbewertung"],
     ),
     (
-        "Ich habe SAP eingeführt; eine direkte Erfahrung mit Maschinendatenerfassung oder Industrie 4.0 "
+        "Ich habe SAP eingeführt; eine direkte Erfahrung mit Bedarfsprognose oder Demand Planning "
         "habe ich bisher nicht beschrieben.",
-        ["Maschinendatenerfassung", "Industrie 4.0"],
+        ["Bedarfsprognose", "Demand Planning"],
     ),
     # "mein Profil dokumentiert …"
     (
@@ -102,16 +102,16 @@ OLD_WORDINGS = [
     ("Ich habe Dashboards gebaut, während mein Profil keine konkrete Tableau-Nutzung dokumentiert.", ["Tableau"]),
     # EN
     (
-        "I operated production services, but my documented experience does not cover Prometheus, "
-        "Grafana, or SLOs directly.",
-        ["Prometheus", "Grafana", "SLOs"],
+        "I operated production services, but my documented experience does not cover Nagios, "
+        "Zabbix, or SLAs directly.",
+        ["Nagios", "Zabbix", "SLAs"],
     ),
     (
-        "I built REST APIs, but I have not yet documented the full Kafka, exactly-once, or "
-        "PSP-integration details.",
-        ["Kafka"],
+        "I built REST APIs, but I have not yet documented the full RabbitMQ, retry-queue, or "
+        "dead-letter details.",
+        ["RabbitMQ"],
     ),
-    ("I built billing backends, but it does not yet document BaFin requirements.", ["BaFin"]),
+    ("I built billing backends, but it does not yet document MiFID requirements.", ["MiFID"]),
 ]
 
 
