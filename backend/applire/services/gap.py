@@ -710,10 +710,20 @@ async def _cluster_concepts(
     lang = await get_conversation_language(
         db, job_id=job.id, user_id=getattr(gap_analysis, "user_id", None)
     )
+    liabilities = [
+        e.get("concept", "")
+        for e in keyword_liabilities(getattr(gap_analysis, "keyword_ledger", None))
+    ]
+    # 787:213 (prompt v5): a #260 liability is a demonstrated requirement with no
+    # story yet — the prompt receives it under its own heading, never under
+    # "Category C gaps (missing evidence)". The reconcile below still reads the
+    # whole augmented list (the liability fold is unchanged).
+    liability_norms = {_norm_gap(c) for c in liabilities if c}
     raw = await provider.aparse_json(
         build_clustering_prompt(
             category_b=list(category_b),
-            category_c=list(category_c),
+            category_c=[c for c in category_c if _norm_gap(c) not in liability_norms],
+            stories=[c for c in category_c if _norm_gap(c) in liability_norms],
             required_skills=list(job.required_skills or []),
             nice_to_have_skills=list(job.nice_to_have_skills or []),
             lang=lang,
@@ -759,10 +769,7 @@ async def _cluster_concepts(
         category_c=list(category_c),
         category_b=list(category_b),
         category_a=list(getattr(gap_analysis, "category_a", None) or []),
-        liabilities=[
-            e.get("concept", "")
-            for e in keyword_liabilities(getattr(gap_analysis, "keyword_ledger", None))
-        ],
+        liabilities=liabilities,
     )
 
 

@@ -270,3 +270,17 @@ async def test_the_rejudge_ignores_a_binding_to_an_id_that_is_no_live_record():
         provider=prov, session_id="s-1",
     )
     assert moved == [] and out[0]["status"] == "gap"
+
+
+# ── 787:213 (job-analysis prompt v14): one thing, two names ──────────────────
+
+
+def test_job_analysis_prompt_keeps_a_bracketed_name_of_the_same_thing_as_one_requirement():
+    from applire.prompts import job_analysis
+
+    flat = " ".join(job_analysis.SYSTEM_PROMPT.split())
+    assert "ONE THING, TWO NAMES" in flat
+    assert '"Structured handovers (SBAR)"' in flat
+    assert 'put the bracketed name into "keywords"' in flat
+    # the example-list and optional-qualifier shapes keep their own rules
+    assert "a bracketed example LIST" in flat

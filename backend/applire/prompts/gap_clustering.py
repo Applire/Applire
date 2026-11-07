@@ -15,8 +15,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v4
+# Prompt version: v5
 # Used by: services/gap.py (cluster_gaps, _carry_forward_clusters)
+#
+# v5 (Hazelnut build 7 / WP-G, 2026-11-07, line 787:213): the input view stopped calling a
+# demonstrated requirement "missing". The #260 keyword liabilities (required, claimable, no
+# worked example yet) were listed under "Category C gaps (missing evidence)", and the model
+# merged Priya's demonstrated "Adult intensive care" with the merely desirable "Paediatric
+# intensive care" into one card whose jd_context read "The role expects intensive care
+# experience across adult and paediatric settings" (UX audit round 3, rec 189, luna) — a
+# misstatement of the posting, shown as an open topic to a nurse with four adult-ICU years.
+# The liabilities now come as their own list, and jd_context states each requirement at the
+# posting's own weight (required = expects, nice-to-have = a plus), never merged into one.
 #
 # v4 (Hazelnut build 4 / WP-G, 2026-10-24, line 787:95): on a recompute the call clusters only
 # the concepts no carried topic holds, and it never saw those topics, so a concept the posting
@@ -46,8 +56,10 @@ CLUSTERING_SYSTEM_PROMPT = """\
 You are an expert career analyst. Your task is to group semantically related skill gaps into \
 named clusters for a DACH job applicant.
 
-Input: lists of Category B and Category C gaps from a gap analysis, plus the job's required and \
-nice-to-have skills.
+Input: lists of Category B and Category C gaps from a gap analysis, an optional list of \
+requirements the profile already shows but tells no worked example of yet (stories to tell, \
+NOT missing - never describe them as gaps), plus the job's required and nice-to-have skills. \
+Every entry of all three gap lists is clustered.
 
 Output: a JSON object with a single key "clusters" whose value is an array of cluster objects. \
 Each cluster absorbs multiple gaps that share the same semantic domain.
@@ -72,7 +84,11 @@ and never add one that is not in the two input lists.
 It describes the POSTING - what the role expects in this area and why the work needs it - in the \
 third person, e.g. "Die Stelle erwartet Erfahrung mit MES und Maschinendatenerfassung, weil die \
 Fertigung digitalisiert wird." / "The role expects hands-on Kafka experience because payment \
-events are processed as streams." It is shown to the candidate as what the role expects, so it \
+events are processed as streams." It states each requirement at the POSTING'S OWN WEIGHT: what is in the required skills the role \
+expects; what is only in the nice-to-have skills is a plus ("Paediatric intensive care experience \
+is a plus"), never something the role expects. Never merge a required and a nice-to-have item \
+into one expectation ("across adult and paediatric settings") - name each at its own weight, or \
+keep them in separate clusters. It is shown to the candidate as what the role expects, so it \
 never speaks as or to anyone: no first or second person (no ich/wir/du/Sie, no I/we/you), and it \
 never says whether the candidate has or lacks anything.
 - EXISTING TOPICS: when the user message lists existing topics, they are clusters the \
@@ -92,6 +108,7 @@ def build_clustering_prompt(
     nice_to_have_skills: list[str],
     lang: str = "de",
     existing_topics: list[dict] | None = None,
+    stories: list[str] | None = None,
 ) -> str:
     # #3 (ADR-038): the gaps page is conversational — jd_context follows the candidate's
     # UI language, not the JD's. An explicit directive is more reliable than "the JD's language".
@@ -108,6 +125,12 @@ def build_clustering_prompt(
             + json.dumps(category_c, ensure_ascii=False)
             + "\n\nCategory B gaps (likely but unstated):\n"
             + json.dumps(category_b, ensure_ascii=False)
+            + (
+                "\n\nShown in the profile, no worked example yet (a story to tell, not missing):\n"
+                + json.dumps(stories, ensure_ascii=False)
+                if stories
+                else ""
+            )
             + "\n\nRequired skills from JD:\n"
             + json.dumps(required_skills, ensure_ascii=False)
             + "\n\nNice-to-have skills from JD:\n"

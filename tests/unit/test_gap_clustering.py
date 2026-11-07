@@ -718,3 +718,53 @@ async def test_cluster_gaps_uses_keyword_liabilities_as_clustering_input():
         await cluster_gaps(ga, job, provider, db)
     prompt_arg = provider.aparse_json.call_args.args[0]
     assert "RAG" in prompt_arg
+
+
+# ---------------------------------------------------------------------------
+# 787:213 (clustering prompt v5) — a #260 liability is a demonstrated
+# requirement with no story yet; the prompt receives it under its own heading,
+# never under "Category C gaps (missing evidence)" (UX audit round 3, rec 189:
+# "Adult intensive care" merged with a desirable item into "expects ... across
+# adult and paediatric settings").
+# ---------------------------------------------------------------------------
+
+
+def _section(prompt, heading):
+    start = prompt.index(heading) + len(heading)
+    return prompt[start:prompt.index("\n\n", start)]
+
+
+@pytest.mark.asyncio
+async def test_cluster_gaps_lists_a_liability_as_a_story_never_as_missing():
+    from applire.services.gap import cluster_gaps
+    ga = _cluster_gaps_ga(
+        category_c=["Paediatric intensive care"],
+        category_b=[],
+        keyword_ledger=[_liability_keyword_entry("Adult intensive care")],
+    )
+    job = _cluster_gaps_job()
+    provider = _cluster_gaps_provider({"clusters": []})
+    db = _MagicMock()
+    db.commit = _AsyncMock()
+    db.__contains__ = _MagicMock(return_value=True)
+    with _patch("applire.services.session.get_conversation_language", new=_AsyncMock(return_value="en")):
+        await cluster_gaps(ga, job, provider, db)
+    prompt_arg = provider.aparse_json.call_args.args[0]
+    missing = _section(prompt_arg, "Category C gaps (missing evidence):\n")
+    stories = _section(prompt_arg, "no worked example yet (a story to tell, not missing):\n")
+    assert "Paediatric intensive care" in missing and "Adult intensive care" not in missing
+    assert "Adult intensive care" in stories
+
+
+def test_build_clustering_prompt_omits_the_story_heading_when_there_are_none():
+    from applire.prompts.gap_clustering import build_clustering_prompt
+    prompt = build_clustering_prompt(["B1"], ["C1"], ["C1"], [], lang="en")
+    assert "story to tell" not in prompt
+
+
+def test_clustering_system_prompt_states_each_item_at_the_postings_weight():
+    from applire.prompts.gap_clustering import CLUSTERING_SYSTEM_PROMPT
+    flat = " ".join(CLUSTERING_SYSTEM_PROMPT.split())
+    assert "POSTING'S OWN WEIGHT" in flat
+    assert "never something the role expects" in flat
+    assert "Never merge a required and a nice-to-have item" in flat
