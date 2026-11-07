@@ -1891,6 +1891,9 @@ def _keyword_coverage(
             sents = present_unsupported_sentences.get(k) or []
             # A stem-only hit has no literal form to locate: it stays (safe side).
             forms = [m.form for m in claim_matches.get(k) or [] if m.form and not m.stem] or [k]
+            # 784:146 (WP-L, build 7): the sentences are `_norm`-ed text, so the
+            # form is too — a hyphenated term never matched its own sentence.
+            forms = [_norm(f) for f in forms]
             if sents and all(
                 any(form_in_denial_segment(x, f) for f in forms)
                 and not any(_form_outside_denial(x, f) for f in forms)
@@ -1964,7 +1967,11 @@ def _denied_terms_in_own_limit(
             for m in matches_by_kw.get(k) or []
             if not (m.stem if not isinstance(m, dict) else m.get("stem"))
         ]
-        forms = [f for f in forms if f] or [k]
+        # 784:146 (WP-L, build 7): the sentences are `_norm`-ed text, so the form is
+        # too — "Make-or-buy-Entscheidungen" never matched "mit make or buy
+        # entscheidungen habe ich noch nicht gearbeitet" and the honest gap
+        # sentence kept its remove-only card.
+        forms = [_norm(f) for f in forms if f] or [_norm(k)]
         # `form_in_denial_segment` is False when any occurrence of the form in the
         # sentence stands outside a negation's scope (a claim beside a disclosure).
         # A negation cue anywhere earlier in the clause is not enough to read a
