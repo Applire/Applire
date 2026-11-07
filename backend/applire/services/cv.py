@@ -1144,7 +1144,7 @@ async def _review_cv_language(
         # to a malformed reply); #724 — and the vault text the preseed put in front
         # of this pass came back where it was placed.
         settle_guard=lambda settled, _history: _settle_after_language_pass(
-            settled, draft, preseed
+            settled, draft, preseed, posting_terms
         ),
         # ADR-094 (inventory B, ruling W1-1 r2): under CV_PIPELINE=v2 a shape change is
         # a finding that opens a refiner round; the settle guard above stays the
@@ -1153,12 +1153,62 @@ async def _review_cv_language(
     )
 
 
-def _settle_after_language_pass(settled: dict, handed: dict, preseed) -> dict:
+def _settle_after_language_pass(
+    settled: dict, handed: dict, preseed, posting_terms: tuple[str, ...] = ()
+) -> dict:
     """The composed settle guard of every ``cv_language`` pass (see above)."""
     settled = _settle_language_shape(settled, handed)
     if preseed is not None and not preseed.is_empty():
         settled = _settle_language_preseed(settled, preseed)
-    return settled
+    return _settle_posting_term_chips(settled, handed, posting_terms)
+
+
+def _settle_posting_term_chips(
+    settled: dict, handed: dict, posting_terms: tuple[str, ...] = ()
+) -> dict:
+    """790:90 (Hazelnut build 7, WP-L) — a skill chip that IS a POSTING TERM leaves the
+    language pass as it was handed. Structural, no LLM (ADR-062 cl. 1: two FACTS — the
+    chip equals a term of the posting's own list, and the refiner changed the chip at
+    that position, which it was told never to reorder).
+
+    Earned (category C, applire-prompt-first): both prompts already carry the rule —
+    the reviewer's "Every term in POSTING TERMS … Never flag or translate", the
+    refiner's "POSTING TERMS stay exactly as written, even where the feedback names
+    one". UX audit round 3 (2026-11-07 LLM log, records 341/346): the luna reviewer
+    flagged "Skill: Supply Chain" anyway and the refiner obeyed — the CV lost the
+    posting's keyword as "Lieferkette". Replayed from the persisted input that
+    failure did not recur (reviewer 0/20 flags, refiner 0/20 translations; luna with
+    reasoning off and on, Sonnet 5.5), so a louder prompt sentence cannot be shown to
+    change anything; the loss is rare and silent, and this restores exactly it.
+    Applies to the ``skills`` chips only — a posting term inside a prose bullet is
+    not restorable without judging the sentence around it.
+    """
+    terms = {
+        t.strip().casefold() for t in (posting_terms or ())
+        if isinstance(t, str) and t.strip()
+    }
+    if not terms or not isinstance(settled, dict) or not isinstance(handed, dict):
+        return settled
+    before = handed.get("skills")
+    after = settled.get("skills")
+    if not isinstance(before, list) or not isinstance(after, list) or len(before) != len(after):
+        return settled
+    restored: list[str] = []
+    skills = list(after)
+    for i, chip in enumerate(before):
+        if (
+            isinstance(chip, str) and chip.strip().casefold() in terms
+            and skills[i] != chip
+        ):
+            restored.append(f"{skills[i]!r} -> {chip!r}")
+            skills[i] = chip
+    if not restored:
+        return settled
+    logger.warning(
+        "LANGUAGE_PASS_POSTING_TERM_RESTORED (790:90): the language pass changed a "
+        "skill chip that is a POSTING TERM; kept as handed: %s", "; ".join(restored),
+    )
+    return {**settled, "skills": skills}
 
 
 @dataclass
