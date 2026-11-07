@@ -428,3 +428,28 @@ async def test_profile_updated_since_stays_false_without_a_content_change_after_
     flow = await _flow(db, user, job, "complete", cv=cv)
 
     assert (await _state(db, flow)).cv_summary.profile_updated_since is False
+
+
+# ── adversarial A-5 (MD7-10): the CV's own writes, through the flow state ──
+
+
+@pytest.mark.asyncio
+async def test_a_write_from_this_cv_raises_neither_fact_and_a_letter_side_write_only_the_strip(db):
+    user, job, profile = await _seed(db)
+    cv = await _cv(db, job, profile, created_at=T0)
+    own = _record_at(T0 + timedelta(hours=1), source="testimony")
+    own.update(document_kind="cv", document_id=str(cv.id))
+    from tests.support.profile_factory import set_profile_json
+
+    set_profile_json(profile, {**profile.profile_json, "metadata": {"enrichment_history": [own]}})
+    await db.commit()
+    flow = await _flow(db, user, job, "cv_generation", cv=cv)
+    state = await _state(db, flow)
+    assert (state.cv_summary.profile_updated_since, state.cv_summary.predates_interview) == (False, False)
+
+    letter_side = _record_at(T0 + timedelta(hours=1), source="testimony")
+    letter_side.update(document_kind="cover_letter", document_id=str(uuid.uuid4()))
+    set_profile_json(profile, {**profile.profile_json, "metadata": {"enrichment_history": [letter_side]}})
+    await db.commit()
+    state = await _state(db, flow)
+    assert (state.cv_summary.profile_updated_since, state.cv_summary.predates_interview) == (True, False)
