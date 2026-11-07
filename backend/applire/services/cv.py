@@ -1194,15 +1194,28 @@ def _settle_posting_term_chips(
     after = settled.get("skills")
     if not isinstance(before, list) or not isinstance(after, list) or len(before) != len(after):
         return settled
+    # A-4 (adversarial pass): compare by identity, never by position. A reorder keeps
+    # every handed chip (nothing to restore); only a posting term that is GONE from
+    # the settled list is put back, into the slot of the chip that replaced it (the
+    # same index when that slot holds a chip nobody was handed, else the first such).
+    def _key(c: object) -> str:
+        return c.strip().casefold() if isinstance(c, str) else ""
+
+    handed_keys = {_key(c) for c in before if _key(c)}
+    present = {_key(c) for c in after}
     restored: list[str] = []
     skills = list(after)
     for i, chip in enumerate(before):
-        if (
-            isinstance(chip, str) and chip.strip().casefold() in terms
-            and skills[i] != chip
-        ):
-            restored.append(f"{skills[i]!r} -> {chip!r}")
-            skills[i] = chip
+        k = _key(chip)
+        if not k or k not in terms or k in present:
+            continue
+        spare = [j for j, c in enumerate(skills) if _key(c) not in handed_keys]
+        if not spare:
+            continue
+        j = i if i in spare else spare[0]
+        restored.append(f"{skills[j]!r} -> {chip!r}")
+        skills[j] = chip
+        present.add(k)
     if not restored:
         return settled
     logger.warning(

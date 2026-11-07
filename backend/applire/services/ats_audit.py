@@ -2109,6 +2109,19 @@ _SECOND_PERSON_EN_RE = re.compile(r"(?<!\w)(?:your|yours)(?!\w)")
 _SECOND_PERSON_DE_RE = re.compile(r"(?<!\w)(?:Ihr|Ihre|Ihrem|Ihren|Ihrer|Ihres)(?!\w)")
 
 
+#: A-3 (adversarial pass, build 7): where the candidate's OWN experience claim
+#: starts inside a second-person clause. "Ihrer Plattform mit Verbundverpackungen-
+#: Erfahrung aus zehn Jahren" / "Your platform needs Kafka — six years of running
+#: Kafka is what I bring": the employer clause stops at the "mit/with … Erfahrung/
+#: experience" phrase or at the "<count> years/Jahre" phrase, so the claim keeps
+#: its headline count and its add-to-profile exit. (`_norm` folds dashes, so the
+#: dash itself cannot be the boundary.)
+_OWN_CLAIM_START_RE = re.compile(
+    r"(?<!\w)(?:(?:mit|with|aus|from)(?!\w)[^,;.]*?(?<!\w)(?:erfahrung|experience)(?!\w)"
+    r"|[\w]+\s+(?:years?|jahre[n]?)(?!\w))"
+)
+
+
 def _second_person_intervals(sentence_norm: str, sentence_cased: str | None) -> list[tuple[int, int]]:
     """#803 reopened (build 7, ADR-090 amended): the clauses of one normalised
     letter sentence that open with a second-person possessive addressing the
@@ -2126,6 +2139,9 @@ def _second_person_intervals(sentence_norm: str, sentence_cased: str | None) -> 
     spans: list[tuple[int, int]] = []
     for a, e in zip(starts, anchors):
         end = _employer_clause_end(sentence_norm, e)
+        own = _OWN_CLAIM_START_RE.search(sentence_norm, e, end)
+        if own is not None:
+            end = own.start()  # A-3: the candidate's own claim is not the employer's
         if end > e:
             spans.append((a, end))
     return spans
