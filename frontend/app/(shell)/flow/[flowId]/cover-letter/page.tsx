@@ -97,7 +97,7 @@ interface CLState {
   documentLanguage: "de" | "en" | null;
   /** #820: the letter was written before the interview that has since been added. */
   predatesInterview: boolean;
-  /** #820/789:249: true = the motivation was derived from the interview; null = unknown (legacy row). */
+  /** #820/789:249: true = no motivation was typed and the writer derived one (RULING G-2); null = unknown (legacy row). */
   motivationDerived: boolean | null;
 }
 

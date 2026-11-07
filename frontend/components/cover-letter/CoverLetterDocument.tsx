@@ -34,7 +34,7 @@ interface CoverLetterDocumentProps {
   generationInputs?: { availability?: string | null; motivation?: string | null } | null;
   /** #820: the letter is older than the interview that was added afterwards. */
   predatesInterview?: boolean;
-  /** 789:249: true = the letter has a motivation derived from the interview; null/absent = unknown. */
+  /** 789:249: true = no motivation was typed and the writer derived one (RULING G-2); null/absent = unknown. */
   motivationDerived?: boolean | null;
   /** 789:253: opens the letter form; the hint's action button renders only when given. */
   onCompleteForm?: () => void;
