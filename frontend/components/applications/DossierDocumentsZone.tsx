@@ -193,6 +193,7 @@ export function DossierDocumentsZone({
 
   // Row rendering rules mirror the CV list: expired → hidden.
   const showCoverLetter = !!coverLetter && coverLetter.status !== "expired";
+  const hasReadyCv = visibleCvs.some((cv) => cv.status === "ready");
   const isEmpty = visibleCvs.length === 0 && !showCoverLetter;
 
   return (
@@ -330,6 +331,26 @@ export function DossierDocumentsZone({
               </div>
             );
           })}
+
+          {/* 789:252 — "create" is offered only once a CV exists and no letter does. */}
+          {!showCoverLetter && hasReadyCv && application.flow_session_id && (
+            <div
+              data-testid="dossier-cover-letter-create"
+              className={cn(
+                "flex flex-col items-stretch gap-2 rounded-lg border px-4 py-3",
+                "sm:flex-row sm:items-center sm:justify-between sm:gap-3",
+                "bg-surface-container border-outline-variant"
+              )}
+            >
+              <p className="text-sm font-medium text-on-surface">{t("coverLetterNone")}</p>
+              <Link
+                href={`/flow/${application.flow_session_id}/cover-letter`}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-outline-variant text-on-surface hover:bg-surface-container"
+              >
+                {t("coverLetterCreate")}
+              </Link>
+            </div>
+          )}
 
           {showCoverLetter && coverLetter && (
             (() => {

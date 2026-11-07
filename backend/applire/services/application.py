@@ -67,6 +67,8 @@ from applire.schemas.profile import MasterProfileData
 # to avoid a circular import at module level.
 from applire.services.flow.orchestrator import _compute_actions, _resolve_user_type
 from applire.services.owner_resolution import resolve_user_id as _resolve_user_id
+from applire.services.profile_freshness import CV_FEEDING_SECTIONS
+from applire.services.profile_freshness import is_new_limit as _is_new_limit
 
 
 class ConflictError(Exception):
@@ -751,38 +753,9 @@ def _parse_trail_timestamp(value) -> datetime | None:
     return None
 
 
-#: Re-probe N3 (Hazelnut b3): the vault sections a tailored CV is written from
-#: (`MasterProfileData` content the CV writer reads). Only a change to one of
-#: these is "growth" for the re-tailor nudge. Fail-closed: a section not listed
-#: here (`availability` — the letter's notice period, saved from the letter
-#: form by B3-11 —, `metadata` bookkeeping such as pending confirmations or
-#: denials, `_meta` N/A marks, an empty section) never offers a re-tailor, and
-#: never reaches the nudge's copy as a raw field name. Every name here has a
-#: label in the frontend's `SECTION_LABEL_KEYS` (`lib/stale-cv.ts`).
-CV_FEEDING_SECTIONS: frozenset[str] = frozenset({
-    "personal_info",
-    "professional_summary",
-    "work_experience",
-    "education",
-    "certifications",
-    "skills",
-    "languages",
-    "projects",
-    "publications",
-    "volunteer_activities",
-    "signature_stories",
-})
-
-
-def _is_new_limit(change: dict) -> bool:
-    """B3-12: a NEWLY recorded denial — the candidate stated a limit. An
-    escalation, re-confirmation or probe bookkeeping is ``updated`` and does
-    not count; the limit itself was recorded earlier."""
-    return (
-        change.get("section") == "metadata"
-        and change.get("field") == "denied_concepts"
-        and change.get("action") == "added"
-    )
+# `CV_FEEDING_SECTIONS` and `_is_new_limit` live in `services/profile_freshness.py`
+# (Hazelnut build 7, F-2 (2)): the CV page's "profile updated" strip and this
+# nudge read ONE rule (ADR-066). Imported at the top under the old names.
 
 
 async def _enrich_stale_cv(

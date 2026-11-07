@@ -633,18 +633,3 @@ def render_employer_record(stations: list[dict]) -> str:
             "knowledge of the employer today (its current teams, systems or ways of working)."
         )
     return line
-
-# ── RULING L-1 (#820) cue — superseded by founder ruling F-2 (2026-11-07) ───────
-#
-# The cue now fires on ANY profile content change since the document was created,
-# not only an interview's. The one predicate lives in
-# ``services/profile_freshness.profile_updated_since``. This name stays as an alias
-# for WP-F's CV summary (built against it on its branch); main drops it at
-# integration.
-
-
-def letter_predates_interview(letter_created_at: object, profile_json: dict | None) -> bool:
-    """Alias of :func:`applire.services.profile_freshness.profile_updated_since`."""
-    from applire.services.profile_freshness import profile_updated_since
-
-    return profile_updated_since(letter_created_at, profile_json)

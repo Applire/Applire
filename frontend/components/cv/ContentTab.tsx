@@ -21,6 +21,7 @@
 import { countInText, type LocateTarget } from "@/lib/locate-in-preview";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Pencil } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { SectionEditor, entryKindOf, type SectionEditorHandle } from "./SectionEditor";
 import { KaileChat } from "./KaileChat";
@@ -190,6 +191,8 @@ export const ContentTab = forwardRef<ContentTabHandle, ContentTabProps>(function
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [preSelectedGapIds, setPreSelectedGapIds] = useState<string[]>([]);
   const [hasUnsaved, setHasUnsaved] = useState(false);
+  // 789:266 — receipt line after "Änderung verwerfen" returned to the list.
+  const [discardedLabel, setDiscardedLabel] = useState<string | null>(null);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [generalGaps, setGeneralGaps] = useState<GapHintItem[]>([]);
   const [sectionsLoading, setSectionsLoading] = useState(true);
@@ -239,6 +242,7 @@ export const ContentTab = forwardRef<ContentTabHandle, ContentTabProps>(function
         }
       }
       setActiveSectionId(sectionId);
+      setDiscardedLabel(null);
       setPreSelectedGapIds(preselectedGaps);
       setMode("edit");
       setHasUnsaved(false);
@@ -381,6 +385,14 @@ export const ContentTab = forwardRef<ContentTabHandle, ContentTabProps>(function
           onUnsavedChange={(unsaved) => {
             setHasUnsaved(unsaved);
             onUnsavedChange(unsaved, sectionLabel(activeSection));
+          }}
+          onDiscarded={() => {
+            setDiscardedLabel(sectionLabel(activeSection));
+            setMode("browse");
+            setActiveSectionId(null);
+            setPreSelectedGapIds([]);
+            setHasUnsaved(false);
+            onUnsavedChange(false, null);
           }}
           onAddressGap={handleAddressGap}
           onEnrichProfile={handleEnrichProfile}
@@ -525,15 +537,25 @@ export const ContentTab = forwardRef<ContentTabHandle, ContentTabProps>(function
           {t("noSections")}
         </p>
       )}
+      {discardedLabel !== null && (
+        <p
+          role="status"
+          className="text-xs text-on-surface-variant"
+          data-testid="section-discarded-receipt"
+        >
+          {t("discardedReceipt", { section: discardedLabel })}
+        </p>
+      )}
       <div className="flex flex-col gap-1.5">
         {sections.map((section) => (
           <button
             key={section.section_id}
             type="button"
             onClick={() => handleSectionEdit(section.section_id)}
-            className="text-left text-sm flex items-center justify-between border-l-2 border-transparent rounded-r-lg px-3 py-2 hover:border-gold hover:bg-surface-container transition-colors"
+            data-testid={`edit-section-row-${section.section_id}`}
+            className="text-left text-sm flex items-center justify-between gap-2 border-l-2 border-transparent rounded-r-lg px-3 py-2 hover:border-gold hover:bg-surface-container transition-colors"
           >
-            <span className="text-neutral-darker">{sectionLabel(section)}</span>
+            <span className="text-neutral-darker flex-1">{sectionLabel(section)}</span>
             {variant === "sections" ? (
               // #737: no gap count here — gaps live on *Prüfung* (groups 2/3).
               // What this list says is whether the section carries YOUR edit.
@@ -553,6 +575,10 @@ export const ContentTab = forwardRef<ContentTabHandle, ContentTabProps>(function
               /* eslint-disable-next-line formatjs/no-literal-string-in-jsx */
               <span className="text-xs text-success" aria-hidden="true">✓</span>
             )}
+            <span className="flex items-center gap-1 text-xs font-medium text-on-surface-variant shrink-0">
+              <Pencil className="size-3.5" aria-hidden="true" />
+              {tEdit("editRow")}
+            </span>
           </button>
         ))}
       </div>

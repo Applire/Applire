@@ -80,12 +80,6 @@ def test_a_naive_letter_timestamp_reads_as_utc_and_junk_reads_false():
     assert profile_updated_since(T0, None) is False
 
 
-def test_the_wp_f_alias_reads_the_same_predicate():
-    from applire.services.cover_letter_positioning import letter_predates_interview
-
-    assert letter_predates_interview(T0, _trail(_rec("manual_edit", 40))) is True
-
-
 # ── the seam: the status object both doors serialise ─────────────────────────
 
 
