@@ -136,10 +136,10 @@ function MemberChip({
         data-testid="gap-member"
         data-state={state}
         data-requirement="false"
-        // 787:214 — the chip sits on a line labelled "Begriffe aus der Anzeige:",
-        // so the explanation lives in the title, not repeated as hidden text
-        // into every chip of every theme.
-        title={t("postingTermTitle")}
+        // 787:214 / A-11 — the chip sits on a line whose VISIBLE label says what
+        // the chips are and that they do not count ("postingTermsLabel"), so the
+        // explanation reaches screen readers and phone users alike; a `title`
+        // on a non-focusable span reached neither.
         className={cn("relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs", TERM_CHIP)}
       >
         {term}
@@ -160,6 +160,8 @@ function MemberChip({
                 ? t("memberDeniedBySr", { wording: deniedBy.join("; ") })
                 : t("memberDeclinedSr")
             : null;
+  const wording = state === "declined" && !floored && deniedBy && deniedBy.length > 0 ? deniedBy.join("; ") : "";
+  const showWording = wording !== "" && wording.trim().toLowerCase() !== term.trim().toLowerCase();
   // `relative` anchors the absolutely positioned sr-only label to the chip.
   // Without it the label anchors outside the page's scroll column, stays put
   // while the column scrolls and stretches the document (mobile OQ, 2026-09-23).
@@ -173,6 +175,14 @@ function MemberChip({
       {state === "covered" && <Check aria-hidden="true" className="h-3 w-3 text-success" />}
       {state === "declined" && <Minus aria-hidden="true" className="h-3 w-3" />}
       {term}
+      {/* A-10 / G-1 — the person's own scoped wording is visible, not only
+          announced: a denial of "ECMO certification" must not read as a bare
+          "ECMO" decline. Shown when it adds something beyond the concept. */}
+      {showWording && (
+        <span aria-hidden="true" className="italic">
+          {"„"}{wording}{"“"}
+        </span>
+      )}
       {sr && <span className="sr-only">{sr}</span>}
     </span>
   );

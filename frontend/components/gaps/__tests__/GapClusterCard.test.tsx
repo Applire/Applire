@@ -364,7 +364,7 @@ describe("GapClusterCard — lead G posting terms", () => {
     render(withIntl(<GapClusterCard cluster={cluster} view={clusterView(cluster)} />, "de"));
 
     const line = screen.getByTestId("gap-posting-terms");
-    expect(line).toHaveTextContent("Begriff aus der Anzeige:");
+    expect(line).toHaveTextContent("Begriff aus der Anzeige (zählt nicht als Anforderung):");
     const chips = screen.getAllByTestId("gap-member");
     const eks = chips.find((c) => c.textContent?.startsWith("EKS"))!;
     const k8s = chips.find((c) => c.textContent?.startsWith("Kubernetes"))!;
@@ -376,7 +376,10 @@ describe("GapClusterCard — lead G posting terms", () => {
     // 787:214 — the labelled line already says what the chips are; the
     // accounting phrase is not repeated into every chip (and so every theme).
     expect(eks).not.toHaveTextContent("keine gezählte Anforderung");
-    expect(eks).toHaveAttribute("title", "Begriff aus der Anzeige – zählt nicht als Anforderung");
+    // A-11 — the explanation is VISIBLE text on the label (screen readers and
+    // phone users), not a `title` on a non-focusable span.
+    expect(eks).not.toHaveAttribute("title");
+    expect(line).toHaveTextContent("zählt nicht als Anforderung");
     expect(document.body.textContent).not.toContain("keine gezählte Anforderung");
     expect(eks).not.toHaveTextContent("(offen)");
     expect(k8s.className).toContain("border-dashed");
@@ -493,6 +496,34 @@ describe("#821 G-1 — a declined member is quoted by the candidate's own wordin
     expect(chip).toHaveTextContent("PSD2");
     expect(chip).toHaveTextContent("(du sagtest: „no PSD2 licence“)");
     expect(chip).not.toHaveTextContent("laut deiner Angabe nicht vorhanden");
+  });
+
+  it("A-10: the scoped wording is visible on the chip, not only in the sr text", () => {
+    render(withIntl(<GapClusterCard cluster={scoped} view={clusterView(scoped)} />, "de"));
+    const chip = screen.getByTestId("gap-member");
+    const visible = chip.querySelector('[aria-hidden="true"].italic');
+    expect(visible).not.toBeNull();
+    expect(visible).toHaveTextContent("„no PSD2 licence“");
+  });
+
+  it("A-10: no visible wording when it equals the concept, or the member is floored", () => {
+    const same = makeCluster({
+      gaps: [],
+      coverage: "declined",
+      outcome: { asked: 1, covered: [], declined: ["PSD2"], session_ids: [] },
+      member_statuses: [{ member: "PSD2", status: "declined", denied_by: ["psd2"] }],
+    });
+    const { unmount } = render(withIntl(<GapClusterCard cluster={same} view={clusterView(same)} />, "de"));
+    expect(screen.getByTestId("gap-member").querySelector(".italic")).toBeNull();
+    unmount();
+    const f = makeCluster({
+      gaps: [],
+      coverage: "declined",
+      outcome: { asked: 1, covered: [], declined: ["PSD2"], session_ids: [] },
+      member_statuses: [{ member: "PSD2", status: "declined", floored: true, denied_by: ["x y"] }],
+    });
+    render(withIntl(<GapClusterCard cluster={f} view={clusterView(f)} />, "de"));
+    expect(screen.getByTestId("gap-member").querySelector(".italic")).toBeNull();
   });
 
   it("a floored member never quotes a wording, even if one is attached", () => {
