@@ -32,6 +32,7 @@ import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/use
 import { useRouter } from "next/navigation";
 import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
+import { MobileDocumentSwitch } from "@/components/document/MobileDocumentSwitch";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
 import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
@@ -1009,6 +1010,9 @@ export default function CoverLetterPage({
     <div data-testid="cover-letter-page">
       <DocumentWorkspace
         preview={
+          <>
+          {/* 789:252 — the phone's way back to the CV (the panel is hidden below md). */}
+          <MobileDocumentSwitch flowId={flowId} activeDoc="cover-letter" documentLanguage={clState?.documentLanguage ?? null} />
           <CoverLetterDocument
             key={previewKey}
             coverLetterId={clState!.coverLetterId}
@@ -1018,6 +1022,7 @@ export default function CoverLetterPage({
             onCompleteForm={requestRegenerate}
             onPreviewLoad={() => setPreviewVersion((v) => v + 1)}
           />
+          </>
         }
         sidebar={
           <RefinementSidebar
