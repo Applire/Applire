@@ -18,11 +18,16 @@ write). This step does the same for every stored vault now:
   has passed → the end date is written, the dispute dropped;
 * a dispute on ``is_current`` whose incoming side says "not current" and whose entry's
   end date has passed → dropped;
+* a dispute whose incoming value the entry already holds (ruling MD7-14: an end
+  date that normalises equal to the stored one, the same ``is_current``) → dropped:
+  a dispute the vault already answers is not a question (round-4 pass 3: the
+  candidate had set the end date by hand; the question stayed). A "current"
+  restated on a role whose end date has passed is not settled by equality;
 * then every entry with a passed end date AND ``is_current = true`` is closed (the
   0087 repair, which the committer's ``close_ended_roles`` does on every write).
 
 Two different past end dates, a later source calling an ended role current, a future
-end date, and an unreadable value all stay disputes. Same rules, same order as the app.
+end date the entry does not hold, and an unreadable value all stay disputes. Same rules, same order as the app.
 
 This file holds a VERBATIM copy of ``reconcile/role_end.py``'s primitives and
 ``schemas.profile.normalise_partial_date`` (a migration never imports application
@@ -36,7 +41,8 @@ pins that the copy and the app agree.
 
 **Downgrade is a no-op**: the dropped disputes restated a fact the vault now holds.
 
-Chain: 0088 (build 7, older-wording denial heal) -> 0089.
+Chain: 0088 (build 7, older-wording denial heal) -> 0089. Amended in place for
+MD7-14 before any release (same revision id, as 0088 was).
 """
 
 import json
@@ -153,15 +159,24 @@ def _passed(end_date: Any, today: date) -> bool:
 
 
 def role_end_verdict(
-    field: str, entity_end_date: Any, incoming: Any, today: date
+    field: str, entity_end_date: Any, incoming: Any, today: date, entity_is_current: Any = None
 ) -> str | None:
     has_end = normalise_partial_date(entity_end_date) is not None
     if field == "end_date":
         if not has_end and incoming is not None and _passed(incoming, today):
             return "fill_end"
+        if normalise_partial_date(incoming) == normalise_partial_date(entity_end_date):
+            return "settled"
         return None
     if field == "is_current":
         if incoming is False and has_end and _passed(entity_end_date, today):
+            return "settled"
+        if (
+            isinstance(incoming, bool)
+            and isinstance(entity_is_current, bool)
+            and incoming == entity_is_current
+            and not (incoming and _passed(entity_end_date, today))
+        ):
             return "settled"
         return None
     return None
@@ -200,7 +215,9 @@ def heal(data: Any, today: date | None = None) -> tuple[int, int]:
                 incoming = coerce_conflict_value(wanted, c.get("incoming_value"))
                 if incoming is UNREADABLE:
                     continue
-                verdict = role_end_verdict(wanted, hit[1].get("end_date"), incoming, today)
+                verdict = role_end_verdict(
+                    wanted, hit[1].get("end_date"), incoming, today, hit[1].get("is_current")
+                )
                 if verdict is None:
                     continue
                 if verdict == "fill_end":
