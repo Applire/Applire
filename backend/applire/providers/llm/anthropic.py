@@ -30,11 +30,11 @@ adapter logic" Negative in ADR-009 made concrete):
     `_output_format`); a call without one gets a fixed JSON-only text block after
     the prompt (`JSON_ONLY_INSTRUCTION`) and, when the reply still opens with prose,
     ONE corrective turn (`CORRECTIVE_TURN`). Measured on Claude Sonnet 5.5 against
-    the UX-audit-4 log (2026-11-07): without either, 32 of 38 replays of the failed
-    calls answered "Item 0: … Supported." prose before the JSON.
+    the UX-audit-4 log (2026-11-07): without either, 28 of 38 replays of the failed
+    calls answered "Item 0: … Supported." prose before the JSON (4 more truncated).
   - `max_tokens` bounds thinking AND answer. A model that thinks by default gets
     `THINKING_HEADROOM` on top of the caller's budget, which sizes the answer
-    (the terminal CV review truncated 3/3 at 2560 with thinking alone), and every
+    (the terminal CV review truncated 3/3 at 2560, mostly thinking), and every
     call runs under the shared truncation net (`retry_on_truncation`).
   - The request surface depends on the model generation (see `_request_shape`):
     sampling parameters (`temperature`) are accepted only up to the 4.6
@@ -182,7 +182,7 @@ THINKING_HEADROOM = 4096
 # The fixed format instruction a schema-less JSON call on a no-prefill model ends
 # with (its own text block after the prompt; the prompt's content is untouched).
 # Measured 2026-11-07 on Claude Sonnet 5.5, replaying the failed round-4 calls:
-# prose-first replies 38 → 0 of 38 (a system-prompt suffix left the single-claim
+# prose-first replies 28 → 0 of 38 (a system-prompt suffix left the single-claim
 # Oracle call at 4/4 prose).
 JSON_ONLY_INSTRUCTION = (
     "Reply with only the JSON object the instructions above describe: no prose, "
