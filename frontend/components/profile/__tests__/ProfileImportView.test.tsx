@@ -476,7 +476,7 @@ describe("ProfileImportView", () => {
   // page must NOT call /api/job/null/gaps (which 422s and surfaces a spurious
   // "Invalid input" warning) and must show the "Review what changed" CTA so the
   // hand-off matches the standalone path.
-  it("does not fetch gaps and shows the review CTA on the in-flow no-JD path", async () => {
+  it("does not fetch gaps and lands on the import summary on the in-flow no-JD path (V-4 = B)", async () => {
     global.fetch = importJobsMock(READY({ completeness_score: 0.99 }), (u) =>
       u.includes("/api/flow/flow-no-jd/state") ? { ok: true, body: { job_id: null } } : null
     );
@@ -487,10 +487,8 @@ describe("ProfileImportView", () => {
     const file = new File(["content"], "linkedin.pdf", { type: "application/pdf" });
     fireEvent.change(input, { target: { files: [file] } });
 
-    await waitFor(() => {
-      // The review CTA appears on the in-flow no-JD merge path too.
-      expect(screen.getByTestId("review-merge-cta")).toBeInTheDocument();
-    });
+    // RULING V-4 = B: no posting → straight to the import summary.
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/profile#import-summary"));
 
     const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
     // Must NOT have attempted the gaps request for a null job_id.
@@ -499,8 +497,7 @@ describe("ProfileImportView", () => {
     // No spurious flow/"Invalid input" warning.
     expect(screen.queryByText(/Invalid input/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/flowError/i)).not.toBeInTheDocument();
-    // No silent redirect — the user chooses to review.
-    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledTimes(1);
   });
 
   // #114 (blind PQ F10) / US177: the update-profile upload no longer shows a static

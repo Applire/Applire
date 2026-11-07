@@ -274,7 +274,10 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
       if (!jobId) {
         if (hasJdStep) setStepStatus(gapsIdx, "done");
         await new Promise((r) => setTimeout(r, 400));
-        router.push(`/flow/${flowId}/gaps${gapsQuery}`);
+        // RULING V-4 = B (founder, 2026-11-07; 789:258/262): with NO job posting
+        // there is no gap step — the flow layout bounced /gaps to a bare upload
+        // page. Land on the import summary, where the open questions are too.
+        router.push(hasJdStep ? `/flow/${flowId}/gaps${gapsQuery}` : `/profile${gapsQuery}#import-summary`);
         return;
       }
 

@@ -45,7 +45,6 @@ import {
   type RestatedReceiptItem,
   type KeptSeparateItem,
 } from "@/lib/import-cv";
-import { ImportReadyCard } from "@/components/profile/ImportReadyCard";
 import { RecognisedMatches } from "@/components/profile/RecognisedMatches";
 import { RestatedBullets } from "@/components/profile/RestatedBullets";
 import { analyzeGapsAsync } from "@/lib/gap-analysis";
@@ -335,7 +334,11 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     // job_id, gap analysis isn't applicable — calling /api/job/null/gaps 422s and
     // surfaces a spurious "Invalid input" warning. Skip the gap auto-advance and
     // let the user review what changed (same hand-off as the standalone path).
-    if (!job_id) return;
+    // RULING V-4 = B (founder, 2026-11-07): no posting → the import summary.
+    if (!job_id) {
+      router.push("/profile#import-summary");
+      return;
+    }
 
     // #677: the synchronous POST /api/job/{id}/gaps was removed with the async gap
     // jobs (97915fc3, 2026-07-01) — only GET remains, so this path answered 405.
@@ -392,9 +395,6 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
         {/* ── Left column ── */}
         <div>
-          {/* 789:258 / 789:262 — after an import with no posting: what was read,
-              the questions waiting in the hub, and the next step. */}
-          {flowId && <ImportReadyCard flowId={flowId} reloadKey={history} />}
           <input
             ref={mainInputRef}
             data-testid="main-file-input"

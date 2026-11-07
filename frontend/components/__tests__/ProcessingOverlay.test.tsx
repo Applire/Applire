@@ -457,7 +457,7 @@ describe("ProcessingOverlay — up-front import queue (blind PQ F1)", () => {
     );
 
     await waitFor(
-      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-queue/gaps")),
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
       { timeout: 5000 }
     );
 
@@ -506,7 +506,7 @@ describe("ProcessingOverlay — up-front import queue (blind PQ F1)", () => {
     expect(mockPush).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("continue-without-failed"));
     await waitFor(
-      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-poststop/gaps")),
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
       { timeout: 5000 }
     );
     const pushedUrl = mockPush.mock.calls[0][0] as string;
@@ -564,7 +564,7 @@ describe("ProcessingOverlay — #615 not_applied note", () => {
     expect(note).toHaveTextContent("Englisch");
 
     await waitFor(
-      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-partial-import/gaps")),
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
       { timeout: 5000 },
     );
   });
@@ -595,7 +595,7 @@ describe("ProcessingOverlay — #615 not_applied note", () => {
     render(withIntl(<ProcessingOverlay files={[f1]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />));
 
     await waitFor(
-      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-clean-import/gaps")),
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
       { timeout: 5000 },
     );
     expect(screen.queryByTestId("processing-not-applied")).toBeNull();
@@ -659,7 +659,7 @@ describe("ProcessingOverlay — happy path navigation", () => {
     );
   });
 
-  it("navigates to /flow/{id}/gaps without job when no JD is provided", async () => {
+  it("RULING V-4 = B: with no JD it lands on the import summary, never the bounced /gaps", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = typeof input === "string" ? input : input.toString();
 
@@ -689,7 +689,7 @@ describe("ProcessingOverlay — happy path navigation", () => {
 
     await waitFor(
       () => {
-        expect(mockPush).toHaveBeenCalledWith("/flow/flow-nojob/gaps");
+        expect(mockPush).toHaveBeenCalledWith("/profile#import-summary");
       },
       { timeout: 5000 }
     );
@@ -815,7 +815,7 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
 
     await waitFor(
       () => {
-        expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-partial/gaps"));
+        expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile"));
       },
       { timeout: 5000 }
     );
@@ -864,7 +864,7 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
     fireEvent.click(screen.getByTestId("retry-file-1"));
 
     await waitFor(
-      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-retry/gaps")),
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/profile")),
       { timeout: 5000 },
     );
     const pushedUrl = mockPush.mock.calls[0][0] as string;
