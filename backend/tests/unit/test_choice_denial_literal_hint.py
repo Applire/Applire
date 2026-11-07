@@ -35,8 +35,9 @@ def test_the_hint_states_a_literal_check_never_a_verdict():
     # R2-2 / I-3: Category B (unevidenced concepts) offers no denial choice either,
     # and a PARTIAL chip marks the leftover concepts as "not yet in the profile".
     assert "Offer NO denial choice" in out
-    assert "does not yet document the concepts left over" in out
-    assert "never that the candidate lacks them" in out
+    # 787:206 (G-3 A): leftovers are left out, never named as undocumented.
+    assert "leaves the concepts left over out" in out
+    assert "never that the profile does not document them, never that the candidate lacks them" in out
     assert "No word-for-word mention yet: Produktionsverantwortung" in c
 
 
@@ -47,4 +48,4 @@ def test_the_coverage_rule_counts_evidence_in_any_wording():
     # parenthesis inside the PARTIAL bullet.
     assert 'a "Teamleiter" role is evidence of team leadership' in flat
     assert 'a "Scrum Master" skill of agile methods' in flat
-    assert "never one the profile summary or the earlier answers evidence in other words" in flat
+    assert "Never treat a concept the profile summary or the earlier answers evidence in other words as uncovered" in flat

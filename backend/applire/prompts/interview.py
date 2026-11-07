@@ -140,6 +140,17 @@
 #     language pass. Replay-verified: the captured run-17 turn-1 generation
 #     emits denied_terms with the exact constituent names.
 
+# 787:206 changes (Hazelnut build 7 / WP-G, 2026-11-07, recommendation A of founder
+# question G-3 — PROVISIONAL until the ruling and its real-provider replay):
+#   - A PARTIAL choice no longer carries "..., but my profile does not yet document X":
+#     the UX audit round 3 saw that clause on Marcus Q4/Q6/Q9, Priya Q5 and every Felix
+#     chip — the candidate's voice speaking the system's words, and one click recorded a
+#     limit about X where the CV is only silent. It contradicted the VOICE rule (787:L72,
+#     "what a choice cannot state from the profile it leaves out"). A PARTIAL choice now
+#     states only what the profile shows; the concept it does not cover is left out and
+#     "denied_terms" stays [] (it lists a concept only when a choice restates the
+#     candidate's own earlier no). The heal markers (783:245) still release older chips.
+#
 # R2-2 changes (Hazelnut build 4, founder ruling 2026-10-24: PROMPT RULE ONLY):
 #   - _CHOICE_COVERAGE_RULES: no choice states a limit the candidate never gave
 #     ("NO INVENTED LIMIT"); the DENIAL level is no longer offered; a PARTIAL
@@ -233,15 +244,14 @@ mentioning X means UNKNOWN, never no — and one click on such a choice would re
 candidate never gave. A candidate who lacks something types that in their own words. The ONE \
 exception: the candidate already said that no themselves in the Recent conversation or the \
 earlier exchanges below — a choice may restate their own words.
-- When a PARTIAL choice must mark what it does not cover, it says what the PROFILE does not \
-show yet — never what the candidate has not done: "..., but my profile does not yet document \
-X or Y" / "..., aber zu X und Y steht in meinem Profil noch nichts". That clause comes \
-LAST and is joined with ", but" (German ", aber") — never a semicolon, a dash or a new \
-sentence — and every concept it names is listed in "denied_terms": that join and that list \
-are how the system recognises the clause as naming without claiming. Name exactly those \
-concepts, never a broader area, and never one the profile summary or the earlier answers \
-evidence in other words (a "Teamleiter" role is evidence of team leadership, a "Scrum \
-Master" skill of agile methods).
+- A PARTIAL choice states only what the profile DOES show, in the candidate's own words. It \
+never mentions a concept it does not cover — no "..., but my profile does not yet document \
+X", no "..., aber zu X steht in meinem Profil noch nichts", no "kann ich bisher nicht \
+belegen": that is the system speaking through the candidate, and one click would record a \
+limit about X where the profile is merely silent. The candidate adds what is missing in \
+their own words after selecting the choice. Never treat a concept the profile summary or \
+the earlier answers evidence in other words as uncovered (a "Teamleiter" role is evidence of \
+team leadership, a "Scrum Master" skill of agile methods).
 - Never offer a choice at the DENIAL level. (The "denial" level value stays in the schema for \
 a restated earlier no only.)
 - This coverage rule does NOT relax the truthfulness rules above — they are unchanged and still \
@@ -257,9 +267,10 @@ stating it ("das kann ich genauer beschreiben", "I can share how ..."). What a c
 state from the profile it leaves out; the candidate adds it after selecting the choice.
 - Every choice also declares "denied_terms": the constituent concepts THIS choice names \
 WITHOUT claiming them, copied exactly as the concept names appear in the question context ([] \
-when it names none). A PARTIAL choice that says "..., but my profile does not yet document X \
-or Y" lists X and Y; a DIRECT choice lists []. Like "level", this is a statement of fact about \
-the choice you just drafted, not an extra rule.
+when it names none). Only a choice that restates the candidate's OWN earlier no (the one \
+exception above) names a concept without claiming it and lists it; every other choice, \
+DIRECT or PARTIAL, lists []. Like "level", this is a statement of fact about the choice you \
+just drafted, not an extra rule.
 - Every choice you draft must declare its own level in its "level" field — "direct", "partial", \
 or "denial" — matching exactly what you just reasoned about above for that choice. This is a \
 statement of fact about the choice you are drafting, not an extra rule: state it truthfully."""
@@ -293,9 +304,9 @@ NARRATIVE, not just the noun.
 Category C as soon as ANY ONE of them is unevidenced — so some of its OTHER named gaps or \
 skills may actually appear in the candidate profile summary below. Check each constituent gap \
 individually: for one the profile genuinely shows NO evidence, a choice leads with the related \
-experience the profile does show and marks the concept as not yet in the profile (e.g. "I \
-built X-adjacent Y at Z, but my profile does not yet document X") — never as something the \
-candidate has not done. For one the profile DOES evidence (even partially), lead with that \
+experience the profile does show and leaves the concept itself out (e.g. "I built \
+X-adjacent Y at Z.") — never says the candidate lacks it, and never says the profile does \
+not document it; the candidate adds that in their own words. For one the profile DOES evidence (even partially), lead with that \
 real evidence honestly. Never draft an affirmative claim for a concept the profile shows no \
 evidence for.
 - The candidate's earlier answers in this conversation are evidence exactly like the profile \
@@ -606,9 +617,9 @@ def build_question_prompt(
             denial_fact = (
                 f"{literal} Offer NO denial choice: a candidate who lacks something "
                 "types that in their own words. Draft DIRECT and PARTIAL choices only; "
-                "a PARTIAL choice may say that the profile does not yet document a "
-                "concept — never that the candidate lacks it — and never for a "
-                "concept the profile states in other words."
+                "a PARTIAL choice states what the profile shows and leaves an "
+                "uncovered concept out — it never says the profile does not "
+                "document it, and never that the candidate lacks it."
             )
         elif not signal:
             denial_fact = ""
@@ -624,9 +635,9 @@ def build_question_prompt(
                 "verdict: look for each in the profile summary in OTHER words — a "
                 "role title, a skill, a bullet. A concept the profile states in "
                 "other words is evidenced and goes into a DIRECT or PARTIAL choice. "
-                "Offer NO denial choice; a PARTIAL choice may say that the profile "
-                "does not yet document the concepts left over — never that the "
-                "candidate lacks them."
+                "Offer NO denial choice; a PARTIAL choice states what the profile "
+                "shows and leaves the concepts left over out — never that the "
+                "profile does not document them, never that the candidate lacks them."
             )
         else:
             denial_fact = (
