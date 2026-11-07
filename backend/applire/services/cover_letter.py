@@ -907,14 +907,15 @@ def build_gap_positioning_entry(
         "required": True,
         "gap_count": total,
         "named": [
+            # RULING L-1 / L-2 = B (#820): every named gap is a recorded denial.
             {"gap": g.label, "statement": g.statement or None, "recorded": g.recorded}
             for g in named
         ],
         "not_owed": not_owed,
         "instruction": (
             f"REQUIRED content (RULING G-1). Code counted {total} key requirement(s) of "
-            "this posting the candidate's profile does not meet and chose the gap(s) the "
-            "letter names: "
+            "this posting the candidate has denied (RULING L-1: a recorded no; a requirement "
+            "nobody asked about is never named) and chose the gap(s) the letter names: "
             + ("each of them. " if total <= GAP_LADDER_NAME_ALL_UP_TO else
                "from three on, ONLY the most urgent one. ")
             + gap_ladder_rule(language, named)
@@ -1626,9 +1627,8 @@ async def _render_cover_letter_body(
                 from applire.services.cross_document import (
                     collect_stated_limits,
                     find_unaddressed_hard_requirements,
-                    gaps_to_name,
-                    key_requirement_gaps,
                     letter_constraint_only_limits,
+                    letter_gap_ladder,
                     named_gap_concepts,
                     render_gap_ladder_block,
                     render_stated_limits_block,
@@ -1638,8 +1638,12 @@ async def _render_cover_letter_body(
                 # count and pick, shared by the writer block, the review loop's
                 # `gap_positioning` entry and the invented-limit fact — so no round can
                 # re-litigate which gaps are owed. denied_concepts resolved above.
-                key_gaps = key_requirement_gaps(keyword_ledger, denied_concepts, job.raw_text)
-                named_gaps = gaps_to_name(key_gaps)
+                # RULING L-1 / L-2 = B (#820, ADR-075 amended 2026-11-07): over the
+                # candidate's recorded DENIALS only — one implementation, shared with
+                # the letter's keyword audit (`_letter_named_gaps`).
+                key_gaps, named_gaps = letter_gap_ladder(
+                    keyword_ledger, denied_concepts, job.raw_text
+                )
                 named_concepts = named_gap_concepts(named_gaps)
                 # RULING DEL-3 (narrowed by G-1): every statement the ladder does not
                 # name, as a never-disclosed constraint; a named one reaches the writer
