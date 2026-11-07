@@ -2049,6 +2049,7 @@
     "group1Title": "In the document, but not in your profile",
     "group2Title": "Missing although your profile covers it",
     "group3Title": "Missing, and your profile does not cover it",
+    "group3More": "and {count} more",
     "group4Title": "Craft",
     "producerAts": "ATS report",
     "producerOracle": "Truthfulness Oracle",

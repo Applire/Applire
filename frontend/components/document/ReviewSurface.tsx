@@ -42,6 +42,7 @@ import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
   buildDeliveryView,
   buildReviewGroups,
+  countedOpenRows,
   removeOnly,
   noChangeExit,
   noChangeFound,
@@ -104,6 +105,9 @@ import type { DegradedReviewStep } from "@/lib/review-degradation";
  * - **cl. 7/8** — no group 2, no cross-document section, no craft rows; group 4
  *   is one passed line. **cl. 12** — no server `details` prose.
  */
+
+/** 789:260 — the group-3 link names up to this many missing items, then "+N". */
+const GROUP3_NAMED = 3;
 
 /** ADV-10: the U row's words follow what the producer wrote (`unknownState`). */
 const UNKNOWN_TITLE_KEY = {
@@ -296,6 +300,12 @@ export function ReviewSurface({
   const current: Group1Row | null =
     rows.find((r) => r.findingKey === currentKey) ?? openRows[0] ?? rows[0] ?? null;
   const currentIndex = current ? rows.indexOf(current) : -1;
+  // 789:259 — the card's "N VON M" is the headline's number: M = `view.count`
+  // (every counted card — questions, the "Lies diese Stellen" row, the page's
+  // signature / page-length / unasked cards), N = this card's place among the
+  // counted questions. A card the headline does not count (decided, an
+  // employer-sentence row) shows no position at all.
+  const countedKeys = useMemo(() => countedOpenRows(rows).map((r) => r.findingKey), [rows]);
 
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<{ scope: string; text: string } | null>(null);
@@ -956,9 +966,13 @@ export function ReviewSurface({
         className={`flex flex-col gap-2.5 rounded-xl border-2 ${border} bg-surface-bright p-3.5 shadow-sm`}
       >
         <span data-testid="review-card-position" className="text-[11px] font-bold tracking-wide text-on-surface-variant">
-          {t("cardPosition", { index: currentIndex + 1, total: rows.length })}
-          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-          {" · "}
+          {countedKeys.includes(row.findingKey) && view.count > 0 && (
+            <>
+              {t("cardPosition", { index: countedKeys.indexOf(row.findingKey) + 1, total: Math.max(view.count, countedKeys.length) })}
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+              {" · "}
+            </>
+          )}
           <span className="uppercase">{t("delivery.cardKind")}</span>
         </span>
         <span data-testid="review-card-claim" className="rounded-lg bg-surface-container px-2.5 py-2 text-sm leading-snug text-on-surface">
@@ -1572,6 +1586,11 @@ export function ReviewSurface({
         >
           <span className="flex min-w-0 flex-1 flex-col py-1.5">
             <span className="text-[13px] text-on-surface">{t("group3Title")}</span>
+            {/* 789:260 — the card names what is missing (data, verbatim from the gap row). */}
+            <span data-testid="review-group3-items" className="text-[13px] font-semibold text-on-surface">
+              {group3.items.slice(0, GROUP3_NAMED).map((i) => i.label).join(", ")}
+              {group3.items.length > GROUP3_NAMED && ` ${t("group3More", { count: group3.items.length - GROUP3_NAMED })}`}
+            </span>
             <span className="text-xs font-semibold text-primary">{t("group3Link")}</span>
           </span>
           <span data-testid="review-group-count-3" className="shrink-0 rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-bold text-on-surface">

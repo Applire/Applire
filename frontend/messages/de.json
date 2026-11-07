@@ -2049,6 +2049,7 @@
     "group1Title": "Im Dokument, aber nicht in Deinem Profil",
     "group2Title": "Fehlt, obwohl Dein Profil es deckt",
     "group3Title": "Fehlt, und Dein Profil deckt es nicht",
+    "group3More": "und {count} weitere",
     "group4Title": "Handwerk",
     "producerAts": "ATS-Bericht",
     "producerOracle": "Wahrheits-Orakel",
