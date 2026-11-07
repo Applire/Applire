@@ -118,6 +118,11 @@ function ProviderProbeCard({ data, onSaved }: { data: InstanceSettingsResponse; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!item) return null;
+  // The .env line names a mode by its raw id; show the radio's own label (789:267g). Unknown stays raw.
+  const envLabel = (raw: string) => {
+    const known = PROBE_CHOICES.find((c) => c.mode === raw);
+    return known ? t(known.label) : raw;
+  };
   const value = String(item.value ?? "both");
   const active = data.providers.find((p) => p.active);
   // The credit half reads nothing where no balance reader exists (`providers[].balance_check`).
@@ -196,8 +201,8 @@ function ProviderProbeCard({ data, onSaved }: { data: InstanceSettingsResponse; 
           {t("probeOffWarning")}
         </p>
       )}
-      <p className="mt-2 text-[12px] text-on-surface-variant">
-        {item.env_value !== null && item.env_value !== "" ? t("envValue", { value: String(item.env_value) }) : t("envValueUnset")}
+      <p data-testid="admin-settings-probe-env" className="mt-2 text-[12px] text-on-surface-variant">
+        {item.env_value !== null && item.env_value !== "" ? t("envValue", { value: envLabel(String(item.env_value)) }) : t("envValueUnset")}
       </p>
       {item.source === "panel" && (
         <div className="mt-2">

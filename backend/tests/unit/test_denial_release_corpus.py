@@ -453,12 +453,15 @@ def test_build_keyword_ledger_releases_produktion_on_the_imported_bullet():
 
 
 def test_build_keyword_ledger_still_floors_when_only_an_interview_wrote_it():
+    """#821 (G-1, ADR-059 amended 2026-11-07; supersedes E-11 G-2 = (1a) for
+    containment-only matches): "direkte Produktion für Lebensmittelkunden" does
+    not name "Produktion", so no floor fires whoever wrote the bullet."""
     history = [{"source": "interview", "changes": [{
         "section": "work_experience", "field": "responsibilities", "action": "merged",
         "old_value": None,
         "new_value": ["Verantwortung für die Produktion in zwei Fertigungsbereichen."]}]}]
     row = _floor_status(history)
-    assert row["status"] == "gap" and row["claimable"] is False, row
+    assert row["status"] == "direct" and row["claimable"] is True, row
 
 
 # ── E-11 regression set (ruling G-2): the blind-labelled bench decisions ─────
@@ -501,13 +504,28 @@ def test_e11_regression_set_never_releases_a_term_both_labellers_say_is_lacking(
 
 
 def test_e11_daniel_settlement_stays_floored_against_interview_prose():
-    """The case that decided G-2: "Settlement" grounds only through an
-    interview-written bullet ("...the settlement-adjacent parts of the stack"),
-    against "No, I have no blockchain or crypto experience ... settlement rails
-    on chain". Letting interview prose release would claim it."""
+    """The case that decided G-2 (1a), re-pinned on the CLASSIFIER arm (founder
+    ruling G-2, build 7, #821): containment alone never floors, so "Settlement"
+    is not claimable only when the gap classifier binds it to the recorded
+    denial by id (ADR-100 M-2). The release instrument itself still reads the
+    interview bullet as no release — it now serves only the bound arm.
+    Real-provider acceptance (luna + Sonnet, n >= 5): build-7 g/report.md."""
+    from applire.services.keyword_ledger import _enforce_denial_stance
+
     d = next(x for x in _e11_decisions()
              if x["cell"] == "it_backend_daniel/mixed_en" and x["term"] == "Settlement")
     assert _e11_floors(d) is True
+    vault = json.loads((_E11.parent / d["cell"] / "vault.json").read_text(encoding="utf-8"))
+    records = vault["metadata"]["denied_concepts"]
+    record = next(r["concept"] for r in records if r["concept"] in d["denials_touching"])
+    row = {"concept": "Settlement", "surface_forms": list(d["forms"]), "sources": ["required"],
+           "fit_weight": 1.0, "status": "gap", "claimable": False, "evidence": "",
+           "denied_by": record}
+    [bound] = _enforce_denial_stance([row], records, denial_release_corpus(vault) or None)
+    assert bound["status"] == "denied" and bound["claimable"] is False
+    assert bound["denied_by"] == record
+    unbound = {k: v for k, v in row.items() if k != "denied_by"}
+    assert _enforce_denial_stance([unbound], records, denial_release_corpus(vault) or None) == [unbound]
 
 
 # ── E-11 seams the corpus tests above do not name (one per call site) ────────
@@ -536,7 +554,8 @@ def test_site_6_the_merge_refloor_still_floors_on_interview_prose():
         "section": "work_experience", "field": "responsibilities", "action": "merged",
         "old_value": None,
         "new_value": ["Verantwortung für die Produktion in zwei Fertigungsbereichen."]}]}]
-    assert _carried_floor_status(history)["status"] == "gap"
+    # #821 (G-1): the merge re-floor no longer floors a containment-only match.
+    assert _carried_floor_status(history)["status"] == "direct"
 
 
 def test_site_7_the_oracle_vault_index_carries_the_imported_prose():

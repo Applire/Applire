@@ -73,3 +73,21 @@ describe("ImportSummaryCard", () => {
     expect(screen.getByTestId("kept-separately")).toBeInTheDocument();
   });
 });
+
+describe("ImportSummaryCard — 783:260", () => {
+  it("an import that created the profile says so instead of 'added 1 item'", async () => {
+    respond({
+      ...SUMMARY, created: true, added_total: 6, matched: [], kept_separate: [],
+      groups: [
+        { section: "work_experience", count: 2, entities: [], preview: [], more: 0 },
+        { section: "skills", count: 4, entities: [], preview: [], more: 0 },
+      ],
+    });
+    render(withIntl(<ImportSummaryCard />, "de"));
+    await waitFor(() => expect(screen.getByTestId("import-summary")).toBeInTheDocument());
+    expect(screen.getByTestId("import-summary-lead")).toHaveTextContent(
+      "Dein Profil wurde aus dieser Datei angelegt. Es enthält jetzt 6 Einträge.",
+    );
+    expect(screen.getByTestId("import-summary-groups")).toHaveTextContent("Berufserfahrung");
+  });
+});

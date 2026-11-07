@@ -312,7 +312,10 @@ Editing a generated letter's sections is UI-only.
   off-CV dossier, a "anything else recruiters should know" note. Pass the
   whole text as-is (read `schema://testimony` first; no per-claim char cap,
   unlike `submit_claims`). Same reconciler, same receipts, same denial
-  handling — one submission, one `status`.
+  handling — one submission, one `status`. `status` names the most actionable
+  outcome, not whether the text was accepted: `conflict` beside a list of
+  `changes` means those changes are saved and one dispute waits for the human.
+  `summary` says both in one sentence.
 - `resolve_gap` — resolve ONE gap cluster in a single call, the guided way:
   pass a `gap_id` from `analyze_gaps`' `gap_clusters` plus the candidate's
   testimony; Applire generates the scoped question, applies your answer
@@ -403,7 +406,8 @@ Editing a generated letter's sections is UI-only.
 
 Every tool in this section works standalone; nothing forces you into the
 pipeline (`generate_cover_letter` is the exception across the surface — it
-needs a flow session, because it is a pipeline tool).
+needs the job's flow session, which `start_flow(job_id)` or
+`create_application(job_id, start_workflow=true)` creates; either one is enough).
 
 ## Keeping the vault honest — health, undo, held merges
 
@@ -613,13 +617,24 @@ apply it.
   corrector, the row is left `generating` forever, and the provider calls
   already spent are lost. Raise the timeout for these two tools before you call
   them. (Poll the status tools anyway — it is the same contract on REST, where
-  generation really is deferred.)
+  generation really is deferred.) `submit_testimony` on a long document also
+  runs for minutes without progress output; that is normal.
+- **A failed generation says whether to retry.** `status: failed` carries
+  `error_code` and `retryable`. `retryable: true` (`llm_timeout`,
+  `provider_unavailable`, `llm_truncated`) is the provider's side (a timeout, a
+  rate limit, a 5xx or a cut-off answer — the same verdict as a raised
+  `provider_rate_limited (safe to retry …)`): send the same call once more,
+  unchanged; if it fails again, tell the human and stop.
+  `retryable: false` (`generation_failed`): do not loop — report it. A raised
+  error that begins `provider_timeout (safe to retry …)` means the same.
 - **UI visibility**: a rendered or generated document appears in the user's
   dossier and My Documents only after `create_application(job_id)`. Until
   then it is URL-reachable only. Generated documents expire after
   90 days (`GENERATED_DOCUMENTS_TTL_DAYS`); pin the submitted version via
   `update_application(submitted_cv_id=...)` to keep it while the
-  application is active.
+  application is active. `workflow_status: completed` means a ready CV
+  exists, not that one was sent — a `pin_reminder` on the application says
+  nothing is pinned yet.
 - **Round-trip the entry ids you were given.** Every vault entry you read
   through `get_profile` carries an `id`. When you send that entry back —
   `update_profile` on a list section, a corrected role, a renamed skill — send

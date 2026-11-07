@@ -168,8 +168,10 @@ def test_a_rebuild_with_no_history_still_floors_when_its_own_forms_miss():
     still floors — matches 20b-gaps-final.json in isolation. The fix targets
     REBUILD resilience, not clairvoyance on a build with no prior state."""
     entry = _build(_BAD_FORMS, previous_ledger=None)
-    assert entry["claimable"] is False
-    assert entry["status"] == "gap"
+    # #821 (G-1, ADR-059 amended 2026-11-07): the narrow denial no longer
+    # floors "Produktion" at all — the row keeps the classifier's grade.
+    assert entry["claimable"] is True
+    assert entry["status"] == "direct"
 
 
 # ── the fix: a rebuild carries forward a prior build's releasing form ──────
@@ -227,7 +229,9 @@ def test_carry_forward_is_scoped_to_the_same_concept():
         }
     ]
     entry = _build(_BAD_FORMS, previous_ledger=previous_ledger)
-    assert entry["claimable"] is False
+    # #821 (G-1, ADR-059 amended 2026-11-07): the narrow denial no longer
+    # floors "Produktion" at all — the row keeps the classifier's grade.
+    assert entry["claimable"] is True
     assert "Produktionsleiter" not in entry["surface_forms"]
 
 
@@ -248,5 +252,7 @@ def test_carry_forward_does_not_manufacture_a_release_the_vault_never_attested()
         }
     ]
     entry = _build(_BAD_FORMS, previous_ledger=previous_ledger)
-    assert entry["claimable"] is False
+    # #821 (G-1, ADR-059 amended 2026-11-07): the narrow denial no longer
+    # floors "Produktion" at all — the row keeps the classifier's grade.
+    assert entry["claimable"] is True
     assert "Fabrikleitung" in entry["surface_forms"]  # carried, but unattested

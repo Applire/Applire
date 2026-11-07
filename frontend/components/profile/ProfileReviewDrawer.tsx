@@ -150,6 +150,13 @@ export interface ProfileReviewDrawerProps {
   // section and the labels it takes there, instead of `onAction`'s single
   // button landing on "one of the affected sections" chosen at random.
   onSectionAction?: (section: string, labels: string[]) => void;
+  // Hazelnut build 7 (WP-V) — the clicked item no longer exists (404
+  // `issue_not_found`): the page refreshes the hub so the stale card goes.
+  onSettled?: () => void;
+  // UX audit round 4 (Emma) — the hub's open review items in hub order. When an
+  // answer cannot be applied, "skip" starts the walk on the next one, so the
+  // items after a failed one stay reachable.
+  reviewIds?: string[];
 }
 
 export function ProfileReviewDrawer({
@@ -158,6 +165,8 @@ export function ProfileReviewDrawer({
   issue,
   onAction,
   onSectionAction,
+  onSettled,
+  reviewIds,
 }: ProfileReviewDrawerProps) {
   const t = useTranslations("profileReview");
   // #626 — the same localized composition HealthPanel uses, so a `conflict`
@@ -187,11 +196,18 @@ export function ProfileReviewDrawer({
   // The conflict-walk had nothing to do (gaps_total 0). With an `issue` in hand
   // this is the merge-loss/accuracy case → show the issue + action, not all-clear.
   const [noConflicts, setNoConflicts] = useState(false);
+  // The clicked item answered 404 `issue_not_found` and nothing else is open:
+  // say so in one sentence instead of rendering an empty panel.
+  const [settled, setSettled] = useState(false);
   const [error, setError] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
   // The item on screen (`current_gap_id`): a reply naming the same one, or
   // carrying a follow-up, stays in its thread; any other reply moves on.
   const itemIdRef = useRef<string | null>(null);
+  // UX audit round 4 — an answer the server could not apply: one localized
+  // sentence and one way forward, never the exception text.
+  const [applyFailed, setApplyFailed] = useState(false);
+  const [currentItemId, setCurrentItemId] = useState<string | null>(null);
 
   const outcomeLabel = useCallback(
     (o: ConflictOutcome, c: CurrentConflict | null) =>
@@ -207,6 +223,7 @@ export function ProfileReviewDrawer({
   // a conflict, otherwise the question bubble + its choices.
   const applyTurn = useCallback((turn: ReviewTurn) => {
     itemIdRef.current = turn.current_gap_id ?? null;
+    setCurrentItemId(turn.current_gap_id ?? null);
     setChoices(turn.choices);
     setConflict(turn.current_conflict ?? null);
     setFollowUpUsed(Boolean(turn.follow_up_used));
@@ -228,21 +245,39 @@ export function ProfileReviewDrawer({
     setAnswer("");
     setDone(false);
     setNoConflicts(false);
+    setSettled(false);
     setError("");
+    setApplyFailed(false);
     setLoading(true);
+
+    // Hazelnut build 7 (WP-V, 789:255) — a not-applied receipt is not a review
+    // item: the session has no question for it (404 issue_not_found). Its drawer
+    // is the #705 per-section receipt, shown without starting a session.
+    if (issue?.thread === "not_applied") {
+      setNoConflicts(true);
+      setDone(true);
+      setLoading(false);
+      return;
+    }
 
     // U-2 — start on the issue the user clicked, not the generic walk.
     // An item closed meanwhile answers 404 issue_not_found → the generic walk.
+    let itemGone = false;
     startReview(issue?.id ?? null)
       .catch((e: unknown) => {
-        if (issue && e instanceof ReviewApiError && e.status === 404) return startReview(null);
+        if (issue && e instanceof ReviewApiError && e.status === 404) {
+          itemGone = true;
+          onSettled?.();
+          return startReview(null);
+        }
         throw e;
       })
       .then((s) => {
         setSessionId(s.session_id);
         // gaps_total 0 → nothing to review: land straight on the all-clear state.
         if (s.gaps_total === 0) {
-          setNoConflicts(true);
+          if (itemGone) setSettled(true);
+          else setNoConflicts(true);
           setDone(true);
           return;
         }
@@ -313,6 +348,7 @@ export function ProfileReviewDrawer({
     ) => {
       setLoading(true);
       setError("");
+      setApplyFailed(false);
       setMessages((prev) => [...prev, { role: "user", content: userLine }]);
       try {
         afterReply(await call(), onScreen, typed, userLine);
@@ -320,8 +356,13 @@ export function ProfileReviewDrawer({
         if (e instanceof ReviewApiError && e.code === "outcome_required") {
           // The ONE follow-up was spent: only the buttons remain (U-4/U-5).
           setFollowUpUsed(true);
+        } else if (e instanceof ReviewApiError && e.status === 503) {
+          // "not saved — send it again": the server's own localized sentence.
+          setError(e.message);
         } else {
-          setError(e instanceof Error ? e.message : "Error");
+          // UX audit round 4 — a validation 409, a 5xx, a network error: the
+          // detail is an exception string, never shown.
+          setApplyFailed(true);
         }
       } finally {
         setLoading(false);
@@ -329,6 +370,33 @@ export function ProfileReviewDrawer({
     },
     [afterReply],
   );
+
+  const ids = reviewIds ?? [];
+  const nextReviewId =
+    ids.slice(currentItemId ? ids.indexOf(currentItemId) + 1 : 0).find((id) => id !== currentItemId) ?? null;
+
+  const skipToNext = () => {
+    if (!nextReviewId) return;
+    setApplyFailed(false);
+    setMessages([]);
+    setConflict(null);
+    setChoices(null);
+    setFollowUpUsed(false);
+    setNotice(null);
+    setLoading(true);
+    startReview(nextReviewId)
+      .then((s) => {
+        setSessionId(s.session_id);
+        if (s.gaps_total === 0) {
+          setDone(true);
+          return;
+        }
+        setProgress({ total: s.gaps_total, remaining: s.gaps_remaining, first: false });
+        applyTurn({ ...s, question: s.first_question });
+      })
+      .catch(() => setApplyFailed(true))
+      .finally(() => setLoading(false));
+  };
 
   const sendOutcome = (outcome: CommitOutcome, line: string, mergedText?: string) => {
     if (!sessionId) return;
@@ -428,6 +496,16 @@ export function ProfileReviewDrawer({
           </div>
         )}
 
+        {done && settled && (
+          <div
+            data-testid="profile-review-settled"
+            className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"
+          >
+            <p className="text-sm font-medium text-neutral-dark">{t("alreadySettled")}</p>
+            <Button variant="outline" onClick={onClose}>{t("close")}</Button>
+          </div>
+        )}
+
         {done && issue && noConflicts && (
           // The conflict-walk had nothing to resolve, but the user came here
           // from a real flagged issue (e.g. merge dropped skills). Show the
@@ -472,7 +550,7 @@ export function ProfileReviewDrawer({
           </div>
         )}
 
-        {done && !(issue && noConflicts) && (
+        {done && !settled && !(issue && noConflicts) && (
           <div
             data-testid="profile-review-done"
             className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"
@@ -527,6 +605,16 @@ export function ProfileReviewDrawer({
                 <p role="alert" className="text-sm text-critical">
                   {error}
                 </p>
+              )}
+              {applyFailed && (
+                <div data-testid="profile-review-apply-failed" role="alert" className="flex flex-col items-start gap-2">
+                  <p className="text-sm text-critical">{t("answerNotApplied")}</p>
+                  {nextReviewId && (
+                    <Button size="sm" variant="outline" data-testid="profile-review-skip" onClick={skipToNext}>
+                      {t("skipItem")}
+                    </Button>
+                  )}
+                </div>
               )}
               <div ref={chatEndRef} />
             </div>

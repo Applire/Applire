@@ -1903,7 +1903,9 @@ def park_denial_scope_confirmations(
 #: (ADR-062 cl. 1): the wording family the interview prompt asks for, plus the
 #: variants a scan of 376 drafted choices with ``denied_terms`` found (WP-A,
 #: ``scan/out.json``: "steht in meinem Profil noch nichts" 92, "my profile does
-#: not yet document" 81, "… in meinem Profil … nicht dokumentiert" 4). Matched
+#: not yet document" 81, "… in meinem Profil … nicht dokumentiert" 4) and, since 783:245,
+#: the older "kann ich bisher nicht belegen" / "keine ausdrücklich belegte Erfahrung" /
+#: "mein Profil dokumentiert noch keine …" family. Matched
 #: on ``_norm``-ed text. A new wording is a code change with a test.
 _PROFILE_SILENCE_MARKERS: tuple[tuple[re.Pattern[str], bool], ...] = (
     # (pattern, the clause ENDS at the marker) — True where the concepts come
@@ -1934,6 +1936,94 @@ _PROFILE_SILENCE_MARKERS: tuple[tuple[re.Pattern[str], bool], ...] = (
         False,
     ),
     (re.compile(r"my profile (?:has|says) nothing (?:yet )?(?:on|about)"), False),
+    # 783:245 (founder 2026-11-05) — the OLDER evidence-silence wording of the same
+    # class (114 of 376 scanned chips): the evidence is missing, not the person's
+    # experience. Corpus-derived (Runs/Hazelnut/build-7/g/heal-report.md); a new
+    # wording is a code change with a test. Concepts BEFORE the marker -> True.
+    (
+        re.compile(
+            r"(?:kann|können) ich (?:(?:bisher|derzeit|noch|bislang|aktuell|daraus|dazu|dafür|"
+            r"jedoch|aber) )*nicht (?:belegen|nachweisen|ableiten)"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"(?:kann|können)(?: ich)? (?:(?:aber|jedoch|bisher|derzeit) )*kein\w* [^.;]{0,120}? "
+            r"(?:belegen|nachweisen)"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"(?:(?:noch|bisher|bislang|derzeit) )+nicht "
+            r"(?:(?:konkret|ausdrücklich|explizit|eindeutig|ausreichend) )*"
+            r"(?:belegt|beschrieben|dokumentiert|nachgewiesen|ausgewiesen)"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"steht (?:darin |in meinem profil )(?:(?:noch|bisher|bislang|derzeit) )*(?:nichts|kein\w*)"
+        ),
+        True,
+    ),
+    (re.compile(r"steht (?:(?:noch|bisher|bislang|derzeit) )*nichts darin"), True),
+    (
+        re.compile(r"mein profil kein\w* [^.;]{0,100}? (?:dokumentiert|beschreibt|enthält)"),
+        True,
+    ),
+    (
+        re.compile(
+            r"dokumentiert mein profil (?:(?:noch|bisher|bislang|derzeit|jedoch) )*(?:nichts|kein\w*)"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"mein profil dokumentiert (?!dazu|darüber)(?:[^\s.;]+ ){0,12}?"
+            r"(?:(?:noch|bisher|bislang|derzeit) )+nicht\b(?: (?:ausdrücklich|konkret|explizit))?"
+        ),
+        True,
+    ),
+    # Concepts AFTER the marker (to the end of the sentence) -> False.
+    (
+        re.compile(
+            r"kein\w* (?:(?:ausdrücklich|explizit|direkt|konkret|eindeutig) )*"
+            r"(?:belegte|ausgewiesene|dokumentierte|nachgewiesene|beschriebene)\w*"
+        ),
+        False,
+    ),
+    (
+        re.compile(
+            r"mein profil dokumentiert (?:(?:dazu|darüber hinaus|zusätzlich|jedoch|aber|bislang|bisher|"
+            r"noch|derzeit) )*(?:nichts|kein\w*|nicht(?=,))"
+        ),
+        False,
+    ),
+    (
+        re.compile(r"my documented experience does not (?:yet )?(?:cover|include|show|mention|document)"),
+        False,
+    ),
+    (re.compile(r"i have not yet documented"), False),
+    (
+        re.compile(r"it does not yet (?:document|mention|cover|show|list|include|describe)"),
+        False,
+    ),
+)
+#: A-6 (adversarial, Hazelnut build 7): a first-person denial the candidate TYPED
+#: ("Mit SAP habe ich nie gearbeitet, entsprechend ist das bisher nicht
+#: dokumentiert"). A statement that carries one anywhere is the candidate's own
+#: answer, never an offered chip, so no silence marker outranks it, for the concepts
+#: that clause names (a typed no to ANOTHER concept in the same answer changes
+#: nothing for this one). None of these
+#: occurs in a chip wording (corpus: Runs/Hazelnut/build-7/adv). Lexical, closed
+#: (ADR-062 cl. 1); a miss asks nothing.
+_OWN_NEGATION_CUES = re.compile(
+    r"\bnie(?:mals)?\b|\bnever\b"
+    r"|\bnicht (?:mit \S+ )?gearbeitet\b|\bnot (?:worked|used)\b|\b(?:don't|do not|didn't|did not) have\b"
+    r"|\bkeine (?:praktische |echte |berufliche )?erfahrung\b|\bno (?:hands-on |practical |real )?experience\b"
+    r"|\bhabe ich (?:noch )?(?:nicht|keine?\w*) (?:mit|in|im|bei)\b"
 )
 #: Where the clause starts: the last of these before a marker (or the start of
 #: the statement). The R2-2 shape joins its halves with ", aber" / ", but"; the
@@ -1970,6 +2060,25 @@ def inflected_present(concept: str, text_norm: str) -> bool:
     alts = "|".join(re.escape(x) for x in sorted(stems, key=len, reverse=True))
     prefix = re.escape(head + " ") if head else ""
     return re.search(rf"(?<![a-z0-9]){prefix}(?:{alts}){tail}(?![a-z0-9])", text_norm) is not None
+
+
+_CUE_CLAUSE_SPLIT = re.compile(r"[,;.!?]|\s(?:und|and)\s")
+
+
+_PROFILE_SUBJECT = re.compile(r"\bmein profil\b|\bmy profile\b|\bmy documented\b")
+
+
+def typed_denial_names(concept: str, statement: str) -> bool:
+    """Does a clause of ``statement`` that carries a first-person denial cue
+    (:data:`_OWN_NEGATION_CUES`) name ``concept``? Then the candidate typed that
+    no themselves (A-6); a clause whose subject is the profile
+    ("mein Profil dokumentiert keine Erfahrung mit …") is the chip's, not theirs. A fact about the wording (ADR-062 cl. 1). Pure."""
+    return any(
+        _OWN_NEGATION_CUES.search(part)
+        and not _PROFILE_SUBJECT.search(part)
+        and inflected_present(concept, part)
+        for part in _CUE_CLAUSE_SPLIT.split(_norm(statement or ""))
+    )
 
 
 def profile_silence_clauses(statement: str) -> list[str]:
@@ -2046,6 +2155,8 @@ def offered_choice_denial_hits(profile_json: dict[str, Any] | None) -> list[dict
         if not (isinstance(concept, str) and concept.strip() and isinstance(statement, str)):
             continue
         if _norm(concept) in redenied:
+            continue
+        if typed_denial_names(concept, statement):
             continue
         clauses = profile_silence_clauses(statement)
         if not clauses or not any(inflected_present(concept, c) for c in clauses):

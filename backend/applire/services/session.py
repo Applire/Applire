@@ -4291,8 +4291,15 @@ async def _send_message_turn(
     # answer back as already in the vault (`no_write_already_known`, #763) —
     # the 11-04 E2E shape: the integration-testing bullet was written by the
     # ARCHITECTURE turn, so the testing turn wrote nothing and its member stayed
-    # open on an evidenced vault. A denial-only turn has nothing to judge.
-    if addressed or getattr(turn, "no_write_receipt", None) == "no_write_already_known":
+    # open on an evidenced vault. 787:167 (D12, ADR-089 cl. 2 amended
+    # 2026-11-07): a turn that recorded a denial is judged too — the classifier
+    # binds the open members the candidate's "no" rules out (`denied_by`), so a
+    # stated no is not asked again under the posting's other name for it.
+    if (
+        addressed
+        or denial_recorded
+        or getattr(turn, "no_write_receipt", None) == "no_write_already_known"
+    ):
         await _rejudge_cluster_coverage(
             state, db, provider, current_gap=current_gap, updated_profile=updated_profile,
             session_id=str(record.id),

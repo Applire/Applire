@@ -49,6 +49,11 @@ const JONAS = {
 const ANNA = { ...JONAS, id: "u-1", email: "anna.bauer@example.org", role: "admin" as const };
 
 describe("AppTopbar", () => {
+  it("789:256: renders no dead notifications bell", () => {
+    render(withIntl(<AppTopbar mode="section" title="Dashboard" />));
+    expect(screen.queryByRole("button", { name: "Benachrichtigungen" })).toBeNull();
+  });
+
   it("section mode renders a single h1 with the section title", () => {
     render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />));
     const h1 = screen.getByRole("heading", { level: 1 });

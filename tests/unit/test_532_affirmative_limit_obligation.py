@@ -333,6 +333,7 @@ def test_the_generation_path_builds_the_block_from_the_jobs_own_ledger():
     from applire.services import cover_letter as svc
 
     src = inspect.getsource(svc._render_cover_letter_body)  # ADR-092: the body behind the owner-context entry
-    assert "key_requirement_gaps(keyword_ledger, denied_concepts, job.raw_text)" in src
+    # RULING L-1 / L-2 = B (#820, build 7): through the ONE ladder seam, denials only.
+    assert "letter_gap_ladder(\n                    keyword_ledger, denied_concepts, job.raw_text\n" in src
     assert "render_gap_ladder_block(" in src
     assert "gap_ladder_block=gap_ladder_block," in src

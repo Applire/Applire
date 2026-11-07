@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from applire.constants import LETTER_INPUT_MAX_CHARS
 from applire.models.cover_letter import CoverLetterStatus
@@ -127,6 +127,13 @@ class CoverLetterStatusResponse(BaseModel):
     html_url: Optional[str] = None
     pdf_url: Optional[str] = None
     error_message: Optional[str] = None
+    #: 788:134 (Hazelnut build 7, WP-O, MD7-5; additive): the stable failure code
+    #: when ``status == failed`` — ``llm_timeout`` / ``provider_unavailable`` /
+    #: ``llm_truncated`` (the provider's side: send the same request again) or
+    #: ``generation_failed``. The CV status door's twin (ADR-047 §4). ``None``
+    #: on every other status. The UI localises from it; ``error_message`` is its
+    #: English sentence, never the provider's raw text.
+    error_code: Optional[str] = None
     expires_at: datetime
     letter_data: Optional[dict] = None  # populated only when status == ready
     # 787 L-1 (Hazelnut build 3): the user's own generation inputs as stored
@@ -165,8 +172,35 @@ class CoverLetterStatusResponse(BaseModel):
     # schemas.cv.CVStatusResponse.signature_available's twin comment / the
     # F-4b report for the full reasoning.
     signature_available: bool = False
+    # #820 cue (ADR-075 amended 2026-11-07; founder ruling F-2; ADR-095 additive): the
+    # profile's CONTENT changed after this letter was generated (any source:
+    # interview, import, manual edit, agent door) — the letter view offers to
+    # recreate it. Same value on REST and the MCP status tool.
+    profile_updated_since: bool = False
+    # 789:249 (WP-L, build 7): True when no motivation was typed and the writer
+    # derived one (RULING G-2); None for a row that recorded nothing (legacy, agent).
+    motivation_derived: Optional[bool] = None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _classified_failure(self) -> "CoverLetterStatusResponse":
+        """A failed letter answers with its code and that code's sentence (788:134).
+
+        The catch site stores the classified sentence
+        (``services.generation_errors.letter_failure_message``); a row from before
+        this build holds the provider's raw text and reads as ``generation_failed``
+        — on REST and on the MCP status tool alike, since both build this model.
+        """
+        from applire.services.generation_errors import letter_error_code, letter_error_sentence
+
+        if self.status == CoverLetterStatus.failed:
+            code = letter_error_code(self.error_message)
+            self.error_code = code
+            self.error_message = letter_error_sentence(code)
+        else:
+            self.error_code = None
+        return self
 
 
 class CoverLetterSignatureOverrideRequest(BaseModel):

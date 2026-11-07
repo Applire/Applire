@@ -145,51 +145,74 @@ def _rebuild(profile_json: dict) -> tuple[str, bool]:
 # ── The probe's starting point ───────────────────────────────────────────────
 
 
+# #821 (founder ruling G-1, ADR-059 amended 2026-11-07): a denial floors only the
+# concept it names. "hands-on Kubernetes operations" does not name bare
+# "Kubernetes", so the probe's narrow denial floors NOTHING any more and there is
+# no floor for a later write to lift. #480's protective property is re-pinned on
+# a DECLARED denial ("Kubernetes"), which no later write may lift either.
+
+_DECLARED = {
+    "concept": CONCEPT,
+    "statement": "I have never worked with Kubernetes.",
+    "source": "interview",
+    "date": "2026-08-01",
+    "denial_level": "direct",
+}
+
+
+def _declared_vault(**kw) -> dict:
+    out = _vault(**kw)
+    out["metadata"]["denied_concepts"] = [dict(_DECLARED)]
+    return out
+
+
 def test_before_any_write_the_narrow_denial_floors_the_broad_concept():
-    assert _rebuild(_vault()) == ("gap", False)
+    """G-1: the narrow denial leaves the classifier's grade standing; a
+    declared one floors (and asserts) the concept."""
+    assert _rebuild(_vault()) == ("direct", True)
+    assert _rebuild(_declared_vault()) == ("denied", False)
 
 
 # ── Half 1 — the unconfirmed skill (step 1's closure, at the narrowed corpus) ─
 
 
 def test_an_unconfirmed_skill_does_not_release_the_denial():
-    """Closed by #501 through `exclude_unconfirmed`; re-pinned here because the
-    narrowed corpus reaches the same answer by construction — the shared
-    `_UNCLAIMABLE_STATUSES` predicate subsumes step 1's wrap."""
-    vault = _vault(
+    """#501's property on a declared denial: an ``unconfirmed`` inference
+    never lifts it."""
+    vault = _declared_vault(
         skills=[{"name": "Kubernetes", "category": "technical", "status": "unconfirmed"}]
     )
-    assert _rebuild(vault) == ("gap", False)
+    assert _rebuild(vault) == ("denied", False)
 
 
 def test_a_denied_skill_does_not_release_the_denial_either():
-    vault = _vault(
+    vault = _declared_vault(
         skills=[{"name": "Kubernetes", "category": "technical", "status": "denied"}]
     )
-    assert _rebuild(vault) == ("gap", False)
+    assert _rebuild(vault) == ("denied", False)
 
 
 # ── Half 2 — the edited bullet. THE vector #480 stayed open on ───────────────
 
 
 def test_a_bullet_naming_the_denied_concept_does_not_release_the_denial():
-    vault = _vault(
+    vault = _declared_vault(
         responsibilities=[
             "Owned the CI pipeline for two product teams.",
             "Ran the Kubernetes rollout for the platform group.",
         ]
     )
-    assert _rebuild(vault) == ("gap", False), (
-        "editor-typed prose is not an attested vault entity and may not lift "
-        "the candidate's own recorded denial (ADR-059 amended 2026-08-09)"
+    assert _rebuild(vault) == ("denied", False), (
+        "editor-typed prose may not lift the candidate's own recorded denial "
+        "(ADR-059 amended 2026-08-09; a declared denial is absolute)"
     )
 
 
 def test_the_vault_re_evaluation_thread_refuses_the_same_bullet():
     """The strip thread (`reevaluate_gap_ledger_against_vault`) is a second,
-    independent path into the release predicate — the lockstep clause exists
-    because a fix applied at one path and not another is the recurring defect."""
-    vault = _vault(
+    independent path: it skips a row a recorded denial NAMES, however the vault
+    reads — and since G-1 (#821) only such a row."""
+    vault = _declared_vault(
         responsibilities=["Ran the Kubernetes rollout for the platform group."]
     )
     row = {
@@ -203,6 +226,10 @@ def test_the_vault_re_evaluation_thread_refuses_the_same_bullet():
     }
     out, _changed = reevaluate_gap_ledger_against_vault([row], vault)
     assert (out[0]["status"], bool(out[0]["claimable"])) == ("gap", False)
+    # the narrow denial does not name it: the same bullet lifts the row
+    narrow = _vault(responsibilities=["Ran the Kubernetes rollout for the platform group."])
+    out, changed = reevaluate_gap_ledger_against_vault([dict(row)], narrow)
+    assert changed and out[0]["claimable"] is True
 
 
 def test_the_same_bullet_from_the_imported_cv_releases_the_bare_concept():
@@ -224,7 +251,9 @@ async def test_the_bullet_written_through_the_section_edit_path_does_not_release
     """End to end through the write path the probe used: a CV section edit
     (`ReplaceSection`, PR 3) commits the bullet, and the ledger is then rebuilt
     from the PERSISTED vault. The write is accepted — the system never edits or
-    refuses the candidate's own sentence — and it simply does not release."""
+    refuses the candidate's own sentence. Since G-1 (#821) the probe's narrow
+    denial floors nothing, so the rebuild reads the classifier's grade; a
+    declared denial on the same persisted vault still holds."""
     edited = list(seeded.profile_json["work_experience"])
     edited[0] = {
         **edited[0],
@@ -241,7 +270,12 @@ async def test_the_bullet_written_through_the_section_edit_path_does_not_release
     assert "Kubernetes" in persisted["work_experience"][0]["responsibilities"][0], (
         "the candidate's own sentence is never edited or removed by the system"
     )
-    assert _rebuild(persisted) == ("gap", False)
+    assert _rebuild(persisted) == ("direct", True)
+    import copy
+
+    declared = copy.deepcopy(persisted)
+    declared["metadata"]["denied_concepts"] = [dict(_DECLARED)]
+    assert _rebuild(declared) == ("denied", False)
 
 
 # ── The positive control — #207's over-blocking class stays closed ───────────
@@ -277,9 +311,9 @@ def test_a_role_title_naming_the_concept_still_releases():
 
 
 def test_the_floored_row_is_floored_and_never_asserted_as_testimony():
-    """The never-upgrade half is unchanged and stays read-side: bare
-    "Kubernetes" is refused, but no denial is WRITTEN about a term the
-    candidate never named (#486)."""
+    """G-1 (#821): bare "Kubernetes" under the narrow denial is neither floored
+    nor asserted — no testimony about a term the candidate never named (#486),
+    and no floor marker either."""
     ledger = build_keyword_ledger(
         [{"concept": CONCEPT, "status": "direct", "evidence": "x"}],
         [CONCEPT],
@@ -289,7 +323,8 @@ def test_the_floored_row_is_floored_and_never_asserted_as_testimony():
         profile_json=_vault(),
     )
     row = next(e for e in ledger if e["concept"] == CONCEPT)
-    assert row["evidence"] == DENIAL_FLOOR_EVIDENCE
+    assert row["evidence"] == "x" and row["status"] == "direct"
+    assert row["evidence"] != DENIAL_FLOOR_EVIDENCE
 
 
 # ── The coverage consumers at the two SPLIT sites keep the wide corpus ───────

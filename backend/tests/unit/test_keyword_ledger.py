@@ -950,11 +950,11 @@ def test_word_boundary_regression_ai_ml_survives_ml_training_denial():
     assert ai_ml["claimable"] is True
 
     ml = by_concept["Machine learning"]
-    # #486: "machine learning" is reached only by containment in the declared
-    # "machine learning model training", so it is floored without asserting a
-    # denial the candidate never stated about the broader term.
-    assert ml["status"] == "gap"
-    assert ml["claimable"] is False
+    # #821 (founder ruling G-1, ADR-059 amended 2026-11-07): a denial floors only
+    # the concept it names; containment in a denied compound floors nothing, so
+    # the ledger keeps the classifier's grade (the persist heal,
+    # assert_claimable_backed, still refuses a claim no vault unit backs).
+    assert ml["status"] == "partial"
     assert ml["evidence"] != DENIED_EVIDENCE
 
 
@@ -1043,7 +1043,7 @@ def test_enforce_denial_stance_dict_without_denial_level_key_defaults_direct():
     assert out[0]["denial_level"] == "direct"
 
 
-def test_two_denials_sharing_a_substring_still_force_the_floor():
+def test_two_denials_sharing_a_substring_floor_nothing_the_denials_do_not_name():
     """Regression (2026-07-29): the "is this entry denied at all?" check must
     use ONE call against the FULL joint list of denied concepts, exactly as
     it did before ADR-064 introduced denial_level. ``_independently_affirmed``
@@ -1074,11 +1074,11 @@ def test_two_denials_sharing_a_substring_still_force_the_floor():
         profile_json=profile_json,
     )
     rag = _by_concept(ledger)["RAG"]
-    # The floor still FIRES (the never-upgrade half is what this regression is
-    # about); since #486 it fires without asserting testimony about bare "RAG",
-    # which neither denial names.
-    assert rag["claimable"] is False
-    assert rag["status"] == "gap"
+    # #821 (founder ruling G-1, ADR-059 amended 2026-11-07): a denial floors only
+    # the concept it names; containment in a denied compound floors nothing, so
+    # the ledger keeps the classifier's grade (the persist heal,
+    # assert_claimable_backed, still refuses a claim no vault unit backs).
+    assert rag["status"] == "direct"
     assert rag["evidence"] != DENIED_EVIDENCE
 
 
@@ -1202,7 +1202,7 @@ def test_a_technologies_tag_releases_a_denial_the_same_as_a_role_title():
     assert "RAG" not in _RUN4_TECHNOLOGIES["work_experience"][0]["role"]
 
 
-def test_narrow_denial_still_tars_broad_term_with_no_independent_evidence():
+def test_narrow_denial_no_longer_tars_the_broad_term():
     """Contrast case: the floor is narrowed, not weakened. Without ANY
     independent literal vault evidence for the broad term, the #207
     CSS/Tailwind-CSS fail-closed containment rule still applies."""
@@ -1218,11 +1218,12 @@ def test_narrow_denial_still_tars_broad_term_with_no_independent_evidence():
         profile_json=profile_json,
     )
     rag = _by_concept(ledger)["RAG"]
-    # #486: floored by containment, never asserted — "RAG pipeline" is the
-    # declared term, "RAG" is not.
-    assert rag["claimable"] is False
-    assert rag["status"] == "gap"
-    assert rag["claimable"] is False
+    # #821 (founder ruling G-1, ADR-059 amended 2026-11-07): a denial floors only
+    # the concept it names; containment in a denied compound floors nothing, so
+    # the ledger keeps the classifier's grade (the persist heal,
+    # assert_claimable_backed, still refuses a claim no vault unit backs).
+    assert rag["status"] == "partial"
+    assert rag["evidence"] == "adjacency guess"
 
 
 def test_profile_json_none_or_absent_is_a_noop_back_compat():
@@ -1240,7 +1241,11 @@ def test_profile_json_none_or_absent_is_a_noop_back_compat():
     )
     assert ledger_no_arg == ledger_none
     rag = _by_concept(ledger_none)["RAG"]
-    assert rag["claimable"] is False
+    # #821 (founder ruling G-1, ADR-059 amended 2026-11-07): a denial floors only
+    # the concept it names; containment in a denied compound floors nothing, so
+    # the ledger keeps the classifier's grade (the persist heal,
+    # assert_claimable_backed, still refuses a claim no vault unit backs).
+    assert rag["status"] == "direct"
 
 
 # ── Wave-6 regression — the denial's OWN receipt defeats the denial floor ───
@@ -1422,10 +1427,12 @@ def test_build_keyword_ledger_integration_denied_concept_stays_gap_not_claimable
         profile_json=profile_json,
     )
     entry = _by_concept(ledger)["Embeddings"]
-    # #486: "Embeddings" is contained in the declared "hands-on embedding model
-    # configuration" — floored, never asserted as testimony about the bare term.
-    assert entry["status"] == "gap"
-    assert entry["claimable"] is False
+    # #821 (founder ruling G-1, ADR-059 amended 2026-11-07): a denial floors only
+    # the concept it names; containment in a denied compound floors nothing, so
+    # the ledger keeps the classifier's grade (the persist heal,
+    # assert_claimable_backed, still refuses a claim no vault unit backs).
+    assert entry["status"] == "partial"
+    assert entry["evidence"] != DENIED_EVIDENCE
 
 
 # ── Issue #408: Unicode (umlaut) tokenization regression ─────────────────────

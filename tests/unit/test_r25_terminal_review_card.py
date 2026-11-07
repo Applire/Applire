@@ -234,3 +234,13 @@ def test_the_v2_cv_terminal_prompt_names_the_note_language_too():
         "S", {"a": 1}, page_count=1, target=1, condensation_exhausted=False, document_language="en",
     )
     assert "NOTE LANGUAGE: write every issue's `note` in English." in p
+
+
+def test_786_290_the_note_names_the_profile_as_the_candidate_knows_it():
+    """786:290 (ux-audit-3): the input calls the profile "source"; luna's note said
+    "Die Quelle belegt …" to the candidate. The schema's note rule names the mapping."""
+    from applire.prompts.review_severity import review_output_schema
+
+    schema = review_output_schema("i", "f", plain_note=True)
+    assert "say your profile, never source" in schema
+    assert "never source" not in review_output_schema("i", "f", plain_note=False)

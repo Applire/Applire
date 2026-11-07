@@ -166,7 +166,9 @@ describe("U-13 (delivery run 5) — the card states ONE true state after the ans
     fireEvent.click(screen.getByTestId("review-answer-yes"));
     fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "Bei Nordlicht: CI/CD mit GitHub Actions." } });
     fireEvent.click(screen.getByTestId("review-add-submit"));
-    await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
+    // 785:248: wait for the reply's own text — "answer-yes gone" holds as soon as
+    // the answer form opens, before the submit resolves (the CI flake, #813 run).
+    await waitFor(() => expect(screen.getByTestId("review-card-why").textContent ?? "").toContain("mit anderen Worten"));
     const card = screen.getByTestId("review-card");
     const why = within(card).getByTestId("review-card-why").textContent ?? "";
     expect(why).toContain(`Dein Profil nennt „${TERM}“ mit anderen Worten`);
@@ -176,7 +178,11 @@ describe("U-13 (delivery run 5) — the card states ONE true state after the ans
     expect(card.textContent ?? "").not.toMatch(LOWER_DEIN);
     // main's copy ruling (r5): truthful and neutral — never "copy the posting's words".
     const exit = within(card).getByTestId("review-nochange-profile").textContent ?? "";
-    expect(exit).toContain(`Trag „${TERM}“ unter Kenntnisse ein, wenn es stimmt.`);
+    expect(exit).toContain(`trag „${TERM}“ unter Kenntnisse ein, wenn es stimmt`);
+    // ruling T-2 = B: the exit says it leaves the review; the machine sentence is gone.
+    expect(exit).toContain("Öffnet Dein Profil");
+    expect(exit).toContain("prüf danach neu");
+    expect(why).not.toContain("Prüfung erkennt");
     expect(card.textContent).not.toMatch(/im Dokument steht/);
     expect(within(card).getByTestId("review-nochange-recheck")).toBeTruthy();
     expect(within(card).getByTestId("review-answer-remove")).toBeTruthy();
@@ -190,7 +196,9 @@ describe("U-13 (delivery run 5) — the card states ONE true state after the ans
     fireEvent.click(screen.getByTestId("review-answer-yes"));
     fireEvent.change(screen.getByTestId("review-add-text"), { target: { value: "Irgendwo." } });
     fireEvent.click(screen.getByTestId("review-add-submit"));
-    await waitFor(() => expect(screen.queryByTestId("review-answer-yes")).toBeNull());
+    // 785:248: wait for the reply's own text — "answer-yes gone" holds as soon as
+    // the answer form opens, before the submit resolves (the CI flake, #813 run).
+    await waitFor(() => expect(screen.getByTestId("review-card-why").textContent ?? "").toContain(`Dein Profil nennt „${TERM}“ nicht`));
     const why = within(screen.getByTestId("review-card")).getByTestId("review-card-why").textContent ?? "";
     expect(why).toContain(`Dein Profil nennt „${TERM}“ nicht`);
     expect(why).not.toContain("mit anderen Worten");
@@ -222,11 +230,12 @@ describe("U-13 (delivery run 5) — the card states ONE true state after the ans
 });
 
 describe("main's copy ruling — the skill exit names the term, neutrally (en)", () => {
-  it("en: Add “TERM” under skills if it is true.", () => {
+  it("en: Opens your profile – add “TERM” under skills if it is true.", () => {
     const b = build("keyword:present_unsupported", "ask_true");
     render(withIntl(<ReviewSurface {...props({ ...b.props, reviewState: noChange(b.key, TERM, { found: true }) })} />, "en"));
     const card = screen.getByTestId("review-card");
-    expect(within(card).getByTestId("review-nochange-profile").textContent).toContain(`Add “${TERM}” under skills if it is true.`);
+    expect(within(card).getByTestId("review-nochange-profile").textContent).toContain(`Opens your profile – add “${TERM}” under skills if it is true`);
+    expect(card.textContent).not.toMatch(/does not recognise/);
     expect(card.textContent).not.toMatch(/as the document words it/);
   });
 });

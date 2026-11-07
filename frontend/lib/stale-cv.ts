@@ -47,7 +47,7 @@ export interface StaleCVInfo {
 /**
  * Enrichment-trail section → `profile` namespace label key. Covers every
  * section the backend counts as growth (`CV_FEEDING_SECTIONS` in
- * `services/application.py` — a vitest reads that set and checks each has a
+ * `services/profile_freshness.py` — a vitest reads that set and checks each has a
  * key here). `summary` stays for older trail records.
  */
 export const SECTION_LABEL_KEYS: Record<string, string> = {

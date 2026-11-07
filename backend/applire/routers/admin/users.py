@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth.deps import require_admin, require_admin_session
+from applire.auth.tokens import live_token_counts
 from applire.db.session import get_db
 from applire.models.user import User
 from applire.schemas.admin import (
@@ -42,7 +43,12 @@ from applire.services.admin.links import (
 router = APIRouter(prefix="/api/admin/users", tags=["admin"])
 
 
-def _item(user: User, meta: admin_metadata.UserMetadata, invite_expires_at=None) -> AdminUserItem:
+def _item(
+    user: User,
+    meta: admin_metadata.UserMetadata,
+    invite_expires_at=None,
+    token_count: int | None = None,
+) -> AdminUserItem:
     status_ = accounts.user_status(user)
     return AdminUserItem(
         id=user.id,
@@ -58,6 +64,7 @@ def _item(user: User, meta: admin_metadata.UserMetadata, invite_expires_at=None)
             document_count=meta.document_count,
             storage_bytes=meta.storage_bytes,
             ai_tokens_30d=meta.ai_tokens_30d,
+            active_token_count=token_count,
         ),
     )
 
@@ -65,7 +72,8 @@ def _item(user: User, meta: admin_metadata.UserMetadata, invite_expires_at=None)
 async def _one_item(db: AsyncSession, user: User) -> AdminUserItem:
     meta = (await admin_metadata.collect(db, [user.id]))[user.id]
     invites = await newest_open_invite_expiry(db, [user.id])
-    return _item(user, meta, invites.get(user.id))
+    tokens = await live_token_counts(db, [user.id])
+    return _item(user, meta, invites.get(user.id), tokens.get(user.id))
 
 
 async def _deliver(
@@ -103,7 +111,10 @@ async def list_users(
     ids = [u.id for u in users]
     metas = await admin_metadata.collect(db, ids)
     invites = await newest_open_invite_expiry(db, ids)
-    return AdminUserListResponse(users=[_item(u, metas[u.id], invites.get(u.id)) for u in users])
+    tokens = await live_token_counts(db, ids)
+    return AdminUserListResponse(
+        users=[_item(u, metas[u.id], invites.get(u.id), tokens.get(u.id)) for u in users]
+    )
 
 
 @router.post("", response_model=AdminUserCreatedResponse, status_code=status.HTTP_201_CREATED)

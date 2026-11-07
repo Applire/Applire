@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { render, screen, act, waitFor } from "@testing-library/react";
+import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { CoverLetterDocument } from "../CoverLetterDocument";
 
@@ -171,6 +171,58 @@ describe("CoverLetterDocument", () => {
     it("shows nothing when no inputs prop is passed at all", () => {
       renderWith(undefined);
       expect(screen.queryByTestId("cover-letter-preview-hint")).toBeNull();
+    });
+  });
+
+  describe("WP-L: interview cue, hint action, derived motivation", () => {
+    function renderProps(props: Partial<React.ComponentProps<typeof CoverLetterDocument>>) {
+      vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
+      return render(<CoverLetterDocument coverLetterId={CL_ID} {...props} />);
+    }
+
+    it("#820: shows the profile-updated cue only when flagged, and its button calls back", () => {
+      const onCompleteForm = vi.fn();
+      renderProps({ profileUpdatedSince: true, onCompleteForm });
+      expect(screen.getByTestId("cover-letter-profile-updated").textContent).toContain("profileUpdatedSince");
+      fireEvent.click(screen.getByTestId("cover-letter-profile-updated-action"));
+      expect(onCompleteForm).toHaveBeenCalledTimes(1);
+    });
+
+    it("#820: no cue when the flag is false or absent", () => {
+      renderProps({ profileUpdatedSince: false });
+      expect(screen.queryByTestId("cover-letter-profile-updated")).toBeNull();
+    });
+
+    it("the cue comes before the hint when both apply", () => {
+      renderProps({ profileUpdatedSince: true, generationInputs: { availability: "", motivation: "" } });
+      const cue = screen.getByTestId("cover-letter-profile-updated");
+      const hint = screen.getByTestId("cover-letter-preview-hint");
+      expect(cue.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("789:253: the hint action renders only with a callback and calls it", () => {
+      const onCompleteForm = vi.fn();
+      const { unmount } = renderProps({ generationInputs: { availability: "", motivation: "x" } });
+      expect(screen.queryByTestId("cover-letter-preview-hint-action")).toBeNull();
+      unmount();
+      renderProps({ generationInputs: { availability: "", motivation: "x" }, onCompleteForm });
+      fireEvent.click(screen.getByTestId("cover-letter-preview-hint-action"));
+      expect(onCompleteForm).toHaveBeenCalledTimes(1);
+    });
+
+    it("789:249: a derived motivation suppresses the reason half", () => {
+      renderProps({ generationInputs: { availability: "", motivation: "" }, motivationDerived: true });
+      expect(screen.getByTestId("cover-letter-preview-hint").textContent).toBe("previewHintNotice");
+    });
+
+    it("789:249: derived motivation + notice given -> no strip", () => {
+      renderProps({ generationInputs: { availability: "3 Monate", motivation: "" }, motivationDerived: true });
+      expect(screen.queryByTestId("cover-letter-preview-hint")).toBeNull();
+    });
+
+    it.each([[null], [undefined], [false]])("789:249: motivationDerived=%s keeps today's behaviour", (md) => {
+      renderProps({ generationInputs: { availability: "", motivation: "" }, motivationDerived: md });
+      expect(screen.getByTestId("cover-letter-preview-hint").textContent).toBe("previewHintBoth");
     });
   });
 });

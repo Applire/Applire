@@ -283,6 +283,33 @@ async def revoke_token(
     return await db.get(PersonalToken, hit.id, populate_existing=True)
 
 
+async def live_token_counts(db: AsyncSession, user_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, int]:
+    """How many live ``agent`` + ``api`` tokens each person holds — exactly the set
+    :func:`revoke_all_for_user` would revoke (789:267, Hazelnut build 7: the admin's
+    "revoke all" dialog names the number). A count, never a token or its purpose.
+    """
+    from sqlalchemy import func
+
+    from applire.models.auth import PersonalToken
+
+    ids = list(user_ids)
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(PersonalToken.user_id, func.count(PersonalToken.id))
+        .where(
+            PersonalToken.user_id.in_(ids),
+            PersonalToken.scope.in_(["agent", "api"]),
+            PersonalToken.revoked_at.is_(None),
+        )
+        .group_by(PersonalToken.user_id)
+    )
+    out = {uid: 0 for uid in ids}
+    for uid, n in rows.all():
+        out[uid] = int(n or 0)
+    return out
+
+
 async def revoke_all_for_user(db: AsyncSession, user_id: uuid.UUID) -> int:
     """Revoke every live ``agent`` + ``api`` token of ``user_id`` and bump its
     ``link_epoch`` (signed links die too). Returns the number revoked.

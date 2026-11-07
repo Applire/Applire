@@ -213,3 +213,48 @@ describe("GenerationProgress", () => {
     });
   });
 });
+
+// 789:261 (Hazelnut build 7, WP-F): the ring sits at 50 % for the whole write;
+// the elapsed time is always shown, and from SLOW_AFTER_MS a "longer than usual"
+// line says leaving is safe (the web door records the finished CV, 789:248).
+describe("GenerationProgress — long wait (789:261)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("formats the elapsed time as m:ss", async () => {
+    const { formatElapsed } = await import("../GenerationProgress");
+    expect(formatElapsed(0)).toBe("0:00");
+    expect(formatElapsed(65_400)).toBe("1:05");
+    expect(formatElapsed(161_000)).toBe("2:41");
+  });
+
+  it("shows the elapsed time, and the slow line only from two minutes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ cv_id: "test-cv-id", status: "generating", error_code: null, expires_at: "2099-01-01T00:00:00Z" }),
+    } as Response);
+    const { act } = await import("@testing-library/react");
+    render(withIntl(<GenerationProgress {...DEFAULT_PROPS} />));
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+    });
+    expect(screen.getByTestId("generation-elapsed").textContent).toBe("Running for 1:01");
+    expect(screen.queryByTestId("generation-slow")).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByTestId("generation-slow").textContent).toContain("You can leave this page");
+  });
+
+  it("a caller's subtitle replaces the default one", () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as Response);
+    render(withIntl(<GenerationProgress {...DEFAULT_PROPS} subtitle="A new version with your interview answers" />));
+    expect(screen.getByText("A new version with your interview answers")).toBeInTheDocument();
+  });
+});

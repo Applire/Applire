@@ -15,6 +15,7 @@ import userEvent from "@testing-library/user-event";
 import { OperatorPanel } from "../operator-panel";
 
 vi.mock("next-intl", () => ({
+  useLocale: () => "de",
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
     params ? `${key}:${Object.values(params).join(",")}` : key,
 }));
@@ -180,6 +181,33 @@ describe("OperatorPanel", () => {
     expect(screen.getByTestId("operator-panel-row-retention")).toHaveTextContent(
       "retentionLastRun:51",
     );
+  });
+
+  it("backup in first-run grace: neutral 'notSetUp' word + grey dot, due date in the fact line (785:251)", async () => {
+    const body = JSON.parse(JSON.stringify(HEALTHY));
+    body.components.backup = {
+      status: "ok",
+      message: "no backup yet",
+      detail: { last_backup_at: null, age_days: null, warn_after_days: 30, first_due_by: "2026-12-01T10:00:00+00:00" },
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(res(body));
+    render(<OperatorPanel />);
+    await waitFor(() => expect(screen.getByTestId("operator-panel")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("operator-panel-toggle"));
+    const row = screen.getByTestId("operator-panel-row-backup");
+    expect(row).toHaveTextContent("status.notSetUp");
+    expect(row).not.toHaveTextContent("status.ok");
+    expect(row).toHaveTextContent("backupNever:01.12.2026");
+    expect(screen.getByTestId("operator-panel-dot-neutral")).toBeInTheDocument();
+  });
+
+  it("retention ran under an hour ago: the <1 h variant", async () => {
+    const body = JSON.parse(JSON.stringify(DEGRADED));
+    body.components.retention.detail = { last_run_at: "2026-09-08T18:50:00+00:00", age_seconds: 600 };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(res(body));
+    render(<OperatorPanel />);
+    await waitFor(() => expect(screen.getByTestId("operator-panel-row-retention")).toBeInTheDocument());
+    expect(screen.getByTestId("operator-panel-row-retention")).toHaveTextContent("retentionLastRunLessThanHour");
   });
 
   it('credit: "n/a" is rendered, not hidden — this is a displayed state', async () => {

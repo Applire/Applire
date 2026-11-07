@@ -55,13 +55,21 @@ def extract_text(pdf_bytes: bytes) -> str:
     return extract_text_and_pages(pdf_bytes)[0]
 
 
-def _norm(s: str) -> str:
+def _norm_cased(s: str) -> str:
+    """:func:`_norm` without the case fold — the same characters at the same
+    offsets whenever ``str.lower`` keeps the length (checked by the one reader,
+    :func:`_second_person_intervals`). #803: the German address "Ihre" (your) and
+    "ihre" (their/her) differ only in case."""
     s = s.replace("­", "")  # soft hyphens from PDF line-breaking
     s = unicodedata.normalize("NFKC", s)
     # US212 (#122): fold hyphens/dashes to spaces so "Code-Review" ≡ "code review".
     # Applied to needle and haystack alike, so matching stays symmetric.
     s = re.sub(r"[-‐-―−]", " ", s)
-    return re.sub(r"\s+", " ", s).lower().strip()
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _norm(s: str) -> str:
+    return _norm_cased(s).lower()
 
 
 #: #415 follow-up (2026-09-17, adversarial pass on PR #720): the boundary between two
@@ -176,6 +184,10 @@ def _suffix_pair_variants(last: str) -> list[str]:
 _ADJ_DECLENSION_ENDINGS: tuple[str, ...] = ("en", "em", "er", "es", "e")
 _ADJ_STEM_SUFFIXES: tuple[str, ...] = (
     "ell", "isch", "lich", "ig", "al", "iv", "ar", "bar", "haft", "los", "sam",
+    # 790:94 (build 7): participles decline as attributive adjectives too —
+    # "rollierender Forecast" / "den rollierenden Forecast" (present, -end),
+    # "zertifizierter Prozess" / "im zertifizierten Prozess" (past, -iert).
+    "end", "iert",
 )
 _ADJ_FOLD_MIN_STEM = 6
 #: At most this many declinable tokens are folded in one phrase (bounds the variants).
@@ -1161,6 +1173,83 @@ def keyword_matches(
     return out
 
 
+def _form_names_its_own_word(
+    form_norm: str,
+    text_norm: str,
+    own_norms: set[str],
+    vault_words: frozenset[str] = frozenset(),
+) -> bool:
+    """UX audit 4 (Kaile, Sonnet 5.5; ADR-062 cl. 1 — a word boundary is a fact):
+    does some occurrence of ``form_norm`` (or a fold variant) in ``text_norm`` claim
+    the term?
+
+    Two occurrences do not:
+
+    * **A sibling compound.** The term is itself a compound ending in the form
+      (``own_norms`` holds "konzernkonsolidierung" for the bare ledger form
+      "konsolidierung"), and the document word puts ANOTHER modifier in front of
+      it: "Kapitalkonsolidierung" is no claim of "Konzernkonsolidierung". A form
+      that is the whole term keeps its substring reach ("Führung" in
+      "Mitarbeiterführung", "Lebensmittel" in "Lebensmittelproduktion").
+    * **The profile's own word.** The document word occurs verbatim in the
+      profile's positive text (``vault_words``: "konsolidierten" in "erstellt die
+      konsolidierten Quartalszahlen mit") — the same literal-grounding question
+      as ``literally_grounded``, asked of the word that carries the match.
+
+    Every other occurrence claims the term, as before."""
+    for v in _fold_variants(form_norm):
+        own_compounds = [o for o in own_norms if " " not in o and len(o) > len(v) and o.endswith(v)]
+        start = 0
+        while (i := text_norm.find(v, start)) >= 0:
+            start = i + 1
+            a = i
+            while a > 0 and _WORD_CHAR_RE.match(text_norm[a - 1]):
+                a -= 1
+            b = i + len(v)
+            while b < len(text_norm) and _WORD_CHAR_RE.match(text_norm[b]):
+                b += 1
+            word = text_norm[a:b]
+            if word in own_norms:
+                return True
+            if word in vault_words:
+                continue
+            if a < i and own_compounds:
+                continue  # another modifier in front: a sibling compound
+            return True
+    return False
+
+
+_WORD_CHAR_RE = re.compile(r"\w")
+
+
+def _vault_words(vault_text_norm: str | None) -> frozenset[str]:
+    return frozenset(re.findall(r"\w+", vault_text_norm)) if vault_text_norm else frozenset()
+
+
+def claim_keyword_matches(
+    keyword: str,
+    text_norm: str,
+    ledger: list[dict[str, Any]] | None = None,
+    vault_words: frozenset[str] = frozenset(),
+) -> list[KeywordMatch]:
+    """The CLAIM half of :func:`keyword_matches` — the forms that name the term in
+    a word of its own that the profile does not already carry
+    (:func:`_form_names_its_own_word`). Presence, coverage and the score keep the
+    generous substring predicate; only the unsupported-claim accusation, its
+    recorded forms and its located sentences read this. A stem-only hit is a
+    whole-token fact already and stays."""
+    out = keyword_matches(keyword, text_norm, ledger)
+    if not out:
+        return out
+    own = {
+        v for f in _keyword_search_forms(keyword, ledger) for v in _fold_variants(_norm(f))
+    }
+    return [
+        m for m in out
+        if m.stem or _form_names_its_own_word(_norm(m.form), text_norm, own, vault_words)
+    ]
+
+
 def keyword_present(keyword: str, text_norm: str, ledger: list[dict[str, Any]] | None = None) -> bool:
     """Presence per keyword = any of {keyword literal} ∪ owning entry surface_forms ∪ concept
     passes :func:`surface_present` (see :func:`_keyword_search_forms` for ownership)."""
@@ -1685,6 +1774,7 @@ def _keyword_coverage(
     non_claim: NonClaimNames | None = None,
     *,
     document_language: str | None = None,
+    text_cased: str | None = None,
 ) -> ATSKeywordCoverage:
     seen: set[str] = set()
     unique: list[str] = []
@@ -1759,9 +1849,14 @@ def _keyword_coverage(
                 skill_forms.append(e["concept"])
         non_claim = non_claim.excluding_skills(skill_forms)
         claim_text_norm = mask_non_claim_spans(text_norm, non_claim)
-        claim_matches = {k: keyword_matches(k, claim_text_norm, ledger) for k in present}
     else:
-        claim_matches = matches_by_kw
+        claim_text_norm = text_norm
+    # UX audit 4: a form that only sits inside a different compound, or only in a
+    # word the profile itself carries, is no claim.
+    vault_words = _vault_words(vault_text_norm)
+    claim_matches = {
+        k: claim_keyword_matches(k, claim_text_norm, ledger, vault_words) for k in present
+    }
     present_unsupported = [
         k for k in present
         if _norm(k) in unclaimable_norm
@@ -1835,8 +1930,13 @@ def _keyword_coverage(
     # weil Sie … fertigen"), not a claim — the clause mask cannot reach every
     # such sentence shape. It stays a group-1 row (take-out and edit stay) but
     # neutral: no add-to-profile exit and not counted in the headline.
+    # #803 reopened (build 7, R2-7): a sentence that ADDRESSES the employer
+    # ("Your checkout, settlement and payout platform …", "Ihre Fertigung …
+    # Verbundverpackungen …") is about the employer too — the clause from the
+    # second-person possessive to the first first-person word joins the neutral
+    # population (never the mask: see :func:`_second_person_intervals`).
     present_unsupported_employer_sentence = (
-        _employer_sentence_terms(text_norm, present_unsupported, non_claim, ledger)
+        _employer_sentence_terms(text_norm, present_unsupported, non_claim, ledger, text_cased)
         if non_claim and non_claim.employer_clause
         else []
     )
@@ -1858,7 +1958,9 @@ def _keyword_coverage(
     # claim-text match after the masks — the review surface counts and locates
     # only these (it used to count every occurrence in the rendered document,
     # the masked employer clause included: "an 2 Stellen" for one claim).
-    present_unsupported_sentences = _claim_sentences(text_norm, present_unsupported, non_claim, ledger)
+    present_unsupported_sentences = _claim_sentences(
+        text_norm, present_unsupported, non_claim, ledger, vault_words
+    )
     # D-4c(b) (ruling D-4c-b, ADR-099 cl. 2): a LETTER term a recorded denial covers
     # whose every claim sentence also names a term the candidate denied on the
     # ledger ("IFS, BRC und direkte Lebensmittelproduktion kenne ich nicht") is
@@ -1891,6 +1993,9 @@ def _keyword_coverage(
             sents = present_unsupported_sentences.get(k) or []
             # A stem-only hit has no literal form to locate: it stays (safe side).
             forms = [m.form for m in claim_matches.get(k) or [] if m.form and not m.stem] or [k]
+            # 784:146 (WP-L, build 7): the sentences are `_norm`-ed text, so the
+            # form is too — a hyphenated term never matched its own sentence.
+            forms = [_norm(f) for f in forms]
             if sents and all(
                 any(form_in_denial_segment(x, f) for f in forms)
                 and not any(_form_outside_denial(x, f) for f in forms)
@@ -1964,7 +2069,11 @@ def _denied_terms_in_own_limit(
             for m in matches_by_kw.get(k) or []
             if not (m.stem if not isinstance(m, dict) else m.get("stem"))
         ]
-        forms = [f for f in forms if f] or [k]
+        # 784:146 (WP-L, build 7): the sentences are `_norm`-ed text, so the form is
+        # too — "Make-or-buy-Entscheidungen" never matched "mit make or buy
+        # entscheidungen habe ich noch nicht gearbeitet" and the honest gap
+        # sentence kept its remove-only card.
+        forms = [_norm(f) for f in forms if f] or [_norm(k)]
         # `form_in_denial_segment` is False when any occurrence of the form in the
         # sentence stands outside a negation's scope (a claim beside a disclosure).
         # A negation cue anywhere earlier in the clause is not enough to read a
@@ -2016,17 +2125,24 @@ def _claim_sentences(
     terms: list[str],
     non_claim: NonClaimNames | None,
     ledger: list[dict[str, Any]] | None,
+    vault_words: frozenset[str] | None = None,
 ) -> dict[str, list[str]]:
     """D-4c(a): for each term, the normalised sentences of ``text_norm`` (unmasked,
     as delivered) whose MASKED form still matches it — the occurrences the flag
-    read. Same sentence split as the #803 belt; same masks as the flag."""
+    read. Same sentence split as the #803 belt; same masks as the flag.
+    ``vault_words`` (UX audit 4): the unsupported-claim caller passes the claim
+    matcher's profile words (:func:`claim_keyword_matches`); ``None`` keeps the
+    plain presence matcher (the ``present_denied`` reader)."""
     if not terms:
         return {}
     sentences = [x for x in _LETTER_SENTENCE_END_RE.split(text_norm) if x and x.strip()]
     masked = [mask_non_claim_spans(x, non_claim) if non_claim else x for x in sentences]
     out: dict[str, list[str]] = {}
     for k in terms:
-        hits = [s.strip() for s, m in zip(sentences, masked) if keyword_matches(k, m, ledger)]
+        hits = [s.strip() for s, m in zip(sentences, masked) if (
+            claim_keyword_matches(k, m, ledger, vault_words) if vault_words is not None
+            else keyword_matches(k, m, ledger)
+        )]
         out[k] = list(dict.fromkeys(hits))
     return out
 
@@ -2040,20 +2156,232 @@ def _employer_sentence_terms(
     terms: list[str],
     non_claim: NonClaimNames,
     ledger: list[dict[str, Any]] | None,
+    text_cased: str | None = None,
 ) -> list[str]:
-    """#803 belt — the flagged ``terms`` that occur ONLY in sentences naming the
-    employer. A sentence names the employer when :func:`_name_intervals` finds one
-    of ``non_claim.employers`` in it. A term is in that population when its
-    claim-text matches (the same masked text the flag read) find nothing in the
-    other sentences."""
-    if not terms or not non_claim.employers:
+    """#803 belt — the flagged ``terms`` that occur ONLY where the letter speaks
+    about the employer: in a sentence naming the employer (:func:`_name_intervals`
+    finds one of ``non_claim.employers`` in it), or — #803 reopened, build 7 — in
+    a clause that addresses the employer with a second-person possessive
+    (:func:`_second_person_intervals`; needs ``text_cased``). A term is in that
+    population when its claim-text matches (the same masked text the flag read)
+    find nothing in the rest."""
+    if not terms:
         return []
     sentences = [x for x in _LETTER_SENTENCE_END_RE.split(text_norm) if x and x.strip()]
-    other = [x for x in sentences if not _name_intervals(x, non_claim.employers)]
-    if len(other) == len(sentences):
-        return []  # no sentence names the employer
-    rest = (" " + _CORPUS_FRAGMENT_BOUNDARY + " ").join(mask_non_claim_spans(x, non_claim) for x in other)
+    cased: list[str | None] = [None] * len(sentences)
+    if text_cased is not None and len(text_cased) == len(text_norm):
+        split_cased = [x for x in _LETTER_SENTENCE_END_RE.split(text_cased) if x and x.strip()]
+        if len(split_cased) == len(sentences):
+            cased = split_cased
+    rest_parts: list[str] = []
+    touched = False
+    for x, xc in zip(sentences, cased):
+        if non_claim.employers and _name_intervals(x, non_claim.employers):
+            touched = True
+            continue
+        spans = _second_person_intervals(x, xc)
+        if spans:
+            touched = True
+            x = _mask_intervals(x, spans)
+        rest_parts.append(mask_non_claim_spans(x, non_claim))
+    if not touched:
+        return []  # no sentence names or addresses the employer
+    rest = (" " + _CORPUS_FRAGMENT_BOUNDARY + " ").join(rest_parts)
     return [k for k in terms if not keyword_matches(k, rest, ledger)]
+
+
+#: #803 reopened (build 7): the second-person POSSESSIVE a letter addresses the
+#: employer with. English on the folded text ("your" is always the addressee in a
+#: letter); German only capitalised on the case-kept text — "Ihre Fertigung" is
+#: the employer's, "ihre Teams" (their) is not. Pronouns ("you", "Sie", "Ihnen")
+#: are NOT anchors: "I can help you scale Kafka" / "unterstütze ich Sie beim
+#: Aufbau von …" carry the candidate's own capability.
+_SECOND_PERSON_EN_RE = re.compile(r"(?<!\w)(?:your|yours)(?!\w)")
+_SECOND_PERSON_DE_RE = re.compile(r"(?<!\w)(?:Ihr|Ihre|Ihrem|Ihren|Ihrer|Ihres)(?!\w)")
+
+
+#: A-3 (adversarial pass, build 7): where the candidate's OWN experience claim
+#: starts inside a second-person clause. "Ihrer Plattform mit Verbundverpackungen-
+#: Erfahrung aus zehn Jahren" / "Your platform needs Kafka — six years of running
+#: Kafka is what I bring": the employer clause stops at the "mit/with … Erfahrung/
+#: experience" phrase or at the "<count> years/Jahre" phrase, so the claim keeps
+#: its headline count and its add-to-profile exit. (`_norm` folds dashes, so the
+#: dash itself cannot be the boundary.)
+_OWN_CLAIM_START_RE = re.compile(
+    r"(?<!\w)(?:(?:mit|with|aus|from)(?!\w)[^,;.]*?(?<!\w)(?:erfahrung|experience)(?!\w)"
+    r"|[\w]+\s+(?:years?|jahre[n]?)(?!\w))"
+)
+
+
+def _second_person_intervals(sentence_norm: str, sentence_cased: str | None) -> list[tuple[int, int]]:
+    """#803 reopened (build 7, ADR-090 amended): the clauses of one normalised
+    letter sentence that open with a second-person possessive addressing the
+    employer and end where an employer clause ends (:func:`_employer_clause_end`:
+    the first first-person word, a non-list comma, the sentence end). Read ONLY by
+    the #803 belt (a neutral, still-listed row) — never by
+    :func:`mask_non_claim_spans`: R-2 measured that a "your/Ihr" MASK hides the
+    candidate's own intent sentences, which a neutral row does not."""
+    anchors = [m.end() for m in _SECOND_PERSON_EN_RE.finditer(sentence_norm)]
+    starts = [m.start() for m in _SECOND_PERSON_EN_RE.finditer(sentence_norm)]
+    if sentence_cased is not None and len(sentence_cased) == len(sentence_norm):
+        for m in _SECOND_PERSON_DE_RE.finditer(sentence_cased):
+            starts.append(m.start())
+            anchors.append(m.end())
+    spans: list[tuple[int, int]] = []
+    for a, e in zip(starts, anchors):
+        end = _employer_clause_end(sentence_norm, e)
+        own = _OWN_CLAIM_START_RE.search(sentence_norm, e, end)
+        if own is not None:
+            end = own.start()  # A-3: the candidate's own claim is not the employer's
+        if end > e:
+            spans.append((a, end))
+    return spans
+
+
+#: #803 reopened: the Oracle's own "this sentence is about the employer" verdict
+#: (the sentence triage's ``employer-fact`` class and the deterministic
+#: ``is_employer_fact`` rail share this key, ``oracle/audit.py``).
+_EMPLOYER_FACT_DETAIL_KEY = "triageEmployerFact"
+
+
+#: UX audit 4 (b): the Oracle's "built from what you typed into the letter form"
+#: verdict (``oracle/audit._form_mark``; ADR-061/048 am. 2026-10-23, ruling B3-10):
+#: the candidate's own statement for THIS letter, never checked against nor
+#: added to the profile.
+_LETTER_FORM_DETAIL_KEY = "fromLetterForm"
+
+
+def _letter_claim_quotes(truth_report: dict | None, detail_key: str) -> list[str]:
+    out: list[str] = []
+    claims = truth_report.get("claims") if isinstance(truth_report, dict) else None
+    for c in claims if isinstance(claims, list) else []:
+        if not isinstance(c, dict):
+            continue
+        v = c.get("verdict") or {}
+        text = (c.get("claim") or {}).get("text")
+        if (
+            isinstance(v, dict) and v.get("verdict") == "not_applicable"
+            and v.get("detail_key") == detail_key
+            and isinstance(text, str) and text.strip()
+        ):
+            n = _norm(text).rstrip(" .;:,")
+            if n and n not in out:
+                out.append(n)
+    return out
+
+
+def letter_employer_fact_quotes(truth_report: dict | None) -> list[str]:
+    """The normalised texts of the letter claims the Truthfulness Oracle judged to
+    be about the employer (``not_applicable`` + ``triageEmployerFact``). Pure;
+    malformed input → ``[]``."""
+    return _letter_claim_quotes(truth_report, _EMPLOYER_FACT_DETAIL_KEY)
+
+
+def letter_form_input_quotes(truth_report: dict | None) -> list[str]:
+    """UX audit 4 (b): the normalised texts of the letter claims the Oracle marked
+    as built from the letter form (``not_applicable`` + ``fromLetterForm``)."""
+    return _letter_claim_quotes(truth_report, _LETTER_FORM_DETAIL_KEY)
+
+
+def _quote_intervals(sentence_norm: str, quotes: Sequence[str]) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    core = sentence_norm.strip().rstrip(" .;:,!?")
+    for q in quotes:
+        if core and core in q:
+            return [(0, len(sentence_norm))]
+        i = sentence_norm.find(q)
+        while i >= 0:
+            spans.append((i, i + len(q)))
+            i = sentence_norm.find(q, i + 1)
+    return spans
+
+
+def _terms_held_only_in(
+    terms: list[str], sentences: Any, matches: Any, quotes: list[str]
+) -> list[str]:
+    """The terms whose every claim sentence, with ``quotes`` masked, no longer
+    matches the term or one of its recorded forms. A term without locating data
+    stays (safe side)."""
+    out: list[str] = []
+    for k in terms:
+        sents = sentences.get(k) if isinstance(sentences, dict) else None
+        if not sents:
+            continue
+        forms = [k] + [
+            m.get("form") for m in ((matches or {}).get(k) or []) if isinstance(m, dict) and m.get("form")
+        ]
+        if all(
+            not any(
+                keyword_matches(f, _mask_intervals(s, _quote_intervals(s, quotes)), None)
+                for f in forms
+            )
+            for s in sents
+            if isinstance(s, str)
+        ):
+            out.append(k)
+    return out
+
+
+def apply_letter_employer_facts(ats_report: dict | None, truth_report: dict | None) -> dict | None:
+    """#803 reopened (build 7, ruling R2-7; ADR-090/ADR-068 amended): a flagged
+    letter term whose every claim sentence (``present_unsupported_sentences``)
+    carries it only inside text the Oracle's sentence triage classified as about
+    the employer joins ``present_unsupported_employer_sentence`` — the neutral,
+    still-listed row with no add-to-profile exit (T-2 = B).
+
+    UX audit 4 (b): a term held only in sentences the Oracle marked as built from
+    the letter FORM (``fromLetterForm`` — the candidate's own statement for this
+    letter, which ruling B3-10 never checks against nor adds to the profile, and
+    which the review already shows in its neutral form section, FO-1 = A) leaves
+    ``present_unsupported`` for ``present_unsupported_form_input`` (class S, no
+    card — as D-4c(b) moves the candidate's own limit). A sentence holding both
+    kinds is masked with both before that second test.
+
+    One reader of the Oracle's persisted verdicts (ADR-066), not a second
+    judgement. Called by the letter's single audit-and-persist seam right after
+    the truthfulness report is written. Returns a NEW dict when it moves a term,
+    the same object otherwise; never raises (a failure leaves the report as
+    audited)."""
+    try:
+        if not isinstance(ats_report, dict) or ats_report.get("document") != "cover_letter":
+            return ats_report
+        ef_quotes = letter_employer_fact_quotes(truth_report)
+        form_quotes = letter_form_input_quotes(truth_report)
+        kw = ats_report.get("keywords")
+        if not (ef_quotes or form_quotes) or not isinstance(kw, dict):
+            return ats_report
+        terms = [k for k in kw.get("present_unsupported") or [] if isinstance(k, str)]
+        es = [k for k in kw.get("present_unsupported_employer_sentence") or [] if isinstance(k, str)]
+        fi = [k for k in kw.get("present_unsupported_form_input") or [] if isinstance(k, str)]
+        sentences = kw.get("present_unsupported_sentences") or {}
+        matches = kw.get("present_unsupported_matches") or {}
+        open_terms = [k for k in terms if k not in es and k not in fi]
+        to_es = _terms_held_only_in(open_terms, sentences, matches, ef_quotes) if ef_quotes else []
+        rest = [k for k in open_terms if k not in to_es]
+        to_fi = (
+            _terms_held_only_in(rest, sentences, matches, ef_quotes + form_quotes) if form_quotes else []
+        )
+        if not (to_es or to_fi):
+            return ats_report
+        import copy as _copy
+
+        out = _copy.deepcopy(ats_report)
+        if to_es:
+            out["keywords"]["present_unsupported_employer_sentence"] = es + to_es
+        if to_fi:
+            okw = out["keywords"]
+            okw["present_unsupported_form_input"] = fi + to_fi
+            okw["present_unsupported"] = [k for k in okw.get("present_unsupported") or [] if k not in to_fi]
+            for key in ("present_unsupported_matches", "present_unsupported_sentences",
+                        "present_unsupported_denials"):
+                if isinstance(okw.get(key), dict):
+                    okw[key] = {k: v for k, v in okw[key].items() if k not in to_fi}
+        return out
+    except Exception:  # pragma: no cover — defensive: the report stays as audited
+        import logging
+
+        logging.getLogger(__name__).exception("apply_letter_employer_facts failed — report unchanged")
+        return ats_report
 
 
 #: 786:47 (founder 2026-10-22, Hazelnut build 4) — the employer-name repetition
@@ -3024,6 +3352,7 @@ def _audit_letter_text(
     coverage = _keyword_coverage(
         t, keywords, ledger, vault_text_norm, vault_index, non_claim,
         document_language=document_language,
+        text_cased=_norm_cased(text),  # #803 reopened: "Ihre" (your) vs "ihre"
     )
     _other_language_check(checks, coverage)
     # 786:47: the candidate's own employers (the caller's) and the recipient.

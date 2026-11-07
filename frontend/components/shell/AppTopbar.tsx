@@ -228,14 +228,6 @@ export function AppTopbar(props: AppTopbarProps) {
           className="hidden md:flex md:empty:hidden items-center flex-shrink-0"
         />
         <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            type="button"
-            aria-label={t("shell.notificationsAriaLabel")}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:bg-surface-container hover:text-primary transition-colors"
-          >
-            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>notifications</span>
-          </button>
           <UserMenu triggerClassName="w-[30px] h-[30px] rounded-full bg-gradient-to-br from-primary-container to-surface-container-highest flex items-center justify-center text-[12px] font-bold text-primary cursor-pointer">
             <span className="md:hidden" data-testid="topbar-avatar-mobile">
               {initials ?? t("shell.topbarUserInitial")}

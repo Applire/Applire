@@ -22,4 +22,8 @@ describe("formatEntryPeriod — is_current decides the missing end (D-14)", () =
   it("an end date renders as itself when the role ended", () => {
     expect(formatEntryPeriod("2010-01", "2015-12", "present", false, "en")).toBe("Jan 2010 → Dec 2015");
   });
+
+  it("#822: a stated end date wins over a stale is_current true", () => {
+    expect(formatEntryPeriod("2016-04", "2020-01", "present", true, "en")).toBe("Apr 2016 → Jan 2020");
+  });
 });

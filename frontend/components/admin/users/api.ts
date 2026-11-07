@@ -17,6 +17,8 @@ export interface AdminUserMetadata {
   document_count: number;
   storage_bytes: number | null;
   ai_tokens_30d: number | null;
+  /** Live (unrevoked) agent tokens; absent/null = not reported. */
+  active_token_count?: number | null;
 }
 
 export interface AdminUser {

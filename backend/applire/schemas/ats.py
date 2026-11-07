@@ -260,6 +260,12 @@ class ATSKeywordCoverage(BaseModel):
     # listed (take-out + edit stay); the review shows them neutral — no add exit,
     # not counted in the group-1 headline. Empty on CVs and older reports.
     present_unsupported_employer_sentence: list[str] = []
+    # UX audit 4 (b): LETTER terms held only in sentences the Oracle marked as
+    # built from the letter form (``fromLetterForm``, ruling B3-10: the
+    # candidate's own statement for this letter, shown in the review's neutral
+    # "Aus Deiner Eingabe im Formular" section, FO-1 = A). Moved OUT of
+    # ``present_unsupported`` (class S, no card). Empty on CVs / older reports.
+    present_unsupported_form_input: list[str] = []
     # D-4c(a) (Hazelnut build 5): per ``present_unsupported`` term, the normalised
     # sentences (the audit's ``_norm`` fold of the delivered text, unmasked) that
     # still carry a claim-text match after the title/employer/org-unit masks. The

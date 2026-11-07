@@ -116,7 +116,9 @@ export function ImportSummaryCard({
           : t("lastImportTitleNoFile", { date })}
       </h3>
       <p data-testid="import-summary-lead" className="mt-1 text-sm text-on-surface-variant">
-        {t("lastImportLead", { added: summary.added_total, matched: matchedCount })}
+        {summary.created
+          ? t("createdLead", { added: summary.added_total })
+          : t("lastImportLead", { added: summary.added_total, matched: matchedCount })}
       </p>
 
       {summary.groups.length > 0 && (

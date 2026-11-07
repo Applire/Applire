@@ -73,7 +73,7 @@ jobs:
         with:
           ref: ${{ github.event.release.tag_name }}
 
-      - name: Attach docker-compose.yml and env.example to the Release
+      - name: Attach docker-compose.yml, env.example and the backup scripts to the Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
@@ -88,7 +88,13 @@ jobs:
           # travels as `env.example` (no leading dot), the name the README fetches.
           cp docker-compose.yml "$staging/docker-compose.yml"
           cp .env.example "$staging/env.example"
-          for name in docker-compose.yml env.example; do
+          # 785:252 (Hazelnut build 7): the backup pair travels with the release too,
+          # so a no-clone install fetches the scripts that match its images from the
+          # same `releases/latest/download/` path as the compose file.
+          cp scripts/backup.sh "$staging/backup.sh"
+          cp scripts/restore.sh "$staging/restore.sh"
+          assets="docker-compose.yml env.example backup.sh restore.sh"
+          for name in $assets; do
             if gh release download "$TAG" --repo "$REPO" --pattern "$name" --dir "$current" --clobber >/dev/null 2>&1 \
                && [ -f "$current/$name" ]; then
               if cmp -s "$current/$name" "$staging/$name"; then
@@ -103,7 +109,7 @@ jobs:
           done
 
           listed="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')"
-          for name in docker-compose.yml env.example; do
+          for name in $assets; do
             if ! printf '%s\n' "$listed" | grep -qxF "$name"; then
               echo "::error::$name is still not listed on Release $TAG after the upload."
               exit 1

@@ -46,7 +46,9 @@ def summarize(truth_report: dict | None, ats_report: dict | None) -> Truthfulnes
         logger.warning("Stored truthfulness report is malformed — summary unavailable")
         return _unavailable()
     ats = ats_report if isinstance(ats_report, dict) else None
-    flagged = len(group_one_findings(ats, truth_report))
+    # #803 (T-2 = B, reopened build 7): an employer-sentence row is listed but
+    # never counted — the panel's `countedOpenRows` and the agent agree.
+    flagged = sum(1 for f in group_one_findings(ats, truth_report) if not f.employer_sentence)
     return TruthfulnessSummary(
         available=True,
         counts=dict(validated.counts),

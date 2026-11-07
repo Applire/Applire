@@ -190,8 +190,12 @@ test.describe("Administration → People", () => {
     );
   });
 
-  test("disabling the last admin is refused in the action's own dialog (409 last_admin)", async ({ page }) => {
-    await stubUsers(page);
+  test("a 409 last_admin refusal is shown in the action's own dialog; the own row offers no disable", async ({ page }) => {
+    // The own row only offers "revoke tokens" / "open account" (789:281), so the
+    // server's last-admin guard is reached from the UI only by a concurrent change:
+    // another admin's row, while that person became the only active admin.
+    const otherAdmin = "jonas.keller@example.org";
+    await stubUsers(page, USERS.map((u) => (u.email === otherAdmin ? { ...u, role: "admin" } : u)));
     await page.route("**/api/admin/users/*", (route) =>
       route.request().method() === "PATCH"
         ? json(route, { detail: { error_code: "last_admin", message: "x" } }, 409)
@@ -199,10 +203,16 @@ test.describe("Administration → People", () => {
     );
     await page.goto("/admin/users");
     await row(page, ADMIN_USER.email).getByTestId("admin-user-menu").click();
+    await expect(page.getByTestId("admin-user-action-revokeTokens")).toBeVisible();
+    await expect(page.getByTestId("admin-user-action-disable")).toHaveCount(0);
+    await expect(page.getByTestId("admin-user-action-makeUser")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    await row(page, otherAdmin).getByTestId("admin-user-menu").click();
     await page.getByTestId("admin-user-action-disable").click();
     await page.getByTestId("admin-confirm-dialog-confirm").click();
     await expect(page.getByTestId("admin-confirm-dialog-error")).toContainText(
-      `Not possible: ${ADMIN_USER.email} is the only active admin.`,
+      `Not possible: ${otherAdmin} is the only active admin.`,
     );
   });
 
@@ -227,7 +237,9 @@ test.describe("Administration → People", () => {
     expect(deleted[0]).toContain("/api/admin/users/00000000-0000-0000-0000-0000000000a4");
 
     await row(page, ADMIN_USER.email).getByTestId("admin-user-menu").click();
-    await page.getByTestId("admin-user-action-delete").click();
+    // 789:281 — the own row offers only revoke-tokens and "open your account".
+    await expect(page.getByTestId("admin-user-menu-list").getByRole("menuitem")).toHaveText(["Revoke all tokens", "Open your account"]);
+    await page.getByTestId("admin-user-action-openAccount").click();
     await expect(page).toHaveURL(/\/settings$/);
     expect(deleted).toHaveLength(1);
   });
@@ -246,6 +258,8 @@ test.describe("Administration → People", () => {
     await page.goto("/admin/users");
     await row(page, "jonas.keller@example.org").getByTestId("admin-user-menu").click();
     await page.getByTestId("admin-user-action-resetLink").click();
+    // 789:280 — a confirm comes first; the link is issued only on confirm.
+    await page.getByTestId("admin-confirm-dialog-confirm").click();
     await expect(page.getByTestId("admin-link-dialog")).toContainText("Reset link for jonas.keller@example.org");
     await expect(page.getByTestId("admin-link-text")).toContainText("valid for one hour");
     await expect(page.getByTestId("admin-link-url")).toHaveText("http://applire.test/reset#rst-9");

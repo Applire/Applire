@@ -186,6 +186,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Sequence
 
 from applire.schemas.profile import ImportNotApplied
+from applire.services.profile.label_text import truncate_at_word
 from applire.schemas.testimony import NotApplied
 from applire.services.profile.reconcile.ops import CommitOp
 
@@ -604,6 +605,6 @@ def compute_no_write(
     residue = positive_residue(turn_text)
     if not residue:
         return []
-    label = " ".join(residue)[:_RESIDUE_LABEL_CHARS]
+    label = truncate_at_word(" ".join(residue), _RESIDUE_LABEL_CHARS)
     reason = _EMPTY_REASON_TO_RECEIPT.get(empty_reason or "", "no_write")
     return [ImportNotApplied(section=None, label=label, reason=reason)]

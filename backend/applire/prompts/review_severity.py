@@ -82,9 +82,15 @@ _STRUCTURAL_FIELDS = """,
 #: R2-5 (founder ruling T-1 = A, Hazelnut build 4): the TERMINAL doors' extra
 #: per-issue field — the same point once more, for the candidate. Only the review
 #: card reads it (``ReviewIssue.note``); the corrector keeps reading ``issue``.
+# 786:290 (ux-audit-3, WP-T build 7): the input calls the profile "source"
+# (34x, "CANDIDATE PROFILE (source of truth)"), and luna's notes said "Die Quelle
+# belegt …" to the candidate (LLM log 2026-11-07 l.378/384). The note names the
+# profile the way the candidate knows it. REPLACED, not appended (+2 chars): the
+# terminal-reviewer ratchets (letter 17,000 / CV 14,750) had 5 / 17 chars left;
+# "the prompt names" is carried by note_language_line's own sentence.
 _PLAIN_NOTE_FIELD = """,
      "note": "the same point for the candidate: ONE short plain sentence in the NOTE \
-LANGUAGE the prompt names — no field names, indices, ids or check numbers\""""
+LANGUAGE; say your profile, never source; no field names, ids, check numbers\""""
 
 
 def note_language_line(document_language: str | None) -> str:

@@ -24,7 +24,20 @@ import { ProgressWidget, ProgressStep } from "@/components/ui/progress-widget";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 const POLL_INTERVAL_MS = 3000;
-const STALENESS_MS = 60_000;
+// 789:261 (Hazelnut build 7, WP-F): a CV takes ~90 s on a quiet instance and
+// 185–255 s under load (UX audit round 3); the ring has two phases only, so it
+// sits at 50 % for the whole write. From this point the page says it is slow
+// and that leaving is safe — true since the web door records the finished CV
+// on its flow server-side (789:248, `record_generated_cv`).
+export const SLOW_AFTER_MS = 120_000;
+
+/** m:ss — the elapsed time shown under the ring. */
+export function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 type CVStatus = "pending" | "generating" | "ready" | "failed" | "expired";
 
@@ -42,6 +55,8 @@ interface GenerationProgressProps {
   flowId: string;
   onReady: (cvId: string) => void;
   onRetry: () => void;
+  /** 789:254: a line under the title naming why this version is written. */
+  subtitle?: string;
 }
 
 function activeStepIndex(status: CVStatus): number {
@@ -50,20 +65,23 @@ function activeStepIndex(status: CVStatus): number {
   return 0;
 }
 
-export function GenerationProgress({ cvId, flowId, onReady, onRetry }: GenerationProgressProps) {
+export function GenerationProgress({ cvId, flowId, onReady, onRetry, subtitle }: GenerationProgressProps) {
   const t = useTranslations("cv");
   const [status, setStatus] = useState<CVStatus>("pending");
   const [error, setError] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const startedAt = useRef(Date.now());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // The elapsed clock ticks on its own second, independent of the poll.
+  useEffect(() => {
+    if (error) return;
+    const tick = setInterval(() => setElapsedMs(Date.now() - startedAt.current), 1000);
+    return () => clearInterval(tick);
+  }, [error]);
+
   useEffect(() => {
     async function poll() {
-      if (Date.now() - startedAt.current > STALENESS_MS) {
-        setStale(true);
-      }
-
       try {
         const res = await fetch(`${API_BASE}/api/cv/${cvId}/status`);
         if (!res.ok) return;
@@ -127,13 +145,23 @@ export function GenerationProgress({ cvId, flowId, onReady, onRetry }: Generatio
       <ProgressWidget
         steps={progressSteps}
         title={t("generationTitle")}
-        subtitle={t("progressSubtitle")}
-        className="mb-6"
+        subtitle={subtitle ?? t("progressSubtitle")}
+        className="mb-3"
       />
 
-      {stale && !error && (
-        <div className="border-l-4 border-warning bg-warning-container rounded-r-lg p-3 text-sm text-neutral-dark">
-          {t("generationStale")}
+      {!error && (
+        <p className="text-center text-xs text-on-surface-variant mb-4" data-testid="generation-elapsed">
+          {t("generationElapsed", { time: formatElapsed(elapsedMs) })}
+        </p>
+      )}
+
+      {!error && elapsedMs >= SLOW_AFTER_MS && (
+        <div
+          className="border-l-4 border-warning bg-warning-container rounded-r-lg p-3 text-sm text-on-surface"
+          data-testid="generation-slow"
+          role="status"
+        >
+          {t("generationSlow")}
         </div>
       )}
 

@@ -97,7 +97,7 @@ describe("encodeGained / decodeGained", () => {
 describe("SECTION_LABEL_KEYS", () => {
   it("has a catalog label for every section the backend counts as growth", () => {
     const src = readFileSync(
-      resolvePath(__dirname, "../../../backend/applire/services/application.py"),
+      resolvePath(__dirname, "../../../backend/applire/services/profile_freshness.py"),
       "utf-8",
     );
     const block = /CV_FEEDING_SECTIONS: frozenset\[str\] = frozenset\(\{([\s\S]*?)\}\)/.exec(src);
