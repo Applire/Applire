@@ -94,6 +94,30 @@ describe("ProfileImportView", () => {
     expect(screen.getByRole("button", { name: "browse" })).toBeInTheDocument();
   });
 
+  // C9 (UX audit round 3) — a failed import is named in "Letzte Uploads" with a
+  // way to upload it again; the retry opens the file picker.
+  it("lists a failed import by name with an upload-again action", async () => {
+    global.fetch = makeFetchMock([
+      {
+        id: "job-1",
+        original_filename: "linkedin-export.pdf",
+        mime_type: "",
+        byte_size: 0,
+        created_at: "2026-11-07T07:05:00Z",
+        completeness_score: null,
+        status: "failed",
+        error_code: "llm_timeout",
+      },
+    ]);
+    const click = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    render(<ProfileImportView />);
+    const row = await screen.findByTestId("upload-history-failed");
+    expect(row).toHaveTextContent("linkedin-export.pdf");
+    expect(row).toHaveTextContent("historyFailed");
+    fireEvent.click(screen.getByTestId("upload-history-retry"));
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
   it("renders the LinkedIn secondary card", () => {
     render(<ProfileImportView />);
     expect(screen.getByText("linkedinCardTitle")).toBeInTheDocument();

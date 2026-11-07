@@ -90,6 +90,8 @@
     "goBack": "← Go back and try again",
     "retry": "Retry",
     "retrying": "Retrying…",
+    "partialPauseNote": "{count, plural, one {This file was not read – nothing from it is in your profile. Try again, or continue without it.} other {These # files were not read – nothing from them is in your profile. Try again, or continue without them.}}",
+    "continueWithoutFailed": "{count, plural, one {Continue without this file} other {Continue without these files}}",
     "uploadFailed": "We couldn't read this file. Please try again.",
     "uploadTooLarge": "This file is larger than 10 MB, so we couldn't read it. Please upload a smaller file.",
     "uploadNoOcr": "This instance can't read images or scanned documents (no text recognition is set up). Please upload a text-based PDF, a DOCX or a plain-text file instead.",
@@ -1316,6 +1318,7 @@
     "aspirationBack": "Back"
   },
   "profileReview": {
+    "alreadySettled": "This item is already settled.",
     "title": "Review profile",
     "loading": "Preparing your review…",
     "done": "All done — your profile is up to date.",
@@ -1580,6 +1583,8 @@
     "flowErrorGeneric": "Navigation failed",
     "flowNotFound": "Flow not found",
     "historyTitle": "Recent uploads",
+    "historyFailed": "Not read – nothing from it is in your profile",
+    "historyRetry": "Upload again",
     "historyEmpty": "No uploads yet",
     "viewAll": "View all",
     "whyTag": "Profile intelligence",

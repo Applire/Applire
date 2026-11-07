@@ -2565,3 +2565,9 @@ class UploadHistoryItem(BaseModel):
     # parked CV's extracted name, shown when re-opening the resolve dialog.
     gate_status: str | None = None
     staged_name: str | None = None
+    # C9 (UX audit round 3) — a failed import is listed too, so the person can
+    # see which file was not read and upload it again. ``"read"`` for every
+    # stored upload; ``"failed"`` rows carry the job's stable ``error_code``
+    # (never the raw provider text) and no file metadata (none was stored).
+    status: Literal["read", "failed"] = "read"
+    error_code: str | None = None

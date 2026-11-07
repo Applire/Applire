@@ -90,6 +90,8 @@
     "goBack": "← Zurück und erneut versuchen",
     "retry": "Erneut versuchen",
     "retrying": "Wird erneut versucht…",
+    "partialPauseNote": "{count, plural, one {Diese Datei wurde nicht gelesen – nichts davon ist in deinem Profil. Versuche es erneut oder mach ohne sie weiter.} other {Diese # Dateien wurden nicht gelesen – nichts davon ist in deinem Profil. Versuche es erneut oder mach ohne sie weiter.}}",
+    "continueWithoutFailed": "{count, plural, one {Ohne diese Datei weiter} other {Ohne diese Dateien weiter}}",
     "uploadFailed": "Wir konnten diese Datei nicht lesen. Bitte versuche es erneut.",
     "uploadTooLarge": "Diese Datei ist größer als 10 MB und konnte deshalb nicht gelesen werden. Bitte lade eine kleinere Datei hoch.",
     "uploadNoOcr": "Diese Instanz kann keine Bilder oder eingescannten Dokumente lesen (keine Texterkennung eingerichtet). Bitte lade stattdessen ein PDF mit Text, eine DOCX- oder eine Textdatei hoch.",
@@ -1316,6 +1318,7 @@
     "aspirationBack": "Zurück"
   },
   "profileReview": {
+    "alreadySettled": "Dieser Punkt ist schon erledigt.",
     "title": "Profil prüfen",
     "loading": "Deine Prüfung wird vorbereitet…",
     "done": "Alles erledigt – dein Profil ist aktuell.",
@@ -1580,6 +1583,8 @@
     "flowErrorGeneric": "Navigation fehlgeschlagen",
     "flowNotFound": "Flow nicht gefunden",
     "historyTitle": "Letzte Uploads",
+    "historyFailed": "Nicht gelesen – nichts davon ist in deinem Profil",
+    "historyRetry": "Erneut hochladen",
     "historyEmpty": "Noch keine Uploads",
     "viewAll": "Alle anzeigen",
     "whyTag": "Profil-Intelligenz",
