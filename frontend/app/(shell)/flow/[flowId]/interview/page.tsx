@@ -1416,9 +1416,16 @@ export default function InterviewPage({
                 // helper, `clusterView`); the glyph SHAPE carries the state.
                 const view = clusterView(cluster, turn);
                 const tone = TONE[view.tone];
-                const declinedTerms = view.members
-                  .filter((m) => m.state === "declined")
-                  .map((m) => m.term);
+                // #821 (G-1) — the candidate's OWN wording where the server
+                // recorded one; a floored member (declined by a related denial
+                // it never named) is never listed as "you said you don't have".
+                const declinedTerms = [
+                  ...new Set(
+                    view.members
+                      .filter((m) => m.state === "declined" && m.floored !== true)
+                      .flatMap((m) => (m.deniedBy && m.deniedBy.length > 0 ? m.deniedBy : [m.term])),
+                  ),
+                ];
                 // Members, open ones first; a legacy row with no members
                 // falls back to the posting terms, shown neutrally.
                 // Lead G — a posting term (`requirement: false`) sorts after

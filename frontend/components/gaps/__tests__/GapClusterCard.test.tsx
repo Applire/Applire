@@ -475,6 +475,36 @@ describe("G-4 — a requirement floored by the candidate's answer", () => {
   });
 });
 
+describe("#821 G-1 — a declined member is quoted by the candidate's own wording", () => {
+  const scoped = makeCluster({
+    gaps: [],
+    coverage: "declined",
+    outcome: { asked: 1, covered: [], declined: ["PSD2"], session_ids: [] },
+    member_statuses: [{ member: "PSD2", status: "declined", denied_by: ["no PSD2 licence"] }],
+  });
+
+  it("the chip's screen-reader text quotes the denial wording", () => {
+    render(withIntl(<GapClusterCard cluster={scoped} view={clusterView(scoped)} />, "de"));
+    const chip = screen.getByTestId("gap-member");
+    expect(chip).toHaveTextContent("PSD2");
+    expect(chip).toHaveTextContent("(du sagtest: „no PSD2 licence“)");
+    expect(chip).not.toHaveTextContent("laut deiner Angabe nicht vorhanden");
+  });
+
+  it("a floored member never quotes a wording, even if one is attached", () => {
+    const f = makeCluster({
+      gaps: [],
+      coverage: "declined",
+      outcome: { asked: 1, covered: [], declined: ["Payout flows"], session_ids: [] },
+      member_statuses: [{ member: "Payout flows", status: "declined", floored: true, denied_by: ["x"] }],
+    });
+    render(withIntl(<GapClusterCard cluster={f} view={clusterView(f)} />, "de"));
+    const chip = screen.getByTestId("gap-member");
+    expect(chip).toHaveTextContent("(durch deine Antwort ausgeschlossen)");
+    expect(chip).not.toHaveTextContent("du sagtest");
+  });
+});
+
 describe("787:95 — a folded member on a finished card", () => {
   it("is listed on the card and neither colours nor reopens it", () => {
     const done = makeCluster({

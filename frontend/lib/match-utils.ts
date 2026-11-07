@@ -178,6 +178,11 @@ export interface GapCluster {
     requirement?: boolean;
     /** G-4 — `declined` only through a related denial's floor (never named). */
     floored?: boolean;
+    /** #821 (G-1) — the candidate's recorded denial wording(s), verbatim, that
+     * decline this member; published by the server only when non-empty and
+     * never on a `floored` member. A declined member is quoted by THIS, not by
+     * the member term the candidate may never have named. */
+    denied_by?: string[];
     /** 787:95 — a member folded into this FINISHED card (see `folded`). */
     folded?: boolean;
   }[];
@@ -305,6 +310,9 @@ export interface ClusterMember {
   /** G-4 — declined by the candidate's answer through a related denial; the
    * chip must not say they named it. */
   floored?: boolean;
+  /** #821 (G-1) — the candidate's own denial wording(s) for this declined
+   * member (deduped, never on a floored member). */
+  deniedBy?: string[];
 }
 
 export interface ClusterView {
@@ -374,10 +382,13 @@ export function clusterView(
   const facts = new Map<string, MemberStatus>();
   const terms = new Set<string>();
   const floored = new Set<string>();
+  const deniedBy = new Map<string, string[]>();
   for (const entry of cluster.member_statuses ?? []) {
     if (entry && typeof entry.member === "string") {
       facts.set(normMember(entry.member), entry.status);
       if (entry.floored === true) floored.add(normMember(entry.member));
+      const said = [...new Set((entry.denied_by ?? []).filter((w) => typeof w === "string" && w.trim() !== ""))];
+      if (said.length > 0 && entry.floored !== true) deniedBy.set(normMember(entry.member), said);
       // Only an explicit `false` makes a posting term; absent = requirement.
       if (entry.requirement === false) terms.add(normMember(entry.member));
     }
@@ -413,6 +424,7 @@ export function clusterView(
       state,
       requirement: !terms.has(normMember(term)),
       ...(state === "declined" && floored.has(normMember(term)) ? { floored: true } : {}),
+      ...(state === "declined" && deniedBy.has(normMember(term)) ? { deniedBy: deniedBy.get(normMember(term)) } : {}),
     };
   });
   if (turn) {

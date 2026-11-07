@@ -1150,6 +1150,7 @@ function mockF1Api(opts: {
   resumed?: boolean;
   questionsAsked?: number;
   messageResponses?: Record<string, unknown>[];
+  clusters?: GapCluster[];
 }) {
   const queue = [...(opts.messageResponses ?? [])];
   let gapsReads = 0;
@@ -1171,7 +1172,7 @@ function mockF1Api(opts: {
         json: async () => ({
           id: "ga1",
           match_score: 0.44,
-          gap_clusters: F1_CLUSTERS,
+          gap_clusters: opts.clusters ?? F1_CLUSTERS,
           keyword_ledger: ledger,
           category_c: ["Produktionsverantwortung", "MES"],
         }),
@@ -1339,6 +1340,53 @@ describe("Hazelnut b3 #789 — interview intro, one count, match ring", () => {
     const iso = chips.find((c) => c.textContent === "ISO 9001");
     expect(iso).toHaveAttribute("data-state", "covered");
     expect(chips.find((c) => c.textContent === "IFS/BRC")).toHaveAttribute("data-state", "declined");
+  });
+});
+
+describe("#821 G-1 — the sidebar quotes the candidate's own wording", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  const scoped = (statuses: GapCluster["member_statuses"]) => [
+    toneCluster("q1", "C", {
+      label: "Intensivmedizin",
+      coverage: "declined",
+      outcome: { asked: 1, covered: [], declined: statuses.map((s) => s.member), session_ids: ["s0"] },
+      member_statuses: statuses,
+      jd_skills: statuses.map((s) => s.member),
+    }),
+    F1_CLUSTERS[1],
+  ];
+
+  it("lists the denied_by wording, not the member term the candidate never named", async () => {
+    global.fetch = mockF1Api({
+      clusters: scoped([
+        { member: "ECMO", status: "declined", denied_by: ["not independently, not certified"] },
+        { member: "ECMO support", status: "declined", denied_by: ["not independently, not certified"] },
+      ]),
+    }).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    const declined = await screen.findByTestId("tracker-declined-terms");
+    expect(declined.textContent).toContain('"terms":"not independently, not certified"');
+    expect(declined.textContent).not.toContain("ECMO");
+  });
+
+  it("never lists a floored member under 'you said you don't have'", async () => {
+    global.fetch = mockF1Api({
+      clusters: scoped([
+        { member: "Payout flows", status: "declined", floored: true },
+        { member: "Crypto", status: "declined" },
+      ]),
+    }).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    const declined = await screen.findByTestId("tracker-declined-terms");
+    expect(declined.textContent).toContain('"terms":"Crypto"');
+    expect(declined.textContent).not.toContain("Payout flows");
   });
 });
 
