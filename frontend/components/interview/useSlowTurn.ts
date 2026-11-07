@@ -31,13 +31,13 @@ export const SLOW_TURN_AFTER_SECONDS = 25;
 export function useTurnElapsed(active: boolean): number {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    if (!active) {
-      setElapsed(0);
-      return;
-    }
+    if (!active) return;
     const startedAt = Date.now();
     const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      setElapsed(0);
+    };
   }, [active]);
   return active ? elapsed : 0;
 }
