@@ -140,8 +140,10 @@
 #     language pass. Replay-verified: the captured run-17 turn-1 generation
 #     emits denied_terms with the exact constituent names.
 
-# 787:206 changes (Hazelnut build 7 / WP-G, 2026-11-07, recommendation A of founder
-# question G-3 — PROVISIONAL until the ruling and its real-provider replay):
+# 787:206 changes (Hazelnut build 7 / WP-G, 2026-11-07, founder ruling G-3 = A). Sonnet 5.5
+# replay, 3 clusters (Marcus DE C x2, Priya EN C) x 5 per arm, production call shape +
+# filter_ungrounded_choices: delivered chips per turn 1.40 -> 2.47, turns with no chip 3/15 ->
+# 0/15, delivered chips in the system's words 14 -> 0, drafted denied_terms 30 -> 0.
 #   - A PARTIAL choice no longer carries "..., but my profile does not yet document X":
 #     the UX audit round 3 saw that clause on Marcus Q4/Q6/Q9, Priya Q5 and every Felix
 #     chip — the candidate's voice speaking the system's words, and one click recorded a

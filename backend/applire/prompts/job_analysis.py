@@ -21,7 +21,9 @@
 #   general term at the posting's level, the bracketed name a keyword. UX audit round 3 (rec
 #   178, luna): "Structured handovers" and "SBAR" came back as two required rows, so the gaps
 #   page counted two open requirements and the interview asked one thing twice. An example
-#   LIST in brackets is unchanged (each a concept, as before).
+#   LIST in brackets is unchanged (each a concept, as before). Replay on the audit posting:
+#   luna (n=3) split into two rows 1/3 before, 0/3 after; Sonnet 5.5 (n=5) never split, after
+#   "Structured handovers" + keyword "SBAR" 5/5; paediatric never required (both arms).
 #
 # Prompt version: v13 (Hazelnut build 4 / WP-G, 2026-10-24, founder rulings G-2 = C, G-2c):
 #   ALTERNATIVES — "A oder B / A or B / A bzw. B" between two NAMED tools is ONE requirement
