@@ -59,11 +59,19 @@ class CVSummary(BaseModel):
     cv_id: uuid.UUID
     pdf_url: str
     expires_at: datetime
-    # 789:254 (ADR-016 amended 2026-11-07, WP-F): an interview door added at
-    # least one fact to the owner's profile AFTER this CV was generated — the
-    # letter's L-1 predicate (`letter_predates_interview`), a fact, never a
-    # judgement (ADR-062 cl. 1). Additive; False when unreadable.
+    # 789:254 (ADR-016 amended 2026-11-07, WP-F): an interview door added
+    # profile content AFTER this CV was generated —
+    # `profile_freshness.profile_updated_since(…, sources=INTERVIEW_SOURCES)`,
+    # a fact, never a judgement (ADR-062 cl. 1). Drives the F-4 auto-start.
+    # Additive; False when unreadable.
     predates_interview: bool = False
+    # F-2 (2) (founder 2026-11-07): the profile's CONTENT changed after this CV
+    # was generated, from ANY door (interview, import, manual edit, agent) —
+    # `services/profile_freshness.profile_updated_since` on the CV's sections
+    # (the same predicate as the letter's cue), read from the
+    # enrichment trail; writes a generation causes itself never count. Drives
+    # the CV page's "Dein Profil wurde … aktualisiert" strip. Additive.
+    profile_updated_since: bool = False
 
 
 class CoverLetterSummary(BaseModel):

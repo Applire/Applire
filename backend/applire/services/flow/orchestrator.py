@@ -40,6 +40,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire import ownership
 from applire.constants import MODE_B_COMPLETENESS_THRESHOLD
 from applire.db.session import AsyncSessionLocal
+from applire.services.profile_freshness import (
+    CV_FEEDING_SECTIONS,
+    INTERVIEW_SOURCES,
+    profile_updated_since,
+)
 from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
@@ -611,11 +616,12 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def _cv_predates_interview(cv: GeneratedCV, profile_json: dict | None) -> bool:
-    """789:254 — the letter's L-1 predicate applied to the CV (ADR-066: one
-    implementation): an interview door added a fact after this CV was made."""
-    from applire.services.cover_letter_positioning import letter_predates_interview
-
-    return letter_predates_interview(cv.created_at, profile_json)
+    """789:254 — an interview door added profile CONTENT after this CV was
+    made: the shared freshness predicate narrowed to the interview doors and
+    the CV's sections (ADR-066: one implementation). Drives the F-4 auto-start."""
+    return profile_updated_since(
+        cv.created_at, profile_json, sections=CV_FEEDING_SECTIONS, sources=INTERVIEW_SOURCES
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -839,6 +845,11 @@ async def _build_state_response(
                 expires_at=cv.expires_at,
                 predates_interview=_cv_predates_interview(
                     cv, profile_record.profile_json if profile_record else None
+                ),
+                profile_updated_since=profile_updated_since(
+                    cv.created_at,
+                    profile_record.profile_json if profile_record else None,
+                    sections=CV_FEEDING_SECTIONS,
                 ),
             )
 

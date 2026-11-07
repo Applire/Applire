@@ -383,3 +383,48 @@ async def test_a_new_version_after_the_interview_clears_the_cue(db):
     assert state.current_step == "complete"
     assert state.cv_summary.cv_id == new.id
     assert state.cv_summary.predates_interview is False
+
+
+# ── F-2 (2): the strip's fact — any profile content change, not only the interview ──
+
+
+@pytest.mark.asyncio
+async def test_profile_updated_since_fires_for_an_import_or_manual_edit_after_the_cv(db):
+    """An import / manual edit after the CV raises the strip's fact, and NOT the
+    interview fact that drives the auto-start (F-4 stays interview-only)."""
+    user, job, profile = await _seed(
+        db,
+        history=[
+            _record_at(T0 + timedelta(hours=1), source="cv_upload"),
+            _record_at(T0 + timedelta(hours=2), source="manual_edit"),
+        ],
+    )
+    cv = await _cv(db, job, profile, created_at=T0)
+    flow = await _flow(db, user, job, "complete", cv=cv)
+
+    summary = (await _state(db, flow)).cv_summary
+
+    assert summary.profile_updated_since is True
+    assert summary.predates_interview is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "record",
+    [
+        _record_at(T0 - timedelta(hours=1), source="manual_edit"),
+        _record_at(
+            T0 + timedelta(hours=1),
+            source="manual_edit",
+            changes=[{"section": "metadata", "field": "pending_confirmations", "action": "added"}],
+        ),
+        _record_at(T0 + timedelta(hours=1), source="interview", changes=[]),
+    ],
+    ids=["change-before-cv", "bookkeeping-after-cv", "empty-write-after-cv"],
+)
+async def test_profile_updated_since_stays_false_without_a_content_change_after_the_cv(db, record):
+    user, job, profile = await _seed(db, history=[record])
+    cv = await _cv(db, job, profile, created_at=T0)
+    flow = await _flow(db, user, job, "complete", cv=cv)
+
+    assert (await _state(db, flow)).cv_summary.profile_updated_since is False
