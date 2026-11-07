@@ -1447,6 +1447,8 @@
     "noDocumentsYet": "No versions yet.",
     "pinActionFailed": "This could not be saved. Please try again.",
     "duplicateTitle": "You may already know this job",
+    "coverLetterNone": "Cover letter — none yet",
+    "coverLetterCreate": "Create cover letter",
     "duplicateBody": "This looks like the job you analyzed on {date} ({company} — {role}).",
     "duplicateBodyPlain": "This looks like the job you analyzed on {date}.",
     "duplicateOpenExisting": "Open existing application (analyzed {date})",
