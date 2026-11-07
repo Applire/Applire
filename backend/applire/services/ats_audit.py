@@ -184,6 +184,10 @@ def _suffix_pair_variants(last: str) -> list[str]:
 _ADJ_DECLENSION_ENDINGS: tuple[str, ...] = ("en", "em", "er", "es", "e")
 _ADJ_STEM_SUFFIXES: tuple[str, ...] = (
     "ell", "isch", "lich", "ig", "al", "iv", "ar", "bar", "haft", "los", "sam",
+    # 790:94 (build 7): participles decline as attributive adjectives too —
+    # "rollierender Forecast" / "den rollierenden Forecast" (present, -end),
+    # "zertifizierter Prozess" / "im zertifizierten Prozess" (past, -iert).
+    "end", "iert",
 )
 _ADJ_FOLD_MIN_STEM = 6
 #: At most this many declinable tokens are folded in one phrase (bounds the variants).
