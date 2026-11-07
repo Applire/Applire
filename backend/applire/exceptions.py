@@ -116,8 +116,13 @@ class LLMResponseParseError(LLMError, json.JSONDecodeError):
     reply. One-argument construction (``LLMResponseParseError("…")``) works.
     """
 
-    def __init__(self, msg: str, doc: str = "", pos: int = 0) -> None:
+    def __init__(
+        self, msg: str, doc: str = "", pos: int = 0, *, second_value: bool = False
+    ) -> None:
         json.JSONDecodeError.__init__(self, msg, doc, pos)
+        # True when the reply DID start with a JSON value and a second one followed
+        # (R2-13's "half an answer"): a provider must surface that, never re-ask.
+        self.second_value = second_value
 
 
 class ReconcileFailedError(LLMError):
