@@ -647,8 +647,14 @@ async def patch_profile_section(
     basis_updated_at: datetime | None = None,
     *,
     user_id: uuid.UUID | None = None,
+    document_kind: str | None = None,
+    document_id: str | None = None,
 ) -> MasterProfileResponse:
     """The manual section edit — the `FieldEdit` intake, on `commit_ops`.
+
+    ``document_kind`` / ``document_id`` (A-5, MD7-10): set by the CV section
+    editor's "also save to profile" — the edit is already in that CV, so the
+    trail record names it and its "Profil aktualisiert" cue stays quiet.
 
     #480 PR 3 (ADR-063 clause 8(d)/(e)). This used to be its own little write
     path: validate, enrich, mint one blob-shaped `EnrichmentRecord`, assign
@@ -699,6 +705,8 @@ async def patch_profile_section(
             intake="field_edit",
             session_id=source_session_id,
             actor="candidate",
+            document_id=document_id,
+            document_kind=document_kind if document_id is not None else None,
         ),
         record=record,
         # A direct act — see the docstring.

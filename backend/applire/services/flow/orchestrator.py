@@ -618,9 +618,15 @@ def _as_utc(value: datetime) -> datetime:
 def _cv_predates_interview(cv: GeneratedCV, profile_json: dict | None) -> bool:
     """789:254 — an interview door added profile CONTENT after this CV was
     made: the shared freshness predicate narrowed to the interview doors and
-    the CV's sections (ADR-066: one implementation). Drives the F-4 auto-start."""
+    the CV's sections (ADR-066: one implementation). Drives the F-4 auto-start.
+    A write a document's own surface made (review card, section assist — A-5)
+    is never an interview answer, whichever document it came from."""
     return profile_updated_since(
-        cv.created_at, profile_json, sections=CV_FEEDING_SECTIONS, sources=INTERVIEW_SOURCES
+        cv.created_at,
+        profile_json,
+        sections=CV_FEEDING_SECTIONS,
+        sources=INTERVIEW_SOURCES,
+        document_id=cv.id,
     )
 
 
@@ -850,6 +856,8 @@ async def _build_state_response(
                     cv.created_at,
                     profile_record.profile_json if profile_record else None,
                     sections=CV_FEEDING_SECTIONS,
+                    # A-5: what this CV's own surface wrote is already in it.
+                    document_id=cv.id,
                 ),
             )
 

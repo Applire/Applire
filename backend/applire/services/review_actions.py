@@ -363,7 +363,11 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
             raise FindingDenied(key, finding.denials)
         if finding.employer_sentence:
             raise FindingAboutEmployer(key)
-        testimony = await submit_testimony(text, db, provider, user_id=owner)
+        # A-5 (MD7-10): the card writes what THIS document already says — the
+        # record names it, so its "Profil aktualisiert" cue stays quiet.
+        testimony = await submit_testimony(
+            text, db, provider, user_id=owner, document_kind=kind, document_id=doc_id
+        )
         await reaudit(kind, record, db)
         vault_changed = testimony.status in ("applied", "partial")
         still = rs.find_listed(findings_of(record), key) is not None

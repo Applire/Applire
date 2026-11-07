@@ -191,6 +191,11 @@ class CommitProvenance:
     intake: str
     session_id: str | None = None
     actor: str | None = None
+    #: A-5 (MD7-10): the generated document whose own surface made this write
+    #: (``EnrichmentRecord.document_id`` / ``document_kind``); ``None`` for every
+    #: write that did not come from a document.
+    document_id: str | None = None
+    document_kind: str | None = None
 
 
 @dataclass
@@ -792,6 +797,8 @@ async def commit_ops(
         timestamp=now,
         source=provenance.source,
         source_session_id=provenance.session_id,
+        document_id=provenance.document_id,
+        document_kind=provenance.document_kind,
         changes=receipt_changes,
         # US161 (ADR-041 amended) — merge statistics ride out of the applier
         # because only an import intake can compute them (`ApplyImportMerge`);

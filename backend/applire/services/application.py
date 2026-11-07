@@ -784,7 +784,7 @@ async def _enrich_stale_cv(
     if not profile_json:
         return
     trail = (profile_json.get("metadata") or {}).get("enrichment_history") or []
-    records: list[tuple[datetime, list[dict], int]] = []
+    records: list[tuple[datetime, list[dict], int, str | None]] = []
     for rec in trail:
         ts = _parse_trail_timestamp(rec.get("timestamp"))
         if ts is None:
@@ -796,10 +796,11 @@ async def _enrich_stale_cv(
         # B3-12: a newly recorded limit arms its own hint.
         limits = sum(1 for c in raw if _is_new_limit(c))
         if changes or limits:
-            records.append((ts, changes, limits))
+            # A-5 (MD7-10): the document whose own surface made this write.
+            origin = rec.get("document_id")
+            records.append((ts, changes, limits, str(origin) if origin is not None else None))
     if not records:
         return
-    enriched_at = max(ts for ts, _, _ in records)
 
     job_ids = {i.job_analysis_id for i in candidates}
     cv_result = await db.execute(
@@ -828,6 +829,12 @@ async def _enrich_stale_cv(
         if latest is None:
             continue
         cv_created_at = _as_utc(latest.created_at)
+        # A-5: a write this CV's own surface made (review card, section assist,
+        # section edit → profile) is already in it — never "the profile grew".
+        relevant = [r for r in records if r[3] != str(latest.id)]
+        if not relevant:
+            continue
+        enriched_at = max(ts for ts, _, _, _ in relevant)
         if enriched_at <= cv_created_at:
             continue
         dismissed_at = _as_utc(item.stale_cv_dismissed_at)
@@ -836,7 +843,7 @@ async def _enrich_stale_cv(
 
         section_counts: dict[str, int] = {}
         new_limits = 0
-        for ts, changes, limits in records:
+        for ts, changes, limits, _ in relevant:
             if ts <= cv_created_at:
                 continue
             new_limits += limits

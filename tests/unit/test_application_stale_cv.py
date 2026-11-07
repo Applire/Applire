@@ -640,3 +640,35 @@ async def test_a_limit_after_a_dismissal_rearms_the_hint(db):
 
     hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
     assert hint is not None and hint.reason == "new_limit"
+
+
+# ---------------------------------------------------------------------------
+# Hazelnut b7 adversarial A-5 (MD7-10): a write the CV's own surface made
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_write_made_from_the_latest_cv_is_not_growth_for_that_cv(db):
+    """The review card / section assist / section edit → profile on THIS CV
+    wrote what the CV already says: no re-tailor nudge for it. A write tagged
+    with another document (the letter's card) still is growth."""
+    cv_id = uuid.uuid4()
+    own = _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")])
+    own.update(source="testimony", document_kind="cv", document_id=str(cv_id))
+    db.add(_make_profile([own]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5), id=cv_id))
+    await db.commit()
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv is None
+
+
+@pytest.mark.asyncio
+async def test_a_write_made_from_the_letter_is_still_growth_for_the_cv(db):
+    letter_side = _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")])
+    letter_side.update(source="testimony", document_kind="cover_letter", document_id=str(uuid.uuid4()))
+    db.add(_make_profile([letter_side]))
+    app = await _make_application(db)
+    db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
+    await db.commit()
+    hint = (await get_application(app.id, _STUB_USER_ID, db)).stale_cv
+    assert hint is not None and [(g.section, g.count) for g in hint.gained] == [("skills", 1)]
