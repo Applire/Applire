@@ -214,7 +214,9 @@ def test_three_gaps_render_only_the_most_urgent_with_the_count():
     assert "only the most urgent one is named" in flat
     name_part = block.split("NAME IN THE LETTER:")[1]
     assert "Kafka" in name_part and "Boomi" not in name_part and "Terraform" not in name_part
-    assert "not in the profile" in name_part
+    # Build 7 (L-1 / L-2 = B): the renderer never says "not asked"; the letter's own
+    # ladder (`letter_gap_ladder`) never hands it an unrecorded row.
+    assert "recorded no" in name_part and "not asked" not in name_part
     assert "i will get up to speed on kafka quickly" in flat  # an example, EN
 
 

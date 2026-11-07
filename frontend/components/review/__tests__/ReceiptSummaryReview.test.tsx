@@ -61,12 +61,30 @@ describe("ReceiptSummaryReview (ruling V-1 = A)", () => {
     await waitFor(() => expect(screen.getAllByTestId("receipt-summary-group")).toHaveLength(3));
     expect(screen.getByTestId("receipt-summary-lead")).toHaveTextContent("summary.lead(5)");
     const work = screen.getAllByTestId("receipt-summary-group")[0];
-    expect(work).toHaveTextContent("summary.points(2)");
-    expect(work).toHaveTextContent("summary.tools(1)");
+    // 789:209: the section line counts the same facts the station line does (3 = 3).
+    expect(work).toHaveTextContent("summary.points(3)");
+    expect(work).toHaveTextContent("summary.entityCount(Produktionsleiter – Weberit|3)");
+    expect(work).not.toHaveTextContent("summary.tools");
     expect(work).toHaveTextContent("Produktionsleiter – Weberit");
     expect(within(screen.getByTestId("receipt-summary-top")).getByText(/Termintreue/)).toBeInTheDocument();
     expect(screen.queryByTestId("receipt-summary-full")).toBeNull();
     expect(screen.queryByText(LONG)).toBeNull();
+  });
+
+  it("789:209 — a station's facts of any kind count once in BOTH lines (Marcus: 4 vs 5)", async () => {
+    const mes = "Projektleiter – MES @ Weberit";
+    const kinds = ["responsibility", "result", "detail", "detail", "technology"];
+    getReceiptSummary.mockResolvedValue({
+      ...SUMMARY,
+      facts_total: 5,
+      groups: [{ section: "projects", count: 5, entities: [{ label: mes, count: 5 }], preview: [], more: 0 }],
+      top: [],
+      facts: kinds.map((kind, i) => ({ key: `p${i}`, section: "projects", kind, action: "added", text: `F${i}`, entity_label: mes, also_in: [] })),
+    });
+    render(<ReceiptSummaryReview sessionId="s1" />);
+    const card = await screen.findByTestId("receipt-summary-group");
+    expect(card).toHaveTextContent("summary.points(5)");
+    expect(card).toHaveTextContent("summary.entityCount(Projektleiter – MES – Weberit|5)");
   });
 
   it("the expander shows every fact once, untruncated, with where else it was written", async () => {

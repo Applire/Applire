@@ -30,7 +30,7 @@ import {
 import { AddPersonDialog, ConfirmDialog, DeleteUserDialog, LinkDialog } from "./UserDialogs";
 import { UsersTable, type UserAction } from "./UsersTable";
 
-type Confirm = { action: "makeAdmin" | "disable" | "revokeTokens" | "makeUser"; user: AdminUser };
+type Confirm = { action: "makeAdmin" | "disable" | "revokeTokens" | "makeUser" | "resetLink"; user: AdminUser };
 
 export function UsersAdmin() {
   const t = useTranslations("adminUsers");
@@ -100,8 +100,8 @@ export function UsersAdmin() {
       case "reinvite":
         void issue(reinvite, u);
         return;
-      case "resetLink":
-        void issue(resetLink, u);
+      case "openAccount":
+        router.push("/settings");
         return;
       case "enable":
         void patch(u, { disabled: false }).then((err) => {
@@ -142,7 +142,13 @@ export function UsersAdmin() {
     let err: string | null = null;
     if (action === "makeAdmin") err = await patch(u, { role: "admin" });
     else if (action === "disable") err = await patch(u, { disabled: true });
-    else if (action === "revokeTokens") {
+    if (action === "resetLink") {
+      // Confirmed: issue the link; the result (or its failure) has its own dialog.
+      setBusy(false);
+      setConfirm(null);
+      await issue(resetLink, u);
+      return;
+    } else if (action === "revokeTokens") {
       try {
         const res = await revokeTokens(u.id);
         err = res.ok ? null : await failure(res, u.email);
@@ -178,7 +184,17 @@ export function UsersAdmin() {
       case "disable":
         return { title: t("disableTitle", { email }), body: t("disableBody"), label: t("disableConfirm"), danger: true };
       case "revokeTokens":
-        return { title: t("revokeTokensTitle", { email }), body: t("revokeTokensBody"), label: t("revokeTokensConfirm"), danger: true };
+        return {
+          title: t("revokeTokensTitle", { email }),
+          body:
+            typeof c.user.metadata.active_token_count === "number"
+              ? t("revokeTokensBodyCount", { count: c.user.metadata.active_token_count, email })
+              : t("revokeTokensBody"),
+          label: t("revokeTokensConfirm"),
+          danger: true,
+        };
+      case "resetLink":
+        return { title: t("resetConfirmTitle", { email }), body: t("resetConfirmBody", { email }), label: t("resetConfirm"), danger: false };
       default:
         // makeUser / enable / link refusals: no confirmation of their own — the
         // dialog only ever shows the error, titled with the person's e-mail.

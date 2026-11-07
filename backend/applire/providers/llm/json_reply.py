@@ -140,7 +140,8 @@ def parse_json_reply(
         return value
     if _tail_is_json(tail):
         raise LLMResponseParseError(
-            f"{provider} reply holds a second JSON value after the first", text, end
+            f"{provider} reply holds a second JSON value after the first", text, end,
+            second_value=True,
         )
     kind = _tail_kind(tail)
     if kind not in ("whitespace", "fence"):

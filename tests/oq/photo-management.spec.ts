@@ -95,13 +95,13 @@ test.describe('Sprint 14: Profile Photo — CV flow photo prompt', () => {
     await page.goto(`/flow/${TEST_FLOW_ID}/cv`);
 
     // Photo prompt step should appear
-    await expect(page.getByText('Add a profile photo?')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('A photo on your CV?')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Upload photo')).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId('photo-prompt-skip')).toContainText('Continue without a photo');
 
     // Skipping advances to template select and remembers "no photo"
     await page.getByTestId('photo-prompt-skip').click();
-    await expect(page.getByText('Add a profile photo?')).not.toBeVisible();
+    await expect(page.getByText('A photo on your CV?')).not.toBeVisible();
     await expect.poll(() => dismissals).toContainEqual({ dismiss_explainer: 'cv_photo_prompt' });
     // TemplateSelector renders after skip
     await expect(page.getByTestId('cv-page')).toBeVisible();
@@ -127,7 +127,7 @@ test.describe('Sprint 14: Profile Photo — CV flow photo prompt', () => {
     await page.goto(`/flow/${TEST_FLOW_ID}/cv`);
 
     // Photo prompt step should NOT appear — goes straight to template select
-    await expect(page.getByText('Add a profile photo?')).not.toBeVisible();
+    await expect(page.getByText('A photo on your CV?')).not.toBeVisible();
   });
 });
 
@@ -237,7 +237,7 @@ test.describe('Sprint 14: Profile Photo — Profile page PhotoManager', () => {
     await expect(page.getByRole('button', { name: 'Replace' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
     await expect(
-      page.getByText('✓ Photo will appear in your Lebenslauf and Swiss CV templates')
+      page.getByText('✓ Saved. The photo appears in the templates with a photo slot')
     ).toBeVisible();
   });
 

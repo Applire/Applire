@@ -113,6 +113,20 @@ def _targets(
     return picked
 
 
+def _is_recorded_denial(fresh: dict[str, Any], denials: list[str]) -> bool:
+    """A fresh row the ledger floor wrote as the candidate's recorded "no":
+    ``status == "denied"`` and its ``denied_by`` names a live record (a fact:
+    normalised equality against today's ``denied_concepts``)."""
+    from applire.services.keyword_ledger import DENIED_BY_KEY
+
+    record = fresh.get(DENIED_BY_KEY)
+    return (
+        fresh.get("status") == "denied"
+        and isinstance(record, str)
+        and gap_coverage._norm(record) in {gap_coverage._norm(d) for d in denials}
+    )
+
+
 def _narrowed_job(job_inputs: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     job = copy.deepcopy(job_inputs)
     lists: dict[str, list[str]] = {key: [] for _src, key in _LISTS}
@@ -154,16 +168,19 @@ async def rejudge_open_members(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Re-judge ``members`` (one cluster's) against the post-turn vault.
 
-    Returns ``(ledger, lifted_concepts)`` — a NEW list (the input is not
+    Returns ``(ledger, moved_concepts)`` — a NEW list (the input is not
     mutated); unchanged and ``[]`` when nothing was open, the call failed, or no
-    verdict passed the Fact."""
+    verdict passed the Fact. A moved concept was lifted on a verified quote, or
+    (787:167, D12) closed by a recorded denial the classifier bound it to."""
     from applire.prompts import preamble as _prompt_context
     from applire.constants import GAP_ANALYSIS_MAX_TOKENS
     from applire.prompts.gap_analysis import SYSTEM_PROMPT, build_user_prompt
     from applire.services.gap_inference import pre_classify
     from applire.services.keyword_ledger import (
+        DENIED_BY_KEY,
         _annotate_narrative_backed,
         _denied_concept_entries,
+        _denied_row,
         _verified_backing_path,
         build_keyword_ledger,
     )
@@ -228,6 +245,23 @@ async def rejudge_open_members(
     for i in target_idx:
         existing = rows[i]
         fresh = fresh_by_concept.get(gap_coverage._norm(existing.get("concept", "")))
+        if fresh and _is_recorded_denial(fresh, denials):
+            # 787:167 (D12, ADR-089 cl. 2 amended 2026-11-07): the classifier
+            # bound this open requirement to one of the candidate's recorded
+            # denials (`denied_by`, a Judgment over the statement; the ledger
+            # floor verified the id is a live record). The candidate's "no"
+            # closes it now, not at the completion recompute — so the next
+            # question does not ask it again ("BaFin-regulated environments"
+            # after "I have not worked … with BaFin supervision"). Never by
+            # string containment (G-1, #821).
+            pos = next(j for j, r in enumerate(out) if r is existing)
+            out[pos] = _denied_row(
+                {k: v for k, v in existing.items() if k not in ("unbacked",)},
+                fresh.get("denial_level") if fresh.get("denial_level") in ("direct", "partial") else "direct",
+                fresh.get(DENIED_BY_KEY),
+            )
+            lifted.append(existing.get("concept", ""))
+            continue
         if not fresh or not fresh.get("claimable") or _rank(fresh.get("status")) <= _rank(existing.get("status")):
             continue
         unit_path = _verified_backing_path(fresh, index, denials=denials, corpus=corpus, aims=aims)
@@ -237,5 +271,5 @@ async def rejudge_open_members(
         out[pos] = _annotate_narrative_backed([_lifted_row(existing, fresh, unit_path)], profile_json)[0]
         lifted.append(existing.get("concept", ""))
     if lifted:
-        logger.info("interview coverage re-judge lifted %s", lifted)
+        logger.info("interview coverage re-judge moved %s", lifted)
     return out, lifted

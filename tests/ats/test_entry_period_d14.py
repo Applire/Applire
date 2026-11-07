@@ -83,7 +83,8 @@ def _expected(lang: str) -> dict[str, str]:
         "CURRCO": f"04/2019 – {present}",
         "LEGACYCO": f"02/2016 – {present}",
         "CLOSEDCO": "01/2010 – 12/2015",
-        "EDUOPEN": f"10/2001 – {present}",
+        # MD7-13 (round 4): education has no is_current; a lone date is not "until today".
+        "EDUOPEN": "10/2001",
         "EDUDONE": "10/1997 – 09/2001",
     }
 
@@ -95,8 +96,9 @@ def _assert_periods(text: str, lang: str, where: str) -> None:
     assert "03/2005" in text, f"{where}: the ended role's start date must still render"
     assert f"03/2005 – {present}" not in text, f"{where}: an ended role reads as current (D-14)"
     assert "03/2005 –" not in text, f"{where}: an ended role with no known end shows a dangling dash"
-    # Exactly the two current/unstated work entries + the open education say "Present".
-    assert text.count(present) == 3, f"{where}: {text.count(present)} × {present!r}"
+    assert "10/2001 –" not in text, f"{where}: an education entry's lone date reads as ongoing (MD7-13)"
+    # Exactly the two current/unstated work entries say "Present" — never education (MD7-13).
+    assert text.count(present) == 2, f"{where}: {text.count(present)} × {present!r}"
 
 
 def _html(template: str, lang: str) -> str:
@@ -134,7 +136,7 @@ def test_the_docx_export_agrees_with_the_templates(lang):
 def test_no_template_source_keeps_the_end_date_shortcut(template):
     src = (_TEMPLATES_DIR / CV_TEMPLATES[template]).read_text(encoding="utf-8")
     assert "if job.end_date else" not in src and "if edu.end_date else" not in src
-    assert "job | period(labels.present)" in src and "edu | period(labels.present)" in src
+    assert "job | period(labels.present)" in src and 'edu | period(labels.present, "education")' in src
 
 
 @pytest.mark.parametrize("cur", [True, False, None])

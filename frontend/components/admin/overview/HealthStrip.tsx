@@ -18,7 +18,10 @@ import { CardLink } from "../common";
 const KNOWN_COMPONENTS = new Set(["database", "migrations", "retention", "disk", "backup", "provider", "errors"]);
 const KNOWN_STATUS = new Set(["ok", "degraded", "down", "unknown", "off"]);
 
-export function HealthStrip({ health }: { health: DashboardHealth }) {
+const CHIP =
+  "inline-flex items-center gap-1.5 rounded-full border border-outline-variant bg-white/75 px-2.5 py-0.5 text-[12px] text-on-surface";
+
+export function HealthStrip({ health, failedJobs = 0 }: { health: DashboardHealth; failedJobs?: number }) {
   const t = useTranslations("adminDashboard");
   const tOps = useTranslations("ops");
   const locale = useLocale();
@@ -43,6 +46,10 @@ export function HealthStrip({ health }: { health: DashboardHealth }) {
   const providerTime = providerAt
     ? new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(providerAt))
     : null;
+  // Healthy but something waits for the operator: neutral chips (grey dot) —
+  // amber/red stay reserved for degraded/down (COPY.md §1).
+  const backupPending = health.components.some((c) => c.name === "backup" && c.status === "ok" && c.not_set_up === true);
+  const todos = kind === "ok" ? [backupPending, failedJobs > 0] : [false, false];
   const label = (name: string) => (KNOWN_COMPONENTS.has(name) ? tOps(`component.${name}`) : name);
   const status = (s: string) => (KNOWN_STATUS.has(s) ? tOps(`status.${s}`) : s);
 
@@ -62,18 +69,30 @@ export function HealthStrip({ health }: { health: DashboardHealth }) {
           {t("healthDetails")}
         </CardLink>
       </span>
-      {bad.length > 0 && (
+      {(bad.length > 0 || todos[0] || todos[1]) && (
         <div className="flex w-full flex-wrap gap-1.5">
           {bad.map((c) => (
             <span
               key={c.name}
               data-testid={`admin-health-chip-${c.name}`}
-              className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant bg-white/75 px-2.5 py-0.5 text-[12px] text-on-surface"
+              className={CHIP}
             >
               <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${c.status === "down" ? "bg-critical" : "bg-warning"}`} />
               {[label(c.name), status(c.status)].join(" — ")}
             </span>
           ))}
+          {todos[0] && (
+            <span data-testid="admin-health-chip-backup-pending" className={CHIP}>
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-outline-variant" />
+              {t("chipBackupPending")}
+            </span>
+          )}
+          {todos[1] && (
+            <span data-testid="admin-health-chip-failed-jobs" className={CHIP}>
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-outline-variant" />
+              {t("chipFailedJobs", { count: failedJobs })}
+            </span>
+          )}
         </div>
       )}
     </div>

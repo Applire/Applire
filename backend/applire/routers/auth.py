@@ -74,11 +74,22 @@ def _harness_on() -> bool:
         return False
 
 
+async def _installed_fresh(db: AsyncSession) -> bool:
+    """True when the lifespan's fresh-install branch stamped this instance (ADR-087
+    amended 2026-10-20, R-2): it had no data at its first start, so there is nothing
+    from before accounts to take over (789:267)."""
+    from applire.services.instance_state import KEY_INSTANCE_FIRST_STARTED_AT, read_state
+
+    return bool(await read_state(db, KEY_INSTANCE_FIRST_STARTED_AT))
+
+
 @router.get("/state", response_model=AuthStateResponse)
 async def auth_state(db: AsyncSession = Depends(get_db)) -> AuthStateResponse:
     """What the sign-in and setup pages need before anyone is signed in (public)."""
+    needs_setup = await setup_required(db)
     return AuthStateResponse(
-        setup_required=await setup_required(db),
+        setup_required=needs_setup,
+        upgraded_install=needs_setup and not await _installed_fresh(db),
         oidc_enabled=bool(settings.oidc_issuer.strip()),
         oidc_button_label=settings.oidc_button_label,
         smtp_enabled=bool(settings.smtp_host.strip()),

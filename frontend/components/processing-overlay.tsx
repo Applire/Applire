@@ -127,6 +127,12 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   // Keyed by the file's upload-step index; value is the clean backend detail.
   const [fileErrors, setFileErrors] = useState<Record<number, string>>({});
   const [retrying, setRetrying] = useState<number | null>(null);
+  // C9 (UX audit round 3, Emma) — some files were not read: the run stops here,
+  // names them (the per-file rows above) and offers Retry or "continue without",
+  // instead of moving on to the gaps page with only a count.
+  const [partialPause, setPartialPause] = useState<{
+    signals: { nameMismatch?: boolean; notCv?: boolean; undated?: number };
+  } | null>(null);
   // #615 — entries the merge's own ops did not carry, aggregated across every
   // uploaded file (like undated_positions), rendered as one localised note.
   const [notAppliedItems, setNotAppliedItems] = useState<ImportNotAppliedItem[]>([]);
@@ -268,7 +274,10 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
       if (!jobId) {
         if (hasJdStep) setStepStatus(gapsIdx, "done");
         await new Promise((r) => setTimeout(r, 400));
-        router.push(`/flow/${flowId}/gaps${gapsQuery}`);
+        // RULING V-4 = B (founder, 2026-11-07; 789:258/262): with NO job posting
+        // there is no gap step — the flow layout bounced /gaps to a bare upload
+        // page. Land on the import summary, where the open questions are too.
+        router.push(hasJdStep ? `/flow/${flowId}/gaps${gapsQuery}` : `/profile${gapsQuery}#import-summary`);
         return;
       }
 
@@ -398,11 +407,17 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
           throw new Error(t("allCvsFailed"));
         }
 
-        await finishPipeline(parsedCount, files.length, {
+        const signals = {
           nameMismatch: anyNameMismatch,
           notCv: anyNotCv,
           undated: totalUndated,
-        });
+        };
+        if (parsedCount < files.length) {
+          // C9 — the person decides: retry the named file, or continue without it.
+          setPartialPause({ signals });
+          return;
+        }
+        await finishPipeline(parsedCount, files.length, signals);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : t("genericError"));
       }
@@ -467,6 +482,28 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
     if (ok?.not_applied?.length) {
       setNotAppliedItems((prev) => [...prev, ...ok.not_applied!]);
     }
+    if (ok && partialPause) {
+      // C9 — the paused batch: once every file is read, carry on by itself.
+      const remainingErrors = Object.keys(fileErrors).filter(
+        (k) => Number(k) !== uploadIdx,
+      ).length;
+      const signals = {
+        nameMismatch: partialPause.signals.nameMismatch || ok.name_mismatch,
+        notCv: partialPause.signals.notCv || ok.looks_like_cv === false,
+        undated: (partialPause.signals.undated ?? 0) + (ok.undated_positions ?? 0),
+      };
+      if (remainingErrors === 0) {
+        setPartialPause(null);
+        try {
+          await finishPipeline(files.length, files.length, signals);
+        } catch (e: unknown) {
+          setError(e instanceof Error ? e.message : t("uploadFailed"));
+        }
+      } else {
+        setPartialPause({ signals });
+      }
+      return;
+    }
     if (ok && error && pipelineCtx.current.flowId) {
       // Recovery: at least one CV now parsed. Clear the hard error and resume.
       setError(null);
@@ -483,6 +520,32 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : t("uploadFailed"));
       }
+    }
+  }
+
+  // C9 — "continue without these files": the gaps page then says how many were read.
+  async function continueWithoutFailed() {
+    const pause = partialPause;
+    if (!pause) return;
+    setPartialPause(null);
+    const parsedCount = files.length - Object.keys(fileErrors).length;
+    // C9 — the gaps page names the files that were not read (no names in the URL:
+    // a file name often carries the person's own name).
+    const flowId = pipelineCtx.current.flowId;
+    if (flowId) {
+      const names = files
+        .map((f, i) => (fileErrors[jdOffset + i] ? f.name : null))
+        .filter((n): n is string => n !== null);
+      try {
+        sessionStorage.setItem(`applire.failedImports.${flowId}`, JSON.stringify(names));
+      } catch {
+        // storage unavailable (private mode): the gaps page falls back to the count.
+      }
+    }
+    try {
+      await finishPipeline(parsedCount, files.length, pause.signals);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : t("genericError"));
     }
   }
 
@@ -685,6 +748,24 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {partialPause && (
+              <div className="w-full mt-3 space-y-2" data-testid="processing-partial-pause">
+                <p className="text-xs text-on-surface-variant text-center">
+                  {t("partialPauseNote", { count: Object.keys(fileErrors).length })}
+                </p>
+                <div className="flex justify-center">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-testid="continue-without-failed"
+                    disabled={retrying !== null}
+                    onClick={continueWithoutFailed}
+                  >
+                    {t("continueWithoutFailed", { count: Object.keys(fileErrors).length })}
+                  </Button>
+                </div>
               </div>
             )}
             {jdNote && (

@@ -1084,6 +1084,10 @@ export default function ProfilePage() {
         issue={resolveIssue}
         onAction={handleResolveAction}
         onSectionAction={handleSectionAction}
+        onSettled={() => loadProfile()}
+        reviewIds={renderedIssues(health)
+          .filter((i) => i.thread === "conflict" || i.thread === "confirmation")
+          .map((i) => i.id)}
         onClose={() => {
           setReviewDrawerOpen(false);
           setResolveIssue(null);

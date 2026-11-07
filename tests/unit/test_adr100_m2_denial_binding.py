@@ -218,8 +218,10 @@ def test_an_e2e_shaped_same_language_record_still_binds_when_nothing_releases_it
     row = _gap_row("Reference designs", **{DENIED_BY_KEY: record["concept"]})
     [out] = _enforce_denial_stance([row], [record], "python sql")
     assert out["status"] == "denied"
+    # #821 (G-1): without the classifier's binding, containment in the
+    # record's words floors nothing — the row stays exactly as graded.
     [unbound] = _enforce_denial_stance([_gap_row("Reference designs")], [record], "python sql")
-    assert unbound["status"] == "gap" and unbound["evidence"] == DENIAL_FLOOR_EVIDENCE
+    assert unbound == _gap_row("Reference designs")
 
 
 def test_a_persisted_bound_row_is_idempotent_at_a_re_floor():

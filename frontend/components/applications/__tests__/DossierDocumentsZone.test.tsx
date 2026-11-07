@@ -361,3 +361,28 @@ describe("DossierDocumentsZone (US232 — full version recall)", () => {
     await waitFor(() => expect(onError).toHaveBeenCalled());
   });
 });
+
+describe("DossierDocumentsZone (789:252 — create-letter row)", () => {
+  const READY = [{ cv_id: "cv-1", status: "ready", template: "classic_german", created_at: "2026-07-10T09:00:00Z" }];
+
+  it("offers 'create cover letter' with a ready CV and no letter", async () => {
+    await renderZone({ application: baseApplication(), cvItems: READY });
+    const row = await screen.findByTestId("dossier-cover-letter-create");
+    expect(within(row).getByRole("link")).toHaveAttribute("href", "/flow/flow-1/cover-letter");
+  });
+
+  it("hides it when a letter exists", async () => {
+    await renderZone({ application: baseApplication(), cvItems: READY, coverLetter: COVER_LETTER });
+    await screen.findAllByTestId("dossier-doc-row");
+    expect(screen.queryByTestId("dossier-cover-letter-create")).toBeNull();
+  });
+
+  it("hides it with no ready CV", async () => {
+    await renderZone({
+      application: baseApplication(),
+      cvItems: [{ cv_id: "cv-g", status: "generating", template: "classic_german", created_at: "2026-07-10T09:00:00Z" }],
+    });
+    await screen.findAllByTestId("dossier-doc-row");
+    expect(screen.queryByTestId("dossier-cover-letter-create")).toBeNull();
+  });
+});

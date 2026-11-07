@@ -629,6 +629,19 @@ def _marked_document(payload, tool: str):
     return mark_tool_result(payload, fields, kind="generated_document")
 
 
+def _with_retry_advice(payload):
+    """788:134 (Hazelnut build 7, WP-O): a failed generation tells the agent, as a
+    typed field, whether sending the same request again can help — ``retryable``
+    beside the status door's stable ``error_code`` (``llm_timeout`` /
+    ``provider_unavailable`` / ``llm_truncated`` = the provider's side; the guide
+    says: retry once, unchanged). Untouched on every other status."""
+    from applire.services.generation_errors import is_retryable
+
+    if isinstance(payload, dict) and payload.get("status") == "failed":
+        payload["retryable"] = is_retryable(payload.get("error_code"))
+    return payload
+
+
 # Final review I-2 — an ats-report check can carry `unreviewed_changes[]`: the
 # verbatim before/after text of the sections Applire changed after its last
 # check. That is the writer's output (kind `generated_document`), on a payload
@@ -1079,7 +1092,31 @@ async def submit_testimony(text: str) -> dict:
     payload["matched"] = _match_receipt_summary(
         payload.get("matched"), reveal_existing=True
     )
+    payload["summary"] = _testimony_summary(payload)
     return payload
+
+
+def _testimony_summary(payload: dict) -> str:
+    """788:133 (Hazelnut build 7, WP-O): one sentence that separates "what landed"
+    from "what waits". ``status`` names the single most actionable outcome
+    (precedence error > needs_confirmation > conflict > partial > applied …), so
+    a submission whose 12 changes all landed beside one parked conflict reads
+    ``conflict`` — Kaile took that for "not accepted". The counts come from the
+    same payload; nothing is re-judged here."""
+    if payload.get("status") == "error":
+        return "Nothing was saved — see detail."
+    applied = len(payload.get("changes") or [])
+    waiting = []
+    if payload.get("confirmations"):
+        waiting.append(f"{len(payload['confirmations'])} confirmation(s) for the person")
+    if payload.get("conflicts"):
+        waiting.append(f"{len(payload['conflicts'])} conflict(s) for the person")
+    if payload.get("not_applied"):
+        waiting.append(f"{len(payload['not_applied'])} part(s) not applied (see not_applied)")
+    head = f"{applied} change(s) saved to the profile."
+    if not waiting:
+        return head
+    return f"{head} Waiting: {', '.join(waiting)} — the saved changes stay either way."
 
 
 @agent_tool(description="Analyse gaps between the current profile and the specified job.")
@@ -1420,7 +1457,7 @@ async def get_cv_status(cv_id: str) -> dict:
             )
         except LookupError as exc:
             raise not_found(str(exc))
-        payload = result.model_dump(mode="json")
+        payload = _with_retry_advice(result.model_dump(mode="json"))
         # 788:L22/L30 — the CV's own text, the twin of the letter status's
         # `letter_data`: without it an agent judged a CV it could not read.
         payload["tailored_data"] = (
@@ -1761,9 +1798,10 @@ async def render_document(
 
 @agent_tool(
     description=(
-        "Generate a cover letter for a job (after start_flow). Returns "
+        "Generate a cover letter for a job (needs its flow: start_flow(job_id) or "
+        "create_application(start_workflow=true)). Returns "
         "cover_letter_id, status, html_url, pdf_url. Optional inputs: the "
-        "user's own words only (AGENT_GUIDE.md)."
+        "user's own words only (get_guide)."
     )
 )
 async def generate_cover_letter(
@@ -1818,7 +1856,19 @@ async def generate_cover_letter(
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal_unexpected(exc, where="generate_cover_letter")
-    return result.model_dump(mode="json")
+        payload = result.model_dump(mode="json")
+        if payload.get("status") == "failed":
+            # 788:134: generation blocks inline on this door, so a failure is
+            # already final here — answer with the status door's code, sentence
+            # and retry advice instead of a bare "failed" (Kaile had to poll to
+            # learn "Requesty call timed out after 180s").
+            failed = await cover_letter_svc.get_cover_letter_status(
+                result.cover_letter_id, db, settings.applire_base_url, user_id=uid
+            )
+            payload["error_code"] = failed.error_code
+            payload["error_message"] = failed.error_message
+            _with_retry_advice(payload)
+    return payload
 
 
 @agent_tool(
@@ -1840,7 +1890,9 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
             )
         except LookupError as exc:
             raise not_found(str(exc))
-    return _marked_document(result.model_dump(mode="json"), "get_cover_letter_status")
+    return _marked_document(
+        _with_retry_advice(result.model_dump(mode="json")), "get_cover_letter_status"
+    )
 
 
 @agent_tool(
@@ -2045,7 +2097,21 @@ async def create_application(
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal_unexpected(exc, where="create_application")
-    return _marked(result.model_dump(mode="json"), "application")
+    return _marked(_with_pin_reminder(result.model_dump(mode="json")), "application")
+
+
+def _with_pin_reminder(payload: dict) -> dict:
+    """788:135 (Hazelnut build 7, WP-O): ``workflow_status: completed`` means a
+    ready CV exists, not that one was sent — the sent document is pinned only by
+    ``update_application`` (the UI's pin is explicit too). Say so at the moment
+    the agent logs the application, instead of relying on a guide paragraph."""
+    if payload.get("workflow_status") == "completed" and not payload.get("submitted_cv_id"):
+        payload["pin_reminder"] = (
+            "No sent CV is pinned. When the person sends it, call update_application("
+            "submitted_cv_id=…, submitted_cover_letter_id=…) — a pinned document is "
+            "kept while the application is active."
+        )
+    return payload
 
 
 @agent_tool(

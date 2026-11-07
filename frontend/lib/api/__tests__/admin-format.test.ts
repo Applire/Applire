@@ -30,6 +30,10 @@ describe("audit labels", () => {
 
   it("a secret change gets the key label, an unknown action shows its code", () => {
     expect(auditActionLabel("settings.changed", { key: "OPENROUTER_API_KEY", write_only: true })).toEqual({ key: "action.settings_secretChanged" });
+    expect(auditActionLabel("settings.env_observed", { key: "RETENTION_ENABLED", from_value: null, to_value: true })).toEqual({ key: "action.settings_env_observed_first" });
+    expect(auditActionLabel("settings.env_observed", { key: "RETENTION_ENABLED", from_value: false, to_value: true })).toEqual({ key: "action.settings_env_observed" });
+    expect(auditDetailParts("settings.env_observed", { key: "RETENTION_ENABLED", from_value: null, to_value: true })).toEqual([{ key: "detail.settingFirst", params: { setting: "RETENTION_ENABLED", to: "true" } }]);
+    expect(auditDetailParts("settings.env_observed", { key: "RETENTION_ENABLED", from_value: false, to_value: true })[0].key).toBe("detail.setting");
     expect(auditActionLabel("foo.bar", {})).toEqual({ key: "action.unknown", params: { action: "foo.bar" } });
   });
 

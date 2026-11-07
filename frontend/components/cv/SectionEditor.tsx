@@ -20,6 +20,7 @@
 
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { useTranslations } from "next-intl";
+import { Dot, X } from "lucide-react";
 import { GapHint } from "./GapHint";
 import { SaveScopePrompt, saveScopeStorageKey } from "./SaveScopePrompt";
 
@@ -50,6 +51,18 @@ const ENTRY_FIELDS = {
 } as const;
 type EntryKind = keyof typeof ENTRY_FIELDS;
 
+export function isPositionSection(sectionId: string): boolean {
+  return sectionId.startsWith("position::");
+}
+
+function cleanBullets(text: string): string {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "")
+    .join("\n");
+}
+
 export function entryKindOf(sectionId: string): EntryKind | null {
   const kind = sectionId.split("::")[0];
   return kind === "certification" || kind === "education" ? kind : null;
@@ -76,6 +89,8 @@ interface SectionEditorProps {
   section: SectionItem;
   onSaved: (updatedHtml: string, savedContent: string, resolvedGaps: string[]) => void;
   onUnsavedChange: (hasUnsaved: boolean) => void;
+  /** 789:266 — called after "Änderung verwerfen" reset the draft: the caller returns to the list. */
+  onDiscarded?: () => void;
   onAddressGap?: (gapId: string) => void;
   onEnrichProfile?: (gapId: string) => void;
   /**
@@ -114,12 +129,15 @@ export interface SectionEditorHandle {
 
 export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>(
   function SectionEditor(
-    { cvId, section, onSaved, onUnsavedChange, onAddressGap, onEnrichProfile, showGapHints = true, showHeading = true },
+    { cvId, section, onSaved, onUnsavedChange, onDiscarded, onAddressGap, onEnrichProfile, showGapHints = true, showHeading = true },
     ref,
   ) {
   const t = useTranslations("cv");
   const tEdit = useTranslations("editTab");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const bulletRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
+  const focusBulletRef = useRef<number | null>(null);
+  const isPosition = isPositionSection(section.section_id);
   const [content, setContent] = useState(section.content);
   const [savedContent, setSavedContent] = useState(section.content);
   const [visibleGaps, setVisibleGaps] = useState<GapHintItem[]>(section.gaps);
@@ -150,6 +168,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
     setContent(savedContent);
     setSaveError(null);
     onUnsavedChange(false);
+    onDiscarded?.();
   }
 
   // Founder ruling D2-2 = A (#783 L23): an edited tailored introduction stays
@@ -188,7 +207,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
         setShowScopePrompt(true);
       }
     } else {
-      textareaRef.current?.focus();
+      (isPosition ? bulletRefs.current[0] : textareaRef.current)?.focus();
     }
   }
 
@@ -200,7 +219,9 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
 
   useImperativeHandle(ref, () => ({ injectSuggestion, saveWithDefaultScope }));
 
-  async function executeSave(saveToProfile: boolean, contentToSave: string = content): Promise<boolean> {
+  async function executeSave(saveToProfile: boolean, rawContent: string = content): Promise<boolean> {
+    // 789:265 — a position's empty bullets are dropped on save, never stored.
+    const contentToSave = isPosition ? cleanBullets(rawContent) : rawContent;
     setShowScopePrompt(false);
     setSaving(true);
     setSaveError(null);
@@ -223,6 +244,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
       const data: { html: string; overrides_applied: string[]; resolved_gaps: string[] } =
         await res.json();
       setSavedContent(contentToSave);
+      if (isPosition) setContent((c) => (c === rawContent ? contentToSave : c));
       onUnsavedChange(false);
       // Remove resolved gaps from the visible list
       if (data.resolved_gaps?.length) {
@@ -245,6 +267,19 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
   }
 
   const hasUnsaved = content !== savedContent;
+  const bullets = content.split("\n");
+
+  function setBullets(next: string[]) {
+    handleContentChange(next.join("\n"));
+  }
+
+  // Focus a freshly added bullet once it is rendered.
+  useEffect(() => {
+    if (focusBulletRef.current !== null) {
+      bulletRefs.current[focusBulletRef.current]?.focus();
+      focusBulletRef.current = null;
+    }
+  }, [content]);
   const entryKind = entryKindOf(section.section_id);
 
   async function handleRemoveEntry() {
@@ -325,6 +360,52 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
             {t("entryRemove")}
           </button>
         </div>
+      ) : isPosition ? (
+        <div className="flex flex-col gap-2" data-testid="section-bullets">
+          {bullets.map((bullet, i) => (
+            <div key={i} className="flex items-start gap-1">
+              <Dot className="size-5 mt-2 shrink-0 text-on-surface-variant" aria-hidden="true" />
+              <textarea
+                ref={(el) => {
+                  bulletRefs.current[i] = el;
+                }}
+                rows={2}
+                value={bullet}
+                onChange={(e) => {
+                  const next = [...bullets];
+                  next[i] = e.target.value.replace(/\r?\n/g, " ");
+                  setBullets(next);
+                }}
+                aria-label={t("bulletField", { n: i + 1 })}
+                data-testid={`section-bullet-${i}`}
+                className="flex-1 resize-y font-sans text-[15px] leading-relaxed text-on-surface border border-outline-variant rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const next = bullets.filter((_, j) => j !== i);
+                  setBullets(next.length ? next : [""]);
+                }}
+                aria-label={t("bulletRemove", { n: i + 1 })}
+                data-testid={`section-bullet-remove-${i}`}
+                className="mt-1.5 p-1 rounded-lg text-on-surface-variant hover:bg-surface-container"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              focusBulletRef.current = bullets.length;
+              setBullets([...bullets, ""]);
+            }}
+            data-testid="section-bullet-add"
+            className="self-start text-sm font-semibold text-teal underline"
+          >
+            {t("bulletAdd")}
+          </button>
+        </div>
       ) : (
       <textarea
         ref={textareaRef}
@@ -361,7 +442,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
           data-testid="section-cancel"
           className="flex-1 border border-gray-300 text-gray-600 font-semibold py-2 rounded-lg text-sm hover:opacity-90 disabled:opacity-40 transition-opacity"
         >
-          {t("cancel")}
+          {t("discardChange")}
         </button>
       </div>
 

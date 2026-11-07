@@ -67,6 +67,8 @@ from applire.schemas.profile import MasterProfileData
 # to avoid a circular import at module level.
 from applire.services.flow.orchestrator import _compute_actions, _resolve_user_type
 from applire.services.owner_resolution import resolve_user_id as _resolve_user_id
+from applire.services.profile_freshness import CV_FEEDING_SECTIONS
+from applire.services.profile_freshness import is_new_limit as _is_new_limit
 
 
 class ConflictError(Exception):
@@ -751,38 +753,9 @@ def _parse_trail_timestamp(value) -> datetime | None:
     return None
 
 
-#: Re-probe N3 (Hazelnut b3): the vault sections a tailored CV is written from
-#: (`MasterProfileData` content the CV writer reads). Only a change to one of
-#: these is "growth" for the re-tailor nudge. Fail-closed: a section not listed
-#: here (`availability` — the letter's notice period, saved from the letter
-#: form by B3-11 —, `metadata` bookkeeping such as pending confirmations or
-#: denials, `_meta` N/A marks, an empty section) never offers a re-tailor, and
-#: never reaches the nudge's copy as a raw field name. Every name here has a
-#: label in the frontend's `SECTION_LABEL_KEYS` (`lib/stale-cv.ts`).
-CV_FEEDING_SECTIONS: frozenset[str] = frozenset({
-    "personal_info",
-    "professional_summary",
-    "work_experience",
-    "education",
-    "certifications",
-    "skills",
-    "languages",
-    "projects",
-    "publications",
-    "volunteer_activities",
-    "signature_stories",
-})
-
-
-def _is_new_limit(change: dict) -> bool:
-    """B3-12: a NEWLY recorded denial — the candidate stated a limit. An
-    escalation, re-confirmation or probe bookkeeping is ``updated`` and does
-    not count; the limit itself was recorded earlier."""
-    return (
-        change.get("section") == "metadata"
-        and change.get("field") == "denied_concepts"
-        and change.get("action") == "added"
-    )
+# `CV_FEEDING_SECTIONS` and `_is_new_limit` live in `services/profile_freshness.py`
+# (Hazelnut build 7, F-2 (2)): the CV page's "profile updated" strip and this
+# nudge read ONE rule (ADR-066). Imported at the top under the old names.
 
 
 async def _enrich_stale_cv(
@@ -811,7 +784,7 @@ async def _enrich_stale_cv(
     if not profile_json:
         return
     trail = (profile_json.get("metadata") or {}).get("enrichment_history") or []
-    records: list[tuple[datetime, list[dict], int]] = []
+    records: list[tuple[datetime, list[dict], int, str | None, datetime | None]] = []
     for rec in trail:
         ts = _parse_trail_timestamp(rec.get("timestamp"))
         if ts is None:
@@ -823,10 +796,17 @@ async def _enrich_stale_cv(
         # B3-12: a newly recorded limit arms its own hint.
         limits = sum(1 for c in raw if _is_new_limit(c))
         if changes or limits:
-            records.append((ts, changes, limits))
+            # A-5 (MD7-10): the document whose own surface made this write.
+            origin = rec.get("document_id")
+            # A-8: an undo record puts only CVs newer than the undone merge behind.
+            since = (
+                _parse_trail_timestamp(rec.get("reverts_since"))
+                if rec.get("source") == "undo"
+                else None
+            )
+            records.append((ts, changes, limits, str(origin) if origin is not None else None, since))
     if not records:
         return
-    enriched_at = max(ts for ts, _, _ in records)
 
     job_ids = {i.job_analysis_id for i in candidates}
     cv_result = await db.execute(
@@ -855,6 +835,15 @@ async def _enrich_stale_cv(
         if latest is None:
             continue
         cv_created_at = _as_utc(latest.created_at)
+        # A-5: a write this CV's own surface made (review card, section assist,
+        # section edit → profile) is already in it — never "the profile grew".
+        relevant = [
+            r for r in records
+            if r[3] != str(latest.id) and not (r[4] is not None and cv_created_at < r[4])
+        ]
+        if not relevant:
+            continue
+        enriched_at = max(r[0] for r in relevant)
         if enriched_at <= cv_created_at:
             continue
         dismissed_at = _as_utc(item.stale_cv_dismissed_at)
@@ -863,7 +852,7 @@ async def _enrich_stale_cv(
 
         section_counts: dict[str, int] = {}
         new_limits = 0
-        for ts, changes, limits in records:
+        for ts, changes, limits, _, _ in relevant:
             if ts <= cv_created_at:
                 continue
             new_limits += limits

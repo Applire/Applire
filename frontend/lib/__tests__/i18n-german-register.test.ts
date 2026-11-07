@@ -108,6 +108,11 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "health.fieldLabel.url",
   "health.fieldLabel.position",
   "health.fieldLabel.name",
+  // Build 7 operator copy: a pure placeholder template and two loanwords that are
+  // the same word in German (nav label "Dashboard", the "Interview" chip).
+  "adminAudit.detail.settingFirst",
+  "adminAppearance.preview.navDashboard",
+  "adminAppearance.preview.interview",
   // Strawberry W0-B COPY.md (founder gate G-1): "Administration", "Admin" and
   // "Monitoring" are the approved German words; the setup-code placeholder is
   // the code's shape, not language.

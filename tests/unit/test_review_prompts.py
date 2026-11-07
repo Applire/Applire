@@ -1189,11 +1189,13 @@ class TestCoverLetterPositioningIntegration:
         mock_gap.category_c = ["regulated industries experience"]
         # G-1 (2026-11-04): the testimony is the transfer of a NAMED key-requirement gap,
         # not of the category-C list — so the job's ledger must carry the gap as a
-        # key-tier, not-claimable row for a Signature Story to attach to it.
+        # key-tier, not-claimable row for a Signature Story to attach to it. Since RULING
+        # L-1 / L-2 = B (Hazelnut build 7, #820) only a RECORDED DENIAL is named, so the
+        # row is the candidate's denial.
         mock_gap.keyword_ledger = [{
             "concept": "regulated industries experience",
             "surface_forms": ["regulated industries experience"],
-            "status": "gap", "claimable": False, "fit_weight": 1.0, "sources": ["required"],
+            "status": "denied", "claimable": False, "fit_weight": 1.0, "sources": ["required"],
         }]
 
         mock_db = self._wire(mock_cl, mock_job, mock_cv, mock_profile, mock_gap, None)

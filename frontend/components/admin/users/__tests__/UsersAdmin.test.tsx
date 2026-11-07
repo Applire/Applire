@@ -108,10 +108,11 @@ describe("actionsFor", () => {
     expect(actionsFor(DISABLED)).toEqual(["enable", "revokeTokens", "delete"]);
   });
   it("active admin: offers makeUser, not makeAdmin", () => {
-    const a = actionsFor(OWN);
-    expect(a).toContain("makeUser");
-    expect(a).not.toContain("makeAdmin");
-    expect(a[a.length - 1]).toBe("delete");
+    const a = actionsFor(OWN, true);
+    expect(a).toEqual(["revokeTokens", "openAccount"]);
+    expect(actionsFor(OTHER_ADMIN)).toContain("makeUser");
+    expect(actionsFor(OTHER_ADMIN)).not.toContain("makeAdmin");
+    expect(actionsFor(OTHER_ADMIN).at(-1)).toBe("delete");
   });
   it("active user: offers makeAdmin, not makeUser", () => {
     const a = actionsFor(PLAIN);
@@ -399,12 +400,12 @@ describe("UsersAdmin — row actions", () => {
     const u = userEvent.setup();
     renderAdmin();
     await screen.findByTestId("admin-users-table");
-    const menu = await openMenu(u, "tobias@example.org");
+    const menu = await openMenu(u, "second@example.org");
     await u.click(within(menu).getByText("Remove admin rights"));
     expect(await screen.findByTestId("admin-confirm-dialog-error")).toHaveTextContent(
-      "Not possible: tobias@example.org is the only active admin.",
+      "Not possible: second@example.org is the only active admin.",
     );
-    expect(mutations()[0]).toEqual({ url: "/api/admin/users/u-1", method: "PATCH", body: { role: "user" } });
+    expect(mutations()[0]).toEqual({ url: "/api/admin/users/u-5", method: "PATCH", body: { role: "user" } });
   });
 
   it("revoke all tokens -> confirm: POST …/revoke-tokens", async () => {
@@ -437,10 +438,38 @@ describe("UsersAdmin — row actions", () => {
     await screen.findByTestId("admin-users-table");
     const menu = await openMenu(u, "maria@example.org");
     await u.click(within(menu).getByText("Create reset link"));
+    // 789:280 — a confirm comes first; nothing is sent until it is confirmed.
+    expect(screen.getByTestId("admin-confirm-dialog")).toHaveTextContent("Create a reset link for maria@example.org?");
+    expect(mutations()).toHaveLength(0);
+    await u.click(screen.getByTestId("admin-confirm-dialog-confirm"));
     const dialog = await screen.findByTestId("admin-link-dialog");
     expect(mutations()[0]).toMatchObject({ url: "/api/admin/users/u-4/reset-link", method: "POST" });
     expect(dialog).toHaveTextContent("Reset link for maria@example.org");
     expect(screen.getByTestId("admin-link-url")).toHaveTextContent("https://applire.test/reset?token=xyz");
+  });
+
+  it("reset link: cancelling the confirm sends nothing", async () => {
+    const u = userEvent.setup();
+    renderAdmin();
+    await screen.findByTestId("admin-users-table");
+    const menu = await openMenu(u, "maria@example.org");
+    await u.click(within(menu).getByText("Create reset link"));
+    await u.click(within(screen.getByTestId("admin-confirm-dialog")).getByText("Cancel"));
+    expect(mutations()).toHaveLength(0);
+    expect(screen.queryByTestId("admin-link-dialog")).toBeNull();
+  });
+
+  it("revoke tokens: the dialog names the live token count (789:267c); absent count keeps the old sentence", async () => {
+    users = [OWN, user({ id: "u-4", email: "maria@example.org", metadata: { ...PLAIN.metadata, active_token_count: 2 } }), user({ id: "u-6", email: "zero@example.org", metadata: { ...PLAIN.metadata, active_token_count: 0 } })];
+    mockApi();
+    const u = userEvent.setup();
+    renderAdmin();
+    await screen.findByTestId("admin-users-table");
+    await u.click(within(await openMenu(u, "maria@example.org")).getByText("Revoke all tokens"));
+    expect(screen.getByTestId("admin-confirm-dialog")).toHaveTextContent("2 active tokens: this person's agents and scripts lose access at once.");
+    await u.click(within(screen.getByTestId("admin-confirm-dialog")).getByText("Cancel"));
+    await u.click(within(await openMenu(u, "zero@example.org")).getByText("Revoke all tokens"));
+    expect(screen.getByTestId("admin-confirm-dialog")).toHaveTextContent("zero@example.org has no active token right now");
   });
 
   it("reinvite: POST …/reinvite shows the invitation dialog", async () => {
@@ -470,6 +499,7 @@ describe("UsersAdmin — delete", () => {
     await u.click(within(menu).getByText("Delete"));
     const confirm = screen.getByTestId("admin-delete-confirm");
     expect(screen.getByTestId("admin-delete-dialog")).toHaveTextContent("Delete maria@example.org for good?");
+    expect(screen.getByTestId("admin-delete-dialog")).toHaveTextContent("The email address is free afterwards");
     expect(confirm).toBeDisabled();
     const input = screen.getByTestId("admin-delete-email");
     await u.type(input, "maria@example.or");
@@ -506,13 +536,14 @@ describe("UsersAdmin — delete", () => {
     );
   });
 
-  it("own row: goes to /settings and sends nothing", async () => {
+  it("own row (789:281): only revoke-tokens and open-account; open account goes to /settings and sends nothing", async () => {
     const u = userEvent.setup();
     renderAdmin();
     await screen.findByTestId("admin-users-table");
     const before = calls.length;
     const menu = await openMenu(u, "tobias@example.org");
-    await u.click(within(menu).getByText("Delete"));
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Revoke all tokens", "Open your account"]);
+    await u.click(within(menu).getByText("Open your account"));
     expect(push).toHaveBeenCalledWith("/settings");
     expect(screen.queryByTestId("admin-delete-dialog")).toBeNull();
     expect(calls.length).toBe(before);

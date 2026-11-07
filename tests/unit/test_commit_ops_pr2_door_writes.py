@@ -104,6 +104,22 @@ async def _seed_profile(factory, profile_json: dict | None = None) -> uuid.UUID:
         return record.id
 
 
+def _without_undo_record(restored: dict) -> dict:
+    """The restored vault minus the ONE dated ``undo`` record the restore
+    appends (Hazelnut b7 adversarial A-8: documents written from the undone
+    merge must read as behind) — everything else is the pre-merge vault."""
+    out = dict(restored)
+    metadata = dict(out["metadata"])
+    *kept, undo = metadata["enrichment_history"]
+    assert undo["source"] == "undo"
+    if kept:
+        metadata["enrichment_history"] = kept
+    else:  # these seeds carry no trail key before the import
+        metadata.pop("enrichment_history")
+    out["metadata"] = metadata
+    return out
+
+
 async def _read_back(engine, profile_id: uuid.UUID) -> dict:
     """A brand-new session on a brand-new connection: only COMMITTED state."""
     from applire.models.profile import MasterProfile
@@ -287,7 +303,7 @@ async def test_import_door_write_is_still_undoable(durable_db, tmp_path):
         await session.commit()
     assert result.restored is True
     assert result.discarded_later_edits is False
-    assert await _read_back(engine, profile_id) == before
+    assert _without_undo_record(await _read_back(engine, profile_id)) == before
 
 
 # ── Door 4: the browser `/upload` writer (`_apply_merge`) ─────────────────────
@@ -650,4 +666,4 @@ async def test_a_long_interview_never_evicts_the_import_snapshot(durable_db, mon
         await session.commit()
     assert result.restored is True
     restored = await _read_back(engine, profile_id)
-    assert restored == before_import
+    assert _without_undo_record(restored) == before_import

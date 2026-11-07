@@ -164,6 +164,8 @@ async def _run(coro):
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "take_out_unavailable_stem_only", "message": str(exc)})
     except ra.TakeOutProtectedName as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "take_out_unavailable_protected_name", "message": str(exc)})
+    except ra.FindingAboutEmployer as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "finding_about_employer", "message": str(exc)})
     except ra.FindingDenied as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "finding_denied", "message": str(exc), "denials": exc.denials})
     except ra.NotSupportedByProfile as exc:

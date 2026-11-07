@@ -214,3 +214,37 @@ describe("AliasChips (#709/#716)", () => {
     expect(screen.getByTestId("alias-chip")).toHaveTextContent("Machine Learning");
   });
 });
+
+describe("RecognisedMatches — 783:259 yes to all", () => {
+  it("confirms every open pair with one click, skipping name-table facts and confirmed pairs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      withIntl(
+        <RecognisedMatches
+          matched={[
+            pair(),
+            pair({ entity_id: "s2", incoming: "Beatmung", existing: "Ventilated patient care" }),
+            pair({ entity_id: "s3", incoming: "AWS", existing: "Amazon Web Services", confirmed_at: "2026-11-07T09:00:00Z" }),
+            pair({ section: "languages", entity_id: "l1", incoming: "German", existing: "Deutsch", basis: "name_table" }),
+          ]}
+        />,
+        "de",
+      ),
+    );
+    expect(screen.getByTestId("recognised-matches-confirm-all")).toHaveTextContent("Alle 2 Zuordnungen bestätigen");
+    fireEvent.click(screen.getByTestId("recognised-matches-confirm-all"));
+    await waitFor(() => expect(screen.getAllByTestId("recognised-match-same")).toHaveLength(3));
+    expect(screen.queryByTestId("recognised-matches-confirm-all")).toBeNull();
+    const bodies = fetchMock.mock.calls.map(([url, init]) => [String(url), JSON.parse(init.body).entity_id]);
+    expect(bodies).toEqual([
+      ["/api/profile/matches/confirm", "s1"],
+      ["/api/profile/matches/confirm", "s2"],
+    ]);
+  });
+
+  it("offers no 'yes to all' for a single open pair", () => {
+    render(withIntl(<RecognisedMatches matched={[pair()]} />, "de"));
+    expect(screen.queryByTestId("recognised-matches-confirm-all")).toBeNull();
+  });
+});

@@ -225,6 +225,28 @@ def _summarize(
 _IMPORT_SOURCES = frozenset({"cv_upload", "cv_paste", "linkedin_import", "xing_import"})
 
 
+#: The one change the first upload's record carries (``services/profile``
+#: ``_make_enrichment_record(..., new_value="initial import")``).
+_CREATION_MARK = "initial import"
+
+
+def _is_creation_record(record: EnrichmentRecord) -> bool:
+    """783:260 — the record of the upload that CREATED the profile: it carries
+    the bookkeeping change, not one change per item it wrote."""
+    return any(c.section == "*" and c.new_value == _CREATION_MARK for c in record.changes)
+
+
+def _current_section_sizes(profile: MasterProfileData) -> list[ReceiptGroup]:
+    """The profile's list sections with their entry counts, in receipt order —
+    a count of what is stored, labelled in the UI as the profile's current state."""
+    groups: list[ReceiptGroup] = []
+    for section in _SECTION_ORDER:
+        value = getattr(profile, section, None)
+        if isinstance(value, list) and value:
+            groups.append(ReceiptGroup(section=section, count=len(value)))
+    return groups
+
+
 def summarize_last_import(
     profile: MasterProfileData, file_name: str | None = None
 ) -> ImportReceiptSummary:
@@ -239,6 +261,18 @@ def summarize_last_import(
     record = next((r for r in reversed(trail) if r.source in _IMPORT_SOURCES), None)
     if record is None:
         return ImportReceiptSummary()
+    if _is_creation_record(record):
+        groups = _current_section_sizes(profile)
+        return ImportReceiptSummary(
+            record_id=record.id,
+            timestamp=record.timestamp,
+            source=record.source,
+            file_name=file_name,
+            added_total=sum(g.count for g in groups),
+            groups=groups,
+            created=True,
+            not_applied_total=len(record.not_applied),
+        )
     facts, groups, _top = _summarize(profile, [record])
     pairs: dict[tuple[str, str], MatchReceipt] = {}
     for m in record.matched:

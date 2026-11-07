@@ -72,6 +72,18 @@ export function RecognisedMatches({
     }
   }
 
+  // 783:259 (Priya: 18 questions, no "yes to all") — the pairs still open, in
+  // the order shown; one click confirms each, through the same endpoint.
+  const openPairs = items.filter((m) => {
+    const state = rows[`${m.entity_id}-${m.incoming}`] ?? (m.confirmed_at ? "same" : "idle");
+    return m.basis !== "name_table" && (state === "idle" || state === "failed");
+  });
+  async function confirmAll() {
+    for (const m of openPairs) {
+      await answer(`${m.entity_id}-${m.incoming}`, m, true);
+    }
+  }
+
   const bold = (chunks: ReactNode) => <b className="font-semibold">{chunks}</b>;
 
   return (
@@ -87,6 +99,17 @@ export function RecognisedMatches({
           <p className="mt-1 mb-2.5 text-[12px] leading-relaxed text-on-surface-variant">
             {t("combinedIntro")}
           </p>
+          {openPairs.length > 1 && (
+            <button
+              type="button"
+              data-testid="recognised-matches-confirm-all"
+              disabled={Object.values(rows).includes("busy")}
+              onClick={() => void confirmAll()}
+              className="mb-2.5 rounded-full border border-outline-variant bg-white px-3 py-1 text-[12px] font-semibold text-primary hover:bg-surface-container disabled:opacity-60"
+            >
+              {t("pairYesAll", { count: openPairs.length })}
+            </button>
+          )}
           <ul>
             {visible.map((item) => {
               const key = `${item.entity_id}-${item.incoming}`;

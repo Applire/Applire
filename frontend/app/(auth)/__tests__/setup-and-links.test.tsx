@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Tobias Rosenbaum
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import de from "@/messages/de.json";
@@ -69,8 +69,16 @@ describe("passwordProblems — contract §1 rules", () => {
 describe("/setup (US330, S-14)", () => {
   const auth = { status: "unauthenticated" as const, authState: STATE };
 
-  it("fresh: intro, upgrade note (W0B-2), code help with both commands", () => {
+  it("fresh install: no upgrade note; absent or false flag hides it (789:267l)", () => {
     wrap(<SetupPage />, auth);
+    expect(screen.queryByTestId("setup-upgrade-note")).toBeNull();
+    cleanup();
+    wrap(<SetupPage />, { ...auth, authState: { ...STATE, upgraded_install: false } });
+    expect(screen.queryByTestId("setup-upgrade-note")).toBeNull();
+  });
+
+  it("upgraded install: intro, upgrade note (W0B-2), code help with both commands", () => {
+    wrap(<SetupPage />, { ...auth, authState: { ...STATE, upgraded_install: true } });
     expect(screen.getByRole("heading", { name: de.auth.setupTitle })).toBeInTheDocument();
     expect(screen.getByText(de.auth.setupUpgradeNote)).toBeInTheDocument();
     expect(screen.getByText("docker compose logs backend")).toBeInTheDocument();

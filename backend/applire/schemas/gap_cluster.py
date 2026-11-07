@@ -63,15 +63,23 @@ class GapClusterMemberStatus(BaseModel):
     # 787:95 (ADR-095: additive) — a member folded into a FINISHED card on a
     # recompute (GapClusterSchema.folded): shown, never colours or reopens it.
     folded: bool = False
+    # #821 (founder ruling G-1; ADR-095: additive) — on a ``declined`` member,
+    # the candidate's OWN wording of the recorded denial(s) that decline it
+    # (verbatim ``DeniedConcept.concept``). Surfaces quote this scope instead of
+    # the member's bare term. Published only when non-empty.
+    denied_by: list[str] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")
     def _flags_only_when_set(self, handler):
-        # The two G-4 / 787:95 flags are published only when True, so a chip
-        # that carries neither reads exactly as it did before (ADR-095: additive).
+        # The two G-4 / 787:95 flags are published only when True, and
+        # `denied_by` only when non-empty, so a chip that carries none reads
+        # exactly as it did before (ADR-095: additive).
         data = handler(self)
         for flag in ("floored", "folded"):
             if isinstance(data, dict) and data.get(flag) is False:
                 data.pop(flag)
+        if isinstance(data, dict) and not data.get("denied_by"):
+            data.pop("denied_by", None)
         return data
 
 

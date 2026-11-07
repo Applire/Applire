@@ -170,7 +170,10 @@ def test_every_ledger_upgrade_call_site_passes_the_live_denials():
                 default=None,
             )
             pre_filtered = enclosing is not None and any(
-                isinstance(n, ast.Call) and _name(n) == "is_denied_concept"
+                # #821 (G-1): the re-evaluation pre-filters with the DECLARED
+                # matcher now (a denial floors only the concept it names).
+                isinstance(n, ast.Call)
+                and _name(n) in ("is_denied_concept", "declared_denial_matches")
                 for n in ast.walk(enclosing)
             )
             if not pre_filtered:

@@ -297,6 +297,16 @@ class GapAnalysisResponse(BaseModel):
         # ``DENIAL_FLOOR_EVIDENCE``). The letter's own Restfall (ADR-074) keeps
         # the ledger predicate — this filter is the candidate-facing notice only.
         asked = _asked_cluster_concepts(self.gap_clusters)
+        # 790:78 — and every ledger row an asked member speaks for (the member's
+        # own rows, else whole-word rows): since G-1 (#821) a row related to a
+        # recorded "no" is no longer floored by containment, so the name-only
+        # comparison above is not enough to keep it off "never asked".
+        from applire.services.gap_coverage import asked_requirement_concepts
+
+        asked |= asked_requirement_concepts(
+            [c.model_dump() if hasattr(c, "model_dump") else c for c in self.gap_clusters or []],
+            entries,
+        )
         self.unasked_requirements = [
             KeywordLedgerEntry(**e)
             for e in unasked_hard_requirements(entries)

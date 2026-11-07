@@ -31,7 +31,14 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RELEASE_YML = _REPO_ROOT / ".github" / "workflows" / "release.yml"
 _README_FILES = (_REPO_ROOT / "README.md", _REPO_ROOT / "README.de.md")
-_ASSETS = ("docker-compose.yml", "env.example")
+_ASSETS = ("docker-compose.yml", "env.example", "backup.sh", "restore.sh")
+# 785:252 (Hazelnut build 7): the backup scripts are release assets too.
+_TAGGED = {
+    "docker-compose.yml": "services: {tagged: compose}\n",
+    "env.example": "# tagged env template\n",
+    "backup.sh": "#!/usr/bin/env bash\n# tagged backup\n",
+    "restore.sh": "#!/usr/bin/env bash\n# tagged restore\n",
+}
 
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
 
@@ -98,10 +105,18 @@ def test_the_attached_names_are_the_names_the_readme_downloads(workflow):
     for name in _ASSETS:
         assert f'"$staging/{name}"' in run
         for readme in _README_FILES:
-            assert f"releases/latest/download/{name}" in readme.read_text(encoding="utf-8"), (
+            text = readme.read_text(encoding="utf-8")
+            if name in ("backup.sh", "restore.sh"):
+                # The README fetches the pair in one loop (785:252).
+                assert "for f in backup.sh restore.sh; do" in text, readme.name
+                assert "releases/latest/download/$f" in text, readme.name
+                continue
+            assert f"releases/latest/download/{name}" in text, (
                 f"{readme.name} no longer downloads {name}; update the attach step with it"
             )
     assert "cp .env.example \"$staging/env.example\"" in run
+    assert 'cp scripts/backup.sh "$staging/backup.sh"' in run
+    assert 'cp scripts/restore.sh "$staging/restore.sh"' in run
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +180,11 @@ def _run_step(workflow: dict, tmp_path: Path, *, release: dict[str, str], extra_
     """Run the attach step's bash verbatim in a fake tagged checkout."""
     checkout = tmp_path / "checkout"
     checkout.mkdir()
-    (checkout / "docker-compose.yml").write_text("services: {tagged: compose}\n")
-    (checkout / ".env.example").write_text("# tagged env template\n")
+    (checkout / "docker-compose.yml").write_text(_TAGGED["docker-compose.yml"])
+    (checkout / ".env.example").write_text(_TAGGED["env.example"])
+    (checkout / "scripts").mkdir()
+    (checkout / "scripts" / "backup.sh").write_text(_TAGGED["backup.sh"])
+    (checkout / "scripts" / "restore.sh").write_text(_TAGGED["restore.sh"])
     release_dir = tmp_path / "release"
     release_dir.mkdir()
     for name, content in release.items():
@@ -204,30 +222,24 @@ def _run_step(workflow: dict, tmp_path: Path, *, release: dict[str, str], extra_
     return proc, uploads, served
 
 
-def test_a_release_published_without_assets_gets_both_from_the_tag(workflow, tmp_path):
+def test_a_release_published_without_assets_gets_all_four_from_the_tag(workflow, tmp_path):
     """The v0.42.0-beta shape: web-UI publish, no asset box used."""
     proc, uploads, served = _run_step(workflow, tmp_path, release={})
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert len(uploads) == 2
-    assert served == {
-        "docker-compose.yml": "services: {tagged: compose}\n",
-        "env.example": "# tagged env template\n",
-    }
+    assert len(uploads) == 4
+    assert served == _TAGGED
 
 
 def test_assets_identical_to_the_tag_are_kept_without_an_upload(workflow, tmp_path):
-    """The `gh release create … docker-compose.yml env.example` shape, or a promotion."""
+    """The `gh release create … docker-compose.yml env.example …` shape, or a promotion."""
     proc, uploads, _ = _run_step(
         workflow,
         tmp_path,
-        release={
-            "docker-compose.yml": "services: {tagged: compose}\n",
-            "env.example": "# tagged env template\n",
-        },
+        release=dict(_TAGGED),
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert uploads == []
-    assert proc.stdout.count("Kept.") == 2
+    assert proc.stdout.count("Kept.") == 4
 
 
 def test_an_asset_from_another_checkout_is_replaced_with_a_warning(workflow, tmp_path):
@@ -238,7 +250,7 @@ def test_an_asset_from_another_checkout_is_replaced_with_a_warning(workflow, tmp
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "::warning::docker-compose.yml on the Release differs" in proc.stdout
-    assert len(uploads) == 2  # the replaced compose file + the missing env.example
+    assert len(uploads) == 4  # the replaced compose file + the three missing assets
     assert served["docker-compose.yml"] == "services: {tagged: compose}\n"
 
 

@@ -106,7 +106,7 @@ def _join_nonblank(parts: list[str | None], sep: str = _JOIN) -> str:
     return sep.join(p.strip() for p in parts if p and p.strip())
 
 
-def _format_date_range(entry, labels: dict) -> str:
+def _format_date_range(entry, labels: dict, kind: str = "work") -> str:
     """The entry's date range through THE producer every CV template uses
     (``templates.filters.period``, D-14 / ADR-062 clause 1): '01/2020 –
     06/2022', '07/2022 – heute' only when the role is current (or unstated),
@@ -115,7 +115,7 @@ def _format_date_range(entry, labels: dict) -> str:
 
     One display rule, not two (ADR-066): the export once emitted the storage
     format (``2017-04``) while the PDF showed ``04/2017`` — SF-EXPORT.2."""
-    p = period(entry, labels["present"])
+    p = period(entry, labels["present"], kind)
     return f"{p['start']}{_DASH if p['dash'] else ''}{p['end']}"
 
 
@@ -240,7 +240,7 @@ def _render_education(document, tailored, labels, color, photo_bytes, lang) -> N
         # too or it reintroduces a closed defect on a new surface.
         header = _join_nonblank([entry.institution, education_title(entry.degree, entry.field)])
         add_paragraph(document, header, bold=True)
-        add_paragraph(document, _format_date_range(entry, labels), italic=True)
+        add_paragraph(document, _format_date_range(entry, labels, "education"), italic=True)
 
 
 def _render_languages(document, tailored, labels, color, photo_bytes, lang) -> None:

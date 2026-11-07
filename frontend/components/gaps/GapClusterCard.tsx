@@ -121,11 +121,13 @@ function MemberChip({
   state,
   requirement = true,
   floored = false,
+  deniedBy,
 }: {
   term: string;
   state: MemberState;
   requirement?: boolean;
   floored?: boolean;
+  deniedBy?: string[];
 }) {
   const t = useTranslations("gaps");
   if (!requirement) {
@@ -134,10 +136,13 @@ function MemberChip({
         data-testid="gap-member"
         data-state={state}
         data-requirement="false"
+        // 787:214 / A-11 — the chip sits on a line whose VISIBLE label says what
+        // the chips are and that they do not count ("postingTermsLabel"), so the
+        // explanation reaches screen readers and phone users alike; a `title`
+        // on a non-focusable span reached neither.
         className={cn("relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs", TERM_CHIP)}
       >
         {term}
-        <span className="sr-only">{t("postingTermSr")}</span>
       </span>
     );
   }
@@ -151,8 +156,12 @@ function MemberChip({
           : state === "declined"
             ? floored
               ? t("memberRuledOutSr")
-              : t("memberDeclinedSr")
+              : deniedBy && deniedBy.length > 0
+                ? t("memberDeniedBySr", { wording: deniedBy.join("; ") })
+                : t("memberDeclinedSr")
             : null;
+  const wording = state === "declined" && !floored && deniedBy && deniedBy.length > 0 ? deniedBy.join("; ") : "";
+  const showWording = wording !== "" && wording.trim().toLowerCase() !== term.trim().toLowerCase();
   // `relative` anchors the absolutely positioned sr-only label to the chip.
   // Without it the label anchors outside the page's scroll column, stays put
   // while the column scrolls and stretches the document (mobile OQ, 2026-09-23).
@@ -166,6 +175,14 @@ function MemberChip({
       {state === "covered" && <Check aria-hidden="true" className="h-3 w-3 text-success" />}
       {state === "declined" && <Minus aria-hidden="true" className="h-3 w-3" />}
       {term}
+      {/* A-10 / G-1 — the person's own scoped wording is visible, not only
+          announced: a denial of "ECMO certification" must not read as a bare
+          "ECMO" decline. Shown when it adds something beyond the concept. */}
+      {showWording && (
+        <span aria-hidden="true" className="italic">
+          {t("memberWordingQuoted", { wording })}
+        </span>
+      )}
       {sr && <span className="sr-only">{sr}</span>}
     </span>
   );
@@ -260,7 +277,13 @@ export function GapClusterCard({
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
               <span className="text-xs text-on-surface-variant">{t("clusterCardConstituentLabel")}</span>
               {requirementMembers.map((m) => (
-                <MemberChip key={m.term} term={m.term} state={m.state} floored={m.floored === true} />
+                <MemberChip
+                  key={m.term}
+                  term={m.term}
+                  state={m.state}
+                  floored={m.floored === true}
+                  deniedBy={m.deniedBy}
+                />
               ))}
             </div>
           )}

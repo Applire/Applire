@@ -674,6 +674,9 @@ async def _save_section_to_profile(
         source="manual_edit",
         source_session_id=str(cv_id),
         user_id=owner,
+        # A-5 (MD7-10): the edit is already in this CV — its cue stays quiet.
+        document_kind="cv",
+        document_id=str(cv_id),
     )
 
 
