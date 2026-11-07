@@ -89,6 +89,7 @@ from applire.services.profile.reconcile.attribution import (
     _held_label,
     plan_attribution_resolution,
 )
+from applire.services.profile.label_text import truncate_at_word
 from applire.services.profile.reconcile.witness import compute_no_write
 from applire.services.profile.reconcile import aliases as _aliases
 from applire.services.profile.language_names import canonical_language, same_language
@@ -2946,7 +2947,7 @@ def _target_unresolved(op_type: str, text: str) -> ImportNotApplied:
     carries, so its content was written nowhere (ADR-063 amended 2026-10-20).
     ``section`` is unknown by construction; ``label`` names the op and the
     first incoming text so the loss is diagnosable from the receipt alone."""
-    label = f"{op_type}: {text}".strip()[:_UNRESOLVED_LABEL_CHARS]
+    label = truncate_at_word(f"{op_type}: {text}", _UNRESOLVED_LABEL_CHARS)
     return ImportNotApplied(section=None, label=label, reason="target_unresolved")
 
 

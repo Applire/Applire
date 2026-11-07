@@ -1084,6 +1084,7 @@ export default function ProfilePage() {
         issue={resolveIssue}
         onAction={handleResolveAction}
         onSectionAction={handleSectionAction}
+        onSettled={() => loadProfile()}
         onClose={() => {
           setReviewDrawerOpen(false);
           setResolveIssue(null);

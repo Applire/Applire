@@ -638,6 +638,12 @@ function IssueCard({
     issue.thread === "not_applied" && shownItems.some((i) => !!i.item_key) && !!actions.onAdoptItem
       ? shownItems
       : null;
+  const notAppliedSection =
+    issue.thread === "not_applied"
+      ? (shownItems.find((i) => !!i.section)?.section ??
+        issue.field_ref?.split(",")[0]?.trim() ??
+        null)
+      : null;
   const handleKeepSeparate = async () => {
     if (!actions.onKeepSeparate || answering) return;
     setAnswering(true);
@@ -883,6 +889,20 @@ function IssueCard({
           >
             {recomputing ? tSpan("recomputing") : tSpan("recompute")}
           </Button>
+        ) : issue.thread === "not_applied" ? (
+          // Hazelnut build 7 (WP-V) — a not-applied item is neither a conflict nor
+          // a confirmation: the profile-review session has no question for it
+          // (404 issue_not_found). Its one action is the section it belongs to.
+          notAppliedSection && actions.onGoToSection ? (
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="health-not-applied-go-to-section"
+              onClick={() => actions.onGoToSection!(notAppliedSection, issue.not_applied_labels ?? [])}
+            >
+              {t("goToSectionShort")}
+            </Button>
+          ) : null
         ) : (
           <Button
             size="sm"

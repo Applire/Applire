@@ -156,12 +156,24 @@ describe("HealthPanel — hub per delivery class", () => {
     expect(screen.queryByText("Skill 2")).toBeNull();
   });
 
-  it("a not-applied issue without item keys keeps the #705 route", () => {
+  it("a not-applied issue without item keys never offers the review drawer (WP-V)", () => {
     const legacy = notApplied([true]);
     legacy.not_applied_items = legacy.not_applied_items!.map(({ section, label, reason }) => ({ section, label, reason }));
-    render(withIntl(<HealthPanel health={health([legacy])} onResolve={vi.fn()} actions={{ onAdoptItem: vi.fn() }} />, "en"));
+    const onGoToSection = vi.fn();
+    render(withIntl(<HealthPanel health={health([legacy])} onResolve={vi.fn()} actions={{ onAdoptItem: vi.fn(), onGoToSection }} />, "en"));
     expect(screen.queryByTestId("health-adopt-item")).toBeNull();
-    expect(screen.getByTestId("health-resolve")).toBeInTheDocument();
+    expect(screen.queryByTestId("health-resolve")).toBeNull();
+    fireEvent.click(screen.getByTestId("health-not-applied-go-to-section"));
+    expect(onGoToSection).toHaveBeenCalledTimes(1);
+  });
+
+  it("a sectionless not-applied issue offers no button at all (WP-V)", () => {
+    const note = notApplied([true]);
+    note.not_applied_items = [{ section: null, label: "a note", reason: "no_write" }];
+    note.field_ref = null;
+    render(withIntl(<HealthPanel health={health([note])} onResolve={vi.fn()} actions={{ onGoToSection: vi.fn() }} />, "en"));
+    expect(screen.queryByTestId("health-resolve")).toBeNull();
+    expect(screen.queryByTestId("health-not-applied-go-to-section")).toBeNull();
   });
 
   it("UAT-3d: the unit is chosen and saved in place", async () => {
