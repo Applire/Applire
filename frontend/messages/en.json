@@ -384,6 +384,7 @@
       "questionOnly": "Your question arrived — nothing was changed for it."
     },
     "questionNumber": "Question {current}",
+    "confirmationLabel": "A check on your profile",
     "currentTopic": "Topic: {label}",
     "openRequirements": "{count, plural, =0 {No requirement open} one {# requirement open} other {# requirements open}}",
     "openRequirementsConfirm": "{count, plural, one {# requirement is} other {# requirements are}} still open. Do you want to end the interview anyway? What you said so far stays in your profile.",

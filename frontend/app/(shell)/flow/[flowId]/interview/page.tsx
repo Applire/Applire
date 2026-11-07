@@ -1201,7 +1201,14 @@ export default function InterviewPage({
           <div className="mb-4" data-testid="interview-header">
             <div className="flex items-start justify-between gap-3 mb-1">
               <p className="text-xs font-medium text-on-surface-variant font-body min-w-0">
-                <span data-testid="interview-question-number">{t("questionNumber", { current: questionsAsked })}</span>
+                {/* 787:215 — a profile check (a confirmation) is not gap elicitation:
+                    `questions_asked` does not move for it (RULING 787:L7), so it
+                    gets its own label instead of repeating "Frage N". */}
+                <span data-testid="interview-question-number">
+                  {pendingConfirmations.length > 0
+                    ? t("confirmationLabel")
+                    : t("questionNumber", { current: questionsAsked })}
+                </span>
                 {currentClusterLabel && (
                   <>
                     {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}

@@ -1681,3 +1681,47 @@ describe("R2-10 — the completion screen agrees with the open count", () => {
     expect(screen.getByTestId("completion-open-count").textContent).toContain("0");
   });
 });
+
+describe("787:215 — a profile check is not counted as a question", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("labels a confirmation turn as a profile check and returns to 'Frage N' after it", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockClusterApi([
+      {
+        complete: false,
+        question: "Is SAP PP the same as your SAP entry?",
+        gaps_remaining: 3,
+        questions_asked: 2,
+        current_gap_id: "c1",
+        addressed_gap_ids: [],
+        pending_confirmations: [{ question: "Is SAP PP the same as your SAP entry?", options: ["Yes", "No"] }],
+      },
+      {
+        complete: false,
+        question: "Tell me about Docker.",
+        gaps_remaining: 2,
+        questions_asked: 3,
+        current_gap_id: "c2",
+        addressed_gap_ids: ["c1"],
+      },
+    ]) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await sendAnswer(user, "We use GCP extensively.");
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question-number")).toHaveTextContent("confirmationLabel"),
+    );
+    expect(screen.getByTestId("interview-question-number")).not.toHaveTextContent("questionNumber");
+
+    await sendAnswer(user, "Yes, the same.");
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question-number")).toHaveTextContent('questionNumber({"current":3})'),
+    );
+  });
+});
