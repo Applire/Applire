@@ -263,10 +263,10 @@ def test_retry_advice_leaves_a_ready_payload_alone():
 @pytest.mark.parametrize(
     "exc,head",
     [
-        (LLMTimeoutError(RAW), "provider_timeout (retryable"),
-        (LLMRateLimitError("Mistral rate limit after 3 attempts"), "provider_rate_limited (retryable"),
-        (LLMProviderUnavailableError("down"), "provider_unavailable (retryable"),
-        (LLMTruncatedError("cut"), "llm_truncated (retryable"),
+        (LLMTimeoutError(RAW), "provider_timeout (safe to retry"),
+        (LLMRateLimitError("Mistral rate limit after 3 attempts"), "provider_rate_limited (safe to retry"),
+        (LLMProviderUnavailableError("down"), "provider_unavailable (safe to retry"),
+        (LLMTruncatedError("cut"), "llm_truncated (safe to retry"),
     ],
 )
 def test_a_raised_provider_error_carries_a_typed_retry_head(exc, head):

@@ -682,7 +682,7 @@ async def test_mcp_keeps_our_own_llm_messages():
         await _tool()
     # 788:134 (Hazelnut build 7): our own text, behind a typed retry head.
     assert exc.value.error.message == (
-        "provider_rate_limited (retryable — send the same call again once): "
+        "provider_rate_limited (safe to retry — send the same call again once): "
         "Mistral rate limit after 3 attempts"
     )
 

@@ -81,7 +81,7 @@ def internal_server_error(
 def _retry_prefix(exc: BaseException) -> str:
     """788:134 (Hazelnut build 7, WP-O): a stable, typed head for the provider-side
     failures an agent may retry — FastMCP drops ``McpError.data``, so the code has
-    to ride the message text. ``"<code> (retryable): "`` or ``""``."""
+    to ride the message text. ``"<code> (safe to retry — …): "`` or ``""`` (RULING O-2)."""
     from applire.exceptions import (
         LLMProviderUnavailableError,
         LLMRateLimitError,
@@ -100,7 +100,7 @@ def _retry_prefix(exc: BaseException) -> str:
         code = "provider_unavailable"
     else:
         return ""
-    return f"{code} (retryable — send the same call again once): "
+    return f"{code} (safe to retry — send the same call again once): "
 
 
 def agent_facing_message(exc: BaseException, *, where: str) -> str:
