@@ -96,8 +96,15 @@ async def submit_testimony(
     lang: str = "en",
     *,
     user_id: uuid.UUID | None = None,
+    document_kind: str | None = None,
+    document_id: uuid.UUID | str | None = None,
 ) -> TestimonyResult:
     """Reconcile one free-text testimony submission into the vault.
+
+    ``document_kind`` / ``document_id`` (A-5, MD7-10): set only when the
+    testimony is given FROM a generated document's own surface (the review
+    card's "Im Profil eintragen"); the trail record names that document so its
+    "Profil aktualisiert" cue does not fire on what it already says.
 
     Raises `LookupError` when no profile exists yet (mirrors `agent_bridge`).
     A truncated reconcile call is reported as an honest `status: "error"`
@@ -199,6 +206,8 @@ async def submit_testimony(
                 intake="testimony",
                 session_id=submission_id,
                 actor="candidate",
+                document_id=str(document_id) if document_id is not None else None,
+                document_kind=document_kind if document_id is not None else None,
             ),
             record=record,
             # §7.4 — a turn-based intake passes its turn text; stance/attribution

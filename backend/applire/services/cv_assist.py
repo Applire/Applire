@@ -241,6 +241,9 @@ async def accept_assist_answer(
         lang=lang,
         record_source="testimony",
         intake="cv_assist",
+        # A-5 (MD7-10): the accepted suggestion goes into THIS CV's section too.
+        document_kind="cv",
+        document_id=str(cv_id),
     )
     # The door owns its transaction (ADR-063 cl. 6).
     await db.commit()

@@ -33,7 +33,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -615,12 +615,31 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def _cv_predates_interview(cv: GeneratedCV, profile_json: dict | None) -> bool:
+def _cv_predates_interview(
+    cv: GeneratedCV, profile_json: dict | None, *, last_attempt_at: datetime | None = None
+) -> bool:
     """789:254 — an interview door added profile CONTENT after this CV was
     made: the shared freshness predicate narrowed to the interview doors and
-    the CV's sections (ADR-066: one implementation). Drives the F-4 auto-start."""
+    the CV's sections (ADR-066: one implementation). Drives the F-4 auto-start.
+    A write a document's own surface made (review card, section assist — A-5)
+    is never an interview answer, whichever document it came from.
+
+    A-9 (main MD7-10): the auto-start fires at most once per stale CV.
+    ``last_attempt_at`` — the newest CV generation STARTED for this job by this
+    person, whatever became of it (a failed, still running or deleted attempt
+    included) — is the reference when it is newer than the CV: once a new
+    version was attempted after the interview facts, a failed one does not
+    re-arm the auto-start on the next arrival (the strip's [Neu erstellen]
+    stays the way). New interview facts after that attempt arm it once more."""
+    reference = _as_utc(cv.created_at)
+    if last_attempt_at is not None and _as_utc(last_attempt_at) > reference:
+        reference = _as_utc(last_attempt_at)
     return profile_updated_since(
-        cv.created_at, profile_json, sections=CV_FEEDING_SECTIONS, sources=INTERVIEW_SOURCES
+        reference,
+        profile_json,
+        sections=CV_FEEDING_SECTIONS,
+        sources=INTERVIEW_SOURCES,
+        document_id=cv.id,
     )
 
 
@@ -839,17 +858,29 @@ async def _build_state_response(
     if flow.generated_cv_id:
         cv = await db.get(GeneratedCV, flow.generated_cv_id)
         if cv and cv.user_id == owner:
+            # A-9: the newest generation this person started for the posting —
+            # a persisted fact, so a reload or another device reads it too.
+            last_attempt_at = await db.scalar(
+                select(func.max(GeneratedCV.created_at)).where(
+                    GeneratedCV.user_id == owner,
+                    GeneratedCV.job_analysis_id == cv.job_analysis_id,
+                )
+            )
             cv_summary = CVSummary(
                 cv_id=cv.id,
                 pdf_url=f"{base_url}/api/cv/{cv.id}/pdf",
                 expires_at=cv.expires_at,
                 predates_interview=_cv_predates_interview(
-                    cv, profile_record.profile_json if profile_record else None
+                    cv,
+                    profile_record.profile_json if profile_record else None,
+                    last_attempt_at=last_attempt_at,
                 ),
                 profile_updated_since=profile_updated_since(
                     cv.created_at,
                     profile_record.profile_json if profile_record else None,
                     sections=CV_FEEDING_SECTIONS,
+                    # A-5: what this CV's own surface wrote is already in it.
+                    document_id=cv.id,
                 ),
             )
 

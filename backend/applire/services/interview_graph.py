@@ -966,7 +966,8 @@ _SECTION_FIELD_LABEL = {
     },
 }
 
-#: The nine `EnrichmentRecord.source` values, in the candidate's words. Mirrors
+#: The `EnrichmentRecord.source` values that can write a conflict (an ``undo``
+#: record never does), in the candidate's words. Mirrors
 #: `frontend/lib/enrichment-sources.ts` -> `profile.sources.*`; an unmapped
 #: value (e.g. `reconcile/migrate.py`'s "migration") degrades to honest vagueness
 #: rather than to "an import", which is the whole defect.

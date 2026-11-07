@@ -392,7 +392,10 @@ async def get_cover_letter_status(
     if cl.status == CoverLetterStatus.ready.value and cl.profile_id is not None:
         profile_row = await db.get(MasterProfile, cl.profile_id)
         profile_updated_since = _updated_since(
-            cl.created_at, profile_row.profile_json if profile_row is not None else None
+            cl.created_at,
+            profile_row.profile_json if profile_row is not None else None,
+            # A-5: what this letter's own review card wrote is already in it.
+            document_id=cl.id,
         )
     stored_inputs = cl.pre_gen_inputs or {}
     motivation_derived = stored_inputs.get("motivation_derived")

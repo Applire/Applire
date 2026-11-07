@@ -1301,8 +1301,23 @@ class EnrichmentRecord(BaseModel):
     # this record represents, and undo can detect whether it is still the head.
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime
-    source: Literal["cv_upload", "cv_paste", "linkedin_import", "xing_import", "interview", "agent_interview", "manual_edit", "manual_role_add", "testimony"]
+    # ``undo`` (Hazelnut b7 adversarial A-8): ``snapshots.undo_last_merge``'s
+    # record of what an undo took back — never written through ``commit_ops``.
+    source: Literal["cv_upload", "cv_paste", "linkedin_import", "xing_import", "interview", "agent_interview", "manual_edit", "manual_role_add", "testimony", "undo"]
     source_session_id: str | None = None
+    #: Hazelnut b7 adversarial A-5 (founder F-2, main MD7-10): the generated
+    #: document whose own surface caused this write — the review card's "Im
+    #: Profil eintragen", the CV section assist's accept, a CV section edit
+    #: saved to the profile. That document already says what was written, so
+    #: the "Profil aktualisiert" cue never fires for it
+    #: (``services/profile_freshness``); the OTHER document still gets it.
+    #: ``None`` on every other write and on records persisted before it existed.
+    document_id: str | None = None
+    document_kind: Literal["cv", "cover_letter"] | None = None
+    #: A-8: on an ``undo`` record only — the timestamp of the earliest record
+    #: the undo took back. A document created before it never held the undone
+    #: content, so the undo does not put it behind the profile.
+    reverts_since: datetime | None = None
     changes: list[FieldChange] = Field(default_factory=list)
     confidence: float | None = None  # for LLM-extracted data
     # US161 (ADR-041 amended) — per-entity {extracted, stored, delta} captured at

@@ -143,6 +143,8 @@ async def reconcile_interview_turn(
     record_source: str = _SOURCE,
     intake: str = "interview",
     offered_choices: list[dict] | None = None,
+    document_kind: str | None = None,
+    document_id: str | None = None,
 ) -> InterviewTurnResult:
     """Reconcile one interview answer into the vault. ONE write path.
 
@@ -167,7 +169,9 @@ async def reconcile_interview_turn(
     rides this same door — the turn is interview-shaped (an Applire-authored
     gap + question, the candidate's answer) so the reconciler and its stance
     guards read it exactly as an interview turn; only the durable record
-    differs (``record_source="testimony"``, ``intake="cv_assist"``).
+    differs (``record_source="testimony"``, ``intake="cv_assist"``), and it
+    names the CV it was given from (``document_kind``/``document_id``, A-5):
+    that CV already carries the suggestion, so its cue does not fire on it.
     """
     before = MasterProfileData.model_validate(profile_record.profile_json)
     new_info = {"gap": gap, "question": question, "answer": answer}
@@ -201,6 +205,8 @@ async def reconcile_interview_turn(
             intake=intake,
             session_id=session_id,
             actor="candidate",
+            document_id=document_id,
+            document_kind=document_kind if document_id is not None else None,
         ),
         record=profile_record,
         # §7.4 — a turn-based intake passes its turn text; the committer records

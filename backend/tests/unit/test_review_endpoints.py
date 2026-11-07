@@ -311,6 +311,9 @@ async def test_cv_add_evidence_applied_records_added_and_awaits_reaudit(db):
     assert len(decisions) == 1
     assert decisions[0]["finding_key"] == _KEY
     assert decisions[0]["action"] == "added"
+    # A-5 (MD7-10): the write names THIS CV, so its own cue stays quiet.
+    kwargs = mock_submit.call_args.kwargs
+    assert (kwargs["document_kind"], str(kwargs["document_id"])) == ("cv", str(cv_id))
 
 
 @pytest.mark.asyncio
@@ -338,6 +341,8 @@ async def test_cover_letter_add_evidence_applied_records_added_and_awaits_reaudi
     assert data["report"]["report"]["keywords"]["present_unsupported"] == []
     decisions = data["review_state"]["decisions"]
     assert len(decisions) == 1 and decisions[0]["action"] == "added"
+    kwargs = mock_submit.call_args.kwargs  # A-5: the letter's own card names the letter
+    assert (kwargs["document_kind"], str(kwargs["document_id"])) == ("cover_letter", str(cl_id))
 
 
 @pytest.mark.asyncio
