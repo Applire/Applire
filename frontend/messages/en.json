@@ -2455,7 +2455,7 @@
     "copied": "Copied",
     "done": "Done, I have saved it",
     "agentSetupHint": "Add it as APPLIRE_AGENT_TOKEN to your MCP client's configuration. The client must run on the machine where Applire runs in Docker: it starts the agent there with docker compose. Replace /absolute/path/to/applire with the folder that holds your docker-compose.yml:",
-    "agentSetupRestart": "Restart the client afterwards. The agent runs inside your Applire instance's backend, so Applire must be running. Without a valid token the Applire agent does not start. If Applire runs on another device (NAS, server), docs/SELF-HOSTING.md (section Agents) explains how to start the agent over SSH.",
+    "agentSetupRestart": "Restart the client afterwards. The agent runs inside your Applire instance's backend, so Applire must be running. Without a valid token the Applire agent does not start. If Applire runs on another device (NAS, server), docs/SELF-HOSTING.md, section 16, explains how to start the agent over SSH.",
     "apiSetupHint": "Send it as a header with every call, for example:",
     "revokeAgentTitle": "Revoke token “{name}”?",
     "revokeAgentBody": "An agent using this token stops at its next step. Document links it gave you stop working.",
