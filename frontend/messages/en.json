@@ -2765,7 +2765,8 @@
       "retention_skipped": "Deletion run: periods skipped (automatic deletion off)",
       "appearance_default_changed": "Default color scheme changed",
       "appearance_offer_changed": "Color schemes offered to people changed",
-      "unknown": "Unknown action ({action})"
+      "unknown": "Unknown action ({action})",
+      "settings_env_observed_first": "Value taken over from the .env (first start)"
     },
     "detail": {
       "role": "Role: {value}",
@@ -2783,7 +2784,8 @@
       "setting": "{setting}: {from} → {to}",
       "secret": "{setting} (value not recorded)",
       "on": "on",
-      "off": "off"
+      "off": "off",
+      "settingFirst": "{setting}: {to}"
     }
   },
   "adminUsage": {
@@ -2998,5 +3000,24 @@
     "cancel": "Cancel",
     "confirm": "Yes, take it back",
     "failed": "That didn't work. Please try again."
+  },
+  "adminAppearance": {
+    "preview": {
+      "title": "Live Preview",
+      "navDashboard": "Dashboard",
+      "navProfile": "Profile",
+      "jobTitle": "Software Engineer",
+      "tailored": "Tailored for Acme GmbH · 3 gaps identified",
+      "viewCv": "View CV",
+      "interview": "Interview",
+      "gaps": "3 gaps",
+      "primary": "Primary",
+      "accent": "Accent",
+      "outline": "Outline",
+      "subtle": "Subtle",
+      "fieldLabel": "Job title",
+      "fieldValue": "Senior Software Engineer",
+      "back": "← Back to Dashboard"
+    }
   }
 }

@@ -86,9 +86,15 @@ export const KNOWN_AUDIT_ACTIONS = [
   "appearance.offer_changed",
 ] as const;
 
+/** An env observation with no previous value is the first start, not a change (789:267i). */
+function isFirstObservation(detail: Record<string, unknown>): boolean {
+  return scalar(detail.from_value) === "";
+}
+
 /** `adminAudit.*` label of an audit row. A write-only (key) change gets its own label (no values; detail key `write_only`, contract §3.2). */
 export function auditActionLabel(action: string, detail: Record<string, unknown>): MsgRef {
   if (action === "settings.changed" && detail.write_only === true) return { key: "action.settings_secretChanged" };
+  if (action === "settings.env_observed" && isFirstObservation(detail)) return { key: "action.settings_env_observed_first" };
   if ((KNOWN_AUDIT_ACTIONS as readonly string[]).includes(action)) {
     return { key: `action.${action.replace(/\./g, "_")}` };
   }
@@ -118,6 +124,8 @@ export function auditDetailParts(action: string, detail: Record<string, unknown>
   if (action.startsWith("settings.") && typeof detail.key === "string") {
     if (detail.write_only === true) {
       out.push({ key: "detail.secret", params: { setting: detail.key } });
+    } else if (action === "settings.env_observed" && isFirstObservation(detail) && "to_value" in detail) {
+      out.push({ key: "detail.settingFirst", params: { setting: detail.key, to: scalar(detail.to_value) || "—" } });
     } else if ("to_value" in detail || "from_value" in detail) {
       out.push({
         key: "detail.setting",

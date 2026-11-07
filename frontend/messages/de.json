@@ -2765,7 +2765,8 @@
       "retention_skipped": "Löschlauf: Fristen übersprungen (automatisches Löschen aus)",
       "appearance_default_changed": "Standard-Farbschema geändert",
       "appearance_offer_changed": "Auswahl der Farbschemata geändert",
-      "unknown": "Unbekannte Aktion ({action})"
+      "unknown": "Unbekannte Aktion ({action})",
+      "settings_env_observed_first": "Wert aus der .env übernommen (erster Start)"
     },
     "detail": {
       "role": "Rolle: {value}",
@@ -2783,7 +2784,8 @@
       "setting": "{setting}: {from} → {to}",
       "secret": "{setting} (Wert wird nicht gespeichert)",
       "on": "an",
-      "off": "aus"
+      "off": "aus",
+      "settingFirst": "{setting}: {to}"
     }
   },
   "adminUsage": {
@@ -2998,5 +3000,24 @@
     "cancel": "Abbrechen",
     "confirm": "Ja, zurücknehmen",
     "failed": "Das hat nicht geklappt. Bitte versuche es noch einmal."
+  },
+  "adminAppearance": {
+    "preview": {
+      "title": "Live-Vorschau",
+      "navDashboard": "Dashboard",
+      "navProfile": "Profil",
+      "jobTitle": "Software-Entwicklerin",
+      "tailored": "Zugeschnitten auf Acme GmbH · 3 Lücken erkannt",
+      "viewCv": "Lebenslauf ansehen",
+      "interview": "Interview",
+      "gaps": "3 Lücken",
+      "primary": "Primär",
+      "accent": "Akzent",
+      "outline": "Kontur",
+      "subtle": "Dezent",
+      "fieldLabel": "Berufsbezeichnung",
+      "fieldValue": "Senior Software-Entwicklerin",
+      "back": "← Zurück zum Dashboard"
+    }
   }
 }
