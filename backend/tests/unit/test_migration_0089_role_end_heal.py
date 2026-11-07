@@ -254,10 +254,12 @@ def test_the_migration_heals_live_rows_on_a_real_database(caplog):
     meta.create_all(engine)
     emma = _SCENARIOS["emma pair"].model_dump(mode="json")
     genuine = _SCENARIOS["two past dates stay"].model_dump(mode="json")
+    stale = _SCENARIOS["stale current with no dispute"].model_dump(mode="json")
     with engine.begin() as conn:
         conn.execute(table.insert(), [
             {"id": "emma", "profile_json": emma, "deleted_at": None},
             {"id": "genuine", "profile_json": genuine, "deleted_at": None},
+            {"id": "stale", "profile_json": stale, "deleted_at": None},
             {"id": "deleted", "profile_json": emma, "deleted_at": datetime(2026, 11, 1)},
         ])
 
@@ -279,10 +281,11 @@ def test_the_migration_heals_live_rows_on_a_real_database(caplog):
     assert healed["metadata"]["pending_conflicts"] == []
     assert after["genuine"] == genuine, "a genuine two-past-dates dispute stays"
     assert after["deleted"] == emma, "a deleted vault is not touched"
+    assert after["stale"]["work_experience"][0]["is_current"] is False, "a close-only vault is written too"
     MasterProfileData.model_validate(healed)  # the app loads what the migration wrote
 
     log_text = " ".join(r.getMessage() for r in caplog.records if r.getMessage().startswith("0089"))
-    assert "1 vault(s): 2 role-end dispute(s) dropped, 1 role(s) closed" in log_text
+    assert "2 vault(s): 2 role-end dispute(s) dropped, 2 role(s) closed" in log_text
     assert "Mediora" not in log_text and "2024-02" not in log_text, "counts, never content"
 
     again = run(mod.upgrade)
