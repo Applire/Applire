@@ -255,6 +255,22 @@ async def notices_cheap(db: AsyncSession) -> list[dict[str, str]]:
     return _order(notices)
 
 
+def _dashboard_component(name: str, c: dict[str, Any]) -> dict[str, Any]:
+    """One health component for the Übersicht line.
+
+    785:251 (Hazelnut build 7, WP-O): a backup in its first-run grace is ``ok``
+    (nothing is overdue, ruling R-2) but does not exist — ``not_set_up`` lets the
+    console say so as a neutral to-do instead of reading green.
+    """
+    detail = c.get("detail") or {}
+    status = str(c.get("status", "unknown"))
+    out: dict[str, Any] = {"name": name, "status": status, "checked_at": detail.get("checked_at")}
+    if name == "backup" and status == "ok" and detail.get("last_backup_at") is None:
+        out["not_set_up"] = True
+        out["due_by"] = detail.get("first_due_by")
+    return out
+
+
 async def dashboard(db: AsyncSession) -> dict[str, Any]:
     from applire.services.ops.aggregate import collect
 
@@ -262,14 +278,7 @@ async def dashboard(db: AsyncSession) -> dict[str, Any]:
         # ADM-5: the page an admin opens to switch away from a slow provider
         # never waits on that provider — last known result + its age.
         report = await collect(db, with_usage=False, provider_inline=False)
-    components = [
-        {
-            "name": name,
-            "status": str(c.get("status", "unknown")),
-            "checked_at": (c.get("detail") or {}).get("checked_at"),
-        }
-        for name, c in (report.get("components") or {}).items()
-    ]
+    components = [_dashboard_component(name, c) for name, c in (report.get("components") or {}).items()]
     family = (settings.llm_provider or "").strip().lower()
     checked = report.get("checked_at")
     health = {

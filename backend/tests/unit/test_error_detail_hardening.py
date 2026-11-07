@@ -680,7 +680,11 @@ async def test_mcp_keeps_our_own_llm_messages():
 
     with pytest.raises(McpError) as exc:
         await _tool()
-    assert exc.value.error.message == "Mistral rate limit after 3 attempts"
+    # 788:134 (Hazelnut build 7): our own text, behind a typed retry head.
+    assert exc.value.error.message == (
+        "provider_rate_limited (retryable — send the same call again once): "
+        "Mistral rate limit after 3 attempts"
+    )
 
 
 def test_mcp_error_helpers_scrub_their_message(configured_secret):
@@ -724,7 +728,10 @@ def test_every_stored_error_message_is_scrubbed(path):
             and "exc" in ast.unparse(node.value)
         ):
             found += 1
-            assert "scrub_secrets(" in ast.unparse(node.value), ast.unparse(node)
+            value = ast.unparse(node.value)
+            # 788:134 (Hazelnut build 7): the letter stores a classified sentence
+            # that holds no exception text at all (test_generation_errors.py).
+            assert "scrub_secrets(" in value or value.startswith("letter_failure_message("), ast.unparse(node)
     assert found == 1
 
 
