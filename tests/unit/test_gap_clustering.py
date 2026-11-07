@@ -768,3 +768,13 @@ def test_clustering_system_prompt_states_each_item_at_the_postings_weight():
     assert "POSTING'S OWN WEIGHT" in flat
     assert "never something the role expects" in flat
     assert "Never merge a required and a nice-to-have item" in flat
+
+
+def test_clustering_system_prompt_clusters_the_story_list_too():
+    # 787:213 replay: a v5 draft without this sentence dropped the #260 story
+    # items from every cluster (5/5, Sonnet 5.5) — they are the liability's only
+    # way into the interview (resolve_gap).
+    from applire.prompts.gap_clustering import CLUSTERING_SYSTEM_PROMPT
+    flat = " ".join(CLUSTERING_SYSTEM_PROMPT.split())
+    assert "the gaps of ALL THREE lists, the \"no worked example yet\" list included" in flat
+    assert "never that it is missing" in flat

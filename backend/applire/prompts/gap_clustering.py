@@ -27,6 +27,10 @@
 # misstatement of the posting, shown as an open topic to a nurse with four adult-ICU years.
 # The liabilities now come as their own list, and jd_context states each requirement at the
 # posting's own weight (required = expects, nice-to-have = a plus), never merged into one.
+# Sonnet 5.5 replay (rec 189's lists, n=5 per arm): before, Adult ICU merged with the
+# desirable paediatric item 2/5 with "expects ... with paediatric ... as additional assets";
+# a first v5 draft dropped the story items from every cluster 5/5 (they are #260's way into
+# the interview), so the every-gap rule now names the story list explicitly.
 #
 # v4 (Hazelnut build 4 / WP-G, 2026-10-24, line 787:95): on a recompute the call clusters only
 # the concepts no carried topic holds, and it never saw those topics, so a concept the posting
@@ -97,7 +101,10 @@ words) goes into a cluster with that topic's EXACT "id" and "label" copied from 
 gaps that fit no existing topic get a new cluster with a new id. Never copy an existing \
 topic's members into "gaps" - only the input gaps.
 - Target 5-12 clusters; never more clusters than input gaps
-- Every input gap must appear in exactly one cluster
+- Every input gap must appear in exactly one cluster - the gaps of ALL THREE lists, the \
+"no worked example yet" list included. Such an item is a REQUIRED skill the candidate will be \
+asked to tell a story about: cluster it like any other gap (alone or with related items of the \
+same weight), and its jd_context says what the role expects of it - never that it is missing
 - Respond ONLY with a valid JSON object of the form {"clusters": [ ... ]} - no markdown, no explanations"""
 
 
