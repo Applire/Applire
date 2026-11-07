@@ -167,6 +167,17 @@ def _claimable_index(profile: Any) -> VaultIndex:
     return build_vault_index(exclude_unconfirmed(raw) if isinstance(raw, dict) else raw)
 
 
+def _profile_aims(profile: Any) -> list[str]:
+    """D-12: the profile's ``not_yet_reached`` lines (stripped, non-empty) — the
+    candidate's own "not reached yet" answers. Never raises."""
+    from applire.services.prompt_view import aim_and_other_lines
+
+    raw = profile.model_dump(mode="json") if hasattr(profile, "model_dump") else profile
+    if not isinstance(raw, dict):
+        return []
+    return [a.strip() for a in aim_and_other_lines(raw)[0] if a.strip()]
+
+
 def _denial_covers(text: str, idx: VaultIndex) -> bool:
     """Does one of the candidate's recorded denials cover ``text``? The ledger
     floor's own predicate (``stance.denials_covering``) over the denials the
@@ -2463,9 +2474,17 @@ async def _verify_claim_unchecked(
             # claimable unit — "Supply Chain" grounded on a Weberit bullet before
             # the language pass translated it), skill units first; never the
             # personal block. A translation shares no token, so no lexical cut.
-            pool = skill_units + [
-                u for u in idx.units
-                if u not in skill_units and not u.path.startswith("personal_info")
+            # D-12 (adversarial pass, build 7): a ``not_yet_reached`` line is an
+            # AIM — no span of it backs anything (the ledger's backing check reads
+            # ``exclude=aims`` the same way), so no unit carrying one is evidence
+            # here. Fail-safe: dropping a unit can only keep a card red.
+            aims = _profile_aims(profile)
+            pool = [
+                u for u in skill_units + [
+                    u for u in idx.units
+                    if u not in skill_units and not u.path.startswith("personal_info")
+                ]
+                if not any(a in (u.text or "") for a in aims)
             ]
             eq = _skill_equivalence_candidate(claim.text, pool, deny, judgement_sink)
             if eq is not None:
