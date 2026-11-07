@@ -112,3 +112,39 @@ def test_seam_the_generation_run_computes_the_ladder_through_letter_gap_ladder()
     src = inspect.getsource(svc._render_cover_letter_body)
     assert "letter_gap_ladder(" in src
     assert "key_requirement_gaps(keyword_ledger" not in src
+
+
+# ── G-1 ripple (relayed from G): a row tied to a recorded "no" only by containment ──
+# Since G-1 such a row no longer floors (status ``gap``, ``evidence == ""``), so the
+# bare ledger predicate counts it as ADR-074 Restfall. In the letter that changes
+# nothing: the unaddressed-requirements selector admits only claimable ADJACENT rows,
+# and the ladder only recorded denials — pinned here on the two round-3 shapes.
+
+def _containment_ledger():
+    return [
+        # Felix: the requirement "Security"; his recorded no was the narrower scope.
+        _row("Security"),
+        _row("PSD2", status="denied", denied_by="PSD2 security audits"),
+        # Priya: the requirement "ECMO"; her recorded no was the certification.
+        _row("ECMO"),
+        _row("ECMO certification", status="denied", denied_by="ECMO certification"),
+    ]
+
+
+def test_a_containment_only_row_is_never_named_and_never_an_unaddressed_requirement():
+    from applire.services.cross_document import find_unaddressed_hard_requirements
+    from applire.services.keyword_ledger import is_unasked_requirement
+
+    ledger = _containment_ledger()
+    assert is_unasked_requirement(ledger[0]) and is_unasked_requirement(ledger[2])  # the ripple
+    letter = {"body": {"paragraphs": ["Dear Hiring Manager,", "I build payment services."]}}
+    assert find_unaddressed_hard_requirements(ledger, letter) == []
+    assert find_unaddressed_hard_requirements(ledger, None) == []
+    jd = JD + "- Security-minded engineering\n- ECMO experience\n"
+    denied = [{"concept": "PSD2 security audits", "statement": "PSD2 security audits I have not run."},
+              {"concept": "ECMO certification", "statement": "I hold no ECMO certification."}]
+    key_gaps, named = letter_gap_ladder(ledger, denied, jd)
+    labels = [g.label for g in key_gaps]
+    assert "Security" not in labels and "ECMO" not in labels
+    block = render_gap_ladder_block(key_gaps, named, "en")
+    assert "Security —" not in block and "\n  - ECMO —" not in block
