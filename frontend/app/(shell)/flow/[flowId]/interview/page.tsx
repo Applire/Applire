@@ -37,6 +37,7 @@ import { isPastInterview, reopenedSummarySessionId } from "@/components/intervie
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
 import { markSeenThisSession, seenThisSession } from "@/lib/session-once";
+import { SLOW_TURN_AFTER_SECONDS, useTurnElapsed } from "@/components/interview/useSlowTurn";
 import {
   clusterView,
   openRequirementConcepts,
@@ -587,6 +588,8 @@ export default function InterviewPage({
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  // 787:205 — a long reconcile wait is named, never a bare spinner.
+  const turnElapsed = useTurnElapsed(sending);
   const [error, setError] = useState("");
   // #256 — the exact user text a failed turn tried to send, so the Retry
   // affordance can re-send it verbatim instead of forcing a re-type. null
@@ -1408,6 +1411,15 @@ export default function InterviewPage({
               </div>
             </div>
           </div>
+          {sending && turnElapsed >= SLOW_TURN_AFTER_SECONDS && (
+            <p
+              data-testid="turn-slow"
+              role="status"
+              className="mt-2 px-1 text-xs text-on-surface-variant"
+            >
+              {t("turnSlow", { seconds: turnElapsed })}
+            </p>
+          )}
           </>
           )}
         </div>

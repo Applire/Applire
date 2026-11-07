@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InterviewPage from "../page";
@@ -1340,6 +1340,34 @@ describe("Hazelnut b3 #789 — interview intro, one count, match ring", () => {
     const iso = chips.find((c) => c.textContent === "ISO 9001");
     expect(iso).toHaveAttribute("data-state", "covered");
     expect(chips.find((c) => c.textContent === "IFS/BRC")).toHaveAttribute("data-state", "declined");
+  });
+});
+
+describe("787:205 — a long wait says so", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("a turn pending past 25 s shows the 'takes longer' state with the elapsed seconds; none before", async () => {
+    const base = mockCeilingApi({});
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/session/s1/message")) return new Promise(() => {});
+      return base(input, init);
+    }) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId("answer-textarea"), { target: { value: "Meine Antwort" } });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    fireEvent.click(screen.getByTestId("send-button"));
+    expect(screen.queryByTestId("turn-slow")).not.toBeInTheDocument();
+    await act(async () => void vi.advanceTimersByTime(10_000));
+    expect(screen.queryByTestId("turn-slow")).not.toBeInTheDocument();
+    await act(async () => void vi.advanceTimersByTime(20_000));
+    expect(screen.getByTestId("turn-slow").textContent).toContain('turnSlow({"seconds":30})');
   });
 });
 

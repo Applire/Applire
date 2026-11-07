@@ -410,6 +410,7 @@
     "reopenedSummaryLead": "Was wir aus deinen Antworten in dein Profil übernommen haben. Das Interview ist abgeschlossen; du kannst es dir hier jederzeit wieder ansehen.",
     "backToCV": "Zurück zum Lebenslauf",
     "reasonNoneOpen": "Interview abgeschlossen — keine Anforderung mehr offen",
+    "turnSlow": "Das dauert länger als sonst ({seconds} s). Lass diese Seite offen — falls es nicht klappt, bleibt deine Antwort stehen und du kannst sie noch einmal senden.",
     "completionOpenNames": "Noch offen: {names}{more, plural, =0 {} other { und # weitere}}",
     "completionOpenRequirements": "{count, plural, one {# Anforderung ist noch offen} other {# Anforderungen sind noch offen}}. Deine Antworten sind in deinem Profil gespeichert.",
     "openRequirementsStat": "{count, plural, one {Anforderung noch offen} other {Anforderungen noch offen}}"
