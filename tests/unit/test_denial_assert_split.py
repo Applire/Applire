@@ -127,15 +127,14 @@ def _rebuild(profile_json, concepts=(HEAD_NOUN,)):
 
 
 def test_unconfirmed_vault_entry_does_not_release_a_persisted_denial():
-    """#480's ``probe_compound_denial`` sequence: the candidate denies the
-    compound, the reconciler later infers an ``unconfirmed`` skill of the head
-    noun, and the NEXT ledger rebuild hands that inference to the release
-    predicate — the denial evaporates and the concept comes back claimable.
-
-    An ``unconfirmed`` entry backs nothing (ADR-061 clause 3), so it cannot be
-    the independent affirmation that releases a denial either."""
+    """#480 step 1, re-read under G-1 (#821, ADR-059 amended 2026-11-07): a
+    denial of the compound no longer floors the head noun at all, so there is
+    no release left for an ``unconfirmed`` inference to perform. What still
+    holds: the head noun is never ASSERTED as the candidate's "no", and an
+    ``unconfirmed`` entry still backs nothing at the persist heal (ADR-061 cl. 3)."""
     entry = _by_concept(_rebuild(_vault(css_status="unconfirmed")))[HEAD_NOUN]
-    assert entry["claimable"] is False
+    assert entry["status"] != "denied" and entry["evidence"] != DENIED_EVIDENCE
+    assert entry["evidence"] != DENIAL_FLOOR_EVIDENCE
 
 
 def test_a_confirmed_vault_entry_still_releases_the_containment_floor():
@@ -160,13 +159,10 @@ def test_an_entry_with_no_status_key_at_all_still_releases():
 
 
 def test_declared_denial_asserts_and_containment_only_floors_without_testimony():
-    """The canonical #486 pin, both rows in ONE rebuild:
-
-    * ``Tailwind CSS`` — the candidate's own declared term — keeps
-      ``denied`` + :data:`DENIED_EVIDENCE`;
-    * ``CSS`` — reached only by containment — is floored to a non-claimable
-      ``gap`` with an honest, non-testimony marker. Floored, never asserted.
-    """
+    """The #486 pin under G-1 (#821): ``Tailwind CSS`` — the candidate's own
+    declared term — keeps ``denied`` + :data:`DENIED_EVIDENCE`; ``CSS`` —
+    reached only by containment — keeps the classifier's grade. A denial
+    floors only the concept it names."""
     ledger = _by_concept(_rebuild(_vault(), concepts=(DENIED_COMPOUND, HEAD_NOUN)))
 
     declared = ledger[DENIED_COMPOUND]
@@ -174,30 +170,26 @@ def test_declared_denial_asserts_and_containment_only_floors_without_testimony()
     assert declared["claimable"] is False
     assert declared["evidence"] == DENIED_EVIDENCE
     assert declared["denial_level"] == "direct"
+    assert declared["denied_by"] == DENIED_COMPOUND
 
     contained = ledger[HEAD_NOUN]
-    assert contained["claimable"] is False  # the never-upgrade half, unchanged
-    assert contained["status"] == "gap"
-    assert contained["evidence"] != DENIED_EVIDENCE
-    assert contained["evidence"] == DENIAL_FLOOR_EVIDENCE
-    assert "denial_level" not in contained
+    assert contained["status"] == "direct"
+    assert contained["evidence"] == "the classifier's own adjacency read"
+    assert "denial_level" not in contained and "denied_by" not in contained
 
 
 def test_upgrade_seam_floors_a_containment_only_match_without_asserting():
-    """The second assert site (``upgrade_ledger_for_concepts``) reaches the
-    same verdict as a rebuild — ADR-059's every-seam rule. Nothing affirms the
-    head noun (no vault corpus, a pure-denial turn), so the never-upgrade half
-    fires and the assert half does not."""
+    """G-1 at the turn seam (#821): a pure-denial turn of the compound neither
+    floors the head noun nor upgrades it on the denial's words (#351)."""
+    row = _entry(HEAD_NOUN)
     out, changed = upgrade_ledger_for_concepts(
-        [_entry(HEAD_NOUN)],
+        [row],
         [HEAD_NOUN],
         "I have never used Tailwind CSS.",
         denied_concepts=[DENIED_COMPOUND],
     )
-    assert out[0]["claimable"] is False
-    assert out[0]["status"] == "gap"
-    assert out[0]["evidence"] == DENIAL_FLOOR_EVIDENCE
-    assert changed is True
+    assert out[0] == row
+    assert changed is False
 
 
 def test_upgrade_seam_still_asserts_a_declared_denial():
@@ -215,44 +207,48 @@ def test_upgrade_seam_still_asserts_a_declared_denial():
 
 
 def test_a_containment_only_match_never_reverses_a_standing_claim_into_testimony():
-    """#352's reversal keeps working — a claimable row still loses its claim —
-    but the reversal is a floor, not a fabricated statement about testimony."""
-    out, _ = upgrade_ledger_for_concepts(
-        [_entry(HEAD_NOUN, status="direct", claimable=True, evidence="an earlier turn")],
+    """#352's reversal stays a DECLARED-denial act; since G-1 (#821) a
+    containment-only match reverses nothing at all."""
+    row = _entry(HEAD_NOUN, status="direct", claimable=True, evidence="an earlier turn")
+    out, changed = upgrade_ledger_for_concepts(
+        [row],
         [HEAD_NOUN],
         "I have never used Tailwind CSS.",
         denied_concepts=[DENIED_COMPOUND],
     )
-    assert out[0]["claimable"] is False
-    assert out[0]["evidence"] != DENIED_EVIDENCE
+    assert out[0] == row and changed is False
 
 
 # ── the never-upgrade half, pinned in all three floor call paths ────────────
 
 
 def test_never_upgrade_half_still_fires_by_containment_in_all_three_paths():
-    """ADR-064's consistency rule at its true width: the split narrows what may
-    be ASSERTED, never what may be REFUSED. All three floor call paths still
-    refuse the claim on a containment-only match."""
+    """ADR-064's consistency rule at its true width, re-pinned for G-1 (#821):
+    NO floor path floors on containment any more, and all three agree.
+
+    1 the rebuild keeps the classifier's grade; 2 the turn seam leaves the row
+    as it stands (the denial's words are no evidence for it, #351); 3 the vault
+    re-evaluation lifts only on real claimable evidence — the vault's own
+    copy of the denied compound is a ``denied`` skill and backs nothing."""
     from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
 
     profile = _vault()
 
     # 1 — the rebuild floor.
-    assert _by_concept(_rebuild(profile))[HEAD_NOUN]["claimable"] is False
+    assert _by_concept(_rebuild(profile))[HEAD_NOUN]["status"] == "direct"
 
     # 2 — the in-place upgrade seam.
-    out, _ = upgrade_ledger_for_concepts(
+    out, changed = upgrade_ledger_for_concepts(
         [_entry(HEAD_NOUN)], [HEAD_NOUN], "I have never used Tailwind CSS.",
         denied_concepts=[DENIED_COMPOUND],
     )
-    assert out[0]["claimable"] is False
+    assert out[0]["claimable"] is False and changed is False
 
-    # 3 — the vault re-evaluation (skip-only by design: it never writes
-    # "denied", it only refuses to upgrade).
+    # 3 — the vault re-evaluation: the denied compound, persisted as the
+    # `denied` skill the commit re-floor writes, is no evidence for anything.
     css_in_vault = dict(profile)
     css_in_vault["skills"] = profile["skills"] + [
-        {"name": "Tailwind CSS", "category": "technical"}
+        {"name": "Tailwind CSS", "category": "technical", "status": "denied"}
     ]
     healed, changed = reevaluate_gap_ledger_against_vault(
         [_entry(HEAD_NOUN)], css_in_vault
@@ -263,14 +259,19 @@ def test_never_upgrade_half_still_fires_by_containment_in_all_three_paths():
 
 def test_the_f8_adjacency_inference_is_still_floored():
     """The 2026-07-23 blind-run shape ("RAG experience typically involves
-    embeddings"): the classifier upgrades a denied concept by adjacency and the
-    floor reverses it. The vault carries the denied compounds only, so nothing
-    affirms the broad term independently."""
+    embeddings"), re-pinned for G-1 (#821): the denial floor no longer refuses
+    "RAG" for a denied "RAG pipeline" — the BACKING floor does, because no vault
+    unit grounds an adjacency read (ADR-061 / ADR-100). Never asserted as the
+    candidate's "no"."""
     profile = {
+        "personal_info": {"name": "Test Person"},
         "work_experience": [
-            {"role": "ML Engineer",
-             "technologies": ["RAG pipeline design", "RAG reranking improvements"]}
+            {"id": "w-1", "company": "Beispiel AG", "role": "ML Engineer",
+             "start_date": "2020-01", "is_current": True,
+             "responsibilities": ["Built document search for the support team."],
+             "achievements": [], "technologies": ["Python"]}
         ],
+        "skills": [],
         "metadata": {"denied_concepts": [_denial("RAG pipeline"),
                                          _denial("RAG reranking")]},
     }
@@ -282,9 +283,11 @@ def test_the_f8_adjacency_inference_is_still_floored():
         denied_concepts=["RAG pipeline", "RAG reranking"],
         profile_json=profile,
     )
-    rag = _by_concept(ledger)["RAG"]
+    healed, violations = assert_claimable_backed(ledger, profile, seam="f8-test")
+    rag = _by_concept(healed)["RAG"]
     assert rag["claimable"] is False
     assert rag["evidence"] != DENIED_EVIDENCE  # the candidate never named "RAG"
+    assert [v["reason"] for v in violations] == ["no_vault_evidence_unit"]
 
 
 # ── instrument lockstep (ADR-059 am. 2026-08-08 clause (b)) ─────────────────
@@ -341,7 +344,9 @@ def test_the_heal_floors_a_containment_only_match_instead_of_asserting():
 @pytest.mark.parametrize("writer", ["floor", "upgrade", "heal"])
 def test_no_writer_asserts_testimony_for_an_undeclared_term(writer):
     """One property, three instruments: :data:`DENIED_EVIDENCE` is only ever
-    written for a term the candidate actually declared."""
+    written for a term the candidate actually declared. Since G-1 (#821) the
+    floor and the turn seam leave the undeclared term untouched; the heal may
+    still refuse it for want of vault evidence, never as a denial."""
     row = _entry(HEAD_NOUN, status="direct", claimable=True, evidence="an earlier turn")
     corpus = profile_literal_corpus(_vault()) or None
     if writer == "floor":
@@ -354,7 +359,9 @@ def test_no_writer_asserts_testimony_for_an_undeclared_term(writer):
     else:
         out, _ = assert_claimable_backed([dict(row)], _vault(), seam="lockstep-test")
     assert out[0]["evidence"] != DENIED_EVIDENCE
-    assert out[0]["claimable"] is False
+    assert out[0]["status"] != "denied"
+    if writer != "heal":
+        assert out[0] == row
 
 
 # ── SF-GAP.10 / E-4 — the RELEASE half at the entry's full width ────────────
@@ -422,18 +429,17 @@ def test_an_attested_surface_form_releases_a_containment_only_floor():
 
 
 def test_without_an_attested_form_the_containment_floor_still_fires():
-    """The contrast case, and the one that keeps #207/#486 intact: the same
-    narrow-denial shape with nothing in the vault attesting any of the entry's
-    names is floored exactly as before."""
+    """G-1 (#821): with nothing attesting any of the entry's names, a narrow
+    denial still floors nothing — "direkte Produktion für Lebensmittelkunden"
+    does not name "Produktion". The row keeps its grade."""
     profile = _production_vault(role="Qualitätsmanager")
+    row = _production_row()
     out = _enforce_denial_stance(
-        [_production_row()],
+        [row],
         profile["metadata"]["denied_concepts"],
         denial_release_corpus(profile),
     )[0]
-    assert out["claimable"] is False
-    assert out["status"] == "gap"
-    assert out["evidence"] == DENIAL_FLOOR_EVIDENCE
+    assert out == row
 
 
 def test_a_declared_denial_is_absolute_however_loudly_the_vault_attests_it():
@@ -461,9 +467,8 @@ def test_a_declared_denial_is_absolute_however_loudly_the_vault_attests_it():
 
 
 def test_the_denied_compound_in_the_vault_never_releases_the_head_noun():
-    """The vault attesting the DENIED COMPOUND itself is no affirmation of the
-    head noun — `_independently_affirmed` blanks every denied phrase out of the
-    corpus before it looks. #207/#486's floor, unchanged, at full width."""
+    """G-1 (#821): the head noun is no longer floored by the compound's denial,
+    so there is nothing to release; it is never asserted as denied either."""
     profile = {
         "skills": [{"name": DENIED_COMPOUND, "category": "technical"}],
         "metadata": {"denied_concepts": [_denial(DENIED_COMPOUND, "direct")]},
@@ -478,8 +483,7 @@ def test_the_denied_compound_in_the_vault_never_releases_the_head_noun():
     out = _enforce_denial_stance(
         [row], profile["metadata"]["denied_concepts"], denial_release_corpus(profile)
     )[0]
-    assert out["claimable"] is False
-    assert out["evidence"] == DENIAL_FLOOR_EVIDENCE
+    assert out == row
 
 
 # ── one seam test per call site (ADR-059's every-seam rule) ─────────────────
@@ -552,20 +556,16 @@ def test_seam_vault_reevaluation_may_heal_a_released_gap_row():
 
 
 def test_seam_vault_reevaluation_still_skips_an_unreleased_containment_match():
+    """G-1 (#821): the re-evaluation skips only a row a denial NAMES; a row
+    merely contained in "direkte Produktion für Lebensmittelkunden" is lifted
+    on the vault bullet that names it (the re-evaluation's corpus excludes the
+    denial statements themselves)."""
     from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
 
     profile = _production_vault(role="Qualitätsmanager")
     profile["work_experience"][0]["responsibilities"] = [
         "Leitung der Produktion an zwei Standorten."
     ]
-    # Interview-written (ADR-059 amended 2026-10-22, E-11): only prose of
-    # import provenance releases, so this bullet leaves the match unreleased.
-    profile["metadata"]["enrichment_history"] = [{
-        "source": "interview", "timestamp": "2026-10-01T00:00:00Z",
-        "changes": [{"section": "work_experience", "field": "responsibilities",
-                     "action": "merged", "old_value": None,
-                     "new_value": ["Leitung der Produktion an zwei Standorten."]}],
-    }]
     row = _entry(
         BARE_CONCEPT,
         status="gap",
@@ -574,5 +574,12 @@ def test_seam_vault_reevaluation_still_skips_an_unreleased_containment_match():
         surface_forms=[BARE_CONCEPT, ATTESTED_FORM, "Fertigung"],
     )
     healed, changed = reevaluate_gap_ledger_against_vault([row], profile)
-    assert changed is False
-    assert healed[0]["claimable"] is False
+    assert changed is True
+    assert healed[0]["claimable"] is True
+    # ...and a row the denial NAMES stays skipped however the vault reads.
+    named = _entry("direkte Produktion für Lebensmittelkunden", status="gap")
+    profile["work_experience"][0]["responsibilities"].append(
+        "Direkte Produktion für Lebensmittelkunden geplant."
+    )
+    healed, changed = reevaluate_gap_ledger_against_vault([named], profile)
+    assert changed is False and healed[0]["claimable"] is False

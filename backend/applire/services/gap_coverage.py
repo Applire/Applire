@@ -246,6 +246,30 @@ def _is_floored_only(member: str, rows: list[dict[str, Any]], denials: list[str]
     )
 
 
+def _denial_wordings(member: str, rows: list[dict[str, Any]], denials: list[str]) -> list[str]:
+    """#821 (founder ruling G-1) — the candidate's OWN wording of every recorded
+    denial that declines ``member``: the records that declare it
+    (``declared_denial_matches``, longest first) and the ``denied_by`` of the
+    member's own ``denied`` rows (a classifier binding by id, or the declared
+    record the floor stamped). Deduplicated by the ledger normaliser, in that
+    order. Surfaces quote these instead of the member's bare term ("You said
+    you don't have: ECMO certification", never "…: ECMO"). A fact (ADR-062
+    cl. 1)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    candidates = list(declared_denial_matches(member, denials)) if denials else []
+    for row in _own_rows(member, rows):
+        bound = row.get("denied_by")
+        if row.get("status") == "denied" and isinstance(bound, str) and bound.strip():
+            candidates.append(bound.strip())
+    for wording in candidates:
+        key = _norm(wording)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(wording)
+    return out
+
+
 def _is_anchored(row: dict[str, Any], member: str) -> bool:
     """The row's own CONCEPT is the member or contains it — the member's own
     requirement, or a narrower one (``5+ years Python experience`` for the
@@ -398,10 +422,19 @@ def member_statuses(
             "status": "declined" if recorded else _member_status(member, keyword_ledger, denials),
             "requirement": member_is_requirement(member, keyword_ledger),
         }
+        rows = _rows_for(member, keyword_ledger)
         # G-4 — declined by a related denial's FLOOR, not by naming it. The key
         # is present only when True (GapClusterMemberStatus.floored defaults False).
-        if not recorded and _is_floored_only(member, _rows_for(member, keyword_ledger), denials):
+        # #821: also when the turn RECORDED the member declined off such a row —
+        # the record does not make the candidate have named it.
+        if item["status"] == "declined" and _is_floored_only(member, rows, denials):
             item["floored"] = True
+        # #821 (G-1): the candidate's own scoped wording travels with a declined
+        # chip, published only when there is one (ADR-095: additive).
+        if item["status"] == "declined":
+            wordings = _denial_wordings(member, rows, denials)
+            if wordings:
+                item["denied_by"] = wordings
         out.append(item)
     # 787:95 — a member folded into a finished card: its own chip status, marked
     # so no surface lets it colour or reopen the card.

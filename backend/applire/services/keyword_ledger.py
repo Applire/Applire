@@ -569,6 +569,47 @@ def _declared_denial_level(
     return "partial" if "partial" in matched_levels else "direct"
 
 
+def _declared_denial_record(
+    concept: str,
+    forms: list[str],
+    entries: list[tuple[str, str]],
+) -> str | None:
+    """The recorded denial's OWN wording that declares this entry — the longest
+    declared match over the concept and every surface form, verbatim
+    ``DeniedConcept.concept`` — or ``None`` (#821, founder ruling G-1).
+
+    Same matcher as :func:`_declared_denial_level` (``declared_denial_matches``,
+    longest first), so the two can never disagree about WHETHER the entry is
+    declared; this one answers WHICH record, so every surface can quote the
+    candidate's scoped words instead of the requirement's bare concept."""
+    if not entries:
+        return None
+    all_denied = [d_concept for d_concept, _level in entries]
+    matched: list[str] = []
+    for probe in dict.fromkeys([concept, *(forms or [])]):
+        if isinstance(probe, str) and probe.strip():
+            matched.extend(declared_denial_matches(probe, all_denied))
+    if not matched:
+        return None
+    return sorted(dict.fromkeys(matched), key=lambda d: len(_norm(d)), reverse=True)[0]
+
+
+def denial_scope_wording(entry: dict[str, Any] | None) -> str | None:
+    """#821 (ruling G-1) — the candidate's own wording of the limit a ``denied``
+    row records, when it differs from the row's concept; else ``None``.
+
+    The writers and every surface state THIS scope ("no PSD2 licence"), never
+    the bare requirement ("PSD2"). A fact read off the row (ADR-062 cl. 1)."""
+    if not isinstance(entry, dict) or entry.get("status") != "denied":
+        return None
+    wording = entry.get(DENIED_BY_KEY)
+    if not isinstance(wording, str) or not wording.strip():
+        return None
+    if _norm(wording) == _norm(entry.get("concept", "")):
+        return None
+    return wording.strip()
+
+
 def _bound_denial(
     entry: dict[str, Any],
     entries: list[tuple[str, str]],
@@ -597,7 +638,9 @@ def _bound_denial(
     return None
 
 
-def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
+def _denied_row(
+    entry: dict[str, Any], denial_level: str, record: str | None = None
+) -> dict[str, Any]:
     """THE one shape a denied ledger row is written in — the assert half of the
     floor (ADR-059 amended 2026-08-08 clause (b), #486).
 
@@ -634,6 +677,11 @@ def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
     # block reads the field unconditionally.
     out.pop("adjacent_evidence", None)
     out.pop("backing", None)  # ADR-100 cl. 7: a denial outranks a quote
+    # #821 (ruling G-1): the row carries the candidate's own wording of the
+    # limit, so surfaces and writers quote the scope, never the bare concept. A
+    # row the classifier bound keeps its binding (the same record by id).
+    if record and not (isinstance(out.get(DENIED_BY_KEY), str) and out[DENIED_BY_KEY].strip()):
+        out[DENIED_BY_KEY] = record
     return out
 
 
@@ -758,8 +806,6 @@ def _enforce_denial_stance(
             for e in ledger
         ]
 
-    all_denied_concepts = [d_concept for d_concept, _level in entries]
-
     result: list[dict[str, Any]] = []
     for entry in ledger:
         concept = entry.get("concept", "")
@@ -841,67 +887,38 @@ def _enforce_denial_stance(
                     concept,
                 )
             entry = {k: v for k, v in entry.items() if k != DENIED_BY_KEY}
-        # "Is this entry denied AT ALL?" is decided with ONE call against the
-        # FULL joint list of denied concepts — that is what lets
-        # ``_independently_affirmed`` blank every denied phrase out of the
-        # vault corpus TOGETHER before checking for independent evidence.
-        # Looping this call per-concept over singleton lists (regression,
-        # 2026-07-29) silently fails OPEN: when two denied concepts share a
-        # substring that never appears standalone in the vault, each
-        # singleton call blanks only its own phrase, so the OTHER phrase's
-        # leftover text reads as "independent" affirmation and neither call
-        # fires — the floor stops firing at all for that entry.
-        is_denied = is_denied_concept(concept, all_denied_concepts, vault_corpus) or any(
-            is_denied_concept(f, all_denied_concepts, vault_corpus) for f in forms
-        )
-        if not is_denied:
-            result.append(entry)
-            continue
-        # SF-GAP.10 / E-4 (ADR-059 amended 2026-09-11) — the RELEASE half at the
-        # entry's full width. ``is_denied`` above probes the concept AND every
-        # surface form; the release probes the same set, so an alias can no
-        # longer pull an entry into the floor that its own attested name would
-        # carry back out. Declared denials never reach here
-        # (``containment_release_form`` refuses them itself).
-        released = containment_release_form(
-            concept, forms, all_denied_concepts, vault_corpus
-        )
-        if released is not None:
-            logger.info(
-                "_enforce_denial_stance: left %r as it stands (%r/claimable=%r) — "
-                "it is only contained in a denied compound, and the vault "
-                "attests %r outside it (SF-GAP.10)",
-                concept,
-                entry.get("status"),
-                entry.get("claimable"),
-                released,
-            )
+        # #821 (founder ruling G-1, ADR-059 amended 2026-11-07): A DENIAL FLOORS
+        # ONLY THE CONCEPT IT NAMES. The compound-containment branch that used
+        # to floor here ("ECMO" inside a denied "ECMO certification",
+        # "Security" inside "formal security certification") is withdrawn: the
+        # row keeps the classifier's grade. Whether a narrower denial rules out
+        # a broader requirement is the classifier's `denied_by` Judgment (the
+        # bound arm above), never a string relation.
+        record = _declared_denial_record(concept, forms, entries)
+        if record is None:
+            if is_denial_floored(entry):
+                # A row the withdrawn containment floor wrote on an earlier run
+                # (a carried merge row, a stored ledger): it was never the
+                # candidate's "no", so it goes back to an honest unknown, which
+                # the vault re-evaluation may lift on real evidence.
+                logger.info(
+                    "_enforce_denial_stance: released the containment floor on %r — "
+                    "no recorded denial names it (G-1, #821)",
+                    concept,
+                )
+                result.append({**entry, "status": "gap", "claimable": False, "evidence": ""})
+                continue
             result.append(entry)
             continue
         if entry.get("claimable"):
             logger.warning(
-                "_enforce_denial_stance: forced claimable concept %r to gap — "
+                "_enforce_denial_stance: forced claimable concept %r to denied — "
                 "the candidate explicitly denied it in testimony (#231, "
                 "ADR-040 never-claim-beats-claim outranks adjacency inference)",
                 concept,
             )
-        # Second pass — the ASSERT half (ADR-059 amended 2026-08-08, #486).
-        # The entry is floored either way; this decides whether the floor may
-        # also state that the candidate SAID SO. Only a declared denial (the
-        # persisted DeniedConcept naming this concept) may, and it also
-        # supplies the ``denial_level``. A containment-only match is floored
-        # and left silent about testimony that was never given.
-        level = _declared_denial_level(concept, forms, entries)
-        if level is None:
-            logger.info(
-                "_enforce_denial_stance: floored %r without asserting a denial — "
-                "it is only contained in a denied compound the candidate named, "
-                "and no denial names this concept (#486)",
-                concept,
-            )
-            result.append(_floored_row(entry))
-            continue
-        result.append(_denied_row(entry, level))
+        level = _declared_denial_level(concept, forms, entries) or "direct"
+        result.append(_denied_row(entry, level, record))
     return result
 
 
@@ -1303,11 +1320,10 @@ def render_ledger_prompt_block(
     # 2026-07-27). An unknown is simply absent. A denial is a position the
     # CANDIDATE took, in their own words — which is exactly what makes it
     # positionable rather than merely forbidden.
-    denied = [
-        e.get("concept", "")
-        for e in (keyword_ledger or [])
-        if e.get("status") == "denied" and e.get("concept")
+    denied_rows = [
+        e for e in (keyword_ledger or []) if e.get("status") == "denied" and e.get("concept")
     ]
+    denied = [e.get("concept", "") for e in denied_rows]
     denied_norms = {_norm(c) for c in denied}
     # ADR-100 cl. 6 — each list says what the system actually knows: the
     # analysis found no evidence, or the evidence it named could not be verified
@@ -1357,8 +1373,19 @@ def render_ledger_prompt_block(
                 "otherwise the letter, like a CV, simply omits them:"
             ),
         ]
-        for concept in denied:
-            lines.append(f"  - {concept}")
+        for row in denied_rows:
+            concept = row.get("concept", "")
+            scope = denial_scope_wording(row) if audience == "letter" else None
+            if scope:
+                # #821 (founder ruling G-1): the writer states the candidate's
+                # OWN scope, never the bare requirement. The CV variant is
+                # byte-unchanged (RULING MD6-3): a CV never names a limit.
+                lines.append(
+                    f'  - {concept} — the candidate\'s own words for this limit: "{scope}"; '
+                    f"name only that scope, never the bare {concept}"
+                )
+            else:
+                lines.append(f"  - {concept}")
 
     lines += _aims_only_lines(aims)
     return "\n".join(lines)
@@ -2683,7 +2710,9 @@ def upgrade_ledger_for_concepts(
     from applire.services.ats_audit import _norm as ats_norm
 
     turn_corpus = ats_norm(ev)
-    full_corpus = " ".join(p for p in (vault_corpus or "", turn_corpus) if p) or None
+    # `vault_corpus` decided only the withdrawn containment floor's release
+    # (#821, G-1); the doors keep passing it, the turn corpus alone decides now.
+    del vault_corpus
 
     new_ledger: list[dict[str, Any]] = []
     changed = False
@@ -2738,48 +2767,27 @@ def upgrade_ledger_for_concepts(
                 e.get("status"),
                 e.get("claimable"),
             )
-            denied = _denied_row(e, declared_level)
+            denied = _denied_row(
+                e, declared_level, _declared_denial_record(concept, forms, denial_entries)
+            )
             changed = changed or denied != e
             new_ledger.append(denied)
             continue
 
         if denials and _entry_is_denied(concept, forms, denials, turn_corpus or None):
-            if not _entry_is_denied(
-                concept, forms, denials, full_corpus
-            ) or containment_release_form(concept, forms, denials, full_corpus):
-                # #351 — the turn denies this concept only by containment in a
-                # longer denied compound, and the vault affirms it outside that
-                # compound. Neither verdict is available: the turn is no
-                # evidence FOR it, and the candidate denied the compound, not
-                # this concept. Leave the entry exactly as it stands — which,
-                # composed with #352, also means a containment-only denial
-                # never REVERSES a standing upgrade. That is the same verdict
-                # the rebuild reaches: `_enforce_denial_stance` has always
-                # judged containment against this very corpus.
-                logger.info(
-                    "upgrade_ledger_for_concepts: left %r as it stands (%r/"
-                    "claimable=%r) — it is only contained in a denied compound "
-                    "and the vault affirms it independently (#351)",
-                    concept, e.get("status"), e.get("claimable"),
-                )
-                new_ledger.append(e)
-                continue
-            # Containment only, and nothing affirms the concept outside the
-            # denied compound — not the turn, not the vault. The never-upgrade
-            # half fires (the entry is floored, and a standing claim is
-            # reversed, #352) but the assert half does not: the candidate named
-            # the compound, never this concept (#486).
+            # #351 kept, #486's floor withdrawn (#821, founder ruling G-1): the
+            # turn reaches this concept only by containment in a longer denied
+            # compound, so its words are no evidence FOR it (no upgrade) — and a
+            # denial floors only the concept it names, so nothing is floored or
+            # reversed either. The row stays exactly as it stands; whether the
+            # narrower denial rules out this broader requirement is the gap
+            # classifier's `denied_by` Judgment (rebuild, coverage re-judge).
             logger.info(
-                "upgrade_ledger_for_concepts: floored %r (was %r/claimable=%r) "
-                "without asserting a denial — it is only contained in a denied "
-                "compound and nothing affirms it independently (#486)",
-                concept,
-                e.get("status"),
-                e.get("claimable"),
+                "upgrade_ledger_for_concepts: left %r as it stands (%r/claimable=%r) "
+                "— it is only contained in a denied compound (#351; G-1, #821)",
+                concept, e.get("status"), e.get("claimable"),
             )
-            floored = _floored_row(e)
-            changed = changed or floored != e
-            new_ledger.append(floored)
+            new_ledger.append(e)
             continue
 
         # Nothing to upgrade: this turn confirmed nothing (``upgrade=False``),
@@ -2964,12 +2972,10 @@ def reevaluate_gap_ledger_against_vault(
         # rule: the release is judged at the entry's full width too, or a
         # rebuild and a re-evaluation of the same row disagree about whether
         # the containment reading stands.
-        if (
-            denials
-            and any(is_denied_concept(p, denials, release_corpus) for p in probes)
-            and containment_release_form(concept, forms, denials, release_corpus)
-            is None
-        ):
+        # #821 (G-1, ADR-059 amended 2026-11-07): only a denial that NAMES the
+        # row skips it; a containment-only match no longer floors, so the row
+        # may be lifted on real vault evidence outside the denial statements.
+        if denials and any(declared_denial_matches(p, denials) for p in probes):
             continue
 
         if not any(surface_present(p, corpus) for p in probes):
@@ -3960,15 +3966,9 @@ def _claimable_backing_violation(
     evidence = (entry.get("evidence") or "").strip()
     if evidence == DENIED_EVIDENCE:
         return "denied_evidence"
-    if (
-        denials
-        and probes
-        and _entry_is_denied(concept, forms, denials, vault_corpus)
-        # SF-GAP.10 — one release instrument at every floor seam (ADR-059's
-        # every-seam rule): a containment-only match the vault attests under
-        # the entry's own name is not a denial of this entry.
-        and containment_release_form(concept, forms, denials, vault_corpus) is None
-    ):
+    # #821 (G-1): only a denial that NAMES the row (declared match) is a
+    # polarity violation; containment in a denied compound no longer is.
+    if denials and probes and any(declared_denial_matches(p, denials) for p in probes):
         return "denied_concept"
 
     # 2 — the row's own coherence.
@@ -4250,7 +4250,17 @@ def assert_claimable_backed(
                     "direct", "partial"
                 ) else "direct"
             healed.append(
-                _denied_row(entry, level) if level is not None else _floored_row(entry)
+                _denied_row(
+                    entry,
+                    level,
+                    _declared_denial_record(
+                        entry.get("concept", ""),
+                        [f for f in (entry.get("surface_forms") or []) if isinstance(f, str)],
+                        denial_entries,
+                    ),
+                )
+                if level is not None
+                else _floored_row(entry)
             )
         else:
             # ADR-048 amended 2026-08-13 (#526): byte-identical to what the
