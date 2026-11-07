@@ -281,8 +281,9 @@ def ungrounded_limits(
 
     ``named_gaps`` (ADR-076 amended 2026-11-04, RULING G-1): the concepts of the
     gaps :func:`cross_document.gaps_to_name` chose — the letter is REQUIRED to name
-    them, recorded or not, so a sentence naming one is grounded by the ladder. Without
-    them a never-asked named gap would be flagged every round and cut at settle.
+    them, so a sentence naming one is grounded by the ladder. Since RULING L-1 / L-2 = B
+    (#820, 2026-11-07) every named gap is a recorded DENIAL; a never-asked gap is never
+    named, so a sentence denying one is an invented limit here like any other.
 
     Pure, deterministic, ``None``/malformed tolerant. Fails in the direction
     that does NOT cut: an unreadable shape, an empty ledger, or a concept whose

@@ -178,16 +178,20 @@ def _positioning(captured) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_SEAM_writer_gets_the_ladder_naming_only_the_most_urgent_of_three(letter_db, monkeypatch):
+async def test_SEAM_writer_gets_the_ladder_naming_only_the_recorded_denial(letter_db, monkeypatch):
+    # Hazelnut build 7, RULING L-1 narrowed by L-2 = B (#820): the never-asked key gaps
+    # (Kafka, Terraform) are no longer counted or named — only the recorded denial
+    # (one statement naming Boomi + Boomi Atmosphere counts once).
     captured = await _run(letter_db, LEDGER_3, JD_3, monkeypatch)
     block = captured["writer_kwargs"]["gap_ladder_block"]
     assert block.startswith("=== KEY-REQUIREMENT GAPS")
     named = block.split("NAME IN THE LETTER:")[1]
-    assert "Kafka" in named and "Boomi" not in named and "Terraform" not in named
-    assert "This posting has 3 key requirement(s)" in block
+    assert "Boomi" in named and STATEMENT in named
+    assert "Kafka" not in block and "Terraform" not in block
+    assert "This posting has 1 key requirement(s) the candidate has said they do not have" in block
     assert "required_limits_block" not in captured["writer_kwargs"]
-    # the unnamed recorded statement stays a constraint, never an obligation
-    assert STATEMENT in (captured["writer_kwargs"].get("stated_limits_block") or "")
+    # the named statement leaves the constraint block (it is the obligation now)
+    assert STATEMENT not in (captured["writer_kwargs"].get("stated_limits_block") or "")
 
 
 @pytest.mark.asyncio
@@ -195,7 +199,7 @@ async def test_SEAM_writer_gets_both_gaps_of_two_and_the_named_statement_leaves_
         letter_db, monkeypatch):
     captured = await _run(letter_db, LEDGER_2, JD_2, monkeypatch)
     named = captured["writer_kwargs"]["gap_ladder_block"].split("NAME IN THE LETTER:")[1]
-    assert "Kafka" in named and "Boomi" in named and STATEMENT in named
+    assert "Kafka" not in named and "Boomi" in named and STATEMENT in named  # L-1 (#820)
     assert STATEMENT not in (captured["writer_kwargs"].get("stated_limits_block") or "")
 
 
@@ -212,8 +216,8 @@ async def test_SEAM_loop_source_carries_the_same_gaps_the_motivation_and_the_rec
     captured = await _run(letter_db, LEDGER_3, JD_3, monkeypatch)
     pr = _positioning(captured)
     assert pr["gap_positioning"]["required"] is True
-    assert pr["gap_positioning"]["gap_count"] == 3
-    assert [n["gap"] for n in pr["gap_positioning"]["named"]] == ["Kafka"]
+    assert pr["gap_positioning"]["gap_count"] == 1                     # L-1 (#820)
+    assert [n["gap"] for n in pr["gap_positioning"]["named"]] == ["Boomi"]
     assert pr["motivation"]["required"] is True and "typed" not in pr["motivation"]
     record = pr["company_domain_engagement"]["candidate_record"][0]
     assert record["role"] == "Integration Architect" and record["ended"] is True
@@ -221,22 +225,24 @@ async def test_SEAM_loop_source_carries_the_same_gaps_the_motivation_and_the_rec
     assert "within its dates" in pr["motivation"]["instruction"]
     assert "required" not in pr["stated_limits"]           # constraint only (G-1)
     assert pr["stated_limits"]["limits"] == [STATEMENT]
+    assert "Kafka" not in json.dumps(pr["gap_positioning"])  # never asked → never named
 
 
 @pytest.mark.asyncio
 async def test_SEAM_v2_checks_ground_the_named_gaps(letter_db, monkeypatch):
     captured = await _run(letter_db, LEDGER_3, JD_3, monkeypatch)
-    assert captured["checks"] and all(n == ["Kafka"] for n in captured["checks"]), captured["checks"]
+    expected = ["Boomi", "Boomi Atmosphere"]  # L-1 (#820): the recorded denial and its member
+    assert captured["checks"] and all(n == expected for n in captured["checks"]), captured["checks"]
 
 
 @pytest.mark.asyncio
 async def test_SEAM_terminal_review_grounds_the_named_gaps(letter_db, monkeypatch):
     captured = await _run(letter_db, LEDGER_2, JD_2, monkeypatch)
     assert captured["terminal"], "terminal review never ran"
-    assert all(n == ["Kafka", "Boomi", "Boomi Atmosphere"] for n in captured["terminal"]), captured["terminal"]
+    assert all(n == ["Boomi", "Boomi Atmosphere"] for n in captured["terminal"]), captured["terminal"]
 
 
 @pytest.mark.asyncio
 async def test_SEAM_gap_testimony_is_asked_about_the_named_gap_labels_only(letter_db, monkeypatch):
     captured = await _run(letter_db, LEDGER_3, JD_3, monkeypatch)
-    assert captured["testimony"] == [["Kafka"]], captured["testimony"]
+    assert captured["testimony"] == [["Boomi"]], captured["testimony"]

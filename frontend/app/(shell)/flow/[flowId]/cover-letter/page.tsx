@@ -76,7 +76,7 @@ type CLTemplate =
   | "academic"
   | "compact_pro";
 
-type Phase = "loading" | "generating" | "ready" | "not_found";
+type Phase = "loading" | "generating" | "ready" | "not_found" | "failed";
 
 interface CLState {
   coverLetterId: string;
@@ -95,7 +95,19 @@ interface CLState {
   expiresAt: string | null;
   /** E054/US289: the letter's PINNED language (clause 3b); null = legacy row. */
   documentLanguage: "de" | "en" | null;
+  /** #820 / ruling F-2: the profile's content changed after this letter was created (any source). */
+  profileUpdatedSince: boolean;
+  /** #820/789:249: true = no motivation was typed and the writer derived one (RULING G-2); null = unknown (legacy row). */
+  motivationDerived: boolean | null;
 }
+
+// WP-O error_code -> localized sentence (never the server's raw error_message).
+// Unknown / null / "generation_failed" fall back to `failedHint`.
+const FAILED_REASON_KEYS: Record<string, string> = {
+  llm_timeout: "failedReason_llm_timeout",
+  provider_unavailable: "failedReason_provider_unavailable",
+  llm_truncated: "failedReason_llm_truncated",
+};
 
 // ADR-090 cl. 2 — Show me where searches the preview iframe, looked up at call time.
 const CL_LOCATOR = makePreviewLocator(() => iframeDocument("cover-letter-iframe"));
@@ -116,6 +128,7 @@ export default function CoverLetterPage({
   const tDoc = useTranslations("document");
 
   const [phase, setPhase] = useState<Phase>("loading");
+  const [failedCode, setFailedCode] = useState<string | null>(null);
   const [clState, setClState] = useState<CLState | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
   const [showModal, setShowModal] = useState(false);
@@ -254,6 +267,8 @@ export default function CoverLetterPage({
           matchScore: null,
           expiresAt: null,
           documentLanguage: null,
+          profileUpdatedSince: false,
+          motivationDerived: null,
         });
         setPhase("not_found");
         return;
@@ -276,6 +291,9 @@ export default function CoverLetterPage({
         signature_available?: boolean;
         // #786 / T-2 (ADR-081 cl. 9 amended): null = not recorded.
         review_degradation?: DegradedReviewStep[] | null;
+        profile_updated_since?: boolean;
+        motivation_derived?: boolean | null;
+        error_code?: string | null;
       };
       setReviewDegradation(statusData.review_degradation ?? null);
       setSignatureOverride(statusData.signature_override ?? null);
@@ -305,12 +323,15 @@ export default function CoverLetterPage({
             : null,
         expiresAt: flowData.cv_summary?.expires_at ?? null,
         documentLanguage: statusData.document_language ?? null,
+        profileUpdatedSince: statusData.profile_updated_since === true,
+        motivationDerived: statusData.motivation_derived ?? null,
       });
 
       if (statusData.status === "ready") {
         setPhase("ready");
       } else if (statusData.status === "failed") {
-        setPhase("not_found");
+        setFailedCode(statusData.error_code ?? null);
+        setPhase("failed");
       } else {
         setPhase("generating");
         startPolling(clId);
@@ -407,6 +428,9 @@ export default function CoverLetterPage({
           section_overrides?: Record<string, unknown> | null;
           document_language?: "de" | "en" | null;
           review_degradation?: DegradedReviewStep[] | null;
+          profile_updated_since?: boolean;
+          motivation_derived?: boolean | null;
+          error_code?: string | null;
         };
         if (data.status === "ready") {
           clearInterval(pollRef.current!);
@@ -420,6 +444,8 @@ export default function CoverLetterPage({
                   letterData: data.letter_data ?? null,
                   sectionOverrides: data.section_overrides ?? null,
                   documentLanguage: data.document_language ?? null,
+                  profileUpdatedSince: data.profile_updated_since === true,
+                  motivationDerived: data.motivation_derived ?? null,
                 }
               : prev
           );
@@ -428,7 +454,8 @@ export default function CoverLetterPage({
         }
         if (data.status === "failed") {
           clearInterval(pollRef.current!);
-          setPhase("not_found");
+          setFailedCode(data.error_code ?? null);
+          setPhase("failed");
         }
       } catch { /* ignore poll errors */ }
     }, POLL_INTERVAL_MS);
@@ -669,6 +696,40 @@ export default function CoverLetterPage({
             data-testid="cl-not-found-generate"
           >
             {t("generateArrow")}
+          </button>
+        )}
+        <Link href={`/flow/${flowId}/cv`} className="text-blue-600 hover:underline text-sm">
+          {t("viewCV")}
+        </Link>
+        {showModal && clState?.jobId && (
+          <GenerateCoverLetterModal
+            jobId={clState.jobId}
+            existingInputs={clState.preGenInputs as GenerateCoverLetterModalProps["existingInputs"]}
+            onClose={() => setShowModal(false)}
+            onGenerated={handleGenerated}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (phase === "failed") {
+    const reasonKey = (failedCode && FAILED_REASON_KEYS[failedCode]) || "failedHint";
+    return (
+      <div
+        className="flex flex-col items-center justify-center min-h-screen gap-4 text-center px-4"
+        data-testid="cl-failed"
+      >
+        <p className="text-on-surface text-base font-medium">{t("failedTitle")}</p>
+        <p className="text-on-surface-variant text-sm max-w-sm">{t(reasonKey)}</p>
+        {clState?.jobId && (
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="btn-pill-primary mt-2"
+            data-testid="cl-failed-retry"
+          >
+            {t("failedRetry")}
           </button>
         )}
         <Link href={`/flow/${flowId}/cv`} className="text-blue-600 hover:underline text-sm">
@@ -952,6 +1013,9 @@ export default function CoverLetterPage({
             key={previewKey}
             coverLetterId={clState!.coverLetterId}
             generationInputs={clState!.preGenInputs as { availability?: string | null; motivation?: string | null } | null}
+            profileUpdatedSince={clState!.profileUpdatedSince}
+            motivationDerived={clState!.motivationDerived}
+            onCompleteForm={requestRegenerate}
             onPreviewLoad={() => setPreviewVersion((v) => v + 1)}
           />
         }

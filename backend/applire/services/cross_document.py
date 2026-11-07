@@ -741,12 +741,16 @@ def key_requirement_gaps(
     denied_concepts: list[Any] | None,
     jd_text: str | None,
 ) -> list[KeyGap]:
-    """Every key-requirement gap of THIS posting, most urgent first (G-1, MD6-1/4).
+    """Every key-requirement gap among the rows given, most urgent first (G-1, MD6-1/4).
 
     A gap is a key-tier row (``fit_weight >= REQUIRED_WEIGHT``) the ledger marks NOT
-    claimable — ``gap`` or ``denied``, ADR-074's never-asked rows included (G-1:
-    "also without a recorded denial") — never a scope or aim-only row. An ADJACENT
+    claimable — ``gap`` or ``denied`` — never a scope or aim-only row. An ADJACENT
     partial is claimable through a stand-in and is not a gap (DEL-2 keeps it).
+    RULING L-1 / L-2 = B (#820, ADR-075 amended 2026-11-07): the LETTER passes only
+    the candidate's recorded DENIALS (:func:`letter_gap_ladder`) — a never-asked row
+    is never named; this function ranks whatever it is given. A denied row's ``label``
+    is the candidate's own scope wording when it differs from the concept (#821,
+    RULING G-1 of build 7: "no PSD2 licence", never the bare "PSD2").
 
     Rows whose concept (or ``denied_by`` binding, ADR-100 M-2) is a concept of one
     recorded ``DeniedConcept`` share that record's statement and form ONE gap; every
@@ -769,6 +773,9 @@ def key_requirement_gaps(
         if concept and statement:
             statement_of.setdefault(ats_norm(concept), statement)
 
+    # #821 (RULING G-1, build 7): a denied row is named in the candidate's own scope
+    # wording, never the bare concept, keyed by ledger index.
+    label_of: dict[int, str] = {}
     groups: dict[str, list[tuple[bool, float, int, int, int, str]]] = {}
     group_statement: dict[str, str | None] = {}
     order: list[str] = []
@@ -783,6 +790,9 @@ def key_requirement_gaps(
         if not statement and isinstance(bound, str) and bound.strip():
             statement = statement_of.get(ats_norm(bound.strip()))
         key = f"s:{ats_norm(statement)}" if statement else f"c:{ats_norm(concept)}"
+        scope = _denial_scope_wording(entry)
+        if scope:
+            label_of[index] = scope
         forms = _ledger_forms(entry)
         # RULING D-6 = A: inside the requirements section, mentions and first
         # position are counted WITHIN the section only — a responsibilities mention
@@ -806,7 +816,7 @@ def key_requirement_gaps(
         concepts = tuple(dict.fromkeys(m[5] for m in members))
         pool = [m for m in members if m[0] == top[0]]  # D-6: counts of ONE context
         gap = KeyGap(
-            label=top[5],
+            label=label_of.get(top[4], top[5]),
             concepts=concepts,
             statement=group_statement[key],
             weight=top[1],
@@ -820,6 +830,59 @@ def key_requirement_gaps(
         ))
     gaps.sort(key=lambda g: g[0])
     return [g for _, g in gaps]
+
+
+def _denial_scope_wording(entry: dict[str, Any]) -> str | None:
+    """#821 contract (WP-G, build 7): ``keyword_ledger.denial_scope_wording``. The
+    local fallback (same rule) exists only until the G branch is integrated."""
+    try:
+        from applire.services.keyword_ledger import denial_scope_wording
+    except ImportError:  # pragma: no cover — pre-integration fallback, same rule
+        if not isinstance(entry, dict) or entry.get("status") != "denied":
+            return None
+        wording = entry.get("denied_by")
+        if not isinstance(wording, str) or not wording.strip():
+            return None
+        if ats_norm(wording) == ats_norm(entry.get("concept", "") or ""):
+            return None
+        return wording.strip()
+    return denial_scope_wording(entry)
+
+
+def recorded_ladder_rows(keyword_ledger: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """RULING L-1 / L-2 = B (#820, ADR-075 amended 2026-11-07): the ledger rows the
+    letter's gap ladder may consider — every row except a not-claimable row that is
+    not the candidate's recorded denial. A never-asked row (ADR-074's Restfall), a
+    containment-floored row (status ``gap``, ADR-059/#486), a question the candidate
+    walked away from and a member of an answered topic all drop out: only a
+    ``status == "denied"`` row can be named. Claimable rows pass untouched (they are
+    never gaps). Order kept. Pure.
+
+    UX audit round 3 (2026-11-07, gpt-6-luna): before L-1 the ladder named never-asked
+    rows (G-1, 2026-11-04) and the skip-path letter told the employer "I have not
+    worked with Apache Kafka" for a candidate who ran a Kafka pipeline; two blind
+    panels said no/no on it."""
+    out: list[dict[str, Any]] = []
+    for entry in keyword_ledger or []:
+        if not isinstance(entry, dict):
+            continue
+        if not entry.get("claimable") and entry.get("status") == "gap":
+            continue
+        out.append(entry)
+    return out
+
+
+def letter_gap_ladder(
+    keyword_ledger: list[dict[str, Any]] | None,
+    denied_concepts: list[Any] | None,
+    jd_text: str | None,
+) -> tuple[list[KeyGap], list[KeyGap]]:
+    """THE one computation of a letter's gap ladder — ``(key_gaps, named_gaps)`` over
+    the recorded denials only (:func:`recorded_ladder_rows`). Shared by the generation
+    run (writer block, review entry, corrector, the invented-limit fact) and the
+    letter's keyword audit (784:146), so both read the same named set. Pure."""
+    gaps = key_requirement_gaps(recorded_ladder_rows(keyword_ledger), denied_concepts, jd_text)
+    return gaps, gaps_to_name(gaps)
 
 
 def gaps_to_name(gaps: list[KeyGap]) -> list[KeyGap]:
@@ -904,9 +967,10 @@ def render_gap_ladder_block(
 
     total = len(gaps)
     head = (
-        f"This posting has {total} key requirement(s) the candidate's profile does not "
-        "meet (counted by code; one recorded statement naming several concepts counts "
-        "once). "
+        f"This posting has {total} key requirement(s) the candidate has said they do not "
+        "have — a recorded no (counted by code; one recorded statement naming several "
+        "concepts counts once; a requirement nobody asked about is not among them and "
+        "stays unnamed — RULING L-1). "
         + ("Each is named below." if total <= GAP_LADDER_NAME_ALL_UP_TO else
            "From three on ONLY the most urgent one is named — the one below.")
     )
@@ -924,7 +988,7 @@ def render_gap_ladder_block(
             )
         else:
             lines.append(
-                f"  - {gap.label} — not in the profile; the candidate was not asked about it"
+                f"  - {gap.label} — the candidate's recorded no (no statement text on file)"
             )
     return "\n".join(lines)
 

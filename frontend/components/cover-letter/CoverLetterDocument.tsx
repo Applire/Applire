@@ -32,12 +32,25 @@ interface CoverLetterDocumentProps {
    * guess.
    */
   generationInputs?: { availability?: string | null; motivation?: string | null } | null;
+  /** #820 / ruling F-2: the profile's content changed after this letter was created (any source). */
+  profileUpdatedSince?: boolean;
+  /** 789:249: true = no motivation was typed and the writer derived one (RULING G-2); null/absent = unknown. */
+  motivationDerived?: boolean | null;
+  /** 789:253: opens the letter form; the hint's action button renders only when given. */
+  onCompleteForm?: () => void;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 const CV_WIDTH = 794; // A4 at 96 dpi
 
-export function CoverLetterDocument({ coverLetterId, onPreviewLoad, generationInputs }: CoverLetterDocumentProps) {
+export function CoverLetterDocument({
+  coverLetterId,
+  onPreviewLoad,
+  generationInputs,
+  profileUpdatedSince,
+  motivationDerived,
+  onCompleteForm,
+}: CoverLetterDocumentProps) {
   const t = useTranslations("coverLetter");
   const tDelivery = useTranslations("documentReview.delivery");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -107,7 +120,7 @@ export function CoverLetterDocument({ coverLetterId, onPreviewLoad, generationIn
   // L-1: the writer never invents a notice period or a reason for the change,
   // so a letter generated without them simply lacks both. One neutral line says so.
   const noticeMissing = generationInputs != null && !generationInputs.availability?.trim();
-  const reasonMissing = generationInputs != null && !generationInputs.motivation?.trim();
+  const reasonMissing = generationInputs != null && !generationInputs.motivation?.trim() && motivationDerived !== true;
   const hintKey =
     noticeMissing && reasonMissing
       ? "previewHintBoth"
@@ -119,13 +132,41 @@ export function CoverLetterDocument({ coverLetterId, onPreviewLoad, generationIn
 
   return (
     <div className="flex flex-col w-full h-full">
+      {profileUpdatedSince && (
+        <div
+          className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs text-on-surface-variant bg-surface-container border-b border-outline-variant"
+          data-testid="cover-letter-profile-updated"
+        >
+          <p className="min-w-0 flex-1">{t("profileUpdatedSince")}</p>
+          {onCompleteForm && (
+            <button
+              type="button"
+              onClick={onCompleteForm}
+              className="shrink-0 rounded-full border border-outline-variant bg-white px-3 py-1 text-xs font-medium text-on-surface hover:bg-surface-container-high"
+              data-testid="cover-letter-profile-updated-action"
+            >
+              {t("profileUpdatedSinceAction")}
+            </button>
+          )}
+        </div>
+      )}
       {hintKey && (
-        <p
-          className="shrink-0 px-3 py-2 text-xs text-on-surface-variant bg-surface-container border-b border-outline-variant"
+        <div
+          className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs text-on-surface-variant bg-surface-container border-b border-outline-variant"
           data-testid="cover-letter-preview-hint"
         >
-          {t(hintKey)}
-        </p>
+          <p className="min-w-0 flex-1">{t(hintKey)}</p>
+          {onCompleteForm && (
+            <button
+              type="button"
+              onClick={onCompleteForm}
+              className="shrink-0 rounded-full border border-outline-variant bg-white px-3 py-1 text-xs font-medium text-on-surface hover:bg-surface-container-high"
+              data-testid="cover-letter-preview-hint-action"
+            >
+              {t("previewHintAction")}
+            </button>
+          )}
+        </div>
       )}
     <div
       ref={containerRef}
