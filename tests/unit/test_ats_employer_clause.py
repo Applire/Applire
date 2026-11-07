@@ -355,7 +355,15 @@ def test_803_reopened_a_pronoun_is_no_anchor():
     assert cov.present_unsupported_employer_sentence == []
     t2 = "Gern unterstütze ich Sie beim Aufbau Ihrer Plattform mit Verbundverpackungen-Erfahrung aus zehn Jahren."
     cov2 = _cov_letter(t2, "Verbundverpackungen", _RHEINWERK)
-    assert cov2.present_unsupported_employer_sentence == ["Verbundverpackungen"]  # inside "Ihrer Plattform …"
+    # A-3 (build 7 adversarial pass) renegotiated this line: it used to assert the term
+    # moved to the employer row, but "... mit Verbundverpackungen-Erfahrung aus zehn
+    # Jahren" is the CANDIDATE's experience claim; the clause stops before it.
+    assert cov2.present_unsupported_employer_sentence == []
+    assert cov2.present_unsupported == ["Verbundverpackungen"]
+    # the employer's own business inside the same "Ihrer ..." clause is still refused
+    t3 = "Gern unterstütze ich Sie beim Aufbau Ihrer Plattform für Verbundverpackungen."
+    cov3 = _cov_letter(t3, "Verbundverpackungen", _RHEINWERK)
+    assert cov3.present_unsupported_employer_sentence == ["Verbundverpackungen"]
 
 
 def test_803_reopened_without_case_data_german_is_not_read():
