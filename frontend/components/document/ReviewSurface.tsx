@@ -292,6 +292,14 @@ export function ReviewSurface({
     [atsReport, truthReport, criticReport, gapClusters, hasClusterProducer, openRequirements],
   );
 
+  // 789:260 — the missing items, named (labels are data, verbatim from the gap row).
+  const group3Named = [
+    group3.items.slice(0, GROUP3_NAMED).map((i) => i.label).join(", "),
+    group3.items.length > GROUP3_NAMED ? t("group3More", { count: group3.items.length - GROUP3_NAMED }) : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   const rows = view.questions;
   const openRows = rows.filter((r) => r.status === "open");
 
@@ -1594,8 +1602,7 @@ export function ReviewSurface({
             <span className="text-[13px] text-on-surface">{t("group3Title")}</span>
             {/* 789:260 — the card names what is missing (data, verbatim from the gap row). */}
             <span data-testid="review-group3-items" className="text-[13px] font-semibold text-on-surface">
-              {group3.items.slice(0, GROUP3_NAMED).map((i) => i.label).join(", ")}
-              {group3.items.length > GROUP3_NAMED && ` ${t("group3More", { count: group3.items.length - GROUP3_NAMED })}`}
+              {group3Named}
             </span>
             <span className="text-xs font-semibold text-primary">{t("group3Link")}</span>
           </span>
