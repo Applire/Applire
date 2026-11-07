@@ -165,6 +165,33 @@ describe("Administration → Übersicht: a check the operator switched off (ADR-
   });
 });
 
+describe("Administration → Übersicht: healthy but something waits for the operator (785:251)", () => {
+  const health = {
+    ...DASH.health,
+    status: "ok",
+    components: [
+      { name: "database", status: "ok", checked_at: null },
+      { name: "backup", status: "ok", checked_at: null, not_set_up: true, due_by: "2026-12-01T00:00:00+00:00" },
+    ],
+  };
+  it("verdict 'Alle Teile laufen', green dot, neutral chips for the backup and failed jobs", () => {
+    render(withIntl(<HealthStrip health={health as never} failedJobs={1} />, "de"));
+    expect(screen.getByTestId("admin-health-verdict")).toHaveTextContent("Alle Teile laufen");
+    const backup = screen.getByTestId("admin-health-chip-backup-pending");
+    expect(backup).toHaveTextContent("Sicherung — noch nicht eingerichtet");
+    expect(backup.querySelector("span")).toHaveClass("bg-outline-variant");
+    expect(backup.querySelector("span")).not.toHaveClass("bg-warning");
+    const failed = screen.getByTestId("admin-health-chip-failed-jobs");
+    expect(failed).toHaveTextContent("1 fehlgeschlagener Auftrag — siehe unten");
+    expect(failed.querySelector("span")).toHaveClass("bg-outline-variant");
+  });
+  it("no chips when nothing waits", () => {
+    render(withIntl(<HealthStrip health={{ ...health, components: [{ name: "database", status: "ok" }] } as never} failedJobs={0} />));
+    expect(screen.queryByTestId("admin-health-chip-backup-pending")).toBeNull();
+    expect(screen.queryByTestId("admin-health-chip-failed-jobs")).toBeNull();
+  });
+});
+
 describe("Administration → Nutzung", () => {
   it("lists every account incl. zero rows with a share, and switches the window", async () => {
     routeAdmin();

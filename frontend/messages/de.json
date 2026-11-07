@@ -2266,8 +2266,8 @@
     "unavailable": "Der Instanz-Status ist gerade nicht abrufbar.",
     "component": {
       "database": "Datenbank",
-      "migrations": "Datenbank-Stand",
-      "retention": "Aufräum-Lauf",
+      "migrations": "Datenbank-Aktualisierung",
+      "retention": "Automatisches Löschen",
       "disk": "Speicherplatz",
       "backup": "Sicherung",
       "provider": "KI-Anbieter",
@@ -2278,13 +2278,14 @@
       "degraded": "prüfen",
       "down": "ausgefallen",
       "unknown": "unbekannt",
-      "off": "ausgeschaltet"
+      "off": "ausgeschaltet",
+      "notSetUp": "noch nicht eingerichtet"
     },
     "diskFree": "{percent} % frei ({free} von {total})",
-    "retentionLastRun": "Zuletzt vor {hours} h gelaufen",
+    "retentionLastRun": "Zuletzt vor {hours, plural, one {# Stunde} other {# Stunden}} gelaufen",
     "retentionNever": "Noch nie gelaufen",
     "backupAge": "Letzte Sicherung vor {days} Tagen",
-    "backupNever": "Noch keine Sicherung — scripts/backup.sh einrichten",
+    "backupNever": "Noch keine Sicherung. Fällig bis {date}. Anleitung: docs/SELF-HOSTING.md, Abschnitt 3 — die Skripte liegen jeder Version als Download bei.",
     "providerReach": {
       "ok": "erreichbar",
       "unauthorised": "abgewiesen (Schlüssel oder Guthaben)",
@@ -2296,7 +2297,7 @@
       "ok": "Guthaben vorhanden",
       "low": "Guthaben fast aufgebraucht",
       "unknown": "Guthaben nicht geprüft",
-      "na": "Dieser Anbieter meldet kein Guthaben"
+      "na": "Guthaben: kann Applire bei diesem Anbieter nicht lesen"
     },
     "errorsInWindow": "{count} in den letzten {minutes} Minuten",
     "migrationsBehind": "Die Datenbank ist noch auf einem älteren Stand — Backend neu starten",
@@ -2312,7 +2313,9 @@
     },
     "dashboardSignal": "Instanz: {count, plural, one {# Hinweis} other {# Hinweise}}",
     "dashboardSignalDown": "Instanz: {count, plural, one {# Problem} other {# Probleme}}",
-    "dashboardSignalLink": "Zur Administration"
+    "dashboardSignalLink": "Zur Administration",
+    "backupNeverNoDate": "Noch keine Sicherung. Anleitung: docs/SELF-HOSTING.md, Abschnitt 3 — die Skripte liegen jeder Version als Download bei.",
+    "retentionLastRunLessThanHour": "Zuletzt vor weniger als einer Stunde gelaufen"
   },
   "auth": {
     "loginTitle": "Anmelden",
@@ -2568,7 +2571,7 @@
   "adminDashboard": {
     "intro": "Wie es der Instanz geht, wer sie nutzt und was zuletzt passiert ist.",
     "healthTitle": "Zustand der Instanz",
-    "healthOk": "Alles in Ordnung",
+    "healthOk": "Alle Teile laufen",
     "healthDegraded": "{count, plural, one {# Hinweis} other {# Hinweise}}",
     "healthDown": "{count, plural, one {# Problem} other {# Probleme}}",
     "healthDetails": "Details unter Monitoring",
@@ -2618,7 +2621,9 @@
     "configLink": "Einstellungen ändern",
     "activityTitle": "Zuletzt im Protokoll",
     "activityLink": "Ganzes Protokoll",
-    "retentionOffBanner": "Automatisches Löschen ist aus. {count, plural, one {Auf dieser Instanz hat # weitere Person ein Konto} other {Auf dieser Instanz haben # weitere Personen ein Konto}} — ihre Daten bleiben, bis du oder sie selbst sie löschen."
+    "retentionOffBanner": "Automatisches Löschen ist aus. {count, plural, one {Auf dieser Instanz hat # weitere Person ein Konto} other {Auf dieser Instanz haben # weitere Personen ein Konto}} — ihre Daten bleiben, bis du oder sie selbst sie löschen.",
+    "chipBackupPending": "Sicherung — noch nicht eingerichtet",
+    "chipFailedJobs": "{count, plural, one {# fehlgeschlagener Auftrag} other {# fehlgeschlagene Aufträge}} — siehe unten"
   },
   "adminSettings": {
     "intro": "Was hier gilt, gilt für alle Personen dieser Instanz und für ihre Agenten.",

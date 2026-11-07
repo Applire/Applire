@@ -2266,8 +2266,8 @@
     "unavailable": "The instance status cannot be read right now.",
     "component": {
       "database": "Database",
-      "migrations": "Database schema",
-      "retention": "Cleanup run",
+      "migrations": "Database update",
+      "retention": "Automatic deletion",
       "disk": "Disk space",
       "backup": "Backup",
       "provider": "AI provider",
@@ -2278,13 +2278,14 @@
       "degraded": "needs a look",
       "down": "down",
       "unknown": "unknown",
-      "off": "switched off"
+      "off": "switched off",
+      "notSetUp": "not set up yet"
     },
     "diskFree": "{percent} % free ({free} of {total})",
-    "retentionLastRun": "Last ran {hours} h ago",
+    "retentionLastRun": "Last ran {hours, plural, one {# hour} other {# hours}} ago",
     "retentionNever": "Has never run",
     "backupAge": "Last backup {days} days ago",
-    "backupNever": "No backup yet — set up scripts/backup.sh",
+    "backupNever": "No backup yet. Due by {date}. How to: docs/SELF-HOSTING.md, section 3 — every release ships the scripts as downloads.",
     "providerReach": {
       "ok": "reachable",
       "unauthorised": "refused (key or credit)",
@@ -2296,7 +2297,7 @@
       "ok": "credit available",
       "low": "credit nearly used up",
       "unknown": "credit not checked",
-      "na": "This provider reports no balance"
+      "na": "Balance: Applire cannot read it for this provider"
     },
     "errorsInWindow": "{count} in the last {minutes} minutes",
     "migrationsBehind": "The database is on an older schema — restart the backend",
@@ -2312,7 +2313,9 @@
     },
     "dashboardSignal": "Instance: {count, plural, one {# notice} other {# notices}}",
     "dashboardSignalDown": "Instance: {count, plural, one {# problem} other {# problems}}",
-    "dashboardSignalLink": "Go to Administration"
+    "dashboardSignalLink": "Go to Administration",
+    "backupNeverNoDate": "No backup yet. How to: docs/SELF-HOSTING.md, section 3 — every release ships the scripts as downloads.",
+    "retentionLastRunLessThanHour": "Last ran less than an hour ago"
   },
   "auth": {
     "loginTitle": "Sign in",
@@ -2568,7 +2571,7 @@
   "adminDashboard": {
     "intro": "How the instance is doing, who uses it and what happened lately.",
     "healthTitle": "Instance health",
-    "healthOk": "All good",
+    "healthOk": "Everything is running",
     "healthDegraded": "{count, plural, one {# notice} other {# notices}}",
     "healthDown": "{count, plural, one {# problem} other {# problems}}",
     "healthDetails": "Details under Monitoring",
@@ -2618,7 +2621,9 @@
     "configLink": "Change settings",
     "activityTitle": "Latest in the activity log",
     "activityLink": "Full activity log",
-    "retentionOffBanner": "Automatic deletion is off. {count, plural, one {# other person has} other {# other people have}} an account on this instance — their data stays until you or they delete it."
+    "retentionOffBanner": "Automatic deletion is off. {count, plural, one {# other person has} other {# other people have}} an account on this instance — their data stays until you or they delete it.",
+    "chipBackupPending": "Backup — not set up yet",
+    "chipFailedJobs": "{count, plural, one {# failed job} other {# failed jobs}} — see below"
   },
   "adminSettings": {
     "intro": "What you set here applies to everyone on this instance and to their agents.",
