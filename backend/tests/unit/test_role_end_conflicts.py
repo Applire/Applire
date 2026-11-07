@@ -287,3 +287,15 @@ def test_md7_14_a_new_dispute_restating_the_entry_is_not_admitted():
     assert result.conflicts == []
     assert result.profile.work_experience[0].end_date == "2020-01"
 
+
+
+def test_md7_14_a_new_is_current_dispute_restating_the_entry_is_not_admitted():
+    role = _current_role()
+    profile = MasterProfileData(work_experience=[role])
+    result = apply_ops(
+        profile,
+        [FlagConflict(target=role.id, field="is_current", existing="false (ended)", incoming="true (current position)")],
+        "cv_upload",
+    )
+    assert result.conflicts == []
+    assert result.profile.work_experience[0].is_current is True
