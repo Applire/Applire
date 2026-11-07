@@ -107,7 +107,7 @@
     "profileUpdated": "{count, plural, one {Updated master profile with 1 new CV} other {Updated master profile with # new CVs}}",
     "uploadTryAgain": "We couldn't finish reading this CV in time — nothing was changed. Please try again.",
     "uploadNotSaved": "We couldn't merge this CV into your profile this time — nothing was changed. Please try again.",
-    "notAppliedNote": "{count, plural, one {1 entry from your CV did not merge automatically} other {# entries from your CV did not merge automatically}}: {labels}",
+    "notAppliedNote": "{count, plural, one {# item from the file did not reach your profile} other {# items from the file did not reach your profile}}: {labels}. Under “My Profile” you see why and can add them.",
     "notAppliedMore": "+{count} more",
     "sourceTruncatedNote": "Only the first ≈ {percent}% of your file was read — check that all your positions came through.",
     "jdLinkedinOff": "This instance does not fetch LinkedIn pages — you can paste the text later",
