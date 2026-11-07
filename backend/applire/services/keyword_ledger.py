@@ -1065,7 +1065,12 @@ def is_unasked_requirement(entry: dict[str, Any] | None) -> bool:
 
     * ``evidence == ""`` is what separates this from the ADR-059/#486
       **containment-floored** gap, which carries :data:`DENIAL_FLOOR_EVIDENCE`
-      and therefore *does* have a related stated limit to build on.
+      and therefore *does* have a related stated limit to build on. Since G-1
+      (#821, ADR-059 am. 2026-11-07) no seam writes that floor any more (older
+      rows are released to a plain gap), so a row related to a recorded no by
+      containment alone now reads as unasked HERE; the candidate-facing notice
+      (``GapAnalysisResponse.unasked_requirements``) additionally drops every row
+      an asked gap cluster speaks for (790:78).
     * ``status != "denied"`` is implied today — :func:`_denied_row` always writes
       :data:`DENIED_EVIDENCE` — and is kept as an explicit fail-safe. A control's
       correctness must not depend on the spelling of a sentinel, and the failure
