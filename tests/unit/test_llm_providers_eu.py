@@ -397,6 +397,15 @@ async def test_anthropic_aparse_json_tolerates_trailing_fence(monkeypatch):
 # WP-0 (2026-11-04): Claude Sonnet 5.5 answered every call with HTTP 400
 # "`temperature` is deprecated for this model" (req_011CghhUPQYFwLNhFFfKkP9G); an
 # assistant prefill and `thinking: {type: "disabled"}` are 400s there too.
+def _json_only_turn(prompt: str) -> list[dict]:
+    from applire.providers.llm.anthropic import JSON_ONLY_INSTRUCTION
+
+    return [{"role": "user", "content": [
+        {"type": "text", "text": prompt},
+        {"type": "text", "text": JSON_ONLY_INSTRUCTION},
+    ]}]
+
+
 _CURRENT_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5", "claude-fable-5-1"]
 
 
@@ -410,7 +419,8 @@ async def test_anthropic_current_models_get_no_sampling_and_no_prefill(monkeypat
     assert await provider.aparse_json("go", temperature=0.1) == {"ok": True}
     kw = provider._client.messages.create.call_args.kwargs
     assert "temperature" not in kw and "top_p" not in kw and "top_k" not in kw
-    assert kw["messages"] == [{"role": "user", "content": "go"}]   # ends on the user turn
+    # ends on the user turn: the prompt, then the fixed JSON-only block (build 7)
+    assert kw["messages"] == _json_only_turn("go")
     assert "thinking" not in kw                                     # model default when not asked
 
     provider._client.messages.create = AsyncMock(return_value=_anthropic_response("hi"))
@@ -434,7 +444,7 @@ async def test_anthropic_sonnet_4_6_takes_no_prefill(monkeypatch):
     provider._client.messages.create = AsyncMock(return_value=_anthropic_response('{"a": 1}'))
     assert await provider.aparse_json("go") == {"a": 1}
     kw = provider._client.messages.create.call_args.kwargs
-    assert kw["messages"] == [{"role": "user", "content": "go"}]
+    assert kw["messages"] == _json_only_turn("go")
     assert kw["temperature"] == 0.1
 
 
