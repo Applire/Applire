@@ -86,7 +86,7 @@ from applire.services.profile.reconcile.stance import (
     denial_release_corpus,
     is_denied_concept,
 )
-from applire.services.choice_grounding import offered_choices_in_answer
+from applire.services.choice_grounding import choice_presentation, offered_choices_in_answer
 from applire.services.interview.sufficiency import (
     _concept_matches_ledger_key,
     concept_is_required,
@@ -2666,7 +2666,37 @@ async def _record_cluster_turn(
     return recorded, open_members
 
 
+def _with_choice_presentation(response, state: dict):
+    """UAT-2b/2c (ADR-064 amended 2026-11-08) — fill the additive
+    ``choice_asks`` / ``choice_unmentioned`` of a turn response from what the
+    question generator recorded for exactly these ``choices``
+    (``choice_grounding.choice_presentation``; facts, no judgement). One seam
+    for every door: the create and message wrappers and the resumed response."""
+    asks, unmentioned = choice_presentation(state, getattr(response, "choices", None))
+    response.choice_asks = asks
+    response.choice_unmentioned = unmentioned
+    return response
+
+
 async def create_session(
+    request: SessionCreateRequest,
+    db: AsyncSession,
+    provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> SessionCreateResponse:
+    """Create (or resume) a session — the one door wrapper that adds the
+    UAT-2b/2c choice presentation to whichever create path answered."""
+    response = await _create_session(request, db, provider, user_id=user_id)
+    if response.choices:
+        uid = resolve_user_id(user_id, site="session.create_session")
+        record = await owned_row(db, InterviewSession, response.session_id, uid)
+        if record is not None:
+            _with_choice_presentation(response, dict(record.state or {}))
+    return response
+
+
+async def _create_session(
     request: SessionCreateRequest,
     db: AsyncSession,
     provider: LLMProvider,
@@ -2815,6 +2845,7 @@ def _resumed_response(
         # refresh restores "N of up to M" instead of resetting to "1 of…".
         questions_asked=real_questions_asked,
         follow_up_concepts=list(state.get("follow_up_concepts") or []) or None,
+        **dict(zip(("choice_asks", "choice_unmentioned"), choice_presentation(state, current_choices))),
     )
 
 
@@ -3992,6 +4023,7 @@ async def send_message(
         if response.questions_asked is None:
             response.questions_asked = record.questions_asked
         state = dict(record.state or {})
+        _with_choice_presentation(response, state)
         if state.get("entry") == "profile_review" and not response.complete:
             response.current_conflict = _current_conflict(state)
             response.follow_up_used = _follow_up_used(state)

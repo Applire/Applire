@@ -87,11 +87,13 @@ class TestChoicesHintDenialScope:
         assert "no word-for-word mention in the profile summary: Digitalisierung" in prompt
 
     def test_all_evidenced_cluster_instructs_no_denial_choice(self):
+        # UAT-2: every constituent evidenced -> a DIRECT plus at most one
+        # bridge, and no honest bridge (its no would deny an evidenced concept).
         prompt = build_question_prompt(
             _cluster(["Industrie 4.0", "SMED"]), _PROFILE, [], gap_category="C"
         )
-        assert "Offer NO denial choice" in prompt
-        assert "never that the candidate lacks it" in prompt
+        assert "Every constituent concept is evidenced" in prompt
+        assert "no honest bridge" in prompt
         assert "haven't worked with" not in prompt
 
     def test_single_gap_cluster_still_sets_choices_null(self):

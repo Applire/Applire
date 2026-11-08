@@ -32,9 +32,9 @@ def _concept_evidence_text(concept: str, cluster: dict, profile: dict) -> str:
 
     MD-UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the cluster's
     ``jd_context`` is the POSTING's text and never evidence. It used to count,
-    so a concept only the posting named ("SaaS") was flagged and the add-on
-    told the model "the candidate's profile evidences SaaS" right beside the
-    literal check's "no word-for-word mention of SaaS" (call 14). ``cluster``
+    so a concept only the posting named ("X") was flagged and the add-on
+    told the model "the candidate's profile evidences X" right beside the
+    literal check's "no word-for-word mention of X" (founder UAT replay). ``cluster``
     stays in the signature for the caller's shape.
     """
     concept_l = (concept or "").strip().lower()

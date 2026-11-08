@@ -65,8 +65,13 @@ def _collapsed(text: str) -> str:
 # ── QUESTION_SYSTEM_PROMPT — Choice coverage rules (3a) ──────────────────────
 
 
-def test_prompt_has_a_coverage_rules_block():
-    assert "Choice coverage rules" in QUESTION_SYSTEM_PROMPT
+def test_prompt_has_an_answer_ideas_block():
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
+    assert "Answer ideas (ADR-064 amended 2026-11-08, founder ruling UAT-2" in QUESTION_SYSTEM_PROMPT
+    assert "Choice coverage rules" not in QUESTION_SYSTEM_PROMPT
 
 
 def test_prompt_names_the_three_levels():
@@ -76,56 +81,53 @@ def test_prompt_names_the_three_levels():
     assert "denial" in low
 
 
-def test_prompt_never_offers_a_denial_choice():
-    # Was test_prompt_denial_is_evidence_conditioned_and_never_softened.
-    # R2-2 (founder ruling 2026-10-24): the DENIAL level is no longer offered on
-    # any question (V-7 extended from Category C to B). The old evidence-
-    # conditioned, never-softened denial rule is gone with the level itself.
-    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
-    assert "never offer a choice at the denial level" in low
-    assert "same evidence condition as the direct choice" not in low
-    assert "never softened into a hedge" not in low
-    assert "they span two levels" in low
-
-
-def test_prompt_no_invented_limit_with_a_single_exception():
-    # Was test_prompt_denial_scope_forbids_broader_areas_and_evidenced_concepts.
-    # R2-2: no choice states a limit the candidate never gave; the only exception
-    # is the candidate's own earlier no. The scope rule (never a broader area,
-    # never an evidenced concept) moved to the PARTIAL "not yet documented" bullet.
+def test_prompt_offers_one_honest_bridge_scoped_to_the_asked_concept():
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    low = flat.lower()
-    assert "NO INVENTED LIMIT" in flat
-    assert "says that the candidate lacks, has not done" in low
-    assert "keine erfahrung mit x" in low
-    assert "means unknown, never no" in low
-    assert "the one exception: the candidate already said that no themselves" in low
-    # 787:206 (G-3 A): the PARTIAL bullet no longer names uncovered concepts at all.
-    assert "never treat a concept the profile summary or the earlier answers evidence in other words as uncovered" in low
+    assert 'HONEST BRIDGE (level "denial", ONE per question at most' in flat
+    assert '"X habe ich bisher nicht …, aber durch Y …"' in flat
+    assert "The no names ONLY the asked concept X, in its own words and with no qualifier" in flat
+    assert 'Its "denied_terms" lists X exactly as the GAP CLUSTER block names it' in flat
+    assert "never offer a choice at the denial level" not in flat.lower()
 
 
-def test_prompt_partial_marks_gaps_as_not_in_the_profile():
-    # Was test_prompt_all_evidenced_cluster_offers_no_denial_choice.
-    # R2-2: a PARTIAL choice that must mark what it does not cover says the
-    # PROFILE does not document it, in both languages, never that the candidate
-    # lacks it. Evidence in any wording still counts (787 M2).
-    # 787:206 (G-3 A, build 7): the clause in the system's words is withdrawn —
-    # a PARTIAL choice states what the profile shows and leaves the rest out.
+def test_prompt_no_other_limit_than_the_honest_bridge():
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert "A PARTIAL choice states only what the profile DOES show" in flat
-    assert "never mentions a concept it does not cover" in flat
-    assert 'no "..., but my profile does not yet document X"' in flat
-    assert "The candidate adds what is missing in their own words" in flat
-    assert 'a "Teamleiter" role is evidence of team leadership' in flat
-    assert 'a "Scrum Master" skill of agile methods' in flat
+    assert "NO OTHER LIMIT: apart from the honest bridge's no on the asked concept" in flat
+    assert '"my profile does not yet document X" is the system speaking' in flat
+    assert "The one exception: the candidate's own earlier no" in flat
+    assert "NO INVENTED LIMIT" not in flat
 
 
-def test_denied_terms_means_named_without_claiming():
-    # R2-2: denied_terms no longer lists what a choice "denies"; it lists the
-    # concepts the choice names WITHOUT claiming them.
+def test_prompt_bridge_joins_a_real_anchor_to_the_asked_concept():
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert "names WITHOUT claiming them" in flat
-    assert "explicitly denies" not in flat
+    assert 'BRIDGE (level "partial", one or two): joins ONE real anchor from the profile' in flat
+    assert "never by the employer's name" in flat
+    assert "never a forced analogy" in flat
+    assert 'A bridge is never "direct".' in flat
+    # the R2-2 / G-3 A "leave the concept out" rule is withdrawn
+    assert "never mentions a concept it does not cover" not in flat
+
+
+def test_denied_terms_lists_the_honest_bridges_concept():
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert '"denied_terms": [] on every choice except the honest bridge (its asked concept) and a restated earlier no' in flat
+    assert "names WITHOUT claiming them" not in flat
 
 
 def test_covered_in_other_words_rule_counts_a_denied_requirement_as_answered():
@@ -146,50 +148,46 @@ def test_prompt_conversation_answers_count_as_evidence():
         assert "earlier answers in this conversation are evidence" in low
 
 
-def test_prompt_gives_the_invented_limit_examples():
-    # Was test_prompt_gives_the_denial_vs_hedge_example. The denial-vs-hedge
-    # contrast is gone with the denial level (R2-2); the concrete forbidden
-    # phrasings now carry the teaching, in English and German.
-    collapsed = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert '"I have not used X"' in collapsed
-    assert '"not X directly"' in collapsed
-    assert '"noch nie"' in collapsed
-    assert '"nicht mit X gearbeitet"' in collapsed
-    assert "I haven't worked with X\" is a denial" not in collapsed
+def test_prompt_forbids_restatement():
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert "NO RESTATEMENT: no choice repeats a fact of the profile summary" in flat
+    assert "Every choice names an asked concept in the question's own words." in flat
 
 
 def test_prompt_states_the_truthfulness_interaction_explicitly():
-    # The interaction the brief calls out as most likely to be got wrong: a
-    # coverage rule read in isolation would fabricate a "yes" to fill the
-    # DIRECT slot on a genuine gap. The prompt must rule this out in words.
-    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
-    assert "does not relax the truthfulness rules" in low
-    assert "unchanged and still bind" in low
-    assert 'are partial only' in low
-    assert 'never invent a direct-level "yes"' in low
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
+    # The interaction most likely to be got wrong survives in the new shape:
+    # a bridge or a missing concept never becomes a DIRECT "yes".
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert "For a concept the profile shows no evidence for, DIRECT is not available." in flat
+    assert "only for a concept the profile summary itself evidences, in any words" in flat
 
 
-def test_coverage_block_sits_after_the_truthfulness_rules():
-    # The interaction must be legible as an addition ON TOP of the
-    # (unmodified) truthfulness rules, not a replacement for them.
+def test_answer_ideas_block_sits_after_the_truthfulness_rules():
     i_truth = QUESTION_SYSTEM_PROMPT.index("Choice truthfulness rules")
-    i_cov = QUESTION_SYSTEM_PROMPT.index("Choice coverage rules")
+    i_cov = QUESTION_SYSTEM_PROMPT.index("Answer ideas (ADR-064 amended 2026-11-08")
     assert i_truth < i_cov
 
 
-def test_existing_truthfulness_rules_are_untouched():
-    # Pin the four pre-existing truthfulness bullets verbatim (constraint:
-    # "the existing truthfulness rules are unchanged and still bind").
-    assert (
-        "A choice may ASSERT experience only with skills, tools, or employers that appear in the "
-        "candidate profile summary below." in QUESTION_SYSTEM_PROMPT
-    )
-    assert "Never invent specific projects, systems, employers, or metrics." in QUESTION_SYSTEM_PROMPT
-    assert "Ground the NARRATIVE, not just the noun." in QUESTION_SYSTEM_PROMPT
-    assert (
-        "Never draft an affirmative claim for a concept the profile shows no evidence for."
-        in QUESTION_SYSTEM_PROMPT
-    )
+def test_truthfulness_rules_keep_the_invention_boundary():
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
+    # The truthfulness bullets were rewritten for bridges (a bridge names the
+    # asked concept as a hypothesis); the invention boundary and the DIRECT
+    # narrative rule are kept.
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert "Never invent an employer, project, system, tool, figure or result." in flat
+    assert "Every anchor a choice names — a role, project, activity, skill or employer — appears in the candidate profile summary below or in the candidate's earlier answers." in flat
+    assert "Ground the NARRATIVE, not just the noun." in flat
 
 
 # ── DENIAL_PROBE_QUESTION_SYSTEM_PROMPT — skill-area framing (3b; F4
@@ -235,30 +233,33 @@ def test_choices_schema_asks_for_a_level_per_choice():
     assert '"direct" | "partial" | "denial"' in collapsed
 
 
-def test_direct_caveat_is_folded_into_the_first_coverage_bullet():
-    # Finding 3: the DIRECT-only-when-evidenced caveat must appear in the
-    # SAME bullet as "one at the DIRECT level" — not only two bullets later,
-    # where a model weighting the first, assertive instruction over a later
-    # correction could fabricate a direct-level claim to satisfy coverage.
+def test_direct_is_bound_to_evidence_in_its_own_bullet():
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
     low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
-    i_direct = low.index("one at the direct level")
-    i_partial = low.index("one or two at the partial level")
-    i_caveat = low.index("evidences it", i_direct)
-    assert i_direct < i_caveat < i_partial
+    i_direct = low.index('- direct (level "direct"): only for a concept')
+    i_caveat = low.index("evidences, in any words", i_direct)
+    i_mix = low.index("the mix, at most 3 choices")
+    assert i_direct < i_caveat < i_mix
 
 
-def test_direct_caveat_still_present_later_too():
-    # Belt and braces: the pre-existing later bullet is kept, not replaced.
-    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
-    assert low.count("evidences it") >= 2
-
-
-def test_the_profile_clause_is_joined_with_the_pivot_and_listed_in_denied_terms():
-    # R2-2 rule arm run 1: "; zu X steht in meinem Profil noch nichts" carries no
-    # _PIVOT_MARKERS phrase, so the grounding filter dropped the honest chip.
-    # 787:206 (G-3 A): there is no profile clause left to join; denied_terms
-    # lists a concept only on a restated earlier no.
+def test_the_mix_caps_the_set_and_names_both_arms():
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert 'joined with ", but"' not in flat
-    assert "Only a choice that restates the candidate's OWN earlier no" in flat
-    assert "DIRECT or PARTIAL, lists []" in flat
+    assert "THE MIX, at most 3 choices: a concept the profile does not evidence gets one or two bridges and the one honest bridge" in flat
+    assert "a concept it evidences gets one direct choice and at most one bridge" in flat
+
+
+def test_two_texts_per_choice_ask_and_text():
+    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
+    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
+    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
+    # it replaces are gone (the founder ruled them an over-correction).
+    # UAT-2b: "text" is inserted on click, "ask" is the button label.
+    flat = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert 'TWO TEXTS per choice. "text" is the candidate\'s own first-person sentence' in flat
+    assert '"ask" is the button label: a short question TO the candidate (German: du-form) naming the SAME anchor and the SAME concept' in flat
+    assert '{"ask": "Question A to the candidate", "text": "First-person sentence A"' in flat
+
+

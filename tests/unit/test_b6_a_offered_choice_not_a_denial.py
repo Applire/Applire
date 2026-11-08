@@ -89,9 +89,10 @@ def test_record_keeps_each_delivered_choice_with_its_own_declaration():
         {"text": "A dropped overclaim", "level": "direct", "denied_terms": []},
     ]
     record_offered_choices(state, drafted, [CHIP, OTHER])
+    # UAT-2b: the record also carries the button's `ask` (None when not drafted).
     assert state["offered_choice_terms"] == {
-        CHIP: {"level": "partial", "names_without_claiming": TERMS},
-        OTHER: {"level": "direct", "names_without_claiming": []},
+        CHIP: {"level": "partial", "names_without_claiming": TERMS, "ask": None},
+        OTHER: {"level": "direct", "names_without_claiming": [], "ask": None},
     }, "only DELIVERED choices are remembered, each with the generator's own declaration"
 
 
@@ -180,12 +181,17 @@ def test_an_edited_chip_or_a_typed_answer_carries_no_fact():
     assert offered_choices_in_answer(CHIP, None) == []
 
 
-def test_a_denial_level_choice_is_the_candidates_own_no_and_carries_nothing():
+def test_a_denial_level_choice_is_the_candidates_own_no_and_states_it():
+    # UAT-2 (2026-11-08, amends B6-A): a sent honest bridge IS the candidate's
+    # no — it travels as `states_no_to` (recorded as a denial, L-2 reads it),
+    # never as a name-without-claiming veto.
     from applire.services.choice_grounding import offered_choices_in_answer
 
     restated = "Mit Boomi habe ich nicht gearbeitet, wie gesagt."
     offered = {restated: {"level": "denial", "names_without_claiming": ["Boomi"]}}
-    assert offered_choices_in_answer(restated, offered) == []
+    assert offered_choices_in_answer(restated, offered) == [
+        {"text": restated, "names_without_claiming": [], "states_no_to": ["Boomi"]}
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -567,7 +573,7 @@ async def _send(db, answer, offered):
 @pytest.mark.asyncio
 async def test_session_turn_passes_the_selected_chip_to_the_bridge(db):
     got = await _send(db, CHIP + " Mehr dazu gern im Gespräch.", _offered())
-    assert got == [{"text": CHIP, "names_without_claiming": TERMS}]
+    assert got == [{"text": CHIP, "names_without_claiming": TERMS, "states_no_to": []}]
 
 
 @pytest.mark.asyncio
@@ -622,7 +628,7 @@ async def test_mode_a_records_the_delivered_choice_and_its_declaration():
         )
     assert out["choices"] == [_GEN_CHIP], "the API contract stays list[str]"
     assert state["offered_choice_terms"] == {
-        _GEN_CHIP: {"level": "partial", "names_without_claiming": ["Boomi"]}
+        _GEN_CHIP: {"level": "partial", "names_without_claiming": ["Boomi"], "ask": None}
     }
 
 
@@ -638,3 +644,65 @@ async def test_the_transfer_probe_branch_records_it_too():
         )
     assert out["choices"] == [_GEN_CHIP]
     assert state["offered_choice_terms"][_GEN_CHIP]["names_without_claiming"] == ["Boomi"]
+
+
+# ---------------------------------------------------------------------------
+# UAT-2b/2c — the turn response carries the asks and the lead-in list
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_turn_response_carries_the_asks_and_the_unmentioned_list(db):
+    """The generator records the delivered choices with their asks and the
+    producer's literal list; ``send_message`` returns them index-aligned with
+    ``choices`` (additive fields, ADR-095)."""
+    from applire.models.job import JobAnalysis
+    from applire.models.session import InterviewSession
+    from applire.services.choice_grounding import record_offered_choices
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+    from applire.services.session import send_message
+
+    bridge_text = "Bei der Labor-IT habe ich die Anbindung auch über Boomi geplant."
+    plain_text = "Ich habe die Labor-IT mit sechs Mitarbeitenden geleitet."
+    drafted = [
+        {"text": bridge_text, "ask": "Hast du die Anbindung auch über Boomi geplant?", "level": "partial"},
+        {"text": plain_text, "level": "direct"},
+    ]
+
+    async def generator(state, *args, **kwargs):
+        record_offered_choices(state, drafted, [bridge_text, plain_text], unmentioned=["Boomi"])
+        return {"question": "Weiter?", "choices": [bridge_text, plain_text]}
+
+    await retire_live_profiles(db)
+    job = JobAnalysis(
+        raw_text_hash=uuid.uuid4().hex, raw_text="Head of Integration Platform.",
+        role_title="Head of Integration Platform", required_skills=["Boomi"],
+        nice_to_have_skills=[], keywords=[], seniority_level="Senior",
+        company_culture_signals=[], language_requirement="German", jd_language="de",
+    )
+    profile = make_master_profile(profile_json=copy.deepcopy(_PROFILE))
+    db.add_all([job, profile])
+    await db.flush()
+    record = InterviewSession(
+        job_analysis_id=job.id, gap_analysis_id=None, profile_id=profile.id, mode="targeted",
+        status="active", state=_session_state(job.id, profile.id, _offered()), hard_ceiling=12,
+        questions_asked=1, expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    db.add(record)
+    await db.commit()
+    bridge = AsyncMock(return_value=InterviewTurnResult(
+        profile_dict=copy.deepcopy(_PROFILE), changes=[], addressed=True,
+    ))
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(return_value="unused")
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=bridge),
+        patch("applire.services.session.question_generator_with_profile", new=AsyncMock(side_effect=generator)),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        out = await send_message(record.id, "Ich habe eine Integrationsplattform aufgebaut.", db, provider)
+    assert out.choices == [bridge_text, plain_text]
+    assert out.choice_asks == ["Hast du die Anbindung auch über Boomi geplant?", None]
+    assert out.choice_unmentioned == ["Boomi"]
+    dumped = out.model_dump()
+    assert "choice_asks" in dumped and "choice_unmentioned" in dumped, "MCP returns model_dump"

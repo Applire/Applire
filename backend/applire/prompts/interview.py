@@ -169,6 +169,20 @@
 #     delivered chips fell from ~8.7 to ~2.6 per run (report §Evidence).
 #   - _COVERED_IN_OTHER_WORDS_RULE (R2-9): a requirement the candidate denied
 #     is answered — never the target of a follow-up.
+#
+# UAT-2 changes (Hazelnut build 7 UAT, founder rulings UAT-2/2b/2c 2026-11-08,
+# ADR-064 amended): founder call 14 — every chip restated a profile fact or the
+# previous answer and named no asked concept, because the truthfulness rules
+# said "lead with related experience … leave the concept out" and G-3 said "a
+# PARTIAL states only what the profile DOES show". _CHOICE_COVERAGE_RULES is
+# rebuilt as "Answer ideas": NO RESTATEMENT, BRIDGE (one real anchor + the asked
+# concept, partial, by role/project never the employer's name), one HONEST
+# BRIDGE ("X bisher nicht, aber durch Y", denied_terms = X exactly), DIRECT only
+# where evidenced, TWO TEXTS ("text" inserted on click, "ask" = the button
+# question). The choices hint states the literal-unmentioned list; a B question
+# is a confirmation with no honest bridge. Measured (Sonnet 5.5, production
+# chain, n=5 per case, blind rubric): chips naming an asked concept 27/66 ->
+# 81/81, restating 37/66 -> 4/81, inventing 2/66 -> 0/81 (bridge-report.md).
 
 import json
 
@@ -233,49 +247,53 @@ def language_name(lang: str) -> str:
 # where partial-versus-denial is the entire point cannot have a subtly
 # different rule text. Extracted once so the two can never drift apart.
 _CHOICE_COVERAGE_RULES = """\
-Choice coverage rules (ADR-064, amended 2026-08-05 / #347; R2-2, founder ruling 2026-10-24 — \
-the choices span the levels the evidence allows, not several flavours of "yes"):
-- Where the question admits 2-3 choices, they span two levels: one at the DIRECT level \
-— ONLY WHEN THE CANDIDATE PROFILE SUMMARY BELOW ACTUALLY EVIDENCES IT (the candidate has this \
-experience themselves); if it does not, omit DIRECT — and one or two at the PARTIAL level \
-(adjacent, transferable, or partial exposure the profile shows).
-- NO INVENTED LIMIT (R2-2): no choice, at any level, says that the candidate lacks, has not \
-done, has not used or has no experience with something ("I have not used X", "not X \
-directly", "keine Erfahrung mit X", "noch nie", "nicht mit X gearbeitet"). The profile not \
-mentioning X means UNKNOWN, never no — and one click on such a choice would record a "no" the \
-candidate never gave. A candidate who lacks something types that in their own words. The ONE \
-exception: the candidate already said that no themselves in the Recent conversation or the \
-earlier exchanges below — a choice may restate their own words.
-- A PARTIAL choice states only what the profile DOES show, in the candidate's own words. It \
-never mentions a concept it does not cover — no "..., but my profile does not yet document \
-X", no "..., aber zu X steht in meinem Profil noch nichts", no "kann ich bisher nicht \
-belegen": that is the system speaking through the candidate, and one click would record a \
-limit about X where the profile is merely silent. The candidate adds what is missing in \
-their own words after selecting the choice. Never treat a concept the profile summary or \
-the earlier answers evidence in other words as uncovered (a "Teamleiter" role is evidence of \
-team leadership, a "Scrum Master" skill of agile methods).
-- Never offer a choice at the DENIAL level. (The "denial" level value stays in the schema for \
-a restated earlier no only.)
-- This coverage rule does NOT relax the truthfulness rules above — they are unchanged and still \
-bind without exception. A DIRECT-level choice may only be offered when the candidate profile \
-summary below actually evidences it. So on a genuine gap (the profile shows NO evidence for the \
-concept), the DIRECT level is simply not available to offer, and the choices for that concept \
-are PARTIAL only — never invent a DIRECT-level "yes" just to fill a slot.
-- VOICE (787:L72): every choice is the CANDIDATE's own answer, in the first person — a \
-statement the candidate could send unchanged. A choice never instructs or asks the candidate \
-("bitte ergänze Zeitraum und Ergebnis", "beschreibe ein Beispiel", "please describe ..." — \
-inviting detail is the QUESTION's job, never a choice's) and never promises detail instead of \
-stating it ("das kann ich genauer beschreiben", "I can share how ..."). What a choice cannot \
-state from the profile it leaves out; the candidate adds it after selecting the choice.
-- Every choice also declares "denied_terms": the constituent concepts THIS choice names \
-WITHOUT claiming them, copied exactly as the concept names appear in the question context ([] \
-when it names none). Only a choice that restates the candidate's OWN earlier no (the one \
-exception above) names a concept without claiming it and lists it; every other choice, \
-DIRECT or PARTIAL, lists []. Like "level", this is a statement of fact about the choice you \
-just drafted, not an extra rule.
-- Every choice you draft must declare its own level in its "level" field — "direct", "partial", \
-or "denial" — matching exactly what you just reasoned about above for that choice. This is a \
-statement of fact about the choice you are drafting, not an extra rule: state it truthfully."""
+Answer ideas (ADR-064 amended 2026-11-08, founder ruling UAT-2 — the choices help the candidate \
+find a BRIDGE from what they did to the asked concept that the profile does not hold yet; they \
+never restate what it already holds):
+- NO RESTATEMENT: no choice repeats a fact of the profile summary, or something the candidate \
+already said in this conversation (not even reworded or shortened), without the asked concept. \
+Every choice names an asked concept in the question's own words.
+- BRIDGE (level "partial", one or two): joins ONE real anchor from the profile — a role, \
+project, activity or skill that appears there — to an ASKED concept, as a modest first-person \
+hypothesis the profile does not state yet. It names the anchor by its role, project or activity, \
+never by the employer's name, and adds nothing but the asked concept: no new task context, \
+system, tool, figure or result. Only an anchor that plausibly touches the concept: never a \
+forced analogy ("conceptually close to", "in the spirit of"); when no anchor touches it, offer \
+no bridge for it. Generic example — asked "Prognosen", anchor "Schichtleiter, \
+Distributionszentrum": "Als Schichtleiter habe ich die Personaleinsatzplanung auch an der \
+wöchentlichen Mengenprognose ausgerichtet." A bridge is never "direct".
+- HONEST BRIDGE (level "denial", ONE per question at most — even when several concepts are \
+unevidenced — and only for an asked concept the profile shows no evidence for in ANY words): \
+"X habe ich bisher nicht …, aber durch Y …" / "I haven't … X so far, but through Y …". The no \
+names ONLY the asked concept X, in its own words and with no qualifier — never a narrower, \
+broader or different notion ("no formal budget responsibility" for an asked "cost analysis" is \
+wrong; so are "formal", "explizit", "im engeren Sinn", "nicht direkt"). It is joined with ", aber" / ", but", and Y is a bridge from a real \
+anchor as above. Its "denied_terms" lists X exactly as the GAP CLUSTER block names it. Generic \
+example: "Mit Prognosen habe ich bisher nicht gearbeitet, aber durch die Schichtplanung kenne \
+ich die wöchentlichen Mengenvorgaben."
+- DIRECT (level "direct"): only for a concept the profile summary itself evidences, in any \
+words (a "Teamleiter" role evidences team leadership, a "Scrum Master" skill agile methods). It \
+confirms the asked concept with the specifics the profile holds. For a concept the profile \
+shows no evidence for, DIRECT is not available.
+- THE MIX, at most 3 choices: a concept the profile does not evidence gets one or two bridges \
+and the one honest bridge; a concept it evidences gets one direct choice and at most one bridge \
+to an angle the profile does not state yet.
+- NO OTHER LIMIT: apart from the honest bridge's no on the asked concept, no choice says the \
+candidate lacks, has not done or has no experience with something, and no choice says what the \
+profile does not document ("my profile does not yet document X" is the system speaking). The \
+one exception: the candidate's own earlier no in the Recent conversation or the earlier \
+exchanges may be restated as a "denial" choice in their words.
+- TWO TEXTS per choice. "text" is the candidate's own first-person sentence, the one a click \
+copies into the answer box — a statement they could send unchanged if it is true. It never \
+instructs or asks the candidate and never promises detail ("das kann ich genauer beschreiben", \
+"I can share how ..."). "ask" is the button label: a short question TO the candidate \
+(German: du-form) naming the SAME anchor and the SAME concept as its "text" — e.g. "Hast du \
+als Schichtleiter die Personalplanung auch an Mengenprognosen ausgerichtet?"; for the honest \
+bridge "Nicht direkt – aber kennst du Mengenvorgaben aus der Schichtplanung?".
+- "denied_terms": [] on every choice except the honest bridge (its asked concept) and a \
+restated earlier no. "level": declare each choice's level truthfully — "direct", "partial" (a \
+bridge) or "denial" (the honest bridge, or a restated earlier no). Both are statements of fact \
+about the choice you just drafted, not extra rules."""
 
 
 QUESTION_SYSTEM_PROMPT = """\
@@ -286,31 +304,19 @@ experience that addresses a specific skill cluster gap in their profile.
 For CONFIRMATION questions (gap_type=B): acknowledge the likely experience and ask for specifics.
 For EXPLORATORY questions (gap_type=C): ask openly about experience with the requirement.
 
-Generate 2-3 short answer choices when:
+Generate up to 3 answer ideas ("choices") when:
 - The cluster has 2 or more constituent gaps, OR
 - The cluster category is B (confirmation question)
-Choices are starting-point options the candidate can select and expand; they are not exhaustive.
 Otherwise set choices to null.
 
-Choice truthfulness rules (critical — choices pre-fill the candidate's answer):
-- A choice may ASSERT experience only with skills, tools, or employers that appear in the \
-candidate profile summary below. Never attribute a JD technology to the candidate that the \
-profile does not show.
-- Never invent specific projects, systems, employers, or metrics.
-- A choice that names an employer may only describe work that employer's own responsibilities/ \
-achievements below actually state. Do not invent a task, context, industry detail, or urgency \
-("under tight timelines", "in a fast-moving environment", ...) for that employer that its \
-bullets do not say — even when the underlying skill/tool IS real for that employer. Ground the \
-NARRATIVE, not just the noun.
-- EXPLORATORY (gap_type=C) clusters can absorb several constituent gaps, and a cluster is \
-Category C as soon as ANY ONE of them is unevidenced — so some of its OTHER named gaps or \
-skills may actually appear in the candidate profile summary below. Check each constituent gap \
-individually: for one the profile genuinely shows NO evidence, a choice leads with the related \
-experience the profile does show and leaves the concept itself out (e.g. "I built \
-X-adjacent Y at Z.") — never says the candidate lacks it, and never says the profile does \
-not document it; the candidate adds that in their own words. For one the profile DOES evidence (even partially), lead with that \
-real evidence honestly. Never draft an affirmative claim for a concept the profile shows no \
-evidence for.
+Choice truthfulness rules (critical — a click copies a choice's "text" into the candidate's answer):
+- Never invent an employer, project, system, tool, figure or result. Every anchor a choice names \
+— a role, project, activity, skill or employer — appears in the candidate profile summary below \
+or in the candidate's earlier answers.
+- A DIRECT choice asserts only what the profile shows; never attribute a JD technology to the \
+candidate that the profile does not show. A DIRECT choice that names an employer describes only \
+work that employer's own responsibilities/achievements below state — no invented task, context, \
+industry detail or urgency ("under tight timelines", ...). Ground the NARRATIVE, not just the noun.
 - The candidate's earlier answers in this conversation are evidence exactly like the profile \
 summary: never draft a choice, at ANY level, that contradicts something the candidate already \
 said in the Recent conversation below.
@@ -327,8 +333,8 @@ Schema:
 {
   "question": "The question text",
   "choices": [
-    {"text": "Option A", "level": "direct" | "partial" | "denial", "denied_terms": [string]},
-    {"text": "Option B", "level": "direct" | "partial" | "denial", "denied_terms": [string]}
+    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string]},
+    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string]}
   ] or null
 }"""
 
@@ -521,6 +527,56 @@ def _already_asked_instruction(
     return f"{lead} {_EARLIER_ANSWERS_ARE_NOT_CHOICES}"
 
 
+def _constituent_split(
+    cluster: dict, profile: dict, follow_up_focus: list[str] | None = None
+) -> tuple[dict[str, bool], list[str], list[str], list[str]]:
+    """``(signal, evidenced, unevidenced, declined_members)`` — the literal
+    per-constituent check the question prompt states (one implementation for
+    the prompt and for :func:`unmentioned_constituents`, ADR-066)."""
+    signal = constituent_evidence(cluster, profile)
+    # ADR-089 clause 3 — `constituent_evidence` flags EVERY member (open +
+    # covered + declined, `gap_coverage.all_members`), but only the OPEN ones
+    # (`gaps`) may be asked about: a covered member is not a gap, and a
+    # declined one was answered with "no" and is never asked again. So the
+    # evidenced list may name covered members (they must not be re-questioned)
+    # but never a declined one, and the unevidenced list — the ask scope AND
+    # the only valid denial-choice scope — holds open members only. A legacy
+    # cluster (no outcome) has open == all members: byte-identical to before.
+    from applire.services.keyword_ledger import _norm as _member_norm
+
+    open_keys = {_member_norm(str(g)) for g in cluster.get("gaps", [])}
+    declined_members = [
+        str(d) for d in ((cluster.get("outcome") or {}).get("declined") or []) if d
+    ]
+    declined_keys = {_member_norm(d) for d in declined_members}
+    # A follow-up's focus members are asked about BY NAME (the FOLLOW-UP line
+    # below): they are never listed as "evidenced — never re-question", which
+    # would contradict that line when the profile happens to mention one.
+    focus_keys = {_member_norm(str(f)) for f in (follow_up_focus or []) if f}
+    evidenced = [
+        t
+        for t, ok in signal.items()
+        if ok and _member_norm(t) not in declined_keys and _member_norm(t) not in focus_keys
+    ]
+    unevidenced = [
+        t for t, ok in signal.items() if not ok and _member_norm(t) in open_keys
+    ]
+
+    return signal, evidenced, unevidenced, declined_members
+
+
+def unmentioned_constituents(
+    cluster: dict, profile: dict, follow_up_focus: list[str] | None = None
+) -> list[str]:
+    """UAT-2c (founder 2026-11-08): the OPEN constituent concepts with no
+    word-for-word mention in the profile — exactly the list
+    :func:`build_question_prompt` hands the model as "Constituent concepts with
+    no word-for-word mention". The UI's lead-in sentence ("keine direkte Nennung
+    von …") names THIS list, so it is true by construction (a literal check,
+    never an LLM's words)."""
+    return list(_constituent_split(cluster, profile, follow_up_focus)[2])
+
+
 def build_question_prompt(
     cluster: dict,
     profile: dict,
@@ -551,34 +607,9 @@ def build_question_prompt(
     # while this very prompt's profile summary carried the concept as a
     # confirmed skill (charter run 2026-07-29, record 30). Same predicate as
     # the choice_grounding mirror guard, so hint and guard cannot disagree.
-    signal = constituent_evidence(cluster, profile)
-    # ADR-089 clause 3 — `constituent_evidence` flags EVERY member (open +
-    # covered + declined, `gap_coverage.all_members`), but only the OPEN ones
-    # (`gaps`) may be asked about: a covered member is not a gap, and a
-    # declined one was answered with "no" and is never asked again. So the
-    # evidenced list may name covered members (they must not be re-questioned)
-    # but never a declined one, and the unevidenced list — the ask scope AND
-    # the only valid denial-choice scope — holds open members only. A legacy
-    # cluster (no outcome) has open == all members: byte-identical to before.
-    from applire.services.keyword_ledger import _norm as _member_norm
-
-    open_keys = {_member_norm(str(g)) for g in constituent_gaps}
-    declined_members = [
-        str(d) for d in ((cluster.get("outcome") or {}).get("declined") or []) if d
-    ]
-    declined_keys = {_member_norm(d) for d in declined_members}
-    # A follow-up's focus members are asked about BY NAME (the FOLLOW-UP line
-    # below): they are never listed as "evidenced — never re-question", which
-    # would contradict that line when the profile happens to mention one.
-    focus_keys = {_member_norm(str(f)) for f in (follow_up_focus or []) if f}
-    evidenced = [
-        t
-        for t, ok in signal.items()
-        if ok and _member_norm(t) not in declined_keys and _member_norm(t) not in focus_keys
-    ]
-    unevidenced = [
-        t for t, ok in signal.items() if not ok and _member_norm(t) in open_keys
-    ]
+    signal, evidenced, unevidenced, declined_members = _constituent_split(
+        cluster, profile, follow_up_focus
+    )
 
     if gap_category == "B":
         gap_type_hint = (
@@ -603,51 +634,43 @@ def build_question_prompt(
         )
 
     if num_gaps >= 2 or gap_category == "B":
-        if gap_category == "C":
-            # Founder ruling V-7 (787 M2, 2026-10-21): an exploratory question
-            # offers NO one-click denial — the candidate types a denial in their
-            # own words. `choice_grounding.filter_ungrounded_choices` drops a
-            # denial-level chip on a Category C question deterministically; this
-            # sentence keeps the model from spending a slot on one.
-            literal = (
-                f" Constituent concepts with no word-for-word mention in the profile "
-                f"summary: {', '.join(unevidenced)}. That is a literal check, not a "
-                "verdict — a concept the profile states in other words (a role "
-                "title, a skill, a bullet) is evidenced."
-                if signal and unevidenced else ""
-            )
+        # UAT-2 (founder ruling 2026-11-08, ADR-064 amended): the choices are
+        # bridges + at most one honest bridge. The literal list below is the
+        # producer's own fact (`unmentioned_constituents`, the same list the UI's
+        # lead-in sentence names) and the upper bound of the honest bridge's
+        # scope — never a verdict: a concept the profile states in other words
+        # is evidenced and gets a DIRECT choice. (V-7's "Offer NO denial
+        # choice" on C is amended to "only the honest-bridge shape".)
+        if gap_category == "B":
+            # MD-UAT-1: the classifier put this concept in B — evidenced in
+            # other words — so no honest bridge (Sonnet 5.5 replay, B
+            # "Resuscitation": the generic hint drew an honest bridge beside the
+            # direct confirmation in 3 of 5 runs, 2 delivered; 0 of 5 with this).
             denial_fact = (
-                f"{literal} Offer NO denial choice: a candidate who lacks something "
-                "types that in their own words. Draft DIRECT and PARTIAL choices only; "
-                "a PARTIAL choice states what the profile shows and leaves an "
-                "uncovered concept out — it never says the profile does not "
-                "document it, and never that the candidate lacks it."
+                " CONFIRMATION question: the system inferred the profile evidences "
+                "this concept in other words — one DIRECT choice that confirms it "
+                "with the profile's specifics, plus bridges to angles the profile "
+                "does not state yet. NO honest bridge and no other no on this question."
             )
-        elif not signal:
-            denial_fact = ""
         elif unevidenced:
-            # UX-1 / 787 M2 (2026-10-20): this list comes from a LITERAL check
-            # (constituent_evidence → surface_present). Stated as "unevidenced"
-            # it told the model a Produktionsleiter had no "Produktionsverantwortung"
-            # and the model drafted that denial (delivery-3 record 20). It is the
-            # upper bound of a denial's scope, never a licence for one.
             denial_fact = (
                 " Constituent concepts with no word-for-word mention in the profile "
                 f"summary: {', '.join(unevidenced)}. That is a literal check, not a "
                 "verdict: look for each in the profile summary in OTHER words — a "
                 "role title, a skill, a bullet. A concept the profile states in "
-                "other words is evidenced and goes into a DIRECT or PARTIAL choice. "
-                "Offer NO denial choice; a PARTIAL choice states what the profile "
-                "shows and leaves the concepts left over out — never that the "
-                "profile does not document them, never that the candidate lacks them."
+                "other words is evidenced: a DIRECT choice, plus at most one bridge. "
+                "Only a concept it shows no evidence for in any words gets bridges "
+                "and the one honest bridge, whose no names exactly that concept."
             )
-        else:
+        elif signal:
             denial_fact = (
                 " Every constituent concept is evidenced in the profile summary "
-                "below — offer NO denial choice (DIRECT + PARTIAL only)."
+                "below — one DIRECT choice plus at most one bridge; no honest bridge."
             )
+        else:
+            denial_fact = ""
         choices_hint = (
-            f"Generate 2-3 choices (num_gaps={num_gaps}, category={gap_category or 'C'})."
+            f"Generate up to 3 choices (num_gaps={num_gaps}, category={gap_category or 'C'})."
             f"{denial_fact}"
         )
     else:
@@ -964,8 +987,8 @@ Schema:
 {
   "question": "The question text",
   "choices": [
-    {"text": "Option A", "level": "direct" | "partial" | "denial", "denied_terms": [string]},
-    {"text": "Option B", "level": "direct" | "partial" | "denial", "denied_terms": [string]}
+    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string]},
+    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string]}
   ] or null
 }""")
 

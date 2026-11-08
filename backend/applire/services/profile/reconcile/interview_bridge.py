@@ -184,7 +184,12 @@ async def reconcile_interview_turn(
     # through this key — the answer itself already carries what was selected.
     if offered_choices:
         new_info[OFFERED_CHOICES_KEY] = [
-            {"text": c["text"], "names_without_claiming": list(c.get("names_without_claiming") or [])}
+            {
+                "text": c["text"],
+                "names_without_claiming": list(c.get("names_without_claiming") or []),
+                # UAT-2 (ADR-064 amended 2026-11-08): a sent honest bridge's no.
+                "states_no_to": list(c.get("states_no_to") or []),
+            }
             for c in offered_choices
             if isinstance(c, dict) and isinstance(c.get("text"), str)
         ]
