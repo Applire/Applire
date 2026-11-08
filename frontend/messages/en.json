@@ -889,7 +889,6 @@
   "profile": {
     "title": "My Profile",
     "back": "← Back",
-    "complete": "{pct}% Complete",
     "loading": "Loading profile...",
     "noProfile": "No profile found. Please import a CV first.",
     "noProfileHeading": "No profile yet — upload your CV and we'll build your Master Profile from it.",
@@ -948,9 +947,7 @@
       "notAppliedOp": "One part of the response ({op}) had an invalid shape and was dropped."
     },
     "completeness": "Profile Completeness",
-    "enrichProfile": "Enrich Profile",
     "enrichEntry": "Enrich",
-    "completenessLabel": "Completeness: {pct}%",
     "changeLog": "{action}: {section}/{field}",
     "matchedLog": "Recognised as already present in {section}: {incoming} → {existing}",
     "photo": {
@@ -1250,7 +1247,7 @@
     "resolve": "Resolve",
     "dismissNudge": "Dismiss",
     "gapsLabel": "Missing sections: {sections}",
-    "improve": "Improve",
+    "enrich": "Enrich Profile",
     "severityCritical": "Critical",
     "severityReview": "Review",
     "severityInfo": "Info",

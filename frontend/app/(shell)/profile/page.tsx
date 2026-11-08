@@ -57,13 +57,11 @@ import {
 import {
   adoptNotApplied,
   answerAspiration,
-  hubHasContent,
   renderedIssues,
   saveBudgetUnit,
 } from "@/lib/profile-health";
 import {
   ProfileSectionBody,
-  resolveSummary,
   type SummaryValue,
   type UiLanguage,
 } from "@/components/profile/ProfileSectionCard";
@@ -236,22 +234,6 @@ const SECTION_LABEL_KEYS: Record<SectionKey, SectionLabelKey> = {
 // whole-section JSON textarea that used to live here is retired (US292).
 const READ_ONLY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
 const HIDE_WHEN_EMPTY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
-
-// F9.2 — a summary is "missing" only when NO language has one. A profile with an
-// English summary but no German one is NOT incomplete; the missing-language nuance
-// is surfaced inline by ProfileSectionBody, not as a whole-section gap.
-function hasProfileGaps(
-  profile: {
-    work_experience?: Array<WorkEntryGapFields> | null;
-    professional_summary?: SummaryValue;
-  },
-  uiLanguage: UiLanguage,
-): boolean {
-  const work = profile.work_experience ?? [];
-  if (work.some((e) => countWorkEntryGaps(e) > 0)) return true;
-  if (resolveSummary(profile.professional_summary, uiLanguage).missing) return true;
-  return false;
-}
 
 /**
  * U-9 → U-11 (Hazelnut build 5): the hub's duplicate-station question "Ja,
@@ -541,7 +523,6 @@ export default function ProfilePage() {
       .map((i) => matchPairKey(i.skill_id!, i.incoming_name!)),
   );
 
-  const completenessScore = profile?.completeness ?? 0;
 
   // #382 — the work entries whose budget figure states no unit, as decided by
   // the backend (`unit` health thread). Empty until /api/profile/health has
@@ -631,7 +612,7 @@ export default function ProfilePage() {
               {recomputeNote.text}
             </p>
           )}
-          {health && hubHasContent(health) && (
+          {health && (
             <HealthPanelWithMerge
               health={health}
               actions={hubActions}
@@ -641,45 +622,6 @@ export default function ProfilePage() {
               onAnswerConfirmation={handleAnswerConfirmation}
               onImprove={openEnrichForAll}
             />
-          )}
-
-          {profile && (
-            <div className="flex justify-end mb-2">
-              <span className={cn(
-                "text-xs font-medium px-3 py-1 rounded-full",
-                completenessScore >= 0.8 ? "bg-success text-white" :
-                completenessScore >= 0.5 ? "bg-warning text-white" :
-                "bg-gray-400 text-white"
-              )}>
-                {t("complete", { pct: Math.round(completenessScore * 100) })}
-              </span>
-            </div>
-          )}
-
-          {/* Completeness banner */}
-          {profile && (
-            <div className={`rounded-lg border p-4 mb-6 ${
-              hasProfileGaps(profile.profile, uiLanguage)
-                ? "border-amber-500/30 bg-amber-500/5"
-                : "border-green-500/30 bg-green-500/5"
-            }`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium">
-                  {t("completenessLabel", { pct: Math.round((profile.completeness ?? 0) * 100) })}
-                </span>
-                {hasProfileGaps(profile.profile, uiLanguage) && (
-                  <Button size="sm" variant="outline" onClick={openEnrichForAll}>
-                    {t("enrichProfile")}
-                  </Button>
-                )}
-              </div>
-              <div className="w-full bg-muted rounded-full h-1.5">
-                <div
-                  className="bg-primary h-1.5 rounded-full transition-all"
-                  style={{ width: `${Math.round((profile.completeness ?? 0) * 100)}%` }}
-                />
-              </div>
-            </div>
           )}
 
           {/* Photo Section */}

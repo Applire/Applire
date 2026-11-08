@@ -75,11 +75,11 @@ describe("HealthPanel — missing sections in words", () => {
     expect(screen.queryByText(/volunteer_activities/)).toBeNull();
   });
 
-  // Hazelnut build 5 (ADR-099 cl. 11): completeness WITHOUT field_gaps is class
-  // S — the "missing sections" label had no action, so it is not rendered.
-  it("hides the missing-sections line when there are no field gaps to act on", () => {
+  // UAT-1 (founder 2026-11-08): the one card always names the missing sections,
+  // with or without field gaps (it supersedes the class-S hiding of build 5).
+  it("shows the missing-sections line even without field gaps", () => {
     const h: ProfileHealth = { issues: [], completeness: { score: 0.5, gaps: ["education"], field_gaps: [] } };
     render(withIntl(<HealthPanel health={h} onResolve={vi.fn()} />, "de"));
-    expect(screen.queryByText(/Ausbildung/)).toBeNull();
+    expect(screen.getByText(/Ausbildung/)).toBeTruthy();
   });
 });

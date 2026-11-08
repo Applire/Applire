@@ -889,7 +889,6 @@
   "profile": {
     "title": "Mein Profil",
     "back": "← Zurück",
-    "complete": "{pct}% Vollständig",
     "loading": "Profil wird geladen...",
     "noProfile": "Kein Profil gefunden. Bitte lade zuerst einen Lebenslauf hoch.",
     "noProfileHeading": "Noch kein Profil — lade deinen Lebenslauf hoch, wir bauen dein Master-Profil daraus.",
@@ -948,9 +947,7 @@
       "notAppliedOp": "Ein Teil der Antwort ({op}) hatte ein ungültiges Format und wurde verworfen."
     },
     "completeness": "Profilvollständigkeit",
-    "enrichProfile": "Profil ergänzen",
     "enrichEntry": "Ergänzen",
-    "completenessLabel": "Vollständigkeit: {pct}%",
     "changeLog": "{action}: {section}/{field}",
     "matchedLog": "Als bereits vorhanden erkannt in {section}: {incoming} → {existing}",
     "photo": {
@@ -1250,7 +1247,7 @@
     "resolve": "Beheben",
     "dismissNudge": "Ausblenden",
     "gapsLabel": "Fehlende Abschnitte: {sections}",
-    "improve": "Verbessern",
+    "enrich": "Profil ergänzen",
     "severityCritical": "Kritisch",
     "severityReview": "Zu prüfen",
     "severityInfo": "Hinweis",
