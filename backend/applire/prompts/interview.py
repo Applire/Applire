@@ -183,6 +183,17 @@
 # is a confirmation with no honest bridge. Measured (Sonnet 5.5, production
 # chain, n=5 per case, blind rubric): chips naming an asked concept 27/66 ->
 # 81/81, restating 37/66 -> 4/81, inventing 2/66 -> 0/81 (bridge-report.md).
+#   UAT-2d (MD-UAT-5, founder 2026-11-08): the honest bridge's own "ask"
+#   example opened "Nicht direkt – …" and every drafted honest-bridge ask copied a
+#   qualifier (15/15); its no-clause carried one in 5/15. The X rule now says
+#   "the concept exactly as the cluster spells it, NOTHING added; a no only true
+#   with a qualifier is a BRIDGE", and the ask example is a soft question with no
+#   stated no. Measured (Sonnet 5.5, honest bridges drafted, this wording family
+#   over three rounds): no-clause qualifier 6/45 (shipped 5/15), ask qualifier
+#   1/45 (shipped 15/15); the stretch case Cadj swings 1/5 to 4/5 between rounds.
+#   Accepted as the founder's fallback ("Korrektur so übernehmen"): a stronger
+#   Y rule to keep the founder case's honest bridge (Y in the profile's own
+#   words) was measured and not accepted (bridge-report.md, FM-UAT2-3).
 
 import json
 
@@ -264,11 +275,13 @@ Distributionszentrum": "Als Schichtleiter habe ich die Personaleinsatzplanung au
 wöchentlichen Mengenprognose ausgerichtet." A bridge is never "direct".
 - HONEST BRIDGE (level "denial", ONE per question at most — even when several concepts are \
 unevidenced — and only for an asked concept the profile shows no evidence for in ANY words): \
-"X habe ich bisher nicht …, aber durch Y …" / "I haven't … X so far, but through Y …". The no \
-names ONLY the asked concept X, in its own words and with no qualifier — never a narrower, \
-broader or different notion ("no formal budget responsibility" for an asked "cost analysis" is \
-wrong; so are "formal", "explizit", "im engeren Sinn", "nicht direkt"). It is joined with ", aber" / ", but", and Y is a bridge from a real \
-anchor as above. Its "denied_terms" lists X exactly as the GAP CLUSTER block names it. Generic \
+"X habe ich bisher nicht …, aber durch Y …" / "I haven't … X so far, but through Y …". X is \
+the asked concept exactly as the GAP CLUSTER block spells it, with NOTHING added — no adjective, \
+adverb or limiting phrase ("eigenständig", "formal", "explizit", "im eigentlichen Sinn", \
+"direkt", "independently", "formally", "as such"). Sending this choice records "no X" as the \
+candidate's own statement; a no that is only true with a qualifier ("not independently", \
+"not formally") is not a no — offer it as a BRIDGE instead. It is joined with ", aber" / \
+", but", and Y is a bridge from a real anchor as above. Its "denied_terms" lists X exactly as the GAP CLUSTER block names it. Generic \
 example: "Mit Prognosen habe ich bisher nicht gearbeitet, aber durch die Schichtplanung kenne \
 ich die wöchentlichen Mengenvorgaben."
 - DIRECT (level "direct"): only for a concept the profile summary itself evidences, in any \
@@ -289,7 +302,8 @@ instructs or asks the candidate and never promises detail ("das kann ich genauer
 "I can share how ..."). "ask" is the button label: a short question TO the candidate \
 (German: du-form) naming the SAME anchor and the SAME concept as its "text" — e.g. "Hast du \
 als Schichtleiter die Personalplanung auch an Mengenprognosen ausgerichtet?"; for the honest \
-bridge "Nicht direkt – aber kennst du Mengenvorgaben aus der Schichtplanung?".
+bridge a soft question about its Y, with no qualifier and no stated no (the no is in its \
+"text"): "Kennst du Mengenvorgaben vielleicht aus der Schichtplanung?".
 - "denied_terms": [] on every choice except the honest bridge (its asked concept) and a \
 restated earlier no. "level": declare each choice's level truthfully — "direct", "partial" (a \
 bridge) or "denial" (the honest bridge, or a restated earlier no). Both are statements of fact \

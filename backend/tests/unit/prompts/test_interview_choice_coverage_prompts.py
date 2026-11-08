@@ -89,7 +89,12 @@ def test_prompt_offers_one_honest_bridge_scoped_to_the_asked_concept():
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
     assert 'HONEST BRIDGE (level "denial", ONE per question at most' in flat
     assert '"X habe ich bisher nicht …, aber durch Y …"' in flat
-    assert "The no names ONLY the asked concept X, in its own words and with no qualifier" in flat
+    # UAT-2d (MD-UAT-5): X exactly as the cluster spells it, nothing added; a
+    # qualified no is a bridge; the honest bridge's ask is a soft question.
+    assert "X is the asked concept exactly as the GAP CLUSTER block spells it, with NOTHING added" in flat
+    assert "a no that is only true with a qualifier (\"not independently\", \"not formally\") is not a no — offer it as a BRIDGE instead" in flat
+    assert '"Kennst du Mengenvorgaben vielleicht aus der Schichtplanung?"' in flat
+    assert "Nicht direkt" not in flat
     assert 'Its "denied_terms" lists X exactly as the GAP CLUSTER block names it' in flat
     assert "never offer a choice at the denial level" not in flat.lower()
 
