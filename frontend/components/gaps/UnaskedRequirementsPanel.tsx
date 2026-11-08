@@ -36,6 +36,7 @@
 import { useState } from "react";
 import { HelpCircle, Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { ChoiceLeadIn, choiceButtonLabel } from "@/components/interview/ChoiceLeadIn";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -48,6 +49,18 @@ interface Turn {
   sessionId: string;
   question: string;
   choices: string[] | null;
+  /** UAT-2b/2c — index-aligned button questions; concepts with no literal profile mention. */
+  asks: (string | null)[] | null;
+  unmentioned: string[] | null;
+}
+
+/** The slice of a session create/message response this panel reads. */
+interface TurnPayload {
+  question?: string | null;
+  first_question?: string;
+  choices?: string[] | null;
+  choice_asks?: (string | null)[] | null;
+  choice_unmentioned?: string[] | null;
 }
 
 /**
@@ -99,8 +112,14 @@ export default function UnaskedRequirementsPanel({
         body: JSON.stringify({ job_id: jobId, requirement_concepts: requirements!.map((r) => r.concept) }),
       });
       if (!res.ok) throw new Error(String(res.status));
-      const data = (await res.json()) as { session_id: string; question?: string; first_question?: string; choices?: string[] | null };
-      setTurn({ sessionId: data.session_id, question: data.question ?? data.first_question ?? "", choices: data.choices ?? null });
+      const data = (await res.json()) as TurnPayload & { session_id: string };
+      setTurn({
+        sessionId: data.session_id,
+        question: data.question ?? data.first_question ?? "",
+        choices: data.choices ?? null,
+        asks: data.choice_asks ?? null,
+        unmentioned: data.choice_unmentioned ?? null,
+      });
     } catch {
       setFailed(true);
     } finally {
@@ -119,14 +138,20 @@ export default function UnaskedRequirementsPanel({
         body: JSON.stringify({ message: text.trim() }),
       });
       if (!res.ok) throw new Error(String(res.status));
-      const data = (await res.json()) as { complete: boolean; question?: string | null; choices?: string[] | null };
+      const data = (await res.json()) as TurnPayload & { complete: boolean };
       setAnswer("");
       if (data.complete) {
         setTurn(null);
         setDone(true);
         onAnswered?.();
       } else {
-        setTurn({ sessionId: turn.sessionId, question: data.question ?? turn.question, choices: data.choices ?? null });
+        setTurn({
+          sessionId: turn.sessionId,
+          question: data.question ?? turn.question,
+          choices: data.choices ?? null,
+          asks: data.choice_asks ?? null,
+          unmentioned: data.choice_unmentioned ?? null,
+        });
       }
     } catch {
       setFailed(true);
@@ -193,19 +218,27 @@ export default function UnaskedRequirementsPanel({
           <p data-testid="unasked-requirements-question" className="text-sm text-on-surface">
             {turn.question}
           </p>
+          {/* UAT-2b/2c: the same answer ideas as the interview and the gaps
+              page — the button reads the ask, a click inserts the statement
+              into the answer box to adjust (it no longer sends at once), and
+              one lead-in sits above. */}
           {turn.choices && turn.choices.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {turn.choices.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void send(c)}
-                  className="rounded-full border border-outline-variant bg-surface-bright px-3 py-1.5 text-[13px] font-semibold text-on-surface disabled:opacity-50"
-                >
-                  {c}
-                </button>
-              ))}
+            <div className="flex flex-col gap-1.5">
+              <ChoiceLeadIn namespace="gaps" asks={turn.asks} unmentioned={turn.unmentioned} />
+              <div className="flex flex-wrap gap-1.5">
+                {turn.choices.map((c, i) => (
+                  <button
+                    key={c}
+                    type="button"
+                    data-testid="unasked-requirements-choice"
+                    disabled={busy}
+                    onClick={() => setAnswer(c)}
+                    className="rounded-full border border-outline-variant bg-surface-bright px-3 py-1.5 text-left text-[13px] font-semibold text-on-surface disabled:opacity-50"
+                  >
+                    {choiceButtonLabel(turn.choices ?? [], turn.asks, i)}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           <textarea

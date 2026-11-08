@@ -92,7 +92,10 @@ class TestDeclaredDeniedTermsExemption:
         # Legacy shape (no denied_terms): pre-#451 behaviour unchanged — the
         # chip names unevidenced concepts and is dropped. This pins the safe
         # fallback, and documents the exact run-17 loss the field repairs.
+        # UAT-2 (2026-11-08): a PARTIAL chip is a bridge and may name the
+        # asked concepts, so the full pipeline is pinned on the DIRECT level.
         legacy = {k: v for k, v in PARTIAL_NO_EMPLOYER.items() if k != "denied_terms"}
+        legacy["level"] = "direct"
         assert filter_ungrounded_choices([legacy], CLUSTER, PROFILE, "C") is None
 
     def test_denial_first_partial_is_kept(self):
@@ -112,9 +115,11 @@ class TestDeclaredDeniedTermsExemption:
     def test_bald_assertion_with_declared_denial_gets_no_exemption(self):
         # The adversarial-pass bypass: assert the concept in text while
         # declaring it denied. No pivot marker → no exemption → dropped.
+        # UAT-2: pinned on DIRECT — a PARTIAL bridge may name an asked concept
+        # without any declaration (test_uat2_bridge_grounding.py).
         chip = {
             "text": "Ich habe die Investitionsverantwortung bei uns erfolgreich eingeführt.",
-            "level": "partial",
+            "level": "direct",
             "denied_terms": ["Investitionsverantwortung"],
         }
         assert filter_ungrounded_choices([chip], CLUSTER, PROFILE, "C") is None

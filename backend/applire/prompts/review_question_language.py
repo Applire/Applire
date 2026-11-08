@@ -15,11 +15,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v4
+# Prompt version: v5
 # Used by: services/interview_graph.py → _review_question_language()
 #          wrapped with services/reviewer.review_and_refine (ADR-021, ADR-038)
 #          review_and_refine calls reviewer_prompt_fn(source, draft) positionally,
 #          so `source` binds to `required_language` (e.g. "English", "German").
+#
+# v5 changes vs v4 (UAT-2b, founder 2026-11-08, ADR-064 amended):
+#   - Every choice also carries "ask" (the button label: a question to the
+#     candidate; "text" stays the first-person statement a click inserts).
+#     Both are content: the review judges both, the refinement rewrites both
+#     and the schema names "ask" so a rewrite cannot silently strip it
+#     (interview_graph._carry_levels_by_index fills a dropped "ask" by index).
 #
 # v4 changes vs v3 (D-30, Hazelnut build 5, 2026-10-30):
 #   - The review names what is NOT a language mismatch: a name, an acronym, an
@@ -56,13 +63,14 @@ from applire.prompts.review_severity import review_output_schema
 QUESTION_LANGUAGE_REVIEW_SYSTEM_PROMPT = """\
 You are a language reviewer for AI-generated conversational interview questions.
 Your sole responsibility is to verify that a drafted question and every answer choice's "text" \
-are written entirely in the required language.
+and "ask" are written entirely in the required language.
 Judge ONLY language — not quality, tone, or correctness of content.
 
 Each choice may carry a "level" field ("direct", "partial", or "denial") and a "denied_terms" \
 list alongside its "text". "level" is a FIXED ENGLISH ENUM and "denied_terms" holds verbatim \
 concept names — neither is translatable content; never flag either as a language mismatch and \
-never suggest changing them. Judge only each choice's "text".
+never suggest changing them. Judge only each choice's "text" and "ask" (the button label, a \
+question to the candidate — UAT-2b).
 
 WHAT IS NOT A MISMATCH: a sentence in the required language keeps the fixed terms a
 professional of the field uses in it, exactly as the posting and the profile spell them —
@@ -76,7 +84,7 @@ container image makes the question wrong, not German. A mismatch is a run of ord
 in the other language's grammar: "cost-saving measures" or "release planning" inside a
 German sentence.
 
-WHAT IS BLOCKING IN THIS PASS: any "text" still in the wrong language. In this pass every
+WHAT IS BLOCKING IN THIS PASS: any "text" or "ask" still in the wrong language. In this pass every
 genuine language mismatch is blocking — that is the one thing you are here to catch. Use
 "minor" for a preference BETWEEN TWO CORRECT-LANGUAGE WORDINGS, and for nothing else.
 
@@ -90,8 +98,9 @@ QUESTION_LANGUAGE_REFINEMENT_PROMPT = """\
 You rewrite a conversational interview question into a required language.
 You receive (1) a previous draft JSON {"question", "choices"} and (2) reviewer feedback \
 naming the required language.
-Rewrite the question and every choice's "text" into that language, preserving meaning, intent, \
-and structure exactly.
+Rewrite the question and every choice's "text" and "ask" into that language, preserving meaning, \
+intent, and structure exactly ("ask" stays a question to the candidate, "text" a first-person \
+statement).
 Translate ONLY the phrases the feedback names. Names of companies, products, frameworks and \
 tools, acronyms, loanwords the field uses untranslated ("Cloud", "Copilot", "Workflow") and job \
 titles stay exactly as the draft spells them — never translate, spell out or remove one, even \
@@ -101,8 +110,8 @@ Do not add, remove, or reorder choices. Each choice's "level" field ("direct", "
 neither is translatable content. Copy BOTH through UNCHANGED, byte-for-byte, for every choice. \
 Never translate, omit, or invent a "level" or a "denied_terms" entry.
 Output ONLY the corrected JSON in the same schema \
-{"question": str, "choices": [{"text": str, "level": str, "denied_terms": [str]}] | null} — no \
-markdown, no commentary.
+{"question": str, "choices": [{"ask": str, "text": str, "level": str, "denied_terms": [str]}] | null} \
+— no markdown, no commentary.
 """
 
 
@@ -119,7 +128,7 @@ def build_question_language_review_prompt(required_language: str, draft: dict) -
         f"Required language: {required_language}\n\n"
         f"Question: {draft.get('question', '')}\n"
         f"Choices: {json.dumps(choices, ensure_ascii=False)}\n\n"
-        f"Are the question and every choice's \"text\" written entirely in {required_language}? "
+        f"Are the question and every choice's \"text\" and \"ask\" written entirely in {required_language}? "
         "Ignore any \"level\" or \"denied_terms\" field — fixed metadata, not translatable content. "
         "Respond with JSON only."
     )

@@ -1123,10 +1123,14 @@ def _offered_choices(new_info: Any, source: str) -> list[dict]:
         if not isinstance(item, dict) or not isinstance(item.get("text"), str):
             continue
         terms = item.get("names_without_claiming")
+        nos = item.get("states_no_to")
         out.append({
             "text": item["text"],
             "names_without_claiming": [
                 t for t in (terms if isinstance(terms, list) else []) if isinstance(t, str) and t.strip()
+            ],
+            "states_no_to": [
+                t for t in (nos if isinstance(nos, list) else []) if isinstance(t, str) and t.strip()
             ],
         })
     return out
@@ -1176,15 +1180,27 @@ def offered_choice_gate(
     remainder, _cut = cut_offered_texts(answer, [c["text"] for c in offered])
     names = list(dict.fromkeys(t for c in offered for t in c["names_without_claiming"]))
     unclaimed = [t for t in names if not _bounded_present(t, remainder)]
+    # UAT-2 (founder ruling 2026-11-08, ADR-064 amended): a SENT honest bridge
+    # ("X bisher nicht, aber durch Y …", offered side by side with the bridges)
+    # is the candidate's own no on the asked concept X. Its declared concepts
+    # are recorded with exactly that scope (G-1): never dropped as Applire's
+    # words, and never widened to the reconciler's paraphrase.
+    stated = list(dict.fromkeys(t for c in offered for t in c.get("states_no_to") or []))
     typed_nothing = not re.search(r"\w", remainder.replace(OFFERED_CUT_MARK.strip(), ""))
-    if not typed_nothing or not denials:
-        return list(denials), [], unclaimed
-    logger.info(
-        "reconcile stance: %d denial(s) dropped — the answer is only offered "
-        "choice text, no word of the candidate's own (G-3, ADR-064 amended "
-        "2026-11-04, MD6-7): %r", len(denials), list(denials),
-    )
-    return [], list(denials), unclaimed
+    if not typed_nothing:
+        have = {_norm(d) for d in denials}
+        return list(denials) + [t for t in stated if _norm(t) not in have], [], unclaimed
+    if not denials and not stated:
+        return [], [], unclaimed
+    dropped = [d for d in denials if _norm(d) not in {_norm(t) for t in stated}]
+    if dropped:
+        logger.info(
+            "reconcile stance: %d denial(s) dropped — the answer is only offered "
+            "choice text, no word of the candidate's own (G-3, ADR-064 amended "
+            "2026-11-04, MD6-7); a sent honest bridge keeps only its declared "
+            "no (UAT-2): %r", len(dropped), dropped,
+        )
+    return stated, dropped, unclaimed
 
 
 async def enforce_stance(

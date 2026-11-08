@@ -94,7 +94,11 @@ class TestFilterUngroundedChoices:
         text1 = "I qualified an Azure-hosted MES."
         text2 = "I haven't worked with Azure directly, but I know cloud validation from AWS."
         chips = [text0, text1, _denial(text2)]
-        out = filter_ungrounded_choices(chips, CLUSTER, PROFILE, "B")
+        # MD-UAT-1 (2026-11-08): on a B question the cluster's OWN constituents
+        # are exempt from term evidence, so the invented claim here is about a
+        # JD skill that is NOT a constituent — the protection this pins.
+        cluster = {**CLUSTER, "gaps": ["Cloud qualification"]}
+        out = filter_ungrounded_choices(chips, cluster, PROFILE, "B")
         assert out == [text0, text2]
 
     def test_all_dropped_returns_none(self):
@@ -191,7 +195,9 @@ class TestDenialLevelCoverage:
         denial_text = "I have no experience with TOGAF."
         overclaim_text = "I led our TOGAF adoption end to end."
         chips = [_denial(denial_text), {"text": overclaim_text, "level": "direct"}]
-        out = filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "B")
+        # MD-UAT-1: TOGAF as a JD skill, not the B cluster's own constituent.
+        cluster = {**TOGAF_CLUSTER, "gaps": ["Architecture governance"]}
+        out = filter_ungrounded_choices(chips, cluster, EA_PROFILE, "B")
         assert out == [denial_text]
 
 
@@ -614,8 +620,11 @@ class _LevelTaggedChoicesProvider(LLMProvider):
 
 @pytest.mark.asyncio
 async def test_mode_a_generator_returns_flat_string_list_for_tagged_choices():
+    # MD-UAT-1: Azure as a JD skill, not the B cluster's own constituent.
+    state = _mode_a_state()
+    state["gap_clusters_by_id"] = {"cluster-cloud": {**CLUSTER, "gaps": ["Cloud qualification"]}}
     out = await question_generator_with_profile(
-        _mode_a_state(), PROFILE, _LevelTaggedChoicesProvider(), gap_category="B", lang="en"
+        state, PROFILE, _LevelTaggedChoicesProvider(), gap_category="B", lang="en"
     )
     assert out["question"]
     # Every kept element is a bare str (no leaked {"text", "level"} dicts) —

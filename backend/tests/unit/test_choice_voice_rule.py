@@ -19,11 +19,15 @@ from applire.prompts.interview import (
 
 
 def test_the_voice_rule_is_in_the_shared_coverage_block():
-    assert "VOICE (787:L72)" in _CHOICE_COVERAGE_RULES
-    assert "in the first person" in _CHOICE_COVERAGE_RULES
-    assert "inviting detail is the QUESTION's job" in _CHOICE_COVERAGE_RULES
+    # UAT-2b: the 787:L72 voice rule now lives in the TWO TEXTS bullet — the
+    # "text" is first person and never asks or promises; asking is the "ask"'s job.
+    flat = " ".join(_CHOICE_COVERAGE_RULES.split())
+    assert "\"text\" is the candidate's own first-person sentence" in flat
+    assert "It never instructs or asks the candidate and never promises detail" in flat
 
 
 def test_both_choice_drafting_prompts_carry_it():
     for prompt in (QUESTION_SYSTEM_PROMPT, DENIAL_PROBE_QUESTION_SYSTEM_PROMPT):
-        assert "VOICE (787:L72)" in prompt
+        assert "never promises detail" in " ".join(prompt.split())
+
+

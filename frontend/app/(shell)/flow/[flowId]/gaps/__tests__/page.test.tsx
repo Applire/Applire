@@ -44,6 +44,7 @@ vi.mock("next-intl", () => ({
   // every other key renders as its bare name.
   useTranslations: (ns: string) => (key: string, vars?: { items?: string }) =>
     key === "followUpLabel" && vars?.items !== undefined ? `${ns}.${key}:${vars.items}` : `${ns}.${key}`,
+  useLocale: () => "en",
 }));
 
 function fulfilledParams(flowId: string) {
@@ -1234,5 +1235,35 @@ describe("R2-10 — topics are requirements", () => {
     const labels = screen.getAllByTestId("gap-cluster-card").map((el) => el.textContent ?? "");
     expect(labels.some((l) => l.includes("Kafka"))).toBe(true);
     expect(labels.some((l) => l.includes("Commerce Domain"))).toBe(false);
+  });
+});
+
+describe("UAT-2b/2c — an answer idea's button reads its ask, a click inserts its text", () => {
+  it("shows the ask, inserts the statement, and leads in once with the unmentioned-concept line", async () => {
+    serve({
+      row: analysis([cl("k8s", { gaps: ["Kubernetes", "Helm"] })]),
+      session: () => ({
+        status: 200,
+        body: {
+          session_id: "s1",
+          question: "Q1?",
+          choices: ["As platform lead I also wrote Helm charts.", "Plain statement without an ask."],
+          choice_asks: ["As platform lead, did you also write Helm charts?", null],
+          choice_unmentioned: ["Helm"],
+        },
+      }),
+    });
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("k8s")));
+    await waitFor(() => expect(within(card("k8s")).getByTestId("gap-question")).toHaveTextContent("Q1?"));
+    const buttons = within(card("k8s")).getAllByTestId("gap-choice");
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      "As platform lead, did you also write Helm charts?",
+      "Plain statement without an ask.",
+    ]);
+    expect(within(card("k8s")).getAllByTestId("choice-lead-in")).toHaveLength(1);
+    expect(within(card("k8s")).getByTestId("choice-lead-in")).toHaveTextContent("gaps.choiceLeadUnmentioned");
+    fireEvent.click(buttons[0]);
+    expect(within(card("k8s")).getByTestId("gap-answer-textarea")).toHaveValue("As platform lead I also wrote Helm charts.");
   });
 });

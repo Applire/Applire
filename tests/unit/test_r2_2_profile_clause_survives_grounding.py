@@ -51,6 +51,8 @@ def test_the_english_prompt_shape_survives():
 
 
 def test_the_semicolon_shape_the_model_drafted_does_not():
-    chip = _chip("Ich habe Power-BI-Dashboards für das Management-Reporting aufgebaut; "
-                 "zu Self-Service-Dashboards steht in meinem Profil noch nichts.")
+    # UAT-2 (2026-11-08): a PARTIAL chip is a bridge and may name the asked
+    # concept; the pivot precondition of the #451 exemption is pinned on DIRECT.
+    chip = {**_chip("Ich habe Power-BI-Dashboards für das Management-Reporting aufgebaut; "
+                    "zu Self-Service-Dashboards steht in meinem Profil noch nichts."), "level": "direct"}
     assert filter_ungrounded_choices([chip], _CLUSTER, _PROFILE, "C") is None
