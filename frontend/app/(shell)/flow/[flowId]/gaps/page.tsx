@@ -24,6 +24,7 @@ import { use } from "react";
 import { useTranslations } from "next-intl";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ChoiceLeadIn, choiceButtonLabel } from "@/components/interview/ChoiceLeadIn";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScoreCircle } from "@/components/ui/score-circle";
@@ -131,6 +132,9 @@ interface GapClickState {
   sessionId: string | null;
   question: string | null;
   choices: string[] | null;
+  /** UAT-2b/2c — index-aligned button questions; concepts with no literal profile mention. */
+  choiceAsks: (string | null)[] | null;
+  choiceUnmentioned: string[] | null;
   answer: string;
   sending: boolean;
   error: string;
@@ -151,6 +155,8 @@ interface SessionTurnResponse {
   complete: boolean;
   question?: string | null;
   choices?: string[] | null;
+  choice_asks?: (string | null)[] | null;
+  choice_unmentioned?: string[] | null;
   pending_conflicts?: unknown[] | null;
   pending_confirmations?: unknown[] | null;
   cluster_coverage?: TurnClusterCoverage | null;
@@ -195,6 +201,8 @@ const EMPTY_GAP_STATE: GapClickState = {
   sessionId: null,
   question: null,
   choices: null,
+  choiceAsks: null,
+  choiceUnmentioned: null,
   answer: "",
   sending: false,
   error: "",
@@ -442,9 +450,9 @@ function GapClickPanel({
       {state.error && <p className="text-xs text-critical">{state.error}</p>}
       {state.choices && state.choices.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs text-gray-400">{t("choiceCardHint")}</p>
+          <ChoiceLeadIn namespace="gaps" asks={state.choiceAsks} unmentioned={state.choiceUnmentioned} />
           <div className="flex flex-col gap-1">
-            {state.choices.map((choice) => (
+            {state.choices.map((choice, i) => (
               <button
                 key={choice}
                 type="button"
@@ -456,7 +464,7 @@ function GapClickPanel({
                 )}
                 onClick={() => onUpdate({ answer: choice, status: "answering" })}
               >
-                {choice}
+                {choiceButtonLabel(state.choices ?? [], state.choiceAsks, i)}
               </button>
             ))}
           </div>
@@ -934,6 +942,8 @@ export default function GapsPage({
         sessionId: data.session_id,
         question: data.question ?? data.first_question,
         choices: data.choices ?? null,
+        choiceAsks: data.choice_asks ?? null,
+        choiceUnmentioned: data.choice_unmentioned ?? null,
         followUpOpen: resumedFollowUp && cluster ? (data.follow_up_concepts ?? cluster.gaps) : null,
       });
     } catch (e: unknown) {
@@ -992,6 +1002,8 @@ export default function GapsPage({
         answer: "",
         question: data.question ?? st.question,
         choices: data.choices ?? null,
+        choiceAsks: data.choice_asks ?? null,
+        choiceUnmentioned: data.choice_unmentioned ?? null,
         // Ruling M-1b: the label names what the follow-up ASKS; the chips
         // keep showing the strict record.
         followUpOpen: !isConfirmation && turn ? (data.follow_up_concepts ?? turn.open_concepts) : null,

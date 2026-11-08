@@ -33,6 +33,7 @@ import { describeConflict } from "@/lib/conflict-display";
 import { Archive, Check, Clock, Contrast, HelpCircle, Lock, Square } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
+import { ChoiceLeadIn, choiceButtonLabel } from "@/components/interview/ChoiceLeadIn";
 import { isPastInterview, reopenedSummarySessionId } from "@/components/interview/reopened-summary";
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
@@ -90,6 +91,10 @@ interface SessionCreateResponse {
   gaps_total: number;
   gaps_remaining: number;
   choices: string[] | null;
+  // UAT-2b/2c — index-aligned button questions + the concepts with no literal
+  // profile mention (lead-in); both optional, additive (ADR-095).
+  choice_asks?: (string | null)[] | null;
+  choice_unmentioned?: string[] | null;
   resumed: boolean;
   // issue #241 item 1 — the cluster-tracker anchor the backend actually
   // tracks (InterviewState.current_gap_index / addressed_gaps). current_gap_id
@@ -130,6 +135,8 @@ interface MessageResponse {
   question?: string;
   gaps_remaining?: number;
   choices?: string[] | null;
+  choice_asks?: (string | null)[] | null;
+  choice_unmentioned?: string[] | null;
   reason?: "gaps_resolved" | "user_ended" | "max_questions_reached";
   questions_asked?: number;
   gaps_resolved?: number;
@@ -627,6 +634,8 @@ export default function InterviewPage({
   // page loaded (so the tracker shows "partly covered", not a check mark).
   const [turnCoverage, setTurnCoverage] = useState<Record<string, TurnClusterCoverage>>({});
   const [choices, setChoices] = useState<string[] | null>(null);
+  const [choiceAsks, setChoiceAsks] = useState<(string | null)[] | null>(null);
+  const [choiceUnmentioned, setChoiceUnmentioned] = useState<string[] | null>(null);
   const [matchScore, setMatchScore] = useState<number | null>(null);
   // 783:195 — the finished interview's session, when the page is reopened later.
   const [reopenedSessionId, setReopenedSessionId] = useState<string | null>(null);
@@ -703,6 +712,8 @@ export default function InterviewPage({
       );
       setMessages([{ role: "assistant", content: sessionData.question ?? sessionData.first_question }]);
       setChoices(sessionData.choices ?? null);
+      setChoiceAsks(sessionData.choice_asks ?? null);
+      setChoiceUnmentioned(sessionData.choice_unmentioned ?? null);
 
       // issue #241 item 1 — anchor the cluster tracker to the server's own
       // current_gap_id / addressed_gap_ids (InterviewState.current_gap_index /
@@ -859,6 +870,8 @@ export default function InterviewPage({
 
         // Update choices
         setChoices(data.choices ?? null);
+        setChoiceAsks(data.choice_asks ?? null);
+        setChoiceUnmentioned(data.choice_unmentioned ?? null);
 
         // #789 (ruling F1-2) — a turn updates the ledger rows in place; re-read
         // the row so the one open-requirement count moves with the answers.
@@ -1348,8 +1361,8 @@ export default function InterviewPage({
               Suppressed while a confirmation is pending (its options render in the card). */}
           {choices && choices.length > 0 && !completion && pendingConfirmations.length === 0 && (
             <div className="mt-4 space-y-2">
-              <p className="text-xs text-gray-400">{t("choiceCardHint")}</p>
-              {choices.map((choice) => (
+              <ChoiceLeadIn namespace="interview" asks={choiceAsks} unmentioned={choiceUnmentioned} />
+              {choices.map((choice, i) => (
                 <button
                   key={choice}
                   type="button"
@@ -1361,7 +1374,7 @@ export default function InterviewPage({
                   )}
                   onClick={() => setAnswer(choice)}
                 >
-                  {choice}
+                  {choiceButtonLabel(choices, choiceAsks, i)}
                 </button>
               ))}
             </div>
