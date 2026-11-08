@@ -319,8 +319,9 @@ describe("HealthPanel", () => {
     expect(screen.getByText("Profil ergänzen")).toBeInTheDocument();
   });
 
-  // UAT-1 — the enrich entry-point shows for section gaps OR field gaps
-  it("shows the enrich button when only section gaps exist (UAT-1)", () => {
+  // A missing section alone gives the enrich interview nothing to ask (it walks
+  // field_gaps only): the label shows, the button does not (ADR-099 cl. 11).
+  it("shows the missing sections but no enrich button when only section gaps exist", () => {
     render(
       withIntl(
         <HealthPanel
@@ -331,7 +332,8 @@ describe("HealthPanel", () => {
         "en",
       ),
     );
-    expect(screen.getByTestId("health-improve")).toBeInTheDocument();
+    expect(screen.getByText(/Missing sections/)).toBeInTheDocument();
+    expect(screen.queryByTestId("health-improve")).not.toBeInTheDocument();
   });
 
   it("shows the Improve button when field_gaps is non-empty, even if section gaps is empty", () => {

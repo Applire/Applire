@@ -961,8 +961,9 @@ export function HealthPanel({
   const nudgeable = issues.filter((i) => i.profile_mismatch_severity !== "critical");
   const pct = Math.round((health.completeness.score ?? 0) * 100);
 
-  const hasGaps =
-    health.completeness.gaps.length > 0 || health.completeness.field_gaps.length > 0;
+  // The enrich interview (Mode C) walks `field_gaps` only; a missing section alone
+  // gives it nothing to ask, so the button needs a field gap (ADR-099 cl. 11).
+  const hasFieldGaps = health.completeness.field_gaps.length > 0;
 
   return (
     <Card id="profile-health" data-testid="health-panel" className="p-4 scroll-mt-24">
@@ -1048,7 +1049,7 @@ export function HealthPanel({
         </div>
       )}
 
-      {(health.completeness.gaps.length > 0 || (onImprove && hasGaps)) && (
+      {(health.completeness.gaps.length > 0 || (onImprove && hasFieldGaps)) && (
         <div className="mt-3 flex items-center justify-between gap-2">
           {health.completeness.gaps.length > 0 && (
             <p className="text-xs text-gray-500">
@@ -1061,7 +1062,7 @@ export function HealthPanel({
             </p>
           )}
           {/* UAT-1 (founder 2026-11-08): the one enrich entry point of the page. */}
-          {onImprove && hasGaps && (
+          {onImprove && hasFieldGaps && (
             <Button
               size="sm"
               variant="outline"

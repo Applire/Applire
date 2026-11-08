@@ -13,8 +13,10 @@ test.describe("Hazelnut b5 — profile hub per class, conflict outcomes, entry m
     await openHub(page);
     await expect(page.getByTestId("health-issue")).toHaveCount(3);
     await expect(page.getByTestId("health-panel")).not.toContainText("Datenabgleich");
-    // Completeness without field_gaps is class S as well.
-    await expect(page.getByTestId("health-panel")).not.toContainText(/Missing sections|Fehlende Abschnitte/);
+    // UAT-1: the one card names the missing sections; without field_gaps the
+    // enrich interview has nothing to ask, so there is no enrich button.
+    await expect(page.getByTestId("health-panel")).toContainText(/Missing sections|Fehlende Abschnitte/);
+    await expect(page.getByTestId("health-improve")).toHaveCount(0);
     await shot(page, "oq-hub-desktop");
   });
 
