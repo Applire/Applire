@@ -58,4 +58,37 @@ describe("UnaskedRequirementsPanel — Jetzt beantworten (ADR-099 cl. 9)", () =>
     expect(await screen.findByTestId("unasked-requirements-error")).toBeTruthy();
     expect(screen.getByTestId("unasked-requirements-answer")).toBeTruthy();
   });
+
+  it("UAT-2b/2c: the buttons read the ask, a click inserts the statement (no send), one lead-in above", async () => {
+    const calls: { url: string }[] = [];
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      calls.push({ url: String(url) });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          session_id: "s-1",
+          first_question: "Wo hast Du im Reinraum gearbeitet?",
+          choices: ["Als Schichtleiter habe ich auch nach GMP dokumentiert.", "Ich habe die Linie geführt."],
+          choice_asks: ["Hast du als Schichtleiter auch nach GMP dokumentiert?", null],
+          choice_unmentioned: ["GMP-Dokumentation"],
+        }),
+      } as Response;
+    }) as typeof fetch;
+    render(withIntl(<UnaskedRequirementsPanel requirements={REQS} jobId="job-1" />, "de"));
+    fireEvent.click(screen.getByTestId("unasked-requirements-answer"));
+    await screen.findByTestId("unasked-requirements-question");
+    const buttons = screen.getAllByTestId("unasked-requirements-choice");
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      "Hast du als Schichtleiter auch nach GMP dokumentiert?",
+      "Ich habe die Linie geführt.",
+    ]);
+    expect(screen.getAllByTestId("choice-lead-in")).toHaveLength(1);
+    expect(screen.getByTestId("choice-lead-in").textContent).toBe(
+      "In deinem Profil habe ich keine direkte Nennung von \u201EGMP-Dokumentation\u201C gefunden. Vielleicht passt eine dieser Fragen \u2013 ein Klick übernimmt den Satz, du kannst ihn anpassen:",
+    );
+    fireEvent.click(buttons[0]);
+    expect(screen.getByTestId("unasked-requirements-text")).toHaveValue("Als Schichtleiter habe ich auch nach GMP dokumentiert.");
+    expect(calls).toHaveLength(1); // the click sent nothing
+  });
 });

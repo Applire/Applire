@@ -28,7 +28,6 @@ import {
   ASPIRATION_OUTCOME_MAX,
   BUDGET_UNITS,
   type BudgetUnit,
-  completenessActionable,
   renderedIssues,
 } from "@/lib/profile-health";
 
@@ -960,17 +959,31 @@ export function HealthPanel({
   const issues = renderedIssues(health);
   const critical = issues.filter((i) => i.profile_mismatch_severity === "critical");
   const nudgeable = issues.filter((i) => i.profile_mismatch_severity !== "critical");
-  // Completeness without `field_gaps` is class S: its label had no action.
-  const showCompleteness = completenessActionable(health);
   const pct = Math.round((health.completeness.score ?? 0) * 100);
+
+  // The enrich interview (Mode C) walks `field_gaps` only; a missing section alone
+  // gives it nothing to ask, so the button needs a field gap (ADR-099 cl. 11).
+  const hasFieldGaps = health.completeness.field_gaps.length > 0;
 
   return (
     <Card id="profile-health" data-testid="health-panel" className="p-4 scroll-mt-24">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-2">
         <h3 className="font-heading text-base font-semibold text-neutral-dark">
           {t("title")}
         </h3>
-        <span className="text-xs text-gray-500">{t("completeness", { pct })}</span>
+        <span className="text-sm font-medium text-neutral-dark" data-testid="health-completeness">
+          {t("completeness", { pct })}
+        </span>
+      </div>
+      <div
+        className="mb-3 h-1.5 w-full rounded-full bg-surface-container-high"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        data-testid="health-completeness-bar"
+      >
+        <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
       </div>
 
       {issues.length === 0 ? (
@@ -1036,7 +1049,7 @@ export function HealthPanel({
         </div>
       )}
 
-      {showCompleteness && (
+      {(health.completeness.gaps.length > 0 || (onImprove && hasFieldGaps)) && (
         <div className="mt-3 flex items-center justify-between gap-2">
           {health.completeness.gaps.length > 0 && (
             <p className="text-xs text-gray-500">
@@ -1048,10 +1061,8 @@ export function HealthPanel({
               })}
             </p>
           )}
-          {/* US179: gate the enrich entry-point on field_gaps (role-aware work-entry
-              gaps the interview will actually ask) so the count equals the questions
-              asked — not on section-level gaps which may differ. */}
-          {onImprove && health.completeness.field_gaps.length > 0 && (
+          {/* UAT-1 (founder 2026-11-08): the one enrich entry point of the page. */}
+          {onImprove && hasFieldGaps && (
             <Button
               size="sm"
               variant="outline"
@@ -1059,7 +1070,7 @@ export function HealthPanel({
               className="shrink-0"
               onClick={onImprove}
             >
-              {t("improve")}
+              {t("enrich")}
             </Button>
           )}
         </div>

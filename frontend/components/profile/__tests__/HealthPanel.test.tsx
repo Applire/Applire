@@ -316,11 +316,12 @@ describe("HealthPanel", () => {
         "de",
       ),
     );
-    expect(screen.getByText("Verbessern")).toBeInTheDocument();
+    expect(screen.getByText("Profil ergänzen")).toBeInTheDocument();
   });
 
-  // US179 — enrich entry-point gates on field_gaps, not section gaps
-  it("disables/hides the Improve button when section gaps exist but field_gaps is empty", () => {
+  // A missing section alone gives the enrich interview nothing to ask (it walks
+  // field_gaps only): the label shows, the button does not (ADR-099 cl. 11).
+  it("shows the missing sections but no enrich button when only section gaps exist", () => {
     render(
       withIntl(
         <HealthPanel
@@ -331,6 +332,7 @@ describe("HealthPanel", () => {
         "en",
       ),
     );
+    expect(screen.getByText(/Missing sections/)).toBeInTheDocument();
     expect(screen.queryByTestId("health-improve")).not.toBeInTheDocument();
   });
 
@@ -364,5 +366,15 @@ describe("HealthPanel", () => {
 
     fireEvent.click(screen.getByTestId("health-resolve"));
     expect(onResolve).toHaveBeenCalledWith(UNIT_HEALTH.issues[0]);
+  });
+});
+
+describe("HealthPanel — one completeness card (UAT-1)", () => {
+  it("stays mounted with the percentage and allClear when nothing is open", () => {
+    const h: ProfileHealth = { issues: [], completeness: { score: 1, gaps: [], field_gaps: [] } };
+    render(withIntl(<HealthPanel health={h} onResolve={vi.fn()} onImprove={vi.fn()} />, "en"));
+    expect(screen.getByTestId("health-completeness")).toHaveTextContent("100%");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.queryByTestId("health-improve")).not.toBeInTheDocument();
   });
 });

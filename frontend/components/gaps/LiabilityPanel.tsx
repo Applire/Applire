@@ -30,6 +30,7 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
+import { ChoiceLeadIn, choiceButtonLabel } from "@/components/interview/ChoiceLeadIn";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,9 @@ interface ItemState {
   sessionId: string | null;
   question: string | null;
   choices: string[] | null;
+  /** UAT-2b/2c — index-aligned button questions; concepts with no literal profile mention. */
+  choiceAsks: (string | null)[] | null;
+  choiceUnmentioned: string[] | null;
   answer: string;
   error: string;
   /** The server refused the micro-session (HTTP 409, ADR-089 contract item 5),
@@ -84,6 +88,8 @@ const EMPTY_ITEM: ItemState = {
   sessionId: null,
   question: null,
   choices: null,
+  choiceAsks: null,
+  choiceUnmentioned: null,
   answer: "",
   error: "",
   refusal: null,
@@ -110,6 +116,8 @@ interface TurnResponse {
   complete: boolean;
   question?: string | null;
   choices?: string[] | null;
+  choice_asks?: (string | null)[] | null;
+  choice_unmentioned?: string[] | null;
   pending_confirmations?: unknown[] | null;
   cluster_coverage?: TurnClusterCoverage | null;
   /** Ruling M-1b — what a partial-coverage follow-up asks about. */
@@ -237,6 +245,8 @@ export function LiabilityPanel({
         sessionId: data.session_id,
         question: data.question ?? data.first_question,
         choices: data.choices ?? null,
+        choiceAsks: data.choice_asks ?? null,
+        choiceUnmentioned: data.choice_unmentioned ?? null,
       });
     } catch (e: unknown) {
       update(concept, { status: "idle", error: e instanceof Error ? e.message : "Failed to start" });
@@ -268,6 +278,8 @@ export function LiabilityPanel({
           answer: "",
           question: data.question ?? item.question,
           choices: data.choices ?? null,
+          choiceAsks: data.choice_asks ?? null,
+          choiceUnmentioned: data.choice_unmentioned ?? null,
           // Ruling M-1b: the label names what the follow-up asks.
           followUpOpen: !isConfirmation && turn ? (data.follow_up_concepts ?? turn.open_concepts) : null,
           receipt: data.no_write_receipt ?? null,
@@ -443,9 +455,9 @@ export function LiabilityPanel({
                   </p>
                   {item.choices && item.choices.length > 0 && (
                     <div className="space-y-1.5">
-                      <p className="text-xs text-gray-400">{t("choiceCardHint")}</p>
+                      <ChoiceLeadIn namespace="gaps" asks={item.choiceAsks} unmentioned={item.choiceUnmentioned} />
                       <div className="flex flex-col gap-1">
-                        {item.choices.map((choice) => (
+                        {item.choices.map((choice, i) => (
                           <button
                             key={choice}
                             type="button"
@@ -456,7 +468,7 @@ export function LiabilityPanel({
                             )}
                             onClick={() => update(l.concept, { answer: choice })}
                           >
-                            {choice}
+                            {choiceButtonLabel(item.choices ?? [], item.choiceAsks, i)}
                           </button>
                         ))}
                       </div>

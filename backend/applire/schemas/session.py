@@ -133,6 +133,15 @@ class SessionCreateResponse(BaseModel):
     gaps_total: int
     gaps_remaining: int
     choices: list[str] | None = None
+    # UAT-2b/2c (ADR-064 amended 2026-11-08; ADR-095: additive, optional) —
+    # ``choice_asks`` is index-aligned with ``choices``: each answer idea's
+    # button label (a question to the person); null where a choice has none —
+    # the client then shows its ``text``, and a click always inserts ``text``.
+    # ``choice_unmentioned`` = the constituent concepts the profile has no
+    # word-for-word mention of (the producer's literal check), named once in
+    # the lead-in above the chips; ``[]`` = plain lead-in, null = no lead-in data.
+    choice_asks: list[str | None] | None = None
+    choice_unmentioned: list[str] | None = None
     resumed: bool = False  # True only when resuming an in-progress session the
     # user has already answered at least one question in (drives the "welcome
     # back" banner). A freshly created/idempotently-returned session is False.
@@ -244,6 +253,15 @@ class SessionMessageResponse(BaseModel):
     question: str | None = None
     gaps_remaining: int | None = None
     choices: list[str] | None = None
+    # UAT-2b/2c (ADR-064 amended 2026-11-08; ADR-095: additive, optional) —
+    # ``choice_asks`` is index-aligned with ``choices``: each answer idea's
+    # button label (a question to the person); null where a choice has none —
+    # the client then shows its ``text``, and a click always inserts ``text``.
+    # ``choice_unmentioned`` = the constituent concepts the profile has no
+    # word-for-word mention of (the producer's literal check), named once in
+    # the lead-in above the chips; ``[]`` = plain lead-in, null = no lead-in data.
+    choice_asks: list[str | None] | None = None
+    choice_unmentioned: list[str] | None = None
     # Populated when complete=True
     reason: Literal["gaps_resolved", "user_ended", "max_questions_reached"] | None = None
     # RULING 787:L7 — set on EVERY turn since Hazelnut b3 (not only on
