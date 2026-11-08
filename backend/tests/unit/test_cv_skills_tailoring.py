@@ -336,6 +336,67 @@ class TestDropUngroundedJdEchoSkills:
         assert result is writer_output
 
 
+# ── RU-1 (founder re-UAT 2026-11-08): a recorded skill rendered in the output ──
+# language is tied through the ledger's concept forms. The writer is told to put
+# each recorded skill into the skills list "in the OUTPUT LANGUAGE", but the
+# surface-form tie never matched a German vault name to its English rendering, so
+# the untied-skill check had the last corrector round drop translated skills.
+
+_RU1_PROFILE = {
+    "skills": [
+        {"name": "Cloud Architektur", "category": "technical", "experience_refs": ["w1"]},
+        {"name": "Betrieb verteilter Systeme", "category": "technical", "experience_refs": ["w1"]},
+        {"name": "System Architecture", "category": "technical", "experience_refs": ["w1"]},
+    ]
+}
+
+
+def _ru1_entry(concept: str, forms: list[str], *, claimable: bool = True) -> dict:
+    return {"concept": concept, "surface_forms": forms, "sources": ["required"], "claimable": claimable}
+
+
+def _ru1_ledger(*, claimable: bool = True) -> list[dict]:
+    return [
+        _ru1_entry("Cloud architecture", ["Cloud-Architektur", "Cloud Architecture"], claimable=claimable),
+        _ru1_entry("Distributed systems", ["verteilte Systeme", "Distributed Systems"], claimable=claimable),
+        _ru1_entry("LLM architectures", ["LLM-based system architecture", "LLM Architectures"], claimable=claimable),
+    ]
+
+
+_RU1_JOB = {
+    "role_title": "Lead Architect",
+    "required_skills": ["Cloud Architecture", "Distributed Systems", "LLM Architectures"],
+}
+
+
+class TestLedgerBridgeTie:
+    def _run(self, ledger):
+        from applire.services.cv import _drop_ungrounded_jd_echo_skills
+
+        writer_output = _tailored(["Cloud Architecture", "Distributed Systems", "LLM Architectures"])
+        return _drop_ungrounded_jd_echo_skills(writer_output, _RU1_PROFILE, _RU1_JOB, keyword_ledger=ledger)
+
+    def test_translation_of_a_recorded_skill_is_kept(self):
+        """'Cloud Architecture' renders the vault's 'Cloud Architektur'; the ledger
+        concept carries both forms, so the tag is tied."""
+        assert "Cloud Architecture" in self._run(_ru1_ledger()).skills
+
+    def test_inflected_german_name_still_bridges(self):
+        """The vault's 'Betrieb verteilter Systeme' records the concept form
+        'verteilte Systeme' — the inflection ending is not a different word."""
+        assert "Distributed Systems" in self._run(_ru1_ledger()).skills
+
+    def test_recorded_name_narrower_than_the_concept_does_not_bridge(self):
+        """#250 stays: 'System Architecture' does not record 'LLM-based system
+        architecture', so 'LLM Architectures' is still an untied posting phrase."""
+        assert "LLM Architectures" not in self._run(_ru1_ledger()).skills
+
+    def test_unclaimable_concept_does_not_bridge(self):
+        result = self._run(_ru1_ledger(claimable=False))
+        assert "Cloud Architecture" not in result.skills
+        assert "Distributed Systems" not in result.skills
+
+
 class TestJdEchoCoverageInteraction:
     """#250: the deterministic drop must not silently hide a concept that's
     genuinely absent, nor falsely amber a concept that's genuinely present
