@@ -3090,6 +3090,51 @@ def _tailor_skills_to_jd(
     return tailored.model_copy(update={"skills": selected})
 
 
+# RU-1: German inflection endings folded for the ledger bridge only ('verteilter'
+# and 'verteilte' are one word to a reader). Longest first; the stem keeps at
+# least four characters.
+_BRIDGE_ENDINGS = ("er", "en", "es", "em", "e")
+_BRIDGE_MIN_STEM = 4
+
+
+def _bridge_tokens(name: str) -> frozenset[str]:
+    from applire.services.ats_audit import skill_tokens
+
+    out: set[str] = set()
+    for t in skill_tokens(name):
+        for end in _BRIDGE_ENDINGS:
+            if t.isalpha() and t.endswith(end) and len(t) - len(end) >= _BRIDGE_MIN_STEM:
+                t = t[: -len(end)]
+                break
+        out.add(t)
+    return frozenset(out)
+
+
+def _ledger_bridged_forms(keyword_ledger: list[dict] | None, vault_forms: list[str]) -> list[str]:
+    """RU-1 (founder re-UAT 2026-11-08): the surface forms of every claimable ledger
+    concept the vault records under one of its forms — the cross-language tie a
+    surface comparison cannot make ('Cloud Architecture' ↔ 'Cloud Architektur').
+
+    A form bridges only when ALL its tokens appear in the recorded name: the vault's
+    'Betrieb verteilter Systeme' records the concept 'verteilte Systeme', but its
+    'System Architecture' does not record 'LLM-based system architecture' — a
+    recorded name narrower than the concept would hand an untied posting phrase
+    (#250) a tie it does not have."""
+    vault_tokens = [t for t in (_bridge_tokens(v) for v in vault_forms) if t]
+    out: list[str] = []
+    for entry in keyword_ledger or []:
+        if not isinstance(entry, dict) or not entry.get("claimable"):
+            continue
+        forms = [
+            f.strip()
+            for f in [entry.get("concept"), *(entry.get("surface_forms") or [])]
+            if isinstance(f, str) and f.strip()
+        ]
+        if any(ft and ft <= vt for ft in (_bridge_tokens(f) for f in forms) for vt in vault_tokens):
+            out.extend(forms)
+    return out
+
+
 def _drop_ungrounded_jd_echo_skills(
     tailored: TailoredCVData,
     profile_json: dict,
@@ -3167,8 +3212,20 @@ def _drop_ungrounded_jd_echo_skills(
     required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
     jd_terms = required + nice + keyword
 
+    # RU-1 (founder re-UAT 2026-11-08): the writer is told to render each recorded
+    # skill in the OUTPUT LANGUAGE (prompts/cv_tailoring.py, "a translated or
+    # recorded form is the same skill"), but a surface-form tie never matches a
+    # German vault name to its English rendering: 'Cloud Architecture' for the
+    # vault's 'Cloud Architektur' read as an untied posting phrase, and the last
+    # corrector round dropped translated skills, unreviewed. The ledger's own
+    # concept forms carry both languages, so a concept one of whose forms the
+    # vault records is a bridge, and a tag naming that concept is tied.
+    bridged_forms = _ledger_bridged_forms(keyword_ledger, vault_forms)
+
     def _vault_tied(skill: str) -> bool:
-        return any(skills_page_dupe(skill, p) for p in vault_forms)
+        return any(skills_page_dupe(skill, p) for p in vault_forms) or any(
+            skills_page_dupe(skill, f) for f in bridged_forms
+        )
 
     def _is_jd_echo(skill: str) -> bool:
         return any(skills_page_dupe(skill, t) for t in jd_terms)
