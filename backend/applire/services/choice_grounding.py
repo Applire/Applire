@@ -686,6 +686,18 @@ def _passes_content_coverage_only(
     return (hits / len(content)) >= _CONTENT_COVERAGE_MIN
 
 
+def _b_confirmation_terms(
+    terms: list[str], cluster: dict[str, Any], gap_category: str | None
+) -> list[str]:
+    """MD-UAT-1 — the term-evidence exemption a Category B question gives its
+    OWN open constituent concepts (``cluster["gaps"]``), as the exact strings
+    of ``terms`` (matched by ``_norm``). ``[]`` on any other category."""
+    if gap_category != "B":
+        return []
+    own = {_norm(str(g)) for g in (cluster.get("gaps") or []) if str(g or "").strip()}
+    return [t for t in terms if _norm(t) in own]
+
+
 def filter_ungrounded_choices(
     choices: "list[str | dict[str, Any]] | None",
     cluster: dict[str, Any],
@@ -781,6 +793,17 @@ def filter_ungrounded_choices(
         ]
         return all(surface_present(t, evidence) for t in asserted)
 
+    # MD-UAT-1 (main default on founder ruling UAT-2 point 4, 2026-11-08): a
+    # Category B question confirms a concept the classifier already put in B —
+    # evidenced in other words (ADR-100 M-2) — so a DIRECT or PARTIAL chip that
+    # names THAT cluster's own constituent concept is not attributing a foreign
+    # JD term; the literal check dropped the confirmation itself (Sonnet 5.5
+    # replay, a B "Resuscitation" cluster: the direct confirmation dropped in
+    # 4 of 5 runs). Narrow by construction: B only, the cluster's own open
+    # constituents only, every other term and both employer guards unchanged;
+    # a C cluster keeps the literal check for "direct".
+    b_confirmed = _b_confirmation_terms(terms, cluster, gap_category)
+
     kept: list[str] = []
     for choice in choices:
         text, level = _level_of(choice)
@@ -812,6 +835,7 @@ def filter_ungrounded_choices(
             # _declared_denied_exemptions (pivot-marker presence; #351
             # subterm scoping). Without the field the pipeline is unchanged.
             exempt = _declared_denied_exemptions(text, terms, _denied_terms_of(choice))
+            confirmed = [t for t in b_confirmed if t not in exempt]
             if exempt:
                 # ADR-064 mirror condition, extended to declared denials of
                 # non-"denial" chips (same employer-free scoping as the
@@ -834,7 +858,7 @@ def filter_ungrounded_choices(
                     "denied_terms (#451) for %s on %r-level choice: %r",
                     ", ".join(exempt), level, text,
                 )
-            if _run_pipeline(text, exempt_terms=frozenset(exempt)):
+            if _run_pipeline(text, exempt_terms=frozenset(exempt) | frozenset(confirmed)):
                 kept.append(text)
             else:
                 logger.warning(
