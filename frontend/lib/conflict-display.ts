@@ -93,6 +93,33 @@ export function conflictSourceLabel(
  * whose entry was since edited away — both render the general heading rather
  * than a fabricated entry name.
  */
+const LEAD = /^\s*([^\s(),;]+)/;
+const TRUE_WORDS = new Set(["true", "yes", "ja", "current", "aktuell"]);
+const FALSE_WORDS = new Set(["false", "no", "nein", "ended", "beendet"]);
+const NO_DATE_WORDS = new Set(["", "none", "null", "present", "heute", "current", "aktuell", "today", "ongoing"]);
+
+/**
+ * UX audit round 4 (Emma) — a conflict on a typed field never shows a machine
+ * literal or the model's parenthetical: `is_current` reads as words
+ * ("aktuell" / "beendet"), a date field as the date alone, or "no end date".
+ * Reads the stored display text (typed values, or prose stored before them).
+ * Every other field is returned unchanged.
+ */
+export function conflictValueText(t: Translator, field: string | null | undefined, display: string | null | undefined): string {
+  const text = display ?? "";
+  if (field !== "is_current" && field !== "end_date" && field !== "start_date") return text;
+  const lead = (LEAD.exec(text)?.[1] ?? "").toLowerCase();
+  if (field === "is_current") {
+    if (TRUE_WORDS.has(lead)) return t("conflictValue.current");
+    if (FALSE_WORDS.has(lead)) return t("conflictValue.ended");
+    return text;
+  }
+  if (NO_DATE_WORDS.has(lead)) {
+    return field === "end_date" ? t("conflictValue.noEndDate") : t("conflictValue.noDate");
+  }
+  return /^\d/.test(lead) ? lead : text;
+}
+
 export function describeConflict(
   facts: ConflictFacts,
   t: Translator,
@@ -106,13 +133,13 @@ export function describeConflict(
     heading,
     existingRow: t("conflictValueRow", {
       label: t("conflictCurrentValueLabel"),
-      value: facts.existing_value_display ?? "",
+      value: conflictValueText(t, facts.field, facts.existing_value_display),
     }),
     incomingRow: t("conflictValueRow", {
       label: t("conflictNewValueLabel", {
         source: conflictSourceLabel(tProfile, facts.incoming_source),
       }),
-      value: facts.incoming_value_display ?? "",
+      value: conflictValueText(t, facts.field, facts.incoming_value_display),
     }),
   };
 }

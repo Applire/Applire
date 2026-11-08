@@ -232,7 +232,7 @@ class Settings(BaseSettings):
     requesty_reasoning_effort: str = ""      # "" = model default; "low"|"medium"|"high"|"max" bound reasoning when it stays on
     # Anthropic — native Messages API; BYO-API-key only (Claude subscriptions are not usable)
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_model: str = "claude-sonnet-5-5"
     llm_timeout: int = 120                 # seconds; raise for thinking/reasoning models (e.g. Qwen3, o3)
     # Operator-declared hard output cap for the chosen model, in tokens. 0 = unset
     # (no known cap). When set, every requested max_tokens is clamped to it so we never
@@ -343,6 +343,19 @@ class Settings(BaseSettings):
     # personal-data TTLs. Off suspends the calendar TTLs only, never erasure,
     # the cancelled-application path or housekeeping. Cloud ignores False.
     retention_enabled: bool = True
+    # ADR-086 cl. 3 / ADR-093 amended 2026-11-06: which halves of the ops
+    # provider probe run (off | reachability | credit | both). Panel-editable,
+    # so it is a field here and not a module constant in services/ops/config.py.
+    ops_provider_probe: str = "both"
+
+    @field_validator("ops_provider_probe", mode="before")
+    @classmethod
+    def _probe_mode_is_one_of_four(cls, value: object) -> str:
+        """Keep the old env tolerance ("on" = both, "false" = off, unknown = both),
+        so the effective value is always one of the four choices the panel shows."""
+        from applire.services.ops.config import normalise_probe_mode
+
+        return normalise_probe_mode(value)
 
 
 settings = Settings()

@@ -253,6 +253,12 @@ def test_kaile_agent_journey(agent):
     gap_id = gaps["id"]
     agent.call("advance_flow", flow_id=flow_id, step="gap_analysis", artifact_id=gap_id)
 
+    # ADR-100 M-3 / #788 — every ledger row publishes its verified backing quote
+    # (the candidate's own profile text) or null; the key is never stripped.
+    for row in gaps.get("keyword_ledger") or []:
+        assert "backing" in row, row
+        assert row["backing"] is None or isinstance(row["backing"].get("quote"), str), row
+
     # ADR-089 — every cluster reaches the agent with its per-gap record: `gaps`
     # are its OPEN members only, `outcome` counts what any door already asked,
     # `coverage` is the derived status, `budget_remaining` what is left.

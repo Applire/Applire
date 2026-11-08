@@ -78,6 +78,31 @@ def internal_server_error(
     )
 
 
+def _retry_prefix(exc: BaseException) -> str:
+    """788:134 (Hazelnut build 7, WP-O): a stable, typed head for the provider-side
+    failures an agent may retry — FastMCP drops ``McpError.data``, so the code has
+    to ride the message text. ``"<code> (safe to retry — …): "`` or ``""`` (RULING O-2)."""
+    from applire.exceptions import (
+        LLMProviderUnavailableError,
+        LLMRateLimitError,
+        LLMTimeoutError,
+        LLMTruncatedError,
+        is_provider_outage,
+    )
+
+    if isinstance(exc, LLMTimeoutError):
+        code = "provider_timeout"
+    elif isinstance(exc, LLMRateLimitError):
+        code = "provider_rate_limited"
+    elif isinstance(exc, LLMTruncatedError):
+        code = "llm_truncated"
+    elif isinstance(exc, LLMProviderUnavailableError) or is_provider_outage(exc):
+        code = "provider_unavailable"
+    else:
+        return ""
+    return f"{code} (safe to retry — send the same call again once): "
+
+
 def agent_facing_message(exc: BaseException, *, where: str) -> str:
     """The text an agent sees for an exception the tool did not classify.
 
@@ -92,6 +117,6 @@ def agent_facing_message(exc: BaseException, *, where: str) -> str:
 
     if isinstance(exc, (LLMError, VaultWriteRevertedError)):
         log_unexpected(exc, where=where)
-        return scrub_secrets(str(exc))
+        return _retry_prefix(exc) + scrub_secrets(str(exc))
     error_id = log_unexpected(exc, where=where)
     return f"{INTERNAL_ERROR_MESSAGE} (error id {error_id})"

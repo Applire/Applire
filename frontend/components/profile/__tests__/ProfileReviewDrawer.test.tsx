@@ -429,6 +429,49 @@ describe("ProfileReviewDrawer", () => {
     expect(screen.queryByTestId("conflict-card")).not.toBeInTheDocument();
   });
 
+  // UAT 2026-11-06: the thread used to run across items — a card was never kept
+  // but the answers to it were, so they read as answers to the last plain
+  // question still on screen. Now an answered item leaves the view; a notice
+  // names what was saved.
+  it("UAT 11-06: an answered plain question leaves the view when the next item comes", async () => {
+    startOn(null, {
+      first_question: "Is it the same education?",
+      choices: ["Same education — merge", "Two different ones"],
+      current_gap_id: "g-edu",
+    });
+    textMock.mockResolvedValue(reply({ current_conflict: LIST_CONFLICT, current_gap_id: "g-list" }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    fireEvent.click(await screen.findByRole("button", { name: "Same education — merge" }));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    expect(screen.queryByText("Is it the same education?")).not.toBeInTheDocument();
+    expect(screen.queryByText("Same education — merge")).not.toBeInTheDocument();
+    expect(screen.getByTestId("profile-review-notice")).toHaveTextContent("Saved: Same education — merge");
+  });
+
+  it("UAT 11-06: a tapped outcome is not left behind under the next card", async () => {
+    startOn(LIST_CONFLICT, { current_gap_id: "g-list" });
+    outcomeMock.mockResolvedValue(reply({ current_conflict: NAME_SCALAR, current_gap_id: "g-name" }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    fireEvent.click(await screen.findByTestId("conflict-outcome-keep_current"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toHaveTextContent("Max Muster"));
+    // the next card's own chip carries the label; no bubble outside it does
+    for (const el of screen.getAllByText("Keep current")) expect(el.closest("button")).not.toBeNull();
+    expect(screen.getByTestId("profile-review-notice")).toHaveTextContent("Saved: Keep current");
+  });
+
+  it("UAT 11-06: the same item asked again keeps its thread", async () => {
+    startOn(null, { first_question: "Which role does 'SQL' belong to?", current_gap_id: "g-sql" });
+    textMock.mockResolvedValue(reply({ question: "Which role, the first or the second?", current_gap_id: "g-sql" }));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await screen.findByText("Which role does 'SQL' belong to?");
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "the old one" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    expect(await screen.findByText("Which role, the first or the second?")).toBeInTheDocument();
+    expect(screen.getByText("Which role does 'SQL' belong to?")).toBeInTheDocument();
+    expect(screen.getByText("the old one")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-review-notice")).not.toBeInTheDocument();
+  });
+
   it("an item closed meanwhile (404 issue_not_found) falls back to the generic walk", async () => {
     startMock
       .mockRejectedValueOnce(new ReviewApiError(404, "issue_not_found: conflict:gone", "issue_not_found"))
@@ -446,6 +489,33 @@ describe("ProfileReviewDrawer", () => {
     expect(startMock).toHaveBeenNthCalledWith(1, "conflict:gone");
     expect(startMock).toHaveBeenNthCalledWith(2, null);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("a 404 on a hub item that is not a review item says so in one sentence and refreshes the hub", async () => {
+    startMock
+      .mockRejectedValueOnce(new ReviewApiError(404, "issue_not_found: not_applied:r1", "issue_not_found"))
+      .mockResolvedValueOnce({ ...BASE, session_id: "s2", first_question: "", gaps_total: 0, gaps_remaining: 0 });
+    const onSettled = vi.fn();
+    const issue = { id: "accuracy:r1", thread: "accuracy" as const, profile_mismatch_severity: "review" as const, summary: "x" };
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onSettled={onSettled} />, "en"));
+    expect(await screen.findByTestId("profile-review-settled")).toHaveTextContent("This item is already settled.");
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("profile-review-issue")).not.toBeInTheDocument();
+  });
+
+  it("a not-applied receipt opens its #705 receipt without starting a review session (789:255)", async () => {
+    startMock.mockClear();
+    const issue = {
+      id: "not_applied:r1", thread: "not_applied" as const, profile_mismatch_severity: "review" as const,
+      summary: "2 items did not reach your profile",
+      not_applied_items: [
+        { section: "skills", label: "Triage", reason: "op_rejected" },
+        { section: "education", label: "BSc", reason: "op_rejected" },
+      ],
+    };
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} />, "en"));
+    expect(await screen.findByTestId("profile-review-not-applied-groups")).toBeInTheDocument();
+    expect(startMock).not.toHaveBeenCalled();
   });
 
   it("a follow-up on a plain question is shown once (the question carries it)", async () => {
@@ -675,4 +745,60 @@ describe("ProfileReviewDrawer", () => {
     await waitFor(() => expect(screen.getByText("Profil prüfen")).toBeInTheDocument());
   });
 
+
+  // ── UX audit round 4 (Emma) ────────────────────────────────────────────────
+  const BOOL_CONFLICT: CurrentConflict = {
+    ...ROLE_SCALAR,
+    conflict_id: "c-cur",
+    entity_label: "Nurse @ Mediora Health",
+    field: "is_current",
+    existing_value_display: "true (current position, no end date)",
+    incoming_value_display: "false (ended 2024-02)",
+  };
+
+  it("R4: a boolean dispute reads as words, never a machine literal", async () => {
+    startOn(BOOL_CONFLICT, { current_gap_id: "conflict:c-cur" });
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "de"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    expect(screen.getByTestId("conflict-card-current")).toHaveTextContent("„aktuell“");
+    expect(screen.getByTestId("conflict-card-incoming")).toHaveTextContent("„beendet“");
+    expect(screen.getByTestId("conflict-card").textContent).not.toMatch(/true|false|null|position/);
+  });
+
+  it("R4: an answer the server cannot apply shows one sentence and skips to the next item", async () => {
+    startOn(BOOL_CONFLICT, { current_gap_id: "conflict:c-cur" });
+    outcomeMock.mockRejectedValueOnce(
+      new ReviewApiError(409, null, "1 validation error for MasterProfileData work_experience.3.is_current"),
+    );
+    render(
+      withIntl(
+        <ProfileReviewDrawer open onClose={vi.fn()} reviewIds={["conflict:c-cur", "conflict:c-next"]} />,
+        "de",
+      ),
+    );
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("conflict-outcome-take_new"));
+    const failed = await screen.findByTestId("profile-review-apply-failed");
+    expect(failed).toHaveTextContent("Diese Antwort konnte nicht übernommen werden.");
+    expect(document.body.textContent).not.toMatch(/validation error|MasterProfileData/);
+
+    startMock.mockResolvedValueOnce({
+      ...BASE, session_id: "s2", first_question: "", gaps_total: 2, gaps_remaining: 2,
+      current_conflict: NAME_SCALAR, current_gap_id: "conflict:c-next",
+    });
+    fireEvent.click(screen.getByTestId("profile-review-skip"));
+    await waitFor(() => expect(startMock).toHaveBeenLastCalledWith("conflict:c-next"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card-current")).toHaveTextContent("Max Muster"));
+    expect(screen.queryByTestId("profile-review-apply-failed")).toBeNull();
+  });
+
+  it("R4: a 503 'not saved' keeps the server's own sentence (retry, no skip)", async () => {
+    startOn(BOOL_CONFLICT, { current_gap_id: "conflict:c-cur" });
+    outcomeMock.mockRejectedValueOnce(new ReviewApiError(503, null, "Deine Antwort konnte nicht gespeichert werden."));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} reviewIds={["conflict:c-cur", "conflict:c-next"]} />, "de"));
+    await waitFor(() => expect(screen.getByTestId("conflict-card")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("conflict-outcome-take_new"));
+    expect(await screen.findByText("Deine Antwort konnte nicht gespeichert werden.")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-review-skip")).toBeNull();
+  });
 });

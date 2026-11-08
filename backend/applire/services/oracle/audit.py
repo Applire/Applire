@@ -132,6 +132,12 @@ from applire.services.oracle.matchers.figures import (
 )
 from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE, _NARRATIVE_STOPWORDS
 from applire.services.oracle.stance import classify_stance
+from applire.services.oracle.backing import (
+    LedgerBacking,
+    backing_for_skill,
+    backings_named_in,
+    ledger_backings as _ledger_backings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +165,17 @@ def _claimable_index(profile: Any) -> VaultIndex:
 
     raw = profile.model_dump(mode="json") if hasattr(profile, "model_dump") else profile
     return build_vault_index(exclude_unconfirmed(raw) if isinstance(raw, dict) else raw)
+
+
+def _profile_aims(profile: Any) -> list[str]:
+    """D-12: the profile's ``not_yet_reached`` lines (stripped, non-empty) — the
+    candidate's own "not reached yet" answers. Never raises."""
+    from applire.services.prompt_view import aim_and_other_lines
+
+    raw = profile.model_dump(mode="json") if hasattr(profile, "model_dump") else profile
+    if not isinstance(raw, dict):
+        return []
+    return [a.strip() for a in aim_and_other_lines(raw)[0] if a.strip()]
 
 
 def _denial_covers(text: str, idx: VaultIndex) -> bool:
@@ -227,7 +244,7 @@ class _EntailmentBudget:
 class _SeamCandidate:
     """One claim deferred to the batched judgement pass."""
 
-    seam: Literal["cross_language", "restatement", "letter_form"]
+    seam: Literal["cross_language", "restatement", "letter_form", "backing", "skill_equivalence"]
     claim_text: str
     units: list[EvidenceUnit]
     # cross_language only: corresponds=false/uncertain -> this verdict stands
@@ -242,6 +259,14 @@ class _SeamCandidate:
     # letter_form only (B3-10 follow-up): the neutral form mark a clean
     # "corresponds" with a verified citation resolves to.
     grant_verdict: ClaimVerdict | None = None
+    # backing only (ADR-100 M-3): each unit's position label ("Role, Company"
+    # or None for a role-agnostic unit), rendered beside — never inside — the
+    # quotable unit text so the judge can weigh the employer half of the claim.
+    unit_labels: list[str | None] | None = None
+    # backing only: the position group the claim is anchored to. A grant must
+    # cite a unit this group OWNS — a role-agnostic unit (a bare skill) is
+    # context for the judge, never the sole proof of an employer-bound claim.
+    anchor_ids: frozenset[str] | None = None
 
 
 def _find_citing_unit(quote: str | None, units: list[EvidenceUnit]) -> EvidenceUnit | None:
@@ -302,6 +327,38 @@ def _cross_language_candidate(
     return candidate
 
 
+def _skill_equivalence_candidate(
+    claim_text: str,
+    skill_units: list[EvidenceUnit],
+    deny_verdict: ClaimVerdict,
+    judgement_sink: "list[_SeamCandidate] | None",
+) -> "_SeamCandidate | None":
+    """790:90 (WP-T build 7, ADR-068 amended): Seam A's equivalence judgement for a
+    SAME-language literal skill miss, asked against the claimable vault units the
+    deterministic skill matcher reads (skill units first).
+
+    Seam A's trigger (:func:`_cross_language_trigger`) reads only the vault's
+    dominant language, so a German CV whose skill list carries "Lieferkette" — the
+    language pass's own translation of the German vault's loanword skill
+    "Supply Chain" (grounded on a bullet) — was accused ("steht nirgends in
+    Deinem Profil") and the card
+    looped (ux-audit-3, Marcus). Grant-only, like Seam A: a "no"/"uncertain"/an
+    unavailable judgement keeps exactly today's deterministic verdict (``deny``),
+    so this seam can only ever remove an accusation, never add one. ``None`` when
+    there is no skill unit or no batching sink (the caller keeps ``deny``)."""
+    if not skill_units or judgement_sink is None:
+        return None
+    candidate = _SeamCandidate(
+        seam="skill_equivalence",
+        claim_text=claim_text,
+        units=skill_units,
+        deny_verdict=deny_verdict,
+        unavailable_verdict=deny_verdict,
+    )
+    judgement_sink.append(candidate)
+    return candidate
+
+
 def _restatement_candidate(
     claim_text: str,
     units: list[EvidenceUnit],
@@ -341,6 +398,178 @@ def _restatement_candidate(
     return candidate
 
 
+#: ADR-100 M-3 — evidence lines one ``backing`` item may carry: the named rows'
+#: backing units first, then deterministic context. Keeps the item inside the
+#: per-item token share of the batch (ADR-068 cl. 6, SF-ORACLE.8).
+_BACKING_MAX_UNITS = 6
+
+
+def _position_labels(profile: Any) -> dict[str, str]:
+    """experience id -> "Role, Company" from the profile (the vault index keeps
+    owner ids, not names). Never raises."""
+    raw = profile.model_dump(mode="json") if hasattr(profile, "model_dump") else profile
+    out: dict[str, str] = {}
+    if not isinstance(raw, dict):
+        return out
+    for section in ("work_experience", "volunteer_activities"):
+        for e in raw.get(section) or []:
+            if not isinstance(e, dict) or not isinstance(e.get("id"), str):
+                continue
+            role = e.get("role") or e.get("title") or ""
+            org = e.get("company") or e.get("organization") or ""
+            label = ", ".join(x for x in (str(role).strip(), str(org).strip()) if x)
+            if label:
+                out[e["id"]] = label
+    return out
+
+
+def _backing_facts_hold(claim: Claim, units: list[EvidenceUnit]) -> bool:
+    """ADR-100 M-3 — the facts a judge must never be the only line on, checked
+    deterministically against the units OFFERED (all owner-compatible): every
+    number the claim states (spelled-out counts and year durations included —
+    the figure extractor skips both, so the figure path never saw them), every
+    credential it ascribes and every standard identifier it names. A miss means
+    no candidate: the claim keeps its ``noCloseEvidence`` verdict."""
+    pool = " \n ".join(u.text for u in units)
+    if not _number_tokens(claim.text) <= _number_tokens(pool):
+        return False
+    kind = credential_kind_for_location(claim.location)
+    if detect_credentials(claim.text, kind=kind) and unbacked_credentials(
+        claim.text, kind=kind, vault_folded=credential_fold(pool)
+    ):
+        return False
+    pool_ident = _norm_ident(pool)
+    return all(_norm_ident(ident) in pool_ident for _span, ident in identifier_matches(claim.text))
+
+
+def _backing_candidate(
+    claim: Claim,
+    profile: Any,
+    idx: VaultIndex,
+    *,
+    source_id: str | None,
+    letter_named_ids: frozenset[str] | None,
+    top_units: list[EvidenceUnit],
+    ledger_backings: "list[LedgerBacking] | None",
+    fallback: ClaimVerdict,
+    provider: Any,
+    judgement_sink: "list[_SeamCandidate] | None",
+) -> "_SeamCandidate | None":
+    """ADR-100 M-3 (founder ruling R-4 = option B) — the fourth judgement seam.
+
+    A figure-free claim the deterministic layer left at ``noCloseEvidence`` that
+    NAMES a backed ledger row (a row form present as a whole token — a selection,
+    never a verdict) is handed to the equivalence judge with the row's verified
+    backing unit(s) FIRST, then the deterministic top units as context. The judge
+    still decides whether THIS sentence is supported — activity, level, figures,
+    employer; the quote fixes retrieval, not the judgement.
+
+    ``None`` (the caller keeps ``fallback``) when there is no provider or no
+    batching sink — a provider-less or bare ``verify_claim`` grades exactly as
+    before and counts nothing as unavailable — or nothing to offer.
+
+    **Employer, a fact (ids):** a unit owned by a position foreign to the claim's
+    anchor is never offered, so it can never be cited. The anchor is the claim's
+    own position (an inherited paragraph anchor included — the grounding paths
+    read it too) plus its same-employer siblings; else the one employer the
+    sentence names; else, in a letter, the employers the letter names; else (a
+    CV summary, external text) any position. Role-agnostic units are always
+    compatible."""
+    if provider is None or judgement_sink is None or not ledger_backings:
+        return None
+    if _denial_covers(claim.text, idx):
+        # A sentence touching a recorded denial is never offered — even when it
+        # also names a backed row ("no Kubernetes, but API strategy …"). Literal
+        # containment: blind to a denial recorded in another language (FMEA).
+        return None
+    named = backings_named_in(claim.text, ledger_backings)
+    if not named:
+        return None
+    anchor: str | None = source_id
+    named_here = claim.sentence_named_ids
+    if anchor is None and not named_here:
+        # A CV summary (or external text) carries no per-sentence names from the
+        # extractor — ask the letter path's own loose matcher, so "… at Company B"
+        # never takes Company A's quote.
+        try:
+            from applire.services.oracle.extract import (
+                _employer_anchor_candidates,
+                sentence_mentioned_ids,
+            )
+
+            named_here = sentence_mentioned_ids(claim.text, _employer_anchor_candidates(profile, loose=True))
+        except Exception:  # pragma: no cover — defensive: no names, the letter/any rules apply
+            named_here = frozenset()
+
+    def _group(ids: frozenset[str]) -> frozenset[str]:
+        return frozenset(i for n in ids for i in ({n} | set(idx.same_employer_ids.get(n, frozenset()))))
+
+    if anchor is not None:
+        allowed: frozenset[str] | None = _group(frozenset({anchor}))
+    elif named_here:
+        allowed = _group(frozenset(named_here))
+    elif letter_named_ids:
+        allowed = _group(frozenset(letter_named_ids))
+    else:
+        allowed = None
+
+    def compatible(u: EvidenceUnit) -> bool:
+        return allowed is None or not u.owner_ids or bool(u.owner_ids & allowed)
+
+    units: list[EvidenceUnit] = []
+    for b in named:
+        if compatible(b.unit) and b.unit not in units:
+            units.append(b.unit)
+    if not units:
+        return None
+    for u in top_units:
+        if len(units) >= _BACKING_MAX_UNITS:
+            break
+        if compatible(u) and u not in units:
+            units.append(u)
+    units = units[:_BACKING_MAX_UNITS]
+    if not _backing_facts_hold(claim, units):
+        logger.info("ORACLE_BACKING_FACTS_UNHELD location=%s", claim.location)
+        return None
+    labels_by_id = _position_labels(profile)
+    labels = [
+        "; ".join(sorted({labels_by_id[o] for o in u.owner_ids if o in labels_by_id})) or None
+        for u in units
+    ]
+    candidate = _SeamCandidate(
+        seam="backing",
+        claim_text=claim.text,
+        units=units,
+        deny_verdict=fallback,
+        unavailable_verdict=fallback,
+        unit_labels=labels,
+        anchor_ids=allowed,
+    )
+    logger.info(
+        "ORACLE_BACKING_CANDIDATE location=%s rows=%s units=%d",
+        claim.location,
+        [b.concept for b in named],
+        len(units),
+    )
+    judgement_sink.append(candidate)
+    return candidate
+
+
+# The judgement prompt renders each evidence span as "  [j] text"
+# (prompts/oracle_judgement.build_judgement_user_prompt). A model that copies
+# the line, index included, cites a real span in OUR format: 790:90's luna probe
+# (2026-11-07) granted "Lieferkette" ↔ "Supply Chain" 3/3 and quoted "[12] Supply
+# Chain" 2/3, which the citation check dropped. Strip only that leading index —
+# the rest must still be verbatim in one unit.
+_EVIDENCE_INDEX_PREFIX_RE = re.compile(r"^\s*\[\d+\]\s*")
+
+
+def _strip_evidence_index(quote: object) -> object:
+    if isinstance(quote, str):
+        return _EVIDENCE_INDEX_PREFIX_RE.sub("", quote, count=1)
+    return quote
+
+
 def _resolve_seam_candidate(
     candidate: _SeamCandidate, response_item: dict[str, Any] | None
 ) -> tuple[ClaimVerdict, bool, str | None]:
@@ -354,9 +583,26 @@ def _resolve_seam_candidate(
     if not isinstance(response_item, dict):
         return candidate.unavailable_verdict, True, "malformed_item"
     corresponds = response_item.get("corresponds")
-    quote = response_item.get("vault_quote")
+    quote = _strip_evidence_index(response_item.get("vault_quote"))
     unit_texts = [u.text for u in candidate.units]
     citation_ok = citation_present(quote, unit_texts)
+
+    if candidate.seam == "skill_equivalence":
+        # 790:90 — grant-only; a miss or an unusable answer keeps today's verdict
+        # (``deny``) and is NOT counted as an unavailable judgement: nothing
+        # degraded, the accusation simply stands as before.
+        if corresponds is True and citation_ok:
+            matched_unit = _find_citing_unit(quote, candidate.units)
+            return ClaimVerdict(
+                verdict="grounded",
+                checker="cross_language_judgement",  # Seam A's judge (ADR-068 cl. 5 chip)
+                evidence=_evidence_refs([matched_unit] if matched_unit else candidate.units),
+                detail=f'Your profile names this skill as "{quote}".',
+                detail_key="skillEquivalent",
+                detail_params={"skill": candidate.claim_text, "quote": str(quote)},
+            ), False, None
+        assert candidate.deny_verdict is not None
+        return candidate.deny_verdict, False, None
 
     if candidate.seam == "cross_language":
         if corresponds is True:
@@ -372,6 +618,50 @@ def _resolve_seam_candidate(
                     f'({candidate.vault_language_label}): "{quote}".'
                 ),
                 detail_key="crossLanguageEquivalent",
+            )
+            return verdict, False, None
+        if corresponds is False or corresponds == "uncertain":
+            assert candidate.deny_verdict is not None
+            return candidate.deny_verdict, False, None
+        return candidate.unavailable_verdict, True, "malformed_item"
+
+    if candidate.seam == "backing":
+        # ADR-100 M-3 (founder ruling R-4 = option B): grant-only, like seam A.
+        # A "no"/"uncertain" keeps the pre-existing deterministic verdict
+        # (always the honest ``unverifiable``/``noCloseEvidence`` — this seam is
+        # opened only there), so the seam can never produce an accusation.
+        if corresponds is True:
+            # The citation is THE Fact a quote must pass to back a claim
+            # (``quote_in_vault``: token-bounded, ≥ 3 words of a sentence unit) —
+            # stricter than ``citation_present``, so "SQL" cannot grant a sentence.
+            from applire.services.citation import quote_in_vault
+
+            cited_path = quote_in_vault(quote, candidate.units)
+            matched_unit = next((u for u in candidate.units if u.path == cited_path), None)
+            if matched_unit is None:
+                return candidate.unavailable_verdict, True, "citation_drop"
+            if candidate.anchor_ids is not None and not (matched_unit.owner_ids & candidate.anchor_ids):
+                # Employer, a fact (ids): the proof must belong to the claim's position.
+                assert candidate.deny_verdict is not None
+                return candidate.deny_verdict, False, None
+            # A fact over the grant (US245, the grounded path's own rule): a claim
+            # rendered as achieved whose cited unit is aspirational is not backed
+            # by it, whatever the judge says.
+            if (
+                classify_stance(candidate.claim_text) == "achieved"
+                and classify_stance(matched_unit.text) == "aspirational"
+            ):
+                assert candidate.deny_verdict is not None
+                return candidate.deny_verdict, False, None
+            verdict = ClaimVerdict(
+                verdict="grounded",
+                checker="backing_judgement",
+                evidence=_evidence_refs([matched_unit]),
+                detail=(
+                    "Judged a faithful restatement of the profile evidence the "
+                    f'job analysis recorded for a requirement it names: "{quote}".'
+                ),
+                detail_key="backingEquivalent",
             )
             return verdict, False, None
         if corresponds is False or corresponds == "uncertain":
@@ -445,8 +735,10 @@ async def _run_judgement_batches(
     """
     if not candidates:
         return []
+    # 790:90: the skill-equivalence seam's fallback IS today's verdict — its
+    # unavailability degrades nothing and is not counted.
     results: list[tuple[ClaimVerdict, bool]] = [
-        (c.unavailable_verdict, True) for c in candidates
+        (c.unavailable_verdict, c.seam != "skill_equivalence") for c in candidates
     ]
     if provider is None:
         for c in candidates:
@@ -469,7 +761,15 @@ async def _run_judgement_batches(
         # The letter-form seam asks the restatement question of the form text
         # (the prompt's "restatement" mode, unchanged — ADR-068 cl. 6).
         items = [
-            (c.claim_text, [u.text for u in c.units], "restatement" if c.seam == "letter_form" else c.seam)
+            (
+                c.claim_text,
+                [u.text for u in c.units],
+                # 790:90: the skill-equivalence seam asks Seam A's question.
+                "restatement" if c.seam == "letter_form"
+                else "cross_language" if c.seam == "skill_equivalence"
+                else c.seam,
+                list(c.unit_labels or []),
+            )
             for c in batch
         ]
         prompt = build_judgement_user_prompt(items)
@@ -1499,8 +1799,13 @@ async def verify_claim(
     judgement_sink: "list[_SeamCandidate] | None" = None,
     ledger_forms: list[list[str]] | None = None,
     form_index: VaultIndex | None = None,
+    ledger_backings: "list[LedgerBacking] | None" = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """Verdict for a single claim against the vault (ADR-052 §1).
+
+    ``ledger_backings`` (ADR-100 M-3) is :func:`oracle.backing.ledger_backings`
+    over the job's ledger — read by the skill-chip arm and by the ``backing``
+    judgement seam; ``None`` keeps vault-only grading.
 
     The one entry point every caller uses (the self-audit, the agent door's
     ``audit_document``, ``cv_assist``). It grades the claim with
@@ -1534,14 +1839,24 @@ async def verify_claim(
         document_language=document_language,
         judgement_sink=judgement_sink,
         ledger_forms=ledger_forms,
+        ledger_backings=ledger_backings,
     )
     final = _apply_credential_rule(verdict, claim, idx, document_language)
     if form_index is not None:
         # B3-10 (ADR-061/048 amended 2026-10-23): what the candidate typed into
         # THIS letter's form is their own statement for this letter — evaluated
         # last, so it only ever replaces "no evidence" (never a contradiction).
+        # ADR-100 M-3: a ``backing`` candidate stands in for the honest
+        # ``noCloseEvidence`` verdict; the form's own judged path sees that
+        # verdict, as it did before the seam existed (form wins; the backing
+        # candidate is withdrawn below).
+        probe = (
+            final.deny_verdict
+            if isinstance(final, _SeamCandidate) and final.seam == "backing" and final.deny_verdict is not None
+            else final
+        )
         final = (
-            _letter_form_verdict(claim, final, idx, form_index, judgement_sink=judgement_sink)
+            _letter_form_verdict(claim, probe, idx, form_index, judgement_sink=judgement_sink)
             or final
         )
     return _withdraw_overridden_candidate(verdict, final, judgement_sink)
@@ -1897,7 +2212,10 @@ def _apply_credential_rule(
     a German title against an English vault is not checked across languages.
     """
     if isinstance(verdict, _SeamCandidate):
-        if verdict.seam != "restatement":
+        # ADR-100 M-3: the backing judge, like the restatement judge, compares
+        # the claim with a vault unit and could endorse a title that unit never
+        # names — the deterministic rule decides first (ADR-052 §1).
+        if verdict.seam not in ("restatement", "backing"):
             return verdict
     elif verdict.verdict not in ("grounded", "unverifiable"):
         return verdict
@@ -1935,6 +2253,7 @@ async def _verify_claim_identifiers(
     document_language: str | None,
     judgement_sink: "list[_SeamCandidate] | None",
     ledger_forms: list[list[str]] | None,
+    ledger_backings: "list[LedgerBacking] | None" = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """The #701 identifier rule over :func:`_verify_claim_unchecked` (see
     :func:`verify_claim`)."""
@@ -1950,6 +2269,7 @@ async def _verify_claim_identifiers(
             document_language=document_language,
             judgement_sink=judgement_sink,
             ledger_forms=ledger_forms,
+            ledger_backings=ledger_backings,
         )
     verdict = await _verify_claim_unchecked(
         claim,
@@ -1961,6 +2281,7 @@ async def _verify_claim_identifiers(
         document_language=None,
         judgement_sink=None,
         ledger_forms=ledger_forms,
+        ledger_backings=ledger_backings,
     )
     if verdict.verdict != "grounded":
         return verdict
@@ -1990,6 +2311,7 @@ async def _verify_claim_unchecked(
     document_language: str | None = None,
     judgement_sink: "list[_SeamCandidate] | None" = None,
     ledger_forms: list[list[str]] | None = None,
+    ledger_backings: "list[LedgerBacking] | None" = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """Verdict for a single claim against the vault (ADR-052 §1).
 
@@ -2085,6 +2407,28 @@ async def _verify_claim_unchecked(
             return ClaimVerdict(
                 verdict="grounded", checker="grounding", evidence=_evidence_refs([unit])
             )
+        # ADR-100 M-3 (ruling WP1-1): a chip asks the ledger's own question — "does
+        # the candidate have X" — which the gap analysis answered with a verbatim
+        # vault quote the floor verified (ADR-100 cl. 1: one question, one
+        # persisted verdict; never re-judged downstream). ``ledger_backings``
+        # re-checked that quote against THIS claimable vault (a Fact), and refused
+        # every row the literal miss used to refuse implicitly (denials, aims,
+        # positioning-only, scope, keyword-only, unconfirmed/denied entries). The
+        # same read as the ``ledger_forms`` arm above, extended from the row's
+        # literal sibling form to its verified quote. No model call.
+        backed = backing_for_skill(claim.text, ledger_backings)
+        if backed is not None and not _denial_covers(claim.text, idx):
+            return ClaimVerdict(
+                verdict="grounded",
+                checker="grounding",
+                evidence=_evidence_refs([backed.unit]),
+                detail=(
+                    f'The job analysis recorded "{backed.concept}" with this verified '
+                    f'quote from your profile: "{backed.quote}".'
+                ),
+                detail_key="ledgerBackingQuote",
+                detail_params={"skill": claim.text},
+            )
         deny = ClaimVerdict(
             verdict="unbacked",
             checker="grounding",
@@ -2116,6 +2460,35 @@ async def _verify_claim_unchecked(
         )
         if seam is not None:
             return seam
+        # 790:90 (WP-T build 7, ADR-068 amended): a same-language literal miss over
+        # a single-language vault gets the same bounded equivalence judgement,
+        # against the vault's skill units only — "Lieferkette" ↔ "Supply Chain".
+        # Grant-only: the mixed-vault arm below and a denial-covered skill are
+        # unchanged.
+        if (
+            document_language is not None  # the caller opted out → ADR-068 fails open
+            and not holds_other_language(idx, document_language)
+            and not _denial_covers(claim.text, idx)
+        ):
+            # The pool is what the deterministic matcher reads for a skill (every
+            # claimable unit — "Supply Chain" grounded on a Weberit bullet before
+            # the language pass translated it), skill units first; never the
+            # personal block. A translation shares no token, so no lexical cut.
+            # D-12 (adversarial pass, build 7): a ``not_yet_reached`` line is an
+            # AIM — no span of it backs anything (the ledger's backing check reads
+            # ``exclude=aims`` the same way), so no unit carrying one is evidence
+            # here. Fail-safe: dropping a unit can only keep a card red.
+            aims = _profile_aims(profile)
+            pool = [
+                u for u in skill_units + [
+                    u for u in idx.units
+                    if u not in skill_units and not u.path.startswith("personal_info")
+                ]
+                if not any(a in (u.text or "") for a in aims)
+            ]
+            eq = _skill_equivalence_candidate(claim.text, pool, deny, judgement_sink)
+            if eq is not None:
+                return eq
         # #790 line L12 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20):
         # seam A's trigger reads only the vault's DOMINANT language, so a
         # same-language pair over a mixed-language vault ("Markenidentität" on
@@ -2465,8 +2838,25 @@ async def _verify_claim_unchecked(
         detail="No sufficiently close vault evidence for a deterministic verdict.",
         detail_key="noCloseEvidence",
     )
-    return await _entailment(
+    entailed = await _entailment(
         claim.text, grounding.top_units, provider, budget, fallback, attribution_id, idx
+    )
+    if entailed is not fallback:
+        return entailed
+    return (
+        _backing_candidate(
+            claim,
+            profile,
+            idx,
+            source_id=source_id,
+            letter_named_ids=letter_named_ids,
+            top_units=grounding.top_units,
+            ledger_backings=ledger_backings,
+            fallback=fallback,
+            provider=provider,
+            judgement_sink=judgement_sink,
+        )
+        or fallback
     )
 
 
@@ -2601,6 +2991,10 @@ async def audit_document(
 
     form_index = build_letter_form_index(form_inputs) if letter_data is not None else None
 
+    # ADR-100 M-3: the job ledger's verified backing quotes, re-checked against
+    # THIS claimable vault once per document (a Fact; never raises).
+    backings = _ledger_backings(keyword_ledger, profile, index) if keyword_ledger else None
+
     judgement_sink: list[_SeamCandidate] = []
     pending_result_indices: list[int] = []
     results: list[ClaimResult] = []
@@ -2625,6 +3019,7 @@ async def audit_document(
             judgement_sink=judgement_sink,
             ledger_forms=ledger_forms,
             form_index=form_index,
+            ledger_backings=backings,
         )
         if isinstance(verdict, _SeamCandidate):
             # The candidate's own fail-safe verdict is the placeholder — if

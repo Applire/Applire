@@ -51,6 +51,7 @@ from applire.services.profile.commit import (
 from applire.services.profile.entity_label import label_for
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.restatement import hold_back_restatements
+from applire.services.profile.reconcile.stance import OFFERED_CHOICES_KEY
 from applire.utils.display import format_display_value
 
 _SOURCE = "interview"
@@ -141,6 +142,9 @@ async def reconcile_interview_turn(
     lang: str = "en",
     record_source: str = _SOURCE,
     intake: str = "interview",
+    offered_choices: list[dict] | None = None,
+    document_kind: str | None = None,
+    document_id: str | None = None,
 ) -> InterviewTurnResult:
     """Reconcile one interview answer into the vault. ONE write path.
 
@@ -165,10 +169,30 @@ async def reconcile_interview_turn(
     rides this same door — the turn is interview-shaped (an Applire-authored
     gap + question, the candidate's answer) so the reconciler and its stance
     guards read it exactly as an interview turn; only the durable record
-    differs (``record_source="testimony"``, ``intake="cv_assist"``).
+    differs (``record_source="testimony"``, ``intake="cv_assist"``), and it
+    names the CV it was given from (``document_kind``/``document_id``, A-5):
+    that CV already carries the suggestion, so its cue does not fire on it.
     """
     before = MasterProfileData.model_validate(profile_record.profile_json)
     new_info = {"gap": gap, "question": question, "answer": answer}
+    # G-3 (ADR-064 amended 2026-11-04): the choices Applire offered that this
+    # answer contains (``choice_grounding.offered_choices_in_answer``), each
+    # with the concepts it names WITHOUT claiming. Carried only when there is
+    # one, so an ordinary turn's NEW INFORMATION is unchanged. A list, not a
+    # string: the grounding corpus (``stance._raw_grounding_text``) reads the
+    # string fields only, so Applire's choice text never becomes testimony
+    # through this key — the answer itself already carries what was selected.
+    if offered_choices:
+        new_info[OFFERED_CHOICES_KEY] = [
+            {
+                "text": c["text"],
+                "names_without_claiming": list(c.get("names_without_claiming") or []),
+                # UAT-2 (ADR-064 amended 2026-11-08): a sent honest bridge's no.
+                "states_no_to": list(c.get("states_no_to") or []),
+            }
+            for c in offered_choices
+            if isinstance(c, dict) and isinstance(c.get("text"), str)
+        ]
     result = await reconcile(before, new_info, _SOURCE, provider, lang)
     # D-17 (Hazelnut build 5, ADR-046 + ADR-063 amended) — the import's
     # restatement check on this door too: an answer that retells a held fact
@@ -186,6 +210,8 @@ async def reconcile_interview_turn(
             intake=intake,
             session_id=session_id,
             actor="candidate",
+            document_id=document_id,
+            document_kind=document_kind if document_id is not None else None,
         ),
         record=profile_record,
         # §7.4 — a turn-based intake passes its turn text; the committer records

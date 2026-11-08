@@ -78,6 +78,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
+from typing import Any
 
 from applire.constants import SKILL_ESTIMATION_MAX_TOKENS
 from applire.providers.llm.base import LLMProvider
@@ -291,6 +292,7 @@ def _evidencing_ranges(
     profile: MasterProfileData, skill_name: str, today: date, bound: str = "stored"
 ) -> tuple[list[tuple[date, date]], list[str]]:
     """Dated ranges + org labels of every experience whose own text names the skill.
+    (A thin view over :func:`_evidencing_entries`, which holds the join.)
 
     THE single implementation of phase 1's join (ADR-066) — shared by
     enrichment and :func:`evidenced_span_years`, so the Oracle's duration check
@@ -313,6 +315,23 @@ def _evidencing_ranges(
     """
     ranges: list[tuple[date, date]] = []
     orgs: list[str] = []
+    for entry, start, end in _evidencing_entries(profile, skill_name, today, bound):
+        ranges.append((start, end))
+        label = entry.org_label()
+        if label and label not in orgs:
+            orgs.append(label)
+    return ranges, orgs
+
+
+def _evidencing_entries(
+    profile: MasterProfileData, skill_name: str, today: date, bound: str = "stored"
+) -> list[tuple[Any, date, date]]:
+    """``(experience, start, end)`` for every dated experience whose own text names
+    the skill — THE join behind :func:`_evidencing_ranges` (see its docstring for
+    ``bound``), exposed with the experience itself so a consumer that must say WHICH
+    positions a duration is counted from (the letter's TOOL DURATIONS fact, R-3,
+    Hazelnut collectors 2026-11-04) reads the same positions the stored value counts."""
+    out: list[tuple[Any, date, date]] = []
     for entry in profile.all_experiences:
         if not _demonstrates(skill_name, experience_evidence_text(entry)):
             continue
@@ -339,11 +358,8 @@ def _evidencing_ranges(
                 if bound == "floor":
                     continue
                 end = today
-        ranges.append((start, end))
-        label = entry.org_label()
-        if label and label not in orgs:
-            orgs.append(label)
-    return ranges, orgs
+        out.append((entry, start, end))
+    return out
 
 
 def evidenced_span_years(
@@ -368,6 +384,32 @@ def evidenced_span_years(
     if not ranges:
         return None
     return _union_years(ranges), orgs
+
+
+def evidenced_positions(
+    profile: MasterProfileData, skill_name: str, *, bound: str = "floor"
+) -> tuple[float, list[tuple[Any, date, date]]] | None:
+    """R-3 (founder, 2026-11-04): ``(years, [(experience, start, end), ...])`` —
+    the de-overlapped span of the dated positions that reference the skill (in
+    their technologies OR their own text) AND those positions, from the ONE join
+    the stored ``computed`` value and the Oracle's duration check read
+    (:func:`_evidencing_entries`). ``None`` when no dated experience names it.
+    ``bound`` as in :func:`evidenced_span_years`; the letter offers a number, so
+    its default is ``"floor"``."""
+    if bound not in ("upper", "floor"):
+        raise ValueError(f"bound must be 'upper' or 'floor', not {bound!r}")
+    today = date.today()
+    # A dated end in the future (a contract end, a notice period) counts only up
+    # to today, and a range that contributes no time names no position
+    # (adversarial pass 2026-11-04: 2024-01 → 2031-01 read as "over 7 years").
+    rows = [
+        (entry, s, min(e, today))
+        for entry, s, e in _evidencing_entries(profile, skill_name, today, bound)
+        if s < min(e, today)
+    ]
+    if not rows:
+        return None
+    return _union_years([(s, e) for _, s, e in rows]), rows
 
 
 def stored_span_years(

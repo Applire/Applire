@@ -25,26 +25,26 @@ def _prompt(category="B"):
 
 
 def test_the_hint_states_a_literal_check_never_a_verdict():
-    out = _prompt()
-    assert "Still unevidenced" not in out and "only valid scope for a denial" not in out
-    assert "That is a literal check, not a verdict:" in out
-    # Category C (ruling V-7) carries the same literal-check statement, and no denial.
     c = _prompt("C")
-    assert "Still unevidenced" not in c and "That is a literal check, not a verdict" in c
-    assert "Offer NO denial choice" in c
-    # R2-2 / I-3: Category B (unevidenced concepts) offers no denial choice either,
-    # and a PARTIAL chip marks the leftover concepts as "not yet in the profile".
-    assert "Offer NO denial choice" in out
-    assert "does not yet document the concepts left over" in out
-    assert "never that the candidate lacks them" in out
-    assert "No word-for-word mention yet: Produktionsverantwortung" in c
+    assert "Still unevidenced" not in c and "only valid scope for a denial" not in c
+    assert "That is a literal check, not a verdict:" in c
+    assert "Constituent concepts with no word-for-word mention in the profile summary: Produktionsverantwortung." in c
+    # UAT-2: a concept stated in other words is evidenced -> DIRECT, and only a
+    # concept with no evidence in ANY words gets the one honest bridge.
+    flat = " ".join(c.split())
+    assert "A concept the profile states in other words is evidenced: a DIRECT choice" in flat
+    assert "Only a concept it shows no evidence for in any words gets bridges and the one honest bridge" in flat
+    # MD-UAT-1: a B question is a confirmation — no honest bridge, no no.
+    b = " ".join(_prompt("B").split())
+    assert "CONFIRMATION question" in b
+    assert "NO honest bridge and no other no on this question." in b
 
 
 def test_the_coverage_rule_counts_evidence_in_any_wording():
     flat = " ".join(_CHOICE_COVERAGE_RULES.split())
-    # R2-2: the evidence-in-any-wording sentence survives the rewrite; the
-    # "Evidence in ANY wording counts" phrase became the Teamleiter / Scrum Master
-    # parenthesis inside the PARTIAL bullet.
-    assert 'a "Teamleiter" role is evidence of team leadership' in flat
-    assert 'a "Scrum Master" skill of agile methods' in flat
-    assert "never one the profile summary or the earlier answers evidence in other words" in flat
+    # UAT-2: the evidence-in-any-wording parenthesis moved to the DIRECT bullet.
+    assert 'a "Teamleiter" role evidences team leadership' in flat
+    assert 'a "Scrum Master" skill agile methods' in flat
+    assert "only for a concept the profile summary itself evidences, in any words" in flat
+
+

@@ -96,6 +96,18 @@ test.describe("Profile Enrichment", () => {
       });
     });
 
+    // UAT-1: the one completeness card is fed by /api/profile/health.
+    await page.route("**/api/profile/health", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          issues: [],
+          completeness: { score: 0.65, gaps: ["professional_summary"], field_gaps: ["description"] },
+        }),
+      });
+    });
+
     // Mock enrichment history endpoint
     await page.route("**/api/profile/enrichment-history", async (route) => {
       await route.fulfill({
@@ -111,7 +123,7 @@ test.describe("Profile Enrichment", () => {
     // and the page has finished its initial fetch. Avoids networkidle which never
     // resolves due to external font requests (Google Fonts) in the root layout.
     // The progress bar inside the completeness banner is locale-agnostic.
-    await page.waitForSelector(".bg-muted.rounded-full", { state: "visible", timeout: 30000 });
+    await page.waitForSelector('[data-testid="health-completeness-bar"]', { state: "visible", timeout: 30000 });
   });
 
   test("completeness banner is visible when profile has gaps", async ({
@@ -410,6 +422,14 @@ test.describe("Profile Enrichment", () => {
       });
     });
 
+    await page.route("**/api/profile/health", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ issues: [], completeness: { score: 1, gaps: [], field_gaps: [] } }),
+      });
+    });
+
     await page.route("**/api/profile/enrichment-history", async (route) => {
       await route.fulfill({
         status: 200,
@@ -421,7 +441,7 @@ test.describe("Profile Enrichment", () => {
     // Reload page with new profile mock
     await page.reload();
     // Wait for the completeness progress bar to confirm page data has loaded
-    await page.waitForSelector(".bg-muted.rounded-full", { state: "visible", timeout: 30000 });
+    await page.waitForSelector('[data-testid="health-completeness-bar"]', { state: "visible", timeout: 30000 });
 
     // Try to find Enrich button — should not exist when profile has no gaps
     const enrichBtn = page.locator('button:has-text("Enrich")').first();

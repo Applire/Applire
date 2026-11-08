@@ -82,22 +82,32 @@ A backup that only covers the database is not a backup. Two volumes have to trav
 - **`postgres_data`** is the vault — your profile, applications, and every generated document, stored as JSONB.
 - **`applire_uploads`** is every uploaded CV and profile photo, mounted into the backend container at `/app/data/uploads`.
 
-`scripts/backup.sh` captures both in one archive. If you installed the no-clone way — the
-two release assets and nothing else — you do not have the scripts yet. Fetch them from the
-repository at the tag of the latest release (the one `:latest` runs), into the folder that
-holds `docker-compose.yml` (`restore.sh` calls `backup.sh --verify` from its own folder, so
-keep them together):
+`scripts/backup.sh` captures both in one archive. **The archive does not hold your `.env` or
+`docker-compose.yml`.** Copy both next to every archive (or keep them in your password manager
+and config backup): the `.env` holds `POSTGRES_PASSWORD`, `APPLIRE_SECRET_KEY` and your
+provider key, and a restore onto a new host needs the same values, or the database will not
+open and keys entered in the panel cannot be read.
 
 ```bash
-TAG=$(curl -fsSL https://api.github.com/repos/Applire/Applire/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+cp .env docker-compose.yml /mnt/nas/applire/      # next to the archives; the .env is a secret
+```
+
+If you installed the no-clone way — the release assets and nothing else — you do not have the
+scripts yet. Since 0.45.0-beta they are release assets too, from the same release as your
+images. Fetch them into the folder that holds `docker-compose.yml` (`restore.sh` calls
+`backup.sh --verify` from its own folder, so keep them together):
+
+```bash
 mkdir -p scripts
 for f in backup.sh restore.sh; do
-  curl -fsSL -o "scripts/$f" "https://raw.githubusercontent.com/Applire/Applire/$TAG/scripts/$f"
+  curl -fsSL -o "scripts/$f" "https://github.com/Applire/Applire/releases/latest/download/$f"
 done
 chmod +x scripts/backup.sh scripts/restore.sh
 ```
 
-If you pinned an older image tag instead of `:latest`, set `TAG` to that release's tag.
+If you pinned an older image tag instead of `:latest`, replace `latest/download` with
+`download/<tag>` (for a release before 0.45.0-beta, fetch the scripts from the repository at
+that tag: `https://raw.githubusercontent.com/Applire/Applire/<tag>/scripts/$f`).
 
 ```bash
 scripts/backup.sh                      # writes into ./backups
@@ -129,10 +139,11 @@ On a successful run the script also records the timestamp as `last_backup_at` in
 
 **The script exits non-zero on any failure** — a `set -euo pipefail` script that reports success on a partial archive would be worse than no backup at all.
 
-A cron example, backing up nightly at 03:00 to an external mount:
+A cron example, backing up nightly at 03:00 to an external mount, with the `.env` and compose
+file copied alongside:
 
 ```cron
-0 3 * * * cd /path/to/applire && scripts/backup.sh /mnt/nas/applire/backups >> /var/log/applire-backup.log 2>&1
+0 3 * * * cd /path/to/applire && scripts/backup.sh /mnt/nas/applire/backups >> /var/log/applire-backup.log 2>&1 && cp .env docker-compose.yml /mnt/nas/applire/backups/
 ```
 
 ## 4. Check a backup without restoring it
@@ -434,6 +445,14 @@ expanded when something is not).
 | `credit` | the balance read only — this costs nothing; it is an account endpoint, not a model call |
 | `off` | neither. Your instance can then no longer tell you that your provider credit ran out |
 
+With `off`, or with `credit` on a provider that publishes no balance, the provider line on the
+monitoring page reads **switched off**, and it does not turn the overall status to "needs a look": it
+was your choice, not a fault. With `credit` on OpenRouter, the line reflects your balance.
+
+An administrator can also change this without editing `.env`: **Administration → Settings → Check the
+connection to the AI provider** offers the same four choices. A value set there wins over `.env` and
+is recorded in the audit log; "Reset to .env value" removes it.
+
 `OPS_PROVIDER_PROBE_INTERVAL_MINUTES` (default 15) sets the minimum gap between two checks. The
 endpoint only ever serves the cached result, so calling it never spends your credit.
 
@@ -561,6 +580,28 @@ An **MCP client** configuration gains the token. The agent runs inside your runn
         "exec", "-T", "-e", "APPLIRE_AGENT_TOKEN", "backend", "python", "-m", "applire.mcp"
       ],
       "env": { "APPLIRE_AGENT_TOKEN": "apl_…" }
+    }
+  }
+}
+```
+
+**This command runs on the machine that runs Docker.** `docker compose -f <path>` reads a file
+on the local disk, so an MCP client on your laptop cannot use it for an Applire on a NAS or a
+server — the client then shows the tool list as empty, or a "no such file" error. Replace the
+path with the real one, and if the client runs on another machine, go through SSH (key login,
+no password prompt — the client cannot type one). Put the token in a file on the server that
+only you can read (`umask 077; printf '%s' 'apl_…' > ~/.applire-token`), so it never appears in
+the client's config or in a process list:
+
+```json
+{
+  "mcpServers": {
+    "applire": {
+      "command": "ssh",
+      "args": [
+        "-T", "you@your-server",
+        "APPLIRE_AGENT_TOKEN=$(cat ~/.applire-token) docker compose -f /absolute/path/to/applire/docker-compose.yml exec -T -e APPLIRE_AGENT_TOKEN backend python -m applire.mcp"
+      ]
     }
   }
 }

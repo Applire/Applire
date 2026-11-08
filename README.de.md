@@ -372,15 +372,16 @@ scripts/backup.sh --verify backups/applire-backup-<timestamp>.tar.gz
 scripts/restore.sh backups/applire-backup-<timestamp>.tar.gz
 ```
 
-Aus den Release-Assets installiert, ohne zu klonen? Die Skripte liegen im Repository, nicht in den Release-Assets. Hol sie dir einmal, bevor du sie brauchst:
+Das Archiv enthält weder deine `.env` noch die `docker-compose.yml` — kopiere beide daneben (die `.env` enthält das Datenbank-Passwort, das Instanz-Secret und deinen Provider-Schlüssel; eine Wiederherstellung braucht dieselben Werte).
+
+Aus den Release-Assets installiert, ohne zu klonen? Seit 0.45.0-beta sind die Skripte ebenfalls Release-Assets. Hol sie dir einmal, bevor du sie brauchst:
 
 ```bash
-# Ohne Klonen aus den Release-Assets installiert? Hol beide Skripte einmal aus demselben
-# Release wie deine Images, in den Ordner mit der docker-compose.yml:
-TAG=$(curl -fsSL https://api.github.com/repos/Applire/Applire/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+# Beide Skripte einmal aus demselben Release wie deine Images holen,
+# in den Ordner mit der docker-compose.yml:
 mkdir -p scripts
 for f in backup.sh restore.sh; do
-  curl -fsSL -o "scripts/$f" "https://raw.githubusercontent.com/Applire/Applire/$TAG/scripts/$f"
+  curl -fsSL -o "scripts/$f" "https://github.com/Applire/Applire/releases/latest/download/$f"
 done
 chmod +x scripts/backup.sh scripts/restore.sh
 ```

@@ -194,7 +194,7 @@ export function AdminOverview() {
           <CardLink href="/admin/settings">{t("configLink")}</CardLink>
         </div>
       )}
-      <HealthStrip health={d.health} />
+      <HealthStrip health={d.health} failedJobs={d.failed_jobs.count} />
       <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-4">
         <Tile
           testId="admin-overview-tile-people"

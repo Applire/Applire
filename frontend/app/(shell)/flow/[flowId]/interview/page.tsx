@@ -33,12 +33,15 @@ import { describeConflict } from "@/lib/conflict-display";
 import { Archive, Check, Clock, Contrast, HelpCircle, Lock, Square } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
+import { ChoiceLeadIn, choiceButtonLabel } from "@/components/interview/ChoiceLeadIn";
 import { isPastInterview, reopenedSummarySessionId } from "@/components/interview/reopened-summary";
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
 import { markSeenThisSession, seenThisSession } from "@/lib/session-once";
+import { SLOW_TURN_AFTER_SECONDS, useTurnElapsed } from "@/components/interview/useSlowTurn";
 import {
   clusterView,
+  openRequirementConcepts,
   openThemeCount,
   requirementCounts,
   requirementTopics,
@@ -88,6 +91,10 @@ interface SessionCreateResponse {
   gaps_total: number;
   gaps_remaining: number;
   choices: string[] | null;
+  // UAT-2b/2c — index-aligned button questions + the concepts with no literal
+  // profile mention (lead-in); both optional, additive (ADR-095).
+  choice_asks?: (string | null)[] | null;
+  choice_unmentioned?: string[] | null;
   resumed: boolean;
   // issue #241 item 1 — the cluster-tracker anchor the backend actually
   // tracks (InterviewState.current_gap_index / addressed_gaps). current_gap_id
@@ -128,6 +135,8 @@ interface MessageResponse {
   question?: string;
   gaps_remaining?: number;
   choices?: string[] | null;
+  choice_asks?: (string | null)[] | null;
+  choice_unmentioned?: string[] | null;
   reason?: "gaps_resolved" | "user_ended" | "max_questions_reached";
   questions_asked?: number;
   gaps_resolved?: number;
@@ -273,6 +282,8 @@ function translateError(info: ApiErrorInfo, t: ReturnType<typeof useTranslations
     default:  return t("generic", { status: info.status });
   }
 }
+
+const OPEN_NAMES_SHOWN = 6;
 
 function getReasonLabel(
   reason: string,
@@ -584,6 +595,8 @@ export default function InterviewPage({
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  // 787:205 — a long reconcile wait is named, never a bare spinner.
+  const turnElapsed = useTurnElapsed(sending);
   const [error, setError] = useState("");
   // #256 — the exact user text a failed turn tried to send, so the Retry
   // affordance can re-send it verbatim instead of forcing a re-type. null
@@ -591,6 +604,10 @@ export default function InterviewPage({
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
 
   const [completion, setCompletion] = useState<CompletionData | null>(null);
+  // 787:207 — the profile page's completeness (`/api/profile/health`), read at
+  // completion so the end screen shows the number the profile shows; the
+  // turn's own score is only the fallback if that read fails.
+  const [profileCompleteness, setProfileCompleteness] = useState<number | null>(null);
   const [advancingToCV, setAdvancingToCV] = useState(false);
 
   const [pendingConflicts, setPendingConflicts] = useState<ConflictSummary[]>([]);
@@ -617,6 +634,8 @@ export default function InterviewPage({
   // page loaded (so the tracker shows "partly covered", not a check mark).
   const [turnCoverage, setTurnCoverage] = useState<Record<string, TurnClusterCoverage>>({});
   const [choices, setChoices] = useState<string[] | null>(null);
+  const [choiceAsks, setChoiceAsks] = useState<(string | null)[] | null>(null);
+  const [choiceUnmentioned, setChoiceUnmentioned] = useState<string[] | null>(null);
   const [matchScore, setMatchScore] = useState<number | null>(null);
   // 783:195 — the finished interview's session, when the page is reopened later.
   const [reopenedSessionId, setReopenedSessionId] = useState<string | null>(null);
@@ -693,6 +712,8 @@ export default function InterviewPage({
       );
       setMessages([{ role: "assistant", content: sessionData.question ?? sessionData.first_question }]);
       setChoices(sessionData.choices ?? null);
+      setChoiceAsks(sessionData.choice_asks ?? null);
+      setChoiceUnmentioned(sessionData.choice_unmentioned ?? null);
 
       // issue #241 item 1 — anchor the cluster tracker to the server's own
       // current_gap_id / addressed_gap_ids (InterviewState.current_gap_index /
@@ -748,6 +769,18 @@ export default function InterviewPage({
       if (r.ok) setGapAnalysis((await r.json()) as GapAnalysisData);
     } catch {
       // best-effort: the count keeps the last row it read
+    }
+  }
+
+  async function refreshProfileCompleteness() {
+    try {
+      const r = await fetch(`${API_BASE}/api/profile/health`);
+      if (!r.ok) return;
+      const body = (await r.json()) as { completeness?: { score?: unknown } };
+      const score = body?.completeness?.score;
+      if (typeof score === "number") setProfileCompleteness(score);
+    } catch {
+      // best-effort: the turn's score stays
     }
   }
 
@@ -808,6 +841,7 @@ export default function InterviewPage({
         // R2-10: the completion recompute moved the ledger — re-read the row
         // so the completion screen shows the SAME open count as the gaps page.
         void refreshGapAnalysis();
+        void refreshProfileCompleteness();
         setCompletion({
           reason: data.reason ?? "gaps_resolved",
           questions_asked: data.questions_asked ?? questionsAsked,
@@ -836,6 +870,8 @@ export default function InterviewPage({
 
         // Update choices
         setChoices(data.choices ?? null);
+        setChoiceAsks(data.choice_asks ?? null);
+        setChoiceUnmentioned(data.choice_unmentioned ?? null);
 
         // #789 (ruling F1-2) — a turn updates the ledger rows in place; re-read
         // the row so the one open-requirement count moves with the answers.
@@ -907,6 +943,7 @@ export default function InterviewPage({
   // #789 (ruling F1-2) — ONE count, the same helper the gaps page reads: the
   // row's open requirements (the ledger, re-read after every turn).
   const openCount = requirementCounts(gapAnalysis).open;
+  const openRequirementNames = openRequirementConcepts(gapAnalysis);
   const themeCount = openThemeCount(gapAnalysis?.gap_clusters);
   const currentClusterLabel =
     (currentClusterId && gapAnalysis?.gap_clusters.find((c) => c.id === currentClusterId)?.label) || null;
@@ -1042,6 +1079,16 @@ export default function InterviewPage({
                   : t("completionGapsResolved")
                 : t("completionOther")}
             </p>
+            {/* 787:207 — "1 requirement still open" names it. The same rows the
+                count counts (`openRequirementConcepts`). */}
+            {openCount > 0 && openRequirementNames.length > 0 && (
+              <p data-testid="completion-open-names" className="mt-2 text-sm text-on-surface">
+                {t("completionOpenNames", {
+                  names: openRequirementNames.slice(0, OPEN_NAMES_SHOWN).join(", "),
+                  more: Math.max(0, openRequirementNames.length - OPEN_NAMES_SHOWN),
+                })}
+              </p>
+            )}
           </div>
 
           {/* Stats row */}
@@ -1062,10 +1109,10 @@ export default function InterviewPage({
           </div>
 
           {/* Animated gauge */}
-          {completion.completeness_score !== null && (
+          {(profileCompleteness ?? completion.completeness_score) !== null && (
             <div className="flex justify-center mb-8">
               <ScoreGauge
-                score={completion.completeness_score}
+                score={(profileCompleteness ?? completion.completeness_score) as number}
                 label={t("profileCompleteness")}
                 testId="completeness-gauge"
               />
@@ -1167,7 +1214,14 @@ export default function InterviewPage({
           <div className="mb-4" data-testid="interview-header">
             <div className="flex items-start justify-between gap-3 mb-1">
               <p className="text-xs font-medium text-on-surface-variant font-body min-w-0">
-                <span data-testid="interview-question-number">{t("questionNumber", { current: questionsAsked })}</span>
+                {/* 787:215 — a profile check (a confirmation) is not gap elicitation:
+                    `questions_asked` does not move for it (RULING 787:L7), so it
+                    gets its own label instead of repeating "Frage N". */}
+                <span data-testid="interview-question-number">
+                  {pendingConfirmations.length > 0
+                    ? t("confirmationLabel")
+                    : t("questionNumber", { current: questionsAsked })}
+                </span>
                 {currentClusterLabel && (
                   <>
                     {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
@@ -1307,8 +1361,8 @@ export default function InterviewPage({
               Suppressed while a confirmation is pending (its options render in the card). */}
           {choices && choices.length > 0 && !completion && pendingConfirmations.length === 0 && (
             <div className="mt-4 space-y-2">
-              <p className="text-xs text-gray-400">{t("choiceCardHint")}</p>
-              {choices.map((choice) => (
+              <ChoiceLeadIn namespace="interview" asks={choiceAsks} unmentioned={choiceUnmentioned} />
+              {choices.map((choice, i) => (
                 <button
                   key={choice}
                   type="button"
@@ -1320,7 +1374,7 @@ export default function InterviewPage({
                   )}
                   onClick={() => setAnswer(choice)}
                 >
-                  {choice}
+                  {choiceButtonLabel(choices, choiceAsks, i)}
                 </button>
               ))}
             </div>
@@ -1377,6 +1431,15 @@ export default function InterviewPage({
               </div>
             </div>
           </div>
+          {sending && turnElapsed >= SLOW_TURN_AFTER_SECONDS && (
+            <p
+              data-testid="turn-slow"
+              role="status"
+              className="mt-2 px-1 text-xs text-on-surface-variant"
+            >
+              {t("turnSlow", { seconds: turnElapsed })}
+            </p>
+          )}
           </>
           )}
         </div>
@@ -1402,7 +1465,7 @@ export default function InterviewPage({
                 data-testid="tracker-open-count"
                 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-3"
               >
-                {t("trackerHeading", { count: openCount, topics: themeCount })}
+                {t("trackerHeading", { count: openCount, topics: themeCount, total: totalTopics })}
               </p>
               {topicClusters.map((cluster) => {
                 const turn = turnCoverage[cluster.id] ?? null;
@@ -1416,9 +1479,16 @@ export default function InterviewPage({
                 // helper, `clusterView`); the glyph SHAPE carries the state.
                 const view = clusterView(cluster, turn);
                 const tone = TONE[view.tone];
-                const declinedTerms = view.members
-                  .filter((m) => m.state === "declined")
-                  .map((m) => m.term);
+                // #821 (G-1) — the candidate's OWN wording where the server
+                // recorded one; a floored member (declined by a related denial
+                // it never named) is never listed as "you said you don't have".
+                const declinedTerms = [
+                  ...new Set(
+                    view.members
+                      .filter((m) => m.state === "declined" && m.floored !== true)
+                      .flatMap((m) => (m.deniedBy && m.deniedBy.length > 0 ? m.deniedBy : [m.term])),
+                  ),
+                ];
                 // Members, open ones first; a legacy row with no members
                 // falls back to the posting terms, shown neutrally.
                 // Lead G — a posting term (`requirement: false`) sorts after

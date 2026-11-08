@@ -59,6 +59,7 @@ from applire.prompts.interview import (
     build_guided_question_prompt,
     build_question_prompt,
     language_name,
+    unmentioned_constituents,
     with_language,
 )
 from applire.prompts.review_question_language import (
@@ -70,7 +71,7 @@ from applire.prompts.review_question_language import (
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import llm_log_stage
 from applire.schemas.session import InterviewState
-from applire.services.choice_grounding import filter_ungrounded_choices
+from applire.services.choice_grounding import filter_ungrounded_choices, record_offered_choices
 from applire.services.interview_quant import detect_unquantified_concepts
 from applire.services.reviewer import review_and_refine
 from applire.utils.display import format_display_value
@@ -432,11 +433,18 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
     for reviewed, pre in zip(reviewed_choices, pre_review_choices):
         pre_level = pre.get("level") if isinstance(pre, dict) else None
         pre_denied = pre.get("denied_terms") if isinstance(pre, dict) else None
+        # UAT-2b (2026-11-08): the button label rides the same fill-in-only
+        # carry. A dropped ``ask`` is filled from the same index (the draft was
+        # already written in the UI language); a reviewed ``ask`` is trusted.
+        pre_ask = pre.get("ask") if isinstance(pre, dict) else None
+        pre_ask = pre_ask if isinstance(pre_ask, str) and pre_ask.strip() else None
 
         if isinstance(reviewed, dict):
             needs_level = reviewed.get("level") not in _VALID_CHOICE_LEVELS and pre_level is not None
             needs_denied = not isinstance(reviewed.get("denied_terms"), list) and isinstance(pre_denied, list)
-            if not needs_level and not needs_denied:
+            own_ask = reviewed.get("ask")
+            needs_ask = not (isinstance(own_ask, str) and own_ask.strip()) and pre_ask is not None
+            if not needs_level and not needs_denied and not needs_ask:
                 carried.append(reviewed)  # everything rode with its own text — trust it
                 continue
             merged = dict(reviewed)
@@ -444,8 +452,10 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
                 merged["level"] = pre_level
             if needs_denied:
                 merged["denied_terms"] = pre_denied
+            if needs_ask:
+                merged["ask"] = pre_ask
             carried.append(merged)
-        elif pre_level is not None or isinstance(pre_denied, list):
+        elif pre_level is not None or isinstance(pre_denied, list) or pre_ask is not None:
             # Reviewed choice came back as a bare string (schema drift) —
             # reattach the pre-review metadata at this position rather than
             # letting it fall back to the unrecognised-level safe default.
@@ -454,6 +464,8 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
                 rebuilt["level"] = pre_level
             if isinstance(pre_denied, list):
                 rebuilt["denied_terms"] = pre_denied
+            if pre_ask is not None:
+                rebuilt["ask"] = pre_ask
             carried.append(rebuilt)
         else:
             carried.append(reviewed)  # nothing to carry — leave as reviewed produced it
@@ -557,9 +569,13 @@ async def question_generator_with_profile(
             # Same code-level truthfulness guarantee as MODE A (#110/ADR-062) —
             # a chip that asserts an un-evidenced JD/cluster term, or
             # misattributes one to the wrong employer, never reaches the user.
+            drafted_choices = reviewed["choices"]
             reviewed["choices"] = filter_ungrounded_choices(
-                reviewed["choices"], cluster, profile, gap_category
+                drafted_choices, cluster, profile, gap_category
             )
+            # G-3 (ADR-064 amended 2026-11-04) — same fact as MODE A below; the
+            # probe names no literal-check list (UAT-2c: plain lead-in).
+            record_offered_choices(state, drafted_choices, reviewed["choices"], unmentioned=[])
             reviewed["question"] = str(reviewed.get("question", "")).strip()
             return reviewed
 
@@ -715,9 +731,25 @@ async def question_generator_with_profile(
     # choice_grounding.py guessing it from a phrase-marker list. This call
     # also flattens back to list[str] — the API contract in
     # schemas/session.py (choices: list[str] | None) is unchanged.
+    drafted_choices = reviewed["choices"]
     reviewed["choices"] = filter_ungrounded_choices(
-        reviewed["choices"], cluster, profile, gap_category
+        drafted_choices, cluster, profile, gap_category
     )
+    # G-3 (ADR-064 amended 2026-11-04): the delivered choices' own `level` and
+    # `denied_terms` ("named WITHOUT claiming") are flattened away above, but
+    # the turn that answers this question needs them — a clicked "…, aber zu X
+    # steht in meinem Profil noch nichts" must reach the reconciler as what it
+    # is. Kept in the session state as a fact (`offered_choice_terms`); the
+    # API contract (`choices: list[str]`) is unchanged.
+    # UAT-2c (founder 2026-11-08): the lead-in above the chips names the
+    # producer's own literal list — the open constituents with no word-for-word
+    # mention, exactly what the prompt was told — so "keine direkte Nennung"
+    # is true by construction. A B confirmation names none (plain lead-in).
+    unmentioned = (
+        [] if gap_category == "B"
+        else unmentioned_constituents(cluster, profile, follow_up_focus)
+    )
+    record_offered_choices(state, drafted_choices, reviewed["choices"], unmentioned=unmentioned)
     reviewed["question"] = str(reviewed.get("question", "")).strip()
     reviewed.update(follow_up_split)
     return reviewed
@@ -955,7 +987,8 @@ _SECTION_FIELD_LABEL = {
     },
 }
 
-#: The nine `EnrichmentRecord.source` values, in the candidate's words. Mirrors
+#: The `EnrichmentRecord.source` values that can write a conflict (an ``undo``
+#: record never does), in the candidate's words. Mirrors
 #: `frontend/lib/enrichment-sources.ts` -> `profile.sources.*`; an unmapped
 #: value (e.g. `reconcile/migrate.py`'s "migration") degrades to honest vagueness
 #: rather than to "an import", which is the whole defect.

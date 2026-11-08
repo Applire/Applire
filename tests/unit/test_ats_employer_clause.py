@@ -293,3 +293,155 @@ def test_803_belt_is_letters_only():
     t = _norm("Rheinwerk Verpackungen GmbH: Konsumgüter-Linie aufgebaut.")
     cov = _keyword_coverage(t, ["Konsumgüter"], [_gap("Konsumgüter")], non_claim=cv_names)
     assert cov.present_unsupported_employer_sentence == []
+
+
+# ── #803 reopened (build 7, R2-7): the letter addresses the employer ──────────
+# Round 3 (ux-audit-3, luna): the delivered letters named no employer in the
+# sentence that restated its business — Marcus "Ihre Fertigung … Verbundverpackungen",
+# Felix "Your checkout, settlement and payout platform aligns with my …".
+
+
+def _cov_letter(text: str, term: str, names):
+    from applire.services.ats_audit import _norm_cased
+
+    return _keyword_coverage(_norm(text), [term], [_gap(term)], non_claim=names, text_cased=_norm_cased(text))
+
+
+def test_803_reopened_your_clause_is_neutral_felix_round3():
+    t = ("I am applying for the Senior Backend Engineer role at NovaPay GmbH. Your checkout, settlement "
+         "and payout platform aligns with my backend work on invoice-dunning workflows.")
+    cov = _cov_letter(t, "Settlement", _NOVAPAY)
+    assert cov.present_unsupported == ["Settlement"]
+    assert cov.present_unsupported_employer_sentence == ["Settlement"]
+
+
+def test_803_reopened_ihre_clause_is_neutral_marcus_round3():
+    t = ("hiermit bewerbe ich mich als Leiter Operations (m/w/d) bei der Rheinwerk Verpackungen GmbH. "
+         "Ihre Fertigung hochwertiger Kunststoff- und Verbundverpackungen für Konsumgüter- und "
+         "Lebensmittelkunden verbindet sich mit Produktionsführung – Bereiche, in denen ich "
+         "einschlägige Erfahrung mitbringe.")
+    cov = _cov_letter(t, "Verbundverpackungen", _RHEINWERK)
+    assert cov.present_unsupported_employer_sentence == ["Verbundverpackungen"]
+
+
+def test_803_reopened_the_claim_after_the_first_person_word_stays_checked():
+    """Main's acceptance (MD7-2): "Your team's … matches my five years of …" — the
+    clause ends at the first first-person word; the claim half stays red."""
+    t = "Your team's settlement work matches my five years of settlement engineering."
+    cov = _cov_letter(t, "Settlement", _NOVAPAY)
+    assert cov.present_unsupported == ["Settlement"]
+    assert cov.present_unsupported_employer_sentence == []
+
+
+def test_803_reopened_a_term_only_in_the_claim_half_stays_checked():
+    t = "Your platform matches my five years of settlement engineering."
+    cov = _cov_letter(t, "Settlement", _NOVAPAY)
+    assert cov.present_unsupported_employer_sentence == []
+
+
+def test_803_reopened_lowercase_ihre_is_their_not_your():
+    """"ihre" (their/her) is no address — only the capitalised possessive is."""
+    t = ("Ich habe drei Schichtleiter geführt und ihre Teams in der Verbundverpackungen-Fertigung "
+         "aufgebaut.")
+    cov = _cov_letter(t, "Verbundverpackungen", _RHEINWERK)
+    assert cov.present_unsupported_employer_sentence == []
+
+
+def test_803_reopened_a_pronoun_is_no_anchor():
+    """"I can help you scale Kafka" carries the candidate's capability: "you" / "Sie"
+    never open the clause, only the possessive does."""
+    t = "I can help you scale settlement systems quickly."
+    cov = _cov_letter(t, "Settlement", _NOVAPAY)
+    assert cov.present_unsupported_employer_sentence == []
+    t2 = "Gern unterstütze ich Sie beim Aufbau Ihrer Plattform mit Verbundverpackungen-Erfahrung aus zehn Jahren."
+    cov2 = _cov_letter(t2, "Verbundverpackungen", _RHEINWERK)
+    # A-3 (build 7 adversarial pass) renegotiated this line: it used to assert the term
+    # moved to the employer row, but "... mit Verbundverpackungen-Erfahrung aus zehn
+    # Jahren" is the CANDIDATE's experience claim; the clause stops before it.
+    assert cov2.present_unsupported_employer_sentence == []
+    assert cov2.present_unsupported == ["Verbundverpackungen"]
+    # the employer's own business inside the same "Ihrer ..." clause is still refused
+    t3 = "Gern unterstütze ich Sie beim Aufbau Ihrer Plattform für Verbundverpackungen."
+    cov3 = _cov_letter(t3, "Verbundverpackungen", _RHEINWERK)
+    assert cov3.present_unsupported_employer_sentence == ["Verbundverpackungen"]
+
+
+def test_803_reopened_without_case_data_german_is_not_read():
+    """A caller passing no case-kept text keeps the English possessive only."""
+    t = "Ihre Fertigung von Verbundverpackungen beeindruckt."
+    cov = _keyword_coverage(_norm(t), ["Verbundverpackungen"], [_gap("Verbundverpackungen")], non_claim=_RHEINWERK)
+    assert cov.present_unsupported_employer_sentence == []
+
+
+def test_803_reopened_the_mask_never_reads_the_second_person_clause():
+    """R-2 stands: "your" is no anchor of the MASK (the term stays flagged, listed)."""
+    m = _masked("Your checkout and settlement platform interests me.", _NOVAPAY)
+    assert "settlement" in m
+
+
+# ── #803 reopened: the Oracle's employer-fact verdict joins the belt ────────
+
+
+def _letter_report(terms, sentences, es=()):
+    return {
+        "document": "cover_letter",
+        "keywords": {
+            "present_unsupported": list(terms),
+            "present_unsupported_employer_sentence": list(es),
+            "present_unsupported_sentences": sentences,
+            "present_unsupported_matches": {t: [{"form": t, "stem": False}] for t in terms},
+        },
+    }
+
+
+def _truth(*employer_fact_texts, claim_texts=()):
+    claims = [
+        {"claim": {"text": x}, "verdict": {"verdict": "not_applicable", "detail_key": "triageEmployerFact"}}
+        for x in employer_fact_texts
+    ] + [
+        {"claim": {"text": x}, "verdict": {"verdict": "grounded", "detail_key": None}} for x in claim_texts
+    ]
+    return {"claims": claims}
+
+
+def test_803_reopened_triage_employer_fact_moves_the_term():
+    from applire.services.ats_audit import apply_letter_employer_facts
+
+    s = _norm("Die Fertigung hochwertiger Kunststoff- und Verbundverpackungen verbindet sich mit "
+              "Produktionsführung – Bereiche, in denen ich Erfahrung mitbringe.")
+    rep = _letter_report(["Verbundverpackungen"], {"Verbundverpackungen": [s]})
+    out = apply_letter_employer_facts(rep, _truth(
+        "Die Fertigung hochwertiger Kunststoff- und Verbundverpackungen verbindet sich mit Produktionsführung"
+    ))
+    assert out["keywords"]["present_unsupported_employer_sentence"] == ["Verbundverpackungen"]
+    assert rep["keywords"]["present_unsupported_employer_sentence"] == []  # input untouched
+
+
+def test_803_reopened_triage_a_second_sentence_keeps_the_red_row():
+    from applire.services.ats_audit import apply_letter_employer_facts
+
+    s1 = _norm("Die Fertigung von Verbundverpackungen beeindruckt mich.")
+    s2 = _norm("Ich habe zehn Jahre Verbundverpackungen produziert.")
+    rep = _letter_report(["Verbundverpackungen"], {"Verbundverpackungen": [s1, s2]})
+    out = apply_letter_employer_facts(rep, _truth("Die Fertigung von Verbundverpackungen beeindruckt mich."))
+    assert out["keywords"]["present_unsupported_employer_sentence"] == []
+
+
+def test_803_reopened_triage_candidate_claims_never_move():
+    from applire.services.ats_audit import apply_letter_employer_facts
+
+    s = _norm("Ich habe zehn Jahre Verbundverpackungen produziert.")
+    rep = _letter_report(["Verbundverpackungen"], {"Verbundverpackungen": [s]})
+    out = apply_letter_employer_facts(rep, _truth(claim_texts=["Ich habe zehn Jahre Verbundverpackungen produziert."]))
+    assert out["keywords"]["present_unsupported_employer_sentence"] == []
+
+
+def test_803_reopened_triage_refinement_is_letters_only_and_never_raises():
+    from applire.services.ats_audit import apply_letter_employer_facts
+
+    cv = dict(_letter_report(["X"], {"X": ["x"]}), document="cv")
+    assert apply_letter_employer_facts(cv, _truth("x")) is cv
+    assert apply_letter_employer_facts(None, None) is None
+    garbage = {"document": "cover_letter", "keywords": {"present_unsupported": ["X"], "present_unsupported_sentences": "nope"}}
+    assert apply_letter_employer_facts(garbage, {"claims": "bad"}) is garbage
+    assert apply_letter_employer_facts(garbage, _truth("x")) is garbage

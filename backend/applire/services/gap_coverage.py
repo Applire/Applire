@@ -79,6 +79,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -246,6 +247,30 @@ def _is_floored_only(member: str, rows: list[dict[str, Any]], denials: list[str]
     )
 
 
+def _denial_wordings(member: str, rows: list[dict[str, Any]], denials: list[str]) -> list[str]:
+    """#821 (founder ruling G-1) — the candidate's OWN wording of every recorded
+    denial that declines ``member``: the records that declare it
+    (``declared_denial_matches``, longest first) and the ``denied_by`` of the
+    member's own ``denied`` rows (a classifier binding by id, or the declared
+    record the floor stamped). Deduplicated by the ledger normaliser, in that
+    order. Surfaces quote these instead of the member's bare term ("You said
+    you don't have: ECMO certification", never "…: ECMO"). A fact (ADR-062
+    cl. 1)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    candidates = list(declared_denial_matches(member, denials)) if denials else []
+    for row in _own_rows(member, rows):
+        bound = row.get("denied_by")
+        if row.get("status") == "denied" and isinstance(bound, str) and bound.strip():
+            candidates.append(bound.strip())
+    for wording in candidates:
+        key = _norm(wording)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(wording)
+    return out
+
+
 def _is_anchored(row: dict[str, Any], member: str) -> bool:
     """The row's own CONCEPT is the member or contains it — the member's own
     requirement, or a narrower one (``5+ years Python experience`` for the
@@ -317,6 +342,50 @@ def _has_claimable_signal(member: str, rows: list[dict[str, Any]]) -> bool:
 # ---------------------------------------------------------------------------
 # Public contract
 # ---------------------------------------------------------------------------
+
+
+def asked_requirement_concepts(
+    clusters: list[dict[str, Any]] | None, keyword_ledger: list[dict[str, Any]] | None
+) -> set[str]:
+    """790:78 / R2-6 (5) — the ledger rows (casefolded ``concept``) a gap cluster
+    the interview ASKED about (``outcome.asked > 0``) or recorded a decline on
+    speaks for. "Never asked" is a claim about what the system did, so it is
+    read off the system's own records: the cluster's outcome, and the same
+    member-to-row join coverage uses (a member's OWN rows, else rows naming it as
+    a whole word — never a bare substring, which would let "AI" speak for
+    "domain"). Felix round 2: the row "Payment settlement" sat under the asked
+    member "Settlement" and was still listed as never asked, because the notice
+    compared names only. A fact (ADR-062 cl. 1)."""
+    out: set[str] = set()
+    for cluster in clusters or []:
+        if not isinstance(cluster, dict):
+            continue
+        outcome = _outcome_of(cluster)
+        if not outcome["asked"] and not outcome["declined"]:
+            continue
+        names = all_members(cluster) + _str_list(cluster.get("jd_skills"))
+        for name in names:
+            key = _norm(name)
+            if not key:
+                continue
+            rows = _rows_for(name, keyword_ledger)
+            speaking = _own_rows(name, rows) or [
+                row for row in rows
+                if any(_word_bounded(key, _norm(n)) or _word_bounded(_norm(n), key)
+                       for n in _row_names(row))
+            ]
+            for row in speaking:
+                concept = (row.get("concept") or "").strip().casefold()
+                if concept:
+                    out.add(concept)
+    return out
+
+
+def _word_bounded(part: str, whole: str) -> bool:
+    """``part`` occurs in ``whole`` as whole words (normalised strings)."""
+    if not part or not whole or len(part) > len(whole):
+        return False
+    return re.search(rf"(?<!\w){re.escape(part)}(?!\w)", whole) is not None
 
 
 def all_members(cluster: dict[str, Any]) -> list[str]:
@@ -398,10 +467,19 @@ def member_statuses(
             "status": "declined" if recorded else _member_status(member, keyword_ledger, denials),
             "requirement": member_is_requirement(member, keyword_ledger),
         }
+        rows = _rows_for(member, keyword_ledger)
         # G-4 — declined by a related denial's FLOOR, not by naming it. The key
         # is present only when True (GapClusterMemberStatus.floored defaults False).
-        if not recorded and _is_floored_only(member, _rows_for(member, keyword_ledger), denials):
+        # #821: also when the turn RECORDED the member declined off such a row —
+        # the record does not make the candidate have named it.
+        if item["status"] == "declined" and _is_floored_only(member, rows, denials):
             item["floored"] = True
+        # #821 (G-1): the candidate's own scoped wording travels with a declined
+        # chip, published only when there is one (ADR-095: additive).
+        if item["status"] == "declined":
+            wordings = _denial_wordings(member, rows, denials)
+            if wordings:
+                item["denied_by"] = wordings
         out.append(item)
     # 787:95 — a member folded into a finished card: its own chip status, marked
     # so no surface lets it colour or reopen the card.

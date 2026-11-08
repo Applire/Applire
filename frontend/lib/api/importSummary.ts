@@ -28,6 +28,8 @@ export interface ImportSummary {
   kept_separate: KeptSeparateItem[];
   restated: RestatedReceiptItem[];
   not_applied_total: number;
+  /** 783:260 — this import created the profile; `groups` are its current section sizes. */
+  created?: boolean;
 }
 
 export async function fetchImportSummary(): Promise<ImportSummary> {

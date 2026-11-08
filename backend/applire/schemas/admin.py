@@ -47,6 +47,9 @@ class AdminUserMetadata(BaseModel):
     #: LLM tokens (``llm_usage.total_tokens``) of the last 30 days (W0B-1, CONTRACT-CHANGE
     #: 1b-1); ``None`` while ``llm_usage`` carries no ``user_id`` (before migration 0075).
     ai_tokens_30d: int | None = None
+    #: 789:267 (Hazelnut build 7, WP-O; CONTRACT-CHANGE, additive): live agent + api
+    #: tokens — the number "Alle Tokens widerrufen" would revoke. A count only (S-4).
+    active_token_count: int | None = None
 
 
 class AdminUserItem(BaseModel):
@@ -189,7 +192,7 @@ class OpsHealthResponse(BaseModel):
 # ===========================================================================
 
 SettingKind = Literal["enum", "string", "bool", "secret"]
-SettingGroup = Literal["llm", "scraper", "retention"]
+SettingGroup = Literal["llm", "scraper", "retention", "ops"]
 #: Where the effective value comes from (ADR-093 cl. 3, ruling C1-2):
 #: ``panel`` = an admin override stored in the database (wins over env);
 #: ``env`` = the operator set it in the environment / ``.env``;
@@ -241,6 +244,9 @@ class ProviderStatus(BaseModel):
     #: ``has_key or not key_required`` — the provider can be made active.
     ready: bool
     active: bool
+    #: Whether the ops probe's free ``credit`` half can read a balance for this
+    #: provider (ADR-093 amended 2026-11-06). Additive.
+    balance_check: bool = False
     # No per-model verdict (ADR-093 amended 2026-10-10, clause 10): the panel
     # links docs/llm-models.md, which is the only place a model is judged.
 
@@ -380,6 +386,13 @@ class DashboardComponent(BaseModel):
     #: provider: the dashboard never pings it inline, adv-admin ADM-5); ``None`` =
     #: measured in this request, or never measured yet.
     checked_at: datetime | None = None
+    #: 785:251 (Hazelnut build 7, WP-O): the backup is not set up yet and still
+    #: inside its first-run grace (probe ``ok``, no ``last_backup_at``). ``ok`` is
+    #: true to "nothing is overdue", not to "a backup exists" — the console shows
+    #: this as a neutral to-do, never as green "in Ordnung". Additive.
+    not_set_up: bool = False
+    #: When the first backup is due (the grace window's end), with ``not_set_up``.
+    due_by: datetime | None = None
 
 
 class DashboardHealth(BaseModel):

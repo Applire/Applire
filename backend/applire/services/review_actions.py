@@ -119,6 +119,17 @@ class TakeOutProtectedName(Exception):
     Refused before any model call (→ 409); the user edits."""
 
 
+class FindingAboutEmployer(Exception):
+    """#803 (R2-7, reopened build 7): the finding's term sits only where the letter
+    speaks about the employer (``GroupOneFinding.employer_sentence``). Writing it
+    into the profile would record the EMPLOYER's business as the candidate's
+    experience (`triage:vault-integrity`). Refused before any model call (→ 409
+    ``finding_about_employer``); take-out and edit stay."""
+
+    def __init__(self, key: str):
+        super().__init__(f"finding {key!r} is about the employer, not the candidate")
+
+
 class FindingDenied(Exception):
     """Build-2 delivery F2 (SF-REVIEW.18): one of the candidate's own recorded
     denials covers the finding's term (``GroupOneFinding.denials``), so writing
@@ -350,7 +361,13 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
         finding = _listed_or_raise(record, key)
         if finding.denials:
             raise FindingDenied(key, finding.denials)
-        testimony = await submit_testimony(text, db, provider, user_id=owner)
+        if finding.employer_sentence:
+            raise FindingAboutEmployer(key)
+        # A-5 (MD7-10): the card writes what THIS document already says — the
+        # record names it, so its "Profil aktualisiert" cue stays quiet.
+        testimony = await submit_testimony(
+            text, db, provider, user_id=owner, document_kind=kind, document_id=doc_id
+        )
         await reaudit(kind, record, db)
         vault_changed = testimony.status in ("applied", "partial")
         still = rs.find_listed(findings_of(record), key) is not None
@@ -477,6 +494,8 @@ async def confirm_supported(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSe
         finding = _listed_or_raise(record, key)
         if finding.denials:
             raise FindingDenied(key, finding.denials)
+        if finding.employer_sentence:
+            raise FindingAboutEmployer(key)
         profile = await get_profile_for_user(db, owner)
         profile_json = (profile.profile_json if profile else None) or {}
         found = support_in_profile(finding.wording(), profile_json, user_id=owner)
@@ -1083,13 +1102,17 @@ SKILL_REMOVAL_KIND = "oracle:skillNoEvidence"
 async def skill_backed_now(record, skill: str, db: AsyncSession, *, user_id: uuid.UUID) -> bool:
     """Would the Oracle ground ``skill`` on the profile as it stands NOW? The
     producer's own deterministic arm (``ground_skill_claim`` over the claimable
-    vault + the job's claimable ledger forms, as ``audit.py`` reads them). The
-    cross-language equivalence judgement (ADR-068 Seam A) is a model call and is
-    not re-run here — a miss it would have rescued reads as not backed. Never
-    raises: a failure is "not backed" (the removal stands, the copy says so)."""
+    vault + the job's claimable ledger forms, as ``audit.py`` reads them), then
+    the chip arm ADR-100 M-3 added there: a backed ledger row the chip names
+    whose verified quote still resolves (``oracle.backing.skill_backed_by_ledger``
+    — one reader, no re-judging). The cross-language equivalence judgement
+    (ADR-068 Seam A) is a model call and is not re-run here — a miss it would
+    have rescued reads as not backed. Never raises: a failure is "not backed"
+    (the removal stands, the copy says so)."""
     try:
         from applire.services.gap import _latest_gap_analysis
         from applire.services.oracle.audit import _claimable_index
+        from applire.services.oracle.backing import skill_backed_by_ledger
         from applire.services.oracle.matchers.grounding import ground_skill_claim
         from applire.services.profile import _get_latest
 
@@ -1097,12 +1120,17 @@ async def skill_backed_now(record, skill: str, db: AsyncSession, *, user_id: uui
         if profile is None or not skill.strip():
             return False
         forms = None
+        ledger = None
         gap = await _latest_gap_analysis(record.job_analysis_id, db, user_id=user_id)
         if gap is not None and gap.keyword_ledger:
             from applire.services.keyword_ledger import claimable_surface_form_groups
 
-            forms = claimable_surface_form_groups(gap.keyword_ledger, exclude_keyword_only=True) or None
-        return ground_skill_claim(skill, _claimable_index(profile.profile_json), forms) is not None
+            ledger = gap.keyword_ledger
+            forms = claimable_surface_form_groups(ledger, exclude_keyword_only=True) or None
+        index = _claimable_index(profile.profile_json)
+        if ground_skill_claim(skill, index, forms) is not None:
+            return True
+        return skill_backed_by_ledger(skill, ledger, profile.profile_json, index) is not None
     except Exception:  # noqa: BLE001
         logger.exception("removal_evidence: skill re-grounding failed — read as not backed")
         return False

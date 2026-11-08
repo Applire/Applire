@@ -273,8 +273,17 @@ def ungrounded_limits(
     letter_data: dict[str, Any] | None,
     keyword_ledger: list[dict[str, Any]] | None,
     denied_concepts: list[Any] | None,
+    *,
+    named_gaps: list[str] | None = None,
 ) -> list[UngroundedLimit]:
-    """Every concept this draft denies that the candidate never denied.
+    """Every concept this draft denies that neither the candidate denied nor the
+    G-1 gap ladder names.
+
+    ``named_gaps`` (ADR-076 amended 2026-11-04, RULING G-1): the concepts of the
+    gaps :func:`cross_document.gaps_to_name` chose — the letter is REQUIRED to name
+    them, so a sentence naming one is grounded by the ladder. Since RULING L-1 / L-2 = B
+    (#820, 2026-11-07) every named gap is a recorded DENIAL; a never-asked gap is never
+    named, so a sentence denying one is an invented limit here like any other.
 
     Pure, deterministic, ``None``/malformed tolerant. Fails in the direction
     that does NOT cut: an unreadable shape, an empty ledger, or a concept whose
@@ -283,7 +292,11 @@ def ungrounded_limits(
     paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
     if not isinstance(paragraphs, list):
         return []
-    grounded_norm = [ats_norm(label) for label in _denied_labels(denied_concepts, keyword_ledger)]
+    grounded_norm = [
+        ats_norm(label)
+        for label in [*_denied_labels(denied_concepts, keyword_ledger), *(named_gaps or [])]
+        if label
+    ]
 
     findings: list[UngroundedLimit] = []
     for index, paragraph in enumerate(paragraphs):
@@ -319,15 +332,21 @@ def has_no_ungrounded_limit(
     letter_data: dict[str, Any] | None,
     keyword_ledger: list[dict[str, Any]] | None,
     denied_concepts: list[Any] | None,
+    *,
+    named_gaps: list[str] | None = None,
 ) -> bool:
     """Structural predicate over a composed letter — true when it invents no limit."""
-    return not ungrounded_limits(letter_data, keyword_ledger, denied_concepts)
+    return not ungrounded_limits(
+        letter_data, keyword_ledger, denied_concepts, named_gaps=named_gaps
+    )
 
 
 def cut_ungrounded_limits(
     letter_data: dict[str, Any],
     keyword_ledger: list[dict[str, Any]] | None,
     denied_concepts: list[Any] | None,
+    *,
+    named_gaps: list[str] | None = None,
 ) -> tuple[dict[str, Any], list[UngroundedLimit]]:
     """ADR-075 amended clause 2c — the LAST resort: delete every body sentence
     still carrying an ungrounded limit and return the letter plus what was cut.
@@ -336,7 +355,9 @@ def cut_ungrounded_limits(
     OPEN: when the cut would leave the body with no paragraph at all, the
     original letter is returned untouched and the finding is still reported, so
     the terminal review still names it."""
-    findings = ungrounded_limits(letter_data, keyword_ledger, denied_concepts)
+    findings = ungrounded_limits(
+        letter_data, keyword_ledger, denied_concepts, named_gaps=named_gaps
+    )
     if not findings:
         return letter_data, []
 
@@ -385,6 +406,7 @@ def limit_signal_issues_fn(
     compose_fn,
     *,
     limit: int = 2,
+    named_gaps: list[str] | None = None,
 ):
     """Bind the ledger + denials to ``review_and_refine``'s ``signal_issues_fn``
     (ADR-076 clause 5): each round's own draft is composed and scanned, and every
@@ -407,7 +429,9 @@ def limit_signal_issues_fn(
             return []
         return [
             ReviewIssue(text=f.issue_text(), severity=SEVERITY_BLOCKING)
-            for f in ungrounded_limits(composed, keyword_ledger, denied_concepts)[:limit]
+            for f in ungrounded_limits(
+                composed, keyword_ledger, denied_concepts, named_gaps=named_gaps
+            )[:limit]
         ]
 
     return fn

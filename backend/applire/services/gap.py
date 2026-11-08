@@ -76,7 +76,7 @@ from applire.services.keyword_ledger import (
     keyword_liabilities,
     keyword_only_honest_gaps,
 )
-from applire.services.profile.reconcile.stance import denial_release_corpus
+from applire.services.profile.reconcile.stance import denial_release_corpus, exclude_unconfirmed
 from applire.services.match_score import compute_match_score_from_ledger
 from applire.services.scope_requirements import (
     build_scope_ledger_entries,
@@ -710,10 +710,20 @@ async def _cluster_concepts(
     lang = await get_conversation_language(
         db, job_id=job.id, user_id=getattr(gap_analysis, "user_id", None)
     )
+    liabilities = [
+        e.get("concept", "")
+        for e in keyword_liabilities(getattr(gap_analysis, "keyword_ledger", None))
+    ]
+    # 787:213 (prompt v5): a #260 liability is a demonstrated requirement with no
+    # story yet — the prompt receives it under its own heading, never under
+    # "Category C gaps (missing evidence)". The reconcile below still reads the
+    # whole augmented list (the liability fold is unchanged).
+    liability_norms = {_norm_gap(c) for c in liabilities if c}
     raw = await provider.aparse_json(
         build_clustering_prompt(
             category_b=list(category_b),
-            category_c=list(category_c),
+            category_c=[c for c in category_c if _norm_gap(c) not in liability_norms],
+            stories=[c for c in category_c if _norm_gap(c) in liability_norms],
             required_skills=list(job.required_skills or []),
             nice_to_have_skills=list(job.nice_to_have_skills or []),
             lang=lang,
@@ -759,10 +769,7 @@ async def _cluster_concepts(
         category_c=list(category_c),
         category_b=list(category_b),
         category_a=list(getattr(gap_analysis, "category_a", None) or []),
-        liabilities=[
-            e.get("concept", "")
-            for e in keyword_liabilities(getattr(gap_analysis, "keyword_ledger", None))
-        ],
+        liabilities=liabilities,
     )
 
 
@@ -822,7 +829,12 @@ def _compute_embedding_similarity(
 #: — which is what makes ADR-061's 2026-08-02 amendment structural rather than
 #: rule-dependent (see :func:`ledger_input_from_classification`).
 _LEDGER_PUBLISHABLE_KEYS = frozenset(
-    {"concept", "status", "evidence", "surface_forms", "adjacent_evidence"}
+    # ADR-100: `evidence_quote` is the candidate's OWN profile text, copied
+    # verbatim — publishable by construction, and only ever used after the floor
+    # has verified it exists in the claimable vault (`backing.unit_path`).
+    # ADR-100 M-2: `denied_by` is the id of the candidate's OWN recorded denial
+    # (its `concept`), checked by the ledger floor against the live records.
+    {"concept", "status", "evidence", "surface_forms", "adjacent_evidence", "evidence_quote", "denied_by"}
 )
 
 
@@ -856,6 +868,13 @@ def ledger_input_from_classification(c: dict[str, Any], *, user_id: uuid.UUID | 
         # adjacent capability, so the writers can promote arc42 rather than
         # being told to surface the JD's word "TOGAF".
         "adjacent_evidence": c.get("adjacent_evidence"),
+        # ADR-100 cl. 2 — the classifier's verbatim vault span; verified at the
+        # ledger's persist seams (`assert_claimable_backed`), never trusted here.
+        "evidence_quote": c.get("evidence_quote"),
+        # ADR-100 amended 2026-11-04 (M-2) — the id of the recorded denial the
+        # classifier says rules this requirement out; checked against the live
+        # records by the ledger's denial floor, never trusted here.
+        "denied_by": c.get("denied_by"),
     }
 
 
@@ -1260,6 +1279,86 @@ async def _carry_forward_clusters(
     return carried + appended
 
 
+
+_REASK_INSTRUCTION = (
+    "\n\nRE-ASK — for the requirements below your evidence_quote does not occur verbatim in one "
+    "CANDIDATE PROFILE entry (or is too short to show anything on its own). For each, classify "
+    "again: copy a span character for character from ONE profile entry into evidence_quote, or "
+    'set status "gap". Return {"classifications": [...]} for these requirements only.\n'
+)
+
+
+async def _reask_unverified_quotes(
+    provider: LLMProvider, user_prompt: str, data: dict, profile_json: dict | None
+) -> dict:
+    """ADR-100 cl. 2 — a missing model field is fixed at the PRODUCER: rows
+    graded ``direct``/``partial`` whose ``evidence_quote`` does not pass the
+    Fact (:func:`applire.services.citation.quote_in_vault`) and whose own term
+    the floor's literal arm cannot ground either (so the floor WOULD heal them)
+    get ONE targeted
+    re-ask naming only those rows. What is still unquoted afterwards meets the
+    ledger floor's literal arm and heals there — never a downstream repair.
+
+    A failed re-ask (provider error, unparseable reply) leaves the first answer
+    untouched: the floor still decides every row, so failing here can only cost
+    claim strength, never truth (fail closed on claimability)."""
+    classifications = data.get("classifications") if isinstance(data, dict) else None
+    if not isinstance(classifications, list) or not profile_json:
+        return data
+    from applire.services.citation import quote_in_vault
+    from applire.services.oracle.matchers.vault import build_vault_index
+
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+
+    try:
+        index = build_vault_index(exclude_unconfirmed(profile_json))
+    except Exception:  # the floor degrades the same way; never fail the analysis here
+        return data
+
+    def _literal_hit(c: dict) -> bool:
+        # the floor's literal arm backs this row already: its quote is not needed
+        probes = [c.get("requirement"), *(c.get("surface_forms") or [])]
+        return any(isinstance(p, str) and p.strip() and ground_skill_claim(p, index) is not None for p in probes)
+
+    bad = [
+        c for c in classifications
+        if isinstance(c, dict)
+        and c.get("status") in ("direct", "partial")
+        and quote_in_vault(c.get("evidence_quote"), index.units) is None
+        and not _literal_hit(c)
+    ]
+    if not bad:
+        return data
+    lines = "\n".join(
+        f"- {c.get('requirement')!r} (your status {c.get('status')}, your quote {c.get('evidence_quote')!r})"
+        for c in bad
+    )
+    try:
+        retry = await _prompt_context.aparse_json(
+            provider, "gap_analysis:writer", user_prompt + _REASK_INSTRUCTION + lines,
+            system=SYSTEM_PROMPT,
+            temperature=0.1,
+            max_tokens=GAP_ANALYSIS_MAX_TOKENS,
+        )
+    except Exception as exc:
+        logger.warning("gap analysis: evidence-quote re-ask failed (%s: %s) — first answer kept",
+                       type(exc).__name__, exc)
+        return data
+    fixed = {
+        " ".join(str(c.get("requirement", "")).casefold().split()): c
+        for c in (retry.get("classifications") or [] if isinstance(retry, dict) else [])
+        if isinstance(c, dict)
+    }
+    bad_ids = {id(c) for c in bad}
+    merged = []
+    for c in classifications:
+        key = " ".join(str(c.get("requirement", "")).casefold().split()) if isinstance(c, dict) else ""
+        merged.append(fixed.get(key, c) if id(c) in bad_ids else c)
+    logger.info("gap analysis: evidence-quote re-ask for %d row(s), %d answered", len(bad),
+                sum(1 for c in bad if " ".join(str(c.get("requirement", "")).casefold().split()) in fixed))
+    return {**data, "classifications": merged}
+
+
 async def _run_analysis(
     job: JobAnalysis,
     profile: MasterProfile,
@@ -1307,12 +1406,16 @@ async def _run_analysis(
     )
 
     # Pass 2: LLM refinement
+    # ADR-100 cl. 2 — the classifier sees the CLAIMABLE vault only (ADR-061
+    # cl. 3), so the space it quotes from is the space the floor verifies in.
+    user_prompt = build_user_prompt(job_dict, exclude_unconfirmed(profile.profile_json), pre, scope_block)
     data: dict = await _prompt_context.aparse_json(
-        provider, "gap_analysis:writer", build_user_prompt(job_dict, profile.profile_json, pre, scope_block),
+        provider, "gap_analysis:writer", user_prompt,
         system=SYSTEM_PROMPT,
         temperature=0.1,
         max_tokens=GAP_ANALYSIS_MAX_TOKENS,
     )
+    data = await _reask_unverified_quotes(provider, user_prompt, data, profile.profile_json)
 
     classifications = data.get("classifications", [])
 

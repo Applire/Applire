@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InterviewPage from "../page";
@@ -1150,6 +1150,7 @@ function mockF1Api(opts: {
   resumed?: boolean;
   questionsAsked?: number;
   messageResponses?: Record<string, unknown>[];
+  clusters?: GapCluster[];
 }) {
   const queue = [...(opts.messageResponses ?? [])];
   let gapsReads = 0;
@@ -1171,7 +1172,7 @@ function mockF1Api(opts: {
         json: async () => ({
           id: "ga1",
           match_score: 0.44,
-          gap_clusters: F1_CLUSTERS,
+          gap_clusters: opts.clusters ?? F1_CLUSTERS,
           keyword_ledger: ledger,
           category_c: ["Produktionsverantwortung", "MES"],
         }),
@@ -1339,6 +1340,100 @@ describe("Hazelnut b3 #789 — interview intro, one count, match ring", () => {
     const iso = chips.find((c) => c.textContent === "ISO 9001");
     expect(iso).toHaveAttribute("data-state", "covered");
     expect(chips.find((c) => c.textContent === "IFS/BRC")).toHaveAttribute("data-state", "declined");
+  });
+});
+
+describe("787:205 — a long wait says so", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("a turn pending past 25 s shows the 'takes longer' state with the elapsed seconds; none before", async () => {
+    const base = mockCeilingApi({});
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/session/s1/message")) return new Promise(() => {});
+      return base(input, init);
+    }) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId("answer-textarea"), { target: { value: "Meine Antwort" } });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    fireEvent.click(screen.getByTestId("send-button"));
+    expect(screen.queryByTestId("turn-slow")).not.toBeInTheDocument();
+    await act(async () => void vi.advanceTimersByTime(10_000));
+    expect(screen.queryByTestId("turn-slow")).not.toBeInTheDocument();
+    await act(async () => void vi.advanceTimersByTime(20_000));
+    expect(screen.getByTestId("turn-slow").textContent).toContain('turnSlow({"seconds":30})');
+  });
+});
+
+describe("787:207 — the sidebar heading counts the topics it lists", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("names the open topics OUT OF the listed topics (Priya: '5 topics' above a list of 8)", async () => {
+    global.fetch = mockF1Api({}).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    const heading = await screen.findByTestId("tracker-open-count");
+    const listed = document.querySelectorAll('[data-testid^="gap-cluster-"]').length;
+    expect(listed).toBe(2);
+    expect(heading.textContent).toContain('"total":2');
+    expect(heading.textContent).toContain('"topics":1');
+  });
+});
+
+describe("#821 G-1 — the sidebar quotes the candidate's own wording", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  const scoped = (statuses: GapCluster["member_statuses"]) => [
+    toneCluster("q1", "C", {
+      label: "Intensivmedizin",
+      coverage: "declined",
+      outcome: { asked: 1, covered: [], declined: statuses.map((s) => s.member), session_ids: ["s0"] },
+      member_statuses: statuses,
+      jd_skills: statuses.map((s) => s.member),
+    }),
+    F1_CLUSTERS[1],
+  ];
+
+  it("lists the denied_by wording, not the member term the candidate never named", async () => {
+    global.fetch = mockF1Api({
+      clusters: scoped([
+        { member: "ECMO", status: "declined", denied_by: ["not independently, not certified"] },
+        { member: "ECMO support", status: "declined", denied_by: ["not independently, not certified"] },
+      ]),
+    }).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    const declined = await screen.findByTestId("tracker-declined-terms");
+    expect(declined.textContent).toContain('"terms":"not independently, not certified"');
+    expect(declined.textContent).not.toContain("ECMO");
+  });
+
+  it("never lists a floored member under 'you said you don't have'", async () => {
+    global.fetch = mockF1Api({
+      clusters: scoped([
+        { member: "Payout flows", status: "declined", floored: true },
+        { member: "Crypto", status: "declined" },
+      ]),
+    }).fn as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    const declined = await screen.findByTestId("tracker-declined-terms");
+    expect(declined.textContent).toContain('"terms":"Crypto"');
+    expect(declined.textContent).not.toContain("Payout flows");
   });
 });
 
@@ -1537,6 +1632,40 @@ describe("R2-10 — the completion screen agrees with the open count", () => {
     expect(screen.queryByText("7")).not.toBeInTheDocument(); // topics walked is not shown as "closed"
   });
 
+  it("787:207 — names the open requirements it counts, and shows the profile page's completeness", async () => {
+    const user = userEvent.setup();
+    const inner = withLedger(2);
+    // the turn says 0.52 (the audit's end screen); the profile health says 0.92
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/profile/health")) {
+        return { ok: true, json: async () => ({ issues: [], completeness: { score: 0.92 } }) };
+      }
+      return inner(input, init);
+    }) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    await sendAnswer(user, "Done.");
+
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    const names = await screen.findByTestId("completion-open-names");
+    expect(names.textContent).toContain('"names":"Req0, Req1"');
+    expect(names.textContent).not.toContain("E-commerce"); // a posting term is not a requirement
+    await waitFor(() => expect(screen.getByTestId("completeness-gauge")).toHaveAttribute("data-pct", "92"));
+  });
+
+  it("787:207 — no open names line when nothing is open", async () => {
+    const user = userEvent.setup();
+    global.fetch = withLedger(0) as unknown as typeof fetch;
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() => expect(screen.getByTestId("interview-question")).toBeInTheDocument());
+    await sendAnswer(user, "Done.");
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("completion-open-count").textContent).toContain("0"));
+    expect(screen.queryByTestId("completion-open-names")).not.toBeInTheDocument();
+  });
+
   it("with nothing open: says no requirement is open", async () => {
     const user = userEvent.setup();
     global.fetch = withLedger(0) as unknown as typeof fetch;
@@ -1550,5 +1679,49 @@ describe("R2-10 — the completion screen agrees with the open count", () => {
       expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("reasonNoneOpen"),
     );
     expect(screen.getByTestId("completion-open-count").textContent).toContain("0");
+  });
+});
+
+describe("787:215 — a profile check is not counted as a question", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("labels a confirmation turn as a profile check and returns to 'Frage N' after it", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockClusterApi([
+      {
+        complete: false,
+        question: "Is SAP PP the same as your SAP entry?",
+        gaps_remaining: 3,
+        questions_asked: 2,
+        current_gap_id: "c1",
+        addressed_gap_ids: [],
+        pending_confirmations: [{ question: "Is SAP PP the same as your SAP entry?", options: ["Yes", "No"] }],
+      },
+      {
+        complete: false,
+        question: "Tell me about Docker.",
+        gaps_remaining: 2,
+        questions_asked: 3,
+        current_gap_id: "c2",
+        addressed_gap_ids: ["c1"],
+      },
+    ]) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await sendAnswer(user, "We use GCP extensively.");
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question-number")).toHaveTextContent("confirmationLabel"),
+    );
+    expect(screen.getByTestId("interview-question-number")).not.toHaveTextContent("questionNumber");
+
+    await sendAnswer(user, "Yes, the same.");
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question-number")).toHaveTextContent('questionNumber({"current":3})'),
+    );
   });
 });

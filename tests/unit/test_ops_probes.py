@@ -22,6 +22,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from applire.config import settings as app_settings
 from applire.db.session import Base
 from applire.models.llm_usage import LlmUsage
 from applire.models.retention_run import RetentionRun
@@ -383,7 +384,7 @@ async def test_credit_only_mode_spends_no_model_call(monkeypatch):
     """`OPS_PROVIDER_PROBE=credit` — the balance is an account endpoint, free."""
     stub = _StubProvider()
     _install_provider(monkeypatch, stub, family="mistral")
-    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "credit")
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "credit")
     result = await probes.probe_provider(force=True)
     assert stub.calls == 0
     assert result.detail["reachability"] == "unknown"
@@ -393,7 +394,7 @@ async def test_credit_only_mode_spends_no_model_call(monkeypatch):
 async def test_reachability_only_mode_never_reads_a_balance(monkeypatch):
     stub = _StubProvider()
     _install_provider(monkeypatch, stub, family="openrouter")
-    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "reachability")
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "reachability")
     called = {"n": 0}
 
     async def _never():
@@ -412,7 +413,7 @@ async def test_reachability_only_mode_never_reads_a_balance(monkeypatch):
 async def test_the_probe_mode_tolerates_the_old_on_off_spelling(monkeypatch):
     stub = _StubProvider()
     _install_provider(monkeypatch, stub, family="mistral")
-    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "on")
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "on")
     assert (await probes.probe_provider(force=True)).detail["reachability"] == "ok"
 
 
@@ -562,14 +563,58 @@ async def test_provider_probe_is_cached_so_a_request_cannot_spend_credit(monkeyp
 async def test_provider_probe_spends_nothing_when_switched_off(monkeypatch):
     stub = _StubProvider()
     _install_provider(monkeypatch, stub)
-    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "off")
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "off")
     result = await probes.probe_provider(force=True)
     assert stub.calls == 0
-    assert result.status == probes.UNKNOWN
+    # A deliberate choice, not a fault (founder ruling 2026-11-06).
+    assert result.status == probes.OFF
     # `mistral` publishes no balance, so the credit half is `n/a` even when the
     # whole probe is off — the answer does not become unknowable, it stays
     # inapplicable.
     assert result.detail["credit"] == "n/a"
+
+
+@pytest.mark.asyncio
+async def test_a_panel_override_switches_the_probe_off_over_the_env_value(monkeypatch):
+    """ADR-093 amended 2026-11-06 / FMEA SF-SETTINGS.9: the mode is read through
+    the overlay on every call, so a panel `off` stops the spend while env says `both`."""
+    import applire.config as cfg
+
+    stub = _StubProvider()
+    _install_provider(monkeypatch, stub)
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "both")
+    cfg.set_overlay_latest({"ops_provider_probe": "off"})
+    try:
+        result = await probes.probe_provider(force=True)
+    finally:
+        cfg.set_overlay_latest({})
+    assert stub.calls == 0
+    assert result.message == "provider probe switched off"
+
+
+@pytest.mark.asyncio
+async def test_a_mode_switch_is_not_answered_from_the_previous_modes_cache(monkeypatch):
+    """The cache fingerprint carries the mode (ADR-093 amended 2026-11-06)."""
+    stub = _StubProvider()
+    _install_provider(monkeypatch, stub)
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "both")
+    assert (await probes.probe_provider(force=True)).detail["reachability"] == "ok"
+    assert stub.calls == 1
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "credit")
+    result = await probes.probe_provider()
+    assert stub.calls == 1  # `credit` never spends a model call
+    assert result.detail["reachability"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [("both", "both"), ("OFF", "off"), (" credit ", "credit"), ("on", "both"),
+     ("true", "both"), ("false", "off"), ("0", "off"), ("bogus", "both"), ("", "both")],
+)
+def test_the_settings_field_keeps_the_env_tolerance(raw, expected):
+    from applire.config import Settings
+
+    assert Settings(ops_provider_probe=raw).ops_provider_probe == expected
 
 
 @pytest.mark.asyncio
@@ -617,6 +662,57 @@ def test_unknown_is_never_folded_into_ok():
         ProbeResult("b", probes.UNKNOWN),
     ]
     assert aggregate.verdict_of(results) == probes.DEGRADED
+
+
+def test_a_check_switched_off_does_not_count_toward_the_verdict():
+    """Founder ruling 2026-11-06 (ADR-086 amended): a probe the operator switched
+    off must not leave the instance permanently `degraded`."""
+    from applire.services.ops.probes import ProbeResult
+
+    assert aggregate.verdict_of([ProbeResult("a", probes.OK), ProbeResult("provider", probes.OFF)]) == probes.OK
+    assert aggregate.verdict_of(
+        [ProbeResult("provider", probes.OFF), ProbeResult("b", probes.UNKNOWN)]
+    ) == probes.DEGRADED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "family, balance, expected",
+    [
+        ("openrouter", 50.0, probes.OK),       # the balance read is the signal
+        ("openrouter", 0.1, probes.DEGRADED),  # low credit still warns
+        ("openrouter", None, probes.UNKNOWN),  # a failed read is a real unknown
+        ("mistral", None, probes.OFF),         # nothing to read: measured nothing by choice
+    ],
+)
+async def test_credit_only_counts_what_it_measured(monkeypatch, family, balance, expected):
+    stub = _StubProvider()
+    _install_provider(monkeypatch, stub, family=family)
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "credit")
+
+    async def _balance():
+        return balance
+
+    monkeypatch.setattr(probes, "_openrouter_credit", _balance)
+    result = await probes.probe_provider(force=True)
+    assert stub.calls == 0
+    assert result.status == expected
+
+
+@pytest.mark.asyncio
+async def test_an_unconfigured_provider_under_both_stays_a_counted_unknown(monkeypatch):
+    """Only the operator's choice is `off`; a reachability probe that could not
+    even build the provider is still `unknown` and still counts."""
+    import applire.providers.llm as llm
+
+    def _broken():
+        raise RuntimeError("no provider")
+
+    _install_provider(monkeypatch, _StubProvider(), family="mistral")
+    monkeypatch.setattr(llm, "get_provider", _broken)
+    monkeypatch.setattr(app_settings, "ops_provider_probe", "both")
+    result = await probes.probe_provider(force=True)
+    assert result.status == probes.UNKNOWN
 
 
 def test_a_single_down_component_downs_the_verdict():

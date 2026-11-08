@@ -51,36 +51,57 @@ LEDGER = [
 ]
 
 
-# ── DEL-3: the input filter ─────────────────────────────────────────────────
+# ── DEL-3: the input filter (narrowed by G-1, 2026-11-04) ────────────────────
+# Which statements the letter SAYS is code: only a statement of a NAMED key-requirement
+# gap (`gaps_to_name`). Every other statement stays a constraint the letter never states.
 
-def test_only_a_denial_of_this_postings_ledger_row_is_owed():
-    assert xd.select_jd_relevant_limits(DENIED, LEDGER) == [IFS]
-    assert xd.letter_constraint_only_limits(DENIED, LEDGER) == [INVEST, SPAN]
-
-
-def test_owed_and_constraint_only_partition_every_statement():
-    owed = xd.select_jd_relevant_limits(DENIED, LEDGER)
-    rest = xd.letter_constraint_only_limits(DENIED, LEDGER)
-    assert sorted(owed + rest) == sorted(xd.collect_stated_limits(DENIED))
-    assert not set(owed) & set(rest)
+JD = "Wir suchen Erfahrung mit IFS und Investitionsplanung."
 
 
-def test_a_denial_whose_concept_is_no_ledger_row_is_never_owed():
-    # same statement, concept renamed so it matches no ledger row
-    denied = [{"concept": "IFS Food", "statement": IFS}]
-    assert xd.select_jd_relevant_limits(denied, LEDGER) == []
-    assert xd.letter_constraint_only_limits(denied, LEDGER) == [IFS]
+def _named(ledger, denied, jd=JD):
+    return xd.gaps_to_name(xd.key_requirement_gaps(ledger, denied, jd))
 
 
-def test_no_ledger_means_nothing_is_owed():
+def test_only_the_named_gaps_statement_leaves_the_constraint_block():
+    ledger = [{"concept": "IFS", "status": "denied", "claimable": False,
+               "fit_weight": 1.0, "sources": ["required"]}]
+    named = _named(ledger, DENIED)
+    assert [g.label for g in named] == ["IFS"]
+    assert xd.letter_constraint_only_limits(DENIED, named) == [INVEST, SPAN]
+
+
+def test_named_and_constraint_only_partition_every_statement():
+    ledger = [{"concept": "IFS", "status": "denied", "claimable": False,
+               "fit_weight": 1.0, "sources": ["required"]}]
+    named = _named(ledger, DENIED)
+    rest = xd.letter_constraint_only_limits(DENIED, named)
+    said = [g.statement for g in named if g.statement]
+    assert sorted(said + rest) == sorted(xd.collect_stated_limits(DENIED))
+    assert not set(said) & set(rest)
+
+
+def test_a_nice_to_have_or_unrelated_denial_is_never_named():
+    # IFS only at nice-to-have weight, the other denials match no ledger row
+    ledger = [{"concept": "IFS", "status": "denied", "claimable": False,
+               "fit_weight": 0.5, "sources": ["nice_to_have"]}]
+    named = _named(ledger, DENIED)
+    assert named == []
+    assert xd.letter_constraint_only_limits(DENIED, named) == [IFS, INVEST, SPAN]
+
+
+def test_no_named_gap_means_every_statement_is_a_constraint():
     assert xd.letter_constraint_only_limits(DENIED, None) == [IFS, INVEST, SPAN]
+    assert xd.letter_constraint_only_limits(DENIED, []) == [IFS, INVEST, SPAN]
 
 
-def test_a_jd_denial_past_the_cap_stays_a_constraint():
-    denied = [{"concept": f"C{i}", "statement": f"C{i} habe ich nie gemacht."} for i in range(4)]
-    ledger = [{"concept": f"C{i}", "status": "denied", "fit_weight": 1.0 - i / 10} for i in range(4)]
-    assert len(xd.select_jd_relevant_limits(denied, ledger)) == 3
-    assert xd.letter_constraint_only_limits(denied, ledger) == ["C3 habe ich nie gemacht."]
+def test_a_third_gap_stays_a_constraint():
+    denied = [{"concept": f"C{i}", "statement": f"C{i} habe ich nie gemacht."} for i in range(3)]
+    ledger = [{"concept": f"C{i}", "status": "denied", "claimable": False,
+               "fit_weight": 1.0, "sources": ["required"]} for i in range(3)]
+    named = _named(ledger, denied, "C0 C1 C2")
+    assert len(named) == 1  # three gaps -> only the most urgent
+    assert xd.letter_constraint_only_limits(denied, named) == [
+        "C1 habe ich nie gemacht.", "C2 habe ich nie gemacht."]
 
 
 def test_the_letter_copy_of_the_stated_limits_is_constraint_only():
@@ -107,14 +128,20 @@ def test_the_cv_copy_of_the_stated_limits_is_unchanged():
 _DEL1 = "is NOT a limit"
 
 
+def _ladder_block() -> str:
+    ledger = [{"concept": "IFS", "status": "denied", "claimable": False,
+               "fit_weight": 1.0, "sources": ["required"]}]
+    gaps = xd.key_requirement_gaps(ledger, DENIED, JD)
+    return xd.render_gap_ladder_block(gaps, xd.gaps_to_name(gaps), "de")
+
+
 @pytest.mark.parametrize("text", [
-    xd.render_required_limits_block([IFS]),
     xd.render_stated_limits_block([INVEST], for_letter=True),
     writer.SYSTEM_PROMPT,
     writer.build_system_prompt("de", pipeline="v2"),
     writer.build_system_prompt("en", pipeline="v2"),
     reviewer.COVER_LETTER_REFINEMENT_PROMPT,
-], ids=["required-block", "letter-stated-limits", "writer-v1", "writer-v2-de", "writer-v2-en",
+], ids=["letter-stated-limits", "writer-v1", "writer-v2-de", "writer-v2-en",
         "corrector"])
 def test_del1_reaches_every_letter_writer_surface(text):
     flat = _flat(text)
@@ -126,7 +153,7 @@ def test_del1_reaches_every_letter_writer_surface(text):
 def test_del1_reaches_the_reviewer_and_the_review_constraint():
     from applire.services.cover_letter import _STATED_LIMITS_CONSTRAINT
 
-    assert "writing it in IS a finding (DEL-1)" in _flat(reviewer.REVIEW_SYSTEM_PROMPT)
+    assert "written in IS a finding (DEL-1)" in _flat(reviewer.REVIEW_SYSTEM_PROMPT)
     assert _DEL1 in _STATED_LIMITS_CONSTRAINT
 
 
@@ -134,46 +161,50 @@ def test_del1_reaches_the_reviewer_and_the_review_constraint():
 
 def test_the_unaddressed_block_no_longer_offers_a_named_gap_de_emphasis():
     block = xd.render_unaddressed_hard_requirements_block([
-        {"concept": "Investitionsplanung", "evidence": "Budget ca. 6 Mio. €"},
         {"concept": "Arbeitsvorbereitung", "evidence": "", "adjacent_evidence": "Feinplanung"},
     ])
     flat = _flat(block)
     assert "honest de-emphasis that names the gap" not in flat
     assert "Silence is not one of the options" not in flat
-    assert "DE-EMPHASIS, which means the letter leaves the requirement out" in flat
+    assert "or leave the requirement out" in flat
     assert "A requirement listed here that the letter leaves out is NOT a finding" in flat
-    assert "only where the entry says the candidate was ASKED AND SAID NO" in flat
+    # G-1: a named gap lives in the KEY-REQUIREMENT GAPS content, never in this block
+    assert "Gaps the letter names are listed ONLY in the KEY-REQUIREMENT GAPS content" in flat
+    assert "ASKED AND STATED" not in flat and "ASKED AND SAID NO" not in flat
+    assert "never state it as something they LACK either" in flat
 
 
 @pytest.mark.parametrize("text", [
     writer.SYSTEM_PROMPT, writer.build_system_prompt("de", pipeline="v2"),
 ], ids=["v1", "v2"])
-def test_the_writer_ladder_names_a_gap_only_from_a_recorded_denial(text):
+def test_the_writer_names_a_gap_only_as_the_ladder_block_lists_it(text):
     flat = _flat(text)
-    # RULING L-1 = A (2026-10-24): the gap is named only in rung 2's fused form
-    # and only where the candidate's denial names it; with neither a scoped claim
-    # nor a transfer the letter leaves it out (was: a named gap as rung 3).
-    assert "the gap named, if at all, only in (b)'s fused form and only where a REQUIRED: STATED LIMITS entry names it" in flat
-    assert "the letter LEAVES IT OUT — never a bare admission" in flat
-    assert "only where NEITHER holds AND their own recorded denial names it" not in flat
-    assert "the letter LEAVES IT OUT" in flat
+    # G-1 (supersedes RULING L-1 = A's "leaves the limit out"): a gap is stated only where
+    # the KEY-REQUIREMENT GAPS block names it, gap + transfer (or the einarbeiten clause)
+    # in ONE sentence; every other unmet requirement is left out, never stated as a lack.
+    assert "OBLIGATION — THE GAP LADDER (G-1)" in flat
+    assert "a KEY-REQUIREMENT GAPS block names the gap(s) this letter states, chosen by code" in flat
+    assert "EVERY OTHER UNMET JD HARD REQUIREMENT" in flat
+    assert "(3) else the letter LEAVES IT OUT — never stated as a lack" in flat
+    assert "never what they cannot claim, name or prove (DEL-2)" in flat
     assert "Silence is still never an option" not in flat
+    assert "REQUIRED: STATED LIMITS" not in flat
 
 
-def test_the_reviewer_stops_demanding_named_gap_transfer_sentences():
+def test_the_reviewer_stops_demanding_unnamed_gap_sentences():
     for prompt in (reviewer.REVIEW_SYSTEM_PROMPT, reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT):
         flat = _flat(prompt)
-        assert "A requirement lacked WITHOUT a recorded denial owes no sentence" in flat
-        assert "never demand one (DEL-2)" in flat
-        assert "an honest gap only when the candidate's own recorded denial names it" in flat
+        assert "A concept may be named as a gap only when ``gap_positioning`` names it (RULING G-1, DEL-2)" in flat
+        assert "NEVER DEMAND A CONCEPT ``named`` DOES NOT HOLD" in flat
+        assert "``stated_limits`` is a constraint only" in flat
         assert "the ledger marks it so or a STATED LIMIT disclaims it" not in flat
-    # the voice check (terminal door only) protects the RECORDED admission alone
-    assert "never touch an admission of a recorded denial" in _flat(
+    # the voice check (terminal door only) protects the gap_positioning sentence
+    assert "never touch a ``gap_positioning`` gap's sentence" in _flat(
         reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT)
 
 
-def test_the_corrector_never_writes_a_lack_the_candidate_did_not_state():
+def test_the_corrector_never_writes_a_lack_the_gap_ladder_does_not_name():
     flat = _flat(reviewer.COVER_LETTER_REFINEMENT_PROMPT)
-    assert "NEVER WRITE A LACK THE CANDIDATE DID NOT STATE" in flat
-    assert "ONLY where their own recorded denial names it" in flat
+    assert "NEVER WRITE A LACK THE GAP LADDER DOES NOT NAME" in flat
+    assert "ONLY for a gap ``positioning_requested.gap_positioning`` names" in flat
     assert "surface the adjacent strength on its own merits or leave the requirement out" in flat

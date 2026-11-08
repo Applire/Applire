@@ -31,7 +31,7 @@ const item = (key: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function settings(over: { provider?: string; source?: string; retention?: boolean; openrouterKey?: boolean } = {}) {
+function settings(over: { provider?: string; source?: string; retention?: boolean; openrouterKey?: boolean; probe?: string; probeSource?: string } = {}) {
   const active = over.provider ?? "requesty";
   return {
     items: [
@@ -42,10 +42,11 @@ function settings(over: { provider?: string; source?: string; retention?: boolea
       item("OPENROUTER_API_KEY", { provider: "openrouter", kind: "secret", value: null, is_set: over.openrouterKey ?? false, env_is_set: false, source: "default" }),
       item("SCRAPER_FETCH_LINKEDIN_GUEST_PAGES", { group: "scraper", kind: "bool", value: true, source: "default" }),
       item("RETENTION_ENABLED", { group: "retention", kind: "bool", value: over.retention ?? true, source: "default" }),
+      item("OPS_PROVIDER_PROBE", { group: "ops", kind: "enum", choices: ["off", "reachability", "credit", "both"], value: over.probe ?? "both", source: over.probeSource ?? "default", env_value: "both" }),
     ],
     providers: [
-      { id: "requesty", model: "openai/gpt-5.6-luna", key_required: true, has_key: true, ready: true, active: active === "requesty" },
-      { id: "openrouter", model: "openai/gpt-5.6-luna", key_required: true, has_key: over.openrouterKey ?? false, ready: over.openrouterKey ?? false, active: active === "openrouter" },
+      { id: "requesty", model: "openai/gpt-5.6-luna", key_required: true, has_key: true, ready: true, active: active === "requesty", balance_check: false },
+      { id: "openrouter", model: "openai/gpt-5.6-luna", key_required: true, has_key: over.openrouterKey ?? false, ready: over.openrouterKey ?? false, active: active === "openrouter", balance_check: true },
     ],
     dependencies: [{ code: "ocr_needs_mistral_key", satisfied: false, keys: ["OCR_BACKEND", "MISTRAL_API_KEY"] }],
   };
@@ -156,6 +157,60 @@ describe("Einstellungen → KI-Anbieter (#710)", () => {
     render(withIntl(<InstanceSettings />));
     await u.click(await screen.findByTestId("admin-settings-provider-reset"));
     await waitFor(() => expect(deleted).toEqual(["LLM_PROVIDER"]));
+  });
+});
+
+describe("Einstellungen → Verbindungsprüfung zum Anbieter (ADR-093 amended 2026-11-06)", () => {
+  it("offers the four modes, marks the effective one, and writes a choice as one PUT", async () => {
+    const puts: Record<string, unknown>[] = [];
+    route({ put: (b) => (puts.push(b), res(200, settings({ probe: "off", probeSource: "panel" }))) });
+    render(withIntl(<InstanceSettings />));
+    const card = await screen.findByTestId("admin-settings-probe");
+    for (const mode of ["both", "credit", "reachability", "off"]) {
+      expect(within(card).getByTestId(`admin-settings-probe-${mode}`)).toBeInTheDocument();
+    }
+    expect(within(card).getByRole("radio", { name: new RegExp(T.probeBoth) })).toBeChecked();
+    expect(within(card).queryByTestId("admin-settings-probe-off-warning")).toBeNull();
+    await userEvent.click(within(card).getByRole("radio", { name: new RegExp(`^${T.probeOff}`) }));
+    await waitFor(() => expect(puts).toEqual([{ changes: { OPS_PROVIDER_PROBE: "off" } }]));
+    expect(await screen.findByTestId("admin-settings-probe-off-warning")).toHaveTextContent(T.probeOffWarning);
+    expect(screen.getByTestId("admin-settings-probe-source")).toHaveAttribute("data-source", "panel");
+  });
+
+  it("says when the credit check reads nothing for the active provider", async () => {
+    route({});
+    render(withIntl(<InstanceSettings />));
+    const note = await screen.findByTestId("admin-settings-probe-no-balance");
+    expect(note).toHaveTextContent(T.probeCreditNoBalance.replace("{provider}", "requesty"));
+  });
+
+  it("names no gap when the active provider has a balance reader", async () => {
+    route({ settings: settings({ provider: "openrouter", openrouterKey: true }) });
+    render(withIntl(<InstanceSettings />));
+    await screen.findByTestId("admin-settings-probe");
+    expect(screen.queryByTestId("admin-settings-probe-no-balance")).toBeNull();
+  });
+
+  it("the .env line shows the radio's own label for a known mode (789:267g)", async () => {
+    route({ settings: settings({ probe: "off", probeSource: "panel" }) });
+    render(withIntl(<InstanceSettings />, "de"));
+    expect(await screen.findByTestId("admin-settings-probe-env")).toHaveTextContent("In der .env steht: Erreichbarkeit und Guthaben");
+  });
+
+  it("an unknown .env mode stays raw", async () => {
+    const base = settings();
+    const withRaw = { ...base, items: base.items.map((i: { key: string }) => (i.key === "OPS_PROVIDER_PROBE" ? { ...i, env_value: "weird" } : i)) };
+    route({ settings: withRaw });
+    render(withIntl(<InstanceSettings />, "de"));
+    expect(await screen.findByTestId("admin-settings-probe-env")).toHaveTextContent("In der .env steht: weird");
+  });
+
+  it("reset to .env sends DELETE for the probe key", async () => {
+    const deleted: string[] = [];
+    route({ settings: settings({ probe: "off", probeSource: "panel" }), del: (k) => (deleted.push(k), res(200, settings())) });
+    render(withIntl(<InstanceSettings />));
+    await userEvent.click(await screen.findByTestId("admin-settings-probe-reset"));
+    await waitFor(() => expect(deleted).toEqual(["OPS_PROVIDER_PROBE"]));
   });
 });
 

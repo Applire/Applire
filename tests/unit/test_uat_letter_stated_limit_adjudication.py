@@ -266,54 +266,61 @@ class TestThe732PositioningRules:
     def test_the_writer_ranks_the_three_responses(self):
         from applire.prompts.cover_letter import SYSTEM_PROMPT
 
-        assert "RANKED" in SYSTEM_PROMPT
-        assert "take the HIGHEST rung TRUE of the candidate" in SYSTEM_PROMPT
-        # RULING C-3 (founder, 2026-09-20): rungs (1) and (2) DISCHARGE the
-        # requirement — a letter delivering one owes no negation about it.
-        assert "DISCHARGE the requirement" in SYSTEM_PROMPT
-        assert "choose one of exactly three responses" not in SYSTEM_PROMPT
+        flat = " ".join(SYSTEM_PROMPT.split())
+        # G-1 (2026-11-04): the ladder rule is the rule for EVERY OTHER unmet hard
+        # requirement; a NAMED gap is owed by the gap-ladder block (rule (b)).
+        assert "EVERY OTHER UNMET JD HARD REQUIREMENT" in flat
+        assert "take the HIGHEST rung TRUE of the candidate" in flat
+        assert "(1) a scoped claim" in flat and "(2) a transfer argument" in flat
+        assert "(3) else the letter LEAVES IT OUT" in flat
+        assert "choose one of exactly three responses" not in flat
 
     def test_the_writer_states_the_fused_form_inside_the_rule_that_owns_ordering(self):
-        """The form rule was first written as its own rule and then FOLDED into
-        STATED LIMITS (b), which already owned gap ordering — the merge the
-        prompt-size ratchet asks for before a ceiling may move. So the assertion
-        is that the form is stated inside that rule, not that a second rule about
-        the same subject exists."""
+        """The form rule lives INSIDE STATED LIMITS (b), which owns gap ordering — not
+        in a second rule about the same subject (the merge the prompt-size ratchet asks
+        for). Since G-1, (b) is the gap ladder."""
         from applire.prompts.cover_letter import SYSTEM_PROMPT
 
         assert "THE SHAPE OF A NAMED GAP" not in SYSTEM_PROMPT, (
             "the form rule regrew into a second rule about gap shape")
-        i = SYSTEM_PROMPT.index("(b) OBLIGATION:")
+        i = SYSTEM_PROMPT.index("(b) OBLIGATION")
         rule_b = " ".join(
-            SYSTEM_PROMPT[i:SYSTEM_PROMPT.index("- EVERY UNMET JD HARD REQUIREMENT", i)].split()
+            SYSTEM_PROMPT[i:SYSTEM_PROMPT.index("- EVERY OTHER UNMET JD HARD REQUIREMENT", i)].split()
         )
+        assert "THE GAP LADDER (G-1)" in rule_b, rule_b
         assert "in the SAME SENTENCE" in rule_b, rule_b
         assert "never a standalone negative" in rule_b, rule_b
-        assert "right after a sentence stating a strength" in rule_b, rule_b
-        # RULING C-3: the ladder is stated ONCE, in the #270 rule; (b) points at it
-        assert "ranked ladder of the next rule" in rule_b, rule_b
-        assert "DISCHARGES the limit" in rule_b, rule_b
+        assert "least of all right after a strength" in rule_b, rule_b
+        # a transfer, else the block's einarbeiten clause — both in the SAME sentence
+        assert "einarbeiten clause" in rule_b, rule_b
 
     @pytest.mark.parametrize("door", ["REVIEW_SYSTEM_PROMPT",
                                       "TERMINAL_REVIEW_SYSTEM_PROMPT"])
     def test_both_reviewer_doors_carry_the_half_delivery_finding(self, door):
         import applire.prompts.review_cover_letter as rc
 
-        p = getattr(rc, door)
-        assert "HALF-DELIVERY IS THE THIRD DIRECTION" in p
-        assert "this is not `minor`" in p
-        assert "paragraph order" in p
+        p = " ".join(getattr(rc, door).split())
+        # compressed by G-1 (replace, not append): one paragraph in check 4
+        assert "HALF-DELIVERY (#732)" in p
+        assert "a standalone negative, its strength in a later sentence or a list" in p
+        assert "is a gap WITHOUT its decision: block" in p
+        # Hazelnut b6 follow-up: a clause-only gap sentence (G-1 / L-3 = A) is whole —
+        # luna's reviewer read HALF-DELIVERY as "add a transfer" to it (synthetic loops).
+        # fix round L2-2: whole ONLY where no transfer is held
+        assert "No transfer held: the einarbeiten clause makes it whole" in p
 
     @pytest.mark.parametrize("door", ["REVIEW_SYSTEM_PROMPT",
                                       "TERMINAL_REVIEW_SYSTEM_PROMPT"])
     def test_the_admit_and_affirm_protection_is_scoped_to_the_fused_sentence(self, door):
         """Without this scoping, check 5's "never flag, soften or split it" shields
-        the very shape check 4 must now flag."""
+        the very shape check 4 must flag. G-1 compressed the wording: the protection
+        names the FUSED shape only, and check 4 owns the half-delivery finding."""
         import applire.prompts.review_cover_letter as rc
 
-        p = getattr(rc, door)
-        assert "That covers the FUSED" in p
-        assert "check 4's\n     half-delivery finding" in p
+        p = " ".join(getattr(rc, door).split())
+        assert "The FUSED gap sentence (gap and transfer in ONE sentence) is the CORRECT shape" in p
+        assert "never flag, soften or split it" in p
+        assert "HALF-DELIVERY (#732)" in p
 
     @pytest.mark.parametrize("door", ["REVIEW_SYSTEM_PROMPT",
                                       "TERMINAL_REVIEW_SYSTEM_PROMPT"])
@@ -333,18 +340,28 @@ class TestThe732PositioningRules:
         assert "A CLAIM A STATED LIMIT CONTRADICTS IS UNGROUNDED TOO" not in p
 
     def test_the_writer_block_states_the_fused_form(self):
-        from applire.services.cross_document import render_required_limits_block
+        from applire.services.cross_document import (
+            gaps_to_name,
+            key_requirement_gaps,
+            render_gap_ladder_block,
+        )
 
-        block = render_required_limits_block([_STATEMENT])
+        gaps = key_requirement_gaps(_LEDGER, _DENIED_CONCEPTS, "vector databases")
+        block = " ".join(render_gap_ladder_block(gaps, gaps_to_name(gaps), "en").split())
         assert "ONE sentence" in block
-        assert "standalone negative sentence follow" in block
+        assert "in the SAME sentence" in block
+        assert "Never a list of lacks" in block
 
     def test_the_positioning_entry_states_the_fused_form(self):
         """This entry is what reaches the REVIEWER and the CORRECTOR every round
         through `source` — the corrector is the call that writes the sentence."""
-        from applire.services.cover_letter import build_stated_limits_entry
+        from applire.services.cover_letter import build_gap_positioning_entry
+        from applire.services.cross_document import gaps_to_name, key_requirement_gaps
 
-        entry = build_stated_limits_entry(_DENIED_CONCEPTS, _LEDGER)
+        gaps = key_requirement_gaps(_LEDGER, _DENIED_CONCEPTS, "vector databases")
+        entry = build_gap_positioning_entry(gaps, gaps_to_name(gaps), "en")
         assert entry is not None and entry["required"] is True
-        assert "ONE sentence" in entry["instruction"]
-        assert "HALF-delivered" in entry["instruction"]
+        instruction = " ".join(entry["instruction"].split())
+        assert "ONE sentence" in instruction
+        assert "SAME sentence" in instruction
+        assert "never several gaps in one clause" in instruction

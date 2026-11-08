@@ -360,11 +360,11 @@ class TestCompoundContainmentDoesNotDenyAnAffirmedHeadNoun:
             denied_concepts=["RAG pipeline"],
             vault_corpus=profile_literal_corpus({"skills": [{"name": "Python"}]}),
         )
-        assert out[0]["status"] == "gap"
-        assert out[0]["claimable"] is False
-        assert out[0]["evidence"] == DENIAL_FLOOR_EVIDENCE
+        # #821 (G-1): "RAG pipeline" does not name "RAG" — no floor, and the
+        # denial's words are no evidence for an upgrade (#351): unchanged.
+        assert out[0] == _entry("RAG")
         assert out[0]["evidence"] != DENIED_EVIDENCE
-        assert changed is True
+        assert changed is False
 
     def test_a_denial_naming_the_concept_itself_is_untouched_by_the_carve_out(self):
         """The carve-out is scoped to the containment branch. A denial that
@@ -395,12 +395,10 @@ class TestCompoundContainmentDoesNotDenyAnAffirmedHeadNoun:
             [_entry("CSS")], ["CSS"], CSS_PURE_DENIAL_ANSWER,
             denied_concepts=["Tailwind CSS"],
         )
-        # Still floored (#351's fail-closed default), and since #486 floored
-        # WITHOUT the testimony marker — "CSS" is nobody's declared term.
-        assert out[0]["claimable"] is False
-        assert out[0]["status"] == "gap"
-        assert out[0]["evidence"] == DENIAL_FLOOR_EVIDENCE
-        assert changed is True
+        # #821 (G-1): "CSS" is nobody's declared term — not floored, not
+        # upgraded on the denial's words, with or without a vault corpus.
+        assert out[0] == _entry("CSS")
+        assert changed is False
 
     def test_german_compound_with_a_separate_head_noun(self):
         """Both product languages. DE compounds written as separate words
@@ -493,12 +491,10 @@ class TestCompoundContainmentComposedWithTheReversalSeam:
             upgrade=False,
             vault_corpus=profile_literal_corpus({"skills": [{"name": "Python"}]}),
         )
-        assert changed is True
-        assert out[0]["claimable"] is False
-        # #486: the reversal is a FLOOR, not a fabricated statement about
-        # testimony — the retraction named the compound, not the head noun.
-        assert out[0]["status"] == "gap"
-        assert out[0]["evidence"] == DENIAL_FLOOR_EVIDENCE
+        # #821 (G-1): #352's reversal is a DECLARED-denial act; a retraction
+        # of the compound "Tailwind CSS" reverses nothing about bare "CSS".
+        assert changed is False
+        assert out[0] == self._claimable_css()[0]
 
     def test_a_declared_denial_still_reverses_through_the_carve_out(self):
         """The carve-out must not become an escape hatch for #352: a denial

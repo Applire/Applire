@@ -15,6 +15,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v14 (Hazelnut build 7 / WP-G, 2026-11-07, line 787:213): ONE THING, TWO
+#   NAMES — a requirement followed by the bracketed name of that same thing ("Structured
+#   handovers (SBAR)", "Kontinuierlicher Verbesserungsprozess (KVP)") is ONE requirement: the
+#   general term at the posting's level, the bracketed name a keyword. UX audit round 3 (rec
+#   178, luna): "Structured handovers" and "SBAR" came back as two required rows, so the gaps
+#   page counted two open requirements and the interview asked one thing twice. An example
+#   LIST in brackets is unchanged (each a concept, as before). Replay on the audit posting:
+#   luna (n=3) split into two rows 1/3 before, 0/3 after; Sonnet 5.5 (n=5) never split, after
+#   "Structured handovers" + keyword "SBAR" 5/5; paediatric never required (both arms).
+#
 # Prompt version: v13 (Hazelnut build 4 / WP-G, 2026-10-24, founder rulings G-2 = C, G-2c):
 #   ALTERNATIVES — "A oder B / A or B / A bzw. B" between two NAMED tools is ONE requirement
 #   "A / B" (either satisfies it), each alternative also a keyword. Not a choice: "or
@@ -215,6 +225,15 @@ the level the posting states for it (SAP → required_skills: the posting requir
 itself), and the optional qualifier becomes its OWN concept term in nice_to_have_skills
 ("SAP PP", "SAP MM"). Never delete the qualifier's information, and never move the base
 concept down a level because its qualifier is optional — only the qualifier is optional.
+
+ONE THING, TWO NAMES: when a requirement is followed by ONE bracketed name for that same
+thing — its standard, its method's name or its abbreviation: "Structured handovers (SBAR)",
+"Kontinuierlicher Verbesserungsprozess (KVP)", "Good Manufacturing Practice (GMP)" — it is ONE
+requirement, never two. Emit the general term once at the level the posting states
+("Structured handovers") and put the bracketed name into "keywords" ("SBAR"); a candidate's
+CV that names either form meets it. This is about one bracketed NAME of the same thing only —
+a bracketed example LIST ("Lean-Produktion (Shopfloor-Management, KVP, OEE)") or a bracketed
+optional qualifier ("(idealerweise PP/MM)") is extracted exactly as the rules above and below say.
 
 ALTERNATIVES (one requirement, either one satisfies it): when the posting offers a CHOICE
 between named alternatives for one requirement — "A oder B", "A or B", "A bzw. B" — emit the

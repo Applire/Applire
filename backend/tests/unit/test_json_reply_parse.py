@@ -172,13 +172,24 @@ def _openai(monkeypatch, reply):
 
 
 def _anthropic(monkeypatch, reply):
-    monkeypatch.setattr(settings, "anthropic_model", "m")
+    # A model that still takes the assistant prefill (Claude Haiku 4.5).
+    monkeypatch.setattr(settings, "anthropic_model", "claude-haiku-4-5")
     with patch("anthropic.AsyncAnthropic"):
         from applire.providers.llm.anthropic import AnthropicProvider
         p = AnthropicProvider(api_key="test-key")
     # The model continues the prefilled "{": hand it the reply minus its "{".
     assert reply.startswith("{")
     p._create = AsyncMock(return_value=reply[1:])
+    return p
+
+
+def _anthropic_current(monkeypatch, reply):
+    # A current model rejects a prefill (WP-0): the whole reply comes back.
+    monkeypatch.setattr(settings, "anthropic_model", "claude-sonnet-5-5")
+    with patch("anthropic.AsyncAnthropic"):
+        from applire.providers.llm.anthropic import AnthropicProvider
+        p = AnthropicProvider(api_key="test-key")
+    p._create = AsyncMock(return_value=reply)
     return p
 
 
@@ -206,6 +217,7 @@ _PROVIDERS = {
     "openrouter": _openrouter,
     "openai": _openai,
     "anthropic": _anthropic,
+    "anthropic_current": _anthropic_current,
     "ollama": _ollama,
     "mistral": _mistral,
     "replay": _replay,

@@ -86,6 +86,7 @@ from applire.services.profile.reconcile.stance import (
     denial_release_corpus,
     is_denied_concept,
 )
+from applire.services.choice_grounding import choice_presentation, offered_choices_in_answer
 from applire.services.interview.sufficiency import (
     _concept_matches_ledger_key,
     concept_is_required,
@@ -2450,6 +2451,83 @@ def _with_coverage(
     return response
 
 
+def _record_members(row: GapAnalysis, cluster: dict, current_gap: str) -> list[str]:
+    """The cluster members the per-gap record classifies: the open members as
+    the session's analysis row carries them, plus the session's copy (which
+    ``filter_answered_concepts`` may have narrowed at session start), deduped
+    by the ATS normal form, row first."""
+    persisted = gap_coverage.cluster_by_id(row.gap_clusters, current_gap)
+    members: list[str] = []
+    seen: set[str] = set()
+    for m in [*((persisted or {}).get("gaps") or []), *(cluster.get("gaps") or [])]:
+        key = ats_norm(str(m or ""))
+        if m and key and key not in seen:
+            seen.add(key)
+            members.append(str(m))
+    return members
+
+
+async def _rejudge_cluster_coverage(
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    *,
+    current_gap: str,
+    updated_profile: dict,
+    session_id: str,
+) -> list[str]:
+    """ADR-100 cl. 9 / ADR-089 cl. 2 amended 2026-11-04 (WP4, Interview #787):
+    after an answered turn that changed the vault, re-judge the cluster's
+    still-open members with the gap classifier
+    (:func:`applire.services.interview.coverage_judge.rejudge_open_members` —
+    upward only, on a verified quote) and write the lifted rows onto the
+    session's ledger, so the per-gap record that follows reads the answer.
+
+    The #188 seam lifts only a ``gap`` row the answer names literally and never
+    a claimable ``partial``; the 11-04 E2E tier kept LIMS / ERP / API strategy /
+    Integration governance open after the answer that stated them, and MES open
+    after the Fertigungsleitsystem answer. Targeted sessions only (the record
+    exists only there); a no-op without a ledger. Returns the lifted concepts."""
+    gap_analysis_id = state.get("gap_analysis_id")
+    if not gap_analysis_id or state.get("mode") != "targeted":
+        return []
+    cluster = (state.get("gap_clusters_by_id") or {}).get(current_gap)
+    if not isinstance(cluster, dict) or not cluster:
+        return []
+    row = (
+        await db.execute(
+            select(GapAnalysis).where(GapAnalysis.id == uuid.UUID(str(gap_analysis_id)))
+        )
+    ).scalar_one_or_none()
+    if row is None or not row.keyword_ledger:
+        return []
+    members = _record_members(row, cluster, current_gap)
+    if not members:
+        return []
+    job = (
+        await db.execute(select(JobAnalysis).where(JobAnalysis.id == row.job_analysis_id))
+    ).scalar_one_or_none()
+    if job is None:
+        return []
+    from applire.services.gap import _job_inputs
+    from applire.services.interview.coverage_judge import rejudge_open_members
+
+    new_ledger, lifted = await rejudge_open_members(
+        row.keyword_ledger, members,
+        job_inputs=_job_inputs(job), profile_json=updated_profile or {}, provider=provider,
+        session_id=session_id,
+    )
+    if lifted:
+        # Same seam discipline as #188: the affirmative invariant at the
+        # persist point, and a WHOLE-attribute reassign (plain JSON column).
+        new_ledger, _violations = assert_claimable_backed(
+            new_ledger, updated_profile, seam="interview coverage re-judge"
+        )
+        row.keyword_ledger = new_ledger
+        await db.flush()
+    return lifted
+
+
 async def _record_cluster_turn(
     record: InterviewSession,
     state: InterviewState,
@@ -2496,14 +2574,7 @@ async def _record_cluster_turn(
     # the row too means a member the filter dropped because it was already
     # `direct` is classified — and so moved to `covered` — instead of staying
     # listed as open on the record.
-    persisted = gap_coverage.cluster_by_id(row.gap_clusters, current_gap)
-    members: list[str] = []
-    seen: set[str] = set()
-    for m in [*((persisted or {}).get("gaps") or []), *(cluster.get("gaps") or [])]:
-        key = ats_norm(str(m or ""))
-        if m and key and key not in seen:
-            seen.add(key)
-            members.append(str(m))
+    members = _record_members(row, cluster, current_gap)
     if not members:
         return None, []
 
@@ -2595,7 +2666,37 @@ async def _record_cluster_turn(
     return recorded, open_members
 
 
+def _with_choice_presentation(response, state: dict):
+    """UAT-2b/2c (ADR-064 amended 2026-11-08) — fill the additive
+    ``choice_asks`` / ``choice_unmentioned`` of a turn response from what the
+    question generator recorded for exactly these ``choices``
+    (``choice_grounding.choice_presentation``; facts, no judgement). One seam
+    for every door: the create and message wrappers and the resumed response."""
+    asks, unmentioned = choice_presentation(state, getattr(response, "choices", None))
+    response.choice_asks = asks
+    response.choice_unmentioned = unmentioned
+    return response
+
+
 async def create_session(
+    request: SessionCreateRequest,
+    db: AsyncSession,
+    provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> SessionCreateResponse:
+    """Create (or resume) a session — the one door wrapper that adds the
+    UAT-2b/2c choice presentation to whichever create path answered."""
+    response = await _create_session(request, db, provider, user_id=user_id)
+    if response.choices:
+        uid = resolve_user_id(user_id, site="session.create_session")
+        record = await owned_row(db, InterviewSession, response.session_id, uid)
+        if record is not None:
+            _with_choice_presentation(response, dict(record.state or {}))
+    return response
+
+
+async def _create_session(
     request: SessionCreateRequest,
     db: AsyncSession,
     provider: LLMProvider,
@@ -2744,6 +2845,7 @@ def _resumed_response(
         # refresh restores "N of up to M" instead of resetting to "1 of…".
         questions_asked=real_questions_asked,
         follow_up_concepts=list(state.get("follow_up_concepts") or []) or None,
+        **dict(zip(("choice_asks", "choice_unmentioned"), choice_presentation(state, current_choices))),
     )
 
 
@@ -3921,6 +4023,7 @@ async def send_message(
         if response.questions_asked is None:
             response.questions_asked = record.questions_asked
         state = dict(record.state or {})
+        _with_choice_presentation(response, state)
         if state.get("entry") == "profile_review" and not response.complete:
             response.current_conflict = _current_conflict(state)
             response.follow_up_used = _follow_up_used(state)
@@ -4049,6 +4152,14 @@ async def _send_message_turn(
             provider=provider,
             session_id=str(record.id),
             lang=lang,
+            # G-3 (ADR-064 amended 2026-11-04) — the choices Applire offered
+            # that this answer contains, with what each names WITHOUT claiming
+            # (recorded by `question_generator_with_profile`): a clicked "…,
+            # aber zu X steht in meinem Profil noch nichts" is never recorded
+            # as the candidate's no on X.
+            offered_choices=offered_choices_in_answer(
+                message, state.get("offered_choice_terms")
+            ),
         )
     except ReconcileFailedError:
         # R2-13 (P-1, Hazelnut build 4) — the reconcile call failed after its
@@ -4202,6 +4313,28 @@ async def _send_message_turn(
     if addressed or denial_recorded:
         await _upgrade_ledger_for_addressed_gap(
             state, current_gap, message, db, upgrade=addressed
+        )
+    # ADR-100 cl. 9 / ADR-089 cl. 2 amended 2026-11-04 (WP4): a turn that
+    # changed the vault gets its cluster's still-open members re-judged by the
+    # classifier (one call, upward only, verified quote) BEFORE the per-gap
+    # record classifies them — so `open_concepts` follows the answer instead of
+    # waiting for the completion recompute. Two triggers, both facts the turn
+    # already carries: the turn wrote (`addressed`), or the reconciler held the
+    # answer back as already in the vault (`no_write_already_known`, #763) —
+    # the 11-04 E2E shape: the integration-testing bullet was written by the
+    # ARCHITECTURE turn, so the testing turn wrote nothing and its member stayed
+    # open on an evidenced vault. 787:167 (D12, ADR-089 cl. 2 amended
+    # 2026-11-07): a turn that recorded a denial is judged too — the classifier
+    # binds the open members the candidate's "no" rules out (`denied_by`), so a
+    # stated no is not asked again under the posting's other name for it.
+    if (
+        addressed
+        or denial_recorded
+        or getattr(turn, "no_write_receipt", None) == "no_write_already_known"
+    ):
+        await _rejudge_cluster_coverage(
+            state, db, provider, current_gap=current_gap, updated_profile=updated_profile,
+            session_id=str(record.id),
         )
 
     # --- ADR-089 clauses 2/3: the per-gap record. Classify the cluster's open

@@ -65,6 +65,9 @@ interface UploadHistoryItem {
   completeness_score: number | null;
   gate_status?: string | null;
   staged_name?: string | null;
+  /** C9 — a failed import is listed until the same file is read later. */
+  status?: "read" | "failed";
+  error_code?: string | null;
 }
 
 interface GateInfo {
@@ -331,7 +334,11 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     // job_id, gap analysis isn't applicable — calling /api/job/null/gaps 422s and
     // surfaces a spurious "Invalid input" warning. Skip the gap auto-advance and
     // let the user review what changed (same hand-off as the standalone path).
-    if (!job_id) return;
+    // RULING V-4 = B (founder, 2026-11-07): no posting → the import summary.
+    if (!job_id) {
+      router.push("/profile#import-summary");
+      return;
+    }
 
     // #677: the synchronous POST /api/job/{id}/gaps was removed with the async gap
     // jobs (97915fc3, 2026-07-01) — only GET remains, so this path answered 405.
@@ -650,6 +657,42 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
                     item.original_filename.toLowerCase().endsWith(".zip");
                   const isOpenGate =
                     !!item.gate_status && OPEN_GATES.has(item.gate_status);
+                  if (item.status === "failed") {
+                    return (
+                      <li
+                        key={item.id}
+                        data-testid="upload-history-failed"
+                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-critical/5 border border-critical/20"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="material-symbols-outlined text-[20px] text-critical"
+                          style={{ fontVariationSettings: "'FILL' 0" }}
+                        >
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
+                          {"error"}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12px] font-semibold text-primary truncate">
+                            {item.original_filename}
+                          </p>
+                          <p className="text-[10px] font-semibold text-critical mt-0.5">
+                            {t("historyFailed")}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          data-testid="upload-history-retry"
+                          onClick={() =>
+                            (isLinkedIn ? linkedinInputRef : mainInputRef).current?.click()
+                          }
+                          className="flex-shrink-0 text-[11px] font-bold text-primary px-2 py-1 rounded-md hover:bg-surface-container-low"
+                        >
+                          {t("historyRetry")}
+                        </button>
+                      </li>
+                    );
+                  }
                   return (
                     <li
                       key={item.id}

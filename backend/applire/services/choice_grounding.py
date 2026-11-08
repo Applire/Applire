@@ -686,6 +686,31 @@ def _passes_content_coverage_only(
     return (hits / len(content)) >= _CONTENT_COVERAGE_MIN
 
 
+def _b_confirmation_terms(
+    terms: list[str], cluster: dict[str, Any], gap_category: str | None
+) -> list[str]:
+    """MD-UAT-1 — the term-evidence exemption a Category B question gives its
+    OWN open constituent concepts (``cluster["gaps"]``), as the exact strings
+    of ``terms`` (matched by ``_norm``). ``[]`` on any other category."""
+    if gap_category != "B":
+        return []
+    own = {_norm(str(g)) for g in (cluster.get("gaps") or []) if str(g or "").strip()}
+    return [t for t in terms if _norm(t) in own]
+
+
+def _asked_unmentioned_terms(
+    terms: list[str], cluster: dict[str, Any], evidence: str
+) -> list[str]:
+    """UAT-2 — the ASKED concepts: the cluster's open constituents
+    (``cluster["gaps"]``) with no word-for-word mention in the profile (the
+    ``constituent_evidence`` predicate), as the exact strings of ``terms``."""
+    own = {
+        _norm(str(g)) for g in (cluster.get("gaps") or [])
+        if str(g or "").strip() and not surface_present(str(g), evidence)
+    }
+    return [t for t in terms if _norm(t) in own]
+
+
 def filter_ungrounded_choices(
     choices: "list[str | dict[str, Any]] | None",
     cluster: dict[str, Any],
@@ -781,6 +806,27 @@ def filter_ungrounded_choices(
         ]
         return all(surface_present(t, evidence) for t in asserted)
 
+    # MD-UAT-1 (main default on founder ruling UAT-2 point 4, 2026-11-08): a
+    # Category B question confirms a concept the classifier already put in B —
+    # evidenced in other words (ADR-100 M-2) — so a DIRECT or PARTIAL chip that
+    # names THAT cluster's own constituent concept is not attributing a foreign
+    # JD term; the literal check dropped the confirmation itself (Sonnet 5.5
+    # replay, a B "Resuscitation" cluster: the direct confirmation dropped in
+    # 4 of 5 runs). Narrow by construction: B only, the cluster's own open
+    # constituents only, every other term and both employer guards unchanged;
+    # a C cluster keeps the literal check for "direct".
+    b_confirmed = _b_confirmation_terms(terms, cluster, gap_category)
+    # UAT-2 (founder ruling 2026-11-08, ADR-064 amended): a BRIDGE joins a real
+    # anchor to the ASKED concept as a hypothesis the profile does not hold yet
+    # — naming the asked concept is its point, so the cluster's open
+    # constituents with no word-for-word mention (the same literal list the
+    # prompt and the UI lead-in carry) are exempt from term evidence for a
+    # "partial" chip and for the honest bridge's affirmative clause. Every
+    # other term, a "direct" chip's full check, and the employer guards stay.
+    asked = _asked_unmentioned_terms(terms, cluster, evidence)
+    asked_norms = {_norm(t) for t in asked}
+    honest_kept = False
+
     kept: list[str] = []
     for choice in choices:
         text, level = _level_of(choice)
@@ -788,20 +834,34 @@ def filter_ungrounded_choices(
             continue
 
         if level == "denial" and gap_category == "C":
-            # Founder ruling V-7 (787 M2, 2026-10-21): a Category C question
-            # offers no one-click denial — one click on a denial chip records a
-            # denial (ADR-059), and on an exploratory question the model drafted
-            # denials of facts the CV states in other words (29 of 30 replayed
-            # calls before the prompt fix, 19 of 30 after). A STRUCTURAL rule on
-            # the question type, not a judgement about the chip: every
-            # denial-level chip on a C question is dropped. The candidate types
-            # a denial in their own words; the reconciler reads it from the
-            # answer as before.
-            logger.info(
-                "choice_grounding: dropped a 'denial'-level choice on a Category C "
-                "question (ruling V-7): %r", text,
+            # Founder ruling V-7 (787 M2, 2026-10-21), AMENDED by UAT-2
+            # (2026-11-08): a Category C question offers a one-click "no" only
+            # in the HONEST-BRIDGE shape the founder ruled — side by side with
+            # the bridges, so the no is an active choice (the #820 harm was a
+            # pre-written no taken unnoticed). STRUCTURAL facts, no judgement:
+            # (1) at most one per question; (2) a pivot with an affirmative
+            # remainder ("…, aber durch Y …"); (3) declared denied_terms, every
+            # one an open constituent of THIS cluster with no word-for-word
+            # mention (G-1 scope: the no names the asked concept, nothing the
+            # system introduced). A pure denial, or a denial of anything else,
+            # is still dropped. The mirror check and the affirmative pipeline
+            # below still run.
+            declared = _denied_terms_of(choice)
+            _, affirmative_part = _split_denial_choice(text)
+            shape_ok = (
+                not honest_kept
+                and affirmative_part is not None
+                and re.search(r"\w", affirmative_part) is not None
+                and bool(declared)
+                and all(_norm(_fold_quotes(d)) in asked_norms for d in declared)
             )
-            continue
+            if not shape_ok:
+                logger.info(
+                    "choice_grounding: dropped a 'denial'-level choice on a Category C "
+                    "question that is not one honest bridge on an asked concept "
+                    "(ruling V-7 as amended by UAT-2): %r", text,
+                )
+                continue
 
         if level != "denial":
             # "direct" / "partial" / unknown — full pipeline, with the #451
@@ -812,6 +872,7 @@ def filter_ungrounded_choices(
             # _declared_denied_exemptions (pivot-marker presence; #351
             # subterm scoping). Without the field the pipeline is unchanged.
             exempt = _declared_denied_exemptions(text, terms, _denied_terms_of(choice))
+            confirmed = [t for t in b_confirmed if t not in exempt]
             if exempt:
                 # ADR-064 mirror condition, extended to declared denials of
                 # non-"denial" chips (same employer-free scoping as the
@@ -834,7 +895,10 @@ def filter_ungrounded_choices(
                     "denied_terms (#451) for %s on %r-level choice: %r",
                     ", ".join(exempt), level, text,
                 )
-            if _run_pipeline(text, exempt_terms=frozenset(exempt)):
+            bridge = [t for t in asked if level == "partial" and t not in exempt]
+            if _run_pipeline(
+                text, exempt_terms=frozenset(exempt) | frozenset(confirmed) | frozenset(bridge)
+            ):
                 kept.append(text)
             else:
                 logger.warning(
@@ -897,7 +961,10 @@ def filter_ungrounded_choices(
             # has nothing left after that stripping and passes trivially; a
             # fabricated clause smuggling unrelated narrative in ahead of
             # the pivot (the reordered #236 shape) does not.
-            ok = _run_pipeline(affirmative, require_asserted_for_content_check=True)
+            ok = _run_pipeline(
+                affirmative, require_asserted_for_content_check=True,
+                exempt_terms=frozenset(asked),
+            )
             if ok:
                 denial_norm = _norm(_fold_quotes(denial_clause))
                 denial_matched = _match_employers(denial_norm, work_experience)
@@ -907,6 +974,7 @@ def filter_ungrounded_choices(
                     ok = False
             if ok:
                 kept.append(text)
+                honest_kept = honest_kept or gap_category == "C"
             else:
                 logger.warning(
                     "choice_grounding: dropped a 'denial'-tagged choice whose "
@@ -933,3 +1001,187 @@ def filter_ungrounded_choices(
             continue
         kept.append(text)  # trust the tag — nothing left to ground
     return kept or None
+
+
+# ── G-3 (ADR-064 amended 2026-11-04) — the offered choice travels as a FACT ──
+#
+# Founder UAT 2026-11-04: a clicked R2-2 chip ("…, aber zu X, Y steht in meinem
+# Profil noch nichts") became one ``direct`` DeniedConcept per named concept.
+# The chip's own ``denied_terms`` declaration ("named WITHOUT claiming") stopped
+# at ``filter_ungrounded_choices``, which flattens choices to ``list[str]``; the
+# answer turn carried the text only, and the reconciler read the clause as a no.
+# These two helpers carry the declaration — a fact the generator stated about
+# its own choice (ADR-062 cl. 6, read exactly as ``_denied_terms_of`` reads it)
+# — from the question to the turn that answers it. They never read a choice's
+# wording to guess anything.
+
+#: How many delivered choices a session remembers (newest win). A turn answers
+#: the question on screen, so only the latest few matter; the bound keeps the
+#: session row small on a long interview.
+OFFERED_CHOICE_KEEP = 40
+
+
+def _ask_of(choice: Any) -> str | None:
+    """A choice's button label (UAT-2b, ADR-064 amended 2026-11-08) — a fact
+    read off the model's output like ``level``; ``None`` when absent."""
+    if not isinstance(choice, dict):
+        return None
+    ask = choice.get("ask")
+    return ask.strip() if isinstance(ask, str) and ask.strip() else None
+
+
+def record_offered_choices(
+    state: Any, drafted: Any, delivered: Any, *, unmentioned: list[str] | None = None
+) -> None:
+    """Remember the DELIVERED choices' own declarations in
+    ``state["offered_choice_terms"]`` = ``{text: {"level", "names_without_claiming", "ask"}}``.
+
+    ``drafted`` is the reviewed draft as it entered ``filter_ungrounded_choices``
+    (dicts carrying ``level`` / ``denied_terms`` / ``ask``); ``delivered`` is
+    that filter's ``list[str]`` result (``None`` when nothing survived). A
+    delivered text with no matching drafted dict is still remembered, with
+    ``level=None`` and no terms — it is system-authored text either way. A
+    no-op on anything that is not a dict state or a non-empty delivered list.
+    Mutates ``state`` in place.
+
+    UAT-2c (founder 2026-11-08): ``unmentioned`` — the producer's literal list
+    the lead-in sentence names — is kept beside the delivered texts in
+    ``state["choice_lead"]`` = ``{"choices": [...], "unmentioned": [...]}``, so a
+    response only ever pairs the list with the choices it was computed for.
+    """
+    if not isinstance(state, dict) or not isinstance(delivered, list) or not delivered:
+        return
+    by_text: dict[str, tuple[str | None, list[str], str | None]] = {}
+    for choice in drafted if isinstance(drafted, list) else []:
+        text, level = _level_of(choice)
+        if text:
+            by_text[text] = (level, _denied_terms_of(choice), _ask_of(choice))
+    previous = state.get("offered_choice_terms")
+    offered: dict[str, dict] = dict(previous) if isinstance(previous, dict) else {}
+    texts: list[str] = []
+    for raw in delivered:
+        text = str(raw).strip()
+        if not text:
+            continue
+        texts.append(text)
+        level, terms, ask = by_text.get(text, (None, [], None))
+        offered.pop(text, None)  # re-insert so the newest offer sorts last
+        offered[text] = {"level": level, "names_without_claiming": terms, "ask": ask}
+    while len(offered) > OFFERED_CHOICE_KEEP:
+        offered.pop(next(iter(offered)))
+    state["offered_choice_terms"] = offered
+    state["choice_lead"] = {
+        "choices": texts,
+        "unmentioned": [str(u) for u in (unmentioned or []) if str(u or "").strip()],
+    }
+
+
+def choice_presentation(state: Any, choices: Any) -> tuple[list | None, list[str] | None]:
+    """``(choice_asks, choice_unmentioned)`` for a turn response's ``choices``
+    (UAT-2b/2c, ADR-095 additive) — FACTS read back from what
+    :func:`record_offered_choices` stored for exactly these texts.
+
+    ``choice_asks`` is index-aligned with ``choices`` (``None`` where a choice
+    has no label — the client shows its ``text``), and ``None`` altogether when
+    no choice has one (a gate/conflict/confirmation question's options).
+    ``choice_unmentioned`` is the literal list stored WITH these very choices,
+    else ``None`` (never a list computed for another question)."""
+    if not isinstance(state, dict) or not isinstance(choices, list) or not choices:
+        return None, None
+    offered = state.get("offered_choice_terms")
+    offered = offered if isinstance(offered, dict) else {}
+    asks: list = []
+    for text in choices:
+        meta = offered.get(str(text).strip())
+        ask = meta.get("ask") if isinstance(meta, dict) else None
+        asks.append(ask if isinstance(ask, str) and ask.strip() else None)
+    lead = state.get("choice_lead")
+    unmentioned = None
+    if isinstance(lead, dict) and lead.get("choices") == [str(c).strip() for c in choices]:
+        raw = lead.get("unmentioned")
+        unmentioned = [str(u) for u in raw] if isinstance(raw, list) else None
+    return (asks if any(a is not None for a in asks) else None), unmentioned
+
+
+def _containment_form(text: str) -> str:
+    """The normalised form an offered text is looked up in an answer by:
+    quotes folded, ``_norm``-ed, trailing sentence punctuation dropped (a
+    candidate who selects a chip and continues the sentence removes its full
+    stop)."""
+    return _norm(_fold_quotes(text)).rstrip(" .!?;:,")
+
+
+#: What a cut offered text leaves behind in the answer form: not whitespace,
+#: not a word character, so two cuts never fuse and a cut never reads as typing.
+OFFERED_CUT_MARK = " \u241e "
+
+
+def cut_offered_texts(answer: Any, texts: Any) -> tuple[str, list[str]]:
+    """``(remainder, cut)`` — THE one cut of offered texts out of an answer.
+
+    Both sides use :func:`_containment_form` (quotes folded, ``_norm``-ed,
+    trailing sentence punctuation dropped), so containment and cut cannot
+    disagree (adversarial G3-2, 2026-11-04: an agent sent "doesn't" for the
+    chip's "doesn’t", containment matched and the cut missed). Longest text
+    first, and a text is cut only where it still occurs after the longer ones
+    were cut (adversarial G3-1: a DIRECT chip that is a prefix of the PARTIAL
+    chip "matched" inside it, was cut first and broke the PARTIAL text). A
+    shorter text the candidate ALSO selected on its own is still found. Returns
+    the remainder form and the texts actually cut, longest first."""
+    remainder = _containment_form(answer) if isinstance(answer, str) else ""
+    forms = []
+    for text in texts or []:
+        form = _containment_form(str(text))
+        if form:
+            forms.append((form, str(text)))
+    cut: list[str] = []
+    for form, text in sorted(forms, key=lambda f: len(f[0]), reverse=True):
+        if form in remainder:
+            remainder = remainder.replace(form, OFFERED_CUT_MARK)
+            cut.append(text)
+    return remainder, cut
+
+
+def offered_choices_in_answer(answer: Any, offered: Any) -> list[dict]:
+    """The offered choices this ANSWER contains, as
+    ``[{"text", "names_without_claiming", "states_no_to"}]`` — a FACT
+    (normalised containment of a text Applire delivered,
+    :func:`cut_offered_texts`), never a reading of what the answer means.
+
+    Containment, not equality: a choice is a starting point the candidate may
+    select AND extend. Only MAXIMAL matches count: a choice found only inside a
+    longer selected choice was not selected. An answer that EDITS the choice
+    text matches nothing; the reconcile prompt's rule 9 still applies.
+
+    UAT-2 (founder 2026-11-08, ADR-064 amended): a choice offered at the
+    ``denial`` level — the HONEST BRIDGE "X bisher nicht, aber durch Y …", or a
+    restated earlier no — is the candidate's own no once sent. It is no longer
+    excluded: it travels with ``states_no_to`` = its declared concepts (the
+    asked concept, exactly as the cluster names it) and names nothing without
+    claiming. Every other level carries ``states_no_to: []``.
+    """
+    if not isinstance(answer, str) or not isinstance(offered, dict) or not offered:
+        return []
+    if not _containment_form(answer):
+        return []
+    eligible = {
+        str(text): (meta if isinstance(meta, dict) else {})
+        for text, meta in offered.items()
+    }
+    _, cut = cut_offered_texts(answer, list(eligible))
+    out: list[dict] = []
+    for text in eligible:
+        if text not in cut:
+            continue
+        terms = eligible[text].get("names_without_claiming")
+        terms = [
+            str(t).strip() for t in (terms if isinstance(terms, list) else [])
+            if isinstance(t, str) and str(t).strip()
+        ]
+        is_no = eligible[text].get("level") == "denial"
+        out.append({
+            "text": text,
+            "names_without_claiming": [] if is_no else terms,
+            "states_no_to": terms if is_no else [],
+        })
+    return out

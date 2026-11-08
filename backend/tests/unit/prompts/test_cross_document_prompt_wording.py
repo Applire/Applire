@@ -42,10 +42,15 @@ def test_cover_letter_system_prompt_has_stated_limit_and_hard_requirement_rules(
     # lacked without a recorded denial is de-emphasised by leaving it out.
     assert "silence" not in lower
     assert "leaves it out" in lower
-    # RULING L-1 = A (2026-10-24): a gap is named only where a REQUIRED entry
-    # (a recorded denial of a key requirement) names it, in the fused form.
-    assert "only where a required: stated limits entry names it" in " ".join(lower.split())
-    assert "never a bare admission" in " ".join(lower.split())
+    # G-1 (2026-11-04, supersedes RULING L-1 = A's REQUIRED: STATED LIMITS entry): a gap
+    # is named only where the code-chosen KEY-REQUIREMENT GAPS block names it, gap and
+    # transfer (or the einarbeiten clause) in one sentence; every other unmet hard
+    # requirement is left out, never stated as a lack.
+    flat = " ".join(lower.split())
+    assert "a key-requirement gaps block names the gap(s) this letter states" in flat
+    assert "every other unmet jd hard requirement" in flat
+    assert "never stated as a lack" in flat
+    assert "required: stated limits" not in flat
 
 
 def test_build_cover_letter_prompt_threads_stated_limits_block():

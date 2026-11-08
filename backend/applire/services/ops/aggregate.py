@@ -33,6 +33,7 @@ from applire.services.ops.config import OPS_REFRESH_SECONDS
 from applire.services.ops.probes import (
     DEGRADED,
     DOWN,
+    OFF,
     OK,
     UNKNOWN,
     ProbeResult,
@@ -42,7 +43,10 @@ from applire.services.ops.probes import (
 logger = logging.getLogger(__name__)
 
 # `unknown` sits at the same rank as `degraded`: not healthy, not proven dead.
-_RANK = {OK: 0, DEGRADED: 1, UNKNOWN: 1, DOWN: 2}
+# `off` (a check the operator switched off, ADR-086 amended 2026-11-06) ranks
+# with `ok`: a deliberate choice is not a fault, and a warning that can never
+# clear would teach the operator to ignore the ones that matter.
+_RANK = {OK: 0, OFF: 0, DEGRADED: 1, UNKNOWN: 1, DOWN: 2}
 _VERDICT_BY_RANK = {0: OK, 1: DEGRADED, 2: DOWN}
 
 # (verdict, since_iso, full_report_dict)

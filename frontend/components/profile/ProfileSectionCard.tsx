@@ -232,16 +232,14 @@ function formatPeriod(
   // Dates show at the precision stored, in the UI language (WP-V).
   const left = nonEmpty(start) ? formatDisplayDate(start, locale) : null;
   const explicitEnd = nonEmpty(end) ? formatDisplayDate(end, locale) : null;
-  // #155 — an explicit is_current === true always renders the present label;
-  // an empty end keeps the existing present-label fallback.
+  // #822 — a stated end date renders as itself whatever the flag says (the
+  // CV rule, templates.filters.period: "an end date renders as itself"); a
+  // stale is_current === true never turns it into the present label.
+  // #155 — no end date and is_current === true renders the present label.
   // D-14: is_current === false with no end date = ended, end unknown — the
-  // start renders alone, never the present label (templates.filters.period).
+  // start renders alone, never the present label.
   const right =
-    isCurrent === true
-      ? (presentLabel ?? explicitEnd)
-      : isCurrent === false
-        ? explicitEnd
-        : (explicitEnd ?? presentLabel ?? null);
+    explicitEnd ?? (isCurrent === false ? null : (presentLabel ?? null));
   // #113(d) — a missing side is rendered by omission, never by an em-dash
   // standing in for data we do not have ("— → 2006"). Mirrors the DACH
   // convention already shipped in the CV templates (lebenslauf.html.j2: an

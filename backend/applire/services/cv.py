@@ -37,6 +37,7 @@ _render_cv_background:
 
 import base64 as _base64
 import hashlib
+import functools
 import asyncio
 import json as _json
 import logging
@@ -100,6 +101,7 @@ from applire.prompts.review_cv_language import (
     CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
     build_cv_language_refinement_prompt,
     build_cv_language_review_prompt,
+    language_pass_posting_terms,
 )
 from applire.prompts.interview import language_name
 from applire.templates.labels import cv_labels
@@ -130,7 +132,13 @@ from applire.constants import (
     LLM_REVIEW_MAX_RETRIES,
     SEGMENT_MAX_TOKENS,
 )
-from applire.exceptions import LLMProviderUnavailableError, LLMTimeoutError, LLMTruncatedError
+from applire.exceptions import (
+    LLMProviderUnavailableError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+    LLMTruncatedError,
+    is_provider_outage,
+)
 
 
 def classify_generation_error(exc: BaseException, *, user_id: uuid.UUID | None = None) -> str:
@@ -149,6 +157,12 @@ def classify_generation_error(exc: BaseException, *, user_id: uuid.UUID | None =
     # MD3-2 (Hazelnut build 3, WP-FR): an outage of the WRITER call (the reviewer
     # seats degrade instead, ADR-021) is its own retryable code, never the generic one.
     if isinstance(exc, LLMProviderUnavailableError):
+        return "provider_unavailable"
+    # A-7 (adversarial, Hazelnut build 7): ONE verdict with the raised-error door
+    # (`internal_errors._retry_prefix`) — a 429 that outlived the provider's own
+    # retries and an unclassified 5xx are transient on both doors. The code family
+    # is the existing retryable one; `llm_timeout` stays O's separate code.
+    if isinstance(exc, LLMRateLimitError) or is_provider_outage(exc):
         return "provider_unavailable"
     return "generation_failed"
 
@@ -1066,6 +1080,19 @@ def _settle_language_preseed(settled: dict, plan: "PreseedPlan") -> dict:
     return settled
 
 
+def _language_pass_terms(job, job_dict: dict, document_language: str | None) -> tuple[str, ...]:
+    """MD6-11 (D-5): the posting's own words are the document language's words —
+    handed to the language pass only when the posting is written in that language
+    (an English posting's terms never license English in a German CV)."""
+    try:
+        jd_language = resolve_jd_language(job) or ""
+    except Exception:  # noqa: BLE001
+        return ()
+    if not document_language or jd_language[:2].lower() != document_language[:2].lower():
+        return ()
+    return language_pass_posting_terms(job_dict)
+
+
 async def _review_cv_language(
     draft: dict,
     output_language: str,
@@ -1076,6 +1103,7 @@ async def _review_cv_language(
     *,
     chain_id: str = "cv_language",
     checks_fn=None,
+    posting_terms: tuple[str, ...] = (),
 ) -> dict:
     """Enforce that the tailored CV's prose + skill tags are entirely in the target-job
     language (ADR-038), retrying via the ADR-021 review_and_refine loop. The tailoring
@@ -1105,13 +1133,19 @@ async def _review_cv_language(
     # and the terminal review, which may insert content. ``keyword_ledger`` and
     # ``budget`` are kept in the signature for the callers; this pass ignores them.
     del keyword_ledger, budget
+    # MD6-11 (D-5): both sides see the posting's own words, kept as written.
+    reviewer_fn = build_cv_language_review_prompt
+    generator_fn = build_cv_language_refinement_prompt
+    if posting_terms:
+        reviewer_fn = functools.partial(reviewer_fn, posting_terms=posting_terms)
+        generator_fn = functools.partial(generator_fn, posting_terms=posting_terms)
 
     return await review_and_refine(
         source=language_name(output_language),
         draft=draft,
-        generator_prompt_fn=build_cv_language_refinement_prompt,
+        generator_prompt_fn=generator_fn,
         generator_system=CV_LANGUAGE_REFINEMENT_PROMPT,
-        reviewer_prompt_fn=build_cv_language_review_prompt,
+        reviewer_prompt_fn=reviewer_fn,
         reviewer_system=CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
         provider=provider,
         max_retries=CV_LANGUAGE_REVIEW_MAX_RETRIES,
@@ -1122,7 +1156,7 @@ async def _review_cv_language(
         # to a malformed reply); #724 — and the vault text the preseed put in front
         # of this pass came back where it was placed.
         settle_guard=lambda settled, _history: _settle_after_language_pass(
-            settled, draft, preseed
+            settled, draft, preseed, posting_terms
         ),
         # ADR-094 (inventory B, ruling W1-1 r2): under CV_PIPELINE=v2 a shape change is
         # a finding that opens a refiner round; the settle guard above stays the
@@ -1131,12 +1165,76 @@ async def _review_cv_language(
     )
 
 
-def _settle_after_language_pass(settled: dict, handed: dict, preseed) -> dict:
+def _settle_after_language_pass(
+    settled: dict, handed: dict, preseed, posting_terms: tuple[str, ...] = ()
+) -> dict:
     """The composed settle guard of every ``cv_language`` pass (see above)."""
     settled = _settle_language_shape(settled, handed)
     if preseed is not None and not preseed.is_empty():
         settled = _settle_language_preseed(settled, preseed)
-    return settled
+    return _settle_posting_term_chips(settled, handed, posting_terms)
+
+
+def _settle_posting_term_chips(
+    settled: dict, handed: dict, posting_terms: tuple[str, ...] = ()
+) -> dict:
+    """790:90 (Hazelnut build 7, WP-L) — a skill chip that IS a POSTING TERM leaves the
+    language pass as it was handed. Structural, no LLM (ADR-062 cl. 1: two FACTS — the
+    chip equals a term of the posting's own list, and the refiner changed the chip at
+    that position, which it was told never to reorder).
+
+    Earned (category C, applire-prompt-first): both prompts already carry the rule —
+    the reviewer's "Every term in POSTING TERMS … Never flag or translate", the
+    refiner's "POSTING TERMS stay exactly as written, even where the feedback names
+    one". UX audit round 3 (2026-11-07 LLM log, records 341/346): the luna reviewer
+    flagged "Skill: Supply Chain" anyway and the refiner obeyed — the CV lost the
+    posting's keyword as "Lieferkette". Replayed from the persisted input that
+    failure did not recur (as captured: reviewer rounds 1+2 0/30 flags, refiner 0/15
+    translations; luna reasoning off and on, Sonnet 5.5, n=5 each), so a louder prompt
+    sentence cannot be shown to change anything (a v6 wrapper sentence was measured
+    and not kept); the loss is rare and silent, and this restores exactly it.
+    Applies to the ``skills`` chips only — a posting term inside a prose bullet is
+    not restorable without judging the sentence around it.
+    """
+    terms = {
+        t.strip().casefold() for t in (posting_terms or ())
+        if isinstance(t, str) and t.strip()
+    }
+    if not terms or not isinstance(settled, dict) or not isinstance(handed, dict):
+        return settled
+    before = handed.get("skills")
+    after = settled.get("skills")
+    if not isinstance(before, list) or not isinstance(after, list) or len(before) != len(after):
+        return settled
+    # A-4 (adversarial pass): compare by identity, never by position. A reorder keeps
+    # every handed chip (nothing to restore); only a posting term that is GONE from
+    # the settled list is put back, into the slot of the chip that replaced it (the
+    # same index when that slot holds a chip nobody was handed, else the first such).
+    def _key(c: object) -> str:
+        return c.strip().casefold() if isinstance(c, str) else ""
+
+    handed_keys = {_key(c) for c in before if _key(c)}
+    present = {_key(c) for c in after}
+    restored: list[str] = []
+    skills = list(after)
+    for i, chip in enumerate(before):
+        k = _key(chip)
+        if not k or k not in terms or k in present:
+            continue
+        spare = [j for j, c in enumerate(skills) if _key(c) not in handed_keys]
+        if not spare:
+            continue
+        j = i if i in spare else spare[0]
+        restored.append(f"{skills[j]!r} -> {chip!r}")
+        skills[j] = chip
+        present.add(k)
+    if not restored:
+        return settled
+    logger.warning(
+        "LANGUAGE_PASS_POSTING_TERM_RESTORED (790:90): the language pass changed a "
+        "skill chip that is a POSTING TERM; kept as handed: %s", "; ".join(restored),
+    )
+    return {**settled, "skills": skills}
 
 
 @dataclass
@@ -1334,6 +1432,7 @@ async def _second_language_round(
     budget: Any,
     v2_shape_check: bool,
     cv_id: Any = None,
+    posting_terms: tuple[str, ...] = (),
 ) -> dict:
     """ADR-099 cl. 9 (UAT-3f): ONE more ``cv_language`` pass, bounded by its own
     retry budget, when the composed CV still fails the document-language check.
@@ -1388,6 +1487,7 @@ async def _second_language_round(
             budget=budget,
             chain_id="cv_language_second",
             checks_fn=_checks,
+            posting_terms=posting_terms,
         )
     except Exception as exc:
         record_review_degradation("cv_language_second", "review", type(exc).__name__, 1)
@@ -1407,6 +1507,7 @@ async def _terminal_language_recheck(
     cv_id: Any = None,
     round_no: int = 0,
     v2_shape_check: bool = False,
+    posting_terms: tuple[str, ...] = (),
 ) -> dict:
     """#759 (ADR-076 clause 3 / ADR-038 amended 2026-10-08) — the language pass is
     the LAST prose writer again.
@@ -1451,6 +1552,7 @@ async def _terminal_language_recheck(
             budget=budget,
             chain_id="cv_language_recheck",
             checks_fn=checks_fn,
+            posting_terms=posting_terms,
         )
     except Exception as exc:
         # #786 (WP-T): the whole pass failed — recorded like a failed review step.
@@ -4477,6 +4579,7 @@ async def _render_cv_background(
                     "company_culture_signals": job.company_culture_signals,
                     "language_requirement": job.language_requirement,
                 }
+                language_terms = _language_pass_terms(job, job_dict, document_language)
 
                 # Sort work experience reverse-chronologically before passing to LLM.
                 # Handles profiles that pre-date the merge-time sort.
@@ -4963,6 +5066,7 @@ async def _render_cv_background(
                     budget=budget,
                     preseed=preseed_plan,
                     checks_fn=language_checks,
+                    posting_terms=language_terms,
                 )
                 v2_terminal = None
                 if pipeline == PIPELINE_V2:
@@ -5006,6 +5110,7 @@ async def _render_cv_background(
                     budget=budget,
                     v2_shape_check=v2_terminal is not None,
                     cv_id=cv_id,
+                    posting_terms=language_terms,
                 )
                 if v2_terminal is not None and prose_draft is not _pre_second:
                     prose_draft = carry_v2_fields(prose_draft, _pre_second)
@@ -5100,6 +5205,7 @@ async def _render_cv_background(
                         budget=budget,
                         job_dict=job_dict,
                         language=document_language,
+                        posting_terms=language_terms,
                         condense_ctx=condense_ctx,
                         coverage_budget=coverage_budget,
                         measured=measured,
@@ -5173,6 +5279,7 @@ async def _render_cv_background(
                             budget=budget,
                             job_dict=job_dict,
                             language=document_language,
+                            posting_terms=language_terms,
                             condense_ctx=condense_ctx,
                             coverage_budget=coverage_budget,
                             measured=measured,
@@ -6418,6 +6525,15 @@ def _cv_prose_shape_ok(draft: Any) -> bool:
     )
 
 
+def _terminal_vault_index(profile_json: dict | None) -> Any:
+    """The vault index the ledger's backing ``unit_path`` was verified in (gap.py builds
+    it the same way: ``build_vault_index(exclude_unconfirmed(profile))``). None on any
+    failure — the under-claim demand then keeps its literal wording."""
+    from applire.services.ats_audit import grounding_vault_index
+
+    return grounding_vault_index(profile_json)
+
+
 async def _terminal_review(
     record: GeneratedCV,
     db: AsyncSession,
@@ -6437,6 +6553,7 @@ async def _terminal_review(
     preseed: "PreseedPlan | None" = None,
     demand_record: "DemandRecord | None" = None,
     v2: "V2Terminal | None" = None,
+    posting_terms: tuple[str, ...] = (),
 ) -> TerminalReviewResult:
     """ADR-076 clause 3 (#538): the TERMINAL review — the verdict that closes
     over the COMPOSED document (the delivered artifact), with the real render
@@ -6759,6 +6876,9 @@ async def _terminal_review(
         # reviewer just read, since `review_and_refine` evaluates the signal on the same
         # `current_draft` it handed the reviewer.
         structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+        # ADR-100 tier (WP3, 2026-11-04): a row's verified backing in a rendered entry
+        # turns the demand into a confirm-or-surface Hint (cv_gap_hints._issue_text).
+        vault_index=_terminal_vault_index(raw_profile_json or profile_json),
     )
 
     # #659 (ruling W-1, 2026-09-13): the redundant bullet pairs the ATS audit computes
@@ -6852,6 +6972,7 @@ async def _terminal_review(
             cv_id=record.id,
             round_no=rounds,
             v2_shape_check=v2 is not None,
+            posting_terms=posting_terms,
         )
         if v2 is not None:
             settled = carry_v2_fields(settled, handed_to_recheck)

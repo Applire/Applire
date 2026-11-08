@@ -33,9 +33,11 @@ def test_only_denials_offered_on_c_leaves_the_plain_answer_box():
 
 
 def test_the_c_prompt_asks_for_no_denial_choice():
-    prompt = build_question_prompt(CLUSTER, PROFILE, [], gap_category="C")
-    assert "Offer NO denial choice" in prompt
+    # UAT-2 (2026-11-08) amends V-7: the C prompt asks for at most ONE honest
+    # bridge on an asked concept with no evidence in any words — never a pure
+    # denial (the filter's structural rule, test_uat2_bridge_grounding.py).
+    prompt = " ".join(build_question_prompt(CLUSTER, PROFILE, [], gap_category="C").split())
     assert "only valid scope for a denial" not in prompt
-    # R2-2: a PARTIAL chip marks a gap as "not in the profile", never as a lack.
-    assert "does not yet document a concept" in prompt
-    assert "never that the candidate lacks it" in prompt
+    assert "gets bridges and the one honest bridge, whose no names exactly that concept" in prompt
+
+

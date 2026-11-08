@@ -62,6 +62,10 @@ KEYWORD_ONLY_WEIGHT = 0.0
 # deliberately not taken mid-flavour (recorded as debt in the ADR).
 _VALID_STATUS = {"direct", "partial", "gap", "denied"}
 
+#: ADR-100 M-2 — the ledger row's key for the persisted denial the gap
+#: classifier bound it to (the record's own ``DeniedConcept.concept``).
+DENIED_BY_KEY = "denied_by"
+
 # The one place the honest marker is spelled, so the floor and every write seam
 # that records a denial cite identical evidence text.
 DENIED_EVIDENCE = "Candidate explicitly stated a limit here (interview)."
@@ -407,6 +411,15 @@ def _collapse_prefix_duplicates(
                 seen_evidence.add(_norm(ev))
                 evidence_parts.append(ev)
         evidence = join_evidence_parts(evidence_parts)
+        # ADR-100 cl. 4 — the merged row keeps a verified-quote path to the
+        # vault when any member carried one (the canonical's own first).
+        backing = next((m["backing"] for m in [canonical, *members] if m.get("backing")), None)
+        # ADR-100 M-2 — a member the classifier bound to a recorded denial keeps
+        # the merged row bound (the denial floor below verifies the id; a denial
+        # outranks the merge exactly as it outranks a claim).
+        denied_by = next(
+            (m[DENIED_BY_KEY] for m in [canonical, *members] if m.get(DENIED_BY_KEY)), None
+        )
         # ADR-048 amended 2026-08-13 (#526): start from the canonical entry and
         # OVERRIDE. This used to be a fixed key literal, which silently dropped
         # every field outside it — `adjacent_evidence` among them, so a JD naming
@@ -425,6 +438,8 @@ def _collapse_prefix_duplicates(
                 "status": g["status"],
                 "evidence": evidence if canonical.get("claimable") else "",
                 "claimable": canonical.get("claimable", False),
+                **({"backing": backing} if backing and canonical.get("claimable") else {}),
+                **({DENIED_BY_KEY: denied_by} if denied_by else {}),
             }
         )
     return merged
@@ -554,7 +569,78 @@ def _declared_denial_level(
     return "partial" if "partial" in matched_levels else "direct"
 
 
-def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
+def _declared_denial_record(
+    concept: str,
+    forms: list[str],
+    entries: list[tuple[str, str]],
+) -> str | None:
+    """The recorded denial's OWN wording that declares this entry — the longest
+    declared match over the concept and every surface form, verbatim
+    ``DeniedConcept.concept`` — or ``None`` (#821, founder ruling G-1).
+
+    Same matcher as :func:`_declared_denial_level` (``declared_denial_matches``,
+    longest first), so the two can never disagree about WHETHER the entry is
+    declared; this one answers WHICH record, so every surface can quote the
+    candidate's scoped words instead of the requirement's bare concept."""
+    if not entries:
+        return None
+    all_denied = [d_concept for d_concept, _level in entries]
+    matched: list[str] = []
+    for probe in dict.fromkeys([concept, *(forms or [])]):
+        if isinstance(probe, str) and probe.strip():
+            matched.extend(declared_denial_matches(probe, all_denied))
+    if not matched:
+        return None
+    return sorted(dict.fromkeys(matched), key=lambda d: len(_norm(d)), reverse=True)[0]
+
+
+def denial_scope_wording(entry: dict[str, Any] | None) -> str | None:
+    """#821 (ruling G-1) — the candidate's own wording of the limit a ``denied``
+    row records, when it differs from the row's concept; else ``None``.
+
+    The writers and every surface state THIS scope ("no PSD2 licence"), never
+    the bare requirement ("PSD2"). A fact read off the row (ADR-062 cl. 1)."""
+    if not isinstance(entry, dict) or entry.get("status") != "denied":
+        return None
+    wording = entry.get(DENIED_BY_KEY)
+    if not isinstance(wording, str) or not wording.strip():
+        return None
+    if _norm(wording) == _norm(entry.get("concept", "")):
+        return None
+    return wording.strip()
+
+
+def _bound_denial(
+    entry: dict[str, Any],
+    entries: list[tuple[str, str]],
+) -> tuple[str, str] | None:
+    """The live persisted denial the row is BOUND to by id, as
+    ``(record concept, denial_level)`` — or ``None`` (ADR-100 amended
+    2026-11-04, M-2).
+
+    The gap classifier sees the candidate's active recorded denials, each keyed
+    by its record's ``concept`` (``prompts/gap_analysis.py`` RECORDED DENIALS),
+    and cites one in ``denied_by`` for a requirement that denial rules out —
+    which requirement a denial rules out is a Judgment, made in any language.
+    This function is the Fact half: the cited id must equal (``_norm``) the
+    ``concept`` of a denial in ``entries`` — the live list, so a withdrawn
+    record (G-5, moved to ``withdrawn_denials``) binds nothing. Never a
+    reading of the denial's words: an unknown id is no binding, and the row
+    falls back to the string matcher.
+    """
+    cited = entry.get(DENIED_BY_KEY)
+    if not isinstance(cited, str) or not _norm(cited):
+        return None
+    key = _norm(cited)
+    for concept, level in entries:
+        if _norm(concept) == key:
+            return concept, level
+    return None
+
+
+def _denied_row(
+    entry: dict[str, Any], denial_level: str, record: str | None = None
+) -> dict[str, Any]:
     """THE one shape a denied ledger row is written in — the assert half of the
     floor (ADR-059 amended 2026-08-08 clause (b), #486).
 
@@ -590,6 +676,12 @@ def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
     # itself, so there is no substitute to promote — and the letter's UNADDRESSED
     # block reads the field unconditionally.
     out.pop("adjacent_evidence", None)
+    out.pop("backing", None)  # ADR-100 cl. 7: a denial outranks a quote
+    # #821 (ruling G-1): the row carries the candidate's own wording of the
+    # limit, so surfaces and writers quote the scope, never the bare concept. A
+    # row the classifier bound keeps its binding (the same record by id).
+    if record and not (isinstance(out.get(DENIED_BY_KEY), str) and out[DENIED_BY_KEY].strip()):
+        out[DENIED_BY_KEY] = record
     return out
 
 
@@ -614,6 +706,7 @@ def _floored_row(entry: dict[str, Any]) -> dict[str, Any]:
     # ADR-048 amended 2026-08-13 (#526) — same reason as `_denied_row`: the row
     # has left the claimable adjacent-partial shape, so the pointer leaves too.
     out.pop("adjacent_evidence", None)
+    out.pop("backing", None)  # ADR-100 cl. 7: a denial floor outranks a quote
     return out
 
 
@@ -707,75 +800,125 @@ def _enforce_denial_stance(
     """
     entries = _denied_concept_entries(denied_concepts)
     if not entries:
-        return ledger
-
-    all_denied_concepts = [d_concept for d_concept, _level in entries]
+        # M-2: with no live denial, no binding can be live either.
+        return [
+            {k: v for k, v in e.items() if k != DENIED_BY_KEY} if DENIED_BY_KEY in e else e
+            for e in ledger
+        ]
 
     result: list[dict[str, Any]] = []
     for entry in ledger:
         concept = entry.get("concept", "")
         forms = entry.get("surface_forms") or [concept]
-        # "Is this entry denied AT ALL?" is decided with ONE call against the
-        # FULL joint list of denied concepts — that is what lets
-        # ``_independently_affirmed`` blank every denied phrase out of the
-        # vault corpus TOGETHER before checking for independent evidence.
-        # Looping this call per-concept over singleton lists (regression,
-        # 2026-07-29) silently fails OPEN: when two denied concepts share a
-        # substring that never appears standalone in the vault, each
-        # singleton call blanks only its own phrase, so the OTHER phrase's
-        # leftover text reads as "independent" affirmation and neither call
-        # fires — the floor stops firing at all for that entry.
-        is_denied = is_denied_concept(concept, all_denied_concepts, vault_corpus) or any(
-            is_denied_concept(f, all_denied_concepts, vault_corpus) for f in forms
-        )
-        if not is_denied:
-            result.append(entry)
-            continue
-        # SF-GAP.10 / E-4 (ADR-059 amended 2026-09-11) — the RELEASE half at the
-        # entry's full width. ``is_denied`` above probes the concept AND every
-        # surface form; the release probes the same set, so an alias can no
-        # longer pull an entry into the floor that its own attested name would
-        # carry back out. Declared denials never reach here
-        # (``containment_release_form`` refuses them itself).
-        released = containment_release_form(
-            concept, forms, all_denied_concepts, vault_corpus
-        )
-        if released is not None:
+        # ADR-100 amended 2026-11-04 (M-2) — the BOUND arm, first. The gap
+        # classifier cited a recorded denial by id for this requirement (a
+        # Judgment, any language); the id is a live record (a Fact). The row
+        # is the candidate's own "no": `denied`, at the record's level —
+        # partial wins over any denial the string matcher also declares
+        # (ADR-064's tie-break, unchanged). No release: a bound denial is
+        # declared by the candidate's own record, and a declared denial is
+        # never released (`containment_release_form`).
+        bound = _bound_denial(entry, entries)
+        if (
+            bound is not None
+            # the record's words reach this row literally at all (corpus None:
+            # the pure string relation, before any release is considered)
+            and _entry_is_denied(concept, forms, [bound[0]], None)
+            and containment_release_form(concept, forms, [bound[0]], vault_corpus)
+            is not None
+        ):
+            # The release the string matcher carried (SF-GAP.10 / #486): the
+            # record's words contain this requirement as a PART, and the vault
+            # attests it outside that compound — the record is no "no" on this
+            # requirement, whatever the citation says. Same-language only by
+            # construction; it keeps the one NO the old arm said there.
             logger.info(
-                "_enforce_denial_stance: left %r as it stands (%r/claimable=%r) — "
-                "it is only contained in a denied compound, and the vault "
-                "attests %r outside it (SF-GAP.10)",
+                "_enforce_denial_stance: ignored binding of %r to %r — the vault "
+                "attests it outside the denied compound (SF-GAP.10, ADR-100 M-2)",
+                concept,
+                bound[0],
+            )
+            bound = None
+        if bound is not None and entry.get("status") not in ("gap", "denied"):
+            # The classifier's output contradicts itself: it cites a denial AND
+            # grades the requirement claimable (the prompt binds only with
+            # "gap"). Which half is wrong is unknowable here, so the fail-safe
+            # direction (ADR-062 cl. 5): the claim is refused, the testimony is
+            # NOT asserted — the containment floor's shape, `_floored_row`. (A
+            # same-language too-broad citation — "CSS" cited to "no Tailwind
+            # CSS" while the vault attests CSS — was already released above.)
+            logger.warning(
+                "_enforce_denial_stance: floored %r without asserting a denial — "
+                "the classifier cited the recorded denial %r but graded it %r "
+                "(ADR-100 M-2)",
+                concept,
+                bound[0],
+                entry.get("status"),
+            )
+            result.append(
+                _floored_row({k: v for k, v in entry.items() if k != DENIED_BY_KEY})
+            )
+            continue
+        if bound is not None:
+            record_concept, level = bound
+            declared = _declared_denial_level(concept, forms, entries)
+            if declared == "partial":
+                level = "partial"
+            logger.info(
+                "_enforce_denial_stance: recorded %r as denied (was %r/claimable=%r) — "
+                "the classifier bound it to the recorded denial %r (ADR-100 M-2)",
                 concept,
                 entry.get("status"),
                 entry.get("claimable"),
-                released,
+                record_concept,
             )
+            result.append(
+                _denied_row({**entry, DENIED_BY_KEY: record_concept}, level)
+            )
+            continue
+        if DENIED_BY_KEY in entry:
+            # A cited id that names no live record binds nothing — the row takes
+            # the string matcher's path exactly as before M-2.
+            if entry.get(DENIED_BY_KEY):
+                logger.info(
+                    "_enforce_denial_stance: dropped binding %r on %r — no live, "
+                    "unreleased recorded denial has that id (ADR-100 M-2)",
+                    entry.get(DENIED_BY_KEY),
+                    concept,
+                )
+            entry = {k: v for k, v in entry.items() if k != DENIED_BY_KEY}
+        # #821 (founder ruling G-1, ADR-059 amended 2026-11-07): A DENIAL FLOORS
+        # ONLY THE CONCEPT IT NAMES. The compound-containment branch that used
+        # to floor here ("ECMO" inside a denied "ECMO certification",
+        # "Security" inside "formal security certification") is withdrawn: the
+        # row keeps the classifier's grade. Whether a narrower denial rules out
+        # a broader requirement is the classifier's `denied_by` Judgment (the
+        # bound arm above), never a string relation.
+        record = _declared_denial_record(concept, forms, entries)
+        if record is None:
+            if is_denial_floored(entry):
+                # A row the withdrawn containment floor wrote on an earlier run
+                # (a carried merge row, a stored ledger): it was never the
+                # candidate's "no", so it goes back to an honest unknown, which
+                # the vault re-evaluation may lift on real evidence.
+                logger.info(
+                    "_enforce_denial_stance: released the containment floor on %r — "
+                    "no recorded denial names it (G-1, #821)",
+                    concept,
+                )
+                result.append({**entry, "status": "gap", "claimable": False, "evidence": ""})
+                continue
             result.append(entry)
             continue
         if entry.get("claimable"):
             logger.warning(
-                "_enforce_denial_stance: forced claimable concept %r to gap — "
+                "_enforce_denial_stance: forced claimable concept %r to denied — "
                 "the candidate explicitly denied it in testimony (#231, "
                 "ADR-040 never-claim-beats-claim outranks adjacency inference)",
                 concept,
             )
-        # Second pass — the ASSERT half (ADR-059 amended 2026-08-08, #486).
-        # The entry is floored either way; this decides whether the floor may
-        # also state that the candidate SAID SO. Only a declared denial (the
-        # persisted DeniedConcept naming this concept) may, and it also
-        # supplies the ``denial_level``. A containment-only match is floored
-        # and left silent about testimony that was never given.
-        level = _declared_denial_level(concept, forms, entries)
-        if level is None:
-            logger.info(
-                "_enforce_denial_stance: floored %r without asserting a denial — "
-                "it is only contained in a denied compound the candidate named, "
-                "and no denial names this concept (#486)",
-                concept,
-            )
-            result.append(_floored_row(entry))
-            continue
-        result.append(_denied_row(entry, level))
+        level = _declared_denial_level(concept, forms, entries) or "direct"
+        result.append(_denied_row(entry, level, record))
     return result
 
 
@@ -922,7 +1065,12 @@ def is_unasked_requirement(entry: dict[str, Any] | None) -> bool:
 
     * ``evidence == ""`` is what separates this from the ADR-059/#486
       **containment-floored** gap, which carries :data:`DENIAL_FLOOR_EVIDENCE`
-      and therefore *does* have a related stated limit to build on.
+      and therefore *does* have a related stated limit to build on. Since G-1
+      (#821, ADR-059 am. 2026-11-07) no seam writes that floor any more (older
+      rows are released to a plain gap), so a row related to a recorded no by
+      containment alone now reads as unasked HERE; the candidate-facing notice
+      (``GapAnalysisResponse.unasked_requirements``) additionally drops every row
+      an asked gap cluster speaks for (790:78).
     * ``status != "denied"`` is implied today — :func:`_denied_row` always writes
       :data:`DENIED_EVIDENCE` — and is kept as an explicit fail-safe. A control's
       correctness must not depend on the spelling of a sentinel, and the failure
@@ -1082,7 +1230,9 @@ def retention_forms(entry: dict[str, Any]) -> list[str]:
 LISTED_ONLY_MARKER = "[listed only — no role bullet or story states it]"
 
 
-def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> str:
+def render_ledger_prompt_block(
+    keyword_ledger: list[dict[str, Any]] | None, *, audience: str = "cv"
+) -> str:
     """Render the Keyword Ledger as a prompt fragment shared by the CV and cover-letter
     generators (ADR-048 §8 / US200/US201).
 
@@ -1090,6 +1240,11 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
     its literal surface forms + the profile evidence that supports it, and lists the
     honest-gap concepts under an explicit DO NOT CLAIM heading. Returns "" when the ledger
     is empty so legacy callers and pre-E037 rows add nothing.
+
+    ``audience`` ("cv" | "letter") selects the EXPLICITLY DENIED header's variant
+    (Hazelnut build 6 fix round, adversarial MD6-3): the letter's names the G-1
+    KEY-REQUIREMENT GAPS block, which exists only in the letter prompt; the CV's is
+    the pre-build-6 text, byte for byte (RULING MD6-3: the CV is unchanged).
     """
     claimable, forbidden = split_ledger_for_prompt(keyword_ledger)
     aims = [e.get("concept", "") for e in keyword_ledger or [] if is_aim_only(e) and e.get("concept")]
@@ -1170,24 +1325,42 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
     # 2026-07-27). An unknown is simply absent. A denial is a position the
     # CANDIDATE took, in their own words — which is exactly what makes it
     # positionable rather than merely forbidden.
-    denied = [
-        e.get("concept", "")
-        for e in (keyword_ledger or [])
-        if e.get("status") == "denied" and e.get("concept")
+    denied_rows = [
+        e for e in (keyword_ledger or []) if e.get("status") == "denied" and e.get("concept")
     ]
+    denied = [e.get("concept", "") for e in denied_rows]
     denied_norms = {_norm(c) for c in denied}
+    # ADR-100 cl. 6 — each list says what the system actually knows: the
+    # analysis found no evidence, or the evidence it named could not be verified
+    # against the profile. Never "NOT in the profile" — no check here can know that.
+    unverified_norms = {
+        _norm(e.get("concept", ""))
+        for e in (keyword_ledger or [])
+        if e.get("unbacked") == UNBACKED_NO_VERIFIABLE_QUOTE
+    }
     unknown = [c for c in forbidden if _norm(c) not in denied_norms]
+    unverified = [c for c in unknown if _norm(c) in unverified_norms]
+    unknown = [c for c in unknown if _norm(c) not in unverified_norms]
 
     lines += [
         "",
-        "DO NOT CLAIM (honest gaps — NOT in the profile; never present these as something "
-        "the candidate has, has done, or knows):",
+        "DO NOT CLAIM (the analysis found no evidence for these in the profile; never present "
+        "these as something the candidate has, has done, or knows):",
     ]
     if unknown:
         for concept in unknown:
             lines.append(f"  - {concept}")
     else:
         lines.append("  (none)")
+    if unverified:
+        lines += [
+            "",
+            "DO NOT CLAIM (no verifiable profile quote backs these — the analysis named "
+            "evidence, but no span of the profile could be checked; never present these as "
+            "something the candidate has, has done, or knows):",
+        ]
+        for concept in unverified:
+            lines.append(f"  - {concept}")
 
     if denied:
         lines += [
@@ -1195,12 +1368,29 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
             "EXPLICITLY DENIED BY THE CANDIDATE (they were asked and stated they do NOT "
             "have these). Never claim them, and never soften or walk back the denial. "
             "Unlike the list above these are the candidate's OWN stated position, so a "
-            "cover letter MAY name one honestly — ONLY where a REQUIRED: STATED LIMITS "
-            "block lists it, with what they do bring in the same sentence (RULING L-1); "
-            "otherwise the letter, like a CV, simply omits them:",
+            + (
+                "cover letter MAY name one honestly — ONLY where its KEY-REQUIREMENT GAPS "
+                "block names it, in that block's one-sentence form (RULING G-1); "
+                "otherwise the letter, like a CV, simply omits them:"
+                if audience == "letter" else
+                "cover letter MAY name one honestly — ONLY where a REQUIRED: STATED LIMITS "
+                "block lists it, with what they do bring in the same sentence (RULING L-1); "
+                "otherwise the letter, like a CV, simply omits them:"
+            ),
         ]
-        for concept in denied:
-            lines.append(f"  - {concept}")
+        for row in denied_rows:
+            concept = row.get("concept", "")
+            scope = denial_scope_wording(row) if audience == "letter" else None
+            if scope:
+                # #821 (founder ruling G-1): the writer states the candidate's
+                # OWN scope, never the bare requirement. The CV variant is
+                # byte-unchanged (RULING MD6-3): a CV never names a limit.
+                lines.append(
+                    f'  - {concept} — the candidate\'s own words for this limit: "{scope}"; '
+                    f"name only that scope, never the bare {concept}"
+                )
+            else:
+                lines.append(f"  - {concept}")
 
     lines += _aims_only_lines(aims)
     return "\n".join(lines)
@@ -1434,16 +1624,35 @@ def render_ledger_reviewer_block(
         "your grounding judgments — do NOT scan the draft for absent ones yourself; a "
         "deterministic VERIFIED COVERAGE CHECK handles absence detection (US213, #122):",
     ]
+    quoted = False
     if claimable:
         for entry in claimable:
             forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
-            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]")
+            backing = entry.get("backing") if isinstance(entry.get("backing"), dict) else {}
+            quote = backing.get("quote") if backing.get("unit_path") else None
+            quoted = quoted or bool(quote)
+            cited = f' — profile quote: "{quote}"' if quote else ""
+            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]{cited}")
     else:
         lines.append("  (none)")
+    if quoted:
+        # ADR-100 cl. 5 — the second line on a backing: code verified only that
+        # the quote EXISTS in the profile; whether it SHOWS the concept is a
+        # judgement, and this reviewer is where it is made (a Hint-tier task).
+        lines += [
+            "",
+            "QUOTE CHECK (task): a profile quote above was verified by code only to EXIST "
+            "word for word in the profile, not to show the concept. For each quoted concept "
+            "the draft claims, confirm the quote shows that competence at the level the draft "
+            "states; if it does not (it shares a word but shows something else, or a bare "
+            "skill name is claimed as a practice), raise a finding quoting both the draft "
+            "sentence and the profile quote.",
+        ]
 
     lines += [
         "",
-        "DO NOT CLAIM (honest gaps — NOT in the profile). Flag any of these that the draft "
+        "DO NOT CLAIM (no evidence in the profile found or verified by the analysis). Flag "
+        "any of these that the draft "
         "presents as something the candidate has, has done, or knows — that is a fabrication. "
         "Whose fact? Judge the SENTENCE, not the term (#420): a sentence stating the "
         "EMPLOYER's product/market from the job_description (\"Ihr Umfeld der ...\", their "
@@ -1525,6 +1734,8 @@ def _coverage_split(
     ]
     if not claimable:
         return [], []
+    from applire.services.cv_gap_hints import structured_backing_delivered
+
     text_norm = ats_norm("\n".join(_draft_strings(draft)))
     present: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
@@ -1532,7 +1743,13 @@ def _coverage_split(
         forms = list(entry.get("surface_forms") or [])
         if entry.get("concept"):
             forms.append(entry["concept"])
-        (present if any(surface_present(f, text_norm) for f in forms) else missing).append(entry)
+        # ADR-100 Fact (WP3, 2026-11-04): a row whose verified backing is a LANGUAGES /
+        # CERTIFICATIONS / EDUCATION row the draft's same section carries is delivered
+        # by that section ("German language skills" beside "German: Native speaker").
+        delivered = any(surface_present(f, text_norm) for f in forms) or (
+            isinstance(draft, dict) and structured_backing_delivered(entry, draft)
+        )
+        (present if delivered else missing).append(entry)
     return present, missing
 
 
@@ -1861,6 +2078,36 @@ LETTER_COVERAGE_BY_EVIDENCE = (
     'provide <term> by …"), or as an inserted gloss ("… — a <term> — …").'
 )
 
+#: Letter #784 (WP3, ADR-100 tiers, Hazelnut collectors 2026-11-04): on a LETTER the
+#: scan below is a HINT — it reads the posting's WORDS and cannot see the same evidence
+#: written in other words or another language. The block used to open "this is ground
+#: truth … ABSENT" and close "You MUST set approved=false", with D-28's
+#: "delivered by its evidence" appended after: a block that states its own negation.
+#: Replay of the captured 11-04 state (luna, full loop): round 1 "team leadership
+#: evidence is delivered through leading six employees", round 3 "does not deliver the
+#: team-leadership evidence required by the coverage check" — REVIEW_EXHAUSTED on that
+#: one issue. On a letter the head and the obligation are stated at their true strength,
+#: as one confirm-or-demand task per term.
+_LETTER_COVERAGE_HEAD = (
+    "VERIFIED COVERAGE CHECK (deterministic literal scan of the posting's WORDS — it "
+    "cannot see the same evidence written in other words or another language). For these "
+    "claimable requirements the posting's words do not appear in the draft:"
+)
+_LETTER_COVERAGE_HEAD_BOUNDED = (
+    _LETTER_COVERAGE_HEAD[:-1]
+    + ". The list below IS THIS ROUND'S COMPLETE DEMAND SET, already ranked by how "
+    "central each is to this role: raise coverage for no term it does not carry:"
+)
+_LETTER_COVERAGE_TASK = (
+    "For EACH term above, quote in your analysis the letter's sentence that states its "
+    'evidence, or write "none" (ADR-100 cl. 6: a Hint is a task with a checkable answer). '
+    "Only a term whose evidence the letter does not state blocks: set approved=false and "
+    "name it in your issues so the writer surfaces the evidence from the candidate's own "
+    "source. EXCEPTION — the grounding waiver: if surfacing it would stretch beyond what "
+    "that source states, WAIVE it instead (name the term and the reason in your feedback). "
+    "Grounding strictly outranks coverage — never ask the writer to fabricate."
+)
+
 
 def render_verified_coverage_block(
     entries: list[dict[str, Any]],
@@ -1918,6 +2165,8 @@ def render_verified_coverage_block(
             "this round. Demand every term on it and no other — do not add a coverage "
             "demand for a term the list does not carry."
         )
+    if letter:
+        head = _LETTER_COVERAGE_HEAD_BOUNDED if bounded else _LETTER_COVERAGE_HEAD
     lines = [head, items_note("concept terms and surface forms")]
     any_owner = False
     for entry in entries:
@@ -1954,17 +2203,18 @@ def render_verified_coverage_block(
             "by no position in particular (summary, skills, education) — nothing is "
             "claimed either way there, and the anchoring judgement stays yours.",
         ]
-    lines += [
-        "",
-        "You MUST set approved=false while any term above remains both absent and "
-        "un-waived, and name the terms in your issues so the writer surfaces them from "
-        "the candidate's own source. EXCEPTION — the grounding waiver: if surfacing a "
-        "term would stretch beyond what that source states, WAIVE it instead (name the term "
-        "and the reason in your feedback); a waived term does not block approval. "
-        "Grounding strictly outranks coverage — never ask the writer to fabricate.",
-    ]
     if letter:
-        lines += ["", LETTER_COVERAGE_BY_EVIDENCE]
+        lines += ["", LETTER_COVERAGE_BY_EVIDENCE, "", _LETTER_COVERAGE_TASK]
+    else:
+        lines += [
+            "",
+            "You MUST set approved=false while any term above remains both absent and "
+            "un-waived, and name the terms in your issues so the writer surfaces them from "
+            "the candidate's own source. EXCEPTION — the grounding waiver: if surfacing a "
+            "term would stretch beyond what that source states, WAIVE it instead (name the term "
+            "and the reason in your feedback); a waived term does not block approval. "
+            "Grounding strictly outranks coverage — never ask the writer to fabricate.",
+        ]
     if skills_list:
         lines += [
             "",
@@ -2465,7 +2715,9 @@ def upgrade_ledger_for_concepts(
     from applire.services.ats_audit import _norm as ats_norm
 
     turn_corpus = ats_norm(ev)
-    full_corpus = " ".join(p for p in (vault_corpus or "", turn_corpus) if p) or None
+    # `vault_corpus` decided only the withdrawn containment floor's release
+    # (#821, G-1); the doors keep passing it, the turn corpus alone decides now.
+    del vault_corpus
 
     new_ledger: list[dict[str, Any]] = []
     changed = False
@@ -2520,48 +2772,27 @@ def upgrade_ledger_for_concepts(
                 e.get("status"),
                 e.get("claimable"),
             )
-            denied = _denied_row(e, declared_level)
+            denied = _denied_row(
+                e, declared_level, _declared_denial_record(concept, forms, denial_entries)
+            )
             changed = changed or denied != e
             new_ledger.append(denied)
             continue
 
         if denials and _entry_is_denied(concept, forms, denials, turn_corpus or None):
-            if not _entry_is_denied(
-                concept, forms, denials, full_corpus
-            ) or containment_release_form(concept, forms, denials, full_corpus):
-                # #351 — the turn denies this concept only by containment in a
-                # longer denied compound, and the vault affirms it outside that
-                # compound. Neither verdict is available: the turn is no
-                # evidence FOR it, and the candidate denied the compound, not
-                # this concept. Leave the entry exactly as it stands — which,
-                # composed with #352, also means a containment-only denial
-                # never REVERSES a standing upgrade. That is the same verdict
-                # the rebuild reaches: `_enforce_denial_stance` has always
-                # judged containment against this very corpus.
-                logger.info(
-                    "upgrade_ledger_for_concepts: left %r as it stands (%r/"
-                    "claimable=%r) — it is only contained in a denied compound "
-                    "and the vault affirms it independently (#351)",
-                    concept, e.get("status"), e.get("claimable"),
-                )
-                new_ledger.append(e)
-                continue
-            # Containment only, and nothing affirms the concept outside the
-            # denied compound — not the turn, not the vault. The never-upgrade
-            # half fires (the entry is floored, and a standing claim is
-            # reversed, #352) but the assert half does not: the candidate named
-            # the compound, never this concept (#486).
+            # #351 kept, #486's floor withdrawn (#821, founder ruling G-1): the
+            # turn reaches this concept only by containment in a longer denied
+            # compound, so its words are no evidence FOR it (no upgrade) — and a
+            # denial floors only the concept it names, so nothing is floored or
+            # reversed either. The row stays exactly as it stands; whether the
+            # narrower denial rules out this broader requirement is the gap
+            # classifier's `denied_by` Judgment (rebuild, coverage re-judge).
             logger.info(
-                "upgrade_ledger_for_concepts: floored %r (was %r/claimable=%r) "
-                "without asserting a denial — it is only contained in a denied "
-                "compound and nothing affirms it independently (#486)",
-                concept,
-                e.get("status"),
-                e.get("claimable"),
+                "upgrade_ledger_for_concepts: left %r as it stands (%r/claimable=%r) "
+                "— it is only contained in a denied compound (#351; G-1, #821)",
+                concept, e.get("status"), e.get("claimable"),
             )
-            floored = _floored_row(e)
-            changed = changed or floored != e
-            new_ledger.append(floored)
+            new_ledger.append(e)
             continue
 
         # Nothing to upgrade: this turn confirmed nothing (``upgrade=False``),
@@ -2746,12 +2977,10 @@ def reevaluate_gap_ledger_against_vault(
         # rule: the release is judged at the entry's full width too, or a
         # rebuild and a re-evaluation of the same row disagree about whether
         # the containment reading stands.
-        if (
-            denials
-            and any(is_denied_concept(p, denials, release_corpus) for p in probes)
-            and containment_release_form(concept, forms, denials, release_corpus)
-            is None
-        ):
+        # #821 (G-1, ADR-059 amended 2026-11-07): only a denial that NAMES the
+        # row skips it; a containment-only match no longer floors, so the row
+        # may be lifted on real vault evidence outside the denial statements.
+        if denials and any(declared_denial_matches(p, denials) for p in probes):
             continue
 
         if not any(surface_present(p, corpus) for p in probes):
@@ -3273,6 +3502,20 @@ def _annotate_narrative_backed(
     is the honest opposite: every entry comes back unbacked. Runs as a final
     pass over the fully-built ledger so it never has to special-case the
     duplicate-collapse / gap-stance / denial-stance orderings above.
+
+    ADR-100 amended 2026-11-04 (WP4, Interview #787) — two arms, like the
+    affirmative floor: **(i)** the literal one above (a cheap positive), **or
+    (ii)** the row's ``backing.quote`` resolves, by :func:`_verified_backing_path`
+    (``quote_in_vault`` plus the floor's denial and aim stances), in a NARRATIVE
+    unit — a responsibility or achievement of a position, project or
+    volunteering entry, or a signature-story field, the exact field set
+    :func:`_narrative_texts` reads. (ii) is a Fact: the span exists verbatim in
+    one unit and the unit's path names its kind. Whether the span SHOWS the
+    requirement stays the classifier's judgement (ADR-100 cl. 5). Measured on
+    the 11-04 E2E tier (German vault, English posting): six interviewed rows
+    were `direct` with a German quote in a responsibility and still read as
+    liabilities — never `covered` on their clusters (ADR-089 A-1), and "Team
+    leadership" became an interview topic of its own.
     """
     if profile_json is None:
         return [{**e, "narrative_backed": True} for e in ledger]
@@ -3280,14 +3523,63 @@ def _annotate_narrative_backed(
     from applire.services.ats_audit import surface_present
 
     corpus = profile_narrative_corpus(profile_json)
+    quote_arm = _narrative_quote_arm(profile_json) if any(
+        isinstance(e.get("backing"), dict) for e in ledger
+    ) else None
     out: list[dict[str, Any]] = []
     for e in ledger:
         forms = list(e.get("surface_forms") or [e.get("concept", "")])
         if e.get("concept"):
             forms.append(e["concept"])
         backed = bool(corpus) and any(surface_present(f, corpus) for f in forms)
+        if not backed and quote_arm is not None:
+            backed = quote_arm(e)
         out.append({**e, "narrative_backed": backed})
     return out
+
+
+#: The vault-index unit paths that are NARRATIVE (#260): the field set
+#: :func:`_narrative_texts` reads, as ``build_vault_index`` names its units.
+_NARRATIVE_UNIT_PATH = re.compile(
+    r"^(?:(?:work_experience|projects|volunteer_activities)\[\d+\]\.(?:responsibilities|achievements)\[\d+\]"
+    r"|signature_stories\[\d+\]\.(?:title|challenge|mechanism|outcome|benchmark))$"
+)
+
+
+def _narrative_quote_arm(profile_json: dict[str, Any]):
+    """The quote arm of the narrative stamp (ADR-100 amended 2026-11-04): a
+    predicate ``row -> bool`` over a vault index narrowed to NARRATIVE units, or
+    ``None`` when the vault cannot be indexed (the literal arm alone decides —
+    the pre-amendment behaviour, never a stronger claim)."""
+    import types
+
+    try:
+        from applire.services.oracle.matchers.vault import build_vault_index
+
+        index = build_vault_index(exclude_unconfirmed(profile_json))
+    except Exception:  # noqa: BLE001 — a stamp, never a reason to fail a ledger build
+        return None
+    narrative = types.SimpleNamespace(
+        units=[u for u in index.units if _NARRATIVE_UNIT_PATH.match(getattr(u, "path", "") or "")]
+    )
+    denials = [
+        concept for concept, _level in _denied_concept_entries(
+            ((profile_json or {}).get("metadata") or {}).get("denied_concepts")
+        )
+    ]
+    corpus = denial_release_corpus(profile_json) or None
+    from applire.services.prompt_view import aim_and_other_lines
+
+    aims = aim_and_other_lines(profile_json)[0]
+
+    def _arm(entry: dict[str, Any]) -> bool:
+        if not isinstance(entry.get("backing"), dict):
+            return False
+        return _verified_backing_path(
+            entry, narrative, denials=denials, corpus=corpus, aims=aims
+        ) is not None
+
+    return _arm
 
 
 def keyword_liabilities(keyword_ledger: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -3377,6 +3669,38 @@ def _is_denial_receipt_change(change: Any) -> bool:
     )
 
 
+#: Metadata keys whose text is a denial's testimony or the system's own question
+#: about one, never positive vault content (D-4 / MD6-10, Hazelnut build 6):
+#: ``denied_concepts`` (live denials), ``withdrawn_denials`` (denials the
+#: candidate took back — the statement is the SAME testimony, it does not turn
+#: into evidence by being withdrawn), ``pending_confirmations`` (the questions
+#: the system parks, which restate the concepts they ask about) and
+#: ``denial_scope_answered`` (the answered questions' ``<denial>|<term>`` keys).
+_DENIAL_TEXT_METADATA_KEYS: tuple[str, ...] = (
+    "denied_concepts",
+    "withdrawn_denials",
+    "pending_confirmations",
+    "denial_scope_answered",
+)
+
+
+def _is_question_receipt_change(change: Any) -> bool:
+    """Is this ``FieldChange`` the receipt of a resolved confirmation question?
+
+    Written by ``reconcile.apply._apply_resolve_confirmation``:
+    ``section == "metadata"``, ``field == "pending_confirmations"``,
+    ``old_value`` = the question the SYSTEM wrote, ``new_value`` = the option
+    the candidate picked from the system's menu. Neither is vault content (a
+    paraphrase is not a source, ADR-061/048 amended): the A-1 heal question
+    says "zu Microsoft Azure … noch nichts steht", and its receipt outlives the
+    question. Whatever the answer changed lands as its own receipt elsewhere."""
+    return (
+        isinstance(change, dict)
+        and change.get("section") == "metadata"
+        and change.get("field") == "pending_confirmations"
+    )
+
+
 def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
     """Filtered copy of ``profile_json`` with denial-testimony text removed
     (wave-6, #270-adjacent).
@@ -3389,10 +3713,22 @@ def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
       the verbatim ``statement`` (you cannot deny embeddings without writing
       the word "embeddings", and the *statement* is free testimony prose, not
       just the concept phrase ``_independently_affirmed`` already blanks).
+    * ``metadata.withdrawn_denials`` exactly the same way (D-4 / MD6-10,
+      Hazelnut build 6): a withdrawn denial keeps its verbatim statement for
+      the history, and withdrawing it revokes the "no" without turning the
+      words into a "yes". Left in, a withdrawn R2-2 chip clause ("…, aber zu
+      Microsoft Azure steht in meinem Profil noch nichts") verified
+      ``Microsoft Azure`` as ADJACENT vault material in
+      :func:`assert_claimable_backed`, and would literally ground the term
+      for every other coverage reader.
+    * ``metadata.pending_confirmations`` and ``denial_scope_answered`` — the
+      system's own questions (and answered-question keys), which restate the
+      concepts they ask about (see :data:`_DENIAL_TEXT_METADATA_KEYS`).
     * ``metadata.enrichment_history[].changes`` entries that ARE a denial
       receipt (see :func:`_is_denial_receipt_change`) — the durable audit
       trail carries the same concept text (``new_value``/``old_value``) plus
-      the "Noted limit: …" rationale.
+      the "Noted limit: …" rationale — or the receipt of a resolved question
+      (:func:`_is_question_receipt_change`), which restates the question.
 
     Every other field — including every OTHER enrichment-history change —
     passes through untouched, so a genuinely evidenced broad concept
@@ -3407,7 +3743,8 @@ def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
         return profile_json
 
     filtered_metadata = dict(metadata)
-    filtered_metadata.pop("denied_concepts", None)
+    for key in _DENIAL_TEXT_METADATA_KEYS:
+        filtered_metadata.pop(key, None)
 
     history = metadata.get("enrichment_history")
     if isinstance(history, list):
@@ -3420,7 +3757,11 @@ def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(changes, list):
                 new_history.append(record)
                 continue
-            kept = [c for c in changes if not _is_denial_receipt_change(c)]
+            kept = [
+                c
+                for c in changes
+                if not _is_denial_receipt_change(c) and not _is_question_receipt_change(c)
+            ]
             new_history.append(record if kept == changes else {**record, "changes": kept})
         filtered_metadata["enrichment_history"] = new_history
 
@@ -3610,6 +3951,7 @@ def _claimable_backing_violation(
     denials: list[str],
     vault_corpus: str | None,
     vault_index: Any,
+    aims: list[str] | tuple[str, ...] = (),
 ) -> str | None:
     """The invariant's predicate for ONE claimable row — ``None`` when the row
     is backed, otherwise the reason string (see :data:`_HEAL_TO_DENIED`).
@@ -3629,15 +3971,9 @@ def _claimable_backing_violation(
     evidence = (entry.get("evidence") or "").strip()
     if evidence == DENIED_EVIDENCE:
         return "denied_evidence"
-    if (
-        denials
-        and probes
-        and _entry_is_denied(concept, forms, denials, vault_corpus)
-        # SF-GAP.10 — one release instrument at every floor seam (ADR-059's
-        # every-seam rule): a containment-only match the vault attests under
-        # the entry's own name is not a denial of this entry.
-        and containment_release_form(concept, forms, denials, vault_corpus) is None
-    ):
+    # #821 (G-1): only a denial that NAMES the row (declared match) is a
+    # polarity violation; containment in a denied compound no longer is.
+    if denials and probes and any(declared_denial_matches(p, denials) for p in probes):
         return "denied_concept"
 
     # 2 — the row's own coherence.
@@ -3667,7 +4003,74 @@ def _claimable_backing_violation(
 
     if any(ground_skill_claim(p, vault_index) is not None for p in probes):
         return None
+    # ADR-100 cl. 4 (ii) — the literal arm is a cheap POSITIVE, never the veto:
+    # a miss falls through to the classifier's own verbatim vault span. "This
+    # span exists in one claimable vault unit" is a Fact (ADR-062 cl. 1), and
+    # language-neutral by construction; whether the span SUPPORTS the
+    # requirement is the classifier's judgement, checked by the reviewers
+    # (ADR-100 cl. 5). Founder UAT-3 (2026-11-04): five interview-answered rows
+    # healed to `gap` here because the vault was German and the posting
+    # English; the synthetic twin measured 0.20–0.68 against a truth of 0.80.
+    if _verified_backing_path(entry, vault_index, denials=denials, corpus=vault_corpus, aims=aims) is not None:
+        return None
     return "no_vault_evidence_unit"
+
+
+def _verified_backing_path(
+    entry: dict[str, Any],
+    vault_index: Any,
+    *,
+    denials: list[str] | tuple[str, ...] = (),
+    corpus: str | None = None,
+    aims: list[str] | tuple[str, ...] = (),
+) -> str | None:
+    """The vault unit the row's ``backing.quote`` resolves in, or ``None``
+    (ADR-100 cl. 3 — :func:`applire.services.citation.quote_in_vault`).
+
+    Two stances outrank a quote, exactly as they outrank the literal arm
+    (adversarial pass 2026-11-04, both reproduced on the branch):
+    - cl. 7, a DENIAL: a quote naming a concept the candidate denied backs
+      nothing. The row's own concept is matched against denials above; a
+      cross-language concept ("supplier audits") would otherwise stand on a
+      quote naming the denied "Lieferantenaudits". Fail-safe: the row heals to
+      `gap`, never to `denied` — the denial is not of the row's own concept.
+    - D-12, an AIM: no span of a ``not_yet_reached`` line backs anything, even
+      where a description or responsibility repeats its words.
+    """
+    backing = entry.get("backing")
+    if vault_index is None or not isinstance(backing, dict):
+        return None
+    quote = backing.get("quote")
+    if denials and isinstance(quote, str) and is_denied_concept(quote, list(denials), corpus):
+        return None
+    from applire.services.citation import quote_in_vault
+
+    return quote_in_vault(quote, getattr(vault_index, "units", None), exclude=aims)
+
+
+#: ADR-100 cl. 6 — the floor's own provenance on a row it healed for want of a
+#: verifiable vault quote (``unbacked`` key). Distinct from a classifier `gap`.
+UNBACKED_NO_VERIFIABLE_QUOTE = "no_verifiable_quote"
+
+
+def _stamp_backing(entry: dict[str, Any], vault_index: Any, **context: Any) -> dict[str, Any]:
+    """A backed row leaves the floor with an honest ``backing`` (ADR-100 cl. 4):
+    a quote that resolves is stamped with its unit path; a quote that does not
+    resolve is dropped (the row was backed by the literal arm or is exempt —
+    its unverified quote must not reach a reviewer as evidence). Re-resolved at
+    every floor run, so an edited or deleted vault entry cannot leave a stale
+    path behind. Pure; returns the input row unchanged when nothing moves."""
+    backing = entry.get("backing")
+    if vault_index is None or not isinstance(backing, dict):
+        return entry
+    path = _verified_backing_path(entry, vault_index, **context)
+    if path is None:
+        out = dict(entry)
+        out.pop("backing", None)
+        return out
+    if backing.get("unit_path") == path:
+        return entry
+    return {**entry, "backing": {**backing, "unit_path": path}}
 
 
 def assert_claimable_backed(
@@ -3804,6 +4207,9 @@ def assert_claimable_backed(
         ((profile_json or {}).get("metadata") or {}).get("denied_concepts")
     )
     denials = [concept for concept, _level in denial_entries]
+    from applire.services.prompt_view import aim_and_other_lines
+
+    aims = aim_and_other_lines(profile_json)[0] if isinstance(profile_json, dict) else []
 
     healed: list[dict[str, Any]] = []
     violations: list[dict[str, Any]] = []
@@ -3811,9 +4217,9 @@ def assert_claimable_backed(
         if not isinstance(entry, dict) or not entry.get("claimable"):
             healed.append(entry)
             continue
-        reason = _claimable_backing_violation(entry, denials, vault_corpus, vault_index)
+        reason = _claimable_backing_violation(entry, denials, vault_corpus, vault_index, aims)
         if reason is None:
-            healed.append(entry)
+            healed.append(_stamp_backing(entry, vault_index, denials=denials, corpus=vault_corpus, aims=aims))
             continue
         was = entry.get("status")
         logger.warning(
@@ -3849,7 +4255,17 @@ def assert_claimable_backed(
                     "direct", "partial"
                 ) else "direct"
             healed.append(
-                _denied_row(entry, level) if level is not None else _floored_row(entry)
+                _denied_row(
+                    entry,
+                    level,
+                    _declared_denial_record(
+                        entry.get("concept", ""),
+                        [f for f in (entry.get("surface_forms") or []) if isinstance(f, str)],
+                        denial_entries,
+                    ),
+                )
+                if level is not None
+                else _floored_row(entry)
             )
         else:
             # ADR-048 amended 2026-08-13 (#526): byte-identical to what the
@@ -3858,6 +4274,13 @@ def assert_claimable_backed(
             # shape, means the pointer does not survive the heal either.
             gap_row = {**entry, "status": "gap", "claimable": False, "evidence": ""}
             gap_row.pop("adjacent_evidence", None)
+            gap_row.pop("backing", None)  # its quote did not resolve: it backs nothing
+            if reason == "no_vault_evidence_unit":
+                # ADR-100 cl. 6 — rendered at its true strength: the classifier
+                # may have judged this supported, but no span of the vault could
+                # be checked. Not "absent from the profile". Read only by the
+                # renderers; every branching reader keeps reading `status`.
+                gap_row["unbacked"] = UNBACKED_NO_VERIFIABLE_QUOTE
             # ADR-074 amended 2026-08-13 — the ONE exception, and the line it
             # draws is deliberate: a pointer survives the demotion that is about
             # VOCABULARY (clause 5 — the vault says the same thing in other
@@ -3882,13 +4305,17 @@ def assert_claimable_backed(
                     # 12-run baseline matrix (luna): 9 healed core rows (Jahresab-
                     # schluss-Reporting, Management-Reporting, Backend engineering,
                     # Shift work, ...), 7 of them with verified material.
-                    healed.append({
+                    g1_row = {
                         **entry,
                         "status": "partial",
                         "claimable": True,
                         "evidence": material,
                         "adjacent_evidence": material,
-                    })
+                    }
+                    # ADR-100 cl. 9: the legacy path — the row's own quote (if
+                    # any) did not resolve, so it is not carried as a backing.
+                    g1_row.pop("backing", None)
+                    healed.append(g1_row)
                     logger.info(
                         "assert_claimable_backed[%s]: %r healed to an ADJACENT partial on "
                         "vault-verified material %r (ADR-061/074 amended 2026-10-22)",
@@ -4146,6 +4573,21 @@ def build_keyword_ledger(
         adjacent = adjacent_evidence_text(item.get("adjacent_evidence"))
         if status == "partial" and adjacent:
             entry["adjacent_evidence"] = adjacent
+        # ADR-100 cl. 2/4 — the classifier's verbatim vault span for this
+        # requirement. Carried as cited, unverified: `assert_claimable_backed`
+        # checks it (`quote_in_vault`) at every persist seam and drops it when
+        # it does not resolve, so no reader ever sees an unchecked quote as a
+        # backing. Only on a claimable row — a gap or a denial backs nothing.
+        quote = item.get("evidence_quote")
+        if claimable and isinstance(quote, str) and quote.strip():
+            entry["backing"] = {"quote": quote.strip(), "instrument": "quote"}
+        # ADR-100 amended 2026-11-04 (M-2) — the recorded denial the classifier
+        # cited for this requirement, carried as cited and unverified:
+        # `_enforce_denial_stance` below accepts it only when it is the id of a
+        # live record, and drops it otherwise.
+        denied_by = item.get(DENIED_BY_KEY)
+        if isinstance(denied_by, str) and denied_by.strip():
+            entry[DENIED_BY_KEY] = denied_by.strip()
         # #415 (ruling W-4): the posting's own qualifying sentence, verbatim. Carried
         # ONLY on a claimable entry — on a gap or a denial there is nothing to surface,
         # and quoting the posting's demand next to "never claim this" would read as an

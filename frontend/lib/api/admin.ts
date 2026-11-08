@@ -70,7 +70,7 @@ async function call<T>(path: string, init?: { method?: string; body?: unknown })
 // ---------------------------------------------------------------------------
 
 export type SettingKind = "enum" | "string" | "bool" | "secret";
-export type SettingGroup = "llm" | "scraper" | "retention";
+export type SettingGroup = "llm" | "scraper" | "retention" | "ops";
 export type SettingSource = "panel" | "env" | "default";
 export type SettingValue = string | boolean;
 
@@ -99,6 +99,8 @@ export interface ProviderStatus {
   has_key: boolean;
   ready: boolean;
   active: boolean;
+  /** Whether the ops probe can read a balance for this provider (ADR-093 amended 2026-11-06). */
+  balance_check?: boolean;
 }
 
 export interface SettingDependency {
@@ -117,6 +119,7 @@ export const SETTING_KEYS = {
   provider: "LLM_PROVIDER",
   linkedin: "SCRAPER_FETCH_LINKEDIN_GUEST_PAGES",
   retention: "RETENTION_ENABLED",
+  providerProbe: "OPS_PROVIDER_PROBE",
 } as const;
 
 /** `<PROVIDER>_MODEL` / `<PROVIDER>_API_KEY` — the per-provider registry keys (contract §2.1). */
@@ -309,7 +312,15 @@ export interface DashboardHealth {
   checked_at: string | null;
   /** `checked_at`: when a CACHED component was measured (the provider; the
    *  dashboard never pings it inline, adv-admin ADM-5). */
-  components: { name: string; status: string; checked_at?: string | null }[];
+  components: {
+    name: string;
+    status: string;
+    checked_at?: string | null;
+    /** backup in first-run grace: ok, but nothing is set up yet (build 7 / 785:251). */
+    not_set_up?: boolean;
+    /** ISO date the first backup is due (only with `not_set_up`). */
+    due_by?: string | null;
+  }[];
 }
 
 export type FailedJobKind = "cv" | "cover_letter" | "import" | "gap";

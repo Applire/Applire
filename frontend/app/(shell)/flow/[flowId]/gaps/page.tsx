@@ -24,6 +24,7 @@ import { use } from "react";
 import { useTranslations } from "next-intl";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ChoiceLeadIn, choiceButtonLabel } from "@/components/interview/ChoiceLeadIn";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScoreCircle } from "@/components/ui/score-circle";
@@ -33,6 +34,7 @@ import { CancelApplicationButton } from "@/components/flow/CancelApplicationButt
 import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import { cn } from "@/lib/utils";
 import { GapClusterCard } from "@/components/gaps/GapClusterCard";
+import { CvParseBanner } from "@/components/gaps/CvParseBanner";
 import { NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
 import { LiabilityPanel, type LiabilityEntry } from "@/components/gaps/LiabilityPanel";
 import { ProfileDecisionsCard } from "@/components/gaps/ProfileDecisionsCard";
@@ -130,6 +132,9 @@ interface GapClickState {
   sessionId: string | null;
   question: string | null;
   choices: string[] | null;
+  /** UAT-2b/2c — index-aligned button questions; concepts with no literal profile mention. */
+  choiceAsks: (string | null)[] | null;
+  choiceUnmentioned: string[] | null;
   answer: string;
   sending: boolean;
   error: string;
@@ -150,6 +155,8 @@ interface SessionTurnResponse {
   complete: boolean;
   question?: string | null;
   choices?: string[] | null;
+  choice_asks?: (string | null)[] | null;
+  choice_unmentioned?: string[] | null;
   pending_conflicts?: unknown[] | null;
   pending_confirmations?: unknown[] | null;
   cluster_coverage?: TurnClusterCoverage | null;
@@ -194,6 +201,8 @@ const EMPTY_GAP_STATE: GapClickState = {
   sessionId: null,
   question: null,
   choices: null,
+  choiceAsks: null,
+  choiceUnmentioned: null,
   answer: "",
   sending: false,
   error: "",
@@ -283,68 +292,6 @@ function JdRecoveryBanner() {
   return (
     <Suspense fallback={null}>
       <JdRecoveryBannerInner />
-    </Suspense>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// CV Parse-Status Banner — shown when some (not all) uploaded CVs failed to
-// parse, surfaced via cv_parsed/cv_total query params (US153, FMEA JF-M-2.2)
-// ---------------------------------------------------------------------------
-
-function CvParseBannerInner() {
-  const searchParams = useSearchParams();
-  const t = useTranslations("gaps");
-  const tc = useTranslations("common");
-  const [dismissed, setDismissed] = useState(false);
-
-  const parsedRaw = searchParams.get("cv_parsed");
-  const totalRaw = searchParams.get("cv_total");
-  if (!parsedRaw || !totalRaw || dismissed) return null;
-  const parsed = Number(parsedRaw);
-  const total = Number(totalRaw);
-  if (!Number.isFinite(parsed) || !Number.isFinite(total) || parsed >= total) return null;
-
-  return (
-    <div
-      data-testid="cv-parse-banner"
-      className="mb-6 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3"
-    >
-      <svg
-        className="mt-0.5 h-4 w-4 shrink-0 text-amber-600"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
-        />
-      </svg>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-amber-800">{t("cvParsedPartial", { parsed, total })}</p>
-      </div>
-      <button
-        data-testid="cv-parse-dismiss"
-        type="button"
-        aria-label={tc("ariaDismiss")}
-        className="shrink-0 text-amber-500 hover:text-amber-700 transition-colors"
-        onClick={() => setDismissed(true)}
-      >
-        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative close symbol */}
-        {"×"}
-      </button>
-    </div>
-  );
-}
-
-function CvParseBanner() {
-  return (
-    <Suspense fallback={null}>
-      <CvParseBannerInner />
     </Suspense>
   );
 }
@@ -503,9 +450,9 @@ function GapClickPanel({
       {state.error && <p className="text-xs text-critical">{state.error}</p>}
       {state.choices && state.choices.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs text-gray-400">{t("choiceCardHint")}</p>
+          <ChoiceLeadIn namespace="gaps" asks={state.choiceAsks} unmentioned={state.choiceUnmentioned} />
           <div className="flex flex-col gap-1">
-            {state.choices.map((choice) => (
+            {state.choices.map((choice, i) => (
               <button
                 key={choice}
                 type="button"
@@ -517,7 +464,7 @@ function GapClickPanel({
                 )}
                 onClick={() => onUpdate({ answer: choice, status: "answering" })}
               >
-                {choice}
+                {choiceButtonLabel(state.choices ?? [], state.choiceAsks, i)}
               </button>
             ))}
           </div>
@@ -995,6 +942,8 @@ export default function GapsPage({
         sessionId: data.session_id,
         question: data.question ?? data.first_question,
         choices: data.choices ?? null,
+        choiceAsks: data.choice_asks ?? null,
+        choiceUnmentioned: data.choice_unmentioned ?? null,
         followUpOpen: resumedFollowUp && cluster ? (data.follow_up_concepts ?? cluster.gaps) : null,
       });
     } catch (e: unknown) {
@@ -1053,6 +1002,8 @@ export default function GapsPage({
         answer: "",
         question: data.question ?? st.question,
         choices: data.choices ?? null,
+        choiceAsks: data.choice_asks ?? null,
+        choiceUnmentioned: data.choice_unmentioned ?? null,
         // Ruling M-1b: the label names what the follow-up ASKS; the chips
         // keep showing the strict record.
         followUpOpen: !isConfirmation && turn ? (data.follow_up_concepts ?? turn.open_concepts) : null,
@@ -1244,7 +1195,7 @@ export default function GapsPage({
         mobileSlot={decisionsSlot}
       />
       <JdRecoveryBanner />
-      <CvParseBanner />
+      <CvParseBanner flowId={flowId} />
       <InputWarningsBanner />
       {/* #789 "Summary tiles after import" — ONE line instead of four big
           tiles and a merge box: what the profile holds (zeros left out, no

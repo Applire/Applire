@@ -15,6 +15,34 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v11 (ADR-059 amended 2026-11-07, #821, founder ruling G-1): a denial rules out
+#   only what it names. The string floor's containment branch is withdrawn, so this rule is now the
+#   only bridge from a narrow recorded denial to a broader requirement; it gains the scoped shape the
+#   UX audit round 3 met ("no ECMO certification", "not independently" ≠ "ECMO"; "no formal security
+#   certification" ≠ "Security"): a qualifier narrows the denial, and the broader requirement is ruled
+#   out only when the candidate's statement says they lack the broader thing too.
+#
+# Prompt version: v10 (ADR-100 amended 2026-11-04, M-2): RECORDED DENIALS + "denied_by". The ledger
+#   floor matched a persisted denial to a requirement by string (alias groups, head nouns,
+#   containment over concept + surface_forms), so a German denial ("Referenzdesigns") reached the
+#   English requirement ("Reference designs") only when the model happened to list the German
+#   spelling among its surface forms (invariance gate 11-04: luna 2/8 cross-language; Claude zh-en
+#   0/4). The classifier now sees the active recorded denials with ids and cites the one that rules
+#   a requirement out; code checks only that the id is a live record. Which requirement a denial
+#   rules out is the model's judgment, in any language; the string matcher stays as the fallback.
+#
+# Prompt version: v9 (ADR-100, 2026-11-04 — founder UAT-3 follow-up): JUDGE MEANING, AND QUOTE IT
+#   replaces v7/v8's OWN-WORDS rule. The old rule told the model a later check would refuse any
+#   term the profile does not spell, so its verdict moved with the vault's language before any
+#   code ran ("La formulation exacte n'apparaît pas" — a DE vault + FR posting graded partial,
+#   the same case EN-EN graded direct). The model now judges meaning in any language and cites
+#   ONE verbatim span (`evidence_quote`, required for direct/partial); the ledger floor checks
+#   only that the span exists in one claimable vault unit (`citation.quote_in_vault`).
+#   Measured on the synthetic LIMS twin (luna, thinking off; 6 language constellations x 2):
+#   score 0.76-0.80 everywhere (truth 0.80) vs 0.20-0.68 under v8 + the literal floor; 164/176
+#   claimed rows quoted a whole vault entry verbatim. 08-11 replay (the v7 Digitalisierung
+#   case): every quote verifies, no evidence-less required row.
+#
 # Prompt version: v8 (Hazelnut build 3 / WP-G, 2026-10-22): the OWN-WORDS rule names the case
 #   it never drew — the profile naming the SAME competence in other words ("Jahresabschluss
 #   (HGB)" for "Jahresabschluss-Reporting") is another NAME for it: list that wording among
@@ -138,13 +166,15 @@ You will receive:
   2. CANDIDATE PROFILE — structured master profile (skills may include years_experience)
   3. CANDIDATE INTERVIEW STATEMENTS — (only when present) answers the candidate gave in gap
      interviews; these may CONFIRM or DENY experience
+  3b. RECORDED DENIALS — (only when present) limits the candidate stated and the system recorded,
+     each with an "id"
   4. PRE-CLASSIFICATION — a rule-based pre-pass with: matched (direct), inferred_b (likely, confirm
      or reject), unresolved (no rule signal — you decide)
   5. REQUIREMENTS — the exact list you must classify: required + nice-to-have + ATS keywords
 
 Classify EVERY entry in REQUIREMENTS (required, nice_to_have, AND keywords) into exactly one status:
   • "direct"  — the candidate clearly has this AND meets any stated years/seniority bar AND the
-                CANDIDATE PROFILE names the requirement itself (see THE PROFILE'S OWN WORDS below)
+                CANDIDATE PROFILE states it, in any language or wording (see JUDGE MEANING below)
   • "partial" — likely/inferred from context (adjacent skills, employer/domain), OR the skill is
                 present but the candidate's years are below a stated bar or cannot be confirmed
   • "gap"     — no signal in the profile
@@ -175,26 +205,36 @@ Rules:
       (b) BELOW THE BAR — the candidate has exactly the named thing, just less of it than asked.
           Omit "adjacent_evidence" entirely; there is nothing else to promote.
     Never invent an adjacency to fill the field, and never set it on a "direct" entry.
-  - THE PROFILE'S OWN WORDS DECIDE "direct". Classify a requirement "direct" only when the
-    CANDIDATE PROFILE actually names it — the requirement's own term, or one of the
-    "surface_forms" you list for it. When the profile supports the requirement only through
-    DIFFERENTLY-NAMED capabilities (the posting asks for "Digitalisierung"; the profile says
-    "MES-Einführung" and "Industrie-4.0-Roadmap"), that is case (a) ADJACENT above: classify it
-    "partial" and set "adjacent_evidence" to the profile's own name(s) for those capabilities.
-    Never "direct". The profile naming the SAME competence in its own wording is different:
-    "Lean Management (5S, SMED, KVP)" for "Lean-Produktion", "Jahresabschluss (HGB)" for
-    "Jahresabschluss-Reporting", "Backend engineer" for "Backend engineering" are other NAMES
-    for the requirement itself, not other capabilities — list that wording among its
-    "surface_forms" exactly as the profile writes it and classify "direct". This is not a wording preference: a claim to a term the profile does not
-    contain is refused by a later check, and the requirement then reaches the CV and cover-letter
-    writers carrying NO evidence at all — strictly worse for the candidate than the honest
-    "partial" you could have given them. Judge whether the profile NAMES the thing; do not judge
-    whether the words are a good match.
+  - JUDGE MEANING, AND QUOTE IT. Classify by what the CANDIDATE PROFILE states, in whatever
+    language or wording it uses: the profile may be written in another language than the posting,
+    and a translation or paraphrase of the requirement IS the requirement. "direct" = the profile
+    states this competence itself; "partial" = it states an adjacent capability, or less of it than
+    asked (cases (a)/(b) above); "gap" = nothing in the profile bears on it. A bare list entry (a
+    skill name with no described use) is at most "partial" for a requirement that asks for a
+    practice or a responsibility.
+    For every "direct" or "partial" entry set "evidence_quote": ONE span copied character for
+    character from ONE entry of the CANDIDATE PROFILE (one responsibility, one achievement, one
+    skill, one summary sentence), in the profile's own language: never translated, never stitched
+    from two entries, never taken from the CANDIDATE INTERVIEW STATEMENTS. The span must itself show
+    the competence; a span that merely shares a word with the requirement does not. If no such
+    span exists, the status is "gap". Code checks only that the span exists verbatim.
   - STANCE: a denial or negative statement by the candidate ("I have no hands-on Azure
     experience", "AWS, not Azure") is evidence AGAINST that skill. Classify such a requirement
     "gap" — never "direct" or "partial" — and never cite a denial as supporting evidence.
     A skill being merely MENTIONED in the profile or statements is not a signal; what counts
     is what the candidate actually did.
+  - RECORDED DENIALS: when an entry there rules this requirement out — in whatever language or
+    wording either is written — set "denied_by" to that entry's "id", copied exactly, and classify
+    "gap". A denial rules out the thing it names, and anything that is that thing ("no Azure" rules
+    out "Microsoft Azure"; "keine Referenzdesigns" rules out "Reference designs"). It does NOT rule
+    out a broader requirement it names only a part or a narrower form of ("no Tailwind CSS" does
+    not rule out "CSS"), nor a requirement that is merely related. A denial scoped by a qualifier
+    — a certification or licence, independent or lead responsibility, a formal programme, one
+    product — rules out that scoped thing only: "no ECMO certification, never managed the circuit
+    independently" does not rule out "ECMO" when the statement says they cared for ECMO patients,
+    and "no formal security certification" does not rule out "Security". Cite it for the broader
+    requirement only when the statement says the candidate lacks the broader thing itself. Omit
+    "denied_by" otherwise.
   - COMPOUND requirements that name multiple technologies (e.g. "Cloud environment
     qualification (AWS, Azure)"): each named technology also gets its OWN entry, classified on
     its own evidence — that entry, its "status" and its "reason" are where the candidate's
@@ -248,9 +288,11 @@ Schema:
       "requirement": "exact requirement string from REQUIREMENTS",
       "status": "direct|partial|gap",
       "reason": "PUBLISHED TO THE DOCUMENT WRITERS as the candidate's claimable evidence for this requirement: what the profile shows the candidate genuinely has. Never state a ceiling, a shortfall, or your grading logic here — those go in classification_note.",
+      "evidence_quote": "REQUIRED when status is direct or partial: one span copied VERBATIM from ONE CANDIDATE PROFILE entry, in the profile's own language, that shows this competence. Omit for gap.",
       "classification_note": "INTERNAL, never shown to any writer or reviewer: why this status follows — including any declared-proficiency ceiling you applied. Omit when you have nothing to add beyond reason.",
       "adjacent_evidence": "ONLY when status is partial AND the reason is that the candidate has a DIFFERENT but adjacent capability: the profile's own name for that capability. Omit otherwise.",
-      "surface_forms": ["other NAMES for this same competence — see SURFACE FORMS below. e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"]
+      "surface_forms": ["other NAMES for this same competence — see SURFACE FORMS below. e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"],
+      "denied_by": "ONLY when an entry of RECORDED DENIALS rules this requirement out: that entry's id, copied exactly. Omit otherwise."
     }
   ],
   "scope_classifications": [
@@ -310,6 +352,51 @@ _STATEMENTS_LABEL = (
     "CONFIRM or DENY experience; a denial or negative statement about a skill is evidence "
     'AGAINST it: classify that requirement "gap", never "direct"/"partial"):'
 )
+
+
+# ADR-100 amended 2026-11-04 (M-2): the label names what an id is for, and that the
+# statements are the candidate's own words about a LIMIT — never evidence for a claim.
+_DENIALS_LABEL = (
+    "RECORDED DENIALS (limits the candidate stated, recorded as facts). TASK, for EACH entry: find "
+    "the requirement(s) in REQUIREMENTS it rules out — the posting may name it in another "
+    "language — and give each of them \"denied_by\": that entry's \"id\", copied exactly, and "
+    'status "gap". Never quote these entries as evidence_quote:'
+)
+
+
+def recorded_denials_view(profile: dict) -> list[dict[str, str]]:
+    """The candidate's active recorded denials as the gap classifier sees them:
+    ``{"id": <record concept>, "statement": <the candidate's own words>}``, in
+    record order, one per distinct id (ADR-100 amended 2026-11-04, M-2).
+
+    The id is the record's ``concept`` verbatim — the key ``record_denials``
+    already dedupes by and the one the ledger floor
+    (``keyword_ledger._bound_denial``) checks a cited id against, so the two
+    sides read one list. Withdrawn denials live in ``withdrawn_denials`` and
+    are never shown. Pure; tolerant of any malformed metadata.
+    """
+    meta = profile.get("metadata") if isinstance(profile, dict) else None
+    records = meta.get("denied_concepts") if isinstance(meta, dict) else None
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for d in records if isinstance(records, list) else []:
+        if not isinstance(d, dict):
+            continue
+        concept = d.get("concept")
+        if not isinstance(concept, str) or not concept.strip():
+            continue
+        key = " ".join(concept.casefold().split())
+        if key in seen:
+            continue
+        seen.add(key)
+        statement = d.get("statement")
+        out.append(
+            {
+                "id": concept.strip(),
+                "statement": statement.strip() if isinstance(statement, str) else "",
+            }
+        )
+    return out
 
 
 _INTERVIEW_SOURCES = ("interview", "agent_interview")
@@ -384,6 +471,17 @@ def build_user_prompt(
         if statements
         else ""
     )
+    # ADR-100 amended 2026-11-04 (M-2) — the candidate's ACTIVE recorded denials
+    # (a withdrawn one has left `denied_concepts`), each keyed by its record's own
+    # `concept`: the id the classifier cites in `denied_by` and the ledger floor
+    # checks against the same live list. Rendered from `metadata`, which the
+    # profile view above strips, so it is never a quote source (ADR-100 cl. 2).
+    denials = recorded_denials_view(profile)
+    denials_block = (
+        f"{_DENIALS_LABEL}\n{json.dumps(denials, ensure_ascii=False, indent=2)}\n\n"
+        if denials
+        else ""
+    )
     # ADR-069 clause 2: the scope block is assembled by services/gap.py — the JD's
     # stated bar verbatim plus the candidate's typed vault values WITH their field
     # semantics. Only the sufficiency JUDGEMENT is the model's; the facts, the
@@ -417,5 +515,6 @@ def build_user_prompt(
         f"{statements_block}"
         f"{scope_block}"
         f"PRE-CLASSIFICATION:\n{json.dumps(pre_dict, ensure_ascii=False, indent=2)}\n\n"
+        f"{denials_block}"
         f"{fence(json.dumps(requirements, ensure_ascii=False, indent=2), header='REQUIREMENTS')}"
     )

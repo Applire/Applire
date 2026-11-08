@@ -105,6 +105,7 @@ from applire.services.profile.reconcile.import_bridge import _to_pending_confirm
 from applire.services.profile.reconcile.ops import CommitOp, RequestConfirmation
 from applire.services.profile.reconcile.stance import (
     park_denial_scope_confirmations,
+    park_offered_choice_confirmations,
     record_denials,
 )
 from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
@@ -190,6 +191,11 @@ class CommitProvenance:
     intake: str
     session_id: str | None = None
     actor: str | None = None
+    #: A-5 (MD7-10): the generated document whose own surface made this write
+    #: (``EnrichmentRecord.document_id`` / ``document_kind``); ``None`` for every
+    #: write that did not come from a document.
+    document_id: str | None = None
+    document_kind: str | None = None
 
 
 @dataclass
@@ -751,9 +757,12 @@ async def commit_ops(
     # own CV contradicts (head-noun scope or the literal term) parks ONE Health
     # question, never twice. Every intake: a new denial meets the CV here, and a
     # new import meets the old denials here. No vault write besides the question.
-    park_denial_scope_confirmations(
-        profile.metadata, profile.model_dump(mode="json"), pre_op_json, when=now
-    )
+    post_op_json = profile.model_dump(mode="json")
+    park_denial_scope_confirmations(profile.metadata, post_op_json, pre_op_json, when=now)
+    # A-1 heal (RULING A-1 = B / A-2 = A, 2026-11-04) — a denial an offered
+    # "not yet in my profile" choice minted before G-3 parks ONE question per
+    # statement; the 0086 data migration parks the same item at upgrade.
+    park_offered_choice_confirmations(profile.metadata, post_op_json, denial_changes)
 
     # ── Invariant 2 — the persisted-denial re-floor ──────────────────────────
     # It runs HERE, after the ops land and before the assignment, so it sees the
@@ -788,6 +797,8 @@ async def commit_ops(
         timestamp=now,
         source=provenance.source,
         source_session_id=provenance.session_id,
+        document_id=provenance.document_id,
+        document_kind=provenance.document_kind,
         changes=receipt_changes,
         # US161 (ADR-041 amended) — merge statistics ride out of the applier
         # because only an import intake can compute them (`ApplyImportMerge`);

@@ -29,14 +29,22 @@ Read path (get_flow_state): eager-loads child summaries via the FKs already set 
 the flow record — deterministic, no discovery queries needed.
 """
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire import ownership
 from applire.constants import MODE_B_COMPLETENESS_THRESHOLD
+from applire.db.session import AsyncSessionLocal
+from applire.services.profile_freshness import (
+    CV_FEEDING_SECTIONS,
+    INTERVIEW_SOURCES,
+    profile_updated_since,
+)
 from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
@@ -60,6 +68,8 @@ from applire.schemas.flow import (
 )
 from applire.schemas.profile import MasterProfileData
 from applire.services.owner_resolution import resolve_user_id
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Step graph
@@ -525,6 +535,114 @@ async def advance_flow_on_interview_complete(
     )
 
 
+async def record_generated_cv(
+    cv_id: uuid.UUID,
+    *,
+    user_id: uuid.UUID,
+) -> None:
+    """Record a finished web-door CV on its flow — server-side (789:248).
+
+    ADR-016 amended 2026-11-07 (WP-F). Before, ``flow_sessions.generated_cv_id``
+    advanced only in the BROWSER once the CV page saw the generation finish
+    (``GenerationProgress`` → ``handleReady``): a person who regenerated and
+    left the page left the application — and the letter, which reads its CV
+    through the flow — on the old CV. ``routers/cv.py::post_generate``
+    schedules this after the render task (a response's background tasks run in
+    order), so it runs once the render has committed ``ready`` or ``failed``.
+
+    Writes only when ALL hold: the CV is ``ready``, live and the caller's; the
+    caller's flow for its posting is at ``cv_generation`` or ``complete`` (the
+    two steps that record a CV — at any other step, e.g. a reopened interview,
+    nothing is written); the recorded CV is not NEWER than this one (an older
+    generation finishing late never displaces a newer one). At
+    ``cv_generation`` it then advances to ``complete`` through
+    :func:`advance_flow` (application status sync included) — what the browser
+    did on seeing ``ready``. The browser's own calls stay; both are idempotent.
+
+    The MCP ``generate_cv`` tool does not call this: on the agent door the flow
+    is a ledger the agent keeps (AGENT_GUIDE). Opens its own session — it runs
+    after the request's session is gone. Never raises: a failure is logged and
+    the browser path still records the CV when the page is open.
+    """
+    try:
+        with ownership.owner_context(user_id):
+            async with AsyncSessionLocal() as db:
+                cv = await db.scalar(
+                    select(GeneratedCV).where(
+                        GeneratedCV.id == cv_id,
+                        GeneratedCV.user_id == user_id,
+                        GeneratedCV.deleted_at.is_(None),
+                    )
+                )
+                if cv is None or cv.status != "ready":
+                    return
+                await _record_ready_cv(cv, user_id, db)
+    except Exception:  # pragma: no cover - defensive; the browser path remains
+        logger.exception("record_generated_cv failed for CV %s", cv_id)
+
+
+async def _record_ready_cv(cv: GeneratedCV, user_id: uuid.UUID, db: AsyncSession) -> None:
+    """The write half of :func:`record_generated_cv`, on a caller's session."""
+    flow = await db.scalar(
+        select(FlowSession).where(
+            FlowSession.user_id == user_id,
+            FlowSession.job_id == cv.job_analysis_id,
+            FlowSession.deleted_at.is_(None),
+        )
+    )
+    if flow is None or flow.current_step not in ("cv_generation", "complete"):
+        return
+    if flow.generated_cv_id is not None and flow.generated_cv_id != cv.id:
+        recorded = await db.scalar(
+            select(GeneratedCV).where(
+                GeneratedCV.id == flow.generated_cv_id,
+                GeneratedCV.user_id == user_id,
+                GeneratedCV.deleted_at.is_(None),
+            )
+        )
+        if recorded is not None and _as_utc(recorded.created_at) > _as_utc(cv.created_at):
+            return
+    step = "complete" if flow.current_step == "cv_generation" else flow.current_step
+    await advance_flow(
+        flow.id,
+        AdvanceFlowRequest(step=step, artifact_id=cv.id),
+        db,
+        user_id=user_id,
+    )
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _cv_predates_interview(
+    cv: GeneratedCV, profile_json: dict | None, *, last_attempt_at: datetime | None = None
+) -> bool:
+    """789:254 — an interview door added profile CONTENT after this CV was
+    made: the shared freshness predicate narrowed to the interview doors and
+    the CV's sections (ADR-066: one implementation). Drives the F-4 auto-start.
+    A write a document's own surface made (review card, section assist — A-5)
+    is never an interview answer, whichever document it came from.
+
+    A-9 (main MD7-10): the auto-start fires at most once per stale CV.
+    ``last_attempt_at`` — the newest CV generation STARTED for this job by this
+    person, whatever became of it (a failed, still running or deleted attempt
+    included) — is the reference when it is newer than the CV: once a new
+    version was attempted after the interview facts, a failed one does not
+    re-arm the auto-start on the next arrival (the strip's [Neu erstellen]
+    stays the way). New interview facts after that attempt arm it once more."""
+    reference = _as_utc(cv.created_at)
+    if last_attempt_at is not None and _as_utc(last_attempt_at) > reference:
+        reference = _as_utc(last_attempt_at)
+    return profile_updated_since(
+        reference,
+        profile_json,
+        sections=CV_FEEDING_SECTIONS,
+        sources=INTERVIEW_SOURCES,
+        document_id=cv.id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
@@ -740,10 +858,30 @@ async def _build_state_response(
     if flow.generated_cv_id:
         cv = await db.get(GeneratedCV, flow.generated_cv_id)
         if cv and cv.user_id == owner:
+            # A-9: the newest generation this person started for the posting —
+            # a persisted fact, so a reload or another device reads it too.
+            last_attempt_at = await db.scalar(
+                select(func.max(GeneratedCV.created_at)).where(
+                    GeneratedCV.user_id == owner,
+                    GeneratedCV.job_analysis_id == cv.job_analysis_id,
+                )
+            )
             cv_summary = CVSummary(
                 cv_id=cv.id,
                 pdf_url=f"{base_url}/api/cv/{cv.id}/pdf",
                 expires_at=cv.expires_at,
+                predates_interview=_cv_predates_interview(
+                    cv,
+                    profile_record.profile_json if profile_record else None,
+                    last_attempt_at=last_attempt_at,
+                ),
+                profile_updated_since=profile_updated_since(
+                    cv.created_at,
+                    profile_record.profile_json if profile_record else None,
+                    sections=CV_FEEDING_SECTIONS,
+                    # A-5: what this CV's own surface wrote is already in it.
+                    document_id=cv.id,
+                ),
             )
 
     # Cover letter summary — via FK set when cover letter is generated

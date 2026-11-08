@@ -126,13 +126,22 @@ def test_unevidenced_concept_is_not_flagged():
     assert detect_unquantified_concepts(cluster, profile) == []
 
 
-def test_jd_context_alone_can_evidence_a_concept():
-    """jd_context (the cluster's own description) is evidence too, independent
-    of profile bullets."""
+def test_jd_context_alone_never_evidences_a_concept():
+    """MD-UAT-2 (2026-11-08, inverts the US265 pin): jd_context is the
+    posting's text, not the profile's — a concept only the posting names is an
+    unevidenced gap and never gets a "your profile evidences X" number ask."""
     from applire.services.interview_quant import detect_unquantified_concepts
 
     cluster = _cluster(["stakeholder management"], jd_context="stakeholder management is core to this role")
     profile = {"work_experience": []}
+    assert detect_unquantified_concepts(cluster, profile) == []
+
+
+def test_profile_bullet_still_evidences_beside_a_jd_context_mention():
+    from applire.services.interview_quant import detect_unquantified_concepts
+
+    cluster = _cluster(["stakeholder management"], jd_context="stakeholder management is core to this role")
+    profile = {"work_experience": [{"responsibilities": ["Led stakeholder management for the rollout"]}]}
     assert detect_unquantified_concepts(cluster, profile) == ["stakeholder management"]
 
 

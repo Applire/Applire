@@ -27,7 +27,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -36,7 +36,7 @@ const API_BASE =
 type Translator = ReturnType<typeof useTranslations>;
 
 type OverallStatus = "ok" | "degraded" | "down";
-type ComponentStatus = "ok" | "degraded" | "down" | "unknown";
+type ComponentStatus = "ok" | "degraded" | "down" | "unknown" | "off";
 
 type ComponentName =
   | "database"
@@ -97,7 +97,7 @@ function formatGB(bytes: number): string {
 }
 
 /** The fact line beside a component row, or null when the status word alone says it all. */
-function factLine(name: ComponentName, c: ComponentReport, t: Translator): string | null {
+function factLine(name: ComponentName, c: ComponentReport, t: Translator, locale: string): string | null {
   const d = c.detail ?? {};
   switch (name) {
     case "disk":
@@ -107,13 +107,16 @@ function factLine(name: ComponentName, c: ComponentReport, t: Translator): strin
         total: formatGB(d.total_bytes as number),
       });
     case "retention":
-      return d.last_run_at == null
-        ? t("retentionNever")
-        : t("retentionLastRun", { hours: Math.floor((d.age_seconds as number) / 3600) });
+      if (d.last_run_at == null) return t("retentionNever");
+      {
+        const hours = Math.floor((d.age_seconds as number) / 3600);
+        return hours < 1 ? t("retentionLastRunLessThanHour") : t("retentionLastRun", { hours });
+      }
     case "backup":
-      return d.last_backup_at == null
-        ? t("backupNever")
-        : t("backupAge", { days: d.age_days as number });
+      if (d.last_backup_at != null) return t("backupAge", { days: d.age_days as number });
+      return typeof d.first_due_by === "string"
+        ? t("backupNever", { date: new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(d.first_due_by)) })
+        : t("backupNeverNoDate");
     case "provider": {
       const reachability = (d.reachability as string) ?? "unknown";
       // `n/a` (this provider has no balance) and `unknown` (we do not have the
@@ -206,6 +209,7 @@ function TokensBlock({ usage, t }: { usage: UsageReport | undefined; t: Translat
 
 export function OperatorPanel() {
   const t = useTranslations("ops");
+  const locale = useLocale();
   const [report, setReport] = useState<OpsHealthReport | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -260,8 +264,9 @@ export function OperatorPanel() {
   if (!report) return null; // nothing to show before the first response lands
 
   const presentComponents = COMPONENT_ORDER.filter((name) => report.components[name]);
+  // `off` = a check the operator switched off (ADR-086 amended 2026-11-06): not a problem.
   const problemCount = presentComponents.filter(
-    (name) => report.components[name]!.status !== "ok",
+    (name) => !["ok", "off"].includes(report.components[name]!.status),
   ).length;
 
   const accent: "ok" | "warning" | "critical" =
@@ -315,7 +320,9 @@ export function OperatorPanel() {
         <div className="mt-3 flex flex-col gap-2 border-t border-outline-variant pt-3">
           {presentComponents.map((name) => {
             const c = report.components[name]!;
-            const line = factLine(name, c, t);
+            const line = factLine(name, c, t, locale);
+            // Backup in first-run grace: probe ok, but nothing is set up yet — neutral, not green.
+            const notSetUp = name === "backup" && c.status === "ok" && c.detail?.last_backup_at == null;
             return (
               <div
                 key={name}
@@ -323,9 +330,12 @@ export function OperatorPanel() {
                 className="flex items-center justify-between gap-3"
               >
                 <span className="text-on-surface">{t(`component.${name}`)}</span>
-                <span className="text-right text-on-surface-variant">
+                <span className="flex items-center justify-end gap-1.5 text-right text-on-surface-variant">
+                  {notSetUp && (
+                    <span data-testid="operator-panel-dot-neutral" aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-outline-variant" />
+                  )}
                   {/* .join() rather than a raw JSX text node — see TokenBucket above. */}
-                  {[t(`status.${c.status}`), line].filter(Boolean).join(" — ")}
+                  {[notSetUp ? t("status.notSetUp") : t(`status.${c.status}`), line].filter(Boolean).join(" — ")}
                 </span>
               </div>
             );

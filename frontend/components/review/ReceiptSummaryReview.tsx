@@ -27,7 +27,6 @@ import {
  */
 
 const ENGAGEMENT = new Set(["work_experience", "projects", "volunteer_activities"]);
-const POINT_KINDS = new Set(["responsibility", "result", "detail"]);
 
 /** "Role @ Company" → "Role – Company" (display only). */
 function displayLabel(label: string): string {
@@ -99,14 +98,14 @@ export function ReceiptSummaryReview({ sessionId, onFix }: ReceiptSummaryReviewP
   const groupCount = (g: ReceiptGroup) => {
     if (g.section === "limits") return t("summary.limitsCount", { count: g.count });
     if (ENGAGEMENT.has(g.section)) {
-      const facts = summary.facts.filter((f) => f.section === g.section);
-      const points = facts.filter((f) => POINT_KINDS.has(f.kind)).length;
-      const tools = facts.filter((f) => f.kind === "tool").length;
-      const parts = [];
-      if (points) parts.push(t("summary.points", { count: points }));
-      if (tools) parts.push(t("summary.tools", { count: tools }));
+      // 789:209 (R2-10): ONE count source. The per-station line reads the
+      // producer's `entities[].count` (every fact of that station), so the
+      // section line counts the same facts — never a kind subset ("Projekte
+      // 4 neue Punkte" over "MES-Projekt: 5", Marcus, ux-audit-3).
+      const points = g.entities.length > 0 ? g.entities.reduce((n, e) => n + e.count, 0) : g.count;
+      const parts = [t("summary.points", { count: points })];
       if (g.entities.length > 1) parts.push(t("summary.entities", { count: g.entities.length }));
-      return parts.length ? parts.join(" · ") : t("summary.added", { count: g.count });
+      return parts.join(" · ");
     }
     return t("summary.added", { count: g.count });
   };

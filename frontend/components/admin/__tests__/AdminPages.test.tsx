@@ -11,8 +11,10 @@ import en from "@/messages/en.json";
 import de from "@/messages/de.json";
 import { InstanceSignal } from "@/components/dashboard/InstanceSignal";
 import { AdminOverview } from "../overview/AdminOverview";
+import { HealthStrip } from "../overview/HealthStrip";
 import { UsageView } from "../usage/UsageView";
 import { AuditLog } from "../audit/AuditLog";
+import { AuditRowCompact } from "../audit/AuditRow";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), usePathname: () => "/admin/overview" }));
 
@@ -144,6 +146,65 @@ describe("Administration → Übersicht", () => {
     expect(screen.getByTestId("admin-overview-retention-off")).toHaveTextContent("2 other people");
     expect(await screen.findByTestId("admin-audit-card")).toHaveTextContent("Role: User → Admin");
     expect(await screen.findAllByTestId("admin-overview-top-user")).toHaveLength(2);
+  });
+});
+
+describe("Administration → Übersicht: a check the operator switched off (ADR-086 amended 2026-11-06)", () => {
+  it("an `off` provider check is no problem chip and the strip reads healthy", () => {
+    const health = {
+      ...DASH.health,
+      status: "ok",
+      components: [
+        { name: "database", status: "ok", checked_at: null },
+        { name: "provider", status: "off", checked_at: null },
+      ],
+    };
+    render(withIntl(<HealthStrip health={health as never} />));
+    expect(screen.getByTestId("admin-health-strip")).toHaveAttribute("data-status", "ok");
+    expect(screen.getByTestId("admin-health-verdict")).toHaveTextContent(en.adminDashboard.healthOk);
+    expect(screen.queryByTestId("admin-health-chip-provider")).toBeNull();
+  });
+});
+
+describe("Administration → Übersicht: healthy but something waits for the operator (785:251)", () => {
+  const health = {
+    ...DASH.health,
+    status: "ok",
+    components: [
+      { name: "database", status: "ok", checked_at: null },
+      { name: "backup", status: "ok", checked_at: null, not_set_up: true, due_by: "2026-12-01T00:00:00+00:00" },
+    ],
+  };
+  it("verdict 'Alle Teile laufen', green dot, neutral chips for the backup and failed jobs", () => {
+    render(withIntl(<HealthStrip health={health as never} failedJobs={1} />, "de"));
+    expect(screen.getByTestId("admin-health-verdict")).toHaveTextContent("Alle Teile laufen");
+    const backup = screen.getByTestId("admin-health-chip-backup-pending");
+    expect(backup).toHaveTextContent("Sicherung — noch nicht eingerichtet");
+    expect(backup.querySelector("span")).toHaveClass("bg-outline-variant");
+    expect(backup.querySelector("span")).not.toHaveClass("bg-warning");
+    const failed = screen.getByTestId("admin-health-chip-failed-jobs");
+    expect(failed).toHaveTextContent("1 fehlgeschlagener Auftrag — siehe unten");
+    expect(failed.querySelector("span")).toHaveClass("bg-outline-variant");
+  });
+  it("no chips when nothing waits", () => {
+    render(withIntl(<HealthStrip health={{ ...health, components: [{ name: "database", status: "ok" }] } as never} failedJobs={0} />));
+    expect(screen.queryByTestId("admin-health-chip-backup-pending")).toBeNull();
+    expect(screen.queryByTestId("admin-health-chip-failed-jobs")).toBeNull();
+  });
+});
+
+describe("Protokoll: first .env observation (789:267i)", () => {
+  const ev = (detail: Record<string, unknown>) => ({ id: "e1", at: "2026-11-01T10:00:00Z", action: "settings.env_observed", actor_user_id: null, actor_email: null, target_user_id: null, target_email: null, detail });
+  it("no previous value: own label, no arrow", () => {
+    render(withIntl(<AuditRowCompact event={ev({ key: "RETENTION_ENABLED", from_value: null, to_value: true }) as never} />, "de"));
+    const card = screen.getByTestId("admin-audit-card");
+    expect(card).toHaveTextContent("Wert aus der .env übernommen (erster Start)");
+    expect(card).toHaveTextContent("RETENTION_ENABLED: an");
+    expect(card).not.toHaveTextContent("→");
+  });
+  it("a real change keeps the arrow", () => {
+    render(withIntl(<AuditRowCompact event={ev({ key: "RETENTION_ENABLED", from_value: false, to_value: true }) as never} />, "de"));
+    expect(screen.getByTestId("admin-audit-card")).toHaveTextContent("RETENTION_ENABLED: aus → an");
   });
 });
 

@@ -4,9 +4,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Administration → Einstellungen (c2 mock admin-settings.html): three cards on
- * one page — KI-Anbieter (#710), Stellenanzeigen von LinkedIn (#726) and
- * Automatisches Löschen (#738). Every value shows its source (ADR-093 cl. 3); a
+ * Administration → Einstellungen (c2 mock admin-settings.html): four cards on
+ * one page — KI-Anbieter (#710), Verbindungsprüfung zum Anbieter (ADR-093
+ * amended 2026-11-06), Stellenanzeigen von LinkedIn (#726) and Automatisches
+ * Löschen (#738). Every value shows its source (ADR-093 cl. 3); a
  * panel value can be reset to the `.env` value. Writes are session-only on the
  * backend (contract §1) and land in the audit log.
  */
@@ -97,6 +98,120 @@ function LinkedinCard({ data, onSaved }: { data: InstanceSettingsResponse; onSav
       {s.error && (
         <p role="alert" className="mt-2 text-[12.5px] font-medium text-critical">
           {s.error}
+        </p>
+      )}
+    </AdminCard>
+  );
+}
+
+/** The four `OPS_PROVIDER_PROBE` choices, in the order the card lists them. */
+const PROBE_CHOICES = [
+  { mode: "both", label: "probeBoth", hint: "probeBothHint" },
+  { mode: "credit", label: "probeCredit", hint: "probeCreditHint" },
+  { mode: "reachability", label: "probeReachability", hint: "probeReachabilityHint" },
+  { mode: "off", label: "probeOff", hint: "probeOffHint" },
+] as const;
+
+function ProviderProbeCard({ data, onSaved }: { data: InstanceSettingsResponse; onSaved: (d: InstanceSettingsResponse) => void }) {
+  const t = useTranslations("adminSettings");
+  const item = findSetting(data, SETTING_KEYS.providerProbe);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!item) return null;
+  // The .env line names a mode by its raw id; show the radio's own label (789:267g). Unknown stays raw.
+  const envLabel = (raw: string) => {
+    const known = PROBE_CHOICES.find((c) => c.mode === raw);
+    return known ? t(known.label) : raw;
+  };
+  const value = String(item.value ?? "both");
+  const active = data.providers.find((p) => p.active);
+  // The credit half reads nothing where no balance reader exists (`providers[].balance_check`).
+  const creditReadsNothing = active !== undefined && active.balance_check !== true;
+
+  async function choose(mode: string) {
+    if (busy || mode === value) return;
+    setBusy(true);
+    const r = await updateInstanceSettings({ [SETTING_KEYS.providerProbe]: mode });
+    setBusy(false);
+    if (r.ok) {
+      setError(null);
+      onSaved(r.data);
+    } else setError(settingsErrorText(r, t, ""));
+  }
+  async function reset() {
+    setBusy(true);
+    const r = await resetInstanceSetting(SETTING_KEYS.providerProbe);
+    setBusy(false);
+    if (r.ok) onSaved(r.data);
+    else setError(settingsErrorText(r, t, ""));
+  }
+
+  return (
+    <AdminCard testId="admin-settings-probe">
+      <div className="flex items-start justify-between gap-4">
+        <h2 id="admin-probe-label" className="font-manrope text-lg font-bold text-on-surface">
+          {t("probeTitle")}
+        </h2>
+        <SourceBadge source={item.source} testId="admin-settings-probe-source" />
+      </div>
+      <p className="mb-2 text-[14px] text-on-surface-variant">{t("probeHint")}</p>
+      <div role="radiogroup" aria-labelledby="admin-probe-label" aria-busy={busy} className="my-3 flex flex-col gap-2">
+        {PROBE_CHOICES.map((c) => {
+          const checked = c.mode === value;
+          return (
+            <label
+              key={c.mode}
+              data-testid={`admin-settings-probe-${c.mode}`}
+              className={`flex cursor-pointer items-start gap-3 rounded-lg px-4 py-3 ${checked ? "bg-primary-container" : "bg-surface-dim"}`}
+            >
+              <input
+                type="radio"
+                name="admin-provider-probe"
+                value={c.mode}
+                checked={checked}
+                // Not `disabled` while saving: a disabled radio drops keyboard focus.
+                aria-describedby={`admin-probe-hint-${c.mode}`}
+                onChange={() => void choose(c.mode)}
+                className="mt-1 accent-teal"
+              />
+              <span className="flex flex-col">
+                <b className="text-[14px] font-semibold text-on-surface">
+                  {t(c.label)}
+                  {c.mode === "both" && <span className="ml-2 text-[12px] font-normal text-on-surface-variant">{t("probeDefault")}</span>}
+                </b>
+                <span id={`admin-probe-hint-${c.mode}`} className="text-[13px] text-on-surface-variant">
+                  {t(c.hint)}
+                </span>
+                {c.mode === "credit" && creditReadsNothing && (
+                  <span data-testid="admin-settings-probe-no-balance" className="mt-1 text-[12.5px] text-gold-dim">
+                    {t("probeCreditNoBalance", { provider: active.id })}
+                  </span>
+                )}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {value === "off" && (
+        <p
+          data-testid="admin-settings-probe-off-warning"
+          className="mt-1.5 flex items-center gap-2 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-[12.5px] text-on-surface"
+        >
+          <AlertTriangle className="h-4 w-4" aria-hidden />
+          {t("probeOffWarning")}
+        </p>
+      )}
+      <p data-testid="admin-settings-probe-env" className="mt-2 text-[12px] text-on-surface-variant">
+        {item.env_value !== null && item.env_value !== "" ? t("envValue", { value: envLabel(String(item.env_value)) }) : t("envValueUnset")}
+      </p>
+      {item.source === "panel" && (
+        <div className="mt-2">
+          <ResetLink onClick={() => void reset()} busy={busy} testId="admin-settings-probe-reset" />
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-[12.5px] font-medium text-critical">
+          {error}
         </p>
       )}
     </AdminCard>
@@ -284,6 +399,7 @@ export function InstanceSettings() {
       <p className="text-[14px] text-on-surface-variant">{t("intro")}</p>
       {/* key = the effective provider: a save or reset re-seeds the form from the server */}
       <ProviderCard key={settings.data.providers.find((p) => p.active)?.id ?? ""} data={settings.data} onSaved={onSaved} />
+      <ProviderProbeCard data={settings.data} onSaved={onSaved} />
       <LinkedinCard data={settings.data} onSaved={onSaved} />
       <RetentionCard data={settings.data} dash={dash.status === "ready" ? dash.data : null} onSaved={onSaved} />
       {savedAt > 0 && (

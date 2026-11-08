@@ -20,7 +20,7 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
-import { conflictSourceLabel, describeConflict } from "@/lib/conflict-display";
+import { conflictSourceLabel, conflictValueText, describeConflict } from "@/lib/conflict-display";
 import {
   type ConflictOutcome,
   type CurrentConflict,
@@ -112,7 +112,7 @@ export function ConflictCard({
               {t("currentLabel")}
             </p>
             <p data-testid="conflict-card-current" className="break-words">
-              {t("quoted", { value: conflict.existing_value_display ?? "" })}
+              {t("quoted", { value: conflictValueText(tHealth, conflict.field, conflict.existing_value_display) })}
             </p>
           </div>
           <div className="rounded-lg bg-surface-container px-3 py-2 text-sm text-on-surface">
@@ -120,7 +120,7 @@ export function ConflictCard({
               {t("incomingLabel", { source })}
             </p>
             <p data-testid="conflict-card-incoming" className="break-words">
-              {t("quoted", { value: conflict.incoming_value_display ?? "" })}
+              {t("quoted", { value: conflictValueText(tHealth, conflict.field, conflict.incoming_value_display) })}
             </p>
           </div>
           {question !== null && !mergeUnavailable && (
@@ -226,10 +226,10 @@ export function ConflictCard({
           <details className="text-xs text-on-surface-variant">
             <summary>{t("mergeSources")}</summary>
             <p className="mt-1.5 rounded-lg bg-surface-container px-3 py-2 text-sm text-on-surface">
-              {t("quoted", { value: conflict.existing_value_display ?? "" })}
+              {t("quoted", { value: conflictValueText(tHealth, conflict.field, conflict.existing_value_display) })}
             </p>
             <p className="mt-1.5 rounded-lg bg-surface-container px-3 py-2 text-sm text-on-surface">
-              {t("quoted", { value: conflict.incoming_value_display ?? "" })}
+              {t("quoted", { value: conflictValueText(tHealth, conflict.field, conflict.incoming_value_display) })}
             </p>
           </details>
         </div>

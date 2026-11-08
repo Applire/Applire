@@ -304,6 +304,17 @@ def compose_v2(
         update: dict[str, Any] = {}
         for fld, alias_key in (("role", "role_aliases"), ("company", "company_aliases")):
             picked, member = pick_recorded(p.get(fld), v.get(fld), v.get(alias_key))
+            if not member and fld == "role" and len(recorded_names(v.get(fld), v.get(alias_key))) == 1:
+                # Ruling R-2 (WP3, ADR-094 cl. 5 amended 2026-11-04): a role title the
+                # vault records in ONE form only is TRANSLATED by the writer when the
+                # document is in another language ("Leiterin Labor-IT" -> "Head of
+                # Laboratory IT"). Membership cannot decide a translation; whether it is
+                # faithful and not upgraded is the reviewers' judgement (shape notes in
+                # review_cv_tailoring). A title with recorded aliases keeps the check —
+                # the candidate's own form in the document language is then the one to
+                # pick — and employer, institution and degree always keep it.
+                update[fld] = str(p.get(fld)).strip()
+                continue
             update[fld] = picked
             if not member:
                 notes.names_not_recorded.append(
@@ -1050,13 +1061,67 @@ def _budget_candidates(composed: "TailoredCVData", ctx: V2CheckContext) -> str:
         ]
         if not cut:
             return ""
+        opened = _claims_a_cut_would_open(before, after, cut, ctx)
+        # 786:290(c): a candidate whose removal would open a `cv.claim_missing` finding
+        # is offered LAST and says so — never as a plain "drop".
+        ordered = [c for c in cut if c not in opened] + [c for c in cut if c in opened]
+        shown = []
+        for c in ordered[:_MAX_ITEMS_PER_FINDING]:
+            item = f"“{c[:120]}”"
+            if c in opened:
+                item += (
+                    " (the only bullet carrying "
+                    + ", ".join(f"“{x}”" for x in opened[c])
+                    + " — merge it into a related bullet, never drop it)"
+                )
+            shown.append(item)
+        more = len(ordered) - _MAX_ITEMS_PER_FINDING
         return (
             " Lowest-ranked by the budget ranking (candidates to merge or drop; your call): "
-            + _fmt([c[:120] for c in cut])
+            + ", ".join(shown) + (f" (+{more} more)" if more > 0 else "")
         )
     except Exception:  # noqa: BLE001
         logger.exception("v2 budget-candidate ranking failed; finding without candidates")
         return ""
+
+
+def _claims_a_cut_would_open(
+    before: dict, after: dict, cut: Sequence[str], ctx: V2CheckContext
+) -> dict[str, list[str]]:
+    """786:290(c) (Hazelnut build 7, WP-L): the claimable concepts that the budget
+    ranking's cut would make ABSENT from the document, per cut bullet that carries
+    them. A FACT (ADR-062 cl. 1): the `cv.claim_missing` detector's own selection
+    (``ledger_restore.select_restore_candidates``, ADR-066) run on the draft before
+    and after the ranking's cut, and the shared presence predicate on the bullet.
+
+    UX audit round 3 (LLM log 2026-11-07, record 389): the terminal corrector dropped
+    "Schnittstelle zu Einkauf, Qualitätssicherung und Supply Chain …" because
+    `cv.role_budget` offered it as the lowest-ranked candidate, while it was the
+    CV's only carrier of the posting's "Supply Chain" — the next round's
+    `cv.claim_missing` then asked for it back."""
+    if not ctx.keyword_ledger:
+        return {}
+    from applire.services.ats_audit import _norm, surface_present
+    from applire.services.ledger_restore import select_restore_candidates
+
+    def _missing(doc: dict) -> set[str]:
+        sel = select_restore_candidates(doc, ctx.profile_json, ctx.keyword_ledger, ctx.budget)
+        return {c.concept for cands in sel.values() for c in cands}
+
+    opened_concepts = _missing(after) - _missing(before)
+    if not opened_concepts:
+        return {}
+    forms: dict[str, list[str]] = {}
+    for e in ctx.keyword_ledger:
+        if isinstance(e, dict) and e.get("concept") in opened_concepts:
+            forms[e["concept"]] = [e["concept"], *(e.get("surface_forms") or [])]
+    out: dict[str, list[str]] = {}
+    for bullet in cut:
+        nb = _norm(bullet)
+        hit = [c for c, fs in forms.items() if any(f and surface_present(f, nb) for f in fs)]
+        if hit:
+            out[bullet] = hit
+    return out
 
 
 # --------------------------------------------------------------------------- #

@@ -579,7 +579,7 @@ _register_all(
         SettingEntry(
             env_var="ANTHROPIC_MODEL",
             source="config",
-            default="claude-sonnet-4-6",
+            default="claude-sonnet-5-5",
             section="LLM provider",
             introduced_in="0.37.0",
             description=(
@@ -1600,7 +1600,17 @@ PANEL_KEYS: tuple[str, ...] = (
     "OLLAMA_MODEL",
     "SCRAPER_FETCH_LINKEDIN_GUEST_PAGES",
     "RETENTION_ENABLED",
+    # ADR-093 amended 2026-11-06: the probe's token spend, switchable from the panel.
+    "OPS_PROVIDER_PROBE",
 )
+
+# ADR-086 — the ops layer's own settings, defined next to their defaults so a
+# default has exactly one home (services/ops/config.py); registered here so the
+# generated .env.example carries them (WORK-PACKAGES contract 3).
+# Registered BEFORE the panel flag is stamped: OPS_PROVIDER_PROBE is a panel key.
+from applire.services.ops.config import ops_registry_entries as _ops_registry_entries  # noqa: E402
+
+_register_all(SettingEntry(**_e) for _e in _ops_registry_entries())
 
 for _key in PANEL_KEYS:
     _REGISTRY[_key] = replace(_REGISTRY[_key], panel=True)
@@ -1612,12 +1622,6 @@ def panel_settings() -> list[SettingEntry]:
     return [_REGISTRY[k] for k in PANEL_KEYS]
 
 
-# ADR-086 — the ops layer's own settings, defined next to their defaults so a
-# default has exactly one home (services/ops/config.py); registered here so the
-# generated .env.example carries them (WORK-PACKAGES contract 3).
-from applire.services.ops.config import ops_registry_entries as _ops_registry_entries  # noqa: E402
-
-_register_all(SettingEntry(**_e) for _e in _ops_registry_entries())
 
 
 # ---- ADR-095 cl. 3: what the 1.x stability contract promises ----------------
