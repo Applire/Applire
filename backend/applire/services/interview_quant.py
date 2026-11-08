@@ -25,19 +25,22 @@ from applire.services.oracle.matchers import extract_figures
 
 
 def _concept_evidence_text(concept: str, cluster: dict, profile: dict) -> str:
-    """All text already available to the QuestionGenerator prompt that touches
-    ``concept`` — the cluster's own ``jd_context`` plus any per-role
+    """The PROFILE's own text that touches ``concept`` — any per-role
     technology/responsibility/achievement bullet (the same #236 profile-summary
     slice ``build_question_prompt`` sends). Empty string = no evidence at all,
     i.e. a normal unevidenced gap, not a quantification candidate.
+
+    MD-UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the cluster's
+    ``jd_context`` is the POSTING's text and never evidence. It used to count,
+    so a concept only the posting named ("SaaS") was flagged and the add-on
+    told the model "the candidate's profile evidences SaaS" right beside the
+    literal check's "no word-for-word mention of SaaS" (call 14). ``cluster``
+    stays in the signature for the caller's shape.
     """
     concept_l = (concept or "").strip().lower()
     if not concept_l:
         return ""
     texts: list[str] = []
-    jd_context = cluster.get("jd_context", "") or ""
-    if concept_l in jd_context.lower():
-        texts.append(jd_context)
     for entry in profile.get("work_experience", []) or []:
         bullets = (
             [str(t) for t in (entry.get("technologies") or [])]
