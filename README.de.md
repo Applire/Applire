@@ -180,7 +180,7 @@ Je schwächer das Modell deines Agenten, desto mehr von der eingebauten Pipeline
 
 ### REST-API
 - **Vollständige HTTP-API**: Programmatischer Zugriff für entfernte Integrationen
-- **OpenAPI-Dokumentation**: Interaktive Swagger-UI unter `/docs`
+- **OpenAPI-Dokumentation**: Interaktive Swagger-UI unter `/docs` des Backends (mit Anmeldung; beim Standalone-Backend, der Docker-Stack leitet sie nicht über nginx)
 
 ### Beispiel für einen Agenten-Workflow
 ```bash
@@ -296,7 +296,7 @@ curl -s http://localhost/health
 # {"status":"ok","edition":"community","version":"…"}
 ```
 
-`"status":"ok"` heißt: Das Backend antwortet. `version` ist das installierte Release in der normalisierten Python-Schreibweise: `0.44.0-beta` erscheint als `0.44.0b0`, `1.0.0` als `1.0.0`. Der Endpunkt ist offen und liefert nur diese drei Felder; der Compose-Healthcheck nutzt denselben.
+`"status":"ok"` heißt: Das Backend antwortet. `version` ist das installierte Release in der normalisierten Python-Schreibweise: `0.45.0-beta` erscheint als `0.45.0b0`, `1.0.0` als `1.0.0`. Der Endpunkt ist offen und liefert nur diese drei Felder; der Compose-Healthcheck nutzt denselben.
 
 > **Erster Start: Instanz in Besitz nehmen.** Applire verlangt immer eine Anmeldung. Eine neue Installation zeigt einen Einrichtungsbildschirm, der einen einmaligen Code verlangt, den das Backend in sein Log schreibt:
 > ```bash
@@ -775,15 +775,15 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Aktuelle Version (v0.44.0-beta)
+### ✅ Aktuelle Version (v0.45.0-beta)
 
-- [x] Pipeline v2 ist der Standard für Lebenslauf und Anschreiben: Die KI schreibt das ganze Dokument, deterministischer Code prüft es nur. Befunde gehen zurück in eine Review-Schleife; nichts, was das Review bestanden hat, wird nach dem letzten Modellaufruf gelöscht oder umgeschrieben (`CV_PIPELINE` / `LETTER_PIPELINE=v1` schalten zurück)
-- [x] Profilinhalte — Kenntnisse, Ausbildung, Branche, Sprachniveaus, hinterlegte Namensformen — werden in der Dokumentsprache geschrieben, und das Anschreiben kennt seine Sprache und wird darauf geprüft: Auf der Dokumentqualitäts-Bench fiel der Sprachmix um etwa 55 pro 100 Dokumente beim Referenzmodell und um etwa 315 bei einem kleinen Modell
-- [x] Das Anschreiben passt auf eine Seite, indem es seine eigene Darstellung misst, endet mit einer Gesprächseinladung statt einer Keyword-Liste, macht aus einer Interview-Antwort, die nur Details zurückhält, nie ein Eingeständnis und nennt einen Mangel nur, wenn du ihn selbst angegeben hast und die Anzeige danach fragt
-- [x] Jeder Generierungs-Prompt trägt einen kurzen Pipeline-Kontext und ein Begründungsfeld, das das Modell zuerst ausfüllt und Applire vor dem Speichern entfernt (`PROMPT_CONTEXT`)
-- [x] Die Wahrheitsprüfung wertet einen Satz nicht mehr als belegt, wenn er einen Standard nennt, den dein Profil nie erwähnt, und der Gesundheits-Hub findet Kenntnis-Dauern, die als deine eigenen Worte markiert sind, die Applire aber berechnet hat
-- [x] Das Interview zeigt, wenn eine Antwort nicht übernommen wurde, speichert „dazu kann ich nichts Genaueres sagen“ nicht mehr als Verneinung und hält Mitwirkung nicht mehr als die Kenntnis fest, nach der die Frage fragte
-- [x] Lege einmal fest, wie dein Foto zugeschnitten wird — für jede Vorlage und die Word-Datei
+- [x] Dokumente sagen nur, was du gesagt hast: Das Anschreiben nennt eine Lücke nur, wenn du sie selbst angegeben hast, in deinen eigenen Worten, und ein „Nein“ gilt genau für das, was es nennt, nie für eine breitere Anforderung
+- [x] Eine Anforderung, die dein Profil in einer anderen Sprache belegt, zählt: Die Lückenanalyse urteilt nach Bedeutung und muss den Profileintrag zitieren, der sie zeigt; Applire prüft, dass das Zitat wirklich dort steht
+- [x] Das Review zeigt pro Befund eine Aktion und schweigt, wo es nicht helfen kann: kein „Ins Profil übernehmen“ für einen Satz über den Arbeitgeber, weniger Fehlalarme bei ehrlichem Text und ein Hinweis, wenn eine Prüfung nicht gelaufen ist
+- [x] Lebenslauf und Anschreiben sagen dir, wenn sich dein Profil nach ihrer Erstellung geändert hat; Antwortideen im Interview sind Fragen, die eine Brücke zum gefragten Thema schlagen, und ein Klick füllt nur das Antwortfeld
+- [x] Dein Profil sagt die Wahrheit: Beendete Stationen erscheinen nicht mehr als aktuell, eine nicht lesbare Importdatei wird genannt, und „trifft nicht zu“ lässt sich zurücknehmen
+- [x] Das 1.x-Stabilitätsversprechen ist aufgeschrieben und wird in der CI geprüft, bereit für 1.0.0; Claude Sonnet 5.5 läuft auf dem Anthropic-Provider, mit Prompt-Caching
+
 
 ### ⏳ Als Nächstes
 
@@ -794,7 +794,7 @@ Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milest
 - [x] **Stracciatella** — ausgeliefert mit v0.41.1-beta. Felix übernimmt das Steuer: die führende Dokumentsprache pro Bewerbung wählen (Erkennung wird zum Vorschlag statt zum Gesetz), strukturierte Master-Profil-Editoren statt Roh-JSON und Muss-Fakten ans Dokument pinnen — dazu Härtung der gelieferten Dokumente (die Ship-Gate-Befunde aus v0.39 und die Prompt-Injection-Abwehr)
 - [x] **Nougat** — ausgeliefert mit v0.42.0-beta. Der selbst hostende Operator: ein Versionssprung-Hinweis für Einstellungen, die ein Release neu einführt und deine `.env` nicht setzt (mit Upgrade-Hinweisen pro Release), eine veröffentlichte Qualifikationsmatrix, welche Modelle für Applires Prompts gut genug sind, eine Betriebs- und Health-Schicht mit Token-Tracking — dazu die Konsolidierung der Stracciatella-Befunde (die belegten Dokument-Bugs und die Review-Loop-Entscheide)
 - [x] **Strawberry** — ausgeliefert mit v0.43.0-beta. Mehrbenutzer-Fähigkeit: eingebaute Konten und optionales Single Sign-on, Rollen, ein Administrationsbereich für Personen, persönliche Tokens für Agenten und Skripte und die Privatsphäre der Daten jeder Person
-- [ ] **Hazelnut** — Build 1 ausgeliefert mit v0.44.0-beta, die Sorte läuft weiter. Dokumentqualität: Die KI schreibt den ganzen Lebenslauf und das Anschreiben, deterministischer Code prüft und blockiert nur noch, statt den Text nach dem letzten Modellaufruf umzuschreiben — gemessen auf einer Dokumentqualitäts-Bench (Sprachmix, Untertreibung, Dubletten, Übertreibung)
+- [ ] **Hazelnut** — Build 1 ausgeliefert mit v0.44.0-beta, Builds 2–7 mit v0.45.0-beta; die Sorte läuft weiter bis 1.0.0. Dokumentqualität: Die KI schreibt den ganzen Lebenslauf und das Anschreiben, deterministischer Code prüft und blockiert nur noch, statt den Text nach dem letzten Modellaufruf umzuschreiben — gemessen auf einer Dokumentqualitäts-Bench (Sprachmix, Untertreibung, Dubletten, Übertreibung)
 
 Darüber hinaus, ohne Termine: **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die gehostete Demo und die **Applire Cloud (SaaS) pausieren**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
 
