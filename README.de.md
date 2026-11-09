@@ -180,7 +180,7 @@ Je schwächer das Modell deines Agenten, desto mehr von der eingebauten Pipeline
 
 ### REST-API
 - **Vollständige HTTP-API**: Programmatischer Zugriff für entfernte Integrationen
-- **OpenAPI-Dokumentation**: Interaktive Swagger-UI unter `/docs`
+- **OpenAPI-Dokumentation**: Interaktive Swagger-UI unter `/docs` des Backends (mit Anmeldung; beim Standalone-Backend, der Docker-Stack leitet sie nicht über nginx)
 
 ### Beispiel für einen Agenten-Workflow
 ```bash

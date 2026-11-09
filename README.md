@@ -168,7 +168,7 @@ The weaker your agent's model, the more of Applire's built-in pipeline you can l
 
 ### REST API
 - **Full HTTP API**: Programmatic access for remote integrations
-- **OpenAPI Documentation**: Interactive Swagger UI at `/docs`
+- **OpenAPI Documentation**: Interactive Swagger UI at the backend's `/docs` (signed-in; when running the backend standalone, the Docker stack does not route it through nginx)
 
 ### Agent Workflow Example
 ```bash
