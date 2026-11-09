@@ -284,7 +284,7 @@ curl -s http://localhost/health
 # {"status":"ok","edition":"community","version":"…"}
 ```
 
-`"status":"ok"` means the backend is serving. `version` is the release you installed, in Python's normalised spelling: `0.44.0-beta` reads `0.44.0b0`, and `1.0.0` reads `1.0.0`. The endpoint is open and returns only these three fields; the compose healthcheck uses the same one.
+`"status":"ok"` means the backend is serving. `version` is the release you installed, in Python's normalised spelling: `0.45.0-beta` reads `0.45.0b0`, and `1.0.0` reads `1.0.0`. The endpoint is open and returns only these three fields; the compose healthcheck uses the same one.
 
 > **First start: claim your instance.** Applire always asks for a sign-in. A new install opens a setup screen that asks for a one-time code, which the backend prints in its log:
 > ```bash
@@ -756,15 +756,15 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.44.0-beta)
+### ✅ Current Release (v0.45.0-beta)
 
-- [x] Pipeline v2 is the default for CV and cover letter: the AI writes the whole document, and deterministic code only checks it. Findings go back into one review loop; nothing that passed review is deleted or rewritten after the last model call (`CV_PIPELINE` / `LETTER_PIPELINE=v1` switch back)
-- [x] Profile content — skills, education, industry, language levels, recorded name forms — is written in the document's language, and the cover letter is told its language and checked for it: on the document-quality bench, mixed-language text fell by about 55 per 100 documents on the reference model and by about 315 on a small model
-- [x] The cover letter fits one page by measuring its own render, ends with a call to action instead of a list of keywords, never turns an interview answer that only held back detail into an admission, and names a lack only when you recorded it and the posting asks for it
-- [x] Every generation prompt carries a short pipeline context and a reasoning field the model fills first and Applire strips before storage (`PROMPT_CONTEXT`)
-- [x] The truthfulness check no longer grades a sentence as backed when it names a standard your profile never mentions, and the health hub finds skill durations marked as your own words that Applire actually calculated
-- [x] The interview shows when an answer was not recorded, no longer stores "I can't give more detail" as a denial, and no longer records taking part in something as the skill the question asked about
-- [x] Choose how your photo is framed, once, for every template and the Word file
+- [x] Documents say only what you said: the cover letter names a gap only when you recorded it yourself, quoted in your own words, and a "no" covers exactly what it names, never a broader requirement
+- [x] A requirement your profile states in another language counts: the gap analysis judges meaning and must quote the profile entry that shows it, and Applire checks the quote is really there
+- [x] The review shows one action per finding and stays silent where it cannot help: no "add to profile" for a sentence about the employer, fewer false alarms on honest text, and a line when a check did not run
+- [x] CV and letter tell you when your profile changed after they were written; interview answer ideas are questions that bridge to the asked topic, and a click only fills the answer box
+- [x] Your profile tells the truth: roles that ended are no longer shown as current, an unreadable import file is named, and "does not apply" can be taken back
+- [x] The 1.x stability promise is written down and checked in CI, ready for 1.0.0; Claude Sonnet 5.5 works on the Anthropic provider, with prompt caching
+
 
 ### ⏳ Next Up
 
@@ -775,7 +775,7 @@ Applire ships in dessert-named releases, each tracked as a public [milestone](ht
 - [x] **Stracciatella** — shipped with v0.41.1-beta. Felix takes the controls: choose the leading document language per application (detection becomes a default, not a law), structured Master-Profile editors replacing the raw-JSON view, and pinning must-appear facts to a document — plus hardening of the delivered documents (the v0.39 ship-gate findings and the prompt-injection defence)
 - [x] **Nougat** — shipped with v0.42.0-beta. The self-hosting operator: a version-jump notice for settings a release introduced that your `.env` does not set (with upgrade notes per release), a published qualification matrix of which models are good enough for Applire's prompts, an ops and health layer with token tracking — plus the consolidation of the Stracciatella findings (the proven delivered-document bugs and the review-loop rulings)
 - [x] **Strawberry** — shipped with v0.43.0-beta. Multi-user capability: built-in accounts and optional single sign-on, roles, an administration area for people, personal tokens for agents and scripts, and every person's data private to them
-- [ ] **Hazelnut** — build 1 shipped with v0.44.0-beta, the flavour continues. Document quality: the AI writes the whole CV and cover letter, and deterministic code only checks and blocks instead of rewriting the text after the last model call, measured on a document-quality bench (language mix, underselling, duplicates, upselling)
+- [ ] **Hazelnut** — build 1 shipped with v0.44.0-beta, builds 2–7 with v0.45.0-beta; the flavour continues toward 1.0.0. Document quality: the AI writes the whole CV and cover letter, and deterministic code only checks and blocks instead of rewriting the text after the last model call, measured on a document-quality bench (language mix, underselling, duplicates, upselling)
 
 Beyond that, without dates: **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
 
