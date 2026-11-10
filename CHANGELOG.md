@@ -6,6 +6,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Hazelnut build 8 — checks and verdicts (Lead O)
+- **The truthfulness check knows audit attestations.** A CV or letter naming SOC 2, ISAE 3402, BSI C5 (or SOC 1/3, ISAE 3000, SSAE 16/18) that your profile never mentions is now marked as not backed, with "a standard your profile never mentions". Before, the sentence's other words could mark it as backed. SOC 2 in your profile does not back SOC 1.
+- **"Duplicate bullets" no longer pairs two different achievements** (#786). Bullets are compared only within one employer. The same task at two companies is two achievements. Two bullets with different years, or different percentages, are two facts. The review loop no longer asks to merge or drop one of them. On 93 checked pairs from captured test CVs the share of false pairs fell from 37 % to 17 %; every real duplicate is still found.
+- **A bullet's first word counts as evidence** (#786). "Mentor two engineers" at the start of a bullet now backs "Mentoring". Before, the narrative check could say the skill was only listed.
+- **"Literally in your profile" means your profile's content** (#790, #783). A skill you removed, an unaccepted value in an open conflict, and Applire's own bookkeeping no longer count as your profile stating a term, so the consistency checks and the pre-download diff ask about it.
+
 ## [0.45.0-beta] – 2026-11-09 (Hazelnut builds 2–7, interim release)
 
 ### Hazelnut build 7 — documents say only what you said; every promise has a way
