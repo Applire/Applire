@@ -6,6 +6,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+<!-- WP-P (Hazelnut build 8) — the page -->
+- **Long CVs no longer leave pages part-empty** (founder re-UAT RU-3; ruling P-4). With long bullets, a role's heading, its first bullets and its projects were kept together as one block, and every page break pushed the whole block down. The "Kreativ" template left about 0.8 of a page blank over 5 pages. All seven templates now keep a heading only with the first lines of its first bullet. A bullet of six or more lines may continue on the next page, with at least three lines on each. A role's projects may start a new page under their own heading. On a long synthetic CV: Kreativ 6 → 5 pages, executive 6 → 4, academic and classic 5 → 4.
+- **The automatic page cut keeps your newest certifications** (786:256; ruling P-1). To reach one page over your target, Applire used to drop certifications one at a time until none were left (3 of 6 test CVs lost all five). Now it never drops a certification the posting names, it always keeps your two newest, and it puts back anything it cut that did not save a page. Cutting further is still your choice on the page card, which names every item.
+- **The team size under a role says what it counts** (founder re-UAT RU-5; ruling P-2): „Führungsverantwortung für 2 Personen“ / "Responsible for a team of 2" instead of a bare "2 Personen", which read as a contradiction next to a larger team in the bullets.
+- **The page card names the one-page tolerance** (founder re-UAT RU-4): „Von sich aus kürzt Applire nur bis auf eine Seite über Deinem Ziel, hier 4 Seiten.“ It says so when even that was not reached.
+- **The template-picker sample uses invented companies and German throughout** (786:180).
+
 ## [0.45.0-beta] – 2026-11-09 (Hazelnut builds 2–7, interim release)
 
 ### Hazelnut build 7 — documents say only what you said; every promise has a way
