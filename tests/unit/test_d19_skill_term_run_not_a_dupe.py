@@ -20,7 +20,10 @@ COPY = ("Served as IT quality representative for supplier audits and ensured rel
 def _cv(bullets, skills):
     return {"skills": skills, "work_history": [
         {"id": "w1", "company": "Nord AG", "role": "Lead", "bullets": [bullets[0]]},
-        {"id": "w2", "company": "Süd eV", "role": "Engineer", "bullets": bullets[1:]},
+        # 786:75 (build 8): pairs are compared within ONE employer, so the two roles
+        # sit at the same company — the D-19 question (a run inside a delivered skill)
+        # is unchanged by that scope.
+        {"id": "w2", "company": "Nord AG", "role": "Engineer", "bullets": bullets[1:]},
     ]}
 
 

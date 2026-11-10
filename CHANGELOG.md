@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **A skill on the CV now has its bullet** (#786, 786:289). When the skills list or the summary names something your profile records in a role (for example "Mentoring"), and no bullet of that role shows it, the last review round asks for it in that role's bullets. A role that already says it in other words is left alone.
 - **The CV states durations the way you did** (#786, 786:190, founder ruling W-2). The CV no longer reads a computed skill span as a figure: it states your own figures as you wrote them, a careful "over 5 years" only for a tool you never put a number on, and no duration at all for a tool whose computed span is longer than your own career figure ("9 years of PostgreSQL" beside "8 years of experience"). CV and cover letter use the same rule.
 
+### Hazelnut build 8 — checks and verdicts (Lead O)
+- **The truthfulness check knows audit attestations.** A CV or letter naming SOC 2, ISAE 3402, BSI C5 (or SOC 1/3, ISAE 3000, SSAE 16/18) that your profile never mentions is now marked as not backed, with "a standard your profile never mentions". Before, the sentence's other words could mark it as backed. SOC 2 in your profile does not back SOC 1.
+- **"Duplicate bullets" no longer pairs two different achievements** (#786). Bullets are compared only within one employer. The same task at two companies is two achievements. Two bullets with different years, or different percentages, are two facts. The review loop no longer asks to merge or drop one of them. On 93 checked pairs from captured test CVs the share of false pairs fell from 37 % to 17 %; every real duplicate is still found.
+- **A bullet's first word counts as evidence** (#786). "Mentor two engineers" at the start of a bullet now backs "Mentoring". Before, the narrative check could say the skill was only listed.
+- **"Literally in your profile" means your profile's content** (#790, #783). A skill you removed, an unaccepted value in an open conflict, and Applire's own bookkeeping no longer count as your profile stating a term, so the consistency checks and the pre-download diff ask about it.
+
 ## [0.45.0-beta] – 2026-11-09 (Hazelnut builds 2–7, interim release)
 
 ### Hazelnut build 7 — documents say only what you said; every promise has a way
