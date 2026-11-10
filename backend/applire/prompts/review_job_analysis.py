@@ -15,6 +15,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v8 (Hazelnut build 8 / WP-I, 2026-11-10, lines 787:59 + 787:121):
+#   - CORRECTOR: carries the extractor's closed NOT-A-CONCEPT-TERM list verbatim (one
+#     constant, prompts/job_analysis.py) and stops licensing "you may add … a concept
+#     term": it adds only what the review names. Nougat F-6 (2026-09-20, KION, luna
+#     gpt-5.6): 0 of 11 approve-only runs carried a non-skill, the 1 run with a
+#     correction round carried 8 (degree, traits, soft skills) — the corrector re-read
+#     the posting and re-minted what the extraction round had excluded.
+#   - REVIEWER: no longer names translation as acceptable normalisation (approval bar,
+#     check 1c, the user prompt's first line) — the extractor's OUTPUT LANGUAGE rule
+#     forbids it and the corrector is told the posting's language (#766 C1-1, the
+#     reviewer half that build left as a collector line).
+#
 # Prompt version: v7 (UX audit M6 / ruling UX-1, 2026-10-20): check 2c names whose number
 #   a scope bar is — the role's own — and the look-alikes (the employer's headcount, a
 #   product's users, a count of teams, the offered salary) that the writer's v11 rule
@@ -89,6 +101,7 @@
 
 import json
 
+from applire.prompts.job_analysis import NOT_A_CONCEPT_TERM_RULE
 from applire.prompts.review_severity import review_output_schema
 
 JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT = """\
@@ -103,8 +116,10 @@ Set "approved": true unless you find a MATERIAL defect — a requirement, keywor
 company name, culture signal, scope figure, leadership quote, education bar, or
 seniority/language claim with no basis in the source text (checks 1-5 below name the full
 list; nothing outside it is material). Reasonable normalisation (merging
-"React.js" and "React" into one skill, translating a German requirement phrase into an
-English skill name, tidying wording) is NOT a defect — do not flag it. Populate "issues"
+"React.js" and "React" into one skill, shortening a requirement phrase to the concept it
+names, tidying wording) is NOT a defect — do not flag it. Translation is NOT part of that
+normalisation: the extraction keeps these terms in the posting's own language, so never
+ask for a term to be translated. Populate "issues"
 ONLY with material defects. If a clean extraction has nothing wrong, APPROVE with an
 empty issues list on the first review.
 
@@ -172,7 +187,7 @@ Check for these defects:
    of the reasons check 1 forecloses to remove such a term.
 1c. FABRICATED COMPANY CULTURE SIGNAL: a company_culture_signals entry not stated or
    clearly implied anywhere in the source posting. The same NORMALISING TRANSFORM
-   latitude from check 1 applies (paraphrase, translation, tidying wording is not
+   latitude from check 1 applies (paraphrase, nominalisation, tidying wording is not
    fabrication) — but a signal inferred from what the company or role merely IS, rather
    than from the posting's own words, is fabricated: a mid-sized company's address does
    not imply "Mittelstand", a flat org chart does not imply "kurze Wege", a young
@@ -308,8 +323,8 @@ def build_job_analysis_review_prompt(jd_text: str, extracted_json: dict) -> str:
     return (
         "Audit this extracted job-description analysis against the source posting. "
         "Apply the approval bar: approve unless a requirement, keyword, title, or "
-        "company name lacks a basis in the source text. Reasonable normalisation and "
-        "translation are NOT defects.\n\n"
+        "company name lacks a basis in the source text. Reasonable normalisation is NOT "
+        "a defect.\n\n"
         f"{fence(jd_text, header='SOURCE JOB POSTING')}\n\n"
         f"{fence(json.dumps(view, ensure_ascii=False, indent=2), header='EXTRACTED ANALYSIS')}\n\n"
         f"{facts}\n\n"
@@ -345,10 +360,14 @@ Rules:
   nothing.
 - PRESERVE SHAPE in required_skills / nice_to_have_skills / keywords: these three
   fields are a controlled vocabulary of short concept terms (typically 1-4 words),
-  never sentences or verbatim quotations. When fixing an unrelated issue you may add,
-  remove, or correct a concept term in these fields — but never reformat an existing
-  concept term into a sentence or a quotation from the source text, and never merge
-  several concept terms into one prose phrase.
+  never sentences or verbatim quotations. You may remove or correct a concept term the
+  review names; add one ONLY where the review asks for it (a qualifier restored, a
+  level move). Never add a term the review does not name — the extraction round minted
+  these lists, and re-reading the posting is how you verify them, not how you extend
+  them. Never reformat an existing concept term into a sentence or a quotation from the
+  source text, and never merge several concept terms into one prose phrase.
+- The extraction round's own exclusion list applies to every term you keep or add:
+""" + NOT_A_CONCEPT_TERM_RULE + """
 - SENIORITY DISPOSITION (demotion, never deletion): when the reviewer says a
   seniority_level overreaches, replace it with the tier the posting actually grounds —
   its title's own rank word ("Leiter"/"Leitung"/"Head of" -> "Lead"; "Senior X" ->

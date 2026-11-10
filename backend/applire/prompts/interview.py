@@ -18,6 +18,13 @@
 # Prompt version: v4
 # Used by: services/interview_graph.py
 #
+# Hazelnut build 8 / WP-I (2026-11-10, line 787:197) — the cluster question and the
+# denial probe: the profile summary lists skills and technologies as NAMES (no ids,
+# no computed span) under a legend saying what a name evidences; our own earlier
+# questions are marked "Applire (question)" and are not evidence; the cluster's
+# jd_context is labelled as our summary; one rule governs what the QUESTION text may
+# state about the candidate and the employer (_QUESTION_STATES_ONLY_WHAT_IS_STATED).
+#
 # v4 changes vs v3 (Sprint 15):
 #   - RESPONSE_PARSER_SYSTEM_PROMPT: schema extended with certifications_to_add,
 #     languages_to_add, education_to_add, gap_resolution ("full"|"partial"|"none"),
@@ -310,6 +317,22 @@ bridge) or "denial" (the honest bridge, or a restated earlier no). Both are stat
 about the choice you just drafted, not extra rules."""
 
 
+# 787:197 (Hazelnut build 8 / WP-I) — the QUESTION's own statements about the candidate.
+# Every truthfulness rule above governs the CHOICES; nothing governed what the question
+# text asserts, so it composed a listed technology and a bullet into a claim neither
+# makes ("hands-on work with <tool>-based integration platforms") and stated the cluster
+# summary's guess as the employer's setup ("the services run on a container platform").
+_QUESTION_STATES_ONLY_WHAT_IS_STATED = (
+    "- State a fact about the candidate only as the profile summary or a Candidate line "
+    "states it: a listed name as a name they list (\"you list Kafka\"), never as hands-on "
+    "work, a platform or a project of theirs, and never joined to a bullet into a claim "
+    "neither makes (\"your Kafka-based pipelines\"). An Applire line is our own earlier "
+    "question: never repeat its premise as a fact. About the role, say what the GAP "
+    "CLUSTER names; its \"why the role asks\" line is our summary, so never state its "
+    "reason as a fact about the employer's setup (\"the services run on Kubernetes\")."
+)
+
+
 QUESTION_SYSTEM_PROMPT = """\
 You are an expert career coach specialised in the DACH (Germany, Austria, Switzerland) job market.
 Your task is to generate ONE targeted, open-ended question to help a job seeker articulate concrete \
@@ -341,6 +364,7 @@ Requirements:
 - Ask about exactly ONE aspect related to the cluster
 - Be encouraging and conversational in tone
 - Invite specific examples: projects, companies, dates, measurable outcomes
+""" + _QUESTION_STATES_ONLY_WHAT_IS_STATED + """
 - Output ONLY a valid JSON object - no markdown, no explanations
 
 Schema:
@@ -376,7 +400,10 @@ def _capped_profile_summary(profile: dict) -> str:
     """
     return json.dumps(
         {
-            "skills": profile.get("skills", []),
+            # 787:197: names only — a skill row's ids, `status`, `experience_refs`
+            # and a COMPUTED span are bookkeeping, not something the candidate said
+            # (a span is kept only when it was read off the person's own words).
+            "skills_listed": [_listed_skill(s) for s in profile.get("skills", []) or []],
             # Technologies AND a bounded slice of each role's own bullets, so
             # choices can be grounded in real per-role substance (#110, #236) —
             # company/role/technologies alone gave the model a noun with no
@@ -385,7 +412,7 @@ def _capped_profile_summary(profile: dict) -> str:
                 {
                     "company": e.get("company"),
                     "role": e.get("role"),
-                    "technologies": e.get("technologies") or [],
+                    "technologies_listed": e.get("technologies") or [],
                     "responsibilities": (e.get("responsibilities") or [])[
                         :_QUESTION_PROMPT_MAX_RESPONSIBILITIES_PER_ROLE
                     ],
@@ -397,6 +424,43 @@ def _capped_profile_summary(profile: dict) -> str:
             ],
         },
         ensure_ascii=False,
+    )
+
+
+def _listed_skill(skill: object) -> str:
+    """One skill as the question writer sees it: its name, plus a span only when the
+    span was transcribed from the person's own words (``Skill.source``, ADR-061 cl. 7)."""
+    if not isinstance(skill, dict):
+        return str(skill)
+    name = str(skill.get("name") or "").strip()
+    years = skill.get("years_experience")
+    if years and skill.get("source") == "transcribed":
+        return f"{name} ({years} years, stated)"
+    return name
+
+
+#: 787:197 — the legend the question writer reads the summary with (ADR-078: the
+#: view states what each part IS; the rules say what the question may do with it).
+_PROFILE_SUMMARY_LEGEND = (
+    "Candidate profile summary (skills_listed and each role's technologies_listed are "
+    "NAMES the profile lists — evidence that it holds them, never of what was done with "
+    "them, how or on what platform; responsibilities and achievements are the work the "
+    "profile states):"
+)
+
+
+def _recent_conversation_block(recent_messages: list[dict] | None) -> str:
+    """787:197 / ADR-061 amended: the last four turns, with OUR questions marked as ours.
+    A rendered "Assistant: Your profile shows …" read as evidence on the next turn."""
+    if not recent_messages:
+        return ""
+    lines = [
+        f"{'Candidate' if m.get('role') == 'user' else 'Applire (question)'}: {m.get('content')}"
+        for m in recent_messages[-4:]
+    ]
+    return (
+        "\n\nRecent conversation (only Candidate lines are evidence; an Applire line is our "
+        "own question):\n" + "\n".join(lines)
     )
 
 
@@ -601,10 +665,7 @@ def build_question_prompt(
     follow_up_focus: list[str] | None = None,
     recorded_denials: list[str] | None = None,
 ) -> str:
-    history = ""
-    if recent_messages:
-        lines = [f"{m['role'].capitalize()}: {m['content']}" for m in recent_messages[-4:]]
-        history = "\n\nRecent conversation:\n" + "\n".join(lines)
+    history = _recent_conversation_block(recent_messages)
 
     profile_summary = _capped_profile_summary(profile)
 
@@ -704,7 +765,7 @@ def build_question_prompt(
     if jd_skills:
         cluster_body += f"\nRelevant JD skills: {', '.join(jd_skills)}"
     if jd_context:
-        cluster_body += f"\nJD context: {jd_context}"
+        cluster_body += f"\nWhy the role asks (our one-line summary, not the posting's words): {jd_context}"
     cluster_context = fence(cluster_body, header="GAP CLUSTER")
 
     earlier = _earlier_exchanges_block(prior_exchanges)
@@ -721,7 +782,7 @@ def build_question_prompt(
         f"{gap_type_hint}\n"
         f"{declined_line}"
         f"{choices_hint}\n\n"
-        f"Candidate profile summary:\n{profile_summary}"
+        f"{_PROFILE_SUMMARY_LEGEND}\n{profile_summary}"
         f"{earlier}"
         f"{history}"
         f"{already_asked}\n\n"
@@ -995,6 +1056,7 @@ Requirements:
 - Lead with the broader skill area named in the follow-up direction below
 - Be concrete: name adjacent frameworks, tools, standards, or contexts to explore
 - Remain encouraging — the candidate may simply not have recognised the connection
+""" + _QUESTION_STATES_ONLY_WHAT_IS_STATED + """
 - Output ONLY a valid JSON object - no markdown, no explanations
 
 Schema:
@@ -1020,10 +1082,7 @@ def build_denial_probe_question_prompt(
     instruction and the paired system prompt differ, asking for choices
     instead of question-text-only output.
     """
-    history = ""
-    if recent_messages:
-        lines = [f"{m['role'].capitalize()}: {m['content']}" for m in recent_messages[-4:]]
-        history = "\n\nRecent conversation:\n" + "\n".join(lines)
+    history = _recent_conversation_block(recent_messages)
 
     # #347 (2026-08-05): the probe used to send bare company/role pairs, so
     # the coverage rules' evidence conditions had nothing to check against.
@@ -1037,7 +1096,7 @@ def build_denial_probe_question_prompt(
     return (
         f"Gap not yet addressed: {fence_inline(gap)}\n"
         f"Follow-up direction: {follow_up_hint}\n\n"
-        f"Candidate profile summary:\n{profile_summary}"
+        f"{_PROFILE_SUMMARY_LEGEND}\n{profile_summary}"
         f"{history}\n\n"
         "Generate the follow-up question and answer choices probing the broader skill area."
     )

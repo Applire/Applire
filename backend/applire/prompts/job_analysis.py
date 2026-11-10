@@ -133,6 +133,34 @@
 # pinned failure: .run5fixture/jd_chain.jsonl, charter run #6, 2026-07-26)
 # Used by: services/job.py → LLMProvider.aparse_json
 
+# The closed NOT-A-CONCEPT-TERM list (v9/v12), shared VERBATIM with the corrector
+# (prompts/review_job_analysis.py, 787:59): a correction round re-reads the posting and
+# must not re-mint what this extraction round excludes. One text, two readers.
+NOT_A_CONCEPT_TERM_RULE = """\
+NOT A CONCEPT TERM — never emit these in any of the three lists, however plainly the
+posting states them. A concept term names a capability a candidate's CV can EVIDENCE;
+each entry below cannot be, so it only inflates the requirement count, the gap list and
+the interview agenda:
+  - a formal qualification or a field of study — "Master's degree", "Bachelor",
+    "Computer science", "Engineering", "Abschluss in Informatik". One posting sentence
+    ("Master's degree in Computer science, Data science or Engineering") is a single
+    education bar, not four requirements.
+  - a language or a language level — "English", "German", "Fluent English". The
+    posting's language demand belongs in "language_requirement" and nowhere else.
+  - a personality trait, an attitude, or a generic soft phrase — "Proactive approach",
+    "Communication skills", "Presentation skills", "Interpersonal skills",
+    "Problem-solving skills", "Willingness to learn", "Structured way of working",
+    "Team player", "Analytical working". Every posting asks for these and no document
+    can prove them.
+  - the employer's own product, platform, team or brand name — "KION GenAI Platform",
+    "the XY Group". The role works ON it; the candidate brings the technologies it is
+    BUILT from, and those are the concept terms to emit.
+  - what the employer OFFERS, and how the job is organised — benefits, perks and
+    employment terms: "Hybrid work", "Mobiles Arbeiten", "Learning budget",
+    "Weiterbildungsbudget", "ESOP", "Firmenwagen", "30 Tage Urlaub", "Full-time",
+    "unbefristet". They describe what the candidate GETS, not what they bring.
+"""
+
 SYSTEM_PROMPT = """\
 You are an expert HR analyst specialised in the DACH (Germany, Austria, Switzerland) job market.
 Your task is to analyse a job description and extract structured information as JSON.
@@ -180,29 +208,7 @@ embeddings, ranking and retrieval pipelines", "Hands-on experience with agentic
 systems and tool-using LLM applications", "Building and deploying AI-powered products
 in production". If the posting only states a requirement as a long phrase, extract the
 concept(s) it names as separate short terms — do not quote the phrase whole.
-NOT A CONCEPT TERM — never emit these in any of the three lists, however plainly the
-posting states them. A concept term names a capability a candidate's CV can EVIDENCE;
-each entry below cannot be, so it only inflates the requirement count, the gap list and
-the interview agenda:
-  - a formal qualification or a field of study — "Master's degree", "Bachelor",
-    "Computer science", "Engineering", "Abschluss in Informatik". One posting sentence
-    ("Master's degree in Computer science, Data science or Engineering") is a single
-    education bar, not four requirements.
-  - a language or a language level — "English", "German", "Fluent English". The
-    posting's language demand belongs in "language_requirement" and nowhere else.
-  - a personality trait, an attitude, or a generic soft phrase — "Proactive approach",
-    "Communication skills", "Presentation skills", "Interpersonal skills",
-    "Problem-solving skills", "Willingness to learn", "Structured way of working",
-    "Team player", "Analytical working". Every posting asks for these and no document
-    can prove them.
-  - the employer's own product, platform, team or brand name — "KION GenAI Platform",
-    "the XY Group". The role works ON it; the candidate brings the technologies it is
-    BUILT from, and those are the concept terms to emit.
-  - what the employer OFFERS, and how the job is organised — benefits, perks and
-    employment terms: "Hybrid work", "Mobiles Arbeiten", "Learning budget",
-    "Weiterbildungsbudget", "ESOP", "Firmenwagen", "30 Tage Urlaub", "Full-time",
-    "unbefristet". They describe what the candidate GETS, not what they bring.
-Emit each concept ONCE across the whole list, even when the posting names it in two
+""" + NOT_A_CONCEPT_TERM_RULE + """Emit each concept ONCE across the whole list, even when the posting names it in two
 sections and even when the capitalisation differs — "Data science" and "Data Science"
 are one entry, not two.
 
