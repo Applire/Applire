@@ -292,7 +292,17 @@ def _verb_form_present(form_norm: str, text_norm: str) -> bool:
     if len(form_tokens) != 1:
         return False
     needle_stem = _verb_stem(form_tokens[0])
-    return any(_verb_stem(word) == needle_stem for word in text_norm.split())
+    # 786:148 (Hazelnut build 8): a corpus joined by `join_corpus_fragments` carries
+    # the fragment boundary between two bullets with NO whitespace around it, so a
+    # bare `split()` glued the last word of one bullet to the first word of the next
+    # ("backend.␞mentor") and the fold never saw a bullet's FIRST word — the verb a
+    # CV bullet starts with. The delivered `narrative-evidence` check called
+    # "Mentoring" claimed-but-not-evidenced beside "Mentor two mid-level engineers …"
+    # (blind Kaile probe 2026-09-27, reproduced on that day's tree). The boundary
+    # still separates PHRASES (the substring arm above never bridges it); for this
+    # single-token arm it is a token separator like any space.
+    words = text_norm.replace(_CORPUS_FRAGMENT_BOUNDARY, " ").split()
+    return any(_verb_stem(word) == needle_stem for word in words)
 
 
 def surface_present(form: str, text_norm: str) -> bool:
@@ -759,6 +769,12 @@ _PROSE_STOPWORDS = _SKILL_STOPWORDS | frozenset({
     "on", "at", "by", "from", "into", "onto", "upon", "over", "under",
     "between", "among", "through", "during", "before", "after", "about",
     "against", "without", "within", "as", "than", "then",
+    # 786:111 (Hazelnut build 8): "including" is the English twin of the German
+    # "inkl."/"inklusive" above — a preposition in a bullet ("…, including
+    # mechanical ventilation"). It was one of the four shared tokens that put two
+    # unrelated nursing bullets at exactly 0.40 (blind Kaile probe 2026-09-20).
+    # On the labelled 145-pair set it removes 5 pairs, all labelled distinct.
+    "including", "einschließlich", "einschliesslich",
 })
 
 
@@ -1014,6 +1030,41 @@ def duplicate_project_pairs(tailored) -> list[tuple[str, str, str, str]]:
     return pairs
 
 
+def _bullet_employers(tailored) -> list[str | None]:
+    """The normalised employer of each :func:`delivered_bullets` entry, in the same
+    order — a work entry's (and its nested projects') company, ``None`` for a
+    standalone project (it belongs to no one employer, so it is compared with all)."""
+    out: list[str | None] = []
+    for w in _field(tailored, "work_history") or []:
+        company = _norm(str(_field(w, "company") or "")) or None
+        n = sum(1 for b in (_field(w, "bullets") or []) if isinstance(b, str) and b.strip())
+        for proj in (_field(w, "projects") or []):
+            n += sum(1 for b in (_field(proj, "bullets") or []) if isinstance(b, str) and b.strip())
+        out.extend([company] * n)
+    for proj in (_field(tailored, "projects") or []):
+        out.extend([None] * sum(1 for b in (_field(proj, "bullets") or []) if isinstance(b, str) and b.strip()))
+    return out
+
+
+#: 786:75 — a year (19xx/20xx) and a percentage, read as facts of a bullet.
+_PAIR_YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d\d(?!\d)")
+_PAIR_PERCENT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s?(?:%|prozent\b|percent\b)", re.IGNORECASE)
+
+
+def _distinct_by_stated_facts(a: str, b: str) -> bool:
+    """786:75 — two bullets that each state a YEAR, or each a PERCENTAGE, and share
+    none of them state two different facts ("MES 2021 ausgewählt" / "MES 2023
+    ausgerollt"; "Ausschuss um 12 % gesenkt" / "Rüstzeit um 30 % gesenkt"), however
+    alike their words. A restatement keeps its figure. A fact about the strings
+    (ADR-062 cl. 1), never a reading of meaning."""
+    for rx in (_PAIR_YEAR_RE, _PAIR_PERCENT_RE):
+        fa = {x.replace(",", ".") for x in rx.findall(a)}
+        fb = {x.replace(",", ".") for x in rx.findall(b)}
+        if fa and fb and not (fa & fb):
+            return True
+    return False
+
+
 def redundant_bullet_pairs(tailored) -> list[tuple[str, str, str, str]]:
     """Delivered bullet pairs that state the same achievement, as
     ``(location_a, text_a, location_b, text_b)``.
@@ -1024,13 +1075,32 @@ def redundant_bullet_pairs(tailored) -> list[tuple[str, str, str, str]]:
     Both are detection — neither may cut content (ADR-082 clauses 1-3, narrowed
     2026-09-05 to the DETERMINISTIC layer: the LLM corrector may repair, a threshold
     may not delete).
+
+    **Scoped to one employer (786:75 / 786:252, Hazelnut build 8).** Two bullets
+    under two DIFFERENT employers state two facts — the same task done at two
+    companies is two achievements, and the corrector told to "merge, or drop the
+    weaker" would delete a true one. Measured on 145 human-labelled flagged pairs
+    (93 from 680 synthetic captured CVs, 52 from the build-5 delivery set): the
+    scope removes 22 pairs, all labelled distinct, and no pair labelled the same
+    (precision 0.63 → 0.83 on the synthetic set, recall 1.00). A standalone
+    project belongs to no one employer and is still compared with every bullet
+    (#424's nested-and-standalone copy). Pairs that each state a year, or each a
+    percentage, and share none are two facts too (:func:`_distinct_by_stated_facts`).
     """
     delivered = delivered_bullets(tailored)
+    employers = _bullet_employers(tailored)
+    if len(employers) != len(delivered):  # defensive: never mis-scope a pair
+        employers = [None] * len(delivered)
     terms = skill_term_grams(tailored)
     pairs: list[tuple[str, str, str, str]] = []
     for i in range(len(delivered)):
         for j in range(i + 1, len(delivered)):
             (wa, a), (wb, b) = delivered[i], delivered[j]
+            ea, eb = employers[i], employers[j]
+            if ea and eb and ea != eb:
+                continue
+            if _distinct_by_stated_facts(a, b):
+                continue
             if bullets_prose_dupe(a, b, terms):
                 pairs.append((wa, a, wb, b))
     return pairs
