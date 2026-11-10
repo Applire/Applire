@@ -79,6 +79,14 @@ def _cv() -> TailoredCVData:
     })
 
 
+#: Pages for this shape after ruling P-4 (before the fix in brackets): Kreativ 5 (6),
+#: academic 5 (5; its last page holds only the languages: the projects never open a
+#: page alone, D-35 cl. 4 kept whole), classic 4 (5), compact_pro 5 (6), executive 4 (6),
+#: modern_swiss 4 (4), tech_developer 4 (5).
+_MAX_PAGES = {"creative_sidebar": 5, "academic": 5, "classic_german": 4, "compact_pro": 5,
+              "executive": 4, "modern_swiss": 4, "tech_developer": 4}
+
+
 _PAGE_RE = re.compile(r'<page width="[\d.]+" height="([\d.]+)">(.*?)</page>', re.S)
 _WORD_RE = re.compile(r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="[\d.]+" yMax="([\d.]+)">(.*?)</word>', re.S)
 
@@ -106,8 +114,7 @@ async def test_long_bullets_leave_no_page_half_empty(template):
     assert len(pages) >= 3, f"{template}: fixture too short to test page fill ({len(pages)} pp)"
     fills = [round(max(y1 for _x, _y0, y1, _w in words) / h, 2) if words else 0.0 for h, words in pages]
     assert all(f >= 0.80 for f in fills[:-1]), f"{template}: a page is left part-empty: {fills}"
-    if template == "creative_sidebar":
-        assert len(pages) <= 5, f"Kreativ: {len(pages)} pages for the RU-3 shape (was 6): {fills}"
+    assert len(pages) <= _MAX_PAGES[template], f"{template}: {len(pages)} pages for the RU-3 shape: {fills}"
 
 
 def _split_lines(pages) -> list[tuple[int, int, int]]:

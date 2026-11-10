@@ -147,9 +147,8 @@
     /* D-35: the nested projects never open a page without their role — the
        block before them (the role's lead or tail) travels with their first block. */
     .entry-projects {
-      /* RU-3 (P-4): the projects may open a page; their title keeps with the project name. */
-      break-before: auto;
-      page-break-before: auto;
+      break-before: avoid;
+      page-break-before: avoid;
     }
     /* D-35: when projects follow, a long role's last 2 bullets are no longer one
        unit — only the LAST bullet travels with the projects, so the break costs

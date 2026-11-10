@@ -41,8 +41,8 @@ Kreativ template left ~0.8 of a page blank over 5 pages:
 - a role that is not short keeps its head + FIRST own bullet together;
 - a lead/tail/project lead holding long bullets (``lead-long``) is no longer one
   unit, a bullet of 6+ lines may break with ≥ 3 lines per page (orphans/widows 3);
-- the nested projects MAY open a page; their sub-label keeps with the project
-  name (D-6), and the project name with its first lines.
+- D-35 clause 4 stays whole (ruling P-4): the nested projects never open a page
+  alone; the project name keeps with its first lines.
 The real-render proof is ``tests/ats/test_page_fill_ru3.py``."""
 from __future__ import annotations
 
@@ -119,14 +119,13 @@ def test_a_long_roles_tail_opens_when_projects_follow(template):
 
 
 @pytest.mark.parametrize("template", TEMPLATES)
-def test_the_nested_projects_may_open_a_page_with_their_sub_label_in_print(template):
-    """RU-3 / P-4 amends D-35: the projects may open a page; what keeps together is
-    the sub-label with the project name, and the name with its first lines."""
+def test_the_nested_projects_never_open_a_page_alone_in_print(template):
+    """D-35 clause 4, kept whole by ruling P-4: the projects never open a page alone;
+    the head parts (incl. the project name) keep with their first lines (RU-3)."""
     html = _render(template, own=2, project_bullets=[5])
     css = html[:html.index("</style>")]
     rule = re.search(r"\.entry-projects \{([^}]*)\}", re.sub(r"\.entry-projects \{ margin-top:[^}]*\}", "", css))
-    assert rule and re.search(r"(?<![-\w])break-before:\s*auto", rule.group(1)), template
-    assert not re.search(r"(?<![-\w])break-before:\s*avoid", rule.group(1)), template
+    assert rule and re.search(r"(?<![-\w])break-before:\s*avoid", rule.group(1)), template
     keep = re.search(r"\.project-atomic,\s*\.project-lead \{([^}]*)\}", css)
     assert keep and "break-inside: avoid" in keep.group(1), template
     assert re.search(r"\.entry-tail\.entry-tail-open \{[^}]*break-inside: auto", css), template
