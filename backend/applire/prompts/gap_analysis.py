@@ -15,6 +15,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v12 (Hazelnut build 8, u27 / ruling MD8-3, 2026-11-10): the REVERSE of v11's scoped
+#   shape. A requirement that asks for the denied thing applied to an object ("regulated" + financial
+#   data after "never worked in a formally regulated environment") is ruled out by that denial; the
+#   object alone stays its own requirement. Before: the classifier graded such a row "partial" on the
+#   object's evidence with no "denied_by" in 2/10 luna and 1/5 Sonnet runs, one of whose reasons
+#   itself said "but explicitly has no regulated-environment experience", so the row reached the
+#   writers as claimable (an overclaim).
+#
 # Prompt version: v11 (ADR-059 amended 2026-11-07, #821, founder ruling G-1): a denial rules out
 #   only what it names. The string floor's containment branch is withdrawn, so this rule is now the
 #   only bridge from a narrow recorded denial to a broader requirement; it gains the scoped shape the
@@ -233,8 +241,13 @@ Rules:
     product — rules out that scoped thing only: "no ECMO certification, never managed the circuit
     independently" does not rule out "ECMO" when the statement says they cared for ECMO patients,
     and "no formal security certification" does not rule out "Security". Cite it for the broader
-    requirement only when the statement says the candidate lacks the broader thing itself. Omit
-    "denied_by" otherwise.
+    requirement only when the statement says the candidate lacks the broader thing itself. The
+    reverse also holds: a requirement that asks for the denied thing APPLIED TO an object ("GMP-
+    compliant documentation" when an entry says "no GMP experience"; "safety-critical firmware"
+    when it says "never worked on safety-critical systems") is ruled out by that entry — cite it and
+    classify "gap"; the object on its own ("Documentation", "Firmware") is a requirement of its own
+    and keeps its own evidence. A reason that reads "has the object, but no <the denied thing>" is
+    this case, never "partial". Omit "denied_by" otherwise.
   - COMPOUND requirements that name multiple technologies (e.g. "Cloud environment
     qualification (AWS, Azure)"): each named technology also gets its OWN entry, classified on
     its own evidence — that entry, its "status" and its "reason" are where the candidate's
