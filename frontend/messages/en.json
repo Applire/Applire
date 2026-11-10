@@ -1766,6 +1766,7 @@
         "cv-skills_cap": "The skills list is longer than planned – the least relevant entries: {terms}.",
         "cv-skill_duplicate": "The skills list names the same thing twice: {terms}.",
         "cv-skill_named_in_bullet": "“{term}” is in a bullet but not in the skills list.",
+        "cv-skill_without_bullet": "“{term}” is in the skills list or summary and your profile backs it in a role – no bullet in the CV shows it.",
         "cv-role_budget": "{term} has more bullets than planned.",
         "cv-page_length": "The CV is longer than its target page count.",
         "cv-recorded_name": "“{term}” is not the name your profile records for it.",

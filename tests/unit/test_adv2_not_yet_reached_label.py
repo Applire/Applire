@@ -52,7 +52,11 @@ def test_every_document_source_view_is_built_labelled():
     (reviewer + every corrector round); the letter's two views feed its writer
     and its ``grounding_source`` (reviewer + corrector)."""
     cv = (SERVICES / "cv.py").read_text(encoding="utf-8")
-    assert 'prompt_profile = prompt_profile_view(profile_json, aims="label")' in cv
+    # 786:190 (build 8): the call also narrows derived spans under v2 — still labelled.
+    import re
+
+    call = re.search(r"prompt_profile = prompt_profile_view\((.*?)\n\s*\)", cv, re.S)
+    assert call and 'aims="label"' in call.group(1)
     assert "source_material = _json.dumps(prompt_profile" in cv
     letter = (SERVICES / "cover_letter.py").read_text(encoding="utf-8")
     # R-3 (WP3, 2026-11-04): the v2 no-CV writer view is rebuilt with

@@ -6,6 +6,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Hazelnut build 8 — WP-W: the CV says what the profile holds
+- **A skill on the CV now has its bullet** (#786, 786:289). When the skills list or the summary names something your profile records in a role (for example "Mentoring"), and no bullet of that role shows it, the last review round asks for it in that role's bullets. A role that already says it in other words is left alone.
+- **The CV states durations the way you did** (#786, 786:190, founder ruling W-2). The CV no longer reads a computed skill span as a figure: it states your own figures as you wrote them, a careful "over 5 years" only for a tool you never put a number on, and no duration at all for a tool whose computed span is longer than your own career figure ("9 years of PostgreSQL" beside "8 years of experience"). CV and cover letter use the same rule.
+
 ## [0.45.0-beta] – 2026-11-09 (Hazelnut builds 2–7, interim release)
 
 ### Hazelnut build 7 — documents say only what you said; every promise has a way

@@ -221,6 +221,8 @@ _DOC: dict[str, Entry] = {
         "letter.salutation", "letter.signoff", "letter.closing", "letter.names",
         "letter.availability",
     )},
+    # 786:289 (Hazelnut build 8, WP-W): a skills entry no bullet states
+    "terminal:cv.skill_without_bullet": _e(_F, None, "S"),
     # one condition, one place (cl. 10): these codes restate a row rendered elsewhere
     "terminal:cv.page_length": _e("S"),                   # → the page-length card
     "terminal:letter.page_length": _e("S"),               # → the page-length card
