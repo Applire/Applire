@@ -69,6 +69,25 @@ def test_the_same_task_twice_under_one_employer_is_still_a_pair():
     assert len(redundant_bullet_pairs(cv)) == 1
 
 
+def test_one_employer_written_with_and_without_its_legal_form_is_one_employer():
+    """ADV-3 (build 8 adversarial pass): the scope is the vault's same-employer rule
+    (legal-form tolerant), not the raw company string — two stations at "Halder
+    Maschinenbau GmbH" / "Halder Maschinenbau" are one employer, so a repeated
+    bullet there is still a pair."""
+    for second in ("Halder Maschinenbau", "Halder Maschinenbau AG", "HALDER MASCHINENBAU GmbH & Co. KG"):
+        cv = _cv([
+            {"company": "Halder Maschinenbau GmbH", "bullets": [_SAME_TASK]},
+            {"company": second, "bullets": [_SAME_TASK]},
+        ])
+        assert len(redundant_bullet_pairs(cv)) == 1, second
+    # a company that only shares a first word is still another employer
+    cv = _cv([
+        {"company": "Halder Maschinenbau GmbH", "bullets": [_SAME_TASK]},
+        {"company": "Halder Logistik GmbH", "bullets": [_SAME_TASK]},
+    ])
+    assert redundant_bullet_pairs(cv) == []
+
+
 def test_a_standalone_project_is_compared_with_every_employer():
     cv = _cv(
         [{"company": "Halder Maschinenbau GmbH", "bullets": [_SAME_TASK]}],

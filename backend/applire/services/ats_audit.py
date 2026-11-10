@@ -1033,10 +1033,18 @@ def duplicate_project_pairs(tailored) -> list[tuple[str, str, str, str]]:
 def _bullet_employers(tailored) -> list[str | None]:
     """The normalised employer of each :func:`delivered_bullets` entry, in the same
     order — a work entry's (and its nested projects') company, ``None`` for a
-    standalone project (it belongs to no one employer, so it is compared with all)."""
+    standalone project (it belongs to no one employer, so it is compared with all).
+
+    The employer is read legal-form tolerant, like the Oracle's loose anchor
+    (``_core_company_name``): "Nordwerk GmbH" and "Nordwerk" are one employer, so a
+    bullet repeated across two stations there is still a pair (build 8 adversarial
+    pass, ADV-3)."""
+    # Lazy: ``oracle.extract`` imports this module.
+    from applire.services.oracle.extract import _core_company_name
+
     out: list[str | None] = []
     for w in _field(tailored, "work_history") or []:
-        company = _norm(str(_field(w, "company") or "")) or None
+        company = _norm(_core_company_name(str(_field(w, "company") or ""))) or None
         n = sum(1 for b in (_field(w, "bullets") or []) if isinstance(b, str) and b.strip())
         for proj in (_field(w, "projects") or []):
             n += sum(1 for b in (_field(proj, "bullets") or []) if isinstance(b, str) and b.strip())
