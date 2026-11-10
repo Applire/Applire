@@ -41,6 +41,8 @@ Kreativ template left ~0.8 of a page blank over 5 pages:
 - a role that is not short keeps its head + FIRST own bullet together;
 - a lead/tail/project lead holding long bullets (``lead-long``) is no longer one
   unit, a bullet of 6+ lines may break with ≥ 3 lines per page (orphans/widows 3);
+  ruling P-6: Chromium drops widows under 6 lines, so only a bullet of at least
+  ``split_chars`` carries ``li-split`` and may break; every other bullet is whole;
 - D-35 clause 4 stays whole (ruling P-4): the nested projects never open a page
   alone; the project name keeps with its first lines.
 The real-render proof is ``tests/ats/test_page_fill_ru3.py``."""
@@ -134,12 +136,14 @@ def test_the_nested_projects_never_open_a_page_alone_in_print(template):
 
 
 @pytest.mark.parametrize("template", TEMPLATES)
-def test_a_long_bullet_may_break_with_three_lines_each_side(template):
+def test_only_a_li_split_bullet_may_break_with_three_lines_each_side(template):
     css = _render(template, own=1, project_bullets=[])
     css = css[:css.index("</style>")]
     rule = re.search(r"\.section \.entry-bullets li \{([^}]*)\}", css)
-    assert rule, template
-    body = rule.group(1)
+    assert rule and "break-inside: avoid" in rule.group(1), template
+    split = re.search(r"\.section \.entry-bullets li\.li-split \{([^}]*)\}", css)
+    assert split, template
+    body = split.group(1)
     assert "break-inside: auto" in body and "orphans: 3" in body and "widows: 3" in body, template
     lead = re.search(r"\.entry-lead\.lead-long,\s*\.entry-tail\.lead-long,\s*\.project-lead\.lead-long \{([^}]*)\}", css)
     assert lead and "break-inside: auto" in lead.group(1), template

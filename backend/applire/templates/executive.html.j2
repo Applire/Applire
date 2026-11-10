@@ -286,10 +286,19 @@
        unit tall (a 60-word bullet is ~10 lines) and each page break pushed a whole
        unit down — ~0.8 of a page blank over 5 pages. A bullet of 6 lines or more
        may now break with at least 3 lines on each page (a shorter bullet never
-       splits); a head keeps only its first 3 lines with it; a lead or tail that
-       holds long bullets (.lead-long) is no longer one unit; and a role's nested
-       projects may open a page (amends #622 and D-35). */
+       splits); a head keeps only its first 3 lines with it; and a lead or tail that
+       holds long bullets (.lead-long) is no longer one unit (amends #622 and
+       D-35 cl. 1-3; the nested projects still never open a page alone). */
+    /* Chromium keeps orphans but drops widows when a paragraph has fewer than
+       orphans + widows lines (measured: 4 lines split 3/1, 5 lines 3/2). So a bullet
+       may split only when it is surely 6+ lines: .li-split marks a bullet of at
+       least split_chars characters (6 x this template's widest bullet line x 1.15);
+       every other bullet stays one unit (#622). */
     .section .entry-bullets li {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section .entry-bullets li.li-split {
       break-inside: auto;
       page-break-inside: auto;
       orphans: 3;
@@ -330,7 +339,7 @@
 <body>
 {# RU-3 (ruling P-4): an entry is one unbreakable unit only up to atomic_chars of
    bullet text; a lead/tail holding more than long_chars may break inside. #}
-{% set atomic_chars = 400 %}{% set long_chars = 300 %}
+{% set atomic_chars = 400 %}{% set long_chars = 300 %}{% set split_chars = 520 %}
 <div class="page">
 
   <header class="header">
@@ -463,21 +472,21 @@
             {{ head }}
             <ul class="entry-bullets">
               {% for bullet in job.bullets[:2] %}
-              <li>{{ bullet }}</li>
+              <li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>
               {% endfor %}
             </ul>
           </div>
           {% if n_bullets > 4 %}
           <ul class="entry-bullets">
             {% for bullet in job.bullets[2:-2] %}
-            <li>{{ bullet }}</li>
+            <li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>
             {% endfor %}
           </ul>
           {% endif %}
           <div class="entry-tail{{ ' entry-tail-open' if job.projects else '' }}{{ ' lead-long' if (job.bullets[-2:] | join(' ') | length) > long_chars else '' }}">
             <ul class="entry-bullets">
               {% for bullet in job.bullets[-2:] %}
-              <li>{{ bullet }}</li>
+              <li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>
               {% endfor %}
             </ul>
           </div>
@@ -488,15 +497,15 @@
            the projects may open a page with their title. #}
           <div class="entry-lead{{ ' lead-long' if (job.bullets[:1] | join(' ') | length) > long_chars else '' }}">
             {{ head }}
-            {% if job.bullets %}<ul class="entry-bullets">{% for bullet in job.bullets[:1] %}<li>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
+            {% if job.bullets %}<ul class="entry-bullets">{% for bullet in job.bullets[:1] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
           </div>
-          {% if n_bullets > 1 %}<ul class="entry-bullets">{% for bullet in job.bullets[1:] %}<li>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
+          {% if n_bullets > 1 %}<ul class="entry-bullets">{% for bullet in job.bullets[1:] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
           {% else %}
           {{ head }}
           {% if job.bullets %}
           <ul class="entry-bullets">
             {% for bullet in job.bullets %}
-            <li>{{ bullet }}</li>
+            <li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>
             {% endfor %}
           </ul>
           {% endif %}
@@ -512,13 +521,13 @@
               {# D-35: a project with more than one bullet may break — its name + first bullet keep together. #}
               <div class="project-lead{{ ' lead-long' if (project.bullets[:1] | join(' ') | length) > long_chars else '' }}">
                 <div class="project-name">{{ project.name }}</div>
-                <ul class="entry-bullets">{% for bullet in project.bullets[:1] %}<li>{{ bullet }}</li>{% endfor %}</ul>
+                <ul class="entry-bullets">{% for bullet in project.bullets[:1] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>
               </div>
-              <ul class="entry-bullets">{% for bullet in project.bullets[1:] %}<li>{{ bullet }}</li>{% endfor %}</ul>
+              <ul class="entry-bullets">{% for bullet in project.bullets[1:] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>
               {% else %}
               <div class="project-name">{{ project.name }}</div>
               {% if project.bullets %}
-              <ul class="entry-bullets">{% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}</ul>
+              <ul class="entry-bullets">{% for bullet in project.bullets %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>
               {% endif %}
               {% endif %}
             </div>
@@ -541,17 +550,17 @@
               <div class="entry-title">{{ project.name }}</div>
             </div>
             <ul class="entry-bullets">
-              {% for bullet in project.bullets[:2] %}<li>{{ bullet }}</li>{% endfor %}
+              {% for bullet in project.bullets[:2] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}
             </ul>
           </div>
           {% if n_bullets > 4 %}
           <ul class="entry-bullets">
-            {% for bullet in project.bullets[2:-2] %}<li>{{ bullet }}</li>{% endfor %}
+            {% for bullet in project.bullets[2:-2] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}
           </ul>
           {% endif %}
           <div class="entry-tail{{ ' lead-long' if (project.bullets[-2:] | join(' ') | length) > long_chars else '' }}">
             <ul class="entry-bullets">
-              {% for bullet in project.bullets[-2:] %}<li>{{ bullet }}</li>{% endfor %}
+              {% for bullet in project.bullets[-2:] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}
             </ul>
           </div>
           {% else %}
@@ -560,7 +569,7 @@
           </div>
           {% if project.bullets %}
           <ul class="entry-bullets">
-            {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
+            {% for bullet in project.bullets %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}
           </ul>
           {% endif %}
           {% endif %}

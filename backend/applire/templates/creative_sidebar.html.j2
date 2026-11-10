@@ -24,84 +24,73 @@
       background: #fff;
     }
 
-    .page {
-      width: 210mm;
-      min-height: 297mm;
-      margin: 0 auto;
+    /* P-5 (founder ruling, Hazelnut build 8): "Kreativ" has no column any more.
+       The coloured side column painted on every page, empty from page 2, and the
+       grid sat left (12 / 18 mm). Page 1 opens with a coloured band (round photo,
+       name, contact); skills (chips) and languages form one block under the
+       profile; every page runs at full width with symmetric 16 mm margins.
+       The template id stays creative_sidebar (stored applications resolve it). */
+    /* On screen (preview, thumbnail) the sheet carries the margin itself; in print
+       the @page margin does (16 mm on every side) and .page is reset below. */
+    .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm; }
+    .hero {
       display: flex;
-    }
-
-    .sidebar {
-      width: 68mm;
+      align-items: center;
+      gap: 9mm;
       background: var(--cv-surface);
       color: var(--cv-surface-text);
-      padding: 20mm 12mm 16mm 12mm;
-      flex-shrink: 0;
+      padding: 8mm 10mm;
+      border-radius: 2mm;
+      margin-bottom: 8mm;
+      break-inside: avoid;
+      page-break-inside: avoid;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-
-    .sidebar-avatar {
-      width: 40mm;
-      height: 40mm;
+    .hero-avatar {
+      width: 30mm;
+      height: 30mm;
+      flex-shrink: 0;
       border-radius: 50%;
       overflow: hidden;
-      margin: 0 auto 10pt;
       border: 3px solid color-mix(in srgb, var(--cv-surface-text) 35%, transparent);
     }
-    .sidebar-avatar img { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
-
-    .sidebar-avatar-placeholder {
-      width: 40mm;
-      height: 40mm;
-      border-radius: 50%;
-      background: color-mix(in srgb, var(--cv-surface-text) 20%, transparent);
-      margin: 0 auto 10pt;
-    }
-
-    .sidebar-name {
-      font-size: 12pt;
+    .hero-avatar img { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+    .hero-name {
+      font-size: 20pt;
       font-weight: bold;
-      text-align: center;
+      line-height: 1.2;
       color: var(--cv-surface-text);
       margin-bottom: 4pt;
     }
-
-    .sidebar-section { margin-top: 14pt; }
-
-    .sidebar-section-title {
-      font-size: 7pt;
-      font-weight: bold;
-      text-transform: uppercase;
-      letter-spacing: 0.15em;
+    .hero-contact {
+      font-size: 9pt;
+      line-height: 1.6;
       color: var(--cv-surface-text);
-      opacity: 0.65;
-      border-bottom: 1px solid color-mix(in srgb, var(--cv-surface-text) 25%, transparent);
-      padding-bottom: 3pt;
-      margin-bottom: 6pt;
-      /* #357 — a section heading never orphans at the foot of a page. */
-      break-after: avoid;
-      page-break-after: avoid;
     }
+    /* ADR-039: an opaque colour, never `opacity` (a sub-1 opacity layer made
+       pypdf extract the text glyph by glyph and out of order). */
+    .hero-contact span + span::before { content: "·"; margin: 0 6pt; color: color-mix(in srgb, var(--cv-surface-text) 60%, var(--cv-surface)); }
 
-    .sidebar-item {
-      font-size: 8.5pt;
-      color: var(--cv-surface-text);
-      line-height: 1.7;
+    .facts-block {
+      display: grid;
+      grid-template-columns: 1fr 48mm;
+      gap: 9mm;
     }
-
-    .sidebar-skill {
+    .chips { display: flex; flex-wrap: wrap; gap: 3pt 4pt; }
+    .chip {
       font-size: 8.5pt;
-      color: var(--cv-surface-text);
-      padding: 1.5pt 0;
-      border-bottom: 1px solid color-mix(in srgb, var(--cv-surface-text) 15%, transparent);
+      padding: 1pt 6pt;
+      border-radius: 8pt;
+      background: var(--cv-primary-tint);
+      color: var(--text);
       line-height: 1.5;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
+    .lang-item { font-size: 9.5pt; line-height: 1.6; }
 
-    .main {
-      flex: 1;
-      padding: 20mm 18mm 16mm 16mm;
-    }
+    .main { }
 
     .section { margin-bottom: 14pt; }
 
@@ -181,16 +170,6 @@
       break-inside: avoid;
       page-break-inside: avoid;
     }
-    /* Sidebar list sections use .sidebar-section, not .section (Part 1 kept
-       these separate namespaces) — .section-atomic/-lead/-tail above already
-       apply regardless of the container class. Sidebar items still need
-       their own atomicity rule (there is no .entry-atomic-equivalent class
-       on them, and .section li doesn't reach .sidebar-section). */
-    .sidebar-section .sidebar-item,
-    .sidebar-section .sidebar-skill {
-      break-inside: avoid;
-      page-break-inside: avoid;
-    }
 
     .entry-header {
       display: flex;
@@ -254,36 +233,32 @@
       line-height: 1.55;
     }
 
-    /* Signature (#F frontend, Nougat build 2) — lives in .main, never
-       .sidebar; the sidebar is contact/skills/languages furniture, not
-       document content. */
+    /* Signature (#F frontend, Nougat build 2) — lives in .main, never in the
+       page-1 band; the band is contact furniture, not document content. */
     .signature-block { break-inside: avoid; page-break-inside: avoid; margin-top: 8mm; }
     .signature-block .signature-place-date { margin-bottom: 2mm; }
     .signature-block .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; }
 
-    /* #621 — .page carries no padding of its own here: the sidebar/main
-       columns' OWN padding was doing double duty as both "gap between the two
-       columns" and "the page's outer margin" (sidebar left 12mm + top 20mm +
-       bottom 16mm; main right 18mm + top 20mm + bottom 16mm — outer edges,
-       consistent between the two columns on every side they share). The
-       uniform @page margin below is derived from those outer-facing values
-       (top 20mm / right 18mm / bottom 16mm / left 12mm). Measured (minimal
-       repro): a negative margin that reaches into the @page margin area is
-       not painted there — so unlike the old margin:0 renderer, the sidebar's
-       colour can no longer bleed to the paper edge under a real @page margin.
-       Design point 3 accepts this ("a printable margin beats bleed") — see
-       the report for before/after screenshots. Only the OUTER-facing padding
-       (the leg that used to face the paper edge) is zeroed in print; the
-       INNER-facing padding — sidebar's right / main's left, the visual gap
-       between the two columns — is untouched. */
+    /* #621 / P-5: the page margin is the @page margin below (16 mm on every
+       side). A colour cannot be painted into the @page margin, so the page-1 band
+       sits inside it ("a printable margin beats bleed", #621 design point 3). */
     /* RU-3 (Hazelnut build 8, ruling P-4): long bullets made every keep-together
        unit tall (a 60-word bullet is ~10 lines) and each page break pushed a whole
        unit down — ~0.8 of a page blank over 5 pages. A bullet of 6 lines or more
        may now break with at least 3 lines on each page (a shorter bullet never
-       splits); a head keeps only its first 3 lines with it; a lead or tail that
-       holds long bullets (.lead-long) is no longer one unit; and a role's nested
-       projects may open a page (amends #622 and D-35). */
+       splits); a head keeps only its first 3 lines with it; and a lead or tail that
+       holds long bullets (.lead-long) is no longer one unit (amends #622 and
+       D-35 cl. 1-3; the nested projects still never open a page alone). */
+    /* Chromium keeps orphans but drops widows when a paragraph has fewer than
+       orphans + widows lines (measured: 4 lines split 3/1, 5 lines 3/2). So a bullet
+       may split only when it is surely 6+ lines: .li-split marks a bullet of at
+       least split_chars characters (6 x this template's widest bullet line x 1.15);
+       every other bullet stays one unit (#622). */
     .section .entry-bullets li {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section .entry-bullets li.li-split {
       break-inside: auto;
       page-break-inside: auto;
       orphans: 3;
@@ -306,80 +281,49 @@
 
     @page {
       size: A4;
-      margin: 20mm 18mm 16mm 12mm;
+      margin: 16mm 16mm 16mm 16mm;
     }
 
     @media print {
-      .page { width: auto; min-height: auto; margin: 0; }
-      .sidebar { padding: 0 12mm 0 0; }
-      .main { padding: 0 0 0 16mm; }
+      .page { width: auto; min-height: auto; margin: 0; padding: 0; }
     }
   </style>
 </head>
 <body>
 {# RU-3 (ruling P-4): an entry is one unbreakable unit only up to atomic_chars of
    bullet text; a lead/tail holding more than long_chars may break inside. #}
-{% set atomic_chars = 400 %}{% set long_chars = 300 %}
+{% set atomic_chars = 400 %}{% set long_chars = 300 %}{% set split_chars = 760 %}
 <div class="page">
 
-  <aside class="sidebar">
+  <header class="hero">
     {% if cv.show_photo and cv.contact.photo_url %}
-    <div class="sidebar-avatar">
-      <img src="{{ cv.contact.photo_url }}" alt="Foto">
-    </div>
-    {% else %}
-    <div class="sidebar-avatar-placeholder"></div>
+    <div class="hero-avatar"><img src="{{ cv.contact.photo_url }}" alt="Foto"></div>
     {% endif %}
-
-    {# ADR-039: wrap each name token in a nowrap span so a hyphenated surname
-       (e.g. "Müller-Lüdenscheidt") never breaks at the hyphen. A hyphen break
-       inserts a stray space in the extracted PDF text ("Müller- Lüdenscheidt"),
-       failing the contact-name extraction audit. The line still wraps between
-       tokens, preserving the centred multi-line look. #}
-    <div class="sidebar-name">{% for tok in cv.contact.name.split() %}<span style="white-space: nowrap;">{{ tok }}</span>{% if not loop.last %} {% endif %}{% endfor %}</div>
-
-    <div class="sidebar-section">
-      <div class="sidebar-section-title">{{ labels.contact }}</div>
-      {% if cv.contact.location %}<div class="sidebar-item">{{ cv.contact.location }}</div>{% endif %}
-      {% if cv.contact.phone %}<div class="sidebar-item">{{ cv.contact.phone }}</div>{% endif %}
-      {% if cv.contact.email %}<div class="sidebar-item">{{ cv.contact.email }}</div>{% endif %}
-      {% if cv.contact.linkedin %}<div class="sidebar-item">{{ cv.contact.linkedin }}</div>{% endif %}
+    <div>
+      {# ADR-039: nowrap name tokens (a hyphenated surname never breaks at the hyphen). #}
+      <div class="hero-name">{% for tok in cv.contact.name.split() %}<span style="white-space: nowrap;">{{ tok }}</span>{% if not loop.last %} {% endif %}{% endfor %}</div>
+      <div class="hero-contact">{% if cv.contact.location %}<span>{{ cv.contact.location }}</span>{% endif %}{% if cv.contact.phone %}<span>{{ cv.contact.phone }}</span>{% endif %}{% if cv.contact.email %}<span>{{ cv.contact.email }}</span>{% endif %}{% if cv.contact.linkedin %}<span>{{ cv.contact.linkedin }}</span>{% endif %}</div>
     </div>
-
-    {% if cv.skills %}
-    {% set n_skills = cv.skills | length %}
-    <div class="sidebar-section{{ ' section-atomic' if n_skills <= 6 else '' }}">
-      {% if n_skills > 6 %}<div class="section-lead">{% endif %}
-      <div class="sidebar-section-title">{{ labels.skills }}</div>
-      {% for skill in cv.skills %}
-      {% if n_skills > 6 and loop.index == 3 %}</div>{% endif %}
-      {% if n_skills > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
-      <div class="sidebar-skill">{{ skill }}</div>
-      {% endfor %}
-      {% if n_skills > 6 %}</div>{% endif %}
-    </div>
-    {% endif %}
-
-    {% if cv.languages %}
-    {% set n_langs = cv.languages | length %}
-    <div class="sidebar-section{{ ' section-atomic' if n_langs <= 6 else '' }}">
-      {% if n_langs > 6 %}<div class="section-lead">{% endif %}
-      <div class="sidebar-section-title">{{ labels.languages }}</div>
-      {% for lang in cv.languages %}
-      {% if n_langs > 6 and loop.index == 3 %}</div>{% endif %}
-      {% if n_langs > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
-      <div class="sidebar-item">{{ lang.language }} · {{ lang.level }}</div>
-      {% endfor %}
-      {% if n_langs > 6 %}</div>{% endif %}
-    </div>
-    {% endif %}
-  </aside>
+  </header>
 
   <main class="main">
     {% if cv.summary %}
     <div class="section">
       <div class="section-title">{{ labels.summary }}</div>
       <p class="summary-text">{{ cv.summary }}</p>
+    </div>
+    {% endif %}
+
+    {% if cv.skills or cv.languages %}
+    <div class="section facts-block section-atomic">
+      {% if cv.skills %}<div>
+        <div class="section-title">{{ labels.skills }}</div>
+        <div class="chips">{% for skill in cv.skills %}<span class="chip">{{ skill }}</span>{% endfor %}</div>
+      </div>{% endif %}
+      {% if cv.languages %}<div>
+        <div class="section-title">{{ labels.languages }}</div>
+        {% for lang in cv.languages %}<div class="lang-item">{{ lang.language }} · {{ lang.level }}</div>{% endfor %}
+      </div>{% endif %}
     </div>
     {% endif %}
 
@@ -413,21 +357,21 @@
           {{ head }}
           <ul class="entry-bullets">
             {% for bullet in job.bullets[:2] %}
-            <li>{{ bullet }}</li>
+            <li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>
             {% endfor %}
           </ul>
         </div>
         {% if n_bullets > 4 %}
         <ul class="entry-bullets">
           {% for bullet in job.bullets[2:-2] %}
-          <li>{{ bullet }}</li>
+          <li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>
           {% endfor %}
         </ul>
         {% endif %}
         <div class="entry-tail{{ ' entry-tail-open' if job.projects else '' }}{{ ' lead-long' if (job.bullets[-2:] | join(' ') | length) > long_chars else '' }}">
           <ul class="entry-bullets">
             {% for bullet in job.bullets[-2:] %}
-            <li>{{ bullet }}</li>
+            <li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>
             {% endfor %}
           </ul>
         </div>
@@ -438,15 +382,15 @@
            the projects may open a page with their title. #}
         <div class="entry-lead{{ ' lead-long' if (job.bullets[:1] | join(' ') | length) > long_chars else '' }}">
           {{ head }}
-          {% if job.bullets %}<ul class="entry-bullets">{% for bullet in job.bullets[:1] %}<li>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
+          {% if job.bullets %}<ul class="entry-bullets">{% for bullet in job.bullets[:1] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
         </div>
-        {% if n_bullets > 1 %}<ul class="entry-bullets">{% for bullet in job.bullets[1:] %}<li>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
+        {% if n_bullets > 1 %}<ul class="entry-bullets">{% for bullet in job.bullets[1:] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
         {% else %}
         {{ head }}
         {% if job.bullets %}
         <ul class="entry-bullets">
           {% for bullet in job.bullets %}
-          <li>{{ bullet }}</li>
+          <li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>
           {% endfor %}
         </ul>
         {% endif %}
@@ -462,13 +406,13 @@
             {# D-35: a project with more than one bullet may break — its name + first bullet keep together. #}
             <div class="project-lead{{ ' lead-long' if (project.bullets[:1] | join(' ') | length) > long_chars else '' }}">
               <div class="project-name">{{ project.name }}</div>
-              <ul class="entry-bullets">{% for bullet in project.bullets[:1] %}<li>{{ bullet }}</li>{% endfor %}</ul>
+              <ul class="entry-bullets">{% for bullet in project.bullets[:1] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>
             </div>
-            <ul class="entry-bullets">{% for bullet in project.bullets[1:] %}<li>{{ bullet }}</li>{% endfor %}</ul>
+            <ul class="entry-bullets">{% for bullet in project.bullets[1:] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>
             {% else %}
             <div class="project-name">{{ project.name }}</div>
             {% if project.bullets %}
-            <ul class="entry-bullets">{% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}</ul>
+            <ul class="entry-bullets">{% for bullet in project.bullets %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}</ul>
             {% endif %}
             {% endif %}
           </div>
@@ -492,17 +436,17 @@
             <div class="entry-title">{{ project.name }}</div>
           </div>
           <ul class="entry-bullets">
-            {% for bullet in project.bullets[:2] %}<li>{{ bullet }}</li>{% endfor %}
+            {% for bullet in project.bullets[:2] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}
           </ul>
         </div>
         {% if n_bullets > 4 %}
         <ul class="entry-bullets">
-          {% for bullet in project.bullets[2:-2] %}<li>{{ bullet }}</li>{% endfor %}
+          {% for bullet in project.bullets[2:-2] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}
         </ul>
         {% endif %}
         <div class="entry-tail{{ ' lead-long' if (project.bullets[-2:] | join(' ') | length) > long_chars else '' }}">
           <ul class="entry-bullets">
-            {% for bullet in project.bullets[-2:] %}<li>{{ bullet }}</li>{% endfor %}
+            {% for bullet in project.bullets[-2:] %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}
           </ul>
         </div>
         {% else %}
@@ -511,7 +455,7 @@
         </div>
         {% if project.bullets %}
         <ul class="entry-bullets">
-          {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
+          {% for bullet in project.bullets %}<li{% if (bullet | length) >= split_chars %} class="li-split"{% endif %}>{{ bullet }}</li>{% endfor %}
         </ul>
         {% endif %}
         {% endif %}

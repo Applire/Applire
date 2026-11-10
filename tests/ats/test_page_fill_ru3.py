@@ -18,7 +18,7 @@ split, CSS orphans/widows 3).
 
 Before the fix (same fixture, 2026-11-10): Kreativ 6 pp [0.87, 0.91, 0.89, 0.62,
 0.93, 0.62]; compact_pro 6 pp with p2 0.50; executive 6 pp with p4 0.52. After:
-Kreativ 5 pp, every non-last page ≥ 0.90."""
+Kreativ 5 pp, every non-last page ≥ 0.90 (P-4); 4 pp after the P-5 rework."""
 import re
 import subprocess
 import tempfile
@@ -53,7 +53,9 @@ def _bullets(tag: str, lens: list[int]) -> list[str]:
     return [f"{tag}{i:02d} " + " ".join((_WORDS * 3)[i: i + n - 1]) + "." for i, n in enumerate(lens, 1)]
 
 
-def _cv() -> TailoredCVData:
+def _cv(long: bool = False) -> TailoredCVData:
+    """``long``: every bullet is 110 words (~850 characters, 8+ lines in every
+    template), so bullets MUST split somewhere — the probe for the 3/3 rule."""
     return TailoredCVData.model_validate({
         "contact": {"name": "Paula Probe", "email": "paula.probe@example.de", "phone": "+49 30 0000000",
                     "location": "Berlin", "photo_url": None},
@@ -63,9 +65,9 @@ def _cv() -> TailoredCVData:
             {
                 "company": f"Probefirma {k} GmbH", "role": f"Leitung Bereich {k}",
                 "start_date": f"{2024 - 3 * k:04d}-01", "end_date": None if k == 0 else f"{2026 - 3 * k:04d}-12",
-                "is_current": k == 0, "bullets": _bullets(f"R{k}B", own),
+                "is_current": k == 0, "bullets": _bullets(f"R{k}B", [110] * len(own) if long else own),
                 "team_size": 2 if k == 0 else None,
-                "projects": [{"name": f"Projekt {k}.{j}", "bullets": _bullets(f"R{k}P{j}B", pl)}
+                "projects": [{"name": f"Projekt {k}.{j}", "bullets": _bullets(f"R{k}P{j}B", [110] * len(pl) if long else pl)}
                              for j, pl in enumerate(projects, 1)],
             }
             for k, (own, projects) in enumerate(_SHAPE)
@@ -79,12 +81,19 @@ def _cv() -> TailoredCVData:
     })
 
 
-#: Pages for this shape after ruling P-4 (before the fix in brackets): Kreativ 5 (6),
-#: academic 5 (5; its last page holds only the languages: the projects never open a
-#: page alone, D-35 cl. 4 kept whole), classic 4 (5), compact_pro 5 (6), executive 4 (6),
-#: modern_swiss 4 (4), tech_developer 4 (5).
-_MAX_PAGES = {"creative_sidebar": 5, "academic": 5, "classic_german": 4, "compact_pro": 5,
+#: Pages for this shape (before the fix in brackets), with ruling P-4 and the P-6
+#: guard (a bullet splits only when it is surely 6+ lines): Kreativ 4 (6; the P-5
+#: band), academic 5 (5; the projects never open a page alone, D-35 cl. 4),
+#: classic 5 (5), compact_pro 5 (6), executive 4 (6), modern_swiss 4 (4), tech 4 (5).
+_MAX_PAGES = {"creative_sidebar": 4, "academic": 5, "classic_german": 5, "compact_pro": 5,
               "executive": 4, "modern_swiss": 4, "tech_developer": 4}
+
+
+#: The lowest fill of a non-last page, measured with the P-6 guard (a bullet splits
+#: only when it is surely 6+ lines), minus 0.03. Before the fix: Kreativ 0.62,
+#: compact_pro 0.50, executive 0.52, academic 0.51, tech 0.48, modern_swiss 0.59.
+_MIN_FILL = {"creative_sidebar": 0.86, "academic": 0.59, "classic_german": 0.75, "compact_pro": 0.90,
+             "executive": 0.90, "modern_swiss": 0.81, "tech_developer": 0.84}
 
 
 _PAGE_RE = re.compile(r'<page width="[\d.]+" height="([\d.]+)">(.*?)</page>', re.S)
@@ -113,7 +122,7 @@ async def test_long_bullets_leave_no_page_half_empty(template):
     pages = _pages(await _html_to_pdf(html))
     assert len(pages) >= 3, f"{template}: fixture too short to test page fill ({len(pages)} pp)"
     fills = [round(max(y1 for _x, _y0, y1, _w in words) / h, 2) if words else 0.0 for h, words in pages]
-    assert all(f >= 0.80 for f in fills[:-1]), f"{template}: a page is left part-empty: {fills}"
+    assert all(f >= _MIN_FILL[template] for f in fills[:-1]), f"{template}: a page is left part-empty: {fills}"
     assert len(pages) <= _MAX_PAGES[template], f"{template}: {len(pages)} pages for the RU-3 shape: {fills}"
 
 
@@ -124,30 +133,36 @@ def _split_lines(pages) -> list[tuple[int, int, int]]:
     for k in range(len(pages) - 1):
         _h, a = pages[k]
         _h2, b = pages[k + 1]
-        main_a = [w for w in a if w[0] > 150]  # the main column (Kreativ sidebar sits left)
-        main_b = [w for w in b if w[0] > 150]
+        main_a, main_b = a, b  # one column on every page (P-5: Kreativ has no sidebar)
         if not main_a or not main_b:
             continue
         marker = re.compile(r"^(R\d+(P\d+)?B|TP)\d{2}$")
         tops_a = sorted({round(w[1]) for w in main_a})
         last_marker = max((round(w[1]) for w in main_a if marker.match(w[3])), default=None)
         tops_b = sorted({round(w[1]) for w in main_b})
-        first_marker = min((round(w[1]) for w in main_b if marker.match(w[3]) or w[3].startswith(("Leitung", "Projekt", "PROJEKTE", "AUSBILDUNG"))), default=None)
+        first_marker = min((round(w[1]) for w in main_b if marker.match(w[3]) or w[3].lower().startswith(("leitung", "projekt", "ausbildung", "eigenes"))), default=None)
         if last_marker is None or first_marker is None:
             continue
-        tail = len([t for t in tops_a if t >= last_marker])
-        head = len([t for t in tops_b if t < first_marker])
+        tail = len([t for t in tops_a if t >= last_marker - 4])
+        head = len([t for t in tops_b if t < first_marker - 4])  # a bullet glyph sits up to ~3 pt above its text
         if head:  # page k+1 opens inside a bullet
             out.append((k + 1, tail, head))
     return out
 
 
 @pytest.mark.asyncio
-async def test_kreativ_splits_a_bullet_only_with_three_lines_each_side():
-    html = _jinja_env.get_template(CV_TEMPLATES["creative_sidebar"]).render(
-        cv=_cv(), color=_default_context(), lang="de", labels=cv_labels("de"))
+@pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
+@pytest.mark.parametrize("long", [False, True], ids=["re-uat-shape", "110-word-bullets"])
+async def test_a_bullet_splits_only_with_three_lines_each_side(template, long):
+    """Ruling P-4 (+ P-6 guard): a bullet may split only with >= 3 lines on each page.
+    Chromium drops widows for a paragraph under orphans + widows lines (4 lines split
+    3/1, 5 lines 3/2), so only a bullet of split_chars or more (surely 6+ lines) may
+    split at all. On the 110-word shape bullets MUST split, so the probe is live."""
+    html = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+        cv=_cv(long=long), color=_default_context(), lang="de", labels=cv_labels("de"))
     pages = _pages(await _html_to_pdf(html))
     splits = _split_lines(pages)
-    assert splits, "the RU-3 shape no longer splits any bullet — the probe tests nothing"
+    if long:
+        assert splits, f"{template}: 110-word bullets never split — the probe tests nothing"
     for page, tail, head in splits:
-        assert tail >= 3 and head >= 3, f"break before p{page + 1}: {tail} line(s) / {head} line(s)"
+        assert tail >= 3 and head >= 3, f"{template}: break before p{page + 1}: {tail} line(s) / {head} line(s)"
