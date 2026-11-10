@@ -1784,6 +1784,7 @@
         "letter-identifier": "„{term}“ steht so nicht in Deinem Profil – prüfe die Schreibweise.",
         "letter-availability": "Das Anschreiben nennt einen Eintrittstermin, den Du nicht angegeben hast.",
         "letter-new_figure": "Die Zahl „{term}“ steht in keiner Deiner Angaben – prüfe sie, bevor Du das Anschreiben abschickst.",
+        "letter-duration": "Die Dauer „{term}“ steht so nicht in Deinen Angaben – nenne sie so, wie Du sie selbst angibst, oder lass sie weg.",
         "generic": "Eine automatische Prüfung meldet hier noch etwas – sieh Dir die Stelle im Dokument an."
       },
       "note": {

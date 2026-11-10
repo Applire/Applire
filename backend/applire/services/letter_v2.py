@@ -1016,3 +1016,81 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
         "sentence quoted above. A tool with no line here gets no duration."
     )
     return "\n".join(lines)
+
+
+# ── 784:128 (Hazelnut build 8, WP-L): a duration only as the candidate states it ──
+# "ten years … in laboratory diagnostics" against ~7.6 recorded years — a summary-level
+# span the tool channel (R-3/R4-1) never covered. W's span design (786:190) and RULING
+# W-2: a letter's durations come from ONE of two channels, the candidate's own duration
+# statements (``prompt_view.own_duration_statements``) or a TOOL DURATIONS wording
+# (``ToolDuration.allowed_wordings``, the career ceiling applied). ADR-062 cl. 1: the
+# fact is the NUMBER — a duration in the letter whose value neither channel carries.
+# Whether a matching number is said of the same subject is a judgement and stays the
+# reviewer's (no code computes "which roles count toward lab diagnostics").
+_WORDING_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?|\bone\b|\bein\b", re.IGNORECASE)
+
+
+def _wording_numbers(wordings: list[str]) -> set[float]:
+    out: set[float] = set()
+    for w in wordings:
+        for m in _WORDING_NUMBER_RE.finditer(w):
+            tok = m.group(0).lower()
+            out.add(1.0 if tok in ("one", "ein") else float(tok.replace(",", ".")))
+    return out
+
+
+def unbacked_letter_durations(
+    letter_data: dict[str, Any] | None, profile_json: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """Every duration (one year or more) in the letter body whose number is neither
+    one of the candidate's own duration statements nor a number a TOOL DURATIONS
+    line allows: ``[{"raw", "years", "sentence"}]``, one per (value, sentence).
+    The Oracle's tenure extractor reads both sides (ADR-066). Fail-open ``[]``.
+
+    Measured before building (captured logs, 448 reviewed letters, synthetic
+    personas): 336 durations, 6 fire — all Ministral ("six years of SAP CO/FI"
+    against own 2 and 9; a "sechsjährige Spezialisierung" against own 4 and 7);
+    every luna and Sonnet duration matched a channel."""
+    try:
+        from applire.services.oracle.matchers.figures import extract_tenure_claims
+        from applire.services.profile.reconcile.stance import exclude_unconfirmed
+        from applire.services.prompt_view import own_career_ceiling, own_duration_statements
+
+        view = exclude_unconfirmed(profile_json or {})
+        allowed = {float(o["years"]) for o in own_duration_statements(view)}
+        ceiling = own_career_ceiling(view)
+        for f in tool_duration_facts(view, None, ceiling_years=ceiling):
+            allowed |= _wording_numbers(f.allowed_wordings("en"))
+        body = (letter_data or {}).get("body") or {}
+        paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    except Exception:  # noqa: BLE001 — a check never breaks generation
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[float, str]] = set()
+    for para in paragraphs or []:
+        if not isinstance(para, str):
+            continue
+        for sentence in _SENTENCE_END_RE.split(para):
+            for t in extract_tenure_claims(sentence):
+                years = float(t.years)
+                if years < 1 or years in allowed or (years, sentence) in seen:
+                    continue
+                seen.add((years, sentence))
+                out.append({"raw": t.raw.strip(), "years": years, "sentence": sentence.strip()})
+    return out
+
+
+def duration_finding_text(found: list[dict[str, Any]], profile_json: dict[str, Any] | None) -> str:
+    """The corrector-facing fact + remedy for :func:`unbacked_letter_durations`."""
+    from applire.services.prompt_view import own_duration_statements
+
+    own = own_duration_statements(profile_json or {})[:3]
+    said = "; ".join(f'"{o["raw"]}" ("{o["sentence"][:120]}")' for o in own) or "none"
+    quoted = "; ".join(f'"{f["raw"]}" in "{f["sentence"][:160]}"' for f in found[:3])
+    return (
+        f"{len(found)} duration(s) in this letter are neither a duration the candidate "
+        f"states nor a TOOL DURATIONS wording (computed by code): {quoted}. The candidate's "
+        f"own durations: {said}. State a duration only as the candidate states it, for the "
+        "same subject, or as its TOOL DURATIONS line allows; otherwise state none. Never "
+        "add up positions."
+    )

@@ -1784,6 +1784,7 @@
         "letter-identifier": "“{term}” is not written like this in your profile – check the spelling.",
         "letter-availability": "The letter names a start date you did not give.",
         "letter-new_figure": "The figure “{term}” is not in anything you told us – check it before you send the letter.",
+        "letter-duration": "The duration “{term}” is not one you stated – give it as you state it yourself, or leave it out.",
         "generic": "An automatic check still flags something here – look at that part of the document."
       },
       "note": {

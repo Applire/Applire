@@ -2909,7 +2909,7 @@ _V2_FINDINGS_PER_FAMILY = 2
 class LetterFinding:
     """One v2 deterministic finding: ``family`` names the retired v1 step."""
 
-    family: str  # salutation | signoff | closing | figure | limit | names
+    family: str  # salutation | signoff | closing | figure | limit | names | duration
     text: str
     #: R2-5 (build 4): the names the finding is about — data for the review card.
     subjects: tuple[str, ...] = ()
@@ -3188,6 +3188,19 @@ def _letter_v2_findings(
         out.append(LetterFinding(
             "identifier", identifier_finding_text(named, stated), subjects=tuple(named),
         ))
+    try:
+        # 784:128 (build 8): a duration only as the candidate states it or as its
+        # TOOL DURATIONS line allows (W-2 ceiling applied) — BLOCKING, never a rewrite.
+        from applire.services.letter_v2 import duration_finding_text, unbacked_letter_durations
+
+        durations = unbacked_letter_durations(letter_data, profile_json or {})
+        if durations:
+            out.append(LetterFinding(
+                "duration", duration_finding_text(durations, profile_json or {}),
+                subjects=tuple(d["raw"] for d in durations),
+            ))
+    except Exception:  # pragma: no cover - a check never breaks generation
+        logger.warning("letter v2: duration findings failed", exc_info=True)
     if not availability_given:
         from applire.services.letter_v2 import availability_finding_text, availability_sentences
 
