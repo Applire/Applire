@@ -766,6 +766,20 @@ class ToolDuration:
     #: where they state it — a profile path and the sentence ("" for the skills list)
     stated_source: str = ""
     stated_quote: str = ""
+    #: RULING W-2 (founder 2026-11-10, amends R-3 for the letter): the largest
+    #: duration the candidate states about their own career in their own words
+    #: (W's ``prompt_view`` ceiling over ``own_duration_statements``); ``None`` = they
+    #: state none, and there is no ceiling. A computed hedge whose floor exceeds it
+    #: gets no duration — the person's own career figure is the ceiling.
+    ceiling_years: float | None = None
+
+    @property
+    def over_ceiling(self) -> bool:
+        """W-2: the computed span's floor ("over N") exceeds the candidate's own
+        largest career figure. Never true for the candidate's own tool figure (R4-1)."""
+        if self.stated_years is not None or self.ceiling_years is None:
+            return False
+        return int(self.years) > self.ceiling_years
 
     @property
     def stateable(self) -> bool:
@@ -791,9 +805,14 @@ class ToolDuration:
                 return [f"{num} Jahr" if num == "1" else f"{num} Jahre"]
             return [f"{num} year" if num == "1" else f"{num} years"]
         hedge = span_hedges(self.years)
-        if hedge is None or not self.stateable:
+        if hedge is None or not self.stateable or self.over_ceiling:
             return []
-        return list(hedge[lang])
+        wordings = list(hedge[lang])
+        if self.ceiling_years is not None and hedge["below"] and hedge["below"] > self.ceiling_years:
+            # W-2: "knapp 9 Jahre" next to the candidate's own "8 Jahre" still reads as
+            # more than their own figure — only the "over N" wording stays.
+            wordings = wordings[:1]
+        return wordings
 
 
 def _cv_entry_texts(cv_data: dict[str, Any] | None) -> dict[str, str]:
@@ -863,11 +882,13 @@ def tool_duration_facts(
     cv_data: dict[str, Any] | None,
     *,
     priority: list[str] | None = None,
+    ceiling_years: float | None = None,
 ) -> list[ToolDuration]:
     """Per tool: the R-3 duration, the positions it is counted from, and under which
     of them the CV shows it. Facts only (ADR-062 cl. 1): whole-token name presence and
     date arithmetic. ``cv_data=None`` = no CV exists. ``priority`` (e.g. the ledger's
-    claimable concepts) orders matching tools first. Fail-open: ``[]``."""
+    claimable concepts) orders matching tools first. ``ceiling_years`` (RULING W-2):
+    the candidate's own largest career figure, carried on every fact. Fail-open: ``[]``."""
     if not isinstance(profile_json, dict):
         return []
     try:
@@ -908,7 +929,7 @@ def tool_duration_facts(
             facts.append(ToolDuration(
                 tool=name, years=0.0, since="", positions=(), cv_positions=(),
                 has_cv=cv_data is not None, stated_years=own[0],
-                stated_source=own[1], stated_quote=own[2],
+                stated_source=own[1], stated_quote=own[2], ceiling_years=ceiling_years,
             ))
             continue
         years, rows = got
@@ -928,6 +949,7 @@ def tool_duration_facts(
             has_cv=cv_data is not None,
             stated_years=own[0] if own else None,
             stated_source=own[1] if own else "", stated_quote=own[2] if own else "",
+            ceiling_years=ceiling_years,
         ))
     wanted = [p.casefold() for p in priority or [] if isinstance(p, str)]
     facts.sort(key=lambda f: (f.tool.casefold() not in wanted, -max(f.years, f.stated_years or 0.0)))
@@ -969,6 +991,13 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
         line = f"  - {f.tool} — since {f.since}, counted from: {counted}. "
         if allowed:
             line += "May be stated as " + quoted + "."
+        elif f.over_ceiling:
+            # W-2: the reason is the candidate's own figure, not the CV.
+            ceiling = f"{f.ceiling_years:g}"
+            line += (
+                f"That is longer than the {ceiling} years the candidate states for their "
+                f"career: state NO duration for {f.tool}."
+            )
         else:
             shown = [label for pid, label in f.positions if pid in f.cv_positions]
             where = ("only under " + ", ".join(shown)) if shown else "under none of them"
