@@ -15,8 +15,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v5
+# Prompt version: v6
 # Used by: services/gap.py (cluster_gaps, _carry_forward_clusters)
+#
+# v6 (Hazelnut build 8 / WP-I, 2026-11-10, line 787:197, founder question I-3): jd_context
+# states what the role expects and NO reason. The call sees the gap and skill lists, never
+# the posting, so every "because ..." was composed: 55 of 66 captured jd_context sentences
+# (ux-audit-3/4, luna + Sonnet) carried one, and the E2E "Kubernetes ... because integration
+# services are likely deployed and operated on a container platform" (the posting said only
+# "Working knowledge of Kubernetes") reached the interview question as the employer's setup
+# (Sonnet 5.5 replay: 3/5 before the question-writer label, 5/5 after it — so the fix is here).
 #
 # v5 (Hazelnut build 7 / WP-G, 2026-11-07, line 787:213): the input view stopped calling a
 # demonstrated requirement "missing". The #260 keyword liabilities (required, claimable, no
@@ -74,7 +82,7 @@ Schema for each cluster object:
   "label": "Human-readable cluster name (concise, 2-5 words)",
   "gaps": ["exact gap strings absorbed into this cluster"],
   "jd_skills": ["matching entries from required_skills or nice_to_have_skills"],
-  "jd_context": "One sentence about the POSTING, in the third person, written in the OUTPUT LANGUAGE stated in the user message: what the role expects in this area and why it matters for the role's work."
+  "jd_context": "One sentence about the POSTING, in the third person, written in the OUTPUT LANGUAGE stated in the user message: what the role expects in this area."
 }
 
 Rules:
@@ -85,10 +93,11 @@ and never add one that is not in the two input lists.
 - jd_skills: only include skills that directly motivate this cluster (may be empty)
 - jd_context: one sentence, written entirely in the OUTPUT LANGUAGE stated in the user message \
 (the candidate's UI language), regardless of the language of the gaps or the job description. \
-It describes the POSTING - what the role expects in this area and why the work needs it - in the \
-third person, e.g. "Die Stelle erwartet Erfahrung mit MES und Maschinendatenerfassung, weil die \
-Fertigung digitalisiert wird." / "The role expects hands-on Kafka experience because payment \
-events are processed as streams." It states each requirement at the POSTING'S OWN WEIGHT: what is in the required skills the role \
+It describes the POSTING - what the role expects in this area - in the third person, e.g. "Die \
+Stelle erwartet Erfahrung mit MES und Maschinendatenerfassung." / "The role expects hands-on \
+Kafka experience." It gives NO reason ("weil ...", "because ...", "damit ...", "so that ..."): \
+you see the posting's skill lists, never its text, so any reason would be a guess presented as \
+the employer's. It states each requirement at the POSTING'S OWN WEIGHT: what is in the required skills the role \
 expects; what is only in the nice-to-have skills is a plus ("Paediatric intensive care experience \
 is a plus"), never something the role expects. Never merge a required and a nice-to-have item \
 into one expectation ("across adult and paediatric settings") - name each at its own weight, or \
