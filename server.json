@@ -3,7 +3,7 @@
   "name": "io.github.Applire/applire",
   "title": "Applire",
   "description": "Self-hosted job applications: vault, truthfulness audit, CVs. Needs a running Applire instance.",
-  "version": "0.45.0-beta",
+  "version": "0.46.0-beta",
   "websiteUrl": "https://applire.de",
   "repository": {
     "url": "https://github.com/Applire/Applire",
@@ -12,7 +12,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/applire/applire-backend:0.45.0-beta",
+      "identifier": "ghcr.io/applire/applire-backend:0.46.0-beta",
       "runtimeHint": "docker",
       "transport": {
         "type": "stdio"
