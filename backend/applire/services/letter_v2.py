@@ -766,6 +766,23 @@ class ToolDuration:
     #: where they state it — a profile path and the sentence ("" for the skills list)
     stated_source: str = ""
     stated_quote: str = ""
+    #: RULING W-2 (founder 2026-11-10, amends R-3 for the letter): the candidate's
+    #: own career figure (``prompt_view.own_career_ceiling`` — one producer with the
+    #: CV); ``None`` = they state none, and there is no ceiling. A computed span AT OR
+    #: ABOVE it gets no duration (``prompt_view.span_above_career``, one comparison).
+    ceiling_years: float | None = None
+
+    @property
+    def over_ceiling(self) -> bool:
+        """W-2: the RAW computed span lies at or above the candidate's own career
+        figure (8.6 computed beside their own "8 years" — no "über 8 Jahre" either,
+        and none for exactly 8.0, W-2c). Never true for the candidate's own tool
+        figure (R4-1)."""
+        from applire.services.prompt_view import span_above_career
+
+        if self.stated_years is not None:
+            return False
+        return span_above_career(self.years, self.ceiling_years)
 
     @property
     def stateable(self) -> bool:
@@ -791,7 +808,7 @@ class ToolDuration:
                 return [f"{num} Jahr" if num == "1" else f"{num} Jahre"]
             return [f"{num} year" if num == "1" else f"{num} years"]
         hedge = span_hedges(self.years)
-        if hedge is None or not self.stateable:
+        if hedge is None or not self.stateable or self.over_ceiling:
             return []
         return list(hedge[lang])
 
@@ -828,8 +845,11 @@ def _person_stated_tool_years(profile_json: dict[str, Any]) -> dict[str, tuple[f
     unit and never a source. Fail-open: ``{}``."""
     try:
         from applire.services.oracle.matchers.vault import build_vault_index
+        from applire.services.profile.reconcile.stance import exclude_unconfirmed
 
-        idx = build_vault_index(profile_json)
+        # 790:61 (Lead O, build 8): an unconfirmed skill's transcribed duration is
+        # not the candidate's word yet — it never becomes a stated tenure.
+        idx = build_vault_index(exclude_unconfirmed(profile_json))
     except Exception:  # noqa: BLE001 — a prompt input must never fail generation
         return {}
     out: dict[str, tuple[float, str, str]] = {}
@@ -863,11 +883,14 @@ def tool_duration_facts(
     cv_data: dict[str, Any] | None,
     *,
     priority: list[str] | None = None,
+    ceiling_years: float | None = None,
 ) -> list[ToolDuration]:
     """Per tool: the R-3 duration, the positions it is counted from, and under which
     of them the CV shows it. Facts only (ADR-062 cl. 1): whole-token name presence and
     date arithmetic. ``cv_data=None`` = no CV exists. ``priority`` (e.g. the ledger's
-    claimable concepts) orders matching tools first. Fail-open: ``[]``."""
+    claimable concepts) orders matching tools first. ``ceiling_years`` (RULING W-2):
+    ``prompt_view.own_career_ceiling`` of the same profile, carried on every fact.
+    Fail-open: ``[]``."""
     if not isinstance(profile_json, dict):
         return []
     try:
@@ -908,7 +931,7 @@ def tool_duration_facts(
             facts.append(ToolDuration(
                 tool=name, years=0.0, since="", positions=(), cv_positions=(),
                 has_cv=cv_data is not None, stated_years=own[0],
-                stated_source=own[1], stated_quote=own[2],
+                stated_source=own[1], stated_quote=own[2], ceiling_years=ceiling_years,
             ))
             continue
         years, rows = got
@@ -928,6 +951,7 @@ def tool_duration_facts(
             has_cv=cv_data is not None,
             stated_years=own[0] if own else None,
             stated_source=own[1] if own else "", stated_quote=own[2] if own else "",
+            ceiling_years=ceiling_years,
         ))
     wanted = [p.casefold() for p in priority or [] if isinstance(p, str)]
     facts.sort(key=lambda f: (f.tool.casefold() not in wanted, -max(f.years, f.stated_years or 0.0)))
@@ -969,6 +993,13 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
         line = f"  - {f.tool} — since {f.since}, counted from: {counted}. "
         if allowed:
             line += "May be stated as " + quoted + "."
+        elif f.over_ceiling:
+            # W-2: the reason is the candidate's own figure, not the CV.
+            ceiling = f"{f.ceiling_years:g}"
+            line += (
+                f"That is not shorter than the {ceiling} years the candidate states for "
+                f"their career: state NO duration for {f.tool}."
+            )
         else:
             shown = [label for pid, label in f.positions if pid in f.cv_positions]
             where = ("only under " + ", ".join(shown)) if shown else "under none of them"
@@ -986,3 +1017,147 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
         "sentence quoted above. A tool with no line here gets no duration."
     )
     return "\n".join(lines)
+
+
+# ── 784:128 (Hazelnut build 8, WP-L): a duration only as the candidate states it ──
+# "ten years … in laboratory diagnostics" against ~7.6 recorded years — a summary-level
+# span the tool channel (R-3/R4-1) never covered. W's span design (786:190) and RULING
+# W-2: a letter's durations come from ONE of two channels, the candidate's own duration
+# statements (``prompt_view.own_duration_statements``) or a TOOL DURATIONS wording
+# (``ToolDuration.allowed_wordings``, the career ceiling applied). ADR-062 cl. 1: the
+# fact is the NUMBER — a duration in the letter whose value neither channel carries.
+# Whether a matching number is said of the same subject is a judgement and stays the
+# reviewer's (no code computes "which roles count toward lab diagnostics").
+_WORDING_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?|\bone\b|\bein\b", re.IGNORECASE)
+
+
+def _wording_numbers(wordings: list[str]) -> set[float]:
+    out: set[float] = set()
+    for w in wordings:
+        for m in _WORDING_NUMBER_RE.finditer(w):
+            tok = m.group(0).lower()
+            out.add(1.0 if tok in ("one", "ein") else float(tok.replace(",", ".")))
+    return out
+
+
+#: The profile collections whose entries carry their own dates (ADV-1).
+_DATED_COLLECTIONS = ("work_experience", "education", "projects", "volunteer_activities")
+
+
+def _dated_entry_years(view: dict[str, Any]) -> set[float]:
+    """The durations the profile's own DATES carry (ADV-1, build 8 adversarial pass):
+    for ONE dated entry — a position, a project (also one nested under a position),
+    a training, a volunteer activity — the readings of its span that
+    ``prompt_view.span_hedges`` allows (3.6 years: 3, and 4 as "knapp vier"). Never
+    a sum across entries: "never add up positions" stays the rule, so the career
+    total has no number here. An entry with no start, or with neither an end nor
+    ``is_current``, carries none. Date arithmetic only (ADR-062 cl. 1)."""
+    from datetime import date
+
+    from applire.services.prompt_view import span_hedges
+    from applire.services.skill_enrichment import _parse_partial_date, _parse_partial_date_end
+
+    def _entries():
+        for key in _DATED_COLLECTIONS:
+            for entry in view.get(key) or []:
+                if isinstance(entry, dict):
+                    yield entry
+                    for nested in entry.get("projects") or []:
+                        if isinstance(nested, dict):
+                            yield nested
+
+    out: set[float] = set()
+    for entry in _entries():
+        try:
+            start_raw, end_raw = entry.get("start_date"), entry.get("end_date")
+            if not isinstance(start_raw, str) or not start_raw.strip():
+                continue
+            start = _parse_partial_date(start_raw)
+            if isinstance(end_raw, str) and end_raw.strip():
+                end = _parse_partial_date_end(end_raw)
+            elif entry.get("is_current"):
+                end = date.today()
+            else:
+                continue
+            hedge = span_hedges((end - start).days / 365.25)
+        except Exception:  # noqa: BLE001 — an unreadable date carries no duration
+            continue
+        if hedge is None:
+            continue
+        out.add(float(hedge["at_least"]))
+        if hedge["below"]:
+            out.add(float(hedge["below"]))
+    return out
+
+
+def unbacked_letter_durations(
+    letter_data: dict[str, Any] | None, profile_json: dict[str, Any] | None,
+    *, sources_text: str | None = None,
+) -> list[dict[str, Any]]:
+    """Every duration (one year or more) in the letter body whose number is neither
+    one of the candidate's own duration statements nor a number a TOOL DURATIONS
+    line allows: ``[{"raw", "years", "sentence"}]``, one per (value, sentence).
+    The Oracle's tenure extractor reads both sides (ADR-066). Fail-open ``[]``.
+
+    ADV-1 (build 8 adversarial pass): two more sources carry a duration, and a
+    number they carry is not "unbacked". (1) ``sources_text`` — text outside the
+    vault the letter may quote (the caller passes the posting excerpt and the
+    candidate's inputs for this application, never the CV or the ledger): "seit über
+    30 Jahren am Markt" is the employer's age and "mindestens 2 Jahre" the posting's
+    bar, not a duration the candidate made up. (2) The profile's own dates
+    (:func:`_dated_entry_years`): "dreijährige Ausbildung" for a training dated
+    08/2018–07/2021. Whether a matching number is said of the right subject stays
+    the reviewer's (unchanged). Residual, stated: a posting's "10 years" lets a
+    letter's "ten years" pass this check.
+
+    Measured before building (captured logs, 448 reviewed letters, synthetic
+    personas): 336 durations, 6 fire — all Ministral ("six years of SAP CO/FI"
+    against own 2 and 9; a "sechsjährige Spezialisierung" against own 4 and 7);
+    every luna and Sonnet duration matched a channel."""
+    try:
+        from applire.services.oracle.matchers.figures import extract_tenure_claims
+        from applire.services.profile.reconcile.stance import exclude_unconfirmed
+        from applire.services.prompt_view import own_career_ceiling, own_duration_statements
+
+        view = exclude_unconfirmed(profile_json or {})
+        allowed = {float(o["years"]) for o in own_duration_statements(view)}
+        ceiling = own_career_ceiling(view)
+        for f in tool_duration_facts(view, None, ceiling_years=ceiling):
+            allowed |= _wording_numbers(f.allowed_wordings("en"))
+        allowed |= _dated_entry_years(view)
+        if isinstance(sources_text, str) and sources_text:
+            allowed |= {float(t.years) for t in extract_tenure_claims(sources_text)}
+        body = (letter_data or {}).get("body") or {}
+        paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    except Exception:  # noqa: BLE001 — a check never breaks generation
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[float, str]] = set()
+    for para in paragraphs or []:
+        if not isinstance(para, str):
+            continue
+        for sentence in _SENTENCE_END_RE.split(para):
+            for t in extract_tenure_claims(sentence):
+                years = float(t.years)
+                if years < 1 or years in allowed or (years, sentence) in seen:
+                    continue
+                seen.add((years, sentence))
+                out.append({"raw": t.raw.strip(), "years": years, "sentence": sentence.strip()})
+    return out
+
+
+def duration_finding_text(found: list[dict[str, Any]], profile_json: dict[str, Any] | None) -> str:
+    """The corrector-facing fact + remedy for :func:`unbacked_letter_durations`."""
+    from applire.services.prompt_view import own_duration_statements
+
+    own = own_duration_statements(profile_json or {})[:3]
+    said = "; ".join(f'"{o["raw"]}" ("{o["sentence"][:120]}")' for o in own) or "none"
+    quoted = "; ".join(f'"{f["raw"]}" in "{f["sentence"][:160]}"' for f in found[:3])
+    return (
+        f"{len(found)} duration(s) in this letter are neither a duration the candidate "
+        "states, nor the length of one dated position or training in their profile, nor "
+        "a duration the job posting states, nor a TOOL DURATIONS wording (computed by "
+        f"code): {quoted}. The candidate's own durations: {said}. State a duration only "
+        "as the candidate states it, for the same subject, or as its TOOL DURATIONS line "
+        "allows; otherwise state none. Never add up positions."
+    )

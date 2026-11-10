@@ -108,7 +108,7 @@ SAMPLE_CV = TailoredCVData(
     skills=["Python", "Agile", "Stakeholder Management", "OKR", "SQL"],
     education=[
         TailoredEducationEntry(
-            institution="LMU München", degree="MBA",
+            institution="Hochschule Musterstadt", degree="MBA",
             field="Betriebswirtschaft", start_date="2014", end_date="2016",
         )
     ],

@@ -421,7 +421,12 @@ export function PageOverflowCard({ cvId, onContentChanged, onOpenChange }: PageO
       </h2>
       {autoCuts.length > 0 && (
         <div className="mb-2 text-[13px] leading-snug text-on-surface-variant" data-testid="cv-page-overflow-auto-cuts">
-          <p className="mb-1">{t("pageOverflowAutoCutsLead", { limit: target + 1 })}</p>
+          {/* RU-4 (build 8): the tolerance is named once — the automatic cut stops at
+              one page over the target; P-1: after the put-back the CV may still be
+              over that limit, and the line says so instead of claiming the aim. */}
+          <p className="mb-1">
+            {t("pageOverflowAutoCutsLead", { limit: target + 1, reached: actual <= target + 1 ? "yes" : "no" })}
+          </p>
           <ul className="ml-5 list-disc">
             {autoCuts.map((c) => (
               <li key={c.kind} data-kind={c.kind}>

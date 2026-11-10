@@ -785,10 +785,11 @@ def _testimony_texts(new_info: Any, source: str) -> tuple[str, str] | None:
     unchanged. ADR-061 amended 2026-10-20 (783:L97) moved the two leftovers
     the 2026-10-18 amendment named — the denial floor's independent-affirmation
     release and the story figure grounding — onto the same answer half
-    (``enforce_stance``). Only the employer-anchor guard
-    (``attribution.enforce_attribution``) keeps the whole-turn corpus of
-    :func:`_grounding_corpus`: it reads the one sentence that owns a bullet,
-    and a question sentence owns none.
+    (``enforce_stance``). Only the employer-anchor guard's owning-sentence
+    channel (``attribution.enforce_attribution``) keeps the whole-turn corpus
+    of :func:`_grounding_corpus`: it reads the one sentence that owns a bullet,
+    and a question sentence owns none. Its batch anchor asks which employer
+    the PERSON named and reads :func:`_answer_corpus` (build 8, 2026-11-10).
     """
     if not isinstance(new_info, dict) or source not in ("interview", "agent_interview"):
         return None
@@ -814,6 +815,17 @@ def _grounding_corpus(new_info: Any, source: str) -> str | None:
     """
     raw = _raw_grounding_text(new_info, source)
     return _norm(raw) if raw is not None else None
+
+
+def _answer_corpus(new_info: Any, source: str) -> str | None:
+    """Normalised ANSWER half of an interview turn; None outside the doors.
+
+    The same normalisation as :func:`_grounding_corpus`, over the half
+    :func:`_testimony_texts` calls testimony — for a reader that asks what the
+    PERSON named, where the question's words must not count as theirs.
+    """
+    texts = _testimony_texts(new_info, source)
+    return _norm(texts[0]) if texts is not None else None
 
 
 _FIGURE_RE = re.compile(r"\d+(?:[.,]\d+)*")

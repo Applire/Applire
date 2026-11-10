@@ -410,4 +410,51 @@ async def test_confirmations_do_not_spend_the_gap_budget(sqlite_session, n_clust
     assert len(confirmations) == 3
     # (the ADR-080 convention: 1 at creation + 1 per answered gap question)
     gap_questions = len(asked) - len(confirmations)
-    assert resp.questions_asked == record.questions_asked == gap_questions + 1
+    assert record.questions_asked == gap_questions + 1
+    # u29: the completion reports what was answered — the end screen's number.
+    assert resp.questions_asked == gap_questions
+
+
+# ---------------------------------------------------------------------------
+# u29 (Hazelnut build 8, WP-I; the R2-10 class) — the interview end screen labels the
+# completion's ``questions_asked`` "Questions answered". The counter is 1 at creation and
+# each answered turn moves it before the next question is asked, so a finished interview
+# sat one past what was answered ("6 Questions answered" after five, UX audit round 4).
+# ---------------------------------------------------------------------------
+from applire.services.interview.budget import answered_question_count  # noqa: E402
+
+
+def test_the_counter_reading():
+    assert answered_question_count(1) == 0  # a session nobody answered
+    assert answered_question_count(6) == 5
+    assert answered_question_count(None) == 0 and answered_question_count(0) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("n_clusters", [1, 3, 5])
+async def test_the_completion_reports_the_questions_the_person_answered(sqlite_session, n_clusters):
+    from applire.models.profile import authorized_profile_write
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services import session as S
+
+    job, profile = await _seed(sqlite_session, n_clusters)
+    provider = _mock_provider()
+
+    async def _reconcile(db_, *, profile_record, **_kw):
+        turn = _unaddressed_turn(profile_record.profile_json)
+        with authorized_profile_write():
+            profile_record.profile_json = turn.profile_dict
+        await db_.flush()
+        return turn
+
+    answered = 0
+    with patch("applire.services.session.reconcile_interview_turn", new=AsyncMock(side_effect=_reconcile)):
+        created = await S.create_session(SessionCreateRequest(job_id=job.id), sqlite_session, provider)
+        for _ in range(200):
+            resp = await S.send_message(created.session_id, "I worked on that at Acme for two years.",
+                                        sqlite_session, provider)
+            answered += 1
+            if resp.complete:
+                break
+    assert resp.complete and resp.reason == "gaps_resolved"
+    assert resp.questions_asked == answered

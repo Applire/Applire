@@ -80,7 +80,7 @@ from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
 from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.gap_coverage import AnswerScope
-from applire.services.interview.budget import derive_hard_ceiling
+from applire.services.interview.budget import answered_question_count, derive_hard_ceiling
 from applire.services.interview.signals import is_termination_signal
 from applire.services.profile.reconcile.stance import (
     denial_release_corpus,
@@ -5089,7 +5089,9 @@ async def _complete_session(
     return SessionMessageResponse(
         complete=True,
         reason=reason,
-        questions_asked=state.get("questions_asked", fallback_questions_asked),
+        # u29: the end screen labels this "Questions answered"; the live counter is
+        # one past the answered questions once the last answer has moved it.
+        questions_asked=answered_question_count(state.get("questions_asked", fallback_questions_asked)),
         gaps_resolved=len(addressed),
         gaps_unresolved=unresolved,
         completeness_score=completeness,

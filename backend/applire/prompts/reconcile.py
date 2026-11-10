@@ -434,6 +434,24 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   (+0/5 with the fact). Kept: a typed "Mit Boomi habe ich nicht gearbeitet"
   -> ["Boomi"] 10/10, a chip plus a typed Kafka no -> ["Kafka"] only 10/10;
   the affirmed half recorded in every turn of every arm.
+* **28,966 (Hazelnut build 8 WP-I, 2026-11-10, 787:192 / 787:176 / 787:179).**
+  upsert_skill: a skill is what the person THEMSELVES works with. A tool the new
+  information says others used goes to that work, not to their skills. Neither a
+  project's name nor a described duty is a skill. The name is the answer's own word,
+  never its expansion, translation or wider category, never the gap label
+  re-spelled. When the answer names no capability, no skill is written (+642 chars).
+  Why: held-out answers swapped into a persisted synthetic interview reconcile input
+  (ux-audit-3 rec 147 DE vault, rec 334 EN vault; luna, reasoning off), "a
+  volunteer group built the prototype with X and Y" gave the person skills X and Y
+  in 12/14 runs, the gap label as a skill in 10/10 and an acronym's expansion in
+  7/10. *Measured* (shipped wording, n=6 per cell): others' tools 0/16, gap label
+  2/12, expansion 0/12. Controls unchanged: a LIMS-shaped answer and a stated limit
+  ("weitere Erfahrung mit Cloud-Diensten habe ich nicht") are recorded, with no
+  skill against the limit, 12/12. Not reproduced on either arm: "Built" for led
+  work (0/50 luna runs, so 787:179's verb is one sighting) and years counted from
+  role dates (0/50). Residual: one false denial of the others' tools (1/46 after
+  runs) and a project name as a skill (1/4 C runs). Records:
+  ``Documents/Runs/Hazelnut/build-8/i/report.md``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -543,13 +561,21 @@ Operations:
   skill under the new name; omit it for a new skill. With target, also give
   existing: that skill's name exactly as the profile writes it.
   A skill is a capability the person HAS — a tool, method, field, standard or
-  language they work with. The NAME of a measured figure on its own (LTIF,
+  language they THEMSELVES work with. A tool the new information says others
+  used ("the team built it with X", "a vendor runs Y") belongs to that work (the
+  project's technologies), never to the person's skills. Nor is a project's
+  name or a duty the answer describes ("ich setze die Prioritäten") a skill:
+  those are the project and its bullets. The NAME of a measured figure on its own (LTIF,
   OEE, Ausschussquote, Termintreue, a KPI) is not a skill (783:L100): the
   figure belongs in the bullet that states it; record a skill only for the
   capability the new information says the person has ("OEE-Analyse",
   "Arbeitssicherheitsmanagement").
   REQUIRED: name. The name is the new information's own word for the
-  capability, never a term only the question or the gap label uses.
+  capability, as written there: never a term
+  only the question or the gap label uses (an answer's "event pipeline" does not make the gap label "Event-driven
+  architecture" its word), never its expansion, translation or wider category
+  ("RAG" stays "RAG"; a "Leitstand" is never "Manufacturing Operations
+  Management"). When the answer names no capability of its own, record none.
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency: ONLY a level the new information states for this skill, then one
   of "basic", "intermediate", "advanced", "expert"; omit it otherwise.

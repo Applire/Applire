@@ -571,3 +571,98 @@ def _drop_derived_spans(view: dict[str, Any]) -> dict[str, Any]:
         else:
             out.append(skill)
     return {**view, "skills": out}
+
+
+# ── 786:190 (Hazelnut build 8, WP-W): the candidate's OWN duration statements ──
+#
+# The span fact the CV (and, through main, the letter's 784:128) reads for a
+# career- or summary-level duration. A figure the candidate states in their own
+# text is the only duration a document may state for a career or a domain
+# ("9 Jahre Controlling-Erfahrung", "8 years of experience"): which roles count
+# toward a domain is a judgement (``audit._tenure_ceiling_flag``), so no code
+# computes one. One corpus with the Oracle: the vault index's evidence units —
+# the candidate's own text; ledger evidence, gap reasons and every block the
+# system writes are no unit and never a source (ADR-061/048 amended).
+
+def own_duration_statements(profile_json: Any) -> list[dict[str, Any]]:
+    """Every duration the candidate's own profile text states, largest first:
+    ``{"years", "raw", "path", "sentence"}`` — ``raw`` is the verbatim duration
+    ("8 years", "neun Jahren"), ``sentence`` the candidate's sentence carrying it
+    (≤ 240 chars). ADR-062 cl. 1: a FACT (the Oracle's own tenure extraction over
+    the Oracle's own evidence units). Fail-open: ``[]``."""
+    import re
+
+    sentence_end = re.compile(r"(?<=[.!?;])\s+")
+    if not isinstance(profile_json, dict):
+        return []
+    try:
+        from applire.services.oracle.matchers.figures import extract_tenure_claims
+        from applire.services.oracle.matchers.vault import build_vault_index
+
+        idx = build_vault_index(profile_json)
+    except Exception:  # noqa: BLE001 — a prompt input must never fail generation
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[float, str]] = set()
+    for unit in idx.units:
+        if unit.path.startswith(("personal_info", "skills")) or unit.path.endswith((".role", ".org")):
+            continue
+        for tenure in extract_tenure_claims(unit.text):
+            if tenure.years < 1:
+                continue
+            raw = tenure.raw.strip()
+            sentence = next(
+                (s for s in sentence_end.split(unit.text) if raw in s),
+                unit.text,
+            ).strip()
+            key = (float(tenure.years), sentence.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({
+                "years": float(tenure.years), "raw": raw, "path": unit.path,
+                "sentence": sentence[:240],
+            })
+    out.sort(key=lambda d: -d["years"])
+    return out
+
+
+def own_career_ceiling(profile_json: dict[str, Any] | None) -> float | None:
+    """The candidate's own career figure in years, or ``None`` (RULING W-2, founder,
+    Hazelnut build 8 — 786:190 / 786:226): the largest duration the candidate states
+    in their own professional summary ("Backend engineer with 8 years of experience").
+
+    ONE producer for the CV and the letter, so the two never disagree: a tool's
+    computed span AT OR ABOVE this figure gets no duration (the tool is still named),
+    every computed span below it keeps its R-3 hedge. No own career figure means no
+    ceiling and no cut. Only the summary counts — a role line's "seit zwei Jahren
+    fachliche Führung" is a figure about that role, never the career. A FACT
+    (ADR-062 cl. 1): a figure lookup, fail-open ``None``.
+
+    The summary exists per language (``professional_summary.de`` / ``.en``). Within
+    one language the career is the LARGEST figure ("7 years of acute care, including
+    4 in intensive care"); when the two languages state different figures the
+    SMALLER one is the ceiling (W-2c, build 8 adversarial pass ADV-2), so a document
+    in either language never shows a span above the figure it prints itself.
+    """
+    try:
+        per_language: dict[str, float] = {}
+        for o in own_duration_statements(profile_json or {}):
+            path = str(o.get("path", ""))
+            if path.startswith("professional_summary"):
+                per_language[path] = max(per_language.get(path, 0.0), float(o["years"]))
+    except Exception:  # noqa: BLE001 — fail-open: no ceiling is the pre-W-2 behaviour
+        return None
+    return min(per_language.values()) if per_language else None
+
+
+def span_above_career(years: float, ceiling: float | None) -> bool:
+    """RULING W-2: True when a tool's computed span lies AT OR ABOVE the candidate's
+    own career figure (:func:`own_career_ceiling`) — that tool gets no duration in the
+    CV or the letter. ``ceiling=None`` (no own career figure) never cuts. One
+    comparison for both documents (ADR-066).
+
+    At, not only above (W-2c, ADV-2): the hedge of a span of exactly 8.0 years is
+    "über 8 Jahre" (:func:`span_hedges`), which reads as more than the candidate's
+    own "8 years" just as 8.6 does."""
+    return ceiling is not None and float(years) >= float(ceiling)

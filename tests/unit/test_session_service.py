@@ -1620,7 +1620,8 @@ class TestSufficiencyEndsEarlierThanBudget:
 
         assert second.complete is True
         assert second.reason == "gaps_resolved"
-        assert second.questions_asked == 3  # well under hard_ceiling=12
+        # u29: the completion reports the two answered questions (the counter sits at 3)
+        assert second.questions_asked == 2  # well under hard_ceiling=12
         assert second.questions_asked < session_record.hard_ceiling
 
 

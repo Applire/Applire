@@ -114,6 +114,7 @@ from applire.services.oracle.matchers import (
     skills_near_duration,
 )
 from applire.services.oracle.credentials import (
+    ATTESTATION_FAMILIES,
     detect_credentials,
     entry_backing,
     fold as credential_fold,
@@ -2230,6 +2231,20 @@ def _apply_credential_rule(
         return verdict
     names = ", ".join(m.matched for m in missing)
     logger.info("ORACLE_CREDENTIAL_UNBACKED families=%r", [m.family for m in missing])
+    if all(m.family in ATTESTATION_FAMILIES for m in missing):
+        # 790:11 / 790:40 (build 8): an attestation (SOC 2, ISAE 3402, BSI C5) is a
+        # report an organisation obtains, not the candidate's qualification — worded
+        # with #701's approved "a standard your profile never mentions" copy.
+        return ClaimVerdict(
+            verdict="unbacked",
+            checker="grounding",
+            detail=(
+                f"Names {names} — an attestation your profile never mentions, "
+                "so the claim's other evidence cannot back it."
+            ),
+            detail_key="identifierAbsent",
+            detail_params={"identifiers": names},
+        )
     return ClaimVerdict(
         verdict="unbacked",
         checker="grounding",

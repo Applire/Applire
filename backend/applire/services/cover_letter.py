@@ -1997,14 +1997,21 @@ async def _render_cover_letter_body(
                 # the positions it is counted from and whether the CV shows the tool
                 # under them — the writer's, reviewer's and corrector's one duration
                 # channel. v2 only; "" (no block) when no tool spans a year.
+                # RULING W-2 (founder 2026-11-10): the candidate's own career figure
+                # caps a computed tool span — one producer with the CV
+                # (``prompt_view.own_career_ceiling``), read from the same view.
+                from applire.services.prompt_view import own_career_ceiling
+
+                _tool_profile = exclude_unconfirmed(profile.profile_json) if profile else {}
                 tool_facts = (
                     tool_duration_facts(
-                        exclude_unconfirmed(profile.profile_json) if profile else {},
+                        _tool_profile,
                         tailored_cv,
                         priority=[
                             e.get("concept", "") for e in keyword_ledger or []
                             if isinstance(e, dict) and e.get("claimable")
                         ],
+                        ceiling_years=own_career_ceiling(_tool_profile),
                     )
                     if is_v2
                     else []
@@ -2397,6 +2404,8 @@ async def _render_cover_letter_body(
                         language=detected_language,
                         availability_given=availability_given,
                         named_gaps=named_concepts,
+                        # ADV-1: the posting + this application's inputs.
+                        sources_text=_letter_duration_sources(pre_gen, jd_excerpt),
                     )
                     if is_v2
                     else None
@@ -2592,6 +2601,7 @@ async def _render_cover_letter_body(
                     pipeline=pipeline,
                     v2_signal_fn=v2_signal_fn,
                     availability_given=availability_given,
+                    duration_sources=_letter_duration_sources(pre_gen, jd_excerpt),
                 )
                 pin_floor_hits |= tr.pin_floor_hits
                 letter_data = tr.draft
@@ -2701,6 +2711,7 @@ async def _render_cover_letter_body(
                         pipeline=pipeline,
                         v2_signal_fn=v2_signal_fn,
                         availability_given=availability_given,
+                        duration_sources=_letter_duration_sources(pre_gen, jd_excerpt),
                     )
                     pdf_bytes, measured = tr.pdf_bytes, tr.measured
                     # Fold, never replace — the report call at the TOP of this loop
@@ -2902,7 +2913,7 @@ _V2_FINDINGS_PER_FAMILY = 2
 class LetterFinding:
     """One v2 deterministic finding: ``family`` names the retired v1 step."""
 
-    family: str  # salutation | signoff | closing | figure | limit | names
+    family: str  # salutation | signoff | closing | figure | limit | names | duration
     text: str
     #: R2-5 (build 4): the names the finding is about — data for the review card.
     subjects: tuple[str, ...] = ()
@@ -3129,9 +3140,14 @@ def _letter_v2_findings(
     denied_concepts: list | None,
     availability_given: bool = True,
     named_gaps: list[str] | None = None,
+    sources_text: str | None = None,
 ) -> list[LetterFinding]:
     """Every v2 deterministic finding except the language one (which has its own
     fact, block and ATS row in ``services/letter_v2``).
+
+    ``sources_text`` (ADV-1): :func:`_letter_duration_sources` — a duration the
+    posting or the candidate's input for this application states is not an unbacked
+    duration. ``None`` keeps a caller without it on the profile-only reading.
 
     ``availability_given`` (784:L31): whether this letter has an availability input
     (the typed ``availability`` or the vault's availability testimony). Without one,
@@ -3181,6 +3197,21 @@ def _letter_v2_findings(
         out.append(LetterFinding(
             "identifier", identifier_finding_text(named, stated), subjects=tuple(named),
         ))
+    try:
+        # 784:128 (build 8): a duration only as the candidate states it or as its
+        # TOOL DURATIONS line allows (W-2 ceiling applied) — BLOCKING, never a rewrite.
+        from applire.services.letter_v2 import duration_finding_text, unbacked_letter_durations
+
+        durations = unbacked_letter_durations(
+            letter_data, profile_json or {}, sources_text=sources_text,
+        )
+        if durations:
+            out.append(LetterFinding(
+                "duration", duration_finding_text(durations, profile_json or {}),
+                subjects=tuple(d["raw"] for d in durations),
+            ))
+    except Exception:  # pragma: no cover - a check never breaks generation
+        logger.warning("letter v2: duration findings failed", exc_info=True)
     if not availability_given:
         from applire.services.letter_v2 import availability_finding_text, availability_sentences
 
@@ -3200,7 +3231,8 @@ _V2_ADVISORY_FAMILIES = frozenset({"figure", "limit"})
 
 
 def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, language,
-                  availability_given: bool = True, named_gaps: list[str] | None = None):
+                  availability_given: bool = True, named_gaps: list[str] | None = None,
+                  sources_text: str | None = None):
     """ADR-094 clause L4 through W1's findings interface (``review_and_refine``'s
     ``checks_fn``): every v2 letter finding as a ``CheckFinding`` on the COMPOSED
     draft of the round. Language, salutation, sign-off and closing are BLOCKING
@@ -3236,6 +3268,7 @@ def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, 
             composed, profile_json=profile_json,
             keyword_ledger=keyword_ledger, denied_concepts=denied_concepts,
             availability_given=availability_given, named_gaps=named_gaps,
+            sources_text=sources_text,
         ):
             if per_family.get(f.family, 0) >= _V2_FINDINGS_PER_FAMILY:
                 continue
@@ -3247,6 +3280,24 @@ def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, 
         return out
 
     return fn
+
+
+def _letter_duration_sources(pre_gen: dict | None, jd_excerpt: str | None) -> str:
+    """ADV-1 (build 8 adversarial pass): the text OUTSIDE the vault a letter may take
+    a duration from — the posting excerpt the writer read ("seit über 30 Jahren am
+    Markt", "mindestens 2 Jahre Erfahrung") and what the candidate entered for this
+    application. Deliberately not the whole ``grounding_source``: its CV and ledger
+    blocks can carry computed spans, and R-3 / W-2 say the letter reads a span from
+    TOOL DURATIONS only. The vault's own durations reach the check through
+    ``letter_v2.unbacked_letter_durations`` (own statements, tool wordings, dates)."""
+    parts: list[str] = [jd_excerpt] if isinstance(jd_excerpt, str) and jd_excerpt else []
+    for key in ("motivation", "salary", "availability"):
+        value = (pre_gen or {}).get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value)
+        elif value and not isinstance(value, str):
+            parts.append(json.dumps(value, ensure_ascii=False))
+    return "\n".join(parts)
 
 
 def _v2_delivery_notes(findings: list[LetterFinding]) -> tuple:
@@ -3525,6 +3576,7 @@ async def _terminal_review_letter(
     pipeline: str = "v1",
     v2_signal_fn=None,
     availability_given: bool = True,
+    duration_sources: str | None = None,
 ) -> LetterTerminalReviewResult:
     """ADR-076 clause 3 (#539; amended 2026-08-29 for the #547 residual): the
     letter's TERMINAL review — the verdict that closes over the COMPOSED
@@ -3633,6 +3685,23 @@ async def _terminal_review_letter(
         )
 
     subject_by_draft: dict[str, dict] = {_canon(draft): cl.letter_data}
+    # 784:134 / 784:82 (ADR-076 cl. 3 amended 2026-11-10): the composed letter that
+    # ENTERS the terminal review is the reference — the drafting loop reviewed every
+    # figure in it. A figure a later step (condense, corrector) adds that no source
+    # the loop reads states is a code fact (``introduced_unsourced_figures``).
+    # Copied: the record's dict is the persisted truth and later rounds replace it.
+    # Residual (stated): a subject-identity re-entry starts a new invocation, so its
+    # reference is the re-entered letter, which that invocation's review then reads.
+    entry_subject = copy.deepcopy(cl.letter_data)
+
+    def _new_figures(reference: dict | None, composed: dict) -> list:
+        from applire.services.letter_figure_guard import introduced_unsourced_figures
+
+        try:
+            return introduced_unsourced_figures(reference, composed, [grounding_source])
+        except Exception:  # pragma: no cover - a check never breaks generation
+            logger.warning("letter: new-figure check failed", exc_info=True)
+            return []
     pdf_cell: dict[str, bytes | None] = {"pdf": pdf_bytes}
     measure_cell: dict[str, MeasuredLetter] = {"measured": measured}
     # ADR-076 amended 2026-08-29 (3-L2, #547 residual): every MeasuredLetter
@@ -3806,7 +3875,23 @@ async def _terminal_review_letter(
                 ),
             )]
 
-        _v2_checks = combine_signal_fns(v2_signal_fn, _page_check)
+        def _new_figure_check(d: dict) -> list:
+            """784:134 / 784:82: a figure no source states that the entry letter did not
+            carry — BLOCKING every terminal round, and a code fact that fails the
+            post-condense review-only round (W3-3c)."""
+            from applire.services.letter_figure_guard import new_figure_finding_text
+            from applire.services.reviewer import CheckFinding
+
+            found = _new_figures(entry_subject, _subject_of(d))
+            if not found:
+                return []
+            return [CheckFinding(
+                check="letter.new_figure",
+                text=new_figure_finding_text(found),
+                subjects=tuple(f["raw"] for f in found),
+            )]
+
+        _v2_checks = combine_signal_fns(v2_signal_fn, _page_check, _new_figure_check)
         _limit_signal_fn = None
 
     async def _finish(
@@ -3842,8 +3927,20 @@ async def _terminal_review_letter(
                     denied_concepts=denied_concepts,
                     availability_given=availability_given,
                     named_gaps=named_gaps,
+                    sources_text=duration_sources,
                 )
             )
+            # 784:134 / 784:82: a figure no source states that a step after the drafting
+            # loop added and the loop left standing — named on the delivered letter.
+            new_figs = _new_figures(entry_subject, delivered)
+            if new_figs:
+                from applire.services.letter_figure_guard import new_figure_finding_text
+                from applire.services.terminal_review_outcome import TerminalNote
+
+                delivery_notes = delivery_notes + (TerminalNote(
+                    kind="code", key="letter.new_figure", text=new_figure_finding_text(new_figs),
+                    subjects=tuple(f["raw"] for f in new_figs),
+                ),)
             extra = tuple(post_condense_notes) + delivery_notes
             if extra:
                 from applire.services.terminal_review_outcome import TerminalReviewOutcome
@@ -4029,6 +4126,11 @@ async def _terminal_review_letter(
         The caller then keeps ``reviewed`` — fail-closed to the last reviewed
         draft; its verdict is the one on the delivered letter's report."""
         defects = terminal_patch_structure_defects(_subject_of(reviewed), _subject_of(patch))
+        # 784:134 (ADR-076 cl. 3 amended 2026-11-10): a figure the unreviewed patch
+        # adds that no source states is a defect of the same fate — the reviewed
+        # draft ships. Never a rewrite.
+        if _new_figures(_subject_of(reviewed), _subject_of(patch)):
+            defects = [*defects, "new_figure"]
         if defects:
             logger.warning(
                 "LETTER_TERMINAL_PATCH_REJECTED cl_id=%s site=%s defects=%s — the "

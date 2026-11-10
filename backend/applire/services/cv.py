@@ -4863,23 +4863,43 @@ async def _render_cv_background(
 
                 # ADV-2: `aims="label"` — the reviewer and every corrector round re-read
                 # this view, so the not_yet_reached label reaches all of them from here.
-                prompt_profile = prompt_profile_view(profile_json, aims="label")
-
                 # E068 / ADR-094 (CV_PIPELINE=v2 only; v1 is byte-identical, R-3): the
                 # model sees short ids (US367), the writer returns the vault-sourced
                 # language fields by id (US364), and the compose tail loses its pen.
                 from applire.services.cv_v2 import PIPELINE_V2, cv_pipeline
 
                 pipeline = cv_pipeline()
+                # 786:190 (Hazelnut build 8, ADR-078 cl. 4 narrowing): under v2 a
+                # skill's DERIVED span leaves the view the writer, the reviewer and
+                # every corrector read; the EXPERIENCE DURATIONS block below is the
+                # one duration channel (the candidate's own figures as stated, a
+                # hedge only for a span nobody stated). v1 unchanged.
+                prompt_profile = prompt_profile_view(
+                    profile_json,
+                    aims="label",
+                    **({"derived_spans": "drop"} if pipeline == PIPELINE_V2 else {}),
+                )
                 v2_fields_block: str | None = None
                 if pipeline == PIPELINE_V2:
-                    from applire.services.cv_v2 import build_v2_fields_block_for
+                    from applire.services.cv_v2 import build_v2_fields_block_for, cv_durations_block
                     from applire.services.model_ids import ShortIdMap, ShortIdProvider
 
                     provider = ShortIdProvider(provider, ShortIdMap.from_profile(profile_json))
                     v2_fields_block = build_v2_fields_block_for(
                         profile_json, job_dict, keyword_ledger
                     )
+                    durations_block = cv_durations_block(
+                        profile_json,
+                        document_language,
+                        priority=[
+                            e.get("concept", "") for e in keyword_ledger or []
+                            if isinstance(e, dict) and e.get("claimable")
+                        ],
+                    )
+                    if durations_block:
+                        # Rides with the VAULT FIELDS block: before the writer's closing
+                        # line, and into `source_material` for every review round.
+                        v2_fields_block = f"{durations_block}\n\n{v2_fields_block}"
                     logger.info("CV_PIPELINE=v2 for CV %s", cv_id)
 
                 # Single call on the fast path; segmented (outline-then-expand) as the fallback
@@ -5841,17 +5861,25 @@ async def _apply_page_ladder(
     each ``tailored_data`` write (amendment §2, as the condense loop does).
     Returns the final (text, count, applied cuts)."""
     from applire.services.ats_audit import extract_text_and_pages
-    from applire.services.cv_page_ladder import AUTO_SKILL_FLOOR, ladder_steps, merge_cuts
+    from applire.services.cv_page_ladder import (
+        AUTO_CERT_KEEP, AUTO_SKILL_FLOOR, ladder_steps, merge_cuts, steps_that_paid,
+    )
     from applire.services.cv_section_editor import build_content_snapshot
 
     limit = condense_ctx.target + 1
     before = count
+    tier = condense_ctx.skill_tier
     applied: list = []
+    # Ruling P-1 (build 8): every render, so the cuts that bought no page go back.
+    renders: list[tuple[dict, str, int]] = [(record.tailored_data, text, count)]
     for step in ladder_steps(
-        record.tailored_data, condense_ctx.skill_tier,
+        record.tailored_data, tier,
         pinned=_ladder_pin_predicate(condense_ctx.pins),
         # D-23: the automatic ladder never empties the skills section.
         skill_floor=AUTO_SKILL_FLOOR,
+        # P-1: nor the certifications — the newest stay, and one the posting names.
+        cert_keep=AUTO_CERT_KEEP,
+        cert_protected=(lambda name: tier(name) < 3) if tier is not None else None,
     ):
         if count <= limit:
             break
@@ -5863,6 +5891,15 @@ async def _apply_page_ladder(
         html = await get_cv_html(record.id, db, user_id=record.user_id)
         pdf = await _html_to_pdf(html)
         text, count = extract_text_and_pages(pdf)
+        renders.append((step.data, text, count))
+    kept = steps_that_paid(before, [r[2] for r in renders[1:]], limit)
+    if kept < len(applied):
+        # P-1 part 3: still over the limit — put back the trailing cuts that did
+        # not lower the page count; the card's auto_cuts then names only what stayed.
+        data, text, count = renders[kept]
+        record.tailored_data = data
+        record.content_snapshot = build_content_snapshot(TailoredCVData.model_validate(data))
+        applied = applied[:kept]
     logger.log(
         logging.WARNING if count > limit else logging.INFO,
         "PAGE_LADDER cv_id=%s target=%d pages_before=%d pages_after=%d cuts=%s",
@@ -6866,15 +6903,32 @@ async def _terminal_review(
             from applire.services.cv_v2 import place_linked_projects
 
             shown = place_linked_projects(previous_draft, profile_json)
-        return _build_cv_retry_prompt(
+        delivered = _subject_for(previous_draft).model_dump(mode="json")
+        prompt = _build_cv_retry_prompt(
             shown,
             feedback,
             source,
-            delivered=_subject_for(previous_draft).model_dump(mode="json"),
+            delivered=delivered,
             # #759: the corrector writes after `cv_language` — it is told which
             # language the document is in (it never was).
             document_language=language,
         )
+        # 786:247 (Hazelnut build 8, WP-W): the retention half of the coverage scan
+        # (#306) — the letter corrector has had it since 2026-08; this corrector never
+        # did. Over 4 captured luna runs a round-1 correction removed claimable terms
+        # the draft already carried, and round 2's VERIFIED COVERAGE CHECK demanded
+        # them back until the cap. Same instrument, same composed draft the reviewer
+        # read (ADR-066); a fact, not a judgement (ADR-062 cl. 1).
+        if keyword_ledger:
+            from applire.services.keyword_ledger import (
+                claimable_present_entries,
+                render_coverage_retention_block,
+            )
+
+            present = claimable_present_entries(delivered, keyword_ledger)
+            if present:
+                prompt = f"{prompt}\n\n{render_coverage_retention_block(present)}"
+        return prompt
 
     # #563 (D) / #542: the settle report, and the deterministic under-claim signal.
     # Both hooks are inert by default; naming them here is this chain's opt-in.

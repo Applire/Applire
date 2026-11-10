@@ -220,7 +220,11 @@ _DOC: dict[str, Entry] = {
         "cv.skill_spelling", "cv.skills_cap", "cv.skill_duplicate", "cv.skill_named_in_bullet",
         "letter.salutation", "letter.signoff", "letter.closing", "letter.names",
         "letter.availability",
+        "letter.new_figure",  # 784:134/784:82 (build 8 WP-L): blocking in the loop
+        "letter.duration",  # 784:128 (build 8 WP-L): blocking in the loop
     )},
+    # 786:289 (Hazelnut build 8, WP-W): a skills entry no bullet states
+    "terminal:cv.skill_without_bullet": _e(_F, None, "S"),
     # one condition, one place (cl. 10): these codes restate a row rendered elsewhere
     "terminal:cv.page_length": _e("S"),                   # → the page-length card
     "terminal:letter.page_length": _e("S"),               # → the page-length card

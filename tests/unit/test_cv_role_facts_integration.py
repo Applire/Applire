@@ -256,7 +256,7 @@ async def test_role_facts_rendered_as_furniture_in_german_html(db):
 
     # Founder ruling P-1: one unlabelled fact line, figures only, no industry.
     flat = html.replace("\u00a0", " ")
-    assert '<div class="entry-facts">38 Personen · ca. 6 Mio. EUR</div>' in flat
+    assert '<div class="entry-facts">Führungsverantwortung für 38 Personen · ca. 6 Mio. EUR</div>' in flat
     assert "Teamgröße" not in flat
     assert "Branche:" not in flat
     assert "Budget:" not in flat
@@ -278,7 +278,7 @@ async def test_role_facts_rendered_as_furniture_in_english_html(db):
     html = await get_cv_html(cv.id, db)
 
     flat = html.replace("\u00a0", " ")
-    assert '<div class="entry-facts">38 people · ca. 6 Mio. EUR</div>' in flat
+    assert '<div class="entry-facts">Responsible for a team of 38 · ca. 6 Mio. EUR</div>' in flat
     assert "Team size" not in flat
     assert "Industry:" not in flat
     # The German words must NOT leak into the English render.

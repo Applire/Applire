@@ -353,6 +353,64 @@ def _spelled_figures(text: str) -> list[LetterFigure]:
     return matches
 
 
+# ── 784:61: an identifier is a name, not a figure ──────────────────────────
+# Measured before this change (10-12 E066 baseline, 102 delivered letters): the
+# figure floor fired 13 times, 11 of them on "IFRS 16" — the number of an
+# accounting standard, read as a borrowed figure because the vault states the
+# standard under one employer and the letter named it in another employer's
+# sentence. On the v2 letter the same detection is a finding, and on the build-8
+# captured set (151 quality-bench letters) it was still 4 of 6 firings. A
+# standard's or a product's number is part of its NAME: it carries no quantity a
+# position can own, so it never enters the figure set, on the letter side or the
+# vault side (both read this extractor).
+#
+# ADR-062 classification: FACT — settled by the token shape next to the digits,
+# never by reading the sentence for meaning. Three shapes:
+#   1. the Oracle's own standard identifiers ("ISO 9001", "DIN EN 9100",
+#      "ISO-45001-Zertifizierung", an edition year "ISO 9001:2015") — ONE
+#      implementation, ``oracle.matchers.figures._identifier_excluded_spans``;
+#   2. an upper-case designation directly before the number ("IFRS 16",
+#      "IAS 17", "SOC 2", "ISAE 3402", "TLS 1.3"), unless that designation is a
+#      currency code ("CHF 120" is an amount);
+#   3. a version written with a dot after a name ("Industrie 4.0",
+#      "Industry-4.0-Roadmap", "Python 3.12").
+# Never an identifier: a percentage, a decimal written with a comma ("LTIF 8,2"),
+# a number followed by a magnitude or a unit ("CAPEX 2 Mio.", "1.8 seconds").
+_CURRENCY_CODES = frozenset({
+    "EUR", "USD", "CHF", "GBP", "JPY", "CNY", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF",
+    "CAD", "AUD",
+})
+_ID_NUMBER = r"(\d+(?:\.\d+)*)"
+# What may NOT follow an identifier's number: more digits/decimals, a percent, a
+# magnitude word or a measurement unit — then the number is a quantity.
+_NOT_A_QUANTITY = (
+    r"(?![.,]?\d)(?!\s*(?:%|prozent\b|percent\b|mio\b|mrd\b|million|milliard|mn\b|bn\b|"
+    r"tsd\b|k\b|m\b|ms\b|s\b|sec|sek|min|minut|stunde|hour|h\b|tag|day|woche|week|monat|month|"
+    r"jahr|year|x\b|fach|-fach|€|\$))"
+)
+_DESIGNATION_RE = re.compile(r"\b([A-Z][A-Z&]{1,6})(?:[ /]|-(?=\d))" + _ID_NUMBER + r"(?![.,]?\d)")
+_VERSION_RE = re.compile(r"\b[A-ZÄÖÜ][a-zäöüß]{2,}[ -](\d+\.\d+)(?![.,]?\d)")
+
+
+def _identifier_spans(text: str) -> list[tuple[int, int]]:
+    """Digit spans in ``text`` that belong to an identifier (784:61, see above)."""
+    from applire.services.oracle.matchers.figures import _identifier_excluded_spans
+
+    spans = list(_identifier_excluded_spans(text))
+    lowered = text.lower()
+    for m in _DESIGNATION_RE.finditer(text):
+        if m.group(1) in _CURRENCY_CODES:
+            continue
+        if re.match(_NOT_A_QUANTITY, lowered[m.end(2):]) is None:
+            continue
+        spans.append(m.span(2))
+    for m in _VERSION_RE.finditer(text):
+        if re.match(_NOT_A_QUANTITY, lowered[m.end(1):]) is None:
+            continue
+        spans.append(m.span(1))
+    return spans
+
+
 def _extract_letter_figures(text: str) -> list[LetterFigure]:
     """Every droppable figure in ``text``: digits, "N+" growth forms, percent,
     and spelled-out EN/DE numbers.
@@ -361,17 +419,26 @@ def _extract_letter_figures(text: str) -> list[LetterFigure]:
     consumed inside ``_digit_figures``) and DURATIONS in years (``_TENURE_RE``,
     filtered here so the exemption reaches the spelled-number path too: "zehn
     Jahre ISO-9001-Audit-Praxis" is as tenure-ambient as "10 Jahre").
+    Identifiers are not figures either (784:61, :func:`_identifier_spans`).
     """
     folded = _fold_punct(text)
     tenure = [m.span(1) for m in _TENURE_RE.finditer(folded)]
-    figures = _digit_figures(folded) + _spelled_figures(folded)
-    if not tenure:
+    return _without_spans(_quantity_figures(folded), tenure)
+
+
+def _quantity_figures(folded: str) -> list[LetterFigure]:
+    """Digits, "N+", percent and spelled numbers minus identifier numbers (784:61).
+    Tenure is NOT removed here — :func:`_extract_letter_figures` removes it, and
+    :func:`introduced_unsourced_figures` keeps it on purpose."""
+    return _without_spans(
+        _digit_figures(folded) + _spelled_figures(folded), _identifier_spans(folded)
+    )
+
+
+def _without_spans(figures: list[LetterFigure], spans: list[tuple[int, int]]) -> list[LetterFigure]:
+    if not spans:
         return figures
-    return [
-        f
-        for f in figures
-        if not any(f.start < e and f.end > s for s, e in tenure)
-    ]
+    return [f for f in figures if not any(f.start < e and f.end > s for s, e in spans)]
 
 
 # ── the vault side: an independent (kind, value) -> owners index ────────────
@@ -944,3 +1011,114 @@ def letter_figure_findings(letter_data: dict[str, Any], profile: Any) -> list[di
             )
         findings.extend(dropped)
     return findings
+
+
+# ── 784:134 / 784:82: a figure no source states, introduced after review ────
+#: A bare scale word ("Millionen" in "6 Millionen") is the magnitude of the digit
+#: before it, not a figure of its own; the digit is compared instead.
+_SCALE_WORDS = frozenset(_SCALES)
+#: Every digit run in a source text, whatever follows it ("1.8s", "240ms", "40k"):
+#: the source side is read generously so that a form the extractor cannot parse
+#: never manufactures an "unsourced" figure.
+_LOOSE_DIGITS_RE = re.compile(r"(?<![\d.,])\d+(?:[.,]\d+)?")
+
+
+def _new_figure_candidates(text: str) -> list[LetterFigure]:
+    """The letter-side figures of :func:`introduced_unsourced_figures`: durations
+    INCLUDED (a "zehn Jahre" a step adds is a figure like any other), calendar
+    years and identifiers excluded, bare scale words dropped."""
+    return [
+        f for f in _quantity_figures(_fold_punct(text))
+        if f.raw.strip().lower() not in _SCALE_WORDS
+    ]
+
+
+def _source_figure_keys(texts) -> set[tuple[str, str]]:
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    keys: set[tuple[str, str]] = set()
+    for text in texts:
+        if not isinstance(text, str) or not text:
+            continue
+        folded = _fold_punct(text)
+        keys |= {(f.kind, f.value) for f in _digit_figures(folded) + _spelled_figures(folded)}
+        keys |= {
+            ("percent" if f.kind == "percent" else "number", f.value)
+            for f in extract_figures(folded)
+        }
+        keys |= {("number", _canon(m.group(0))) for m in _LOOSE_DIGITS_RE.finditer(folded)}
+    return keys
+
+
+def _sourced(key: tuple[str, str], source_keys: set[tuple[str, str]]) -> bool:
+    """A percentage needs a percentage in the source (an LTIF of 8,2 is not 8,2 %);
+    any other figure needs its digits — every digit run of the source is a number key,
+    so a number a source states as a percentage, with a glued unit or a multiplier
+    is sourced too."""
+    kind, value = key
+    return ("percent" if kind == "percent" else "number", value) in source_keys
+
+
+def _body_paragraphs(letter_data: dict[str, Any] | None) -> list[str]:
+    body = (letter_data or {}).get("body") or {}
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    return [p for p in paragraphs or [] if isinstance(p, str)]
+
+
+def introduced_unsourced_figures(
+    reference: dict[str, Any] | None,
+    draft: dict[str, Any] | None,
+    sources,
+) -> list[dict[str, Any]]:
+    """784:134 / 784:82 (Hazelnut build 8, ADR-076 cl. 3 amended): every figure in
+    ``draft``'s body that ``reference``'s body does not carry AND that no text in
+    ``sources`` states. One entry per value: ``raw``, ``kind``, ``value``,
+    ``sentence``, ``paragraph_index``.
+
+    ADR-062 classification: FACT — token presence and the closed canonicalisation
+    (digit grouping, decimal separator; the Oracle's multiplier folding on the
+    source side). Nothing reads what the sentence means: a figure a source states
+    in ANY form, or the reference draft already carried, is out of scope, so a
+    derived claim the writer drafted (and the drafting loop reviewed) never fires
+    it. What it catches is the step that mints a number — the condense's "latency
+    by 92 %" (784:82, D1 Ministral) and the corrector's LTIF written as a percentage.
+
+    Measured before building on it (captured terminal segments, synthetic
+    personas): 5 of 498 condense/corrector steps, all true positives, 0 false.
+    Category C (``applire-prompt-first``): the condense prompt says "NEVER add new
+    facts", the corrector "NEVER MINT A FIGURE"; the model did it anyway.
+
+    Not covered, by construction: a figure a step MOVES (same value, new scope —
+    build-6 case B). Which scope a sentence gives a number is a judgement."""
+    before: set[tuple[str, str]] = {
+        (f.kind, f.value) for p in _body_paragraphs(reference) for f in _new_figure_candidates(p)
+    }
+    source_keys = _source_figure_keys(sources or [])
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for pi, para in enumerate(_body_paragraphs(draft)):
+        spans = _sentence_spans(para)
+        for f in _new_figure_candidates(para):
+            key = (f.kind, f.value)
+            if key in before or key in seen or _sourced(key, source_keys):
+                continue
+            seen.add(key)
+            sentence = next(
+                (s for a, b, s in spans if a <= f.start and f.end <= b), para
+            ).strip()
+            out.append({
+                "raw": f.raw.strip(), "kind": f.kind, "value": f.value,
+                "sentence": sentence, "paragraph_index": pi,
+            })
+    return out
+
+
+def new_figure_finding_text(found: list[dict[str, Any]]) -> str:
+    """The corrector-facing fact + remedy for :func:`introduced_unsourced_figures`."""
+    quoted = "; ".join(f'"{f["raw"]}" in "{f["sentence"]}"' for f in found[:3])
+    return (
+        f"{len(found)} figure(s) appear in this letter that no source states and the "
+        f"reviewed letter did not contain (computed by code): {quoted}. State only figures "
+        "the candidate's profile records, in its unit; otherwise describe the result "
+        "without a number. Never compute, convert or round a figure."
+    )

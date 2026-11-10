@@ -133,9 +133,41 @@ _ACRONYMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("life_support", r"\b(?:ACLS|BLS|ALS|ILS|PALS)\b", ("life support", "acls", "bls", "als", "ils", "pals")),
 )
 
+#: 790:11 / 790:40 (Hazelnut build 8) — ATTESTATIONS: the named assurance reports
+#: an organisation obtains (SOC 1/2/3, ISAE 3402/3000, SSAE 16/18, BSI C5). A claim
+#: that names one ("begleitete das SOC-2-Audit") states a fact a recruiter checks,
+#: and before this list it graded by its figures alone: "SOC 2" is no identifier
+#: under the #374 pattern, so a fabricated attestation rode on any true figure in
+#: the same sentence (#701's remainder, build-1 adversarial probe: "SOC 2" and
+#: "BSI C5" grounded when fabricated). One family PER REPORT — a SOC 1 is not a
+#: SOC 2 — with the notation variants of that report ("SOC 2", "SOC2", "SOC-2",
+#: "SOC II", "SOC 2 Type II"). Claim side case-SENSITIVE (the reports are written
+#: as upper-case acronyms; "Soc" is no report). A bare "C5" names a car or a cell
+#: as often as the BSI catalogue, so the claim side needs "BSI" or a C5 qualifier;
+#: the BACKING side is lenient on purpose (any notation of the same report in the
+#: folded vault, a bare "C5" included — silence over a false accusation).
+_ATTESTATIONS: tuple[tuple[str, str, str], ...] = (
+    ("soc1", r"\bSOC[\s-]?(?:1|I)(?![\w%]|[.,]\d)", r"\bsoc ?(?:1|i)(?![\w%]|[.,]\d)"),
+    ("soc2", r"\bSOC[\s-]?(?:2|II)(?![\w%]|[.,]\d)", r"\bsoc ?(?:2|ii)(?![\w%]|[.,]\d)"),
+    ("soc3", r"\bSOC[\s-]?(?:3|III)(?![\w%]|[.,]\d)", r"\bsoc ?(?:3|iii)(?![\w%]|[.,]\d)"),
+    ("isae3402", r"\bISAE[\s-]?3402\b", r"\bisae ?3402\b"),
+    ("isae3000", r"\bISAE[\s-]?3000\b", r"\bisae ?3000\b"),
+    ("ssae", r"\bSSAE[\s-]?1[68]\b", r"\bssae ?1[68]\b"),
+    ("bsi_c5",
+     r"\bBSI[\s-]?C5\b|\bC5[\s-](?:Testat|Attest\w*|Prüf\w*|Audit\w*|Kriterienkatalog|[Cc]riteria|[Rr]eport)"
+     r"|\bC5:\s?20\d\d\b",
+     r"\bc5\b"),
+)
+#: The attestation family names — read by the Oracle to word the finding as a
+#: report the profile never mentions rather than a personal qualification.
+ATTESTATION_FAMILIES: frozenset[str] = frozenset(n for n, _c, _b in _ATTESTATIONS)
+_ATTESTATION_BACKING: dict[str, re.Pattern[str]] = {n: re.compile(b) for n, _c, b in _ATTESTATIONS}
+
 _COMPILED: tuple[tuple[str, re.Pattern[str], tuple[str, ...] | None], ...] = tuple(
     (n, re.compile(r, re.I), b) for n, r, b in _FAMILIES
-) + tuple((n, re.compile(r), b) for n, r, b in _ACRONYMS)
+) + tuple((n, re.compile(r), b) for n, r, b in _ACRONYMS) + tuple(
+    (n, re.compile(c), ()) for n, c, _b in _ATTESTATIONS
+)
 
 _FIRST_PERSON = re.compile(r"\b(?:ich|mein\w*|mir|mich|i|my|me|i'm|i've)\b", re.I)
 _HEDGE = re.compile(
@@ -206,6 +238,9 @@ def detect_credentials(text: str, *, kind: DocumentKind) -> list[CredentialMenti
 
 def is_backed(mention: CredentialMention, vault_folded: str) -> bool:
     """Lenient: any form of the family anywhere in the folded claimable vault."""
+    backing_rx = _ATTESTATION_BACKING.get(mention.family)
+    if backing_rx is not None:
+        return bool(backing_rx.search(vault_folded))
     for name, _rx, forms in _COMPILED:
         if name != mention.family:
             continue
