@@ -571,3 +571,57 @@ def _drop_derived_spans(view: dict[str, Any]) -> dict[str, Any]:
         else:
             out.append(skill)
     return {**view, "skills": out}
+
+
+# ── 786:190 (Hazelnut build 8, WP-W): the candidate's OWN duration statements ──
+#
+# The span fact the CV (and, through main, the letter's 784:128) reads for a
+# career- or summary-level duration. A figure the candidate states in their own
+# text is the only duration a document may state for a career or a domain
+# ("9 Jahre Controlling-Erfahrung", "8 years of experience"): which roles count
+# toward a domain is a judgement (``audit._tenure_ceiling_flag``), so no code
+# computes one. One corpus with the Oracle: the vault index's evidence units —
+# the candidate's own text; ledger evidence, gap reasons and every block the
+# system writes are no unit and never a source (ADR-061/048 amended).
+
+def own_duration_statements(profile_json: Any) -> list[dict[str, Any]]:
+    """Every duration the candidate's own profile text states, largest first:
+    ``{"years", "raw", "path", "sentence"}`` — ``raw`` is the verbatim duration
+    ("8 years", "neun Jahren"), ``sentence`` the candidate's sentence carrying it
+    (≤ 240 chars). ADR-062 cl. 1: a FACT (the Oracle's own tenure extraction over
+    the Oracle's own evidence units). Fail-open: ``[]``."""
+    import re
+
+    sentence_end = re.compile(r"(?<=[.!?;])\s+")
+    if not isinstance(profile_json, dict):
+        return []
+    try:
+        from applire.services.oracle.matchers.figures import extract_tenure_claims
+        from applire.services.oracle.matchers.vault import build_vault_index
+
+        idx = build_vault_index(profile_json)
+    except Exception:  # noqa: BLE001 — a prompt input must never fail generation
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[float, str]] = set()
+    for unit in idx.units:
+        if unit.path.startswith(("personal_info", "skills")) or unit.path.endswith((".role", ".org")):
+            continue
+        for tenure in extract_tenure_claims(unit.text):
+            if tenure.years < 1:
+                continue
+            raw = tenure.raw.strip()
+            sentence = next(
+                (s for s in sentence_end.split(unit.text) if raw in s),
+                unit.text,
+            ).strip()
+            key = (float(tenure.years), sentence.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({
+                "years": float(tenure.years), "raw": raw, "path": unit.path,
+                "sentence": sentence[:240],
+            })
+    out.sort(key=lambda d: -d["years"])
+    return out

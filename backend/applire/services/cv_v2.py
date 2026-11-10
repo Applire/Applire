@@ -647,6 +647,10 @@ def v2_checks(
     #     and the ATS ``narrative-evidence`` check reports the absence (ADR-039).
     claim = _claim_missing_findings(composed, ctx)
     findings.extend(claim)
+    # 4b'. 786:289 (Hazelnut build 8): the same selection over the CV's NARRATIVE
+    #     only — a claimable concept the skills list names, whose vault evidence sits
+    #     in a rendered role's own lines, and that no bullet states.
+    findings.extend(_skill_without_bullet_findings(composed, ctx, claim))
     # 4c. C2 (ruling W1-1 r2): a vault project neither nested nor mentioned.
     findings.extend(_project_findings(composed, ctx))
 
@@ -727,6 +731,79 @@ def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> 
             "name is a label, not a phrase to paste — never insert it capitalised "
             "mid-sentence (786:241); "
             "if the role is at its bullet budget, replace its weakest bullet instead of adding."
+        ),
+    )]
+
+
+def _skill_without_bullet_findings(
+    composed: "TailoredCVData", ctx: V2CheckContext, claim: list[CheckFinding]
+) -> list[CheckFinding]:
+    """786:289 / u6 (Hazelnut build 8): a skills chip whose claimable concept has a
+    recorded line in the OWNING role, and no bullet of the CV carries it.
+
+    Rule 2 of the v2 writer already demands it ("every CLAIMABLE Keyword-Ledger
+    concept whose evidence lives in a work entry's own responsibilities or
+    achievements must reach that entry's bullets … not only the skills list"), and
+    gpt-6-luna violates it in round 1: ux-audit-3 rec 432 (Felix CV #2) dropped
+    "Mentor two mid-level engineers" from Cargonaut while the chip "Mentoring" stayed
+    — 3/3 luna replays, 0/2 Sonnet 5.5 (build-7 L). ``cv.claim_missing`` cannot see
+    it: its presence test reads the WHOLE document, and the chip satisfies it; the
+    under-claim signal can, but only at ``REQUIRED_WEIGHT`` and two concepts per
+    round, and only in a round something else opened (it demanded "Testing" and
+    "Payments" there, never "Mentoring"). Category C (applire-prompt-first).
+
+    One definition (ADR-066): ``ledger_restore.select_restore_candidates`` — the C5
+    selection ``cv.claim_missing`` reads — run on the composed CV with its skills list
+    and summary emptied, so "absent" means "absent from every bullet"; kept only for
+    concepts a skills entry names. A FACT (ADR-062 cl. 1): surface presence of the
+    ledger's forms and the vault sentence of a role the CV renders. The corrector
+    writes the clause; code never adds or deletes a bullet (ADR-082/094 cl. 1)."""
+    if not ctx.keyword_ledger or not composed.skills:
+        return []
+    from applire.services.ats_audit import _norm, surface_present
+    from applire.services.ledger_restore import select_restore_candidates
+
+    already = {s for f in claim for s in f.subjects}
+    doc = composed.model_dump(mode="json")
+    narrative = {**doc, "skills": [], "summary": ""}
+    try:
+        candidates = select_restore_candidates(narrative, ctx.profile_json, ctx.keyword_ledger, ctx.budget)
+    except Exception:  # noqa: BLE001 — a detector failure loses its finding only
+        logger.exception("v2 check detector select_restore_candidates (narrative) raised; finding skipped")
+        return []
+    chips = _norm("\n".join(str(x) for x in composed.skills if isinstance(x, str)))
+    forms_by_concept: dict[str, list[str]] = {}
+    for e in ctx.keyword_ledger:
+        if isinstance(e, dict) and e.get("concept"):
+            forms_by_concept[str(e["concept"])] = [
+                f for f in [*(e.get("surface_forms") or []), e["concept"]] if isinstance(f, str) and f.strip()
+            ]
+    companies = {w.id: w.company for w in composed.work_history}
+    parts: list[str] = []
+    subjects: list[str] = []
+    for eid, cands in candidates.items():
+        for c in cands:
+            if c.concept in already or c.concept in subjects:
+                continue
+            chip = next((f for f in forms_by_concept.get(c.concept, []) if surface_present(f, chips)), None)
+            if chip is None:
+                continue
+            subjects.append(c.concept)
+            parts.append(
+                f"the skills list names “{chip}”, and no bullet shows it — the profile records it "
+                f"under {eid} ({companies.get(eid, '')}): “{c.vault_text}”"
+            )
+    if not parts:
+        return []
+    return [CheckFinding(
+        check="cv.skill_without_bullet",
+        subjects=tuple(subjects[:_MAX_ITEMS_PER_FINDING]),
+        text=(
+            "; ".join(parts[:_MAX_ITEMS_PER_FINDING])
+            + ". State each in a bullet of that role, in the document language and in the "
+            "candidate's own terms; when the role is at its bullet budget, fold it into a "
+            "related bullet there as a compound clause. Never under another employer, never "
+            "by dropping a figure, and keep the skills entry."
         ),
     )]
 
@@ -1308,3 +1385,107 @@ class V2Terminal:
             "CV_V2_CHECKS_SETTLED path=%s open=%s rounds_with_findings=%d",
             report.path, [f.check for f in report.open_findings], report.rounds_with_findings,
         )
+
+
+# --------------------------------------------------------------------------- #
+# 786:190 (Hazelnut build 8, WP-W): the EXPERIENCE DURATIONS block
+# --------------------------------------------------------------------------- #
+#: The CV writer and every review round read the vault through
+#: ``prompt_profile_view(derived_spans="drop")``: a skill's ``computed`` /
+#: ``llm_estimated`` ``years_experience`` is gone from the view, and this block is
+#: the ONE place a duration reaches the CV's prompts. Before, the plain view showed
+#: ``"years_experience": 11, "source": "computed"`` (a span counted from a student
+#: job, rounded) with no rule giving it a meaning, and the writer stated it flat
+#: as experience ("11 years of Python … 9 years of PostgreSQL" against the
+#: candidate's own "8 years", Sonnet 5.5 ux-audit-4 rec 115; "acht Jahren
+#: Werkscontrolling" from a 7.75-year span, luna ux-audit-3 rec 180).
+#: The reverted hedge view (14c9f272) taught two things this block keeps:
+#: (1) the candidate's own figure is printed AS STATED — a hedge exists only for
+#: a span nobody stated (the hedge had replaced Emma's own "9 Jahre" with "über
+#: 7 Jahre"); (2) no instruction text sits inside a data row (its ``say`` string
+#: was copied into the CV as "abgeleiteter Erfahrung"). Facts only (ADR-062
+#: cl. 1): the tool durations are ``letter_v2.tool_duration_facts`` — R-3/R4-1's
+#: one producer, the letter reads the same — and the own figures are
+#: ``prompt_view.own_duration_statements``.
+
+#: The most own-figure sentences the block quotes (largest first).
+OWN_DURATIONS_MAX = 4
+
+
+def cv_durations_block(
+    profile_json: dict | None,
+    language: str | None,
+    *,
+    priority: Sequence[str] | None = None,
+) -> str:
+    """The EXPERIENCE DURATIONS block for the v2 writer and its review loop.
+    ``""`` when the profile states no duration and no tool has a span of a year.
+
+    W-2 (career bound): a tool's computed span LONGER than the candidate's own
+    largest stated figure gets no duration — "9 years of PostgreSQL" beside the
+    candidate's "8 years of experience" reads as an inconsistency to a hiring
+    reader (786:226), and the candidate's own figure wins (R4-1)."""
+    if not isinstance(profile_json, dict):
+        return ""
+    try:
+        from applire.services.letter_v2 import tool_duration_facts
+        from applire.services.prompt_view import own_duration_statements, span_hedges
+
+        own = own_duration_statements(profile_json)
+        tools = tool_duration_facts(profile_json, None, priority=list(priority or []))
+    except Exception:  # noqa: BLE001 — a prompt input must never fail generation
+        logger.exception("cv_durations_block failed; the writer runs without it")
+        return ""
+    de = (language or "").strip().lower() == "de"
+    bound = own[0]["years"] if own else None
+    lines: list[str] = []
+    for o in own[:OWN_DURATIONS_MAX]:
+        lines.append(f'  - "{o["sentence"]}"')
+    tool_lines: list[str] = []
+    for f in tools:
+        if f.stated_years is not None:
+            allowed = f.allowed_wordings("de" if de else "en")
+            tool_lines.append(
+                f"  - {f.tool}: the candidate's own figure — "
+                + " or ".join(f'"{w}"' for w in allowed)
+                + ", or no duration."
+            )
+            continue
+        hedge = span_hedges(f.years)
+        if hedge is None:
+            continue
+        counted = ", ".join(label for _pid, label in f.positions if label)
+        if bound is not None and hedge["at_least"] > bound:
+            tool_lines.append(
+                f"  - {f.tool}: no duration."
+            )
+            continue
+        wordings = hedge["de"] if de else hedge["en"]
+        tool_lines.append(
+            f"  - {f.tool}: since {f.since} ({counted}) — "
+            + " or ".join(f'"{w}"' for w in wordings)
+            + "."
+        )
+    if not lines and not tool_lines:
+        return ""
+    out = [
+        "EXPERIENCE DURATIONS (every duration this CV may state — in the summary, a "
+        "bullet or the skills list. How a figure was found is never described in the CV.)"
+    ]
+    if lines:
+        out.append(
+            "The candidate's own figures, in their own sentences — state each with the "
+            "same number and the same subject, never rounded and never moved to another "
+            "subject:"
+        )
+        out.extend(lines)
+    if tool_lines:
+        out.append("Per tool or skill — the only wordings for its duration:")
+        out.extend(tool_lines)
+    out.append(
+        "Any other duration is stated nowhere: never a figure from a skills entry, a "
+        "ledger or evidence line, never rounded up, never added up across positions, and "
+        "never a tool's or skill's span as the candidate's total experience. A tool with "
+        "no line here gets no duration."
+    )
+    return "\n".join(out)

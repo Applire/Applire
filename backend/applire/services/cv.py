@@ -4863,23 +4863,43 @@ async def _render_cv_background(
 
                 # ADV-2: `aims="label"` — the reviewer and every corrector round re-read
                 # this view, so the not_yet_reached label reaches all of them from here.
-                prompt_profile = prompt_profile_view(profile_json, aims="label")
-
                 # E068 / ADR-094 (CV_PIPELINE=v2 only; v1 is byte-identical, R-3): the
                 # model sees short ids (US367), the writer returns the vault-sourced
                 # language fields by id (US364), and the compose tail loses its pen.
                 from applire.services.cv_v2 import PIPELINE_V2, cv_pipeline
 
                 pipeline = cv_pipeline()
+                # 786:190 (Hazelnut build 8, ADR-078 cl. 4 narrowing): under v2 a
+                # skill's DERIVED span leaves the view the writer, the reviewer and
+                # every corrector read; the EXPERIENCE DURATIONS block below is the
+                # one duration channel (the candidate's own figures as stated, a
+                # hedge only for a span nobody stated). v1 unchanged.
+                prompt_profile = prompt_profile_view(
+                    profile_json,
+                    aims="label",
+                    **({"derived_spans": "drop"} if pipeline == PIPELINE_V2 else {}),
+                )
                 v2_fields_block: str | None = None
                 if pipeline == PIPELINE_V2:
-                    from applire.services.cv_v2 import build_v2_fields_block_for
+                    from applire.services.cv_v2 import build_v2_fields_block_for, cv_durations_block
                     from applire.services.model_ids import ShortIdMap, ShortIdProvider
 
                     provider = ShortIdProvider(provider, ShortIdMap.from_profile(profile_json))
                     v2_fields_block = build_v2_fields_block_for(
                         profile_json, job_dict, keyword_ledger
                     )
+                    durations_block = cv_durations_block(
+                        profile_json,
+                        document_language,
+                        priority=[
+                            e.get("concept", "") for e in keyword_ledger or []
+                            if isinstance(e, dict) and e.get("claimable")
+                        ],
+                    )
+                    if durations_block:
+                        # Rides with the VAULT FIELDS block: before the writer's closing
+                        # line, and into `source_material` for every review round.
+                        v2_fields_block = f"{durations_block}\n\n{v2_fields_block}"
                     logger.info("CV_PIPELINE=v2 for CV %s", cv_id)
 
                 # Single call on the fast path; segmented (outline-then-expand) as the fallback
