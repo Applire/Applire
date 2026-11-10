@@ -353,6 +353,64 @@ def _spelled_figures(text: str) -> list[LetterFigure]:
     return matches
 
 
+# ── 784:61: an identifier is a name, not a figure ──────────────────────────
+# Measured before this change (10-12 E066 baseline, 102 delivered letters): the
+# figure floor fired 13 times, 11 of them on "IFRS 16" — the number of an
+# accounting standard, read as a borrowed figure because the vault states the
+# standard under one employer and the letter named it in another employer's
+# sentence. On the v2 letter the same detection is a finding, and on the build-8
+# captured set (151 quality-bench letters) it was still 4 of 6 firings. A
+# standard's or a product's number is part of its NAME: it carries no quantity a
+# position can own, so it never enters the figure set, on the letter side or the
+# vault side (both read this extractor).
+#
+# ADR-062 classification: FACT — settled by the token shape next to the digits,
+# never by reading the sentence for meaning. Three shapes:
+#   1. the Oracle's own standard identifiers ("ISO 9001", "DIN EN 9100",
+#      "ISO-45001-Zertifizierung", an edition year "ISO 9001:2015") — ONE
+#      implementation, ``oracle.matchers.figures._identifier_excluded_spans``;
+#   2. an upper-case designation directly before the number ("IFRS 16",
+#      "IAS 17", "SOC 2", "ISAE 3402", "TLS 1.3"), unless that designation is a
+#      currency code ("CHF 120" is an amount);
+#   3. a version written with a dot after a name ("Industrie 4.0",
+#      "Industry-4.0-Roadmap", "Python 3.12").
+# Never an identifier: a percentage, a decimal written with a comma ("LTIF 8,2"),
+# a number followed by a magnitude or a unit ("CAPEX 2 Mio.", "1.8 seconds").
+_CURRENCY_CODES = frozenset({
+    "EUR", "USD", "CHF", "GBP", "JPY", "CNY", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF",
+    "CAD", "AUD",
+})
+_ID_NUMBER = r"(\d+(?:\.\d+)*)"
+# What may NOT follow an identifier's number: more digits/decimals, a percent, a
+# magnitude word or a measurement unit — then the number is a quantity.
+_NOT_A_QUANTITY = (
+    r"(?![.,]?\d)(?!\s*(?:%|prozent\b|percent\b|mio\b|mrd\b|million|milliard|mn\b|bn\b|"
+    r"tsd\b|k\b|m\b|ms\b|s\b|sec|sek|min|minut|stunde|hour|h\b|tag|day|woche|week|monat|month|"
+    r"jahr|year|x\b|fach|-fach|€|\$))"
+)
+_DESIGNATION_RE = re.compile(r"\b([A-Z][A-Z&]{1,6})(?:[ /]|-(?=\d))" + _ID_NUMBER + r"(?![.,]?\d)")
+_VERSION_RE = re.compile(r"\b[A-ZÄÖÜ][a-zäöüß]{2,}[ -](\d+\.\d+)(?![.,]?\d)")
+
+
+def _identifier_spans(text: str) -> list[tuple[int, int]]:
+    """Digit spans in ``text`` that belong to an identifier (784:61, see above)."""
+    from applire.services.oracle.matchers.figures import _identifier_excluded_spans
+
+    spans = list(_identifier_excluded_spans(text))
+    lowered = text.lower()
+    for m in _DESIGNATION_RE.finditer(text):
+        if m.group(1) in _CURRENCY_CODES:
+            continue
+        if re.match(_NOT_A_QUANTITY, lowered[m.end(2):]) is None:
+            continue
+        spans.append(m.span(2))
+    for m in _VERSION_RE.finditer(text):
+        if re.match(_NOT_A_QUANTITY, lowered[m.end(1):]) is None:
+            continue
+        spans.append(m.span(1))
+    return spans
+
+
 def _extract_letter_figures(text: str) -> list[LetterFigure]:
     """Every droppable figure in ``text``: digits, "N+" growth forms, percent,
     and spelled-out EN/DE numbers.
@@ -361,17 +419,26 @@ def _extract_letter_figures(text: str) -> list[LetterFigure]:
     consumed inside ``_digit_figures``) and DURATIONS in years (``_TENURE_RE``,
     filtered here so the exemption reaches the spelled-number path too: "zehn
     Jahre ISO-9001-Audit-Praxis" is as tenure-ambient as "10 Jahre").
+    Identifiers are not figures either (784:61, :func:`_identifier_spans`).
     """
     folded = _fold_punct(text)
     tenure = [m.span(1) for m in _TENURE_RE.finditer(folded)]
-    figures = _digit_figures(folded) + _spelled_figures(folded)
-    if not tenure:
+    return _without_spans(_quantity_figures(folded), tenure)
+
+
+def _quantity_figures(folded: str) -> list[LetterFigure]:
+    """Digits, "N+", percent and spelled numbers minus identifier numbers (784:61).
+    Tenure is NOT removed here — :func:`_extract_letter_figures` removes it, and
+    :func:`introduced_unsourced_figures` keeps it on purpose."""
+    return _without_spans(
+        _digit_figures(folded) + _spelled_figures(folded), _identifier_spans(folded)
+    )
+
+
+def _without_spans(figures: list[LetterFigure], spans: list[tuple[int, int]]) -> list[LetterFigure]:
+    if not spans:
         return figures
-    return [
-        f
-        for f in figures
-        if not any(f.start < e and f.end > s for s, e in tenure)
-    ]
+    return [f for f in figures if not any(f.start < e and f.end > s for s, e in spans)]
 
 
 # ── the vault side: an independent (kind, value) -> owners index ────────────
