@@ -735,6 +735,41 @@ def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> 
     )]
 
 
+#: 786:289: the share of a vault sentence's content tokens one bullet must carry for the
+#: sentence to count as restated. Measured on the 11 concept cases the first version
+#: raised on the captured luna drafts (ux-audit-3, b6 delivery): the 4 true omissions
+#: share <= 0.25 with every bullet of their role, the restated ones >= 0.5 (or carry
+#: every figure of the sentence) — 0.4 sits in the gap.
+RESTATED_TOKEN_SHARE = 0.4
+
+_DIGITS_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def vault_sentence_restated(vault_text: str, bullets: Sequence[str]) -> bool:
+    """A FACT (ADR-062 cl. 1, token presence): one bullet carries EVERY figure of the
+    vault sentence (when it has one), or at least :data:`RESTATED_TOKEN_SHARE` of its
+    content tokens (a five-character prefix match, so "Managed"/"Manages" and
+    "BfArM-Rezertifizierung"/"BfArM" meet; names and figures survive translation)."""
+    from applire.services.ats_audit import skill_tokens
+    from applire.services.oracle.matchers.grounding import _NARRATIVE_STOPWORDS
+
+    def toks(text: str) -> set[str]:
+        return {t for t in skill_tokens(text) - _NARRATIVE_STOPWORDS if len(t) >= 4 or any(ch.isdigit() for ch in t)}
+
+    vt = toks(vault_text)
+    figures = {f.replace(",", ".") for f in _DIGITS_RE.findall(vault_text)}
+    for b in bullets:
+        if figures and figures <= {f.replace(",", ".") for f in _DIGITS_RE.findall(b)}:
+            return True
+        if not vt:
+            continue
+        bt = toks(b)
+        hit = sum(1 for t in vt if any((t[:5] == u[:5]) if len(t) >= 5 and len(u) >= 5 else t == u for u in bt))
+        if hit / len(vt) >= RESTATED_TOKEN_SHARE:
+            return True
+    return False
+
+
 def _skill_without_bullet_findings(
     composed: "TailoredCVData", ctx: V2CheckContext, claim: list[CheckFinding]
 ) -> list[CheckFinding]:
@@ -758,7 +793,7 @@ def _skill_without_bullet_findings(
     concepts a skills entry names. A FACT (ADR-062 cl. 1): surface presence of the
     ledger's forms and the vault sentence of a role the CV renders. The corrector
     writes the clause; code never adds or deletes a bullet (ADR-082/094 cl. 1)."""
-    if not ctx.keyword_ledger or not composed.skills:
+    if not ctx.keyword_ledger or not (composed.skills or composed.summary):
         return []
     from applire.services.ats_audit import _norm, surface_present
     from applire.services.ledger_restore import select_restore_candidates
@@ -772,6 +807,7 @@ def _skill_without_bullet_findings(
         logger.exception("v2 check detector select_restore_candidates (narrative) raised; finding skipped")
         return []
     chips = _norm("\n".join(str(x) for x in composed.skills if isinstance(x, str)))
+    summary = _norm(str(composed.summary or ""))
     forms_by_concept: dict[str, list[str]] = {}
     for e in ctx.keyword_ledger:
         if isinstance(e, dict) and e.get("concept"):
@@ -779,18 +815,31 @@ def _skill_without_bullet_findings(
                 f for f in [*(e.get("surface_forms") or []), e["concept"]] if isinstance(f, str) and f.strip()
             ]
     companies = {w.id: w.company for w in composed.work_history}
+    role_bullets = {
+        w.id: [*w.bullets, *(b for pr in w.projects for b in pr.bullets)] for w in composed.work_history
+    }
     parts: list[str] = []
     subjects: list[str] = []
+    quoted: set[str] = set()
     for eid, cands in candidates.items():
         for c in cands:
-            if c.concept in already or c.concept in subjects:
+            if c.concept in already or c.concept in subjects or c.vault_text in quoted:
                 continue
-            chip = next((f for f in forms_by_concept.get(c.concept, []) if surface_present(f, chips)), None)
-            if chip is None:
+            if vault_sentence_restated(c.vault_text, role_bullets.get(eid, [])):
+                # The role already carries that sentence in other words (or another
+                # language): the ledger's form is simply not the bullet's word.
+                continue
+            forms = forms_by_concept.get(c.concept, [])
+            chip = next((f for f in forms if surface_present(f, chips)), None)
+            # 786:291 (c): a summary that names it with no bullet behind it is the same fact.
+            said = None if chip else next((f for f in forms if surface_present(f, summary)), None)
+            if chip is None and said is None:
                 continue
             subjects.append(c.concept)
+            quoted.add(c.vault_text)
+            where = f"the skills list names “{chip}”" if chip else f"the summary names “{said}”"
             parts.append(
-                f"the skills list names “{chip}”, and no bullet shows it — the profile records it "
+                f"{where}, and no bullet shows it — the profile records it "
                 f"under {eid} ({companies.get(eid, '')}): “{c.vault_text}”"
             )
     if not parts:
@@ -803,7 +852,7 @@ def _skill_without_bullet_findings(
             + ". State each in a bullet of that role, in the document language and in the "
             "candidate's own terms; when the role is at its bullet budget, fold it into a "
             "related bullet there as a compound clause. Never under another employer, never "
-            "by dropping a figure, and keep the skills entry."
+            "by dropping a figure, and keep the skills entry or summary phrase."
         ),
     )]
 

@@ -83,7 +83,7 @@ def test_a_chip_whose_role_line_no_bullet_states_is_one_blocking_finding():
     assert f.blocking
     assert f.subjects == ("Coaching",)
     assert COACH in f.text and W1 in f.text and "Torvik Systems GmbH" in f.text
-    assert "keep the skills entry" in f.text and "compound clause" in f.text
+    assert "keep the skills entry" in f.text and "the skills list names “Coaching”" in f.text and "compound clause" in f.text
     # whole-document presence (the chip) keeps cv.claim_missing silent — the gap this closes
     assert "cv.claim_missing" not in _findings(_prose())
 
@@ -125,3 +125,68 @@ def test_the_code_is_registered_and_has_both_catalog_lines():
     for lang in ("de", "en"):
         code = json.load(open(root / f"{lang}.json"))["ats"]["terminalReview"]["code"]
         assert "{term}" in code["cv-skill_without_bullet"]
+
+
+def test_a_summary_phrase_with_no_bullet_is_the_same_finding_786_291():
+    prose = _prose(chip=False)
+    prose["summary"] = "Senior Engineer with a focus on routing backends and coaching developers."
+    found = _findings(prose)
+    assert "cv.claim_missing" not in found  # whole-document presence: the summary
+    f = found["cv.skill_without_bullet"]
+    assert "the summary names" in f.text and COACH in f.text
+
+
+def test_silent_when_only_another_section_names_it():
+    """Neither a chip nor the summary: a mention in a project heading is not this fact."""
+    prose = _prose(chip=False)
+    prose["projects"] = [{"name": "Coaching rota", "bullets": []}]
+    assert "cv.skill_without_bullet" not in _findings(prose)
+
+
+def test_silent_when_the_role_restates_the_vault_sentence_in_other_words():
+    """The first version raised 7 false omissions on the captured luna drafts: the
+    ledger's form was simply not the bullet's word ("Invasive monitoring" against
+    "Manage arterial and central venous catheter monitoring, vasoactive infusions and
+    CRRT"). A paraphrase that keeps most content tokens is restated."""
+    vault = _vault()
+    vault["work_experience"][0]["responsibilities"].append(
+        "Manages invasive monitoring (arterial/CVC), vasoactive infusions, and CRRT.")
+    ledger = _ledger() + [{
+        "concept": "Invasive monitoring", "surface_forms": ["Invasive monitoring"], "claimable": True,
+        "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "",
+    }]
+    prose = _prose(bullet=True)
+    prose["skills"].append("Invasive monitoring")
+    assert _findings(prose, vault=vault, ledger=ledger)["cv.skill_without_bullet"].subjects == ("Invasive monitoring",)
+    prose["work"][0]["bullets"].append(
+        "Manage arterial and central venous catheter monitoring, vasoactive infusions and CRRT.")
+    assert "cv.skill_without_bullet" not in _findings(prose, vault=vault, ledger=ledger)
+
+
+@pytest.mark.parametrize("vault,bullet,restated", [
+    # captured shapes (synthetic wording): translation keeps every figure
+    ("Improved completion rate from 87% to 96% through a funnel program (40+ A/B tests).",
+     "Steigerte die Abschlussrate durch Funnel-Optimierung mit mehr als 40 A/B-Tests von 87 % auf 96 %.", True),
+    ("Budget responsibility approx. 6 Mio. € (staff, maintenance).",
+     "Verantwortet ein Budget von ca. 6 Mio. € für Personal und Instandhaltung.", True),
+    ("Steered the BfArM re-certification of both products (DiGAV evidence, ISO 27001 processes).",
+     "Steuerte die BfArM-Rezertifizierung beider Produkte (DiGAV-Evidenz, ISO-27001-Prozesse).", True),
+    ("Manages invasive monitoring (arterial/CVC), vasoactive infusions, and CRRT.",
+     "Manage arterial and central venous catheter monitoring, vasoactive infusions and CRRT.", True),
+    # half the content tokens, figure spelled differently (300k / 300.000): restated at 0.4
+    ("Product owner for the member portal and mobile app (300k registered users), with backlog and roadmap responsibility.",
+     "Verantwortete als Product Owner das Mitgliederportal und die mobile App mit 300.000 registrierten Nutzenden sowie Backlog und Roadmap.", True),
+    # the true omissions: nothing of the sentence in the bullet
+    ("Mentor two mid-level engineers; run the weekly design-review session.",
+     "Designed and operated an event pipeline consumed by billing and notification services.", False),
+    ("Introduced contract tests between the tracking API and three consumer teams.",
+     "Designed and operated a tracking event pipeline consumed by billing services.", False),
+    ("Seit zwei Jahren fachliche Führung der beiden Werkstudierenden.",
+     "Verantwortet Monatsabschluss und HGB-Reporting der GmbH.", False),
+    # a figure alone in a different sentence is not the sentence (all figures needed)
+    ("Cut deploy time from 45 to 8 minutes.", "Ran 45 deployments a month.", False),
+])
+def test_vault_sentence_restated(vault, bullet, restated):
+    from applire.services.cv_v2 import vault_sentence_restated
+
+    assert vault_sentence_restated(vault, [bullet]) is restated
