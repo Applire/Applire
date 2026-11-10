@@ -158,9 +158,14 @@ def budget_display(value: object, lang: str = "de") -> str:
 
 #: Founder ruling P-1 (Hazelnut build 5): the team size is shown as a count of
 #: people, without a label.
-_TEAM_WORDS = {
-    "de": ("Person", "Personen"),
-    "en": ("person", "people"),
+#: Ruling P-2 (founder, Hazelnut build 8; amends build-5 P-1 in part): the team
+#: size is a phrase that says what it counts — the people the candidate led in
+#: THAT role (``prompts/cv_extraction.py`` TEAM_SIZE SEMANTICS) — never a bare
+#: "2 Personen", which read as a contradiction next to a bullet's "about 15
+#: internal IT specialists" (RU-5). Tense-neutral, no colon label. (singular, plural)
+_TEAM_PHRASES = {
+    "de": ("Führungsverantwortung für {n} Person", "Führungsverantwortung für {n} Personen"),
+    "en": ("Responsible for a team of {n}", "Responsible for a team of {n}"),
 }
 
 
@@ -179,7 +184,9 @@ def role_facts(entry: object, lang: str = "de") -> str:
 
     * the industry is never rendered — not alone, not in the line;
     * the line exists only when it holds a figure — a team size and/or a budget —
-      and it carries no labels: ``12 Personen · ca. 2 Mio. EUR``;
+      and it carries no colon labels. Ruling P-2 (build 8) phrases the team size
+      so it says what it counts: ``Führungsverantwortung für 12 Personen · ca. 2
+      Mio. EUR``; the budget part is unchanged;
     * no number → no line (``""``), so the caller's ``{% if %}`` drops the whole
       element.
 
@@ -189,20 +196,22 @@ def role_facts(entry: object, lang: str = "de") -> str:
     unit-less figure (#382) stays omitted.
 
     >>> role_facts({"team_size": 12, "budget_managed": "ca. 2 Mio. EUR", "industry_context": "Logistik"}, "de")
-    '12 Personen · ca. 2 Mio. EUR'
+    'Führungsverantwortung für 12 Personen · ca. 2 Mio. EUR'
     >>> role_facts({"industry_context": "Logistik"}, "de")
     ''
     >>> role_facts({"team_size": 1}, "en")
-    '1 person'
+    'Responsible for a team of 1'
+    >>> role_facts({"team_size": 1}, "de")
+    'Führungsverantwortung für 1 Person'
     """
     parts: list[str] = []
     team = _attr(entry, "team_size")
     if isinstance(team, bool):
         team = None
     if isinstance(team, (int, float)) and team > 0:
-        one, many = _TEAM_WORDS.get(lang, _TEAM_WORDS["en"])
+        one, many = _TEAM_PHRASES.get(lang, _TEAM_PHRASES["en"])
         n = int(team) if float(team).is_integer() else team
-        parts.append(f"{n} {one if n == 1 else many}")
+        parts.append((one if n == 1 else many).format(n=n))
     budget = budget_display(_attr(entry, "budget_managed"), lang).strip()
     if budget:
         parts.append(budget)

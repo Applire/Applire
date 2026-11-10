@@ -151,11 +151,24 @@ async def test_the_automatic_ladder_cuts_only_the_slice_the_page_needs():
 
 @pytest.mark.asyncio
 async def test_the_automatic_ladder_never_empties_the_skills_section():
-    # the page never fits: every rung runs, yet the section keeps the floor
+    # the page never fits: every rung runs, yet the section keeps the floor. Every
+    # slice buys a page (ruling P-1, build 8: a cut that buys none is put back), so
+    # the cuts stay and the floor is what stops the rung.
     skills = ["job1"] + [f"off{i}" for i in range(1, 25)]
-    record, measured = await _auto_ladder(_cv(skills), lambda d: 4)
+    record, measured = await _auto_ladder(_cv(skills), lambda d: 4 + len(d["skills"]) // 5)
+    assert measured.page_count > 3
     assert len(record.tailored_data["skills"]) == AUTO_SKILL_FLOOR
     assert record.tailored_data["skills"][0] == "job1"
+
+
+@pytest.mark.asyncio
+async def test_the_automatic_ladder_puts_back_chips_that_bought_no_page():
+    """Ruling P-1 part 3 (build 8): the page never fits and no slice lowers the count
+    → nothing stays cut, and the card's auto_cuts names nothing."""
+    skills = ["job1"] + [f"off{i}" for i in range(1, 25)]
+    record, measured = await _auto_ladder(_cv(skills), lambda d: 4)
+    assert record.tailored_data["skills"] == skills
+    assert measured.ladder_cuts == ()
 
 
 # --- 3. the card's payload names the automatic cuts ---------------------------------

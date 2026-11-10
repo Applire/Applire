@@ -244,8 +244,9 @@ describe("PageOverflowCard", () => {
     };
 
     it.each([
-      ["de", "Damit er höchstens 3 Seiten hat, hat Applire schon weggelassen:", "Ältere Weiterbildungen und Zertifikate: REFA-Grundschein", null],
-      ["en", "To keep it to at most 3 pages, Applire already left out:", "REFA-Grundschein", null],
+      // RU-4 (build 8): the tolerance is named once ("eine Seite über Deinem Ziel").
+      ["de", "Von sich aus kürzt Applire nur bis auf eine Seite über Deinem Ziel, hier 3 Seiten. Dafür hat Applire schon weggelassen:", "Ältere Weiterbildungen und Zertifikate: REFA-Grundschein", null],
+      ["en", "On its own, Applire shortens only to one page over your target, here 3 pages. For that, it already left out:", "REFA-Grundschein", null],
     ] as const)("%s: the line and its list sit above the body", async (locale, lead, item, body) => {
       mockFetch(AUTO);
       render(withIntl(<PageOverflowCard cvId="cv-auto" />, locale));
@@ -258,6 +259,20 @@ describe("PageOverflowCard", () => {
       // above: the auto-cut block precedes the body in document order
       expect(box.compareDocumentPosition(bodyEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(screen.queryByTestId("cv-page-overflow-cut")).toBeNull(); // no offer-back
+    });
+
+    // P-1 (build 8): the automatic ladder may end over target + 1 after putting back
+    // the cuts that bought no page; the line must not claim the aim was reached.
+    it.each([
+      ["de", "So weit reichte es nicht; diese Angaben hat Applire schon weggelassen:", "Dafür hat"],
+      ["en", "It could not get that far; it already left out:", "For that"],
+    ] as const)("%s: over the limit, the lead says the aim was missed", async (locale, lead, notReached) => {
+      mockFetch({ ...AUTO, actual: 4 });
+      render(withIntl(<PageOverflowCard cvId="cv-over" />, locale));
+      const box = await screen.findByTestId("cv-page-overflow-auto-cuts");
+      expect(box.textContent).toContain(lead);
+      expect(box.textContent).not.toContain(notReached);
+      expect(box.textContent).toContain(locale === "de" ? "eine Seite über Deinem Ziel, hier 3 Seiten" : "one page over your target, here 3 pages");
     });
 
     it.each(["de", "en"] as const)("%s: an empty auto_cuts renders nothing (and an absent field neither)", async (locale) => {

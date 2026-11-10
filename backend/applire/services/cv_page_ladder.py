@@ -18,7 +18,8 @@ count is over the limit:
    ranked first and only as many as the page needs — never below
    ``AUTO_SKILL_FLOOR`` chips in the automatic ladder (D-23),
 3. a "Branche:" line that repeats the line of an earlier role,
-4. the oldest certification, one at a time,
+4. the oldest certification, one at a time — in the automatic ladder never one
+   the posting names, and never the ``AUTO_CERT_KEEP`` newest (ruling P-1, build 8),
 5. the oldest education entry beyond the two most recent, one at a time,
 6. (the person's page-length proposal only — ``old_roles_before``) the bullets and
    nested projects of a role that ended more than ``OLD_ROLE_YEARS`` years ago, oldest
@@ -64,6 +65,12 @@ _KEEP_EDUCATION = 2
 #: D-23: the automatic ladder never cuts the skills section below this many
 #: chips (ADR-099: an automatic cut must not empty a section).
 AUTO_SKILL_FLOOR = 8
+#: Ruling P-1 = A (Hazelnut build 8, MD8-4; 786:256): the automatic ladder always
+#: keeps this many of the newest certifications (precedent: ``AUTO_SKILL_FLOOR``
+#: and ``_KEEP_EDUCATION``). One certification is a line or two, so no single
+#: step flipped a page and the rung used to run until the section was gone
+#: (build 5 runs 7–8: 3 of 6 CVs lost all 5 certifications).
+AUTO_CERT_KEEP = 2
 #: D-23: the skills rung cuts in at most this many growing slices (one re-render
 #: each), so it stops near the fewest chips the page needs.
 _SKILL_CUT_STEPS = 4
@@ -124,6 +131,8 @@ def ladder_steps(
     old_roles_before: int | None = None,
     pinned_bullets: Callable[[dict, list[str]], set[int]] | None = None,
     skill_floor: int = 0,
+    cert_keep: int = 0,
+    cert_protected: Callable[[str], bool] | None = None,
 ) -> Iterator[LadderStep]:
     """Yield the ladder's steps in order, each applied on top of the previous one.
 
@@ -139,6 +148,12 @@ def ladder_steps(
     ``skill_floor``: the skills rung never leaves fewer chips than this (the
     automatic ``target + 1`` ladder passes ``AUTO_SKILL_FLOOR``; the person's
     proposal passes 0 — the card names every chip before anything is cut).
+
+    ``cert_keep`` / ``cert_protected`` (ruling P-1, automatic ladder only): the
+    certifications rung never cuts the ``cert_keep`` newest certifications (by
+    year; on a tie the later list entry counts as newer) nor one
+    ``cert_protected(name)`` holds — the automatic ladder passes "the posting names
+    it" (the #192 rank below tier 3). The person's proposal passes neither.
     """
     current = copy.deepcopy(data)
     is_pinned = pinned or (lambda _s: False)
@@ -176,10 +191,21 @@ def ladder_steps(
     # as a persisted legacy kind that reinsert_cuts can still undo.)
 
     # 4. the oldest certification, one at a time
+    is_protected = cert_protected or (lambda _s: False)
     while True:
         certs = current.get("certifications") or []
+        newest = {
+            i for i, _c in sorted(
+                enumerate(certs),
+                key=lambda ic: (_year_key(ic[1].get("date_obtained")), ic[0]),
+                reverse=True,
+            )[: max(0, cert_keep)]
+        }
         candidates = [
-            (i, c) for i, c in enumerate(certs) if not is_pinned(str(c.get("name") or ""))
+            (i, c) for i, c in enumerate(certs)
+            if i not in newest
+            and not is_pinned(str(c.get("name") or ""))
+            and not is_protected(str(c.get("name") or ""))
         ]
         if not candidates:
             break
@@ -306,6 +332,27 @@ def shortenable_roles(
             "dates": dates, "bullets": plan[2],
         })
     return out
+
+
+def steps_that_paid(before: int, counts: list[int], limit: int) -> int:
+    """How many of the automatic ladder's applied steps stay (ruling P-1, part 3).
+
+    ``counts[i]`` is the page count rendered after step ``i``; ``before`` the count
+    before the first. When the last render is within ``limit`` every step stays
+    (the cuts paid together). Otherwise only the steps up to the LAST one that
+    lowered the page count stay, and the trailing ones that bought no page go back
+    (build 5 run 8 rep a: all 5 certifications and the Abitur cut, still 4 pages
+    over a limit of 3). A count fact, no judgement (ADR-062 cl. 1)."""
+    if not counts:
+        return 0
+    if counts[-1] <= limit:
+        return len(counts)
+    kept, prev = 0, before
+    for i, n in enumerate(counts):
+        if n < prev:
+            kept = i + 1
+        prev = n
+    return kept
 
 
 def merge_cuts(cuts: list[LadderCut]) -> list[dict[str, Any]]:
