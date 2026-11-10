@@ -643,6 +643,18 @@ _V2_CORRECTOR_RULES = (
     "  [listed only — no role bullet or story states it] may be named in a list of tools or\n"
     "  methods, never narrated as a responsibility, ownership or outcome — also when a review\n"
     "  asks for coverage of it.\n"
+    # 784:134 (Hazelnut build 8, case B of the build-6 delivery): consolidating a
+    # repetition, the last correction wrote the candidate's career-wide "zehn Jahre
+    # ISO-9001-Auditpraxis" into the sentence about the role that started later. The
+    # condense prompt has the employer rule; the corrector had none. Replay of the
+    # captured call (gpt-6-luna, reasoning as captured): flat "zehn Jahre" bound to
+    # the later role 3/5 -> 1/5; Sonnet 0/3 -> 0/5; the ten years dropped 0 in every arm.
+    "- A FIGURE KEEPS WHAT IT COUNTS (784:134): when you merge, shorten or de-duplicate\n"
+    "  sentences, every figure and duration stays attached to what it measured. A figure the\n"
+    "  letter states for the whole career (\"insgesamt\", \"in total\", \"overall\") is never\n"
+    "  written into one employer's or one role's sentence, and a figure stated under one\n"
+    "  employer never moves into another employer's sentence. If joining two sentences would\n"
+    "  change what a figure counts, keep the figure in its own sentence as it stood.\n"
 )
 
 
