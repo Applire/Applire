@@ -29,6 +29,16 @@ def test_v2_corrector_keeps_a_figure_on_what_it_counts():
         "- Preserve the language, tone, structure")
 
 
+def test_v2_final_review_check_3_names_the_ended_station():
+    tail = "``candidate_record`` grounds the PAST"
+    assert V2_TERMINAL_REVIEW_SYSTEM_PROMPT.count(tail) == 1
+    i = V2_TERMINAL_REVIEW_SYSTEM_PROMPT.index("3. INVENTED EMPLOYER FACT")
+    j = V2_TERMINAL_REVIEW_SYSTEM_PROMPT.index("4. REQUIRED CONTENT NOT DELIVERED")
+    assert i < V2_TERMINAL_REVIEW_SYSTEM_PROMPT.index(tail) < j
+    assert tail not in TERMINAL_REVIEW_SYSTEM_PROMPT  # v1 unchanged
+    assert tail not in V2_REVIEW_SYSTEM_PROMPT  # the drafting reviewer is not in scope
+
+
 def test_the_loop_hands_out_the_amended_v2_prompts():
     _rev, terminal, corrector = letter_loop_prompts(True)
     assert terminal is V2_TERMINAL_REVIEW_SYSTEM_PROMPT and corrector is V2_COVER_LETTER_REFINEMENT_PROMPT
