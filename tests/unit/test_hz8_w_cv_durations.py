@@ -195,3 +195,16 @@ async def test_SEAM_v1_keeps_the_plain_view_and_no_block(monkeypatch):
     captured = await _run(p)
     assert _skills(captured["writer_profile"])["Python"]["years_experience"] == 11
     assert not captured.get("v2_fields_block")
+
+
+def test_W2_a_role_lines_figure_is_no_career_ceiling():
+    """RULING W-2: only the summary's career figure caps a span. "Mentored two
+    engineers for 2 years" is a figure about that role — PostgreSQL keeps its hedge
+    and Django keeps its own."""
+    p = _profile()
+    p["professional_summary"] = {"en": "Backend engineer building Python services."}
+    p["work_experience"][0].setdefault("responsibilities", []).append("Mentored two engineers for 2 years.")
+    block = cv_durations_block(p, "en")
+    assert '"Mentored two engineers for 2 years."' in block  # still quoted as the person's own figure
+    assert '"over 9 years"' in block and '"over 5 years"' in block
+    assert "PostgreSQL: no duration." not in block

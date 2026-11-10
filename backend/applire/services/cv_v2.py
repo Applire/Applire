@@ -1470,23 +1470,30 @@ def cv_durations_block(
     """The EXPERIENCE DURATIONS block for the v2 writer and its review loop.
     ``""`` when the profile states no duration and no tool has a span of a year.
 
-    W-2 (career bound): a tool's computed span LONGER than the candidate's own
-    largest stated figure gets no duration — "9 years of PostgreSQL" beside the
-    candidate's "8 years of experience" reads as an inconsistency to a hiring
-    reader (786:226), and the candidate's own figure wins (R4-1)."""
+    RULING W-2 (founder, career ceiling): a tool's computed span ABOVE the
+    candidate's own career figure (``prompt_view.own_career_ceiling``, the one
+    producer the letter reads too) gets no duration — "9 years of PostgreSQL" beside
+    the candidate's "8 years of experience" reads as an inconsistency to a hiring
+    reader (786:226), and the candidate's own figure wins (R4-1). No own career
+    figure, no cut."""
     if not isinstance(profile_json, dict):
         return ""
     try:
         from applire.services.letter_v2 import tool_duration_facts
-        from applire.services.prompt_view import own_duration_statements, span_hedges
+        from applire.services.prompt_view import (
+            own_career_ceiling,
+            own_duration_statements,
+            span_above_career,
+            span_hedges,
+        )
 
         own = own_duration_statements(profile_json)
+        ceiling = own_career_ceiling(profile_json)
         tools = tool_duration_facts(profile_json, None, priority=list(priority or []))
     except Exception:  # noqa: BLE001 — a prompt input must never fail generation
         logger.exception("cv_durations_block failed; the writer runs without it")
         return ""
     de = (language or "").strip().lower() == "de"
-    bound = own[0]["years"] if own else None
     lines: list[str] = []
     for o in own[:OWN_DURATIONS_MAX]:
         lines.append(f'  - "{o["sentence"]}"')
@@ -1504,7 +1511,7 @@ def cv_durations_block(
         if hedge is None:
             continue
         counted = ", ".join(label for _pid, label in f.positions if label)
-        if bound is not None and hedge["at_least"] > bound:
+        if span_above_career(f.years, ceiling):
             tool_lines.append(
                 f"  - {f.tool}: no duration."
             )
