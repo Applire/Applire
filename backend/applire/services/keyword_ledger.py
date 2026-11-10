@@ -3866,7 +3866,31 @@ def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
         return ""
     from applire.services.ats_audit import _norm as ats_norm
 
-    return ats_norm(" ".join(_draft_strings(_strip_unclaimable(_strip_denial_text(profile_json)))))
+    return ats_norm(" ".join(_draft_strings(
+        _strip_unclaimable(_strip_denial_text(_strip_system_metadata(profile_json)))
+    )))
+
+
+def _strip_system_metadata(profile_json: dict[str, Any]) -> dict[str, Any]:
+    """783:247 (Hazelnut build 8, SF-VAULT.28): the coverage corpus without the
+    vault's bookkeeping — parked conflicts (an UNACCEPTED incoming value),
+    aspiration and identity verdicts, kept-separate pairs, counters and dates.
+    No writer ever sees them (``prompt_view.PROMPT_EXCLUDED_METADATA_KEYS``, the
+    ONE classification, ADR-078 cl. 3), so they cannot make a term "literally in
+    the vault" either. The enrichment trail is the exception: it is filtered
+    receipt by receipt (:func:`_strip_denial_text`, :func:`_strip_unclaimable`),
+    because an accepted write's receipt restates content the vault carries."""
+    from applire.services.prompt_view import PROMPT_EXCLUDED_METADATA_KEYS
+
+    if not isinstance(profile_json, dict):
+        return profile_json
+    metadata = profile_json.get("metadata")
+    if not isinstance(metadata, dict):
+        return profile_json
+    drop = PROMPT_EXCLUDED_METADATA_KEYS - {"enrichment_history"}
+    if not (drop & metadata.keys()):
+        return profile_json
+    return {**profile_json, "metadata": {k: v for k, v in metadata.items() if k not in drop}}
 
 
 #: The entity sections ADR-061 cl. 3 gives a status (``entry_is_claimable``).
@@ -3882,6 +3906,30 @@ def _entry_label(entry: Any) -> str:
             if isinstance(v, str):
                 return v
     return ""
+
+
+def _removed_entries(history: list[Any]) -> tuple[set[str], set[str]]:
+    """Ids and lowercased names of the status-section entries a receipt REMOVED
+    (790:62): ``action == "removed"`` with the entry dict as ``old_value`` (a
+    removed alias string is not an entry). Facts over the trail. An entry
+    re-added under the same name is still grounded by its live entry, which
+    the corpus reads directly; only receipts are dropped here."""
+    ids: set[str] = set()
+    names: set[str] = set()
+    for record in history:
+        changes = record.get("changes") if isinstance(record, dict) else None
+        for change in changes if isinstance(changes, list) else []:
+            if not isinstance(change, dict) or change.get("action") != "removed":
+                continue
+            old = change.get("old_value")
+            if change.get("section") not in _STATUS_SECTIONS or not isinstance(old, dict):
+                continue
+            if isinstance(old.get("id"), str) and old["id"]:
+                ids.add(old["id"])
+            label = _entry_label(old).strip().lower()
+            if label:
+                names.add(label)
+    return ids, names
 
 
 def _strip_unclaimable(profile_json: dict[str, Any]) -> dict[str, Any]:
@@ -3911,11 +3959,20 @@ def _strip_unclaimable(profile_json: dict[str, Any]) -> dict[str, Any]:
             label = _entry_label(e).strip().lower()
             if label:
                 names.add(label)
-    if not ids and not names:
-        return out
     metadata = out.get("metadata")
     history = metadata.get("enrichment_history") if isinstance(metadata, dict) else None
     if not isinstance(history, list):
+        return out
+    # 790:62 (Hazelnut build 8): an entry the candidate REMOVED is no longer in
+    # the section at all, so the loop above never sees it — yet its add receipt
+    # still restates its name verbatim and grounded it literally. An entry is
+    # gone when a status-section receipt removed it (``action == "removed"``,
+    # the entry dict as ``old_value``); a re-add under the same name is
+    # grounded by its live entry, never by a receipt.
+    removed_ids, removed_names = _removed_entries(history)
+    ids |= removed_ids
+    names |= removed_names
+    if not ids and not names:
         return out
 
     def _names_unclaimable(change: Any) -> bool:
