@@ -208,3 +208,61 @@ def test_W2_a_role_lines_figure_is_no_career_ceiling():
     assert '"Mentored two engineers for 2 years."' in block  # still quoted as the person's own figure
     assert '"over 9 years"' in block and '"over 5 years"' in block
     assert "PostgreSQL: no duration." not in block
+
+
+# ── 786:247 (WP-W): the CV terminal corrector gets the coverage RETENTION half ──
+
+_LEDGER = [{
+    "concept": "Engineering leadership", "surface_forms": ["Engineering leader"], "claimable": True,
+    "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "Engineering leader.",
+}]
+
+
+async def _terminal_corrector_prompts(monkeypatch, ledger: list) -> list[str]:
+    monkeypatch.setenv("CV_PIPELINE", "v2")
+    prompts: list[str] = []
+    m = _seam593
+    cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    mock_cv = MagicMock(); mock_cv.status = "pending"; mock_cv.target_pages = 2
+    mock_cv.document_language = "en"
+    mock_profile = MagicMock(); mock_profile.profile_json = m._profile_json()
+    mock_gap = MagicMock()
+    mock_gap.keyword_gaps = []; mock_gap.critical_gaps = []; mock_gap.keyword_ledger = ledger
+    mock_db = AsyncMock()
+    mock_db.get.side_effect = lambda model, id_: {cv_id: mock_cv, job_id: m._job_mock(), profile_id: mock_profile}[id_]
+    mock_result = MagicMock(); mock_result.scalar_one_or_none.return_value = mock_gap
+    mock_db.execute.side_effect = m._execute_by_entity(mock_cv, mock_result, job_id)
+
+    async def fake_loop(**kw):
+        if kw.get("chain_id") == "cv_terminal_review":
+            kw["reviewer_prompt_fn"](kw["source"], kw["draft"])
+            prompts.append(kw["generator_prompt_fn"](kw["draft"], "fix it", kw["source"]))
+        return kw["draft"]
+
+    with patch("applire.services.cv.AsyncSessionLocal") as sl, \
+         patch("applire.services.cv.get_provider", return_value=AsyncMock()), \
+         patch("applire.services.cv._tailor_cv_with_fallback", new=AsyncMock(return_value=m._tailored_raw())), \
+         patch("applire.services.keyword_ledger.refresh_persist_and_rescore", new=AsyncMock(return_value=ledger)), \
+         patch("applire.services.cv.review_and_refine", new=AsyncMock(side_effect=fake_loop)), \
+         patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda d, *a, **k: d)), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+         patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+        sl.return_value.__aenter__.return_value = mock_db
+        from applire.services.cv import _render_cv_background
+        await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+    return prompts
+
+
+@pytest.mark.asyncio
+async def test_SEAM_terminal_corrector_is_told_which_claimable_terms_the_draft_already_has(monkeypatch):
+    prompts = await _terminal_corrector_prompts(monkeypatch, _LEDGER)
+    assert prompts, "the terminal review's corrector prompt was never built"
+    block = prompts[0].split("COVERAGE ALREADY ACHIEVED", 1)
+    assert len(block) == 2, "the retention block never reached the CV terminal corrector"
+    assert "Engineering leadership" in block[1]
+
+
+@pytest.mark.asyncio
+async def test_SEAM_no_ledger_no_retention_block(monkeypatch):
+    prompts = await _terminal_corrector_prompts(monkeypatch, [])
+    assert prompts and all("COVERAGE ALREADY ACHIEVED" not in p for p in prompts)

@@ -6886,15 +6886,32 @@ async def _terminal_review(
             from applire.services.cv_v2 import place_linked_projects
 
             shown = place_linked_projects(previous_draft, profile_json)
-        return _build_cv_retry_prompt(
+        delivered = _subject_for(previous_draft).model_dump(mode="json")
+        prompt = _build_cv_retry_prompt(
             shown,
             feedback,
             source,
-            delivered=_subject_for(previous_draft).model_dump(mode="json"),
+            delivered=delivered,
             # #759: the corrector writes after `cv_language` — it is told which
             # language the document is in (it never was).
             document_language=language,
         )
+        # 786:247 (Hazelnut build 8, WP-W): the retention half of the coverage scan
+        # (#306) — the letter corrector has had it since 2026-08; this corrector never
+        # did. Over 4 captured luna runs a round-1 correction removed claimable terms
+        # the draft already carried, and round 2's VERIFIED COVERAGE CHECK demanded
+        # them back until the cap. Same instrument, same composed draft the reviewer
+        # read (ADR-066); a fact, not a judgement (ADR-062 cl. 1).
+        if keyword_ledger:
+            from applire.services.keyword_ledger import (
+                claimable_present_entries,
+                render_coverage_retention_block,
+            )
+
+            present = claimable_present_entries(delivered, keyword_ledger)
+            if present:
+                prompt = f"{prompt}\n\n{render_coverage_retention_block(present)}"
+        return prompt
 
     # #563 (D) / #542: the settle report, and the deterministic under-claim signal.
     # Both hooks are inert by default; naming them here is this chain's opt-in.
