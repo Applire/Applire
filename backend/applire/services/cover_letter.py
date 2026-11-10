@@ -1997,14 +1997,21 @@ async def _render_cover_letter_body(
                 # the positions it is counted from and whether the CV shows the tool
                 # under them — the writer's, reviewer's and corrector's one duration
                 # channel. v2 only; "" (no block) when no tool spans a year.
+                # RULING W-2 (founder 2026-11-10): the candidate's own career figure
+                # caps a computed tool span — one producer with the CV
+                # (``prompt_view.own_career_ceiling``), read from the same view.
+                from applire.services.prompt_view import own_career_ceiling
+
+                _tool_profile = exclude_unconfirmed(profile.profile_json) if profile else {}
                 tool_facts = (
                     tool_duration_facts(
-                        exclude_unconfirmed(profile.profile_json) if profile else {},
+                        _tool_profile,
                         tailored_cv,
                         priority=[
                             e.get("concept", "") for e in keyword_ledger or []
                             if isinstance(e, dict) and e.get("claimable")
                         ],
+                        ceiling_years=own_career_ceiling(_tool_profile),
                     )
                     if is_v2
                     else []

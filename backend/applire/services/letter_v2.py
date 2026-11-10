@@ -766,20 +766,22 @@ class ToolDuration:
     #: where they state it — a profile path and the sentence ("" for the skills list)
     stated_source: str = ""
     stated_quote: str = ""
-    #: RULING W-2 (founder 2026-11-10, amends R-3 for the letter): the largest
-    #: duration the candidate states about their own career in their own words
-    #: (W's ``prompt_view`` ceiling over ``own_duration_statements``); ``None`` = they
-    #: state none, and there is no ceiling. A computed hedge whose floor exceeds it
-    #: gets no duration — the person's own career figure is the ceiling.
+    #: RULING W-2 (founder 2026-11-10, amends R-3 for the letter): the candidate's
+    #: own career figure (``prompt_view.own_career_ceiling`` — one producer with the
+    #: CV); ``None`` = they state none, and there is no ceiling. A computed span ABOVE
+    #: it gets no duration (``prompt_view.span_above_career``, one comparison).
     ceiling_years: float | None = None
 
     @property
     def over_ceiling(self) -> bool:
-        """W-2: the computed span's floor ("over N") exceeds the candidate's own
-        largest career figure. Never true for the candidate's own tool figure (R4-1)."""
-        if self.stated_years is not None or self.ceiling_years is None:
+        """W-2: the RAW computed span lies above the candidate's own career figure
+        (8.6 computed beside their own "8 years" is above it — no "über 8 Jahre"
+        either). Never true for the candidate's own tool figure (R4-1)."""
+        from applire.services.prompt_view import span_above_career
+
+        if self.stated_years is not None:
             return False
-        return int(self.years) > self.ceiling_years
+        return span_above_career(self.years, self.ceiling_years)
 
     @property
     def stateable(self) -> bool:
@@ -807,12 +809,7 @@ class ToolDuration:
         hedge = span_hedges(self.years)
         if hedge is None or not self.stateable or self.over_ceiling:
             return []
-        wordings = list(hedge[lang])
-        if self.ceiling_years is not None and hedge["below"] and hedge["below"] > self.ceiling_years:
-            # W-2: "knapp 9 Jahre" next to the candidate's own "8 Jahre" still reads as
-            # more than their own figure — only the "over N" wording stays.
-            wordings = wordings[:1]
-        return wordings
+        return list(hedge[lang])
 
 
 def _cv_entry_texts(cv_data: dict[str, Any] | None) -> dict[str, str]:
@@ -847,8 +844,11 @@ def _person_stated_tool_years(profile_json: dict[str, Any]) -> dict[str, tuple[f
     unit and never a source. Fail-open: ``{}``."""
     try:
         from applire.services.oracle.matchers.vault import build_vault_index
+        from applire.services.profile.reconcile.stance import exclude_unconfirmed
 
-        idx = build_vault_index(profile_json)
+        # 790:61 (Lead O, build 8): an unconfirmed skill's transcribed duration is
+        # not the candidate's word yet — it never becomes a stated tenure.
+        idx = build_vault_index(exclude_unconfirmed(profile_json))
     except Exception:  # noqa: BLE001 — a prompt input must never fail generation
         return {}
     out: dict[str, tuple[float, str, str]] = {}
@@ -888,7 +888,8 @@ def tool_duration_facts(
     of them the CV shows it. Facts only (ADR-062 cl. 1): whole-token name presence and
     date arithmetic. ``cv_data=None`` = no CV exists. ``priority`` (e.g. the ledger's
     claimable concepts) orders matching tools first. ``ceiling_years`` (RULING W-2):
-    the candidate's own largest career figure, carried on every fact. Fail-open: ``[]``."""
+    ``prompt_view.own_career_ceiling`` of the same profile, carried on every fact.
+    Fail-open: ``[]``."""
     if not isinstance(profile_json, dict):
         return []
     try:
