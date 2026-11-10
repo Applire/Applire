@@ -5841,17 +5841,25 @@ async def _apply_page_ladder(
     each ``tailored_data`` write (amendment §2, as the condense loop does).
     Returns the final (text, count, applied cuts)."""
     from applire.services.ats_audit import extract_text_and_pages
-    from applire.services.cv_page_ladder import AUTO_SKILL_FLOOR, ladder_steps, merge_cuts
+    from applire.services.cv_page_ladder import (
+        AUTO_CERT_KEEP, AUTO_SKILL_FLOOR, ladder_steps, merge_cuts, steps_that_paid,
+    )
     from applire.services.cv_section_editor import build_content_snapshot
 
     limit = condense_ctx.target + 1
     before = count
+    tier = condense_ctx.skill_tier
     applied: list = []
+    # Ruling P-1 (build 8): every render, so the cuts that bought no page go back.
+    renders: list[tuple[dict, str, int]] = [(record.tailored_data, text, count)]
     for step in ladder_steps(
-        record.tailored_data, condense_ctx.skill_tier,
+        record.tailored_data, tier,
         pinned=_ladder_pin_predicate(condense_ctx.pins),
         # D-23: the automatic ladder never empties the skills section.
         skill_floor=AUTO_SKILL_FLOOR,
+        # P-1: nor the certifications — the newest stay, and one the posting names.
+        cert_keep=AUTO_CERT_KEEP,
+        cert_protected=(lambda name: tier(name) < 3) if tier is not None else None,
     ):
         if count <= limit:
             break
@@ -5863,6 +5871,15 @@ async def _apply_page_ladder(
         html = await get_cv_html(record.id, db, user_id=record.user_id)
         pdf = await _html_to_pdf(html)
         text, count = extract_text_and_pages(pdf)
+        renders.append((step.data, text, count))
+    kept = steps_that_paid(before, [r[2] for r in renders[1:]], limit)
+    if kept < len(applied):
+        # P-1 part 3: still over the limit — put back the trailing cuts that did
+        # not lower the page count; the card's auto_cuts then names only what stayed.
+        data, text, count = renders[kept]
+        record.tailored_data = data
+        record.content_snapshot = build_content_snapshot(TailoredCVData.model_validate(data))
+        applied = applied[:kept]
     logger.log(
         logging.WARNING if count > limit else logging.INFO,
         "PAGE_LADDER cv_id=%s target=%d pages_before=%d pages_after=%d cuts=%s",
