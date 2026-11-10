@@ -1766,7 +1766,7 @@
         "cv-skills_cap": "Die Skill-Liste ist länger als vorgesehen – am wenigsten passt: {terms}.",
         "cv-skill_duplicate": "Die Skill-Liste nennt dasselbe doppelt: {terms}.",
         "cv-skill_named_in_bullet": "„{term}“ steht in einem Stichpunkt, aber nicht in der Skill-Liste.",
-        "cv-skill_without_bullet": "„{term}“ steht in der Skill-Liste und Dein Profil belegt es in einer Stelle – kein Stichpunkt im Lebenslauf zeigt es.",
+        "cv-skill_without_bullet": "„{term}“ steht in der Skill-Liste oder im Kurzprofil und Dein Profil belegt es in einer Stelle – kein Stichpunkt im Lebenslauf zeigt es.",
         "cv-role_budget": "Bei {term} stehen mehr Stichpunkte als vorgesehen.",
         "cv-page_length": "Der Lebenslauf ist länger als die Zielseitenzahl.",
         "cv-recorded_name": "„{term}“ ist nicht der Name, den Dein Profil dafür führt.",
