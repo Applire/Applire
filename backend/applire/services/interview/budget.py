@@ -76,3 +76,15 @@ def derive_hard_ceiling(
         # opening question; one question is the floor whatever the operator set.
         ceiling = max(min(ceiling, cap), 2)
     return ceiling
+
+
+def answered_question_count(questions_asked: int | None) -> int:
+    """How many questions the person answered, read off the session counter.
+
+    u29 (Hazelnut build 8, the R2-10 class): the counter is 1 the moment the session
+    exists and every answered turn moves it BEFORE the next question is asked (see the
+    module note above), so a finished interview always sits one past what was
+    answered — the end screen said "6 Questions answered" after five. ONE reading for
+    every surface that names a number of answered questions.
+    """
+    return max(int(questions_asked or 0) - 1, 0)
