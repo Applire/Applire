@@ -32,7 +32,18 @@ The rule, in all seven templates:
   travels with them).
 
 Measured on the stored run-8 CVs (Chromium print): rep a v1 4 → 3 pages (page-1
-foot gap 43 % → 23 %), v2 4 → 3 (43 % → 5 %), rep c's projects no longer open a page."""
+foot gap 43 % → 23 %), v2 4 → 3 (43 % → 5 %), rep c's projects no longer open a page.
+
+RU-3 / ruling P-4 (Hazelnut build 8) amends two clauses. With 50–78-word bullets
+(the founder's re-UAT CV) every keep-together unit was ~10 lines tall, and the
+Kreativ template left ~0.8 of a page blank over 5 pages:
+- "short" counts text as well: atomic only at ≤ 3 bullets AND ≤ ``atomic_chars``;
+- a role that is not short keeps its head + FIRST own bullet together;
+- a lead/tail/project lead holding long bullets (``lead-long``) is no longer one
+  unit, a bullet of 6+ lines may break with ≥ 3 lines per page (orphans/widows 3);
+- the nested projects MAY open a page; their sub-label keeps with the project
+  name (D-6), and the project name with its first lines.
+The real-render proof is ``tests/ats/test_page_fill_ru3.py``."""
 from __future__ import annotations
 
 import re
@@ -108,11 +119,68 @@ def test_a_long_roles_tail_opens_when_projects_follow(template):
 
 
 @pytest.mark.parametrize("template", TEMPLATES)
-def test_the_nested_projects_never_open_a_page_alone_in_print(template):
+def test_the_nested_projects_may_open_a_page_with_their_sub_label_in_print(template):
+    """RU-3 / P-4 amends D-35: the projects may open a page; what keeps together is
+    the sub-label with the project name, and the name with its first lines."""
     html = _render(template, own=2, project_bullets=[5])
     css = html[:html.index("</style>")]
     rule = re.search(r"\.entry-projects \{([^}]*)\}", re.sub(r"\.entry-projects \{ margin-top:[^}]*\}", "", css))
-    assert rule and re.search(r"(?<![-\w])break-before:\s*avoid", rule.group(1)), template
+    assert rule and re.search(r"(?<![-\w])break-before:\s*auto", rule.group(1)), template
+    assert not re.search(r"(?<![-\w])break-before:\s*avoid", rule.group(1)), template
     keep = re.search(r"\.project-atomic,\s*\.project-lead \{([^}]*)\}", css)
     assert keep and "break-inside: avoid" in keep.group(1), template
     assert re.search(r"\.entry-tail\.entry-tail-open \{[^}]*break-inside: auto", css), template
+    heads = re.search(r"\.entry-header,\s*\.entry-title,\s*\.entry-subtitle,\s*\.entry-facts,\s*\.project-name \{([^}]*)\}", css)
+    assert heads and re.search(r"(?<![-\w])break-after:\s*avoid", heads.group(1)), template
+
+
+@pytest.mark.parametrize("template", TEMPLATES)
+def test_a_long_bullet_may_break_with_three_lines_each_side(template):
+    css = _render(template, own=1, project_bullets=[])
+    css = css[:css.index("</style>")]
+    rule = re.search(r"\.section \.entry-bullets li \{([^}]*)\}", css)
+    assert rule, template
+    body = rule.group(1)
+    assert "break-inside: auto" in body and "orphans: 3" in body and "widows: 3" in body, template
+    lead = re.search(r"\.entry-lead\.lead-long,\s*\.entry-tail\.lead-long,\s*\.project-lead\.lead-long \{([^}]*)\}", css)
+    assert lead and "break-inside: auto" in lead.group(1), template
+
+
+L = ("Verantwortete Planung, Steuerung und Abnahme eines bereichsübergreifenden Vorhabens mit "
+     "messbarem Ergebnis für Fachbereiche, Betrieb und externe Partner {n}")  # ~150 chars
+
+
+def _render_long(template: str, own: int, project_bullets: list[int], text: str = L) -> str:
+    projects = [TailoredProjectEntry(name=f"Vorhaben {i}", bullets=[text.format(n=100 + 10 * i + j) for j in range(n)])
+                for i, n in enumerate(project_bullets)]
+    cv = TailoredCVData(
+        contact=TailoredContact(name="Erika Muster", location="Köln"), summary="Qualitätsingenieurin.",
+        skills=["SPC"], show_photo=False,
+        work_history=[TailoredWorkEntry(id="w0", company="Firma GmbH", role="Schichtleiterin", start_date="2019-05",
+                                        end_date="2023-11", bullets=[text.format(n=j) for j in range(own)], projects=projects)],
+    )
+    return _jinja_env.get_template(_TEMPLATE_FILES[template]).render(
+        cv=cv, color=_make_color_context("#2b5fa8"), lang="de", labels=cv_labels("de"))
+
+
+@pytest.mark.parametrize("template", TEMPLATES)
+def test_a_three_bullet_role_with_long_text_is_not_one_unit(template):
+    """RU-3: three ~150-char bullets (450 chars) exceed atomic_chars — the role breaks
+    after its head + first bullet; three short bullets stay one unit (#622)."""
+    entry = _work_entry(_render_long(template, own=3, project_bullets=[]))
+    assert "entry-atomic" not in entry[:entry.index(">")], template
+    lead = entry[entry.index('class="entry-lead'):]
+    lead = lead[:lead.index("</ul>")]
+    assert lead.count("<li") == 1, f"{template}: the lead holds the head + FIRST bullet only"
+    short = _work_entry(_render(template, own=3, project_bullets=[]))
+    assert "entry-atomic" in short[:short.index(">")], template
+
+
+@pytest.mark.parametrize("template", TEMPLATES)
+def test_a_lead_or_project_with_a_long_bullet_is_marked_long(template):
+    very = L + " " + L  # ~300+ chars: one bullet of ~6 lines in a narrow column
+    entry = _work_entry(_render_long(template, own=1, project_bullets=[1], text=very))
+    assert 'class="entry-lead lead-long"' in entry, template
+    assert "project-atomic" not in entry, f"{template}: a one-bullet project with a long bullet may break"
+    plain = _work_entry(_render(template, own=2, project_bullets=[5]))
+    assert "lead-long" not in plain, f"{template}: short bullets keep their units"
