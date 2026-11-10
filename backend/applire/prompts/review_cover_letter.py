@@ -643,6 +643,18 @@ _V2_CORRECTOR_RULES = (
     "  [listed only — no role bullet or story states it] may be named in a list of tools or\n"
     "  methods, never narrated as a responsibility, ownership or outcome — also when a review\n"
     "  asks for coverage of it.\n"
+    # 784:134 (Hazelnut build 8, case B of the build-6 delivery): consolidating a
+    # repetition, the last correction wrote the candidate's career-wide "zehn Jahre
+    # ISO-9001-Auditpraxis" into the sentence about the role that started later. The
+    # condense prompt has the employer rule; the corrector had none. Replay of the
+    # captured call (gpt-6-luna, reasoning as captured): flat "zehn Jahre" bound to
+    # the later role 3/5 -> 1/5; Sonnet 0/3 -> 0/5; the ten years dropped 0 in every arm.
+    "- A FIGURE KEEPS WHAT IT COUNTS (784:134): when you merge, shorten or de-duplicate\n"
+    "  sentences, every figure and duration stays attached to what it measured. A figure the\n"
+    "  letter states for the whole career (\"insgesamt\", \"in total\", \"overall\") is never\n"
+    "  written into one employer's or one role's sentence, and a figure stated under one\n"
+    "  employer never moves into another employer's sentence. If joining two sentences would\n"
+    "  change what a figure counts, keep the figure in its own sentence as it stood.\n"
 )
 
 
@@ -653,8 +665,26 @@ def _v2(text: str, old: str, new: str) -> str:
 
 
 V2_REVIEW_SYSTEM_PROMPT = _v2(REVIEW_SYSTEM_PROMPT, _V1_CLOSING_DEMAND, _V2_CLOSING_DEMAND)
+#: 784:142 (Hazelnut build 8; G-2, ADR-057 amended 2026-11-04): the writer is told an
+#: ENDED station grounds no present-tense knowledge of the employer today; the final
+#: review had no sentence for it, and luna's final review let "Ihre Arbeitsweise und
+#: Ihre Systemlandschaft kenne ich daher aus eigener Praxis" (left 2018) pass.
+#: Replay of the captured terminal call: luna blocking 1/6 -> 3/5 (+1 minor), Sonnet
+#: 3/3 blocking; the same letter without the sentence: no Nordlicht finding 0/6.
+_V1_EMPLOYER_FACT_CHECK = (
+    "   or achievements that is in neither ``job_description`` nor ``candidate_record`` (G-2).\n"
+    "   Treat it exactly like an invented candidate fact.\n"
+)
+_V2_EMPLOYER_FACT_CHECK = _V1_EMPLOYER_FACT_CHECK + (
+    "   ``candidate_record`` grounds the PAST: a position marked ``\"ended\": true`` supports\n"
+    "   what the candidate did there, within its dates, never a claim in the present tense\n"
+    "   that they know the employer as it is today — its way of working, its systems, its\n"
+    "   team (\"Ihre Arbeitsweise kenne ich aus eigener Praxis\", \"I know your platform\").\n"
+    "   Flag such a sentence here; the remedy is to state the past work with its dates.\n"
+)
 V2_TERMINAL_REVIEW_SYSTEM_PROMPT = _v2(
-    TERMINAL_REVIEW_SYSTEM_PROMPT, _V1_CLOSING_DEMAND, _V2_CLOSING_DEMAND
+    _v2(TERMINAL_REVIEW_SYSTEM_PROMPT, _V1_CLOSING_DEMAND, _V2_CLOSING_DEMAND),
+    _V1_EMPLOYER_FACT_CHECK, _V2_EMPLOYER_FACT_CHECK,
 )
 V2_COVER_LETTER_REFINEMENT_PROMPT = _v2(
     COVER_LETTER_REFINEMENT_PROMPT, _V1_CORRECTOR_ANCHOR, _V2_CORRECTOR_RULES + _V1_CORRECTOR_ANCHOR
