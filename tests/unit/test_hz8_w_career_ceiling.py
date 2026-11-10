@@ -31,7 +31,31 @@ def test_both_directions_on_the_felix_shape():
     ceiling = own_career_ceiling(_profile("Backend engineer with 8 years of experience."))
     assert span_above_career(9.4, ceiling) is True
     assert span_above_career(5.7, ceiling) is False
-    assert span_above_career(8.0, ceiling) is False
+    assert span_above_career(7.9, ceiling) is False
+
+
+def test_a_span_equal_to_the_career_figure_gets_no_duration():
+    """ADV-2 (build 8 adversarial pass): the only wording for a span of exactly 8.0
+    years is "über 8 Jahre", which reads as more than the candidate's own "8 years"
+    just as 8.6 does. At or above the figure: no duration."""
+    ceiling = own_career_ceiling(_profile("Backend engineer with 8 years of experience."))
+    assert span_above_career(8.0, ceiling) is True
+
+
+def test_two_summary_languages_that_disagree_give_the_smaller_career_figure():
+    """ADV-2: the DE summary says 8 years, the EN one 10. The largest figure across
+    both let the German CV offer "über 9 Jahre PostgreSQL" beside its own "8 Jahren"
+    (the 786:226 case). The career figure is the largest WITHIN one summary and the
+    smallest ACROSS the languages, so no document shows a span above its own figure."""
+    p = {"professional_summary": {
+        "de": "Backend-Entwickler mit 8 Jahren Erfahrung, davon 3 Jahre in Zahlungssystemen.",
+        "en": "Backend engineer with 10 years of experience, including my apprenticeship.",
+    }}
+    assert own_career_ceiling(p) == 8.0
+    assert span_above_career(9.4, own_career_ceiling(p)) is True
+    only_en = {"professional_summary": {"de": "Backend-Entwickler für Zahlungssysteme.",
+                                        "en": "Backend engineer with 10 years of experience."}}
+    assert own_career_ceiling(only_en) == 10.0
 
 
 def test_no_own_career_figure_means_no_ceiling_and_no_cut():

@@ -1476,7 +1476,7 @@ def cv_durations_block(
     """The EXPERIENCE DURATIONS block for the v2 writer and its review loop.
     ``""`` when the profile states no duration and no tool has a span of a year.
 
-    RULING W-2 (founder, career ceiling): a tool's computed span ABOVE the
+    RULING W-2 (founder, career ceiling): a tool's computed span AT OR ABOVE the
     candidate's own career figure (``prompt_view.own_career_ceiling``, the one
     producer the letter reads too) gets no duration — "9 years of PostgreSQL" beside
     the candidate's "8 years of experience" reads as an inconsistency to a hiring

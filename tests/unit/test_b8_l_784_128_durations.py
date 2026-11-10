@@ -74,3 +74,81 @@ def test_the_finding_is_blocking_in_the_v2_checks_and_names_the_own_figure():
                            language="de")(letter)
     dur = [c for c in checks if c.check == "letter.duration"]
     assert len(dur) == 1 and dur[0].blocking
+
+
+# ── ADV-1 (build 8 adversarial pass): a duration a SOURCE carries is not unbacked ──
+# The check fired on durations that are not the candidate's claim (the employer's
+# age, the posting's bar) and on durations the profile's own dates carry (one role,
+# one training). The fact is still the NUMBER: a duration no source the loop reads
+# states and no single dated entry spans (ADR-062 cl. 1).
+
+POSTING = ("Die Nordwerk GmbH ist seit über 30 Jahren ein verlässlicher Partner der Industrie. "
+           "Sie bringen mindestens 2 Jahre Berufserfahrung im Einkauf mit.")
+
+DATED = {
+    "personal_info": {"name": "Lena Beispiel", "email": "lb@example.com"},
+    "professional_summary": {"de": "Industriekauffrau mit Schwerpunkt Einkauf.", "en": None},
+    "work_experience": [
+        _w("w1", "Nordwerk GmbH", "2019-01", "2022-08"),          # 3.67 years: 3 / "knapp 4"
+        _w("w2", "Südhaus AG", "2012-08", "2018-12"),             # 6.42 years: 6
+    ],
+    "education": [{"institution": "IHK München", "degree": "Industriekauffrau",
+                   "start_date": "2009-08", "end_date": "2012-07"}],  # 3.0 years
+    "skills": [],
+}
+
+
+@pytest.mark.parametrize("sentence", [
+    "Ihr Unternehmen ist seit über 30 Jahren ein verlässlicher Partner der Industrie.",
+    "Die geforderten mindestens 2 Jahre Berufserfahrung im Einkauf bringe ich mit.",
+])
+def test_a_duration_the_posting_states_is_not_unbacked(sentence):
+    assert unbacked_letter_durations(_l(sentence), DATED, sources_text=POSTING) == []
+    # the control: without the source the same sentence is found
+    assert len(unbacked_letter_durations(_l(sentence), DATED)) == 1
+
+
+@pytest.mark.parametrize("sentence", [
+    "Nach meiner dreijährigen Ausbildung bei der IHK München wechselte ich in den Einkauf.",
+    "In drei Jahren bei der Nordwerk GmbH verantwortete ich den strategischen Einkauf.",
+    "In knapp vier Jahren bei der Nordwerk GmbH baute ich den Lieferantenstamm auf.",
+    "Sechs Jahre lang arbeitete ich bei der Südhaus AG im operativen Einkauf.",
+])
+def test_a_duration_one_dated_entry_spans_is_not_unbacked(sentence):
+    assert unbacked_letter_durations(_l(sentence), DATED) == []
+
+
+@pytest.mark.parametrize("sentence,years", [
+    ("Ich bringe zehn Jahre Erfahrung im Einkauf mit.", 10.0),     # w1 + w2 added up: never
+    ("Sieben Jahre lang arbeitete ich bei der Südhaus AG.", 7.0),  # 6.42 is not "sieben"
+    ("Ich bringe zwölf Jahre Erfahrung im Einkauf mit.", 12.0),
+])
+def test_a_sum_across_entries_or_a_rounded_up_span_is_still_found(sentence, years):
+    found = unbacked_letter_durations(_l(sentence), DATED, sources_text=POSTING)
+    assert [f["years"] for f in found] == [years]
+
+
+def test_an_entry_without_a_readable_end_carries_no_duration():
+    """A start with neither an end date nor ``is_current`` is no span; a current
+    entry runs to today (date arithmetic, never a guess)."""
+    open_end = dict(DATED, work_experience=[], education=[
+        {"institution": "IHK München", "degree": "Industriekauffrau", "start_date": "2009-08"}])
+    s = _l("Nach meiner dreijährigen Ausbildung wechselte ich in den Einkauf.")
+    assert [f["years"] for f in unbacked_letter_durations(s, open_end)] == [3.0]
+    from datetime import date
+    start = f"{date.today().year - 2}-01"
+    current = dict(DATED, education=[], work_experience=[
+        dict(_w("w9", "Nordwerk GmbH", start, None), is_current=True)])
+    s2 = _l("Seit zwei Jahren verantworte ich bei der Nordwerk GmbH den Einkauf.")
+    assert unbacked_letter_durations(s2, current) == []
+
+
+def test_the_checks_fn_passes_the_sources_through():
+    letter = _l("Sehr geehrte Damen und Herren,",
+                "Ihr Unternehmen ist seit über 30 Jahren ein verlässlicher Partner der Industrie.",
+                "Ich freue mich auf ein Gespräch und stehe gern zur Verfügung.")
+    kw = dict(profile_json=DATED, keyword_ledger=[], denied_concepts=[], language="de")
+    with_src = _v2_checks_fn(lambda d: d, sources_text=POSTING, **kw)(letter)
+    without = _v2_checks_fn(lambda d: d, **kw)(letter)
+    assert [c for c in with_src if c.check == "letter.duration"] == []
+    assert len([c for c in without if c.check == "letter.duration"]) == 1

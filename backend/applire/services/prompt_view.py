@@ -633,25 +633,36 @@ def own_career_ceiling(profile_json: dict[str, Any] | None) -> float | None:
     in their own professional summary ("Backend engineer with 8 years of experience").
 
     ONE producer for the CV and the letter, so the two never disagree: a tool's
-    computed span ABOVE this figure gets no duration (the tool is still named), every
-    computed span at or below it keeps its R-3 hedge. No own career figure means no
+    computed span AT OR ABOVE this figure gets no duration (the tool is still named),
+    every computed span below it keeps its R-3 hedge. No own career figure means no
     ceiling and no cut. Only the summary counts — a role line's "seit zwei Jahren
     fachliche Führung" is a figure about that role, never the career. A FACT
     (ADR-062 cl. 1): a figure lookup, fail-open ``None``.
+
+    The summary exists per language (``professional_summary.de`` / ``.en``). Within
+    one language the career is the LARGEST figure ("7 years of acute care, including
+    4 in intensive care"); when the two languages state different figures the
+    SMALLER one is the ceiling (W-2c, build 8 adversarial pass ADV-2), so a document
+    in either language never shows a span above the figure it prints itself.
     """
     try:
-        figures = [
-            o["years"] for o in own_duration_statements(profile_json or {})
-            if str(o.get("path", "")).startswith("professional_summary")
-        ]
+        per_language: dict[str, float] = {}
+        for o in own_duration_statements(profile_json or {}):
+            path = str(o.get("path", ""))
+            if path.startswith("professional_summary"):
+                per_language[path] = max(per_language.get(path, 0.0), float(o["years"]))
     except Exception:  # noqa: BLE001 — fail-open: no ceiling is the pre-W-2 behaviour
         return None
-    return max(figures) if figures else None
+    return min(per_language.values()) if per_language else None
 
 
 def span_above_career(years: float, ceiling: float | None) -> bool:
-    """RULING W-2: True when a tool's computed span lies ABOVE the candidate's own
-    career figure (:func:`own_career_ceiling`) — that tool gets no duration in the CV
-    or the letter. ``ceiling=None`` (no own career figure) never cuts. One comparison
-    for both documents (ADR-066)."""
-    return ceiling is not None and float(years) > float(ceiling)
+    """RULING W-2: True when a tool's computed span lies AT OR ABOVE the candidate's
+    own career figure (:func:`own_career_ceiling`) — that tool gets no duration in the
+    CV or the letter. ``ceiling=None`` (no own career figure) never cuts. One
+    comparison for both documents (ADR-066).
+
+    At, not only above (W-2c, ADV-2): the hedge of a span of exactly 8.0 years is
+    "über 8 Jahre" (:func:`span_hedges`), which reads as more than the candidate's
+    own "8 years" just as 8.6 does."""
+    return ceiling is not None and float(years) >= float(ceiling)

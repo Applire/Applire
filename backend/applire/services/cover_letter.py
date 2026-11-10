@@ -2404,6 +2404,8 @@ async def _render_cover_letter_body(
                         language=detected_language,
                         availability_given=availability_given,
                         named_gaps=named_concepts,
+                        # ADV-1: the posting + this application's inputs.
+                        sources_text=_letter_duration_sources(pre_gen, jd_excerpt),
                     )
                     if is_v2
                     else None
@@ -2599,6 +2601,7 @@ async def _render_cover_letter_body(
                     pipeline=pipeline,
                     v2_signal_fn=v2_signal_fn,
                     availability_given=availability_given,
+                    duration_sources=_letter_duration_sources(pre_gen, jd_excerpt),
                 )
                 pin_floor_hits |= tr.pin_floor_hits
                 letter_data = tr.draft
@@ -2708,6 +2711,7 @@ async def _render_cover_letter_body(
                         pipeline=pipeline,
                         v2_signal_fn=v2_signal_fn,
                         availability_given=availability_given,
+                        duration_sources=_letter_duration_sources(pre_gen, jd_excerpt),
                     )
                     pdf_bytes, measured = tr.pdf_bytes, tr.measured
                     # Fold, never replace — the report call at the TOP of this loop
@@ -3136,9 +3140,14 @@ def _letter_v2_findings(
     denied_concepts: list | None,
     availability_given: bool = True,
     named_gaps: list[str] | None = None,
+    sources_text: str | None = None,
 ) -> list[LetterFinding]:
     """Every v2 deterministic finding except the language one (which has its own
     fact, block and ATS row in ``services/letter_v2``).
+
+    ``sources_text`` (ADV-1): :func:`_letter_duration_sources` — a duration the
+    posting or the candidate's input for this application states is not an unbacked
+    duration. ``None`` keeps a caller without it on the profile-only reading.
 
     ``availability_given`` (784:L31): whether this letter has an availability input
     (the typed ``availability`` or the vault's availability testimony). Without one,
@@ -3193,7 +3202,9 @@ def _letter_v2_findings(
         # TOOL DURATIONS line allows (W-2 ceiling applied) — BLOCKING, never a rewrite.
         from applire.services.letter_v2 import duration_finding_text, unbacked_letter_durations
 
-        durations = unbacked_letter_durations(letter_data, profile_json or {})
+        durations = unbacked_letter_durations(
+            letter_data, profile_json or {}, sources_text=sources_text,
+        )
         if durations:
             out.append(LetterFinding(
                 "duration", duration_finding_text(durations, profile_json or {}),
@@ -3220,7 +3231,8 @@ _V2_ADVISORY_FAMILIES = frozenset({"figure", "limit"})
 
 
 def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, language,
-                  availability_given: bool = True, named_gaps: list[str] | None = None):
+                  availability_given: bool = True, named_gaps: list[str] | None = None,
+                  sources_text: str | None = None):
     """ADR-094 clause L4 through W1's findings interface (``review_and_refine``'s
     ``checks_fn``): every v2 letter finding as a ``CheckFinding`` on the COMPOSED
     draft of the round. Language, salutation, sign-off and closing are BLOCKING
@@ -3256,6 +3268,7 @@ def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, 
             composed, profile_json=profile_json,
             keyword_ledger=keyword_ledger, denied_concepts=denied_concepts,
             availability_given=availability_given, named_gaps=named_gaps,
+            sources_text=sources_text,
         ):
             if per_family.get(f.family, 0) >= _V2_FINDINGS_PER_FAMILY:
                 continue
@@ -3267,6 +3280,24 @@ def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, 
         return out
 
     return fn
+
+
+def _letter_duration_sources(pre_gen: dict | None, jd_excerpt: str | None) -> str:
+    """ADV-1 (build 8 adversarial pass): the text OUTSIDE the vault a letter may take
+    a duration from — the posting excerpt the writer read ("seit über 30 Jahren am
+    Markt", "mindestens 2 Jahre Erfahrung") and what the candidate entered for this
+    application. Deliberately not the whole ``grounding_source``: its CV and ledger
+    blocks can carry computed spans, and R-3 / W-2 say the letter reads a span from
+    TOOL DURATIONS only. The vault's own durations reach the check through
+    ``letter_v2.unbacked_letter_durations`` (own statements, tool wordings, dates)."""
+    parts: list[str] = [jd_excerpt] if isinstance(jd_excerpt, str) and jd_excerpt else []
+    for key in ("motivation", "salary", "availability"):
+        value = (pre_gen or {}).get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value)
+        elif value and not isinstance(value, str):
+            parts.append(json.dumps(value, ensure_ascii=False))
+    return "\n".join(parts)
 
 
 def _v2_delivery_notes(findings: list[LetterFinding]) -> tuple:
@@ -3545,6 +3576,7 @@ async def _terminal_review_letter(
     pipeline: str = "v1",
     v2_signal_fn=None,
     availability_given: bool = True,
+    duration_sources: str | None = None,
 ) -> LetterTerminalReviewResult:
     """ADR-076 clause 3 (#539; amended 2026-08-29 for the #547 residual): the
     letter's TERMINAL review — the verdict that closes over the COMPOSED
@@ -3895,6 +3927,7 @@ async def _terminal_review_letter(
                     denied_concepts=denied_concepts,
                     availability_given=availability_given,
                     named_gaps=named_gaps,
+                    sources_text=duration_sources,
                 )
             )
             # 784:134 / 784:82: a figure no source states that a step after the drafting

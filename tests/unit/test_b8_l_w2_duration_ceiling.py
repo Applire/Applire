@@ -50,7 +50,7 @@ def test_a_hedge_over_the_ceiling_gets_no_duration():
     assert pg.years >= 10 and pg.over_ceiling
     assert pg.allowed_wordings("en") == [] and pg.allowed_wordings("de") == []
     line = _line(render_tool_durations_block(facts, "en"), "PostgreSQL")
-    assert "longer than the 8 years the candidate states" in line and "state NO duration" in line
+    assert "not shorter than the 8 years the candidate states" in line and "state NO duration" in line
 
 
 def test_a_hedge_below_the_ceiling_stays():
@@ -61,7 +61,8 @@ def test_a_hedge_below_the_ceiling_stays():
 
 def test_the_raw_span_is_compared_not_the_hedge_floor():
     """Main's ruling on W-2: 8.6 computed years beside the candidate's own 8 is above
-    it — no duration, not even "über 8 Jahre"; exactly 8.0 is not above it."""
+    it — no duration, not even "über 8 Jahre". W-2c (ADV-2): exactly 8.0 gets none
+    either, its only wording is "über 8 Jahre"; 7.6 keeps its hedge."""
     from applire.services.letter_v2 import ToolDuration
 
     def t(years):
@@ -69,7 +70,8 @@ def test_the_raw_span_is_compared_not_the_hedge_floor():
                             cv_positions=("a",), has_cv=True, ceiling_years=8)
 
     assert t(8.6).allowed_wordings("de") == [] and t(8.6).over_ceiling
-    assert t(8.0).allowed_wordings("de") == ["über 8 Jahre"]
+    assert t(8.0).allowed_wordings("de") == [] and t(8.0).over_ceiling
+    assert t(7.6).allowed_wordings("de") == ["über 7 Jahre", "knapp 8 Jahre"]
 
 
 def test_no_ceiling_leaves_r3_unchanged():
@@ -212,7 +214,7 @@ async def test_seam_v2_writer_block_carries_the_own_career_ceiling(db, monkeypat
     monkeypatch.setenv("PROMPT_CONTEXT", "off")
     prompt = await _writer_prompt(db, "Engineer with 8 years of experience in logistics software.")
     pg = _line(prompt, "PostgreSQL")
-    assert "longer than the 8 years the candidate states" in pg and "state NO duration" in pg
+    assert "not shorter than the 8 years the candidate states" in pg and "state NO duration" in pg
     assert '"over 4 years"' in _line(prompt, "Django")
 
 
