@@ -52,6 +52,10 @@ from applire.services.color_detection import _make_color_context
 
 _DEFAULT_COLOR = _make_color_context("#2b5fa8")
 
+# 786:180 (Hazelnut build 8): the template-picker sample is shipped content — no real
+# employer or institution names (public surfaces stay free of pharma positioning),
+# and the German sample is German throughout. Pinned by
+# tests/ats/test_thumbnail_sample_786_180.py.
 _SAMPLE_DATA = TailoredCVData(
     contact=TailoredContact(
         name="Anna Bauer",
@@ -59,14 +63,17 @@ _SAMPLE_DATA = TailoredCVData(
         phone="+49 89 123456",
         location="München",
     ),
-    summary="Erfahrene Senior Software Ingenieurin mit 8 Jahren Erfahrung in Python, FastAPI und PostgreSQL.",
+    summary="Softwareentwicklerin mit 8 Jahren Erfahrung in Python, FastAPI und PostgreSQL.",
     work_history=[
         TailoredWorkEntry(
-            company="Varena GmbH",
-            role="Senior Software Engineer",
+            company="Musterfirma GmbH",
+            role="Senior-Softwareentwicklerin",
             start_date="Jan 2019",
             end_date=None,
-            bullets=["Led backend architecture redesign", "Mentored junior engineers"],
+            bullets=[
+                "Backend-Architektur neu aufgebaut",
+                "Zwei Nachwuchsentwicklerinnen eingearbeitet und begleitet",
+            ],
             projects=[
                 TailoredProjectEntry(
                     name="Plattform-Migration",
@@ -75,17 +82,17 @@ _SAMPLE_DATA = TailoredCVData(
             ],
         ),
         TailoredWorkEntry(
-            company="Novartis AG",
-            role="Software Engineer",
+            company="Beispiel AG",
+            role="Softwareentwicklerin",
             start_date="Mär 2016",
             end_date="Dez 2018",
-            bullets=["Developed REST APIs with FastAPI", "Maintained PostgreSQL databases"],
+            bullets=["REST-Schnittstellen mit FastAPI entwickelt", "PostgreSQL-Datenbanken betreut"],
         ),
     ],
     skills=["Python", "FastAPI", "PostgreSQL", "Docker", "SQLAlchemy", "Git", "CI/CD"],
     education=[
         TailoredEducationEntry(
-            institution="TU München",
+            institution="Hochschule Musterstadt",
             degree="MSc",
             field="Informatik",
             start_date="2014",
