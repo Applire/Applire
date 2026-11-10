@@ -625,3 +625,33 @@ def own_duration_statements(profile_json: Any) -> list[dict[str, Any]]:
             })
     out.sort(key=lambda d: -d["years"])
     return out
+
+
+def own_career_ceiling(profile_json: dict[str, Any] | None) -> float | None:
+    """The candidate's own career figure in years, or ``None`` (RULING W-2, founder,
+    Hazelnut build 8 — 786:190 / 786:226): the largest duration the candidate states
+    in their own professional summary ("Backend engineer with 8 years of experience").
+
+    ONE producer for the CV and the letter, so the two never disagree: a tool's
+    computed span ABOVE this figure gets no duration (the tool is still named), every
+    computed span at or below it keeps its R-3 hedge. No own career figure means no
+    ceiling and no cut. Only the summary counts — a role line's "seit zwei Jahren
+    fachliche Führung" is a figure about that role, never the career. A FACT
+    (ADR-062 cl. 1): a figure lookup, fail-open ``None``.
+    """
+    try:
+        figures = [
+            o["years"] for o in own_duration_statements(profile_json or {})
+            if str(o.get("path", "")).startswith("professional_summary")
+        ]
+    except Exception:  # noqa: BLE001 — fail-open: no ceiling is the pre-W-2 behaviour
+        return None
+    return max(figures) if figures else None
+
+
+def span_above_career(years: float, ceiling: float | None) -> bool:
+    """RULING W-2: True when a tool's computed span lies ABOVE the candidate's own
+    career figure (:func:`own_career_ceiling`) — that tool gets no duration in the CV
+    or the letter. ``ceiling=None`` (no own career figure) never cuts. One comparison
+    for both documents (ADR-066)."""
+    return ceiling is not None and float(years) > float(ceiling)
