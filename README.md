@@ -275,7 +275,7 @@ MISTRAL_MODEL=mistral-small-latest
 
 For another provider, change the prefix: `LLM_PROVIDER=openrouter` goes with `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`, and so on for `requesty`, `anthropic` and `openai`; `ollama` needs no key (`OLLAMA_MODEL` only). The model line is optional — every provider has a default — and [docs/llm-models.md](docs/llm-models.md) helps you choose. You do not need to read the rest of `.env.example` to start.
 
-Access the application at **http://localhost** — the bundled nginx reverse proxy serves the frontend and routes `/api/*` to the backend. Port 80 is the only one you need to publish; the backend and frontend containers stay internal. For the full entry-point and port topology, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Access the application at **http://localhost** — the bundled nginx reverse proxy serves the frontend and routes `/api/*` to the backend. Port 80 is the only one you need to publish; the backend and frontend containers stay internal. If port 80 is already taken on your machine, set `APPLIRE_HTTP_PORT=8080` in `.env`, open `http://localhost:8080`, and include the port in `APPLIRE_BASE_URL`. For the full entry-point and port topology, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 **Check that it is up.** `docker compose up -d` returns before the backend has finished starting (the database migrations run first; give the first start about a minute). Then ask the backend through nginx:
 
@@ -393,7 +393,7 @@ LLM_PROVIDER=mistral
 
 # Mistral AI — EU-hosted, strong German proficiency
 MISTRAL_API_KEY=your-mistral-api-key-here
-MISTRAL_MODEL=mistral-medium-latest
+MISTRAL_MODEL=mistral-small-latest
 
 # Requesty — EU-hosted gateway (Frankfurt); also an EU-resident path to Claude/GPT/Gemini
 REQUESTY_API_KEY=your-requesty-api-key-here
@@ -402,7 +402,7 @@ REQUESTY_MODEL=mistral/mistral-medium-3-5   # EU-region model for full residency
 # OpenRouter — multi-model gateway: one key for Mistral, Claude, and more (not EU-hosted)
 # Get a key at https://openrouter.ai/keys
 OPENROUTER_API_KEY=your-openrouter-api-key-here
-OPENROUTER_MODEL=mistralai/mistral-medium-3
+OPENROUTER_MODEL=mistralai/mistral-medium-3-5
 
 # Anthropic (Claude) — native API, BYO-API-key only (a Claude subscription cannot be used)
 # Model names move fast: take a current id from Anthropic's model list rather than

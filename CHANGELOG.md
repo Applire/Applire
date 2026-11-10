@@ -43,8 +43,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **The page card names the one-page tolerance** (founder re-UAT RU-4): „Von sich aus kürzt Applire nur bis auf eine Seite über Deinem Ziel, hier 4 Seiten.“ It says so when even that was not reached.
 - **The template-picker sample uses invented companies and German throughout** (786:180).
 
+### Install and upgrade
+- **The upgrade notice names the right release for two settings.** `APPLIRE_HTTP_PORT` and the changed meaning of `LOG_LEVEL` shipped with 0.45.0-beta but were labelled 1.0.0. The notice would have listed them again after every update until a 1.0.0 existed. `.env.example` now reads `since: 0.45.0` and `meaning changed in: 0.45.0`.
+- **README: the configuration example shows the shipped model defaults** (`mistral-small-latest`, `mistralai/mistral-medium-3-5`); it had drifted from `.env.example`. The install section says what to set when port 80 is taken (`APPLIRE_HTTP_PORT`), and the German README states the download size of the first pull. Found by the pre-release install test.
+
 ### Upgrade notes
-- **None.** No setting was added, removed or given a new meaning, no migration runs, `docker-compose.yml` and `.env.example` are unchanged, and the MCP tools keep their names, parameters and types.
+- **None.** No setting was added, removed or given a new meaning, and no migration runs. `docker-compose.yml` is unchanged; `.env.example` changes two comment lines (the release labels above), no variable. The MCP tools keep their names, parameters and types.
 
 ## [0.45.0-beta] – 2026-11-09 (Hazelnut builds 2–7, interim release)
 

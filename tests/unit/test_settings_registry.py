@@ -286,6 +286,24 @@ def test_interview_question_cap_defaults_match_their_imported_constants():
     )
 
 
+def test_no_release_label_is_later_than_the_release_being_shipped():
+    # APPLIRE_HTTP_PORT and LOG_LEVEL's changed meaning shipped in 0.45.0-beta
+    # labelled "1.0.0". `compute_upgrade_notice` lists a setting while its label
+    # is later than the operator's last-seen release, so both would have been
+    # reported as new after every update until a 1.0.0 existed. A label names a
+    # release that exists: never one after the version in pyproject.toml.
+    pyproject = (_BACKEND_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    shipping = parse_release(re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1))
+    assert shipping is not None
+    later: list[str] = []
+    for entry in all_settings():
+        for label in (entry.introduced_in, entry.semantics_changed_in):
+            release = parse_release(label)
+            if release is not None and release > shipping:
+                later.append(f"{entry.env_var}: {label}")
+    assert not later, "\n".join(later)
+
+
 # ===========================================================================
 # 6. compute_upgrade_notice behaviour — one property per test, hand-built
 #    registry so these do not depend on the real 74 entries' current shape.

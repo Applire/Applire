@@ -247,7 +247,7 @@ APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp
 ### Voraussetzungen
 
 - **Docker & Docker Compose**
-- **Etwa 8 GB freier Speicherplatz und 2 GB RAM** (plane 4 GB RAM ein, wenn sich mehrere Personen die Instanz teilen). Die vier Images belegen nach dem Pull etwa 5,2 GB: allein das Backend rund 4 GB, weil es das Chromium zum Erzeugen deiner PDFs mitbringt, dazu etwa 0,6 GB für PostgreSQL, 0,4 GB für das Frontend und 0,1 GB für nginx. Ein Update behält die alten Images, bis du sie aufräumst ([docs/SELF-HOSTING.md](docs/SELF-HOSTING.md#9-disk-and-pruning), auf Englisch). Der Stack braucht im Leerlauf etwa 0,5 GB RAM; jedes PDF-Rendering startet zusätzlich ein Headless-Chromium. Ein lokales Modell mit Ollama braucht von beidem mehr.
+- **Etwa 8 GB freier Speicherplatz und 2 GB RAM** (plane 4 GB RAM ein, wenn sich mehrere Personen die Instanz teilen). Der erste `docker compose pull` lädt etwa 1,3 GB herunter (komprimiert; davon das Backend etwa 1,1 GB), und die vier Images belegen entpackt etwa 5,2 GB: allein das Backend rund 4 GB, weil es das Chromium zum Erzeugen deiner PDFs mitbringt, dazu etwa 0,6 GB für PostgreSQL, 0,4 GB für das Frontend und 0,1 GB für nginx. Ein Update behält die alten Images, bis du sie aufräumst ([docs/SELF-HOSTING.md](docs/SELF-HOSTING.md#9-disk-and-pruning), auf Englisch). Der Stack braucht im Leerlauf etwa 0,5 GB RAM; jedes PDF-Rendering startet zusätzlich ein Headless-Chromium. Ein lokales Modell mit Ollama braucht von beidem mehr.
 - **Ein LLM-Anbieter deiner Wahl** (eigener Schlüssel): Mistral, Requesty, OpenRouter, Anthropic, OpenAI (oder jeder OpenAI-kompatible Endpunkt) oder Ollama (lokal/kostenlos, kein Schlüssel nötig)
 
 ### Self-Hosting (kein Klonen nötig)
@@ -287,7 +287,7 @@ MISTRAL_MODEL=mistral-small-latest
 
 Für einen anderen Anbieter änderst du das Präfix: `LLM_PROVIDER=openrouter` gehört zu `OPENROUTER_API_KEY` und `OPENROUTER_MODEL`, ebenso `requesty`, `anthropic` und `openai`; `ollama` braucht keinen Schlüssel (nur `OLLAMA_MODEL`). Die Modellzeile ist optional — jeder Anbieter hat einen Standard — und [docs/llm-models.md](docs/llm-models.md) hilft bei der Wahl. Den Rest von `.env.example` musst du zum Start nicht lesen.
 
-Rufe die Anwendung unter **http://localhost** auf — der mitgelieferte nginx-Reverse-Proxy liefert das Frontend aus und leitet `/api/*` an das Backend weiter. Nur Port 80 muss veröffentlicht werden; die Backend- und Frontend-Container bleiben intern. Die vollständige Einstiegspunkt- und Port-Topologie findest du in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Rufe die Anwendung unter **http://localhost** auf — der mitgelieferte nginx-Reverse-Proxy liefert das Frontend aus und leitet `/api/*` an das Backend weiter. Nur Port 80 muss veröffentlicht werden; die Backend- und Frontend-Container bleiben intern. Ist Port 80 auf deinem Rechner schon belegt, setze `APPLIRE_HTTP_PORT=8080` in der `.env`, öffne `http://localhost:8080` und nimm den Port in `APPLIRE_BASE_URL` auf. Die vollständige Einstiegspunkt- und Port-Topologie findest du in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 **Prüfe, ob es läuft.** `docker compose up -d` kehrt zurück, bevor das Backend fertig gestartet ist (zuerst laufen die Datenbank-Migrationen; rechne beim ersten Start mit etwa einer Minute). Frage dann das Backend über nginx:
 
@@ -407,7 +407,7 @@ LLM_PROVIDER=mistral
 
 # Mistral AI — EU-gehostet, starke Deutschkenntnisse
 MISTRAL_API_KEY=your-mistral-api-key-here
-MISTRAL_MODEL=mistral-medium-latest
+MISTRAL_MODEL=mistral-small-latest
 
 # Requesty — EU-gehostetes Gateway (Frankfurt); zugleich ein EU-residenter Weg zu Claude/GPT/Gemini
 REQUESTY_API_KEY=your-requesty-api-key-here
@@ -416,7 +416,7 @@ REQUESTY_MODEL=mistral/mistral-medium-3-5   # EU-Region-Modell für volle Datenr
 # OpenRouter — Multi-Modell-Gateway: ein Schlüssel für Mistral, Claude und mehr (nicht EU-gehostet)
 # Schlüssel unter https://openrouter.ai/keys
 OPENROUTER_API_KEY=your-openrouter-api-key-here
-OPENROUTER_MODEL=mistralai/mistral-medium-3
+OPENROUTER_MODEL=mistralai/mistral-medium-3-5
 
 # Anthropic (Claude) — native API, nur mit eigenem API-Schlüssel (ein Claude-Abo ist nicht nutzbar)
 ANTHROPIC_API_KEY=your-anthropic-api-key-here
