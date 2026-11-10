@@ -1011,3 +1011,114 @@ def letter_figure_findings(letter_data: dict[str, Any], profile: Any) -> list[di
             )
         findings.extend(dropped)
     return findings
+
+
+# ── 784:134 / 784:82: a figure no source states, introduced after review ────
+#: A bare scale word ("Millionen" in "6 Millionen") is the magnitude of the digit
+#: before it, not a figure of its own; the digit is compared instead.
+_SCALE_WORDS = frozenset(_SCALES)
+#: Every digit run in a source text, whatever follows it ("1.8s", "240ms", "40k"):
+#: the source side is read generously so that a form the extractor cannot parse
+#: never manufactures an "unsourced" figure.
+_LOOSE_DIGITS_RE = re.compile(r"(?<![\d.,])\d+(?:[.,]\d+)?")
+
+
+def _new_figure_candidates(text: str) -> list[LetterFigure]:
+    """The letter-side figures of :func:`introduced_unsourced_figures`: durations
+    INCLUDED (a "zehn Jahre" a step adds is a figure like any other), calendar
+    years and identifiers excluded, bare scale words dropped."""
+    return [
+        f for f in _quantity_figures(_fold_punct(text))
+        if f.raw.strip().lower() not in _SCALE_WORDS
+    ]
+
+
+def _source_figure_keys(texts) -> set[tuple[str, str]]:
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    keys: set[tuple[str, str]] = set()
+    for text in texts:
+        if not isinstance(text, str) or not text:
+            continue
+        folded = _fold_punct(text)
+        keys |= {(f.kind, f.value) for f in _digit_figures(folded) + _spelled_figures(folded)}
+        keys |= {
+            ("percent" if f.kind == "percent" else "number", f.value)
+            for f in extract_figures(folded)
+        }
+        keys |= {("number", _canon(m.group(0))) for m in _LOOSE_DIGITS_RE.finditer(folded)}
+    return keys
+
+
+def _sourced(key: tuple[str, str], source_keys: set[tuple[str, str]]) -> bool:
+    """A percentage needs a percentage in the source (an LTIF of 8,2 is not 8,2 %);
+    any other figure needs its digits — every digit run of the source is a number key,
+    so a number a source states as a percentage, with a glued unit or a multiplier
+    is sourced too."""
+    kind, value = key
+    return ("percent" if kind == "percent" else "number", value) in source_keys
+
+
+def _body_paragraphs(letter_data: dict[str, Any] | None) -> list[str]:
+    body = (letter_data or {}).get("body") or {}
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    return [p for p in paragraphs or [] if isinstance(p, str)]
+
+
+def introduced_unsourced_figures(
+    reference: dict[str, Any] | None,
+    draft: dict[str, Any] | None,
+    sources,
+) -> list[dict[str, Any]]:
+    """784:134 / 784:82 (Hazelnut build 8, ADR-076 cl. 3 amended): every figure in
+    ``draft``'s body that ``reference``'s body does not carry AND that no text in
+    ``sources`` states. One entry per value: ``raw``, ``kind``, ``value``,
+    ``sentence``, ``paragraph_index``.
+
+    ADR-062 classification: FACT — token presence and the closed canonicalisation
+    (digit grouping, decimal separator; the Oracle's multiplier folding on the
+    source side). Nothing reads what the sentence means: a figure a source states
+    in ANY form, or the reference draft already carried, is out of scope, so a
+    derived claim the writer drafted (and the drafting loop reviewed) never fires
+    it. What it catches is the step that mints a number — the condense's "latency
+    by 92 %" (784:82, D1 Ministral) and the corrector's LTIF written as a percentage.
+
+    Measured before building on it (captured terminal segments, synthetic
+    personas): 5 of 498 condense/corrector steps, all true positives, 0 false.
+    Category C (``applire-prompt-first``): the condense prompt says "NEVER add new
+    facts", the corrector "NEVER MINT A FIGURE"; the model did it anyway.
+
+    Not covered, by construction: a figure a step MOVES (same value, new scope —
+    build-6 case B). Which scope a sentence gives a number is a judgement."""
+    before: set[tuple[str, str]] = {
+        (f.kind, f.value) for p in _body_paragraphs(reference) for f in _new_figure_candidates(p)
+    }
+    source_keys = _source_figure_keys(sources or [])
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for pi, para in enumerate(_body_paragraphs(draft)):
+        spans = _sentence_spans(para)
+        for f in _new_figure_candidates(para):
+            key = (f.kind, f.value)
+            if key in before or key in seen or _sourced(key, source_keys):
+                continue
+            seen.add(key)
+            sentence = next(
+                (s for a, b, s in spans if a <= f.start and f.end <= b), para
+            ).strip()
+            out.append({
+                "raw": f.raw.strip(), "kind": f.kind, "value": f.value,
+                "sentence": sentence, "paragraph_index": pi,
+            })
+    return out
+
+
+def new_figure_finding_text(found: list[dict[str, Any]]) -> str:
+    """The corrector-facing fact + remedy for :func:`introduced_unsourced_figures`."""
+    quoted = "; ".join(f'"{f["raw"]}" in "{f["sentence"]}"' for f in found[:3])
+    return (
+        f"{len(found)} figure(s) appear in this letter that no source states and the "
+        f"reviewed letter did not contain (computed by code): {quoted}. State only figures "
+        "the candidate's profile records, in its unit; otherwise describe the result "
+        "without a number. Never compute, convert or round a figure."
+    )

@@ -3633,6 +3633,23 @@ async def _terminal_review_letter(
         )
 
     subject_by_draft: dict[str, dict] = {_canon(draft): cl.letter_data}
+    # 784:134 / 784:82 (ADR-076 cl. 3 amended 2026-11-10): the composed letter that
+    # ENTERS the terminal review is the reference — the drafting loop reviewed every
+    # figure in it. A figure a later step (condense, corrector) adds that no source
+    # the loop reads states is a code fact (``introduced_unsourced_figures``).
+    # Copied: the record's dict is the persisted truth and later rounds replace it.
+    # Residual (stated): a subject-identity re-entry starts a new invocation, so its
+    # reference is the re-entered letter, which that invocation's review then reads.
+    entry_subject = copy.deepcopy(cl.letter_data)
+
+    def _new_figures(reference: dict | None, composed: dict) -> list:
+        from applire.services.letter_figure_guard import introduced_unsourced_figures
+
+        try:
+            return introduced_unsourced_figures(reference, composed, [grounding_source])
+        except Exception:  # pragma: no cover - a check never breaks generation
+            logger.warning("letter: new-figure check failed", exc_info=True)
+            return []
     pdf_cell: dict[str, bytes | None] = {"pdf": pdf_bytes}
     measure_cell: dict[str, MeasuredLetter] = {"measured": measured}
     # ADR-076 amended 2026-08-29 (3-L2, #547 residual): every MeasuredLetter
@@ -3806,7 +3823,23 @@ async def _terminal_review_letter(
                 ),
             )]
 
-        _v2_checks = combine_signal_fns(v2_signal_fn, _page_check)
+        def _new_figure_check(d: dict) -> list:
+            """784:134 / 784:82: a figure no source states that the entry letter did not
+            carry — BLOCKING every terminal round, and a code fact that fails the
+            post-condense review-only round (W3-3c)."""
+            from applire.services.letter_figure_guard import new_figure_finding_text
+            from applire.services.reviewer import CheckFinding
+
+            found = _new_figures(entry_subject, _subject_of(d))
+            if not found:
+                return []
+            return [CheckFinding(
+                check="letter.new_figure",
+                text=new_figure_finding_text(found),
+                subjects=tuple(f["raw"] for f in found),
+            )]
+
+        _v2_checks = combine_signal_fns(v2_signal_fn, _page_check, _new_figure_check)
         _limit_signal_fn = None
 
     async def _finish(
@@ -3844,6 +3877,17 @@ async def _terminal_review_letter(
                     named_gaps=named_gaps,
                 )
             )
+            # 784:134 / 784:82: a figure no source states that a step after the drafting
+            # loop added and the loop left standing — named on the delivered letter.
+            new_figs = _new_figures(entry_subject, delivered)
+            if new_figs:
+                from applire.services.letter_figure_guard import new_figure_finding_text
+                from applire.services.terminal_review_outcome import TerminalNote
+
+                delivery_notes = delivery_notes + (TerminalNote(
+                    kind="code", key="letter.new_figure", text=new_figure_finding_text(new_figs),
+                    subjects=tuple(f["raw"] for f in new_figs),
+                ),)
             extra = tuple(post_condense_notes) + delivery_notes
             if extra:
                 from applire.services.terminal_review_outcome import TerminalReviewOutcome
@@ -4029,6 +4073,11 @@ async def _terminal_review_letter(
         The caller then keeps ``reviewed`` — fail-closed to the last reviewed
         draft; its verdict is the one on the delivered letter's report."""
         defects = terminal_patch_structure_defects(_subject_of(reviewed), _subject_of(patch))
+        # 784:134 (ADR-076 cl. 3 amended 2026-11-10): a figure the unreviewed patch
+        # adds that no source states is a defect of the same fate — the reviewed
+        # draft ships. Never a rewrite.
+        if _new_figures(_subject_of(reviewed), _subject_of(patch)):
+            defects = [*defects, "new_figure"]
         if defects:
             logger.warning(
                 "LETTER_TERMINAL_PATCH_REJECTED cl_id=%s site=%s defects=%s — the "
