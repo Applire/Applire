@@ -487,7 +487,7 @@ async def _ground_suggestion(
         from applire.services.oracle.audit import verify_claim
         from applire.services.oracle.extract import extract_claims_from_text
         from applire.services.oracle.matchers import build_vault_index, extend_vault_index
-        from applire.services.profile.reconcile.stance import is_denied_concept
+        from applire.services.profile.reconcile.stance import exclude_unconfirmed, is_denied_concept
 
         from applire.services.profile import get_profile_for_user
 
@@ -532,7 +532,11 @@ async def _ground_suggestion(
             )
             return kept, len(withheld)
 
-        index = build_vault_index(record.profile_json or {})
+        # 790:61 (Hazelnut build 8): the suggestion is a claim surface (ADR-061
+        # cl. 2), so it is grounded against the CLAIMABLE vault — the Oracle's own
+        # index (oracle/audit.py `_index_from_profile`). An unconfirmed or denied
+        # entry backs nothing; before, it made a suggestion naming it look backed.
+        index = build_vault_index(exclude_unconfirmed(record.profile_json or {}))
         evidence = list(session_evidence)
         if prior_text:
             evidence.append(("section.current", prior_text))
