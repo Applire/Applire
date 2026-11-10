@@ -471,9 +471,15 @@ def unmentioned_identifiers(texts: Sequence[str], profile_json: dict | None) -> 
     from applire.services.oracle.audit import _identifier_label, _unmentioned_identifiers
     from applire.services.oracle.matchers.figures import _identifier_spans
     from applire.services.oracle.matchers.vault import build_vault_index
+    from applire.services.profile.reconcile.stance import exclude_unconfirmed
 
     try:
-        index = build_vault_index(profile_json)
+        # 790:61 (Hazelnut build 8, Lead O's hunk): the same claimable-only index the
+        # Oracle grades with (oracle/audit.py `_vault_index`) — an UNCONFIRMED or
+        # denied certification backs nothing, so its digits neither silence this
+        # check nor become a remedy candidate. Idempotent for an already-filtered
+        # profile (the CV path filters at generation start).
+        index = build_vault_index(exclude_unconfirmed(profile_json))
     except Exception:  # noqa: BLE001 — a detector failure loses its finding only
         logger.exception("identifier check: vault index failed; finding skipped")
         return [], []

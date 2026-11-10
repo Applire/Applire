@@ -190,3 +190,37 @@ def test_vault_sentence_restated(vault, bullet, restated):
     from applire.services.cv_v2 import vault_sentence_restated
 
     assert vault_sentence_restated(vault, [bullet]) is restated
+
+
+# ── 790:61 (Lead O's hunk): the identifier check reads the claimable-only vault ──
+
+def _cert_vault(status: str) -> dict:
+    vault = _vault()
+    vault["certifications"] = [{"name": "ISO 27001 Lead Auditor", "status": status}]
+    return vault
+
+
+def test_an_unconfirmed_certification_backs_no_identifier():
+    """O's probe: an UNCONFIRMED "ISO 27001 Lead Auditor" made the check return
+    ([], []) while the Oracle (claimable-only index) reports the sentence unbacked."""
+    from applire.services.cv_v2 import unmentioned_identifiers
+
+    named, stated = unmentioned_identifiers(["Audits nach ISO 27001 geleitet."], _cert_vault("unconfirmed"))
+    assert named == ["ISO 27001"]
+    assert all("27001" not in s for s in stated), "an unconfirmed entry is never a remedy candidate"
+    named, _ = unmentioned_identifiers(["Audits nach ISO 27001 geleitet."], _cert_vault("denied"))
+    assert named == ["ISO 27001"]
+
+
+def test_a_confirmed_certification_still_backs_its_identifier():
+    """The other direction: nothing confirmed is lost by the filter."""
+    from applire.services.cv_v2 import unmentioned_identifiers
+
+    assert unmentioned_identifiers(["Audits nach ISO 27001 geleitet."], _cert_vault("confirmed")) == ([], [])
+
+
+def test_SEAM_v2_checks_raise_the_identifier_an_unconfirmed_cert_carries():
+    prose = _prose()
+    prose["work"][0]["bullets"].append("Led audits under ISO 27001 for the routing backend.")
+    assert "cv.identifier_not_in_profile" in _findings(prose, vault=_cert_vault("unconfirmed"))
+    assert "cv.identifier_not_in_profile" not in _findings(prose, vault=_cert_vault("confirmed"))
