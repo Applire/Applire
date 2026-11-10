@@ -130,7 +130,7 @@ from applire.services.profile.reconcile.ops import (
     UpsertVolunteer,
     UpsertWork,
 )
-from applire.services.profile.reconcile.stance import _grounding_corpus
+from applire.services.profile.reconcile.stance import _answer_corpus, _grounding_corpus
 
 # ── punctuation / sentence-splitting (independent copy — see module docstring) ──
 
@@ -536,6 +536,13 @@ def _batch_anchor(
     cores = {core for _, core in content_ops}
     if len(cores) != 1:
         return None
+    # ``corpus`` / ``sentences`` are the ANSWER's, never the whole turn (build 8
+    # delivery run, 2026-11-10): Applire's question named "Finleap Build", the
+    # person answered "at Cargonaut" — a short form the vault's "Cargonaut
+    # Logistics" does not match — so the question's employer was the only one
+    # the turn named, and seven true items were held behind "the answer named
+    # Finleap Build GmbH". A question is Applire's text (ADR-061 am.
+    # 2026-10-18); what it names is not what the person named.
     anchor = _anchor_company(corpus, candidates)
     if anchor is None or anchor[0] in cores:
         return None
@@ -638,7 +645,8 @@ def enforce_attribution(
     # contradicts (rule b, #723's unflagged sibling).
     content_ops = _guarded_content_ops(ops, profile)
     muted = _muted_sentences(content_ops, sentences)
-    batch_anchor = _batch_anchor(content_ops, corpus, sentences, candidates)
+    answer = _normalize_punct(_answer_corpus(new_info, source) or "")
+    batch_anchor = _batch_anchor(content_ops, answer, _split_sentences(answer), candidates)
 
     result: list[ReconcileOp] = []
     for op in ops:
