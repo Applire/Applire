@@ -275,7 +275,7 @@ MISTRAL_MODEL=mistral-small-latest
 
 For another provider, change the prefix: `LLM_PROVIDER=openrouter` goes with `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`, and so on for `requesty`, `anthropic` and `openai`; `ollama` needs no key (`OLLAMA_MODEL` only). The model line is optional — every provider has a default — and [docs/llm-models.md](docs/llm-models.md) helps you choose. You do not need to read the rest of `.env.example` to start.
 
-Access the application at **http://localhost** — the bundled nginx reverse proxy serves the frontend and routes `/api/*` to the backend. Port 80 is the only one you need to publish; the backend and frontend containers stay internal. For the full entry-point and port topology, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Access the application at **http://localhost** — the bundled nginx reverse proxy serves the frontend and routes `/api/*` to the backend. Port 80 is the only one you need to publish; the backend and frontend containers stay internal. If port 80 is already taken on your machine, set `APPLIRE_HTTP_PORT=8080` in `.env`, open `http://localhost:8080`, and include the port in `APPLIRE_BASE_URL`. For the full entry-point and port topology, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 **Check that it is up.** `docker compose up -d` returns before the backend has finished starting (the database migrations run first; give the first start about a minute). Then ask the backend through nginx:
 
@@ -284,7 +284,7 @@ curl -s http://localhost/health
 # {"status":"ok","edition":"community","version":"…"}
 ```
 
-`"status":"ok"` means the backend is serving. `version` is the release you installed, in Python's normalised spelling: `0.45.0-beta` reads `0.45.0b0`, and `1.0.0` reads `1.0.0`. The endpoint is open and returns only these three fields; the compose healthcheck uses the same one.
+`"status":"ok"` means the backend is serving. `version` is the release you installed, in Python's normalised spelling: `0.46.0-beta` reads `0.46.0b0`, and `1.0.0` reads `1.0.0`. The endpoint is open and returns only these three fields; the compose healthcheck uses the same one.
 
 > **First start: claim your instance.** Applire always asks for a sign-in. A new install opens a setup screen that asks for a one-time code, which the backend prints in its log:
 > ```bash
@@ -393,7 +393,7 @@ LLM_PROVIDER=mistral
 
 # Mistral AI — EU-hosted, strong German proficiency
 MISTRAL_API_KEY=your-mistral-api-key-here
-MISTRAL_MODEL=mistral-medium-latest
+MISTRAL_MODEL=mistral-small-latest
 
 # Requesty — EU-hosted gateway (Frankfurt); also an EU-resident path to Claude/GPT/Gemini
 REQUESTY_API_KEY=your-requesty-api-key-here
@@ -402,7 +402,7 @@ REQUESTY_MODEL=mistral/mistral-medium-3-5   # EU-region model for full residency
 # OpenRouter — multi-model gateway: one key for Mistral, Claude, and more (not EU-hosted)
 # Get a key at https://openrouter.ai/keys
 OPENROUTER_API_KEY=your-openrouter-api-key-here
-OPENROUTER_MODEL=mistralai/mistral-medium-3
+OPENROUTER_MODEL=mistralai/mistral-medium-3-5
 
 # Anthropic (Claude) — native API, BYO-API-key only (a Claude subscription cannot be used)
 # Model names move fast: take a current id from Anthropic's model list rather than
@@ -756,14 +756,13 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.45.0-beta)
+### ✅ Current Release (v0.46.0-beta)
 
-- [x] Documents say only what you said: the cover letter names a gap only when you recorded it yourself, quoted in your own words, and a "no" covers exactly what it names, never a broader requirement
-- [x] A requirement your profile states in another language counts: the gap analysis judges meaning and must quote the profile entry that shows it, and Applire checks the quote is really there
-- [x] The review shows one action per finding and stays silent where it cannot help: no "add to profile" for a sentence about the employer, fewer false alarms on honest text, and a line when a check did not run
-- [x] CV and letter tell you when your profile changed after they were written; interview answer ideas are questions that bridge to the asked topic, and a click only fills the answer box
-- [x] Your profile tells the truth: roles that ended are no longer shown as current, an unreadable import file is named, and "does not apply" can be taken back
-- [x] The 1.x stability promise is written down and checked in CI, ready for 1.0.0; Claude Sonnet 5.5 works on the Anthropic provider, with prompt caching
+- [x] The CV shows what it names: a skill in the skills list or the summary gets its bullet in the role that holds it; durations are stated the way you gave them, and a tool gets no duration when its computed span would reach or exceed your own career figure
+- [x] The cover letter states only checked facts: a number that neither your profile nor the posting states is caught in every review round, also after shortening; a duration must be one you stated, one the posting states, or the length of one dated entry; a standard such as "ISO 9001" is not a figure
+- [x] Sharper checks: audit attestations (SOC 2, ISAE 3402, BSI C5) your profile never mentions are marked as not backed, and "duplicate bullets" compares only within one employer
+- [x] The interview records only what you said: the questions read your profile's tags as names, not as work you did; a "no" stays a "no" when the posting words the requirement differently; an answer adds only the skills you work with yourself
+- [x] Long CVs no longer leave pages part-empty: a heading stays only with the first lines of its first bullet, and a long bullet may continue on the next page; the "Kreativ" template has a header band instead of a sidebar, and the automatic page cut keeps your two newest certifications and every one the posting names
 
 
 ### ⏳ Next Up
@@ -775,7 +774,7 @@ Applire ships in dessert-named releases, each tracked as a public [milestone](ht
 - [x] **Stracciatella** — shipped with v0.41.1-beta. Felix takes the controls: choose the leading document language per application (detection becomes a default, not a law), structured Master-Profile editors replacing the raw-JSON view, and pinning must-appear facts to a document — plus hardening of the delivered documents (the v0.39 ship-gate findings and the prompt-injection defence)
 - [x] **Nougat** — shipped with v0.42.0-beta. The self-hosting operator: a version-jump notice for settings a release introduced that your `.env` does not set (with upgrade notes per release), a published qualification matrix of which models are good enough for Applire's prompts, an ops and health layer with token tracking — plus the consolidation of the Stracciatella findings (the proven delivered-document bugs and the review-loop rulings)
 - [x] **Strawberry** — shipped with v0.43.0-beta. Multi-user capability: built-in accounts and optional single sign-on, roles, an administration area for people, personal tokens for agents and scripts, and every person's data private to them
-- [ ] **Hazelnut** — build 1 shipped with v0.44.0-beta, builds 2–7 with v0.45.0-beta; the flavour continues toward 1.0.0. Document quality: the AI writes the whole CV and cover letter, and deterministic code only checks and blocks instead of rewriting the text after the last model call, measured on a document-quality bench (language mix, underselling, duplicates, upselling)
+- [x] **Hazelnut** — shipped with v0.44.0-beta (build 1), v0.45.0-beta (builds 2–7) and v0.46.0-beta (build 8). Document quality: the AI writes the whole CV and cover letter, and deterministic code only checks and blocks instead of rewriting the text after the last model call, measured on a document-quality bench (language mix, underselling, duplicates, upselling)
 
 Beyond that, without dates: **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
 

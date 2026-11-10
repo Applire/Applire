@@ -247,7 +247,7 @@ APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp
 ### Voraussetzungen
 
 - **Docker & Docker Compose**
-- **Etwa 8 GB freier Speicherplatz und 2 GB RAM** (plane 4 GB RAM ein, wenn sich mehrere Personen die Instanz teilen). Die vier Images belegen nach dem Pull etwa 5,2 GB: allein das Backend rund 4 GB, weil es das Chromium zum Erzeugen deiner PDFs mitbringt, dazu etwa 0,6 GB für PostgreSQL, 0,4 GB für das Frontend und 0,1 GB für nginx. Ein Update behält die alten Images, bis du sie aufräumst ([docs/SELF-HOSTING.md](docs/SELF-HOSTING.md#9-disk-and-pruning), auf Englisch). Der Stack braucht im Leerlauf etwa 0,5 GB RAM; jedes PDF-Rendering startet zusätzlich ein Headless-Chromium. Ein lokales Modell mit Ollama braucht von beidem mehr.
+- **Etwa 8 GB freier Speicherplatz und 2 GB RAM** (plane 4 GB RAM ein, wenn sich mehrere Personen die Instanz teilen). Der erste `docker compose pull` lädt etwa 1,3 GB herunter (komprimiert; davon das Backend etwa 1,1 GB), und die vier Images belegen entpackt etwa 5,2 GB: allein das Backend rund 4 GB, weil es das Chromium zum Erzeugen deiner PDFs mitbringt, dazu etwa 0,6 GB für PostgreSQL, 0,4 GB für das Frontend und 0,1 GB für nginx. Ein Update behält die alten Images, bis du sie aufräumst ([docs/SELF-HOSTING.md](docs/SELF-HOSTING.md#9-disk-and-pruning), auf Englisch). Der Stack braucht im Leerlauf etwa 0,5 GB RAM; jedes PDF-Rendering startet zusätzlich ein Headless-Chromium. Ein lokales Modell mit Ollama braucht von beidem mehr.
 - **Ein LLM-Anbieter deiner Wahl** (eigener Schlüssel): Mistral, Requesty, OpenRouter, Anthropic, OpenAI (oder jeder OpenAI-kompatible Endpunkt) oder Ollama (lokal/kostenlos, kein Schlüssel nötig)
 
 ### Self-Hosting (kein Klonen nötig)
@@ -287,7 +287,7 @@ MISTRAL_MODEL=mistral-small-latest
 
 Für einen anderen Anbieter änderst du das Präfix: `LLM_PROVIDER=openrouter` gehört zu `OPENROUTER_API_KEY` und `OPENROUTER_MODEL`, ebenso `requesty`, `anthropic` und `openai`; `ollama` braucht keinen Schlüssel (nur `OLLAMA_MODEL`). Die Modellzeile ist optional — jeder Anbieter hat einen Standard — und [docs/llm-models.md](docs/llm-models.md) hilft bei der Wahl. Den Rest von `.env.example` musst du zum Start nicht lesen.
 
-Rufe die Anwendung unter **http://localhost** auf — der mitgelieferte nginx-Reverse-Proxy liefert das Frontend aus und leitet `/api/*` an das Backend weiter. Nur Port 80 muss veröffentlicht werden; die Backend- und Frontend-Container bleiben intern. Die vollständige Einstiegspunkt- und Port-Topologie findest du in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Rufe die Anwendung unter **http://localhost** auf — der mitgelieferte nginx-Reverse-Proxy liefert das Frontend aus und leitet `/api/*` an das Backend weiter. Nur Port 80 muss veröffentlicht werden; die Backend- und Frontend-Container bleiben intern. Ist Port 80 auf deinem Rechner schon belegt, setze `APPLIRE_HTTP_PORT=8080` in der `.env`, öffne `http://localhost:8080` und nimm den Port in `APPLIRE_BASE_URL` auf. Die vollständige Einstiegspunkt- und Port-Topologie findest du in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 **Prüfe, ob es läuft.** `docker compose up -d` kehrt zurück, bevor das Backend fertig gestartet ist (zuerst laufen die Datenbank-Migrationen; rechne beim ersten Start mit etwa einer Minute). Frage dann das Backend über nginx:
 
@@ -296,7 +296,7 @@ curl -s http://localhost/health
 # {"status":"ok","edition":"community","version":"…"}
 ```
 
-`"status":"ok"` heißt: Das Backend antwortet. `version` ist das installierte Release in der normalisierten Python-Schreibweise: `0.45.0-beta` erscheint als `0.45.0b0`, `1.0.0` als `1.0.0`. Der Endpunkt ist offen und liefert nur diese drei Felder; der Compose-Healthcheck nutzt denselben.
+`"status":"ok"` heißt: Das Backend antwortet. `version` ist das installierte Release in der normalisierten Python-Schreibweise: `0.46.0-beta` erscheint als `0.46.0b0`, `1.0.0` als `1.0.0`. Der Endpunkt ist offen und liefert nur diese drei Felder; der Compose-Healthcheck nutzt denselben.
 
 > **Erster Start: Instanz in Besitz nehmen.** Applire verlangt immer eine Anmeldung. Eine neue Installation zeigt einen Einrichtungsbildschirm, der einen einmaligen Code verlangt, den das Backend in sein Log schreibt:
 > ```bash
@@ -407,7 +407,7 @@ LLM_PROVIDER=mistral
 
 # Mistral AI — EU-gehostet, starke Deutschkenntnisse
 MISTRAL_API_KEY=your-mistral-api-key-here
-MISTRAL_MODEL=mistral-medium-latest
+MISTRAL_MODEL=mistral-small-latest
 
 # Requesty — EU-gehostetes Gateway (Frankfurt); zugleich ein EU-residenter Weg zu Claude/GPT/Gemini
 REQUESTY_API_KEY=your-requesty-api-key-here
@@ -416,7 +416,7 @@ REQUESTY_MODEL=mistral/mistral-medium-3-5   # EU-Region-Modell für volle Datenr
 # OpenRouter — Multi-Modell-Gateway: ein Schlüssel für Mistral, Claude und mehr (nicht EU-gehostet)
 # Schlüssel unter https://openrouter.ai/keys
 OPENROUTER_API_KEY=your-openrouter-api-key-here
-OPENROUTER_MODEL=mistralai/mistral-medium-3
+OPENROUTER_MODEL=mistralai/mistral-medium-3-5
 
 # Anthropic (Claude) — native API, nur mit eigenem API-Schlüssel (ein Claude-Abo ist nicht nutzbar)
 ANTHROPIC_API_KEY=your-anthropic-api-key-here
@@ -775,14 +775,13 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Aktuelle Version (v0.45.0-beta)
+### ✅ Aktuelle Version (v0.46.0-beta)
 
-- [x] Dokumente sagen nur, was du gesagt hast: Das Anschreiben nennt eine Lücke nur, wenn du sie selbst angegeben hast, in deinen eigenen Worten, und ein „Nein“ gilt genau für das, was es nennt, nie für eine breitere Anforderung
-- [x] Eine Anforderung, die dein Profil in einer anderen Sprache belegt, zählt: Die Lückenanalyse urteilt nach Bedeutung und muss den Profileintrag zitieren, der sie zeigt; Applire prüft, dass das Zitat wirklich dort steht
-- [x] Das Review zeigt pro Befund eine Aktion und schweigt, wo es nicht helfen kann: kein „Ins Profil übernehmen“ für einen Satz über den Arbeitgeber, weniger Fehlalarme bei ehrlichem Text und ein Hinweis, wenn eine Prüfung nicht gelaufen ist
-- [x] Lebenslauf und Anschreiben sagen dir, wenn sich dein Profil nach ihrer Erstellung geändert hat; Antwortideen im Interview sind Fragen, die eine Brücke zum gefragten Thema schlagen, und ein Klick füllt nur das Antwortfeld
-- [x] Dein Profil sagt die Wahrheit: Beendete Stationen erscheinen nicht mehr als aktuell, eine nicht lesbare Importdatei wird genannt, und „trifft nicht zu“ lässt sich zurücknehmen
-- [x] Das 1.x-Stabilitätsversprechen ist aufgeschrieben und wird in der CI geprüft, bereit für 1.0.0; Claude Sonnet 5.5 läuft auf dem Anthropic-Provider, mit Prompt-Caching
+- [x] Der Lebenslauf zeigt, was er nennt: Eine Kenntnis aus der Kenntnisliste oder dem Profiltext bekommt ihren Stichpunkt in der Station, zu der sie gehört; Zeiträume stehen so da, wie du sie angegeben hast, und ein Werkzeug bekommt keine Dauer, wenn die berechnete Spanne deine eigene Angabe zur Berufserfahrung erreicht oder übersteigt
+- [x] Das Anschreiben nennt nur geprüfte Fakten: Eine Zahl, die weder dein Profil noch die Anzeige nennt, fällt in jeder Review-Runde auf, auch nach dem Kürzen; eine Dauer muss von dir stammen, in der Anzeige stehen oder die Länge eines datierten Eintrags sein; eine Norm wie „ISO 9001“ ist keine Zahl
+- [x] Genauere Prüfungen: Prüfbescheinigungen (SOC 2, ISAE 3402, BSI C5), die dein Profil nie erwähnt, gelten als nicht belegt, und „doppelte Stichpunkte“ vergleicht nur innerhalb eines Arbeitgebers
+- [x] Das Interview hält nur fest, was du gesagt hast: Die Fragen lesen die Schlagworte deines Profils als Namen, nicht als geleistete Arbeit; ein „Nein“ bleibt ein „Nein“, auch wenn die Anzeige die Anforderung anders formuliert; eine Antwort ergänzt nur Kenntnisse, mit denen du selbst arbeitest
+- [x] Lange Lebensläufe lassen keine Seiten mehr halb leer: Eine Überschrift bleibt nur bei den ersten Zeilen ihres ersten Stichpunkts, und ein langer Stichpunkt darf auf der nächsten Seite weitergehen; die Vorlage „Kreativ“ hat ein Kopfband statt einer Seitenleiste, und die automatische Seitenkürzung behält deine zwei neuesten Zertifikate und jedes, das die Anzeige nennt
 
 
 ### ⏳ Als Nächstes
@@ -794,7 +793,7 @@ Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milest
 - [x] **Stracciatella** — ausgeliefert mit v0.41.1-beta. Felix übernimmt das Steuer: die führende Dokumentsprache pro Bewerbung wählen (Erkennung wird zum Vorschlag statt zum Gesetz), strukturierte Master-Profil-Editoren statt Roh-JSON und Muss-Fakten ans Dokument pinnen — dazu Härtung der gelieferten Dokumente (die Ship-Gate-Befunde aus v0.39 und die Prompt-Injection-Abwehr)
 - [x] **Nougat** — ausgeliefert mit v0.42.0-beta. Der selbst hostende Operator: ein Versionssprung-Hinweis für Einstellungen, die ein Release neu einführt und deine `.env` nicht setzt (mit Upgrade-Hinweisen pro Release), eine veröffentlichte Qualifikationsmatrix, welche Modelle für Applires Prompts gut genug sind, eine Betriebs- und Health-Schicht mit Token-Tracking — dazu die Konsolidierung der Stracciatella-Befunde (die belegten Dokument-Bugs und die Review-Loop-Entscheide)
 - [x] **Strawberry** — ausgeliefert mit v0.43.0-beta. Mehrbenutzer-Fähigkeit: eingebaute Konten und optionales Single Sign-on, Rollen, ein Administrationsbereich für Personen, persönliche Tokens für Agenten und Skripte und die Privatsphäre der Daten jeder Person
-- [ ] **Hazelnut** — Build 1 ausgeliefert mit v0.44.0-beta, Builds 2–7 mit v0.45.0-beta; die Sorte läuft weiter bis 1.0.0. Dokumentqualität: Die KI schreibt den ganzen Lebenslauf und das Anschreiben, deterministischer Code prüft und blockiert nur noch, statt den Text nach dem letzten Modellaufruf umzuschreiben — gemessen auf einer Dokumentqualitäts-Bench (Sprachmix, Untertreibung, Dubletten, Übertreibung)
+- [x] **Hazelnut** — ausgeliefert mit v0.44.0-beta (Build 1), v0.45.0-beta (Builds 2–7) und v0.46.0-beta (Build 8). Dokumentqualität: Die KI schreibt den ganzen Lebenslauf und das Anschreiben, deterministischer Code prüft und blockiert nur noch, statt den Text nach dem letzten Modellaufruf umzuschreiben — gemessen auf einer Dokumentqualitäts-Bench (Sprachmix, Untertreibung, Dubletten, Übertreibung)
 
 Darüber hinaus, ohne Termine: **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die gehostete Demo und die **Applire Cloud (SaaS) pausieren**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
 

@@ -759,7 +759,7 @@ _register_all(
             default="INFO",
             section="Operations",
             introduced_in="0.31.0",
-            semantics_changed_in="1.0.0",
+            semantics_changed_in="0.45.0",
             description=(
                 "DEBUG | INFO | WARNING | ERROR — applied to every applire.* logger. "
                 "DEBUG is loud; it does not log prompts (that is LLM_DEBUG_LOG).\n"
@@ -1142,7 +1142,7 @@ _register_all(
             source="compose",
             default="80",
             section="Network and access",
-            introduced_in="1.0.0",
+            introduced_in="0.45.0",
             description=(
                 "The host port Applire answers on (nginx inside listens on 80). Change it\n"
                 "only when port 80 is already taken on this machine, e.g. 8080 — then open\n"
