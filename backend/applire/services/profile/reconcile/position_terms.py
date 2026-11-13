@@ -216,22 +216,53 @@ def _units(folded: str, start: int, end: int) -> frozenset[str]:
     return frozenset(m.group(1).lower() for m in _UNIT_FIND.finditer(span))
 
 
-def _claim_spans(folded: str) -> list[tuple[str, int, int]]:
-    """``(family, start, end)`` of every title FOR THE PERSON in ``folded``.
+#: MD-8 sweep (Addendum 4): a German title written as the SUBJECT of a plural
+#: verb — capitalised title, then a lower-case word ending -en/-ern/-eln
+#: ("Schichtleiter steuern damit ihre Schicht") — names other people acting, not
+#: the person's position. Read on the text as written: German capitalises the
+#: unit noun ("Teamleiterin Steuern" stays a claim), and an all-lower-case
+#: bullet is never read this way (held, the safe side).
+_SUBJECT_OF_PLURAL_VERB = re.compile(
+    r"\b([A-ZÄÖÜ][\w-]*)\s+"
+    r"(?!(?:den|einen|keinen|meinen|deinen|seinen|ihren|unseren|euren|deren|denen"
+    r"|zwischen|neben|gegen|wegen|binnen|oben|unten|eben)\b)"
+    r"([a-zäöüß][a-zäöüß]*(?:en|ern|eln))\b",
+)
+_HEAD_DE_RE = re.compile(_HEAD_DE)
+_NEXT_WORD = re.compile(r"\s+([\w-]+)")
+
+
+def _plural_subjects(raw: str) -> set[tuple[str, str]]:
+    return {(_fold(m.group(1)), _fold(m.group(2))) for m in _SUBJECT_OF_PLURAL_VERB.finditer(raw)}
+
+
+def _is_plural_subject(folded: str, start: int, end: int, subjects: set[tuple[str, str]]) -> bool:
+    if not subjects or not _HEAD_DE_RE.search(folded[start:end]):
+        return False
+    words = folded[start:end].split()
+    nxt = _NEXT_WORD.match(folded, end)
+    return bool(words and nxt) and (words[-1], nxt.group(1)) in subjects
+
+
+def _claim_spans(folded: str, raw: str = "") -> list[tuple[str, int, int]]:
+    """``(family, start, end)`` of every title FOR THE PERSON in ``folded``
+    (``raw``: the same text as written, for the case-sensitive subject check).
     A deputy title wins over the head title it contains."""
+    subjects = _plural_subjects(raw)
     deputy = [("deputy", m.start(), m.end()) for m in _DEPUTY_TITLE.finditer(folded)
               if _is_persons(folded, m.start(), m.end())]
     if deputy:
         return deputy
     return [("unit_head", m.start(), m.end()) for m in _UNIT_HEAD.finditer(folded)
-            if _is_persons(folded, m.start(), m.end())]
+            if _is_persons(folded, m.start(), m.end())
+            and not _is_plural_subject(folded, m.start(), m.end(), subjects)]
 
 
 def position_claims(text: str) -> list[tuple[str, str]]:
     """``(family, phrase)`` for every position claim FOR THE PERSON in ``text`` —
     family ``deputy`` or ``unit_head``."""
     folded = _fold(text)
-    return [(f, folded[a:b]) for f, a, b in _claim_spans(folded)]
+    return [(f, folded[a:b]) for f, a, b in _claim_spans(folded, text)]
 
 
 #: A claim key: the family and the units the title names (MD-8 F1: held per
@@ -241,7 +272,7 @@ TitleKey = tuple[str, frozenset[str]]
 
 def _claim_keys(text: str) -> list[tuple[TitleKey, str]]:
     folded = _fold(text)
-    return [((f, _units(folded, a, b)), folded[a:b]) for f, a, b in _claim_spans(folded)]
+    return [((f, _units(folded, a, b)), folded[a:b]) for f, a, b in _claim_spans(folded, text)]
 
 
 def _held_titles(text: str, *, first_person: bool) -> set[TitleKey]:

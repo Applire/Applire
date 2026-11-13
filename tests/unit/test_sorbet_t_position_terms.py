@@ -761,3 +761,28 @@ def test_f2_any_answer_on_a_held_summary_leaves_it_unwritten(chosen):
     out = _answer(ask, chosen)
     assert _F2_TITLE not in str(out.profile.model_dump())
     assert [n.reason for n in out.not_applied] == ["confirmation_unresolvable"]
+
+
+# ── Addendum 4: the captured-call sweep's one false positive ──────────────────
+
+#: ux-audit-4 (2026-11-07, Sonnet, interview): the answer says "die Schichtleiter
+#: steuern damit ihre Schicht" — the shift leaders are other people.
+_SWEEP_FP = ("Maschinen- und Betriebsdatenerfassung in Echtzeit am Shopfloor-Board "
+             "bereitgestellt; Schichtleiter steuern damit ihre Schicht")
+
+
+def test_sweep_a_title_as_the_subject_of_a_plural_verb_is_not_held():
+    out = _run([_bullets(resp=[_SWEEP_FP])], answer="Seitdem steuern die Schichtleiter damit ihre Schicht.",
+               source="interview")
+    assert _asks(out) == [] and out[0].responsibilities == [_SWEEP_FP]
+
+
+@pytest.mark.parametrize("bullet", [
+    "Teamleiterin Steuern",                  # the unit noun is capitalised
+    "Teamleiterin Finanzen und Controlling",
+    "schichtleiter steuern damit die schicht",  # all lower case: never read as a subject
+    "Teamleiterin verantwortlich für das Budget",
+    "Team Lead seven engineers in Hamburg",   # English: the German subject rule does not apply
+])
+def test_sweep_the_subject_rule_leaves_a_written_title_held(bullet):
+    assert position_claims(bullet)
