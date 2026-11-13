@@ -497,8 +497,8 @@ async def balance(db: AsyncSession, *, subject: str, action: str, now: datetime 
 
     Correct only for grants that never expire. Debits are not tied to the grant
     they spent, so last month's debits would eat this month's grant: a
-    non-rolling allowance needs debit-to-grant allocation (phase 2,
-    Runs/Sorbet/platform-1/K/allowance-design.md §1). Phase 1 writes no debit."""
+    non-rolling allowance needs debit-to-grant allocation (phase 2, an ADR-096
+    cl. 8 amendment). Phase 1 writes no debit."""
     when = now or datetime.now(timezone.utc)
     rows = await db.execute(
         select(AllowanceLedger.kind, func.coalesce(func.sum(AllowanceLedger.amount), 0))
