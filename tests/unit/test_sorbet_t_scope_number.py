@@ -92,3 +92,24 @@ def test_the_seam_the_gap_analysis_input_now_carries_the_bar():
     job = {"required_skills": ["Fertigungsleitung"], "nice_to_have_skills": [], "keywords": []}
     prompt = build_user_prompt(job, PROFILE, pre_classify(job, PROFILE), block)
     assert "SCOPE REQUIREMENTS" in prompt and '"jd_value": 120.0' in prompt
+
+
+# ── MD-8 (adversarial F6): finite, ASCII, above zero, below a sane bound ─────
+
+@pytest.mark.parametrize("raw", [
+    "9" * 400, "0", "000", "0.750", "0,500", "0.000",
+    "١٢٠", "１２０", "٣.٠٠٠", "1000000000000",
+    float("inf"), float("nan"), -3, 0, 10 ** 400,
+])
+def test_f6_a_non_finite_zero_negative_unicode_or_absurd_value_is_dropped(raw):
+    assert _coerce_scope_requirements([dict(CAPTURED, value=raw)], JD_TEXT) == []
+
+
+def test_f6_every_kept_bar_serialises_as_strict_json():
+    import json
+
+    kept = _coerce_scope_requirements(
+        [dict(CAPTURED, value=v) for v in ("120", "6.000.000", 999_999_999_999)], JD_TEXT
+    )
+    assert len(kept) == 3
+    json.dumps(kept, allow_nan=False)

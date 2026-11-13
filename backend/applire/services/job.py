@@ -19,6 +19,7 @@ import uuid
 import hashlib
 import json
 import logging
+import math
 import re
 from pathlib import Path
 
@@ -328,12 +329,16 @@ _SCOPE_LEVELS = ("required", "nice_to_have")
 
 
 #: RULING T-2 (Sorbet WP-T, 2026-11-13; B8-15 precedent): a PLAIN numeric
-#: string is the number it states — digits only ("120"), or digits in groups of
-#: three under ONE consistent thousands separator ("6.000.000", "6,000,000",
-#: "1.500"). Anything else ("~120", "über 100", "6 Mio.", "1,5") is not a plain
-#: number and stays dropped: the floor reads a type slip, it never guesses.
-_PLAIN_DIGITS = re.compile(r"\d+")
-_GROUPED_DIGITS = re.compile(r"\d{1,3}([.,])\d{3}(?:\1\d{3})*")
+#: string is the number it states — ASCII digits only ("120"), or ASCII digits in
+#: groups of three under ONE consistent thousands separator, led by a non-zero
+#: digit ("6.000.000", "6,000,000", "1.500"). Anything else ("~120", "über 100",
+#: "6 Mio.", "1,5", "0.750", "١٢٠") is not a plain number and stays dropped: the
+#: floor reads a type slip, it never guesses.
+_PLAIN_DIGITS = re.compile(r"[0-9]+", re.ASCII)
+_GROUPED_DIGITS = re.compile(r"[1-9][0-9]{0,2}([.,])[0-9]{3}(?:\1[0-9]{3})*", re.ASCII)
+#: MD-8 (adversarial F6): a scope bar is a finite count or amount above zero and
+#: below a sane bound — "9" * 400 is infinity, not a budget.
+_SCOPE_MAX = 1e12
 
 
 def _scope_number(value: object) -> float | None:
@@ -341,19 +346,25 @@ def _scope_number(value: object) -> float | None:
 
     Hazelnut build 8: gpt-6-luna emitted ``"value": "120"`` for "ca. 120
     Mitarbeitende" (3 of its 10 team-size outputs; 0 of 187 on other models),
-    the floor dropped the entry, and the gap analysis never saw the bar."""
+    the floor dropped the entry, and the gap analysis never saw the bar. MD-8:
+    only a finite value with ``0 < value < _SCOPE_MAX`` is a bar."""
     if isinstance(value, bool):
         return None
+    number: float | None = None
     if isinstance(value, (int, float)):
-        return float(value)
-    if not isinstance(value, str):
+        try:
+            number = float(value)
+        except OverflowError:  # an int beyond float range
+            number = None
+    elif isinstance(value, str):
+        text = value.strip()
+        if _PLAIN_DIGITS.fullmatch(text):
+            number = float(text)
+        elif _GROUPED_DIGITS.fullmatch(text):
+            number = float(re.sub(r"[.,]", "", text))
+    if number is None or not math.isfinite(number) or not 0 < number < _SCOPE_MAX:
         return None
-    text = value.strip()
-    if _PLAIN_DIGITS.fullmatch(text):
-        return float(text)
-    if _GROUPED_DIGITS.fullmatch(text):
-        return float(re.sub(r"[.,]", "", text))
-    return None
+    return number
 
 
 def _coerce_scope_requirements(raw: object, jd_text: str) -> list[dict]:
