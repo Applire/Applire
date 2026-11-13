@@ -1513,11 +1513,20 @@ def cv_durations_block(
                 + ", or no duration."
             )
             continue
+        if f.stated_start is not None:
+            # SF-WRITE.113 (ADR-078 amended 2026-11-13): the person's own start.
+            allowed = f.allowed_wordings("de" if de else "en")
+            tool_lines.append(
+                f"  - {f.tool}: the candidate's own start — "
+                + " or ".join(f'"{w}"' for w in allowed)
+                + ", or no duration."
+            )
+            continue
         hedge = span_hedges(f.years)
         if hedge is None:
             continue
         counted = ", ".join(label for _pid, label in f.positions if label)
-        if span_above_career(f.years, ceiling):
+        if f.start_conflict or span_above_career(f.years, ceiling):
             tool_lines.append(
                 f"  - {f.tool}: no duration."
             )

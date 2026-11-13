@@ -211,6 +211,10 @@ def test_the_carrier_now_has_exactly_one_writer_AND_one_reader():
     )
     assert files == [
         "services/profile/reconcile/apply.py",   # the writer
+        # RULING MD-6 (Sorbet WP-T): the guard pass over a model-emitted
+        # engagement ask's carried content, at park time — it rewrites the
+        # carrier to what the stance / attribution / position guards keep.
+        "services/profile/reconcile/engine.py",
         "services/session.py",                   # the reader (V-5)
     ], files
 
@@ -231,4 +235,6 @@ def test_the_carrier_now_has_exactly_one_writer_AND_one_reader():
         "_apply_add_bullets",
         "_apply_engagement_confirmation",
         "_apply_interview_confirmation",
+        "_guard_engagement_ask",  # MD-6 — guards the carrier (engine.py)
+        "reconcile",  # MD-6 — names it in the comment at the guard's call site
     }, owners

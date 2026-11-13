@@ -6,6 +6,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### The profile and the documents keep your own words for positions and starts
+- **A stronger title than you gave is asked about, never written silently** (#831; founder ruling T-1). If saving an answer would make you a deputy or a head of a unit that your answer and that role never mention (you wrote "I am the operative number two for the consolidation"; it was saved as "operative deputy to the Head of Accounting"), that bullet is held back and you get one question: was it formally your position, or a role for this task only? "Yes" saves the title. Any other answer saves the bullet without it. A role within a task ("project lead for the migration", "responsible for the consolidation") is saved as before. Replayed on the recorded case: 7 of 10 → 0 of 10 on Claude Sonnet 5.5 with the new reconcile sentence, 0 of 10 → 0 of 5 on gpt-6-luna; over 560 recorded answers the question would have been asked once, on that case.
+- **A start you stated beats a computed span** (SF-WRITE.113). If you wrote "seit 2021" for a skill, CV and cover letter now offer "seit 2021" for it, never "über 9 Jahre" counted from an older role. When your sentence names the skill and a start but does not tie them together closely, no duration is offered for that skill. On 349 recorded synthetic profiles, 42 of 1,769 tool durations change this way.
+- **A team size the posting states reaches the gap analysis again** (Hazelnut build 8, B8-12; founder ruling T-2). When the posting analysis wrote a stated figure such as "ca. 120 Mitarbeitende" as the text "120" instead of a number, the figure was thrown away, and the gap analysis never compared it with your own team size. A plain number written as text ("120", "6.000.000") is now read as that number; anything vaguer ("~120", "über 100") is still left out.
+
 ## [0.46.0-beta] – 2026-11-10 (Hazelnut build 8)
 
 ### The CV says what the profile holds

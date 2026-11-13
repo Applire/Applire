@@ -77,6 +77,8 @@ docstring stated the inverted rule this ADR overturns — has been removed.
 from __future__ import annotations
 
 import logging
+import re
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
@@ -428,6 +430,199 @@ def stored_span_years(
     if not ranges:
         return None
     return _calculate_years(ranges)
+
+
+# ── SF-WRITE.113 (Sorbet WP-T, ADR-078 amended 2026-11-13): a STATED START ──
+#
+# Hazelnut build 8 delivery: the writer was offered "Hygiene- und
+# Dokumentationsdisziplin — since 04/2017 … über 9 Jahre" — the union of the dated
+# positions whose own text names the skill — while the person had said "… (Sauber-
+# raumbereich bei <employer> seit 2021)". The own-figure channel (R4-1,
+# ``VaultIndex.stated_skill_tenures``) reads "N Jahre", never a start. A start the
+# person states beats the computed span exactly as their own figure does.
+#
+# A superset of the Oracle's ``figures._TENURE_SINCE_RE`` (which stays as it is for
+# the #469 envelope check): it also reads a month, numeric or named, and a year at a
+# sentence end ("seit 2021.").
+_MONTH_NAMES = {
+    "januar": 1, "jänner": 1, "jaenner": 1, "january": 1, "jan": 1,
+    "februar": 2, "february": 2, "feb": 2,
+    "märz": 3, "maerz": 3, "march": 3, "mär": 3, "mar": 3,
+    "april": 4, "apr": 4,
+    "mai": 5, "may": 5,
+    "juni": 6, "june": 6, "jun": 6,
+    "juli": 7, "july": 7, "jul": 7,
+    "august": 8, "aug": 8,
+    "september": 9, "sept": 9, "sep": 9,
+    "oktober": 10, "october": 10, "okt": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "dezember": 12, "december": 12, "dez": 12, "dec": 12,
+}
+_STATED_START_RE = re.compile(
+    r"\b(?:seit|since)\s+"
+    r"(?:(?P<mm>0?[1-9]|1[0-2])\s*[/.]\s*"
+    r"|(?P<mname>" + "|".join(sorted(_MONTH_NAMES, key=len, reverse=True)) + r")\.?\s+)?"
+    r"(?P<yyyy>(?:19|20)\d{2})(?!\d)(?![.,]\d)",
+    re.IGNORECASE,
+)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
+
+
+@dataclass(frozen=True)
+class StatedStart:
+    """A start the person states for a skill in their OWN text (ADR-078 am. 2026-11-13).
+
+    ``tight``: the start lies inside the skill's subject window
+    (``vault.skills_near_duration`` — R4-1's predicate, its barriers included), so
+    the start is the skill's and is offered as stated. Not tight: the start and the
+    skill only share a sentence — whose start it is cannot be told, so the computed
+    span for the skill is withheld (no duration), never replaced."""
+
+    year: int
+    month: int | None
+    raw: str
+    path: str
+    sentence: str
+    tight: bool
+    #: MD-8 (adversarial F4/F5): False for a start that cannot be the skill's
+    #: start as written — negated ("nicht seit 2021", "seit 2020 nicht mehr"),
+    #: a range ("seit 2019-2021"), before 1950, more than
+    #: ``_START_MARGIN_YEARS`` before the person's first dated position, or in
+    #: the future. Such a start is never offered, and it withholds the computed
+    #: span for every skill it is linked to (no duration).
+    usable: bool = True
+
+    @property
+    def label(self) -> str:
+        """The start as a CV/letter states it: ``"2021"`` or ``"04/2021"``."""
+        return f"{self.month:02d}/{self.year}" if self.month else str(self.year)
+
+
+#: MD-8 F4 — the words around a "seit YYYY" that make it no start as written.
+_START_NEGATED_BEFORE = re.compile(r"\b(?:nicht|not|nie|never|kein\w*)\s*$", re.IGNORECASE)
+_START_NEGATED_AFTER = re.compile(
+    r"^[^.;:!?\n]{0,40}?\b(?:nicht|not|no\s+longer|nie|never|kein\w*)\b", re.IGNORECASE,
+)
+_START_RANGE_AFTER = re.compile(
+    r"^\s*(?:[-–—/]|bis|to|until)\s*(?:\d{1,2}\s*[/.]\s*)?(?:19|20)\d{2}", re.IGNORECASE,
+)
+#: F5 — the oldest plausible start: 1950, and no more than this many years before
+#: the person's first dated position.
+_START_FLOOR_YEAR = 1950
+_START_MARGIN_YEARS = 10
+
+
+def _start_matches(text: str) -> list[tuple[int, int | None, str, int, bool]]:
+    """``(year, month | None, raw, offset, as_written)`` for every "seit/since
+    [MM/|Monat ]YYYY" in ``text``; ``as_written`` is False for a negated or a
+    ranged one (MD-8 F4). Facts (ADR-062 cl. 1): closed patterns only."""
+    out: list[tuple[int, int | None, str, int, bool]] = []
+    text = text or ""
+    for m in _STATED_START_RE.finditer(text):
+        month: int | None = None
+        if m.group("mm"):
+            month = int(m.group("mm"))
+        elif m.group("mname"):
+            month = _MONTH_NAMES.get(m.group("mname").lower())
+        as_written = not (
+            _START_NEGATED_BEFORE.search(text[max(0, m.start() - 12):m.start()])
+            or _START_NEGATED_AFTER.match(text[m.end():])
+            or _START_RANGE_AFTER.match(text[m.end():])
+        )
+        out.append((int(m.group("yyyy")), month, m.group(0), m.start(), as_written))
+    return out
+
+
+def extract_stated_starts(text: str) -> list[tuple[int, int | None, str, int]]:
+    """``(year, month | None, raw, offset)`` for every "seit/since [MM/|Monat ]YYYY"
+    in ``text``. A FACT (ADR-062 cl. 1): a closed pattern, no reading of meaning."""
+    return [(y, mo, raw, off) for y, mo, raw, off, _ok in _start_matches(text)]
+
+
+def _first_position_year(profile_json: dict[str, Any]) -> int | None:
+    years = []
+    for w in profile_json.get("work_experience") or []:
+        m = re.match(r"\s*((?:19|20)\d{2})", str((w or {}).get("start_date") or ""))
+        if m:
+            years.append(int(m.group(1)))
+    return min(years) if years else None
+
+
+def _plausible(year: int, month: int | None, first_year: int | None, today: date) -> bool:
+    """MD-8 F5 — a start the person could have meant as written."""
+    if year < _START_FLOOR_YEAR:
+        return False
+    if first_year is not None and year < first_year - _START_MARGIN_YEARS:
+        return False
+    return (year, month or 1) <= (today.year, today.month)
+
+
+def stated_skill_starts(
+    profile_json: dict[str, Any] | None, names: list[str]
+) -> dict[str, StatedStart]:
+    """Per skill (casefolded name): the start the person's OWN record states for it.
+
+    The corpus is R4-1's (``letter_v2._person_stated_tool_years``): the vault
+    index's evidence units plus the person's denial statements — the person's own
+    words; ledger evidence, gap reasons, questions and every block the system
+    writes are no unit and never a source (ADR-061/048 amended, "a paraphrase is
+    not a source"). Unconfirmed entries are excluded first (790:61).
+
+    A tight start beats a sentence-only one; among equals the EARLIEST start wins
+    (the larger span, R4-1's "the larger wins"). Fail-open: ``{}``."""
+    if not isinstance(profile_json, dict) or not names:
+        return {}
+    try:
+        from applire.services.ats_audit import _norm, surface_present_whole_token
+        from applire.services.oracle.matchers.vault import build_vault_index, skills_near_duration
+        from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+        idx = build_vault_index(exclude_unconfirmed(profile_json))
+    except Exception:  # noqa: BLE001 — a prompt input must never fail generation
+        return {}
+    texts: list[tuple[str, str]] = [
+        (u.path, u.text) for u in idx.units if not u.path.startswith("personal_info")
+    ] + [(u.path, u.text) for u in idx.denial_units]
+    out: dict[str, StatedStart] = {}
+    first_year = _first_position_year(profile_json)
+    today = date.today()
+
+    def _key(s: StatedStart) -> tuple[int, int, int, int]:
+        # An unusable start linked to the skill outranks every other (MD-8 F4):
+        # it withholds the span, and earliest-wins never picks a negated start.
+        return (0 if not s.usable else 1, 0 if s.tight else 1, s.year, s.month or 1)
+
+    for path, text in texts:
+        starts = _start_matches(text)
+        if not starts:
+            continue
+        sentences: list[tuple[int, str]] = []
+        pos = 0
+        for part in _SENTENCE_SPLIT_RE.split(text):
+            at = text.find(part, pos)
+            sentences.append((at, part))
+            pos = at + len(part)
+        for year, month, raw, offset, as_written in starts:
+            usable = as_written and _plausible(year, month, first_year, today)
+            sentence = next(
+                (s for at, s in reversed(sentences) if 0 <= at <= offset), text
+            )
+            tight_names = {n for n, _d in skills_near_duration(text, raw, names)}
+            sentence_norm = _norm(sentence)
+            for name in names:
+                if name in tight_names:
+                    tight = True
+                elif surface_present_whole_token(name, sentence_norm):
+                    tight = False
+                else:
+                    continue
+                cand = StatedStart(
+                    year, month, raw.strip(), path, sentence.strip()[:240], tight, usable,
+                )
+                cur = out.get(name.casefold())
+                if cur is None or _key(cand) < _key(cur):
+                    out[name.casefold()] = cand
+    return out
 
 
 def _match_and_enrich(

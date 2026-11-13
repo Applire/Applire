@@ -377,8 +377,10 @@ async def test_applied_status_requires_an_empty_not_applied_list(async_db):
         ]
     )
 
+    # MD-8 F1 (#831): a title is held per title + unit — the testimony names the
+    # Engineering unit, so the "Engineering Lead" role is the person's own words.
     result = await submit_testimony(
-        "I led a team of 7 engineers at ACME.", async_db, provider
+        "I led the engineering team of 7 engineers at ACME.", async_db, provider
     )
 
     assert result.status == "applied"

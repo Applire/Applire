@@ -29,8 +29,10 @@ for doing it right already existed (LLM-generated questions and the outcome
 critic's advisories ship `{"de": …, "en": …}` pairs and follow `ui_language`);
 it had simply never been applied to these paths.
 
-**Eleven builders, six ask families** (family 6, the project-parent ask, is
-D-8 of Hazelnut build 5: the engine rebuilds a model-asked one). Every deterministic
+**Twelve builders, seven ask families** (family 6, the project-parent ask, is
+D-8 of Hazelnut build 5: the engine rebuilds a model-asked one; family 7, the
+position-title ask, is #831 / founder RULING T-1, raised by
+``position_terms.enforce_position_terms``). Every deterministic
 `RequestConfirmation` in `applire/` is built here — `apply.py` x8 and
 `attribution.py` x2 (the guard's ask, and the narrower "which of your roles at
 this employer" ask its RESOLUTION raises, #723 / ADR-063 am. 2026-09-18) — so a
@@ -321,6 +323,54 @@ def project_parent_confirmation(
         f"Zu welcher Position geh\u00f6rt das Projekt \u201e{project}\u201c?",
         f"Which position does the project '{project}' belong to?",
         pairs,
+        context,
+    )
+
+
+def position_title_confirmation(
+    *,
+    items: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> RequestConfirmation:
+    """Family 7 — "was that your position, or a role for this task only?" (#831).
+
+    Founder RULING T-1 (2026-11-13): a position title the person's answer and the
+    edited entry do not hold is HELD and asked once per turn. Keys
+    ``title_holds`` (the title is written as the reconciler wrote it) and
+    ``task_only`` (the bullet without the clause carrying the title; nothing for
+    a bare title). ``position_terms.plan_position_resolution`` reads them.
+    """
+    from applire.services.profile.label_text import truncate_at_word
+
+    claims = [truncate_at_word(str(i.get("claim") or ""), 140) for i in items]
+    claim_de = "“, „".join(claims)
+    claim_en = "', '".join(claims)
+    task = next((str(i.get("task_text") or "") for i in items if i.get("task_text")), "")
+    task_de = (
+        f" Ohne den Titel stünde dort: „{truncate_at_word(task, 140)}“." if task else ""
+    )
+    task_en = f" Without the title it would read: '{truncate_at_word(task, 140)}'." if task else ""
+    return _build(
+        (
+            f"In deinem Profil stünde: „{claim_de}“. Deine Antwort nennt diese Position "
+            f"so nicht. War das formal deine Position in der Organisation, oder eine "
+            f"Rolle nur für diese Aufgabe?{task_de}"
+        ),
+        (
+            f"Your profile would say: '{claim_en}'. Your answer does not name this "
+            f"position. Was it formally your position in the organisation, or a role "
+            f"for this task only?{task_en}"
+        ),
+        [
+            (
+                {"en": "Yes, that was my position", "de": "Ja, das war meine Position"},
+                "title_holds",
+            ),
+            (
+                {"en": "No, only for this task", "de": "Nein, nur für diese Aufgabe"},
+                "task_only",
+            ),
+        ],
         context,
     )
 

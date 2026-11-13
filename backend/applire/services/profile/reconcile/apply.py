@@ -1794,6 +1794,15 @@ def _apply_resolve_both_or_merge(
     return updated
 
 
+#: MD-4 — what a family-7 answer may write: a held bullet into a work or project
+#: entry's own bullet lists, or a held role. Nothing else, whatever the record says.
+_POSITION_WRITABLE = frozenset({
+    ("bullet", "responsibilities"),
+    ("bullet", "achievements"),
+    ("role", "role"),
+})
+
+
 def _apply_resolve_confirmation(
     op: ResolveConfirmation,
     profile: MasterProfileData,
@@ -1938,6 +1947,94 @@ def _apply_resolve_confirmation(
         old_parent = project.associated_experience
         project.associated_experience = parent_id
         changes.append(_updated("projects", "associated_experience", old_parent, parent_id, entity=project))
+        return
+
+    # ── #831 / RULING T-1 — family 7: the answer decides title vs. task ──────
+    # The held bullet is written with its title on "Ja, das war meine
+    # Position", otherwise the task-scoped wording (the bullet without the
+    # clause carrying the title). A held role is written only on the yes — as
+    # the role of an entry that has none, else as a role alias (ADR-013 Rule 1,
+    # the same as an upsert onto an existing entry). Every held item ends as a
+    # change or an explicit not-applied item (#723's invariant).
+    #
+    # MD-4 (security review, 2026-11-13): `context` is model-emittable (prompt
+    # rule 6 — "a dict with any helpful keys"), so `kind` alone never proves the
+    # code built this ask. The proof is the code-built option keys: the model
+    # cannot emit them (`engine.strip_confirmation_extras`). A record without
+    # exactly `[title_holds, task_only]` is not family 7 and writes nothing. On
+    # a keyed record ANY answer but the yes — free text that names no option
+    # included — writes the task wording, the arm that never writes the title
+    # (T-1; RULING MD-5). Only the allow-listed fields of a work or project
+    # entry are written.
+    if context.get("kind") == "position_title":
+        from applire.services.profile.reconcile.attribution import _anchor_entries
+        from applire.services.profile.reconcile.position_terms import (
+            FAMILY_OPTION_KEYS,
+            plan_position_resolution,
+        )
+
+        if list(entry.option_keys or []) != list(FAMILY_OPTION_KEYS):
+            logger.warning(
+                "resolve_confirmation: a position_title ask without the code-built "
+                "option keys (model-emitted?) — nothing written (MD-4)"
+            )
+            return
+        position_key = resolve_option_key(entry.model_dump(), op.chosen_option)
+        for item, text in plan_position_resolution(dict(context), position_key):
+            field = str(item.get("field") or "")
+            label = _held_label(field, str(item.get("text") or ""))
+            if (item.get("item"), field) not in _POSITION_WRITABLE:
+                not_applied.append(ImportNotApplied(
+                    section="work_experience", label=label, reason="confirmation_unresolvable",
+                ))
+                continue
+            if not text:
+                not_applied.append(ImportNotApplied(
+                    section="work_experience", label=label, reason="confirmation_discarded",
+                ))
+                continue
+            target = resolve_any(str(item.get("target") or "")) if item.get("target") else None
+            if item.get("item") == "role":
+                if target is None:
+                    found = [
+                        w for w in _anchor_entries(str(item.get("company") or ""), profile)
+                        if not (w.role or "").strip()
+                    ]
+                    target = found[0] if len(found) == 1 else None
+                if not isinstance(target, WorkEntry):
+                    not_applied.append(ImportNotApplied(
+                        section="work_experience", label=label, reason="confirmation_unresolvable",
+                    ))
+                    continue
+                if not (target.role or "").strip():
+                    old = target.role
+                    target.role = text
+                    changes.append(_updated("work_experience", "role", old, text, entity=target))
+                elif _norm(text) != _norm(target.role) and _norm(text) not in {
+                    _norm(a) for a in target.role_aliases
+                }:
+                    target.role_aliases.append(text)
+                    changes.append(
+                        _merged("work_experience", "role_aliases", None, text, entity=target)
+                    )
+                else:
+                    not_applied.append(ImportNotApplied(
+                        section="work_experience", label=label,
+                        reason="confirmation_already_present",
+                    ))
+                continue
+            if not isinstance(target, (WorkEntry, ProjectEntry)):
+                not_applied.append(ImportNotApplied(
+                    section="work_experience", label=label, reason="confirmation_unresolvable",
+                ))
+                continue
+            if _append_dedup(getattr(target, field), [text]):
+                changes.append(_merged(_section_for(target), field, None, [text], entity=target))
+            else:
+                not_applied.append(ImportNotApplied(
+                    section=_section_for(target), label=label,
+                    reason="confirmation_already_present",
+                ))
         return
 
     # ── Bug #723 — the attribution family's answer places its held content ───
