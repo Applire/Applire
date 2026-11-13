@@ -148,6 +148,20 @@ closed).
 `TokenItem` = `{id, name, scope, prefix, created_at, last_used_at}`; `prefix` is
 the 8 characters after `apl_`.
 
+#### 3.5a My AI provider key (ADR-096, `LLM_KEY_MODE=user`)
+
+| Method · path | Dep | Request | Response | Errors |
+|---|---|---|---|---|
+| `GET /api/me/provider-key` | `require_user` (a bearer may read) | — | `{key_mode: instance\|user, is_set, family, model, updated_at, unreadable, instance_key_granted, payer: instance\|user\|none, families}` — **never the key**, no mask, no last characters | 401 |
+| `PUT /api/me/provider-key` | `require_session_user` | `{family, model, key, test?}` (raw body; `family` ∈ `mistral`, `openrouter`, `requesty`, `anthropic`, `openai`; `model` 1–200 chars, one line; `key` ≤ 512 printable ASCII). `test: true` runs one 16-token completion on the submitted key before storing | the `GET` payload | 403 `forbidden` (bearer), 422 `invalid_body` \| `invalid_provider_family` \| `invalid_model` \| `invalid_provider_key` \| `provider_key_test_failed` (`reason`: `key_rejected`, `out_of_credit`, `model_not_found`, `rate_limited`, `timeout`, `unreachable`), 503 `provider_key_secret_missing` |
+| `DELETE /api/me/provider-key` | `require_session_user` | — | 204 (idempotent) | 403 `forbidden` (bearer) |
+
+**Refusals on every model-work door** (`LLM_KEY_MODE=user`): `409 {detail:
+{error_code: provider_key_required | provider_key_unreadable, message}}` on REST;
+MCP error code `-32004` with the error code as the first word of the message. A
+background job refused inside carries the same `error_code` in its status payload.
+Writes are audited as `provider_key.stored {family, tested}` and `provider_key.removed`.
+
 ### 3.6 Admin (metadata only — never content)
 
 `require_admin_session` (MD-34/MD-38) = `require_admin` + session only: an `api` bearer gets 403 `forbidden` on every route that creates or resets a credential (invite, reset link, role change, token revoke, probe tokens) and on account deletion (Hazelnut build 2, R-3). The route walk in `backend/tests/unit/test_w4_fix_identity.py` pins which admin routes are which.
@@ -156,7 +170,7 @@ the 8 characters after `apl_`.
 |---|---|---|---|---|---|
 | `GET /api/admin/users` | `require_admin` | — | `admin.AdminUserListResponse` `{users: [AdminUserItem]}` (tombstoned accounts not listed) | 401, 403 | 1b |
 | `POST /api/admin/users` | `require_admin_session` | `admin.AdminUserCreateRequest` `{email, role=user, send_mail=true}` — `send_mail` only decides about the mail (sent iff SMTP is configured AND true); the link is always returned (MD-28) | **201** `admin.AdminUserCreatedResponse` `{user, link: IssuedLink}` — a pending account + its invite link | 409 `email_taken` | 1b |
-| `PATCH /api/admin/users/{user_id}` | `require_admin_session` | `admin.AdminUserPatchRequest` `{role?, disabled?}` | `admin.AdminUserItem` | 404, 409 `last_admin`, 422 (empty body) | 1b |
+| `PATCH /api/admin/users/{user_id}` | `require_admin_session` | `admin.AdminUserPatchRequest` `{role?, disabled?, instance_key_granted?}` — `instance_key_granted` (ADR-096 cl. 6) sets/clears `instance_key_granted_at`, idempotent, audited `user.instance_key_granted` / `user.instance_key_revoked` | `admin.AdminUserItem` | 404, 409 `last_admin`, 422 (empty body) | 1b |
 | `DELETE /api/admin/users/{user_id}` | `require_admin_session` (since Hazelnut build 2, R-3: erasure is irreversible) | — | 204 (erasure + tombstone) | 403 `forbidden` for an `api` bearer, 404, 409 `last_admin` | 1b |
 | `POST /api/admin/users/{user_id}/reinvite` | `require_admin_session` | — | `admin.IssuedLink` (purpose `invite`) | 404, 409 `user_not_pending` | 1b |
 | `POST /api/admin/users/{user_id}/reset-link` | `require_admin_session` | — | `admin.IssuedLink` (purpose `reset`) | 404, 409 `user_not_active` | 1b |
@@ -167,7 +181,9 @@ the 8 characters after `apl_`.
 
 `AdminUserItem` = `{id, email, role, status: pending|active|disabled, created_at,
 last_login_at, last_active_at, invite_expires_at, metadata: {application_count,
-document_count, storage_bytes, ai_tokens_30d}}` — `invite_expires_at` = expiry of
+document_count, storage_bytes, ai_tokens_30d}, instance_key_granted_at,
+has_provider_key}` (ADR-096: the grant's timestamp and a boolean — never the key,
+its family or its model) — `invite_expires_at` = expiry of
 the newest unused invite link of a pending account, else `null` (CONTRACT-CHANGE
 1b-4); `ai_tokens_30d` = `llm_usage.total_tokens` of the last 30 days, `null` while
 unattributable (CONTRACT-CHANGE 1b-1). `IssuedLink` = `{purpose, url, expires_at, mailed, mail_failed, mail_failed_reason}` (MD-38: `mail_failed_reason` = `base_url_unset` | `send_failed` | `null`; a mailed link is built from `APPLIRE_BASE_URL` only, MD-32 — the `url` shown here may use the admin's own browser origin)

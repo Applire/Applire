@@ -49,6 +49,7 @@ provider is visible at `GET /api/ops/health` (`llm_provider`) and on the dashboa
 | `OLLAMA_MODEL` | llm | string | `ollama` | no key |
 | `SCRAPER_FETCH_LINKEDIN_GUEST_PAGES` | scraper | bool | — | #726, default **true** (ruling E-3) |
 | `RETENTION_ENABLED` | retention | bool | — | #738, default **true** |
+| `LLM_KEY_MODE` | llm | enum | — | `choices`: `instance` (default), `user` (ADR-096). Switching to `user` without `PROVIDER_KEY_SECRET` in the environment answers `409 provider_key_secret_missing`. `GET`/`PUT` responses carry `key_mode: {mode, secret_set, users_without_payer, users_with_grant, users_with_key}` |
 | `OPS_PROVIDER_PROBE` | ops | enum | — | `choices`: `off`, `reachability`, `credit`, `both`; default **both** (ADR-093 amended 2026-11-06). Which halves of the ops provider probe run; `reachability` spends a small model call per probe interval, `credit` reads a balance for free where `providers[].balance_check` is true |
 
 Base URLs, timeouts, reasoning knobs and every other setting stay **env-only**. A base URL decides where every CV is sent, so it is not a panel field (ADR-093 cl. 2).
@@ -183,6 +184,8 @@ The UI translates `linkedin_guest_fetch_disabled` like the other `jd_*` codes.
 C1-2 **ruled A** (MD2-1): a panel override wins, with a source badge and a reset via `DELETE`. C1-4 **ruled A** (MD2-2): in-flight work keeps its provider. C1-1 **ruled A** (founder): the key is stored in the DB, Fernet-encrypted with the instance secret. C1-3 **ruled A** (founder): scope as in §5.3; OFF is allowed with more than one user, audited, with a banner.
 
 ## 9. Change log
+
+- 2026-11-13 (Sorbet WP-K, ADR-096 phase 1): CONTRACT-CHANGE `LLM_KEY_MODE` joins the panel set; responses gain `key_mode`. `llm_usage` gains `payer` (`instance` \| `user` \| `system`).
 
 - 2026-10-07 `d7cb97c5`: first SEAM-READY.
 - 2026-10-07 (fix-admin, adversarial findings): `provider_not_ready` also on `DELETE`, with `detail.key`. `openai` needs a key without `OPENAI_BASE_URL`. A secret value must be printable ASCII without spaces (`\x21`-`\x7e`), otherwise 422 `invalid_setting_value` with `detail.key` only. `health.components[].checked_at` is new and the dashboard never pings the provider inline. `retention.enabled_since` never spans a skipped worker run, and `notices` carries `retention_disabled` when the newest run skipped. A write of the same key is an upsert (last write wins, both audited). The LinkedIn refusal also covers redirect hops, tier-2 requests and WHATWG/Python parser differences.
