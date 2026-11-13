@@ -19,6 +19,7 @@ import uuid
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 
 from sqlalchemy import select
@@ -326,11 +327,41 @@ _SCOPE_COMPARATORS = ("approx", "min", "exact", "range")
 _SCOPE_LEVELS = ("required", "nice_to_have")
 
 
+#: RULING T-2 (Sorbet WP-T, 2026-11-13; B8-15 precedent): a PLAIN numeric
+#: string is the number it states — digits only ("120"), or digits in groups of
+#: three under ONE consistent thousands separator ("6.000.000", "6,000,000",
+#: "1.500"). Anything else ("~120", "über 100", "6 Mio.", "1,5") is not a plain
+#: number and stays dropped: the floor reads a type slip, it never guesses.
+_PLAIN_DIGITS = re.compile(r"\d+")
+_GROUPED_DIGITS = re.compile(r"\d{1,3}([.,])\d{3}(?:\1\d{3})*")
+
+
+def _scope_number(value: object) -> float | None:
+    """The number a scope ``value`` states, or ``None`` (fact, ADR-062 cl. 1).
+
+    Hazelnut build 8: gpt-6-luna emitted ``"value": "120"`` for "ca. 120
+    Mitarbeitende" (3 of its 10 team-size outputs; 0 of 187 on other models),
+    the floor dropped the entry, and the gap analysis never saw the bar."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if _PLAIN_DIGITS.fullmatch(text):
+        return float(text)
+    if _GROUPED_DIGITS.fullmatch(text):
+        return float(re.sub(r"[.,]", "", text))
+    return None
+
+
 def _coerce_scope_requirements(raw: object, jd_text: str) -> list[dict]:
     """ADR-069 clause 1's deterministic floor on the extracted scope bars.
 
     Facts only (ADR-062): kind/comparator/level in their closed sets, value
-    numeric, quote a non-empty string that actually occurs in the posting
+    numeric (a plain numeric string is read as its number — RULING T-2,
+    :func:`_scope_number`), quote a non-empty string that actually occurs in the posting
     (whitespace-folded — the reviewer judges wording, this checks presence).
     An entry failing any check is dropped and logged — never repaired, never
     invented. The no-invention rule lives in the prompt; this floor only
@@ -344,16 +375,16 @@ def _coerce_scope_requirements(raw: object, jd_text: str) -> list[dict]:
         if not isinstance(entry, dict):
             continue
         kind = entry.get("kind")
-        value = entry.get("value")
-        value_max = entry.get("value_max")
+        value = _scope_number(entry.get("value"))
+        raw_max = entry.get("value_max")
+        value_max = None if raw_max is None else _scope_number(raw_max)
         comparator = entry.get("comparator") or "approx"
         quote = entry.get("quote")
         level = entry.get("level") or "required"
         ok = (
             kind in _SCOPE_KINDS
-            and isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and (value_max is None or (isinstance(value_max, (int, float)) and not isinstance(value_max, bool)))
+            and value is not None
+            and (raw_max is None or value_max is not None)
             and comparator in _SCOPE_COMPARATORS
             and level in _SCOPE_LEVELS
             and isinstance(quote, str)
