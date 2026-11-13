@@ -37,6 +37,7 @@ export function settingsErrorText(r: AdminResult<unknown>, t: T, provider: strin
   if (r.ok) return "";
   if (r.kind === "error") {
     if (r.code === "provider_not_ready") return t("errorKeyRequired", { provider: String(r.detail?.provider ?? provider) });
+    if (r.code === "provider_key_secret_missing") return t("keyModeSecretMissing");
     if (r.code === "settings_secret_unavailable") return t("errorSecretUnavailable");
     if (r.code === "invalid_setting_value" || r.code === "unknown_setting") return t("errorInvalidValue", { key: String(r.detail?.key ?? "") });
   }

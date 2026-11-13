@@ -88,3 +88,11 @@ describe("auditDetailParts — appearance (US357)", () => {
     expect(auditDetailParts("appearance.default_changed", { from_scheme_id: "x" })).toEqual([]);
   });
 });
+
+describe("failedReason — provider key (ADR-096)", () => {
+  it("maps the key refusals to their own reasons", async () => {
+    const { failedReason } = await import("../admin-format");
+    expect(failedReason("provider_key_required")).toEqual({ key: "reasonKeyRequired" });
+    expect(failedReason("provider_key_unreadable")).toEqual({ key: "reasonKeyUnreadable" });
+  });
+});

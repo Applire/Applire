@@ -116,7 +116,7 @@ describe("actionsFor", () => {
   });
   it("active user: offers makeAdmin, not makeUser", () => {
     const a = actionsFor(PLAIN);
-    expect(a).toEqual(["resetLink", "makeAdmin", "revokeTokens", "disable", "delete"]);
+    expect(a).toEqual(["resetLink", "makeAdmin", "grantKey", "revokeTokens", "disable", "delete"]);
   });
 });
 
@@ -129,6 +129,7 @@ describe("UsersAdmin — table", () => {
       "Email address",
       "Role",
       "Status",
+      "AI key",
       "Last sign-in",
       "Applications",
       "Storage",
@@ -548,5 +549,51 @@ describe("UsersAdmin — delete", () => {
     expect(screen.queryByTestId("admin-delete-dialog")).toBeNull();
     expect(calls.length).toBe(before);
     expect(mutations()).toHaveLength(0);
+  });
+});
+
+describe("UsersAdmin — AI key (ADR-096)", () => {
+  it("shows instance / own / none per row, the grant winning over an own key", async () => {
+    users = [
+      OWN,
+      user({ id: "u-6", email: "granted@example.org", instance_key_granted_at: "2026-11-01T10:00:00Z", has_provider_key: true }),
+      user({ id: "u-7", email: "own@example.org", has_provider_key: true }),
+      PLAIN,
+    ];
+    renderAdmin();
+    await screen.findByTestId("admin-users-table");
+    const kind = (email: string) => within(row(email)).getByTestId("user-ai-key");
+    expect(kind("granted@example.org")).toHaveTextContent("Instance (granted)");
+    expect(kind("own@example.org")).toHaveTextContent("own");
+    expect(kind("maria@example.org")).toHaveTextContent("none");
+  });
+
+  it("grant: confirm dialog, then PATCH {instance_key_granted: true}", async () => {
+    mockApi((url, method) => (method === "PATCH" ? json(200, {}) : undefined));
+    const u = userEvent.setup();
+    renderAdmin();
+    await screen.findByTestId("admin-users-table");
+    await openMenu(u, "maria@example.org");
+    await u.click(screen.getByTestId("admin-user-action-grantKey"));
+    expect(mutations()).toHaveLength(0);
+    expect(screen.getByTestId("admin-confirm-dialog")).toHaveTextContent("maria@example.org will then run on this instance's provider key");
+    await u.click(screen.getByTestId("admin-confirm-dialog-confirm"));
+    await waitFor(() => expect(mutations()).toHaveLength(1));
+    expect(mutations()[0]).toMatchObject({ url: "/api/admin/users/u-4", method: "PATCH", body: { instance_key_granted: true } });
+  });
+
+  it("revoke: offered instead of grant on a granted row, PATCH {instance_key_granted: false}", async () => {
+    users = [OWN, user({ id: "u-6", email: "granted@example.org", instance_key_granted_at: "2026-11-01T10:00:00Z" })];
+    mockApi((url, method) => (method === "PATCH" ? json(200, {}) : undefined));
+    const u = userEvent.setup();
+    renderAdmin();
+    await screen.findByTestId("admin-users-table");
+    await openMenu(u, "granted@example.org");
+    expect(screen.queryByTestId("admin-user-action-grantKey")).toBeNull();
+    await u.click(screen.getByTestId("admin-user-action-revokeGrant"));
+    expect(screen.getByTestId("admin-confirm-dialog")).toHaveTextContent("will then need their own key");
+    await u.click(screen.getByTestId("admin-confirm-dialog-confirm"));
+    await waitFor(() => expect(mutations()).toHaveLength(1));
+    expect(mutations()[0].body).toEqual({ instance_key_granted: false });
   });
 });

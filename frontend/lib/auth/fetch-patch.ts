@@ -9,12 +9,13 @@
  * `error_code: "unauthenticated"` (the ONLY code the shell acts on — contract §2)
  * sends the browser to `/login?next=<where you were>`. Every other status, every
  * other 401 code (`invalid_credentials` at login …) and every non-API URL passes
- * through untouched. The response is always returned to the caller unchanged.
+ * through untouched (one extra: a `409 provider_key_*` raises a window event, ADR-096). The response is always returned to the caller unchanged.
  *
  * Never fires on the signed-out pages themselves (no redirect loop), never twice,
  * and not while a deliberate sign-out is navigating away.
  */
 
+import { PROVIDER_KEY_REQUIRED_EVENT, isProviderKeyErrorCode } from "../provider-key-events";
 import { API_BASE, isAuthPage, loginPathFor, readErrorCode } from "./api";
 
 type FetchFn = typeof fetch;
@@ -77,6 +78,19 @@ export async function handleUnauthenticated(res: Response, url: string): Promise
   return true;
 }
 
+/**
+ * ADR-096 — a `409 provider_key_required | provider_key_unreadable` from any API
+ * call raises a window event the shell turns into the "add a key" dialog. The
+ * body is read from a CLONE: the caller still gets its response unread.
+ */
+export async function handleProviderKeyRefusal(res: Response, url: string): Promise<boolean> {
+  if (res.status !== 409 || !isApiUrl(url)) return false;
+  const code = await readErrorCode(res);
+  if (!isProviderKeyErrorCode(code)) return false;
+  window.dispatchEvent(new CustomEvent(PROVIDER_KEY_REQUIRED_EVENT, { detail: { code } }));
+  return true;
+}
+
 /** Idempotent. Wraps whatever `window.fetch` is at call time. */
 export function installAuthFetch(): void {
   if (typeof window === "undefined" || typeof window.fetch !== "function") return;
@@ -88,6 +102,9 @@ export function installAuthFetch(): void {
     if (res.status === 401) {
       // Not awaited: the caller gets its response at once; the redirect follows.
       void handleUnauthenticated(res, requestUrl(input)).catch(() => {});
+    }
+    if (res.status === 409) {
+      void handleProviderKeyRefusal(res, requestUrl(input)).catch(() => {});
     }
     return res;
   }) as FetchFn & { [PATCHED]?: boolean };

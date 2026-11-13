@@ -221,3 +221,11 @@ describe("sourceTruncatedPercent (R3-2 = B)", () => {
     expect(sourceTruncatedPercent({ read_chars: 5, total_chars: 0 })).toBeNull();
   });
 });
+
+describe("importErrorMessageKey — provider key (ADR-096)", () => {
+  it("names a missing or unreadable key instead of the generic failure", async () => {
+    const { importErrorMessageKey } = await import("../import-cv");
+    expect(importErrorMessageKey("provider_key_required")).toBe("uploadNeedsKey");
+    expect(importErrorMessageKey("provider_key_unreadable")).toBe("uploadKeyUnreadable");
+  });
+});

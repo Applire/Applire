@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { HarnessBanner } from "@/components/shell/HarnessBanner";
+import { ProviderKeyBanner, ProviderKeyDialog } from "@/components/shell/ProviderKeyNotices";
 import { ShellUserProvider } from "@/components/shell/ShellUserContext";
 import { loginPathFor, useCurrentUser } from "@/lib/auth";
 
@@ -70,6 +71,8 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
     <ShellUserProvider userName={userName}>
       <div className="flex h-screen flex-col overflow-hidden bg-surface-dim">
         <HarnessBanner />
+        <ProviderKeyBanner />
+        <ProviderKeyDialog />
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <AppSidebar userName={userName} />
           <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">

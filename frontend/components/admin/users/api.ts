@@ -31,6 +31,10 @@ export interface AdminUser {
   last_active_at: string | null;
   invite_expires_at: string | null;
   metadata: AdminUserMetadata;
+  /** ADR-096: when the admin granted this person the instance key; null = no grant. */
+  instance_key_granted_at?: string | null;
+  /** ADR-096: the person stored an own provider key. */
+  has_provider_key?: boolean;
 }
 
 export interface IssuedLink {
@@ -67,7 +71,7 @@ export function createUser(email: string, role: "admin" | "user", sendMail: bool
   return send("/api/admin/users", "POST", { email, role, send_mail: sendMail });
 }
 
-export function patchUser(userId: string, patch: { role?: "admin" | "user"; disabled?: boolean }): Promise<Response> {
+export function patchUser(userId: string, patch: { role?: "admin" | "user"; disabled?: boolean; instance_key_granted?: boolean }): Promise<Response> {
   return send(`/api/admin/users/${id(userId)}`, "PATCH", patch);
 }
 

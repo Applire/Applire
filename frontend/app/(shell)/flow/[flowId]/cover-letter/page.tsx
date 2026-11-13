@@ -108,6 +108,8 @@ const FAILED_REASON_KEYS: Record<string, string> = {
   llm_timeout: "failedReason_llm_timeout",
   provider_unavailable: "failedReason_provider_unavailable",
   llm_truncated: "failedReason_llm_truncated",
+  provider_key_required: "failedReason_provider_key_required",
+  provider_key_unreadable: "failedReason_provider_key_unreadable",
 };
 
 // ADR-090 cl. 2 — Show me where searches the preview iframe, looked up at call time.

@@ -108,6 +108,13 @@ interface ProfileCounts {
   projects: number;
 }
 
+/** ADR-096: a refused gap job for a person without a usable key says so; every other code stays generic. */
+function gapErrorText(t: (key: string) => string, e: GapAnalysisError): string {
+  if (e.errorCode === "provider_key_required") return t("analysisKeyRequired");
+  if (e.errorCode === "provider_key_unreadable") return t("analysisKeyUnreadable");
+  return t("analysisError");
+}
+
 function profileCountsOf(profileData: unknown): ProfileCounts {
   const p = ((profileData as { profile?: Record<string, unknown> } | null)?.profile ?? {}) as Record<string, unknown>;
   const len = (k: string) => (Array.isArray(p[k]) ? (p[k] as unknown[]).length : 0);
@@ -708,7 +715,7 @@ export default function GapsPage({
       } catch (e: unknown) {
         setError(
           e instanceof GapAnalysisError
-            ? t("analysisError")
+            ? gapErrorText(t, e)
             : e instanceof Error
               ? e.message
               : "Failed to load analysis",
@@ -1094,7 +1101,7 @@ export default function GapsPage({
     } catch (e: unknown) {
       setError(
         e instanceof GapAnalysisError
-          ? t("analysisError")
+          ? gapErrorText(t, e)
           : e instanceof Error
             ? e.message
             : "Failed to load analysis",

@@ -45,6 +45,8 @@ export type UserAction =
   | "disable"
   | "enable"
   | "revokeTokens"
+  | "grantKey"
+  | "revokeGrant"
   | "openAccount"
   | "delete";
 
@@ -58,6 +60,7 @@ export function actionsFor(user: AdminUser, isSelf = false): UserAction[] {
   return [
     "resetLink",
     user.role === "admin" ? "makeUser" : "makeAdmin",
+    user.instance_key_granted_at ? "revokeGrant" : "grantKey",
     "revokeTokens",
     "disable",
     "delete",
@@ -72,9 +75,26 @@ const ACTION_META: Record<UserAction, { labelKey: string; icon: LucideIcon }> = 
   disable: { labelKey: "actionDisable", icon: UserX },
   enable: { labelKey: "actionEnable", icon: UserCheck },
   revokeTokens: { labelKey: "actionRevokeTokens", icon: KeyRound },
+  grantKey: { labelKey: "actionGrantKey", icon: KeyRound },
+  revokeGrant: { labelKey: "actionRevokeGrant", icon: KeyRound },
   openAccount: { labelKey: "actionOpenAccount", icon: UserRound },
   delete: { labelKey: "actionDelete", icon: Trash2 },
 };
+
+/** ADR-096: who pays for this person's AI calls — grant wins over an own key. */
+function AiKeyBadge({ user }: { user: AdminUser }) {
+  const t = useTranslations("adminUsers");
+  const [kind, key] = user.instance_key_granted_at
+    ? (["instance", "keyInstance"] as const)
+    : user.has_provider_key
+      ? (["own", "keyOwn"] as const)
+      : (["none", "keyNone"] as const);
+  return (
+    <span data-testid="user-ai-key" data-kind={kind} className="whitespace-nowrap text-on-surface">
+      {t(key)}
+    </span>
+  );
+}
 
 function StatusBadge({ status }: { status: UserStatus }) {
   const t = useTranslations("adminUsers");
@@ -111,12 +131,13 @@ export function UsersTable({
 
   return (
     <div className="relative overflow-x-auto rounded-xl bg-white p-2 shadow-soft">
-      <table data-testid="admin-users-table" className="w-full min-w-[860px] text-left text-[13px]">
+      <table data-testid="admin-users-table" className="w-full min-w-[960px] text-left text-[13px]">
         <thead>
           <tr className="border-b border-outline-variant text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
             <th className="px-3 py-2.5">{t("colEmail")}</th>
             <th className="px-3 py-2.5">{t("colRole")}</th>
             <th className="px-3 py-2.5">{t("colStatus")}</th>
+            <th className="px-3 py-2.5">{t("colAiKey")}</th>
             <th className="px-3 py-2.5">{t("colLastLogin")}</th>
             <th className="px-3 py-2.5 text-right">{t("colApplications")}</th>
             <th className="px-3 py-2.5 text-right">{t("colStorage")}</th>
@@ -159,6 +180,9 @@ export function UsersTable({
                 </td>
                 <td className="px-3 py-3">
                   <StatusBadge status={u.status} />
+                </td>
+                <td className="px-3 py-3">
+                  <AiKeyBadge user={u} />
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-on-surface">
                   {u.last_login_at ? (

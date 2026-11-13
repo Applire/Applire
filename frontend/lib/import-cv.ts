@@ -136,11 +136,14 @@ export class CVImportError extends Error {
  */
 export function importErrorMessageKey(
   code: string | null,
-): "uploadTooLarge" | "uploadNoOcr" | "uploadTryAgain" | "uploadNotSaved" | "uploadFailed" {
+): "uploadTooLarge" | "uploadNeedsKey" | "uploadKeyUnreadable" | "uploadNoOcr" | "uploadTryAgain" | "uploadNotSaved" | "uploadFailed" {
   if (code === "file_too_large") return "uploadTooLarge";
   // R2-13 — the merge call failed after its retry; nothing was changed.
   if (code === "not_saved") return "uploadNotSaved";
   if (code === "ocr_unavailable") return "uploadNoOcr";
+  // ADR-096: no usable AI provider key for this person.
+  if (code === "provider_key_required") return "uploadNeedsKey";
+  if (code === "provider_key_unreadable") return "uploadKeyUnreadable";
   if (code === "llm_truncated" || code === "llm_timeout") return "uploadTryAgain";
   return "uploadFailed";
 }
