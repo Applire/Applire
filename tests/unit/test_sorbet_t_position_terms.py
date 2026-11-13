@@ -630,6 +630,11 @@ def test_f1_a_third_partys_title_in_the_answer_licenses_nothing(bullet):
     ("Ich war nie Abteilungsleiter, nur im Projekt Chef.", "Abteilungsleiter Controlling"),
     ("Ich leite das Projekt Controlling-Reporting.", "Leiterin Rechnungswesen"),
     ("Ich bin Teamleiterin Einkauf.", "Teamleiterin Controlling"),
+    ("Ich war nie Abteilungsleiter Controlling.", "Abteilungsleiter Controlling"),
+    ("Frau Weber ist Teamleiterin Controlling.", "Teamleiterin Controlling"),
+    ("Ich leite das Projekt im Team Controlling.", "Teamleiterin Controlling"),
+    ("I never led the controlling team.", "Teamleiterin Controlling"),
+    ("Ich leite nicht das Team Controlling.", "Teamleiterin Controlling"),
     ("Das gilt vice versa, ich erstelle die Zahlen.", "Stellvertretende Teamleiterin Controlling"),
 ])
 def test_f1_held_per_title_not_per_family(answer, bullet):
@@ -701,6 +706,7 @@ def test_f2_every_field_that_can_carry_a_title_is_held_and_asked(op, field):
     out = _run([op], answer=_F2_ANSWER)
     (ask,) = _asks(out)
     assert [i["field"] for i in ask.context["items"]] == [field]
+    assert [i["item"] for i in ask.context["items"]] == ["text"]
     written = [o for o in out if not isinstance(o, RequestConfirmation)]
     assert not any(_F2_TITLE in str(o.model_dump()) or "Head of Accounting" in str(o.model_dump())
                    for o in written)
@@ -735,3 +741,21 @@ async def test_f2_the_engagement_guard_inherits_a_volunteer_role():
     assert [o.context["kind"] for o in result.ops if isinstance(o, RequestConfirmation)] == [
         "position_title"
     ]
+
+
+def test_f2_a_volunteer_entry_that_records_the_title_holds_it():
+    p = _profile_json()
+    p["volunteer_activities"] = [{"id": "v-1", "organization": "Sportverein",
+                                  "role": "Abteilungsleiterin Jugend"}]
+    op = {"op": "upsert_volunteer", "ref": "v", "target": "v-1", "organization": "Sportverein",
+          "role": "Abteilungsleiterin Jugend", "description": "Abteilungsleiterin Jugend seit 2020"}
+    out = _run([op], answer=_F2_ANSWER, profile=MasterProfileData.model_validate(p))
+    assert _asks(out) == []
+
+
+@pytest.mark.parametrize("chosen", ["Yes, that was my position", "No, only for this task"])
+def test_f2_any_answer_on_a_held_summary_leaves_it_unwritten(chosen):
+    (ask,) = _asks(_run([{"op": "set_summary", "lang": "de", "text": _F2_TITLE}], answer=_F2_ANSWER))
+    out = _answer(ask, chosen)
+    assert _F2_TITLE not in str(out.profile.model_dump())
+    assert [n.reason for n in out.not_applied] == ["confirmation_unresolvable"]

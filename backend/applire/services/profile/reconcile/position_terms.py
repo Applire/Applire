@@ -257,8 +257,8 @@ def _held_titles(text: str, *, first_person: bool) -> set[TitleKey]:
         held.update(k for k, _p in _claim_keys(part))
         folded = _fold(part)
         for m in _UNIT_HEAD_VERB.finditer(folded):
-            if _NEGATION_BEFORE.search(_clause_prefix(folded, m.start())):
-                continue
+            if _NEGATION_BEFORE.search(_clause_prefix(folded, m.start()) + " " + m.group(0)):
+                continue  # "ich habe nie …", "ich leite nicht das Team …"
             if _PROJECT_WORD.search(m.group(0)):
                 continue  # "ich leite das Projekt im Team X" leads a task, not the unit
             held.add(("unit_head", _units(folded, m.start(), m.end())))

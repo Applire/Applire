@@ -214,3 +214,21 @@ def test_earliest_wins_never_picks_a_negated_start():
         ["SAP PP"],
     )
     assert not starts["sap pp"].usable
+
+
+def test_a_later_ended_start_outranks_an_earlier_usable_one():
+    # "seit 2019" alone would read as ongoing; "seit 2021 nicht mehr" says it ended.
+    p = _profile(["SAP PP seit 2019 im Einsatz. Mit SAP PP seit 2021 nicht mehr gearbeitet."],
+                 skills=("SAP PP",))
+    f = _fact(tool_duration_facts(p, None), "SAP PP")
+    assert f.allowed_wordings("de") == [] and f.start_conflict
+
+
+def test_the_1950_floor_holds_without_a_dated_position():
+    from datetime import date
+
+    from applire.services.skill_enrichment import _plausible
+
+    today = date(2026, 11, 13)
+    assert not _plausible(1949, None, None, today) and _plausible(1950, None, None, today)
+    assert not _plausible(2026, 12, None, today) and _plausible(2026, 11, None, today)
