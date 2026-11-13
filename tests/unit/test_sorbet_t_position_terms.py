@@ -143,10 +143,12 @@ def test_on_the_interview_the_question_is_not_the_persons_word():
     assert op.responsibilities == [] and op.technologies == ["LucaNet"]
 
 
-def test_the_cv_import_is_not_guarded():
+@pytest.mark.parametrize("source", ["cv_upload", "manual", "cv"])
+def test_a_cv_import_or_a_manual_edit_is_not_guarded(source):
+    # Even when the payload has an "answer" key: the door decides, not the shape.
     ops = _parse_ops([_bullets()])
     assert enforce_position_terms(
-        ops, profile=_profile(), new_info="CV text", source="cv_upload"
+        ops, profile=_profile(), new_info={"answer": ANSWER}, source=source
     ) is ops
 
 
@@ -224,3 +226,11 @@ async def test_engine_seam_the_recorded_batch_lands_without_the_deputy_clause():
     assert bullets and bullets[0].responsibilities[1] == (
         "Erstellt seit 2023 die konsolidierten Quartalszahlen in LucaNet mit"
     )
+
+
+def test_the_agent_interview_door_is_guarded_on_the_answer():
+    out = _run([{"op": "add_bullets", "target": "w-1",
+                 "responsibilities": ["Stellvertretende Leiterin Rechnungswesen"]}],
+               source="agent_interview",
+               extra={"question": "Sind Sie die Stellvertreterin?"})
+    assert out == []
