@@ -358,6 +358,8 @@ def test_llm_usage_has_no_text_column():
         "application_id",
         "duration_ms",
         "ok",
+        # ADR-096 cl. 11: whose key paid — a label, never text.
+        "payer",
         # ADR-092 cl. 3 / S-8 (migration 0075): who caused the call — an id, no text.
         "user_id",
     }

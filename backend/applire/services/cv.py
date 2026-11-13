@@ -150,6 +150,11 @@ def classify_generation_error(exc: BaseException, *, user_id: uuid.UUID | None =
     maps to a localized human message + retry affordance (error UI is "chrome", so
     localization lives on the frontend with the user's locale, not here).
     """
+    from applire.services.allowance import AdmissionRefused
+
+    if isinstance(exc, AdmissionRefused):
+        # ADR-096 cl. 11: a refusal keeps its own code on every door.
+        return exc.code
     if isinstance(exc, LLMTruncatedError):
         return "llm_truncated"
     if isinstance(exc, LLMTimeoutError):
@@ -181,6 +186,14 @@ _GENERATION_ERROR_MESSAGES = {
         "The AI provider could not be reached. Generate the CV again in a moment."
     ),
     "generation_failed": "The CV could not be generated. Generate it again.",
+    # ADR-096 cl. 11.
+    "provider_key_required": (
+        "Add your own AI provider key in Settings, or ask your admin to let you use "
+        "this instance's key."
+    ),
+    "provider_key_unreadable": (
+        "Your stored AI provider key cannot be read on this server right now. Ask your admin."
+    ),
 }
 
 

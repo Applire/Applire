@@ -377,7 +377,10 @@ def main(argv: list[str] | None = None) -> int:
     settings.llm_provider = args.provider
     if args.model and args.provider == "openrouter":
         settings.openrouter_model = args.model
-    provider = get_provider()
+    # ADR-096 cl. 4: operator tooling pays as `system` (the instance key).
+    from applire.ownership import unscoped as _unscoped
+    with _unscoped("tooling"):
+        provider = get_provider()
 
     async def _all() -> list[dict[str, Any]]:
         if is_review:

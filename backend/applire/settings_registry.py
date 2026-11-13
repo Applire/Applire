@@ -650,7 +650,7 @@ _register_all(
             source="config",
             default="instance",
             section="LLM provider",
-            introduced_in="0.47.0",
+            introduced_in="0.46.0",  # relabel to the release that ships ADR-096 (release commit)
             description=(
                 "Who pays for model work (ADR-096). `instance` (default): every call runs on\n"
                 "the key above, as before. `user`: each person's work runs on the AI provider\n"
@@ -667,7 +667,7 @@ _register_all(
             example="",
             section="LLM provider",
             secret=True,
-            introduced_in="0.47.0",
+            introduced_in="0.46.0",  # relabel to the release that ships ADR-096 (release commit)
             description=(
                 "Encrypts the provider keys people store for LLM_KEY_MODE=user (ADR-096).\n"
                 "Generate one with `openssl rand -hex 32`. It lives ONLY here: never in the\n"

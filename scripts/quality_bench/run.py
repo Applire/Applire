@@ -554,7 +554,10 @@ async def _pipeline(spec: RunSpec, run_dir: Path, meta: dict[str, Any], state: _
 
         _USAGE_ROWS.clear()
         _usage_mod.set_sink(_capture_usage_row)
-        provider = get_provider()
+        # ADR-096 cl. 4: operator tooling pays as `system` (the instance key).
+        from applire.ownership import unscoped as _unscoped
+        with _unscoped("tooling"):
+            provider = get_provider()
 
         with ownership.owner_context(uid):
             # ---- CV --------------------------------------------------------

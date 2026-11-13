@@ -78,7 +78,10 @@ ALLOWED_SERVICE_MODULES = {"applire.services", "applire.services.admin",
                            "applire.services.admin.metadata", "applire.services.admin.users",
                            "applire.services.admin.links", "applire.services.admin.identity_seams",
                            "applire.services.audit", "applire.services.mail",
-                           "applire.services.erasure"}
+                           "applire.services.erasure",
+                           # ADR-096 cl. 6: who pays — the grant and whether a key
+                           # exists (a flag), never a key, a profile or a document.
+                           "applire.services.allowance"}
 
 
 def _imports(path: Path) -> set[str]:
@@ -117,7 +120,10 @@ def test_service_modules_behind_the_router_import_no_content_model():
 def test_admin_user_item_has_exactly_the_agreed_fields():
     assert set(admin_schemas.AdminUserItem.model_fields) == {
         "id", "email", "role", "status", "created_at", "last_login_at", "last_active_at",
-        "invite_expires_at", "metadata"}
+        "invite_expires_at", "metadata",
+        # ADR-096 cl. 6 (Sorbet WP-K): the admin's own grant, and a flag that the
+        # person stored a key — never the key, its family or its model.
+        "instance_key_granted_at", "has_provider_key"}
     assert set(admin_schemas.AdminUserMetadata.model_fields) == {
         "application_count", "document_count", "storage_bytes", "ai_tokens_30d",
         # 789:267 (Hazelnut build 7, WP-O): a count of live tokens, never a token.
