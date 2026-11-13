@@ -1979,10 +1979,15 @@ def _apply_resolve_confirmation(
             return
         position_key = resolve_option_key(entry.model_dump(), op.chosen_option)
         if position_key is None:
-            pending.append(RequestConfirmation(
-                question=entry.question, options=list(entry.options),
-                context=dict(context), question_i18n=entry.question_i18n,
-                options_i18n=entry.options_i18n, option_keys=list(entry.option_keys),
+            # Re-asked through the one builder (no confirmation is constructed
+            # outside confirmations.py), from the code-built record's own items.
+            from applire.services.profile.reconcile.confirmations import (
+                position_title_confirmation,
+            )
+
+            pending.append(position_title_confirmation(
+                items=[i for i in context.get("items") or [] if isinstance(i, dict)],
+                context=dict(context),
             ))
             return
         for item, text in plan_position_resolution(dict(context), position_key):
