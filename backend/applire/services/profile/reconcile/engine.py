@@ -250,8 +250,9 @@ async def reconcile(
     # silently land on a DIFFERENT employer's entity — deterministic backstop
     # on top of the model's own (occasionally wrong) target choice.
     ops = enforce_attribution(ops, profile=profile, new_info=new_info, source=source)
-    # #831 (ADR-046 amended 2026-11-13) — a position term (deputy, lead, head …)
-    # the person's answer and the edited entry both lack is not written: rule 4
+    # #831 (ADR-046 amended 2026-11-13, RULING T-1) — a position title (a
+    # deputy or unit-head title tied to an organisational unit) the person's
+    # answer and the edited entry both lack is HELD and asked once: rule 4
     # forbids it, the model still wrote "Stellvertreterin" for "die operative
     # Nummer zwei" (UX audit 4). After stance and attribution, so it reads the
     # bullets that will actually land.

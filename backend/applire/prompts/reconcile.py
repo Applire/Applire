@@ -452,6 +452,17 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   role dates (0/50). Residual: one false denial of the others' tools (1/46 after
   runs) and a project name as a skill (1/4 C runs). Records:
   ``Documents/Runs/Hazelnut/build-8/i/report.md``.
+* **29,178 (Sorbet WP-T, 2026-11-13, #831, founder RULING T-1).** Rule 4: a
+  role the person names for a task stays tied to that task and never becomes a
+  title for their unit (+212 chars). Why: "ich bin die operative Nummer zwei
+  dafür" (one closing step) was written as "operative Stellvertreterin der
+  Leiterin Rechnungswesen". On the incident's own system prompt (28,324 chars)
+  the replayed deputy turn wrote the title in Sonnet 5.5 7/10, gpt-6-luna 0/10.
+  *Measured* (that prompt + this sentence): Sonnet 0/10, luna 0/5; HEAD + this
+  sentence over a 16-case position corpus: Sonnet 0/20, luna 0/18 (2 transport
+  errors). The deterministic backstop is ``reconcile/position_terms`` (hold +
+  ask once, confirmation family 7). Records:
+  ``Documents/Runs/Sorbet/platform-1/T/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -693,7 +704,10 @@ Operations:
 
 4. TRUTHFULNESS (ADR-040). A fact's CONTENT comes only from the new information:
    encode ONLY what it EXPLICITLY states, and never infer, embellish or fabricate
-   a date, title, metric or any other detail it does not state. This governs WHAT
+   a date, title, metric or any other detail it does not state. A role the
+   person names for a task (leading a project, "the operative number two" for
+   one closing step) stays tied to that task; it never becomes a title for their
+   unit (deputy of, head of, Leiterin X). This governs WHAT
    a fact says, not WHICH entity it belongs to — deciding that "Laborverbund
    Nord" and "the lab network" are the same employer is rule 1's
    semantic match, is required of you, and is not an inference this rule forbids.

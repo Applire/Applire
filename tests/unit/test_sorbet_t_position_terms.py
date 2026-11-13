@@ -1,30 +1,40 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""#831 (Sorbet WP-T; ADR-046 amended 2026-11-13): a reconcile paraphrase never
-raises the person's position.
+"""#831 (Sorbet WP-T; ADR-046 amended 2026-11-13; founder RULING T-1): a
+reconcile paraphrase never raises the person's position silently.
 
-The recorded turn (UX audit 4, 2026-11-07, Sonnet 5.5, testimony door) with the
-names swapped for invented ones: the person wrote "Verantwortlich zeichnet unsere
-Leiterin Rechnungswesen — ich bin die operative Nummer zwei dafür"; the reconciler
-wrote "…; operative Stellvertreterin der Leiterin Rechnungswesen, die
-verantwortlich zeichnet". Replays of that turn on the incident's system prompt
-gave the deputy wording 7/10 on Sonnet (report.md).
+The recorded turn (UX audit 4, 2026-11-07, Sonnet 5.5, testimony door), names
+swapped for invented ones: the person wrote "Verantwortlich zeichnet unsere
+Leiterin Rechnungswesen — ich bin die operative Nummer zwei dafür"; the
+reconciler wrote "…; operative Stellvertreterin der Leiterin Rechnungswesen, die
+verantwortlich zeichnet". T-1: the narrow check — a title tied to an
+organisational unit — HOLDS the bullet and asks once; a role within a task
+passes; the answer writes the title or the task-scoped wording.
 """
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from applire.schemas.profile import MasterProfileData
+from applire.schemas.profile import MasterProfileData, PendingConfirmation, ProfileMetadata
+from applire.services.profile.reconcile.apply import apply_ops
 from applire.services.profile.reconcile.engine import _parse_ops, reconcile
-from applire.services.profile.reconcile.ops import AddBullets, SetField, UpsertStory, UpsertWork
+from applire.services.profile.reconcile.ops import (
+    AddBullets,
+    RequestConfirmation,
+    ResolveConfirmation,
+    SetField,
+    UpsertWork,
+)
 from applire.services.profile.reconcile.position_terms import (
     enforce_position_terms,
-    position_terms,
+    position_claims,
 )
 
-# The recorded answer's position-relevant sections, names invented.
 ANSWER = (
     "## Konsolidierung / LucaNet\n"
     "Bei der Einführung von LucaNet in unserer kleinen Gruppe (GmbH + Vertriebs-\n"
@@ -33,180 +43,260 @@ ANSWER = (
     "Quartalszahlen darin mit. Verantwortlich zeichnet unsere Leiterin Rechnungswesen —\n"
     "ich bin die operative Nummer zwei dafür.\n\n"
     "## Führung\n"
-    "Fachlich führe ich seit zwei Jahren die beiden Werkstudierenden und seit letztem\n"
-    "Jahr zusätzlich eine Junior-Controllerin in der Einarbeitung (Abschlussthemen,\n"
-    "Review ihrer Reports). Disziplinarische Führung hatte ich noch nicht.\n\n"
-    "## Projektcontrolling / POC\n"
-    "Für unseren Sondermaschinenbereich habe ich 2022 die Bewertung langfristiger\n"
-    "Aufträge nach Fertigstellungsgrad eingeführt: Meilensteinlogik mit der\n"
-    "Projektleitung definiert, monatliche POC-Bewertung für sechs Großprojekte.\n"
+    "Fachlich führe ich seit zwei Jahren die beiden Werkstudierenden. Disziplinarische\n"
+    "Führung hatte ich noch nicht.\n"
 )
-# The recorded op batch's add_bullets, verbatim but for the employer.
+DEPUTY_BULLET = (
+    "Erstellt seit 2023 die konsolidierten Quartalszahlen in LucaNet mit; operative "
+    "Stellvertreterin der Leiterin Rechnungswesen, die verantwortlich zeichnet"
+)
+TASK_TEXT = "Erstellt seit 2023 die konsolidierten Quartalszahlen in LucaNet mit"
 RECORDED_BULLETS = [
     "Verantwortete das Teilprojekt Intercompany-Abstimmung und Kapitalkonsolidierung bei der "
     "Einführung von LucaNet in der Gruppe (GmbH + Vertriebsgesellschaft Schweiz)",
-    "Erstellt seit 2023 die konsolidierten Quartalszahlen in LucaNet mit; operative "
-    "Stellvertreterin der Leiterin Rechnungswesen, die verantwortlich zeichnet",
+    DEPUTY_BULLET,
     "Fachliche Anleitung einer Junior-Controllerin in der Einarbeitung (Abschlussthemen, "
     "Review ihrer Reports)",
 ]
-RECORDED_ACHIEVEMENT = (
-    "Führte 2022 für den Sondermaschinenbereich die Bewertung langfristiger Aufträge nach "
-    "Fertigstellungsgrad ein: Meilensteinlogik mit der Projektleitung definiert"
-)
+EMPLOYER = "Feldberg Präzision GmbH"
 
 
-def _profile(role: str = "Financial Controller", resp: tuple[str, ...] = ()) -> MasterProfileData:
-    return MasterProfileData.model_validate({
+def _profile_json(role: str = "Financial Controller") -> dict[str, Any]:
+    return {
         "personal_info": {"name": "Sabine Kessler", "email": "sk@example.com"},
         "work_experience": [{
-            "id": "w-1", "company": "Feldberg Präzision GmbH", "role": role,
+            "id": "w-1", "company": EMPLOYER, "role": role,
             "start_date": "2019-02", "is_current": True,
-            "responsibilities": list(resp) or [
+            "responsibilities": [
                 "Verantwortlich für Monatsabschluss und Reporting (HGB)",
                 "Fachliche Anleitung von zwei Werkstudierenden",
             ],
         }],
-    })
+    }
 
 
-def _bullets(target: str = "w-1", resp=None, ach=None) -> dict[str, Any]:
-    return {"op": "add_bullets", "target": target,
+def _profile(role: str = "Financial Controller") -> MasterProfileData:
+    return MasterProfileData.model_validate(_profile_json(role))
+
+
+def _bullets(resp=None) -> dict[str, Any]:
+    return {"op": "add_bullets", "target": "w-1",
             "responsibilities": list(RECORDED_BULLETS if resp is None else resp),
-            "achievements": [RECORDED_ACHIEVEMENT] if ach is None else list(ach),
             "technologies": ["LucaNet"]}
 
 
 def _run(ops, *, answer=ANSWER, source="testimony", profile=None, extra=None):
-    new_info = {"answer": answer, **(extra or {})}
     return enforce_position_terms(
-        _parse_ops(ops), profile=profile or _profile(), new_info=new_info, source=source,
+        _parse_ops(ops), profile=profile or _profile(),
+        new_info={"answer": answer, **(extra or {})}, source=source,
     )
 
 
-# ── the recorded turn ──────────────────────────────────────────────────────
+def _asks(out):
+    return [o for o in out if isinstance(o, RequestConfirmation)]
 
-def test_recorded_turn_the_deputy_clause_is_not_written_the_rest_is():
-    (op,) = _run([_bullets()])
-    assert isinstance(op, AddBullets)
-    assert op.responsibilities == [
-        RECORDED_BULLETS[0],
-        "Erstellt seit 2023 die konsolidierten Quartalszahlen in LucaNet mit",
-        RECORDED_BULLETS[2],
-    ]
-    assert op.achievements == [RECORDED_ACHIEVEMENT]
+
+# ── the true positive: the recorded turn ───────────────────────────────────
+
+def test_recorded_turn_the_deputy_bullet_is_held_and_asked_once():
+    out = _run([_bullets()])
+    (op,) = [o for o in out if isinstance(o, AddBullets)]
+    assert op.responsibilities == [RECORDED_BULLETS[0], RECORDED_BULLETS[2]]
     assert op.technologies == ["LucaNet"]
+    (ask,) = _asks(out)
+    assert ask.context["kind"] == "position_title"
+    assert ask.option_keys == ["title_holds", "task_only"]
+    (item,) = ask.context["items"]
+    assert item["text"] == DEPUTY_BULLET and item["task_text"] == TASK_TEXT
+    assert item["target"] == "w-1" and item["field"] == "responsibilities"
+    de = ask.question_i18n["de"]
+    assert "Stellvertreterin der Leiterin Rechnungswesen" in de and TASK_TEXT in de
+    assert ask.options_i18n[0]["de"] == "Ja, das war meine Position"
 
 
-def test_recorded_turn_logs_the_cut(caplog):
+def test_recorded_turn_logs_the_hold(caplog):
     caplog.set_level("INFO", logger="applire.services.profile.reconcile.position_terms")
     _run([_bullets()])
-    assert "RECONCILE_POSITION_TERM_CUT" in caplog.text and "stellvertreterin" in caplog.text
+    assert "RECONCILE_POSITION_CLAIM_HELD" in caplog.text
 
 
-def test_the_fixture_answer_really_lacks_the_deputy_family():
-    assert "deputy" not in {f for f, _t in position_terms(ANSWER)}
-    assert "deputy" in {f for f, _t in position_terms(RECORDED_BULLETS[1])}
+def test_the_fixture_answer_holds_no_deputy_title():
+    assert not any(f == "deputy" for f, _p in position_claims(ANSWER))
+    assert [f for f, _p in position_claims(DEPUTY_BULLET)] == ["deputy"]
 
 
-# ── backing: the person's words or the record they hold ────────────────────
+# ── the false-positive side: a role within a task passes ───────────────────
 
-def test_the_persons_own_deputy_word_backs_it():
-    answer = ANSWER.replace("ich bin die operative Nummer zwei dafür",
-                            "ich bin ihre Stellvertreterin")
-    (op,) = _run([_bullets()], answer=answer)
-    assert op.responsibilities == RECORDED_BULLETS
+@pytest.mark.parametrize("bullet", [
+    "Projektleitung für die Migration auf S/4HANA; Abstimmung mit der IT",
+    "Verantwortlich für die Konsolidierung der Quartalszahlen",
+    "Led the project to migrate the group reporting to Power BI",
+    "Teilprojektleiterin Intercompany-Abstimmung bei der LucaNet-Einführung",
+    "Leitung der Stammdatenbereinigung für die Arbeitspläne",
+    "Leiter des IT-Projekts zur Belegerfassung",
+    "Key-User für PP beim SAP-Rollout",
+])
+def test_a_role_within_a_task_passes(bullet):
+    out = _run([_bullets(resp=[bullet])], answer="Ich habe das gemacht.")
+    assert _asks(out) == []
+    assert out[0].responsibilities == [bullet]
 
 
-def test_the_edited_entry_backs_it():
-    (op,) = _run([_bullets()], profile=_profile(role="Stellv. Leiterin Rechnungswesen"))
-    assert op.responsibilities == RECORDED_BULLETS
+@pytest.mark.parametrize("title", [
+    "Leiterin Rechnungswesen", "Abteilungsleiter Einkauf", "Head of Finance",
+    "Team Lead Backend", "stellvertretende Teamleiterin", "Deputy Head of Accounting",
+    "IT-Leiter", "Production Manager",
+])
+def test_a_title_tied_to_a_unit_is_a_position_claim(title):
+    assert position_claims(title)
 
 
-def test_another_entrys_title_does_not_back_this_entry():
-    p = MasterProfileData.model_validate({
-        "work_experience": [
-            {"id": "w-1", "company": "Feldberg Präzision GmbH", "role": "Financial Controller"},
-            {"id": "w-2", "company": "Alt GmbH", "role": "Stellvertretende Leiterin Controlling"},
-        ],
-    })
-    (op,) = _run([_bullets()], profile=p)
-    assert "Stellvertreterin" not in " ".join(op.responsibilities)
+# ── holding: the person's words or the record they hold ────────────────────
+
+def test_the_persons_own_deputy_word_holds_it():
+    answer = ANSWER.replace("ich bin die operative Nummer zwei dafür", "ich bin ihre Stellvertreterin")
+    out = _run([_bullets()], answer=answer)
+    assert _asks(out) == [] and out[0].responsibilities == RECORDED_BULLETS
+
+
+def test_the_edited_entry_holds_it():
+    out = _run([_bullets()], profile=_profile(role="Stellv. Leiterin Rechnungswesen"))
+    assert _asks(out) == []
+
+
+def test_another_entrys_title_does_not_hold_this_entry():
+    p = MasterProfileData.model_validate({"work_experience": [
+        {"id": "w-1", "company": EMPLOYER, "role": "Financial Controller"},
+        {"id": "w-2", "company": "Alt GmbH", "role": "Stellvertretende Leiterin Controlling"},
+    ]})
+    assert len(_asks(_run([_bullets()], profile=p))) == 1
+
+
+def test_the_person_saying_they_lead_the_unit_holds_a_unit_head_title():
+    out = _run([_bullets(resp=["Teamleiterin Controlling mit drei Mitarbeitenden"])],
+               answer="Ich leite das Team Controlling mit drei Leuten.")
+    assert _asks(out) == []
 
 
 def test_on_the_interview_the_question_is_not_the_persons_word():
-    (op,) = _run(
-        [_bullets(resp=["Teamleiter der Disposition mit sechs Mitarbeitenden"], ach=[])],
-        answer="Ja, die Disposition mit sechs Leuten.", source="interview",
-        extra={"gap": "Teamleitung", "question": "Haben Sie ein Team geleitet?"},
-    )
-    assert op.responsibilities == [] and op.technologies == ["LucaNet"]
+    out = _run([_bullets(resp=["Teamleiter der Disposition mit sechs Mitarbeitenden"])],
+               answer="Ja, die Disposition mit sechs Leuten.", source="interview",
+               extra={"gap": "Teamleitung", "question": "Waren Sie Teamleiter der Disposition?"})
+    assert len(_asks(out)) == 1
 
 
 @pytest.mark.parametrize("source", ["cv_upload", "manual", "cv"])
 def test_a_cv_import_or_a_manual_edit_is_not_guarded(source):
-    # Even when the payload has an "answer" key: the door decides, not the shape.
     ops = _parse_ops([_bullets()])
-    assert enforce_position_terms(
-        ops, profile=_profile(), new_info={"answer": ANSWER}, source=source
-    ) is ops
+    assert enforce_position_terms(ops, profile=_profile(), new_info={"answer": ANSWER},
+                                  source=source) is ops
 
 
-# ── what a hit removes ─────────────────────────────────────────────────────
-
-def test_a_bullet_whose_only_clause_carries_the_term_is_dropped_and_an_empty_op_too():
-    out = _run([{"op": "add_bullets", "target": "w-1",
-                 "responsibilities": ["Operative Stellvertreterin der Leiterin Rechnungswesen"]}])
-    assert out == []
-
-
-def test_a_sentence_and_a_dash_are_clause_boundaries():
-    (op,) = _run([_bullets(resp=[
-        "Erstellt die Quartalszahlen. Vertritt die Leiterin im Urlaub.",
-        "Konsolidierung in LucaNet — als Deputy Head of Accounting",
-    ], ach=[])])
-    assert op.responsibilities == ["Erstellt die Quartalszahlen.", "Konsolidierung in LucaNet"]
+def test_the_agent_interview_door_is_guarded_on_the_answer():
+    out = _run([_bullets(resp=["Stellvertretende Leiterin Rechnungswesen"])],
+               source="agent_interview", extra={"question": "Sind Sie Stellvertreterin?"})
+    assert len(_asks(out)) == 1
+    assert [o.responsibilities for o in out if isinstance(o, AddBullets)] == [[]]
 
 
-def test_an_unbacked_title_on_upsert_work_is_not_written():
-    (op,) = _run([{"op": "upsert_work", "ref": "r1", "company": "Neu AG",
-                   "role": "Stellvertretende Leiterin Rechnungswesen"}])
-    assert isinstance(op, UpsertWork) and op.role == "" and op.company == "Neu AG"
+def test_two_held_bullets_make_one_ask():
+    # An answer that names no unit head of anyone: the known limit is that the
+    # boss's "Leiterin Rechnungswesen" in ANSWER holds the unit-head family.
+    out = _run([_bullets(resp=[DEPUTY_BULLET, "Teamleiterin Konsolidierung"]),
+                {"op": "add_bullets", "target": "w-1", "achievements": ["Head of Finance ab 2025"]}],
+               answer="Ich bin die operative Nummer zwei bei der Konsolidierung.")
+    (ask,) = _asks(out)
+    assert len(ask.context["items"]) == 3
+    assert len([o for o in out if isinstance(o, AddBullets)]) == 1
 
 
-def test_an_unbacked_title_via_set_field_is_not_written():
-    out = _run([{"op": "set_field", "target": "w-1", "field": "role",
-                 "value": "Deputy Head of Accounting"},
+# ── roles ──────────────────────────────────────────────────────────────────
+
+def test_a_new_stations_unit_title_is_held_and_the_station_created_without_it():
+    out = _run([{"op": "upsert_work", "ref": "r1", "company": "Neu AG",
+                 "role": "Abteilungsleiter Einkauf"}], answer="Bei der Neu AG war ich im Einkauf.")
+    (work,) = [o for o in out if isinstance(o, UpsertWork)]
+    assert work.role == "" and work.company == "Neu AG"
+    (item,) = _asks(out)[0].context["items"]
+    assert item["item"] == "role" and item["company"] == "Neu AG" and item["target"] is None
+
+
+def test_a_change_to_the_edited_entrys_role_the_answer_lacks_is_held():
+    out = _run([{"op": "set_field", "target": "w-1", "field": "role", "value": "Senior Controller"},
                 {"op": "set_field", "target": "w-1", "field": "location", "value": "Freiburg"}])
     assert [o.field for o in out if isinstance(o, SetField)] == ["location"]
+    assert _asks(out)[0].context["items"][0]["text"] == "Senior Controller"
 
 
-def test_a_story_keeps_its_clean_clauses_and_is_dropped_when_a_required_field_empties():
-    kept = _run([{"op": "upsert_story", "title": "POC", "challenge": "Aufträge ohne POC",
-                  "mechanism": "Meilensteinlogik eingeführt; als Stellvertreterin freigegeben",
-                  "outcome": "Sechs Großprojekte monatlich bewertet"}])
-    assert isinstance(kept[0], UpsertStory)
-    assert kept[0].mechanism == "Meilensteinlogik eingeführt"
-    dropped = _run([{"op": "upsert_story", "title": "POC", "challenge": "Aufträge ohne POC",
-                     "mechanism": "Als Stellvertreterin freigegeben",
-                     "outcome": "Sechs Großprojekte monatlich bewertet"}])
-    assert dropped == []
+def test_a_role_change_the_answer_states_passes():
+    out = _run([{"op": "set_field", "target": "w-1", "field": "role", "value": "Senior Controller"}],
+               answer="Seit 2024 bin ich Senior Controller.")
+    assert _asks(out) == [] and isinstance(out[0], SetField)
 
 
-# ── words that are no position ─────────────────────────────────────────────
+# ── the answer: title or task wording ──────────────────────────────────────
 
-@pytest.mark.parametrize("text", [
-    "Lead time von 12 auf 8 Tage gesenkt",
-    "Abstimmung mit dem head office in Zürich",
-    "Kennzahlen aus SAP abgeleitet; Audits begleitet",
-    "Weiterleitung der Reports an die Geschäftsführung",
-    "Verantwortlich für den Monatsabschluss",
-])
-def test_no_position_term(text):
-    assert position_terms(text) == []
+def _parked(ask: RequestConfirmation, profile_json=None) -> MasterProfileData:
+    p = MasterProfileData.model_validate(profile_json or _profile_json())
+    p.metadata = ProfileMetadata(pending_confirmations=[PendingConfirmation(
+        confirmation_id="c-1", question=ask.question, options=list(ask.options),
+        context=dict(ask.context), question_i18n=ask.question_i18n,
+        options_i18n=ask.options_i18n, option_keys=list(ask.option_keys),
+    )])
+    return p
 
 
-# ── the engine seam ────────────────────────────────────────────────────────
+def _answer(ask, chosen, profile_json=None):
+    return apply_ops(_parked(ask, profile_json),
+                     [ResolveConfirmation(confirmation_id="c-1", chosen_option=chosen)], "review")
+
+
+def test_yes_in_german_writes_the_title():
+    (ask,) = _asks(_run([_bullets()]))
+    _q, shown = _parked(ask).metadata.pending_confirmations[0].rendered("de")
+    out = _answer(ask, shown[0])
+    assert DEPUTY_BULLET in out.profile.work_experience[0].responsibilities
+
+
+def test_no_writes_the_task_wording_without_the_title():
+    (ask,) = _asks(_run([_bullets()]))
+    out = _answer(ask, "No, only for this task")
+    resp = out.profile.work_experience[0].responsibilities
+    assert TASK_TEXT in resp and DEPUTY_BULLET not in resp
+
+
+def test_a_free_text_answer_that_matches_no_option_never_writes_the_title():
+    (ask,) = _asks(_run([_bullets()]))
+    out = _answer(ask, "hm, schwer zu sagen")
+    resp = out.profile.work_experience[0].responsibilities
+    assert TASK_TEXT in resp and DEPUTY_BULLET not in resp
+
+
+def test_no_on_a_bare_title_writes_nothing_and_says_so():
+    (ask,) = _asks(_run([_bullets(resp=["Stellvertretende Leiterin Rechnungswesen"])]))
+    out = _answer(ask, "No, only for this task")
+    assert out.profile.work_experience[0].responsibilities == _profile().work_experience[0].responsibilities
+    assert [n.reason for n in out.not_applied] == ["confirmation_discarded"]
+
+
+def test_yes_on_a_role_change_adds_it_as_an_alias():
+    (ask,) = _asks(_run([{"op": "set_field", "target": "w-1", "field": "role",
+                          "value": "Senior Controller"}]))
+    out = _answer(ask, "Yes, that was my position")
+    w = out.profile.work_experience[0]
+    assert w.role == "Financial Controller" and "Senior Controller" in w.role_aliases
+
+
+def test_yes_on_a_new_stations_title_writes_its_role():
+    (ask,) = _asks(_run([{"op": "upsert_work", "ref": "r1", "company": "Neu AG",
+                          "role": "Abteilungsleiter Einkauf"}], answer="Bei der Neu AG war ich im Einkauf."))
+    pj = _profile_json()
+    pj["work_experience"].append({"id": "w-2", "company": "Neu AG", "role": ""})
+    out = _answer(ask, "Yes, that was my position", pj)
+    assert out.profile.work_experience[1].role == "Abteilungsleiter Einkauf"
+
+
+# ── the engine seam and the delivery point ─────────────────────────────────
 
 class _Stub:
     def __init__(self, payload: Any) -> None:
@@ -216,21 +306,68 @@ class _Stub:
         return self.payload
 
 
+_PAYLOAD = {"ops": [_bullets()], "ambiguities": [], "denials": []}
+
+
 @pytest.mark.asyncio
-async def test_engine_seam_the_recorded_batch_lands_without_the_deputy_clause():
-    result = await reconcile(
-        _profile(), {"answer": ANSWER}, "testimony",
-        _Stub({"ops": [_bullets()], "ambiguities": [], "denials": []}),
-    )
+async def test_engine_seam_the_recorded_batch_holds_the_deputy_bullet():
+    result = await reconcile(_profile(), {"answer": ANSWER}, "testimony", _Stub(_PAYLOAD))
     bullets = [o for o in result.ops if isinstance(o, AddBullets)]
-    assert bullets and bullets[0].responsibilities[1] == (
-        "Erstellt seit 2023 die konsolidierten Quartalszahlen in LucaNet mit"
-    )
+    assert DEPUTY_BULLET not in bullets[0].responsibilities
+    assert [o.context.get("kind") for o in result.ops if isinstance(o, RequestConfirmation)] == [
+        "position_title"
+    ]
 
 
-def test_the_agent_interview_door_is_guarded_on_the_answer():
-    out = _run([{"op": "add_bullets", "target": "w-1",
-                 "responsibilities": ["Stellvertretende Leiterin Rechnungswesen"]}],
-               source="agent_interview",
-               extra={"question": "Sind Sie die Stellvertreterin?"})
-    assert out == []
+@pytest_asyncio.fixture
+async def db():
+    import importlib
+    import pkgutil
+
+    import applire.models  # noqa: F401
+
+    for _m in pkgutil.iter_modules(applire.models.__path__):
+        importlib.import_module(f"applire.models.{_m.name}")
+    from applire.db.session import Base
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_delivery_point_agent_door_and_health_hub_show_the_ask(db):
+    """What the person sees: the agent door's ``submit_testimony`` returns the ask
+    (status needs_confirmation, the German question, the two options) and the
+    vault does not hold the title; the web door's Health hub lists the ask."""
+    from applire.mcp.server import submit_testimony
+    from applire.services.profile import _get_latest
+    from applire.services.profile.health import assess_health
+    from tests.support.profile_factory import make_master_profile
+
+    db.add(make_master_profile(profile_json=_profile_json()))
+    await db.commit()
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=db)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider", return_value=_Stub(_PAYLOAD)),
+    ):
+        payload = await submit_testimony(text=ANSWER)
+
+    assert payload["status"] == "needs_confirmation"
+    (conf,) = payload["confirmations"]
+    assert "Stellvertreterin der Leiterin Rechnungswesen" in conf["question_i18n"]["de"]
+    assert [o["de"] for o in conf["options_i18n"]] == [
+        "Ja, das war meine Position", "Nein, nur für diese Aufgabe",
+    ]
+    record = await _get_latest(db, None)
+    stored = MasterProfileData.model_validate(record.profile_json)
+    assert DEPUTY_BULLET not in stored.work_experience[0].responsibilities
+    issues = [i for i in assess_health(stored).issues if i.thread == "confirmation"]
+    assert len(issues) == 1 and "Stellvertreterin" in issues[0].question_i18n["de"]

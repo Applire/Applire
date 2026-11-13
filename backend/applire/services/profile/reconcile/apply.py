@@ -1940,6 +1940,76 @@ def _apply_resolve_confirmation(
         changes.append(_updated("projects", "associated_experience", old_parent, parent_id, entity=project))
         return
 
+    # ── #831 / RULING T-1 — family 7: the answer decides title vs. task ──────
+    # The held bullet is written with its title on "Ja, das war meine
+    # Position", otherwise the task-scoped wording (the bullet without the
+    # clause carrying the title). A held role is written only on the yes — as
+    # the role of an entry that has none, else as a role alias (ADR-013 Rule 1,
+    # the same as an upsert onto an existing entry). Every held item ends as a
+    # change or an explicit not-applied item (#723's invariant).
+    if context.get("kind") == "position_title":
+        from applire.services.profile.reconcile.attribution import (
+            _anchor_entries,
+            _held_label,
+        )
+        from applire.services.profile.reconcile.position_terms import (
+            plan_position_resolution,
+        )
+
+        for item, text in plan_position_resolution(
+            dict(context), resolve_option_key(entry.model_dump(), op.chosen_option)
+        ):
+            field = str(item.get("field") or "")
+            label = _held_label(field, str(item.get("text") or ""))
+            if not text:
+                not_applied.append(ImportNotApplied(
+                    section="work_experience", label=label, reason="confirmation_discarded",
+                ))
+                continue
+            target = resolve_any(str(item.get("target") or "")) if item.get("target") else None
+            if item.get("item") == "role":
+                if target is None:
+                    found = [
+                        w for w in _anchor_entries(str(item.get("company") or ""), profile)
+                        if not (w.role or "").strip()
+                    ]
+                    target = found[0] if len(found) == 1 else None
+                if not isinstance(target, WorkEntry):
+                    not_applied.append(ImportNotApplied(
+                        section="work_experience", label=label, reason="confirmation_unresolvable",
+                    ))
+                    continue
+                if not (target.role or "").strip():
+                    old = target.role
+                    target.role = text
+                    changes.append(_updated("work_experience", "role", old, text, entity=target))
+                elif _norm(text) != _norm(target.role) and _norm(text) not in {
+                    _norm(a) for a in target.role_aliases
+                }:
+                    target.role_aliases.append(text)
+                    changes.append(
+                        _merged("work_experience", "role_aliases", None, text, entity=target)
+                    )
+                else:
+                    not_applied.append(ImportNotApplied(
+                        section="work_experience", label=label,
+                        reason="confirmation_already_present",
+                    ))
+                continue
+            if target is None or not hasattr(target, field):
+                not_applied.append(ImportNotApplied(
+                    section="work_experience", label=label, reason="confirmation_unresolvable",
+                ))
+                continue
+            if _append_dedup(getattr(target, field), [text]):
+                changes.append(_merged(_section_for(target), field, None, [text], entity=target))
+            else:
+                not_applied.append(ImportNotApplied(
+                    section=_section_for(target), label=label,
+                    reason="confirmation_already_present",
+                ))
+        return
+
     # ── Bug #723 — the attribution family's answer places its held content ───
     plan = plan_attribution_resolution(
         entry.context or {},
