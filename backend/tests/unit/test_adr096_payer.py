@@ -173,8 +173,10 @@ def test_a_user_decision_builds_the_users_family_key_and_model_never_settings(
         allowance._decision.set(
             allowance.PayerDecision("user", "model_work", owner, family=family, model="u-model", key=USER_KEY)
         )
+        import applire.providers.llm.anthropic  # noqa: F401 — bind the module before patching its name
+
         with patch("openai.AsyncOpenAI", side_effect=capture), patch(
-            "anthropic.AsyncAnthropic", side_effect=capture
+            "applire.providers.llm.anthropic.AsyncAnthropic", side_effect=capture
         ), patch("applire.providers.llm.mistral.Mistral", side_effect=capture):
             provider = _concrete(get_provider())
     assert provider._payer == "user"
