@@ -520,3 +520,65 @@ async def test_colour_fallback_under_a_cv_render_pays_with_the_actions_payer(mon
         # no instance-paid provider is ever built.
         assert await color_detection._llm_color_fallback("Example GmbH") is None
     assert seen == ["user"]
+
+
+# ── 7. the two job-start doors (cl. 4: create_import_job, the gap job) ─────────
+
+
+def _dependency_calls(dependant) -> set:
+    out = set()
+    for sub in dependant.dependencies:
+        out.add(sub.call)
+        out |= _dependency_calls(sub)
+    return out
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("POST", "/api/profile/import-jobs"),
+        ("POST", "/api/job/{job_id}/gap-jobs"),
+        ("POST", "/api/profile/staged/{staged_id}/resolve"),
+    ],
+)
+def test_job_start_routes_admit_before_the_202(method, path):
+    from fastapi.routing import APIRoute
+
+    from applire.auth.deps import admit_model_work
+    from applire.main import app
+
+    route = next(
+        r for r in app.routes if isinstance(r, APIRoute) and r.path == path and method in r.methods
+    )
+    assert admit_model_work in _dependency_calls(route.dependant), path
+
+
+@pytest.mark.asyncio
+async def test_gap_job_start_is_refused_with_409_not_a_failed_job(async_db, user_mode):
+    from applire.routers import job as job_router
+
+    app = FastAPI()
+    app.include_router(job_router.router)
+    acting = Acting()
+    person = await add_user(async_db)
+    acting.user_id = person.id
+
+    async def _db():
+        yield async_db
+
+    async def _provider():
+        return acting
+
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_auth_provider] = _provider
+    with patch.object(job_router, "create_gap_job", AsyncMock(side_effect=AssertionError("job"))):
+        async with client_for(app) as client:
+            r = await client.post(f"/api/job/{uuid.uuid4()}/gap-jobs", headers=ORIGIN)
+    assert r.status_code == 409 and r.json()["detail"]["error_code"] == "provider_key_required"
+
+
+@pytest.mark.parametrize("module", ["applire.services.gap_jobs", "applire.services.profile.import_jobs"])
+def test_a_refusal_inside_a_job_keeps_its_code(module):
+    mod = importlib.import_module(module)
+    classify = getattr(mod, "classify_gap_error", None) or getattr(mod, "classify_import_error")
+    assert classify(allowance.AdmissionRefused("provider_key_unreadable")) == "provider_key_unreadable"

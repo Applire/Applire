@@ -91,6 +91,10 @@ def classify_import_error(exc: BaseException) -> str:
     """Map an import failure to a STABLE machine code (parity with
     cv.classify_generation_error / ADR-047 §4 honest-failure UX). The raw exception text
     stays internal; the API surfaces only this code, localized by the frontend."""
+    from applire.services.allowance import AdmissionRefused
+
+    if isinstance(exc, AdmissionRefused):
+        return exc.code  # ADR-096 cl. 11
     if isinstance(exc, OCRUnavailableError):
         # #789 L12 — an image/scan on an instance whose OCR backend cannot run.
         return "ocr_unavailable"

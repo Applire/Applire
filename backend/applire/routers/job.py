@@ -329,6 +329,9 @@ async def start_gap_analysis_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
+    # ADR-096 cl. 4: the gap job is a door — refused up front (409), not as a
+    # failed job after a 202.
+    _payer=Depends(admit_model_work),
 ) -> GapJobResponse:
     """Start an async gap analysis and return a handle immediately (202).
 

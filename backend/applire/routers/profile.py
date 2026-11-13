@@ -244,6 +244,9 @@ async def start_cv_import_endpoint(
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
+    # ADR-096 cl. 4: the import job is a door — refused up front (409), not as a
+    # failed job after a 202.
+    _payer=Depends(admit_model_work),
 ) -> CVImportJobResponse:
     """Start an async CV import and return a handle immediately (202).
 
