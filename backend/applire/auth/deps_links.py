@@ -103,6 +103,10 @@ async def user_or_signed_link(
             raise HTTPException(status_code=status.HTTP_410_GONE, detail=LINK_EXPIRED)
         if user is not None:
             set_owner(user.id)
+            # ADR-096 cl. 4: the same payer facts every auth door loads.
+            from applire.services.allowance import load_facts
+
+            await load_facts(db, user)
             return user
     return await deps.require_user(request, provider, db)
 

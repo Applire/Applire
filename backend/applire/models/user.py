@@ -97,6 +97,15 @@ class User(Base):
     link_epoch: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # --- ADR-096 (migration 0090) ------------------------------------------
+    #: cl. 6: an admin's choice to pay for this person on the instance key.
+    #: On ``User`` (admin-controlled), never on the owner-editable ``UserSettings``.
+    instance_key_granted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: cl. 9: HMAC of the normalised email under purpose ``allowance-subject``;
+    #: stamped the first time the ledger needs it, cleared by the tombstone.
+    allowance_subject: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("photo_consent", False)

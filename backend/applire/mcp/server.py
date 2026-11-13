@@ -90,7 +90,14 @@ from applire import ownership
 from applire.mcp import identity as mcp_identity
 from applire.mcp.deps import get_db
 from applire.mcp.errors import _INVALID_INPUT as _INVALID_INPUT_CODE
-from applire.mcp.errors import internal, internal_unexpected, invalid_input, not_found, unauthorized
+from applire.mcp.errors import (
+    admission_refused,
+    internal,
+    internal_unexpected,
+    invalid_input,
+    not_found,
+    unauthorized,
+)
 
 #: R2-13 (P-1): a reconcile that failed after its retry stored nothing. The
 #: agent is told so, and told to resend — never handed a follow-up as if the
@@ -118,7 +125,7 @@ from applire.models.uploads import UploadRecord
 from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
-from applire.services import instance_settings
+from applire.services import allowance, instance_settings
 from applire.storage import get_storage
 from applire.schemas.application import (
     AddFactPinRequest,
@@ -300,7 +307,19 @@ async def _agent_call_body(fn, args, kwargs):
     owner_token = ownership.set_owner(user.id)
     user_token = mcp_identity.set_call_user(user)
     try:
-        result = await fn(*args, **kwargs)
+        # ADR-096 cl. 4: the payer facts for this call, and — for a tool that
+        # starts model work — the admission, BEFORE the body runs. A refusal is
+        # the tool's answer (`provider_key_required`), never a half-done write.
+        with allowance.call_scope():
+            async with get_db() as db:
+                await allowance.load_facts(db, user)
+            action = getattr(fn, "__applire_admits__", None)
+            if action is not None:
+                try:
+                    allowance.admit_from_facts(action)
+                except allowance.AdmissionRefused as exc:
+                    raise admission_refused(exc)
+            result = await fn(*args, **kwargs)
     except ownership.OwnedNotFound as exc:
         raise not_found(str(exc.detail))
     finally:
@@ -318,10 +337,16 @@ def agent_resource(*args, **kwargs):
     return decorate
 
 
-def agent_tool(**kwargs):
-    """``@mcp.tool(...)`` for an identity-checked tool — every Applire tool uses it."""
+def agent_tool(*, admits: str | None = None, **kwargs):
+    """``@mcp.tool(...)`` for an identity-checked tool — every Applire tool uses it.
+
+    ``admits`` (ADR-096 cl. 4): the action a model-work tool is admitted for
+    before its body runs (``"model_work"``). A tool that never builds a
+    provider leaves it ``None`` and is never refused — reading needs no admission.
+    """
 
     def decorate(fn):
+        fn.__applire_admits__ = admits
         return mcp.tool(**kwargs)(_agent_call(fn))
 
     return decorate
@@ -687,6 +712,7 @@ def _marked(payload, kind: str):
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Seed or extend the Master Profile from a CV. Provide file_base64 "
         "(base64 PDF, <=10 MB) or text (extracted CV text). Call once per CV "
@@ -771,6 +797,7 @@ async def import_cv(
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Analyse a job description and return a structured JobAnalysis. "
         "Provide exactly one of: text (the JD body) or url (scraped "
@@ -851,6 +878,7 @@ async def get_profile() -> dict:
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Update one MasterProfile section. "
         f"section: one of {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
@@ -978,6 +1006,7 @@ async def undo_last_merge() -> dict:
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Resolve an import the pre-merge integrity gate held (staged_id from "
         "get_profile_health.held_merges). decision: 'merge' or 'discard'. "
@@ -1023,6 +1052,7 @@ async def resolve_held_merge(staged_id: str, decision: str) -> dict:
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Submit facts elicited from the candidate, in their own words; "
         "Applire reconciles them into the profile with receipts. Recorded, "
@@ -1060,6 +1090,7 @@ async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Reconcile ONE whole free-text testimony document into the profile "
         "with receipts (itemized claims: use submit_claims instead). Read "
@@ -1119,7 +1150,7 @@ def _testimony_summary(payload: dict) -> str:
     return f"{head} Waiting: {', '.join(waiting)} — the saved changes stay either way."
 
 
-@agent_tool(description="Analyse gaps between the current profile and the specified job.")
+@agent_tool(admits="model_work", description="Analyse gaps between the current profile and the specified job.")
 async def analyze_gaps(job_id: str) -> dict:
     jid = _parse_uuid(job_id, "job_id")
     provider = get_provider()
@@ -1141,6 +1172,7 @@ async def analyze_gaps(job_id: str) -> dict:
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Start a gap-fill interview session for the given job (call "
         "analyze_gaps first). Omit job_id to start the profile review that "
@@ -1191,6 +1223,7 @@ async def run_interview(job_id: str | None = None) -> dict:
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Send a message in an active interview session. "
         "Returns the next question, or {complete: true} when finished. "
@@ -1230,6 +1263,7 @@ async def send_message(session_id: str, message: str) -> dict:
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Resolve ONE gap cluster in a single call — the agent-channel form of "
         "the UI's targeted gap fill. Pass job_id, a gap_id from analyze_gaps' "
@@ -1399,6 +1433,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Generate a tailored CV for the given job; blocks until done. "
         "'ready' is not 'verified': "
@@ -1610,6 +1645,7 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Audit a document against the vault: per-claim verdicts grounded | "
         "inflated | misattributed | unbacked | unverifiable, with evidence "
@@ -1797,6 +1833,7 @@ async def render_document(
 
 
 @agent_tool(
+    admits="model_work",
     description=(
         "Generate a cover letter for a job (needs its flow: start_flow(job_id) or "
         "create_application(start_workflow=true)). Returns "

@@ -347,6 +347,31 @@ class Settings(BaseSettings):
     # provider probe run (off | reachability | credit | both). Panel-editable,
     # so it is a field here and not a module constant in services/ops/config.py.
     ops_provider_probe: str = "both"
+    # ADR-096 cl. 1 (Sorbet WP-K): who pays for model work. "instance" (default)
+    # is the pre-ADR-096 behaviour; "user" runs each person's work on their own
+    # key unless an admin granted them the instance key. Panel-editable.
+    llm_key_mode: str = "instance"
+    # ADR-096 cl. 3: the root of the Fernet key for user provider keys.
+    # Environment-only: never a panel key, never in a table, never in a backup
+    # archive (backup.sh excludes .env). Required for LLM_KEY_MODE=user.
+    provider_key_secret: str = ""
+
+    @field_validator("llm_key_mode", mode="before")
+    @classmethod
+    def _key_mode_is_one_of_two(cls, value: object) -> str:
+        """``instance`` or ``user`` (case and whitespace tolerated; empty =
+        ``instance``). Any other value stops the start: reading a typo of
+        ``user`` as ``instance`` would make the instance pay for everyone, the
+        silent fallback S0-10 rules out."""
+        text = str(value or "").strip().lower()
+        if text in ("", "instance"):
+            return "instance"
+        if text == "user":
+            return "user"
+        raise InvalidSettingError(
+            "LLM_KEY_MODE must be 'instance' or 'user'. Fix it in your .env / "
+            "environment and restart."
+        )
 
     @field_validator("ops_provider_probe", mode="before")
     @classmethod

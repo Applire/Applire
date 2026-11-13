@@ -51,7 +51,7 @@ from applire.routers.admin import color_schemes as admin_color_schemes
 from applire.routers import color_schemes as user_color_schemes
 from applire.routers import auth as auth_router
 from applire.routers import setup as setup_router
-from applire.routers import auth_links, me_account, me_tokens  # Strawberry W1 (1b, 1c)
+from applire.routers import auth_links, me_account, me_provider_key, me_tokens  # Strawberry W1 (1b, 1c); ADR-096
 from applire.routers import auth_oidc, me_oidc, me_reauth  # Strawberry W3 (1d, US323)
 from applire.routers.admin import probe_tokens as admin_probe_tokens  # 1c
 from applire.routers.admin import users as admin_users  # 1b
@@ -232,6 +232,36 @@ async def _prepare_accounts() -> None:
         _applire_logger.warning(setup_block(code))
 
 
+class KeyModeWithoutSecret(RuntimeError):
+    """ADR-096 cl. 3: ``LLM_KEY_MODE=user`` refuses to start without ``PROVIDER_KEY_SECRET``."""
+
+
+def _validate_key_mode_env() -> None:
+    """Stop the boot when the ENVIRONMENT asks for user keys without the secret.
+
+    A panel-sourced ``user`` (the admin switched it, the secret was later lost)
+    does not stop the boot — the admin could not reach the panel to switch it
+    back. That case is :func:`_warn_key_mode_effective`'s: every user-paid call
+    answers ``provider_key_unreadable`` until the secret is back, and nothing
+    falls back to the instance key.
+    """
+    if settings.env_value("llm_key_mode") == "user" and not (settings.provider_key_secret or "").strip():
+        raise KeyModeWithoutSecret(
+            "LLM_KEY_MODE=user needs PROVIDER_KEY_SECRET (ADR-096): generate one with "
+            "`openssl rand -hex 32`, put it in your .env and in your password manager, "
+            "and restart."
+        )
+
+
+def _warn_key_mode_effective() -> None:
+    if settings.llm_key_mode == "user" and not (settings.provider_key_secret or "").strip():
+        _applire_logger.error(
+            "LLM_KEY_MODE=user is set in the admin panel but PROVIDER_KEY_SECRET is not "
+            "in the environment: stored user keys cannot be read, so people without an "
+            "admin grant get 'provider_key_unreadable'. Restore the secret and restart."
+        )
+
+
 async def _prepare_instance_settings() -> None:
     """ADR-093 cl. 6/8: load the admin overrides, audit env-sourced changes."""
     from applire.services import instance_settings
@@ -250,6 +280,7 @@ async def lifespan(app: FastAPI):
     from applire.auth.oidc import validate_config as validate_oidc_config
 
     validate_oidc_config()
+    _validate_key_mode_env()
     # MD-32: SMTP without APPLIRE_BASE_URL sends no mail — say so at every start.
     from applire.services.admin.links import mail_without_base_url_warning
 
@@ -260,6 +291,7 @@ async def lifespan(app: FastAPI):
     await _publish_upgrade_notice()
     await _prepare_accounts()
     await _prepare_instance_settings()
+    _warn_key_mode_effective()
     # ADR-077 clause 1 — one-time entry-id backfill through the committer
     # module. Idempotent (skips fully-migrated profiles), so it rides every
     # startup right after the schema migration, like the migration itself.
@@ -359,6 +391,7 @@ app.include_router(admin_color_schemes.router)
 app.include_router(user_color_schemes.router)
 app.include_router(auth_links.router)
 app.include_router(me_account.router)
+app.include_router(me_provider_key.router)  # ADR-096 cl. 2
 app.include_router(me_tokens.router)
 app.include_router(admin_users.router)
 app.include_router(admin_probe_tokens.router)

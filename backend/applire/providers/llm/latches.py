@@ -44,24 +44,43 @@ def _scope(obj: object) -> tuple[str, str, str]:
     )
 
 
+def _user_paid(obj: object) -> bool:
+    """ADR-096 cl. 12: a user-paid provider neither reads nor writes a latch.
+
+    A user key's 401, 429 or 5xx — or its model refusing a parameter — is that
+    person's, never the process's: a latch written by it would degrade every
+    other user on the same gateway and model (``SF-ALLOW.8``)."""
+    return getattr(obj, "_payer", None) == "user"
+
+
 def is_latched(obj: object, kind: str) -> bool:
+    if _user_paid(obj):
+        return False
     return (*_scope(obj), kind) in _LATCHES
 
 
 def latch(obj: object, kind: str) -> None:
+    if _user_paid(obj):
+        return
     _LATCHES.add((*_scope(obj), kind))
 
 
 def unlatch(obj: object, kind: str) -> None:
+    if _user_paid(obj):
+        return
     _LATCHES.discard((*_scope(obj), kind))
 
 
 def any_latched(obj: object, kind_prefix: str) -> bool:
+    if _user_paid(obj):
+        return False
     scope = _scope(obj)
     return any(k[:3] == scope and k[3].startswith(kind_prefix) for k in _LATCHES)
 
 
 def unlatch_prefix(obj: object, kind_prefix: str) -> None:
+    if _user_paid(obj):
+        return
     scope = _scope(obj)
     for k in [k for k in _LATCHES if k[:3] == scope and k[3].startswith(kind_prefix)]:
         _LATCHES.discard(k)

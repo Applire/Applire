@@ -31,6 +31,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
+    require_strict_key,
     unclassified_provider_error,
     LLMProvider,
     raise_if_no_completion,
@@ -58,14 +59,20 @@ class OpenAIProvider(LLMProvider):
         base_url: str | None = None,
         model: str | None = None,
         timeout: int = 30,
+        strict_key: bool = False,
     ) -> None:
         super().__init__(timeout=timeout)
-        resolved_base_url = base_url or settings.openai_base_url or None
-        self._client = openai.AsyncOpenAI(
-            api_key=api_key or settings.openai_api_key or "local",
-            base_url=resolved_base_url,
-        )
-        self._model = model or settings.openai_model
+        if strict_key:
+            # ADR-096 cl. 2/4: a user key goes to the public endpoint with the
+            # user's own key — never OPENAI_BASE_URL, never the "local" placeholder.
+            require_strict_key(api_key, model)
+            resolved_base_url = base_url or "https://api.openai.com/v1"
+            resolved_key = api_key
+        else:
+            resolved_base_url = base_url or settings.openai_base_url or None
+            resolved_key = api_key or settings.openai_api_key or "local"
+        self._client = openai.AsyncOpenAI(api_key=resolved_key, base_url=resolved_base_url)
+        self._model = model if strict_key else (model or settings.openai_model)
         self._has_custom_base = bool(resolved_base_url)
 
     async def acomplete(

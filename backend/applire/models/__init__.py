@@ -18,6 +18,7 @@
 # Import all models so SQLAlchemy can resolve FK string references (e.g. "companies.id")
 # at mapper-configuration time, regardless of which service is imported first.
 from applire.models import (  # noqa: F401
+    allowance,
     application,
     audit,
     auth,

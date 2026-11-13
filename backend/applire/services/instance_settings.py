@@ -90,6 +90,8 @@ def _probe_modes() -> tuple[str, ...]:
 ENUM_CHOICES: dict[str, tuple[str, ...]] = {
     "LLM_PROVIDER": PROVIDERS,
     "OPS_PROVIDER_PROBE": _probe_modes(),
+    # ADR-096 cl. 1.
+    "LLM_KEY_MODE": ("instance", "user"),
 }
 #: ADR-093 cl. 8 — tracked across boots for the "stayed on" proof.
 TRACKED_KEYS: tuple[str, ...] = (
@@ -518,7 +520,15 @@ async def build_response(db: AsyncSession) -> dict[str, Any]:
             item["is_set"] = True
             item["env_is_set"] = True
         items.append(item)
-    return {"items": items, "providers": providers_status(), "dependencies": dependencies()}
+    from applire.services import allowance
+
+    return {
+        "items": items,
+        "providers": providers_status(),
+        "dependencies": dependencies(),
+        # ADR-096 cl. 1: how many people would meet the onboarding step in `user` mode.
+        "key_mode": await allowance.key_mode_summary(db),
+    }
 
 
 # --------------------------------------------------------------------------
@@ -563,6 +573,12 @@ def _validate(key: str, value: Any) -> Any:
     return value
 
 
+def _provider_key_secret_set() -> bool:
+    from applire.config import settings
+
+    return bool((settings.provider_key_secret or "").strip())
+
+
 def _recordable(value: Any) -> Any:
     """A non-secret value as an audit detail: scalars only, never email-shaped."""
     from applire.services.audit import _EMAIL_SHAPE
@@ -592,6 +608,14 @@ async def apply_changes(
     if not isinstance(changes, Mapping) or not changes:
         raise SettingsError("invalid_setting_value", 422, "No changes given.")
     clean = {key: _validate(key, value) for key, value in changes.items()}
+    # ADR-096 cl. 3: `user` mode refuses to run without PROVIDER_KEY_SECRET,
+    # so the panel refuses to switch to it (the env-only secret cannot be set here).
+    if clean.get("LLM_KEY_MODE") == "user" and not _provider_key_secret_set():
+        raise SettingsError(
+            "provider_key_secret_missing", 409,
+            "Set PROVIDER_KEY_SECRET in the environment and restart before switching to user keys.",
+            key="LLM_KEY_MODE",
+        )
 
     # provider_not_ready: judged on the state AFTER this request's own changes,
     # and only when this request switches the provider (a LinkedIn toggle on an

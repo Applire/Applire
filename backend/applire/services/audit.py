@@ -72,6 +72,12 @@ ACTIONS: dict[str, frozenset[str]] = {
     # forbidden detail-key fragment (test_audit_log).
     "appearance.default_changed": frozenset({"from_scheme_id"}),
     "appearance.offer_changed": frozenset({"offered"}),
+    # ADR-096 cl. 6 (admin grant of the instance key) and cl. 2 (a person's own
+    # key: the family only — never the key, its model or a fragment of it).
+    "user.instance_key_granted": frozenset(),
+    "user.instance_key_revoked": frozenset(),
+    "provider_key.stored": frozenset({"family", "tested"}),
+    "provider_key.removed": frozenset(),
 }
 
 #: Detail keys whose string may contain ``@`` unless it is EMAIL-shaped — a

@@ -645,6 +645,37 @@ _register_all(
             introduced_in="0.31.0",
             description="The model you pulled into the Ollama container.",
         ),
+        SettingEntry(
+            env_var="LLM_KEY_MODE",
+            source="config",
+            default="instance",
+            section="LLM provider",
+            introduced_in="0.47.0",
+            description=(
+                "Who pays for model work (ADR-096). `instance` (default): every call runs on\n"
+                "the key above, as before. `user`: each person's work runs on the AI provider\n"
+                "key they enter under Settings, unless an admin grants them this instance's key\n"
+                "(Admin > Users). A person with neither sees a message asking for a key; there\n"
+                "is never a silent fallback to the instance key. `user` needs\n"
+                "PROVIDER_KEY_SECRET. An admin can switch it in the settings panel."
+            ),
+        ),
+        SettingEntry(
+            env_var="PROVIDER_KEY_SECRET",
+            source="config",
+            default="",
+            example="",
+            section="LLM provider",
+            secret=True,
+            introduced_in="0.47.0",
+            description=(
+                "Encrypts the provider keys people store for LLM_KEY_MODE=user (ADR-096).\n"
+                "Generate one with `openssl rand -hex 32`. It lives ONLY here: never in the\n"
+                "database, never in a backup archive, so a stolen database dump decrypts no\n"
+                "key. Keep a second copy in your password manager. Lost = every stored key\n"
+                "reads as unset and people enter theirs again; nothing else is affected."
+            ),
+        ),
     ]
 )
 
@@ -1602,6 +1633,8 @@ PANEL_KEYS: tuple[str, ...] = (
     "RETENTION_ENABLED",
     # ADR-093 amended 2026-11-06: the probe's token spend, switchable from the panel.
     "OPS_PROVIDER_PROBE",
+    # ADR-096 cl. 1 (ADR-093 amended 2026-10-22): who pays for model work.
+    "LLM_KEY_MODE",
 )
 
 # ADR-086 — the ops layer's own settings, defined next to their defaults so a

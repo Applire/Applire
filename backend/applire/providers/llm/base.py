@@ -334,3 +334,16 @@ class LLMProvider(ABC):
             LLMTimeoutError: call exceeded self._timeout seconds.
             LLMTruncatedError: model stopped on the token budget (output truncated).
         """
+
+
+def require_strict_key(api_key: str | None, model: str | None) -> None:
+    """ADR-096 cl. 4: a constructor called with ``strict_key=True`` raises on an
+    empty key or model instead of reading ``settings``. The factory passes it
+    for every user-paid provider, so the ``or settings.<family>_api_key``
+    fallback can never turn a missing user key into an instance call
+    (``SF-ALLOW.1``)."""
+    if not (api_key or "").strip():
+        raise ValueError("strict_key: an empty API key never falls back to the instance key")
+    if not (model or "").strip():
+        raise ValueError("strict_key: a user-paid provider needs an explicit model")
+

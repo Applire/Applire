@@ -46,6 +46,8 @@ ADR_092_OWNED = {
     "generated_cover_letters",
     "gap_analyses",
     "interview_sessions",
+    # ADR-096 cl. 2: a person's own provider key (owned; erased with the account).
+    "user_provider_keys",
 }
 
 
