@@ -1961,9 +1961,11 @@ def _apply_resolve_confirmation(
     # rule 6 — "a dict with any helpful keys"), so `kind` alone never proves the
     # code built this ask. The proof is the code-built option keys: the model
     # cannot emit them (`engine.strip_confirmation_extras`). A record without
-    # exactly `[title_holds, task_only]` is not family 7 and writes nothing; an
-    # answer that names neither option re-parks the ask (never guess, #730) —
-    # and only the allow-listed fields of a work or project entry are written.
+    # exactly `[title_holds, task_only]` is not family 7 and writes nothing. On
+    # a keyed record ANY answer but the yes — free text that names no option
+    # included — writes the task wording, the arm that never writes the title
+    # (T-1; RULING MD-5). Only the allow-listed fields of a work or project
+    # entry are written.
     if context.get("kind") == "position_title":
         from applire.services.profile.reconcile.attribution import _anchor_entries
         from applire.services.profile.reconcile.position_terms import (
@@ -1978,18 +1980,6 @@ def _apply_resolve_confirmation(
             )
             return
         position_key = resolve_option_key(entry.model_dump(), op.chosen_option)
-        if position_key is None:
-            # Re-asked through the one builder (no confirmation is constructed
-            # outside confirmations.py), from the code-built record's own items.
-            from applire.services.profile.reconcile.confirmations import (
-                position_title_confirmation,
-            )
-
-            pending.append(position_title_confirmation(
-                items=[i for i in context.get("items") or [] if isinstance(i, dict)],
-                context=dict(context),
-            ))
-            return
         for item, text in plan_position_resolution(dict(context), position_key):
             field = str(item.get("field") or "")
             label = _held_label(field, str(item.get("text") or ""))

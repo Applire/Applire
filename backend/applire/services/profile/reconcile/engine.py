@@ -259,6 +259,34 @@ async def reconcile(
     # Nummer zwei" (UX audit 4). After stance and attribution, so it reads the
     # bullets that will actually land.
     ops = enforce_position_terms(ops, profile=profile, new_info=new_info, source=source)
+    # RULING MD-6 (Sorbet WP-T, 2026-11-13) — a model-emitted engagement ask
+    # (founder ruling V-5/V-6: "is this a separate position?") carries its own
+    # entity op under `context["incoming"]` (+ `pending_bullets`), and the
+    # interview door executes it on the answer through `commit_ops`, OUTSIDE
+    # this function. So the carried content passes the SAME three guards here,
+    # at park time, where the person's answer is known; whatever they hold
+    # comes back as their own asks.
+    stance_denials = denials + [u for u in unclaimed if u not in denials]
+    guard_asks: list[RequestConfirmation] = []
+    guarded_ops: list[ReconcileOp] = []
+    for op in ops:
+        if isinstance(op, RequestConfirmation):
+            op, extra = await _guard_engagement_ask(
+                op, profile=profile, new_info=new_info, source=source,
+                provider=provider, denials=stance_denials,
+            )
+            guard_asks.extend(extra)
+        guarded_ops.append(op)
+    guarded_ambiguities: list[RequestConfirmation] = []
+    for amb in ambiguities:
+        amb, extra = await _guard_engagement_ask(
+            amb, profile=profile, new_info=new_info, source=source,
+            provider=provider, denials=stance_denials,
+        )
+        guard_asks.extend(extra)
+        guarded_ambiguities.append(amb)
+    ops = guarded_ops + guard_asks
+    ambiguities = guarded_ambiguities
     # #485 / ADR-063 clause 8(e) (amended 2026-08-08) — a retraction of a skill
     # the vault already holds as `confirmed` emits a `demote_skill` op, so the
     # status move flows through the ONE write path (`apply_ops`) like every
@@ -284,6 +312,83 @@ async def reconcile(
         # payload can answer. The witness gates on what actually landed.
         empty_reason=_parse_empty_reason(data.get("empty_reason")),
     )
+
+
+#: The engagement sections whose ask carries an executable entity op
+#: (`session._ENGAGEMENT_OPS`), by the op name the op parser reads.
+_ENGAGEMENT_OP_NAMES = {
+    "work_experience": "upsert_work",
+    "projects": "upsert_project",
+    "volunteer_activities": "upsert_volunteer",
+}
+
+
+async def _guard_engagement_ask(
+    ask: RequestConfirmation,
+    *,
+    profile: MasterProfileData,
+    new_info: Any,
+    source: str,
+    provider: LLMProvider,
+    denials: list[str],
+) -> tuple[RequestConfirmation, list[RequestConfirmation]]:
+    """RULING MD-6 — run the stance, attribution and position guards over the
+    entity op and bullets an engagement ask carries, exactly as over a batch.
+
+    Returns the ask with its carried content replaced by what survived the
+    guards, plus every ask the guards raised (their own builders). An ask whose
+    entity op does not survive (or never parsed) loses ``incoming`` and
+    ``pending_bullets`` entirely: the interview door then has nothing to
+    execute (``_apply_engagement_confirmation`` returns ``False``)."""
+    context = dict(ask.context or {})
+    incoming = context.get("incoming")
+    op_name = _ENGAGEMENT_OP_NAMES.get(str(context.get("section")))
+    if op_name is None or not isinstance(incoming, dict):
+        return ask, []
+    ref = str(incoming.get("ref") or "confirmed-1")
+    raw: list[dict[str, Any]] = [{**incoming, "op": op_name, "ref": ref}]
+    # The ask is a near-duplicate at the SAME employer, and a "merge" answer
+    # lands the bullets on the existing entry: so they are checked against that
+    # entry when the ask names one the profile holds (attribution's own scope
+    # is an existing target), else against the new entity's ref.
+    held_ids = {
+        e.id for e in [*profile.work_experience, *profile.projects, *profile.volunteer_activities]
+    }
+    existing = [str(i) for i in context.get("existing_ids") or [] if i]
+    target = existing[0] if existing and existing[0] in held_ids else ref
+    carried = context.get("pending_bullets")
+    if isinstance(carried, dict) and any(carried.values()):
+        raw.append({"op": "add_bullets", "target": target, **{
+            f: list(carried.get(f) or [])
+            for f in ("responsibilities", "achievements", "technologies")
+        }})
+    batch = _parse_ops(raw)
+    batch = await enforce_stance(
+        batch, denials=denials, new_info=new_info, source=source, provider=provider,
+    )
+    batch = enforce_attribution(batch, profile=profile, new_info=new_info, source=source)
+    batch = enforce_position_terms(batch, profile=profile, new_info=new_info, source=source)
+
+    entity = next((o for o in batch if getattr(o, "op", None) == op_name), None)
+    bullets = [o for o in batch if getattr(o, "op", None) == "add_bullets"
+               and getattr(o, "target", None) == target]
+    raised = [o for o in batch if isinstance(o, RequestConfirmation)]
+    context.pop("incoming", None)
+    context.pop("pending_bullets", None)
+    if entity is not None:
+        context["incoming"] = entity.model_dump(exclude={"op"})
+        kept = {
+            f: [x for b in bullets for x in getattr(b, f)]
+            for f in ("responsibilities", "achievements", "technologies")
+        }
+        if any(kept.values()):
+            context["pending_bullets"] = kept
+    if context != dict(ask.context or {}):
+        logger.info(
+            "reconcile: engagement ask's carried content changed by the guards "
+            "(MD-6): entity=%s raised=%d", entity is not None, len(raised),
+        )
+    return ask.model_copy(update={"context": context}), raised
 
 
 def _structured_output_schema() -> dict[str, Any] | None:

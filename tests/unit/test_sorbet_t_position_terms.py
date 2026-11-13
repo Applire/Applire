@@ -265,15 +265,13 @@ def test_no_writes_the_task_wording_without_the_title():
     assert TASK_TEXT in resp and DEPUTY_BULLET not in resp
 
 
-def test_a_free_text_answer_that_matches_no_option_writes_nothing_and_re_asks():
-    # MD-4 (b): never guess (#730) — the ask is parked again, unchanged.
+def test_a_free_text_answer_that_matches_no_option_never_writes_the_title():
+    # T-1 / RULING MD-5: any answer but the yes writes the task wording.
     (ask,) = _asks(_run([_bullets()]))
     out = _answer(ask, "hm, schwer zu sagen")
     resp = out.profile.work_experience[0].responsibilities
-    assert TASK_TEXT not in resp and DEPUTY_BULLET not in resp
-    (again,) = out.pending_confirmations
-    assert again.option_keys == ["title_holds", "task_only"]
-    assert again.context["items"] == ask.context["items"]
+    assert TASK_TEXT in resp and DEPUTY_BULLET not in resp
+    assert out.pending_confirmations == []
 
 
 def test_no_on_a_bare_title_writes_nothing_and_says_so():
@@ -490,3 +488,106 @@ async def test_families_4_6_and_denial_scope_write_nothing_from_a_model_emitted_
         _profile().work_experience[0].responsibilities
     )
     assert out.profile.metadata.denied_concepts == []
+
+
+# ── MD-6: an engagement ask's carried content passes the same guards ─────────
+
+_DEPUTY_ROLE = "Stellvertretende Leiterin Rechnungswesen"
+
+
+def _engagement_payload() -> dict[str, Any]:
+    """A model-emitted V-6 ask ("a separate position?") whose carried entity op
+    and bullets bring a deputy title the answer never states."""
+    return {"ops": [], "denials": [], "ambiguities": [{
+        "question": "Ist das eine eigene Position?",
+        "options": ["merge", "add_separate"],
+        "context": {
+            "section": "work_experience",
+            "incoming": {"op": "upsert_work", "ref": "r9", "company": "Neuhaus Logistik AG",
+                         "role": _DEPUTY_ROLE, "start_date": "2021-01"},
+            "pending_bullets": {"responsibilities": [DEPUTY_BULLET, "Monatsabschluss nach HGB"]},
+            "existing_ids": [],
+        },
+    }]}
+
+
+def _texts(profile: MasterProfileData) -> list[str]:
+    return [t for w in profile.work_experience
+            for t in [w.role or "", *w.role_aliases, *w.responsibilities]]
+
+
+@pytest.mark.asyncio
+async def test_a_forged_engagement_ask_is_guarded_at_park_time():
+    result = await reconcile(_profile(), {"answer": ANSWER}, "interview",
+                             _Stub(_engagement_payload()))
+    (ask,) = result.ambiguities
+    assert ask.context["incoming"]["role"] == ""
+    assert ask.context["pending_bullets"]["responsibilities"] == ["Monatsabschluss nach HGB"]
+    (held,) = [o for o in result.ops if isinstance(o, RequestConfirmation)]
+    assert held.context["kind"] == "position_title" and held.option_keys == [
+        "title_holds", "task_only",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chosen", ["add_separate", "merge", "Ja"])
+async def test_the_interview_door_executes_only_the_guarded_engagement_content(db, chosen):
+    """The real seam: ``reconcile`` parks the ask, the interview door's
+    ``_apply_engagement_confirmation`` executes its context on the answer."""
+    from applire.services.profile import _get_latest
+    from applire.services.session import _apply_engagement_confirmation
+    from tests.support.profile_factory import make_master_profile
+
+    db.add(make_master_profile(profile_json=_profile_json()))
+    await db.commit()
+    result = await reconcile(_profile(), {"answer": ANSWER}, "interview",
+                             _Stub(_engagement_payload()))
+    (ask,) = result.ambiguities
+    record = await _get_latest(db, None)
+    await _apply_engagement_confirmation(
+        db, record, dict(ask.context), chosen, session_id="s-1", option_key=None,
+    )
+    await db.commit()
+    stored = MasterProfileData.model_validate((await _get_latest(db, None)).profile_json)
+    texts = _texts(stored)
+    assert not any("Stellvertret" in t for t in texts), texts
+    assert "Monatsabschluss nach HGB" in texts
+
+
+@pytest.mark.asyncio
+async def test_a_denied_technology_in_an_engagement_ask_is_dropped_by_the_stance_guard():
+    payload = _engagement_payload()
+    ctx = payload["ambiguities"][0]["context"]
+    ctx["incoming"]["role"] = "Controllerin"
+    ctx["pending_bullets"] = {"responsibilities": ["Monatsabschluss nach HGB"],
+                              "technologies": ["Tableau", "LucaNet"]}
+    payload["denials"] = ["Tableau"]
+    result = await reconcile(_profile(), {"answer": ANSWER + "\nMit Tableau habe ich nie gearbeitet."},
+                             "interview", _Stub(payload))
+    (ask,) = result.ambiguities
+    assert ask.context["pending_bullets"]["technologies"] == ["LucaNet"]
+
+
+@pytest.mark.asyncio
+async def test_another_employers_clause_in_an_engagement_ask_is_held_by_attribution():
+    pj = _profile_json()
+    pj["work_experience"].append({"id": "w-2", "company": "Brandel Kunststoffwerk GmbH",
+                                  "role": "Bilanzbuchhalterin", "start_date": "2014-01",
+                                  "end_date": "2018-12"})
+    payload = _engagement_payload()
+    ctx = payload["ambiguities"][0]["context"]
+    ctx["incoming"].update(company=EMPLOYER, role="Controllerin")
+    ctx["existing_ids"] = ["w-1"]
+    other = "Bei Brandel Kunststoffwerk erstellte ich 2016 den Jahresabschluss nach HGB"
+    ctx["pending_bullets"] = {"responsibilities": ["Monatsabschluss nach HGB", other]}
+    answer = ("Bei Feldberg mache ich den Monatsabschluss nach HGB. Bei Brandel "
+              "Kunststoffwerk erstellte ich 2016 den Jahresabschluss nach HGB.")
+    result = await reconcile(MasterProfileData.model_validate(pj), {"answer": answer},
+                             "interview", _Stub(payload))
+    (ask,) = result.ambiguities
+    carried = ask.context.get("pending_bullets") or {}
+    assert other not in (carried.get("responsibilities") or [])
+    # Held exactly as on the normal path: attribution's own ask (family 4).
+    flagged = [f["text"] for o in result.ops if isinstance(o, RequestConfirmation)
+               for f in (o.context or {}).get("flagged") or []]
+    assert other in flagged
