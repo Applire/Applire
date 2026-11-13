@@ -635,6 +635,8 @@ def test_f1_a_third_partys_title_in_the_answer_licenses_nothing(bullet):
     ("Ich leite das Projekt im Team Controlling.", "Teamleiterin Controlling"),
     ("I never led the controlling team.", "Teamleiterin Controlling"),
     ("Ich leite nicht das Team Controlling.", "Teamleiterin Controlling"),
+    # gate case (#370 test input): leading "a team" is not the Engineering unit.
+    ("I led a team of 7 engineers at ACME.", "Engineering Lead"),
     ("Das gilt vice versa, ich erstelle die Zahlen.", "Stellvertretende Teamleiterin Controlling"),
 ])
 def test_f1_held_per_title_not_per_family(answer, bullet):
