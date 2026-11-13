@@ -109,7 +109,9 @@ describe("actionsFor", () => {
   });
   it("active admin: offers makeUser, not makeAdmin", () => {
     const a = actionsFor(OWN, true);
-    expect(a).toEqual(["revokeTokens", "openAccount"]);
+    // ADR-096: the own row offers the instance-key grant (the admin needs a payer too).
+    expect(a).toEqual(["grantKey", "revokeTokens", "openAccount"]);
+    expect(actionsFor({ ...OWN, instance_key_granted_at: "2026-11-13T00:00:00Z" }, true)[0]).toBe("revokeGrant");
     expect(actionsFor(OTHER_ADMIN)).toContain("makeUser");
     expect(actionsFor(OTHER_ADMIN)).not.toContain("makeAdmin");
     expect(actionsFor(OTHER_ADMIN).at(-1)).toBe("delete");
@@ -537,13 +539,13 @@ describe("UsersAdmin — delete", () => {
     );
   });
 
-  it("own row (789:281): only revoke-tokens and open-account; open account goes to /settings and sends nothing", async () => {
+  it("own row (789:281): grant-key (ADR-096), revoke-tokens and open-account; open account goes to /settings and sends nothing", async () => {
     const u = userEvent.setup();
     renderAdmin();
     await screen.findByTestId("admin-users-table");
     const before = calls.length;
     const menu = await openMenu(u, "tobias@example.org");
-    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Revoke all tokens", "Open your account"]);
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Grant instance key", "Revoke all tokens", "Open your account"]);
     await u.click(within(menu).getByText("Open your account"));
     expect(push).toHaveBeenCalledWith("/settings");
     expect(screen.queryByTestId("admin-delete-dialog")).toBeNull();

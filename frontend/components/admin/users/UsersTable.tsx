@@ -54,7 +54,10 @@ export type UserAction =
 export function actionsFor(user: AdminUser, isSelf = false): UserAction[] {
   // Own row: the server guards (last admin) stay, but the menu only offers what is
   // safe and useful here — revoke own tokens, or go to the account page (789:281).
-  if (isSelf) return ["revokeTokens", "openAccount"];
+  // ADR-096: in LLM_KEY_MODE=user the admin needs a payer too — granting the
+  // instance key to oneself is the operator paying for their own work.
+  if (isSelf)
+    return [user.instance_key_granted_at ? "revokeGrant" : "grantKey", "revokeTokens", "openAccount"];
   if (user.status === "pending") return ["reinvite", "delete"];
   if (user.status === "disabled") return ["enable", "revokeTokens", "delete"];
   return [
