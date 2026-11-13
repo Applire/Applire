@@ -49,6 +49,7 @@ from applire.providers.llm.debug_log import llm_log_stage
 from applire.services.model_ids import ShortIdMap, ShortIdProvider
 from applire.schemas.profile import MasterProfileData
 from applire.services.profile.reconcile.attribution import enforce_attribution
+from applire.services.profile.reconcile.position_terms import enforce_position_terms
 from applire.services.profile.reconcile.ops import (
     ADAPTER_ONLY_CONFIRMATION_FIELDS,
     EmptyReason,
@@ -249,6 +250,12 @@ async def reconcile(
     # silently land on a DIFFERENT employer's entity — deterministic backstop
     # on top of the model's own (occasionally wrong) target choice.
     ops = enforce_attribution(ops, profile=profile, new_info=new_info, source=source)
+    # #831 (ADR-046 amended 2026-11-13) — a position term (deputy, lead, head …)
+    # the person's answer and the edited entry both lack is not written: rule 4
+    # forbids it, the model still wrote "Stellvertreterin" for "die operative
+    # Nummer zwei" (UX audit 4). After stance and attribution, so it reads the
+    # bullets that will actually land.
+    ops = enforce_position_terms(ops, profile=profile, new_info=new_info, source=source)
     # #485 / ADR-063 clause 8(e) (amended 2026-08-08) — a retraction of a skill
     # the vault already holds as `confirmed` emits a `demote_skill` op, so the
     # status move flows through the ONE write path (`apply_ops`) like every
