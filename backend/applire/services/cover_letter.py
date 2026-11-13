@@ -4892,7 +4892,11 @@ def _letter_critic_fn(advisories: list, tool_facts: list | None = None, language
             allowed = f.allowed_wordings(language)
             if not allowed:
                 return f" For {f.tool} state no duration."
-            own = "the candidate's own figure" if f.stated_years is not None else "the duration reference"
+            own = (
+                "the candidate's own figure" if f.stated_years is not None
+                else "the candidate's own start" if f.stated_start is not None
+                else "the duration reference"
+            )
             return (
                 f" For {f.tool} use {own}: "
                 + " or ".join(f'"{w}"' for w in allowed)

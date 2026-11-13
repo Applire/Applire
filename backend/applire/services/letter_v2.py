@@ -771,6 +771,17 @@ class ToolDuration:
     #: CV); ``None`` = they state none, and there is no ceiling. A computed span AT OR
     #: ABOVE it gets no duration (``prompt_view.span_above_career``, one comparison).
     ceiling_years: float | None = None
+    #: SF-WRITE.113 (ADR-078 amended 2026-11-13, Sorbet WP-T): the start the person
+    #: states for this tool in their own words ("seit 2021" → ``"2021"``, "seit
+    #: 04/2021" → ``"04/2021"``), tightly linked to it
+    #: (``skill_enrichment.stated_skill_starts``); it replaces the computed span.
+    #: ``None`` = none, or the person's own N-years figure wins (R4-1).
+    stated_start: str | None = None
+    start_source: str = ""
+    start_quote: str = ""
+    #: The person's own sentence names this tool AND a start, outside the subject
+    #: window: whose start it is cannot be told, so the computed span is withheld.
+    start_conflict: bool = False
 
     @property
     def over_ceiling(self) -> bool:
@@ -780,7 +791,7 @@ class ToolDuration:
         figure (R4-1)."""
         from applire.services.prompt_view import span_above_career
 
-        if self.stated_years is not None:
+        if self.stated_years is not None or self.stated_start is not None:
             return False
         return span_above_career(self.years, self.ceiling_years)
 
@@ -807,8 +818,11 @@ class ToolDuration:
             if lang == "de":
                 return [f"{num} Jahr" if num == "1" else f"{num} Jahre"]
             return [f"{num} year" if num == "1" else f"{num} years"]
+        if self.stated_start is not None:
+            # SF-WRITE.113: "Eigener Beginn schlägt Rechnung" — the start as stated.
+            return [f"seit {self.stated_start}" if lang == "de" else f"since {self.stated_start}"]
         hedge = span_hedges(self.years)
-        if hedge is None or not self.stateable or self.over_ceiling:
+        if hedge is None or not self.stateable or self.over_ceiling or self.start_conflict:
             return []
         return list(hedge[lang])
 
@@ -917,21 +931,36 @@ def tool_duration_facts(
                 _add(t)
     cv_texts = _cv_entry_texts(cv_data) if cv_data is not None else {}
     stated = _person_stated_tool_years(profile_json)
+    # SF-WRITE.113 (ADR-078 amended 2026-11-13): the person's own stated starts.
+    from applire.services.skill_enrichment import stated_skill_starts
+
+    starts = stated_skill_starts(profile_json, names)
     facts: list[ToolDuration] = []
     for name in names:
         own = stated.get(name.casefold())
+        start = starts.get(name.casefold()) if own is None else None
+        start_fields: dict[str, Any] = {}
+        if start is not None and start.tight:
+            start_fields = {
+                "stated_start": start.label, "start_source": start.path,
+                "start_quote": start.sentence[:200],
+            }
+        elif start is not None:
+            start_fields = {"start_conflict": True}
         try:
             got = evidenced_positions(model, name, bound="floor")
         except Exception:  # noqa: BLE001
             got = None
         if got is None or got[0] < 1:
-            if own is None:
+            if own is None and "stated_start" not in start_fields:
                 continue
-            # R4-1: the candidate's own figure stands without a computed span.
+            # R4-1: the candidate's own figure (or own start) stands without a
+            # computed span.
             facts.append(ToolDuration(
                 tool=name, years=0.0, since="", positions=(), cv_positions=(),
-                has_cv=cv_data is not None, stated_years=own[0],
-                stated_source=own[1], stated_quote=own[2], ceiling_years=ceiling_years,
+                has_cv=cv_data is not None, stated_years=own[0] if own else None,
+                stated_source=own[1] if own else "", stated_quote=own[2] if own else "",
+                ceiling_years=ceiling_years, **start_fields,
             ))
             continue
         years, rows = got
@@ -951,7 +980,7 @@ def tool_duration_facts(
             has_cv=cv_data is not None,
             stated_years=own[0] if own else None,
             stated_source=own[1] if own else "", stated_quote=own[2] if own else "",
-            ceiling_years=ceiling_years,
+            ceiling_years=ceiling_years, **start_fields,
         ))
     wanted = [p.casefold() for p in priority or [] if isinstance(p, str)]
     facts.sort(key=lambda f: (f.tool.casefold() not in wanted, -max(f.years, f.stated_years or 0.0)))
@@ -985,6 +1014,16 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
             )
             lines.append(line)
             continue
+        if f.stated_start is not None:
+            # SF-WRITE.113 (ADR-078 amended 2026-11-13): the person's own start.
+            where = _source_label(f.start_source)
+            said = f': "{f.start_quote.rstrip('.!?')}"' if f.start_quote else ""
+            lines.append(
+                f"  - {f.tool} — the candidate's own start, from {where}{said}. "
+                f"State it as {quoted} or state no duration — never a number of years, "
+                "never \"over\" or \"almost\" a number, whatever their positions add up to."
+            )
+            continue
         from applire.services.prompt_view import span_hedges
 
         if span_hedges(f.years) is None:
@@ -993,6 +1032,12 @@ def render_tool_durations_block(facts: list[ToolDuration], language: str | None)
         line = f"  - {f.tool} — since {f.since}, counted from: {counted}. "
         if allowed:
             line += "May be stated as " + quoted + "."
+        elif f.start_conflict:
+            # SF-WRITE.113: the person's own sentence dates it differently.
+            line += (
+                f"A sentence of the candidate's own names {f.tool} together with a start "
+                f"date: state NO duration for {f.tool}."
+            )
         elif f.over_ceiling:
             # W-2: the reason is the candidate's own figure, not the CV.
             ceiling = f"{f.ceiling_years:g}"
