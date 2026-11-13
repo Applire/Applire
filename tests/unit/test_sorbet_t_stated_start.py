@@ -13,6 +13,8 @@ Synthetic profiles only (names invented).
 """
 from __future__ import annotations
 
+import pytest
+
 from applire.services.cover_letter import _letter_critic_fn
 from applire.services.cv_v2 import cv_durations_block
 from applire.services.letter_v2 import (
@@ -179,3 +181,36 @@ def test_the_critic_names_the_persons_own_start():
     fn = _letter_critic_fn([_Adv()], facts, "de")
     found = fn({"body": {"paragraphs": ["Ich arbeite über neun Jahre SAP PP."]}})
     assert found and "the candidate's own start" in found[0].text and '"seit 2019"' in found[0].text
+
+
+# ── MD-8 (adversarial F4/F5): a start that is no start as written ─────────
+
+@pytest.mark.parametrize("bullet", [
+    "SAP PP nutze ich nicht seit 2021, sondern erst seit 2023.",   # negated, then a later one
+    "Mit SAP PP habe ich seit 2020 nicht mehr gearbeitet.",        # ended
+    "SAP PP seit 2021 nicht mehr aktiv im Einsatz.",
+    "SAP PP seit 2019-2021 im Projekt.",                          # a range
+    "SAP PP seit 2019 bis 2021 im Projekt.",
+    "SAP PP seit 1949 im Einsatz.",                               # before 1950
+    "SAP PP seit 2005 im Einsatz.",                               # > 10 y before the first position (2017)
+    "SAP PP seit 2099 im Einsatz.",                               # the future
+])
+def test_a_negated_ranged_or_implausible_start_withholds_the_span(bullet):
+    p = _profile([bullet], skills=("SAP PP",))
+    f = _fact(tool_duration_facts(p, None), "SAP PP")
+    assert f.stated_start is None and f.start_conflict
+    assert f.allowed_wordings("de") == [] and f.allowed_wordings("en") == []
+    assert _cv_line(cv_durations_block(p, "de"), "SAP PP") == "  - SAP PP: no duration."
+
+
+def test_a_start_within_the_margin_before_the_first_position_is_offered():
+    p = _profile(["SAP PP seit 2008 im Einsatz."], skills=("SAP PP",))
+    assert _fact(tool_duration_facts(p, None), "SAP PP").allowed_wordings("de") == ["seit 2008"]
+
+
+def test_earliest_wins_never_picks_a_negated_start():
+    starts = stated_skill_starts(
+        _profile(["SAP PP nutze ich nicht seit 2021, sondern erst seit 2023."], skills=("SAP PP",)),
+        ["SAP PP"],
+    )
+    assert not starts["sap pp"].usable

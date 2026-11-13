@@ -940,7 +940,7 @@ def tool_duration_facts(
         own = stated.get(name.casefold())
         start = starts.get(name.casefold()) if own is None else None
         start_fields: dict[str, Any] = {}
-        if start is not None and start.tight:
+        if start is not None and start.tight and start.usable:
             start_fields = {
                 "stated_start": start.label, "start_source": start.path,
                 "start_quote": start.sentence[:200],

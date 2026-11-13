@@ -484,6 +484,13 @@ class StatedStart:
     path: str
     sentence: str
     tight: bool
+    #: MD-8 (adversarial F4/F5): False for a start that cannot be the skill's
+    #: start as written — negated ("nicht seit 2021", "seit 2020 nicht mehr"),
+    #: a range ("seit 2019-2021"), before 1950, more than
+    #: ``_START_MARGIN_YEARS`` before the person's first dated position, or in
+    #: the future. Such a start is never offered, and it withholds the computed
+    #: span for every skill it is linked to (no duration).
+    usable: bool = True
 
     @property
     def label(self) -> str:
@@ -491,18 +498,63 @@ class StatedStart:
         return f"{self.month:02d}/{self.year}" if self.month else str(self.year)
 
 
-def extract_stated_starts(text: str) -> list[tuple[int, int | None, str, int]]:
-    """``(year, month | None, raw, offset)`` for every "seit/since [MM/|Monat ]YYYY"
-    in ``text``. A FACT (ADR-062 cl. 1): a closed pattern, no reading of meaning."""
-    out: list[tuple[int, int | None, str, int]] = []
-    for m in _STATED_START_RE.finditer(text or ""):
+#: MD-8 F4 — the words around a "seit YYYY" that make it no start as written.
+_START_NEGATED_BEFORE = re.compile(r"\b(?:nicht|not|nie|never|kein\w*)\s*$", re.IGNORECASE)
+_START_NEGATED_AFTER = re.compile(
+    r"^[^.;:!?\n]{0,40}?\b(?:nicht|not|no\s+longer|nie|never|kein\w*)\b", re.IGNORECASE,
+)
+_START_RANGE_AFTER = re.compile(
+    r"^\s*(?:[-–—/]|bis|to|until)\s*(?:\d{1,2}\s*[/.]\s*)?(?:19|20)\d{2}", re.IGNORECASE,
+)
+#: F5 — the oldest plausible start: 1950, and no more than this many years before
+#: the person's first dated position.
+_START_FLOOR_YEAR = 1950
+_START_MARGIN_YEARS = 10
+
+
+def _start_matches(text: str) -> list[tuple[int, int | None, str, int, bool]]:
+    """``(year, month | None, raw, offset, as_written)`` for every "seit/since
+    [MM/|Monat ]YYYY" in ``text``; ``as_written`` is False for a negated or a
+    ranged one (MD-8 F4). Facts (ADR-062 cl. 1): closed patterns only."""
+    out: list[tuple[int, int | None, str, int, bool]] = []
+    text = text or ""
+    for m in _STATED_START_RE.finditer(text):
         month: int | None = None
         if m.group("mm"):
             month = int(m.group("mm"))
         elif m.group("mname"):
             month = _MONTH_NAMES.get(m.group("mname").lower())
-        out.append((int(m.group("yyyy")), month, m.group(0), m.start()))
+        as_written = not (
+            _START_NEGATED_BEFORE.search(text[max(0, m.start() - 12):m.start()])
+            or _START_NEGATED_AFTER.match(text[m.end():])
+            or _START_RANGE_AFTER.match(text[m.end():])
+        )
+        out.append((int(m.group("yyyy")), month, m.group(0), m.start(), as_written))
     return out
+
+
+def extract_stated_starts(text: str) -> list[tuple[int, int | None, str, int]]:
+    """``(year, month | None, raw, offset)`` for every "seit/since [MM/|Monat ]YYYY"
+    in ``text``. A FACT (ADR-062 cl. 1): a closed pattern, no reading of meaning."""
+    return [(y, mo, raw, off) for y, mo, raw, off, _ok in _start_matches(text)]
+
+
+def _first_position_year(profile_json: dict[str, Any]) -> int | None:
+    years = []
+    for w in profile_json.get("work_experience") or []:
+        m = re.match(r"\s*((?:19|20)\d{2})", str((w or {}).get("start_date") or ""))
+        if m:
+            years.append(int(m.group(1)))
+    return min(years) if years else None
+
+
+def _plausible(year: int, month: int | None, first_year: int | None, today: date) -> bool:
+    """MD-8 F5 — a start the person could have meant as written."""
+    if year < _START_FLOOR_YEAR:
+        return False
+    if first_year is not None and year < first_year - _START_MARGIN_YEARS:
+        return False
+    return (year, month or 1) <= (today.year, today.month)
 
 
 def stated_skill_starts(
@@ -532,12 +584,16 @@ def stated_skill_starts(
         (u.path, u.text) for u in idx.units if not u.path.startswith("personal_info")
     ] + [(u.path, u.text) for u in idx.denial_units]
     out: dict[str, StatedStart] = {}
+    first_year = _first_position_year(profile_json)
+    today = date.today()
 
-    def _key(s: StatedStart) -> tuple[int, int, int]:
-        return (0 if s.tight else 1, s.year, s.month or 1)
+    def _key(s: StatedStart) -> tuple[int, int, int, int]:
+        # An unusable start linked to the skill outranks every other (MD-8 F4):
+        # it withholds the span, and earliest-wins never picks a negated start.
+        return (0 if not s.usable else 1, 0 if s.tight else 1, s.year, s.month or 1)
 
     for path, text in texts:
-        starts = extract_stated_starts(text)
+        starts = _start_matches(text)
         if not starts:
             continue
         sentences: list[tuple[int, str]] = []
@@ -546,7 +602,8 @@ def stated_skill_starts(
             at = text.find(part, pos)
             sentences.append((at, part))
             pos = at + len(part)
-        for year, month, raw, offset in starts:
+        for year, month, raw, offset, as_written in starts:
+            usable = as_written and _plausible(year, month, first_year, today)
             sentence = next(
                 (s for at, s in reversed(sentences) if 0 <= at <= offset), text
             )
@@ -559,7 +616,9 @@ def stated_skill_starts(
                     tight = False
                 else:
                     continue
-                cand = StatedStart(year, month, raw.strip(), path, sentence.strip()[:240], tight)
+                cand = StatedStart(
+                    year, month, raw.strip(), path, sentence.strip()[:240], tight, usable,
+                )
                 cur = out.get(name.casefold())
                 if cur is None or _key(cand) < _key(cur):
                     out[name.casefold()] = cand
