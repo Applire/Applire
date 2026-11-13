@@ -192,7 +192,10 @@ function ProviderKeyForm({ state }: { state: ProviderKeyState }) {
             data-testid="provider-key-key"
             value={key}
             onChange={(e) => setKey(e.target.value)}
-            autoComplete="off"
+            // "new-password": a password manager never fills the Applire login
+            // password into the provider-key field ("off" is ignored for passwords).
+            autoComplete="new-password"
+            spellCheck={false}
             className={field}
           />
         </label>

@@ -82,7 +82,7 @@ describe("ProviderKeyCard (ADR-096)", () => {
     expect(screen.getByTestId("provider-key-fineprint").querySelector("a")).toHaveAttribute("href", expect.stringContaining("llm-models.md"));
     const input = screen.getByTestId("provider-key-key");
     expect(input).toHaveAttribute("type", "password");
-    expect(input).toHaveAttribute("autocomplete", "off");
+    expect(input).toHaveAttribute("autocomplete", "new-password");
     expect(input).toHaveValue("");
     expect(screen.getByTestId("provider-key-test")).toBeChecked();
   });
