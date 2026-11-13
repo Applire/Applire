@@ -138,9 +138,10 @@ def test_only_confirmations_module_and_parse_ambiguities_construct_request_confi
     )
 
 
-def test_confirmations_module_exposes_exactly_six_builder_functions():
-    """Six ask families, six public builders (family 6, ``project_parent_confirmation``,
-    is D-8, Hazelnut build 5), plus the ONE reader of the keys
+def test_confirmations_module_exposes_exactly_seven_builder_functions():
+    """Seven ask families, seven public builders (family 6, ``project_parent_confirmation``,
+    is D-8, Hazelnut build 5; family 7, ``position_title_confirmation``, is #831 /
+    founder ruling T-1, Sorbet WP-T), plus the ONE reader of the keys
     they write — the count this module's own docstring claims.
 
     ``attribution_entry_confirmation`` (family 5) and ``resolve_option_key``
@@ -166,6 +167,7 @@ def test_confirmations_module_exposes_exactly_six_builder_functions():
         # is its pre-#669 back-compat half, and `render_unmatched_answer_hint`
         # is what the candidate is told when their answer names no option.
         "match_skill_decision_text",
+        "position_title_confirmation",
         "project_parent_confirmation",
         "render_unmatched_answer_hint",
         "resolve_option_key",

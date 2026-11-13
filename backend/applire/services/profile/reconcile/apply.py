@@ -1948,10 +1948,7 @@ def _apply_resolve_confirmation(
     # the same as an upsert onto an existing entry). Every held item ends as a
     # change or an explicit not-applied item (#723's invariant).
     if context.get("kind") == "position_title":
-        from applire.services.profile.reconcile.attribution import (
-            _anchor_entries,
-            _held_label,
-        )
+        from applire.services.profile.reconcile.attribution import _anchor_entries
         from applire.services.profile.reconcile.position_terms import (
             plan_position_resolution,
         )
