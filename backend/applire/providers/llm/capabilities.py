@@ -165,6 +165,15 @@ async def resolve_effective_output_cap() -> int:
     if declared and declared > 0:
         return declared
 
+    # ADR-096: a user-paid action runs on the person's model, not the instance's;
+    # the instance model's cap would be wrong and the probe would send the instance
+    # key on that person's behalf. Unknown (0) -> the reactive fallback covers it.
+    from applire.services.allowance import current_decision
+
+    decision = current_decision()
+    if decision is not None and decision.payer == "user":
+        return 0
+
     provider = settings.llm_provider.lower()
     coords = _active_model_coords(provider, settings)
     if coords is None:
