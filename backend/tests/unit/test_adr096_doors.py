@@ -454,3 +454,69 @@ async def test_account_erasure_removes_the_key_and_detaches_the_ledger(env, user
         assert (await db.execute(select(UserProviderKey))).first() is None
         row = (await db.execute(select(AllowanceLedger))).scalar_one()
     assert row.user_id is None and row.subject_hash == "a" * 64
+
+
+# ── 6. the two ownerless/indirect seams cl. 12 names ───────────────────────────
+
+
+def _recording_factory(seen: list):
+    import applire.providers.llm as llm
+
+    real = llm.get_provider
+
+    def record():
+        provider = real()
+        seen.append(unwrap_provider(provider)._payer)
+        return provider
+
+    return record
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_owner_context
+async def test_ops_probe_pays_as_system_in_user_mode(monkeypatch, user_mode):
+    import contextvars
+
+    import applire.providers.llm as llm
+    from applire.services.ops import config as ops_config
+    from applire.services.ops import probes
+
+    seen: list = []
+    monkeypatch.setattr(llm, "get_provider", _recording_factory(seen))
+    monkeypatch.setattr(ops_config, "provider_probe_enabled", lambda: True)
+    monkeypatch.setattr(ops_config, "reachability_probe_enabled", lambda: True)
+
+    async def no_credit(family):
+        return "n/a", {}
+
+    monkeypatch.setattr(probes, "_probe_credit", no_credit)
+    # The real kick runs in an EMPTY context (no owner, no decision).
+    task = __import__("asyncio").get_running_loop().create_task(
+        probes._kicked_provider_probe(), context=contextvars.Context()
+    )
+    result = await task
+    assert seen == ["system"], result
+
+
+@pytest.mark.asyncio
+async def test_colour_fallback_under_a_cv_render_pays_with_the_actions_payer(monkeypatch, user_mode):
+    from applire.ownership import owner_context
+    from applire.services import color_detection
+
+    import applire.providers as providers_pkg
+
+    seen: list = []
+    monkeypatch.setattr(providers_pkg, "get_provider", _recording_factory(seen))
+    owner = uuid.uuid4()
+    with owner_context(owner):
+        # A user-paid render: the fallback runs on the person's key.
+        allowance._decision.set(
+            allowance.PayerDecision("user", "model_work", owner, family="mistral", model="m", key=USER_KEY)
+        )
+        with patch("applire.providers.llm.mistral.Mistral"):
+            await color_detection._llm_color_fallback("Example GmbH")
+        allowance.reset_context_for_tests()
+        # No door, no facts, user mode: refused — the fallback answers None and
+        # no instance-paid provider is ever built.
+        assert await color_detection._llm_color_fallback("Example GmbH") is None
+    assert seen == ["user"]
