@@ -434,12 +434,14 @@ def test_a_keyless_record_with_family7_context_writes_nothing(chosen):
     out = _answer(ask, chosen)
     assert not _forged_everywhere(out.profile)
     assert out.profile.work_experience[0].role == "Financial Controller"
+    assert out.pending_confirmations == []  # a forged ask is not asked again
 
 
 @pytest.mark.parametrize("item", [
     {"item": "bullet", "target": "w-1", "field": "technologies", "text": "Forged-Tool"},
     {"item": "bullet", "target": "w-1", "field": "role_aliases", "text": "Forged-Alias"},
     {"item": "bullet", "target": "e-1", "field": "responsibilities", "text": "Forged-Edu"},
+    {"item": "bullet", "target": "v-1", "field": "responsibilities", "text": "Forged-Volunteer"},
     {"item": "role", "target": "w-1", "field": "company", "text": "Forged-Company"},
 ])
 def test_a_yes_writes_only_the_allow_listed_fields_of_work_and_project_entries(item):
@@ -449,7 +451,9 @@ def test_a_yes_writes_only_the_allow_listed_fields_of_work_and_project_entries(i
     tampered = ask.model_copy(update={"context": {**ask.context, "items": [item]}})
     pj = _profile_json()
     pj["education"] = [{"id": "e-1", "institution": "Hochschule Beispiel", "degree": "B.A."}]
+    pj["volunteer_activities"] = [{"id": "v-1", "organization": "Sportverein Beispiel"}]
     out = _answer(tampered, "Yes, that was my position", pj)
+    assert item["text"] not in out.profile.volunteer_activities[0].responsibilities
     w = out.profile.work_experience[0]
     assert item["text"] not in w.technologies + w.role_aliases + w.responsibilities
     assert w.company == EMPLOYER
