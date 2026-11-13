@@ -380,6 +380,15 @@ ADAPTER_ONLY_CONFIRMATION_FIELDS = (
     "option_keys",
 )
 
+#: MD-4 (security review, 2026-11-13) — the ``context`` half of the same rule.
+#: The applier dispatches an ANSWER on ``context["kind"]`` for the code-built
+#: families (denial scope, project parent, position title), and family 7 writes
+#: ``context["items"]`` on a yes. A model-emitted confirmation may carry "any
+#: helpful keys" (prompt rule 6) — never these. Stripped from its context at
+#: both raw paths, with the adapter-only fields above.
+CODE_ONLY_CONTEXT_KINDS = ("denial_scope", "project_parent", "position_title")
+CODE_ONLY_CONTEXT_KEYS = ("items",)
+
 
 class MatchExisting(BaseModel):
     """The reconciler's way to SAY "already there" (#707, ADR-046 amended

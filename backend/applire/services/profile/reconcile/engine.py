@@ -52,6 +52,8 @@ from applire.services.profile.reconcile.attribution import enforce_attribution
 from applire.services.profile.reconcile.position_terms import enforce_position_terms
 from applire.services.profile.reconcile.ops import (
     ADAPTER_ONLY_CONFIRMATION_FIELDS,
+    CODE_ONLY_CONTEXT_KEYS,
+    CODE_ONLY_CONTEXT_KINDS,
     EmptyReason,
     ReconcileOp,
     ReconcileResult,
@@ -343,6 +345,7 @@ def strip_confirmation_extras(item: Any) -> Any:
     """
     if not isinstance(item, dict):
         return item
+    item = _strip_code_only_context(item)
     if not any(k in item for k in ADAPTER_ONLY_CONFIRMATION_FIELDS):
         return item
     stripped = {k: v for k, v in item.items() if k not in ADAPTER_ONLY_CONFIRMATION_FIELDS}
@@ -353,6 +356,26 @@ def strip_confirmation_extras(item: Any) -> Any:
         sorted(k for k in ADAPTER_ONLY_CONFIRMATION_FIELDS if k in item),
     )
     return stripped
+
+
+def _strip_code_only_context(item: dict) -> dict:
+    """MD-4 — drop the context keys only deterministic code may set: a ``kind``
+    naming a code-built family, and family 7's ``items``. Same direction as the
+    adapter-only strip: the confirmation survives, the forged half does not."""
+    context = item.get("context")
+    if not isinstance(context, dict):
+        return item
+    drop = [k for k in CODE_ONLY_CONTEXT_KEYS if k in context]
+    if context.get("kind") in CODE_ONLY_CONTEXT_KINDS:
+        drop.append("kind")
+    if not drop:
+        return item
+    logger.warning(
+        "reconcile: stripped code-only context key(s) %s from a model-emitted "
+        "confirmation — the applier dispatches answers on them (MD-4)",
+        sorted(drop),
+    )
+    return {**item, "context": {k: v for k, v in context.items() if k not in drop}}
 
 
 def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[ReconcileOp]:

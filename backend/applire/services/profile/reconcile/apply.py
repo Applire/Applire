@@ -1794,6 +1794,15 @@ def _apply_resolve_both_or_merge(
     return updated
 
 
+#: MD-4 — what a family-7 answer may write: a held bullet into a work or project
+#: entry's own bullet lists, or a held role. Nothing else, whatever the record says.
+_POSITION_WRITABLE = frozenset({
+    ("bullet", "responsibilities"),
+    ("bullet", "achievements"),
+    ("role", "role"),
+})
+
+
 def _apply_resolve_confirmation(
     op: ResolveConfirmation,
     profile: MasterProfileData,
@@ -1947,17 +1956,43 @@ def _apply_resolve_confirmation(
     # the role of an entry that has none, else as a role alias (ADR-013 Rule 1,
     # the same as an upsert onto an existing entry). Every held item ends as a
     # change or an explicit not-applied item (#723's invariant).
+    #
+    # MD-4 (security review, 2026-11-13): `context` is model-emittable (prompt
+    # rule 6 — "a dict with any helpful keys"), so `kind` alone never proves the
+    # code built this ask. The proof is the code-built option keys: the model
+    # cannot emit them (`engine.strip_confirmation_extras`). A record without
+    # exactly `[title_holds, task_only]` is not family 7 and writes nothing; an
+    # answer that names neither option re-parks the ask (never guess, #730) —
+    # and only the allow-listed fields of a work or project entry are written.
     if context.get("kind") == "position_title":
         from applire.services.profile.reconcile.attribution import _anchor_entries
         from applire.services.profile.reconcile.position_terms import (
+            FAMILY_OPTION_KEYS,
             plan_position_resolution,
         )
 
-        for item, text in plan_position_resolution(
-            dict(context), resolve_option_key(entry.model_dump(), op.chosen_option)
-        ):
+        if list(entry.option_keys or []) != list(FAMILY_OPTION_KEYS):
+            logger.warning(
+                "resolve_confirmation: a position_title ask without the code-built "
+                "option keys (model-emitted?) — nothing written (MD-4)"
+            )
+            return
+        position_key = resolve_option_key(entry.model_dump(), op.chosen_option)
+        if position_key is None:
+            pending.append(RequestConfirmation(
+                question=entry.question, options=list(entry.options),
+                context=dict(context), question_i18n=entry.question_i18n,
+                options_i18n=entry.options_i18n, option_keys=list(entry.option_keys),
+            ))
+            return
+        for item, text in plan_position_resolution(dict(context), position_key):
             field = str(item.get("field") or "")
             label = _held_label(field, str(item.get("text") or ""))
+            if (item.get("item"), field) not in _POSITION_WRITABLE:
+                not_applied.append(ImportNotApplied(
+                    section="work_experience", label=label, reason="confirmation_unresolvable",
+                ))
+                continue
             if not text:
                 not_applied.append(ImportNotApplied(
                     section="work_experience", label=label, reason="confirmation_discarded",
@@ -1993,7 +2028,7 @@ def _apply_resolve_confirmation(
                         reason="confirmation_already_present",
                     ))
                 continue
-            if target is None or not hasattr(target, field):
+            if not isinstance(target, (WorkEntry, ProjectEntry)):
                 not_applied.append(ImportNotApplied(
                     section="work_experience", label=label, reason="confirmation_unresolvable",
                 ))

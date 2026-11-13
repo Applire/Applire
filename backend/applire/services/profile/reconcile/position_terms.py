@@ -70,6 +70,9 @@ KIND = "position_title"
 #: The answer that writes the title; every other answer writes the task wording.
 TITLE_HOLDS = "title_holds"
 TASK_ONLY = "task_only"
+#: The code-built option keys of a family-7 ask, in order. Their presence on a
+#: parked record is what proves code built it (MD-4): the model cannot emit them.
+FAMILY_OPTION_KEYS = (TITLE_HOLDS, TASK_ONLY)
 
 # ── the closed vocabulary ────────────────────────────────────────────────────
 

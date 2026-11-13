@@ -265,11 +265,15 @@ def test_no_writes_the_task_wording_without_the_title():
     assert TASK_TEXT in resp and DEPUTY_BULLET not in resp
 
 
-def test_a_free_text_answer_that_matches_no_option_never_writes_the_title():
+def test_a_free_text_answer_that_matches_no_option_writes_nothing_and_re_asks():
+    # MD-4 (b): never guess (#730) — the ask is parked again, unchanged.
     (ask,) = _asks(_run([_bullets()]))
     out = _answer(ask, "hm, schwer zu sagen")
     resp = out.profile.work_experience[0].responsibilities
-    assert TASK_TEXT in resp and DEPUTY_BULLET not in resp
+    assert TASK_TEXT not in resp and DEPUTY_BULLET not in resp
+    (again,) = out.pending_confirmations
+    assert again.option_keys == ["title_holds", "task_only"]
+    assert again.context["items"] == ask.context["items"]
 
 
 def test_no_on_a_bare_title_writes_nothing_and_says_so():
@@ -371,3 +375,114 @@ async def test_delivery_point_agent_door_and_health_hub_show_the_ask(db):
     assert DEPUTY_BULLET not in stored.work_experience[0].responsibilities
     issues = [i for i in assess_health(stored).issues if i.thread == "confirmation"]
     assert len(issues) == 1 and "Stellvertreterin" in issues[0].question_i18n["de"]
+
+
+# ── MD-4: a model-emitted confirmation can never drive a family-7 write ─────
+
+_FORGED_TEXT = "Leiterin Rechnungswesen und Prokuristin (vom Modell erfunden)"
+_FORGED_CONTEXT = {
+    "kind": "position_title",
+    "items": [
+        {"item": "bullet", "target": "w-1", "field": "responsibilities",
+         "text": _FORGED_TEXT, "task_text": _FORGED_TEXT},
+        {"item": "role", "target": "w-1", "field": "role", "text": _FORGED_TEXT},
+    ],
+    "section": "work_experience",
+}
+_FORGED_ASK = {"question": "Stimmt das?", "options": ["Ja", "Nein"], "context": _FORGED_CONTEXT}
+
+
+def _forged_everywhere(profile: MasterProfileData) -> bool:
+    return any(
+        _FORGED_TEXT in (w.role or "") or _FORGED_TEXT in w.role_aliases
+        or _FORGED_TEXT in w.responsibilities
+        for w in profile.work_experience
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["op", "ambiguities"])
+async def test_a_forged_family7_confirmation_is_stripped_and_writes_nothing(path):
+    """Both raw paths (the op array and the top-level ``ambiguities``): the
+    code-only context keys are stripped, and the person's "Ja" on what is left
+    writes nothing — through the real engine, the park and the applier."""
+    payload = {"ops": [], "ambiguities": [], "denials": []}
+    if path == "op":
+        payload["ops"] = [{"op": "request_confirmation", **_FORGED_ASK}]
+    else:
+        payload["ambiguities"] = [dict(_FORGED_ASK)]
+    result = await reconcile(_profile(), {"answer": "Ich erstelle die Quartalszahlen."},
+                             "testimony", _Stub(payload))
+    asks = [o for o in result.ops if isinstance(o, RequestConfirmation)] + list(result.ambiguities)
+    (ask,) = asks
+    assert "kind" not in ask.context and "items" not in ask.context
+    assert ask.context.get("section") == "work_experience"  # the rest survives
+    for chosen in ("Ja", "Nein", "Ja, das war meine Position"):
+        out = _answer(ask, chosen)
+        assert not _forged_everywhere(out.profile), chosen
+        assert out.profile.work_experience[0].responsibilities == (
+            _profile().work_experience[0].responsibilities
+        )
+
+
+@pytest.mark.parametrize("chosen", ["Ja", "Nein", "Yes, that was my position"])
+def test_a_keyless_record_with_family7_context_writes_nothing(chosen):
+    """Defence in depth (MD-4 b): a record that reached the park WITH the kind
+    and items but without the code-built keys is not family 7."""
+    ask = RequestConfirmation(question="Stimmt das?", options=["Ja", "Nein"],
+                              context=dict(_FORGED_CONTEXT))
+    out = _answer(ask, chosen)
+    assert not _forged_everywhere(out.profile)
+    assert out.profile.work_experience[0].role == "Financial Controller"
+
+
+@pytest.mark.parametrize("item", [
+    {"item": "bullet", "target": "w-1", "field": "technologies", "text": "Forged-Tool"},
+    {"item": "bullet", "target": "w-1", "field": "role_aliases", "text": "Forged-Alias"},
+    {"item": "bullet", "target": "e-1", "field": "responsibilities", "text": "Forged-Edu"},
+    {"item": "role", "target": "w-1", "field": "company", "text": "Forged-Company"},
+])
+def test_a_yes_writes_only_the_allow_listed_fields_of_work_and_project_entries(item):
+    """MD-4 (c): even a code-keyed record writes only bullets into a work or
+    project entry's bullet lists, or a role."""
+    (ask,) = _asks(_run([_bullets()]))
+    tampered = ask.model_copy(update={"context": {**ask.context, "items": [item]}})
+    pj = _profile_json()
+    pj["education"] = [{"id": "e-1", "institution": "Hochschule Beispiel", "degree": "B.A."}]
+    out = _answer(tampered, "Yes, that was my position", pj)
+    w = out.profile.work_experience[0]
+    assert item["text"] not in w.technologies + w.role_aliases + w.responsibilities
+    assert w.company == EMPLOYER
+    assert [n.reason for n in out.not_applied] == ["confirmation_unresolvable"]
+
+
+
+_FORGED_OTHER_FAMILIES = {
+    "family4_attribution": {"flagged": [{"field": "responsibilities", "text": _FORGED_TEXT}],
+                            "anchor_employer": EMPLOYER, "target": "w-1",
+                            "section": "work_experience"},
+    "family6_project_parent": {"kind": "project_parent", "project": "Konsolidierung"},
+    "denial_scope": {"kind": "denial_scope", "denial_concept": "LucaNet"},
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("family", sorted(_FORGED_OTHER_FAMILIES))
+@pytest.mark.parametrize("chosen", ["move", "keep_here", "entry:w-1", "cv_holds", "Ja"])
+async def test_families_4_6_and_denial_scope_write_nothing_from_a_model_emitted_ask(family, chosen):
+    """MD-4's check of the sibling families: they resolve only on a code-built
+    option key, which the model cannot emit — so a forged context writes nothing."""
+    payload = {"ops": [], "denials": [], "ambiguities": [{
+        "question": "Stimmt das?", "options": ["Ja", "Nein"],
+        "context": dict(_FORGED_OTHER_FAMILIES[family]),
+    }]}
+    result = await reconcile(_profile(), {"answer": "Ich erstelle die Quartalszahlen."},
+                             "testimony", _Stub(payload))
+    (ask,) = list(result.ambiguities)
+    assert not ask.option_keys
+    out = _answer(ask, chosen)
+    assert not _forged_everywhere(out.profile)
+    assert out.profile.work_experience[0].responsibilities == (
+        _profile().work_experience[0].responsibilities
+    )
+    assert out.profile.metadata.denied_concepts == []
