@@ -517,10 +517,16 @@ def _texts(profile: MasterProfileData) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_a_forged_engagement_ask_is_guarded_at_park_time():
-    result = await reconcile(_profile(), {"answer": ANSWER}, "interview",
-                             _Stub(_engagement_payload()))
-    (ask,) = result.ambiguities
+@pytest.mark.parametrize("path", ["ambiguities", "op"])
+async def test_a_forged_engagement_ask_is_guarded_at_park_time(path):
+    payload = _engagement_payload()
+    if path == "op":
+        payload["ops"] = [{"op": "request_confirmation", **payload.pop("ambiguities")[0]}]
+        payload["ambiguities"] = []
+    result = await reconcile(_profile(), {"answer": ANSWER}, "interview", _Stub(payload))
+    asks = [o for o in result.ops if isinstance(o, RequestConfirmation)] + list(result.ambiguities)
+    (ask,) = [a for a in asks if "incoming" in a.context]
+    result.ops = [o for o in result.ops if o is not ask]
     assert ask.context["incoming"]["role"] == ""
     assert ask.context["pending_bullets"]["responsibilities"] == ["Monatsabschluss nach HGB"]
     (held,) = [o for o in result.ops if isinstance(o, RequestConfirmation)]
