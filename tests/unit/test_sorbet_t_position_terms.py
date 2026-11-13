@@ -153,10 +153,18 @@ def test_a_title_tied_to_a_unit_is_a_position_claim(title):
 
 # ── holding: the person's words or the record they hold ────────────────────
 
-def test_the_persons_own_deputy_word_holds_it():
-    answer = ANSWER.replace("ich bin die operative Nummer zwei dafür", "ich bin ihre Stellvertreterin")
+def test_the_persons_own_deputy_title_holds_it():
+    answer = ANSWER.replace("ich bin die operative Nummer zwei dafür",
+                            "ich bin stellvertretende Leiterin Rechnungswesen")
     out = _run([_bullets()], answer=answer)
     assert _asks(out) == [] and out[0].responsibilities == RECORDED_BULLETS
+
+
+def test_a_bare_anaphoric_deputy_word_is_asked_once():
+    # MD-8 F1: held per title (title + unit). "ihre Stellvertreterin" names no
+    # unit; whose deputy it is would be a reading of the previous sentence.
+    answer = ANSWER.replace("ich bin die operative Nummer zwei dafür", "ich bin ihre Stellvertreterin")
+    assert len(_asks(_run([_bullets()], answer=answer))) == 1
 
 
 def test_the_edited_entry_holds_it():
@@ -597,3 +605,133 @@ async def test_another_employers_clause_in_an_engagement_ask_is_held_by_attribut
     flagged = [f["text"] for o in result.ops if isinstance(o, RequestConfirmation)
                for f in (o.context or {}).get("flagged") or []]
     assert other in flagged
+
+
+# ── MD-8 (adversarial F1–F3): per title, every field, the person's own ──────
+
+from applire.services.profile.reconcile.position_terms import task_wording  # noqa: E402
+
+
+@pytest.mark.parametrize("bullet", [
+    "Erstellt seit 2023 die Quartalszahlen in LucaNet; Leiterin Rechnungswesen",
+    "Erstellt seit 2023 die Quartalszahlen in LucaNet; operative Leiterin Rechnungswesen",
+    "Verantwortet als Leiter Rechnungswesen die Quartalszahlen",
+])
+def test_f1_a_third_partys_title_in_the_answer_licenses_nothing(bullet):
+    # The incident answer names "unsere Leiterin Rechnungswesen" — the boss.
+    assert len(_asks(_run([_bullets(resp=[bullet])]))) == 1
+
+
+@pytest.mark.parametrize("answer, bullet", [
+    ("Meine Stellvertreterin ist Frau Weber, ich erstelle die Quartalszahlen.",
+     "Stellvertretende Leiterin Rechnungswesen, erstellt die Quartalszahlen"),
+    ("Unsere Teamleiterin Frau Weber verteilt die Aufgaben; ich erstelle die Quartalszahlen.",
+     "Teamleiterin Controlling, erstellt die Quartalszahlen"),
+    ("Ich war nie Abteilungsleiter, nur im Projekt Chef.", "Abteilungsleiter Controlling"),
+    ("Ich leite das Projekt Controlling-Reporting.", "Leiterin Rechnungswesen"),
+    ("Ich bin Teamleiterin Einkauf.", "Teamleiterin Controlling"),
+    ("Das gilt vice versa, ich erstelle die Zahlen.", "Stellvertretende Teamleiterin Controlling"),
+])
+def test_f1_held_per_title_not_per_family(answer, bullet):
+    assert len(_asks(_run([_bullets(resp=[bullet])], answer=answer))) == 1
+
+
+def test_f1_the_person_naming_the_same_title_holds_it():
+    out = _run([_bullets(resp=["Teamleiterin Controlling, erstellt die Quartalszahlen"])],
+               answer="Ich bin Teamleiterin Controlling und erstelle die Quartalszahlen.")
+    assert _asks(out) == []
+
+
+_F3_PASS = [
+    "Berichtete an die Abteilungsleiterin Controlling über die Abschlüsse",
+    "Berichtete direkt an die Abteilungsleiterin Controlling",
+    "Reported to the Head of Finance",
+    "Abstimmung mit dem Head of Accounting",
+    "Mentored the team lead on reporting",
+    "Vertretung der Abteilungsleitung im Urlaub",
+    "Vertretung im Urlaub der Teamleiterin",
+    "Vertretung der Teamleiterin im Urlaub",
+    "Vertrat im Urlaub die Abteilungsleiterin Controlling bei der Monatsberichterstattung",
+    "Covered for the deputy head of accounting during vacation",
+    "Teamlead für das Projekt Cloud-Migration",
+    "Team lead for the migration project",
+    "Leitete die Migration des ERP-Systems",
+    "Verantwortete die Konsolidierung der Quartalszahlen",
+    "Kommissarische Leitung des Projekts",
+    "Projektleitung für die Migration",
+]
+
+
+@pytest.mark.parametrize("bullet", _F3_PASS)
+def test_f3_a_third_partys_title_or_a_task_scoped_cover_is_not_held(bullet):
+    out = _run([_bullets(resp=[bullet])], answer="Ich erstelle die Quartalszahlen.")
+    assert _asks(out) == [] and out[0].responsibilities == [bullet]
+
+
+@pytest.mark.parametrize("bullet", [
+    "Kommissarische Leitung der Abteilung Finanz",
+    "Stellvertr. der Leiterin Rechnungswesen",
+    "Worked as a team lead for accounting",
+    "Koordinierte als die zuständige Teamleiterin Controlling die Konsolidierung",
+])
+def test_f3_the_persons_own_title_is_still_held(bullet):
+    assert len(_asks(_run([_bullets(resp=[bullet])], answer="Ich erstelle die Quartalszahlen."))) == 1
+
+
+def test_f3_task_wording_drops_only_the_as_title_phrase():
+    assert task_wording("Koordinierte als Teamleiterin Controlling die Konsolidierung", set()) == (
+        "Koordinierte die Konsolidierung"
+    )
+
+
+_F2_ANSWER = "Ich bin die operative Nummer zwei bei der Konsolidierung."
+_F2_TITLE = "Stellvertretende Abteilungsleiterin Rechnungswesen"
+
+
+@pytest.mark.parametrize("op, field", [
+    ({"op": "set_summary", "lang": "de", "text": f"{_F2_TITLE} mit 5 Jahren Erfahrung"}, "summary"),
+    ({"op": "upsert_volunteer", "ref": "v", "organization": "Verein", "role": _F2_TITLE}, "role"),
+    ({"op": "upsert_project", "ref": "p", "name": "X", "role": "Head of Accounting"}, "role"),
+    ({"op": "upsert_project", "ref": "p", "name": "X", "description": _F2_TITLE}, "description"),
+    ({"op": "set_field", "target": "w-1", "field": "description", "value": _F2_TITLE}, "description"),
+    ({"op": "upsert_story", "title": "t", "challenge": f"Als {_F2_TITLE} stand ich vor",
+      "mechanism": "m", "outcome": "o"}, "challenge"),
+])
+def test_f2_every_field_that_can_carry_a_title_is_held_and_asked(op, field):
+    out = _run([op], answer=_F2_ANSWER)
+    (ask,) = _asks(out)
+    assert [i["field"] for i in ask.context["items"]] == [field]
+    written = [o for o in out if not isinstance(o, RequestConfirmation)]
+    assert not any(_F2_TITLE in str(o.model_dump()) or "Head of Accounting" in str(o.model_dump())
+                   for o in written)
+
+
+def test_f2_a_set_field_bullet_list_is_held_per_bullet():
+    out = _run([{"op": "set_field", "target": "w-1", "field": "responsibilities",
+                 "value": [_F2_TITLE, "Monatsabschluss nach HGB"]}], answer=_F2_ANSWER)
+    (ask,) = _asks(out)
+    (sf,) = [o for o in out if isinstance(o, SetField)]
+    assert sf.value == ["Monatsabschluss nach HGB"] and ask.context["items"][0]["item"] == "bullet"
+
+
+def test_f2_a_yes_on_a_held_summary_writes_nothing_and_says_so():
+    (ask,) = _asks(_run([{"op": "set_summary", "lang": "de", "text": _F2_TITLE}], answer=_F2_ANSWER))
+    out = _answer(ask, "Yes, that was my position")
+    assert _F2_TITLE not in str(out.profile.model_dump())
+    assert [n.reason for n in out.not_applied] == ["confirmation_unresolvable"]
+
+
+@pytest.mark.asyncio
+async def test_f2_the_engagement_guard_inherits_a_volunteer_role():
+    payload = {"ops": [], "denials": [], "ambiguities": [{
+        "question": "Eigene Position?", "options": ["merge", "add_separate"],
+        "context": {"section": "volunteer_activities", "existing_ids": [],
+                    "incoming": {"op": "upsert_volunteer", "ref": "v9",
+                                 "organization": "Sportverein", "role": _F2_TITLE}},
+    }]}
+    result = await reconcile(_profile(), {"answer": _F2_ANSWER}, "interview", _Stub(payload))
+    (ask,) = result.ambiguities
+    assert ask.context["incoming"]["role"] == ""
+    assert [o.context["kind"] for o in result.ops if isinstance(o, RequestConfirmation)] == [
+        "position_title"
+    ]
