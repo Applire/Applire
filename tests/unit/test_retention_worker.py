@@ -40,7 +40,10 @@ CREATE TABLE IF NOT EXISTS users (
     email_verified_at TEXT,
     disabled_at TEXT,
     last_login_at TEXT,
-    link_epoch INTEGER NOT NULL DEFAULT 0
+    link_epoch INTEGER NOT NULL DEFAULT 0,
+    -- ADR-096 (migration 0090): the admin grant and the allowance subject
+    instance_key_granted_at TEXT,
+    allowance_subject VARCHAR(64)
 );
 -- ...and revokes the account's sessions, tokens and open links
 CREATE TABLE IF NOT EXISTS auth_sessions (
