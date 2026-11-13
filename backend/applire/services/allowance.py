@@ -493,7 +493,12 @@ async def grant(
 
 async def balance(db: AsyncSession, *, subject: str, action: str, now: datetime | None = None) -> int:
     """``sum(unexpired grant) − sum(debit) + sum(refund)`` for one action (cl. 8).
-    The policy's static limit is added by the policy (phase 2), not here."""
+    The policy's static limit is added by the policy (phase 2), not here.
+
+    Correct only for grants that never expire. Debits are not tied to the grant
+    they spent, so last month's debits would eat this month's grant: a
+    non-rolling allowance needs debit-to-grant allocation (phase 2,
+    Runs/Sorbet/platform-1/K/allowance-design.md §1). Phase 1 writes no debit."""
     when = now or datetime.now(timezone.utc)
     rows = await db.execute(
         select(AllowanceLedger.kind, func.coalesce(func.sum(AllowanceLedger.amount), 0))

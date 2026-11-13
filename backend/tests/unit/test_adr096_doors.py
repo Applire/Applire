@@ -257,11 +257,17 @@ async def test_mcp_model_work_tool_refuses_before_its_body_runs(monkeypatch, use
         server.mcp_identity, "revalidate", AsyncMock(return_value=person)
     ), patch.object(server.allowance, "load_facts", facts), patch.object(
         server.job_svc, "analyze_jd", body
-    ), patch.object(server, "get_db", MagicMock()):
+    ), patch.object(server, "get_db", MagicMock()), patch.object(
+        server, "get_provider", MagicMock(name="factory")
+    ) as factory:
         with pytest.raises(McpError) as exc:
             await server.analyze_jd(text="Backend Engineer at Example GmbH")
     assert exc.value.error.code == -32004
     assert exc.value.error.message.startswith("provider_key_required")
+    # Refused BEFORE the body: neither the factory nor the service ran. (The
+    # factory's safety net would refuse too, but only after a tool's earlier
+    # writes — import_cv records its upload first.)
+    factory.assert_not_called()
     body.assert_not_awaited()
     assert allowance.current_decision() is None and allowance.current_facts() is None
 
