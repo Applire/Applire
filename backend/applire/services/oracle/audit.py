@@ -1180,30 +1180,61 @@ def _required_span(text: str, raw: str, years: float) -> float:
     return years
 
 
-def _coordinated_subjects(text: str, tied: list[str], candidates: list[str]) -> list[str]:
+_COORD_WINDOW = 300  # chars either side of the duration
+_COORD_MAX_CANDIDATES = 200
+_COORD_MAX_MENTIONS = 100
+_COORD_MAX_GAP = 12
+_COORD_JOINT = re.compile(r"\s*(?:,|/|&|\+|und|and|sowie|or|oder)\s*", re.IGNORECASE)
+
+
+def _coordinated_subjects(text: str, raw: str, tied: list[str], candidates: list[str]) -> list[str]:
     """Adversarial L4 (MD-Q3): the subjects of a duration are the nearest skill(s)
-    plus every skill (``candidates``) joined to one of them by a coordination ("LucaNet und
-    Power BI: über sieben Jahre", "SAP CO, FI und Excel") — a list states the
-    duration of each member. A FACT (ADR-062 cl. 1): whole-token names joined only
-    by ``,`` / ``und`` / ``and`` / ``sowie`` / ``&`` / ``/`` / ``+``."""
+    plus every skill (``candidates``) joined to one of them by a coordination
+    ("LucaNet und Power BI: über sieben Jahre", "SAP CO, FI und Excel") — a list
+    states the duration of each member. A FACT (ADR-062 cl. 1): whole-token skill
+    mentions whose gap is ONLY ``,`` / ``und`` / ``and`` / ``sowie`` / ``&`` / ``/``
+    / ``+`` / ``or`` / ``oder``.
+
+    Linear by construction (security review, ReDoS): one alternation pass finds the
+    mentions in a bounded window around the duration, and each gap between two
+    consecutive mentions (at most ``_COORD_MAX_GAP`` chars) is checked with one
+    ``fullmatch`` that has no nested quantifier. Candidates and mentions are capped."""
     out = list(dict.fromkeys(tied))
-    joint = r"\s*(?:,|/|&|\+|\bund\b|\band\b|\bsowie\b|\bor\b|\boder\b)\s*"
-    grew = True
-    while grew:
-        grew = False
-        for b in candidates:
-            if b in out:
-                continue
-            for a in out:
-                pa, pb = re.escape(a), re.escape(b)
-                if re.search(
-                    rf"(?<!\w){pa}(?!\w)(?:{joint}[\w .-]{{1,30}}?)*?{joint}{pb}(?!\w)"
-                    rf"|(?<!\w){pb}(?!\w){joint}(?:[\w .-]{{1,30}}?{joint})*?{pa}(?!\w)",
-                    text, re.IGNORECASE,
-                ):
-                    out.append(b)
-                    grew = True
-                    break
+    names = [n for n in dict.fromkeys(candidates) if n][:_COORD_MAX_CANDIDATES]
+    if not text or len(names) < 2:
+        return out
+    at = text.find(raw) if raw else -1
+    if at < 0:
+        at = 0
+    lo = max(0, at - _COORD_WINDOW)
+    window = text[lo:at + len(raw) + _COORD_WINDOW]
+    by_fold = {n.casefold(): n for n in names}
+    alternation = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    mention_re = re.compile(rf"(?<!\w)(?:{alternation})(?!\w)", re.IGNORECASE)
+    mentions: list[tuple[int, int, str]] = []
+    for m in mention_re.finditer(window):
+        name = by_fold.get(m.group(0).casefold())
+        if name is not None:
+            mentions.append((m.start(), m.end(), name))
+        if len(mentions) >= _COORD_MAX_MENTIONS:
+            break
+    # Union consecutive mentions joined only by a coordination.
+    parent = {n: n for _s, _e, n in mentions}
+
+    def find(n: str) -> str:
+        while parent[n] != n:
+            parent[n] = parent[parent[n]]
+            n = parent[n]
+        return n
+
+    for (_s1, e1, n1), (s2, _e2, n2) in zip(mentions, mentions[1:]):
+        gap = window[e1:s2]
+        if len(gap) <= _COORD_MAX_GAP and _COORD_JOINT.fullmatch(gap):
+            parent[find(n1)] = find(n2)
+    roots = {find(n) for n in out if n in parent}
+    for _s, _e, n in mentions:
+        if n not in out and find(n) in roots:
+            out.append(n)
     return out
 
 
@@ -1252,7 +1283,9 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
         if not near:
             continue
         closest = min(d for _, d in near)
-        tied = _coordinated_subjects(text, [n for n, d in near if d == closest], list(index.skill_spans))
+        tied = _coordinated_subjects(
+            text, raw, [n for n, d in near if d == closest], list(index.skill_spans)
+        )
         # Adversarial L4 (MD-Q3): "LucaNet und Power BI: über sieben Jahre" names
         # BOTH subjects at the same distance — each must carry the duration. The
         # largest tied span (Power BI's) used to vouch for LucaNet's.

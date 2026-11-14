@@ -269,3 +269,39 @@ async def test_SEAM_the_leadership_kind_answer_naming_his_reports_is_not_asked_a
     )
     assert [o for o in result.ops if isinstance(o, RequestConfirmation)] == []
     assert [o.responsibilities for o in result.ops if isinstance(o, AddBullets)] == [[bullet]]
+
+
+# ── L4, security review: the coordination walk is linear ─────────────────────
+
+
+def test_L4_the_coordination_walk_is_linear_on_an_adversarial_line():
+    import time
+
+    from applire.services.oracle.audit import _coordinated_subjects
+
+    text = "a und " * 5000 + "LucaNet x Power BI: über sieben Jahre Erfahrung"
+    t0 = time.perf_counter()
+    got = _coordinated_subjects(text, "sieben Jahre", ["Power BI"], ["LucaNet", "Power BI", "a"])
+    assert time.perf_counter() - t0 < 0.2
+    assert got == ["Power BI"]  # "x" is no coordination
+    # The same shape through the whole Oracle path stays fast too.
+    p = {"work_experience": [{"id": "w", "company": "F", "role": "C", "start_date": "2015-01",
+                              "is_current": True, "responsibilities": ["Reporting mit Power BI."]}],
+         "skills": [{"name": n, "category": "technical"} for n in ("Power BI", "LucaNet")]}
+    t0 = time.perf_counter()
+    asyncio.run(verify_claim(("LucaNet und " * 3000) + "Power BI: über sieben Jahre.", p))
+    assert time.perf_counter() - t0 < 2.0
+
+
+@pytest.mark.parametrize("text, tied, expect", [
+    ("LucaNet und Power BI: über sieben Jahre", ["Power BI"], ["Power BI", "LucaNet"]),
+    ("SAP CO, FI und Excel: zehn Jahre", ["Excel"], ["Excel", "SAP CO", "FI"]),
+    ("Power BI / LucaNet seit sieben Jahren", ["Power BI"], ["Power BI", "LucaNet"]),
+    # not a coordination: other words between the two mentions
+    ("Ich nutze LucaNet, kenne aber auch Power BI seit über sieben Jahren", ["Power BI"], ["Power BI"]),
+])
+def test_L4_only_a_pure_coordination_joins_subjects(text, tied, expect):
+    from applire.services.oracle.audit import _coordinated_subjects
+
+    raw = "sieben Jahre" if "sieben Jahre" in text else ("zehn Jahre" if "zehn" in text else "sieben Jahren")
+    assert _coordinated_subjects(text, raw, tied, ["LucaNet", "Power BI", "SAP CO", "FI", "Excel"]) == expect
