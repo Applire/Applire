@@ -389,3 +389,8 @@ def test_said_prefers_a_kind_word_and_reads_achievements_too():
     assert leadership_said(entry) == "Personalverantwortung für 4 MA übernommen."
     assert leadership_said(_e("Leitung der Monatsberichte.")) == "Leitung der Monatsberichte."
     assert leadership_said(_e("Monatsabschluss.")) == ""
+
+
+@pytest.mark.parametrize("raw", ["both", "Disziplinarisch", "own_words", "", 1, True])
+def test_the_reader_returns_only_a_stored_kind(raw):
+    assert leadership_kind({"team_size": 4, "leadership_kind": raw}) is None

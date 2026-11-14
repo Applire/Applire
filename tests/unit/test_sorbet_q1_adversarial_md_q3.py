@@ -36,7 +36,10 @@ def _kind(*bullets: str) -> str | None:
     return leadership_kind({"company": "X GmbH", "role": "Controller", "responsibilities": list(bullets)})
 
 
-# ── H1 ───────────────────────────────────────────────────────────────────────
+# ── H1 (MD-Q5: superseded — the prose reader is removed) ──────────────────────
+# Every H1 input — and the true forms the H1 fix kept — now prints the neutral
+# line until the person answers the kind question; see
+# test_sorbet_q1_leadership_kind.py for the stored-fact design.
 
 
 @pytest.mark.parametrize("bullet", [
@@ -54,24 +57,9 @@ def _kind(*bullets: str) -> str | None:
     "Kein Teamleiter, aber disziplinarische Führung durch den Abteilungsleiter",
     "Mentoring of 3 juniors, line manager was Anna",
     "Hatte ich Personalverantwortung für 5 Mitarbeitende? Nein.",
-])
-def test_H1_another_holder_a_topic_or_a_question_is_never_disciplinary(bullet):
-    assert _kind(bullet) is None, bullet
-
-
-@pytest.mark.parametrize("bullet", [
     "Ich führte das Team fachlich; disziplinarisch war ein anderer zuständig",
     "Team of 4, functional lead; disciplinary lead was the CTO",
-])
-def test_H1_the_other_holders_half_leaves_the_weaker_kind_or_none(bullet):
-    assert _kind(bullet) in (None, "functional"), bullet
-
-
-def test_H1_a_parenthesised_functional_marker_makes_a_mixed_statement_unknown():
-    assert _kind("Projektteam geführt (fachlich) und Personalverantwortung für 5") is None
-
-
-@pytest.mark.parametrize("bullet", [
+    "Projektteam geführt (fachlich) und Personalverantwortung für 5",
     "Disziplinarische Führung von 38 Mitarbeitenden.",
     "Personalverantwortung für 12 Mitarbeitende.",
     "12 direct reports.",
@@ -79,11 +67,10 @@ def test_H1_a_parenthesised_functional_marker_makes_a_mixed_statement_unknown():
     "Line manager of six engineers.",
     "Als Teamleiter mit Personalverantwortung für 6 Personen.",
     "Leite das Team disziplinarisch.",
-    # a cue in ANOTHER clause of the bullet does not void the person's own clause
     "Disziplinarische Führung von 12 Mitarbeitenden; Abstimmung mit der Personalabteilung.",
 ])
-def test_H1_the_persons_own_disciplinary_leadership_still_counts(bullet):
-    assert _kind(bullet) == "disciplinary", bullet
+def test_H1_no_bullet_sets_the_kind(bullet):
+    assert _kind(bullet) is None, bullet
 
 
 # ── M6 ───────────────────────────────────────────────────────────────────────

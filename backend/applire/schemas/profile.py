@@ -1157,6 +1157,9 @@ class ImportNotApplied(BaseModel):
         "confirmation_unresolvable",
         "confirmation_already_present",
         "target_unresolved",
+        # MD-Q5: a write of a role's leadership kind by anything but the
+        # person's answer to the kind question (``reconcile.apply._restore_leadership_kind``).
+        "leadership_kind_unasked",
     ]
     #: UAT-3d (Hazelnut build 5) — a deterministic id for this item inside its
     #: record (``section:<hash of label>``), set where the item is a whole

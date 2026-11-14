@@ -1337,6 +1337,11 @@ class RecordLeadershipKind(BaseModel):
 
 _ADAPTER_ONLY = _ADAPTER_ONLY + (RecordLeadershipKind,)
 
+#: MD-Q5 — the work-entry fields only ``RecordLeadershipKind`` writes. Read by
+#: the engine's raw-op refusal and the committer's class guard
+#: (``apply._restore_leadership_kind``) — one constant.
+LEADERSHIP_KIND_FIELDS = ("leadership_kind", "leadership_kind_record")
+
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
 
 DecisionOp = Annotated[Union[_ADAPTER_ONLY], Field(discriminator="op")]

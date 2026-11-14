@@ -1327,7 +1327,8 @@
       "confirmation_held": "it is waiting on one more question — which of your roles at that employer it belongs to",
       "confirmation_unresolvable": "the entry it named is no longer there, so it was not written",
       "confirmation_already_present": "that entry already said it",
-      "target_unresolved": "it was aimed at an entry your profile does not hold, so it was not written — add it to the right entry"
+      "target_unresolved": "it was aimed at an entry your profile does not hold, so it was not written — add it to the right entry",
+      "leadership_kind_unasked": "the kind of leadership is taken only from your answer to its own question, so it was not written"
     },
     "notAppliedNoSection": "Not tied to a section",
     "notAppliedGroupHeading": "{section} ({count})",
@@ -2026,6 +2027,8 @@
       "not_applied_adopted": "Added from your import after you chose to take it in.",
       "aspiration_achieved": "Added as a result: you said what came out of this goal.",
       "aspiration_goal": "Kept as a goal: you said this is not reached yet.",
+      "leadership_kind_recorded": "Kind of leadership added: you said what kind of leadership this team size is.",
+      "leadership_kind_left_open": "Kind of leadership left open: your answer named none of the options, so the CV states the team size only.",
       "availability_recorded": "Recorded your availability.",
       "availability_cleared": "Removed your availability."
     }
