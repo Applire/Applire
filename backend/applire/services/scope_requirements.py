@@ -394,6 +394,7 @@ def build_scope_ledger_entries(
                 status = "partial"
                 cited = ""
 
+        recorded_limit = verified_stated_limit(cls.get("stated_limit"), profile_json)
         attested_fmt = (
             f"Attested ({attested['unit']}): \"{attested['quote']}\" "
             f"({attested['entry']}). "
@@ -431,10 +432,52 @@ def build_scope_ledger_entries(
                     # row still holding the model's unresolvable citation).
                     "cited_entry": (cited or None) if status == "direct" else None,
                     "attested": attested,
+                    # ADR-070 cl. 2 / ADR-075 amended 2026-11-14 (WP-Q2 e): the
+                    # candidate's OWN recorded statement of falling short of this
+                    # bar, bound by the classifier's id and verified here. Only
+                    # present when bound — a row without it reads as before.
+                    **({"recorded_limit": recorded_limit} if recorded_limit else {}),
                 },
             }
         )
     return entries
+
+
+def _id_key(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def verified_stated_limit(
+    cited: Any, profile_json: dict[str, Any] | None
+) -> dict[str, str] | None:
+    """The live recorded denial a scope classification's ``stated_limit`` cites, as
+    ``{"id", "statement"}`` — or ``None`` (ADR-070 cl. 2 / ADR-075 amended
+    2026-11-14, WP-Q2 cluster e).
+
+    The ADR-100 M-2 split: WHICH recorded statement is the candidate's own word
+    on falling short of this bar is the classifier's judgement; that the cited id
+    is the ``concept`` of a LIVE ``metadata.denied_concepts`` record (a withdrawn
+    one lives elsewhere and binds nothing) is the fact checked here. An unknown
+    id, a record without a statement, or no profile → no binding. Pure."""
+    if not isinstance(cited, str) or not cited.strip():
+        return None
+    meta = (profile_json or {}).get("metadata") if isinstance(profile_json, dict) else None
+    records = meta.get("denied_concepts") if isinstance(meta, dict) else None
+    key = _id_key(cited)
+    for record in records if isinstance(records, list) else []:
+        if not isinstance(record, dict):
+            continue
+        concept = record.get("concept")
+        statement = record.get("statement")
+        if (
+            isinstance(concept, str)
+            and _id_key(concept) == key
+            and isinstance(statement, str)
+            and statement.strip()
+        ):
+            return {"id": concept.strip(), "statement": statement.strip()}
+    logger.info("scope_requirements: stated_limit %r binds no live recorded denial", cited)
+    return None
 
 
 def render_scope_positioning_block(

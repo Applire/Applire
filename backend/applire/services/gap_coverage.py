@@ -585,7 +585,16 @@ def derive_coverage(cluster: dict[str, Any], keyword_ledger: list[dict[str, Any]
 
 
 def remaining_budget(cluster: dict[str, Any], per_gap: int = INTERVIEW_MAX_QUESTIONS_PER_GAP) -> int:
-    """``per_gap - outcome.asked``, floored at 0 (ADR-089 clause 1)."""
+    """``per_gap - outcome.asked``, floored at 0 (ADR-089 clause 1). A scope
+    cluster's budget is 1 (ADR-089 amended 2026-11-14, WP-Q2): its one
+    fact-built question already names the posting's figure."""
+    from applire.services.interview.scope_question import (
+        SCOPE_QUESTIONS_PER_GAP,
+        is_scope_cluster,
+    )
+
+    if is_scope_cluster(cluster):
+        per_gap = min(int(per_gap), SCOPE_QUESTIONS_PER_GAP)
     return max(0, int(per_gap) - _outcome_of(cluster)["asked"])
 
 

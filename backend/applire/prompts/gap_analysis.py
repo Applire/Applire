@@ -15,6 +15,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v13 (Sorbet quality-1 / WP-Q2, ADR-070 cl. 2 / ADR-075 amended 2026-11-14): a
+#   scope classification may cite, in "stated_limit", the RECORDED DENIALS entry that is the
+#   candidate's own statement of falling short of THAT bar. It never moves the status (the span
+#   the person does have is still judged from the values); code binds the id to a live record
+#   (scope_requirements.verified_stated_limit) and the letter's gap ladder may then name the
+#   step honestly. Before: the statement sat constraint-only and the letter could not name it.
 # Prompt version: v12 (Hazelnut build 8, u27 / ruling MD8-3, 2026-11-10): the REVERSE of v11's scoped
 #   shape. A requirement that asks for the denied thing applied to an object ("regulated" + financial
 #   data after "never worked in a formally regulated environment") is ruled out by that denial; the
@@ -286,6 +292,12 @@ quantified scope bar — team size, budget). These are judged, never keyword-mat
     name the entry, and state in "unit" the quantity the quote itself measures (e.g.
     "site headcount covered as deputy", "direct reports", "project budget"). A verified
     attestation supports "partial" even when no typed value exists — never "direct".
+  - STATED LIMIT: when an entry of RECORDED DENIALS is the candidate's own statement that they
+    fall short of THIS bar — they have not yet held a span or budget of this size, or call it
+    their next step — set "stated_limit" to that entry's "id", copied exactly. It does NOT
+    change "status": judge sufficiency from the values and attested prose as above (a person
+    who led 38 and calls 120 their next step is still "partial"). Omit it otherwise; never cite
+    a denial that is about something else.
   - NEVER classify a scope requirement from the presence of related words anywhere in the
     profile — only from the typed candidate values handed to you in its own entry, plus a
     verbatim "attested_evidence" quote per the rule above (reporting a quote is not
@@ -314,7 +326,8 @@ Schema:
       "status": "direct|partial|gap",
       "reason": "which quantities you compared and why the status follows",
       "cited_entry": "REQUIRED when status is direct: the exact 'entry' string of the candidate value that meets the bar. Omit otherwise.",
-      "attested_evidence": {"entry": "Role @ Company of the work entry whose prose states the fact", "quote": "that entry's own responsibility/achievement sentence, VERBATIM, stating a quantity bearing on the bar", "unit": "the quantity the quote itself measures, in a few words"}
+      "attested_evidence": {"entry": "Role @ Company of the work entry whose prose states the fact", "quote": "that entry's own responsibility/achievement sentence, VERBATIM, stating a quantity bearing on the bar", "unit": "the quantity the quote itself measures, in a few words"},
+      "stated_limit": "ONLY when an entry of RECORDED DENIALS is the candidate's own statement of falling short of THIS bar: that entry's id, copied exactly. Omit otherwise."
     }
   ],
   "strengths": ["requirements where the candidate clearly meets or exceeds the bar"],
@@ -373,7 +386,8 @@ _DENIALS_LABEL = (
     "RECORDED DENIALS (limits the candidate stated, recorded as facts). TASK, for EACH entry: find "
     "the requirement(s) in REQUIREMENTS it rules out — the posting may name it in another "
     "language — and give each of them \"denied_by\": that entry's \"id\", copied exactly, and "
-    'status "gap". Never quote these entries as evidence_quote:'
+    'status "gap". Never quote these entries as evidence_quote. (A SCOPE REQUIREMENTS entry is '
+    'not in REQUIREMENTS: there an entry is cited in "stated_limit" and never moves the status.):'
 )
 
 
