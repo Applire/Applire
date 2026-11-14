@@ -97,7 +97,13 @@ from applire.services.keyword_ledger import (
     reevaluate_gap_ledger_against_vault,
     upgrade_ledger_for_concepts,
 )
-from applire.services.interview.scope_question import is_fact_built_cluster, plan_leadership_kind
+from applire.services.interview.scope_question import (
+    KIND_ASKED_STATE_KEY,
+    is_fact_built_cluster,
+    is_leadership_kind_cluster,
+    kind_entry_key,
+    plan_leadership_kind,
+)
 from applire.services.interview_graph import (
     build_confirmation_clusters,
     build_conflict_clusters,
@@ -2850,6 +2856,22 @@ def _resumed_response(
     )
 
 
+async def _kind_asked_keys(db: AsyncSession, user_id: uuid.UUID) -> set[str]:
+    """L5 (MD-Q3): every role an earlier session of this person put the
+    leadership-kind ask to (``state[KIND_ASKED_STATE_KEY]``, written when the ask
+    is answered) — across jobs, so the ask is made at most once per person and role."""
+    rows = (
+        await db.execute(
+            select(InterviewSession.state).where(InterviewSession.user_id == user_id)
+        )
+    ).scalars().all()
+    keys: set[str] = set()
+    for state in rows:
+        if isinstance(state, dict):
+            keys.update(str(k) for k in state.get(KIND_ASKED_STATE_KEY) or [] if k)
+    return keys
+
+
 async def _create_targeted_session(
     job_id: uuid.UUID,
     job: JobAnalysis,
@@ -2960,6 +2982,7 @@ async def _create_targeted_session(
         cluster_ids, cluster_categories, clusters_by_id = plan_leadership_kind(
             cluster_ids, cluster_categories, clusters_by_id, profile_record.profile_json,
             posting_weighs_leadership=bool(getattr(job, "leadership_emphasis", None)),
+            already_asked=await _kind_asked_keys(db, user_id),
         )
 
     # US163: prepend any open deferred Tier-1 gate ahead of the JD gaps —
@@ -4370,6 +4393,14 @@ async def _send_message_turn(
     # no-change retry and the "more specific" follow-up count against the GLOBAL
     # per-gap figure, so they are closed here, and the turn always advances.
     scope_turn = is_fact_built_cluster((state.get("gap_clusters_by_id") or {}).get(current_gap))
+    # L5 (MD-Q3): the kind ask was answered — record the roles it covered, so no
+    # later session of this person asks them again (read by `_kind_asked_keys`).
+    kind_cluster = (state.get("gap_clusters_by_id") or {}).get(current_gap)
+    if is_leadership_kind_cluster(kind_cluster):
+        state[KIND_ASKED_STATE_KEY] = list(dict.fromkeys([
+            *(state.get(KIND_ASKED_STATE_KEY) or []),
+            *(kind_entry_key(e) for e in kind_cluster.get("entries") or [] if isinstance(e, dict)),
+        ]))
 
     # --- Hard ceiling check ---
     if questions_asked >= state["hard_ceiling"]:

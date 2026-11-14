@@ -400,7 +400,14 @@ def build_scope_ledger_entries(
                 cited = ""
 
         recorded_limit = verified_stated_limit(
-            cls.get("stated_limit"), profile_json, taken=denials_taken
+            cls.get("stated_limit"),
+            profile_json,
+            taken=denials_taken,
+            bar={
+                "kind": item.get("kind"),
+                "value": item.get("jd_value"),
+                "value_max": item.get("jd_value_max"),
+            },
         )
         attested_fmt = (
             f"Attested ({attested['unit']}): \"{attested['quote']}\" "
@@ -454,8 +461,71 @@ def _id_key(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
+#: MD-Q3 / adversarial M1 (2026-11-14): the words that make a recorded statement
+#: one ABOUT a scope bar of that kind — a size noun for a team scope, a money word
+#: for a budget. Whole-word, over the casefolded text. Deliberately NOT the
+#: leadership-KIND words ("Personalverantwortung", "disziplinarisch", "fachlich"):
+#: a statement about the kind of leadership is not a shortfall of a SIZE bar (the
+#: v13 qualifier sentence says the same to the classifier).
+_LIMIT_KIND_WORDS: dict[str, re.Pattern[str]] = {
+    "team_size": re.compile(
+        r"\b(?:\w*spanne\w*|mitarbeiter\w*|mitarbeitende\w*|personen|köpfe\w*|leute|"
+        r"fte|headcount|direct reports?|reports|employees|people|staff|"
+        r"team\w*\s+(?:von|of|mit|with)\s+\d|team\w*größe\w*|team size|"
+        r"größere\w*\s+team\w*|larger teams?|bigger teams?|span)\b"
+    ),
+    "budget": re.compile(
+        r"(?:€|\$|£)|\b(?:\w*budget\w*|etat\w*|kostenverantwortung|mio|millionen?|million|"
+        r"mrd|tsd|eur|euro|chf|franken|usd|dollar|gbp|p&l|ergebnisverantwortung|spend)\b"
+    ),
+}
+
+
+def _bar_figures(bar: dict[str, Any]) -> set[str]:
+    """The bar's own figures as the Oracle canonicalises them ("120", "5000000")."""
+    out: set[str] = set()
+    for key in ("value", "value_max"):
+        number = _bar_number(bar.get(key))
+        if number is not None and float(number).is_integer():
+            out.add(str(int(number)))
+    return out
+
+
+def _bar_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def limit_is_about_bar(text: str, bar: dict[str, Any] | None) -> bool:
+    """True when a recorded statement (its id + statement text) is ABOUT this scope
+    bar: it names the bar's own figure, or a word of the bar's kind
+    (:data:`_LIMIT_KIND_WORDS`). A lexical fact (ADR-062 cl. 1), fail-closed — a
+    miss loses the scope step (the letter names nothing), never adds a claim.
+
+    MD-Q3 / adversarial M1 (p6.py): "Mit SAP habe ich noch nie gearbeitet" cited as
+    the span bar's limit bound, and the ladder told the writer to give figures and
+    "the posting's scale as the step ahead" for a skill denial. Shared by the
+    binding (:func:`verified_stated_limit`) and the Oracle's scope-step check."""
+    if not isinstance(bar, dict) or not isinstance(text, str) or not text.strip():
+        return False
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    wanted = _bar_figures(bar)
+    if wanted and any(
+        f.kind in ("number", "currency") and f.value in wanted for f in extract_figures(text)
+    ):
+        return True
+    pattern = _LIMIT_KIND_WORDS.get(str(bar.get("kind") or ""))
+    return bool(pattern and pattern.search(" ".join(text.casefold().split())))
+
+
 def verified_stated_limit(
-    cited: Any, profile_json: dict[str, Any] | None, *, taken: Any = ()
+    cited: Any,
+    profile_json: dict[str, Any] | None,
+    *,
+    taken: Any = (),
+    bar: dict[str, Any] | None = None,
 ) -> dict[str, str] | None:
     """The live recorded denial a scope classification's ``stated_limit`` cites, as
     ``{"id", "statement"}`` — or ``None`` (ADR-070 cl. 2 / ADR-075 amended
@@ -466,6 +536,10 @@ def verified_stated_limit(
     is the ``concept`` of a LIVE ``metadata.denied_concepts`` record (a withdrawn
     one lives elsewhere and binds nothing) is the fact checked here. An unknown
     id, a record without a statement, or no profile → no binding.
+
+    Third fact (MD-Q3 / adversarial M1, category C): with ``bar`` given, the
+    record must be ABOUT that bar (:func:`limit_is_about_bar`) — the id test alone
+    let "Mit SAP habe ich noch nie gearbeitet" bind to a 120-span bar (p6.py).
 
     Second fact (earned, category C): an id the same response already cited as
     ``denied_by`` for a REQUIREMENTS row (``taken``) is that requirement's
@@ -497,6 +571,14 @@ def verified_stated_limit(
             and isinstance(statement, str)
             and statement.strip()
         ):
+            if bar is not None and not limit_is_about_bar(f"{concept} {statement}", bar):
+                logger.info(
+                    "scope_requirements: stated_limit %r is not about the %r bar "
+                    "(names neither its figure nor a word of its kind) — binds nothing",
+                    cited,
+                    bar.get("kind"),
+                )
+                return None
             return {"id": concept.strip(), "statement": statement.strip()}
     logger.info("scope_requirements: stated_limit %r binds no live recorded denial", cited)
     return None
