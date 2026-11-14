@@ -11,6 +11,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **A start you stated beats a computed span** (SF-WRITE.113). If you wrote "seit 2021" for a skill, CV and cover letter now offer "seit 2021" for it, never "über 9 Jahre" counted from an older role. When your sentence names the skill and a start but does not tie them together closely, no duration is offered for that skill. On 349 recorded synthetic profiles, 42 of 1,769 tool durations change this way.
 - **A team size the posting states reaches the gap analysis again** (Hazelnut build 8, B8-12; founder ruling T-2). When the posting analysis wrote a stated figure such as "ca. 120 Mitarbeitende" as the text "120" instead of a number, the figure was thrown away, and the gap analysis never compared it with your own team size. A plain number written as text ("120", "6.000.000") is now read as that number; anything vaguer ("~120", "über 100") is still left out.
 
+### Who pays for model work (ADR-096; off by default)
+- **Each person can bring their own AI provider key** (`LLM_KEY_MODE=user`, set on the admin panel). In this mode, a person stores a key for Mistral, OpenRouter, Requesty, Anthropic or OpenAI under Settings › "Your AI provider key", with an optional small test call before saving (at most 5 tests per 10 minutes). The key is encrypted under `PROVIDER_KEY_SECRET` (environment only, at least 32 bytes), is never shown again, and is deleted with the account. It is sent only to that provider's public endpoint and never mixed with the server's own provider settings. With the default `LLM_KEY_MODE=instance`, nothing changes and nothing new appears.
+- **No silent fallback to the instance key.** In `user` mode, a person with neither their own key nor the administration's approval is asked for a key, through a dashboard notice and a dialog when an action is refused (`provider_key_required`). The instance's key never pays for them silently. A process that cannot read the panel settings refuses model work (`settings_unavailable`) instead of guessing.
+- **The administration can approve the instance key per person** (Admin › Users, audited). The users list shows who pays for each person's model work.
+- **One admission per action.** Every door that starts model work decides once who pays: REST, each MCP tool, and the gap-analysis and CV-import jobs, now before the job is accepted. A started generation finishes on the key it began with.
+- **Groundwork for allowances.** The allowance ledger and daily token counter tables exist (migration 0090). Nothing enforces an allowance yet. `ALLOWANCE_POLICY` is reserved, and setting it logs a warning.
+- **Keys stay out of logs.** Provider error text in the model debug log is now scrubbed of keys.
+
 ## [0.46.0-beta] – 2026-11-10 (Hazelnut build 8)
 
 ### The CV says what the profile holds
