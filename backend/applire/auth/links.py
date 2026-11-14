@@ -76,12 +76,27 @@ class ProviderKeySecretMissing(RuntimeError):
     """``PROVIDER_KEY_SECRET`` is not set — no user provider key can be read or written."""
 
 
+#: adv-K F4 (MD-10): the Fernet key is one HMAC of this secret, so a dump plus a
+#: short secret could be guessed offline. Below this many bytes it counts as
+#: unset everywhere (start, panel, key writes and reads) — never "good enough".
+PROVIDER_KEY_SECRET_MIN_BYTES = 32
+
+
+def provider_key_secret_ok(raw: str | None) -> bool:
+    """Set and at least :data:`PROVIDER_KEY_SECRET_MIN_BYTES` bytes long."""
+    return len((raw or "").strip().encode("utf-8")) >= PROVIDER_KEY_SECRET_MIN_BYTES
+
+
 def _provider_key_secret() -> bytes:
     from applire.config import settings
 
     raw = (settings.provider_key_secret or "").strip()
     if not raw:
         raise ProviderKeySecretMissing("PROVIDER_KEY_SECRET is not set")
+    if not provider_key_secret_ok(raw):
+        raise ProviderKeySecretMissing(
+            f"PROVIDER_KEY_SECRET is shorter than {PROVIDER_KEY_SECRET_MIN_BYTES} bytes"
+        )
     return raw.encode("utf-8")
 
 

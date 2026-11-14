@@ -112,7 +112,7 @@ def test_row_7_neither_key_nor_grant_is_refused_never_instance(secret):
 def test_a_key_that_no_longer_decrypts_reads_as_unset(monkeypatch, secret):
     owner = uuid.uuid4()
     facts = _facts(owner, family="mistral", model="m", key=USER_KEY)
-    monkeypatch.setattr(settings, "provider_key_secret", "a-different-secret-entirely-000")
+    monkeypatch.setattr(settings, "provider_key_secret", "a-different-secret-entirely-0000000000000")
     with pytest.raises(allowance.AdmissionRefused) as exc:
         allowance.decide(facts, "model_work")
     assert exc.value.code == "provider_key_required"

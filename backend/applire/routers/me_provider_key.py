@@ -80,7 +80,7 @@ async def put_provider_key(
     if not provider_keys.secret_configured():
         raise _error(
             503, "provider_key_secret_missing",
-            "This instance cannot store provider keys yet (PROVIDER_KEY_SECRET is not set). Ask your admin.",
+            "This instance cannot store provider keys yet (PROVIDER_KEY_SECRET is not set or shorter than 32 bytes). Ask your admin.",
         )
     try:
         family, model, key = provider_keys.validate(body.get("family"), body.get("model"), body.get("key"))
@@ -88,7 +88,20 @@ async def put_provider_key(
         raise _error(exc.status, exc.code, exc.message) from None
     test = body.get("test") is True
     if test:
-        ok, reason = await provider_keys.test_key(family=family, model=model, key=key)
+        retry_after = provider_keys.reserve_test_call(me.id)
+        if retry_after is not None:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error_code": "provider_key_test_throttled",
+                    "message": "Too many key tests in a short time. Wait a few minutes, or save without the test.",
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        try:
+            ok, reason = await provider_keys.test_key(family=family, model=model, key=key)
+        finally:
+            provider_keys.release_test_call(me.id)
         if not ok:
             raise _error(
                 422, "provider_key_test_failed",
@@ -97,6 +110,12 @@ async def put_provider_key(
             )
     try:
         await provider_keys.store(db, user_id=me.id, family=family, model=model, key=key)
+    except provider_keys.ProviderKeyConflict:
+        await db.rollback()
+        raise _error(
+            409, "provider_key_conflict",
+            "Your key was saved from another tab at the same moment. Reload and check which key is stored.",
+        ) from None
     except ProviderKeySecretMissing:  # pragma: no cover — checked above; never plaintext
         raise _error(503, "provider_key_secret_missing", "PROVIDER_KEY_SECRET is not set.") from None
     await audit.record(

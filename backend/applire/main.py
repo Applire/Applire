@@ -245,16 +245,41 @@ def _validate_key_mode_env() -> None:
     answers ``provider_key_unreadable`` until the secret is back, and nothing
     falls back to the instance key.
     """
-    if settings.env_value("llm_key_mode") == "user" and not (settings.provider_key_secret or "").strip():
+    from applire.auth.links import PROVIDER_KEY_SECRET_MIN_BYTES, provider_key_secret_ok
+
+    if settings.env_value("llm_key_mode") == "user" and not provider_key_secret_ok(
+        settings.provider_key_secret
+    ):
         raise KeyModeWithoutSecret(
-            "LLM_KEY_MODE=user needs PROVIDER_KEY_SECRET (ADR-096): generate one with "
+            f"LLM_KEY_MODE=user needs PROVIDER_KEY_SECRET of at least "
+            f"{PROVIDER_KEY_SECRET_MIN_BYTES} bytes (ADR-096): generate one with "
             "`openssl rand -hex 32`, put it in your .env and in your password manager, "
             "and restart."
         )
 
 
+#: adv-K F3 (MD-10): phase 1 implements policy ``none`` only.
+_IMPLEMENTED_ALLOWANCE_POLICIES = frozenset({"none"})
+
+
+def _warn_unknown_allowance_policy() -> None:
+    """``ALLOWANCE_POLICY`` is not a setting yet (ADR-096 phase 2). An operator who
+    sets it — the ADR's demo configuration — must not believe a cap is active."""
+    import os
+
+    raw = (os.environ.get("ALLOWANCE_POLICY") or "").strip().lower()
+    if raw and raw not in _IMPLEMENTED_ALLOWANCE_POLICIES:
+        _applire_logger.warning(
+            "ALLOWANCE_POLICY=%s is not implemented in this release: no allowance, cap "
+            "or trial is enforced (behaves as 'none'; ADR-096 phase 2).",
+            raw[:40],
+        )
+
+
 def _warn_key_mode_effective() -> None:
-    if settings.llm_key_mode == "user" and not (settings.provider_key_secret or "").strip():
+    from applire.auth.links import provider_key_secret_ok
+
+    if settings.llm_key_mode == "user" and not provider_key_secret_ok(settings.provider_key_secret):
         _applire_logger.error(
             "LLM_KEY_MODE=user is set in the admin panel but PROVIDER_KEY_SECRET is not "
             "in the environment: stored user keys cannot be read, so people without an "
@@ -281,6 +306,7 @@ async def lifespan(app: FastAPI):
 
     validate_oidc_config()
     _validate_key_mode_env()
+    _warn_unknown_allowance_policy()
     # MD-32: SMTP without APPLIRE_BASE_URL sends no mail — say so at every start.
     from applire.services.admin.links import mail_without_base_url_warning
 

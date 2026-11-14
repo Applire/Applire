@@ -21,12 +21,15 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 import uuid
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.config import has_unprintable_key_char
@@ -67,9 +70,10 @@ def _fernet():
 
 
 def secret_configured() -> bool:
+    from applire.auth.links import provider_key_secret_ok
     from applire.config import settings
 
-    return bool((settings.provider_key_secret or "").strip())
+    return provider_key_secret_ok(settings.provider_key_secret)
 
 
 def encrypt(plaintext: str) -> str:
@@ -170,6 +174,11 @@ async def describe(db: AsyncSession, user_id: uuid.UUID) -> KeyStatus:
     return row_status(await load_row(db, user_id))
 
 
+class ProviderKeyConflict(RuntimeError):
+    """adv-K F7: another request stored this person's first key between our read
+    and our insert (two tabs saving at once). The caller answers 409."""
+
+
 async def store(
     db: AsyncSession, *, user_id: uuid.UUID, family: str, model: str, key: str
 ) -> UserProviderKey:
@@ -187,7 +196,10 @@ async def store(
         row.model = model
         row.secret_ciphertext = ciphertext
         row.updated_at = now
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:  # the PK (user_id) race on a first save
+        raise ProviderKeyConflict("a concurrent save stored a key first") from exc
     return row
 
 
@@ -203,6 +215,46 @@ async def remove(db: AsyncSession, user_id: uuid.UUID) -> bool:
 # --------------------------------------------------------------------------
 # The optional test call (cl. 2)
 # --------------------------------------------------------------------------
+
+
+# adv-K F6 (MD-10): each test is a provider call held open for up to the LLM
+# timeout on a key the caller supplies. Bounded per person: TEST_CALLS_PER_WINDOW
+# in TEST_WINDOW_SECONDS, one at a time. In-process (one backend process, the
+# ADR-091 cl. 13 Negative the login throttle states too).
+TEST_CALLS_PER_WINDOW = 5
+TEST_WINDOW_SECONDS = 10 * 60
+_TEST_MAX_PEOPLE = 10_000
+_test_calls: "OrderedDict[uuid.UUID, deque[float]]" = OrderedDict()
+_test_running: set[uuid.UUID] = set()
+
+
+def reserve_test_call(user_id: uuid.UUID, *, now: float | None = None) -> int | None:
+    """Reserve one test call for ``user_id``; ``None`` when admitted, else the
+    seconds until the next one is allowed (the caller answers 429)."""
+    when = time.monotonic() if now is None else now
+    if user_id in _test_running:
+        return 1
+    calls = _test_calls.pop(user_id, deque())
+    while calls and when - calls[0] >= TEST_WINDOW_SECONDS:
+        calls.popleft()
+    if len(calls) >= TEST_CALLS_PER_WINDOW:
+        _test_calls[user_id] = calls
+        return max(1, int(TEST_WINDOW_SECONDS - (when - calls[0])) + 1)
+    calls.append(when)
+    _test_calls[user_id] = calls
+    while len(_test_calls) > _TEST_MAX_PEOPLE:
+        _test_calls.popitem(last=False)
+    _test_running.add(user_id)
+    return None
+
+
+def release_test_call(user_id: uuid.UUID) -> None:
+    _test_running.discard(user_id)
+
+
+def reset_test_throttle_for_tests() -> None:
+    _test_calls.clear()
+    _test_running.clear()
 
 
 async def test_key(*, family: str, model: str, key: str) -> tuple[bool, str]:
