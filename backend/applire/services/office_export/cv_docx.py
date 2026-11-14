@@ -330,6 +330,13 @@ _RENDERED_LEAVES: frozenset[str] = frozenset({
 })
 
 _NOT_RENDERED_LEAVES: dict[str, str] = {
+    "work_history[].leadership_kind": (
+        "Ruling Q-2 (Sorbet WP-Q1): a structural modifier, never printed as "
+        "text — templates.filters.role_facts reads it to choose the phrase of "
+        "the team-size line ('Fachliche Anleitung von …' / 'Disziplinarische "
+        "Führung von …' / '… im Verantwortungsbereich'). Same producer as the "
+        "PDF templates; the line itself is probed through team_size."
+    ),
     "work_history[].is_current": (
         "D-14 (Hazelnut build 5): a structural modifier, never printed as "
         "text — templates.filters.period reads it to decide whether a missing "

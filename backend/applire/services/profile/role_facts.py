@@ -235,3 +235,101 @@ def project_profile_role_facts(profile: Any) -> None:
     for entry in getattr(profile, "work_experience", None) or []:
         if isinstance(entry, WorkEntry):
             project_role_facts(entry)
+
+
+# ── Sorbet WP-Q1 (b), ruling Q-2 — the KIND of leadership a headcount is ───────
+#
+# "Führungsverantwortung für 3 Personen" was printed for a person who wrote
+# "Fachliche Anleitung von zwei Werkstudierenden" (#832, platform-1 delivery run):
+# the furniture line said more than the person did. Q-2: the line names the kind
+# the person's OWN text names — functional guidance or disciplinary leadership —
+# and says only "N Personen im Verantwortungsbereich" when it names neither.
+#
+# ADR-062 cl. 1: a FACT — whole-word presence of a kind marker in a bullet that
+# also carries a leading verb/noun. Which kind the person "really" had is never
+# judged; a role whose text names both kinds, or neither, has no kind (``None``)
+# and the planner asks once (Q2, ``entries_needing_leadership_kind``).
+
+# A word that leads PEOPLE — "Geschäftsführung" (the board, a recipient of
+# reports) is not one, so the compound is excluded.
+_PEOPLE_LEAD = (
+    r"(?:(?<!geschäfts)(?<!geschaefts)f(?:ü|ue)hr(?:ung|e|t|en)|geführt|leitung|leite|geleitet"
+    r"|anleitung|angeleitet|leite\w* an|betreu\w*|lead\w*|led|manag\w*|supervis\w*|guid\w*)"
+)
+# Functional: "fachlich" next to a leading word, either order, at most two words
+# between ("Fachliche Anleitung von …", "führe … fachlich", "fachliche Führung").
+_FUNCTIONAL = re.compile(
+    rf"\bfachlich\w*\s+(?:\S+\s+){{0,2}}{_PEOPLE_LEAD}\b"
+    rf"|\b{_PEOPLE_LEAD}\s+(?:\S+\s+){{0,2}}fachlich\w*\b"
+    r"|\bfunctional(?:ly)?\s+(?:\S+\s+){0,2}(?:lead\w*|led|manag\w*|guid\w*|supervis\w*|report\w*)\b"
+    r"|\bdotted[- ]line\b",
+    re.I,
+)
+_DISCIPLINARY_TERMS = (
+    r"(?:disziplinarisch\w*|personalverantwortung|disciplinar(?:y|ily)"
+    r"|line[- ]manag\w*|direct reports?)"
+)
+_DISCIPLINARY = re.compile(rf"\b{_DISCIPLINARY_TERMS}\b", re.I)
+# "ohne disziplinarische Verantwortung", "keine Personalverantwortung",
+# "without disciplinary responsibility", "nicht disziplinarisch": the person says
+# what the leadership is NOT — never a disciplinary marker; next to a word that
+# leads people ("Teamleitung ohne Personalverantwortung") it is the functional kind.
+_NEGATED_DISCIPLINARY = re.compile(
+    rf"\b(?:ohne|keine?n?|nicht|without|no|non)[- ]?\s*(?:\w+\s+)?{_DISCIPLINARY_TERMS}\b",
+    re.I,
+)
+_PEOPLE_LEAD_RE = re.compile(rf"\b\w*{_PEOPLE_LEAD}", re.I)
+
+LEADERSHIP_KINDS = ("disciplinary", "functional")
+
+
+def leadership_kind(entry: WorkEntry | dict) -> str | None:
+    """THE kind of leadership a work entry's own text names: ``"disciplinary"``,
+    ``"functional"`` or ``None`` (neither, or both). Read from the entry's
+    responsibilities and achievements only — never the title, never a model."""
+    if isinstance(entry, dict):
+        try:
+            entry = WorkEntry.model_validate(entry)
+        except Exception:  # noqa: BLE001 — a reader never fails a render
+            return None
+    found: set[str] = set()
+    for bullet in _prose(entry):
+        negated = _NEGATED_DISCIPLINARY.search(bullet)
+        rest = _NEGATED_DISCIPLINARY.sub(" ", bullet)
+        if _DISCIPLINARY.search(rest):
+            found.add("disciplinary")
+        if _FUNCTIONAL.search(rest) or (negated and _PEOPLE_LEAD_RE.search(rest)):
+            found.add("functional")
+    return found.pop() if len(found) == 1 else None
+
+
+def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, Any]]:
+    """The work entries whose line would print a headcount with no kind: a
+    positive ``team_size`` and :func:`leadership_kind` ``None``. The interview
+    planner asks each ONCE as its own short question (ruling Q-2, MD-Q1, Q2-1);
+    unanswered, the line stays neutral.
+
+    STABLE CONTRACT (MD-Q1, built against by WP-Q2): a list, in entry order, of
+    ``{"entry_id": str, "company": str, "role": str, "team_size": int}``."""
+    entries = (
+        profile_json.get("work_experience") if isinstance(profile_json, dict)
+        else getattr(profile_json, "work_experience", None)
+    ) or []
+
+    def _get(e: Any, key: str) -> Any:
+        return e.get(key) if isinstance(e, dict) else getattr(e, key, None)
+
+    out: list[dict[str, Any]] = []
+    for e in entries:
+        size, eid = _get(e, "team_size"), _get(e, "id")
+        if (
+            isinstance(size, int) and not isinstance(size, bool) and size > 0
+            and eid and leadership_kind(e) is None
+        ):
+            out.append({
+                "entry_id": str(eid),
+                "company": str(_get(e, "company") or ""),
+                "role": str(_get(e, "role") or ""),
+                "team_size": int(size),
+            })
+    return out

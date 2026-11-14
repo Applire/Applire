@@ -2027,6 +2027,12 @@ def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> Tailo
 # fields they repaired.
 
 
+def _leadership_kind(vault_entry: dict) -> str | None:
+    from applire.services.profile.role_facts import leadership_kind
+
+    return leadership_kind(vault_entry)
+
+
 def _apply_role_facts(
     tailored: TailoredCVData,
     profile_json: dict,
@@ -2126,8 +2132,15 @@ def _apply_role_facts(
             if settled_industry:
                 industry_context = settled_industry
 
-        if (w.team_size, w.budget_managed, w.industry_context) == (
-            team_size, budget_managed, industry_context
+        # Ruling Q-2 (Sorbet WP-Q1 b): the kind the headcount counts, read from
+        # the vault entry's OWN bullets (a fact — role_facts.leadership_kind) and
+        # written under the same single-writer rule: never from the draft.
+        leadership_kind = (
+            _leadership_kind(vault_entry) if vault_entry and team_size else None
+        )
+
+        if (w.team_size, w.budget_managed, w.industry_context, w.leadership_kind) == (
+            team_size, budget_managed, industry_context, leadership_kind
         ):
             new_work.append(w)  # already correct — nothing to write
             continue
@@ -2137,6 +2150,7 @@ def _apply_role_facts(
             "team_size": team_size,
             "budget_managed": budget_managed,
             "industry_context": industry_context,
+            "leadership_kind": leadership_kind,
         }))
 
     if not changed:

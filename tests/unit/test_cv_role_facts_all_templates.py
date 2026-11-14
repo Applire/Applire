@@ -233,8 +233,8 @@ _FACTS_RE = re.compile(r'<div class="entry-facts">(.*?)</div>', re.S)
 
 #: Founder ruling P-1 (Hazelnut build 5): no colon labels, no industry; P-2 (build 8): the team size is phrased.
 _EXPECTED_FACTS = {
-    "de": "Führungsverantwortung für 38 Personen · ca. 6 Mio. EUR",
-    "en": "Responsible for a team of 38 · ca. 6 Mio. EUR",
+    "de": "38 Personen im Verantwortungsbereich · ca. 6 Mio. EUR",
+    "en": "38 people in area of responsibility · ca. 6 Mio. EUR",
 }
 
 

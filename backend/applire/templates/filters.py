@@ -163,9 +163,24 @@ def budget_display(value: object, lang: str = "de") -> str:
 #: THAT role (``prompts/cv_extraction.py`` TEAM_SIZE SEMANTICS) — never a bare
 #: "2 Personen", which read as a contradiction next to a bullet's "about 15
 #: internal IT specialists" (RU-5). Tense-neutral, no colon label. (singular, plural)
+# Ruling Q-2 (Sorbet quality-1): the line names the KIND of leadership the
+# person's own text names (``TailoredWorkEntry.leadership_kind``, read by
+# ``services.profile.role_facts.leadership_kind``); neither named → the neutral
+# count, which claims no leadership at all. "Führungsverantwortung für N
+# Personen" is retired: it printed leadership for "fachliche Anleitung von zwei
+# Werkstudierenden". (one, many) per language and kind.
 _TEAM_PHRASES = {
-    "de": ("Führungsverantwortung für {n} Person", "Führungsverantwortung für {n} Personen"),
-    "en": ("Responsible for a team of {n}", "Responsible for a team of {n}"),
+    "de": {
+        "disciplinary": ("Disziplinarische Führung von {n} Mitarbeitenden",
+                         "Disziplinarische Führung von {n} Mitarbeitenden"),
+        "functional": ("Fachliche Anleitung von {n} Person", "Fachliche Anleitung von {n} Personen"),
+        None: ("{n} Person im Verantwortungsbereich", "{n} Personen im Verantwortungsbereich"),
+    },
+    "en": {
+        "disciplinary": ("Line management of {n} employee", "Line management of {n} employees"),
+        "functional": ("Functional guidance of {n} person", "Functional guidance of {n} people"),
+        None: ("{n} person in area of responsibility", "{n} people in area of responsibility"),
+    },
 }
 
 
@@ -185,8 +200,11 @@ def role_facts(entry: object, lang: str = "de") -> str:
     * the industry is never rendered — not alone, not in the line;
     * the line exists only when it holds a figure — a team size and/or a budget —
       and it carries no colon labels. Ruling P-2 (build 8) phrases the team size
-      so it says what it counts: ``Führungsverantwortung für 12 Personen · ca. 2
-      Mio. EUR``; the budget part is unchanged;
+      so it says what it counts; ruling Q-2 (Sorbet) makes it name the KIND the
+      person's own text names (``leadership_kind``), or only the count:
+      ``Fachliche Anleitung von 3 Personen`` / ``Disziplinarische Führung von 38
+      Mitarbeitenden`` / ``12 Personen im Verantwortungsbereich · ca. 2 Mio.
+      EUR``; the budget part is unchanged;
     * no number → no line (``""``), so the caller's ``{% if %}`` drops the whole
       element.
 
@@ -196,20 +214,24 @@ def role_facts(entry: object, lang: str = "de") -> str:
     unit-less figure (#382) stays omitted.
 
     >>> role_facts({"team_size": 12, "budget_managed": "ca. 2 Mio. EUR", "industry_context": "Logistik"}, "de")
-    'Führungsverantwortung für 12 Personen · ca. 2 Mio. EUR'
+    '12 Personen im Verantwortungsbereich · ca. 2 Mio. EUR'
     >>> role_facts({"industry_context": "Logistik"}, "de")
     ''
     >>> role_facts({"team_size": 1}, "en")
-    'Responsible for a team of 1'
-    >>> role_facts({"team_size": 1}, "de")
-    'Führungsverantwortung für 1 Person'
+    '1 person in area of responsibility'
+    >>> role_facts({"team_size": 3, "leadership_kind": "functional"}, "de")
+    'Fachliche Anleitung von 3 Personen'
+    >>> role_facts({"team_size": 38, "leadership_kind": "disciplinary"}, "en")
+    'Line management of 38 employees'
     """
     parts: list[str] = []
     team = _attr(entry, "team_size")
     if isinstance(team, bool):
         team = None
     if isinstance(team, (int, float)) and team > 0:
-        one, many = _TEAM_PHRASES.get(lang, _TEAM_PHRASES["en"])
+        kind = _attr(entry, "leadership_kind")
+        phrases = _TEAM_PHRASES.get(lang, _TEAM_PHRASES["en"])
+        one, many = phrases.get(kind if kind in phrases else None)
         n = int(team) if float(team).is_integer() else team
         parts.append((one if n == 1 else many).format(n=n))
     budget = budget_display(_attr(entry, "budget_managed"), lang).strip()
