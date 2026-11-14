@@ -676,6 +676,18 @@ _register_all(
                 "reads as unset and people enter theirs again; nothing else is affected."
             ),
         ),
+        SettingEntry(
+            env_var="ALLOWANCE_POLICY",
+            source="constants",
+            default="none",
+            section="LLM provider",
+            introduced_in="0.46.0",  # relabel to the release that ships ADR-096 (release commit)
+            description=(
+                "Reserved for ADR-096's allowances (a later release). This release enforces no\n"
+                "allowance, cap or trial: only `none` exists. Any other value is read only to\n"
+                "log a warning at start; it changes nothing."
+            ),
+        ),
     ]
 )
 
@@ -1724,6 +1736,9 @@ INTERNAL_KEYS: tuple[str, ...] = (
     # Matching-score weights.
     "MATCHING_SCORE_EMBEDDING_WEIGHT",
     "MATCHING_SCORE_LLM_WEIGHT",
+    # ADR-096 phase 1 reads it only to warn (adv-K F3); the promise starts with
+    # phase 2, which moves it out of this list.
+    "ALLOWANCE_POLICY",
 )
 
 
