@@ -205,12 +205,53 @@ _THIRD_PARTY_BEFORE = re.compile(
 #: reported to" and no article ("Abstimmung mit Geschäftsführer") is someone else's.
 _PREP_THIRD_PARTY = re.compile(
     r"(?:^|\s)(?:mit|an|unter|gegenüber|gegenueber|with|under"
+    # Adversarial M7 (MD-Q3): "Vorstellung BEIM Geschäftsführer", "Eingearbeitet
+    # VOM Schichtführer", "Betreut VON Oberarzt Müller", "DURCH", "BY". "zum/zur"
+    # stays the person's own ("Beförderung zum Teamleiter").
+    r"|beim|vom|von|durch|by"
+    # Delivery run 731e6454 (Stefan): "Disziplinarische Führung von 38
+    # Mitarbeitenden ÜBER drei Schichtleiter" held "Schichtleiter" — his reports'
+    # title — and the position check asked him right after he had answered the
+    # leadership-kind question. "über/over" a title leads it; a count before a
+    # title (below) names a group of people, never the person's position.
+    r"|über|ueber|over"
     r"|(?:reported|reports|reporting|report|berichtete|berichtet)\s+(?:\w+\s+)?(?:to|an))"
     r"\s+(?:[\w-]+\s+)?$", re.IGNORECASE,
+)
+#: A count right before a title ("drei Schichtleiter", "4 team leads", "mehrere
+#: erfahrene Teamleiterinnen") is a group of people, not the person's position.
+_COUNT_BEFORE = re.compile(
+    r"(?:^|\s)(?<![./])(?:\d{1,3}|zwei|drei|vier|f(?:ü|ue)nf|sechs|sieben|acht|neun|zehn|elf|zw(?:ö|oe)lf"
+    r"|mehrere\w*|einige\w*|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve"
+    r"|several|multiple)\s+(?!(?:jahr\w*|monat\w*|years?|months?|wochen|weeks?)\b)(?:[\w-]+\s+)?$",
+    re.IGNORECASE,
+)
+#: M7: a reporting line before the title ("Berichtslinie zum Geschäftsführer").
+_REPORT_LINE_BEFORE = re.compile(
+    r"\b(?:berichtslinie|berichtsweg|reporting\s+line|report\s+line)\b", re.IGNORECASE,
+)
+#: M7 / L1: what comes right AFTER a title that makes it no position of the
+#: person — a topic noun ("Teamleiter-Schulung", "Schichtführer-Qualifikation",
+#: "Department head meetings"), another holder ("Teamleiter war Frau X"), or the
+#: title as the object of a participle ("Gruppenführerin unterstützt",
+#: "Schichtführer eingearbeitet", "Team Leiter geschult").
+_NOT_A_POSITION_AFTER = re.compile(
+    r"^(?:[\s-]*(?:meetings?|runden?|treffen|konferenz\w*|schulung\w*|trainings?|seminar\w*"
+    r"|workshops?|qualifikation\w*|lehrg(?:a|ä)ng\w*|kurs\w*|pr(?:ü|ue)fung\w*"
+    r"|ausbildung\w*|kreis\w*|runde\w*)\b"
+    r"|\s+(?:war|ist|was|is|wurde|became)\s+(?:frau|herr|dr\b|der|die|das|mein\w*|unser\w*"
+    r"|ein\w*|the|my|our|a|an)\b"
+    r"|\s+(?:unterstützt|unterstuetzt|eingearbeitet|geschult|betreut|begleitet|beraten"
+    r"|gecoacht|informiert|vertreten|entlastet|trainiert|eingewiesen|supported|trained"
+    r"|coached|onboarded|assisted)\b)",
+    re.IGNORECASE,
 )
 _SELF_BEFORE_ARTICLE = re.compile(
     r"^(?:als|as|bin|war|wurde|bist|is|was|am|became|become)\s+$", re.IGNORECASE,
 )
+#: "ALS Schichtführer eingearbeitet": the person in the title — the after-rule
+#: above does not apply.
+_SELF_PREFIX = re.compile(r"\b(?:als|as|ich\s+war|ich\s+bin|i\s+was|i\s+am)\s+(?:[\w-]+\s+)?$", re.IGNORECASE)
 _NEGATION_BEFORE = re.compile(
     r"\b(?:nie|niemals|nicht|kein\w*|never|not|no\s+longer)\b", re.IGNORECASE,
 )
@@ -246,11 +287,14 @@ def _is_persons(folded: str, start: int, end: int) -> bool:
         pre = third.group("pre") or ""
         if not _SELF_BEFORE_ARTICLE.match(pre):
             return False
-    if _PREP_THIRD_PARTY.search(prefix):
+    if _PREP_THIRD_PARTY.search(prefix) or _REPORT_LINE_BEFORE.search(prefix) or _COUNT_BEFORE.search(prefix):
         return False
     if _NEGATION_BEFORE.search(prefix):
         return False
-    return not _TASK_SCOPE_AFTER.match(folded[end:])
+    after = folded[end:]
+    if _NOT_A_POSITION_AFTER.match(after) and not _SELF_PREFIX.search(prefix):
+        return False
+    return not _TASK_SCOPE_AFTER.match(after)
 
 
 def _units(folded: str, start: int, end: int) -> frozenset[str]:

@@ -1180,6 +1180,33 @@ def _required_span(text: str, raw: str, years: float) -> float:
     return years
 
 
+def _coordinated_subjects(text: str, tied: list[str], candidates: list[str]) -> list[str]:
+    """Adversarial L4 (MD-Q3): the subjects of a duration are the nearest skill(s)
+    plus every skill (``candidates``) joined to one of them by a coordination ("LucaNet und
+    Power BI: über sieben Jahre", "SAP CO, FI und Excel") — a list states the
+    duration of each member. A FACT (ADR-062 cl. 1): whole-token names joined only
+    by ``,`` / ``und`` / ``and`` / ``sowie`` / ``&`` / ``/`` / ``+``."""
+    out = list(dict.fromkeys(tied))
+    joint = r"\s*(?:,|/|&|\+|\bund\b|\band\b|\bsowie\b|\bor\b|\boder\b)\s*"
+    grew = True
+    while grew:
+        grew = False
+        for b in candidates:
+            if b in out:
+                continue
+            for a in out:
+                pa, pb = re.escape(a), re.escape(b)
+                if re.search(
+                    rf"(?<!\w){pa}(?!\w)(?:{joint}[\w .-]{{1,30}}?)*?{joint}{pb}(?!\w)"
+                    rf"|(?<!\w){pb}(?!\w){joint}(?:[\w .-]{{1,30}}?{joint})*?{pa}(?!\w)",
+                    text, re.IGNORECASE,
+                ):
+                    out.append(b)
+                    grew = True
+                    break
+    return out
+
+
 def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
     """A stated duration above the dated span of the skill it is about (#747).
 
@@ -1225,94 +1252,97 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
         if not near:
             continue
         closest = min(d for _, d in near)
-        tied = [n for n, d in near if d == closest]
-        best = max(tied, key=lambda n: index.skill_spans[n][0])
-        # Escapes — the candidate's own words win, for THIS subject only
-        # (adversarial finding 4a: a career total stated anywhere in the
-        # vault is not a statement about SAP CO).
-        if index.stated_skill_tenures.get(best, -1.0) >= tenure.floor:
-            continue
-        if index.transcribed_skill_years.get(best, -1) >= tenure.floor:
-            continue
-        # …or the claim RESTATES a sentence of the candidate's own that states
-        # the same duration (same N, ≥ RESTATEMENT_MIN_SHARED content words in
-        # common around it). Not subject-scoped by skill name: "Controllerin
-        # mit 9 Jahren Erfahrung im industriellen Mittelstand" is the
-        # candidate's statement behind "neun Jahre Controlling-Erfahrung im
-        # industriellen Mittelstand", although "Controllerin" is not the
-        # token "Controlling". A bare number elsewhere never qualifies (4a).
-        claim_words = duration_window_tokens(text, raw)
-        if any(
-            years == tenure.years and len(claim_words & words) >= RESTATEMENT_MIN_SHARED
-            for years, words in index.stated_tenure_windows
-        ):
-            continue
-        required = _required_span(text, raw, tenure.floor)
-        span, orgs = index.skill_spans[best]
-        # Sorbet Q1 (e), ADR-052 amended 2026-11-14 (#839:85): the person's own
-        # start for this subject. A tight one has already clipped ``span``; one
-        # that only shares a sentence with the subject is the person's word too,
-        # but whose start it is cannot be told — a duration longer than the time
-        # since it is left open (unverifiable), never grounded by the role span.
-        start = index.skill_starts.get(best)
-        if (
-            start is not None and start.usable and not start.tight
-            and span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required
-        ):
-            from datetime import date
+        tied = _coordinated_subjects(text, [n for n, d in near if d == closest], list(index.skill_spans))
+        # Adversarial L4 (MD-Q3): "LucaNet und Power BI: über sieben Jahre" names
+        # BOTH subjects at the same distance — each must carry the duration. The
+        # largest tied span (Power BI's) used to vouch for LucaNet's.
+        for best in sorted(tied, key=lambda n: index.skill_spans[n][0]):
+            # Escapes — the candidate's own words win, for THIS subject only
+            # (adversarial finding 4a: a career total stated anywhere in the
+            # vault is not a statement about SAP CO).
+            if index.stated_skill_tenures.get(best, -1.0) >= tenure.floor:
+                continue
+            if index.transcribed_skill_years.get(best, -1) >= tenure.floor:
+                continue
+            # …or the claim RESTATES a sentence of the candidate's own that states
+            # the same duration (same N, ≥ RESTATEMENT_MIN_SHARED content words in
+            # common around it). Not subject-scoped by skill name: "Controllerin
+            # mit 9 Jahren Erfahrung im industriellen Mittelstand" is the
+            # candidate's statement behind "neun Jahre Controlling-Erfahrung im
+            # industriellen Mittelstand", although "Controllerin" is not the
+            # token "Controlling". A bare number elsewhere never qualifies (4a).
+            claim_words = duration_window_tokens(text, raw)
+            if any(
+                years == tenure.years and len(claim_words & words) >= RESTATEMENT_MIN_SHARED
+                for years, words in index.stated_tenure_windows
+            ):
+                continue
+            required = _required_span(text, raw, tenure.floor)
+            span, orgs = index.skill_spans[best]
+            # Sorbet Q1 (e), ADR-052 amended 2026-11-14 (#839:85): the person's own
+            # start for this subject. A tight one has already clipped ``span``; one
+            # that only shares a sentence with the subject is the person's word too,
+            # but whose start it is cannot be told — a duration longer than the time
+            # since it is left open (unverifiable), never grounded by the role span.
+            start = index.skill_starts.get(best)
+            if (
+                start is not None and start.usable and not start.tight
+                and span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required
+            ):
+                from datetime import date
 
-            from applire.services.skill_enrichment import since_date
+                from applire.services.skill_enrichment import since_date
 
-            since = since_date(start)
-            since_years = (date.today() - since).days / 365.25
-            if since_years + _SUBJECT_TENURE_TOLERANCE_YEARS < required:
+                since = since_date(start)
+                since_years = (date.today() - since).days / 365.25
+                if since_years + _SUBJECT_TENURE_TOLERANCE_YEARS < required:
+                    return ClaimVerdict(
+                        verdict="unverifiable",
+                        checker="numbers",
+                        figures=[raw],
+                        detail=(
+                            f'Claimed duration "{raw}" is longer than the time since '
+                            f'"{start.raw}", which the candidate states in the same '
+                            f'sentence as "{best}"; whether that start is the one for '
+                            f'"{best}" cannot be told, so the duration is left open.'
+                        ),
+                        detail_key="subjectTenureStartUnclear",
+                        detail_params={"claimed": raw, "start": start.label, "skill": best},
+                    )
+            if span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required:
+                continue
+            if start is not None and start.tight and start.usable:
                 return ClaimVerdict(
-                    verdict="unverifiable",
+                    verdict="unbacked",
                     checker="numbers",
                     figures=[raw],
                     detail=(
-                        f'Claimed duration "{raw}" is longer than the time since '
-                        f'"{start.raw}", which the candidate states in the same '
-                        f'sentence as "{best}"; whether that start is the one for '
-                        f'"{best}" cannot be told, so the duration is left open.'
+                        f'Claimed duration "{raw}" exceeds the {span:.1f} years since the '
+                        f'candidate\'s own start for "{best}" ("{start.raw}"). State the '
+                        f'start as they did ("seit {start.label}").'
                     ),
-                    detail_key="subjectTenureStartUnclear",
-                    detail_params={"claimed": raw, "start": start.label, "skill": best},
+                    detail_key="subjectTenureExceedsStart",
+                    detail_params={
+                        "claimed": raw, "years": f"{span:.1f}", "start": start.label, "skill": best,
+                    },
                 )
-        if span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required:
-            continue
-        if start is not None and start.tight and start.usable:
+            where = ", ".join(orgs) if orgs else "its dated roles"
             return ClaimVerdict(
                 verdict="unbacked",
                 checker="numbers",
                 figures=[raw],
                 detail=(
-                    f'Claimed duration "{raw}" exceeds the {span:.1f} years since the '
-                    f'candidate\'s own start for "{best}" ("{start.raw}"). State the '
-                    f'start as they did ("seit {start.label}").'
+                    f'Claimed duration "{raw}" exceeds the '
+                    f"{span:.1f} years of the dated roles whose own text names "
+                    f'"{best}" ({where}). A span derived from dates may be stated '
+                    f'only hedged and rounded down (e.g. "über {int(span)} Jahre").'
                 ),
-                detail_key="subjectTenureExceedsStart",
+                detail_key="subjectTenureExceeds",
                 detail_params={
-                    "claimed": raw, "years": f"{span:.1f}", "start": start.label, "skill": best,
+                    "claimed": raw, "years": f"{span:.1f}", "whole": str(int(span)), "skill": best,
+                    "where": ", ".join(orgs) if orgs else "",
                 },
             )
-        where = ", ".join(orgs) if orgs else "its dated roles"
-        return ClaimVerdict(
-            verdict="unbacked",
-            checker="numbers",
-            figures=[raw],
-            detail=(
-                f'Claimed duration "{raw}" exceeds the '
-                f"{span:.1f} years of the dated roles whose own text names "
-                f'"{best}" ({where}). A span derived from dates may be stated '
-                f'only hedged and rounded down (e.g. "über {int(span)} Jahre").'
-            ),
-            detail_key="subjectTenureExceeds",
-            detail_params={
-                "claimed": raw, "years": f"{span:.1f}", "whole": str(int(span)), "skill": best,
-                "where": ", ".join(orgs) if orgs else "",
-            },
-        )
     return None
 
 

@@ -434,15 +434,31 @@ def stored_span_years(
         return None
     # Sorbet Q1 (a): the same governing start the stored value obeys, so the
     # Health hub's comparison never disagrees with what recomputation writes.
-    start = governing_starts(profile, [skill_name]).get(skill_name.casefold())
-    return _years_from(ranges, start)
+    starts, own = governing_rule(profile, [skill_name])
+    key = skill_name.casefold()
+    return _years_from(ranges, starts.get(key), own.get(key))
 
 
-def _years_from(ranges: list[tuple[date, date]], start: StatedStart | None) -> int | None:
+def _years_from(
+    ranges: list[tuple[date, date]], start: StatedStart | None, own: float | None = None,
+) -> int | None:
     """THE stored ``computed`` arithmetic (ADR-066 — enrichment and
     :func:`stored_span_years` both call it): ``_calculate_years`` over the ranges
     clipped to a governing start; ``None`` when the start withholds the span or
-    leaves no counted time."""
+    leaves no counted time.
+
+    ``own``: the person's own N-years figure for the skill (R4-1 — it wins, and no
+    start governs then). Adversarial M6: "Seit drei Jahren LucaNet" in a role from
+    2015 stored 12 — the own figure won only the writer's offer. A figure SMALLER
+    than the role span now caps the stored value (whole years; under one, none);
+    a larger one leaves the role span, because a computed value never exceeds the
+    dated evidence."""
+    if own is not None:
+        base = _calculate_years(ranges)
+        if own < base:
+            years = int(own)
+            return years if years >= 1 else None
+        return base
     if withholds(start):
         return None
     if start is None:
@@ -480,11 +496,31 @@ _MONTH_NAMES = {
     "november": 11, "nov": 11,
     "dezember": 12, "december": 12, "dez": 12, "dec": 12,
 }
+#: Adversarial M6 (2026-11-14): ordinary wordings the pattern did not read —
+#: "ab 2023", "seit dem Jahr 2023", "seit dem 1.4.2023", "seit Anfang/Mitte/Ende
+#: 2023", "seit Q1 2023" — left the role span stored. They are read now; a
+#: part-of-year word sets the EARLIEST month it can mean no earlier than
+#: (``_APPROX_MONTH``), so a count from it never says more than the person did, and
+#: the label keeps the person's own wording ("seit Mitte 2023", never "07/2023").
+_APPROX_MONTH = {
+    "anfang": None, "beginn": None, "early": None, "q1": None,
+    "q2": 4, "mitte": 7, "mid": 7, "q3": 7, "q4": 10, "ende": 12, "late": 12,
+}
 _STATED_START_RE = re.compile(
-    r"\b(?:seit|since)\s+"
+    r"\b(?:seit|since|ab)\s+"
+    r"(?:dem\s+(?:jahre?\s+)?|the\s+(?:year\s+)?)?"
+    r"(?:(?P<approx>anfang|beginn|mitte|ende|early|mid|late|q[1-4])(?:\s+des\s+jahres|\s+of)?[-\s/]+)?"
+    r"(?:(?P<dd>[0-3]?\d)\.\s*(?=(?:0?[1-9]|1[0-2])\s*\.\s*(?:19|20)\d{2}))?"
     r"(?:(?P<mm>0?[1-9]|1[0-2])\s*[/.]\s*"
     r"|(?P<mname>" + "|".join(sorted(_MONTH_NAMES, key=len, reverse=True)) + r")\.?\s+)?"
     r"(?P<yyyy>(?:19|20)\d{2})(?!\d)(?![.,]\d)",
+    re.IGNORECASE,
+)
+#: M6's safety net: "seit"/"since"/"ab" with a year a few words on that the
+#: pattern above cannot read ("seit dem Geschäftsjahr 2023", "seit Frühjahr 2023")
+#: is still the person's start — never readable, so it withholds the span.
+_UNREAD_START_RE = re.compile(
+    r"\b(?:seit|since|ab)\b(?:\s+[^\s\d.;:!?]+){1,3}?\s+(?:\d{1,2}\s*[./]\s*){0,2}(?:19|20)\d{2}(?!\d)",
     re.IGNORECASE,
 )
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
@@ -514,9 +550,15 @@ class StatedStart:
     #: span for every skill it is linked to (no duration).
     usable: bool = True
 
+    #: M6: the person's own part-of-year wording ("Mitte 2023"), kept for the label.
+    approx: str | None = None
+
     @property
     def label(self) -> str:
-        """The start as a CV/letter states it: ``"2021"`` or ``"04/2021"``."""
+        """The start as a CV/letter states it: ``"2021"``, ``"04/2021"``, or the
+        person's own part-of-year wording (``"Mitte 2023"``)."""
+        if self.approx:
+            return self.approx
         return f"{self.month:02d}/{self.year}" if self.month else str(self.year)
 
 
@@ -535,24 +577,42 @@ _START_MARGIN_YEARS = 10
 
 
 def _start_matches(text: str) -> list[tuple[int, int | None, str, int, bool]]:
-    """``(year, month | None, raw, offset, as_written)`` for every "seit/since
-    [MM/|Monat ]YYYY" in ``text``; ``as_written`` is False for a negated or a
-    ranged one (MD-8 F4). Facts (ADR-062 cl. 1): closed patterns only."""
-    out: list[tuple[int, int | None, str, int, bool]] = []
+    """``(year, month | None, raw, offset, as_written)`` for every "seit/since/ab
+    [dem Jahr|Anfang|Q1|TT.][MM/|Monat ]YYYY" in ``text``; ``as_written`` is False
+    for a negated or a ranged one (MD-8 F4) and for a "seit … YYYY" the pattern
+    cannot read (M6). Facts (ADR-062 cl. 1): closed patterns only."""
+    return [(y, mo, raw, off, ok) for y, mo, raw, off, ok, _ap in _start_matches_ex(text)]
+
+
+def _start_matches_ex(text: str) -> list[tuple[int, int | None, str, int, bool, str | None]]:
+    """:func:`_start_matches` plus the part-of-year label (M6)."""
+    out: list[tuple[int, int | None, str, int, bool, str | None]] = []
     text = text or ""
+    read: list[tuple[int, int]] = []
     for m in _STATED_START_RE.finditer(text):
         month: int | None = None
+        approx: str | None = None
         if m.group("mm"):
             month = int(m.group("mm"))
         elif m.group("mname"):
             month = _MONTH_NAMES.get(m.group("mname").lower())
+        elif m.group("approx"):
+            word = m.group("approx")
+            month = _APPROX_MONTH.get(word.lower())
+            approx = f"{word} {m.group('yyyy')}"
         as_written = not (
             _START_NEGATED_BEFORE.search(text[max(0, m.start() - 12):m.start()])
             or _START_NEGATED_AFTER.match(text[m.end():])
             or _START_RANGE_AFTER.match(text[m.end():])
         )
-        out.append((int(m.group("yyyy")), month, m.group(0), m.start(), as_written))
-    return out
+        read.append((m.start(), m.end()))
+        out.append((int(m.group("yyyy")), month, m.group(0), m.start(), as_written, approx))
+    for m in _UNREAD_START_RE.finditer(text):
+        if any(a < m.end() and m.start() < b for a, b in read):
+            continue
+        year = int(re.search(r"(?:19|20)\d{2}(?!\d)", m.group(0)).group(0))
+        out.append((year, None, m.group(0), m.start(), False, None))
+    return sorted(out, key=lambda t: t[3])
 
 
 def extract_stated_starts(text: str) -> list[tuple[int, int | None, str, int]]:
@@ -634,7 +694,7 @@ def starts_from_texts(
         return (0 if not s.usable else 1, 0 if s.tight else 1, s.year, s.month or 1)
 
     for path, text in texts:
-        starts = _start_matches(text)
+        starts = _start_matches_ex(text)
         if not starts:
             continue
         sentences: list[tuple[int, str]] = []
@@ -643,7 +703,7 @@ def starts_from_texts(
             at = text.find(part, pos)
             sentences.append((at, part))
             pos = at + len(part)
-        for year, month, raw, offset, as_written in starts:
+        for year, month, raw, offset, as_written, approx in starts:
             usable = as_written and _plausible(year, month, first_year, today)
             sentence = next(
                 (s for at, s in reversed(sentences) if 0 <= at <= offset), text
@@ -659,6 +719,7 @@ def starts_from_texts(
                     continue
                 cand = StatedStart(
                     year, month, raw.strip(), path, sentence.strip()[:240], tight, usable,
+                    approx,
                 )
                 cur = out.get(name.casefold())
                 if cur is None or _key(cand) < _key(cur):
@@ -698,8 +759,18 @@ def governing_starts_from_index(idx: Any, names: list[str], first_year: int | No
 def governing_starts(profile: MasterProfileData | dict[str, Any] | None, names: list[str]) -> dict[str, StatedStart]:
     """:func:`governing_starts_from_index` over the person's confirmed record.
     Fail-open: ``{}`` (then every span stays as computed from role dates)."""
+    return governing_rule(profile, names)[0]
+
+
+def governing_rule(
+    profile: MasterProfileData | dict[str, Any] | None, names: list[str]
+) -> tuple[dict[str, StatedStart], dict[str, float]]:
+    """``(starts, own figures)`` per skill (casefolded), from ONE index build: the
+    governing stated starts (:func:`governing_starts_from_index`) and the person's
+    own N-years figures (R4-1, ``VaultIndex.stated_skill_tenures``). Fail-open:
+    ``({}, {})``."""
     if profile is None or not names:
-        return {}
+        return {}, {}
     try:
         profile_json = (
             profile.model_dump(mode="json") if isinstance(profile, MasterProfileData) else dict(profile)
@@ -708,10 +779,16 @@ def governing_starts(profile: MasterProfileData | dict[str, Any] | None, names: 
         from applire.services.profile.reconcile.stance import exclude_unconfirmed
 
         idx = build_vault_index(exclude_unconfirmed(profile_json))
-        return governing_starts_from_index(idx, names, _first_position_year(profile_json))
+        wanted = {str(n).casefold() for n in names}
+        own = {
+            str(n).casefold(): float(y)
+            for n, y in (getattr(idx, "stated_skill_tenures", None) or {}).items()
+            if str(n).casefold() in wanted
+        }
+        return governing_starts_from_index(idx, names, _first_position_year(profile_json)), own
     except Exception:  # noqa: BLE001 — a derived span must never fail a write
         logger.warning("skill_enrichment: governing_starts failed; spans stay role-dated", exc_info=True)
-        return {}
+        return {}, {}
 
 
 def since_date(start: StatedStart) -> date:
@@ -757,7 +834,7 @@ def _match_and_enrich(
     enriched: list[Skill] = []
     unmatched: list[Skill] = []
     # Sorbet Q1 (a): the person's own stated starts, read once per pass.
-    governing = governing_starts(
+    governing, own_figures = governing_rule(
         profile, [s.name for s in profile.skills if s.category in _MATCHABLE_CATEGORIES and s.name]
     )
 
@@ -808,7 +885,8 @@ def _match_and_enrich(
             # Sorbet Q1 (a), ADR-061 cl. 7 amended 2026-11-14: the person's own
             # start governs (see ``governing_starts``) — counted from it, or, when
             # whose start it is cannot be told, no span at all.
-            years = _years_from(matched_ranges, governing.get(skill.name.casefold()))
+            key = skill.name.casefold()
+            years = _years_from(matched_ranges, governing.get(key), own_figures.get(key))
             if years is None:
                 enriched.append(skill.model_copy(update={
                     "years_experience": None,

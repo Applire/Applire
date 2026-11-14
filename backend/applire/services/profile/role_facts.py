@@ -280,13 +280,83 @@ _NEGATED_DISCIPLINARY = re.compile(
 )
 _PEOPLE_LEAD_RE = re.compile(rf"\b\w*{_PEOPLE_LEAD}", re.I)
 
+# Adversarial H1 (2026-11-14, MD-Q3): a disciplinary marker ANYWHERE in a bullet
+# was read as the person's own kind — "Mein Vorgesetzter hatte Personalverantwortung",
+# "lag beim Werksleiter", "Seminar zu Personalverantwortung", "Reported to the line
+# manager", "Wer hat disziplinarische Verantwortung? Ich nicht." all printed
+# "Disziplinarische Führung von N Mitarbeitenden". The stronger line is the harm
+# (Q1-1); the neutral line plus one ask is the safe side. So the disciplinary kind
+# now needs a POSITIVE construction of the person's own leadership, in a clause
+# (``_CLAUSE_SPLIT``) that carries no cue of another holder, a topic or a question:
+_DISCIPLINARY_OWN = re.compile(
+    # "Disziplinarische Führung von 38 …", "disziplinarische Verantwortung für 8",
+    # "disziplinarische(r) Vorgesetzte(r) von 12" — the marker opens the clause
+    # (role-less subject, the CV's own voice) or follows "ich"/"als".
+    r"(?:^|\b(?:ich|als)\s+(?:\w+\s+){0,2})disziplinarisch\w*\s+(?:und\s+fachlich\w*\s+)?"
+    r"(?:f(?:ü|ue)hrung|leitung|verantwortung|vorgesetzt\w*)\b"
+    # "Personalverantwortung für/über 12", "mit Personalverantwortung"
+    r"|\bpersonalverantwortung\s*(?::|f(?:ü|ue)r|(?:ü|ue)ber)"
+    r"|\bmit\s+(?:voller\s+)?personalverantwortung\b"
+    # "führe/leite … disziplinarisch", "disziplinarisch geführt/verantwortlich"
+    r"|\b(?:f(?:ü|ue)hr(?:e|te)|leit(?:e|ete)|geführt|geleitet)\b(?:\s+\S+){0,4}?\s+disziplinarisch\w*"
+    r"|\bdisziplinarisch\w*\s+(?:geführt|geleitet|verantwortlich|unterstellt)"
+    # "12 direct reports", "Managed five direct reports"
+    r"|\b(?:\d{1,4}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve"
+    r"|\w+teen|twenty|thirty|forty|fifty)\s+direct\s+reports\b"
+    # "Line manager of six engineers", "line management for 38"
+    r"|\bline[- ]manag(?:er|ement)\s+(?:of|for)\b"
+    # "Disciplinary lead of 8", "disciplinarily led", "disciplinary responsibility for"
+    r"|\bdisciplinar(?:y|ily)\s+(?:lead\w*|led|manag\w*|responsib\w*|supervis\w*)",
+    re.I,
+)
+# Another holder, a topic, a reporting line: the marker is not the person's own.
+_NOT_OWN_CUE = re.compile(
+    r"\b(?:vorgesetzt\w*|chef\w*|boss|werks?leit\w*|gesch(?:ä|ae)ftsf(?:ü|ue)hr\w*"
+    r"|ein(?:e|em)?\s+andere\w*|jemand\s+anders|someone\s+else|another"
+    r"|my\s+manager|mein\w*\s+manager|the\s+manager|der\s+manager"
+    r"|lag\s+bei\w*|liegt\s+bei\w*|oblag|obliegt|zust(?:ä|ae)ndig\s+war|war\s+\S+(?:\s+\S+){0,3}\s+zust(?:ä|ae)ndig"
+    r"|handled\s+by|held\s+by|by\s+hr|bei\s+der\s+hr|personalabteilung|\bhr\b"
+    r"|seminar\w*|schulung\w*|training\w*|kurs\w*|workshop\w*|weiterbildung\w*|course\w*|zertifik\w*"
+    r"|report(?:ed|s|ing)?\s+(?:directly\s+)?to|berichte\w*|berichtslinie|unterstellt\s+(?:dem|der)"
+    # the leadership held BY someone named: "durch den Abteilungsleiter",
+    # "geführt von Frau X", "… was the CTO", "… war der Bereichsleiter"
+    r"|durch\s+(?:den|die|das|meine?n?|einen?|frau|herrn?)|(?:geführt|geleitet)\s+(?:von|durch)"
+    r"|(?:was|were)\s+(?:the|my|a|an|our)|war\s+(?:der|die|das|mein\w*|frau|herr|ein\w*))\b",
+    re.I,
+)
+# A clause: the person's own statement ends at ; . ! ? or a contrasting conjunction.
+_CLAUSE_SPLIT = re.compile(
+    r"[;!?]|\.(?:\s|$)|\s[–—-]\s|,\s*(?:aber|jedoch|während|waehrend|but|while|whereas)\b",
+    re.I,
+)
+
 LEADERSHIP_KINDS = ("disciplinary", "functional")
+
+
+def _clause_kinds(clause: str, bullet_negated: bool) -> set[str]:
+    """The kinds ONE clause states of the person's own leadership. A denial of the
+    disciplinary kind anywhere in the bullet ("No direct reports; guided three
+    juniors") makes a leading word the functional kind."""
+    kinds: set[str] = set()
+    negated = bullet_negated
+    rest = _NEGATED_DISCIPLINARY.sub(" ", clause)
+    cue = _NOT_OWN_CUE.search(rest)
+    if _DISCIPLINARY_OWN.search(rest.strip()) and not cue:
+        kinds.add("disciplinary")
+    if not cue and (_FUNCTIONAL.search(rest) or (negated and _PEOPLE_LEAD_RE.search(rest))):
+        kinds.add("functional")
+    return kinds
 
 
 def leadership_kind(entry: WorkEntry | dict) -> str | None:
     """THE kind of leadership a work entry's own text names: ``"disciplinary"``,
     ``"functional"`` or ``None`` (neither, or both). Read from the entry's
-    responsibilities and achievements only — never the title, never a model."""
+    responsibilities and achievements only — never the title, never a model.
+
+    Per clause, and only of the person's OWN leadership (H1): a clause naming
+    another holder, a topic (a seminar) or a reporting line counts for no kind; a
+    bullet that asks a question counts for none; a marker in parentheses counts
+    ("Projektteam geführt (fachlich)"). When in doubt: ``None``."""
     if isinstance(entry, dict):
         try:
             entry = WorkEntry.model_validate(entry)
@@ -294,12 +364,13 @@ def leadership_kind(entry: WorkEntry | dict) -> str | None:
             return None
     found: set[str] = set()
     for bullet in _prose(entry):
-        negated = _NEGATED_DISCIPLINARY.search(bullet)
-        rest = _NEGATED_DISCIPLINARY.sub(" ", bullet)
-        if _DISCIPLINARY.search(rest):
-            found.add("disciplinary")
-        if _FUNCTIONAL.search(rest) or (negated and _PEOPLE_LEAD_RE.search(rest)):
-            found.add("functional")
+        if "?" in bullet:
+            continue
+        text = re.sub(r"[()\[\]]", " ", bullet)
+        bullet_negated = bool(_NEGATED_DISCIPLINARY.search(text))
+        for clause in _CLAUSE_SPLIT.split(text):
+            if clause and clause.strip():
+                found |= _clause_kinds(clause.strip(), bullet_negated)
     return found.pop() if len(found) == 1 else None
 
 
