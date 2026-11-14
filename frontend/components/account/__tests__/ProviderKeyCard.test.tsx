@@ -161,6 +161,8 @@ describe("providerKeyErrorKey", () => {
     ["invalid_model", null, "errInvalidModel"],
     ["invalid_provider_key", null, "errInvalidKey"],
     ["provider_key_secret_missing", null, "errSecretMissing"],
+    ["provider_key_test_throttled", null, "errTestThrottled"],
+    ["provider_key_conflict", null, "errConflict"],
     ["forbidden", null, "errForbidden"],
     ["provider_key_test_failed", "key_rejected", "testKeyRejected"],
     ["provider_key_test_failed", "out_of_credit", "testOutOfCredit"],

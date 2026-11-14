@@ -48,6 +48,8 @@ const ERROR_KEYS: Record<string, string> = {
   invalid_model: "errInvalidModel",
   invalid_provider_key: "errInvalidKey",
   provider_key_secret_missing: "errSecretMissing",
+  provider_key_test_throttled: "errTestThrottled",
+  provider_key_conflict: "errConflict",
   forbidden: "errForbidden",
 };
 

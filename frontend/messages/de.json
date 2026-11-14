@@ -3126,6 +3126,8 @@
     "errInvalidModel": "Dieser Modellname ist nicht gültig.",
     "errInvalidKey": "Dieser Schlüssel sieht nicht gültig aus. Prüfe, ob du ihn vollständig kopiert hast.",
     "errSecretMissing": "Diese Instanz kann noch keine Schlüssel speichern. Frag die Administration.",
+    "errTestThrottled": "Zu viele Schlüsseltests in kurzer Zeit. Warte ein paar Minuten oder speichere ohne Test.",
+    "errConflict": "Dein Schlüssel wurde im selben Moment in einem anderen Tab gespeichert. Lade die Seite neu und prüfe, welcher Schlüssel gespeichert ist.",
     "errForbidden": "Schlüssel lassen sich nur angemeldet ändern, nicht mit einem API-Token.",
     "errGeneric": "Der Schlüssel konnte nicht gespeichert werden. Bitte versuche es erneut.",
     "testKeyRejected": "Der Anbieter hat diesen Schlüssel abgelehnt. Es wurde nichts gespeichert.",

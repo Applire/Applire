@@ -3126,6 +3126,8 @@
     "errInvalidModel": "This model name isn't valid.",
     "errInvalidKey": "This key doesn't look valid. Check that you copied all of it.",
     "errSecretMissing": "This instance can't store keys yet. Ask your admin.",
+    "errTestThrottled": "Too many key tests in a short time. Wait a few minutes, or save without the test.",
+    "errConflict": "Your key was saved from another tab at the same moment. Reload the page and check which key is stored.",
     "errForbidden": "Keys can only be changed while signed in, not with an API token.",
     "errGeneric": "The key could not be saved. Please try again.",
     "testKeyRejected": "The provider rejected this key. Nothing was saved.",
