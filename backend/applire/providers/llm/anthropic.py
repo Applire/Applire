@@ -315,6 +315,18 @@ class AnthropicProvider(LLMProvider):
                 timeout=float(timeout) + 30.0,
             )
             self._client._custom_headers = {}
+            # Security review (coordinator, 2026-11-14): only X-Api-Key with the
+            # person's key. Some SDK versions read ANTHROPIC_AUTH_TOKEN whenever
+            # auth_token is None and send it as `Authorization: Bearer` next to
+            # the key (the pinned 0.109.1 does not); a credentials provider
+            # (ANTHROPIC_PROFILE, workload identity) would do the same. Cleared
+            # after construction, so no SDK default can put the operator's
+            # identity on a user-paid request.
+            self._client.auth_token = None
+            if hasattr(self._client, "credentials"):
+                self._client.credentials = None
+            if hasattr(self._client, "_token_cache"):
+                self._client._token_cache = None
         else:
             self._client = AsyncAnthropic(
                 api_key=api_key or settings.anthropic_api_key,

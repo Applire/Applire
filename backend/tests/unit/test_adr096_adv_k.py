@@ -207,6 +207,10 @@ async def test_f2_a_loaded_process_keeps_its_overrides_and_recovers(monkeypatch)
     monkeypatch.setattr(ins, "_build_snapshot", empty_snapshot)
     await ins.refresh()
     assert allowance.decision_mode() == "instance"
+    # ...and having loaded once, a later failed read keeps it (not unknown).
+    monkeypatch.setattr(ins, "_session_factory", lambda: (_ for _ in ()).throw(RuntimeError("blip")))
+    await ins.refresh()
+    assert allowance.decision_mode() == "instance"
 
     ins._state.ever_loaded, ins._state.load_failed = False, True
     monkeypatch.setattr(settings, "llm_key_mode", "user")
@@ -307,6 +311,103 @@ def test_f5_openai_sdk_families_drop_the_org_and_project_env(monkeypatch, family
     assert not isinstance(headers.get("OpenAI-Organization"), str)
     assert not isinstance(headers.get("OpenAI-Project"), str)
     assert "169.254" not in str(p._client.base_url)
+
+
+# F5, security-review addition: what the user-key request actually carries,
+# with the operator's credentials in the environment of every SDK family.
+
+_OPERATOR_ENV = {
+    "ANTHROPIC_API_KEY": "op-anthropic-KEY-0123456789",
+    "ANTHROPIC_AUTH_TOKEN": "op-anthropic-BEARER-0123456789",
+    "OPENAI_API_KEY": "op-openai-KEY-0123456789",
+    "OPENAI_ORG_ID": "org-operator",
+    "OPENAI_PROJECT_ID": "proj-operator",
+    "MISTRAL_API_KEY": "op-mistral-KEY-0123456789",
+}
+_PERSON_KEY = "person-own-KEY-0123456789abcdef"
+
+
+def _capture(seen: dict):
+    import httpx
+
+    def handler(request):
+        seen.update({k.lower(): v for k, v in request.headers.items()})
+        seen["__url"] = str(request.url)
+        return httpx.Response(401, json={"type": "error", "error": {"type": "authentication_error", "message": "x"}})
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def _assert_only_the_persons_key(seen: dict) -> None:
+    flat = " ".join(f"{k}={v}" for k, v in seen.items())
+    for name, value in _OPERATOR_ENV.items():
+        assert value not in flat, f"{name} reached the request"
+    assert _PERSON_KEY in flat
+
+
+async def _send(p, family):
+    try:
+        if family == "anthropic":
+            await p._client.messages.create(model="m", max_tokens=1, messages=[{"role": "user", "content": "hi"}])
+        elif family == "mistral":
+            await p._client.chat.complete_async(model="m", messages=[{"role": "user", "content": "hi"}])
+        else:
+            await p._client.chat.completions.create(model="m", max_tokens=1, messages=[{"role": "user", "content": "hi"}])
+    except Exception:  # noqa: BLE001 — the 401 is the point; the headers are captured
+        pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("family", ["anthropic", "mistral", "openai", "openrouter", "requesty"])
+async def test_f5_user_key_request_carries_no_operator_credential(monkeypatch, family):
+    from applire.providers.llm import build_user_provider
+
+    for name, value in _OPERATOR_ENV.items():
+        monkeypatch.setenv(name, value)
+    p = build_user_provider(family=family, model="some/model", key=_PERSON_KEY)
+    seen: dict = {}
+    if family == "mistral":
+        p._client.sdk_configuration.async_client = _capture(seen)
+    else:
+        p._client._client = _capture(seen)
+        p._client.max_retries = 0
+    await _send(p, family)
+    assert seen, "no request was sent"
+    _assert_only_the_persons_key(seen)
+    if family == "anthropic":
+        assert seen.get("x-api-key") == _PERSON_KEY and "authorization" not in seen
+    else:
+        assert seen.get("authorization") == f"Bearer {_PERSON_KEY}"
+        assert "openai-organization" not in seen and "openai-project" not in seen
+
+
+@pytest.mark.asyncio
+async def test_f5_anthropic_sdk_that_inherits_the_bearer_is_neutralised(monkeypatch):
+    """The reviewed hazard on an SDK that DOES read ANTHROPIC_AUTH_TOKEN whenever
+    auth_token is None (older releases): emulated, so the clearing is pinned
+    independently of the pinned SDK version."""
+    import anthropic as _sdk
+
+    from applire.providers.llm import build_user_provider
+
+    for name, value in _OPERATOR_ENV.items():
+        monkeypatch.setenv(name, value)
+    original = _sdk.AsyncAnthropic.__init__
+
+    def inheriting_init(self, *a, **k):
+        original(self, *a, **k)
+        if self.auth_token is None:
+            self.auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN")
+
+    monkeypatch.setattr(_sdk.AsyncAnthropic, "__init__", inheriting_init)
+    p = build_user_provider(family="anthropic", model="claude-x", key=_PERSON_KEY)
+    assert p._client.auth_token is None
+    seen: dict = {}
+    p._client._client = _capture(seen)
+    p._client.max_retries = 0
+    await _send(p, "anthropic")
+    assert "authorization" not in seen
+    _assert_only_the_persons_key(seen)
 
 
 # ── F6: the test-before-save call is throttled per person ─────────────────────
