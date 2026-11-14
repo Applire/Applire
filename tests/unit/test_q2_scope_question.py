@@ -508,3 +508,18 @@ async def test_a_full_interview_asks_scope_then_kind_and_each_turn_advances(db):
         assert r1.question.startswith("Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38.")
         r2 = await send_message(created.session_id, "Disziplinarisch, über drei Schichtleiter.", db, provider)
     assert r2.complete is True
+
+
+def test_the_leadership_kind_contract_shape():
+    """The shape WP-Q2 consumes from Q1's ``entries_needing_leadership_kind``
+    (COORD Q1→Q2): a list of dicts with exactly these keys, ``team_size`` an int.
+    A mismatch after the merge fails here, not silently in the planner."""
+    from applire.services.profile.role_facts import entries_needing_leadership_kind
+
+    out = entries_needing_leadership_kind(_KIND_PROFILE)
+    assert isinstance(out, list) and out, "the two sized roles need a kind"
+    for item in out:
+        assert isinstance(item, dict)
+        assert {"entry_id", "company", "role", "team_size"} <= set(item)
+        assert isinstance(item["team_size"], int) and item["team_size"] > 0
+    assert sorted(i["team_size"] for i in out) == [14, 38]

@@ -303,29 +303,11 @@ LEADERSHIP_KIND_ID = "leadership-kind"
 _KIND_MAX_ROLES = 3
 
 
-def _stub_entries_needing_leadership_kind(profile_json: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Local stand-in for Q1's ``role_facts.entries_needing_leadership_kind`` until
-    the branches merge: roles with a typed ``team_size`` > 0 and no recorded kind."""
-    out = []
-    for entry in (profile_json or {}).get("work_experience") or []:
-        if not isinstance(entry, dict):
-            continue
-        size = entry.get("team_size")
-        if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
-            continue
-        if entry.get("leadership_kind"):
-            continue
-        out.append({"entry_id": entry.get("id"), "company": entry.get("company") or "",
-                    "role": entry.get("role") or "", "team_size": size})
-    return out
-
-
 def leadership_kind_entries(profile_json: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Q1's predicate when present (``services/profile/role_facts.py``), else the stub."""
-    try:
-        from applire.services.profile.role_facts import entries_needing_leadership_kind
-    except ImportError:
-        return _stub_entries_needing_leadership_kind(profile_json)
+    """Q1's predicate (``services/profile/role_facts.py``) — imported directly, so a
+    broken contract after the merge fails loudly; its shape is pinned by a test."""
+    from applire.services.profile.role_facts import entries_needing_leadership_kind
+
     return list(entries_needing_leadership_kind(profile_json) or [])
 
 

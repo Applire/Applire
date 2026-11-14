@@ -235,3 +235,26 @@ def project_profile_role_facts(profile: Any) -> None:
     for entry in getattr(profile, "work_experience", None) or []:
         if isinstance(entry, WorkEntry):
             project_role_facts(entry)
+
+
+# --- WP-Q2 integration shim — REPLACED BY Q1 AT INTEGRATION -----------------
+# Founder ruling Q-2 (COORD Q1→Q2): Q1 owns this function on
+# feat/sorbet-claim-altitude; WP-Q2's interview planner consumes it. This shim
+# exists only so the Q2 branch imports on its own; main resolves the conflict
+# in Q1's favour. The consumed shape is pinned by
+# tests/unit/test_q2_scope_question.py::test_the_leadership_kind_contract_shape.
+def entries_needing_leadership_kind(profile_json: Any) -> list[dict[str, Any]]:
+    """Roles with a typed ``team_size`` > 0 whose leadership kind is unknown, as
+    ``{entry_id, company, role, team_size}``."""
+    out: list[dict[str, Any]] = []
+    for entry in (profile_json or {}).get("work_experience") or []:
+        if not isinstance(entry, dict):
+            continue
+        size = entry.get("team_size")
+        if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+            continue
+        if entry.get("leadership_kind"):
+            continue
+        out.append({"entry_id": entry.get("id"), "company": entry.get("company") or "",
+                    "role": entry.get("role") or "", "team_size": size})
+    return out
