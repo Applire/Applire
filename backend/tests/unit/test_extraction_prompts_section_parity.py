@@ -290,6 +290,11 @@ _INTERNAL_FIELDS: dict[str, frozenset[str] | None] = {
     # RULING B-1 (Hazelnut build 5) — the candidate's "Nein" on "Ist das
     # erreicht?" (services/profile/aspiration.py); never read off a document.
     "not_yet_reached": frozenset({"work_experience", "projects"}),
+    # MD-Q5 (Sorbet quality-1) — a role's leadership kind is the person's answer
+    # to its own question (services/profile/leadership_kind.py); a document
+    # never sets it, and the committer restores it if one tries.
+    "leadership_kind": frozenset({"work_experience"}),
+    "leadership_kind_record": frozenset({"work_experience"}),
 }
 
 
