@@ -163,9 +163,10 @@ def budget_display(value: object, lang: str = "de") -> str:
 #: THAT role (``prompts/cv_extraction.py`` TEAM_SIZE SEMANTICS) — never a bare
 #: "2 Personen", which read as a contradiction next to a bullet's "about 15
 #: internal IT specialists" (RU-5). Tense-neutral, no colon label. (singular, plural)
-# Ruling Q-2 (Sorbet quality-1): the line names the KIND of leadership the
-# person's own text names (``TailoredWorkEntry.leadership_kind``, read by
-# ``services.profile.role_facts.leadership_kind``); neither named → the neutral
+# Ruling Q-2 (Sorbet quality-1), MD-Q5: the line names the KIND of leadership the
+# person ANSWERED to the kind question (``TailoredWorkEntry.leadership_kind``,
+# carried from the vault's stored ``WorkEntry.leadership_kind`` by
+# ``services.cv._apply_role_facts``); none stored → the neutral
 # count, which claims no leadership at all. "Führungsverantwortung für N
 # Personen" is retired: it printed leadership for "fachliche Anleitung von zwei
 # Werkstudierenden". (one, many) per language and kind.

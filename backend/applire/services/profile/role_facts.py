@@ -237,158 +237,81 @@ def project_profile_role_facts(profile: Any) -> None:
             project_role_facts(entry)
 
 
-# ── Sorbet WP-Q1 (b), ruling Q-2 — the KIND of leadership a headcount is ───────
+# ── Sorbet WP-Q1 (b), ruling Q-2, narrowed by MD-Q5 — the KIND of leadership ──
 #
 # "Führungsverantwortung für 3 Personen" was printed for a person who wrote
 # "Fachliche Anleitung von zwei Werkstudierenden" (#832, platform-1 delivery run):
 # the furniture line said more than the person did. Q-2: the line names the kind
-# the person's OWN text names — functional guidance or disciplinary leadership —
-# and says only "N Personen im Verantwortungsbereich" when it names neither.
+# of leadership the PERSON states, and says only "N Personen im
+# Verantwortungsbereich" otherwise.
 #
-# ADR-062 cl. 1: a FACT — whole-word presence of a kind marker in a bullet that
-# also carries a leading verb/noun. Which kind the person "really" had is never
-# judged; a role whose text names both kinds, or neither, has no kind (``None``)
-# and the planner asks once (Q2, ``entries_needing_leadership_kind``).
-
-# A word that leads PEOPLE — "Geschäftsführung" (the board, a recipient of
-# reports) is not one, so the compound is excluded.
-_PEOPLE_LEAD = (
-    r"(?:(?<!geschäfts)(?<!geschaefts)f(?:ü|ue)hr(?:ung|e|t|en)|geführt|leitung|leite|geleitet"
-    r"|anleitung|angeleitet|leite\w* an|betreu\w*|lead\w*|led|manag\w*|supervis\w*|guid\w*)"
-)
-# Functional: "fachlich" next to a leading word, either order, at most two words
-# between ("Fachliche Anleitung von …", "führe … fachlich", "fachliche Führung").
-_FUNCTIONAL = re.compile(
-    rf"\bfachlich\w*\s+(?:\S+\s+){{0,2}}{_PEOPLE_LEAD}\b"
-    rf"|\b{_PEOPLE_LEAD}\s+(?:\S+\s+){{0,2}}fachlich\w*\b"
-    r"|\bfunctional(?:ly)?\s+(?:\S+\s+){0,2}(?:lead\w*|led|manag\w*|guid\w*|supervis\w*|report\w*)\b"
-    r"|\bdotted[- ]line\b",
-    re.I,
-)
-_DISCIPLINARY_TERMS = (
-    r"(?:disziplinarisch\w*|personalverantwortung|disciplinar(?:y|ily)"
-    r"|line[- ]manag\w*|direct reports?)"
-)
-_DISCIPLINARY = re.compile(rf"\b{_DISCIPLINARY_TERMS}\b", re.I)
-# "ohne disziplinarische Verantwortung", "keine Personalverantwortung",
-# "without disciplinary responsibility", "nicht disziplinarisch": the person says
-# what the leadership is NOT — never a disciplinary marker; next to a word that
-# leads people ("Teamleitung ohne Personalverantwortung") it is the functional kind.
-_NEGATED_DISCIPLINARY = re.compile(
-    rf"\b(?:ohne|keine?n?|nicht|without|no|non)[- ]?\s*(?:\w+\s+)?{_DISCIPLINARY_TERMS}\b",
-    re.I,
-)
-_PEOPLE_LEAD_RE = re.compile(rf"\b\w*{_PEOPLE_LEAD}", re.I)
-
-# Adversarial H1 (2026-11-14, MD-Q3): a disciplinary marker ANYWHERE in a bullet
-# was read as the person's own kind — "Mein Vorgesetzter hatte Personalverantwortung",
-# "lag beim Werksleiter", "Seminar zu Personalverantwortung", "Reported to the line
-# manager", "Wer hat disziplinarische Verantwortung? Ich nicht." all printed
-# "Disziplinarische Führung von N Mitarbeitenden". The stronger line is the harm
-# (Q1-1); the neutral line plus one ask is the safe side. So the disciplinary kind
-# now needs a POSITIVE construction of the person's own leadership, in a clause
-# (``_CLAUSE_SPLIT``) that carries no cue of another holder, a topic or a question:
-_DISCIPLINARY_OWN = re.compile(
-    # "Disziplinarische Führung von 38 …", "disziplinarische Verantwortung für 8",
-    # "disziplinarische(r) Vorgesetzte(r) von 12" — the marker opens the clause
-    # (role-less subject, the CV's own voice) or follows "ich"/"als".
-    r"(?:^|\b(?:ich|als)\s+(?:\w+\s+){0,2})disziplinarisch\w*\s+(?:und\s+fachlich\w*\s+)?"
-    r"(?:f(?:ü|ue)hrung|leitung|verantwortung|vorgesetzt\w*)\b"
-    # "Personalverantwortung für/über 12", "mit Personalverantwortung"
-    r"|\bpersonalverantwortung\s*(?::|f(?:ü|ue)r|(?:ü|ue)ber)"
-    r"|\bmit\s+(?:voller\s+)?personalverantwortung\b"
-    # "führe/leite … disziplinarisch", "disziplinarisch geführt/verantwortlich"
-    r"|\b(?:f(?:ü|ue)hr(?:e|te)|leit(?:e|ete)|geführt|geleitet)\b(?:\s+\S+){0,4}?\s+disziplinarisch\w*"
-    r"|\bdisziplinarisch\w*\s+(?:geführt|geleitet|verantwortlich|unterstellt)"
-    # "12 direct reports", "Managed five direct reports"
-    r"|\b(?:\d{1,4}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve"
-    r"|\w+teen|twenty|thirty|forty|fifty)\s+direct\s+reports\b"
-    # "Line manager of six engineers", "line management for 38"
-    r"|\bline[- ]manag(?:er|ement)\s+(?:of|for)\b"
-    # "Disciplinary lead of 8", "disciplinarily led", "disciplinary responsibility for"
-    r"|\bdisciplinar(?:y|ily)\s+(?:lead\w*|led|manag\w*|responsib\w*|supervis\w*)",
-    re.I,
-)
-# Another holder, a topic, a reporting line: the marker is not the person's own.
-_NOT_OWN_CUE = re.compile(
-    r"\b(?:vorgesetzt\w*|chef\w*|boss|werks?leit\w*|gesch(?:ä|ae)ftsf(?:ü|ue)hr\w*"
-    r"|ein(?:e|em)?\s+andere\w*|jemand\s+anders|someone\s+else|another"
-    r"|my\s+manager|mein\w*\s+manager|the\s+manager|der\s+manager"
-    r"|lag\s+bei\w*|liegt\s+bei\w*|oblag|obliegt|zust(?:ä|ae)ndig\s+war|war\s+\S+(?:\s+\S+){0,3}\s+zust(?:ä|ae)ndig"
-    r"|handled\s+by|held\s+by|by\s+hr|bei\s+der\s+hr|personalabteilung|\bhr\b"
-    r"|seminar\w*|schulung\w*|training\w*|kurs\w*|workshop\w*|weiterbildung\w*|course\w*|zertifik\w*"
-    r"|report(?:ed|s|ing)?\s+(?:directly\s+)?to|berichte\w*|berichtslinie|unterstellt\s+(?:dem|der)"
-    # the leadership held BY someone named: "durch den Abteilungsleiter",
-    # "geführt von Frau X", "… was the CTO", "… war der Bereichsleiter"
-    r"|durch\s+(?:den|die|das|meine?n?|einen?|frau|herrn?)|(?:geführt|geleitet)\s+(?:von|durch)"
-    r"|(?:was|were)\s+(?:the|my|a|an|our)|war\s+(?:der|die|das|mein\w*|frau|herr|ein\w*))\b",
-    re.I,
-)
-# A clause: the person's own statement ends at ; . ! ? or a contrasting conjunction.
-_CLAUSE_SPLIT = re.compile(
-    r"[;!?]|\.(?:\s|$)|\s[–—-]\s|,\s*(?:aber|jedoch|während|waehrend|but|while|whereas)\b",
-    re.I,
-)
+# MD-Q5 (2026-11-14): the kind is no longer read from bullet prose. Two
+# adversarial rounds showed every reading of the prose either promoted a mention
+# to a fact ("Disziplinarische Führung … wurde von meinem Nachfolger übernommen",
+# "Aspiring to line management of 8 engineers") or demoted a true form
+# ("Disziplinarischer Vorgesetzter von 12 Mitarbeitenden"). The kind is a STORED
+# fact on the work entry (``WorkEntry.leadership_kind``), written only from the
+# person's answer to the dedicated question (``services/profile/leadership_kind``).
+# The bullet text is only SHOWN in that question (``"said"``), never interpreted.
 
 LEADERSHIP_KINDS = ("disciplinary", "functional")
 
+# A bullet that MENTIONS leadership — shown to the person in the kind question so
+# they see what they wrote. Display only: it never sets, and never withholds, a kind.
+_KIND_MENTION = re.compile(
+    r"\b(?:disziplinarisch\w*|personalverantwortung|fachlich\w*|disciplinar(?:y|ily)"
+    r"|line[- ]manag\w*|direct reports?|functional(?:ly)?|dotted[- ]line)\b",
+    re.I,
+)
+_LEAD_MENTION = re.compile(
+    r"\b(?:(?<!geschäfts)(?<!geschaefts)f(?:ü|ue)hr(?:ung|e|t|en)|geführt|\w*leitung|leite\w*"
+    r"|geleitet|anleitung|angeleitet|betreu\w*|lead\w*|led|manag\w*|supervis\w*|guid\w*"
+    r"|mentor\w*|coach\w*)\b",
+    re.I,
+)
 
-def _clause_kinds(clause: str, bullet_negated: bool) -> set[str]:
-    """The kinds ONE clause states of the person's own leadership. A denial of the
-    disciplinary kind anywhere in the bullet ("No direct reports; guided three
-    juniors") makes a leading word the functional kind."""
-    kinds: set[str] = set()
-    negated = bullet_negated
-    rest = _NEGATED_DISCIPLINARY.sub(" ", clause)
-    cue = _NOT_OWN_CUE.search(rest)
-    if _DISCIPLINARY_OWN.search(rest.strip()) and not cue:
-        kinds.add("disciplinary")
-    if not cue and (_FUNCTIONAL.search(rest) or (negated and _PEOPLE_LEAD_RE.search(rest))):
-        kinds.add("functional")
-    return kinds
+
+def _get(e: Any, key: str) -> Any:
+    return e.get(key) if isinstance(e, dict) else getattr(e, key, None)
 
 
 def leadership_kind(entry: WorkEntry | dict) -> str | None:
-    """THE kind of leadership a work entry's own text names: ``"disciplinary"``,
-    ``"functional"`` or ``None`` (neither, or both). Read from the entry's
-    responsibilities and achievements only — never the title, never a model.
+    """THE kind of leadership of a work entry: the STORED value the person's
+    answer to the kind question wrote (``"disciplinary"`` / ``"functional"``), or
+    ``None`` — never read from the bullets, the title or a model (MD-Q5)."""
+    kind = _get(entry, "leadership_kind")
+    return kind if kind in LEADERSHIP_KINDS else None
 
-    Per clause, and only of the person's OWN leadership (H1): a clause naming
-    another holder, a topic (a seminar) or a reporting line counts for no kind; a
-    bullet that asks a question counts for none; a marker in parentheses counts
-    ("Projektteam geführt (fachlich)"). When in doubt: ``None``."""
-    if isinstance(entry, dict):
-        try:
-            entry = WorkEntry.model_validate(entry)
-        except Exception:  # noqa: BLE001 — a reader never fails a render
-            return None
-    found: set[str] = set()
-    for bullet in _prose(entry):
-        if "?" in bullet:
-            continue
-        text = re.sub(r"[()\[\]]", " ", bullet)
-        bullet_negated = bool(_NEGATED_DISCIPLINARY.search(text))
-        for clause in _CLAUSE_SPLIT.split(text):
-            if clause and clause.strip():
-                found |= _clause_kinds(clause.strip(), bullet_negated)
-    return found.pop() if len(found) == 1 else None
+
+def leadership_said(entry: WorkEntry | dict) -> str:
+    """The entry's own bullet that mentions leadership (a kind word first, else a
+    leading word), verbatim, or ``""`` — for display in the question only."""
+    bullets = [
+        b for f in _PROSE_FIELDS for b in (_get(entry, f) or [])
+        if isinstance(b, str) and b.strip()
+    ]
+    for pattern in (_KIND_MENTION, _LEAD_MENTION):
+        for b in bullets:
+            if pattern.search(b):
+                return b.strip()
+    return ""
 
 
 def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, Any]]:
     """The work entries whose line would print a headcount with no kind: a
-    positive ``team_size`` and :func:`leadership_kind` ``None``. The interview
-    planner asks each ONCE as its own short question (ruling Q-2, MD-Q1, Q2-1);
-    unanswered, the line stays neutral.
+    positive ``team_size``, no stored kind, and never asked (no
+    ``leadership_kind_record``). The interview planner asks each ONCE as its own
+    short question with fixed options (ruling Q-2, MD-Q1, MD-Q5); unanswered,
+    skipped or answered in own words, the line stays neutral. A person who
+    already wrote the kind in a bullet is asked too, and sees that bullet.
 
     STABLE CONTRACT (MD-Q1, built against by WP-Q2): a list, in entry order, of
-    ``{"entry_id": str, "company": str, "role": str, "team_size": int}``."""
+    ``{"entry_id": str, "company": str, "role": str, "team_size": int}`` plus,
+    since MD-Q5, ``"said": str`` (:func:`leadership_said`, ``""`` when none)."""
     entries = (
         profile_json.get("work_experience") if isinstance(profile_json, dict)
         else getattr(profile_json, "work_experience", None)
     ) or []
-
-    def _get(e: Any, key: str) -> Any:
-        return e.get(key) if isinstance(e, dict) else getattr(e, key, None)
 
     out: list[dict[str, Any]] = []
     for e in entries:
@@ -396,6 +319,7 @@ def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, 
         if (
             isinstance(size, int) and not isinstance(size, bool) and size > 0
             and leadership_kind(e) is None
+            and not _get(e, "leadership_kind_record")
         ):
             # An entry stored without an id (older profile JSON) is still asked
             # about: skipping it would print the neutral line unasked.
@@ -404,5 +328,6 @@ def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, 
                 "company": str(_get(e, "company") or ""),
                 "role": str(_get(e, "role") or ""),
                 "team_size": int(size),
+                "said": leadership_said(e),
             })
     return out

@@ -324,6 +324,19 @@ def prompt_profile_view(
         else:
             del view["availability"]
 
+    # MD-Q5 — a role's ``leadership_kind`` (the person's answered kind) is a fact
+    # every prompt may read; its ``leadership_kind_record`` (the option key, the
+    # answer, when, which door) is bookkeeping no model reads. Copied, never mutated.
+    work = view.get("work_experience")
+    if isinstance(work, list) and any(
+        isinstance(e, dict) and "leadership_kind_record" in e for e in work
+    ):
+        view["work_experience"] = [
+            {k: v for k, v in e.items() if k != "leadership_kind_record"}
+            if isinstance(e, dict) else e
+            for e in work
+        ]
+
     if derived_spans == "hedge":
         view = _hedge_derived_spans(view)
     elif derived_spans == "drop":

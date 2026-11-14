@@ -816,6 +816,11 @@ def apply_ops(
         elif getattr(op, "op", None) == "adopt_not_applied":
             # UAT-3d — "Übernehmen": a not-applied import item taken in.
             _apply_adopt_not_applied(op, new_profile, changes)
+        elif getattr(op, "op", None) == "record_leadership_kind":
+            # MD-Q5 — the single writer of a role's leadership kind.
+            from applire.services.profile.leadership_kind import apply_leadership_kind_op
+
+            apply_leadership_kind_op(op, new_profile, changes)
         elif getattr(op, "op", None) in ("record_aspiration_verdicts", "answer_aspiration"):
             # RULING B-1 — "Ist das erreicht?" bookkeeping and the answer.
             from applire.services.profile.aspiration import apply_aspiration_op
@@ -1387,6 +1392,36 @@ def _keep_alias_subset(section: str, before: Any, after: Any) -> Any:
     return result
 
 
+#: MD-Q5 — the fields only ``record_leadership_kind`` writes.
+_LEADERSHIP_KIND_FIELDS = ("leadership_kind", "leadership_kind_record")
+
+
+def _keep_leadership_kind(section: str, before: Any, after: Any) -> Any:
+    """MD-Q5 — a role's leadership kind is written ONLY from the person's answer
+    to the dedicated question. On the section door (PATCH, MCP ``update_profile``)
+    each entry keeps what the entry with that id held, whatever the payload says:
+    an editor that does not round-trip the field cannot wipe it, and a payload
+    cannot set it. A new entry carries none."""
+    if section != "work_experience" or not isinstance(after, list):
+        return after
+    held = {
+        str(e["id"]): {f: e.get(f) for f in _LEADERSHIP_KIND_FIELDS}
+        for e in before or [] if isinstance(e, dict) and e.get("id")
+    }
+    result = []
+    for entry in after:
+        if isinstance(entry, dict):
+            entry = dict(entry)
+            kept = held.get(str(entry.get("id") or ""), {})
+            for f in _LEADERSHIP_KIND_FIELDS:
+                if kept.get(f) is not None:
+                    entry[f] = kept[f]
+                else:
+                    entry.pop(f, None)
+        result.append(entry)
+    return result
+
+
 def _apply_replace_section(
     op: ReplaceSection, profile: MasterProfileData, changes: list[FieldChange]
 ) -> MasterProfileData:
@@ -1430,6 +1465,7 @@ def _apply_replace_section(
             op.section, before, op.value
         )
         dumped[op.section] = _keep_alias_subset(op.section, before, dumped[op.section])
+        dumped[op.section] = _keep_leadership_kind(op.section, before, dumped[op.section])
 
     # The same round-trip the PATCH intake always performed — a payload the
     # schema rejects raises here (pydantic's ValidationError IS a ValueError,

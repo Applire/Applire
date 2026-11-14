@@ -2132,9 +2132,10 @@ def _apply_role_facts(
             if settled_industry:
                 industry_context = settled_industry
 
-        # Ruling Q-2 (Sorbet WP-Q1 b): the kind the headcount counts, read from
-        # the vault entry's OWN bullets (a fact — role_facts.leadership_kind) and
-        # written under the same single-writer rule: never from the draft.
+        # Ruling Q-2 / MD-Q5 (Sorbet WP-Q1): the kind the headcount counts is the
+        # vault entry's STORED kind (the person's answer to the kind question —
+        # role_facts.leadership_kind), written under the same single-writer
+        # rule: never from the draft, never from bullet prose.
         leadership_kind = (
             _leadership_kind(vault_entry) if vault_entry and team_size else None
         )
