@@ -324,10 +324,12 @@ def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, 
         size, eid = _get(e, "team_size"), _get(e, "id")
         if (
             isinstance(size, int) and not isinstance(size, bool) and size > 0
-            and eid and leadership_kind(e) is None
+            and leadership_kind(e) is None
         ):
+            # An entry stored without an id (older profile JSON) is still asked
+            # about: skipping it would print the neutral line unasked.
             out.append({
-                "entry_id": str(eid),
+                "entry_id": str(eid or ""),
                 "company": str(_get(e, "company") or ""),
                 "role": str(_get(e, "role") or ""),
                 "team_size": int(size),
