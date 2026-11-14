@@ -79,12 +79,14 @@ class MistralProvider(LLMProvider):
         model: str | None = None,
         timeout: int = 30,
         strict_key: bool = False,
+        base_url: str | None = None,
     ) -> None:
         super().__init__(timeout=timeout)
         if strict_key:
             # ADR-096 cl. 4: a user-paid provider never reads the instance's key.
+            # adv-K F5: and goes to the public endpoint, named explicitly.
             require_strict_key(api_key, model)
-            self._client = Mistral(api_key=api_key)
+            self._client = Mistral(api_key=api_key, server_url=base_url or "https://api.mistral.ai")
             self._model = model
             return
         self._client = Mistral(api_key=api_key or settings.mistral_api_key)

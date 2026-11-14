@@ -293,6 +293,7 @@ class AnthropicProvider(LLMProvider):
         model: str | None = None,
         timeout: int = 30,
         strict_key: bool = False,
+        base_url: str | None = None,
     ) -> None:
         super().__init__(timeout=timeout)
         if strict_key:
@@ -304,10 +305,21 @@ class AnthropicProvider(LLMProvider):
         # truncation retry doubles 16384, so both failed on every call (WP-0,
         # 2026-11-04). Applire bounds each call itself (asyncio.wait_for on
         # self._timeout), so the HTTP timeout is that same budget plus a margin.
-        self._client = AsyncAnthropic(
-            api_key=api_key if strict_key else (api_key or settings.anthropic_api_key),
-            timeout=float(timeout) + 30.0,
-        )
+        if strict_key:
+            # adv-K F5: a person's key goes to the public endpoint, named explicitly
+            # (the SDK would otherwise honour ANTHROPIC_BASE_URL), and carries no
+            # header the operator's ANTHROPIC_CUSTOM_HEADERS put in the environment.
+            self._client = AsyncAnthropic(
+                api_key=api_key,
+                base_url=base_url or "https://api.anthropic.com",
+                timeout=float(timeout) + 30.0,
+            )
+            self._client._custom_headers = {}
+        else:
+            self._client = AsyncAnthropic(
+                api_key=api_key or settings.anthropic_api_key,
+                timeout=float(timeout) + 30.0,
+            )
         self._model = model if strict_key else (model or settings.anthropic_model or _DEFAULT_MODEL)
         self._shape = _request_shape(self._model)
 

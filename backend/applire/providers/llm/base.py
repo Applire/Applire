@@ -336,6 +336,15 @@ class LLMProvider(ABC):
         """
 
 
+def _drop_environment_identity(client: object) -> None:
+    """adv-K F5: the openai SDK fills ``organization``/``project`` from
+    ``OPENAI_ORG_ID``/``OPENAI_PROJECT_ID`` — the operator's account identity,
+    sent as headers. A person's own key never carries them."""
+    for attr in ("organization", "project"):
+        if hasattr(client, attr):
+            setattr(client, attr, None)
+
+
 def require_strict_key(api_key: str | None, model: str | None) -> None:
     """ADR-096 cl. 4: a constructor called with ``strict_key=True`` raises on an
     empty key or model instead of reading ``settings``. The factory passes it

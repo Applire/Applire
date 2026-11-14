@@ -47,6 +47,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
+    _drop_environment_identity,
     require_strict_key,
     unclassified_provider_error,
     LLMProvider,
@@ -129,6 +130,8 @@ class RequestyProvider(LLMProvider):
                 "X-Title": _X_TITLE,
             },
         )
+        if strict_key:
+            _drop_environment_identity(self._client)
         self._model = model or settings.requesty_model or "mistral/mistral-medium-3-5"
         # #179: Requesty accepted disable_thinking in the signature but never sent
         # anything — a reasoning model burned the whole output budget on hidden

@@ -71,8 +71,10 @@ def get_provider() -> LLMProvider:
 #: instance's `*_BASE_URL` override (an operator's local server is not where a
 #: person's key belongs). Mistral and Anthropic use their SDK's fixed default.
 USER_KEY_BASE_URLS: dict[str, str | None] = {
-    "mistral": None,
-    "anthropic": None,
+    # adv-K F5: explicit, so ANTHROPIC_BASE_URL / an SDK default never decides
+    # where a person's key goes.
+    "mistral": "https://api.mistral.ai",
+    "anthropic": "https://api.anthropic.com",
     "openrouter": "https://openrouter.ai/api/v1",
     "requesty": "https://router.eu.requesty.ai/v1",
     "openai": "https://api.openai.com/v1",
@@ -105,12 +107,14 @@ def build_user_provider(*, family: str, model: str, key: str) -> LLMProvider:
         from applire.providers.llm.mistral import MistralProvider
 
         provider: LLMProvider = MistralProvider(
-            api_key=key, model=model, timeout=timeout, strict_key=True
+            api_key=key, model=model, timeout=timeout, strict_key=True, base_url=base_url
         )
     elif family == "anthropic":
         from applire.providers.llm.anthropic import AnthropicProvider
 
-        provider = AnthropicProvider(api_key=key, model=model, timeout=timeout, strict_key=True)
+        provider = AnthropicProvider(
+            api_key=key, model=model, timeout=timeout, strict_key=True, base_url=base_url
+        )
     elif family == "openrouter":
         from applire.providers.llm.openrouter import OpenRouterProvider
 

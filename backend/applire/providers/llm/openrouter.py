@@ -46,6 +46,7 @@ from applire.prompts.preamble import primer_turns
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
+    _drop_environment_identity,
     require_strict_key,
     unclassified_provider_error,
     LLMProvider,
@@ -118,6 +119,8 @@ class OpenRouterProvider(LLMProvider):
                 "X-Title": _X_TITLE,
             },
         )
+        if strict_key:
+            _drop_environment_identity(self._client)
         self._model = model or settings.openrouter_model or "mistralai/mistral-medium-3-5"
         # When True, passes enable_thinking=False via extra_body — suppresses Qwen3/DeepSeek-R1
         # chain-of-thought overhead on deterministic structured-extraction tasks.

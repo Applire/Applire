@@ -31,6 +31,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
+    _drop_environment_identity,
     require_strict_key,
     unclassified_provider_error,
     LLMProvider,
@@ -72,6 +73,8 @@ class OpenAIProvider(LLMProvider):
             resolved_base_url = base_url or settings.openai_base_url or None
             resolved_key = api_key or settings.openai_api_key or "local"
         self._client = openai.AsyncOpenAI(api_key=resolved_key, base_url=resolved_base_url)
+        if strict_key:
+            _drop_environment_identity(self._client)
         self._model = model if strict_key else (model or settings.openai_model)
         self._has_custom_base = bool(resolved_base_url)
 
