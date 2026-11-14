@@ -660,3 +660,47 @@ def plan_position_resolution(
         text = str(item.get("text") or "") if confirmed else str(item.get("task_text") or "")
         plan.append((item, text.strip()))
     return plan
+
+
+# ── Sorbet WP-Q1 (c): a JD title term is not the person's word ────────────────
+#
+# Platform-1 rerun (Stefan, luna): the posting's "Bereichsleiter" was graded
+# ``partial`` against "Verantwortung für zwei Fertigungsbereiche", became a
+# CLAIMABLE ledger row, the terminal reviewer's VERIFIED COVERAGE demanded it
+# twice (rec 158, 172) and the corrector wrote "Verantwortung als Bereichsleiter"
+# (rec 173) — a title the person never held. The same vocabulary that asks the
+# person before a title enters the vault (T-1) answers, as a fact, whether the
+# vault's own text holds the title a ledger term names (ADR-062 cl. 1).
+
+
+def _vault_own_texts(profile_json: dict[str, Any] | None) -> list[str]:
+    if not isinstance(profile_json, dict):
+        return []
+    texts: list[str] = []
+    for w in profile_json.get("work_experience") or []:
+        if isinstance(w, dict):
+            texts += _strings({k: w.get(k) for k in (
+                "role", "role_aliases", "responsibilities", "achievements", "description",
+            )})
+    texts += _strings(profile_json.get("professional_summary"))
+    return [t for t in texts if t.strip()]
+
+
+def unheld_title_term(term: str, profile_json: dict[str, Any] | None) -> str | None:
+    """The title ``term`` names, when ``term`` IS a position title for the person
+    (the whole term, not a duty phrase that contains one — "Führung von
+    Bereichsleitern" is not) and the vault's own text — role titles, aliases,
+    bullets, professional summary — holds no such title; else ``None``."""
+    folded = _fold(term).strip()
+    if not folded:
+        return None
+    keys = _claim_keys(term)
+    if not keys or any(phrase.strip() != folded for _k, phrase in keys):
+        return None
+    held: set[TitleKey] = set()
+    for text in _vault_own_texts(profile_json):
+        held |= _held_titles(text, first_person=False)
+    for key, phrase in keys:
+        if not _key_held(key, held):
+            return phrase
+    return None
