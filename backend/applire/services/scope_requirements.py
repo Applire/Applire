@@ -318,8 +318,13 @@ def build_scope_ledger_entries(
     prompt_block: list[dict[str, Any]],
     scope_classifications: list[dict[str, Any]] | None,
     profile_json: dict[str, Any] | None = None,
+    *,
+    denials_taken: Any = (),
 ) -> list[dict[str, Any]]:
     """Turn the model's scope judgements into ledger entries, floor applied.
+
+    ``denials_taken``: the ``denied_by`` ids the SAME response cited for
+    REQUIREMENTS rows (see :func:`verified_stated_limit`).
 
     Deterministic guarantees (ADR-069 clause 2, ADR-070 clause 1):
       * every prompt-block entry becomes a ledger row — existence is never the
@@ -394,7 +399,9 @@ def build_scope_ledger_entries(
                 status = "partial"
                 cited = ""
 
-        recorded_limit = verified_stated_limit(cls.get("stated_limit"), profile_json)
+        recorded_limit = verified_stated_limit(
+            cls.get("stated_limit"), profile_json, taken=denials_taken
+        )
         attested_fmt = (
             f"Attested ({attested['unit']}): \"{attested['quote']}\" "
             f"({attested['entry']}). "
@@ -448,7 +455,7 @@ def _id_key(value: str) -> str:
 
 
 def verified_stated_limit(
-    cited: Any, profile_json: dict[str, Any] | None
+    cited: Any, profile_json: dict[str, Any] | None, *, taken: Any = ()
 ) -> dict[str, str] | None:
     """The live recorded denial a scope classification's ``stated_limit`` cites, as
     ``{"id", "statement"}`` — or ``None`` (ADR-070 cl. 2 / ADR-075 amended
@@ -458,8 +465,23 @@ def verified_stated_limit(
     on falling short of this bar is the classifier's judgement; that the cited id
     is the ``concept`` of a LIVE ``metadata.denied_concepts`` record (a withdrawn
     one lives elsewhere and binds nothing) is the fact checked here. An unknown
-    id, a record without a statement, or no profile → no binding. Pure."""
+    id, a record without a statement, or no profile → no binding.
+
+    Second fact (earned, category C): an id the same response already cited as
+    ``denied_by`` for a REQUIREMENTS row (``taken``) is that requirement's
+    denial and binds no scope bar. The prompt says "never cite a denial that is
+    about something else"; on the 2026-11-14 Luna after-run (Stefan, rep 1, the
+    person had stated no span shortfall) the classifier bound the 120-span bar to
+    "eigene Investitionsplanung mit Investitionsfreigaben" while citing the same
+    id as ``denied_by`` for Investitionsplanung and Investitionsverantwortung. Pure."""
     if not isinstance(cited, str) or not cited.strip():
+        return None
+    if _id_key(cited) in {_id_key(t) for t in taken if isinstance(t, str)}:
+        logger.info(
+            "scope_requirements: stated_limit %r is already a REQUIREMENTS row's "
+            "denied_by — binds no scope bar",
+            cited,
+        )
         return None
     meta = (profile_json or {}).get("metadata") if isinstance(profile_json, dict) else None
     records = meta.get("denied_concepts") if isinstance(meta, dict) else None

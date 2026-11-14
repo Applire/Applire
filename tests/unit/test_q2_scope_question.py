@@ -385,6 +385,41 @@ def test_the_scope_ledger_row_carries_the_bound_limit_and_keeps_its_status():
     assert "recorded_limit" not in row2["bar"]
 
 
+def test_a_denial_already_cited_for_a_requirements_row_binds_no_scope_bar():
+    """Luna after-run, Stefan rep 1: the 120-span bar was bound to the investment
+    denial the same response cited as ``denied_by`` for Investitionsplanung."""
+    from applire.services.scope_requirements import (
+        build_scope_ledger_entries,
+        verified_stated_limit,
+    )
+
+    profile = _profile_with_denial()
+    assert verified_stated_limit(_DENIAL_ID, profile, taken=[f" {_DENIAL_ID.upper()}"]) is None
+    assert verified_stated_limit(_DENIAL_ID, profile, taken=["IFS"]) == {
+        "id": _DENIAL_ID, "statement": _DENIAL_STATEMENT}
+    block = [{"concept": _SCOPE, "kind": "team_size", "jd_value": 120.0, "jd_value_max": None,
+              "comparator": "approx", "jd_quote": "ca. 120 Mitarbeitende", "level": "required",
+              "candidate_values": [{"value": 38, "entry": "PL @ W", "semantics": "team"}]}]
+    cls = [{"concept": _SCOPE, "status": "partial", "reason": "38 < 120",
+            "stated_limit": _DENIAL_ID}]
+    row = build_scope_ledger_entries(block, cls, profile, denials_taken=[_DENIAL_ID])[0]
+    assert "recorded_limit" not in row["bar"]
+
+
+def test_the_gap_analysis_seam_passes_the_requirements_denials_as_taken():
+    """Seam: ``_run_analysis`` hands the response's REQUIREMENTS ``denied_by`` ids to
+    the scope builder (a revert of the call site fails here)."""
+    import inspect
+
+    from applire.services import gap
+
+    src = inspect.getsource(gap._run_analysis)
+    call = src[src.index("build_scope_ledger_entries("):]
+    call = call[: call.index("\n    )")]
+    assert "denials_taken=" in call and 'data.get("classifications")' in call
+    assert 'c.get("denied_by")' in call
+
+
 def test_the_letter_ladder_names_a_recorded_scope_step():
     from applire.services.cross_document import (
         letter_constraint_only_limits,

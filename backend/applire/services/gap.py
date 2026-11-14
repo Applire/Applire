@@ -1468,7 +1468,14 @@ async def _run_analysis(
     # ADR-070 clause 1: profile prose is passed so a model-cited attestation can
     # be verified fail-closed and stored on bar.attested.
     keyword_ledger = keyword_ledger + build_scope_ledger_entries(
-        scope_block, data.get("scope_classifications"), profile_json=profile.profile_json
+        scope_block,
+        data.get("scope_classifications"),
+        profile_json=profile.profile_json,
+        denials_taken=[
+            c.get("denied_by")
+            for c in data.get("classifications") or []
+            if isinstance(c, dict) and c.get("denied_by")
+        ],
     )
 
     # #318 / ADR-061 — THE affirmative invariant, on the row that is actually
