@@ -66,6 +66,9 @@ _NOT_LOSS = {
     "no_write_question_only",
     "confirmation_discarded",
     "confirmation_already_present",
+    # MD-Q5 — a refused forgery of a role's leadership kind: nothing the
+    # person said was lost.
+    "leadership_kind_unasked",
 }
 
 
@@ -140,7 +143,7 @@ class TestMergeStatusFromNotApplied:
         assert status == "partial"
         assert count == 2  # op_rejected + no_write; the other two are bookkeeping
 
-    def test_all_five_not_loss_reasons_together_stay_applied(self):
+    def test_every_not_loss_reason_together_stays_applied(self):
         items = [_item(reason) for reason in sorted(_NOT_LOSS)]
         status, count = _merge_status_from_not_applied(items)
         assert status == "applied"

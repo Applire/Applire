@@ -56,6 +56,9 @@ const BACKEND_RATIONALE_KEYS = [
   // RULING B-1 — services/profile/aspiration.py
   "aspiration_achieved",
   "aspiration_goal",
+  // MD-Q5 (Sorbet quality-1) — services/profile/leadership_kind.py
+  "leadership_kind_recorded",
+  "leadership_kind_left_open",
   // D-B3V7 — reconcile/apply.py::_apply_set_availability
   "availability_recorded",
   "availability_cleared",

@@ -130,9 +130,10 @@ def find_entry(profile: MasterProfileData, entry_id: str = "", company: str = ""
     raise LeadershipKindEntryNotFound(entry_id or f"{company}|{role}")
 
 
-def apply_leadership_kind_op(op, profile: MasterProfileData, changes: list) -> None:
+def apply_leadership_kind_op(op, profile: MasterProfileData, changes: list):
     """The applier branch (called from ``reconcile.apply.apply_ops``): set the
-    kind and the record on the one entry, and receipt it."""
+    kind and the record on the one entry, receipt it, and return the entry (the
+    committer's class guard lets exactly these entries keep a changed kind)."""
     entry = find_entry(profile, op.entry_id, op.company, op.role)
     kind = KIND_OF_OPTION[op.option]
     before = entry.leadership_kind
@@ -154,6 +155,7 @@ def apply_leadership_kind_op(op, profile: MasterProfileData, changes: list) -> N
         rationale_key=RATIONALE_RECORDED if kind else RATIONALE_UNKNOWN,
         entity_id=entry.id,
     ))
+    return entry
 
 
 async def record_leadership_kind(

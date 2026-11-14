@@ -102,6 +102,7 @@ from applire.services.profile.reconcile.witness import compute_no_write
 from applire.services.profile.reconcile import aliases as _aliases
 from applire.services.profile.language_names import canonical_language, same_language
 from applire.services.profile.reconcile.ops import (
+    LEADERSHIP_KIND_FIELDS,
     AddBullets,
     AddRole,
     ApplyImportMerge,
@@ -577,6 +578,7 @@ def apply_ops(
     denials: list[FieldChange] = []  # #480 PR 7 — see ApplyResult.denials
     reconciliation: dict[str, dict[str, int]] | None = None
     not_applied: list[ImportNotApplied] = []  # #615 — see ApplyResult.not_applied
+    kind_answered: set[str] = set()  # MD-Q5 — entries a RecordLeadershipKind op wrote
     extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
     restated: list[RestatedReceipt] = []  # D-B3V6 — see ApplyResult.restated
@@ -820,7 +822,7 @@ def apply_ops(
             # MD-Q5 — the single writer of a role's leadership kind.
             from applire.services.profile.leadership_kind import apply_leadership_kind_op
 
-            apply_leadership_kind_op(op, new_profile, changes)
+            kind_answered.add(apply_leadership_kind_op(op, new_profile, changes).id)
         elif getattr(op, "op", None) in ("record_aspiration_verdicts", "answer_aspiration"):
             # RULING B-1 — "Ist das erreicht?" bookkeeping and the answer.
             from applire.services.profile.aspiration import apply_aspiration_op
@@ -838,6 +840,15 @@ def apply_ops(
     # carried over here whatever the batch did, and any receipt claiming
     # otherwise is dropped with it.
     new_profile, changes = _restore_user_managed_fields(profile, new_profile, changes)
+
+    # MD-Q5 (security review of 3808819d) — the same class guard for a role's
+    # leadership kind: written ONLY by a `RecordLeadershipKind` op (the
+    # person's answer to its own question). Any other op that set it — a
+    # model-emitted `set_field`, an `upsert_work`, a dispute resolution, an
+    # import merge, a section replace — is undone here, whatever the door.
+    new_profile, changes = _restore_leadership_kind(
+        profile, new_profile, changes, not_applied, kind_answered,
+    )
 
     # #328 (option 4) / #382 — the quantified role facts are DERIVED
     # PROJECTIONS of the entry's own bullets, so they are recomputed HERE, on
@@ -1392,8 +1403,9 @@ def _keep_alias_subset(section: str, before: Any, after: Any) -> Any:
     return result
 
 
-#: MD-Q5 — the fields only ``record_leadership_kind`` writes.
-_LEADERSHIP_KIND_FIELDS = ("leadership_kind", "leadership_kind_record")
+#: MD-Q5 — the fields only ``record_leadership_kind`` writes (one constant:
+#: the engine's raw-op refusal reads the same tuple, ``reconcile.ops``).
+_LEADERSHIP_KIND_FIELDS = LEADERSHIP_KIND_FIELDS
 
 
 def _keep_leadership_kind(section: str, before: Any, after: Any) -> Any:
@@ -4083,6 +4095,48 @@ def _restore_user_managed_fields(before, after, changes):
         if not (
             getattr(c, "section", None) == "personal_info"
             and getattr(c, "field", None) in restored
+        )
+    ]
+    return after, kept
+
+
+def _restore_leadership_kind(before, after, changes, not_applied, answered):
+    """MD-Q5 — carry ``leadership_kind`` / ``leadership_kind_record`` over from
+    ``before`` (by entry id; a new entry holds none) for every work entry the
+    batch's ``RecordLeadershipKind`` ops did not write. A refused write drops its
+    receipts and leaves one ``not_applied`` item (``leadership_kind_unasked``).
+    Returns ``(after, changes)``."""
+    held = {
+        e.id: (e.leadership_kind, e.leadership_kind_record)
+        for e in getattr(before, "work_experience", None) or []
+    }
+    restored: set[str] = set()
+    for entry in after.work_experience:
+        if entry.id in answered:
+            continue
+        kind, record = held.get(entry.id, (None, None))
+        if (entry.leadership_kind, entry.leadership_kind_record) != (kind, record):
+            entry.leadership_kind = kind
+            entry.leadership_kind_record = record
+            restored.add(entry.id)
+            not_applied.append(ImportNotApplied(
+                section="work_experience",
+                label=" / ".join(x for x in (entry.company, entry.role) if x) or entry.id,
+                reason="leadership_kind_unasked",
+            ))
+    if not restored:
+        return after, changes
+    logger.warning(
+        "apply_ops: refused a write to leadership_kind on %d work entr(y/ies) — "
+        "only the person's answer to the kind question writes it (MD-Q5)",
+        len(restored),
+    )
+    kept = [
+        c for c in changes
+        if not (
+            getattr(c, "section", None) == "work_experience"
+            and getattr(c, "field", None) in _LEADERSHIP_KIND_FIELDS
+            and getattr(c, "entity_id", None) in restored
         )
     ]
     return after, kept

@@ -202,7 +202,7 @@ def role_facts(entry: object, lang: str = "de") -> str:
     * the line exists only when it holds a figure — a team size and/or a budget —
       and it carries no colon labels. Ruling P-2 (build 8) phrases the team size
       so it says what it counts; ruling Q-2 (Sorbet) makes it name the KIND the
-      person's own text names (``leadership_kind``), or only the count:
+      person answered to the kind question (``leadership_kind``, MD-Q5), or only the count:
       ``Fachliche Anleitung von 3 Personen`` / ``Disziplinarische Führung von 38
       Mitarbeitenden`` / ``12 Personen im Verantwortungsbereich · ca. 2 Mio.
       EUR``; the budget part is unchanged;
