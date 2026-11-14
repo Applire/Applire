@@ -1471,9 +1471,12 @@ async def _run_analysis(
         scope_block,
         data.get("scope_classifications"),
         profile_json=profile.profile_json,
+        # MD-Q3 / adversarial M1: a denial bound to a REQUIREMENTS row — by the
+        # classifier's ``denied_by`` OR by the ledger's own denial floor (the row
+        # as built above) — binds no scope bar.
         denials_taken=[
             c.get("denied_by")
-            for c in data.get("classifications") or []
+            for c in [*(data.get("classifications") or []), *keyword_ledger]
             if isinstance(c, dict) and c.get("denied_by")
         ],
     )

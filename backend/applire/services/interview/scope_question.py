@@ -33,7 +33,32 @@ SCOPE_CLUSTER_PREFIX = "scope-"
 #: ADR-089 amended 2026-11-14: a scope cluster's question is asked once.
 SCOPE_QUESTIONS_PER_GAP = 1
 
-_CURRENCY_RE = re.compile(r"(€|EUR|CHF|\$|USD|£|GBP)")
+# MD-Q3 / adversarial M5: the unit and the qualifier are read from the bar's OWN
+# figure in its quote — the figure the bar's value names (verified there), the
+# currency written in or right next to it, the qualifier written right before it.
+# Never a substring anywhere in the quote ("EUROPA-Region" is no EUR), never
+# invented (no unit on the figure → none printed; no qualifier → none printed).
+_UNIT_TOKEN = r"(EUR|CHF|USD|GBP|Euro|Eur|Franken|Dollar|Pfund|€|\$|£)"
+_UNIT_IN_RE = re.compile(rf"(?<![A-Za-zÄÖÜäöüß]){_UNIT_TOKEN}(?![A-Za-zÄÖÜäöüß])")
+_UNIT_BEFORE_RE = re.compile(rf"(?<![A-Za-zÄÖÜäöüß]){_UNIT_TOKEN}\s*$")
+_UNIT_AFTER_RE = re.compile(rf"^\s*(?:Schweizer\s+|US-?\s*)?{_UNIT_TOKEN}(?![A-Za-zÄÖÜäöüß])")
+_UNIT_CODE = {
+    "€": "EUR", "EUR": "EUR", "Euro": "EUR", "Eur": "EUR", "CHF": "CHF", "Franken": "CHF",
+    "$": "USD", "USD": "USD", "Dollar": "USD", "£": "GBP", "GBP": "GBP", "Pfund": "GBP",
+}
+#: The qualifier the posting writes right before its figure (casefolded window).
+_QUALIFIER_BEFORE = (
+    ("upto", re.compile(r"(?:bis\s+zu|maximal|höchstens|max\.|up\s+to|at\s+most)\s*$")),
+    ("min", re.compile(r"(?:mindestens|min\.|wenigstens|at\s+least|\bab)\s*$")),
+    ("over", re.compile(r"(?:mehr\s+als|über|more\s+than|\bover)\s*$")),
+    ("approx", re.compile(
+        r"(?:ca\.|circa|zirka|rund|etwa|ungefähr|~|about|around|approx\.?|approximately|roughly)\s*$"
+    )),
+)
+_QUALIFIER_WORDS = {
+    "de": {"approx": "ca. ", "min": "mindestens ", "upto": "bis zu ", "over": "über "},
+    "en": {"approx": "about ", "min": "at least ", "upto": "up to ", "over": "more than "},
+}
 
 
 def is_scope_cluster(cluster: Any) -> bool:
@@ -59,8 +84,85 @@ def _askable_scope_rows(keyword_ledger: list[dict[str, Any]] | None) -> list[dic
             continue
         if not str(row.get("concept") or "").strip():
             continue
+        bar = row.get("bar") if isinstance(row.get("bar"), dict) else {}
+        # L3 / M5 (MD-Q3): a bar without a number, or whose number its own quote
+        # does not state, is not put to the person — the question would print
+        # "ca. None" or a figure the posting never wrote (``verified`` is False
+        # for both).
+        if not _figure_facts(bar.get("kind"), bar.get("value"), bar.get("quote"))["verified"]:
+            continue
         rows.append(row)
     return rows
+
+
+def _row_groups(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """M4 (MD-Q3): rows naming the same bar — the same concept, or the same kind
+    and figures — form ONE group: one cluster, one id, one question."""
+    groups: list[list[dict[str, Any]]] = []
+    keys: list[set[Any]] = []
+    for row in rows:
+        bar = row.get("bar") if isinstance(row.get("bar"), dict) else {}
+        own = {
+            ("c", _norm(row.get("concept"))),
+            ("b", bar.get("kind"), _number(bar.get("value")), _number(bar.get("value_max"))),
+        }
+        for i, k in enumerate(keys):
+            if k & own:
+                groups[i].append(row)
+                k |= own
+                break
+        else:
+            groups.append([row])
+            keys.append(set(own))
+    return groups
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    f = float(value)
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+
+def _figure_facts(kind: Any, value: Any, quote: Any) -> dict[str, Any]:
+    """The bar's figure as its quote writes it: whether the quote states the
+    value (``verified``), the currency on it, and the qualifier before it."""
+    out: dict[str, Any] = {"verified": False, "currency": None, "qualifier": None}
+    number = _number(value)
+    text = str(quote or "")
+    if number is None or not text.strip():
+        return out
+    from applire.services.oracle.matchers.figures import (
+        extract_figures,
+        extract_range_bare_numbers,
+        extract_spelled_figures,
+    )
+
+    wanted = str(int(number)) if number.is_integer() else None
+    figures = extract_figures(text) + extract_spelled_figures(text) + extract_range_bare_numbers(text)
+    hit = next(
+        (f for f in figures if f.kind in ("number", "currency") and wanted and f.value == wanted),
+        None,
+    )
+    if hit is None:
+        return out
+    out["verified"] = True
+    start = text.find(hit.raw)
+    if start < 0:
+        return out
+    end = start + len(hit.raw)
+    if kind == "budget":
+        units = {_UNIT_CODE[m.group(1)] for m in _UNIT_IN_RE.finditer(hit.raw)}
+        before = _UNIT_BEFORE_RE.search(text[max(0, start - 6):start])
+        after = _UNIT_AFTER_RE.match(text[end:end + 24])
+        units |= {_UNIT_CODE[m.group(1)] for m in (before, after) if m}
+        out["currency"] = next(iter(units)) if len(units) == 1 else None
+    window = " ".join(text[max(0, start - 24):start].casefold().split())
+    if hit.raw.rstrip().endswith("+"):
+        out["qualifier"] = "min"
+    else:
+        out["qualifier"] = next((q for q, rx in _QUALIFIER_BEFORE if rx.search(window)), None)
+    return out
 
 
 def scope_facts(row: dict[str, Any]) -> dict[str, Any]:
@@ -73,13 +175,14 @@ def scope_facts(row: dict[str, Any]) -> dict[str, Any]:
         if isinstance(v, dict) and v.get("value") not in (None, ""):
             values.append({"value": v.get("value"), "entry": str(v.get("entry") or "")})
     attested = bar.get("attested") if isinstance(bar.get("attested"), dict) else None
-    currency = _CURRENCY_RE.search(str(bar.get("quote") or ""))
+    figure = _figure_facts(bar.get("kind"), bar.get("value"), bar.get("quote"))
     return {
         "kind": bar.get("kind"),
         "value": bar.get("value"),
         "value_max": bar.get("value_max"),
         "comparator": bar.get("comparator"),
-        "currency": currency.group(1) if currency else None,
+        "currency": figure["currency"],
+        "qualifier": figure["qualifier"],
         "candidate_values": values,
         "attested": (
             {"quote": str(attested.get("quote") or ""), "entry": str(attested.get("entry") or "")}
@@ -122,6 +225,7 @@ def carve_scope_clusters(
     if not rows:
         return list(clusters or [])
     concepts = {_norm(r["concept"]) for r in rows}
+    groups = _row_groups(rows)
 
     kept: list[dict[str, Any]] = []
     existing: dict[str, dict[str, Any]] = {}
@@ -150,12 +254,17 @@ def carve_scope_clusters(
     taken = {str(c.get("id")) for c in kept if isinstance(c, dict)}
     taken |= {str(c.get("id")) for c in existing.values()}
     out = list(kept)
-    for row in rows:
+    for group in groups:
+        row = group[0]
         concept = str(row["concept"]).strip()
+        members = list(dict.fromkeys(str(r["concept"]).strip() for r in group))
         facts = scope_facts(row)
-        category = "B" if row.get("status") == "partial" else "C"
+        # The most urgent status of the group: a gap row makes it category C.
+        category = "C" if any(r.get("status") == "gap" for r in group) else "B"
         bar = row.get("bar") if isinstance(row.get("bar"), dict) else {}
-        prior = existing.get(_norm(concept))
+        # One group per bar (M4), so one prior at most: the carry-forward keeps
+        # ONE cluster id even when an earlier carve left duplicates behind.
+        prior = next((existing[_norm(m)] for m in members if _norm(m) in existing), None)
         if prior is not None:
             out.append({**prior, "category": category, "scope": facts, "label": concept})
             continue
@@ -168,7 +277,7 @@ def carve_scope_clusters(
                     "kind": SCOPE_KIND,
                     "label": concept,
                     "category": category,
-                    "gaps": [concept],
+                    "gaps": members,
                     "jd_skills": [],
                     "jd_context": str(bar.get("quote") or ""),
                     "scope": facts,
@@ -206,41 +315,95 @@ def _amount(value: Any, lang: str) -> str:
     return _num(f)
 
 
-def _figure(facts: dict[str, Any], lang: str) -> str:
-    """The posting's figure as a phrase: "ca. 120", "mindestens 5 Mio. €", "80–120"."""
+def _figure(facts: dict[str, Any], lang: str) -> str | None:
+    """The posting's figure as a phrase: "ca. 120", "mindestens 5 Mio. €", "80–120",
+    "bis zu 120", "5 Mio." (no unit written → none). ``None`` without a number."""
+    if _number(facts.get("value")) is None:
+        return None
     budget = facts.get("kind") == "budget"
     fmt = (lambda v: _amount(v, lang)) if budget else _num
     value = fmt(facts.get("value"))
     comparator = facts.get("comparator")
-    if comparator == "range" and facts.get("value_max") is not None:
+    if comparator == "range" and _number(facts.get("value_max")) is not None:
         number = f"{value}–{fmt(facts['value_max'])}"
     else:
-        prefix = {
-            "de": {"approx": "ca. ", "min": "mindestens "},
-            "en": {"approx": "about ", "min": "at least "},
-        }[lang].get(comparator or "", "")
-        number = f"{prefix}{value}"
-    if budget and facts.get("currency"):
-        number = f"{number} {facts['currency']}"
+        # M5: the qualifier the posting wrote; a model "approx" with no "ca." in
+        # the quote prints none; "min" (closed set, e.g. "8+") stays "mindestens".
+        qualifier = facts.get("qualifier") if "qualifier" in facts else (
+            comparator if comparator in ("approx", "min") else None)
+        if qualifier is None and comparator == "min":
+            qualifier = "min"
+        number = f"{_QUALIFIER_WORDS[lang].get(qualifier or '', '')}{value}"
+    code = facts.get("currency") if budget else None
+    if code in _UNIT_CODE.values():
+        if lang == "de":
+            unit = "€" if code == "EUR" else code
+            number = f"{number} {unit}"
+        else:
+            sym = {"EUR": "€", "USD": "$", "GBP": "£"}.get(code)
+            number = _prefix_unit(number, sym) if sym else f"{code} {number}"
     return number
+
+
+def _prefix_unit(number: str, sym: str) -> str:
+    """EN: the symbol goes before the first digit ("about €5M", "€2M–€5M")."""
+    return re.sub(r"(\d[\d.,]*\w*)", lambda m: f"{sym}{m.group(1)}", number)
+
+
+def _end(phrase: str) -> str:
+    """Close a sentence on a phrase that may already end in an abbreviation dot."""
+    return phrase if phrase.endswith(".") else f"{phrase}."
 
 
 def _entry(label: str) -> str:
     return label.replace(" @ ", ", ").strip()
 
 
+def _value_number(value: Any) -> float | None:
+    """A profile value as a number: an int team size, or a stored budget string
+    read by the Oracle's figure reader ("ca. 6 Mio. EUR" → 6000000)."""
+    number = _number(value)
+    if number is not None:
+        return number
+    if isinstance(value, str) and value.strip():
+        from applire.services.oracle.matchers.figures import extract_figures
+
+        for f in extract_figures(value):
+            if f.kind in ("number", "currency"):
+                try:
+                    return float(f.value)
+                except ValueError:
+                    continue
+    return None
+
+
 def _sort_key(v: dict[str, Any]) -> float:
-    try:
-        return -float(v.get("value"))
-    except (TypeError, ValueError):
-        return 0.0
+    """L2 (MD-Q3): largest first, string budgets included; unreadable last."""
+    number = _value_number(v.get("value"))
+    return -number if number is not None else float("inf")
+
+
+def _shown_value(value: Any, facts: dict[str, Any], lang: str) -> str:
+    """L2: a bare-digit budget is shown in the question's own amount form
+    ("800 Tsd."), never with a unit it does not carry; anything else verbatim."""
+    if facts.get("kind") == "budget":
+        number = _number(value)
+        if number is None and isinstance(value, str) and re.fullmatch(r"\d+", value.strip()):
+            number = float(value.strip())
+        if number is not None:
+            return _amount(number, lang)
+    return str(value)
 
 
 def _profile_line(facts: dict[str, Any], lang: str) -> tuple[str, bool]:
     """What the profile holds so far, and whether it holds anything."""
     values = sorted(facts.get("candidate_values") or [], key=_sort_key)[:2]
     if values:
-        parts = [f"{v['value']} ({_entry(v['entry'])})" if v.get("entry") else str(v["value"]) for v in values]
+        parts = [
+            f"{_shown_value(v['value'], facts, lang)} ({_entry(v['entry'])})" if v.get("entry")
+            else _shown_value(v["value"], facts, lang)
+            for v in values
+        ]
         joined = (" und " if lang == "de" else " and ").join(parts)
         return (f"In deinem Profil steht bisher: {joined}." if lang == "de"
                 else f"Your profile so far says: {joined}."), True
@@ -253,16 +416,76 @@ def _profile_line(facts: dict[str, Any], lang: str) -> tuple[str, bool]:
             else "Your profile has no figure for this yet."), False
 
 
-def scope_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+def current_scope_facts(
+    facts: dict[str, Any], profile_json: dict[str, Any] | None, quote: Any = None
+) -> dict[str, Any]:
+    """The cluster's facts with the PROFILE side read from today's vault (MD-Q3
+    M3): the typed values from ``collect_candidate_values``, the attested quote
+    kept only while it still resolves in the vault. The posting side is the
+    stored bar (it does not change between analysis and interview); a cluster
+    persisted before M5 gets its unit/qualifier read from its quote here."""
+    from applire.services.scope_requirements import (
+        collect_candidate_values,
+        verify_attested_evidence,
+    )
+
+    out = dict(facts)
+    if "qualifier" not in out and quote:
+        figure = _figure_facts(out.get("kind"), out.get("value"), quote)
+        out["currency"], out["qualifier"] = figure["currency"], figure["qualifier"]
+    if profile_json is None or out.get("kind") not in ("team_size", "budget"):
+        return out
+    out["candidate_values"] = [
+        {"value": v.get("value"), "entry": str(v.get("entry") or "")}
+        for v in collect_candidate_values(profile_json, out["kind"])
+        if v.get("value") not in (None, "")
+    ]
+    attested = out.get("attested")
+    if isinstance(attested, dict) and attested.get("quote"):
+        still = verify_attested_evidence(
+            {"quote": attested["quote"], "unit": "held", "entry": attested.get("entry")},
+            profile_json,
+        )
+        out["attested"] = (
+            {"quote": str(still.get("quote") or ""), "entry": str(still.get("entry") or "")}
+            if still else None
+        )
+    return out
+
+
+def scope_question(
+    cluster: dict[str, Any], lang: str = "en", profile_json: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """The scope cluster's one question, built from its facts. ``choices`` is
-    ``None``: a scope chip would be a first-person claim about a span."""
+    ``None``: a scope chip would be a first-person claim about a span.
+
+    ``profile_json`` (MD-Q3 M3): the vault as it is NOW — the question's profile
+    figures are read from it, never from the analysis-time snapshot."""
     lang = "de" if str(lang or "").lower().startswith("de") else "en"
     facts = cluster.get("scope") if isinstance(cluster.get("scope"), dict) else {}
+    facts = current_scope_facts(facts, profile_json, cluster.get("jd_context"))
     budget = facts.get("kind") == "budget"
     figure = _figure(facts, lang)
     held, has_value = _profile_line(facts, lang)
+    if figure is None:
+        # L3 (MD-Q3): no number on the bar — no figure is printed, none invented.
+        if lang == "de":
+            opening = ("Die Stelle nennt eine Vorgabe zur Budgetverantwortung." if budget
+                       else "Die Stelle nennt eine Vorgabe zur Führungsspanne.")
+            ask = ("Welches Budget hast du bisher selbst verantwortet" if budget
+                   else "Wie viele Personen hast du bisher selbst geführt oder verantwortet")
+            question = (f"{opening} {held} {ask} – dauerhaft oder vertretungsweise – und wie "
+                        "ordnest du das gegenüber der Vorgabe der Stelle ein?")
+        else:
+            opening = ("The posting sets a budget responsibility." if budget
+                       else "The posting sets a team scope.")
+            ask = ("What budget have you been responsible for yourself so far" if budget
+                   else "How many people have you led or been responsible for yourself so far")
+            question = (f"{opening} {held} {ask} – permanently or as a deputy – and how does "
+                        "that compare with the posting?")
+        return {"question": question, "choices": None}
     if lang == "de":
-        opening = (f"Die Stelle nennt eine Budgetverantwortung von {figure}." if budget
+        opening = (f"Die Stelle nennt eine Budgetverantwortung von {_end(figure)}" if budget
                    else f"Die Stelle nennt eine Führungsspanne von {figure} Mitarbeitenden.")
         if budget:
             ask = ("Wie groß war das größte Budget, das du selbst verantwortet hast – dauerhaft "
@@ -276,7 +499,7 @@ def scope_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
                    "oder vertretungsweise – und wie ordnest du das gegenüber den ")
         question = f"{opening} {held} {ask}{figure} ein?"
     else:
-        opening = (f"The posting names a budget responsibility of {figure}." if budget
+        opening = (f"The posting names a budget responsibility of {_end(figure)}" if budget
                    else f"The posting names a team scope of {figure} people.")
         ask = ("What is the largest budget you have been responsible for yourself" if budget
                else "What is the largest team you have been responsible for yourself")
@@ -321,6 +544,20 @@ def is_fact_built_cluster(cluster: Any) -> bool:
     return is_scope_cluster(cluster) or is_leadership_kind_cluster(cluster)
 
 
+#: L5 (MD-Q3): the session-state key that records, per answered kind ask, the
+#: roles it covered (:func:`kind_entry_key`). Read across the person's sessions.
+KIND_ASKED_STATE_KEY = "leadership_kind_asked"
+
+
+def kind_entry_key(entry: dict[str, Any]) -> str:
+    """A role's identity for "already asked": its entry id, or — for an entry
+    stored without one — its company and role."""
+    eid = str(entry.get("entry_id") or entry.get("id") or "").strip()
+    if eid:
+        return f"id:{eid}"
+    return "cr:" + _norm(entry.get("company")) + "|" + _norm(entry.get("role"))
+
+
 def plan_leadership_kind(
     cluster_ids: list[str],
     categories: dict[str, str],
@@ -328,15 +565,25 @@ def plan_leadership_kind(
     profile_json: dict[str, Any] | None,
     *,
     posting_weighs_leadership: bool,
+    already_asked: Any = (),
 ) -> tuple[list[str], dict[str, str], dict[str, dict[str, Any]]]:
     """Insert the leadership-kind ask into a full interview plan (pure).
 
     Right after the team-size scope cluster when the plan holds one; otherwise at
     the end, only when the posting weighs leadership. Nothing when no listed role
-    needs the kind, or the plan already holds the ask."""
+    needs the kind, or the plan already holds the ask.
+
+    ``already_asked`` (L5, MD-Q3): the :func:`kind_entry_key` of every role an
+    earlier session of this person already put the ask to — such a role is not
+    asked again, even when its answer left the kind unknown ("beides"); the line
+    stays neutral."""
     if LEADERSHIP_KIND_ID in cluster_ids:
         return cluster_ids, categories, clusters_by_id
-    entries = [e for e in leadership_kind_entries(profile_json) if isinstance(e, dict)][:_KIND_MAX_ROLES]
+    asked = {str(k) for k in already_asked or () if k}
+    entries = [
+        e for e in leadership_kind_entries(profile_json)
+        if isinstance(e, dict) and kind_entry_key(e) not in asked
+    ][:_KIND_MAX_ROLES]
     if not entries:
         return cluster_ids, categories, clusters_by_id
     anchor = next(

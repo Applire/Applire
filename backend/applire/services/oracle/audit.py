@@ -1827,6 +1827,123 @@ def _denial_statement_backing(
     return backing
 
 
+# ── Scope step (MD-Q3 / adversarial H2, ADR-075 amended 2026-11-14) ─────────
+# The letter's G-1 ladder names a SCOPE step: the candidate's real figures, then
+# the posting's scale "as the step ahead", framed by the person's own recorded
+# limit that the gap analysis bound to that scope requirement
+# (``bar.recorded_limit``). The posting's figure is no vault fact, so before this
+# rail the sentence was ``unbacked/figuresNoEvidence`` unless (a) the #422 rail
+# above happened to absorb it — only when the person's statement itself named the
+# figure AND the letter clause restated >= 60 % of its words — or (b) the
+# model's sentence triage happened to class it employer-fact / candidate-limit.
+# The 2026-11-14 Luna after-runs passed by (a) twice and (b) twice; the
+# adversarial probe's paraphrase met neither and went red.
+#
+# The rule (a Fact, ADR-062 cl. 1): a letter figure equal to a scope bar's own
+# figure is accepted when, and only when, (1) that bar carries a bound recorded
+# limit that is still a LIVE denial statement of this vault, (2) the limit is
+# about that bar (``scope_requirements.limit_is_about_bar``, re-checked here), and
+# (3) EVERY sub-clause of the claim that carries the figure is framed as a step not
+# yet taken. (3) is stricter than the #422 hedge: a bare "nicht"/"kein"/"not"/"no"
+# does not count ("Ich führte 120 Mitarbeitende nicht nur fachlich" stays red); a
+# subjunctive, a "next step", a "noch nicht"/"not yet" or a "nie"/"never" does.
+# "Ich verantwortete 120 Mitarbeitende" stays red.
+
+
+@dataclass(frozen=True)
+class ScopeStep:
+    """One scope bar with a bound recorded limit: its figures + the limit text."""
+
+    figures: frozenset[str]
+    statement: str
+
+
+_SCOPE_STEP_TOKENS = frozenset({
+    "wäre", "wären", "würde", "würden", "nie", "niemals", "ziel", "künftig",
+    "zukünftig", "would", "never", "aspire", "goal", "future",
+})
+_SCOPE_STEP_PHRASES = (
+    "nächste schritt", "nächster schritt", "nächsten schritt", "noch nicht",
+    "bisher nicht", "noch kein", "bisher kein", "next step", "not yet",
+    "have not yet", "has not yet",
+)
+
+
+def _scope_step_framed(clause: str) -> bool:
+    normalized = _norm(clause)
+    if any(phrase in normalized for phrase in _SCOPE_STEP_PHRASES):
+        return True
+    return bool(set(normalized.split()) & _SCOPE_STEP_TOKENS)
+
+
+def scope_steps_from_ledger(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[ScopeStep]:
+    """The ledger's scope rows (status partial/gap) carrying a bound recorded limit
+    that is about the bar. Any weight: the ladder names only key-tier steps, but a
+    bound limit backs the posting's figure wherever the letter states it."""
+    if not keyword_ledger:
+        return []
+    from applire.services.keyword_ledger import is_scope_entry
+    from applire.services.scope_requirements import _bar_figures, limit_is_about_bar
+
+    steps: list[ScopeStep] = []
+    for entry in keyword_ledger:
+        if not isinstance(entry, dict) or not is_scope_entry(entry):
+            continue
+        if entry.get("status") not in ("partial", "gap"):
+            continue
+        bar = entry.get("bar") if isinstance(entry.get("bar"), dict) else {}
+        limit = bar.get("recorded_limit")
+        if not isinstance(limit, dict):
+            continue
+        lid, statement = limit.get("id"), limit.get("statement")
+        if not (isinstance(lid, str) and isinstance(statement, str) and statement.strip()):
+            continue
+        limit = {"id": lid, "statement": statement.strip()}
+        if not limit_is_about_bar(f"{limit['id']} {limit['statement']}", bar):
+            continue
+        figures = frozenset(_bar_figures(bar))
+        if figures:
+            steps.append(ScopeStep(figures=figures, statement=limit["statement"]))
+    return steps
+
+
+def _scope_step_backing(
+    claim_text: str,
+    unmatched: list[Any],
+    idx: VaultIndex,
+    scope_steps: list[ScopeStep] | None,
+) -> list[EvidenceUnit] | None:
+    """The live limit units backing EVERY unmatched figure as a scope step, else
+    ``None`` (fail-safe exactly like :func:`_denial_statement_backing`)."""
+    if not scope_steps or not idx.denial_units:
+        return None
+    live = {_norm(u.text): u for u in idx.denial_units}
+    backing: list[EvidenceUnit] = []
+    for fig in unmatched:
+        if fig.kind not in ("number", "currency"):
+            return None
+        unit = None
+        for step in scope_steps:
+            if fig.value in step.figures and _norm(step.statement) in live:
+                unit = live[_norm(step.statement)]
+                break
+        if unit is None:
+            return None
+        clauses = _denial_carrying_clauses(claim_text, fig, claim_side=True)
+        if not clauses or not all(_scope_step_framed(c) for c in clauses):
+            logger.info(
+                "oracle scope step: figure %r is the posting's bar, but the claim "
+                "does not frame it as a step not yet taken — stays unbacked",
+                fig.raw,
+            )
+            return None
+        if unit not in backing:
+            backing.append(unit)
+    return backing
+
+
 # ── #701 (ADR-052 amended 2026-10-16, founder ruling H-1 = B) ──────────────
 # A claim that names a standard/regulation identifier whose digits the vault
 # never states cannot be graded ``grounded``. #374 excludes an identifier's
@@ -1909,8 +2026,12 @@ async def verify_claim(
     ledger_forms: list[list[str]] | None = None,
     form_index: VaultIndex | None = None,
     ledger_backings: "list[LedgerBacking] | None" = None,
+    scope_steps: "list[ScopeStep] | None" = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """Verdict for a single claim against the vault (ADR-052 §1).
+
+    ``scope_steps`` (MD-Q3 / H2) is :func:`scope_steps_from_ledger` over a
+    LETTER's job ledger — read only by the numbers check; ``None`` elsewhere.
 
     ``ledger_backings`` (ADR-100 M-3) is :func:`oracle.backing.ledger_backings`
     over the job's ledger — read by the skill-chip arm and by the ``backing``
@@ -1949,6 +2070,7 @@ async def verify_claim(
         judgement_sink=judgement_sink,
         ledger_forms=ledger_forms,
         ledger_backings=ledger_backings,
+        scope_steps=scope_steps,
     )
     final = _apply_credential_rule(verdict, claim, idx, document_language)
     if form_index is not None:
@@ -2377,6 +2499,7 @@ async def _verify_claim_identifiers(
     judgement_sink: "list[_SeamCandidate] | None",
     ledger_forms: list[list[str]] | None,
     ledger_backings: "list[LedgerBacking] | None" = None,
+    scope_steps: "list[ScopeStep] | None" = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """The #701 identifier rule over :func:`_verify_claim_unchecked` (see
     :func:`verify_claim`)."""
@@ -2393,6 +2516,7 @@ async def _verify_claim_identifiers(
             judgement_sink=judgement_sink,
             ledger_forms=ledger_forms,
             ledger_backings=ledger_backings,
+            scope_steps=scope_steps,
         )
     verdict = await _verify_claim_unchecked(
         claim,
@@ -2405,6 +2529,7 @@ async def _verify_claim_identifiers(
         judgement_sink=None,
         ledger_forms=ledger_forms,
         ledger_backings=ledger_backings,
+        scope_steps=scope_steps,
     )
     if verdict.verdict != "grounded":
         return verdict
@@ -2435,6 +2560,7 @@ async def _verify_claim_unchecked(
     judgement_sink: "list[_SeamCandidate] | None" = None,
     ledger_forms: list[list[str]] | None = None,
     ledger_backings: "list[LedgerBacking] | None" = None,
+    scope_steps: "list[ScopeStep] | None" = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """Verdict for a single claim against the vault (ADR-052 §1).
 
@@ -2660,6 +2786,10 @@ async def _verify_claim_unchecked(
         # only (see ``_denial_statement_backing``); a miss falls through to
         # the accusation exactly as before.
         absorbed = _denial_statement_backing(claim.text, fig_match.unmatched, idx)
+        if absorbed is None:
+            # MD-Q3 / H2: the posting's own figure named as the step ahead,
+            # backed by the person's recorded limit bound to that scope bar.
+            absorbed = _scope_step_backing(claim.text, fig_match.unmatched, idx, scope_steps)
         if absorbed is None:
             missing = ", ".join(f.raw for f in fig_match.unmatched)
             return ClaimVerdict(
@@ -3117,6 +3247,10 @@ async def audit_document(
     # ADR-100 M-3: the job ledger's verified backing quotes, re-checked against
     # THIS claimable vault once per document (a Fact; never raises).
     backings = _ledger_backings(keyword_ledger, profile, index) if keyword_ledger else None
+    # MD-Q3 / H2: a letter's scope steps (bound recorded limits) — never a CV's.
+    scope_steps = scope_steps_from_ledger(keyword_ledger) if letter_data is not None or (
+        text is not None and document_kind == "cover_letter"
+    ) else None
 
     judgement_sink: list[_SeamCandidate] = []
     pending_result_indices: list[int] = []
@@ -3143,6 +3277,7 @@ async def audit_document(
             ledger_forms=ledger_forms,
             form_index=form_index,
             ledger_backings=backings,
+            scope_steps=scope_steps,
         )
         if isinstance(verdict, _SeamCandidate):
             # The candidate's own fail-safe verdict is the placeholder — if

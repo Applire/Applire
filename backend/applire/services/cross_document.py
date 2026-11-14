@@ -601,6 +601,10 @@ class KeyGap:
     #: (``bar.recorded_limit``) — named as the step ahead after the real figures,
     #: never as "X is new to me".
     scope: bool = False
+    #: L6 (MD-Q3): the SCOPE POSITIONING block lists the candidate's own figures
+    #: for this step's row (status ``partial`` with a typed value or an attested
+    #: quote). ``False`` on a ``gap`` row: the line then says no figure is on file.
+    scope_figures: bool = False
 
     @property
     def recorded(self) -> bool:
@@ -763,6 +767,15 @@ def _scope_limit(entry: Any) -> dict[str, str] | None:
     return {"id": lid.strip(), "statement": statement.strip()}
 
 
+def _scope_has_figures(entry: dict[str, Any]) -> bool:
+    """Whether ``render_scope_positioning_block`` lists figures for this row — the
+    same predicate (status ``partial`` + a typed value or an attested quote)."""
+    bar = entry.get("bar") if isinstance(entry.get("bar"), dict) else {}
+    return entry.get("status") == "partial" and bool(
+        bar.get("candidate_values") or bar.get("attested")
+    )
+
+
 def key_requirement_gaps(
     keyword_ledger: list[dict[str, Any]] | None,
     denied_concepts: list[Any] | None,
@@ -806,7 +819,9 @@ def key_requirement_gaps(
     groups: dict[str, list[tuple[bool, float, int, int, int, str]]] = {}
     group_statement: dict[str, str | None] = {}
     scope_groups: set[str] = set()
+    scope_figure_groups: set[str] = set()
     order: list[str] = []
+    rows: list[tuple[int, dict[str, Any], str, dict[str, str] | None, str | None, list[str], str]] = []
     for index, entry in enumerate(keyword_ledger or []):
         scope_limit = _scope_limit(entry)
         if scope_limit is None and not _is_key_gap_row(entry):
@@ -830,8 +845,18 @@ def key_requirement_gaps(
                 label_of[index] = scope
             forms = _ledger_forms(entry)
         key = f"s:{ats_norm(statement)}" if statement else f"c:{ats_norm(concept)}"
+        rows.append((index, entry, concept, scope_limit, statement, forms, key))
+    # MD-Q3 / adversarial M1: a recorded statement that is a REQUIREMENTS row's
+    # denial stays that row's — a scope row bound to the same statement leaves the
+    # ladder (the denial is named as a lack, never as "the step ahead").
+    requirement_keys = {r[6] for r in rows if r[3] is None}
+    for index, entry, concept, scope_limit, statement, forms, key in rows:
         if scope_limit is not None:
+            if key in requirement_keys:
+                continue
             scope_groups.add(key)
+            if _scope_has_figures(entry):
+                scope_figure_groups.add(key)
         # RULING D-6 = A: inside the requirements section, mentions and first
         # position are counted WITHIN the section only — a responsibilities mention
         # never lifts a must-have gap. Outside it, L-1 over the whole posting.
@@ -862,6 +887,7 @@ def key_requirement_gaps(
             first_position=min(m[3] for m in pool),
             in_requirements=top[0],
             scope=key in scope_groups,
+            scope_figures=key in scope_figure_groups,
         )
         gaps.append((
             (not gap.in_requirements, -gap.weight, -gap.mentions, gap.first_position, top[4]),
@@ -915,11 +941,30 @@ def letter_gap_ladder(
     return gaps, gaps_to_name(gaps)
 
 
-def gaps_to_name(gaps: list[KeyGap]) -> list[KeyGap]:
+def _g1(gaps: list[KeyGap]) -> list[KeyGap]:
     """G-1: up to two gaps → each is named; three or more → only the most urgent."""
     if len(gaps) <= GAP_LADDER_NAME_ALL_UP_TO:
         return list(gaps)
     return list(gaps[:1])
+
+
+def gaps_to_name(gaps: list[KeyGap]) -> list[KeyGap]:
+    """G-1 over the recorded DENIALS, then a scope step in the room left (MD-Q3 M2).
+
+    The recorded denials are named exactly as if no scope step existed (G-1 among
+    themselves: up to two each, from three on the most urgent one). A scope step
+    (``KeyGap.scope``) only fills the room left under the cap of
+    :data:`GAP_LADDER_NAME_ALL_UP_TO`, most urgent first — so a scope step never
+    crowds a recorded denial out of the named set (adversarial M2: two named
+    denials + one scope step used to make three gaps, and only ONE was named).
+    No denial → G-1 over the scope steps. Order: denials first, then steps."""
+    denials = [g for g in gaps if not g.scope]
+    steps = [g for g in gaps if g.scope]
+    if not denials:
+        return _g1(steps)
+    named = _g1(denials)
+    room = max(0, GAP_LADDER_NAME_ALL_UP_TO - len(named))
+    return named + steps[:room]
 
 
 def named_gap_concepts(named: list[KeyGap]) -> list[str]:
@@ -979,7 +1024,8 @@ def gap_ladder_rule(language: str | None, named: list[KeyGap]) -> str:
         f"einarbeiten clause instead, e.g. {_einarbeiten_examples(language, label)} "
         + (
             "A SCOPE step (marked below) is not \"new to me\": its sentence states the "
-            "candidate's real figures (as the SCOPE POSITIONING content gives them) and then "
+            "candidate's real figures (as the SCOPE POSITIONING content gives them; a step "
+            "marked \"no figure of the candidate's on file\" states none) and then "
             "the posting's scale as the step ahead, in the frame of the candidate's own "
             "statement — never as something already done. "
             if any(g.scope for g in named) else ""
@@ -1008,8 +1054,11 @@ def render_gap_ladder_block(
         "have — a recorded no (counted by code; one recorded statement naming several "
         "concepts counts once; a requirement nobody asked about is not among them and "
         "stays unnamed — RULING L-1). "
-        + ("Each is named below." if total <= GAP_LADDER_NAME_ALL_UP_TO else
-           "From three on ONLY the most urgent one is named — the one below.")
+        + ("Each is named below." if len(named) == total else
+           "From three on ONLY the most urgent one is named — the one below."
+           if len(named) == 1 else
+           # MD-Q3 M2: the most urgent recorded no, plus a scope step in the room left.
+           "ONLY the ones below are named.")
     )
     lines = [
         "=== KEY-REQUIREMENT GAPS (computed — RULING G-1) ===",
@@ -1020,9 +1069,10 @@ def render_gap_ladder_block(
     ]
     for gap in named:
         if gap.scope:
+            on_file = "" if gap.scope_figures else " (no figure of the candidate's on file)"
             lines.append(
-                f"  - {gap.label} — a SCOPE step; the candidate's own words (recorded): "
-                f"\"{gap.statement}\""
+                f"  - {gap.label} — a SCOPE step{on_file}; the candidate's own words "
+                f"(recorded): \"{gap.statement}\""
             )
         elif gap.statement:
             lines.append(

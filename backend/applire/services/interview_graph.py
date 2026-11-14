@@ -547,7 +547,7 @@ async def question_generator_with_profile(
         if isinstance(idx, int) and 0 <= idx < len(gaps):
             current = resolve_gap_cluster(state, gaps[idx])
             if is_scope_cluster(current):
-                return scope_question(current, lang)
+                return scope_question(current, lang, profile or None)
             if is_leadership_kind_cluster(current):
                 return leadership_kind_question(current, lang)
 
