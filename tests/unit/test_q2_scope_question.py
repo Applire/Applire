@@ -425,3 +425,86 @@ def test_the_gap_prompt_asks_for_the_stated_limit_and_keeps_the_status_rule():
 
     assert '"stated_limit"' in SYSTEM_PROMPT
     assert "It does NOT\n    change \"status\"" in SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Founder ruling Q-2 (COORD Q1→Q2) — the leadership-kind ask in the planner
+# ---------------------------------------------------------------------------
+
+_KIND_PROFILE = {"work_experience": [
+    {"id": "w1", "company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter", "team_size": 38},
+    {"id": "w2", "company": "Rasselstein Umformtechnik GmbH", "role": "Schichtleiter", "team_size": 14},
+    {"id": "w3", "company": "Kanzlei", "role": "Assistenz"},
+]}
+
+
+def test_the_kind_ask_follows_the_team_size_scope_question():
+    from applire.services.interview.scope_question import LEADERSHIP_KIND_ID, plan_leadership_kind
+
+    scope = _scope_cluster()
+    ids, cats, by_id = plan_leadership_kind(
+        ["cluster-c", scope["id"], "cluster-b"], {"cluster-c": "C", scope["id"]: "B", "cluster-b": "B"},
+        {"cluster-c": {}, scope["id"]: scope, "cluster-b": {}}, _KIND_PROFILE,
+        posting_weighs_leadership=False,
+    )
+    assert ids == ["cluster-c", scope["id"], LEADERSHIP_KIND_ID, "cluster-b"]
+    assert [e["team_size"] for e in by_id[LEADERSHIP_KIND_ID]["entries"]] == [38, 14]
+    again = plan_leadership_kind(ids, cats, by_id, _KIND_PROFILE, posting_weighs_leadership=True)
+    assert again[0].count(LEADERSHIP_KIND_ID) == 1, "at most once"
+
+
+def test_the_kind_ask_without_a_scope_cluster_needs_a_leadership_posting_and_goes_last():
+    from applire.services.interview.scope_question import LEADERSHIP_KIND_ID, plan_leadership_kind
+
+    base = (["a", "b"], {"a": "C", "b": "B"}, {"a": {}, "b": {}})
+    assert plan_leadership_kind(*base, _KIND_PROFILE, posting_weighs_leadership=False)[0] == ["a", "b"]
+    assert plan_leadership_kind(*base, _KIND_PROFILE, posting_weighs_leadership=True)[0] == [
+        "a", "b", LEADERSHIP_KIND_ID]
+    no_sizes = {"work_experience": [{"company": "X", "role": "Y"}]}
+    assert plan_leadership_kind(*base, no_sizes, posting_weighs_leadership=True)[0] == ["a", "b"]
+
+
+def test_the_kind_question_wording_is_separate_and_has_no_chips():
+    from applire.services.interview.scope_question import (
+        LEADERSHIP_KIND_ID,
+        leadership_kind_question,
+        plan_leadership_kind,
+    )
+
+    _ids, _c, by_id = plan_leadership_kind(["a"], {"a": "B"}, {"a": {}}, _KIND_PROFILE,
+                                          posting_weighs_leadership=True)
+    q = leadership_kind_question(by_id[LEADERSHIP_KIND_ID], "de")
+    assert q == {"question": "Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38, bei "
+                             "Rasselstein Umformtechnik GmbH von 14. War das jeweils disziplinarische "
+                             "Führung (Personalverantwortung) oder fachliche Anleitung?",
+                 "choices": None}
+    one = {**by_id[LEADERSHIP_KIND_ID], "entries": by_id[LEADERSHIP_KIND_ID]["entries"][:1]}
+    assert leadership_kind_question(one, "de")["question"] == (
+        "Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38. War das disziplinarische "
+        "Führung (Personalverantwortung) oder fachliche Anleitung?")
+    assert "120" not in q["question"], "never folded into the scope question (RULING Q2-1)"
+
+
+@pytest.mark.asyncio
+async def test_a_full_interview_asks_scope_then_kind_and_each_turn_advances(db):
+    """Seam: ``_create_targeted_session`` plans the kind ask after the scope cluster;
+    the real generator builds both questions; each answer advances (no follow-up)."""
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.session import create_session, send_message
+
+    scope = _scope_cluster()
+    job = await _seed(db, [scope], [_scope_row()])
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    provider.aparse_json = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    created = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, provider)
+    assert "ca. 120 Mitarbeitenden" in created.question
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=_bridge(False)),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        r1 = await send_message(created.session_id, "Direkt 38, vertretungsweise 90.", db, provider)
+        assert r1.complete is False
+        assert r1.question.startswith("Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38.")
+        r2 = await send_message(created.session_id, "Disziplinarisch, über drei Schichtleiter.", db, provider)
+    assert r2.complete is True

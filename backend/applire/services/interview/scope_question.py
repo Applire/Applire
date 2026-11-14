@@ -286,3 +286,109 @@ def scope_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
         question = (f"{opening} {held} {ask} – permanently or as a deputy – and how does that "
                     "compare with the scale the posting names?")
     return {"question": question, "choices": None}
+
+
+# ---------------------------------------------------------------------------
+# The leadership-kind ask (founder ruling Q-2; COORD Q1→Q2, WP-Q2 builds it in
+# the planner). ONE separate question — never folded into the scope question
+# (RULING Q2-1) — for the roles whose team size is known and whose kind
+# (disciplinary vs functional) is not. Asked at the scope topic (right after the
+# team-size scope question) or, when the plan has none, at the end of a full
+# interview whose posting weighs leadership; at most once per session; the answer
+# is reconciled like any answer. Wording: the coordinator's example (Q-2).
+# ---------------------------------------------------------------------------
+
+LEADERSHIP_KIND = "leadership_kind"
+LEADERSHIP_KIND_ID = "leadership-kind"
+_KIND_MAX_ROLES = 3
+
+
+def _stub_entries_needing_leadership_kind(profile_json: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Local stand-in for Q1's ``role_facts.entries_needing_leadership_kind`` until
+    the branches merge: roles with a typed ``team_size`` > 0 and no recorded kind."""
+    out = []
+    for entry in (profile_json or {}).get("work_experience") or []:
+        if not isinstance(entry, dict):
+            continue
+        size = entry.get("team_size")
+        if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+            continue
+        if entry.get("leadership_kind"):
+            continue
+        out.append({"entry_id": entry.get("id"), "company": entry.get("company") or "",
+                    "role": entry.get("role") or "", "team_size": size})
+    return out
+
+
+def leadership_kind_entries(profile_json: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Q1's predicate when present (``services/profile/role_facts.py``), else the stub."""
+    try:
+        from applire.services.profile.role_facts import entries_needing_leadership_kind
+    except ImportError:
+        return _stub_entries_needing_leadership_kind(profile_json)
+    return list(entries_needing_leadership_kind(profile_json) or [])
+
+
+def is_leadership_kind_cluster(cluster: Any) -> bool:
+    return isinstance(cluster, dict) and cluster.get("kind") == LEADERSHIP_KIND
+
+
+def is_fact_built_cluster(cluster: Any) -> bool:
+    """A cluster whose one question is built from facts and asked once — the turn
+    always advances (scope cluster, leadership-kind ask)."""
+    return is_scope_cluster(cluster) or is_leadership_kind_cluster(cluster)
+
+
+def plan_leadership_kind(
+    cluster_ids: list[str],
+    categories: dict[str, str],
+    clusters_by_id: dict[str, dict[str, Any]],
+    profile_json: dict[str, Any] | None,
+    *,
+    posting_weighs_leadership: bool,
+) -> tuple[list[str], dict[str, str], dict[str, dict[str, Any]]]:
+    """Insert the leadership-kind ask into a full interview plan (pure).
+
+    Right after the team-size scope cluster when the plan holds one; otherwise at
+    the end, only when the posting weighs leadership. Nothing when no listed role
+    needs the kind, or the plan already holds the ask."""
+    if LEADERSHIP_KIND_ID in cluster_ids:
+        return cluster_ids, categories, clusters_by_id
+    entries = [e for e in leadership_kind_entries(profile_json) if isinstance(e, dict)][:_KIND_MAX_ROLES]
+    if not entries:
+        return cluster_ids, categories, clusters_by_id
+    anchor = next(
+        (i for i, cid in enumerate(cluster_ids)
+         if is_scope_cluster(clusters_by_id.get(cid))
+         and ((clusters_by_id.get(cid) or {}).get("scope") or {}).get("kind") == "team_size"),
+        None,
+    )
+    if anchor is None and not posting_weighs_leadership:
+        return cluster_ids, categories, clusters_by_id
+    cluster = {"id": LEADERSHIP_KIND_ID, "kind": LEADERSHIP_KIND, "label": LEADERSHIP_KIND_ID,
+               "category": "B", "gaps": [], "jd_skills": [], "jd_context": "",
+               "entries": entries}
+    at = len(cluster_ids) if anchor is None else anchor + 1
+    ids = [*cluster_ids[:at], LEADERSHIP_KIND_ID, *cluster_ids[at:]]
+    return ids, {**categories, LEADERSHIP_KIND_ID: "B"}, {**clusters_by_id, LEADERSHIP_KIND_ID: cluster}
+
+
+def leadership_kind_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+    """The ask, one question for every listed role. No chips."""
+    lang = "de" if str(lang or "").lower().startswith("de") else "en"
+    entries = [e for e in cluster.get("entries") or [] if isinstance(e, dict)]
+    def _where(e):
+        return str(e.get("company") or e.get("role") or "").strip() or "—"
+    if lang == "de":
+        first = f"Bei {_where(entries[0])} steht eine Teamgröße von {entries[0].get('team_size')}"
+        rest = "".join(f", bei {_where(e)} von {e.get('team_size')}" for e in entries[1:])
+        ask = ("War das jeweils disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?"
+               if len(entries) > 1 else
+               "War das disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?")
+        return {"question": f"{first}{rest}. {ask}", "choices": None}
+    first = f"At {_where(entries[0])} your profile shows a team size of {entries[0].get('team_size')}"
+    rest = "".join(f", at {_where(e)} of {e.get('team_size')}" for e in entries[1:])
+    ask = ("In each case, was that disciplinary leadership (line management) or functional guidance?"
+           if len(entries) > 1 else
+           "Was that disciplinary leadership (line management) or functional guidance?")
+    return {"question": f"{first}{rest}. {ask}", "choices": None}
