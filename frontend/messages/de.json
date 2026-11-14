@@ -112,8 +112,8 @@
     "sourceTruncatedNote": "Nur die ersten ≈ {percent} % Deiner Datei wurden gelesen – prüfe, ob alle Stationen übernommen sind.",
     "jdLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab — du kannst den Text später einfügen",
     "jdLinkedinOffPaste": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge die Stellenbeschreibung unten ein, um fortzufahren.",
-    "uploadNeedsKey": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte deine Admin, dir den Schlüssel der Instanz freizugeben.",
-    "uploadKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag deine Admin."
+    "uploadNeedsKey": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "uploadKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration."
   },
   "flow": {
     "stepProfile": "1 Profil",
@@ -357,8 +357,8 @@
     "memberRuledOutSr": "(durch deine Antwort ausgeschlossen)",
     "coverageRuledOut": "Durch deine Antwort ausgeschlossen",
     "foldedMembersLabel": "Später zu diesem Thema dazugekommen:",
-    "analysisKeyRequired": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte deine Admin, dir den Schlüssel der Instanz freizugeben.",
-    "analysisKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag deine Admin."
+    "analysisKeyRequired": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "analysisKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration."
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -666,8 +666,8 @@
       "certification": "Zertifikat: {name}",
       "education": "Ausbildung: {name}"
     },
-    "generationFailedKeyRequired": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte deine Admin, dir den Schlüssel der Instanz freizugeben.",
-    "generationFailedKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag deine Admin."
+    "generationFailedKeyRequired": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "generationFailedKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration."
   },
   "saveScopePrompt": {
     "saveToProfile": "Wo soll die Änderung gelten?",
@@ -762,8 +762,8 @@
     "failedReason_llm_timeout": "Die KI hat zu lange gebraucht. Deine Eingaben sind gespeichert – erstelle es erneut.",
     "failedReason_provider_unavailable": "Der KI-Dienst war nicht erreichbar. Deine Eingaben sind gespeichert – erstelle es erneut.",
     "failedReason_llm_truncated": "Die Antwort der KI brach ab. Deine Eingaben sind gespeichert – erstelle es erneut.",
-    "failedReason_provider_key_required": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte deine Admin, dir den Schlüssel der Instanz freizugeben.",
-    "failedReason_provider_key_unreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag deine Admin."
+    "failedReason_provider_key_required": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "failedReason_provider_key_unreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration."
   },
   "settings": {
     "title": "Einstellungen",
@@ -3102,7 +3102,7 @@
   "providerKey": {
     "cardTitle": "Dein KI-Anbieter-Schlüssel",
     "payerLead": "Deine KI-Arbeit bezahlt: {payer}",
-    "payerInstance": "die Instanz (freigegeben von deiner Admin)",
+    "payerInstance": "die Instanz (freigegeben von der Administration)",
     "payerUser": "dein eigener Schlüssel ({family}, {model})",
     "payerNone": "noch niemand – hinterlege einen Schlüssel",
     "instanceModeStored": "Diese Instanz nutzt derzeit ihren eigenen Schlüssel für alle; dein Schlüssel ist gespeichert, wird aber nicht genutzt.",
@@ -3116,7 +3116,7 @@
     "saved": "Schlüssel gespeichert.",
     "remove": "Schlüssel entfernen",
     "removeTitle": "Schlüssel entfernen?",
-    "removeBody": "Ohne Schlüssel kannst du keine Dokumente erstellen, bis du wieder einen hinterlegst oder deine Admin dir den Instanz-Schlüssel freigibt.",
+    "removeBody": "Ohne Schlüssel kannst du keine Dokumente erstellen, bis du wieder einen hinterlegst oder die Administration dir den Instanz-Schlüssel freigibt.",
     "removeConfirm": "Entfernen",
     "removed": "Schlüssel entfernt.",
     "finePrint": "Der Schlüssel wird verschlüsselt gespeichert und nie wieder angezeigt, auch nicht der Admin. Solange er gespeichert ist, kann der Betreiber dieser Instanz ihn technisch nutzen (der laufende Server hält den Entschlüsselungsschlüssel) – entferne ihn, wenn du Applire nicht mehr nutzt. Deine Lebensläufe und Antworten gehen an den Anbieter, den du wählst.",
@@ -3125,7 +3125,7 @@
     "errInvalidFamily": "Dieser Anbieter wird nicht unterstützt.",
     "errInvalidModel": "Dieser Modellname ist nicht gültig.",
     "errInvalidKey": "Dieser Schlüssel sieht nicht gültig aus. Prüfe, ob du ihn vollständig kopiert hast.",
-    "errSecretMissing": "Diese Instanz kann noch keine Schlüssel speichern. Frag deine Admin.",
+    "errSecretMissing": "Diese Instanz kann noch keine Schlüssel speichern. Frag die Administration.",
     "errForbidden": "Schlüssel lassen sich nur angemeldet ändern, nicht mit einem API-Token.",
     "errGeneric": "Der Schlüssel konnte nicht gespeichert werden. Bitte versuche es erneut.",
     "testKeyRejected": "Der Anbieter hat diesen Schlüssel abgelehnt. Es wurde nichts gespeichert.",
@@ -3135,8 +3135,8 @@
     "testTimeout": "Der Anbieter hat nicht rechtzeitig geantwortet. Versuche es gleich noch einmal.",
     "testUnreachable": "Der Anbieter war nicht erreichbar. Versuche es gleich noch einmal.",
     "testFailedOther": "Der Testaufruf ist fehlgeschlagen. Es wurde nichts gespeichert.",
-    "needKey": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte deine Admin, dir den Schlüssel der Instanz freizugeben.",
-    "needKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag deine Admin.",
+    "needKey": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "needKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration.",
     "addKey": "Schlüssel hinterlegen",
     "dialogTitle": "KI-Schlüssel nötig",
     "dialogClose": "Schließen"
