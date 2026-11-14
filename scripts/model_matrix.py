@@ -1326,7 +1326,10 @@ class CallBudget:
 async def run_matrix(args: argparse.Namespace, fixtures: Fixtures, shapes: list[str]) -> dict[str, Any]:
     from applire.providers.llm import get_provider
 
-    provider = get_provider()
+    # ADR-096 cl. 4: operator tooling pays as `system` (the instance key).
+    from applire.ownership import unscoped as _unscoped
+    with _unscoped("tooling"):
+        provider = get_provider()
     print(f"provider: {type(provider).__name__} model={args.model or '<env default>'}", flush=True)
     semaphore = asyncio.Semaphore(max(1, args.concurrency))
     budget = (
@@ -1669,7 +1672,10 @@ def summarise_analysis(records: list[dict[str, Any]], seam: str) -> dict[str, An
 async def run_analysis_matrix(args: argparse.Namespace, cells: list[Path]) -> dict[str, Any]:
     from applire.providers.llm import get_provider
 
-    provider = get_provider()
+    # ADR-096 cl. 4: operator tooling pays as `system` (the instance key).
+    from applire.ownership import unscoped as _unscoped
+    with _unscoped("tooling"):
+        provider = get_provider()
     print(f"provider: {type(provider).__name__} model={args.model or '<env default>'} seam={args.seam}", flush=True)
     semaphore = asyncio.Semaphore(max(1, args.concurrency))
     budget = CallBudget(Path(args.llm_log_dir), args.max_calls) if args.max_calls is not None else None

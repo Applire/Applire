@@ -483,6 +483,20 @@ def _truncate(value: Any) -> Any:
     return value
 
 
+def _scrubbed(value: Any) -> Any:
+    """ADR-096 cl. 3: provider error text (and a failed call's raw reply) can
+    echo the key it was sent with — a person's own key included. Scrubbed like
+    every other log channel; a non-string passes through."""
+    if not isinstance(value, str):
+        return value
+    from applire.redaction import scrub_secrets
+
+    try:
+        return scrub_secrets(value)
+    except Exception:  # noqa: BLE001 — a log line must never raise
+        return "[unscrubbable error text withheld]"
+
+
 def _record(**fields: Any) -> None:
     directory = settings.llm_debug_log_dir or "logs/llm"
     try:
@@ -522,7 +536,7 @@ class _LoggingProvider(LLMProvider):
             result = await fn(prompt, **kwargs)
             return result
         except Exception as exc:  # re-raised in finally's caller; we only observe it
-            error = f"{type(exc).__name__}: {exc}"
+            error = _scrubbed(f"{type(exc).__name__}: {exc}")
             if isinstance(exc, LLMResponseParseError):
                 # R2-13 (P-1): the raw reply that could not be read. Before
                 # build 4 this record kept `response: None`, so the founder's
@@ -548,7 +562,7 @@ class _LoggingProvider(LLMProvider):
                 latency_ms=round((time.monotonic() - start) * 1000),
                 ok=error is None,
                 error=error,
-                response=_truncate(result),
+                response=_truncate(_scrubbed(result) if error is not None else result),
                 # M-4: the reasoning trace the provider seam stripped before
                 # parsing. It reaches THIS artefact and no other — the answer
                 # the caller got never contained it, and `llm_usage` counts it

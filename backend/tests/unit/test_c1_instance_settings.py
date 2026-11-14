@@ -619,3 +619,31 @@ def test_cloud_cannot_switch_retention_off(monkeypatch):
     assert exc.value.extra["reason"] == "mandatory_in_cloud"
     app_config.set_overlay_latest({"retention_enabled": False})
     assert svc.retention_state() == (True, "default")
+
+
+# --- ADR-096 cl. 3: LLM_KEY_MODE on the panel (Sorbet WP-K) ------------------------
+
+
+@pytest.mark.asyncio
+async def test_switching_to_user_mode_without_the_env_secret_is_refused(env, monkeypatch):
+    db, client, _, _ = env
+    monkeypatch.setattr(settings, "provider_key_secret", "")
+    r = await _put(client, {"LLM_KEY_MODE": "user"})
+    assert r.status_code == 409 and r.json()["detail"]["error_code"] == "provider_key_secret_missing"
+    assert (await db.execute(select(InstanceSetting))).first() is None
+
+
+@pytest.mark.asyncio
+async def test_user_mode_on_the_panel_reports_who_would_see_the_notice(env, monkeypatch):
+    db, client, _, admin = env
+    monkeypatch.setattr(settings, "provider_key_secret", "panel-test-provider-key-secret-0123")
+    await add_user(db, email="nokey@example.org")
+    r = await _put(client, {"LLM_KEY_MODE": "user"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert _item(body, "LLM_KEY_MODE")["value"] == "user"
+    assert body["key_mode"]["mode"] == "user" and body["key_mode"]["secret_set"] is True
+    # The admin and the new person: neither has a key or a grant.
+    assert body["key_mode"]["users_without_payer"] == 2
+    r = await _put(client, {"LLM_KEY_MODE": "nonsense"})
+    assert r.status_code == 422

@@ -111,7 +111,9 @@
     "notAppliedMore": "+{count} more",
     "sourceTruncatedNote": "Only the first ≈ {percent}% of your file was read — check that all your positions came through.",
     "jdLinkedinOff": "This instance does not fetch LinkedIn pages — you can paste the text later",
-    "jdLinkedinOffPaste": "This instance does not fetch LinkedIn pages. Paste the job description below to continue."
+    "jdLinkedinOffPaste": "This instance does not fetch LinkedIn pages. Paste the job description below to continue.",
+    "uploadNeedsKey": "To generate documents, add your own AI provider key — or ask your admin to let you use this instance's key.",
+    "uploadKeyUnreadable": "Your stored key can't be read right now. Ask your admin."
   },
   "flow": {
     "stepProfile": "1 Profile",
@@ -354,7 +356,9 @@
     "memberWordingQuoted": "“{wording}”",
     "memberRuledOutSr": "(ruled out by your answer)",
     "coverageRuledOut": "Ruled out by your answer",
-    "foldedMembersLabel": "Added to this topic later:"
+    "foldedMembersLabel": "Added to this topic later:",
+    "analysisKeyRequired": "To generate documents, add your own AI provider key — or ask your admin to let you use this instance's key.",
+    "analysisKeyUnreadable": "Your stored key can't be read right now. Ask your admin."
   },
   "interview": {
     "loading": "Starting interview…",
@@ -661,7 +665,9 @@
     "entrySectionLabel": {
       "certification": "Certification: {name}",
       "education": "Education: {name}"
-    }
+    },
+    "generationFailedKeyRequired": "To generate documents, add your own AI provider key — or ask your admin to let you use this instance's key.",
+    "generationFailedKeyUnreadable": "Your stored key can't be read right now. Ask your admin."
   },
   "saveScopePrompt": {
     "saveToProfile": "Where should this change apply?",
@@ -755,7 +761,9 @@
     "failedRetry": "Create it again",
     "failedReason_llm_timeout": "The AI took too long. Your inputs are saved – create it again.",
     "failedReason_provider_unavailable": "The AI service could not be reached. Your inputs are saved – create it again.",
-    "failedReason_llm_truncated": "The AI's answer was cut off. Your inputs are saved – create it again."
+    "failedReason_llm_truncated": "The AI's answer was cut off. Your inputs are saved – create it again.",
+    "failedReason_provider_key_required": "To generate documents, add your own AI provider key — or ask your admin to let you use this instance's key.",
+    "failedReason_provider_key_unreadable": "Your stored key can't be read right now. Ask your admin."
   },
   "settings": {
     "title": "Settings",
@@ -2605,7 +2613,19 @@
     "actionOpenAccount": "Open your account",
     "resetConfirmTitle": "Create a reset link for {email}?",
     "resetConfirmBody": "With the link {email} sets a new password themselves. It is valid for one hour and works only once. An earlier link that is still valid stops working afterwards. The current password stays valid until the person uses the link.",
-    "resetConfirm": "Create link"
+    "resetConfirm": "Create link",
+    "colAiKey": "AI key",
+    "keyInstance": "Instance (granted)",
+    "keyOwn": "own",
+    "keyNone": "none",
+    "actionGrantKey": "Grant instance key",
+    "actionRevokeGrant": "Revoke grant",
+    "grantKeyTitle": "Grant the instance key to {email}?",
+    "grantKeyBody": "{email} will then run on this instance's provider key, and you pay for their generations. You can revoke it at any time; work already started finishes.",
+    "grantKeyConfirm": "Grant",
+    "revokeGrantTitle": "Revoke the grant for {email}?",
+    "revokeGrantBody": "{email} will then need their own key.",
+    "revokeGrantConfirm": "Revoke"
   },
   "adminNav": {
     "ariaLabel": "Administration",
@@ -2676,7 +2696,9 @@
     "activityLink": "Full activity log",
     "retentionOffBanner": "Automatic deletion is off. {count, plural, one {# other person has} other {# other people have}} an account on this instance — their data stays until you or they delete it.",
     "chipBackupPending": "Backup — not set up yet",
-    "chipFailedJobs": "{count, plural, one {# failed job} other {# failed jobs}} — see below"
+    "chipFailedJobs": "{count, plural, one {# failed job} other {# failed jobs}} — see below",
+    "reasonKeyRequired": "The person has no AI provider key and no grant",
+    "reasonKeyUnreadable": "The person's stored key could not be read"
   },
   "adminSettings": {
     "intro": "What you set here applies to everyone on this instance and to their agents.",
@@ -2763,7 +2785,12 @@
     "errorGeneric": "That did not work. Nothing was changed.",
     "dependencyGeneric": "Dependency {code}",
     "retentionAlwaysIntro": "Whatever this switch says, Applire still deletes:",
-    "alwaysAuthLinks": "Expired sign-in links and sessions"
+    "alwaysAuthLinks": "Expired sign-in links and sessions",
+    "keyModeTitle": "Who pays for AI calls?",
+    "keyModeInstance": "Instance — everyone on this instance's key",
+    "keyModeUser": "User — each person on their own key unless granted",
+    "keyModeWithout": "{count, plural, one {# person has} other {# people have}} neither a key nor a grant and will see the notice.",
+    "keyModeSecretMissing": "PROVIDER_KEY_SECRET is not set — the User mode can only be switched on after that."
   },
   "adminAudit": {
     "intro": "Who changed what about accounts, tokens and settings, and when. Entries cannot be changed.",
@@ -3071,5 +3098,49 @@
       "fieldValue": "Senior Software Engineer",
       "back": "← Back to Dashboard"
     }
+  },
+  "providerKey": {
+    "cardTitle": "Your AI provider key",
+    "payerLead": "Your AI work is paid by: {payer}",
+    "payerInstance": "this instance (granted by your admin)",
+    "payerUser": "your own key ({family}, {model})",
+    "payerNone": "nobody yet — add a key",
+    "instanceModeStored": "This instance currently uses its own key for everyone; your key is stored but not used.",
+    "unreadable": "Your stored key can no longer be read — please enter it again.",
+    "fieldFamily": "Provider",
+    "fieldModel": "Model",
+    "fieldKey": "API key",
+    "testBeforeSave": "Test the key with one small call before saving",
+    "save": "Save key",
+    "saving": "Saving…",
+    "saved": "Key saved.",
+    "remove": "Remove key",
+    "removeTitle": "Remove your key?",
+    "removeBody": "Without a key you can't generate documents until you add one again or your admin grants you the instance key.",
+    "removeConfirm": "Remove",
+    "removed": "Key removed.",
+    "finePrint": "The key is stored encrypted and never shown again, not even to the admin. While it is stored, the operator of this instance can technically use it (the running server holds the decryption key) — remove it when you stop using Applire. Your CVs and answers go to the provider you choose.",
+    "modelGuideLink": "Which model?",
+    "errInvalidBody": "Please fill in provider, model and key.",
+    "errInvalidFamily": "This provider isn't supported.",
+    "errInvalidModel": "This model name isn't valid.",
+    "errInvalidKey": "This key doesn't look valid. Check that you copied all of it.",
+    "errSecretMissing": "This instance can't store keys yet. Ask your admin.",
+    "errTestThrottled": "Too many key tests in a short time. Wait a few minutes, or save without the test.",
+    "errConflict": "Your key was saved from another tab at the same moment. Reload the page and check which key is stored.",
+    "errForbidden": "Keys can only be changed while signed in, not with an API token.",
+    "errGeneric": "The key could not be saved. Please try again.",
+    "testKeyRejected": "The provider rejected this key. Nothing was saved.",
+    "testOutOfCredit": "The key works, but the account has no credit left. Nothing was saved.",
+    "testModelNotFound": "The provider doesn't know this model. Nothing was saved.",
+    "testRateLimited": "The provider is throttling requests right now. Try again in a moment.",
+    "testTimeout": "The provider did not answer in time. Try again in a moment.",
+    "testUnreachable": "The provider could not be reached. Try again in a moment.",
+    "testFailedOther": "The test call failed. Nothing was saved.",
+    "needKey": "To generate documents, add your own AI provider key — or ask your admin to let you use this instance's key.",
+    "needKeyUnreadable": "Your stored key can't be read right now. Ask your admin.",
+    "addKey": "Add key",
+    "dialogTitle": "AI key needed",
+    "dialogClose": "Close"
   }
 }

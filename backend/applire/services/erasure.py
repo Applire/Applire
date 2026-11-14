@@ -305,6 +305,13 @@ async def _delete_owned(db: AsyncSession, uid: uuid.UUID, scope: ErasureScope) -
 
     if scope == "account":
         await _run("user_settings", delete(UserSettings).where(UserSettings.user_id == uid))
+        # ADR-096 cl. 2: the person's own provider key goes with the account
+        # (a vault reset keeps it: the account, and who pays for it, stay).
+        from applire.models.allowance import UserProviderKey
+
+        await _run(
+            "user_provider_keys", delete(UserProviderKey).where(UserProviderKey.user_id == uid)
+        )
     else:
         await db.execute(
             update(UserSettings)
@@ -348,6 +355,17 @@ async def _delete_identity(db: AsyncSession, uid: uuid.UUID) -> dict[str, int]:
         .execution_options(synchronize_session=False)
     )
     counts["llm_usage_detached"] = int(r.rowcount or 0)
+    # ADR-096 cl. 9 / ADR-097 cl. 6: ledger rows outlive the account. The person
+    # link goes; the pseudonymous subject stays (the counts survive re-registration).
+    from applire.models.allowance import AllowanceLedger
+
+    r = await db.execute(
+        update(AllowanceLedger)
+        .where(AllowanceLedger.user_id == uid)
+        .values(user_id=None)
+        .execution_options(synchronize_session=False)
+    )
+    counts["allowance_ledger_detached"] = int(r.rowcount or 0)
     return counts
 
 
@@ -464,6 +482,10 @@ def tombstone_identity(user, *, now: datetime | None = None) -> None:
     user.email_verified_at = None
     user.photo_consent = False
     user.photo_consent_at = None
+    # ADR-096: a tombstone is paid for by nobody and carries no derivative of
+    # the address (the ledger keeps the subject, cl. 9).
+    user.instance_key_granted_at = None
+    user.allowance_subject = None
     user.link_epoch = (user.link_epoch or 0) + 1
     if user.deleted_at is None:
         user.deleted_at = stamp

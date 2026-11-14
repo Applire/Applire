@@ -52,6 +52,11 @@ export function failedReason(code: string | null | undefined): MsgRef | null {
       return { key: "reasonProviderUnavailable" };
     // R2-13 (Hazelnut build 4): the import's merge call failed after its one
     // retry and nothing was written (classify_import_error).
+    // ADR-096: a person without a key/grant (or an unreadable key) was refused.
+    case "provider_key_required":
+      return { key: "reasonKeyRequired" };
+    case "provider_key_unreadable":
+      return { key: "reasonKeyUnreadable" };
     case "not_saved":
       return { key: "reasonNotSaved" };
     default:

@@ -83,6 +83,9 @@ IDENTITY_TABLES: frozenset[str] = frozenset(
         "reauth_grants",
         "llm_usage",
         "audit_events",
+        # ADR-096 cl. 8/9: instance accounting attributed to a person; the rows
+        # outlive the account (user_id -> NULL, subject_hash stays).
+        "allowance_ledger",
     }
 )
 

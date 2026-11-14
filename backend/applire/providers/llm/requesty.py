@@ -47,6 +47,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
+    _drop_environment_identity,
+    require_strict_key,
     unclassified_provider_error,
     LLMProvider,
     is_schema_rejection_message,
@@ -111,17 +113,25 @@ class RequestyProvider(LLMProvider):
         timeout: int = 30,
         disable_thinking: bool | None = None,
         reasoning_effort: str | None = None,
+        strict_key: bool = False,
     ) -> None:
         super().__init__(timeout=timeout)
-        self._latch_scope = base_url or settings.requesty_base_url or _DEFAULT_BASE_URL
+        if strict_key:
+            # ADR-096 cl. 4: the user's key, the public EU endpoint, never settings.
+            require_strict_key(api_key, model)
+            self._latch_scope = base_url or _DEFAULT_BASE_URL
+        else:
+            self._latch_scope = base_url or settings.requesty_base_url or _DEFAULT_BASE_URL
         self._client = openai.AsyncOpenAI(
-            api_key=api_key or settings.requesty_api_key,
+            api_key=api_key if strict_key else (api_key or settings.requesty_api_key),
             base_url=self._latch_scope,
             default_headers={
                 "HTTP-Referer": _HTTP_REFERER,
                 "X-Title": _X_TITLE,
             },
         )
+        if strict_key:
+            _drop_environment_identity(self._client)
         self._model = model or settings.requesty_model or "mistral/mistral-medium-3-5"
         # #179: Requesty accepted disable_thinking in the signature but never sent
         # anything — a reasoning model burned the whole output budget on hidden

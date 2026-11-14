@@ -30,7 +30,7 @@ from applire.schemas.admin import (
     IssuedLink,
     RevokeTokensResponse,
 )
-from applire.services import mail
+from applire.services import allowance, mail
 from applire.services.admin import metadata as admin_metadata
 from applire.services.admin import users as accounts
 from applire.services.admin.links import (
@@ -48,6 +48,7 @@ def _item(
     meta: admin_metadata.UserMetadata,
     invite_expires_at=None,
     token_count: int | None = None,
+    has_provider_key: bool = False,
 ) -> AdminUserItem:
     status_ = accounts.user_status(user)
     return AdminUserItem(
@@ -66,6 +67,8 @@ def _item(
             ai_tokens_30d=meta.ai_tokens_30d,
             active_token_count=token_count,
         ),
+        instance_key_granted_at=user.instance_key_granted_at,
+        has_provider_key=has_provider_key,
     )
 
 
@@ -73,7 +76,8 @@ async def _one_item(db: AsyncSession, user: User) -> AdminUserItem:
     meta = (await admin_metadata.collect(db, [user.id]))[user.id]
     invites = await newest_open_invite_expiry(db, [user.id])
     tokens = await live_token_counts(db, [user.id])
-    return _item(user, meta, invites.get(user.id), tokens.get(user.id))
+    keyed = await allowance.users_with_key(db, [user.id])
+    return _item(user, meta, invites.get(user.id), tokens.get(user.id), user.id in keyed)
 
 
 async def _deliver(
@@ -112,8 +116,12 @@ async def list_users(
     metas = await admin_metadata.collect(db, ids)
     invites = await newest_open_invite_expiry(db, ids)
     tokens = await live_token_counts(db, ids)
+    keyed = await allowance.users_with_key(db, ids)
     return AdminUserListResponse(
-        users=[_item(u, metas[u.id], invites.get(u.id), tokens.get(u.id)) for u in users]
+        users=[
+            _item(u, metas[u.id], invites.get(u.id), tokens.get(u.id), u.id in keyed)
+            for u in users
+        ]
     )
 
 
@@ -143,7 +151,8 @@ async def patch_user(
 ) -> AdminUserItem:
     try:
         user = await accounts.patch_user(db, actor=admin, user_id=user_id,
-                                         role=body.role, disabled=body.disabled)
+                                         role=body.role, disabled=body.disabled,
+                                         instance_key_granted=body.instance_key_granted)
     except accounts.AccountError as exc:
         raise exc.to_http() from exc
     return await _one_item(db, user)

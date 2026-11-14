@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Iterator
 
 REDACTED = "[redacted]"
 
@@ -66,9 +68,38 @@ def _candidate_values(name: str) -> list[Any]:
     return found
 
 
+#: ADR-096 cl. 3: a user key being validated before it is stored (the key test)
+#: is in no payer decision yet; it is scrubbed while the test runs.
+_scoped_user_keys: ContextVar[tuple[str, ...]] = ContextVar("applire_scoped_user_keys", default=())
+
+
+@contextmanager
+def user_key_in_scope(key: str) -> Iterator[None]:
+    token = _scoped_user_keys.set((*_scoped_user_keys.get(), key))
+    try:
+        yield
+    finally:
+        _scoped_user_keys.reset(token)
+
+
+def _user_key_values() -> list[str]:
+    """ADR-096 cl. 3: the current payer decision's user key, the keys this
+    process decrypted recently, and a key under test — scrubbed like any
+    configured secret, from HTTP details, MCP messages, logs and job errors."""
+    values: list[str] = list(_scoped_user_keys.get())
+    try:
+        from applire.services.allowance import secret_values_in_context
+
+        values.extend(secret_values_in_context())
+    except Exception:  # noqa: BLE001 — a scrub may never fail on an import
+        pass
+    return values
+
+
 def configured_secret_values() -> list[str]:
     """Every configured secret value (and its escaped forms), longest first —
-    from the environment and from the instance-settings overlay alike."""
+    from the environment and from the instance-settings overlay alike, plus the
+    user provider keys in play (ADR-096 cl. 3)."""
     from applire.config import settings
 
     values: set[str] = set()
@@ -79,6 +110,10 @@ def configured_secret_values() -> list[str]:
             if isinstance(value, str) and len(value.strip()) >= _MIN_SECRET_LEN:
                 values |= _escaped_forms(value)
                 values |= _escaped_forms(value.strip())
+    for value in _user_key_values():
+        if isinstance(value, str) and len(value.strip()) >= _MIN_SECRET_LEN:
+            values |= _escaped_forms(value)
+            values |= _escaped_forms(value.strip())
     return sorted(values, key=len, reverse=True)
 
 

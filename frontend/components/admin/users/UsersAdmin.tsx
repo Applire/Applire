@@ -29,8 +29,9 @@ import {
 } from "./api";
 import { AddPersonDialog, ConfirmDialog, DeleteUserDialog, LinkDialog } from "./UserDialogs";
 import { UsersTable, type UserAction } from "./UsersTable";
+import { getProviderKey } from "@/components/account/api";
 
-type Confirm = { action: "makeAdmin" | "disable" | "revokeTokens" | "makeUser" | "resetLink"; user: AdminUser };
+type Confirm = { action: "makeAdmin" | "disable" | "revokeTokens" | "makeUser" | "resetLink" | "grantKey" | "revokeGrant"; user: AdminUser };
 
 export function UsersAdmin() {
   const t = useTranslations("adminUsers");
@@ -47,10 +48,17 @@ export function UsersAdmin() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // ADR-096 / K-1: the key column and the grant actions show only while the
+  // instance asks people for their own key, or while a grant still exists (so
+  // it can be revoked after switching back). A failed read shows nothing extra;
+  // the server enforces the mode either way.
+  const [keyModeUser, setKeyModeUser] = useState(false);
+
   const load = useCallback(async () => {
-    const list = await listUsers();
+    const [list, keyState] = await Promise.all([listUsers(), getProviderKey()]);
     setLoadFailed(list === null);
     if (list) setUsers(list);
+    setKeyModeUser(keyState?.key_mode === "user");
   }, []);
 
   useEffect(() => {
@@ -84,7 +92,7 @@ export function UsersAdmin() {
     void load();
   }
 
-  async function patch(u: AdminUser, body: { role?: "admin" | "user"; disabled?: boolean }): Promise<string | null> {
+  async function patch(u: AdminUser, body: { role?: "admin" | "user"; disabled?: boolean; instance_key_granted?: boolean }): Promise<string | null> {
     try {
       const res = await patchUser(u.id, body);
       if (res.ok) return null;
@@ -142,6 +150,8 @@ export function UsersAdmin() {
     let err: string | null = null;
     if (action === "makeAdmin") err = await patch(u, { role: "admin" });
     else if (action === "disable") err = await patch(u, { disabled: true });
+    else if (action === "grantKey") err = await patch(u, { instance_key_granted: true });
+    else if (action === "revokeGrant") err = await patch(u, { instance_key_granted: false });
     else if (action === "resetLink") {
       // Confirmed: issue the link; the result (or its failure) has its own dialog.
       setBusy(false);
@@ -181,6 +191,10 @@ export function UsersAdmin() {
     switch (c.action) {
       case "makeAdmin":
         return { title: t("makeAdminTitle", { email }), body: t("makeAdminBody"), label: t("makeAdminConfirm"), danger: false };
+      case "grantKey":
+        return { title: t("grantKeyTitle", { email }), body: t("grantKeyBody", { email }), label: t("grantKeyConfirm"), danger: false };
+      case "revokeGrant":
+        return { title: t("revokeGrantTitle", { email }), body: t("revokeGrantBody", { email }), label: t("revokeGrantConfirm"), danger: true };
       case "disable":
         return { title: t("disableTitle", { email }), body: t("disableBody"), label: t("disableConfirm"), danger: true };
       case "revokeTokens":
@@ -223,7 +237,14 @@ export function UsersAdmin() {
           {t("loadFailed")}
         </p>
       )}
-      {users && <UsersTable users={users} meId={me?.id ?? null} onAction={onAction} />}
+      {users && (
+        <UsersTable
+          users={users}
+          meId={me?.id ?? null}
+          onAction={onAction}
+          showKeys={keyModeUser || users.some((u) => Boolean(u.instance_key_granted_at))}
+        />
+      )}
 
       {adding && (
         <AddPersonDialog

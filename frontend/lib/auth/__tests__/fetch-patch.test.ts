@@ -124,3 +124,48 @@ describe("installAuthFetch — global 401 handler (US330)", () => {
     expect(isApiUrl("/apix", "http://localhost:3000")).toBe(false);
   });
 });
+
+describe("installAuthFetch — provider-key refusals (ADR-096)", () => {
+  const events: string[] = [];
+  const onEvent = (e: Event) => events.push((e as CustomEvent<{ code: string }>).detail.code);
+  beforeEach(() => {
+    resetAuthFetchStateForTests();
+    setLocation("/flow/6f1c/cv");
+    events.length = 0;
+    window.addEventListener("applire:provider-key-required", onEvent);
+  });
+  afterEach(() => {
+    window.removeEventListener("applire:provider-key-required", onEvent);
+    window.fetch = realFetch;
+    Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+  });
+  function install(res: Response) {
+    window.fetch = vi.fn(async () => res) as unknown as typeof fetch;
+    installAuthFetch();
+  }
+  const refusal = (code: string) => jsonResponse(409, { detail: { error_code: code, message: "x" } });
+
+  it.each(["provider_key_required", "provider_key_unreadable"])("dispatches on 409 %s and leaves the body readable", async (code) => {
+    install(refusal(code));
+    const res = await window.fetch("/api/cv/generate", { method: "POST" });
+    await flush();
+    expect(events).toEqual([code]);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { detail: { error_code: string } }).detail.error_code).toBe(code);
+  });
+
+  it("does not dispatch for another 409 code, another status, or a non-API URL", async () => {
+    install(refusal("last_admin"));
+    await window.fetch("/api/admin/users/x");
+    await flush();
+    window.fetch = realFetch;
+    install(jsonResponse(422, { detail: { error_code: "provider_key_required" } }));
+    await window.fetch("/api/cv/generate");
+    await flush();
+    window.fetch = realFetch;
+    install(refusal("provider_key_required"));
+    await window.fetch("https://elsewhere.example/thing");
+    await flush();
+    expect(events).toEqual([]);
+  });
+});

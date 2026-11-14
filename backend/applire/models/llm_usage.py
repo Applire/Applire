@@ -88,3 +88,7 @@ class LlmUsage(Base):
     # providers, and a burst of failures is exactly what a runaway loop looks
     # like — so the row is written either way.
     ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # ADR-096 cl. 11 (migration 0090): whose key paid — ``instance``, ``user`` or
+    # ``system`` (ownerless LLM-system work: the ops probe, tooling). Empty on
+    # rows written before 0090.
+    payer: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")

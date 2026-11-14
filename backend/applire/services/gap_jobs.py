@@ -55,6 +55,10 @@ def classify_gap_error(exc: BaseException, *, user_id: uuid.UUID | None = None) 
     """Map a gap-analysis failure to a STABLE machine code (parity with
     classify_import_error). Raw exception text stays internal; the API surfaces only this
     code, localized by the frontend."""
+    from applire.services.allowance import AdmissionRefused
+
+    if isinstance(exc, AdmissionRefused):
+        return exc.code  # ADR-096 cl. 11
     if isinstance(exc, LLMTruncatedError):
         return "llm_truncated"
     if isinstance(exc, LLMTimeoutError):

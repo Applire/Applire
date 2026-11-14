@@ -34,6 +34,10 @@ _INVALID_INPUT = -32602
 _INTERNAL = -32603
 # Applire: the agent identity no longer holds (ADR-091 cl. 17, MD-3).
 _UNAUTHORIZED = -32003
+# Applire: the action was refused admission (ADR-096 cl. 11) — the stable code
+# leads the message (FastMCP drops ``ErrorData.data``), e.g.
+# "provider_key_required: Add your own AI provider key …".
+_ADMISSION_REFUSED = -32004
 
 
 def not_found(msg: str) -> McpError:
@@ -52,6 +56,15 @@ def unauthorized(msg: str) -> McpError:
     return McpError(ErrorData(code=_UNAUTHORIZED, message=scrub_secrets(msg)))
 
 
+def admission_refused(exc: BaseException) -> McpError:
+    """ADR-096 cl. 11: ``provider_key_required`` / ``provider_key_unreadable``
+    (phase 2: ``allowance_exhausted`` / ``allowance_unavailable``) — the same
+    codes as REST, first in the message."""
+    code = getattr(exc, "code", "provider_key_required")
+    message = getattr(exc, "message", "")
+    return McpError(ErrorData(code=_ADMISSION_REFUSED, message=scrub_secrets(f"{code}: {message}")))
+
+
 def internal_unexpected(exc: BaseException, *, where: str) -> McpError:
     """The ``internal`` error for an exception the tool did not classify.
 
@@ -59,7 +72,14 @@ def internal_unexpected(exc: BaseException, *, where: str) -> McpError:
     their (static) message so the agent knows whether to retry; anything else
     answers a static message plus an error id. See
     :func:`applire.internal_errors.agent_facing_message`.
+
+    An admission refusal (ADR-096) that surfaced inside a tool body's broad
+    ``except`` keeps its own code instead of becoming an internal error.
     """
+    from applire.services.allowance import AdmissionRefused
+
+    if isinstance(exc, AdmissionRefused):
+        return admission_refused(exc)
     from applire.internal_errors import agent_facing_message
 
     return internal(agent_facing_message(exc, where=f"mcp.{where}"))

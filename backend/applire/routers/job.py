@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.internal_errors import internal_server_error
 from applire.auth.deps import require_user
+from applire.auth.deps import admit_model_work
 from applire.models.user import User
 from applire.db.session import get_db
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
@@ -50,7 +51,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/job", tags=["job"])
 
 
-def _get_provider() -> LLMProvider:
+async def _get_provider(_payer=Depends(admit_model_work)) -> LLMProvider:
+    """ADR-096 cl. 4: admitted (``model_work``) before the provider is built;
+    the payer decision travels with the request and its background tasks."""
     return get_provider()
 
 
@@ -326,6 +329,9 @@ async def start_gap_analysis_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
+    # ADR-096 cl. 4: the gap job is a door — refused up front (409), not as a
+    # failed job after a 202.
+    _payer=Depends(admit_model_work),
 ) -> GapJobResponse:
     """Start an async gap analysis and return a handle immediately (202).
 

@@ -662,6 +662,12 @@ apply it.
   honest "no, I've never used X" continues the interview rather than ending it.
 - **Truncated interview turn**: if `send_message` errors with a rolled-back
   turn, resend the same message — nothing was saved.
+- **`provider_key_required` / `provider_key_unreadable`** (error code -32004):
+  on an instance where each person pays with their own AI provider key, this
+  person has neither a stored key nor the admin's grant (or their stored key
+  cannot be read). Nothing ran and nothing was written. Do not retry: tell the
+  user to add their key under Settings in the web app (there is no tool for
+  it) or to ask their admin for the instance key.
 - **An answer that wrote nothing**: a `send_message` result with
   `no_write_receipt` (`no_write`, `no_write_already_known`,
   `no_write_question_only`) says that turn stated something and the vault did

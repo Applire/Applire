@@ -64,6 +64,11 @@ class AdminUserItem(BaseModel):
     #: users-list mock "Invitation valid until {date}"); ``None`` otherwise.
     invite_expires_at: datetime | None = None
     metadata: AdminUserMetadata
+    #: ADR-096 cl. 6: when an admin granted this person the instance key (null = no grant).
+    instance_key_granted_at: datetime | None = None
+    #: ADR-096 cl. 2: whether the person stored an own provider key. Never the key,
+    #: its family or model — only that one exists.
+    has_provider_key: bool = False
 
 
 class AdminUserListResponse(BaseModel):
@@ -86,6 +91,8 @@ class AdminUserPatchRequest(_Strict):
 
     role: Role | None = None
     disabled: bool | None = None
+    #: ADR-096 cl. 6: grant (``true``) or revoke (``false``) the instance key.
+    instance_key_granted: bool | None = None
 
 
 class IssuedLink(BaseModel):
@@ -263,12 +270,30 @@ class SettingDependency(BaseModel):
     keys: list[str]
 
 
+class KeyModeSummary(BaseModel):
+    """ADR-096 cl. 1: the key mode in force and who it leaves without a payer.
+
+    ``users_without_payer`` counts active, non-deleted accounts with neither a
+    stored provider key nor an admin grant: in ``user`` mode they meet the
+    onboarding step. Counted in both modes so the admin sees it before switching.
+    ``secret_set`` says whether ``PROVIDER_KEY_SECRET`` is in the environment.
+    """
+
+    mode: Literal["instance", "user"]
+    secret_set: bool
+    users_without_payer: int
+    users_with_grant: int
+    users_with_key: int
+
+
 class InstanceSettingsResponse(BaseModel):
     """``GET /api/admin/settings`` and the body of every successful write."""
 
     items: list[InstanceSettingItem]
     providers: list[ProviderStatus]
     dependencies: list[SettingDependency]
+    #: ADR-096 cl. 1 (additive).
+    key_mode: KeyModeSummary | None = None
 
 
 class InstanceSettingsUpdate(_Strict):

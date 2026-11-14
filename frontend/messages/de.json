@@ -111,7 +111,9 @@
     "notAppliedMore": "+{count} weitere",
     "sourceTruncatedNote": "Nur die ersten ≈ {percent} % Deiner Datei wurden gelesen – prüfe, ob alle Stationen übernommen sind.",
     "jdLinkedinOff": "Diese Instanz ruft keine LinkedIn-Seiten ab — du kannst den Text später einfügen",
-    "jdLinkedinOffPaste": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge die Stellenbeschreibung unten ein, um fortzufahren."
+    "jdLinkedinOffPaste": "Diese Instanz ruft keine LinkedIn-Seiten ab. Füge die Stellenbeschreibung unten ein, um fortzufahren.",
+    "uploadNeedsKey": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "uploadKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration."
   },
   "flow": {
     "stepProfile": "1 Profil",
@@ -354,7 +356,9 @@
     "memberWordingQuoted": "„{wording}“",
     "memberRuledOutSr": "(durch deine Antwort ausgeschlossen)",
     "coverageRuledOut": "Durch deine Antwort ausgeschlossen",
-    "foldedMembersLabel": "Später zu diesem Thema dazugekommen:"
+    "foldedMembersLabel": "Später zu diesem Thema dazugekommen:",
+    "analysisKeyRequired": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "analysisKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration."
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -661,7 +665,9 @@
     "entrySectionLabel": {
       "certification": "Zertifikat: {name}",
       "education": "Ausbildung: {name}"
-    }
+    },
+    "generationFailedKeyRequired": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "generationFailedKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration."
   },
   "saveScopePrompt": {
     "saveToProfile": "Wo soll die Änderung gelten?",
@@ -755,7 +761,9 @@
     "failedRetry": "Erneut erstellen",
     "failedReason_llm_timeout": "Die KI hat zu lange gebraucht. Deine Eingaben sind gespeichert – erstelle es erneut.",
     "failedReason_provider_unavailable": "Der KI-Dienst war nicht erreichbar. Deine Eingaben sind gespeichert – erstelle es erneut.",
-    "failedReason_llm_truncated": "Die Antwort der KI brach ab. Deine Eingaben sind gespeichert – erstelle es erneut."
+    "failedReason_llm_truncated": "Die Antwort der KI brach ab. Deine Eingaben sind gespeichert – erstelle es erneut.",
+    "failedReason_provider_key_required": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "failedReason_provider_key_unreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration."
   },
   "settings": {
     "title": "Einstellungen",
@@ -2605,7 +2613,19 @@
     "actionOpenAccount": "Dein Konto öffnen",
     "resetConfirmTitle": "Link zum Zurücksetzen für {email} erstellen?",
     "resetConfirmBody": "Mit dem Link legt {email} selbst ein neues Passwort fest. Er gilt eine Stunde und funktioniert nur einmal. Ein früher erstellter Link, der noch gilt, funktioniert danach nicht mehr. Das bisherige Passwort gilt, bis die Person den Link benutzt.",
-    "resetConfirm": "Link erstellen"
+    "resetConfirm": "Link erstellen",
+    "colAiKey": "KI-Schlüssel",
+    "keyInstance": "Instanz (freigegeben)",
+    "keyOwn": "eigener",
+    "keyNone": "keiner",
+    "actionGrantKey": "Instanz-Schlüssel freigeben",
+    "actionRevokeGrant": "Freigabe entziehen",
+    "grantKeyTitle": "Instanz-Schlüssel für {email} freigeben?",
+    "grantKeyBody": "{email} arbeitet dann auf dem Anbieter-Schlüssel dieser Instanz; du zahlst ihre Generierungen. Du kannst das jederzeit entziehen; bereits gestartete Arbeit läuft zu Ende.",
+    "grantKeyConfirm": "Freigeben",
+    "revokeGrantTitle": "Freigabe für {email} entziehen?",
+    "revokeGrantBody": "{email} braucht danach einen eigenen Schlüssel.",
+    "revokeGrantConfirm": "Entziehen"
   },
   "adminNav": {
     "ariaLabel": "Administration",
@@ -2676,7 +2696,9 @@
     "activityLink": "Ganzes Protokoll",
     "retentionOffBanner": "Automatisches Löschen ist aus. {count, plural, one {Auf dieser Instanz hat # weitere Person ein Konto} other {Auf dieser Instanz haben # weitere Personen ein Konto}} — ihre Daten bleiben, bis du oder sie selbst sie löschen.",
     "chipBackupPending": "Sicherung — noch nicht eingerichtet",
-    "chipFailedJobs": "{count, plural, one {# fehlgeschlagener Auftrag} other {# fehlgeschlagene Aufträge}} — siehe unten"
+    "chipFailedJobs": "{count, plural, one {# fehlgeschlagener Auftrag} other {# fehlgeschlagene Aufträge}} — siehe unten",
+    "reasonKeyRequired": "Die Person hat weder KI-Anbieter-Schlüssel noch Freigabe",
+    "reasonKeyUnreadable": "Der gespeicherte Schlüssel der Person ließ sich nicht lesen"
   },
   "adminSettings": {
     "intro": "Was hier gilt, gilt für alle Personen dieser Instanz und für ihre Agenten.",
@@ -2763,7 +2785,12 @@
     "errorGeneric": "Das hat nicht geklappt. Es wurde nichts geändert.",
     "dependencyGeneric": "Abhängigkeit {code}",
     "retentionAlwaysIntro": "Unabhängig von diesem Schalter löscht Applire weiter:",
-    "alwaysAuthLinks": "Abgelaufene Anmelde-Links und Sitzungen"
+    "alwaysAuthLinks": "Abgelaufene Anmelde-Links und Sitzungen",
+    "keyModeTitle": "Wer bezahlt die KI-Aufrufe?",
+    "keyModeInstance": "Instanz – alle auf dem Schlüssel dieser Instanz",
+    "keyModeUser": "Nutzer – jede Person mit eigenem Schlüssel, außer freigegeben",
+    "keyModeWithout": "{count, plural, one {# Person hat} other {# Personen haben}} weder Schlüssel noch Freigabe und {count, plural, one {sieht} other {sehen}} den Hinweis.",
+    "keyModeSecretMissing": "PROVIDER_KEY_SECRET ist nicht gesetzt – der Modus ‚Nutzer' lässt sich erst danach einschalten."
   },
   "adminAudit": {
     "intro": "Wer wann was an Konten, Tokens und Einstellungen geändert hat. Einträge lassen sich nicht ändern.",
@@ -3071,5 +3098,49 @@
       "fieldValue": "Senior Software-Entwicklerin",
       "back": "← Zurück zum Dashboard"
     }
+  },
+  "providerKey": {
+    "cardTitle": "Dein KI-Anbieter-Schlüssel",
+    "payerLead": "Deine KI-Arbeit bezahlt: {payer}",
+    "payerInstance": "die Instanz (freigegeben von der Administration)",
+    "payerUser": "dein eigener Schlüssel ({family}, {model})",
+    "payerNone": "noch niemand – hinterlege einen Schlüssel",
+    "instanceModeStored": "Diese Instanz nutzt derzeit ihren eigenen Schlüssel für alle; dein Schlüssel ist gespeichert, wird aber nicht genutzt.",
+    "unreadable": "Dein gespeicherter Schlüssel lässt sich nicht mehr lesen – bitte neu eingeben.",
+    "fieldFamily": "Anbieter",
+    "fieldModel": "Modell",
+    "fieldKey": "API-Schlüssel",
+    "testBeforeSave": "Vor dem Speichern mit einem kleinen Aufruf testen",
+    "save": "Schlüssel speichern",
+    "saving": "Speichere…",
+    "saved": "Schlüssel gespeichert.",
+    "remove": "Schlüssel entfernen",
+    "removeTitle": "Schlüssel entfernen?",
+    "removeBody": "Ohne Schlüssel kannst du keine Dokumente erstellen, bis du wieder einen hinterlegst oder die Administration dir den Instanz-Schlüssel freigibt.",
+    "removeConfirm": "Entfernen",
+    "removed": "Schlüssel entfernt.",
+    "finePrint": "Der Schlüssel wird verschlüsselt gespeichert und nie wieder angezeigt, auch nicht der Admin. Solange er gespeichert ist, kann der Betreiber dieser Instanz ihn technisch nutzen (der laufende Server hält den Entschlüsselungsschlüssel) – entferne ihn, wenn du Applire nicht mehr nutzt. Deine Lebensläufe und Antworten gehen an den Anbieter, den du wählst.",
+    "modelGuideLink": "Welches Modell?",
+    "errInvalidBody": "Bitte Anbieter, Modell und Schlüssel ausfüllen.",
+    "errInvalidFamily": "Dieser Anbieter wird nicht unterstützt.",
+    "errInvalidModel": "Dieser Modellname ist nicht gültig.",
+    "errInvalidKey": "Dieser Schlüssel sieht nicht gültig aus. Prüfe, ob du ihn vollständig kopiert hast.",
+    "errSecretMissing": "Diese Instanz kann noch keine Schlüssel speichern. Frag die Administration.",
+    "errTestThrottled": "Zu viele Schlüsseltests in kurzer Zeit. Warte ein paar Minuten oder speichere ohne Test.",
+    "errConflict": "Dein Schlüssel wurde im selben Moment in einem anderen Tab gespeichert. Lade die Seite neu und prüfe, welcher Schlüssel gespeichert ist.",
+    "errForbidden": "Schlüssel lassen sich nur angemeldet ändern, nicht mit einem API-Token.",
+    "errGeneric": "Der Schlüssel konnte nicht gespeichert werden. Bitte versuche es erneut.",
+    "testKeyRejected": "Der Anbieter hat diesen Schlüssel abgelehnt. Es wurde nichts gespeichert.",
+    "testOutOfCredit": "Der Schlüssel funktioniert, aber das Konto hat kein Guthaben mehr. Es wurde nichts gespeichert.",
+    "testModelNotFound": "Der Anbieter kennt dieses Modell nicht. Es wurde nichts gespeichert.",
+    "testRateLimited": "Der Anbieter bremst gerade Anfragen. Versuche es gleich noch einmal.",
+    "testTimeout": "Der Anbieter hat nicht rechtzeitig geantwortet. Versuche es gleich noch einmal.",
+    "testUnreachable": "Der Anbieter war nicht erreichbar. Versuche es gleich noch einmal.",
+    "testFailedOther": "Der Testaufruf ist fehlgeschlagen. Es wurde nichts gespeichert.",
+    "needKey": "Um Dokumente zu erstellen, hinterlege deinen eigenen KI-Anbieter-Schlüssel – oder bitte die Administration, dir den Schlüssel der Instanz freizugeben.",
+    "needKeyUnreadable": "Dein gespeicherter Schlüssel lässt sich gerade nicht lesen. Frag die Administration.",
+    "addKey": "Schlüssel hinterlegen",
+    "dialogTitle": "KI-Schlüssel nötig",
+    "dialogClose": "Schließen"
   }
 }

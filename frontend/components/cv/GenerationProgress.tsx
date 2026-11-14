@@ -108,6 +108,10 @@ export function GenerationProgress({ cvId, flowId, onReady, onRetry, subtitle }:
               ? t("generationFailedTruncated")
               : code === "llm_timeout"
               ? t("generationFailedTimeout")
+              : code === "provider_key_required" // ADR-096
+              ? t("generationFailedKeyRequired")
+              : code === "provider_key_unreadable"
+              ? t("generationFailedKeyUnreadable")
               : code === "provider_unavailable" // 789:192 (B4-8)
               ? t("generationFailedUnavailable")
               : t("generationFailed");

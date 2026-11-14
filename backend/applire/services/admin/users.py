@@ -222,9 +222,15 @@ async def issue_reset_link(
 # --- role / disable / tokens ----------------------------------------------------
 
 async def patch_user(
-    db: AsyncSession, *, actor: User, user_id: uuid.UUID, role: str | None, disabled: bool | None
+    db: AsyncSession,
+    *,
+    actor: User,
+    user_id: uuid.UUID,
+    role: str | None,
+    disabled: bool | None,
+    instance_key_granted: bool | None = None,
 ) -> User:
-    if role is None and disabled is None:
+    if role is None and disabled is None and instance_key_granted is None:
         raise AccountError(422, "empty_patch", "Nothing to change.")
     user = await get_live_user(db, user_id)
 
@@ -250,6 +256,16 @@ async def patch_user(
         user.disabled_at = None
         await audit.record(db, actor_id=actor.id, action="user.enabled", target_type="user",
                            target_id=user.id, details={})
+    # ADR-096 cl. 6: the admin grant of the instance key, audited (ADR-091 cl. 26).
+    # Idempotent: granting a granted person keeps the first timestamp, no new row.
+    if instance_key_granted is True and user.instance_key_granted_at is None:
+        user.instance_key_granted_at = _now()
+        await audit.record(db, actor_id=actor.id, action="user.instance_key_granted",
+                           target_type="user", target_id=user.id, details={})
+    elif instance_key_granted is False and user.instance_key_granted_at is not None:
+        user.instance_key_granted_at = None
+        await audit.record(db, actor_id=actor.id, action="user.instance_key_revoked",
+                           target_type="user", target_id=user.id, details={})
     await db.commit()
     await db.refresh(user)
     return user

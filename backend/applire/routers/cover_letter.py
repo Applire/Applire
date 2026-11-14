@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.internal_errors import internal_server_error
 from applire.auth.deps import require_user, user_or_signed_link
+from applire.auth.deps import admit_model_work
 from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
@@ -55,7 +56,9 @@ from applire.services.cover_letter import (
 router = APIRouter(prefix="/api/cover-letter", tags=["cover-letter"])
 
 
-def _get_provider() -> LLMProvider:
+async def _get_provider(_payer=Depends(admit_model_work)) -> LLMProvider:
+    """ADR-096 cl. 4: admitted (``model_work``) before the provider is built;
+    the payer decision travels with the request and its background tasks."""
     return get_provider()
 
 

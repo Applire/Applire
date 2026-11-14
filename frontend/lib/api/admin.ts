@@ -113,6 +113,16 @@ export interface InstanceSettingsResponse {
   items: InstanceSettingItem[];
   providers: ProviderStatus[];
   dependencies: SettingDependency[];
+  /** ADR-096: who pays for AI calls; absent on an older backend. */
+  key_mode?: KeyModeStatus;
+}
+
+export interface KeyModeStatus {
+  mode: "instance" | "user";
+  secret_set: boolean;
+  users_without_payer: number;
+  users_with_grant: number;
+  users_with_key: number;
 }
 
 export const SETTING_KEYS = {
@@ -120,6 +130,7 @@ export const SETTING_KEYS = {
   linkedin: "SCRAPER_FETCH_LINKEDIN_GUEST_PAGES",
   retention: "RETENTION_ENABLED",
   providerProbe: "OPS_PROVIDER_PROBE",
+  keyMode: "LLM_KEY_MODE",
 } as const;
 
 /** `<PROVIDER>_MODEL` / `<PROVIDER>_API_KEY` — the per-provider registry keys (contract §2.1). */

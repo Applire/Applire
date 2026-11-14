@@ -440,6 +440,8 @@ class UsageRecordingProvider(LLMProvider):
             "user_id": attribution.user_id,
             "duration_ms": duration_ms,
             "ok": ok,
+            # ADR-096 cl. 11: whose key paid (stamped on the provider by the factory).
+            "payer": str(getattr(self._inner, "_payer", "") or "")[:16],
         }
         if not ok:
             _note_error()

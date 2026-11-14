@@ -67,6 +67,12 @@ async def _resolve(request: Request, provider: AuthProvider, db: AsyncSession) -
     if user is None:
         raise _unauthenticated()
     set_owner(user.id)
+    # ADR-096 cl. 4: the payer facts (grant, stored key) the factory's safety net
+    # decides from — read once here because get_provider() is synchronous. No
+    # query in the default `instance` mode.
+    from applire.services.allowance import load_facts
+
+    await load_facts(db, user)
     return user
 
 
@@ -135,6 +141,20 @@ async def require_admin_session(
             },
         )
     return admin
+
+
+async def admit_model_work(
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """ADR-096 cl. 4 — the REST door for ``model_work``: the seven router
+    ``_get_provider`` wrappers depend on it, so admission runs once, after the
+    user is known and before the provider is built. A refusal answers 409
+    ``provider_key_required`` / ``provider_key_unreadable`` (``main.py`` handler).
+    The decision it sets is inherited by the request's background tasks."""
+    from applire.services.allowance import admit
+
+    return await admit(db, user, "model_work")
 
 
 # 1c's two dependencies live in ``auth/deps_links.py`` (work-packages §3); re-exported

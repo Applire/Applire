@@ -134,3 +134,38 @@ export async function followAuthorizeUrl(res: Response): Promise<boolean> {
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// ADR-096 — the person's own AI provider key. The key is write-only: no read
+// ever returns it, not even a mask.
+// ---------------------------------------------------------------------------
+
+export interface ProviderKeyState {
+  key_mode: "instance" | "user";
+  is_set: boolean;
+  family: string | null;
+  model: string | null;
+  updated_at: string | null;
+  unreadable: boolean;
+  instance_key_granted: boolean;
+  payer: "instance" | "user" | "none";
+  families: string[];
+}
+
+export async function getProviderKey(): Promise<ProviderKeyState | null> {
+  try {
+    const res = await send("/api/me/provider-key", "GET");
+    if (!res.ok) return null;
+    return (await res.json()) as ProviderKeyState;
+  } catch {
+    return null;
+  }
+}
+
+export function putProviderKey(body: { family: string; model: string; key: string; test: boolean }): Promise<Response> {
+  return send("/api/me/provider-key", "PUT", body);
+}
+
+export function deleteProviderKey(): Promise<Response> {
+  return send("/api/me/provider-key", "DELETE");
+}

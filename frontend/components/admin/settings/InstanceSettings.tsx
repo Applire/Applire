@@ -218,6 +218,90 @@ function ProviderProbeCard({ data, onSaved }: { data: InstanceSettingsResponse; 
   );
 }
 
+/** ADR-096 — `LLM_KEY_MODE`: one key for everyone (instance) or one per person (user). */
+const KEY_MODE_CHOICES = [
+  { mode: "instance", label: "keyModeInstance" },
+  { mode: "user", label: "keyModeUser" },
+] as const;
+
+function KeyModeCard({ data, onSaved }: { data: InstanceSettingsResponse; onSaved: (d: InstanceSettingsResponse) => void }) {
+  const t = useTranslations("adminSettings");
+  const item = findSetting(data, SETTING_KEYS.keyMode);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!item) return null;
+  const value = String(item.value ?? data.key_mode?.mode ?? "instance");
+  const secretSet = data.key_mode?.secret_set ?? true;
+
+  async function choose(mode: string) {
+    if (busy || mode === value) return;
+    setBusy(true);
+    const r = await updateInstanceSettings({ [SETTING_KEYS.keyMode]: mode });
+    setBusy(false);
+    if (r.ok) {
+      setError(null);
+      onSaved(r.data);
+    } else setError(settingsErrorText(r, t, ""));
+  }
+  async function reset() {
+    setBusy(true);
+    const r = await resetInstanceSetting(SETTING_KEYS.keyMode);
+    setBusy(false);
+    if (r.ok) onSaved(r.data);
+    else setError(settingsErrorText(r, t, ""));
+  }
+
+  return (
+    <AdminCard testId="admin-settings-keymode">
+      <div className="flex items-start justify-between gap-4">
+        <h2 id="admin-keymode-label" className="font-manrope text-lg font-bold text-on-surface">
+          {t("keyModeTitle")}
+        </h2>
+        <SourceBadge source={item.source} testId="admin-settings-keymode-source" />
+      </div>
+      <div role="radiogroup" aria-labelledby="admin-keymode-label" aria-busy={busy} className="my-3 flex flex-col gap-2">
+        {KEY_MODE_CHOICES.map((c) => {
+          const checked = c.mode === value;
+          return (
+            <label
+              key={c.mode}
+              data-testid={`admin-settings-keymode-${c.mode}`}
+              className={`flex cursor-pointer items-start gap-3 rounded-lg px-4 py-3 ${checked ? "bg-primary-container" : "bg-surface-dim"}`}
+            >
+              <input type="radio" name="admin-key-mode" value={c.mode} checked={checked} onChange={() => void choose(c.mode)} className="mt-1 accent-teal" />
+              <b className="text-[14px] font-semibold text-on-surface">{t(c.label)}</b>
+            </label>
+          );
+        })}
+      </div>
+      {data.key_mode && (
+        <p data-testid="admin-settings-keymode-without" className="text-[13.5px] text-on-surface">
+          {t("keyModeWithout", { count: data.key_mode.users_without_payer })}
+        </p>
+      )}
+      {!secretSet && (
+        <p
+          data-testid="admin-settings-keymode-secret-missing"
+          className="mt-2 flex items-center gap-2 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-[12.5px] text-on-surface"
+        >
+          <AlertTriangle className="h-4 w-4" aria-hidden />
+          {t("keyModeSecretMissing")}
+        </p>
+      )}
+      {item.source === "panel" && (
+        <div className="mt-2">
+          <ResetLink onClick={() => void reset()} busy={busy} testId="admin-settings-keymode-reset" />
+        </div>
+      )}
+      {error && (
+        <p role="alert" data-testid="admin-settings-keymode-error" className="mt-2 text-[12.5px] font-medium text-critical">
+          {error}
+        </p>
+      )}
+    </AdminCard>
+  );
+}
+
 function RetentionCard({
   data,
   dash,
@@ -399,6 +483,7 @@ export function InstanceSettings() {
       <p className="text-[14px] text-on-surface-variant">{t("intro")}</p>
       {/* key = the effective provider: a save or reset re-seeds the form from the server */}
       <ProviderCard key={settings.data.providers.find((p) => p.active)?.id ?? ""} data={settings.data} onSaved={onSaved} />
+      <KeyModeCard data={settings.data} onSaved={onSaved} />
       <ProviderProbeCard data={settings.data} onSaved={onSaved} />
       <LinkedinCard data={settings.data} onSaved={onSaved} />
       <RetentionCard data={settings.data} dash={dash.status === "ready" ? dash.data : null} onSaved={onSaved} />

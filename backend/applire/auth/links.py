@@ -42,8 +42,21 @@ DOCUMENT_KINDS: tuple[DocumentKind, ...] = ("cv", "cover_letter")
 INSTANCE_SECRET_KEY = "auth.instance_secret"
 
 #: Purposes ``derive_key`` serves. Closed: a new purpose is a code change.
-KeyPurpose = Literal["doc-link", "oidc-state", "instance-settings"]  # instance-settings: ADR-093 cl. 4
-KEY_PURPOSES: tuple[KeyPurpose, ...] = ("doc-link", "oidc-state", "instance-settings")
+#: instance-settings: ADR-093 cl. 4. user-provider-keys / allowance-subject: ADR-096 cl. 3/9.
+KeyPurpose = Literal[
+    "doc-link", "oidc-state", "instance-settings", "user-provider-keys", "allowance-subject"
+]
+KEY_PURPOSES: tuple[KeyPurpose, ...] = (
+    "doc-link",
+    "oidc-state",
+    "instance-settings",
+    "user-provider-keys",
+    "allowance-subject",
+)
+#: ADR-096 cl. 3: the ONE purpose whose root is not the instance secret. Its root
+#: is ``PROVIDER_KEY_SECRET`` from the environment, so a database dump (which
+#: holds the instance secret) decrypts no user key.
+ENV_ROOTED_PURPOSES: frozenset[str] = frozenset({"user-provider-keys"})
 
 DEFAULT_LINK_TTL_MINUTES = 60
 LINK_QUERY_PARAMS = ("exp", "uid", "sig")
@@ -57,6 +70,34 @@ class LinkExpired(Exception):
 
 class InstanceSecretMissing(RuntimeError):
     """The instance secret has not been generated/loaded — no link can be signed."""
+
+
+class ProviderKeySecretMissing(RuntimeError):
+    """``PROVIDER_KEY_SECRET`` is not set — no user provider key can be read or written."""
+
+
+#: adv-K F4 (MD-10): the Fernet key is one HMAC of this secret, so a dump plus a
+#: short secret could be guessed offline. Below this many bytes it counts as
+#: unset everywhere (start, panel, key writes and reads) — never "good enough".
+PROVIDER_KEY_SECRET_MIN_BYTES = 32
+
+
+def provider_key_secret_ok(raw: str | None) -> bool:
+    """Set and at least :data:`PROVIDER_KEY_SECRET_MIN_BYTES` bytes long."""
+    return len((raw or "").strip().encode("utf-8")) >= PROVIDER_KEY_SECRET_MIN_BYTES
+
+
+def _provider_key_secret() -> bytes:
+    from applire.config import settings
+
+    raw = (settings.provider_key_secret or "").strip()
+    if not raw:
+        raise ProviderKeySecretMissing("PROVIDER_KEY_SECRET is not set")
+    if not provider_key_secret_ok(raw):
+        raise ProviderKeySecretMissing(
+            f"PROVIDER_KEY_SECRET is shorter than {PROVIDER_KEY_SECRET_MIN_BYTES} bytes"
+        )
+    return raw.encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -107,10 +148,17 @@ async def load_instance_secret(db: AsyncSession) -> bytes | None:
 def derive_key(purpose: KeyPurpose) -> bytes:
     """``HMAC-SHA256(instance_secret, "applire/<purpose>")`` — one key per purpose.
 
-    Raises ``InstanceSecretMissing`` when the secret is not loaded.
+    Raises ``InstanceSecretMissing`` when the secret is not loaded. The purposes
+    in ``ENV_ROOTED_PURPOSES`` take ``PROVIDER_KEY_SECRET`` as the root instead
+    (ADR-096 cl. 3) and raise ``ProviderKeySecretMissing`` when it is unset —
+    never falling back to the instance secret.
     """
     if purpose not in KEY_PURPOSES:
         raise ValueError(f"unknown key purpose {purpose!r}")
+    if purpose in ENV_ROOTED_PURPOSES:
+        return hmac.new(
+            _provider_key_secret(), f"applire/{purpose}".encode(), hashlib.sha256
+        ).digest()
     if _instance_secret is None:
         raise InstanceSecretMissing(
             "instance secret not loaded — call load_instance_secret(db) at start"

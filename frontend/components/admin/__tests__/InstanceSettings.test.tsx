@@ -31,7 +31,9 @@ const item = (key: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function settings(over: { provider?: string; source?: string; retention?: boolean; openrouterKey?: boolean; probe?: string; probeSource?: string } = {}) {
+const KEY_MODE = { mode: "user", secret_set: true, users_without_payer: 3, users_with_grant: 1, users_with_key: 2 };
+
+function settings(over: { keyMode?: Record<string, unknown>; provider?: string; source?: string; retention?: boolean; openrouterKey?: boolean; probe?: string; probeSource?: string } = {}) {
   const active = over.provider ?? "requesty";
   return {
     items: [
@@ -42,6 +44,7 @@ function settings(over: { provider?: string; source?: string; retention?: boolea
       item("OPENROUTER_API_KEY", { provider: "openrouter", kind: "secret", value: null, is_set: over.openrouterKey ?? false, env_is_set: false, source: "default" }),
       item("SCRAPER_FETCH_LINKEDIN_GUEST_PAGES", { group: "scraper", kind: "bool", value: true, source: "default" }),
       item("RETENTION_ENABLED", { group: "retention", kind: "bool", value: over.retention ?? true, source: "default" }),
+      item("LLM_KEY_MODE", { kind: "enum", choices: ["instance", "user"], value: "user", source: "panel", env_value: "instance" }),
       item("OPS_PROVIDER_PROBE", { group: "ops", kind: "enum", choices: ["off", "reachability", "credit", "both"], value: over.probe ?? "both", source: over.probeSource ?? "default", env_value: "both" }),
     ],
     providers: [
@@ -49,6 +52,7 @@ function settings(over: { provider?: string; source?: string; retention?: boolea
       { id: "openrouter", model: "openai/gpt-5.6-luna", key_required: true, has_key: over.openrouterKey ?? false, ready: over.openrouterKey ?? false, active: active === "openrouter", balance_check: true },
     ],
     dependencies: [{ code: "ocr_needs_mistral_key", satisfied: false, keys: ["OCR_BACKEND", "MISTRAL_API_KEY"] }],
+    key_mode: { ...KEY_MODE, ...(over.keyMode ?? {}) },
   };
 }
 
@@ -317,3 +321,30 @@ describe("Einstellungen → Automatisches Löschen: what the switch governs (E2E
   });
 });
 
+
+describe("Einstellungen → Wer bezahlt die KI-Aufrufe? (ADR-096)", () => {
+  it("shows the mode, the people-without-payer line and no secret warning when the secret is set", async () => {
+    route({});
+    render(withIntl(<InstanceSettings />));
+    await screen.findByTestId("admin-settings-keymode");
+    expect(screen.getByTestId("admin-settings-keymode-user").querySelector("input")).toBeChecked();
+    expect(screen.getByTestId("admin-settings-keymode-without")).toHaveTextContent("3 people have neither a key nor a grant and will see the notice.");
+    expect(screen.queryByTestId("admin-settings-keymode-secret-missing")).toBeNull();
+  });
+
+  it("warns when PROVIDER_KEY_SECRET is unset, and maps a 409 provider_key_secret_missing to that sentence", async () => {
+    route({
+      settings: settings({ keyMode: { mode: "instance", secret_set: false, users_without_payer: 1 } }),
+      put: () => res(409, { detail: { error_code: "provider_key_secret_missing", message: "raw server text" } }),
+    });
+    const u = userEvent.setup();
+    render(withIntl(<InstanceSettings />));
+    await screen.findByTestId("admin-settings-keymode");
+    expect(screen.getByTestId("admin-settings-keymode-secret-missing")).toHaveTextContent("PROVIDER_KEY_SECRET is not set");
+    await u.click(screen.getByTestId("admin-settings-keymode-instance").querySelector("input")!);
+    await u.click(screen.getByTestId("admin-settings-keymode-user").querySelector("input")!);
+    const err = await screen.findByTestId("admin-settings-keymode-error");
+    expect(err).toHaveTextContent(T.keyModeSecretMissing);
+    expect(err).not.toHaveTextContent("raw server text");
+  });
+});

@@ -72,6 +72,7 @@ from applire.exceptions import (
     LLMTimeoutError,
 )
 from applire.providers.llm.base import (
+    require_strict_key,
     LLMProvider,
     clamp_output_budget,
     is_schema_rejection_message,
@@ -291,19 +292,47 @@ class AnthropicProvider(LLMProvider):
         api_key: str | None = None,
         model: str | None = None,
         timeout: int = 30,
+        strict_key: bool = False,
+        base_url: str | None = None,
     ) -> None:
         super().__init__(timeout=timeout)
+        if strict_key:
+            # ADR-096 cl. 4: a user-paid provider never reads the instance's key.
+            require_strict_key(api_key, model)
         # The SDK refuses a NON-streaming request whose max_tokens implies more than
         # 10 minutes (> ~21k tokens: "Streaming is required …", a ValueError) unless
         # the client carries an explicit timeout. Reconcile asks for 32768 and the
         # truncation retry doubles 16384, so both failed on every call (WP-0,
         # 2026-11-04). Applire bounds each call itself (asyncio.wait_for on
         # self._timeout), so the HTTP timeout is that same budget plus a margin.
-        self._client = AsyncAnthropic(
-            api_key=api_key or settings.anthropic_api_key,
-            timeout=float(timeout) + 30.0,
-        )
-        self._model = model or settings.anthropic_model or _DEFAULT_MODEL
+        if strict_key:
+            # adv-K F5: a person's key goes to the public endpoint, named explicitly
+            # (the SDK would otherwise honour ANTHROPIC_BASE_URL), and carries no
+            # header the operator's ANTHROPIC_CUSTOM_HEADERS put in the environment.
+            self._client = AsyncAnthropic(
+                api_key=api_key,
+                base_url=base_url or "https://api.anthropic.com",
+                timeout=float(timeout) + 30.0,
+            )
+            self._client._custom_headers = {}
+            # Security review (coordinator, 2026-11-14): only X-Api-Key with the
+            # person's key. Some SDK versions read ANTHROPIC_AUTH_TOKEN whenever
+            # auth_token is None and send it as `Authorization: Bearer` next to
+            # the key (the pinned 0.109.1 does not); a credentials provider
+            # (ANTHROPIC_PROFILE, workload identity) would do the same. Cleared
+            # after construction, so no SDK default can put the operator's
+            # identity on a user-paid request.
+            self._client.auth_token = None
+            if hasattr(self._client, "credentials"):
+                self._client.credentials = None
+            if hasattr(self._client, "_token_cache"):
+                self._client._token_cache = None
+        else:
+            self._client = AsyncAnthropic(
+                api_key=api_key or settings.anthropic_api_key,
+                timeout=float(timeout) + 30.0,
+            )
+        self._model = model if strict_key else (model or settings.anthropic_model or _DEFAULT_MODEL)
         self._shape = _request_shape(self._model)
 
     # A model that rejected a response schema is not sent one again in this process
