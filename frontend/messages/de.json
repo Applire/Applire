@@ -3033,6 +3033,8 @@
     "tenureStartBeforeVault": "Der genannte Beginn „{claimed}“ liegt vor der frühesten Station in Deinem Profil ({earliest}).",
     "tenureExceedsVault": "Die genannte Dauer „{claimed}“ ist länger als die {years} Jahre, die Deine datierten Stationen ergeben. Schreib höchstens „über {whole} Jahre“.",
     "subjectTenureExceeds": "Die genannte Dauer „{claimed}“ ist länger als die {years} Jahre der Stationen, in denen „{skill}“ vorkommt. Schreib höchstens „über {whole} Jahre“.",
+    "subjectTenureExceedsStart": "Die genannte Dauer „{claimed}“ ist länger als die Zeit seit deinem eigenen Beginn für „{skill}“. Schreib „seit {start}“, wie du es gesagt hast.",
+    "subjectTenureStartUnclear": "Die genannte Dauer „{claimed}“ ist länger als die Zeit seit {start}, das du im selben Satz wie „{skill}“ nennst. Ob dieser Beginn für „{skill}“ gilt, lässt sich nicht sagen – deshalb bleibt das offen.",
     "misattributed": "Der Beleg dafür stammt aus einer anderen Station — die Aussage steht unter einer Rolle, zu der sie nicht gehört.",
     "skillNoEvidence": "„{skill}“ steht nirgends in Deinem Profil.",
     "figuresNoEvidence": "Für diese Zahl(en) gibt es in Deinem Profil keinen Beleg: {figures}.",

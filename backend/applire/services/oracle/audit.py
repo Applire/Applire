@@ -1249,8 +1249,53 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
             continue
         required = _required_span(text, raw, tenure.floor)
         span, orgs = index.skill_spans[best]
+        # Sorbet Q1 (e), ADR-052 amended 2026-11-14 (#839:85): the person's own
+        # start for this subject. A tight one has already clipped ``span``; one
+        # that only shares a sentence with the subject is the person's word too,
+        # but whose start it is cannot be told — a duration longer than the time
+        # since it is left open (unverifiable), never grounded by the role span.
+        start = index.skill_starts.get(best)
+        if (
+            start is not None and start.usable and not start.tight
+            and span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required
+        ):
+            from datetime import date
+
+            from applire.services.skill_enrichment import since_date
+
+            since = since_date(start)
+            since_years = (date.today() - since).days / 365.25
+            if since_years + _SUBJECT_TENURE_TOLERANCE_YEARS < required:
+                return ClaimVerdict(
+                    verdict="unverifiable",
+                    checker="numbers",
+                    figures=[raw],
+                    detail=(
+                        f'Claimed duration "{raw}" is longer than the time since '
+                        f'"{start.raw}", which the candidate states in the same '
+                        f'sentence as "{best}"; whether that start is the one for '
+                        f'"{best}" cannot be told, so the duration is left open.'
+                    ),
+                    detail_key="subjectTenureStartUnclear",
+                    detail_params={"claimed": raw, "start": start.label, "skill": best},
+                )
         if span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required:
             continue
+        if start is not None and start.tight and start.usable:
+            return ClaimVerdict(
+                verdict="unbacked",
+                checker="numbers",
+                figures=[raw],
+                detail=(
+                    f'Claimed duration "{raw}" exceeds the {span:.1f} years since the '
+                    f'candidate\'s own start for "{best}" ("{start.raw}"). State the '
+                    f'start as they did ("seit {start.label}").'
+                ),
+                detail_key="subjectTenureExceedsStart",
+                detail_params={
+                    "claimed": raw, "years": f"{span:.1f}", "start": start.label, "skill": best,
+                },
+            )
         where = ", ".join(orgs) if orgs else "its dated roles"
         return ClaimVerdict(
             verdict="unbacked",

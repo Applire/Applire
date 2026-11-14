@@ -3033,6 +3033,8 @@
     "tenureStartBeforeVault": "The stated start “{claimed}” lies before the earliest position in your profile ({earliest}).",
     "tenureExceedsVault": "The stated duration “{claimed}” is longer than the {years} years your dated positions add up to. Write at most “over {whole} years”.",
     "subjectTenureExceeds": "The stated duration “{claimed}” is longer than the {years} years of the positions that mention “{skill}”. Write at most “over {whole} years”.",
+    "subjectTenureExceedsStart": "The stated duration “{claimed}” is longer than the time since your own start for “{skill}”. Write “since {start}”, as you said it.",
+    "subjectTenureStartUnclear": "The stated duration “{claimed}” is longer than the time since {start}, which you name in the same sentence as “{skill}”. Whether that start is the one for “{skill}” cannot be told, so this stays open.",
     "misattributed": "The evidence for this comes from a different position — the statement sits under a role it does not belong to.",
     "skillNoEvidence": "“{skill}” appears nowhere in your profile.",
     "figuresNoEvidence": "Your profile has no evidence for these figure(s): {figures}.",
