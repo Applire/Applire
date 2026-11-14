@@ -219,6 +219,11 @@ class _ProcessState:
     last_refresh: float = 0.0
     #: Keys whose stored secret did not decrypt at the last refresh.
     unreadable: frozenset[str] = frozenset()
+    #: ADR-096 / S0-10 (adv-K F2): whether this process ever read the overrides,
+    #: and whether a read failed before it did. A process that tried and never
+    #: succeeded does not know the panel's LLM_KEY_MODE.
+    ever_loaded: bool = False
+    load_failed: bool = False
 
 
 _state = _ProcessState()
@@ -298,11 +303,20 @@ async def refresh(*, max_age: float = 0.0) -> Mapping[str, Any]:
             type(exc).__name__,
         )
         _state.last_refresh = time.monotonic()
+        _state.load_failed = True
         return _config.overlay_latest()
     _config.set_overlay_latest(snapshot)
+    _state.ever_loaded = True
+    _state.load_failed = False
     _state.unreadable = unreadable
     _state.last_refresh = time.monotonic()
     return _config.overlay_latest()
+
+
+def overlay_unknown() -> bool:
+    """True while this process tried to read the overrides and never succeeded:
+    a panel-set value (``LLM_KEY_MODE=user``) cannot be known (adv-K F2)."""
+    return _state.load_failed and not _state.ever_loaded
 
 
 def invalidate() -> None:
@@ -574,9 +588,10 @@ def _validate(key: str, value: Any) -> Any:
 
 
 def _provider_key_secret_set() -> bool:
+    from applire.auth.links import provider_key_secret_ok
     from applire.config import settings
 
-    return bool((settings.provider_key_secret or "").strip())
+    return provider_key_secret_ok(settings.provider_key_secret)
 
 
 def _recordable(value: Any) -> Any:
@@ -613,7 +628,7 @@ async def apply_changes(
     if clean.get("LLM_KEY_MODE") == "user" and not _provider_key_secret_set():
         raise SettingsError(
             "provider_key_secret_missing", 409,
-            "Set PROVIDER_KEY_SECRET in the environment and restart before switching to user keys.",
+            "Set PROVIDER_KEY_SECRET (at least 32 bytes, e.g. `openssl rand -hex 32`) in the environment and restart before switching to user keys.",
             key="LLM_KEY_MODE",
         )
 

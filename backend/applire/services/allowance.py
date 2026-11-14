@@ -74,6 +74,12 @@ from applire.ownership import OwnerContextMissing, current_owner, unscoped
 logger = logging.getLogger(__name__)
 
 KeyMode = Literal["instance", "user"]
+#: The mode a DECISION is made under. ``unknown``: the panel overrides were never
+#: read in this process (a refresh failed) and the environment does not say
+#: ``user`` — the panel might. Every decision then refuses
+#: (``settings_unavailable``, 503), never pays as the instance (S0-10; adv-K F2).
+#: Internal: the API and the panel still report ``key_mode()``.
+DecisionMode = Literal["instance", "user", "unknown"]
 Payer = Literal["user", "instance", "system"]
 #: cl. 7's closed action set.
 Action = Literal["application", "profile_import", "job_analysis", "model_work"]
@@ -92,6 +98,10 @@ REFUSAL_MESSAGES: dict[str, str] = {
     "provider_key_required": (
         "Add your own AI provider key in Settings, or ask your admin to let you use "
         "this instance's key."
+    ),
+    "settings_unavailable": (
+        "This instance's settings could not be read just now, so no AI work can "
+        "start. Try again in a moment."
     ),
     "provider_key_unreadable": (
         "Your stored AI provider key cannot be read on this server right now. "
@@ -153,7 +163,7 @@ class PayerFacts:
     """What the safety net decides from, read once at the auth door."""
 
     owner_id: uuid.UUID
-    mode: KeyMode
+    mode: DecisionMode
     granted: bool = False
     family: str | None = None
     model: str | None = None
@@ -175,6 +185,22 @@ def key_mode() -> KeyMode:
     from applire.config import settings
 
     return "user" if str(settings.llm_key_mode or "").strip().lower() == "user" else "instance"
+
+
+def decision_mode() -> DecisionMode:
+    """:func:`key_mode`, except ``unknown`` while this process never read the
+    panel overrides (adv-K F2): an environment ``instance`` may be overridden by
+    a panel ``user`` it could not read."""
+    from applire.services.instance_settings import overlay_unknown
+
+    mode = key_mode()
+    if mode == "instance" and overlay_unknown():
+        return "unknown"
+    return mode
+
+
+def _refuse_unknown_mode() -> None:
+    raise AdmissionRefused("settings_unavailable", status=503)
 
 
 def current_decision() -> PayerDecision | None:
@@ -231,9 +257,9 @@ async def load_facts(db: AsyncSession, user: User) -> PayerFacts:
     ``instance`` mode issues no query (nothing on the default path changes).
     The owner context must already be set (the key table is owned).
     """
-    mode = key_mode()
-    if mode == "instance":
-        facts = PayerFacts(owner_id=user.id, mode="instance")
+    mode = decision_mode()
+    if mode in ("instance", "unknown"):
+        facts = PayerFacts(owner_id=user.id, mode=mode)
     else:
         row = (
             await db.execute(select(UserProviderKey).where(UserProviderKey.user_id == user.id))
@@ -254,6 +280,8 @@ def decide(facts: PayerFacts, action: str, ref: str | None = None) -> PayerDecis
     """The truth table (cl. 5), policy ``none``. Pure apart from decrypting."""
     if action not in ACTIONS:
         raise ValueError(f"unknown action {action!r}")
+    if facts.mode == "unknown":  # the panel could not be read: never instance
+        _refuse_unknown_mode()
     if facts.mode == "instance":  # row 1
         return PayerDecision("instance", action, facts.owner_id, ref=ref)
     if facts.granted:  # row 3
@@ -281,6 +309,8 @@ def admit_from_facts(action: str, ref: str | None = None) -> PayerDecision:
     owner = current_owner()
     facts = _facts.get()
     if owner is None or owner.user_id is None or facts is None or facts.owner_id != owner.user_id:
+        if decision_mode() == "unknown":
+            _refuse_unknown_mode()
         if key_mode() == "instance" and owner is not None and owner.user_id is not None:
             decision = PayerDecision("instance", action, owner.user_id, ref=ref)
             _decision.set(decision)
@@ -294,7 +324,7 @@ def admit_from_facts(action: str, ref: str | None = None) -> PayerDecision:
 async def admit(db: AsyncSession, user: User, action: str, ref: str | None = None) -> PayerDecision:
     """The door (cl. 4): decide once, set the decision for the rest of the work."""
     facts = _facts.get()
-    if facts is None or facts.owner_id != user.id or facts.mode != key_mode():
+    if facts is None or facts.owner_id != user.id or facts.mode != decision_mode():
         facts = await load_facts(db, user)
     decision = decide(facts, action, ref)
     _decision.set(decision)
@@ -328,6 +358,8 @@ def resolve_for_factory() -> PayerDecision:
     facts = _facts.get()
     if facts is not None and facts.owner_id == owner.user_id:
         return decide(facts, "model_work")
+    if decision_mode() == "unknown":
+        _refuse_unknown_mode()
     if key_mode() == "instance":
         return PayerDecision("instance", "model_work", owner.user_id)
     logger.warning(

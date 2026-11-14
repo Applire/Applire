@@ -176,6 +176,10 @@ async def seed_application(async_db: AsyncSession):
     return _seed
 
 
+# adv-K F2 — each test starts as a process that read its admin overrides once.
+from tests.support.overlay_state import overrides_loaded_once  # noqa: E402,F401
+
+
 @pytest.fixture(autouse=True)
 def _reset_provider_latches():
     """Provider rejection latches are process-wide (`providers/llm/latches.py`);

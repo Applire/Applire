@@ -41,6 +41,10 @@ _LETTER_MESSAGES: dict[str, str] = {
     "provider_key_unreadable": (
         "Your stored AI provider key cannot be read on this server right now. Ask your admin."
     ),
+    # adv-K F2: the panel settings could not be read; nothing was paid.
+    "settings_unavailable": (
+        "This instance's settings could not be read just now. Generate the cover letter again in a moment."
+    ),
 }
 _CODE_BY_MESSAGE = {message: code for code, message in _LETTER_MESSAGES.items()}
 

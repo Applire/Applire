@@ -194,6 +194,10 @@ _GENERATION_ERROR_MESSAGES = {
     "provider_key_unreadable": (
         "Your stored AI provider key cannot be read on this server right now. Ask your admin."
     ),
+    # adv-K F2: the panel settings could not be read; nothing was paid.
+    "settings_unavailable": (
+        "This instance's settings could not be read just now. Generate the CV again in a moment."
+    ),
 }
 
 
