@@ -97,6 +97,7 @@ from applire.services.keyword_ledger import (
     reevaluate_gap_ledger_against_vault,
     upgrade_ledger_for_concepts,
 )
+from applire.services.interview.scope_question import is_fact_built_cluster, plan_leadership_kind
 from applire.services.interview_graph import (
     build_confirmation_clusters,
     build_conflict_clusters,
@@ -2950,6 +2951,17 @@ async def _create_targeted_session(
     cluster_categories = {cid: cluster_categories[cid] for cid in cluster_ids}
     clusters_by_id = {cid: clusters_by_id[cid] for cid in cluster_ids}
 
+    # Founder ruling Q-2 (COORD Q1→Q2, WP-Q2): ONE separate ask for the kind of
+    # leadership behind a known team size — after the team-size scope question,
+    # else at the end when the posting weighs leadership. A full interview only
+    # (a Gap-Click micro-session never carries it); the answer is reconciled like
+    # any answer and the turn advances.
+    if cluster_ids:
+        cluster_ids, cluster_categories, clusters_by_id = plan_leadership_kind(
+            cluster_ids, cluster_categories, clusters_by_id, profile_record.profile_json,
+            posting_weighs_leadership=bool(getattr(job, "leadership_emphasis", None)),
+        )
+
     # US163: prepend any open deferred Tier-1 gate ahead of the JD gaps —
     # mandatory and job-irrelevant.
     gate_ids, gate_categories, gate_by_id = await _pending_gate_clusters(
@@ -4352,6 +4364,12 @@ async def _send_message_turn(
     # recorded above, and nothing further is asked on it — no probe, no
     # follow-up, no retry; the session advances.
     left_open_now = recorded_cluster is not None and gap_coverage.is_left_open(recorded_cluster)
+    # ADR-069 cl. 3 / ADR-089 amended 2026-11-14 (WP-Q2 a): a scope cluster's one
+    # fact-built question is asked once. Its budget is 1 (gap_coverage.remaining_budget),
+    # which already closes the partial-coverage and the deferred follow-up; the
+    # no-change retry and the "more specific" follow-up count against the GLOBAL
+    # per-gap figure, so they are closed here, and the turn always advances.
+    scope_turn = is_fact_built_cluster((state.get("gap_clusters_by_id") or {}).get(current_gap))
 
     # --- Hard ceiling check ---
     if questions_asked >= state["hard_ceiling"]:
@@ -4479,6 +4497,7 @@ async def _send_message_turn(
         and not denial_recorded
         and not resolving_confirmation
         and not left_open_now
+        and not scope_turn
         and questions_for_gap < INTERVIEW_MAX_QUESTIONS_PER_GAP
         and recorded_cluster is not None
         and cluster_coverage is not None
@@ -4500,6 +4519,7 @@ async def _send_message_turn(
         or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP
         or retry_judged_covered
         or left_open_now
+        or scope_turn
     ):
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]

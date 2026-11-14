@@ -72,6 +72,12 @@ from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import llm_log_stage
 from applire.schemas.session import InterviewState
 from applire.services.choice_grounding import filter_ungrounded_choices, record_offered_choices
+from applire.services.interview.scope_question import (
+    is_leadership_kind_cluster,
+    is_scope_cluster,
+    leadership_kind_question,
+    scope_question,
+)
 from applire.services.interview_quant import detect_unquantified_concepts
 from applire.services.reviewer import review_and_refine
 from applire.utils.display import format_display_value
@@ -183,6 +189,10 @@ def gap_detector(
         c_clusters = _prioritize_clusters(c_clusters, profile, keyword_ledger)
         b_clusters = _prioritize_clusters(b_clusters, profile, keyword_ledger)
 
+    # ADR-069 cl. 3 amended 2026-11-14 (WP-Q2 a): a scope cluster — the posting's
+    # quantified headline bar — leads its bucket (stable: never reorders others).
+    c_clusters = sorted(c_clusters, key=lambda c: 0 if is_scope_cluster(c) else 1)
+    b_clusters = sorted(b_clusters, key=lambda c: 0 if is_scope_cluster(c) else 1)
     ordered = c_clusters + b_clusters
 
     cluster_ids = [c["id"] for c in ordered]
@@ -527,6 +537,19 @@ async def question_generator_with_profile(
     already carried it, in whatever door asked it first).
     """
     mode = state.get("mode", "targeted")
+
+    # ADR-069 cl. 3 amended 2026-11-14 (WP-Q2 a): a scope cluster's question is
+    # built from its ledger facts — the posting's figure and what the profile
+    # holds — never drafted, never with chips. The session never follows up on it.
+    if mode == "targeted" and not follow_up_hint and not follow_up_focus and not denial_probe:
+        gaps = state.get("critical_gaps") or []
+        idx = state.get("current_gap_index", 0)
+        if isinstance(idx, int) and 0 <= idx < len(gaps):
+            current = resolve_gap_cluster(state, gaps[idx])
+            if is_scope_cluster(current):
+                return scope_question(current, lang)
+            if is_leadership_kind_cluster(current):
+                return leadership_kind_question(current, lang)
 
     if follow_up_hint:
         cluster_id = state["critical_gaps"][state["current_gap_index"]]

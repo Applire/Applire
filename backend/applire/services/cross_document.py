@@ -597,6 +597,10 @@ class KeyGap:
     #: RULING D-2 = A: a concept of the posting's candidate-requirements section;
     #: then ``mentions``/``first_position`` count within that section (D-6 = A).
     in_requirements: bool = False
+    #: ADR-075 amended 2026-11-14 (WP-Q2 e): a SCOPE row's stated shortfall
+    #: (``bar.recorded_limit``) — named as the step ahead after the real figures,
+    #: never as "X is new to me".
+    scope: bool = False
 
     @property
     def recorded(self) -> bool:
@@ -736,6 +740,29 @@ def _is_key_gap_row(entry: Any) -> bool:
     return isinstance(weight, (int, float)) and float(weight) >= REQUIRED_WEIGHT
 
 
+def _scope_limit(entry: Any) -> dict[str, str] | None:
+    """The verified ``bar.recorded_limit`` of a scope row whose status is partial or
+    gap — the person's own recorded statement of falling short of the posting's bar
+    (ADR-070 cl. 2 / ADR-075 amended 2026-11-14). ``None`` for every other row."""
+    from applire.services.keyword_ledger import REQUIRED_WEIGHT, is_scope_entry
+
+    if not isinstance(entry, dict) or not is_scope_entry(entry):
+        return None
+    if entry.get("status") not in ("partial", "gap"):
+        return None
+    weight = entry.get("fit_weight")
+    if not isinstance(weight, (int, float)) or float(weight) < REQUIRED_WEIGHT:
+        return None
+    bar = entry.get("bar") if isinstance(entry.get("bar"), dict) else {}
+    limit = bar.get("recorded_limit")
+    if not isinstance(limit, dict):
+        return None
+    lid, statement = limit.get("id"), limit.get("statement")
+    if not (isinstance(lid, str) and lid.strip() and isinstance(statement, str) and statement.strip()):
+        return None
+    return {"id": lid.strip(), "statement": statement.strip()}
+
+
 def key_requirement_gaps(
     keyword_ledger: list[dict[str, Any]] | None,
     denied_concepts: list[Any] | None,
@@ -778,22 +805,33 @@ def key_requirement_gaps(
     label_of: dict[int, str] = {}
     groups: dict[str, list[tuple[bool, float, int, int, int, str]]] = {}
     group_statement: dict[str, str | None] = {}
+    scope_groups: set[str] = set()
     order: list[str] = []
     for index, entry in enumerate(keyword_ledger or []):
-        if not _is_key_gap_row(entry):
+        scope_limit = _scope_limit(entry)
+        if scope_limit is None and not _is_key_gap_row(entry):
             continue
         concept = (entry.get("concept") or "").strip()
         if not concept:
             continue
-        statement = statement_of.get(ats_norm(concept))
-        bound = entry.get("denied_by")
-        if not statement and isinstance(bound, str) and bound.strip():
-            statement = statement_of.get(ats_norm(bound.strip()))
+        if scope_limit is not None:
+            # WP-Q2 e: the person's own words name the step; the posting's quote
+            # is where the requirement sits in the text (its rank signal).
+            statement = scope_limit["statement"]
+            label_of[index] = scope_limit["id"]
+            forms = [str((entry.get("bar") or {}).get("quote") or ""), concept]
+        else:
+            statement = statement_of.get(ats_norm(concept))
+            bound = entry.get("denied_by")
+            if not statement and isinstance(bound, str) and bound.strip():
+                statement = statement_of.get(ats_norm(bound.strip()))
+            scope = _denial_scope_wording(entry)
+            if scope:
+                label_of[index] = scope
+            forms = _ledger_forms(entry)
         key = f"s:{ats_norm(statement)}" if statement else f"c:{ats_norm(concept)}"
-        scope = _denial_scope_wording(entry)
-        if scope:
-            label_of[index] = scope
-        forms = _ledger_forms(entry)
+        if scope_limit is not None:
+            scope_groups.add(key)
         # RULING D-6 = A: inside the requirements section, mentions and first
         # position are counted WITHIN the section only — a responsibilities mention
         # never lifts a must-have gap. Outside it, L-1 over the whole posting.
@@ -823,6 +861,7 @@ def key_requirement_gaps(
             mentions=max(m[2] for m in pool),
             first_position=min(m[3] for m in pool),
             in_requirements=top[0],
+            scope=key in scope_groups,
         )
         gaps.append((
             (not gap.in_requirements, -gap.weight, -gap.mentions, gap.first_position, top[4]),
@@ -856,7 +895,8 @@ def recorded_ladder_rows(keyword_ledger: list[dict[str, Any]] | None) -> list[di
     for entry in keyword_ledger or []:
         if not isinstance(entry, dict):
             continue
-        if not entry.get("claimable") and entry.get("status") == "gap":
+        if not entry.get("claimable") and entry.get("status") == "gap" and _scope_limit(entry) is None:
+            # WP-Q2 e: a scope row whose shortfall the person stated is recorded.
             continue
         out.append(entry)
     return out
@@ -925,7 +965,7 @@ def gap_ladder_rule(language: str | None, named: list[KeyGap]) -> str:
     Carries D-29's ONE HOME PER FACT over from the deleted REQUIRED block (Hazelnut
     build 5, delivery run 6: the writer re-introduced the candidate's main system in
     the gap paragraph; replay luna n=10×2, second introduction 8/20 -> 3/20)."""
-    label = named[0].label if named else "X"
+    label = next((g.label for g in named if not g.scope), "X")
     return (
         "For EACH named gap write ONE sentence, inside the single honest-gap paragraph: "
         "the gap first, as a plain fact about the work (\"Mit X habe ich noch nicht "
@@ -937,7 +977,14 @@ def gap_ladder_rule(language: str | None, named: list[KeyGap]) -> str:
         "<employer>, I lead …\"). "
         "Where the profile holds no such transfer, the sentence closes with the "
         f"einarbeiten clause instead, e.g. {_einarbeiten_examples(language, label)} "
-        "Never a list of lacks, never several gaps in one clause, never \"not recorded\", "
+        + (
+            "A SCOPE step (marked below) is not \"new to me\": its sentence states the "
+            "candidate's real figures (as the SCOPE POSITIONING content gives them) and then "
+            "the posting's scale as the step ahead, in the frame of the candidate's own "
+            "statement — never as something already done. "
+            if any(g.scope for g in named) else ""
+        )
+        + "Never a list of lacks, never several gaps in one clause, never \"not recorded\", "
         "\"beyond my profile\", \"cannot claim / prove / substantiate\" — even where the "
         "candidate's statement words it so. Name ONLY the gap(s) listed: every other "
         "gap of this posting, and every further concept a listed statement names, stays "
@@ -972,7 +1019,12 @@ def render_gap_ladder_block(
         "NAME IN THE LETTER:",
     ]
     for gap in named:
-        if gap.statement:
+        if gap.scope:
+            lines.append(
+                f"  - {gap.label} — a SCOPE step; the candidate's own words (recorded): "
+                f"\"{gap.statement}\""
+            )
+        elif gap.statement:
             lines.append(
                 f"  - {gap.label} — the candidate's own words (recorded): \"{gap.statement}\""
             )
