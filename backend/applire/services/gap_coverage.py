@@ -910,8 +910,13 @@ async def record_turn_outcome(
     session_id: str,
     charge: bool = True,
     user_id: uuid.UUID | None = None,
+    recorded_limits: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Persist one answered turn's outcome (ADR-089 clause 3).
+
+    ``recorded_limits`` (MD-Q5 (2)): on a SCOPE cluster, the denial ids this
+    turn's reconcile recorded — kept on the cluster (``recorded_limits``) so the
+    next analysis can bind them to that bar structurally.
 
     ADR-092 (Strawberry W2, 3c catch-all): the posting is shared, the gap
     analyses are per user — the target is the OWNER's row only (explicit
@@ -976,6 +981,11 @@ async def record_turn_outcome(
                 keyword_ledger=target.keyword_ledger,
                 charge=charge,
             )
+            limits = [str(x).strip() for x in recorded_limits or [] if str(x or "").strip()]
+            if limits and c.get("kind") == "scope":
+                updated["recorded_limits"] = list(dict.fromkeys(
+                    [*(c.get("recorded_limits") or []), *limits]
+                ))
             new_clusters.append(updated)
         else:
             new_clusters.append(c)

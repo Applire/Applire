@@ -1027,7 +1027,10 @@ def gap_ladder_rule(language: str | None, named: list[KeyGap]) -> str:
             "candidate's real figures (as the SCOPE POSITIONING content gives them; a step "
             "marked \"no figure of the candidate's on file\" states none) and then "
             "the posting's scale as the step ahead, in the frame of the candidate's own "
-            "statement — never as something already done. "
+            "statement — never as something already done. Keep that step in the "
+            "candidate's OWN recorded wording: reuse the words of their statement for it "
+            "(e.g. their \"… wäre für mich der nächste Schritt\"), never a paraphrase of "
+            "your own (RULING Q2-2 = C). "
             if any(g.scope for g in named) else ""
         )
         + "Never a list of lacks, never several gaps in one clause, never \"not recorded\", "

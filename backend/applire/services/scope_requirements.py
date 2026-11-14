@@ -320,8 +320,12 @@ def build_scope_ledger_entries(
     profile_json: dict[str, Any] | None = None,
     *,
     denials_taken: Any = (),
+    turn_limits: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Turn the model's scope judgements into ledger entries, floor applied.
+
+    ``turn_limits`` (MD-Q5 (2)): per scope concept (``_id_key``), the recorded
+    denial ids the turn answering that concept's scope question wrote.
 
     ``denials_taken``: the ``denied_by`` ids the SAME response cited for
     REQUIREMENTS rows (see :func:`verified_stated_limit`).
@@ -408,6 +412,7 @@ def build_scope_ledger_entries(
                 "value": item.get("jd_value"),
                 "value_max": item.get("jd_value_max"),
             },
+            asked_for=(turn_limits or {}).get(_id_key(concept), ()),
         )
         attested_fmt = (
             f"Attested ({attested['unit']}): \"{attested['quote']}\" "
@@ -461,24 +466,33 @@ def _id_key(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
-#: MD-Q3 / adversarial M1 (2026-11-14): the words that make a recorded statement
-#: one ABOUT a scope bar of that kind — a size noun for a team scope, a money word
-#: for a budget. Whole-word, over the casefolded text. Deliberately NOT the
-#: leadership-KIND words ("Personalverantwortung", "disziplinarisch", "fachlich"):
-#: a statement about the kind of leadership is not a shortfall of a SIZE bar (the
-#: v13 qualifier sentence says the same to the classifier).
-_LIMIT_KIND_WORDS: dict[str, re.Pattern[str]] = {
-    "team_size": re.compile(
-        r"\b(?:\w*spanne\w*|mitarbeiter\w*|mitarbeitende\w*|personen|köpfe\w*|leute|"
-        r"fte|headcount|direct reports?|reports|employees|people|staff|"
-        r"team\w*\s+(?:von|of|mit|with)\s+\d|team\w*größe\w*|team size|"
-        r"größere\w*\s+team\w*|larger teams?|bigger teams?|span)\b"
-    ),
-    "budget": re.compile(
-        r"(?:€|\$|£)|\b(?:\w*budget\w*|etat\w*|kostenverantwortung|mio|millionen?|million|"
-        r"mrd|tsd|eur|euro|chf|franken|usd|dollar|gbp|p&l|ergebnisverantwortung|spend)\b"
-    ),
+#: MD-Q5 (N5, 2026-11-14) — the unit a figure must carry to be a bar's figure.
+#: A currency written on, or right next to, the figure (shared with the scope
+#: question's unit reader, M5) and, for a team scope, a people word right after it.
+_UNIT_TOKEN = r"(EUR|CHF|USD|GBP|Euro|Eur|Franken|Dollar|Pfund|€|\$|£)"
+_UNIT_IN_RE = re.compile(rf"(?<![A-Za-zÄÖÜäöüß]){_UNIT_TOKEN}(?![A-Za-zÄÖÜäöüß])")
+_UNIT_BEFORE_RE = re.compile(rf"(?<![A-Za-zÄÖÜäöüß]){_UNIT_TOKEN}\s*$")
+_UNIT_AFTER_RE = re.compile(rf"^\s*(?:Schweizer\s+|US-?\s*)?{_UNIT_TOKEN}(?![A-Za-zÄÖÜäöüß])")
+_UNIT_CODE = {
+    "€": "EUR", "EUR": "EUR", "Euro": "EUR", "Eur": "EUR", "CHF": "CHF", "Franken": "CHF",
+    "$": "USD", "USD": "USD", "Dollar": "USD", "£": "GBP", "GBP": "GBP", "Pfund": "GBP",
 }
+_PEOPLE_AFTER_RE = re.compile(
+    r"^\s*(?:mitarbeitende\w*|mitarbeiter\w*|ma\b|personen\b|köpfe\w*|leute\b|"
+    r"beschäftigte\w*|menschen\b|fte\b|people\b|employees\b|staff\b|direct reports\b|"
+    r"reports\b|engineers?\b|ingenieur\w*|entwickler\w*)",
+    re.IGNORECASE,
+)
+
+
+def figure_currencies(text: str, raw: str, start: int) -> set[str]:
+    """The currency codes written on a figure (``raw`` at ``start`` in ``text``)
+    or right next to it — never elsewhere in the text (M5)."""
+    end = start + len(raw)
+    units = {_UNIT_CODE[m.group(1)] for m in _UNIT_IN_RE.finditer(raw)}
+    before = _UNIT_BEFORE_RE.search(text[max(0, start - 6):start])
+    after = _UNIT_AFTER_RE.match(text[end:end + 24])
+    return units | {_UNIT_CODE[m.group(1)] for m in (before, after) if m}
 
 
 def _bar_figures(bar: dict[str, Any]) -> set[str]:
@@ -497,27 +511,36 @@ def _bar_number(value: Any) -> float | None:
     return float(value)
 
 
-def limit_is_about_bar(text: str, bar: dict[str, Any] | None) -> bool:
-    """True when a recorded statement (its id + statement text) is ABOUT this scope
-    bar: it names the bar's own figure, or a word of the bar's kind
-    (:data:`_LIMIT_KIND_WORDS`). A lexical fact (ADR-062 cl. 1), fail-closed — a
-    miss loses the scope step (the letter names nothing), never adds a claim.
-
-    MD-Q3 / adversarial M1 (p6.py): "Mit SAP habe ich noch nie gearbeitet" cited as
-    the span bar's limit bound, and the ladder told the writer to give figures and
-    "the posting's scale as the step ahead" for a skill denial. Shared by the
-    binding (:func:`verified_stated_limit`) and the Oracle's scope-step check."""
+def names_bar_figure_with_unit(text: str, bar: dict[str, Any] | None) -> bool:
+    """True when ``text`` names the bar's EXACT figure with a unit of the bar's
+    kind: a people word right after it for a team scope ("120 Mitarbeitende"), a
+    currency on or next to it for a budget ("5 Mio. €"). A structural fact
+    (ADR-062 cl. 1, MD-Q5 (2)): kind words alone never tie a statement to a bar —
+    the MD-Q3 kind-word list bound "Mitarbeitergespräche habe ich noch nie
+    geführt" and "Budgetplanung in SAP" (re-check N5); the bar's number in another
+    unit ("120 Tickets") is no tie either."""
     if not isinstance(bar, dict) or not isinstance(text, str) or not text.strip():
         return False
     from applire.services.oracle.matchers.figures import extract_figures
 
     wanted = _bar_figures(bar)
-    if wanted and any(
-        f.kind in ("number", "currency") and f.value in wanted for f in extract_figures(text)
-    ):
-        return True
-    pattern = _LIMIT_KIND_WORDS.get(str(bar.get("kind") or ""))
-    return bool(pattern and pattern.search(" ".join(text.casefold().split())))
+    kind = bar.get("kind")
+    if not wanted or kind not in ("team_size", "budget"):
+        return False
+    cursor = 0
+    for f in extract_figures(text):
+        if f.kind not in ("number", "currency") or f.value not in wanted:
+            continue
+        start = text.find(f.raw, cursor)
+        if start < 0:
+            start = text.find(f.raw)
+        if start < 0:
+            continue
+        if kind == "budget" and (f.kind == "currency" or figure_currencies(text, f.raw, start)):
+            return True
+        if kind == "team_size" and _PEOPLE_AFTER_RE.match(text[start + len(f.raw):]):
+            return True
+    return False
 
 
 def verified_stated_limit(
@@ -526,6 +549,7 @@ def verified_stated_limit(
     *,
     taken: Any = (),
     bar: dict[str, Any] | None = None,
+    asked_for: Any = (),
 ) -> dict[str, str] | None:
     """The live recorded denial a scope classification's ``stated_limit`` cites, as
     ``{"id", "statement"}`` — or ``None`` (ADR-070 cl. 2 / ADR-075 amended
@@ -537,9 +561,13 @@ def verified_stated_limit(
     one lives elsewhere and binds nothing) is the fact checked here. An unknown
     id, a record without a statement, or no profile → no binding.
 
-    Third fact (MD-Q3 / adversarial M1, category C): with ``bar`` given, the
-    record must be ABOUT that bar (:func:`limit_is_about_bar`) — the id test alone
-    let "Mit SAP habe ich noch nie gearbeitet" bind to a 120-span bar (p6.py).
+    Third fact (MD-Q5 (2), structural; was a kind-word list in MD-Q3): with ``bar``
+    given, the record binds only when (a) it was recorded on the turn that asked
+    THIS bar's scope question (``asked_for``: the ids the scope cluster's turn
+    recorded, ``scope_question.turn_bound_limits``), or (b) it names the bar's
+    exact figure with a unit of its kind (:func:`names_bar_figure_with_unit`).
+    The id test alone bound "Mit SAP habe ich noch nie gearbeitet" (p6.py); the
+    kind-word list then bound "Mitarbeitergespräche …" (re-check N5).
 
     Second fact (earned, category C): an id the same response already cited as
     ``denied_by`` for a REQUIREMENTS row (``taken``) is that requirement's
@@ -571,10 +599,16 @@ def verified_stated_limit(
             and isinstance(statement, str)
             and statement.strip()
         ):
-            if bar is not None and not limit_is_about_bar(f"{concept} {statement}", bar):
+            asked = {_id_key(a) for a in asked_for or () if isinstance(a, str)}
+            if (
+                bar is not None
+                and key not in asked
+                and not names_bar_figure_with_unit(f"{concept} {statement}", bar)
+            ):
                 logger.info(
-                    "scope_requirements: stated_limit %r is not about the %r bar "
-                    "(names neither its figure nor a word of its kind) — binds nothing",
+                    "scope_requirements: stated_limit %r was not recorded on the %r "
+                    "bar's scope question and names not its figure with a unit — "
+                    "binds nothing",
                     cited,
                     bar.get("kind"),
                 )

@@ -1839,15 +1839,27 @@ def _denial_statement_backing(
 # The 2026-11-14 Luna after-runs passed by (a) twice and (b) twice; the
 # adversarial probe's paraphrase met neither and went red.
 #
-# The rule (a Fact, ADR-062 cl. 1): a letter figure equal to a scope bar's own
-# figure is accepted when, and only when, (1) that bar carries a bound recorded
-# limit that is still a LIVE denial statement of this vault, (2) the limit is
-# about that bar (``scope_requirements.limit_is_about_bar``, re-checked here), and
-# (3) EVERY sub-clause of the claim that carries the figure is framed as a step not
-# yet taken. (3) is stricter than the #422 hedge: a bare "nicht"/"kein"/"not"/"no"
-# does not count ("Ich führte 120 Mitarbeitende nicht nur fachlich" stays red); a
-# subjunctive, a "next step", a "noch nicht"/"not yet" or a "nie"/"never" does.
-# "Ich verantwortete 120 Mitarbeitende" stays red.
+# The rule (a Fact, ADR-062 cl. 1; MD-Q5 (2) made it structural): a letter
+# figure equal to a scope bar's own figure is accepted when, and only when,
+#   (1) that bar carries a bound recorded limit (bound structurally at analysis
+#       time: recorded on that bar's scope-question turn, or naming its figure
+#       with a unit) that is still a LIVE denial statement of this vault;
+#   (2) the clause carrying the figure RESTATES that limit: the share of its
+#       content words (``_denial_content_tokens``) found in the limit's id +
+#       statement is >= ``_DENIAL_OVERLAP_THRESHOLD`` (0.6) — the #422 rail's own
+#       measure and threshold. Why 0.6: clauses in the person's wording measured
+#       0.78–0.88 (captured letters + replays, figure included), the adversarial
+#       assertions 0.00–0.33; one rule for "the letter restates the person's
+#       recorded words" across both rails. The id is the limit's own recorded name
+#       (the ladder line shows it to the writer), so it counts as their words; and
+#   (3) the clause is framed as a step not yet taken: a subjunctive
+#       ("wäre/würde/would") or "nächste(r) Schritt / noch|bisher nicht|kein /
+#       next step / not yet". Bare "nie", "never", "Ziel", "goal" are no frame
+#       (re-check N4: "Ich führte 120 Mitarbeitende und hatte nie Probleme").
+# (2) is what defeats a frame word in a different subject ("Ohne mich wäre das
+# Team mit 120 Mitarbeitenden nicht erfolgreich gewesen": overlap 0.22). The
+# letter writer is told to keep the step in the person's own wording (G-1 rule,
+# ruling Q2-2 = C), which is what (2) reads.
 
 
 @dataclass(frozen=True)
@@ -1856,12 +1868,10 @@ class ScopeStep:
 
     figures: frozenset[str]
     statement: str
+    limit_id: str = ""
 
 
-_SCOPE_STEP_TOKENS = frozenset({
-    "wäre", "wären", "würde", "würden", "nie", "niemals", "ziel", "künftig",
-    "zukünftig", "would", "never", "aspire", "goal", "future",
-})
+_SCOPE_STEP_TOKENS = frozenset({"wäre", "wären", "würde", "würden", "would"})
 _SCOPE_STEP_PHRASES = (
     "nächste schritt", "nächster schritt", "nächsten schritt", "noch nicht",
     "bisher nicht", "noch kein", "bisher kein", "next step", "not yet",
@@ -1876,16 +1886,22 @@ def _scope_step_framed(clause: str) -> bool:
     return bool(set(normalized.split()) & _SCOPE_STEP_TOKENS)
 
 
+def _restates(clause: str, limit_words: set[str]) -> bool:
+    """(2): the clause's content words are mostly the bound limit's own words."""
+    tokens = _denial_content_tokens(clause)
+    return bool(tokens) and len(tokens & limit_words) / len(tokens) >= _DENIAL_OVERLAP_THRESHOLD
+
+
 def scope_steps_from_ledger(
     keyword_ledger: list[dict[str, Any]] | None,
 ) -> list[ScopeStep]:
     """The ledger's scope rows (status partial/gap) carrying a bound recorded limit
-    that is about the bar. Any weight: the ladder names only key-tier steps, but a
+    (the binding is the analysis-time structural check). Any weight: the ladder names only key-tier steps, but a
     bound limit backs the posting's figure wherever the letter states it."""
     if not keyword_ledger:
         return []
     from applire.services.keyword_ledger import is_scope_entry
-    from applire.services.scope_requirements import _bar_figures, limit_is_about_bar
+    from applire.services.scope_requirements import _bar_figures
 
     steps: list[ScopeStep] = []
     for entry in keyword_ledger:
@@ -1900,12 +1916,9 @@ def scope_steps_from_ledger(
         lid, statement = limit.get("id"), limit.get("statement")
         if not (isinstance(lid, str) and isinstance(statement, str) and statement.strip()):
             continue
-        limit = {"id": lid, "statement": statement.strip()}
-        if not limit_is_about_bar(f"{limit['id']} {limit['statement']}", bar):
-            continue
         figures = frozenset(_bar_figures(bar))
         if figures:
-            steps.append(ScopeStep(figures=figures, statement=limit["statement"]))
+            steps.append(ScopeStep(figures=figures, statement=statement.strip(), limit_id=lid.strip()))
     return steps
 
 
@@ -1924,18 +1937,24 @@ def _scope_step_backing(
     for fig in unmatched:
         if fig.kind not in ("number", "currency"):
             return None
+        clauses = _denial_carrying_clauses(claim_text, fig, claim_side=True)
+        if not clauses:
+            return None
         unit = None
         for step in scope_steps:
-            if fig.value in step.figures and _norm(step.statement) in live:
+            if fig.value not in step.figures or _norm(step.statement) not in live:
+                continue
+            words = _denial_content_tokens(f"{step.limit_id} {step.statement}")
+            if all(
+                _scope_step_framed(c) and _restates(c, words) for c in clauses
+            ):
                 unit = live[_norm(step.statement)]
                 break
         if unit is None:
-            return None
-        clauses = _denial_carrying_clauses(claim_text, fig, claim_side=True)
-        if not clauses or not all(_scope_step_framed(c) for c in clauses):
             logger.info(
-                "oracle scope step: figure %r is the posting's bar, but the claim "
-                "does not frame it as a step not yet taken — stays unbacked",
+                "oracle scope step: figure %r is the posting's bar, but no clause "
+                "carrying it restates a bound limit as a step not yet taken — "
+                "stays unbacked",
                 fig.raw,
             )
             return None

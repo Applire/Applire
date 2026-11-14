@@ -436,6 +436,8 @@ def test_the_letter_ladder_names_a_recorded_scope_step():
     assert named[0].concepts == (_SCOPE,)
     block = render_gap_ladder_block(gaps, named, "de")
     assert "a SCOPE step" in block and "the step ahead" in block
+    assert "Keep that step in the candidate's OWN recorded wording" in block, (
+        "MD-Q5 (2): the writer keeps the step in the person's words (the rail reads them)")
     assert letter_constraint_only_limits(denials, named) == [], "named → not constraint-only"
 
 
@@ -482,10 +484,13 @@ def test_the_kind_ask_follows_the_team_size_scope_question():
         {"cluster-c": {}, scope["id"]: scope, "cluster-b": {}}, _KIND_PROFILE,
         posting_weighs_leadership=False,
     )
-    assert ids == ["cluster-c", scope["id"], LEADERSHIP_KIND_ID, "cluster-b"]
-    assert [e["team_size"] for e in by_id[LEADERSHIP_KIND_ID]["entries"]] == [38, 14]
+    second = f"{LEADERSHIP_KIND_ID}-2"
+    assert ids == ["cluster-c", scope["id"], LEADERSHIP_KIND_ID, second, "cluster-b"], (
+        "MD-Q5 (1): one question per role")
+    assert [by_id[c]["entry"]["team_size"] for c in (LEADERSHIP_KIND_ID, second)] == [38, 14]
+    assert cats[second] == "B"
     again = plan_leadership_kind(ids, cats, by_id, _KIND_PROFILE, posting_weighs_leadership=True)
-    assert again[0].count(LEADERSHIP_KIND_ID) == 1, "at most once"
+    assert again[0] == ids, "at most once"
 
 
 def test_the_kind_ask_without_a_scope_cluster_needs_a_leadership_posting_and_goes_last():
@@ -494,30 +499,43 @@ def test_the_kind_ask_without_a_scope_cluster_needs_a_leadership_posting_and_goe
     base = (["a", "b"], {"a": "C", "b": "B"}, {"a": {}, "b": {}})
     assert plan_leadership_kind(*base, _KIND_PROFILE, posting_weighs_leadership=False)[0] == ["a", "b"]
     assert plan_leadership_kind(*base, _KIND_PROFILE, posting_weighs_leadership=True)[0] == [
-        "a", "b", LEADERSHIP_KIND_ID]
+        "a", "b", LEADERSHIP_KIND_ID, f"{LEADERSHIP_KIND_ID}-2"]
     no_sizes = {"work_experience": [{"company": "X", "role": "Y"}]}
     assert plan_leadership_kind(*base, no_sizes, posting_weighs_leadership=True)[0] == ["a", "b"]
 
 
-def test_the_kind_question_wording_is_separate_and_has_no_chips():
+def test_md_q5_the_kind_question_is_per_role_with_the_fixed_options():
     from applire.services.interview.scope_question import (
         LEADERSHIP_KIND_ID,
         leadership_kind_question,
         plan_leadership_kind,
     )
+    from applire.services.profile.leadership_kind import OPTION_LABELS
 
     _ids, _c, by_id = plan_leadership_kind(["a"], {"a": "B"}, {"a": {}}, _KIND_PROFILE,
                                           posting_weighs_leadership=True)
     q = leadership_kind_question(by_id[LEADERSHIP_KIND_ID], "de")
-    assert q == {"question": "Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38, bei "
-                             "Rasselstein Umformtechnik GmbH von 14. War das jeweils disziplinarische "
-                             "Führung (Personalverantwortung) oder fachliche Anleitung?",
-                 "choices": None}
-    one = {**by_id[LEADERSHIP_KIND_ID], "entries": by_id[LEADERSHIP_KIND_ID]["entries"][:1]}
-    assert leadership_kind_question(one, "de")["question"] == (
-        "Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38. War das disziplinarische "
-        "Führung (Personalverantwortung) oder fachliche Anleitung?")
+    assert q == {"question": "Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38. War das "
+                             "disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?",
+                 "choices": ["Disziplinarisch (Personalverantwortung)", "Fachliche Anleitung", "Beides"]}
+    assert leadership_kind_question(by_id[f"{LEADERSHIP_KIND_ID}-2"], "de")["question"].startswith(
+        "Bei Rasselstein Umformtechnik GmbH steht eine Teamgröße von 14.")
+    en = leadership_kind_question(by_id[LEADERSHIP_KIND_ID], "en")
+    assert en["choices"] == [OPTION_LABELS["en"][o] for o in ("disciplinary", "functional", "both")]
+    assert en["choices"] == ["Disciplinary (line management)", "Functional guidance", "Both"]
     assert "120" not in q["question"], "never folded into the scope question (RULING Q2-1)"
+
+
+def test_md_q5_the_kind_question_quotes_the_persons_bullet():
+    from applire.services.interview.scope_question import leadership_kind_question
+
+    said = "Führung von 38 Mitarbeitenden über drei Schichtleiter"
+    cluster = {"id": "leadership-kind", "kind": "leadership_kind",
+               "entry": {"entry_id": "w1", "company": "Weberit", "team_size": 38, "said": f" {said} "}}
+    assert leadership_kind_question(cluster, "de")["question"] == (
+        f"Du schreibst: »{said}«. War das disziplinarische Führung (Personalverantwortung) "
+        "oder fachliche Anleitung?")
+    assert leadership_kind_question(cluster, "en")["question"].startswith(f"You write: “{said}”.")
 
 
 @pytest.mark.asyncio
@@ -545,6 +563,56 @@ async def test_a_full_interview_asks_scope_then_kind_and_each_turn_advances(db):
     assert r2.complete is True
 
 
+async def _kind_turn(db, answer, *, reconcile):
+    """One leadership-kind turn (the seeded role) answered with ``answer``."""
+    from applire.models.profile import MasterProfile
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.session import create_session, send_message
+
+    job = await _seed(db, [_scope_cluster()], [_scope_row()])
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    provider.aparse_json = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    created = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, provider)
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=_bridge(False)),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        first = await send_message(created.session_id, "Direkt 38.", db, provider)
+    assert first.choices == ["Disziplinarisch (Personalverantwortung)", "Fachliche Anleitung", "Beides"]
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=reconcile),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        resp = await send_message(created.session_id, answer, db, provider)
+    from applire.models.session import InterviewSession
+
+    session_row = await db.get(InterviewSession, created.session_id)
+    prof = await db.get(MasterProfile, session_row.profile_id)
+    await db.refresh(prof)
+    return resp, prof.profile_json["work_experience"][0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("answer", "kind", "option", "reconciled"), [
+    ("Beides", "disciplinary", "both", False),
+    ("Disziplinarisch (Personalverantwortung)", "disciplinary", "disciplinary", False),
+    ("Fachliche Anleitung", "functional", "functional", False),
+    ("Disziplinarisch, über drei Schichtleiter.", None, "own_words", True),
+])
+async def test_md_q5_the_kind_answer_is_written_through_the_q1_writer(db, answer, kind, option, reconciled):
+    """An option stores its kind (Beides → disciplinary) without a reconcile call;
+    own words store no kind, mark the role asked, AND are reconciled."""
+    bridge = _bridge(False)
+    spy = AsyncMock(side_effect=bridge)
+    resp, entry = await _kind_turn(db, answer, reconcile=spy)
+    assert entry.get("leadership_kind") == kind
+    assert entry["leadership_kind_record"]["option"] == option
+    assert entry["leadership_kind_record"]["answer"] == answer
+    assert spy.await_count == (1 if reconciled else 0)
+    assert resp.complete is True
+
+
 def test_the_leadership_kind_contract_shape():
     """The shape WP-Q2 consumes from Q1's ``entries_needing_leadership_kind``
     (COORD Q1→Q2): a list of dicts with exactly these keys, ``team_size`` an int.
@@ -555,7 +623,8 @@ def test_the_leadership_kind_contract_shape():
     assert isinstance(out, list) and out, "the two sized roles need a kind"
     for item in out:
         assert isinstance(item, dict)
-        assert {"entry_id", "company", "role", "team_size"} <= set(item)
+        assert {"entry_id", "company", "role", "team_size", "said"} <= set(item)
+        assert isinstance(item["said"], str)
         assert isinstance(item["team_size"], int) and item["team_size"] > 0
     assert sorted(i["team_size"] for i in out) == [14, 38]
 
@@ -604,24 +673,60 @@ async def _verdicts(text, profile=None, ledger=None, kind="cover_letter"):
     return [c.verdict.verdict for c in report.claims]
 
 
+_OWN_STEP = "Eine deutlich größere Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt."
+
+
 @pytest.mark.asyncio
-async def test_h2_the_posting_figure_as_the_step_ahead_is_grounded_by_the_bound_limit():
-    """p8.py: the sentence the ladder rule asks for went ``unbacked/figuresNoEvidence``
-    on the 120 — even when the recorded statement itself named 120."""
-    assert await _verdicts(_STEP_SENTENCE) == ["grounded"]
-    named = "120 Mitarbeitende hatte ich noch nicht, das wäre mein nächster Schritt."
+async def test_h2_n4_the_step_in_the_persons_own_words_is_grounded_by_the_bound_limit():
+    """MD-Q5 (2): the posting's figure is accepted in a clause that restates the
+    bound limit (#422 overlap measure, 0.6) framed as a step not yet taken."""
+    reviewer_limit = "Eine deutlich größere Führungsspanne wäre für mich der nächste Schritt."
+    profile = _h2_profile(reviewer_limit)
+    ledger = _h2_ledger(("grössere Spanne", reviewer_limit))
+    assert await _verdicts(_OWN_STEP, profile, ledger) == ["grounded"]
     assert await _verdicts(
-        _STEP_SENTENCE, _h2_profile(named), _h2_ledger(("grössere Spanne", named))
-    ) == ["grounded"]
-    # The 2026-11-14 Luna after-run (Stefan rep 2): only the model's sentence triage
-    # had kept this clause out of the count; now the deterministic rail holds it.
-    stmt = ("Direkt geführt habe ich bei Weberit 38 Mitarbeitende. Eine dauerhafte "
-            "Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt.")
+        "Aktuell verantworte ich 38 Mitarbeitende; " + _OWN_STEP[0].lower() + _OWN_STEP[1:],
+        profile, ledger) == ["grounded"], "the person's real figure plus the step"
+    # The 2026-11-14 Luna after-run (Stefan rep 3): the clause as the writer wrote it.
+    stmt = ("Direkt geführt habe ich bei Weberit 38 Mitarbeitende. Ehrlich gesagt wäre die "
+            "dauerhafte Spanne von 120 für mich der nächste Schritt.")
     assert await _verdicts(
-        "Mit einer dauerhaften Führungsspanne von 120 Mitarbeitenden habe ich noch nicht gearbeitet.",
+        "Die dauerhafte Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt.",
         _h2_profile(stmt, "dauerhafte Führungsspanne von 120 Mitarbeitenden"),
         _h2_ledger(("dauerhafte Führungsspanne von 120 Mitarbeitenden", stmt)),
     ) == ["grounded"]
+    # The limit's recorded NAME (the id, shown to the writer on the ladder line) is
+    # the person's words too: statement alone 0.5, with the id 1.0.
+    short = "Eine größere Spanne wäre der nächste Schritt."
+    named = "dauerhafte Führungsspanne von 120 Mitarbeitenden"
+    assert await _verdicts(
+        "Eine dauerhafte Führungsspanne von 120 Mitarbeitenden wäre der nächste Schritt.",
+        _h2_profile(short, named), _h2_ledger((named, short)),
+    ) == ["grounded"]
+
+
+@pytest.mark.asyncio
+async def test_n4_a_frame_word_without_the_persons_words_stays_red():
+    """Re-check N4 (q2.py), with the reviewer's live bound limit."""
+    reviewer_limit = "Eine deutlich größere Führungsspanne wäre für mich der nächste Schritt."
+    profile = _h2_profile(reviewer_limit)
+    ledger = _h2_ledger(("grössere Spanne", reviewer_limit))
+    for text in (
+        "Ich führte 120 Mitarbeitende und hatte nie Probleme.",
+        "Ohne mich wäre das Team mit 120 Mitarbeitenden nicht erfolgreich gewesen.",
+        "Die 120 Mitarbeitenden, die ich nie aus den Augen verlor, prägten mich.",
+        "Ich verantwortete 120 Mitarbeitende, ein Ziel, das ich erreicht habe.",
+        "I led 120 employees, which I would never trade.",
+        _STEP_SENTENCE,  # p8's paraphrase: frame yes, the person's words no (0.33)
+        # A frame word, some of the person's words (0.375 < 0.6), another subject.
+        "Eine Spanne von 120 Mitarbeitenden wäre für das Werk ein großer Gewinn.",
+        # The person's words (overlap 0.67) but no step frame: a claim of having done it.
+        "Eine deutlich größere Führungsspanne von 120 hatte ich.",
+        # Bare "nie" is no frame (MD-Q5 (2)) even in the person's words; a limit that
+        # itself names the figure goes the #422 denial rail instead.
+        "Eine deutlich größere Führungsspanne von 120 hatte ich nie.",
+    ):
+        assert await _verdicts(text, profile, ledger) == ["unbacked"], text
 
 
 @pytest.mark.asyncio
@@ -632,48 +737,120 @@ async def test_h2_the_posting_figure_stays_red_without_the_step_frame_or_the_bou
         "unbacked"], "an appended step tail buys nothing (claim-side clause split)"
     assert await _verdicts("Ich führte 120 Mitarbeitende nicht nur fachlich.") == [
         "unbacked"], "a bare negation of something else is no step frame"
-    assert await _verdicts(_STEP_SENTENCE, ledger=_h2_ledger(limit=None)) == ["unbacked"]
+    # Round 3: each assertion below fails ONE condition only — the same sentence in
+    # the limit's own words is green with the live, bound limit (the control).
+    own = "Eine größere Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt."
+    assert await _verdicts(own) == ["grounded"], "control"
+    assert await _verdicts(own, ledger=_h2_ledger(limit=None)) == ["unbacked"], "no bound limit"
     sap = "Mit SAP habe ich noch nie gearbeitet."
     assert await _verdicts(
-        _STEP_SENTENCE, _h2_profile(sap, "SAP-Erfahrung"), _h2_ledger(("SAP-Erfahrung", sap))
+        own, _h2_profile(sap, "SAP-Erfahrung"), _h2_ledger(("SAP-Erfahrung", sap))
     ) == ["unbacked"], "a limit about something else backs no scope figure"
-    assert await _verdicts(_STEP_SENTENCE, _h2_profile("Anderes.", "x")) == [
+    assert await _verdicts(own, _h2_profile("Anderes.", "x")) == [
         "unbacked"], "a limit no longer live in the vault backs nothing"
     assert await _verdicts(
-        "Die Führung von 150 Mitarbeitenden wäre für mich der nächste Schritt.") == ["unbacked"]
-    assert await _verdicts(_STEP_SENTENCE, kind="cv") == ["unbacked"], "a CV never names the step"
+        "Eine größere Führungsspanne von 150 Mitarbeitenden wäre für mich der nächste Schritt."
+    ) == ["unbacked"], "not the bar's figure"
+    assert await _verdicts(own, kind="cv") == ["unbacked"], "a CV never names the step"
 
 
-def test_m1_a_limit_about_something_else_binds_no_scope_bar():
-    """p6.py: "SAP-Erfahrung" bound to "Führungsspanne ~120 MA"."""
+def test_m1_n5_a_limit_binds_only_structurally():
+    """MD-Q5 (2): (a) recorded on that bar's scope-question turn, or (b) naming the
+    bar's exact figure with a unit of its kind. p6.py's SAP limit and the
+    re-check's N5 inputs (q3.py) bind nothing."""
     from applire.services.scope_requirements import (
         build_scope_ledger_entries,
         verified_stated_limit,
     )
 
-    bar = {"kind": "team_size", "value": 120.0, "value_max": None}
-    sap = {"metadata": {"denied_concepts": [
-        {"concept": "SAP-Erfahrung", "statement": "Mit SAP habe ich noch nie gearbeitet."},
-        {"concept": "disziplinarische Führung",
-         "statement": "Nur fachlich, disziplinarisch hatte ich nie jemanden."},
-        {"concept": "nächster Schritt", "statement": "120 hatte ich noch nicht."},
-        {"concept": "Budget", "statement": "Ein Budget habe ich nie verantwortet."},
-    ]}}
-    assert verified_stated_limit("SAP-Erfahrung", sap, bar=bar) is None
-    assert verified_stated_limit("disziplinarische Führung", sap, bar=bar) is None, (
-        "the kind of leadership is not a shortfall of a SIZE bar")
-    assert verified_stated_limit("nächster Schritt", sap, bar=bar)["id"] == "nächster Schritt", (
-        "naming the bar's own figure ties it")
-    assert verified_stated_limit("Budget", sap, bar=bar) is None
-    assert verified_stated_limit(
-        "Budget", sap, bar={"kind": "budget", "value": 5_000_000.0})["id"] == "Budget"
-    assert verified_stated_limit(_DENIAL_ID, _profile_with_denial(), bar=bar)["id"] == _DENIAL_ID
+    span = {"kind": "team_size", "value": 120.0, "value_max": None}
+    budget = {"kind": "budget", "value": 5_000_000.0, "value_max": None}
+    texts = {
+        "SAP-Erfahrung": "Mit SAP habe ich noch nie gearbeitet.",
+        "Mitarbeitergespräche": "Mitarbeitergespräche habe ich noch nie geführt.",
+        "SAP-Berechtigungen": "Ich kenne SAP-Berechtigungen für Mitarbeiter nicht.",
+        "disziplinarische Führung": "Disziplinarische Führung hatte ich nie, nur fachliche Anleitung von 3 Personen.",
+        "Tickets": "Ich habe 120 Tickets nie gesehen.",
+        "Budgetplanung": "Ich kenne mich nicht mit Budgetplanung in SAP aus.",
+        "Euro-Umstellung": "Mit Euro-Umstellung hatte ich nichts zu tun.",
+        "Mio-Software": "Kenne die Mio-Software nicht.",
+        "Lieferanten-Audits": "Keine Erfahrung mit Kostenverantwortung für Lieferanten-Audits.",
+        "Spanne": "Eine größere Führungsspanne wäre für mich der nächste Schritt.",
+        "120 MA": "120 Mitarbeitende hatte ich noch nicht.",
+        "Budget": "Ein Budget von 5 Mio. € habe ich nie verantwortet.",
+        "Datensätze": "5 Mio. Datensätze habe ich nie migriert.",
+        "38 MA": "Mehr als 38 Mitarbeitende hatte ich nie.",
+    }
+    profile = {"metadata": {"denied_concepts": [
+        {"concept": k, "statement": v} for k, v in texts.items()]}}
+    for cid in ("SAP-Erfahrung", "Mitarbeitergespräche", "SAP-Berechtigungen",
+                "disziplinarische Führung", "Tickets", "Spanne", "38 MA"):
+        assert verified_stated_limit(cid, profile, bar=span) is None, cid
+    for cid in ("Budgetplanung", "Euro-Umstellung", "Mio-Software", "Lieferanten-Audits",
+                "Datensätze"):
+        assert verified_stated_limit(cid, profile, bar=budget) is None, cid
+    assert verified_stated_limit("120 MA", profile, bar=span)["id"] == "120 MA", "(b) figure + people word"
+    assert verified_stated_limit("Budget", profile, bar=budget)["id"] == "Budget", "(b) figure + currency"
+    assert verified_stated_limit("Budget", profile, bar=span) is None
+    assert verified_stated_limit("Spanne", profile, bar=span, asked_for=[" spanne "])["id"] == "Spanne", (
+        "(a) recorded on that bar's scope-question turn")
     block = [{"concept": _SCOPE, "kind": "team_size", "jd_value": 120.0, "jd_value_max": None,
               "comparator": "approx", "jd_quote": "ca. 120 Mitarbeitende", "level": "required",
               "candidate_values": [{"value": 38, "entry": "PL @ W", "semantics": "team"}]}]
-    cls = [{"concept": _SCOPE, "status": "partial", "reason": "38 < 120",
-            "stated_limit": "SAP-Erfahrung"}]
-    assert "recorded_limit" not in build_scope_ledger_entries(block, cls, sap)[0]["bar"]
+    cls = [{"concept": _SCOPE, "status": "partial", "reason": "38 < 120", "stated_limit": "Spanne"}]
+    assert "recorded_limit" not in build_scope_ledger_entries(block, cls, profile)[0]["bar"]
+    row = build_scope_ledger_entries(block, cls, profile, turn_limits={_SCOPE.casefold(): {"Spanne"}})[0]
+    assert row["bar"]["recorded_limit"]["id"] == "Spanne"
+
+
+def test_n5_seam_the_analysis_binds_with_the_previous_rows_turn_limits():
+    import inspect
+
+    from applire.services import gap
+
+    src = inspect.getsource(gap._run_analysis)
+    assert "turn_limits=turn_bound_limits(previous.gap_clusters" in src
+
+
+def test_n5_the_scope_turn_records_its_limits_and_the_analysis_reads_them():
+    from applire.services.interview.scope_question import RECORDED_LIMITS_KEY, turn_bound_limits
+
+    scope = {**_scope_cluster(), RECORDED_LIMITS_KEY: ["Spanne"]}
+    other = {**_llm_cluster("cluster-sap", ["SAP"]), RECORDED_LIMITS_KEY: ["SAP-Erfahrung"]}
+    assert turn_bound_limits([scope, other]) == {_SCOPE.casefold(): {"Spanne"}}, (
+        "only a SCOPE cluster's turn binds")
+
+
+@pytest.mark.asyncio
+async def test_n5_end_to_end_a_limit_stated_on_the_scope_turn_is_kept_on_the_cluster(db):
+    from applire.models.gap import GapAnalysis
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.interview.scope_question import RECORDED_LIMITS_KEY
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+    from applire.services.session import create_session, send_message
+    from sqlalchemy import select
+
+    scope = _scope_cluster()
+    job = await _seed(db, [scope], [_scope_row()])
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    provider.aparse_json = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    created = await create_session(
+        SessionCreateRequest(job_id=job.id, mode="targeted", target_gap=scope["id"]), db, provider)
+
+    async def _denies(db, *, profile_record, **_kw):
+        return InterviewTurnResult(profile_dict=copy.deepcopy(profile_record.profile_json),
+                                   changes=[], addressed=False, denial_recorded=True,
+                                   denied_concepts=["größere Führungsspanne"])
+
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=AsyncMock(side_effect=_denies)),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        await send_message(created.session_id, "Eine größere Spanne wäre der nächste Schritt.", db, provider)
+    row = (await db.execute(select(GapAnalysis).where(GapAnalysis.job_analysis_id == job.id))).scalar_one()
+    kept = next(c for c in row.gap_clusters if c.get("id") == scope["id"])
+    assert kept[RECORDED_LIMITS_KEY] == ["größere Führungsspanne"]
 
 
 def test_m1_a_scope_row_never_joins_a_requirement_rows_denial_group():

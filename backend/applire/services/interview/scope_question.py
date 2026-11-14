@@ -38,14 +38,11 @@ SCOPE_QUESTIONS_PER_GAP = 1
 # currency written in or right next to it, the qualifier written right before it.
 # Never a substring anywhere in the quote ("EUROPA-Region" is no EUR), never
 # invented (no unit on the figure → none printed; no qualifier → none printed).
-_UNIT_TOKEN = r"(EUR|CHF|USD|GBP|Euro|Eur|Franken|Dollar|Pfund|€|\$|£)"
-_UNIT_IN_RE = re.compile(rf"(?<![A-Za-zÄÖÜäöüß]){_UNIT_TOKEN}(?![A-Za-zÄÖÜäöüß])")
-_UNIT_BEFORE_RE = re.compile(rf"(?<![A-Za-zÄÖÜäöüß]){_UNIT_TOKEN}\s*$")
-_UNIT_AFTER_RE = re.compile(rf"^\s*(?:Schweizer\s+|US-?\s*)?{_UNIT_TOKEN}(?![A-Za-zÄÖÜäöüß])")
-_UNIT_CODE = {
-    "€": "EUR", "EUR": "EUR", "Euro": "EUR", "Eur": "EUR", "CHF": "CHF", "Franken": "CHF",
-    "$": "USD", "USD": "USD", "Dollar": "USD", "£": "GBP", "GBP": "GBP", "Pfund": "GBP",
-}
+from applire.services.scope_requirements import (  # noqa: E402 — one unit reader (M5/N5)
+    _UNIT_CODE,
+    figure_currencies,
+)
+
 #: The qualifier the posting writes right before its figure (casefolded window).
 _QUALIFIER_BEFORE = (
     ("upto", re.compile(r"(?:bis\s+zu|maximal|höchstens|max\.|up\s+to|at\s+most)\s*$")),
@@ -150,12 +147,8 @@ def _figure_facts(kind: Any, value: Any, quote: Any) -> dict[str, Any]:
     start = text.find(hit.raw)
     if start < 0:
         return out
-    end = start + len(hit.raw)
     if kind == "budget":
-        units = {_UNIT_CODE[m.group(1)] for m in _UNIT_IN_RE.finditer(hit.raw)}
-        before = _UNIT_BEFORE_RE.search(text[max(0, start - 6):start])
-        after = _UNIT_AFTER_RE.match(text[end:end + 24])
-        units |= {_UNIT_CODE[m.group(1)] for m in (before, after) if m}
+        units = figure_currencies(text, hit.raw, start)
         out["currency"] = next(iter(units)) if len(units) == 1 else None
     window = " ".join(text[max(0, start - 24):start].casefold().split())
     if hit.raw.rstrip().endswith("+"):
@@ -190,6 +183,30 @@ def scope_facts(row: dict[str, Any]) -> dict[str, Any]:
             else None
         ),
     }
+
+
+#: MD-Q5 (2): the recorded denial ids the turn answering a scope cluster's
+#: question wrote (``gap_coverage.record_turn_outcome(recorded_limits=…)``).
+RECORDED_LIMITS_KEY = "recorded_limits"
+
+
+def turn_bound_limits(clusters: list[Any] | None) -> dict[str, set[str]]:
+    """Per scope concept (casefolded, whitespace-joined), the denial ids recorded
+    on the turn that asked that concept's scope question — the structural half of
+    the binding (``scope_requirements.verified_stated_limit(asked_for=…)``)."""
+    out: dict[str, set[str]] = {}
+    for cluster in clusters or []:
+        if not is_scope_cluster(cluster):
+            continue
+        ids = {str(i) for i in cluster.get(RECORDED_LIMITS_KEY) or [] if isinstance(i, str) and i.strip()}
+        if not ids:
+            continue
+        outcome = cluster.get("outcome") if isinstance(cluster.get("outcome"), dict) else {}
+        for m in [*(cluster.get("gaps") or []), *(outcome.get("covered") or []),
+                  *(outcome.get("declined") or []), cluster.get("label")]:
+            if isinstance(m, str) and m.strip():
+                out.setdefault(_norm(m), set()).update(ids)
+    return out
 
 
 def _cluster_id(kind: Any, taken: set[str]) -> str:
@@ -577,7 +594,7 @@ def plan_leadership_kind(
     earlier session of this person already put the ask to — such a role is not
     asked again, even when its answer left the kind unknown ("beides"); the line
     stays neutral."""
-    if LEADERSHIP_KIND_ID in cluster_ids:
+    if any(is_leadership_kind_cluster(clusters_by_id.get(cid)) for cid in cluster_ids):
         return cluster_ids, categories, clusters_by_id
     asked = {str(k) for k in already_asked or () if k}
     entries = [
@@ -594,30 +611,55 @@ def plan_leadership_kind(
     )
     if anchor is None and not posting_weighs_leadership:
         return cluster_ids, categories, clusters_by_id
-    cluster = {"id": LEADERSHIP_KIND_ID, "kind": LEADERSHIP_KIND, "label": LEADERSHIP_KIND_ID,
-               "category": "B", "gaps": [], "jd_skills": [], "jd_context": "",
-               "entries": entries}
+    # MD-Q5 (1): ONE question per role — fixed options cannot answer two roles.
+    new_ids: list[str] = []
+    new_clusters: dict[str, dict[str, Any]] = {}
+    for n, entry in enumerate(entries, start=1):
+        cid = LEADERSHIP_KIND_ID if n == 1 else f"{LEADERSHIP_KIND_ID}-{n}"
+        new_ids.append(cid)
+        new_clusters[cid] = {
+            "id": cid, "kind": LEADERSHIP_KIND, "label": cid, "category": "B",
+            "gaps": [], "jd_skills": [], "jd_context": "", "entries": [entry], "entry": entry,
+        }
     at = len(cluster_ids) if anchor is None else anchor + 1
-    ids = [*cluster_ids[:at], LEADERSHIP_KIND_ID, *cluster_ids[at:]]
-    return ids, {**categories, LEADERSHIP_KIND_ID: "B"}, {**clusters_by_id, LEADERSHIP_KIND_ID: cluster}
+    ids = [*cluster_ids[:at], *new_ids, *cluster_ids[at:]]
+    return (ids, {**categories, **{cid: "B" for cid in new_ids}},
+            {**clusters_by_id, **new_clusters})
+
+
+#: MD-Q5 (1): the fixed options, in this order; the labels are the Q1 module's.
+KIND_CHOICE_OPTIONS = ("disciplinary", "functional", "both")
+
+
+def kind_choices(lang: str) -> list[str]:
+    from applire.services.profile.leadership_kind import OPTION_LABELS
+
+    labels = OPTION_LABELS["de" if str(lang or "").lower().startswith("de") else "en"]
+    return [labels[o] for o in KIND_CHOICE_OPTIONS]
+
+
+def kind_cluster_entry(cluster: dict[str, Any]) -> dict[str, Any]:
+    entry = cluster.get("entry")
+    if isinstance(entry, dict):
+        return entry
+    entries = [e for e in cluster.get("entries") or [] if isinstance(e, dict)]
+    return entries[0] if entries else {}
 
 
 def leadership_kind_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
-    """The ask, one question for every listed role. No chips."""
+    """The ask for ONE role (MD-Q5 (1)), with the fixed options as chips. When the
+    role's entry carries the person's own bullet about leading (``said``), the
+    question quotes it; otherwise it names the role and its team size."""
     lang = "de" if str(lang or "").lower().startswith("de") else "en"
-    entries = [e for e in cluster.get("entries") or [] if isinstance(e, dict)]
-    def _where(e):
-        return str(e.get("company") or e.get("role") or "").strip() or "—"
+    entry = kind_cluster_entry(cluster)
+    said = " ".join(str(entry.get("said") or "").split())
+    where = str(entry.get("company") or entry.get("role") or "").strip() or "—"
     if lang == "de":
-        first = f"Bei {_where(entries[0])} steht eine Teamgröße von {entries[0].get('team_size')}"
-        rest = "".join(f", bei {_where(e)} von {e.get('team_size')}" for e in entries[1:])
-        ask = ("War das jeweils disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?"
-               if len(entries) > 1 else
-               "War das disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?")
-        return {"question": f"{first}{rest}. {ask}", "choices": None}
-    first = f"At {_where(entries[0])} your profile shows a team size of {entries[0].get('team_size')}"
-    rest = "".join(f", at {_where(e)} of {e.get('team_size')}" for e in entries[1:])
-    ask = ("In each case, was that disciplinary leadership (line management) or functional guidance?"
-           if len(entries) > 1 else
-           "Was that disciplinary leadership (line management) or functional guidance?")
-    return {"question": f"{first}{rest}. {ask}", "choices": None}
+        ask = "War das disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?"
+        lead = (f"Du schreibst: »{said}«." if said
+                else f"Bei {where} steht eine Teamgröße von {entry.get('team_size')}.")
+    else:
+        ask = "Was that line management (disciplinary) or functional guidance?"
+        lead = (f"You write: “{said}”." if said
+                else f"At {where} your profile shows a team size of {entry.get('team_size')}.")
+    return {"question": f"{lead} {ask}", "choices": kind_choices(lang)}
