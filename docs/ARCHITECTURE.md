@@ -1464,6 +1464,8 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 - **Admin views.** Admin-only endpoints for the dashboard (health, users, failed jobs without content, usage, retention, notices), per-person usage, and the audit log. All of them are metadata only. Contract: `docs/dev/api-contract-admin.md`.
 - **Provider check (amended 2026-11-06).** The ops provider probe's mode (`off` / `reachability` / `credit` / `both`) is a panel setting, so an operator can stop its token spend on an idle instance without editing `.env`. The mode is a `config.Settings` field the probe reads on every call, its cache is keyed on the mode as well as the provider, and the settings payload says per provider whether a balance can be read at all (OpenRouter today).
 - **No model verdicts in the panel (amended 2026-10-10).** The provider card links `docs/llm-models.md` and judges no model; the guide is the only place a model is measured and published. (A per-model hint read from a bundled data file shipped briefly during the release and was removed: a verdict can depend on settings such as reasoning on/off that the lookup did not see.)
+- **Per-user keys (amended 2026-11, ADR-096).** The panel set grows by the key mode (`LLM_KEY_MODE`). Per-user keys are resolved outside this overlay, under their own secret. A process that has never read the panel settings refuses model work in place of guessing the key mode.
+
 
 ### ADR-094 — Generation Pipeline v2: the Model Writes, Code Checks (2026-10, Hazelnut; the default since 0.44, `CV_PIPELINE=v1` opts out)
 
@@ -1487,6 +1489,17 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 - **Amendments that rode along (Hazelnut build 2).** ADR-087: `__version__` reads the source tree's `pyproject.toml` first (a stale egg-info cannot make `/health` lie); a fresh install records `instance.first_started_at`. ADR-086: a fresh install's ops health is not degraded for a backup or retention run that is not due yet. ADR-091: deleting another person's account needs an administrator **session** (an API token is refused); account deletion and the 24-month inactivity rule share one tombstone that keeps only an opaque id, role and dates; the trusted-proxy setting refuses ranges wider than /16 (IPv4) or /48 (IPv6); SSO re-authentication sends `prompt=login` without `max_age=0`. ADR-005: each retention rule is isolated, a failing rule is named and the run is reported failed while the other rules still run. ADR-092: migration 0083 attaches pre-upgrade flows to the application links 0076 created.
 
 - **ADR-099 — the generation loop and the finding registry (Hazelnut build 5).** One registry (`services/finding_registry.py`) assigns every finding kind its class: F, A, U or S. Every audit stamps that class on the row; a row the loop did not fix shows its fallback class, so no row is marked F. The CV and the letter get a truth round: one correction call that moves misattributed claims and removes or narrows unbacked ones. Its self-check and the delivered report use the same check (`build_self_audit_report`, same provider and language). The report records the delivery state (`loop_clean`, `removals`, `fixed`). The CV has a bounded second language round; the outcome critic runs before the last terminal round. The review actions in `services/delivery_actions.py` each make one single-sentence corrector edit and then re-audit.
+
+### ADR-096 — Who Pays for a Call: Per-User Provider Keys, a Key Mode, and One Admission per Action (accepted 2026-10, Sorbet; key mode, user keys, admission and the admin grant built 2026-11; the allowance policy not yet)
+
+**Decision:** before any model work starts, one admission step decides whether it may run and whose key pays: the person's own key (`user`), the instance key (`instance`), or, for the ops probe only, the instance as `system`. `LLM_KEY_MODE` defaults to `instance`, so an existing install behaves exactly as before; nothing new appears in its interface.
+
+- **Per-user keys.** In `user` mode each person can store their own key for one of the providers with a fixed public endpoint (Mistral, OpenRouter, Requesty, Anthropic, OpenAI). There is no custom base URL and no Ollama for user keys. A client built for a person's key names the provider's public endpoint itself and takes no endpoint, header, organisation or token from the server's environment, so only the person's key is sent. Keys are write-only, can be tested with one small call before saving (throttled), and are deleted with the account. Unlike ADR-093's panel secrets, they are encrypted under `PROVIDER_KEY_SECRET`, a secret that lives only in the environment (at least 32 bytes), so a database dump alone decrypts no key. Keys are scrubbed from errors, logs and the model debug log.
+- **Never a silent fallback.** Provider constructors read the instance key when given an empty key. The factory therefore passes every key explicitly and refuses an empty one. A person with no key and no admin grant gets `provider_key_required`, not the instance's bill; an unreadable stored key gives `provider_key_unreadable`. Model work that reached the factory without passing a door is refused in `user` mode, never paid by the instance.
+- **Admission at the door, decision travels with the work.** The REST provider dependency, each MCP tool that starts model work, and the gap-analysis and CV-import job starts admit once, before the work is accepted, and put the decision into the request context. Background tasks inherit it and never re-admit, so a started generation finishes on the key it began with.
+- **What stays on the instance key.** Embeddings, OCR, the capability lookup and the ops probes always use the instance's own configuration.
+- **Admin grant.** An administrator can let a person use the instance key (`PATCH /api/admin/users/{id}`, audited); the users list shows who pays for each person.
+- **Allowance ledger (tables only so far).** The ledger and a daily token counter exist, with one function, `allowance.grant`, by which a hosting layer adds allowance; Core contains no billing. The policy that enforces allowances (`ALLOWANCE_POLICY=allowance`) is not built yet; setting it today changes nothing and logs a warning at start.
 
 ## 4. Data Model Highlights
 
@@ -1638,6 +1651,7 @@ This repository is the Community Edition. The table below documents what is and 
 | Interview Orchestrator (Mode A + B) | ✅ | ✅ |
 | CV generation (7 templates: Classic German, Modern Swiss, Executive, Academic, …) | ✅ | ✅ (+ premium themes) |
 | CV Section Editor (Finetuner) | ✅ | ✅ |
+| Per-user provider keys, key mode, admin grant (ADR-096) | ✅ (off by default) | ✅ |
 | Cover letter generation | ✅ | ✅ |
 | Profile Enrichment (Mode C, no-JD) | ✅ | ✅ |
 | Deterministic match score | ✅ | ✅ |
