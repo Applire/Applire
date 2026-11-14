@@ -297,7 +297,8 @@ quantified scope bar — team size, budget). These are judged, never keyword-mat
     their next step — set "stated_limit" to that entry's "id", copied exactly. It does NOT
     change "status": judge sufficiency from the values and attested prose as above (a person
     who led 38 and calls 120 their next step is still "partial"). Omit it otherwise; never cite
-    a denial that is about something else.
+    a denial that is about something else — a statement about a qualifier the bar does not ask
+    for (another kind of leadership, another kind of budget) is not a shortfall of this bar.
   - NEVER classify a scope requirement from the presence of related words anywhere in the
     profile — only from the typed candidate values handed to you in its own entry, plus a
     verbatim "attested_evidence" quote per the rule above (reporting a quote is not
