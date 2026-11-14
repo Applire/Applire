@@ -258,7 +258,7 @@ async def db():
     await engine.dispose()
 
 
-async def _seed(db, clusters, ledger):
+async def _seed(db, clusters, ledger, *, work_id=None):
     from applire.models.gap import GapAnalysis
     from applire.models.job import JobAnalysis
 
@@ -273,7 +273,8 @@ async def _seed(db, clusters, ledger):
     profile = make_master_profile(profile_json={
         "personal_info": {"name": "Stefan Test", "email": "stefan@example.de"},
         "skills": [], "work_experience": [
-            {"company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
+            {**({"id": work_id} if work_id else {}),
+             "company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
              "start_date": "2018-01", "team_size": 38}],
     })
     db.add_all([job, profile])
@@ -563,13 +564,13 @@ async def test_a_full_interview_asks_scope_then_kind_and_each_turn_advances(db):
     assert r2.complete is True
 
 
-async def _kind_turn(db, answer, *, reconcile):
+async def _kind_turn(db, answer, *, reconcile, work_id=None):
     """One leadership-kind turn (the seeded role) answered with ``answer``."""
     from applire.models.profile import MasterProfile
     from applire.schemas.session import SessionCreateRequest
     from applire.services.session import create_session, send_message
 
-    job = await _seed(db, [_scope_cluster()], [_scope_row()])
+    job = await _seed(db, [_scope_cluster()], [_scope_row()], work_id=work_id)
     provider = MagicMock()
     provider.acomplete = AsyncMock(side_effect=AssertionError("no LLM question call"))
     provider.aparse_json = AsyncMock(side_effect=AssertionError("no LLM question call"))
@@ -1099,3 +1100,41 @@ async def test_l5_end_to_end_an_unresolved_kind_answer_is_not_re_asked(db):
     row = (await db.execute(select(InterviewSession).where(
         InterviewSession.id == second.session_id))).scalar_one()
     assert LEADERSHIP_KIND_ID not in row.state["critical_gaps"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["Disziplinarisch, über drei Schichtleiter.", "Beides"])
+async def test_md_q5_seam_only_the_turns_kind_op_writes_the_kind(db, answer):
+    """Seam with Q1's committer guard (73445cef): the kind turn's OWN batch with
+    ``leadership_kind_op`` stores what the person picked; the same turn's
+    reconciler batch writing ``leadership_kind`` without that op is refused
+    (``leadership_kind_unasked``) — the model never sets the kind."""
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+    from applire.services.profile.reconcile.ops import SetField
+
+    receipts: list = []
+
+    async def _model_writes_the_kind(db, *, profile_record, **_kw):
+        result = await commit_ops(
+            db, [SetField(target="w1", field="leadership_kind", value="functional")],
+            CommitProvenance(source="interview", intake="interview_answer", actor="candidate"),
+            record=profile_record, grounding=None, snapshot=None,
+        )
+        receipts.extend(getattr(i, "reason", None) or i.get("reason") for i in result.enrichment_record.not_applied or [])
+        return InterviewTurnResult(profile_dict=copy.deepcopy(profile_record.profile_json),
+                                   changes=list(result.changes), addressed=False)
+
+    if answer == "Beides":
+        # An option answer never runs the reconciler: the turn's own batch (by
+        # entry id) is the only write, and it stores the kind.
+        resp, entry = await _kind_turn(db, answer, work_id="w1", reconcile=AsyncMock(
+            side_effect=AssertionError("an option is not reconciled")))
+        assert entry["leadership_kind"] == "disciplinary"
+        assert entry["leadership_kind_record"]["option"] == "both"
+        return
+    resp, entry = await _kind_turn(db, answer, work_id="w1",
+                                   reconcile=AsyncMock(side_effect=_model_writes_the_kind))
+    assert receipts == ["leadership_kind_unasked"], "the reconciler's write is refused"
+    assert entry.get("leadership_kind") is None, "own words store no kind"
+    assert entry["leadership_kind_record"]["option"] == "own_words", "the turn's own op still lands"
