@@ -50,8 +50,17 @@ export type UserAction =
   | "openAccount"
   | "delete";
 
-/** Which actions a row offers, by status and role (mock §2). Delete is always last. */
-export function actionsFor(user: AdminUser, isSelf = false): UserAction[] {
+/**
+ * Which actions a row offers, by status and role (mock §2). Delete is always last.
+ * ADR-096: the grant actions appear only while the key column is shown
+ * (`showKeys`: `LLM_KEY_MODE=user`, or a grant still exists) — on a default
+ * install nothing about keys appears (founder ruling K-1).
+ */
+export function actionsFor(user: AdminUser, isSelf = false, showKeys = false): UserAction[] {
+  return actionsForAll(user, isSelf).filter((a) => showKeys || (a !== "grantKey" && a !== "revokeGrant"));
+}
+
+function actionsForAll(user: AdminUser, isSelf: boolean): UserAction[] {
   // Own row: the server guards (last admin) stay, but the menu only offers what is
   // safe and useful here — revoke own tokens, or go to the account page (789:281).
   // ADR-096: in LLM_KEY_MODE=user the admin needs a payer too — granting the
@@ -122,10 +131,13 @@ export function UsersTable({
   users,
   meId,
   onAction,
+  showKeys = false,
 }: {
   users: AdminUser[];
   meId: string | null;
   onAction: (action: UserAction, user: AdminUser) => void;
+  /** ADR-096: show the "AI key" column and the grant actions (`LLM_KEY_MODE=user`, or a grant exists). */
+  showKeys?: boolean;
 }) {
   const t = useTranslations("adminUsers");
   const tAccount = useTranslations("account");
@@ -140,7 +152,7 @@ export function UsersTable({
             <th className="px-3 py-2.5">{t("colEmail")}</th>
             <th className="px-3 py-2.5">{t("colRole")}</th>
             <th className="px-3 py-2.5">{t("colStatus")}</th>
-            <th className="px-3 py-2.5">{t("colAiKey")}</th>
+            {showKeys && <th className="px-3 py-2.5">{t("colAiKey")}</th>}
             <th className="px-3 py-2.5">{t("colLastLogin")}</th>
             <th className="px-3 py-2.5 text-right">{t("colApplications")}</th>
             <th className="px-3 py-2.5 text-right">{t("colStorage")}</th>
@@ -184,9 +196,11 @@ export function UsersTable({
                 <td className="px-3 py-3">
                   <StatusBadge status={u.status} />
                 </td>
-                <td className="px-3 py-3">
-                  <AiKeyBadge user={u} />
-                </td>
+                {showKeys && (
+                  <td className="px-3 py-3">
+                    <AiKeyBadge user={u} />
+                  </td>
+                )}
                 <td className="whitespace-nowrap px-3 py-3 text-on-surface">
                   {u.last_login_at ? (
                     formatWhen(u.last_login_at, locale, (k, v) => tAccount(k, v))
@@ -204,7 +218,7 @@ export function UsersTable({
                     : t("tokensUnit", { count: formatCompact(u.metadata.ai_tokens_30d, locale) })}
                 </td>
                 <td className="px-3 py-3 text-right">
-                  <RowMenu user={u} isSelf={u.id === meId} onAction={onAction} />
+                  <RowMenu user={u} isSelf={u.id === meId} showKeys={showKeys} onAction={onAction} />
                 </td>
               </tr>
             );
@@ -218,10 +232,12 @@ export function UsersTable({
 function RowMenu({
   user,
   isSelf,
+  showKeys,
   onAction,
 }: {
   user: AdminUser;
   isSelf: boolean;
+  showKeys: boolean;
   onAction: (a: UserAction, u: AdminUser) => void;
 }) {
   const t = useTranslations("adminUsers");
@@ -259,7 +275,7 @@ function RowMenu({
     };
   }, [open]);
 
-  const actions = actionsFor(user, isSelf);
+  const actions = actionsFor(user, isSelf, showKeys);
 
   return (
     <>

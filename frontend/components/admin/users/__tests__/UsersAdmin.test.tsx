@@ -109,16 +109,18 @@ describe("actionsFor", () => {
   });
   it("active admin: offers makeUser, not makeAdmin", () => {
     const a = actionsFor(OWN, true);
-    // ADR-096: the own row offers the instance-key grant (the admin needs a payer too).
-    expect(a).toEqual(["grantKey", "revokeTokens", "openAccount"]);
-    expect(actionsFor({ ...OWN, instance_key_granted_at: "2026-11-13T00:00:00Z" }, true)[0]).toBe("revokeGrant");
+    // ADR-096 / K-1: on a default install (no key column) nothing about keys is offered.
+    expect(a).toEqual(["revokeTokens", "openAccount"]);
+    // With the key column shown, the own row offers the instance-key grant (the admin needs a payer too).
+    expect(actionsFor(OWN, true, true)).toEqual(["grantKey", "revokeTokens", "openAccount"]);
+    expect(actionsFor({ ...OWN, instance_key_granted_at: "2026-11-13T00:00:00Z" }, true, true)[0]).toBe("revokeGrant");
     expect(actionsFor(OTHER_ADMIN)).toContain("makeUser");
     expect(actionsFor(OTHER_ADMIN)).not.toContain("makeAdmin");
     expect(actionsFor(OTHER_ADMIN).at(-1)).toBe("delete");
   });
   it("active user: offers makeAdmin, not makeUser", () => {
-    const a = actionsFor(PLAIN);
-    expect(a).toEqual(["resetLink", "makeAdmin", "grantKey", "revokeTokens", "disable", "delete"]);
+    expect(actionsFor(PLAIN)).toEqual(["resetLink", "makeAdmin", "revokeTokens", "disable", "delete"]);
+    expect(actionsFor(PLAIN, false, true)).toEqual(["resetLink", "makeAdmin", "grantKey", "revokeTokens", "disable", "delete"]);
   });
 });
 
@@ -131,7 +133,6 @@ describe("UsersAdmin — table", () => {
       "Email address",
       "Role",
       "Status",
-      "AI key",
       "Last sign-in",
       "Applications",
       "Storage",
@@ -355,7 +356,7 @@ describe("UsersAdmin — row actions", () => {
     await u.click(screen.getByTestId("admin-confirm-dialog-confirm"));
     await waitFor(() => expect(screen.queryByTestId("admin-confirm-dialog")).toBeNull());
     expect(mutations()).toEqual([{ url: "/api/admin/users/u-4", method: "PATCH", body: { disabled: true } }]);
-    expect(calls.filter((c) => c.method === "GET")).toHaveLength(2);
+    expect(calls.filter((c) => c.method === "GET" && c.url === "/api/admin/users")).toHaveLength(2);
   });
 
   it("disable 409 last_admin: 'Not possible: <email> is the only active admin…'", async () => {
@@ -545,7 +546,7 @@ describe("UsersAdmin — delete", () => {
     await screen.findByTestId("admin-users-table");
     const before = calls.length;
     const menu = await openMenu(u, "tobias@example.org");
-    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Grant instance key", "Revoke all tokens", "Open your account"]);
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Revoke all tokens", "Open your account"]);
     await u.click(within(menu).getByText("Open your account"));
     expect(push).toHaveBeenCalledWith("/settings");
     expect(screen.queryByTestId("admin-delete-dialog")).toBeNull();
@@ -554,7 +555,47 @@ describe("UsersAdmin — delete", () => {
   });
 });
 
+/** ADR-096: the instance asks people for their own key (`LLM_KEY_MODE=user`). */
+const userMode = (custom: (url: string, method: string) => Response | undefined = () => undefined) =>
+  mockApi((url, method) =>
+    url === "/api/me/provider-key" && method === "GET"
+      ? json(200, { key_mode: "user", is_set: false, family: null, model: null, updated_at: null, unreadable: false, instance_key_granted: false, payer: "none", families: [] })
+      : custom(url, method),
+  );
+
+describe("UsersAdmin — AI key hidden on a default install (ADR-096, K-1)", () => {
+  it("instance mode, no grant: no AI key column and no grant action", async () => {
+    const u = userEvent.setup();
+    renderAdmin();
+    const table = await screen.findByTestId("admin-users-table");
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).not.toContain("AI key");
+    expect(screen.queryAllByTestId("user-ai-key")).toHaveLength(0);
+    await openMenu(u, "maria@example.org");
+    expect(screen.queryByTestId("admin-user-action-grantKey")).toBeNull();
+  });
+
+  it("instance mode with a grant left from user mode: the column and revoke stay, so it can be withdrawn", async () => {
+    users = [OWN, user({ id: "u-6", email: "granted@example.org", instance_key_granted_at: "2026-11-01T10:00:00Z" })];
+    const u = userEvent.setup();
+    renderAdmin();
+    await screen.findByTestId("admin-users-table");
+    expect(within(row("granted@example.org")).getByTestId("user-ai-key")).toHaveTextContent("Instance (granted)");
+    await openMenu(u, "granted@example.org");
+    expect(screen.getByTestId("admin-user-action-revokeGrant")).toBeInTheDocument();
+  });
+});
+
 describe("UsersAdmin — AI key (ADR-096)", () => {
+  beforeEach(() => userMode());
+
+  it("user mode: the AI key column is shown", async () => {
+    renderAdmin();
+    const table = await screen.findByTestId("admin-users-table");
+    await waitFor(() =>
+      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toContain("AI key"),
+    );
+  });
+
   it("shows instance / own / none per row, the grant winning over an own key", async () => {
     users = [
       OWN,
@@ -571,7 +612,7 @@ describe("UsersAdmin — AI key (ADR-096)", () => {
   });
 
   it("grant: confirm dialog, then PATCH {instance_key_granted: true}", async () => {
-    mockApi((url, method) => (method === "PATCH" ? json(200, {}) : undefined));
+    userMode((url, method) => (method === "PATCH" ? json(200, {}) : undefined));
     const u = userEvent.setup();
     renderAdmin();
     await screen.findByTestId("admin-users-table");
@@ -586,7 +627,7 @@ describe("UsersAdmin — AI key (ADR-096)", () => {
 
   it("revoke: offered instead of grant on a granted row, PATCH {instance_key_granted: false}", async () => {
     users = [OWN, user({ id: "u-6", email: "granted@example.org", instance_key_granted_at: "2026-11-01T10:00:00Z" })];
-    mockApi((url, method) => (method === "PATCH" ? json(200, {}) : undefined));
+    userMode((url, method) => (method === "PATCH" ? json(200, {}) : undefined));
     const u = userEvent.setup();
     renderAdmin();
     await screen.findByTestId("admin-users-table");
