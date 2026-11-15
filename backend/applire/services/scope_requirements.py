@@ -549,17 +549,27 @@ def _bar_figure_hits(text: str, bar: dict[str, Any] | None):
     wanted = _bar_figures(bar)
     if not wanted:
         return
-    cursor = 0
     extra = small_figures(text) if bar.get("kind") == "team_size" else []
+    # WP-Q6 (b): EVERY occurrence of a matching figure, in text order. The former
+    # single cursor skipped the first "120 Mitarbeitenden" of a limit whose
+    # statement repeats the bare "120" later (Luna E2E run 3, 2026-11-15: the
+    # concept "dauerhafte Führung von 120 Mitarbeitenden" + its statement "…
+    # Spanne von 120 wäre …" read as naming no figure with a unit, so the
+    # person's recorded limit bound nothing).
+    seen: set[int] = set()
     for f in [*extract_figures(text), *extra]:
-        start = text.find(f.raw, cursor)
-        if start < 0:
-            start = text.find(f.raw)
-        if start < 0:
+        if f.kind not in ("number", "currency") or f.value not in wanted or not f.raw:
             continue
-        cursor = start + len(f.raw)
-        if f.kind in ("number", "currency") and f.value in wanted:
-            yield f, start
+        start = text.find(f.raw)
+        while start >= 0:
+            end = start + len(f.raw)
+            standalone = not (start > 0 and text[start - 1].isdigit()) and not (
+                end < len(text) and text[end].isdigit()
+            )
+            if standalone and start not in seen:
+                seen.add(start)
+                yield f, start
+            start = text.find(f.raw, start + 1)
 
 
 def names_bar_figure(text: str, bar: dict[str, Any] | None) -> bool:

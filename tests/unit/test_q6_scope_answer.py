@@ -312,3 +312,34 @@ async def test_the_outcome_writer_keeps_an_answer_only_on_a_scope_cluster(db):  
     by_id = {c["id"]: c for c in row.gap_clusters}
     assert by_id[scope["id"]].get("scope_answers") == [ANSWER]
     assert "scope_answers" not in by_id[llm["id"]]
+
+
+#: Luna E2E run 3 (2026-11-15, sorbet-q6): the shortfall was stated on another
+#: turn (the driver's bank answered the span topic early), recorded as a denial,
+#: and cited by the final gap call — but bound nothing.
+_RUN3_DENIAL = {
+    "concept": "dauerhafte Führung von 120 Mitarbeitenden",
+    "statement": (
+        "Nein, mit IFS oder BRC habe ich keine Erfahrung — das ist eine ehrliche Lücke. Ich habe "
+        "auch nie direkt für Lebensmittelkunden produziert. Hygiene- und Dokumentationsdisziplin "
+        "kenne ich aber aus der Fertigung für Kosmetik-Verpackungen im Sauberraumbereich bei "
+        "Weberit seit 2021 und aus zehn Jahren ISO-9001-Audit-Praxis. Der Standard ist neu, die "
+        "Audit- und Dokumentationsdisziplin nicht. " + ANSWER
+    ),
+    "status": "active", "source": "interview", "date": "2026-11-15",
+}
+
+
+def test_run3_a_limit_naming_the_figure_with_its_unit_binds_although_the_bare_figure_repeats():
+    """The figure scan must see EVERY occurrence: the old single cursor skipped
+    "120 Mitarbeitenden" in the id once the statement's bare "120" was found."""
+    from applire.services.scope_requirements import names_bar_figure_with_unit, verified_stated_limit
+
+    bar = {"kind": "team_size", "value": 120.0, "value_max": None, "concept": _SCOPE}
+    text = f"{_RUN3_DENIAL['concept']} {_RUN3_DENIAL['statement']}"
+    assert names_bar_figure_with_unit(text, bar)
+    profile = {"metadata": {"denied_concepts": [_RUN3_DENIAL]}}
+    bound = verified_stated_limit(_RUN3_DENIAL["concept"], profile, bar=bar, asked_for=())
+    assert bound and bound["id"] == _RUN3_DENIAL["concept"]
+    for other in ("2120 Mitarbeitende", "1200 Mitarbeitende", "120 Tickets, dann 120 wäre"):
+        assert not names_bar_figure_with_unit(other, bar), other
