@@ -249,8 +249,10 @@ class _SeamCandidate:
     # polarity is symmetric — see _resolve_seam_candidate).
     deny_verdict: ClaimVerdict | None
     # What the claim verdicts as if the judgement never resolves cleanly
-    # (unavailable/malformed/citation-dropped) — always non-accusatory
-    # (ADR-068 clause 3).
+    # (unavailable/malformed/citation-dropped) — non-accusatory (ADR-068
+    # clause 3), except on the owner-language attribution check, where it IS
+    # the pre-existing misattribution flag (MD-Q11: no loosening without
+    # positive evidence).
     unavailable_verdict: ClaimVerdict
     vault_language_label: str | None = None
     # letter_form only (B3-10 follow-up): the neutral form mark a clean
