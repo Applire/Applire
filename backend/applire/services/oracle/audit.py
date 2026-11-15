@@ -280,6 +280,25 @@ def _cross_language_trigger(document_language: str | None, index: VaultIndex) ->
     return document_language is not None and document_language != index.dominant_language
 
 
+def _cross_language_unavailable(units: list[EvidenceUnit], detail: str | None = None) -> ClaimVerdict:
+    """Seam A's one ``unavailable`` verdict (ADR-068 cl. 3, ADR-099 class U: a
+    recheck can clear it) — minted here only, for the vault-language seam and the
+    owner-language attribution seam (WP-Q5 (a)) alike."""
+    unavailable = ClaimVerdict(
+        verdict="unverifiable",
+        checker="cross_language_judgement",
+        evidence=_evidence_refs(units),
+        detail=detail or (
+            "This claim's language differs from the vault's own — an "
+            "equivalence judgement could not confirm whether it restates the "
+            "candidate's vault evidence, so this is left as an honest gap "
+            "rather than an accusation (ADR-068)."
+        ),
+        detail_key="crossLanguageUnconfirmed",
+    )
+    return unavailable
+
+
 def _cross_language_candidate(
     claim_text: str,
     index: VaultIndex,
@@ -294,18 +313,7 @@ def _cross_language_candidate(
     deferred :class:`_SeamCandidate` (sink wired — resolved later, batched)."""
     if not _cross_language_trigger(document_language, index) or not units:
         return None
-    unavailable = ClaimVerdict(
-        verdict="unverifiable",
-        checker="cross_language_judgement",
-        evidence=_evidence_refs(units),
-        detail=(
-            "This claim's language differs from the vault's own — an "
-            "equivalence judgement could not confirm whether it restates the "
-            "candidate's vault evidence, so this is left as an honest gap "
-            "rather than an accusation (ADR-068)."
-        ),
-        detail_key="crossLanguageUnconfirmed",
-    )
+    unavailable = _cross_language_unavailable(units)
     candidate = _SeamCandidate(
         seam="cross_language",
         claim_text=claim_text,
@@ -318,6 +326,83 @@ def _cross_language_candidate(
         logger.info(
             "ORACLE_JUDGEMENT_UNAVAILABLE reason=no_sink seam=cross_language"
         )
+        return unavailable
+    judgement_sink.append(candidate)
+    return candidate
+
+
+#: WP-Q5 (a): the owner units one attribution item may carry (ADR-068 cl. 6, the
+#: per-item token share; a role rarely holds more, and the first units are its
+#: recorded ones, before interview additions).
+_OWNER_LANGUAGE_MAX_UNITS = 12
+
+
+def _owner_language_candidate(
+    claim_text: str,
+    idx: VaultIndex,
+    owner_id: str | None,
+    document_language: str | None,
+    flag: ClaimVerdict,
+    judgement_sink: "list[_SeamCandidate] | None",
+) -> "ClaimVerdict | _SeamCandidate | None":
+    """Sorbet WP-Q5 (a), ADR-068 amended 2026-11-15 — a misattribution red flag in
+    a cross-language pair is not raised on lexical evidence alone.
+
+    The flag says "backed ONLY by evidence of a different position". Lexically,
+    that is decidable only when the claim could have matched its own position's
+    evidence: an English bullet under a role whose vault sentence is German
+    ("Facharbeiter in der Instandhaltung, später Vorarbeiter.") shares no word
+    with it, so the one English unit of another role that shares "maintenance"
+    became the claim's only evidence and the flag fired on a correctly placed
+    bullet (delivery 1b runs 1 and 2, Cross CV, ``stop_and_fix``).
+
+    What ties a bullet to its role across languages is never a translation code
+    guesses: it is a verbatim span of a unit the ROLE OWNS (an id fact), cited by
+    Seam A's equivalence judge. So when the pair may hold evidence in another
+    language (``holds_other_language``, the D2-1 pair fact), the judge compares the
+    claim with the anchored position's own units (same-employer siblings
+    included) and nothing else:
+
+    - grant with a verified citation → grounded on that owned unit;
+    - "no" / "uncertain" → the red flag stands (``deny_verdict``) — a bullet
+      really moved from another role keeps ``misattributed``;
+    - unavailable / uncited → ``unverifiable`` (ADR-068 cl. 3: never an accusation
+      on a judgement that did not land).
+
+    ``None`` (the caller keeps the flag) when there is no anchor, the pair is
+    single-language, or the position owns no unit. Figures never come here: a
+    digit is language-free, the per-figure flag stays deterministic."""
+    if owner_id is None or not holds_other_language(idx, document_language):
+        return None
+    group = frozenset({owner_id}) | idx.same_employer_ids.get(owner_id, frozenset())
+    # The anchored position's own units first, then its same-employer siblings'; a
+    # date span is no content to restate.
+    owned = sorted(
+        (u for u in idx.units if u.owner_ids & group and not u.path.endswith(".dates")),
+        key=lambda u: owner_id not in u.owner_ids,
+    )[:_OWNER_LANGUAGE_MAX_UNITS]
+    if not owned:
+        return None
+    unavailable = _cross_language_unavailable(
+        owned,
+        "This claim's language differs from its position's own vault evidence, and an "
+        "equivalence judgement could not confirm whether it restates that evidence, so it "
+        "is left open rather than accused of belonging to another position (ADR-068).",
+    )
+    candidate = _SeamCandidate(
+        seam="cross_language",
+        claim_text=claim_text,
+        units=owned,
+        deny_verdict=flag,
+        unavailable_verdict=unavailable,
+        vault_language_label=_LANGUAGE_LABELS.get(idx.dominant_language, idx.dominant_language),
+    )
+    logger.info(
+        "ORACLE_ATTRIBUTION_OWNER_JUDGEMENT owner=%s units=%d flagged=%s",
+        owner_id, len(owned), flag.evidence[0].ref if flag.evidence else None,
+    )
+    if judgement_sink is None:
+        logger.info("ORACLE_JUDGEMENT_UNAVAILABLE reason=no_sink seam=cross_language")
         return unavailable
     judgement_sink.append(candidate)
     return candidate
@@ -3100,7 +3185,10 @@ async def _verify_claim_unchecked(
         # claim misattributed (same-role or role-agnostic backing clears it).
         flag = _attribution_red_flag(attribution_id, grounding.qualifying_units, idx)
         if flag is not None:
-            return flag
+            # WP-Q5 (a): in a cross-language pair the owner's own units are judged first.
+            return _owner_language_candidate(
+                claim.text, idx, attribution_id, document_language, flag, judgement_sink
+            ) or flag
         # ── unattributable figure-free claim (unanchored letter claim, #248) ─
         # The non-figure counterpart of §2c: an unanchored letter claim whose
         # entire grounding backing is owned is the SAME genuine-unattributable
@@ -3134,7 +3222,9 @@ async def _verify_claim_unchecked(
     if source_id is not None:
         pre_union_flag = _attribution_red_flag(attribution_id, grounding.top_units, idx)
         if pre_union_flag is not None:
-            return pre_union_flag
+            return _owner_language_candidate(
+                claim.text, idx, attribution_id, document_language, pre_union_flag, judgement_sink
+            ) or pre_union_flag
         # ── 3a2. role-union fallback (#237 run-4 residual) ───────────────────
         # An ANCHORED claim narrating several facts about ONE role — no single
         # bullet clears the floor, but the role's OWN evidence collectively
@@ -3174,7 +3264,9 @@ async def _verify_claim_unchecked(
         (soft_id,) = claim.sentence_named_ids
         pre_union_flag = _attribution_red_flag(soft_id, grounding.top_units, idx)
         if pre_union_flag is not None:
-            return pre_union_flag
+            return _owner_language_candidate(
+                claim.text, idx, soft_id, document_language, pre_union_flag, judgement_sink
+            ) or pre_union_flag
         role_grounding = ground_via_role_union(
             claim.text, idx, soft_id, idx.same_employer_ids.get(soft_id, frozenset())
         )
