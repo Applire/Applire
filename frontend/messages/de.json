@@ -1610,6 +1610,8 @@
     "analysing": "Analysiert…"
   },
   "profileImport": {
+    "resumeWithProfile": "Dein Profil enthält schon einen gelesenen Lebenslauf. Du kannst mit diesem Profil weitermachen oder einen weiteren hochladen.",
+    "resumeWithProfileAction": "Mit meinem Profil weiter",
     "title": "Lebenslauf oder Stelle hinzufügen",
     "subtitle": "Lebenslauf als PDF, DOCX, TXT, MD oder Bild — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "subtitleNoImage": "Lebenslauf als PDF, DOCX, TXT oder MD — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",

@@ -1610,6 +1610,8 @@
     "analysing": "Analyzing…"
   },
   "profileImport": {
+    "resumeWithProfile": "Your profile already holds a CV that was read. Continue with this profile, or upload another one.",
+    "resumeWithProfileAction": "Continue with my profile",
     "title": "Add a CV or role",
     "subtitle": "Upload your CV as PDF, DOCX, TXT, MD or an image — or a LinkedIn export as ZIP. The format is detected automatically.",
     "subtitleNoImage": "Upload your CV as PDF, DOCX, TXT or MD — or a LinkedIn export as ZIP. The format is detected automatically.",
