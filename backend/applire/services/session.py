@@ -3049,13 +3049,12 @@ async def _create_targeted_session(
 
     # Founder ruling Q-2 (COORD Q1→Q2, WP-Q2): ONE separate ask for the kind of
     # leadership behind a known team size — after the team-size scope question,
-    # else at the end when the posting weighs leadership. A full interview only
+    # else at the end, whatever the posting (delivery re-run 2026-11-15). A full interview only
     # (a Gap-Click micro-session never carries it); the answer is reconciled like
     # any answer and the turn advances.
     if cluster_ids:
         cluster_ids, cluster_categories, clusters_by_id = plan_leadership_kind(
             cluster_ids, cluster_categories, clusters_by_id, profile_record.profile_json,
-            posting_weighs_leadership=bool(getattr(job, "leadership_emphasis", None)),
             already_asked=await _kind_asked_keys(db, user_id),
         )
 

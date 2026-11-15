@@ -581,14 +581,18 @@ def plan_leadership_kind(
     clusters_by_id: dict[str, dict[str, Any]],
     profile_json: dict[str, Any] | None,
     *,
-    posting_weighs_leadership: bool,
     already_asked: Any = (),
 ) -> tuple[list[str], dict[str, str], dict[str, dict[str, Any]]]:
     """Insert the leadership-kind ask into a full interview plan (pure).
 
-    Right after the team-size scope cluster when the plan holds one; otherwise at
-    the end, only when the posting weighs leadership. Nothing when no listed role
-    needs the kind, or the plan already holds the ask.
+    For EVERY role ``entries_needing_leadership_kind`` lists, whatever the posting
+    (founder ruling Q-2: when the kind is unknown, the interview asks once —
+    delivery re-run 2026-11-15: Katrin's posting carried no team-size scope
+    cluster and no leadership emphasis, so she was never asked and her CV
+    printed the neutral line). Right after the team-size scope cluster when the
+    plan holds one; otherwise at the end. Nothing when no listed role needs the
+    kind, or the plan already holds the ask. A Gap-Click micro-session never
+    calls this. The cost is bounded: once per person and role, ever.
 
     ``already_asked`` (L5, MD-Q3): the :func:`kind_entry_key` of every role an
     earlier session of this person already put the ask to — such a role is not
@@ -609,8 +613,6 @@ def plan_leadership_kind(
          and ((clusters_by_id.get(cid) or {}).get("scope") or {}).get("kind") == "team_size"),
         None,
     )
-    if anchor is None and not posting_weighs_leadership:
-        return cluster_ids, categories, clusters_by_id
     # MD-Q5 (1): ONE question per role — fixed options cannot answer two roles.
     new_ids: list[str] = []
     new_clusters: dict[str, dict[str, Any]] = {}

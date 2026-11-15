@@ -483,26 +483,25 @@ def test_the_kind_ask_follows_the_team_size_scope_question():
     ids, cats, by_id = plan_leadership_kind(
         ["cluster-c", scope["id"], "cluster-b"], {"cluster-c": "C", scope["id"]: "B", "cluster-b": "B"},
         {"cluster-c": {}, scope["id"]: scope, "cluster-b": {}}, _KIND_PROFILE,
-        posting_weighs_leadership=False,
     )
     second = f"{LEADERSHIP_KIND_ID}-2"
     assert ids == ["cluster-c", scope["id"], LEADERSHIP_KIND_ID, second, "cluster-b"], (
         "MD-Q5 (1): one question per role")
     assert [by_id[c]["entry"]["team_size"] for c in (LEADERSHIP_KIND_ID, second)] == [38, 14]
     assert cats[second] == "B"
-    again = plan_leadership_kind(ids, cats, by_id, _KIND_PROFILE, posting_weighs_leadership=True)
+    again = plan_leadership_kind(ids, cats, by_id, _KIND_PROFILE)
     assert again[0] == ids, "at most once"
 
 
-def test_the_kind_ask_without_a_scope_cluster_needs_a_leadership_posting_and_goes_last():
+def test_the_kind_ask_without_a_scope_cluster_goes_last_whatever_the_posting():
     from applire.services.interview.scope_question import LEADERSHIP_KIND_ID, plan_leadership_kind
 
     base = (["a", "b"], {"a": "C", "b": "B"}, {"a": {}, "b": {}})
-    assert plan_leadership_kind(*base, _KIND_PROFILE, posting_weighs_leadership=False)[0] == ["a", "b"]
-    assert plan_leadership_kind(*base, _KIND_PROFILE, posting_weighs_leadership=True)[0] == [
+    # Delivery re-run 2026-11-15 (Katrin): asked whatever the posting — at the end.
+    assert plan_leadership_kind(*base, _KIND_PROFILE)[0] == [
         "a", "b", LEADERSHIP_KIND_ID, f"{LEADERSHIP_KIND_ID}-2"]
     no_sizes = {"work_experience": [{"company": "X", "role": "Y"}]}
-    assert plan_leadership_kind(*base, no_sizes, posting_weighs_leadership=True)[0] == ["a", "b"]
+    assert plan_leadership_kind(*base, no_sizes)[0] == ["a", "b"]
 
 
 def test_md_q5_the_kind_question_is_per_role_with_the_fixed_options():
@@ -513,8 +512,7 @@ def test_md_q5_the_kind_question_is_per_role_with_the_fixed_options():
     )
     from applire.services.profile.leadership_kind import OPTION_LABELS
 
-    _ids, _c, by_id = plan_leadership_kind(["a"], {"a": "B"}, {"a": {}}, _KIND_PROFILE,
-                                          posting_weighs_leadership=True)
+    _ids, _c, by_id = plan_leadership_kind(["a"], {"a": "B"}, {"a": {}}, _KIND_PROFILE)
     q = leadership_kind_question(by_id[LEADERSHIP_KIND_ID], "de")
     assert q == {"question": "Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38. War das "
                              "disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?",
@@ -1126,10 +1124,10 @@ def test_l5_a_role_already_asked_is_not_asked_again():
 
     scope = _scope_cluster()
     args = (["a", scope["id"]], {"a": "C", scope["id"]: "B"}, {"a": {}, scope["id"]: scope}, _KIND_PROFILE)
-    _ids, _c, by_id = plan_leadership_kind(*args, posting_weighs_leadership=True,
+    _ids, _c, by_id = plan_leadership_kind(*args,
                                           already_asked={"id:w1"})
     assert [e["team_size"] for e in by_id[LEADERSHIP_KIND_ID]["entries"]] == [14]
-    ids, _c, _b = plan_leadership_kind(*args, posting_weighs_leadership=True,
+    ids, _c, _b = plan_leadership_kind(*args,
                                        already_asked={"id:w1", "id:w2"})
     assert LEADERSHIP_KIND_ID not in ids
     assert kind_entry_key({"entry_id": "", "company": " Weberit ", "role": "PL"}) == "cr:weberit|pl"
@@ -1219,3 +1217,36 @@ async def test_md_q5_seam_only_the_turns_kind_op_writes_the_kind(db, answer):
     assert receipts == ["leadership_kind_unasked"], "the reconciler's write is refused"
     assert entry.get("leadership_kind") is None, "own words store no kind"
     assert entry["leadership_kind_record"]["option"] == "own_words", "the turn's own op still lands"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_scope", [True, False])
+async def test_katrin_a_full_interview_plans_the_kind_ask_whatever_the_posting(db, with_scope):
+    """Delivery re-run 2026-11-15: Katrin's posting held no team-size scope cluster
+    and no leadership emphasis, so the kind was never asked. Founder ruling Q-2:
+    unknown kind → asked once. After the scope cluster when there is one, else
+    last; never in a Gap-Click micro-session."""
+    from applire.models.session import InterviewSession
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.interview.scope_question import LEADERSHIP_KIND_ID
+    from applire.services.session import create_session
+
+    llm = _llm_cluster("cluster-mes", ["MES"])
+    clusters = [_scope_cluster(), llm] if with_scope else [llm]
+    job = await _seed(db, clusters, [_scope_row()] if with_scope else [])
+    assert not getattr(job, "leadership_emphasis", None)
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(return_value={"question": "Wie setzen Sie MES ein?", "choices": []})
+    provider.acomplete = AsyncMock(return_value="Wie setzen Sie MES ein?")
+    created = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, provider)
+    row = await db.get(InterviewSession, created.session_id)
+    plan = row.state["critical_gaps"]
+    assert LEADERSHIP_KIND_ID in plan
+    if with_scope:
+        assert plan.index(LEADERSHIP_KIND_ID) == plan.index(_scope_cluster()["id"]) + 1
+    else:
+        assert plan[-1] == LEADERSHIP_KIND_ID
+    micro = await create_session(SessionCreateRequest(
+        job_id=job.id, mode="targeted", target_gap="cluster-mes"), db, provider)
+    micro_row = await db.get(InterviewSession, micro.session_id)
+    assert LEADERSHIP_KIND_ID not in micro_row.state["critical_gaps"], "never in a micro-session"
