@@ -53,6 +53,26 @@ import { STEP_ROUTE } from "@/lib/flow-routing";
 // Open gate states still require the user to merge or discard; resolved_* are inert.
 const OPEN_GATES: ReadonlySet<string> = new Set(["not_a_cv", "name_divergence", "review_not_run"]);
 
+/** #838 lines 84/111 — an upload whose CV reached the profile: read, and either
+ *  never held at a gate or merged from one. A failed, parked or discarded upload
+ *  is not a profile to continue with. */
+function reachedProfile(item: { status?: string; gate_status?: string | null }): boolean {
+  if (item.status === "failed") return false;
+  return !item.gate_status || item.gate_status === "resolved_merged";
+}
+
+/** MD-Q7 F8 — this flow's own upload: one that reached the profile and was made
+ *  at or after the flow started (both server timestamps are UTC-aware). An
+ *  earlier upload in the person's history is not this flow's. */
+function reachedProfileInFlow(
+  item: { status?: string; gate_status?: string | null; created_at: string },
+  flowStartedAt: number | null,
+): boolean {
+  if (flowStartedAt === null || !reachedProfile(item)) return false;
+  const at = Date.parse(item.created_at);
+  return Number.isFinite(at) && at >= flowStartedAt;
+}
+
 // Empty string default lets Next.js rewrites handle /api/* routing in all environments
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -132,6 +152,8 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   // FS-6 — bindings the import kept apart (#801 refusals).
   const [keptSeparate, setKeptSeparate] = useState<KeptSeparateItem[]>([]);
   const [history, setHistory] = useState<UploadHistoryItem[]>([]);
+  // MD-Q7 F8 — when this flow started; the resume strip reads only uploads since.
+  const [flowStartedAt, setFlowStartedAt] = useState<number | null>(null);
   const [gateInfo, setGateInfo] = useState<GateInfo | null>(null);
 
   const mainInputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +185,17 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
       .then(setHistory)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!flowId) return;
+    fetch(`${API_BASE}/api/flow/${flowId}/state`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((state: { created_at?: string } | null) => {
+        const at = state?.created_at ? Date.parse(state.created_at) : NaN;
+        setFlowStartedAt(Number.isFinite(at) ? at : null);
+      })
+      .catch(() => {});
+  }, [flowId]);
 
   function refreshHistory() {
     fetch(`${API_BASE}/api/profile/uploads`)
@@ -602,6 +635,28 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
               restatements of a held bullet; "Trotzdem übernehmen" writes one. */}
           {uploadSuccess && !error && restated.length > 0 && (
             <RestatedBullets restated={restated} onApplied={() => onImported?.()} />
+          )}
+
+          {/* #838 lines 84/111 (WP-Q4 d) — a flow left at cv_import (the page was
+              closed while the dashboard overlay ran) is routed here from /flow,
+              /gaps and /processing, though a read CV is already in the profile.
+              Offer the hand-off to the gap step with that profile — the same
+              path the #677 retry takes — instead of a second upload. */}
+          {flowId && !loading && !uploadSuccess && !flowError && !error && history.some((item) => reachedProfileInFlow(item, flowStartedAt)) && (
+            <div
+              data-testid="flow-resume"
+              className="mt-3 flex flex-col items-start gap-2.5 sm:flex-row sm:items-center bg-surface-container border border-outline-variant rounded-[10px] px-4 py-3"
+            >
+              <span className="text-[13px] text-on-surface">{t("resumeWithProfile")}</span>
+              <button
+                type="button"
+                data-testid="flow-resume-button"
+                onClick={() => void advanceFlow(flowId)}
+                className="sm:ml-auto shrink-0 text-[12px] font-bold text-primary px-3 py-1.5 rounded-full border border-primary/40 hover:bg-primary/5 transition-colors"
+              >
+                {t("resumeWithProfileAction")}
+              </button>
+            </div>
           )}
 
           {/* Upload error strip */}

@@ -208,41 +208,33 @@ async def test_a_400_that_persists_without_the_schema_surfaces_and_does_not_latc
     assert p._json_schema_rejected is False
 
 
-# ── the corrective turn ──────────────────────────────────────────────────────
+# ── prose before the JSON: read, never re-asked (B8-15) ──────────────────────
+# Founder ruling B8-15 (2026-11-13) replaced the one corrective turn: leading
+# prose is skipped by the shared parse and the ONE JSON value after it is read,
+# without a second call.
 
 
 @pytest.mark.asyncio
-async def test_a_prose_first_reply_gets_one_corrective_turn_with_the_reply_unchanged():
-    from applire.providers.llm.anthropic import CORRECTIVE_TURN
-
+async def test_a_prose_first_reply_is_read_in_one_call():
     p = _provider("claude-sonnet-5-5")
     thinking = ThinkingBlock.model_construct(type="thinking", thinking="", signature="sig")
     prose = _text('Item 0: The claim says … Supported.\n\n{"items": []}')
     p._client.messages.create = AsyncMock(
-        side_effect=[_message(thinking, prose), _message(_text('{"items": []}'))]
+        side_effect=[_message(thinking, prose), _message(_text('{"never": "reached"}'))]
     )
     assert await p.aparse_json("judge") == {"items": []}
-    calls = _calls(p)
-    assert len(calls) == 2
-    follow = calls[1]["messages"]
-    assert follow[0] == calls[0]["messages"][0]
-    assert follow[1]["role"] == "assistant"
-    # every block goes back as received — the thinking block with its signature
-    assert follow[1]["content"][0] == {"type": "thinking", "thinking": "", "signature": "sig"}
-    assert follow[1]["content"][1]["text"].startswith("Item 0:")
-    assert follow[2] == {"role": "user", "content": CORRECTIVE_TURN}
+    assert len(_calls(p)) == 1
 
 
 @pytest.mark.asyncio
-async def test_the_corrective_turn_runs_once_never_loops():
+async def test_a_prose_only_reply_raises_without_a_second_call():
     p = _provider("claude-sonnet-5-5")
     p._client.messages.create = AsyncMock(
-        side_effect=[_message(_text("Prose.")), _message(_text("Still prose.")),
-                     _message(_text('{"never": "reached"}'))]
+        side_effect=[_message(_text("Prose.")), _message(_text('{"never": "reached"}'))]
     )
     with pytest.raises(LLMResponseParseError):
         await p.aparse_json("go")
-    assert len(_calls(p)) == 2
+    assert len(_calls(p)) == 1
 
 
 @pytest.mark.asyncio

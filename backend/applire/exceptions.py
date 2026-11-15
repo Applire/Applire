@@ -135,6 +135,34 @@ class ReconcileFailedError(LLMError):
     """
 
 
+class AnswerIsOfferedOpening(ValueError):
+    """The interview answer is an offered BRIDGE opening, unchanged — or (MD-Q7
+    F9) followed by nothing substantial: empty or a bare "ja"/"yes"/"ok".
+
+    WP-Q4 (g), ADR-064 amended 2026-11-15: a bridge chip inserts an opening
+    ("Mengenprognosen … als Schichtleiter:") for the candidate to finish; sent
+    as is it states nothing of theirs, so the turn raises BEFORE anything is
+    appended or reconciled. A ValueError, so the agent channel's invalid-input
+    arm names it; the HTTP door answers 422 ``answer_is_opening``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "This answer is only the offered opening. Finish the sentence in your "
+            "own words, or answer differently."
+        )
+
+
+def answer_is_opening_detail() -> dict:
+    """WP-Q4 (g) — structured body for :class:`AnswerIsOfferedOpening`; the UI
+    maps ``error_code`` to its own copy and keeps the text in the composer."""
+    return {
+        "error_code": "answer_is_opening",
+        "turn_state": "not_saved",
+        "message": "This answer is only the offered opening. Finish the sentence in your own words.",
+    }
+
+
 def answer_not_saved_detail() -> dict:
     """R2-13 (P-1, Hazelnut build 4) — the reconcile step failed after its
     retry, so the candidate's answer was NOT merged and no follow-up was asked.

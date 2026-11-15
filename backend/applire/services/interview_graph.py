@@ -71,7 +71,11 @@ from applire.prompts.review_question_language import (
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import llm_log_stage
 from applire.schemas.session import InterviewState
-from applire.services.choice_grounding import filter_ungrounded_choices, record_offered_choices
+from applire.services.choice_grounding import (
+    build_bridge_openings,
+    filter_ungrounded_choices,
+    record_offered_choices,
+)
 from applire.services.interview.scope_question import (
     is_leadership_kind_cluster,
     is_scope_cluster,
@@ -454,7 +458,14 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
             needs_denied = not isinstance(reviewed.get("denied_terms"), list) and isinstance(pre_denied, list)
             own_ask = reviewed.get("ask")
             needs_ask = not (isinstance(own_ask, str) and own_ask.strip()) and pre_ask is not None
-            if not needs_level and not needs_denied and not needs_ask:
+            # MD-Q7 F5: a bridge's named concept + anchor ride the same
+            # fill-in-only carry (missing = the bridge is dropped, the safe side).
+            bridge_fill = {
+                k: pre.get(k) for k in ("anchor", "concept")
+                if isinstance(pre, dict) and isinstance(pre.get(k), str)
+                and not isinstance(reviewed.get(k), str)
+            }
+            if not needs_level and not needs_denied and not needs_ask and not bridge_fill:
                 carried.append(reviewed)  # everything rode with its own text — trust it
                 continue
             merged = dict(reviewed)
@@ -464,6 +475,7 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
                 merged["denied_terms"] = pre_denied
             if needs_ask:
                 merged["ask"] = pre_ask
+            merged.update(bridge_fill)
             carried.append(merged)
         elif pre_level is not None or isinstance(pre_denied, list) or pre_ask is not None:
             # Reviewed choice came back as a bare string (schema drift) —
@@ -476,6 +488,9 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
                 rebuilt["denied_terms"] = pre_denied
             if pre_ask is not None:
                 rebuilt["ask"] = pre_ask
+            for k in ("anchor", "concept"):
+                if isinstance(pre, dict) and isinstance(pre.get(k), str):
+                    rebuilt[k] = pre[k]
             carried.append(rebuilt)
         else:
             carried.append(reviewed)  # nothing to carry — leave as reviewed produced it
@@ -592,7 +607,9 @@ async def question_generator_with_profile(
             # Same code-level truthfulness guarantee as MODE A (#110/ADR-062) —
             # a chip that asserts an un-evidenced JD/cluster term, or
             # misattributes one to the wrong employer, never reaches the user.
-            drafted_choices = reviewed["choices"]
+            # MD-Q7 F5 — a bridge's text is built by code from its named
+            # concept + anchor; a bridge without both is dropped.
+            drafted_choices = build_bridge_openings(reviewed["choices"], cluster, profile, lang)
             reviewed["choices"] = filter_ungrounded_choices(
                 drafted_choices, cluster, profile, gap_category
             )
@@ -754,7 +771,8 @@ async def question_generator_with_profile(
     # choice_grounding.py guessing it from a phrase-marker list. This call
     # also flattens back to list[str] — the API contract in
     # schemas/session.py (choices: list[str] | None) is unchanged.
-    drafted_choices = reviewed["choices"]
+    # MD-Q7 F5 — the bridge opening is code's words, never the model's.
+    drafted_choices = build_bridge_openings(reviewed["choices"], cluster, profile, lang)
     reviewed["choices"] = filter_ungrounded_choices(
         drafted_choices, cluster, profile, gap_category
     )

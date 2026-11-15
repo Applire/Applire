@@ -230,6 +230,10 @@ _DOC: dict[str, Entry] = {
     )},
     # 786:289 (Hazelnut build 8, WP-W): a skills entry no bullet states
     "terminal:cv.skill_without_bullet": _e(_F, None, "S"),
+    # Sorbet WP-Q3: the attested scale line (ADR-070) its role does not carry
+    "terminal:cv.scope_evidence_missing": _e(_F, None, "S"),
+    # MD-Q7 F3 (Sorbet quality-1): a merged chip joins a module the vault lacks.
+    "terminal:cv.skill_module_unbacked": _e(_F, None, "S"),
     # one condition, one place (cl. 10): these codes restate a row rendered elsewhere
     "terminal:cv.page_length": _e("S"),                   # → the page-length card
     "terminal:letter.page_length": _e("S"),               # → the page-length card
@@ -604,6 +608,7 @@ def delivered_report(
     removals: list[dict] = []
     fixed: list[str] = []
     try:
+        late = list(getattr(truth_round, "late_removed", None) or [])
         if truth_round is not None and truth_round.findings:
             claims = [
                 (str((c.get("claim") or {}).get("text") or ""),
@@ -632,6 +637,14 @@ def delivered_report(
                     if f.text.casefold() not in flagged
                     and not any(is_flag for _t, is_flag in _narrowed_forms(f.text, claims))
                 })
+        if late:
+            # MD-Q8: a chip dropped at delivery is gone from the skills list; its
+            # word may live on in a sentence the Oracle backs (Katrin's summary
+            # "LucaNet auf Gruppenebene …"), so presence is read in the list only.
+            shipped = {str(x).casefold() for x in (delivered_data or {}).get("skills") or []}
+            removals = removals + removal_rows(
+                [f for f in late if f.text.casefold() not in shipped], pins=pins,
+            )
     except Exception:  # noqa: BLE001
         logger.exception("delivered_report: delivery state failed — none recorded")
     return apply_delivery(report, review_degradation=review_degradation, removals=removals, fixed=fixed)

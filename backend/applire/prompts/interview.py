@@ -264,6 +264,14 @@ def language_name(lang: str) -> str:
 # (filter_ungrounded_choices) as an ordinary question — the one question
 # where partial-versus-denial is the entire point cannot have a subtly
 # different rule text. Extracted once so the two can never drift apart.
+# Q4-1 (WP-Q4 g, ADR-064 amended 2026-11-15): the BRIDGE is a question with an
+# OPENING, never a one-click claim. Replayed on Luna (thinking off) over the 136
+# captured interview_draft calls of the Q2 runs, blind Sonnet judge vs CV+dossier:
+# bridges stating more than the record 100/190 (53 %) -> 6/241 (2 %); a stricter
+# claim rule (arm B) 108/195 (55 %). The session refuses an unchanged opening
+# (`choice_grounding.answer_is_offered_opening`). MD-Q7 F5 (adversarial adv-1b):
+# the opening is now BUILT by code (`build_bridge_openings`) from the model's
+# "concept" + "anchor"; the model writes no bridge text at all.
 _CHOICE_COVERAGE_RULES = """\
 Answer ideas (ADR-064 amended 2026-11-08, founder ruling UAT-2 — the choices help the candidate \
 find a BRIDGE from what they did to the asked concept that the profile does not hold yet; they \
@@ -271,15 +279,18 @@ never restate what it already holds):
 - NO RESTATEMENT: no choice repeats a fact of the profile summary, or something the candidate \
 already said in this conversation (not even reworded or shortened), without the asked concept. \
 Every choice names an asked concept in the question's own words.
-- BRIDGE (level "partial", one or two): joins ONE real anchor from the profile — a role, \
-project, activity or skill that appears there — to an ASKED concept, as a modest first-person \
-hypothesis the profile does not state yet. It names the anchor by its role, project or activity, \
-never by the employer's name, and adds nothing but the asked concept: no new task context, \
-system, tool, figure or result. Only an anchor that plausibly touches the concept: never a \
-forced analogy ("conceptually close to", "in the spirit of"); when no anchor touches it, offer \
-no bridge for it. Generic example — asked "Prognosen", anchor "Schichtleiter, \
-Distributionszentrum": "Als Schichtleiter habe ich die Personaleinsatzplanung auch an der \
-wöchentlichen Mengenprognose ausgerichtet." A bridge is never "direct".
+- BRIDGE (level "partial", one or two): a QUESTION, never an answer — the profile does not \
+hold it, so a click must not state it. Its "ask" joins ONE real anchor from the profile — a \
+role, project, activity or skill that appears there — to an ASKED concept, as a short question \
+to the candidate. Do NOT write its "text" (leave it ""): Applire writes the opening the \
+candidate finishes. Give instead "concept": the asked concept exactly as the GAP CLUSTER block \
+spells it, and "anchor": the anchor in the profile's own words, copied exactly — a role title, \
+project name, activity or skill of a few words, never the employer's name, never a sentence. \
+Only an anchor that plausibly touches the concept: never a forced analogy ("conceptually close \
+to", "in the spirit of"); when no anchor touches it, offer no bridge for it. Generic example — \
+asked "Prognosen", profile role "Schichtleiter": ask "Hast du als Schichtleiter die \
+Personaleinsatzplanung auch an Prognosen ausgerichtet?", concept "Prognosen", anchor \
+"Schichtleiter". A bridge is never "direct".
 - HONEST BRIDGE (level "denial", ONE per question at most — even when several concepts are \
 unevidenced — and only for an asked concept the profile shows no evidence for in ANY words): \
 "X habe ich bisher nicht …, aber durch Y …" / "I haven't … X so far, but through Y …". X is \
@@ -304,7 +315,8 @@ profile does not document ("my profile does not yet document X" is the system sp
 one exception: the candidate's own earlier no in the Recent conversation or the earlier \
 exchanges may be restated as a "denial" choice in their words.
 - TWO TEXTS per choice. "text" is the candidate's own first-person sentence, the one a click \
-copies into the answer box — a statement they could send unchanged if it is true. It never \
+copies into the answer box — a statement they could send unchanged if it is true; a BRIDGE \
+has no "text" of its own (see BRIDGE). It never \
 instructs or asks the candidate and never promises detail ("das kann ich genauer beschreiben", \
 "I can share how ..."). "ask" is the button label: a short question TO the candidate \
 (German: du-form) naming the SAME anchor and the SAME concept as its "text" — e.g. "Hast du \
@@ -371,8 +383,8 @@ Schema:
 {
   "question": "The question text",
   "choices": [
-    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string]},
-    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string]}
+    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge only", "anchor": "bridge only"},
+    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge only", "anchor": "bridge only"}
   ] or null
 }"""
 
@@ -1063,8 +1075,8 @@ Schema:
 {
   "question": "The question text",
   "choices": [
-    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string]},
-    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string]}
+    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge only", "anchor": "bridge only"},
+    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge only", "anchor": "bridge only"}
   ] or null
 }""")
 

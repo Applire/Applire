@@ -24,7 +24,8 @@ so that every ``acomplete`` / ``aparse_json`` call appends ONE JSON line to
 call parameters, the raw response, latency, and any error. On a JSON parse
 failure (``LLMResponseParseError``) ``response`` holds the raw reply text, and a
 successful parse that discarded trailing prose records it as ``discarded_tail``
-(R2-13, ADR-009 amended 2026-10-24).
+(R2-13, ADR-009 amended 2026-10-24); leading prose skipped before the JSON value
+is ``discarded_prose`` (B8-15, ADR-009 amended 2026-11-15).
 
 This is a debugging aid for *us* — it records full prompt/response content, which
 includes CV PII, so it must stay OFF in production. We don't need this depth there;
@@ -64,7 +65,7 @@ from typing import Any, Iterator
 from applire.config import settings
 from applire.exceptions import LLMResponseParseError
 from applire.providers.llm.base import LLMProvider
-from applire.providers.llm.json_reply import take_discarded_tail
+from applire.providers.llm.json_reply import take_discarded_prose, take_discarded_tail
 from applire.providers.llm.reasoning import take_trace
 
 # Per-task pipeline-stage label (e.g. "cv_extraction", "reconcile"). ContextVars are
@@ -532,6 +533,7 @@ class _LoggingProvider(LLMProvider):
         # A tail left over from an earlier call in this task must not be
         # attributed to this one.
         take_discarded_tail()
+        take_discarded_prose()
         try:
             result = await fn(prompt, **kwargs)
             return result
@@ -571,6 +573,7 @@ class _LoggingProvider(LLMProvider):
                 # R2-13: the non-JSON text the parse discarded after the first
                 # JSON value (absent/None when nothing was discarded).
                 discarded_tail=_truncate(take_discarded_tail()),
+                discarded_prose=_truncate(take_discarded_prose()),
             )
 
 

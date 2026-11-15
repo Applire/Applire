@@ -117,8 +117,13 @@ def test_prompt_bridge_joins_a_real_anchor_to_the_asked_concept():
     # restatement; the R2-2 "no denial level" / "leave the concept out" rules
     # it replaces are gone (the founder ruled them an over-correction).
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert 'BRIDGE (level "partial", one or two): joins ONE real anchor from the profile' in flat
-    assert "never by the employer's name" in flat
+    # Q4-1 (ADR-064 amended 2026-11-15): the bridge is a question with an
+    # opening ending in a colon, never a first-person claim.
+    assert 'BRIDGE (level "partial", one or two): a QUESTION, never an answer' in flat
+    assert "joins ONE real anchor from the profile" in flat
+    # MD-Q7 F5: the model names concept + anchor; code builds the opening.
+    assert 'Do NOT write its "text" (leave it ""): Applire writes the opening' in flat
+    assert "never the employer's name" in flat
     assert "never a forced analogy" in flat
     assert 'A bridge is never "direct".' in flat
     # the R2-2 / G-3 A "leave the concept out" rule is withdrawn

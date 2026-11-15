@@ -507,6 +507,7 @@
     "generationElapsed": "Running for {time}",
     "generationSlow": "This is taking longer than usual. You can leave this page – your CV will still be finished and will be waiting here and in your application.",
     "profileUpdatedSince": "Your profile was updated after this CV was created – the changes are not in it yet.",
+    "profileUpdatedByInterview": "Your interview answers are in your profile, but not yet in this CV.",
     "profileUpdatedAction": "Create it again",
     "regeneratingFromInterview": "A new version with your interview answers",
     "regeneratingFromProfile": "A new version with your current profile",
@@ -862,7 +863,7 @@
     "relativeJustNow": "just now",
     "relativeHoursAgo": "{h}h ago",
     "relativeDaysAgo": "{d}d ago",
-    "profileStrengthTitle": "Profile Strength",
+    "profileStrengthTitle": "Profile completeness",
     "profileStrengthHint": "Add missing sections to improve gap matching.",
     "profileStrengthOptional": "Optional: add {section}",
     "profileCheckWorkExp": "Work Experience",
@@ -1315,6 +1316,8 @@
     },
     "conflictSourceUnknown": "a later change",
     "threadNotApplied": "Something you said did not land — and why",
+    "accuracyLost": "{count, plural, one {# item from} other {# items from}} {source} did not reach your profile in the merge ({sections}).",
+    "accuracyLowConfidence": "Uncertain merge from {source} ({percent}% confidence) — please check what was taken over.",
     "notAppliedSummary": "{count, plural, one {# thing you told us} other {# things you told us}} in {source} did not reach your profile ({items}) — {reasons}.",
     "notAppliedReason": {
       "no_op_carried_entry": "no change carried it",
@@ -1542,6 +1545,7 @@
   },
   "errors": {
     "answerNotSaved": "Your answer could not be saved — please send it again.",
+    "answerIsOpening": "That is only the opening from the suggestion. Finish it in your own words, or answer differently.",
     "uploadAtLeastOne": "Please upload at least one CV to continue.",
     "exportFailed": "Export failed. Please try again.",
     "deletionFailed": "Deletion failed. Please try again.",
@@ -1609,6 +1613,8 @@
     "analysing": "Analyzing…"
   },
   "profileImport": {
+    "resumeWithProfile": "Your profile already holds a CV that was read. Continue with this profile, or upload another one.",
+    "resumeWithProfileAction": "Continue with my profile",
     "title": "Add a CV or role",
     "subtitle": "Upload your CV as PDF, DOCX, TXT, MD or an image — or a LinkedIn export as ZIP. The format is detected automatically.",
     "subtitleNoImage": "Upload your CV as PDF, DOCX, TXT or MD — or a LinkedIn export as ZIP. The format is detected automatically.",
@@ -1776,6 +1782,8 @@
         "cv-skill_duplicate": "The skills list names the same thing twice: {terms}.",
         "cv-skill_named_in_bullet": "“{term}” is in a bullet but not in the skills list.",
         "cv-skill_without_bullet": "“{term}” is in the skills list or summary and your profile backs it in a role – no bullet in the CV shows it.",
+        "cv-scope_evidence_missing": "Your profile states “{term}” – the posting asks about this scale, and the CV does not show it.",
+        "cv-skill_module_unbacked": "“{term}” joins a module your profile does not record.",
         "cv-role_budget": "{term} has more bullets than planned.",
         "cv-page_length": "The CV is longer than its target page count.",
         "cv-recorded_name": "“{term}” is not the name your profile records for it.",
@@ -2096,11 +2104,9 @@
   "documentReview": {
     "title": "Review",
     "verdictFindings": "{count, plural, one {# place in the document is not covered by your profile.} other {# places in the document are not covered by your profile.}}",
-    "verdictClear": "Every statement in the document is covered by your profile.",
     "verdictDecisions": "{count, plural, one {# point needs your decision before you send it.} other {# points need your decision before you send it.}}",
     "verdictNotesOnly": "{count, plural, one {There is # note below you should know before you send it.} other {There are # notes below you should know before you send it.}}",
     "verdictUncheckedHead": "Not checked: {producers} — look over that part yourself before you send it.",
-    "verdictTruthLine": "Nothing is made up: every statement in the document is covered by your profile.{decisions, plural, =0 {} one { # point needs your decision.} other { # points need your decision.}}{notes, plural, =0 {} one { Plus # note.} other { Plus # notes.}}",
     "verdictClearWithSendCheck": "{count, plural, one {# finding needs} other {# findings need}} a look before you send it.",
     "verdictUnknown": "Whether every statement is covered was not checked for this document.",
     "group1Title": "In the document, but not in your profile",
@@ -2935,8 +2941,6 @@
     "since": "since {date}"
   },
   "reviewSignals": {
-    "verdictClearCrossReadUnknown": "Every statement in the document is covered by your profile. Whether the cover letter and the CV agree was not checked — read them side by side before you send.",
-    "verdictClearCrossRead": "Every statement in the document is covered by your profile. {open, plural, one {Read next to your CV, though, one passage stands out — decide on it before you send.} other {Read next to your CV, though, # passages stand out — decide on them before you send.}}",
     "sectionTitle": "Cross-read: cover letter and CV",
     "sectionSub": "Someone who reads both documents side by side notices these first. {decided} of {total} decided.",
     "unknown": "Not checked: the coherence check did not run for this cover letter. That is not an all-clear — the letter and the CV were not cross-read.",

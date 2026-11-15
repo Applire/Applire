@@ -49,7 +49,7 @@ from applire.constants import (
     INTERVIEW_TARGET_MIN_TARGETED,
     MODE_B_COMPLETENESS_THRESHOLD,
 )
-from applire.exceptions import ReconcileFailedError
+from applire.exceptions import AnswerIsOfferedOpening, ReconcileFailedError
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.utils.language_detection import resolve_jd_language
@@ -86,7 +86,13 @@ from applire.services.profile.reconcile.stance import (
     denial_release_corpus,
     is_denied_concept,
 )
-from applire.services.choice_grounding import choice_presentation, offered_choices_in_answer
+from applire.services.choice_grounding import (
+    answer_is_offered_opening,
+    choice_presentation,
+    is_bare_completion,
+    offered_choices_in_answer,
+    strip_offered_opening,
+)
 from applire.services.interview.sufficiency import (
     _concept_matches_ledger_key,
     concept_is_required,
@@ -2946,6 +2952,44 @@ async def _kind_asked_keys(db: AsyncSession, user_id: uuid.UUID) -> set[str]:
     return keys
 
 
+#: Wave-1b: a full targeted interview re-plans the leadership-kind ask after
+#: each answered cluster (set at creation; a session without it never re-plans).
+KIND_REPLAN_STATE_KEY = "kind_replan"
+
+
+async def _replan_leadership_kind(
+    state: dict, profile_json: dict | None, db: AsyncSession, user_id: uuid.UUID,
+    current_idx: int,
+) -> None:
+    """Wave-1b delivery run: Katrin's import stored no ``team_size`` (her CV says
+    "zwei Werkstudierende"), so the kind ask planned at session creation had no
+    role to ask about; her leadership answer (the last cluster) then recorded the
+    headcount and the interview completed without asking its kind. After every
+    answered cluster of a full targeted interview, the plan is re-run against the
+    profile as it NOW stands: a role that has newly become sized gets its ask,
+    queued right after the current cluster (never at an index already passed),
+    with one question added to the budget. Same planner, same once-per-person-and-role
+    bound (``plan_leadership_kind`` + the asked keys of this and earlier sessions)."""
+    if not state.get(KIND_REPLAN_STATE_KEY):
+        return
+    ids = list(state.get("critical_gaps") or [])
+    by_id = dict(state.get("gap_clusters_by_id") or {})
+    cats = dict(state.get("gap_categories") or {})
+    asked = {*(state.get(KIND_ASKED_STATE_KEY) or []), *await _kind_asked_keys(db, user_id)}
+    new_ids, new_cats, new_by_id = plan_leadership_kind(
+        ids, cats, by_id, profile_json, already_asked=asked
+    )
+    added = [cid for cid in new_ids if cid not in ids]
+    if not added:
+        return
+    kept = [cid for cid in new_ids if cid not in added]
+    at = max(current_idx + 1, min(new_ids.index(cid) for cid in added))
+    state["critical_gaps"] = [*kept[:at], *added, *kept[at:]]
+    state["gap_categories"] = new_cats
+    state["gap_clusters_by_id"] = new_by_id
+    state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + len(added)
+
+
 async def _create_targeted_session(
     job_id: uuid.UUID,
     job: JobAnalysis,
@@ -3155,6 +3199,7 @@ async def _create_targeted_session(
         hard_ceiling=hard_ceiling,
     )
     state["gate_clusters"] = gate_by_id
+    state[KIND_REPLAN_STATE_KEY] = True
     # ADR-089 clause 1 — each planned cluster starts from the budget the
     # cross-session record leaves it.
     state["questions_per_gap"] = _seed_questions_per_gap(clusters_by_id)
@@ -4161,6 +4206,20 @@ async def _send_message_turn(
         db, job_id=record.job_analysis_id, user_id=record.user_id
     )
 
+    # WP-Q4 (g), ADR-064 amended 2026-11-15 — an offered BRIDGE opening sent
+    # unchanged states nothing the candidate said: refuse it before anything is
+    # appended, reconciled or committed (a fact: equality with an offered text).
+    # MD-Q7 F9 — an offered opening is Applire's text, never the person's
+    # (this question's or a kept earlier one's): it is cut before reconcile,
+    # and an opening followed by nothing substantial (empty, a bare
+    # "ja"/"yes"/"ok") is asked to be completed, never saved.
+    offers = (record.state or {}).get("offered_choice_terms")
+    reconcile_answer, had_opening = strip_offered_opening(message, offers)
+    if answer_is_offered_opening(message, offers) or (
+        had_opening and is_bare_completion(reconcile_answer)
+    ):
+        raise AnswerIsOfferedOpening()
+
     state: InterviewState = dict(record.state)
     # ADR-099 cl. 11 — a button answer carries no text; the transcript keeps
     # what was chosen.
@@ -4264,7 +4323,10 @@ async def _send_message_turn(
             profile_record=profile_record,
             gap=cluster_label,
             question=current_question,
-            answer=message,
+            # MD-Q7 F9 — the offered opening is Applire's text, not the
+            # person's: the reconciler reads only what they wrote after it
+            # (the opening still reaches it as an offered choice, below).
+            answer=reconcile_answer,
             provider=provider,
             session_id=str(record.id),
             lang=lang,
@@ -4646,6 +4708,7 @@ async def _send_message_turn(
     ):
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+        await _replan_leadership_kind(state, updated_profile, db, record.user_id, current_idx)
         skipped_set_updated = set(state.get("skipped_gaps", []))
         next_index = _next_valid_index(
             state["critical_gaps"], current_idx + 1, skipped_set_updated

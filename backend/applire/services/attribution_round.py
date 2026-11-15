@@ -58,7 +58,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from applire.constants import CV_GENERATION_MAX_TOKENS
@@ -504,6 +504,10 @@ class TruthRoundResult:
     removed: list[TruthFinding]
     applied: bool = False
     llm_calls: int = 0
+    #: MD-Q8 (Sorbet WP-Q3): skills chips a LATER round added that this round's
+    #: audit never saw, removed at delivery (``late_unbacked_chips``) — the same
+    #: removal rows, the same kind as a chip the round itself removed.
+    late_removed: list[TruthFinding] = field(default_factory=list)
 
 
 async def run_truth_round(
@@ -591,3 +595,114 @@ async def run_truth_round(
         document, len(findings), len(removed),
     )
     return TruthRoundResult(corrected, findings, removed, applied=True, llm_calls=1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MD-Q8 (Sorbet WP-Q3, ruling Q3-5 A): the truth round's coverage ends at its own
+# audit. A skills chip the terminal rounds add after it — the last corrector round
+# is unreviewed by design — met no resolver: Katrin's "Gruppenebene" (delivery 1b,
+# rec 312 → 318) shipped unbacked and set stop_and_fix. A chip is one atomic
+# entry with no wording to keep, so its removal needs no writer and no model call:
+# it is dropped at delivery and recorded as the truth round's own removal row
+# (kind ``oracle:skillNoEvidence`` — the review card's removal line and its
+# "Doch, stimmt – wo?" re-grounding read it unchanged). Conservative on purpose,
+# all three facts must hold: the chip was not in the draft the round audited;
+# the code's tie check (``cv.skill_untied``) reports it on the shipped draft; and
+# the Oracle's deterministic skill producer does not back it. The Oracle's model
+# seams are not re-run (no call), so the tie check stands guard for what they
+# would rescue — "Projektcontrolling" in the same CV is deterministic-unbacked
+# but tied and was graded grounded, and stays.
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: the kind of a skill chip the Oracle does not back (``review_actions.SKILL_REMOVAL_KIND``)
+SKILL_CHIP_KIND = "oracle:skillNoEvidence"
+
+
+def skill_backed_on_profile(
+    skill: str, profile_json: Any, keyword_ledger: list[dict[str, Any]] | None,
+    *, on_error: bool = True,
+) -> bool:
+    """The Oracle's deterministic skill producer: ``ground_skill_claim`` over the
+    claimable vault and the job's claimable ledger forms (as ``audit.py`` reads
+    them), then the ADR-100 M-3 chip arm (``skill_backed_by_ledger``). The
+    cross-language and equivalence judgements are model calls and are not run
+    here. Never raises: a failure returns ``on_error`` — backed by default, so
+    nothing is removed on it; the review card's re-grounding passes False (the
+    removal stands)."""
+    try:
+        from applire.services.keyword_ledger import claimable_surface_form_groups
+        from applire.services.oracle.audit import _claimable_index
+        from applire.services.oracle.backing import skill_backed_by_ledger
+        from applire.services.oracle.matchers.grounding import ground_skill_claim
+
+        if not skill.strip():
+            return False
+        forms = (
+            claimable_surface_form_groups(keyword_ledger, exclude_keyword_only=True) or None
+            if keyword_ledger else None
+        )
+        index = _claimable_index(profile_json)
+        if ground_skill_claim(skill, index, forms) is not None:
+            return True
+        return skill_backed_by_ledger(skill, keyword_ledger, profile_json, index) is not None
+    except Exception:  # noqa: BLE001
+        logger.exception("skill re-grounding failed for %r", skill)
+        return on_error
+
+
+def late_unbacked_chips(
+    skills: list[str],
+    *,
+    audited_skills: list[str] | None,
+    untied: list[str] | tuple[str, ...],
+    profile_json: Any,
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """The shipped chips MD-Q8 drops (see the block comment). ``audited_skills``
+    ``None`` (no audit ran) → nothing: an unknown baseline removes nothing."""
+    if audited_skills is None:
+        return []
+    seen = {str(a).casefold() for a in audited_skills}
+    tied_out = {str(u) for u in untied}
+    return [
+        s for s in skills
+        if isinstance(s, str) and s.casefold() not in seen and s in tied_out
+        and not skill_backed_on_profile(s, profile_json, keyword_ledger)
+    ]
+
+
+def denied_unbacked_chips(
+    skills: list[str], *, profile_json: Any, keyword_ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """MD-Q8 widened (delivery-1b re-run, Katrin "Projektcontrolling"): a shipped
+    chip that a recorded denial covers (the Oracle's own cover, ``backing._denied``
+    over ``denials_covering`` — ADR-064's scope reader) AND the Oracle's
+    deterministic skill producer does not back. Audited or not, tied or not: the
+    person said no, and nothing in the profile says yes. A chip the person added or
+    confirmed is a vault skill the producer backs, so it is never taken. Never
+    raises: a failure takes nothing."""
+    try:
+        from applire.services.oracle.audit import _claimable_index
+        from applire.services.oracle.backing import _denied
+
+        index = _claimable_index(profile_json)
+        return [
+            s for s in skills
+            if isinstance(s, str) and _denied([s], index)
+            and not skill_backed_on_profile(s, profile_json, keyword_ledger)
+        ]
+    except Exception:  # noqa: BLE001
+        logger.exception("denied-chip check failed — nothing taken")
+        return []
+
+
+def late_chip_findings(chips: list[str], skills: list[str]) -> list[TruthFinding]:
+    """The removal records of ``late_unbacked_chips`` — a truth-round finding each."""
+    return [
+        TruthFinding(
+            family="unbacked", kind=SKILL_CHIP_KIND, text=c,
+            location=f"skills[{skills.index(c)}]" if c in skills else "skills",
+            detail_key="skillNoEvidence",
+        )
+        for c in chips
+    ]

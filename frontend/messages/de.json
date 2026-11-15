@@ -507,6 +507,7 @@
     "generationElapsed": "Läuft seit {time}",
     "generationSlow": "Das dauert länger als üblich. Du kannst die Seite verlassen – dein Lebenslauf wird trotzdem fertig und wartet hier und in deiner Bewerbung auf dich.",
     "profileUpdatedSince": "Dein Profil wurde seit der Erstellung dieses Lebenslaufs aktualisiert – die Änderungen stehen noch nicht darin.",
+    "profileUpdatedByInterview": "Deine Antworten aus dem Interview stehen in deinem Profil, aber noch nicht in diesem Lebenslauf.",
     "profileUpdatedAction": "Neu erstellen",
     "regeneratingFromInterview": "Neue Fassung mit deinen Antworten aus dem Interview",
     "regeneratingFromProfile": "Neue Fassung mit deinem aktuellen Profil",
@@ -862,7 +863,7 @@
     "relativeJustNow": "gerade eben",
     "relativeHoursAgo": "vor {h} Std.",
     "relativeDaysAgo": "vor {d} T.",
-    "profileStrengthTitle": "Profilstärke",
+    "profileStrengthTitle": "Profil-Vollständigkeit",
     "profileStrengthHint": "Fehlende Abschnitte ergänzen, um die Lückenanalyse zu verbessern.",
     "profileStrengthOptional": "Optional: {section} ergänzen",
     "profileCheckWorkExp": "Berufserfahrung",
@@ -1315,6 +1316,8 @@
     },
     "conflictSourceUnknown": "einer späteren Änderung",
     "threadNotApplied": "Etwas aus deiner Eingabe kam nicht an — und warum",
+    "accuracyLost": "{count, plural, one {# Angabe aus} other {# Angaben aus}} {source} kam beim Zusammenführen nicht in deinem Profil an ({sections}).",
+    "accuracyLowConfidence": "Unsichere Zusammenführung aus {source} ({percent} % Sicherheit) — bitte prüfe die übernommenen Angaben.",
     "notAppliedSummary": "{count, plural, one {# Angabe aus} other {# Angaben aus}} {source} kam nicht in deinem Profil an ({items}) — {reasons}.",
     "notAppliedReason": {
       "no_op_carried_entry": "keine Änderung hat sie übernommen",
@@ -1542,6 +1545,7 @@
   },
   "errors": {
     "answerNotSaved": "Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden.",
+    "answerIsOpening": "Das ist nur der Satzanfang aus dem Vorschlag. Schreib ihn mit deinen eigenen Worten zu Ende — oder antworte anders.",
     "uploadAtLeastOne": "Bitte lade mindestens einen Lebenslauf hoch, um fortzufahren.",
     "exportFailed": "Export fehlgeschlagen. Bitte versuche es erneut.",
     "deletionFailed": "Löschen fehlgeschlagen. Bitte versuche es erneut.",
@@ -1609,6 +1613,8 @@
     "analysing": "Analysiert…"
   },
   "profileImport": {
+    "resumeWithProfile": "Dein Profil enthält schon einen gelesenen Lebenslauf. Du kannst mit diesem Profil weitermachen oder einen weiteren hochladen.",
+    "resumeWithProfileAction": "Mit meinem Profil weiter",
     "title": "Lebenslauf oder Stelle hinzufügen",
     "subtitle": "Lebenslauf als PDF, DOCX, TXT, MD oder Bild — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "subtitleNoImage": "Lebenslauf als PDF, DOCX, TXT oder MD — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
@@ -1776,6 +1782,8 @@
         "cv-skill_duplicate": "Die Skill-Liste nennt dasselbe doppelt: {terms}.",
         "cv-skill_named_in_bullet": "„{term}“ steht in einem Stichpunkt, aber nicht in der Skill-Liste.",
         "cv-skill_without_bullet": "„{term}“ steht in der Skill-Liste oder im Kurzprofil und Dein Profil belegt es in einer Stelle – kein Stichpunkt im Lebenslauf zeigt es.",
+        "cv-scope_evidence_missing": "Dein Profil sagt „{term}“ – die Stelle fragt nach dieser Größenordnung, und der Lebenslauf zeigt es nicht.",
+        "cv-skill_module_unbacked": "„{term}“ fasst ein Modul zusammen, das Dein Profil nicht enthält.",
         "cv-role_budget": "Bei {term} stehen mehr Stichpunkte als vorgesehen.",
         "cv-page_length": "Der Lebenslauf ist länger als die Zielseitenzahl.",
         "cv-recorded_name": "„{term}“ ist nicht der Name, den Dein Profil dafür führt.",
@@ -2096,11 +2104,9 @@
   "documentReview": {
     "title": "Prüfung",
     "verdictFindings": "{count, plural, one {# Stelle im Dokument ist nicht durch Dein Profil gedeckt.} other {# Stellen im Dokument sind nicht durch Dein Profil gedeckt.}}",
-    "verdictClear": "Jede Aussage im Dokument ist durch Dein Profil gedeckt.",
     "verdictDecisions": "{count, plural, one {# Punkt braucht Deine Entscheidung, bevor Du sendest.} other {# Punkte brauchen Deine Entscheidung, bevor Du sendest.}}",
     "verdictNotesOnly": "{count, plural, one {Weiter unten steht # Hinweis, den Du vor dem Versand kennen solltest.} other {Weiter unten stehen # Hinweise, die Du vor dem Versand kennen solltest.}}",
     "verdictUncheckedHead": "Nicht geprüft: {producers} — sieh Dir diesen Teil selbst an, bevor Du sendest.",
-    "verdictTruthLine": "Erfunden ist nichts: Jede Aussage im Dokument ist durch Dein Profil gedeckt.{decisions, plural, =0 {} one { # Punkt braucht Deine Entscheidung.} other { # Punkte brauchen Deine Entscheidung.}}{notes, plural, =0 {} one { Dazu kommt # Hinweis.} other { Dazu kommen # Hinweise.}}",
     "verdictClearWithSendCheck": "{count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
     "verdictUnknown": "Ob jede Aussage gedeckt ist, wurde für dieses Dokument nicht geprüft.",
     "group1Title": "Im Dokument, aber nicht in Deinem Profil",
@@ -2935,8 +2941,6 @@
     "since": "seit {date}"
   },
   "reviewSignals": {
-    "verdictClearCrossReadUnknown": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Ob Anschreiben und Lebenslauf zusammenpassen, wurde nicht geprüft — lies beide nebeneinander, bevor Du sendest.",
-    "verdictClearCrossRead": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. {open, plural, one {Neben Deinem Lebenslauf gelesen fällt aber eine Stelle auf — entscheide sie, bevor Du sendest.} other {Neben Deinem Lebenslauf gelesen fallen aber # Stellen auf — entscheide sie, bevor Du sendest.}}",
     "sectionTitle": "Gegengelesen: Anschreiben und Lebenslauf",
     "sectionSub": "Wer beide Dokumente nebeneinander liest, sieht das hier zuerst. {decided} von {total} entschieden.",
     "unknown": "Nicht geprüft: Der Kohärenz-Hinweis lief für dieses Anschreiben nicht. Das ist keine Entwarnung — Anschreiben und Lebenslauf wurden nicht gegengelesen.",

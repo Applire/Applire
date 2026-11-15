@@ -468,7 +468,10 @@ _V2_FACTS_PARAGRAPH = (
     "employer, an institution or a degree is written as one of the RECORDED NAMES the "
     "block lists for it (the stored name or a name the candidate used in another document) — "
     "choose the recorded form that is in the OUTPUT LANGUAGE when one exists, otherwise the "
-    "stored name. A JOB TITLE is the exception (ruling R-2): a recorded form in the OUTPUT "
+    "stored name. A degree recorded with and without its subject (\"B.Sc. Informatik\" | "
+    "\"B.Sc.\") whose field of study already names that subject is written short, the field "
+    "carrying it in the OUTPUT LANGUAGE (\"B.Sc.\" + \"Computer Science\", never \"B.Sc. "
+    "Informatik, Computer Science\"). A JOB TITLE is the exception (ruling R-2): a recorded form in the OUTPUT "
     "LANGUAGE, else its established equivalent there, same function and seniority, never "
     "upgraded (\"Leiterin Labor-IT\" → \"Head of Laboratory IT\"); with none it stays as "
     "recorded. DESCRIPTIONS are translated: a field of study, an industry line, a language "
@@ -554,8 +557,16 @@ V2_NOT_YET_REACHED_RULE = (
     "yet: write each as an aim, target or mandate, never as a result."
 )
 
+#: Sorbet WP-Q3 (2026-11-15): rule 7's product-and-modules shape — "SAP" beside "SAP PP"
+#: and "SAP MM" from round 1 in 4 of 4 marcus bench runs (base 956bad2f, luna). v2 only,
+#: for the same reason as above (test_545).
+_V2_RULE7_ANCHOR = '"MES (Maschinen- und Betriebsdatenerfassung)".'
+V2_PRODUCT_MODULES_RULE = 'A product and its modules are one entry too: "SAP (PP, MM)", never "SAP", "SAP PP" and "SAP MM".'
+assert SYSTEM_PROMPT.count(_V2_RULE7_ANCHOR) == 1, "rule 7 moved — re-derive V2_SYSTEM_PROMPT"
+
 V2_SYSTEM_PROMPT = (
     SYSTEM_PROMPT.replace(_V2_RULE3_ANCHOR, _V2_RULE3_ANCHOR + " " + V2_NOT_YET_REACHED_RULE)
+    .replace(_V2_RULE7_ANCHOR, _V2_RULE7_ANCHOR + " " + V2_PRODUCT_MODULES_RULE)
     .replace(_V1_FACTS_PARAGRAPH, _V2_FACTS_PARAGRAPH)
     .replace(_V1_SCHEMA, _V2_SCHEMA)
     .replace(_V2_BUDGET_SENTENCE, _V2_BUDGET_REPLACEMENT)
@@ -618,6 +629,7 @@ def build_v2_fields_block(
     *,
     required_vault_skills: list[str] | None = None,
     skills_cap: int | None = None,
+    translated_roles: set[str] | frozenset[str] = frozenset(),
 ) -> str:
     """The VAULT FIELDS block (ADR-094 cl. 2/5, US364): every vault-sourced field the
     v2 writer returns, by id, with each name's RECORDED NAMES (ruling W1-2). Facts
@@ -634,8 +646,18 @@ def build_v2_fields_block(
     for w in profile.get("work_experience") or []:
         if not isinstance(w, dict) or not w.get("id"):
             continue
+        # RULING R-2 / Q3-1, MD-Q9 R2 (delivery 1b, Cross): in a document whose
+        # language is not the vault's own, a title recorded in ONE form says so
+        # (``cv_v2.translated_role_ids``), so no round reads "use one exactly" as
+        # "keep the recorded wording". The translation stays the model's.
+        role_note = (
+            " — recorded in one form only, so not a name to copy: write this title's "
+            "established equivalent in the OUTPUT LANGUAGE (never upgraded), in every round; "
+            "a title already spelled the same in the OUTPUT LANGUAGE stays as it is"
+            if str(w["id"]) in translated_roles else ""
+        )
         line = (
-            f"  - work [{w['id']}]: role — recorded names {_names(w.get('role'), w.get('role_aliases'))}; "
+            f"  - work [{w['id']}]: role — recorded names {_names(w.get('role'), w.get('role_aliases'))}{role_note}; "
             f"company — recorded names {_names(w.get('company'), w.get('company_aliases'))}"
         )
         if w.get("industry_context"):
@@ -681,6 +703,11 @@ def build_v2_fields_block(
     return "\n".join(lines)
 
 
+# Sorbet WP-Q3 (2026-11-15, bench base 956bad2f, luna): the terminal corrector added
+# "Budget responsibility" beside "Budget planning" and "Continuous improvement" beside
+# "KVP/Kaizen" on coverage demands (marcus cross_de2en run 0, rounds 1 and 2) — the
+# ONE ENTRY PER COMPETENCE line below; rule 7 gains the product-and-modules shape
+# ("SAP" beside "SAP PP"/"SAP MM" in 4 of 4 marcus runs, from round 1).
 V2_REFINEMENT_ADDENDUM = """
 - CV PIPELINE v2: your JSON also carries `role`, `company` and `industry_context` per work
   entry and the `education` and `languages` rows (see the VAULT FIELDS block in the
@@ -692,6 +719,10 @@ V2_REFINEMENT_ADDENDUM = """
   trims or re-adds content after you: a project you omit is not re-joined, and a bullet over
   a role's budget is yours to cut or merge. A CODE CHECKS finding in the feedback is a fact
   about the draft — fix it.
+- ONE ENTRY PER COMPETENCE (rule 7) holds in every correction: a finding that asks for a
+  competence the skills list already carries under another name (a translation, an
+  acronym, a synonym — "KVP/Kaizen" is continuous improvement) is met by that entry; show
+  it in a bullet, never add a second entry for it.
 - LISTED-ONLY TERMS (ruling V-1): a KEYWORD LEDGER row marked
   [listed only — no role bullet or story states it] may be named in the skills list or a
   list of tools, never written into a bullet or the summary as a responsibility, ownership

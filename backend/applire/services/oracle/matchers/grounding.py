@@ -408,6 +408,18 @@ def ground_skill_claim(
     for unit in index.units:
         if surface_present_whole_token(name, unit.text_norm):
             return unit
+    # MD-Q7 F3 / MD-Q9 R5: a merged chip "X (A, B)" is backed only when EVERY
+    # module is a skill the vault holds under ITS OWN base ("X A",
+    # ``module_backing``). It never falls through to the near-dupe arm, where
+    # "SAP (PP, MM)" grounded on "SAP MM" alone with PP invented. A chip with a
+    # parenthesis that is not a merged chip (nested, unreadable) grounds only on
+    # its whole string above — never on a part.
+    modules = module_chip_parts(name)
+    if modules:
+        backing = [module_backing(base, mod, index) for base, mod in modules]
+        return backing[0] if all(u is not None for u in backing) else None
+    if "(" in name or ")" in name:
+        return None
     for i, vault_skill in enumerate(index.skill_names):
         if skills_near_dupe(name, vault_skill):
             for unit in index.units:
@@ -528,6 +540,71 @@ def _expand_slash_enumerations(text_norm: str) -> str | None:
     if not extra:
         return None
     return text_norm + " ; " + " ; ".join(extra)
+
+
+_MODULE_CHIP_RE = re.compile(r"^(?P<base>[^()]+?)\s*\((?P<mods>[^()]+)\)$")
+#: A module is one short token ("PP", "Lambda", "VBA"); a longer or multi-word
+#: parenthetical is an expansion or a gloss ("MES (Maschinendatenerfassung)",
+#: "MES (Manufacturing Execution System)"), never read as modules.
+_MODULE_MAX_CHARS = 12
+
+
+def module_chip_parts(name: str) -> list[tuple[str, str]] | None:
+    """MD-Q7 F3 (Sorbet quality-1): the ``(base, module)`` pairs of a merged skills
+    chip "X (A, B)" — "SAP (PP, MM)" is "SAP PP" and "SAP MM" — or ``None`` when
+    ``name`` is not one.
+
+    The CV writer joins a product and its modules into one chip (v2 rule 7), so the
+    Oracle, the ATS keyword check and the CV's own module check must read the chip
+    as its parts; otherwise "SAP (PP, MM)" grounds on "SAP MM" alone and a posting's
+    "SAP PP" no longer matches. A fact about the chip's own characters (ADR-062
+    cl. 1, the #797 slash-enumeration precedent): 1-4 modules separated by "," or
+    "/", each ONE token of at most 12 characters, after a base of at most three
+    words. Anything else is not read as modules."""
+    m = _MODULE_CHIP_RE.match((name or "").strip())
+    if not m:
+        return None
+    base = " ".join(m.group("base").split())
+    if not base or len(base.split()) > 3 or not re.search(r"\w", base):
+        return None
+    mods = [x.strip() for x in re.split(r"[,/]", m.group("mods"))]
+    if not 1 <= len(mods) <= 4:
+        return None
+    for mod in mods:
+        if not mod or len(mod.split()) != 1 or len(mod) > _MODULE_MAX_CHARS or not re.search(r"\w", mod):
+            return None
+    return [(base, mod) for mod in mods]
+
+
+def _initials(words: str) -> str:
+    return "".join(w[0] for w in re.findall(r"\w+", words)).casefold()
+
+
+def module_backing(base: str, mod: str, index: VaultIndex) -> EvidenceUnit | None:
+    """MD-Q9 R5: the vault unit that holds module ``mod`` of a merged chip under its
+    own base — "X A" as a whole token (or inside a vault slash enumeration, "SAP
+    PP/MM" holds "SAP PP") — or ``None``. A module held under ANOTHER base never
+    counts ("SAP (Lambda)" over "AWS Lambda", "Oracle (PP)" over "SAP PP").
+    One exception, a fact about the chip's own characters: a "module" that is the
+    base's initials ("Key Performance Indicator (KPI)") is the base's own
+    abbreviation, backed as the base is."""
+    form = f"{base} {mod}"
+    for unit in index.units:
+        if surface_present_whole_token(form, unit.text_norm):
+            return unit
+        expanded = _expand_slash_enumerations(unit.text_norm)
+        if expanded is not None and surface_present_whole_token(form, expanded):
+            return unit
+    if len(re.findall(r"\w+", base)) > 1 and _initials(base) == mod.casefold():
+        for unit in index.units:
+            if surface_present_whole_token(base, unit.text_norm):
+                return unit
+    return None
+
+
+def module_chip_forms(name: str) -> list[str]:
+    """The search forms of a merged chip ("SAP PP", "SAP MM"); empty when it is none."""
+    return [f"{b} {m}" for b, m in module_chip_parts(name) or []]
 
 
 def slash_enumeration_parts(name: str) -> list[str] | None:

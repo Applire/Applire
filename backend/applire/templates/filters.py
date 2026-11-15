@@ -283,6 +283,14 @@ def period(entry: object, present: str, kind: str = "work") -> dict:
     """
     start = month_year(str(_attr(entry, "start_date") or "").strip())
     end = month_year(str(_attr(entry, "end_date") or "").strip())
+    if start and end == start:
+        # Sorbet WP-Q3 (#835:277, platform-1 run 1): one completion year stored
+        # as both start and end printed "2013 – 2013". One period, one date.
+        # MD-Q7 F7: a CURRENT role whose stored end equals its start (started this
+        # year) still continues — "2013 – heute", never a closed "2013".
+        if _attr(entry, "is_current") is True:
+            return {"start": start, "end": present, "dash": bool(present)}
+        return {"start": start, "end": "", "dash": False}
     if not end and start:
         current = _attr(entry, "is_current")
         if current is True or (current is None and kind != "education"):

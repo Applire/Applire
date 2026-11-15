@@ -2817,7 +2817,12 @@ def _compose_letter(
     reframe, the salutation inject/split and the sign-off drop become findings
     (:func:`_letter_v2_findings`) or are deleted. v1 is unchanged.
     """
+    from applire.utils.stray_glyphs import strip_stray_glyphs
+
     v1 = pipeline != "v2"
+    # Sorbet WP-Q3 (#835:277): the CV's twin — a tokenizer artefact (U+FFFC)
+    # never reaches the composed letter.
+    letter_data = strip_stray_glyphs(letter_data)
     if not v1 and not isinstance(letter_data.get("recipient"), dict):
         # v2 bench, 2026-10-16 (luna, controlling_emma_de.cross_de2en run 1): a
         # terminal corrector returned ``"recipient": "recipient"`` and the date

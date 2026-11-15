@@ -263,12 +263,64 @@ def _by_id(rows: Any) -> dict[str, dict]:
     }
 
 
+def unique_skill_entries(skills: Sequence[str] | None) -> list[str]:
+    """The skills list with every entry that is IDENTICAL to an earlier one dropped
+    (NFKC, case and whitespace folded) — the first occurrence keeps its position.
+
+    Sorbet WP-Q3 (bench 2026-11-15, base 956bad2f, luna): "Work preparation" shipped
+    twice (marcus cross_de2en run 1) and "Budgetierung & Forecast" twice reached the
+    terminal review (emma mixed_de run 1). Both were made by the CV language pass,
+    which is told to translate a bilingual twin into the EXACT wording of its sibling
+    because "the document's own dedup removes it" (prompts/review_cv_language.py) — a
+    consumer v1's ``_dedup_skills`` provided and v2 dropped (ADR-094: that pass became
+    a finding). The last language recheck runs after the terminal review, so no round
+    sees its output. Two identical strings are one entry: an identity FACT (ADR-062
+    cl. 1), not a sameness judgement — near and semantic duplicates stay the writer's
+    and the corrector's (``cv.skill_duplicate``)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for s in skills or []:
+        key = " ".join(unicodedata.normalize("NFKC", str(s)).casefold().split())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
+def product_module_joins(skills: Sequence[str] | None) -> list[str]:
+    """MD-Q7 F3: the joined form of each product the list names beside TWO or more
+    of its own modules — "SAP", "SAP PP", "SAP MM" → "SAP (PP, MM)". A module is one
+    token after the product's exact name, read by the same shape as
+    ``module_chip_parts`` (the Oracle's reader); a product with one extension
+    ("Scrum" / "Scrum Master", "Python" / "Python 3") is never offered for joining."""
+    from applire.services.oracle.matchers.grounding import module_chip_parts
+
+    names = [str(s).strip() for s in skills or [] if isinstance(s, str) and str(s).strip()]
+    folded = {" ".join(n.casefold().split()): n for n in names}
+    out: list[str] = []
+    for key, base in folded.items():
+        mods = []
+        for n in names:
+            k = " ".join(n.casefold().split())
+            if k.startswith(key + " "):
+                tail = n.strip()[len(base):].strip()
+                if module_chip_parts(f"{base} ({tail})"):
+                    mods.append(tail)
+        if len(mods) >= 2:
+            joined = f"{base} ({', '.join(mods)})"
+            if module_chip_parts(joined):
+                out.append(joined)
+    return out
+
+
 def compose_v2(
     prose: dict,
     profile_json: dict,
     *,
     raw_profile_json: dict | None = None,
     notes: ComposeNotes | None = None,
+    document_language: str | None = None,
 ) -> "TailoredCVData":
     """The v2 compose: join the writer's draft onto the vault BY ID (ADR-094 cl. 2).
 
@@ -288,15 +340,25 @@ def compose_v2(
     )
     from applire.services.profile.language_names import LANGUAGE_NAME_DE_EN
 
+    from applire.utils.stray_glyphs import strip_stray_glyphs
+
     notes = notes if notes is not None else ComposeNotes()
+    # Sorbet WP-Q3 (#835:277): a tokenizer artefact (U+FFFC) the writer emitted
+    # printed as a box glyph; the composed document never carries one.
+    prose = strip_stray_glyphs(prose)
     # D-31: the container of a vault-linked project is a fact, not the prose's slot.
     prose = place_linked_projects(prose, profile_json)
     tailored = TailoredCVData.model_validate(assemble_tailored_cv(prose, profile_json))
     tailored = _apply_certifications(tailored, profile_json)
     tailored = _apply_role_facts(tailored, profile_json, preseed=None)
+    tailored = tailored.model_copy(update={"skills": unique_skill_entries(tailored.skills)})
 
     vault_work = _by_id(profile_json.get("work_experience"))
     prose_work = _by_id(prose.get("work"))
+    # RULING R-2 / Q3-1 and MD-Q9 R2: a role title recorded in ONE form is the
+    # writer's translation; a role with several recorded names prints one of them
+    # (``role_title_is_translated``, the predicate the writer's VAULT FIELDS block
+    # states too). Employer, degree and institution always keep the check.
     work = []
     for i, entry in enumerate(tailored.work_history):
         v = vault_work.get(entry.id) or {}
@@ -304,7 +366,7 @@ def compose_v2(
         update: dict[str, Any] = {}
         for fld, alias_key in (("role", "role_aliases"), ("company", "company_aliases")):
             picked, member = pick_recorded(p.get(fld), v.get(fld), v.get(alias_key))
-            if not member and fld == "role" and len(recorded_names(v.get(fld), v.get(alias_key))) == 1:
+            if not member and fld == "role" and role_title_is_translated(v, profile_json, document_language):
                 # Ruling R-2 (WP3, ADR-094 cl. 5 amended 2026-11-04): a role title the
                 # vault records in ONE form only is TRANSLATED by the writer when the
                 # document is in another language ("Leiterin Labor-IT" -> "Head of
@@ -453,6 +515,10 @@ class V2CheckContext:
     #: (canonical prose of the measured draft, page_count, target) — the page check
     #: fires only for the exact draft that was rendered (a fact, never an estimate).
     measured: tuple[str, int, int] | None = None
+    #: MD-Q7 F2: attested quote -> canonical prose of the draft on which
+    #: ``cv.scope_evidence_missing`` first named it. A later draft that still
+    #: misses it gets the finding as ADVISORY — one corrector round, never a loop.
+    scope_first_raised: dict[str, str] = field(default_factory=dict)
 
 
 def unmentioned_identifiers(texts: Sequence[str], profile_json: dict | None) -> tuple[list[str], list[str]]:
@@ -659,6 +725,11 @@ def v2_checks(
     findings.extend(_skill_without_bullet_findings(composed, ctx, claim))
     # 4c. C2 (ruling W1-1 r2): a vault project neither nested nor mentioned.
     findings.extend(_project_findings(composed, ctx))
+    # 4d. Sorbet WP-Q3: the posting's scale question answered by an attested vault
+    #     line (ADR-070) that the role does not carry.
+    findings.extend(_scope_evidence_findings(composed, ctx, canonical(prose)))
+    # 4e. MD-Q7 F3: a merged chip "X (A, B)" joins only modules the vault records.
+    findings.extend(_module_chip_findings(composed, ctx))
 
     # 5–8. the v1 skill passes as detectors — run IN v1's ORDER on one copy, so the
     #    findings describe v1's own final skills decision and can never contradict each
@@ -681,6 +752,173 @@ def v2_checks(
     blocking = [f for f in findings if f.blocking]
     advisory = [f for f in findings if not f.blocking]
     return (blocking + advisory)[:MAX_FINDINGS_PER_ROUND]
+
+
+def _scale_values(text: str, kind: str | None, *, spelled: bool = False) -> set[float]:
+    """MD-Q7 F2: the scale figures ``text`` states, as parsed numbers.
+
+    One figure instrument (ADR-066): the Oracle's ``extract_figures`` — locale-aware
+    ("1.200" DE = "1,200" EN = "1200"; "90,5" = "90.5"; "1.2k" = 1200), and it reads a
+    year, a percentage and a duration as their own kinds, so none of them is a scale.
+    A team scope's figure is a ``number`` with a people word right after it (the
+    MD-Q5 reader ``_PEOPLE_AFTER_RE``: "90 Mitarbeitende", "1,200 employees"); a
+    budget's is a currency figure. ``spelled`` adds the spelled small numbers
+    ("ninety employees") — on the CV side only."""
+    from applire.services.oracle.matchers.figures import extract_figures, extract_spelled_figures
+    from applire.services.scope_requirements import _PEOPLE_AFTER_RE, figure_currencies
+
+    figs = list(extract_figures(text))
+    if spelled:
+        figs += list(extract_spelled_figures(text))
+    out: set[float] = set()
+    for f in figs:
+        start = text.find(f.raw)
+        if start < 0:
+            continue
+        try:
+            value = float(f.value)
+        except (TypeError, ValueError):
+            continue
+        people = f.kind == "number" and bool(_PEOPLE_AFTER_RE.match(text[start + len(f.raw):]))
+        money = f.kind == "currency" or (f.kind == "number" and bool(figure_currencies(text, f.raw, start)))
+        if (kind == "team_size" and people) or (kind == "budget" and money) or (
+            kind not in ("team_size", "budget") and (people or money)
+        ):
+            out.add(value)
+    return out
+
+
+def _scope_evidence_findings(
+    composed: "TailoredCVData", ctx: V2CheckContext, draft_key: str = ""
+) -> list[CheckFinding]:
+    """The ADR-070 scale line the writer was told to carry, checked on the composed CV.
+
+    The writer's SCOPE block says: "EVERY line below is carried in its matching role
+    … An 'attested in the vault' line … gets its own statement in that role, never
+    dropped" (``scope_requirements.render_scope_positioning_block``, 786:242). Bench
+    2026-11-15 (base 956bad2f, luna): marcus' deputy cover of the whole site ("rund 90
+    Mitarbeitende", the closest answer to the posting's ~120) was never drafted in 4 of
+    6 CVs while every letter stated it — category C, the rule is clear and fails.
+
+    Facts, not judgement (ADR-062 cl. 1), MD-Q7 F2:
+    - the scale figure is the attested quote's largest figure OF THE BAR'S KIND
+      (``_scale_values``: a headcount next to a people word, or a currency; never a
+      year, a percentage or a duration), compared as a parsed number;
+    - it is satisfied by one bullet of the owning role (or of its nested projects)
+      that states the same number with the same kind of unit;
+    - the owning role is the entry ``verify_attested_evidence`` resolved (the
+      ledger's ``attested.entry`` label), the first entry holding the quote after;
+    - it blocks ONCE: a later draft that still misses a quote gets the finding as
+      advisory (``ctx.scope_first_raised``), so no CV exhausts its rounds on it.
+    A quote with no figure of the bar's kind yields no finding."""
+    from applire.services.scope_requirements import _norm_quote, _work_entry_label
+
+    work = {w.id: w for w in composed.work_history}
+    parts: list[str] = []
+    subjects: list[str] = []
+    blocking = False
+    for e in ctx.keyword_ledger or []:
+        if not isinstance(e, dict) or e.get("status") != "partial":
+            continue
+        bar = e.get("bar") or {}
+        att = bar.get("attested")
+        if not isinstance(att, dict) or not att.get("quote"):
+            continue
+        quote = str(att["quote"])
+        kind = bar.get("kind") if bar.get("kind") in ("team_size", "budget") else None
+        scale = _scale_values(quote, kind)
+        if not scale:
+            continue
+        target = max(scale)
+        qn = _norm_quote(quote)
+        holders = [
+            w for w in ctx.profile_json.get("work_experience") or []
+            if isinstance(w, dict) and any(
+                isinstance(b, str) and qn and qn in _norm_quote(b)
+                for k in ("responsibilities", "achievements") for b in (w.get(k) or [])
+            )
+        ]
+        cited = str(att.get("entry") or "")
+        holders.sort(key=lambda w: 0 if _work_entry_label(w) == cited else 1)
+        owner = holders[0] if holders else None
+        if owner is None or str(owner.get("id")) not in work:
+            continue
+        w = work[str(owner.get("id"))]
+        bullets = list(w.bullets) + [b for p in w.projects for b in p.bullets]
+        if any(target in _scale_values(b, kind, spelled=True) for b in bullets):
+            continue
+        parts.append(
+            f"the profile attests, under {w.id} ({w.company}): “{quote}” "
+            f"({att.get('unit') or 'scale evidence'})"
+        )
+        # The quote, never the ledger concept: the concept label carries the posting's
+        # own figure ("Team scope ~120"), which no candidate-facing line may show (ADR-070).
+        subjects.append(quote)
+        first = ctx.scope_first_raised.setdefault(quote, draft_key)
+        if first == draft_key:
+            blocking = True
+    if not parts:
+        return []
+    return [CheckFinding(
+        check="cv.scope_evidence_missing",
+        blocking=blocking,
+        subjects=tuple(subjects),
+        text=(
+            "The posting asks for a scale the candidate answers with an attested line the CV "
+            "leaves out — " + "; ".join(parts[:_MAX_ITEMS_PER_FINDING]) + ". State it in that "
+            "role as its own statement in the document language, every figure unchanged and "
+            "framed exactly as the profile frames it (a cover, a period, a deputy role stays "
+            "one); it is a different fact from the team size beside it, and the letter states "
+            "it. If the role is at its bullet budget, replace its weakest bullet."
+        ),
+    )]
+
+
+def _module_chip_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
+    """MD-Q7 F3 / MD-Q9 R5 (Sorbet quality-1): every module inside a merged skills
+    chip "X (A, B)" (``module_chip_parts``) is a skill the vault records under its
+    own base, "X A" — the Oracle's own reader (``module_backing``, the arm
+    ``ground_skill_claim`` uses for the chip).
+    A module that is not is an invented skill on page one ("SAP (PP, MM)" over a vault
+    holding only "SAP" and "SAP MM"): a blocking FACT (ADR-062 cl. 1). The corrector
+    can always meet it — list only the recorded modules, or the product alone."""
+    from applire.services.keyword_ledger import claimable_surface_form_groups
+    from applire.services.oracle.matchers.grounding import ground_skill_claim, module_backing, module_chip_parts
+    from applire.services.oracle.matchers.vault import build_vault_index
+
+    chips = [(s, module_chip_parts(s)) for s in composed.skills if isinstance(s, str)]
+    chips = [(s, parts) for s, parts in chips if parts]
+    if not chips:
+        return []
+    try:
+        index = build_vault_index(ctx.profile_json)
+        forms = claimable_surface_form_groups(ctx.keyword_ledger or [])
+    except Exception:  # noqa: BLE001 — a check must never fail the loop
+        logger.exception("module chip check: vault index failed; no finding")
+        return []
+
+    def backed(name: str) -> bool:
+        return ground_skill_claim(name, index, forms) is not None
+
+    bad: list[tuple[str, list[str]]] = []
+    for chip, parts in chips:
+        if backed(chip):
+            continue
+        # MD-Q9 R5: a module counts only under its own base ("X A" in the vault)
+        missing = [m for b, m in parts if module_backing(b, m, index) is None]
+        if missing:
+            bad.append((chip, missing))
+    if not bad:
+        return []
+    return [CheckFinding(
+        check="cv.skill_module_unbacked",
+        subjects=tuple(chip for chip, _m in bad[:_MAX_ITEMS_PER_FINDING]),
+        text=(
+            "Skills entries that join a module the profile does not record: "
+            + "; ".join(f"“{chip}” — {_fmt(missing)} is not in the profile" for chip, missing in bad[:_MAX_ITEMS_PER_FINDING])
+            + ". List only the modules the profile records, or the product alone; never add a module."
+        ),
+    )]
 
 
 def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
@@ -1139,13 +1377,33 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
         ))
     dupes = removed(s0, s1)
     if dupes:
+        # Sorbet WP-Q3: the finding named only the dropped side ("“SAP”"), so the
+        # corrector could not see which entry it repeats and left both through four
+        # rounds (bench 2026-11-15, marcus cross_de2en run 0). The pair is the fact.
+        from applire.services.ats_audit import skills_page_dupe
+
+        def _pair(d: str) -> str:
+            others = [k for k in s0.skills if k != d and skills_page_dupe(k, d)]
+            return f"“{d}” beside {_fmt(others[:3])}" if others else f"“{d}”"
+
+        # MD-Q7 F3: a join is offered ONLY for a product listed beside two or more of
+        # its own one-token modules ("SAP", "SAP PP", "SAP MM"). "Scrum" / "Scrum
+        # Master", "Lean" / "Lean Six Sigma", "Python" / "Python 3" are not offered
+        # for joining — when in doubt, two chips stay two chips.
+        joins = product_module_joins(s0.skills)
+        offer = (
+            " A product listed with its modules may be one entry: "
+            + ", ".join(f"“{j}”" for j in joins[:_MAX_ITEMS_PER_FINDING]) + "."
+        ) if joins else ""
         out.append(CheckFinding(
             check="cv.skill_duplicate",
             subjects=tuple(dupes),
             blocking=False,
             text=(
-                f"These skills entries repeat another entry on the page (one is contained "
-                f"in the other): {_fmt(dupes)}. If they name one competence, keep one form."
+                "These skills entries repeat another entry on the page (one is contained "
+                f"in the other): {'; '.join(_pair(d) for d in dupes[:_MAX_ITEMS_PER_FINDING])}. "
+                "If they name one competence, keep one form; two distinct skills both stay."
+                + offer
             ),
         ))
     narrated = added(s4, s5)
@@ -1295,7 +1553,12 @@ def required_vault_skills(profile_json: dict, job_dict: dict, keyword_ledger: li
     return out
 
 
-def build_v2_fields_block_for(profile_json: dict, job_dict: dict, keyword_ledger: list[dict] | None) -> str:
+def build_v2_fields_block_for(
+    profile_json: dict,
+    job_dict: dict,
+    keyword_ledger: list[dict] | None,
+    document_language: str | None = None,
+) -> str:
     from applire.constants import CV_MAX_SKILLS
     from applire.prompts.cv_tailoring import build_v2_fields_block
 
@@ -1303,6 +1566,34 @@ def build_v2_fields_block_for(profile_json: dict, job_dict: dict, keyword_ledger
         profile_json,
         required_vault_skills=required_vault_skills(profile_json, job_dict, keyword_ledger),
         skills_cap=CV_MAX_SKILLS,
+        translated_roles=translated_role_ids(profile_json, document_language),
+    )
+
+
+def role_title_is_translated(entry: dict, profile_json: dict | None = None,
+                             document_language: str | None = None) -> bool:
+    """RULING R-2 / Q3-1, MD-Q9 R2 — ONE predicate for compose's waiver and the
+    writer's VAULT FIELDS block: a role title recorded in exactly ONE form (a
+    " / " title stored as one string is one form) is the writer's to translate; a
+    role with several recorded names prints one of them, in every document. No
+    language is read from a title or from prose (MD-Q9 R2 removed that reader:
+    a German title in English prose read as English, "Head of Controlling /
+    Leiter Controlling" as one English string)."""
+    return len(recorded_names(entry.get("role"), entry.get("role_aliases"))) == 1
+
+
+def translated_role_ids(profile_json: dict, document_language: str | None) -> frozenset[str]:
+    """The work ids whose title the block marks for translation: only in a document
+    whose language is not the vault's own (the pipeline's cross-language predicate;
+    a same-language prompt stays unchanged)."""
+    from applire.services.cv import _vault_dominant_language
+
+    if not document_language or document_language == _vault_dominant_language(profile_json):
+        return frozenset()
+    return frozenset(
+        str(w["id"]) for w in profile_json.get("work_experience") or []
+        if isinstance(w, dict) and w.get("id") and w.get("role")
+        and role_title_is_translated(w, profile_json, document_language)
     )
 
 
@@ -1365,7 +1656,8 @@ class V2Terminal:
 
     def compose(self, prose: dict, profile_json: dict, raw_profile_json: dict | None) -> "TailoredCVData":
         notes = ComposeNotes()
-        composed = compose_v2(prose, profile_json, raw_profile_json=raw_profile_json, notes=notes)
+        composed = compose_v2(prose, profile_json, raw_profile_json=raw_profile_json, notes=notes,
+                              document_language=self.ctx.language)
         self.notes_by_draft[canonical(prose)] = notes
         return composed
 

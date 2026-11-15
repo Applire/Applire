@@ -353,10 +353,17 @@ def _accuracy_issue(record: EnrichmentRecord) -> HealthIssue | None:
             f"item(s) ({', '.join(affected)})"
         )
         field_ref = ", ".join(affected) or None
+        pieces = {"accuracy_kind": "lost", "accuracy_count": lost}
     else:
         pct = f"{record.confidence:.0%}" if record.confidence is not None else "?"
         summary = f"Low-confidence merge from {record.source} ({pct})"
         field_ref = None
+        pieces = {
+            "accuracy_kind": "low_confidence",
+            "accuracy_percent": (
+                round(record.confidence * 100) if record.confidence is not None else None
+            ),
+        }
 
     return HealthIssue(
         id=f"accuracy:{record.id}",
@@ -365,6 +372,9 @@ def _accuracy_issue(record: EnrichmentRecord) -> HealthIssue | None:
         summary=summary,
         field_ref=field_ref,
         source_record_ref=record.id,
+        # #838 line 23 — the pieces; the reader composes (summary = fallback).
+        accuracy_source=record.source,
+        **pieces,
     )
 
 
