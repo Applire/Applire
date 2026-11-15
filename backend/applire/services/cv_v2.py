@@ -470,13 +470,9 @@ def compose_v2(
     # Sorbet WP-Q3, RULING Q3-1 (A + D1) and MD-Q7 F1: a role title in a document
     # whose language is not the vault's own is the writer's translation ONLY when
     # none of that role's recorded names is in the document's language
-    # (``title_translation_allowed``). A recorded name in the document language is
-    # enforced as before. Employer, degree and institution always keep the check.
-    from applire.services.cv import _vault_dominant_language
-
-    cross_language = bool(
-        document_language and document_language != _vault_dominant_language(profile_json)
-    )
+    # (``role_title_is_translated``, the predicate the writer's VAULT FIELDS block
+    # states too). A recorded name in the document language is enforced as before.
+    # Employer, degree and institution always keep the check.
     work = []
     for i, entry in enumerate(tailored.work_history):
         v = vault_work.get(entry.id) or {}
@@ -484,13 +480,7 @@ def compose_v2(
         update: dict[str, Any] = {}
         for fld, alias_key in (("role", "role_aliases"), ("company", "company_aliases")):
             picked, member = pick_recorded(p.get(fld), v.get(fld), v.get(alias_key))
-            if not member and fld == "role" and (
-                len(recorded_names(v.get(fld), v.get(alias_key))) == 1
-                or (
-                    cross_language
-                    and title_translation_allowed(v, profile_json, str(document_language))
-                )
-            ):
+            if not member and fld == "role" and role_title_is_translated(v, profile_json, document_language):
                 # Ruling R-2 (WP3, ADR-094 cl. 5 amended 2026-11-04): a role title the
                 # vault records in ONE form only is TRANSLATED by the writer when the
                 # document is in another language ("Leiterin Labor-IT" -> "Head of
@@ -1679,7 +1669,12 @@ def required_vault_skills(profile_json: dict, job_dict: dict, keyword_ledger: li
     return out
 
 
-def build_v2_fields_block_for(profile_json: dict, job_dict: dict, keyword_ledger: list[dict] | None) -> str:
+def build_v2_fields_block_for(
+    profile_json: dict,
+    job_dict: dict,
+    keyword_ledger: list[dict] | None,
+    document_language: str | None = None,
+) -> str:
     from applire.constants import CV_MAX_SKILLS
     from applire.prompts.cv_tailoring import build_v2_fields_block
 
@@ -1687,6 +1682,38 @@ def build_v2_fields_block_for(profile_json: dict, job_dict: dict, keyword_ledger
         profile_json,
         required_vault_skills=required_vault_skills(profile_json, job_dict, keyword_ledger),
         skills_cap=CV_MAX_SKILLS,
+        translated_roles=translated_role_ids(profile_json, document_language),
+    )
+
+
+def role_title_is_translated(entry: dict, profile_json: dict, document_language: str | None) -> bool:
+    """RULING R-2 + Q3-1 / MD-Q7 F1, ONE predicate for compose and the writer's block:
+    a role title the writer translates rather than picks — a title recorded in ONE
+    form only (R-2), or, in a document whose language is not the vault's own, a role
+    none of whose recorded names is in the document language
+    (``title_translation_allowed``)."""
+    from applire.services.cv import _vault_dominant_language
+
+    if len(recorded_names(entry.get("role"), entry.get("role_aliases"))) == 1:
+        return True
+    return bool(
+        document_language
+        and document_language != _vault_dominant_language(profile_json)
+        and title_translation_allowed(entry, profile_json, document_language)
+    )
+
+
+def translated_role_ids(profile_json: dict, document_language: str | None) -> frozenset[str]:
+    """The work ids whose title the block marks for translation: only in a document
+    whose language is not the vault's own (a same-language prompt stays unchanged)."""
+    from applire.services.cv import _vault_dominant_language
+
+    if not document_language or document_language == _vault_dominant_language(profile_json):
+        return frozenset()
+    return frozenset(
+        str(w["id"]) for w in profile_json.get("work_experience") or []
+        if isinstance(w, dict) and w.get("id") and w.get("role")
+        and role_title_is_translated(w, profile_json, document_language)
     )
 
 

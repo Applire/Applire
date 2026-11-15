@@ -128,3 +128,41 @@ def test_recorded_name_language_reads_the_record():
     assert recorded_name_language("Industriemechaniker / Vorarbeiter", sentences,
                                   {"industriemechaniker": "de"}) == "de"
     assert recorded_name_language("Industriemechaniker / Vorarbeiter", sentences) is None
+
+
+# ── Delivery 1b (Cross, rec 241/256): every round is told the translation fact ──
+def test_the_vault_fields_block_states_the_translation_fact_cross_language_only():
+    """Delivery 1b (Cross, ba8b1d7c): the writer translated all three titles, then a
+    correction round re-picked the German recorded names and every later round kept
+    them — the block said only "recorded names …". Replayed on luna (rec 256, the
+    first terminal corrector): 0/3 English titles as captured, 3/3 with this note."""
+    import json
+    from pathlib import Path
+
+    from applire.services.cv_v2 import build_v2_fields_block_for
+
+    vault = json.loads((Path(__file__).resolve().parents[1]
+                        / "files/quality_bench/operations_marcus_de/cross_de2en/vault.json").read_text())
+    vault = vault.get("profile") or vault
+    en = build_v2_fields_block_for(vault, {}, [], "en")
+    de = build_v2_fields_block_for(vault, {}, [], "de")
+    roles_en = [line for line in en.splitlines() if "  - work [" in line]
+    assert roles_en and all("none is in the OUTPUT LANGUAGE" in line for line in roles_en)
+    assert "none is in the OUTPUT LANGUAGE" not in de  # a same-language prompt is unchanged
+    assert de == build_v2_fields_block_for(vault, {}, [])
+
+
+def test_an_alias_of_unknown_language_is_not_marked_for_translation():
+    from applire.services.cv_v2 import build_v2_fields_block_for
+
+    vault = {"work_experience": [{"id": "w1", "role": "Produktionsleiter", "role_aliases": ["Production Manager"],
+                                  "company": "W", "responsibilities": _DE}], "skills": []}
+    assert "none is in the OUTPUT LANGUAGE" not in build_v2_fields_block_for(vault, {}, [], "en")
+
+
+def test_the_generation_seam_passes_the_document_language_to_the_block():
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[2] / "backend/applire/services/cv.py").read_text()
+    i = src.index("v2_fields_block = build_v2_fields_block_for(")
+    assert "document_language" in src[i:i + 200]

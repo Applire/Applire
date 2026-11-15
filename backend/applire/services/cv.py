@@ -4928,7 +4928,7 @@ async def _render_cv_background(
 
                     provider = ShortIdProvider(provider, ShortIdMap.from_profile(profile_json))
                     v2_fields_block = build_v2_fields_block_for(
-                        profile_json, job_dict, keyword_ledger
+                        profile_json, job_dict, keyword_ledger, document_language
                     )
                     durations_block = cv_durations_block(
                         profile_json,
