@@ -1956,6 +1956,16 @@ def _qualification_forms(*parts: str) -> set[str]:
     name, *bodies = parts
     forms = {norm(name)}
     forms |= {norm(f"{name} {b}") for b in bodies if b}
+    # Sorbet WP-Q3 (#835:172/193/277, delivery 2026-11-15): the record's OWN
+    # awarding body written into its name — "Industriemeister Metall (IHK)" with
+    # issuing_organization "IHK" — is the same qualification as the bare
+    # "Industriemeister Metall" an education row with no institution records.
+    # Only a parenthetical equal to one of this record's bodies is folded; any
+    # other parenthetical ("(Schweißtechnik)") is part of the name.
+    body_norms = {norm(b) for b in bodies if b}
+    for m in re.finditer(r"\(([^()]*)\)", name or ""):
+        if norm(m.group(1)) in body_norms:
+            forms.add(norm(name[: m.start()] + " " + name[m.end():]))
     return {f for f in forms if f}
 
 

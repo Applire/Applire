@@ -331,3 +331,57 @@ def test_v2_compose_prints_the_qualification_once_786_240():
     tailored = compose_v2({"work": [], "education": [], "skills": [], "summary": "x"}, profile)
     assert [c.name for c in tailored.certifications] == ["REFA-Grundschein Arbeitsorganisation"]
     assert "Industriemeister Metall" in [e.degree for e in tailored.education]
+
+
+# ---------------------------------------------------------------------------
+# Sorbet WP-Q3 (a)/(e), #835:172/193/277: the platform-1 and quality-1 delivery
+# runs (Stefan, 2026-11-15) still printed "Industriemeister Metall" under
+# Ausbildung AND "Industriemeister Metall (IHK)" under Zertifizierungen. The
+# vault shape the 786:240 fix did not cover: the education row carries NO
+# institution, and the certificate's own name carries its awarding body in
+# parentheses — "(IHK)", equal to its issuing_organization. Same qualification,
+# same year: one line, in education.
+# ---------------------------------------------------------------------------
+
+_STEFAN_SHAPE = {
+    "certifications": [
+        {"name": "Industriemeister Metall (IHK)", "issuing_organization": "IHK",
+         "date_obtained": "2010", "status": "confirmed"},
+        {"name": "Ausgebildeter Sicherheitsbeauftragter", "status": "confirmed"},
+    ],
+    "education": [
+        {"id": "e1", "degree": "Industriemeister Metall", "institution": "", "end_date": "2010"},
+    ],
+}
+
+
+def test_a_body_in_the_certificate_name_is_the_same_qualification_q3():
+    from applire.services.cv import _apply_certifications
+
+    out = _apply_certifications(_tailored_with_education(_STEFAN_SHAPE["education"]), _STEFAN_SHAPE)
+    assert [c.name for c in out.certifications] == ["Ausgebildeter Sicherheitsbeauftragter"]
+
+
+def test_a_parenthetical_that_is_not_the_issuer_keeps_both_q3():
+    """Only the record's OWN awarding body is folded away: "(Schweißtechnik)" is a
+    specialisation, not the body that issued it."""
+    from applire.services.cv import _apply_certifications
+
+    profile = {
+        "certifications": [
+            {"name": "Industriemeister Metall (Schweißtechnik)", "issuing_organization": "IHK",
+             "date_obtained": "2010", "status": "confirmed"},
+        ],
+        "education": [{"id": "e1", "degree": "Industriemeister Metall", "institution": "", "end_date": "2010"}],
+    }
+    out = _apply_certifications(_tailored_with_education(profile["education"]), profile)
+    assert [c.name for c in out.certifications] == ["Industriemeister Metall (Schweißtechnik)"]
+
+
+def test_v2_compose_prints_the_stefan_shape_once_q3():
+    from applire.services.cv_v2 import compose_v2
+
+    profile = dict(_STEFAN_SHAPE, personal_info={"name": "Stefan"}, work_experience=[], skills=[])
+    tailored = compose_v2({"work": [], "education": [], "skills": [], "summary": "x"}, profile)
+    assert [c.name for c in tailored.certifications] == ["Ausgebildeter Sicherheitsbeauftragter"]
+    assert [e.degree for e in tailored.education] == ["Industriemeister Metall"]
