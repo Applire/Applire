@@ -413,7 +413,9 @@ class AnthropicProvider(LLMProvider):
             # skipped, the one JSON value read; a non-JSON tail is discarded, a
             # second JSON value raises). One call, never a corrective re-ask.
             reply = "{" + text if prefilled else text
-            return parse_json_reply(reply, provider="Anthropic", model=self._model)
+            return parse_json_reply(
+                reply, provider="Anthropic", model=self._model, json_schema=json_schema
+            )
         except Exception as exc:
             self._raise_mapped(exc)
 

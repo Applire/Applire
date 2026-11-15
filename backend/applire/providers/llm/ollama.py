@@ -167,7 +167,9 @@ class OllamaProvider(LLMProvider):
                 raise
             raise wrapped from None
         # R2-13: one tolerant parse for every provider.
-        return parse_json_reply(raw, provider="Ollama", model=self._model)
+        return parse_json_reply(
+            raw, provider="Ollama", model=self._model, json_schema=json_schema
+        )
 
     @_retry
     async def _complete(self, messages: list, temperature: float, max_tokens: int) -> str:
