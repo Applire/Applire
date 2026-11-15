@@ -1543,6 +1543,7 @@
   },
   "errors": {
     "answerNotSaved": "Deine Antwort konnte nicht gespeichert werden — bitte noch einmal senden.",
+    "answerIsOpening": "Das ist nur der Satzanfang aus dem Vorschlag. Schreib ihn mit deinen eigenen Worten zu Ende — oder antworte anders.",
     "uploadAtLeastOne": "Bitte lade mindestens einen Lebenslauf hoch, um fortzufahren.",
     "exportFailed": "Export fehlgeschlagen. Bitte versuche es erneut.",
     "deletionFailed": "Löschen fehlgeschlagen. Bitte versuche es erneut.",

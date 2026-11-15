@@ -1142,6 +1142,33 @@ def cut_offered_texts(answer: Any, texts: Any) -> tuple[str, list[str]]:
     return remainder, cut
 
 
+def answer_is_offered_opening(answer: Any, offered: Any) -> bool:
+    """True when the ANSWER is exactly an offered BRIDGE opening, sent unchanged.
+
+    WP-Q4 (g), ADR-064 amended 2026-11-15 (founder question Q4-1): a bridge's
+    ``text`` is the opening of the candidate's own answer ("Mengenprognosen in
+    der Personaleinsatzplanung als Schichtleiter:"), not a statement. Sent with
+    nothing added it says nothing the candidate said, so the turn must not
+    reconcile it. A FACT, never a reading: equality of the answer with a text
+    Applire delivered at level ``partial`` whose raw text ends with a colon,
+    both in :func:`_containment_form` (the same normaliser the G-3 cut uses).
+    Any typed word, an edited opening, a sentence-shaped bridge, or a choice at
+    another level is not an opening.
+    """
+    if not isinstance(answer, str) or not isinstance(offered, dict) or not offered:
+        return False
+    form = _containment_form(answer)
+    if not form:
+        return False
+    for text, meta in offered.items():
+        if not isinstance(meta, dict) or meta.get("level") != "partial":
+            continue
+        raw = str(text).strip()
+        if raw.endswith(":") and _containment_form(raw) == form:
+            return True
+    return False
+
+
 def offered_choices_in_answer(answer: Any, offered: Any) -> list[dict]:
     """The offered choices this ANSWER contains, as
     ``[{"text", "names_without_claiming", "states_no_to"}]`` — a FACT

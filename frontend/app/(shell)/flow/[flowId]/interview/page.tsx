@@ -245,6 +245,9 @@ interface ApiErrorInfo {
 
 /** R2-13 — the backend's `error_code` for a turn whose answer was not saved. */
 const ANSWER_NOT_SAVED = "answer_not_saved";
+// WP-Q4 (g), ADR-064 amended 2026-11-15 — a bridge answer idea inserts an
+// opening to finish; sent unchanged the server refuses it and saves nothing.
+const ANSWER_IS_OPENING = "answer_is_opening";
 
 /** A failed turn carrying its parsed error, so the catch below can tell
  * "not saved — the text goes back into the composer" from any other failure. */
@@ -275,6 +278,7 @@ function translateError(info: ApiErrorInfo, t: ReturnType<typeof useTranslations
   // R2-13 (P-1) — the answer reached the server but could not be merged into
   // the profile; nothing was saved and no follow-up was asked.
   if (info.code === ANSWER_NOT_SAVED) return t("answerNotSaved");
+  if (info.code === ANSWER_IS_OPENING) return t("answerIsOpening");
   switch (info.status) {
     case 504: return t("http504");
     case 503: return t("http503");
@@ -909,7 +913,7 @@ export default function InterviewPage({
       // safe to resend as-is. Drop the optimistic user bubble the retry will
       // re-add, rather than leaving a duplicate once it succeeds.
       setMessages((prev) => (prev.at(-1)?.role === "user" ? prev.slice(0, -1) : prev));
-      if (e instanceof TurnError && e.code === ANSWER_NOT_SAVED) {
+      if (e instanceof TurnError && (e.code === ANSWER_NOT_SAVED || e.code === ANSWER_IS_OPENING)) {
         // R2-13 (P-1) — "not saved" is not "changed nothing": the answer goes
         // back into the composer, word for word, and the candidate sends it
         // again (no follow-up was asked; the question on screen still stands).
@@ -1372,7 +1376,19 @@ export default function InterviewPage({
                       ? "border-teal bg-teal/5 font-medium text-neutral-dark"
                       : "border-gray-200 bg-white text-gray-700 hover:border-teal/50 hover:bg-gray-50",
                   )}
-                  onClick={() => setAnswer(choice)}
+                  onClick={() => {
+                    setAnswer(choice);
+                    // WP-Q4 (g) — a bridge idea is an opening ending in a colon:
+                    // put the caret after it so the candidate writes on.
+                    if (choice.trimEnd().endsWith(":")) {
+                      requestAnimationFrame(() => {
+                        const el = textareaRef.current;
+                        if (!el) return;
+                        el.focus();
+                        el.setSelectionRange(el.value.length, el.value.length);
+                      });
+                    }
+                  }}
                 >
                   {choiceButtonLabel(choices, choiceAsks, i)}
                 </button>

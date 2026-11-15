@@ -48,7 +48,11 @@ from applire.schemas.session import (
 )
 from applire.services.gap import analyze_gaps_for_session
 from applire.services.job import get_job_for_user
-from applire.exceptions import answer_not_saved_detail
+from applire.exceptions import (
+    AnswerIsOfferedOpening,
+    answer_is_opening_detail,
+    answer_not_saved_detail,
+)
 from applire.schemas.profile import MergeProposalResponse
 from applire.services.session import (
     GapNotAskableError,
@@ -289,6 +293,13 @@ async def post_message(
         return await send_message(
             session_id, body.message.strip(), db, provider, user_id=user.id,
             outcome=body.outcome, merged_text=body.merged_text,
+        )
+    except AnswerIsOfferedOpening:
+        # WP-Q4 (g) — an offered bridge opening sent unchanged; nothing was
+        # appended or saved. Before the ValueError arm (it is one).
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=answer_is_opening_detail(),
         )
     except OutcomeRequired:
         # ADR-099 cl. 11 — the one follow-up on this dispute is spent.

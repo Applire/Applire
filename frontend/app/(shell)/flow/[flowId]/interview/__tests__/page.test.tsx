@@ -682,6 +682,42 @@ describe("InterviewPage failed-turn recovery (#256)", () => {
     expect(screen.queryByTestId("turn-error")).not.toBeInTheDocument();
   });
 
+  it("Q4 (g): an unchanged bridge opening comes back into the composer with its own notice and no retry button", async () => {
+    const user = userEvent.setup();
+    const opening = "Mengenprognosen in der Personaleinsatzplanung als Schichtleiter:";
+    global.fetch = mockRetryApi({
+      messageResponses: [
+        {
+          ok: false,
+          status: 422,
+          body: {
+            detail: {
+              error_code: "answer_is_opening",
+              turn_state: "not_saved",
+              message: "This answer is only the offered opening. Finish the sentence in your own words.",
+            },
+          },
+        },
+        { ok: true, body: { complete: false, question: "Tell me about Kubernetes.", gaps_remaining: 1 } },
+      ],
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await passIntro();
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?"),
+    );
+
+    await sendAnswer(user, opening);
+
+    await waitFor(() => expect(screen.getByTestId("turn-error")).toHaveTextContent("answerIsOpening"));
+    expect(document.body.textContent).not.toContain("Finish the sentence in your own words");
+    const textarea = screen.getByTestId("answer-textarea") as HTMLTextAreaElement;
+    expect(textarea.value).toBe(opening);
+    expect(screen.queryByTestId("retry-answer-button")).not.toBeInTheDocument();
+    expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?");
+  });
+
   it("never renders a raw Python exception string leaked as a bare-string detail (defense in depth, any status)", async () => {
     const user = userEvent.setup();
     const rawExceptionText = "'NoneType' object is not subscriptable";

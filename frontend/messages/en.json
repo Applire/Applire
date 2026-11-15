@@ -1543,6 +1543,7 @@
   },
   "errors": {
     "answerNotSaved": "Your answer could not be saved — please send it again.",
+    "answerIsOpening": "That is only the opening from the suggestion. Finish it in your own words, or answer differently.",
     "uploadAtLeastOne": "Please upload at least one CV to continue.",
     "exportFailed": "Export failed. Please try again.",
     "deletionFailed": "Deletion failed. Please try again.",
