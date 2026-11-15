@@ -61,6 +61,18 @@ function reachedProfile(item: { status?: string; gate_status?: string | null }):
   return !item.gate_status || item.gate_status === "resolved_merged";
 }
 
+/** MD-Q7 F8 — this flow's own upload: one that reached the profile and was made
+ *  at or after the flow started (both server timestamps are UTC-aware). An
+ *  earlier upload in the person's history is not this flow's. */
+function reachedProfileInFlow(
+  item: { status?: string; gate_status?: string | null; created_at: string },
+  flowStartedAt: number | null,
+): boolean {
+  if (flowStartedAt === null || !reachedProfile(item)) return false;
+  const at = Date.parse(item.created_at);
+  return Number.isFinite(at) && at >= flowStartedAt;
+}
+
 // Empty string default lets Next.js rewrites handle /api/* routing in all environments
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -140,6 +152,8 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   // FS-6 — bindings the import kept apart (#801 refusals).
   const [keptSeparate, setKeptSeparate] = useState<KeptSeparateItem[]>([]);
   const [history, setHistory] = useState<UploadHistoryItem[]>([]);
+  // MD-Q7 F8 — when this flow started; the resume strip reads only uploads since.
+  const [flowStartedAt, setFlowStartedAt] = useState<number | null>(null);
   const [gateInfo, setGateInfo] = useState<GateInfo | null>(null);
 
   const mainInputRef = useRef<HTMLInputElement>(null);
@@ -171,6 +185,17 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
       .then(setHistory)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!flowId) return;
+    fetch(`${API_BASE}/api/flow/${flowId}/state`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((state: { created_at?: string } | null) => {
+        const at = state?.created_at ? Date.parse(state.created_at) : NaN;
+        setFlowStartedAt(Number.isFinite(at) ? at : null);
+      })
+      .catch(() => {});
+  }, [flowId]);
 
   function refreshHistory() {
     fetch(`${API_BASE}/api/profile/uploads`)
@@ -617,7 +642,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
               /gaps and /processing, though a read CV is already in the profile.
               Offer the hand-off to the gap step with that profile — the same
               path the #677 retry takes — instead of a second upload. */}
-          {flowId && !loading && !uploadSuccess && !flowError && !error && history.some(reachedProfile) && (
+          {flowId && !loading && !uploadSuccess && !flowError && !error && history.some((item) => reachedProfileInFlow(item, flowStartedAt)) && (
             <div
               data-testid="flow-resume"
               className="mt-3 flex flex-col items-start gap-2.5 sm:flex-row sm:items-center bg-surface-container border border-outline-variant rounded-[10px] px-4 py-3"

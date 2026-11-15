@@ -410,7 +410,8 @@ describe("ProfileImportView", () => {
   function strandedFlowMock(uploads: object[]) {
     return importJobsMock(READY({}), (u) => {
       if (u.includes("/api/profile/uploads")) return { ok: true, body: uploads };
-      if (u.includes("/api/flow/flow-abc/state")) return { ok: true, body: { job_id: "job-123" } };
+      if (u.includes("/api/flow/flow-abc/state"))
+        return { ok: true, body: { job_id: "job-123", created_at: FLOW_STARTED } };
       if (u.includes("/api/job/job-123/gap-jobs/gj-1"))
         return { ok: true, body: { status: "ready", error_code: null, result: { id: "gap-9" } } };
       if (u.includes("/api/job/job-123/gap-jobs"))
@@ -420,6 +421,7 @@ describe("ProfileImportView", () => {
       return null;
     });
   }
+  const FLOW_STARTED = "2026-11-15T07:59:00+00:00";
   const READ_UPLOAD = {
     id: "u1", original_filename: "cv.pdf", mime_type: "application/pdf", byte_size: 10,
     created_at: "2026-11-15T08:00:00Z", completeness_score: 0.8, gate_status: null, status: "read",
@@ -443,6 +445,18 @@ describe("ProfileImportView", () => {
       { ...READ_UPLOAD, id: "u2", status: "failed", error_code: "unreadable" },
       { ...READ_UPLOAD, id: "u3", gate_status: "name_divergence" },
       { ...READ_UPLOAD, id: "u4", gate_status: "resolved_discarded" },
+    ]);
+    render(<ProfileImportView flowId="flow-abc" />);
+    await screen.findByTestId("upload-history-panel");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("flow-resume")).not.toBeInTheDocument();
+  });
+
+  it("offers no hand-off for an upload made before this flow started (MD-Q7 F8)", async () => {
+    // adv-1b F8 probe: an earlier read upload in the person's history made a
+    // new flow's import step offer "continue with my profile".
+    global.fetch = strandedFlowMock([
+      { ...READ_UPLOAD, id: "u0", created_at: "2026-11-01T09:00:00Z" },
     ]);
     render(<ProfileImportView flowId="flow-abc" />);
     await screen.findByTestId("upload-history-panel");
