@@ -31,7 +31,11 @@ import pytest
 
 from applire.config import settings
 from applire.exceptions import LLMError, LLMResponseParseError
-from applire.providers.llm.json_reply import parse_json_reply, take_discarded_tail
+from applire.providers.llm.json_reply import (
+    parse_json_reply,
+    take_discarded_prose,
+    take_discarded_tail,
+)
 
 # The founder's shape, synthetic content: an object, then prose.
 _OBJ = {"ops": [{"op": "add_bullet", "text": "Led the Kafka migration"}], "empty_reason": None}
@@ -85,12 +89,101 @@ def test_a_second_json_value_after_the_first_is_a_failure(reply):
 
 @pytest.mark.parametrize(
     "reply",
-    ["", "   ", None, "Sure! " + json.dumps(_OBJ), '{"ops": [', "```json\n```"],
-    ids=["empty", "blank", "none", "leading-prose", "broken", "empty-fence"],
+    ["", "   ", None, '{"ops": [', "```json\n```", "Sure, here is my answer.",
+     "Items [0] and [1] are supported; see {placeholder}.",
+     'We need JSON.\n{"ops": [{"op": "add_bullet", "text": "Led',
+     'Draft: [{"op": "add"',
+     ],
+    ids=["empty", "blank", "none", "broken", "empty-fence", "prose-only",
+         "prose-with-brackets-only", "prose-then-broken-object", "prose-then-broken-array"],
 )
-def test_no_json_value_at_the_start_is_a_failure(reply):
-    with pytest.raises(LLMResponseParseError):
+def test_no_json_value_is_a_failure(reply):
+    with pytest.raises(LLMResponseParseError) as info:
         parse_json_reply(reply, provider="T")
+    assert info.value.second_value is False
+
+
+# --------------------------------------------------------------------------- #
+# B8-15 (founder 2026-11-13): leading prose is skipped, the ONE value read
+# --------------------------------------------------------------------------- #
+
+# The captured shapes (synthetic content): Luna thinking-off leaks its reasoning
+# ("We need …") before the object; Sonnet 5.5 judges each item in prose first,
+# citing evidence as [0]; a fenced block after an introduction.
+_LUNA = 'We need output JSON with analysis first. Issues? none.\n{\n  "approved": true,\n  "issues": []\n}'
+_SONNET = 'Item 0: The claim says Python. Evidence [0] supports it.\n\n{"items": [{"id": 0, "supported": true}]}'
+
+
+@pytest.mark.parametrize(
+    "reply, expected",
+    [
+        ("Sure! " + json.dumps(_OBJ), _OBJ),
+        (_LUNA, {"approved": True, "issues": []}),
+        (_SONNET, {"items": [{"id": 0, "supported": True}]}),
+        ("Here it is:\n```json\n" + json.dumps(_OBJ) + "\n```", _OBJ),
+        ("Here it is:\n```json\n" + json.dumps(_OBJ) + "\n```\nHope this helps.", _OBJ),
+        ("See {placeholder} and [2].\n" + json.dumps(_OBJ), _OBJ),
+        ('The list:\n[{"a": 1}, {"b": 2}]', [{"a": 1}, {"b": 2}]),
+    ],
+    ids=["sure", "luna-reasoning", "sonnet-items", "fenced-after-intro", "fenced-intro-outro",
+         "prose-brackets-then-object", "array-of-objects"],
+)
+def test_leading_prose_is_skipped_and_the_one_value_is_read(reply, expected):
+    take_discarded_prose()
+    assert parse_json_reply(reply, provider="T") == expected
+    assert take_discarded_prose()  # the prose text goes to the debug log
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        'Option A: {"ops": []}\nOption B: {"ops": [{"op": "add"}]}',
+        'Analysis first.\n{"analysis": "x"}{"approved": true}',
+        'Example {"ops": []} then the answer:\n' + json.dumps(_OBJ),
+        'We need JSON.\n' + json.dumps(_OBJ) + '\nAlternatively: {"ops": []}',
+    ],
+    ids=["two-options", "split-analysis", "example-then-answer", "answer-then-alternative"],
+)
+def test_two_values_after_prose_still_raise(reply):
+    # "no guessing which is the answer" (B8-15)
+    with pytest.raises(LLMResponseParseError) as info:
+        parse_json_reply(reply, provider="T")
+    assert info.value.second_value is True
+
+
+def test_a_broken_answer_after_prose_is_never_read_for_an_object_inside_it():
+    # the outer object breaks; `{"op": "add_bullet", …}` inside it decodes — not read
+    reply = 'We need JSON.\n{"ops": [{"op": "add_bullet", "text": "Led"}], "empty_reason": '
+    with pytest.raises(LLMResponseParseError) as info:
+        parse_json_reply(reply, provider="T")
+    assert "not valid JSON" in info.value.msg
+
+
+def test_a_reply_that_opens_with_json_never_takes_the_prose_path():
+    # R2-13 unchanged: the first value is read, a prose tail with an object in it
+    # is a tail (discarded), not a second candidate.
+    reply = json.dumps(_OBJ) + '\nNote: an empty answer would be {"ops": []} here.'
+    take_discarded_prose()
+    assert parse_json_reply(reply, provider="T") == _OBJ
+    assert take_discarded_prose() is None
+
+
+def test_the_prose_info_line_carries_its_length_never_its_text():
+    log = logging.getLogger("applire.providers.llm.json_reply")
+    cap, old_level = _Capture(), log.level
+    log.addHandler(cap)
+    log.setLevel(logging.INFO)
+    try:
+        take_discarded_prose()
+        parse_json_reply(_LUNA, provider="Requesty", model="m")
+    finally:
+        log.removeHandler(cap)
+        log.setLevel(old_level)
+    lines = [m for m in cap.lines if "LLM_JSON_PROSE_SKIPPED" in m]
+    assert len(lines) == 1
+    assert "provider=Requesty" in lines[0] and "prose_chars=" in lines[0]
+    assert "analysis" not in lines[0] and "need" not in lines[0]  # PII boundary
+    assert take_discarded_prose().startswith("We need output JSON")
 
 
 def test_an_array_reply_is_still_read():
@@ -239,6 +332,20 @@ async def test_seam_each_provider_refuses_a_second_json_object(monkeypatch, name
         await provider.aparse_json("reconcile")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", sorted(set(_PROVIDERS) - {"anthropic"}))
+async def test_seam_each_provider_reads_a_prose_first_reply_in_one_call(monkeypatch, name):
+    # B8-15: every provider reaches the one parse, so leading prose is skipped on
+    # each, with no second call. ("anthropic" is the prefill shape: its reply is
+    # "{" + text and is never prose-first.)
+    provider = _PROVIDERS[name](monkeypatch, _LUNA)
+    assert await provider.aparse_json("judge") == {"approved": True, "issues": []}
+    transport = getattr(provider, "_create", None) if name.startswith("anthropic") else getattr(
+        provider, "_parse_json", None)
+    if isinstance(transport, AsyncMock):
+        assert transport.await_count == 1
+
+
 # --------------------------------------------------------------------------- #
 # the debug log keeps the raw reply
 # --------------------------------------------------------------------------- #
@@ -278,6 +385,20 @@ async def test_the_debug_log_records_a_discarded_tail_on_success(monkeypatch, tm
     assert first["ok"] is True and first["response"] == _OBJ
     assert "merged the new role" in first["discarded_tail"]
     assert second["discarded_tail"] is None  # never inherited from the previous call
+
+
+@pytest.mark.asyncio
+async def test_the_debug_log_records_the_skipped_prose_on_success(monkeypatch, tmp_path):
+    from applire.providers.llm.debug_log import wrap_provider
+
+    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
+    assert await wrap_provider(_requesty(monkeypatch, _LUNA)).aparse_json("x") == {
+        "approved": True, "issues": []}
+    assert await wrap_provider(_requesty(monkeypatch, json.dumps(_OBJ))).aparse_json("x") == _OBJ
+    first, second = _records(tmp_path)
+    assert first["discarded_prose"].startswith("We need output JSON")
+    assert second["discarded_prose"] is None  # never inherited from the previous call
 
 
 @pytest.mark.asyncio
