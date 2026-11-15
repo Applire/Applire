@@ -1418,6 +1418,23 @@ def test_project_missing_states_the_role_budget_when_the_role_is_full():
     assert "If the role is at its bullet budget, replace its weakest bullet." in room.text
 
 
+def test_project_missing_asks_for_a_standalone_project_as_standalone_wp_q5_b():
+    """Sorbet WP-Q5 (b), SF-ORACLE.35 (delivery 1b run 3, Katrin, rec 189 -> 191): the
+    finding named the project "(p3, as a standalone project)" and then asked to write
+    it "as a project of its role"; the corrector nested it under w1 and the Oracle
+    graded the correct bullet misattributed. The instruction now follows the link."""
+    prose = _prose()
+    prose["skills"] = ["SPS", "MES", "FastAPI"]
+    vault = _project_vault()
+    vault["projects"][0]["associated_experience"] = None
+    f = _by_check(_checks(prose, vault, keyword_ledger=_fastapi_ledger()))["cv.project_missing"]
+    assert "as a standalone project" in f.text and "never under a role" in f.text
+    assert "as a project of its role" not in f.text and "bullet of that role" not in f.text
+    assert "bullet budget" not in f.text
+    tied = _by_check(_checks(prose, _project_vault(), keyword_ledger=_fastapi_ledger()))["cv.project_missing"]
+    assert "as a project of its role" in tied.text and "never under a role" not in tied.text
+
+
 def test_compose_nests_a_top_level_project_the_vault_ties_to_a_role():
     """D-31: the v2 compose renders a vault-linked project under its role, whatever
     slot the prose used — the reviewers and the corrector see one container."""

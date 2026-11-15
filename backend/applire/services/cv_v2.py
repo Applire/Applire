@@ -1228,16 +1228,41 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
                 + (f": “{desc[:240]}”" if desc else "")
             )
     if parts:
+        shown = parents[:_MAX_ITEMS_PER_FINDING]
+        tied = [p for p in shown if p in work_ids]
+        # WP-Q5 (b), SF-ORACLE.35: the instruction follows the vault's link. A
+        # project the profile ties to no position is written as a standalone project
+        # — told "as a project of its role" beside "(…, as a standalone project)",
+        # the corrector nested Katrin's POC project under w1 and the Oracle graded it
+        # misattributed (delivery 1b run 3, rec 189 -> 191).
+        if not tied:
+            close = (
+                ". Write that project into the CV as a standalone project (the top-level "
+                "projects list, one or two bullets in the document language) — never under a "
+                "role: the profile ties it to no position."
+            )
+        elif len(tied) == len(shown):
+            close = (
+                ". Write that project into the CV (as a project of its role, one or two "
+                "bullets in the document language) or state the concept in a bullet of that "
+                "role."
+            )
+        else:
+            close = (
+                ". Write each project where the profile places it — a project under a role as "
+                "a project of that role (or state the concept in a bullet of that role), a "
+                "standalone project in the top-level projects list and never under a role — "
+                "one or two bullets in the document language."
+            )
+        budget = _project_budget_fact(composed, ctx, tied) if tied else ""
         out.append(CheckFinding(
             check="cv.project_missing",
             subjects=tuple(missing_concepts[:_MAX_ITEMS_PER_FINDING]),
             text=(
                 "; ".join(parts[:_MAX_ITEMS_PER_FINDING])
-                + ". Write that project into the CV (as a project of its role, one or two "
-                "bullets in the document language) or state the concept in a bullet of that "
-                "role."
-                + (_project_budget_fact(composed, ctx, parents)
-                   or " If the role is at its bullet budget, replace its weakest bullet.")
+                + close
+                + (budget or (" If the role is at its bullet budget, replace its weakest bullet."
+                              if tied else ""))
             ),
         ))
 
