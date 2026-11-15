@@ -230,6 +230,8 @@ _DOC: dict[str, Entry] = {
     )},
     # 786:289 (Hazelnut build 8, WP-W): a skills entry no bullet states
     "terminal:cv.skill_without_bullet": _e(_F, None, "S"),
+    # Sorbet WP-Q3: the attested scale line (ADR-070) its role does not carry
+    "terminal:cv.scope_evidence_missing": _e(_F, None, "S"),
     # one condition, one place (cl. 10): these codes restate a row rendered elsewhere
     "terminal:cv.page_length": _e("S"),                   # → the page-length card
     "terminal:letter.page_length": _e("S"),               # → the page-length card

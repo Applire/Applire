@@ -706,6 +706,9 @@ def v2_checks(
     findings.extend(_skill_without_bullet_findings(composed, ctx, claim))
     # 4c. C2 (ruling W1-1 r2): a vault project neither nested nor mentioned.
     findings.extend(_project_findings(composed, ctx))
+    # 4d. Sorbet WP-Q3: the posting's scale question answered by an attested vault
+    #     line (ADR-070) that the role does not carry.
+    findings.extend(_scope_evidence_findings(composed, ctx))
 
     # 5–8. the v1 skill passes as detectors — run IN v1's ORDER on one copy, so the
     #    findings describe v1's own final skills decision and can never contradict each
@@ -728,6 +731,82 @@ def v2_checks(
     blocking = [f for f in findings if f.blocking]
     advisory = [f for f in findings if not f.blocking]
     return (blocking + advisory)[:MAX_FINDINGS_PER_ROUND]
+
+
+_FIGURE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _scope_evidence_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
+    """The ADR-070 scale line the writer was told to carry, checked on the composed CV.
+
+    The writer's SCOPE block says: "EVERY line below is carried in its matching role
+    … An 'attested in the vault' line … gets its own statement in that role, never
+    dropped" (``scope_requirements.render_scope_positioning_block``, 786:242). Bench
+    2026-11-15 (base 956bad2f, luna): marcus' deputy cover of the whole site ("rund 90
+    Mitarbeitende", the closest answer to the posting's ~120) was never drafted in 4 of
+    6 CVs while every letter stated it — category C, the rule is clear and fails.
+
+    Fact, not judgement (ADR-062 cl. 1): the attested quote's scale figure (its largest),
+    and whether it appears in the text of the work entry that holds the quote (bullets and
+    nested project bullets). The entry is found structurally — the vault prose node the
+    quote is a substring of, as ``verify_attested_evidence`` resolves it. A quote with no
+    digit (a spelled figure) yields no finding."""
+    from applire.services.scope_requirements import _norm_quote
+
+    work = {w.id: w for w in composed.work_history}
+    parts: list[str] = []
+    subjects: list[str] = []
+    for e in ctx.keyword_ledger or []:
+        if not isinstance(e, dict) or e.get("status") != "partial":
+            continue
+        att = (e.get("bar") or {}).get("attested")
+        if not isinstance(att, dict) or not att.get("quote"):
+            continue
+        quote = str(att["quote"])
+        found = _FIGURE.findall(quote)
+        if not found:
+            continue
+        # The scale figure is the quote's largest ("rund 90 …, jeweils 2 bis 4 Wochen"):
+        # a "2" elsewhere in the role must not satisfy it.
+        figures = {max(found, key=lambda f: float(f.replace(",", ".")))}
+        qn = _norm_quote(quote)
+        owner = next(
+            (
+                w for w in ctx.profile_json.get("work_experience") or []
+                if isinstance(w, dict) and any(
+                    isinstance(b, str) and qn and qn in _norm_quote(b)
+                    for k in ("responsibilities", "achievements") for b in (w.get(k) or [])
+                )
+            ),
+            None,
+        )
+        if owner is None or str(owner.get("id")) not in work:
+            continue
+        w = work[str(owner.get("id"))]
+        text = " ".join(list(w.bullets) + [b for p in w.projects for b in p.bullets])
+        if figures & set(_FIGURE.findall(text)):
+            continue
+        parts.append(
+            f"the profile attests, under {w.id} ({w.company}): “{quote}” "
+            f"({att.get('unit') or 'scale evidence'})"
+        )
+        # The quote, never the ledger concept: the concept label carries the posting's
+        # own figure ("Team scope ~120"), which no candidate-facing line may show (ADR-070).
+        subjects.append(quote)
+    if not parts:
+        return []
+    return [CheckFinding(
+        check="cv.scope_evidence_missing",
+        subjects=tuple(subjects),
+        text=(
+            "The posting asks for a scale the candidate answers with an attested line the CV "
+            "leaves out — " + "; ".join(parts[:_MAX_ITEMS_PER_FINDING]) + ". State it in that "
+            "role as its own statement in the document language, every figure unchanged and "
+            "framed exactly as the profile frames it (a cover, a period, a deputy role stays "
+            "one); it is a different fact from the team size beside it, and the letter states "
+            "it. If the role is at its bullet budget, replace its weakest bullet."
+        ),
+    )]
 
 
 def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
