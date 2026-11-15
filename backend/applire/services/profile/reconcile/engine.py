@@ -217,6 +217,12 @@ async def reconcile(
         for a in [*ambiguities, *(o for o in ops if isinstance(o, RequestConfirmation))]
     }
     ambiguities = ambiguities + [a for a in date_asks if (_project_name_of(a) or "").casefold() not in asked]
+    # Sorbet WP-Q5 (b), RULING Q5-1 — a new project the person's own words create
+    # without a position is asked once: the overlapping positions or standalone.
+    from applire.services.profile.reconcile.project_parent import ask_unparented_projects
+
+    asked |= {(_project_name_of(a) or "").casefold() for a in date_asks}
+    ambiguities = ambiguities + ask_unparented_projects(ops, profile, source, frozenset(asked))
 
     # D-16 — an ask about a project already attached to a held position is
     # redundant (its answer could change nothing) and is not raised.
