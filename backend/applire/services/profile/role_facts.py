@@ -256,19 +256,57 @@ def project_profile_role_facts(profile: Any) -> None:
 
 LEADERSHIP_KINDS = ("disciplinary", "functional")
 
-# A bullet that MENTIONS leadership — shown to the person in the kind question so
-# they see what they wrote. Display only: it never sets, and never withholds, a kind.
-_KIND_MENTION = re.compile(
-    r"\b(?:disziplinarisch\w*|personalverantwortung|fachlich\w*|disciplinar(?:y|ily)"
-    r"|line[- ]manag\w*|direct reports?|functional(?:ly)?|dotted[- ]line)\b",
+# A bullet that says the person LEADS PEOPLE — shown to them in the kind question
+# so they see what they wrote. Display only: it never sets, and never withholds,
+# a kind. Delivery re-run (Stefan): a bare ``\w*leitung`` quoted "Begleitung der
+# jährlichen ISO-9001-Audits …" as his leadership; "Einleitung", "Umleitung",
+# "Weiterleitung von Tickets" read the same. So a bullet qualifies only with a
+# disciplinary kind word, or a leading word with a PEOPLE word near it.
+_KIND_WORD = re.compile(
+    r"\b(?:disziplinarisch\w*|personalverantwortung|disciplinar(?:y|ily)"
+    r"|line[- ]manag\w*|direct reports?|dotted[- ]line)\b",
     re.I,
 )
-_LEAD_MENTION = re.compile(
-    r"\b(?:(?<!geschäfts)(?<!geschaefts)f(?:ü|ue)hr(?:ung|e|t|en)|geführt|\w*leitung|leite\w*"
-    r"|geleitet|anleitung|angeleitet|betreu\w*|lead\w*|led|manag\w*|supervis\w*|guid\w*"
-    r"|mentor\w*|coach\w*)\b",
+# Leading words, whole words only: no free prefix before "leitung" (Begleitung,
+# Einleitung, Umleitung, Weiterleitung), only the unit nouns that name a team.
+_LEAD_WORD = (
+    r"(?:f(?:ü|ue)hr(?:ung|e|te|ten|t|en)|geführt|gefuehrt|leite(?:te|t|n)?|geleitet"
+    r"|(?:team|gruppen|abteilungs|bereichs|schicht|projekt|standort|werks|fach|produktions)?leitung"
+    r"|anleitung|angeleitet|leitete\s+\S+\s+an|betreu\w*|verantwort\w*"
+    r"|lead(?:s|ing)?|led|manag(?:e|ed|es|ing)|supervis\w*|guid(?:e|ed|ing|ance)"
+    r"|mentor\w*|coach\w*)"
+)
+_PEOPLE_WORD = (
+    r"(?:mitarbeite\w*|ma|personen|person|leute|team\w*|werkstudierende\w*|studierende\w*"
+    r"|auszubildende\w*|azubis?|praktikant\w*|entwickler\w*|ingenieur\w*|kolleg\w*"
+    r"|schichtleiter\w*|meister\w*|controller\w*|analyst\w*|berater\w*|techniker\w*"
+    r"|fachkr(?:ä|ae)fte\w*|people|employees?|engineers?|developers?|staff|reports|members?"
+    r"|juniors?|analysts?|consultants?|colleagues|students?|interns?|apprentices?)"
+)
+_NEAR = r"(?:\W+\w+){0,6}?\W+"
+_LEADS_PEOPLE = re.compile(
+    rf"\b{_LEAD_WORD}\b{_NEAR}{_PEOPLE_WORD}\b|\b{_PEOPLE_WORD}\b{_NEAR}{_LEAD_WORD}\b",
     re.I,
 )
+_NUMBER_WORDS = {
+    "ein": 1, "eine": 1, "einen": 1, "zwei": 2, "drei": 3, "vier": 4, "fünf": 5, "sechs": 6,
+    "sieben": 7, "acht": 8, "neun": 9, "zehn": 10, "elf": 11, "zwölf": 12, "one": 1, "two": 2,
+    "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12,
+}
+_COUNT_PEOPLE = re.compile(rf"\b(\d{{1,4}}|{'|'.join(_NUMBER_WORDS)})\b(?:\W+\w+){{0,2}}?\W+{_PEOPLE_WORD}\b", re.I)
+
+
+def _says_leads_people(bullet: str) -> bool:
+    return bool(_KIND_WORD.search(bullet) or _LEADS_PEOPLE.search(bullet))
+
+
+def _people_counts(bullet: str) -> set[int]:
+    out: set[int] = set()
+    for m in _COUNT_PEOPLE.finditer(bullet):
+        raw = m.group(1).lower()
+        out.add(int(raw) if raw.isdigit() else _NUMBER_WORDS[raw])
+    return out
 
 
 def _get(e: Any, key: str) -> Any:
@@ -284,17 +322,25 @@ def leadership_kind(entry: WorkEntry | dict) -> str | None:
 
 
 def leadership_said(entry: WorkEntry | dict) -> str:
-    """The entry's own bullet that mentions leadership (a kind word first, else a
-    leading word), verbatim, or ``""`` — for display in the question only."""
+    """The entry's own bullet that says the person leads PEOPLE, verbatim, or
+    ``""`` — for display in the question only. Preferred: the bullet counting the
+    entry's ``team_size`` in people, then one with any people count, then the
+    first that qualifies."""
     bullets = [
-        b for f in _PROSE_FIELDS for b in (_get(entry, f) or [])
+        b.strip() for f in _PROSE_FIELDS for b in (_get(entry, f) or [])
         if isinstance(b, str) and b.strip()
     ]
-    for pattern in (_KIND_MENTION, _LEAD_MENTION):
-        for b in bullets:
-            if pattern.search(b):
-                return b.strip()
-    return ""
+    qualifying = [b for b in bullets if _says_leads_people(b)]
+    if not qualifying:
+        return ""
+    size = _get(entry, "team_size")
+    for b in qualifying:
+        if isinstance(size, int) and size in _people_counts(b):
+            return b
+    for b in qualifying:
+        if _people_counts(b):
+            return b
+    return qualifying[0]
 
 
 def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, Any]]:
