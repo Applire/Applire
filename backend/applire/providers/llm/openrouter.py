@@ -331,7 +331,9 @@ class OpenRouterProvider(LLMProvider):
             raise wrapped from None
         # R2-13: one tolerant parse for every provider (first JSON value; a
         # non-JSON tail is discarded, a second JSON value raises).
-        return parse_json_reply(content, provider="OpenRouter", model=self._model)
+        return parse_json_reply(
+            content, provider="OpenRouter", model=self._model, json_schema=json_schema
+        )
 
     def _extra_body(self, disable_thinking: bool | None = None) -> dict | None:
         # Per-call override wins; otherwise the provider's configured default.

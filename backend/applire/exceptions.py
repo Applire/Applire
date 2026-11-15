@@ -136,7 +136,8 @@ class ReconcileFailedError(LLMError):
 
 
 class AnswerIsOfferedOpening(ValueError):
-    """The interview answer is exactly an offered BRIDGE opening, unchanged.
+    """The interview answer is an offered BRIDGE opening, unchanged — or (MD-Q7
+    F9) followed by nothing substantial: empty or a bare "ja"/"yes"/"ok".
 
     WP-Q4 (g), ADR-064 amended 2026-11-15: a bridge chip inserts an opening
     ("Mengenprognosen … als Schichtleiter:") for the candidate to finish; sent

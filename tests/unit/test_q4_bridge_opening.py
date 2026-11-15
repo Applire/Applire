@@ -66,10 +66,12 @@ def test_the_bridge_rule_asks_for_an_opening_never_a_claim():
 
     rules = _CHOICE_COVERAGE_RULES
     assert "a QUESTION, never an answer" in rules
-    assert "ends with a colon" in rules
-    assert OPENING in rules  # the generic example is the opening shape
+    # MD-Q7 F5: the model names concept + anchor and writes no bridge text.
+    assert 'Do NOT write its "text"' in rules
+    assert '"concept": the asked concept exactly as the GAP CLUSTER block' in rules
+    assert '"anchor": the anchor in the profile\'s own words' in rules
     assert "modest first-person hypothesis" not in rules
-    assert "a BRIDGE's \"text\" is the one exception" in rules
+    assert 'a BRIDGE has no "text" of its own' in " ".join(rules.split())
     for prompt in (QUESTION_SYSTEM_PROMPT, DENIAL_PROBE_QUESTION_SYSTEM_PROMPT):
         assert rules in prompt
 
@@ -157,3 +159,152 @@ async def test_router_answers_422_answer_is_opening():
     assert exc.value.status_code == 422
     assert exc.value.detail["error_code"] == "answer_is_opening"
     assert exc.value.detail["turn_state"] == "not_saved"
+
+
+# 5. MD-Q7 F5 (adversarial adv-1b) — the bridge opening is BUILT by code ------
+
+F5_PROBE = "Ich habe als QA Engineer Azure-Systeme qualifiziert und 5 Mitarbeitende geführt:"
+F5_CLUSTER = {"id": "c1", "label": "Azure", "gaps": ["Azure"], "jd_skills": ["Azure"]}
+F5_PROFILE = {
+    "skills": [{"name": "GxP-Validierung", "category": "technical"}],
+    "work_experience": [{
+        "company": "Veltrup Diagnostik GmbH", "role": "QA Engineer",
+        "responsibilities": ["Computersystemvalidierung im Labor verantwortet"],
+    }],
+}
+
+
+def _build(choices, lang="de", cluster=F5_CLUSTER, profile=F5_PROFILE):
+    from applire.services.choice_grounding import build_bridge_openings
+
+    return build_bridge_openings(choices, cluster, profile, lang)
+
+
+def test_f5_the_probe_a_model_written_claim_at_partial_level_is_dropped():
+    assert _build([{"text": F5_PROBE, "level": "partial"}]) is None
+
+
+def test_f5_with_concept_and_anchor_the_text_is_codes_never_the_models():
+    out = _build([{"text": F5_PROBE, "level": "partial", "concept": "azure", "anchor": "QA Engineer",
+                   "ask": "Hast du als QA Engineer Azure-Systeme qualifiziert?"}])
+    assert [c["text"] for c in out] == ["Zu Azure bei QA Engineer:"]
+    assert out[0]["ask"] == "Hast du als QA Engineer Azure-Systeme qualifiziert?"
+    en = _build([{"text": "", "level": "partial", "concept": "Azure", "anchor": "QA Engineer"}], lang="en")
+    assert en[0]["text"] == "On Azure in QA Engineer:"
+
+
+@pytest.mark.parametrize("concept, anchor", [
+    ("Kubernetes", "QA Engineer"),                     # not an asked concept
+    ("Azure", "Azure Architect"),                      # not the profile's words
+    ("Azure", "Veltrup Diagnostik"),                   # the employer's name
+    ("Azure", "Computersystemvalidierung im Labor verantwortet " * 3),  # a sentence
+    ("Azure", "QA Engineer: 5 Mitarbeitende"),         # a colon smuggles a claim
+    ("", "QA Engineer"),
+    ("Azure", None),
+])
+def test_f5_a_bridge_without_an_asked_concept_and_a_profile_anchor_is_dropped(concept, anchor):
+    assert _build([{"text": "", "level": "partial", "concept": concept, "anchor": anchor}]) is None
+
+
+def test_f5_an_anchor_from_a_bullet_that_ends_in_a_full_stop_is_kept():
+    """Replay finding (Luna, 2026-11-15): 77/270 bridges named a bullet anchor
+    verbatim and were dropped by a space-bounded match on "…Fertigung."."""
+    profile = {"work_experience": [{"company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
+                                    "responsibilities": ["Mitarbeit bei der Einführung von SAP in der Fertigung."]}]}
+    cluster = {"label": "Produktionsdigitalisierung", "gaps": ["Maschinendatenerfassung"], "jd_skills": []}
+    out = _build([{"text": "", "level": "partial", "concept": "Maschinendatenerfassung",
+                   "anchor": "Einführung von SAP in der Fertigung"}], cluster=cluster, profile=profile)
+    assert out[0]["text"] == "Zu Maschinendatenerfassung bei Einführung von SAP in der Fertigung:"
+    # still word-bounded: a fragment of a word is not an anchor
+    assert _build([{"text": "", "level": "partial", "concept": "Maschinendatenerfassung",
+                    "anchor": "führung von SAP"}], cluster=cluster, profile=profile) is None
+
+
+def test_f5_other_levels_pass_unchanged_and_a_dropped_bridge_leaves_them():
+    direct = {"text": "Ich habe Computersystemvalidierung verantwortet.", "level": "direct"}
+    denial = {"text": "Azure habe ich bisher nicht genutzt, aber …", "level": "denial"}
+    assert _build([direct, {"text": F5_PROBE, "level": "partial"}, denial]) == [direct, denial]
+
+
+def test_f5_the_named_concept_and_anchor_survive_a_language_review_that_drops_them():
+    from applire.services.interview_graph import _carry_levels_by_index
+
+    pre = [{"text": "", "level": "partial", "concept": "Azure", "anchor": "QA Engineer", "ask": "?"}]
+    carried = _carry_levels_by_index(pre, [{"text": "translated", "level": "partial", "ask": "?"}])
+    assert carried[0]["concept"] == "Azure" and carried[0]["anchor"] == "QA Engineer"
+    bare = _carry_levels_by_index(pre, ["translated"])
+    assert bare[0]["concept"] == "Azure" and bare[0]["anchor"] == "QA Engineer"
+
+
+_LONG_BULLET = (
+    "Computersystemvalidierung für zwölf Laborsysteme nach GAMP 5 mit Risikoanalyse, "
+    "Testplanung und Abschlussbericht verantwortet"
+)
+
+
+@pytest.mark.parametrize("anchor", [_LONG_BULLET, "Leitung: Qualitätssicherung"])
+def test_f5_a_profile_anchor_that_is_a_sentence_or_carries_a_colon_is_dropped(anchor):
+    profile = {"work_experience": [{"company": "Veltrup Diagnostik GmbH", "role": "QA Engineer",
+                                    "responsibilities": [_LONG_BULLET, "Leitung: Qualitätssicherung"]}]}
+    assert len(_LONG_BULLET) > 80
+    assert _build([{"text": "", "level": "partial", "concept": "Azure", "anchor": anchor}],
+                  profile=profile) is None
+
+
+# 6. MD-Q7 F9 — the opening is stripped before reconcile; a bare completion is
+# asked to be completed; only the CURRENT question's offers count ------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", [OPENING + " ja", OPENING + " Ja.", OPENING + " ok", OPENING + "  yes!"])
+async def test_f9_the_probe_an_opening_with_a_bare_yes_is_asked_to_be_completed(db, answer):  # noqa: F811
+    from applire.exceptions import AnswerIsOfferedOpening
+
+    with pytest.raises(AnswerIsOfferedOpening):
+        await _send(db, answer, _offered())
+
+
+@pytest.mark.asyncio
+async def test_f9_the_reconciler_reads_only_what_the_person_wrote_after_the_opening(db):  # noqa: F811
+    kw = await _send(
+        db, "mengenprognosen  in der Personaleinsatzplanung als Schichtleiter: Ja, wöchentlich nach der Vertriebsprognose.",
+        _offered(), full=True,
+    )
+    assert kw["answer"] == "Ja, wöchentlich nach der Vertriebsprognose."
+    assert OPENING.lower() not in kw["answer"].lower()
+
+
+def test_f9_strip_cuts_the_opening_from_the_persons_own_text():
+    from applire.services.choice_grounding import is_bare_completion, strip_offered_opening
+
+    rest, had = strip_offered_opening(
+        "mengenprognosen in der  Personaleinsatzplanung als Schichtleiter : Ja, wöchentlich.", _offered()
+    )
+    assert had and rest == "Ja, wöchentlich."
+    assert not is_bare_completion(rest)
+    assert strip_offered_opening("Ich plane wöchentlich.", _offered()) == ("Ich plane wöchentlich.", False)
+    # a denial-level choice is a statement of the person's, never cut
+    assert strip_offered_opening(DENIAL + " Stimmt.", _offered())[1] is False
+    for bare in ("", " ", "ja", "Ja!", "OK.", "yes"):
+        assert is_bare_completion(bare)
+    assert not is_bare_completion("ja, seit 2021")
+
+
+@pytest.mark.asyncio
+async def test_f9_an_earlier_questions_opening_is_cut_too(db):  # noqa: F811
+    """The kept offers of an earlier question are Applire's text as much as
+    this question's: the opening is cut and a bare completion is refused."""
+    import test_b6_a_offered_choice_not_a_denial as b6
+    from applire.exceptions import AnswerIsOfferedOpening
+
+    real = b6._session_state
+
+    def state(job_id, profile_id, off):
+        st = real(job_id, profile_id, off)
+        st["current_choices"] = [DENIAL]  # the opening belonged to an earlier question
+        return st
+
+    with patch.object(b6, "_session_state", new=state):
+        with pytest.raises(AnswerIsOfferedOpening):
+            await b6._send(db, OPENING + " ja", _offered())
+        kw = await b6._send(db, OPENING + " Ja, seit 2021.", _offered(), full=True)
+    assert kw["answer"] == "Ja, seit 2021."

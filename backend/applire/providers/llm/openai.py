@@ -174,7 +174,9 @@ class OpenAIProvider(LLMProvider):
             raise wrapped from None
         # R2-13: one tolerant parse for every provider (first JSON value; a
         # non-JSON tail is discarded, a second JSON value raises).
-        return parse_json_reply(content, provider="OpenAI", model=self._model)
+        return parse_json_reply(
+            content, provider="OpenAI", model=self._model, json_schema=json_schema
+        )
 
     @_retry
     async def _complete(self, messages: list, temperature: float, max_tokens: int) -> str:

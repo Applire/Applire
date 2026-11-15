@@ -711,6 +711,84 @@ def _asked_unmentioned_terms(
     return [t for t in terms if _norm(t) in own]
 
 
+#: MD-Q7 F5 (adversarial adv-1b) — the ONLY text a bridge chip may insert. The
+#: model names the anchor and the asked concept as fields; code writes the
+#: words, so no model free text is ever the inserted text of a bridge.
+BRIDGE_OPENING_TEMPLATE = {"de": "Zu {concept} bei {anchor}:", "en": "On {concept} in {anchor}:"}
+#: A longer "anchor" is a sentence, not a role, project or activity.
+BRIDGE_ANCHOR_MAX_CHARS = 80
+
+
+def _bridge_concept(choice: dict, cluster: dict[str, Any]) -> str | None:
+    """The cluster's own spelling of the asked concept the bridge names
+    (normalised equality with a cluster term), else ``None``."""
+    named = choice.get("concept")
+    if not isinstance(named, str) or not named.strip():
+        return None
+    want = _norm(named)
+    for term in _cluster_terms(cluster):
+        if _norm(term) == want:
+            return term
+    return None
+
+
+def _bridge_anchor(choice: dict, profile: dict[str, Any]) -> str | None:
+    """The anchor the bridge names, when it is the profile's own words: found
+    (normalised, word-bounded) in the profile's evidence, at most
+    ``BRIDGE_ANCHOR_MAX_CHARS`` long, no colon, and not an employer's name."""
+    named = choice.get("anchor")
+    if not isinstance(named, str):
+        return None
+    anchor = " ".join(named.split()).strip(" .,;")
+    if not anchor or len(anchor) > BRIDGE_ANCHOR_MAX_CHARS or ":" in anchor:
+        return None
+    a = _norm(anchor)
+    # Word-bounded, not space-bounded: ``_norm`` keeps punctuation, and a
+    # bullet's anchor usually ends at its full stop ("… in der Fertigung.").
+    if not a or re.search(rf"(?<!\w){re.escape(a)}(?!\w)", _evidence_norm(profile)) is None:
+        return None
+    for entry in profile.get("work_experience") or []:
+        if isinstance(entry, dict) and entry.get("company"):
+            if _employer_base(str(entry["company"])) == _employer_base(anchor):
+                return None
+    return anchor
+
+
+def build_bridge_openings(
+    choices: "list[str | dict[str, Any]] | None",
+    cluster: dict[str, Any],
+    profile: dict[str, Any],
+    lang: str | None,
+) -> "list[str | dict[str, Any]] | None":
+    """MD-Q7 F5 — every ``partial`` (bridge) choice gets its ``text`` from
+    :data:`BRIDGE_OPENING_TEMPLATE`, built from the ``concept`` and ``anchor``
+    the model named; a bridge whose concept is not an asked concept of this
+    cluster or whose anchor is not the profile's own words is DROPPED (a
+    structural tie, never a reading of the model's text). Other levels pass
+    unchanged. Returns ``None`` when nothing is left.
+    """
+    if not isinstance(choices, list):
+        return choices
+    template = BRIDGE_OPENING_TEMPLATE.get((lang or "en")[:2].lower(), BRIDGE_OPENING_TEMPLATE["en"])
+    out: list = []
+    dropped = 0
+    for choice in choices:
+        if isinstance(choice, dict) and choice.get("level") == "partial":
+            concept = _bridge_concept(choice, cluster)
+            anchor = _bridge_anchor(choice, profile)
+            if concept is None or anchor is None:
+                dropped += 1
+                continue
+            built = dict(choice)
+            built["text"] = template.format(concept=concept, anchor=anchor)
+            out.append(built)
+        else:
+            out.append(choice)
+    if dropped:
+        logger.info("BRIDGE_CHIPS_DROPPED count=%d kept=%d", dropped, len(out))
+    return out or None
+
+
 def filter_ungrounded_choices(
     choices: "list[str | dict[str, Any]] | None",
     cluster: dict[str, Any],
@@ -1167,6 +1245,44 @@ def answer_is_offered_opening(answer: Any, offered: Any) -> bool:
         if raw.endswith(":") and _containment_form(raw) == form:
             return True
     return False
+
+
+#: MD-Q7 F9 — the only "completion" that adds nothing: a bare yes/ok. No other
+#: word list; the point is that the opening itself never becomes a claim.
+_BARE_COMPLETION = frozenset({"ja", "yes", "ok"})
+
+
+def strip_offered_opening(answer: Any, offered: Any) -> tuple[str, bool]:
+    """MD-Q7 F9 — ``(rest, had_opening)``: the answer with an offered BRIDGE
+    opening (level ``partial``, raw text ending in ":") cut out of the
+    person's own text, case- and whitespace-insensitively. The opening is
+    system-authored, so only ``rest`` is the person's words. ``rest`` keeps the
+    person's casing; leading punctuation left by the cut is dropped."""
+    if not isinstance(answer, str) or not isinstance(offered, dict):
+        return (answer if isinstance(answer, str) else ""), False
+    for text, meta in offered.items():
+        if not isinstance(meta, dict) or meta.get("level") != "partial":
+            continue
+        raw = str(text).strip()
+        if not raw.endswith(":"):
+            continue
+        words = raw.rstrip(":").split()
+        if not words:
+            continue
+        pattern = r"\s*".join([r"\s+".join(re.escape(w) for w in words), r":?"])
+        m = re.search(pattern, answer, flags=re.IGNORECASE)
+        if m is None:
+            continue
+        rest = (answer[: m.start()] + " " + answer[m.end():]).strip()
+        return rest.lstrip(" :;,.-–—").strip(), True
+    return answer, False
+
+
+def is_bare_completion(rest: str) -> bool:
+    """MD-Q7 F9 — nothing substantial after an opening: empty, or a bare
+    "ja"/"yes"/"ok" (punctuation and case ignored)."""
+    core = re.sub(r"[\W_]+", " ", rest or "").strip().lower()
+    return not core or core in _BARE_COMPLETION
 
 
 def offered_choices_in_answer(answer: Any, offered: Any) -> list[dict]:

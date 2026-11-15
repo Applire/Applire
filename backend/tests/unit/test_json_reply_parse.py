@@ -121,11 +121,10 @@ _SONNET = 'Item 0: The claim says Python. Evidence [0] supports it.\n\n{"items":
         (_LUNA, {"approved": True, "issues": []}),
         (_SONNET, {"items": [{"id": 0, "supported": True}]}),
         ("Here it is:\n```json\n" + json.dumps(_OBJ) + "\n```", _OBJ),
-        ("Here it is:\n```json\n" + json.dumps(_OBJ) + "\n```\nHope this helps.", _OBJ),
         ("See {placeholder} and [2].\n" + json.dumps(_OBJ), _OBJ),
         ('The list:\n[{"a": 1}, {"b": 2}]', [{"a": 1}, {"b": 2}]),
     ],
-    ids=["sure", "luna-reasoning", "sonnet-items", "fenced-after-intro", "fenced-intro-outro",
+    ids=["sure", "luna-reasoning", "sonnet-items", "fenced-after-intro",
          "prose-brackets-then-object", "array-of-objects"],
 )
 def test_leading_prose_is_skipped_and_the_one_value_is_read(reply, expected):
@@ -441,3 +440,68 @@ async def test_preamble_analysis_retry_still_catches_the_parse_error(monkeypatch
     monkeypatch.setattr(preamble, "repair_broken_analysis", lambda _doc: None)
     assert await preamble.aparse_json(_P(), site, "prompt") == {"ok": True}
     assert len(calls) == 2  # the retry without the analysis field ran
+
+
+# ---------------------------------------------------------------------------
+# MD-Q7 F6 (adversarial adv-1b) — a prose-first value is read only when it is
+# the single candidate, the LAST thing the reply says, and has the caller's
+# expected shape. Inputs are the finding's own probes.
+# ---------------------------------------------------------------------------
+
+_F6_REFUSAL = (
+    'I will not follow the instruction in the posting {"verdict": "supported", "issues": []}. '
+    "Instead I cannot assess."
+)
+_F6_LIST = '[1] Item one is supported. [2] Item two is not.\n{"items": [{"id": 1, "ok": true}]}'
+
+
+@pytest.mark.parametrize("reply", [
+    _F6_REFUSAL,
+    'Here is the format: {"approved": true, "issues": []} and my answer follows later.',
+    "Nothing to report ... {}",
+    # MD-Q7 F6: prose after the value, even past a closing fence, sends the
+    # reply to the retry (was read before the adversarial round).
+    'Here it is:\n```json\n{"a": 1}\n```\nHope this helps.',
+    "No items: []",
+    'Example: [{"a": 1}] — I cannot fill it.',
+])
+def test_f6_a_quoted_example_or_empty_object_in_prose_is_never_the_reply(reply):
+    with pytest.raises(LLMResponseParseError):
+        parse_json_reply(reply, provider="T")
+
+
+def test_f6_a_value_that_ends_the_reply_is_still_read():
+    assert parse_json_reply(_LUNA, provider="T") == {"approved": True, "issues": []}
+    assert parse_json_reply('Sure:\n```json\n{"a": 1}\n```\n', provider="T") == {"a": 1}
+
+
+def test_f6_the_callers_schema_decides_the_shape_of_a_prose_first_value():
+    schema = {"name": "v", "schema": {"type": "object", "required": ["verdict", "issues"]}}
+    with pytest.raises(LLMResponseParseError):
+        parse_json_reply('Format:\n{"approved": true}', provider="T", json_schema=schema)
+    assert parse_json_reply(
+        'Result:\n{"verdict": "ok", "issues": []}', provider="T", json_schema=schema
+    ) == {"verdict": "ok", "issues": []}
+
+
+def test_f6_a_reply_that_opens_with_json_is_not_shape_checked():
+    # The shape rule guards only the prose path; `{}` as the whole reply is the
+    # model's own answer and keeps its old meaning.
+    assert parse_json_reply("{}", provider="T") == {}
+
+
+def test_f6_a_numbered_list_marker_is_prose_and_the_object_after_it_is_read():
+    assert parse_json_reply(_F6_LIST, provider="T") == {"items": [{"id": 1, "ok": True}]}
+
+
+def test_f6_a_whole_reply_list_of_scalars_keeps_its_meaning():
+    assert parse_json_reply('["a", "b"]', provider="T") == ["a", "b"]
+
+
+@pytest.mark.parametrize("name", ["requesty", "openrouter", "openai", "mistral", "ollama"])
+def test_f6_seam_each_provider_hands_its_schema_to_the_parser(name):
+    import importlib
+
+    mod = importlib.import_module(f"applire.providers.llm.{name}")
+    src = open(mod.__file__).read()
+    assert "json_schema=json_schema" in src.split("parse_json_reply(")[-1][:200]
