@@ -268,6 +268,20 @@ class DatedRoleAlias(BaseModel):
     bullets: list[str] = Field(default_factory=list)
 
 
+class LeadershipKindRecord(BaseModel):
+    """MD-Q5 (Sorbet quality-1) — the person's answer to the dedicated
+    leadership-kind question for one role, as recorded: the fixed option they
+    picked (or ``own_words`` / ``skipped``), their answer text, when, and through
+    which door. Written ONLY by ``services/profile/leadership_kind.py`` (the
+    ``record_leadership_kind`` op); its presence means "asked", so the question
+    is never put again for that role."""
+
+    option: Literal["disciplinary", "functional", "both", "own_words", "skipped"]
+    answer: str = ""
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    source: str = "interview"
+
+
 class WorkEntry(ExperienceBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company: str = ""
@@ -343,12 +357,23 @@ class WorkEntry(ExperienceBase):
         # RULING B-1: `not_yet_reached` is omitted while empty too, so a
         # profile nobody answered "Nein" for dumps (and prompts) byte-identical.
         return _omit_empty_alias_lists(
-            handler(self), ("company_aliases", "dated_role_aliases", "not_yet_reached")
+            handler(self), (
+                "company_aliases", "dated_role_aliases", "not_yet_reached",
+                # MD-Q5: omitted while unset, so an unasked profile dumps identically.
+                "leadership_kind", "leadership_kind_record",
+            )
         )
 
     industry_context: str | None = None
     team_size: int | None = None
     budget_managed: str | None = None
+    #: MD-Q5 — the KIND of leadership a ``team_size`` is, as the person answered
+    #: the dedicated question (``leadership_kind_record``): ``"disciplinary"``
+    #: ("Disziplinarisch" or "Beides"), ``"functional"`` ("Fachliche Anleitung"),
+    #: or ``None`` (not asked, own words, skipped). A stored fact, never read from
+    #: bullet prose; the section door and the reconciler cannot write it.
+    leadership_kind: Literal["disciplinary", "functional"] | None = None
+    leadership_kind_record: LeadershipKindRecord | None = None
     # #328 option 4 — provenance for the three typed fields above, keyed by
     # field name. Recomputed from this entry's OWN bullets on every write
     # (``services/profile/role_facts.py``, called from the single committer),
@@ -1132,6 +1157,9 @@ class ImportNotApplied(BaseModel):
         "confirmation_unresolvable",
         "confirmation_already_present",
         "target_unresolved",
+        # MD-Q5: a write of a role's leadership kind by anything but the
+        # person's answer to the kind question (``reconcile.apply._restore_leadership_kind``).
+        "leadership_kind_unasked",
     ]
     #: UAT-3d (Hazelnut build 5) — a deterministic id for this item inside its
     #: record (``section:<hash of label>``), set where the item is a whole

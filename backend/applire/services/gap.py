@@ -78,6 +78,7 @@ from applire.services.keyword_ledger import (
 )
 from applire.services.profile.reconcile.stance import denial_release_corpus, exclude_unconfirmed
 from applire.services.match_score import compute_match_score_from_ledger
+from applire.services.interview.scope_question import carve_scope_clusters, turn_bound_limits
 from applire.services.scope_requirements import (
     build_scope_ledger_entries,
     build_scope_prompt_block,
@@ -1467,7 +1468,21 @@ async def _run_analysis(
     # ADR-070 clause 1: profile prose is passed so a model-cited attestation can
     # be verified fail-closed and stored on bar.attested.
     keyword_ledger = keyword_ledger + build_scope_ledger_entries(
-        scope_block, data.get("scope_classifications"), profile_json=profile.profile_json
+        scope_block,
+        data.get("scope_classifications"),
+        profile_json=profile.profile_json,
+        # MD-Q3 / adversarial M1: a denial bound to a REQUIREMENTS row — by the
+        # classifier's ``denied_by`` OR by the ledger's own denial floor (the row
+        # as built above) — binds no scope bar.
+        denials_taken=[
+            c.get("denied_by")
+            for c in [*(data.get("classifications") or []), *keyword_ledger]
+            if isinstance(c, dict) and c.get("denied_by")
+        ],
+        # MD-Q5 (2): a limit recorded on the turn that asked a bar's scope
+        # question binds to that bar structurally (read off the previous row's
+        # scope clusters, where the turn wrote it).
+        turn_limits=turn_bound_limits(previous.gap_clusters if previous is not None else None),
     )
 
     # #318 / ADR-061 — THE affirmative invariant, on the row that is actually
@@ -1568,6 +1583,11 @@ async def _run_analysis(
             initialise_cluster_record(c, keyword_ledger, denied_concepts)
             for c in record.gap_clusters or []
         ]
+    # ADR-069 cl. 3 amended 2026-11-14 (WP-Q2 a): every askable scope row gets its
+    # own cluster, carved out of the LLM's clusters — at both seams, one function.
+    record.gap_clusters = carve_scope_clusters(
+        record.gap_clusters, record.keyword_ledger, denied_concepts
+    )
 
     db.add(record)
     # Captured before the commit: rollback expires ORM objects, so the recovery

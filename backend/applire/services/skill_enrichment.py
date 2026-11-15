@@ -365,7 +365,8 @@ def _evidencing_entries(
 
 
 def evidenced_span_years(
-    profile: MasterProfileData, skill_name: str, *, bound: str
+    profile: MasterProfileData, skill_name: str, *, bound: str,
+    start: "StatedStart | None" = None,
 ) -> tuple[float, list[str]] | None:
     """How long the dated experiences that NAME this skill span (#747).
 
@@ -385,7 +386,9 @@ def evidenced_span_years(
     ranges, orgs = _evidencing_ranges(profile, skill_name, date.today(), bound)
     if not ranges:
         return None
-    return _union_years(ranges), orgs
+    # Sorbet Q1 (e): a governing stated start clips the counted ranges (the
+    # caller decides which start governs — :func:`governing_starts`).
+    return _union_years(clip_ranges(ranges, start)), orgs
 
 
 def evidenced_positions(
@@ -429,7 +432,42 @@ def stored_span_years(
     ranges, _orgs = _evidencing_ranges(profile, skill_name, today or date.today())
     if not ranges:
         return None
-    return _calculate_years(ranges)
+    # Sorbet Q1 (a): the same governing start the stored value obeys, so the
+    # Health hub's comparison never disagrees with what recomputation writes.
+    starts, own = governing_rule(profile, [skill_name])
+    key = skill_name.casefold()
+    return _years_from(ranges, starts.get(key), own.get(key))
+
+
+def _years_from(
+    ranges: list[tuple[date, date]], start: StatedStart | None, own: float | None = None,
+) -> int | None:
+    """THE stored ``computed`` arithmetic (ADR-066 — enrichment and
+    :func:`stored_span_years` both call it): ``_calculate_years`` over the ranges
+    clipped to a governing start; ``None`` when the start withholds the span or
+    leaves no counted time.
+
+    ``own``: the person's own N-years figure for the skill (R4-1 — it wins, and no
+    start governs then). Adversarial M6: "Seit drei Jahren LucaNet" in a role from
+    2015 stored 12 — the own figure won only the writer's offer. A figure SMALLER
+    than the role span now caps the stored value (whole years; under one, none);
+    a larger one leaves the role span, because a computed value never exceeds the
+    dated evidence."""
+    if own is not None:
+        base = _calculate_years(ranges)
+        if own < base:
+            years = int(own)
+            return years if years >= 1 else None
+        return base
+    if withholds(start):
+        return None
+    if start is None:
+        return _calculate_years(ranges)
+    # Counted from the person's own start: whole years only, never rounded up
+    # (ruling T-1's rule for a derived span — "seit 2023" in 11/2026 is 3, not
+    # 4); under a year there is no count to store.
+    years = int(_union_years(clip_ranges(ranges, start)))
+    return years if years >= 1 else None
 
 
 # ── SF-WRITE.113 (Sorbet WP-T, ADR-078 amended 2026-11-13): a STATED START ──
@@ -458,11 +496,31 @@ _MONTH_NAMES = {
     "november": 11, "nov": 11,
     "dezember": 12, "december": 12, "dez": 12, "dec": 12,
 }
+#: Adversarial M6 (2026-11-14): ordinary wordings the pattern did not read —
+#: "ab 2023", "seit dem Jahr 2023", "seit dem 1.4.2023", "seit Anfang/Mitte/Ende
+#: 2023", "seit Q1 2023" — left the role span stored. They are read now; a
+#: part-of-year word sets the EARLIEST month it can mean no earlier than
+#: (``_APPROX_MONTH``), so a count from it never says more than the person did, and
+#: the label keeps the person's own wording ("seit Mitte 2023", never "07/2023").
+_APPROX_MONTH = {
+    "anfang": None, "beginn": None, "early": None, "q1": None,
+    "q2": 4, "mitte": 7, "mid": 7, "q3": 7, "q4": 10, "ende": 12, "late": 12,
+}
 _STATED_START_RE = re.compile(
-    r"\b(?:seit|since)\s+"
+    r"\b(?:seit|since|ab)\s+"
+    r"(?:dem\s+(?:jahre?\s+)?|the\s+(?:year\s+)?)?"
+    r"(?:(?P<approx>anfang|beginn|mitte|ende|early|mid|late|q[1-4])(?:\s+des\s+jahres|\s+of)?[-\s/]+)?"
+    r"(?:(?P<dd>[0-3]?\d)\.\s*(?=(?:0?[1-9]|1[0-2])\s*\.\s*(?:19|20)\d{2}))?"
     r"(?:(?P<mm>0?[1-9]|1[0-2])\s*[/.]\s*"
     r"|(?P<mname>" + "|".join(sorted(_MONTH_NAMES, key=len, reverse=True)) + r")\.?\s+)?"
     r"(?P<yyyy>(?:19|20)\d{2})(?!\d)(?![.,]\d)",
+    re.IGNORECASE,
+)
+#: M6's safety net: "seit"/"since"/"ab" with a year a few words on that the
+#: pattern above cannot read ("seit dem Geschäftsjahr 2023", "seit Frühjahr 2023")
+#: is still the person's start — never readable, so it withholds the span.
+_UNREAD_START_RE = re.compile(
+    r"\b(?:seit|since|ab)\b(?:\s+[^\s\d.;:!?]+){1,3}?\s+(?:\d{1,2}\s*[./]\s*){0,2}(?:19|20)\d{2}(?!\d)",
     re.IGNORECASE,
 )
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
@@ -492,9 +550,15 @@ class StatedStart:
     #: span for every skill it is linked to (no duration).
     usable: bool = True
 
+    #: M6: the person's own part-of-year wording ("Mitte 2023"), kept for the label.
+    approx: str | None = None
+
     @property
     def label(self) -> str:
-        """The start as a CV/letter states it: ``"2021"`` or ``"04/2021"``."""
+        """The start as a CV/letter states it: ``"2021"``, ``"04/2021"``, or the
+        person's own part-of-year wording (``"Mitte 2023"``)."""
+        if self.approx:
+            return self.approx
         return f"{self.month:02d}/{self.year}" if self.month else str(self.year)
 
 
@@ -513,24 +577,42 @@ _START_MARGIN_YEARS = 10
 
 
 def _start_matches(text: str) -> list[tuple[int, int | None, str, int, bool]]:
-    """``(year, month | None, raw, offset, as_written)`` for every "seit/since
-    [MM/|Monat ]YYYY" in ``text``; ``as_written`` is False for a negated or a
-    ranged one (MD-8 F4). Facts (ADR-062 cl. 1): closed patterns only."""
-    out: list[tuple[int, int | None, str, int, bool]] = []
+    """``(year, month | None, raw, offset, as_written)`` for every "seit/since/ab
+    [dem Jahr|Anfang|Q1|TT.][MM/|Monat ]YYYY" in ``text``; ``as_written`` is False
+    for a negated or a ranged one (MD-8 F4) and for a "seit … YYYY" the pattern
+    cannot read (M6). Facts (ADR-062 cl. 1): closed patterns only."""
+    return [(y, mo, raw, off, ok) for y, mo, raw, off, ok, _ap in _start_matches_ex(text)]
+
+
+def _start_matches_ex(text: str) -> list[tuple[int, int | None, str, int, bool, str | None]]:
+    """:func:`_start_matches` plus the part-of-year label (M6)."""
+    out: list[tuple[int, int | None, str, int, bool, str | None]] = []
     text = text or ""
+    read: list[tuple[int, int]] = []
     for m in _STATED_START_RE.finditer(text):
         month: int | None = None
+        approx: str | None = None
         if m.group("mm"):
             month = int(m.group("mm"))
         elif m.group("mname"):
             month = _MONTH_NAMES.get(m.group("mname").lower())
+        elif m.group("approx"):
+            word = m.group("approx")
+            month = _APPROX_MONTH.get(word.lower())
+            approx = f"{word} {m.group('yyyy')}"
         as_written = not (
             _START_NEGATED_BEFORE.search(text[max(0, m.start() - 12):m.start()])
             or _START_NEGATED_AFTER.match(text[m.end():])
             or _START_RANGE_AFTER.match(text[m.end():])
         )
-        out.append((int(m.group("yyyy")), month, m.group(0), m.start(), as_written))
-    return out
+        read.append((m.start(), m.end()))
+        out.append((int(m.group("yyyy")), month, m.group(0), m.start(), as_written, approx))
+    for m in _UNREAD_START_RE.finditer(text):
+        if any(a < m.end() and m.start() < b for a, b in read):
+            continue
+        year = int(re.search(r"(?:19|20)\d{2}(?!\d)", m.group(0)).group(0))
+        out.append((year, None, m.group(0), m.start(), False, None))
+    return sorted(out, key=lambda t: t[3])
 
 
 def extract_stated_starts(text: str) -> list[tuple[int, int | None, str, int]]:
@@ -573,19 +655,38 @@ def stated_skill_starts(
     if not isinstance(profile_json, dict) or not names:
         return {}
     try:
-        from applire.services.ats_audit import _norm, surface_present_whole_token
-        from applire.services.oracle.matchers.vault import build_vault_index, skills_near_duration
+        from applire.services.oracle.matchers.vault import build_vault_index
         from applire.services.profile.reconcile.stance import exclude_unconfirmed
 
         idx = build_vault_index(exclude_unconfirmed(profile_json))
     except Exception:  # noqa: BLE001 — a prompt input must never fail generation
         return {}
-    texts: list[tuple[str, str]] = [
+    return starts_from_texts(_own_texts(idx), names, _first_position_year(profile_json))
+
+
+def _own_texts(idx: Any) -> list[tuple[str, str]]:
+    """The person's own words in a vault index: its evidence units (never
+    ``personal_info``) plus their denial statements."""
+    return [
         (u.path, u.text) for u in idx.units if not u.path.startswith("personal_info")
     ] + [(u.path, u.text) for u in idx.denial_units]
+
+
+def starts_from_texts(
+    texts: list[tuple[str, str]], names: list[str], first_year: int | None,
+    today: date | None = None,
+) -> dict[str, StatedStart]:
+    """The body of :func:`stated_skill_starts` over an already-built corpus of
+    ``(path, text)`` — THE one reading of a stated start (ADR-066), shared with the
+    Oracle's vault index, which cannot build a second index from inside its own
+    build. Facts only (ADR-062 cl. 1)."""
+    try:
+        from applire.services.ats_audit import _norm, surface_present_whole_token
+        from applire.services.oracle.matchers import skills_near_duration
+    except Exception:  # noqa: BLE001
+        return {}
     out: dict[str, StatedStart] = {}
-    first_year = _first_position_year(profile_json)
-    today = date.today()
+    today = today or date.today()
 
     def _key(s: StatedStart) -> tuple[int, int, int, int]:
         # An unusable start linked to the skill outranks every other (MD-8 F4):
@@ -593,7 +694,7 @@ def stated_skill_starts(
         return (0 if not s.usable else 1, 0 if s.tight else 1, s.year, s.month or 1)
 
     for path, text in texts:
-        starts = _start_matches(text)
+        starts = _start_matches_ex(text)
         if not starts:
             continue
         sentences: list[tuple[int, str]] = []
@@ -602,7 +703,7 @@ def stated_skill_starts(
             at = text.find(part, pos)
             sentences.append((at, part))
             pos = at + len(part)
-        for year, month, raw, offset, as_written in starts:
+        for year, month, raw, offset, as_written, approx in starts:
             usable = as_written and _plausible(year, month, first_year, today)
             sentence = next(
                 (s for at, s in reversed(sentences) if 0 <= at <= offset), text
@@ -618,11 +719,104 @@ def stated_skill_starts(
                     continue
                 cand = StatedStart(
                     year, month, raw.strip(), path, sentence.strip()[:240], tight, usable,
+                    approx,
                 )
                 cur = out.get(name.casefold())
                 if cur is None or _key(cand) < _key(cur):
                     out[name.casefold()] = cand
     return out
+
+
+# ── Sorbet WP-Q1 (a)+(e), ADR-061 cl. 7 / ADR-052 amended 2026-11-14 ──────────
+#
+# Platform-1 delivery (Luna, both runs): the person said "erstelle seit 2023 die
+# konsolidierten Quartalszahlen in LucaNet" in a role dated 02/2019, and the vault
+# STORED ``LucaNet years_experience 8, source computed`` — the role tenure, for every
+# reader that is not the writer (profile UI, MCP ``get_profile``, the gap analysis's
+# profile view, the Oracle's subject-span check). PR #841 fixed what the WRITER is
+# offered (``letter_v2.tool_duration_facts``); the stored value and the Oracle's
+# check kept the role span. One rule now governs all three (ADR-066):
+#
+# * the person's own N-years figure for the skill wins (R4-1) — no start applies;
+# * otherwise a TIGHT, usable stated start clips every counted range to begin no
+#   earlier than the start (the stored value is counted from it; the Oracle checks
+#   a claimed duration against it);
+# * a start that only shares a sentence with the skill, or one that is no start as
+#   written (MD-8 F4/F5), WITHHOLDS the computed span: nothing is stored, and the
+#   Oracle cannot vouch for a duration longer than the time since that start.
+
+
+def governing_starts_from_index(idx: Any, names: list[str], first_year: int | None) -> dict[str, StatedStart]:
+    """Per skill (casefolded): the stated start that governs its span, from an index
+    whose ``stated_skill_tenures`` and units are already built. Precedence as in
+    ``letter_v2.tool_duration_facts``: a skill the person states an own N-years
+    figure for has no governing start."""
+    starts = starts_from_texts(_own_texts(idx), names, first_year)
+    own = {str(n).casefold() for n in (getattr(idx, "stated_skill_tenures", None) or {})}
+    return {k: v for k, v in starts.items() if k not in own}
+
+
+def governing_starts(profile: MasterProfileData | dict[str, Any] | None, names: list[str]) -> dict[str, StatedStart]:
+    """:func:`governing_starts_from_index` over the person's confirmed record.
+    Fail-open: ``{}`` (then every span stays as computed from role dates)."""
+    return governing_rule(profile, names)[0]
+
+
+def governing_rule(
+    profile: MasterProfileData | dict[str, Any] | None, names: list[str]
+) -> tuple[dict[str, StatedStart], dict[str, float]]:
+    """``(starts, own figures)`` per skill (casefolded), from ONE index build: the
+    governing stated starts (:func:`governing_starts_from_index`) and the person's
+    own N-years figures (R4-1, ``VaultIndex.stated_skill_tenures``). Fail-open:
+    ``({}, {})``."""
+    if profile is None or not names:
+        return {}, {}
+    try:
+        profile_json = (
+            profile.model_dump(mode="json") if isinstance(profile, MasterProfileData) else dict(profile)
+        )
+        from applire.services.oracle.matchers.vault import build_vault_index
+        from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+        idx = build_vault_index(exclude_unconfirmed(profile_json))
+        wanted = {str(n).casefold() for n in names}
+        own = {
+            str(n).casefold(): float(y)
+            for n, y in (getattr(idx, "stated_skill_tenures", None) or {}).items()
+            if str(n).casefold() in wanted
+        }
+        return governing_starts_from_index(idx, names, _first_position_year(profile_json)), own
+    except Exception:  # noqa: BLE001 — a derived span must never fail a write
+        logger.warning("skill_enrichment: governing_starts failed; spans stay role-dated", exc_info=True)
+        return {}, {}
+
+
+def since_date(start: StatedStart) -> date:
+    """The first day a stated start can mean: "seit 2023" → 2023-01-01, "seit
+    04/2021" → 2021-04-01 — the same reading a role's year-only start gets."""
+    return date(start.year, start.month or 1, 1)
+
+
+def clip_ranges(
+    ranges: list[tuple[date, date]], start: StatedStart | None
+) -> list[tuple[date, date]]:
+    """Every range made to begin no earlier than ``start`` (none: unchanged). A range
+    that then holds no time is dropped."""
+    if start is None:
+        return list(ranges)
+    since = since_date(start)
+    out: list[tuple[date, date]] = []
+    for s, e in ranges:
+        s2 = max(s, since)
+        if e > s2:
+            out.append((s2, e))
+    return out
+
+
+def withholds(start: StatedStart | None) -> bool:
+    """A governing start that is not tight-and-usable: whose start it is cannot be
+    told (or it is no start as written), so no computed span is stated or stored."""
+    return start is not None and not (start.tight and start.usable)
 
 
 def _match_and_enrich(
@@ -639,6 +833,10 @@ def _match_and_enrich(
     today = date.today()
     enriched: list[Skill] = []
     unmatched: list[Skill] = []
+    # Sorbet Q1 (a): the person's own stated starts, read once per pass.
+    governing, own_figures = governing_rule(
+        profile, [s.name for s in profile.skills if s.category in _MATCHABLE_CATEGORIES and s.name]
+    )
 
     for skill in profile.skills:
         # language skills: a level is a tier, not a tenure — pass through, but
@@ -684,7 +882,18 @@ def _match_and_enrich(
                     "source": _TRANSCRIBED,
                 }))
                 continue
-            years = _calculate_years(matched_ranges)
+            # Sorbet Q1 (a), ADR-061 cl. 7 amended 2026-11-14: the person's own
+            # start governs (see ``governing_starts``) — counted from it, or, when
+            # whose start it is cannot be told, no span at all.
+            key = skill.name.casefold()
+            years = _years_from(matched_ranges, governing.get(key), own_figures.get(key))
+            if years is None:
+                enriched.append(skill.model_copy(update={
+                    "years_experience": None,
+                    "experience_refs": matched_orgs,
+                    "source": _TRANSCRIBED,
+                }))
+                continue
             # ADR-061 clauses 5 & 6 (#304/#317): proficiency is NOT touched here.
             # years_experience and experience_refs are code-computed from the
             # extractor's own `technologies` co-occurrence — that inference is

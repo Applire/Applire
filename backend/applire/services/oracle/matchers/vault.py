@@ -10,6 +10,7 @@ evidence entered the vault.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -140,6 +141,12 @@ class VaultIndex:
     # evidence unit's path (or ``metadata.denied_concepts``) and the sentence.
     # Read by the letter's TOOL DURATIONS line, which cites it.
     stated_skill_tenure_sources: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # Sorbet Q1 (e), ADR-052 amended 2026-11-14: per skill NAME, the start the
+    # person states for it (``skill_enrichment.governing_starts_from_index`` — the
+    # rule the stored value and the writer's offer obey). A tight usable start has
+    # already clipped ``skill_spans``; any other one withholds: the subject-span
+    # check cannot vouch for a duration longer than the time since it.
+    skill_starts: dict[str, Any] = field(default_factory=dict)
     #: ADR-052 amended 2026-10-23 (ruling B3-9, WP-FO) — the claimable vault's
     #: ENTRY names a CV's certification/education entry may match: ``(path, name)``
     #: for every certification ``name``, education ``degree`` and ``degree_aliases``
@@ -369,6 +376,7 @@ def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) ->
         earliest_dated_start=index.earliest_dated_start,
         unit_language_shares=dict(index.unit_language_shares),
         skill_spans=dict(index.skill_spans),
+        skill_starts=dict(index.skill_starts),
         transcribed_skill_years=dict(index.transcribed_skill_years),
         stated_skill_tenures=dict(index.stated_skill_tenures),
         stated_tenure_windows=list(index.stated_tenure_windows),
@@ -792,6 +800,33 @@ _NUMBER_WORDS = frozenset({
 RESTATEMENT_MIN_SHARED = 2
 
 
+def _governing_skill_starts(
+    p: MasterProfileData, units: list[EvidenceUnit], names: list[str]
+) -> dict[str, Any]:
+    """Sorbet Q1 (e): per skill NAME, the start the person states for it, read by
+    the ONE reader (``skill_enrichment.starts_from_texts``) over this index's own
+    corpus — the evidence units (never ``personal_info``) and the denial
+    statements — so the index never builds a second index from inside its build.
+    The own-figure precedence (R4-1) is applied by the caller, which holds the
+    stated tenures. Fail-open: ``{}``."""
+    try:
+        from applire.services.skill_enrichment import starts_from_texts
+
+        texts = [(u.path, u.text) for u in units if not u.path.startswith("personal_info")]
+        for i, d in enumerate(p.metadata.denied_concepts if p.metadata else []):
+            statement = getattr(d, "statement", None)
+            if isinstance(statement, str) and statement.strip():
+                texts.append((f"metadata.denied_concepts[{i}].statement", statement))
+        years = [
+            int(m.group(1)) for w in p.work_experience
+            if (m := re.match(r"\s*((?:19|20)\d{2})", str(w.start_date or "")))
+        ]
+        by_cf = starts_from_texts(texts, names, min(years) if years else None)
+    except Exception:  # noqa: BLE001 — an audit input must never fail the audit
+        return {}
+    return {n: by_cf[n.casefold()] for n in names if n.casefold() in by_cf}
+
+
 def _skill_duration_facts(
     p: MasterProfileData, units: list[EvidenceUnit]
 ) -> dict[str, Any]:
@@ -803,16 +838,6 @@ def _skill_duration_facts(
     """
     from applire.services.skill_enrichment import evidenced_span_years
 
-    spans: dict[str, tuple[float, list[str]]] = {}
-    transcribed: dict[str, int] = {}
-    for s in p.skills:
-        if s.category == "language" or not s.name:
-            continue
-        span = evidenced_span_years(p, s.name, bound="upper")
-        if span is not None:
-            spans[s.name] = span
-        if s.source == "transcribed" and s.years_experience is not None:
-            transcribed[s.name] = s.years_experience
     names = [s.name for s in p.skills if s.category != "language" and s.name]
     texts = [u.text for u in units]
     # The candidate's own denial statements count too (ADR-064 STATED LIMITS
@@ -831,8 +856,29 @@ def _skill_duration_facts(
                 if t.years > stated.get(name, 0.0):
                     stated[name] = t.years
                     sources[name] = (path, text)
+    # Sorbet Q1 (e): the person's own start governs — R4-1's own figure first
+    # (a skill in ``stated`` has no governing start), then a tight usable start
+    # clips the counted ranges; any other start is recorded and withholds.
+    starts = {
+        n: v for n, v in _governing_skill_starts(p, units, names).items() if n not in stated
+    }
+    spans: dict[str, tuple[float, list[str]]] = {}
+    transcribed: dict[str, int] = {}
+    for s in p.skills:
+        if s.category == "language" or not s.name:
+            continue
+        start = starts.get(s.name)
+        span = evidenced_span_years(
+            p, s.name, bound="upper",
+            start=start if start is not None and start.tight and start.usable else None,
+        )
+        if span is not None:
+            spans[s.name] = span
+        if s.source == "transcribed" and s.years_experience is not None:
+            transcribed[s.name] = s.years_experience
     return {
         "skill_spans": spans,
+        "skill_starts": starts,
         "transcribed_skill_years": transcribed,
         "stated_skill_tenures": stated,
         "stated_skill_tenure_sources": sources,

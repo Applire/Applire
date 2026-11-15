@@ -607,7 +607,7 @@ class TestRenderCvDocxRoleFacts:
         text = _all_text(render_cv_docx(_full_tailored_cv(), lang="de", accent_color=ACCENT))
         flat = text.replace("\u00a0", " ")
         # #786 NBSP (ADR-066): the DOCX sink binds a figure to its unit.
-        assert "Führungsverantwortung für 42 Personen · MARKER 4,2 Mio. EUR" in flat
+        assert "42 Personen im Verantwortungsbereich · MARKER 4,2 Mio. EUR" in flat
         labels_de = cv_labels("de")
         for key in ("role_team_size", "role_budget", "role_industry"):
             assert f"{labels_de[key]}:" not in flat
@@ -690,7 +690,7 @@ class TestRenderCvDocxRoleFacts:
         from applire.services.office_export.cv_docx import render_cv_docx
 
         text = _all_text(render_cv_docx(_full_tailored_cv(), lang="en", accent_color=ACCENT))
-        assert "Responsible for a team of 42" in text  # ruling P-2 (build 8)
+        assert "42 people in area of responsibility" in text  # ruling P-2 (build 8)
         assert "Personen" not in text and "Führungsverantwortung" not in text
         assert cv_labels("en")["role_team_size"] not in text
 

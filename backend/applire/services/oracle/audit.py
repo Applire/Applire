@@ -1180,6 +1180,64 @@ def _required_span(text: str, raw: str, years: float) -> float:
     return years
 
 
+_COORD_WINDOW = 300  # chars either side of the duration
+_COORD_MAX_CANDIDATES = 200
+_COORD_MAX_MENTIONS = 100
+_COORD_MAX_GAP = 12
+_COORD_JOINT = re.compile(r"\s*(?:,|/|&|\+|und|and|sowie|or|oder)\s*", re.IGNORECASE)
+
+
+def _coordinated_subjects(text: str, raw: str, tied: list[str], candidates: list[str]) -> list[str]:
+    """Adversarial L4 (MD-Q3): the subjects of a duration are the nearest skill(s)
+    plus every skill (``candidates``) joined to one of them by a coordination
+    ("LucaNet und Power BI: über sieben Jahre", "SAP CO, FI und Excel") — a list
+    states the duration of each member. A FACT (ADR-062 cl. 1): whole-token skill
+    mentions whose gap is ONLY ``,`` / ``und`` / ``and`` / ``sowie`` / ``&`` / ``/``
+    / ``+`` / ``or`` / ``oder``.
+
+    Linear by construction (security review, ReDoS): one alternation pass finds the
+    mentions in a bounded window around the duration, and each gap between two
+    consecutive mentions (at most ``_COORD_MAX_GAP`` chars) is checked with one
+    ``fullmatch`` that has no nested quantifier. Candidates and mentions are capped."""
+    out = list(dict.fromkeys(tied))
+    names = [n for n in dict.fromkeys(candidates) if n][:_COORD_MAX_CANDIDATES]
+    if not text or len(names) < 2:
+        return out
+    at = text.find(raw) if raw else -1
+    if at < 0:
+        at = 0
+    lo = max(0, at - _COORD_WINDOW)
+    window = text[lo:at + len(raw) + _COORD_WINDOW]
+    by_fold = {n.casefold(): n for n in names}
+    alternation = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    mention_re = re.compile(rf"(?<!\w)(?:{alternation})(?!\w)", re.IGNORECASE)
+    mentions: list[tuple[int, int, str]] = []
+    for m in mention_re.finditer(window):
+        name = by_fold.get(m.group(0).casefold())
+        if name is not None:
+            mentions.append((m.start(), m.end(), name))
+        if len(mentions) >= _COORD_MAX_MENTIONS:
+            break
+    # Union consecutive mentions joined only by a coordination.
+    parent = {n: n for _s, _e, n in mentions}
+
+    def find(n: str) -> str:
+        while parent[n] != n:
+            parent[n] = parent[parent[n]]
+            n = parent[n]
+        return n
+
+    for (_s1, e1, n1), (s2, _e2, n2) in zip(mentions, mentions[1:]):
+        gap = window[e1:s2]
+        if len(gap) <= _COORD_MAX_GAP and _COORD_JOINT.fullmatch(gap):
+            parent[find(n1)] = find(n2)
+    roots = {find(n) for n in out if n in parent}
+    for _s, _e, n in mentions:
+        if n not in out and find(n) in roots:
+            out.append(n)
+    return out
+
+
 def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
     """A stated duration above the dated span of the skill it is about (#747).
 
@@ -1225,49 +1283,99 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
         if not near:
             continue
         closest = min(d for _, d in near)
-        tied = [n for n, d in near if d == closest]
-        best = max(tied, key=lambda n: index.skill_spans[n][0])
-        # Escapes — the candidate's own words win, for THIS subject only
-        # (adversarial finding 4a: a career total stated anywhere in the
-        # vault is not a statement about SAP CO).
-        if index.stated_skill_tenures.get(best, -1.0) >= tenure.floor:
-            continue
-        if index.transcribed_skill_years.get(best, -1) >= tenure.floor:
-            continue
-        # …or the claim RESTATES a sentence of the candidate's own that states
-        # the same duration (same N, ≥ RESTATEMENT_MIN_SHARED content words in
-        # common around it). Not subject-scoped by skill name: "Controllerin
-        # mit 9 Jahren Erfahrung im industriellen Mittelstand" is the
-        # candidate's statement behind "neun Jahre Controlling-Erfahrung im
-        # industriellen Mittelstand", although "Controllerin" is not the
-        # token "Controlling". A bare number elsewhere never qualifies (4a).
-        claim_words = duration_window_tokens(text, raw)
-        if any(
-            years == tenure.years and len(claim_words & words) >= RESTATEMENT_MIN_SHARED
-            for years, words in index.stated_tenure_windows
-        ):
-            continue
-        required = _required_span(text, raw, tenure.floor)
-        span, orgs = index.skill_spans[best]
-        if span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required:
-            continue
-        where = ", ".join(orgs) if orgs else "its dated roles"
-        return ClaimVerdict(
-            verdict="unbacked",
-            checker="numbers",
-            figures=[raw],
-            detail=(
-                f'Claimed duration "{raw}" exceeds the '
-                f"{span:.1f} years of the dated roles whose own text names "
-                f'"{best}" ({where}). A span derived from dates may be stated '
-                f'only hedged and rounded down (e.g. "über {int(span)} Jahre").'
-            ),
-            detail_key="subjectTenureExceeds",
-            detail_params={
-                "claimed": raw, "years": f"{span:.1f}", "whole": str(int(span)), "skill": best,
-                "where": ", ".join(orgs) if orgs else "",
-            },
+        tied = _coordinated_subjects(
+            text, raw, [n for n, d in near if d == closest], list(index.skill_spans)
         )
+        # Adversarial L4 (MD-Q3): "LucaNet und Power BI: über sieben Jahre" names
+        # BOTH subjects at the same distance — each must carry the duration. The
+        # largest tied span (Power BI's) used to vouch for LucaNet's.
+        for best in sorted(tied, key=lambda n: index.skill_spans[n][0]):
+            # Escapes — the candidate's own words win, for THIS subject only
+            # (adversarial finding 4a: a career total stated anywhere in the
+            # vault is not a statement about SAP CO).
+            if index.stated_skill_tenures.get(best, -1.0) >= tenure.floor:
+                continue
+            if index.transcribed_skill_years.get(best, -1) >= tenure.floor:
+                continue
+            # …or the claim RESTATES a sentence of the candidate's own that states
+            # the same duration (same N, ≥ RESTATEMENT_MIN_SHARED content words in
+            # common around it). Not subject-scoped by skill name: "Controllerin
+            # mit 9 Jahren Erfahrung im industriellen Mittelstand" is the
+            # candidate's statement behind "neun Jahre Controlling-Erfahrung im
+            # industriellen Mittelstand", although "Controllerin" is not the
+            # token "Controlling". A bare number elsewhere never qualifies (4a).
+            claim_words = duration_window_tokens(text, raw)
+            if any(
+                years == tenure.years and len(claim_words & words) >= RESTATEMENT_MIN_SHARED
+                for years, words in index.stated_tenure_windows
+            ):
+                continue
+            required = _required_span(text, raw, tenure.floor)
+            span, orgs = index.skill_spans[best]
+            # Sorbet Q1 (e), ADR-052 amended 2026-11-14 (#839:85): the person's own
+            # start for this subject. A tight one has already clipped ``span``; one
+            # that only shares a sentence with the subject is the person's word too,
+            # but whose start it is cannot be told — a duration longer than the time
+            # since it is left open (unverifiable), never grounded by the role span.
+            start = index.skill_starts.get(best)
+            if (
+                start is not None and start.usable and not start.tight
+                and span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required
+            ):
+                from datetime import date
+
+                from applire.services.skill_enrichment import since_date
+
+                since = since_date(start)
+                since_years = (date.today() - since).days / 365.25
+                if since_years + _SUBJECT_TENURE_TOLERANCE_YEARS < required:
+                    return ClaimVerdict(
+                        verdict="unverifiable",
+                        checker="numbers",
+                        figures=[raw],
+                        detail=(
+                            f'Claimed duration "{raw}" is longer than the time since '
+                            f'"{start.raw}", which the candidate states in the same '
+                            f'sentence as "{best}"; whether that start is the one for '
+                            f'"{best}" cannot be told, so the duration is left open.'
+                        ),
+                        detail_key="subjectTenureStartUnclear",
+                        detail_params={"claimed": raw, "start": start.label, "skill": best},
+                    )
+            if span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required:
+                continue
+            if start is not None and start.tight and start.usable:
+                return ClaimVerdict(
+                    verdict="unbacked",
+                    checker="numbers",
+                    figures=[raw],
+                    detail=(
+                        f'Claimed duration "{raw}" exceeds the {span:.1f} years since the '
+                        f'candidate\'s own start for "{best}" ("{start.raw}"). State the '
+                        f'start as they did ("seit {start.label}").'
+                    ),
+                    detail_key="subjectTenureExceedsStart",
+                    detail_params={
+                        "claimed": raw, "years": f"{span:.1f}", "start": start.label, "skill": best,
+                    },
+                )
+            where = ", ".join(orgs) if orgs else "its dated roles"
+            return ClaimVerdict(
+                verdict="unbacked",
+                checker="numbers",
+                figures=[raw],
+                detail=(
+                    f'Claimed duration "{raw}" exceeds the '
+                    f"{span:.1f} years of the dated roles whose own text names "
+                    f'"{best}" ({where}). A span derived from dates may be stated '
+                    f'only hedged and rounded down (e.g. "über {int(span)} Jahre").'
+                ),
+                detail_key="subjectTenureExceeds",
+                detail_params={
+                    "claimed": raw, "years": f"{span:.1f}", "whole": str(int(span)), "skill": best,
+                    "where": ", ".join(orgs) if orgs else "",
+                },
+            )
     return None
 
 
@@ -1719,6 +1827,212 @@ def _denial_statement_backing(
     return backing
 
 
+# ── Scope step (MD-Q3 / adversarial H2, ADR-075 amended 2026-11-14) ─────────
+# The letter's G-1 ladder names a SCOPE step: the candidate's real figures, then
+# the posting's scale "as the step ahead", framed by the person's own recorded
+# limit that the gap analysis bound to that scope requirement
+# (``bar.recorded_limit``). The posting's figure is no vault fact, so before this
+# rail the sentence was ``unbacked/figuresNoEvidence`` unless (a) the #422 rail
+# above happened to absorb it — only when the person's statement itself named the
+# figure AND the letter clause restated >= 60 % of its words — or (b) the
+# model's sentence triage happened to class it employer-fact / candidate-limit.
+# The 2026-11-14 Luna after-runs passed by (a) twice and (b) twice; the
+# adversarial probe's paraphrase met neither and went red.
+#
+# The rule (a Fact, ADR-062 cl. 1; MD-Q5 (2) made it structural): a letter
+# figure equal to a scope bar's own figure is accepted when, and only when,
+#   (1) that bar carries a bound recorded limit (bound structurally at analysis
+#       time: recorded on that bar's scope-question turn, or naming its figure
+#       with a unit) that is still a LIVE denial statement of this vault;
+#   (2) the clause carrying the figure RESTATES that limit: the share of its
+#       content words (``_denial_content_tokens``) found in the limit's id +
+#       statement is >= ``_DENIAL_OVERLAP_THRESHOLD`` (0.6) — the #422 rail's own
+#       measure and threshold. Why 0.6: clauses in the person's wording measured
+#       0.78–0.88 (captured letters + replays, figure included), the adversarial
+#       assertions 0.00–0.33; one rule for "the letter restates the person's
+#       recorded words" across both rails. The id is the limit's own recorded name
+#       (the ladder line shows it to the writer), so it counts as their words; and
+#   (3) the clause is framed as a step not yet taken: a subjunctive
+#       ("wäre/würde/would") or "nächste(r) Schritt / noch|bisher nicht|kein /
+#       next step / not yet". Bare "nie", "never", "Ziel", "goal" are no frame
+#       (re-check N4: "Ich führte 120 Mitarbeitende und hatte nie Probleme").
+# (2) is what defeats a frame word in a different subject ("Ohne mich wäre das
+# Team mit 120 Mitarbeitenden nicht erfolgreich gewesen": overlap 0.22). The
+# letter writer is told to keep the step in the person's own wording (G-1 rule,
+# ruling Q2-2 = C), which is what (2) reads.
+
+
+@dataclass(frozen=True)
+class ScopeStep:
+    """One scope bar with a bound recorded limit: its figures + the limit text."""
+
+    figures: frozenset[str]
+    statement: str
+    limit_id: str = ""
+    kind: str = ""
+
+
+_SCOPE_STEP_TOKENS = frozenset({"wäre", "wären", "würde", "würden", "would"})
+_SCOPE_STEP_PHRASES = (
+    "nächste schritt", "nächster schritt", "nächsten schritt", "noch nicht",
+    "bisher nicht", "noch kein", "bisher kein", "next step", "not yet",
+    "have not yet", "has not yet",
+)
+
+
+def _scope_step_framed(clause: str) -> bool:
+    normalized = _norm(clause)
+    if any(phrase in normalized for phrase in _SCOPE_STEP_PHRASES):
+        return True
+    return bool(set(normalized.split()) & _SCOPE_STEP_TOKENS)
+
+
+#: MD-Q6 R2 — words a restating clause may carry only when the person's own
+#: statement carries them: a negation ("nicht der nächste Schritt"), a
+#: counterfactual past ("wäre … gewesen") or an attainment ("schon", "erreicht").
+#: The frame phrases "noch/bisher nicht|kein…" and "not yet" are removed first.
+_STEP_ADDED_MARKERS = frozenset({
+    "nicht", "kein", "keine", "keinen", "keiner", "keinem", "keines", "nie", "niemals",
+    "not", "no", "never", "gewesen", "had", "been", "schon", "bereits", "already",
+    "erreicht", "reached", "achieved", "innehatte", "held",
+})
+_STEP_FRAME_NEGATION_RE = re.compile(r"\b(?:noch|bisher)\s+(?:nicht|kein\w*)\b|\bnot\s+yet\b")
+#: A clause of the sentence that does not restate the limit may make claims of
+#: its own (the audit checks those as usual) but none ABOUT the step: no pronoun
+#: pointing back at it, and — after a comma — no relative clause hanging off it.
+_STEP_BACKREF_TOKENS = frozenset({
+    "sie", "ihn", "es", "diese", "dieses", "diesen", "dieser", "dies",
+    "it", "them", "this", "which",
+})
+_STEP_RELATIVE_STARTS = frozenset({
+    "die", "den", "das", "der", "dem", "welche", "welchen", "welches", "welcher",
+    "which", "that", "who", "wobei", "womit",
+})
+_STEP_CLAUSE_SPLIT_RE = re.compile(r"([.!?;:,]|\s[-‒–—―−]\s)")
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"\w+", text.casefold())
+
+
+def _step_sentence_clauses(text: str) -> list[tuple[str, str]]:
+    """(separator before it, clause) for every non-empty clause of the claim."""
+    out: list[tuple[str, str]] = []
+    before = ""
+    for part in _STEP_CLAUSE_SPLIT_RE.split(text):
+        if _STEP_CLAUSE_SPLIT_RE.fullmatch(part or ""):
+            before = part.strip()
+            continue
+        if part and part.strip():
+            out.append((before, part.strip()))
+    return out
+
+
+def _scope_step_sentence_ok(claim_text: str, limit_words: set[str], limit_plain: set[str]) -> bool:
+    """MD-Q6 R2: the WHOLE sentence, not only the figure's clause. A clause that
+    restates the limit adds no negation/past/attainment of its own; every other
+    clause points nothing back at the step."""
+    for sep, clause in _step_sentence_clauses(claim_text):
+        if _restates(clause, limit_words) and _scope_step_framed(clause):
+            added = set(_words(_STEP_FRAME_NEGATION_RE.sub(" ", clause.casefold()))) - limit_plain
+            if added & _STEP_ADDED_MARKERS:
+                return False
+            continue
+        words = _words(clause)
+        if set(words) & _STEP_BACKREF_TOKENS:
+            return False
+        if sep == "," and words and words[0] in _STEP_RELATIVE_STARTS:
+            return False
+    return True
+
+
+def _restates(clause: str, limit_words: set[str]) -> bool:
+    """(2): the clause's content words are mostly the bound limit's own words."""
+    tokens = _denial_content_tokens(clause)
+    return bool(tokens) and len(tokens & limit_words) / len(tokens) >= _DENIAL_OVERLAP_THRESHOLD
+
+
+def scope_steps_from_ledger(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[ScopeStep]:
+    """The ledger's scope rows (status partial/gap) carrying a bound recorded limit
+    (the binding is the analysis-time structural check). Any weight: the ladder names only key-tier steps, but a
+    bound limit backs the posting's figure wherever the letter states it."""
+    if not keyword_ledger:
+        return []
+    from applire.services.keyword_ledger import is_scope_entry
+    from applire.services.scope_requirements import _bar_figures
+
+    steps: list[ScopeStep] = []
+    for entry in keyword_ledger:
+        if not isinstance(entry, dict) or not is_scope_entry(entry):
+            continue
+        if entry.get("status") not in ("partial", "gap"):
+            continue
+        bar = entry.get("bar") if isinstance(entry.get("bar"), dict) else {}
+        limit = bar.get("recorded_limit")
+        if not isinstance(limit, dict):
+            continue
+        lid, statement = limit.get("id"), limit.get("statement")
+        if not (isinstance(lid, str) and isinstance(statement, str) and statement.strip()):
+            continue
+        figures = frozenset(_bar_figures(bar))
+        if figures:
+            steps.append(ScopeStep(figures=figures, statement=statement.strip(),
+                                   limit_id=lid.strip(), kind=str(bar.get("kind") or "")))
+    return steps
+
+
+def _scope_step_backing(
+    claim_text: str,
+    unmatched: list[Any],
+    idx: VaultIndex,
+    scope_steps: list[ScopeStep] | None,
+) -> list[EvidenceUnit] | None:
+    """The live limit units backing EVERY unmatched figure as a scope step, else
+    ``None`` (fail-safe exactly like :func:`_denial_statement_backing`)."""
+    if not scope_steps or not idx.denial_units:
+        return None
+    from applire.services.scope_requirements import names_bar_figure_with_unit
+
+    live = {_norm(u.text): u for u in idx.denial_units}
+    backing: list[EvidenceUnit] = []
+    for fig in unmatched:
+        if fig.kind not in ("number", "currency"):
+            return None
+        clauses = _denial_carrying_clauses(claim_text, fig, claim_side=True)
+        if not clauses:
+            return None
+        unit = None
+        for step in scope_steps:
+            if fig.value not in step.figures or _norm(step.statement) not in live:
+                continue
+            words = _denial_content_tokens(f"{step.limit_id} {step.statement}")
+            if not all(_scope_step_framed(c) and _restates(c, words) for c in clauses):
+                continue
+            # MD-Q6 R2: the figure carries a unit of the bar's kind right at it
+            # ("120 Kunden" is no span), and the rest of the sentence agrees.
+            bar = {"kind": step.kind, "value": float(fig.value)}
+            if not names_bar_figure_with_unit(claim_text, bar):
+                continue
+            plain = set(_words(f"{step.limit_id} {step.statement}"))
+            if not _scope_step_sentence_ok(claim_text, words, plain):
+                continue
+            unit = live[_norm(step.statement)]
+            break
+        if unit is None:
+            logger.info(
+                "oracle scope step: figure %r is the posting's bar, but no clause "
+                "carrying it restates a bound limit as a step not yet taken — "
+                "stays unbacked",
+                fig.raw,
+            )
+            return None
+        if unit not in backing:
+            backing.append(unit)
+    return backing
+
+
 # ── #701 (ADR-052 amended 2026-10-16, founder ruling H-1 = B) ──────────────
 # A claim that names a standard/regulation identifier whose digits the vault
 # never states cannot be graded ``grounded``. #374 excludes an identifier's
@@ -1801,8 +2115,12 @@ async def verify_claim(
     ledger_forms: list[list[str]] | None = None,
     form_index: VaultIndex | None = None,
     ledger_backings: "list[LedgerBacking] | None" = None,
+    scope_steps: "list[ScopeStep] | None" = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """Verdict for a single claim against the vault (ADR-052 §1).
+
+    ``scope_steps`` (MD-Q3 / H2) is :func:`scope_steps_from_ledger` over a
+    LETTER's job ledger — read only by the numbers check; ``None`` elsewhere.
 
     ``ledger_backings`` (ADR-100 M-3) is :func:`oracle.backing.ledger_backings`
     over the job's ledger — read by the skill-chip arm and by the ``backing``
@@ -1841,6 +2159,7 @@ async def verify_claim(
         judgement_sink=judgement_sink,
         ledger_forms=ledger_forms,
         ledger_backings=ledger_backings,
+        scope_steps=scope_steps,
     )
     final = _apply_credential_rule(verdict, claim, idx, document_language)
     if form_index is not None:
@@ -2269,6 +2588,7 @@ async def _verify_claim_identifiers(
     judgement_sink: "list[_SeamCandidate] | None",
     ledger_forms: list[list[str]] | None,
     ledger_backings: "list[LedgerBacking] | None" = None,
+    scope_steps: "list[ScopeStep] | None" = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """The #701 identifier rule over :func:`_verify_claim_unchecked` (see
     :func:`verify_claim`)."""
@@ -2285,6 +2605,7 @@ async def _verify_claim_identifiers(
             judgement_sink=judgement_sink,
             ledger_forms=ledger_forms,
             ledger_backings=ledger_backings,
+            scope_steps=scope_steps,
         )
     verdict = await _verify_claim_unchecked(
         claim,
@@ -2297,6 +2618,7 @@ async def _verify_claim_identifiers(
         judgement_sink=None,
         ledger_forms=ledger_forms,
         ledger_backings=ledger_backings,
+        scope_steps=scope_steps,
     )
     if verdict.verdict != "grounded":
         return verdict
@@ -2327,6 +2649,7 @@ async def _verify_claim_unchecked(
     judgement_sink: "list[_SeamCandidate] | None" = None,
     ledger_forms: list[list[str]] | None = None,
     ledger_backings: "list[LedgerBacking] | None" = None,
+    scope_steps: "list[ScopeStep] | None" = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """Verdict for a single claim against the vault (ADR-052 §1).
 
@@ -2551,7 +2874,19 @@ async def _verify_claim_unchecked(
         # legitimately re-appear in honest restatements. Guarded absorption
         # only (see ``_denial_statement_backing``); a miss falls through to
         # the accusation exactly as before.
-        absorbed = _denial_statement_backing(claim.text, fig_match.unmatched, idx)
+        # MD-Q6 R2: a figure that IS a bound scope bar's own figure is judged by the
+        # scope-step rail alone (whole sentence + unit). The #422 rail checks only
+        # the figure's clause, so before this a bound limit that itself names the
+        # figure let "…nicht der nächste Schritt, ich führte sie schon" through it.
+        bar_figures = {f for step in scope_steps or () for f in step.figures}
+        if any(f.value in bar_figures for f in fig_match.unmatched):
+            absorbed = None
+        else:
+            absorbed = _denial_statement_backing(claim.text, fig_match.unmatched, idx)
+        if absorbed is None:
+            # MD-Q3 / H2: the posting's own figure named as the step ahead,
+            # backed by the person's recorded limit bound to that scope bar.
+            absorbed = _scope_step_backing(claim.text, fig_match.unmatched, idx, scope_steps)
         if absorbed is None:
             missing = ", ".join(f.raw for f in fig_match.unmatched)
             return ClaimVerdict(
@@ -3009,6 +3344,10 @@ async def audit_document(
     # ADR-100 M-3: the job ledger's verified backing quotes, re-checked against
     # THIS claimable vault once per document (a Fact; never raises).
     backings = _ledger_backings(keyword_ledger, profile, index) if keyword_ledger else None
+    # MD-Q3 / H2: a letter's scope steps (bound recorded limits) — never a CV's.
+    scope_steps = scope_steps_from_ledger(keyword_ledger) if letter_data is not None or (
+        text is not None and document_kind == "cover_letter"
+    ) else None
 
     judgement_sink: list[_SeamCandidate] = []
     pending_result_indices: list[int] = []
@@ -3035,6 +3374,7 @@ async def audit_document(
             ledger_forms=ledger_forms,
             form_index=form_index,
             ledger_backings=backings,
+            scope_steps=scope_steps,
         )
         if isinstance(verdict, _SeamCandidate):
             # The candidate's own fail-safe verdict is the placeholder — if

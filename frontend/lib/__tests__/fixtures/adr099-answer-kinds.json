@@ -28,6 +28,10 @@
     "resolver": "ask_true"
   },
   {
+    "kind": "oracle:subjectTenureExceedsStart",
+    "resolver": "ask_true"
+  },
+  {
     "kind": "oracle:tenureExceedsVault",
     "resolver": "ask_true"
   },

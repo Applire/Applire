@@ -571,11 +571,20 @@ def _issue_text(concept: UnderclaimedConcept) -> str:
     # summary of the profile (its `reason`), never a source of figures.
     # Replay of delivery run 2's corrector call: "14 Jahre Führungserfahrung"
     # written 2/4 with the old "profile evidence" label, 0/5 with this one.
+    # Sorbet WP-Q1 (c), #835:275 — the evidence summary may restate the vault's
+    # professional_summary ("14 Jahre Erfahrung als Produktions- und
+    # Betriebsleiter"), which belongs to no work entry; the corrector pasted it as
+    # the current role's first bullet. Replay of platform-1 rerun rec 169 (luna,
+    # captured input): summary text in a role bullet 3/5 without this sentence,
+    # 0/5 with it (rule 1 of the writer — bullets trace to THAT entry's own text —
+    # does not reach the corrector's prompt).
     evidence = (
         f' The gap analysis summarised the profile\'s support for it as: "{concept.evidence}"'
         " — a summary, not the candidate's words: take every figure, and what it "
         "measures, from the CANDIDATE PROFILE itself; a figure the profile does not "
-        "state that way stays out."
+        "state that way stays out. It may restate the profile's professional summary: "
+        "a career-wide duration, a job title or any sentence of that summary belongs to "
+        "no single work entry and is never copied into a work entry's bullet."
         if concept.evidence
         else ""
     )

@@ -169,6 +169,7 @@ _DOC: dict[str, Entry] = {
     **{f"oracle:{k}": _e(_F, "ask_true", "A") for k in (
         "credentialUnbacked", "identifierAbsent", "skillNoEvidence", "figuresNoEvidence",
         "tenureStartBeforeVault", "tenureExceedsVault", "subjectTenureExceeds",
+        "subjectTenureExceedsStart",
     )},
     "oracle@unbacked": _e(_F, "ask_true", "A"),          # unsupported term / bare unbacked
     "oracle:inflatedAspirational": _e("A", "ask_achieved"),
@@ -181,6 +182,10 @@ _DOC: dict[str, Entry] = {
     # ADV-6 (c): a literal miss over a mixed-language vault — deterministic, the
     # recheck reproduces it → S (scope statement, as keyword-other-language).
     "oracle:otherLanguageNotChecked": _e("S"),
+    # Sorbet Q1 (e): a duration longer than the time since a start the person
+    # states in the same sentence as the subject — whose start it is cannot be
+    # told, deterministic, the recheck reproduces it → S (left open, not accused).
+    "oracle:subjectTenureStartUnclear": _e("S"),
     # Only ever the UNAVAILABLE verdict of the cross-language judgement (provider
     # failure / citation drop); the recheck re-runs the judgement with a provider
     # (cv._truth_audit / cover_letter._letter_truth_audit) → can clear → U.

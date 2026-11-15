@@ -934,6 +934,44 @@ def is_aim_only(entry: dict[str, Any] | None) -> bool:
     return isinstance(entry, dict) and entry.get("aim_only") is True
 
 
+TITLE_UNHELD_EVIDENCE = (
+    "Not claimable: a position title the candidate's profile does not hold — "
+    "never write it as the candidate's title or role."
+)
+
+
+def enforce_title_stance(
+    ledger: list[dict[str, Any]], profile_json: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """Sorbet WP-Q1 (c): a CLAIMABLE row whose concept IS a position title
+    ("Bereichsleiter", "Head of Department") the vault's own text never holds is
+    not claimable — a title is the person's word or it is not theirs
+    (``position_terms.unheld_title_term``, the T-1 vocabulary; ADR-062 cl. 1).
+    It becomes ``gap``/unclaimable with ``title_unheld: True``, so the writer's
+    block lists it under DO NOT CLAIM and the reviewer's VERIFIED COVERAGE never
+    demands it. A duty phrase that only contains a title is untouched. Pure."""
+    if not ledger or not profile_json:
+        return list(ledger or [])
+    from applire.services.profile.reconcile.position_terms import unheld_title_term
+
+    out: list[dict[str, Any]] = []
+    for entry in ledger:
+        if (
+            not isinstance(entry, dict) or not entry.get("claimable") or is_scope_entry(entry)
+            or not unheld_title_term(str(entry.get("concept") or ""), profile_json)
+        ):
+            out.append(entry)
+            continue
+        row = {k: v for k, v in entry.items()
+               if k not in ("jd_phrase", "adjacent_evidence", "backing")}
+        row.update(status="gap", claimable=False, evidence=TITLE_UNHELD_EVIDENCE,
+                   title_unheld=True)
+        logger.info("enforce_title_stance: %r is a title the vault does not hold — unclaimable",
+                    entry.get("concept"))
+        out.append(row)
+    return out
+
+
 def enforce_aim_only_stance(
     ledger: list[dict[str, Any]], profile_json: dict[str, Any] | None
 ) -> list[dict[str, Any]]:
@@ -3209,7 +3247,7 @@ def refresh_ledger_against_vault(
     # D-12 (Hazelnut build 5): the one demotion this read seam owns — the
     # candidate's own "not reached yet" answer usually arrives AFTER the analysis
     # (the interview), so a stale claimable row would otherwise reach the writer.
-    aimed = enforce_aim_only_stance(ledger, profile_json)
+    aimed = enforce_title_stance(enforce_aim_only_stance(ledger, profile_json), profile_json)
     if any(a is not b for a, b in zip(aimed, ledger)):
         ledger, changed = aimed, True
     if changed:
@@ -4691,6 +4729,7 @@ def build_keyword_ledger(
     vault_corpus = denial_release_corpus(profile_json)
     ledger = _enforce_denial_stance(ledger, denied_concepts, vault_corpus or None)
     ledger = enforce_aim_only_stance(ledger, profile_json)  # D-12
+    ledger = enforce_title_stance(ledger, profile_json)  # Sorbet WP-Q1 (c)
     # #260: final pass — stamp narrative_backed so downstream consumers (the
     # pre-generation summary, the agent-channel ledger surface) can single
     # out a claimable-but-unstoried hard requirement without re-deriving it.

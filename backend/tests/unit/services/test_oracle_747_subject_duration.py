@@ -161,7 +161,12 @@ def test_the_nearest_skills_own_stated_years_still_escape():
     profile["work_experience"][1]["technologies"] = ["Excel"]
     profile["skills"].append({"name": "Excel", "category": "technical",
                               "years_experience": 10, "source": "transcribed"})
-    assert _v("Zehn Jahre Excel und SAP CO.", profile).verdict != "unbacked"
+    assert _v("Zehn Jahre Excel.", profile).verdict != "unbacked"
+    # Sorbet quality-1 MD-Q3 / adversarial L4 (2026-11-14): a coordinated list
+    # states the duration of EACH member — Excel's own ten years escape Excel,
+    # never SAP CO's (7.6 dated years). Before L4 this sentence was grounded.
+    v = _v("Zehn Jahre Excel und SAP CO.", profile)
+    assert v.verdict == "unbacked" and v.detail_params["skill"] == "SAP CO"
 
 
 def test_a_statement_about_the_same_skill_escapes_a_career_total_does_not():

@@ -97,6 +97,14 @@ from applire.services.keyword_ledger import (
     reevaluate_gap_ledger_against_vault,
     upgrade_ledger_for_concepts,
 )
+from applire.services.interview.scope_question import (
+    KIND_ASKED_STATE_KEY,
+    is_fact_built_cluster,
+    is_leadership_kind_cluster,
+    is_scope_cluster,
+    kind_entry_key,
+    plan_leadership_kind,
+)
 from applire.services.interview_graph import (
     build_confirmation_clusters,
     build_conflict_clusters,
@@ -2536,6 +2544,7 @@ async def _record_cluster_turn(
     current_gap: str,
     answer: str,
     updated_profile: dict,
+    recorded_limits: list[str] | None = None,
 ) -> tuple[dict | None, list[str]]:
     """ADR-089 clauses 2 and 3 — after this turn's #188 seam: classify the
     cluster's open members against the session row's ledger and write the
@@ -2608,6 +2617,7 @@ async def _record_cluster_turn(
         session_id=str(record.id),
         charge=True,
         user_id=record.user_id,
+        recorded_limits=recorded_limits,
     )
     # The follow-up's focus (ruling B-4, ADR-089 clause 2 amended 2026-09-23):
     # the OPEN members this answer does NOT name. The #188 seam never moves an
@@ -2849,6 +2859,93 @@ def _resumed_response(
     )
 
 
+def _kind_option(cluster: dict | None, message: str) -> str | None:
+    """MD-Q5 (1): on a leadership-kind turn, the option the answer names — the
+    Q1 module's exact-label match; any other text is ``own_words`` and is never
+    interpreted. ``None`` on every other turn."""
+    if not is_leadership_kind_cluster(cluster):
+        return None
+    from applire.services.profile.leadership_kind import option_for_answer
+
+    return option_for_answer(message)
+
+
+async def _record_kind_answer(
+    db: AsyncSession,
+    record: InterviewSession,
+    profile_record: MasterProfile,
+    cluster: dict | None,
+    option: str,
+    message: str,
+) -> bool:
+    """Write the kind answer for the cluster's ONE role through the Q1 writer's
+    op, in THIS turn's transaction (``commit_ops`` flushes; the turn's own
+    commit persists it with the rest — the denial-escalation precedent above).
+    Runs after a successful reconcile, so an own-words answer that is "not
+    saved" (R2-13) records nothing either. False when the role is gone."""
+    from applire.schemas.profile import MasterProfileData
+    from applire.services.interview.scope_question import kind_cluster_entry
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.leadership_kind import (
+        ANSWER_INTAKE,
+        LeadershipKindEntryNotFound,
+        find_entry,
+        leadership_kind_op,
+    )
+
+    entry = kind_cluster_entry(cluster)
+    args = {
+        "entry_id": str(entry.get("entry_id") or ""),
+        "company": str(entry.get("company") or ""),
+        "role": str(entry.get("role") or ""),
+    }
+    try:
+        find_entry(MasterProfileData.model_validate(profile_record.profile_json), **args)
+    except (LeadershipKindEntryNotFound, LookupError):
+        logger.info(
+            "leadership-kind answer: the role %r is no longer in the vault — nothing recorded",
+            kind_entry_key(entry),
+        )
+        return False
+    await commit_ops(
+        db,
+        [leadership_kind_op(args["entry_id"], option, answer=message,
+                            company=args["company"], role=args["role"], source="interview")],
+        CommitProvenance(source="interview", intake=ANSWER_INTAKE,
+                         session_id=str(record.id), actor="candidate"),
+        record=profile_record,
+        grounding=None,
+        snapshot=None,
+    )
+    return True
+
+
+def _kind_option_turn(profile_record: MasterProfile):
+    """The turn result of an option answer: the vault as the writer left it, no
+    reconcile call (the option IS the answer)."""
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    return InterviewTurnResult(
+        profile_dict=dict(profile_record.profile_json or {}), changes=[], addressed=False,
+    )
+
+
+async def _kind_asked_keys(db: AsyncSession, user_id: uuid.UUID) -> set[str]:
+    """L5 (MD-Q3): every role an earlier session of this person put the
+    leadership-kind ask to (``state[KIND_ASKED_STATE_KEY]``, written when the ask
+    is answered) — across jobs, so the ask is made at most once per person and role."""
+    rows = (
+        await db.execute(
+            select(InterviewSession.state).where(InterviewSession.user_id == user_id)
+        )
+    ).scalars().all()
+    keys: set[str] = set()
+    for state in rows:
+        if isinstance(state, dict):
+            keys.update(str(k) for k in state.get(KIND_ASKED_STATE_KEY) or [] if k)
+    return keys
+
+
 async def _create_targeted_session(
     job_id: uuid.UUID,
     job: JobAnalysis,
@@ -2949,6 +3046,17 @@ async def _create_targeted_session(
     cluster_ids = askable_ids
     cluster_categories = {cid: cluster_categories[cid] for cid in cluster_ids}
     clusters_by_id = {cid: clusters_by_id[cid] for cid in cluster_ids}
+
+    # Founder ruling Q-2 (COORD Q1→Q2, WP-Q2): ONE separate ask for the kind of
+    # leadership behind a known team size — after the team-size scope question,
+    # else at the end, whatever the posting (delivery re-run 2026-11-15). A full interview only
+    # (a Gap-Click micro-session never carries it); the answer is reconciled like
+    # any answer and the turn advances.
+    if cluster_ids:
+        cluster_ids, cluster_categories, clusters_by_id = plan_leadership_kind(
+            cluster_ids, cluster_categories, clusters_by_id, profile_record.profile_json,
+            already_asked=await _kind_asked_keys(db, user_id),
+        )
 
     # US163: prepend any open deferred Tier-1 gate ahead of the JD gaps —
     # mandatory and job-irrelevant.
@@ -4134,6 +4242,13 @@ async def _send_message_turn(
     current_cluster = clusters_by_id.get(current_gap, {"label": current_gap})
     cluster_label = current_cluster.get("label", current_gap)
 
+    # --- MD-Q5 (1): the leadership-kind ask has fixed options. The answer is
+    # written through the Q1 writer (`profile/leadership_kind`) in this turn's
+    # transaction (commit_ops flushes, never commits): an option stores its kind
+    # and needs no reconcile; an own-words answer marks the role asked and is
+    # ALSO reconciled like any answer; nothing is ever read from the text. ---
+    kind_option = _kind_option(current_cluster, message)
+
     # --- Reconcile this answer into the profile (US182a / ADR-046) ---
     profile_record = await _load_profile(state["profile_id"], db)
     # ADR-063 (#480 PR 2) — the bridge is the interview's intake adapter and
@@ -4143,7 +4258,8 @@ async def _send_message_turn(
     # stay ONE unit — and this function's own `db.commit()` is load-bearing:
     # dropping it is a silent no-write.
     try:
-        turn = await reconcile_interview_turn(
+        turn = _kind_option_turn(profile_record) if kind_option not in (None, "own_words") else None
+        turn = turn or await reconcile_interview_turn(
             db,
             profile_record=profile_record,
             gap=cluster_label,
@@ -4195,6 +4311,10 @@ async def _send_message_turn(
     conflict_summaries = turn.conflict_summaries
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict
+    if kind_option is not None and await _record_kind_answer(
+        db, record, profile_record, current_cluster, kind_option, message
+    ):
+        updated_profile = profile_record.profile_json
 
     # --- ADR-064: resolve a pending denial transfer-probe BEFORE any
     # early-return branch below (hard ceiling, US185 confirmation, ...) so the
@@ -4345,6 +4465,13 @@ async def _send_message_turn(
     recorded_cluster, open_members = await _record_cluster_turn(
         record, state, db, current_gap=current_gap, answer=message,
         updated_profile=updated_profile,
+        # MD-Q5 (2): a limit stated in answer to a scope question knows which
+        # bar it answers — the scope cluster keeps the ids this turn recorded.
+        recorded_limits=(
+            list(turn.denied_concepts or [])
+            if is_scope_cluster((state.get("gap_clusters_by_id") or {}).get(current_gap))
+            else None
+        ),
     )
     cluster_coverage = _coverage_of(recorded_cluster)
     # Ruling K-1 — the candidate left this gap open while its question was on
@@ -4352,6 +4479,20 @@ async def _send_message_turn(
     # recorded above, and nothing further is asked on it — no probe, no
     # follow-up, no retry; the session advances.
     left_open_now = recorded_cluster is not None and gap_coverage.is_left_open(recorded_cluster)
+    # ADR-069 cl. 3 / ADR-089 amended 2026-11-14 (WP-Q2 a): a scope cluster's one
+    # fact-built question is asked once. Its budget is 1 (gap_coverage.remaining_budget),
+    # which already closes the partial-coverage and the deferred follow-up; the
+    # no-change retry and the "more specific" follow-up count against the GLOBAL
+    # per-gap figure, so they are closed here, and the turn always advances.
+    scope_turn = is_fact_built_cluster((state.get("gap_clusters_by_id") or {}).get(current_gap))
+    # L5 (MD-Q3): the kind ask was answered — record the roles it covered, so no
+    # later session of this person asks them again (read by `_kind_asked_keys`).
+    kind_cluster = (state.get("gap_clusters_by_id") or {}).get(current_gap)
+    if is_leadership_kind_cluster(kind_cluster):
+        state[KIND_ASKED_STATE_KEY] = list(dict.fromkeys([
+            *(state.get(KIND_ASKED_STATE_KEY) or []),
+            *(kind_entry_key(e) for e in kind_cluster.get("entries") or [] if isinstance(e, dict)),
+        ]))
 
     # --- Hard ceiling check ---
     if questions_asked >= state["hard_ceiling"]:
@@ -4479,6 +4620,7 @@ async def _send_message_turn(
         and not denial_recorded
         and not resolving_confirmation
         and not left_open_now
+        and not scope_turn
         and questions_for_gap < INTERVIEW_MAX_QUESTIONS_PER_GAP
         and recorded_cluster is not None
         and cluster_coverage is not None
@@ -4500,6 +4642,7 @@ async def _send_message_turn(
         or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP
         or retry_judged_covered
         or left_open_now
+        or scope_turn
     ):
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]

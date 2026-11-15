@@ -357,6 +357,7 @@ _UNBACKED_REASON: dict[str, str] = {
     "tenureStartBeforeVault": "the stated duration starts before the profile's own dates",
     "tenureExceedsVault": "the stated duration is longer than the profile's own dates",
     "subjectTenureExceeds": "the stated duration is longer than the profile's own dates",
+    "subjectTenureExceedsStart": "the stated duration is longer than the time since the candidate's own stated start",
 }
 
 

@@ -324,6 +324,19 @@ def prompt_profile_view(
         else:
             del view["availability"]
 
+    # MD-Q5 — a role's ``leadership_kind`` (the person's answered kind) is a fact
+    # every prompt may read; its ``leadership_kind_record`` (the option key, the
+    # answer, when, which door) is bookkeeping no model reads. Copied, never mutated.
+    work = view.get("work_experience")
+    if isinstance(work, list) and any(
+        isinstance(e, dict) and "leadership_kind_record" in e for e in work
+    ):
+        view["work_experience"] = [
+            {k: v for k, v in e.items() if k != "leadership_kind_record"}
+            if isinstance(e, dict) else e
+            for e in work
+        ]
+
     if derived_spans == "hedge":
         view = _hedge_derived_spans(view)
     elif derived_spans == "drop":
@@ -489,11 +502,19 @@ def _hedge_derived_spans(view: dict[str, Any]) -> dict[str, Any]:
         return view
     try:
         from applire.schemas.profile import MasterProfileData
-        from applire.services.skill_enrichment import evidenced_span_years
+        from applire.services.skill_enrichment import (
+            evidenced_span_years, governing_starts, withholds,
+        )
 
         model = MasterProfileData.model_validate(view)
+        # Sorbet Q1 (a): the person's own start governs here too (ADR-066 — the
+        # stored value, the Oracle's check and this view obey one rule).
+        starts = governing_starts(model, [
+            str(s.get("name")) for s in skills if isinstance(s, dict) and s.get("name")
+        ])
     except Exception:  # noqa: BLE001 — a view must never fail generation
         model = None
+        starts = {}
     out: list[Any] = []
     for skill in skills:
         if (
@@ -506,7 +527,11 @@ def _hedge_derived_spans(view: dict[str, Any]) -> dict[str, Any]:
         rendered = {k: v for k, v in skill.items() if k != "years_experience"}
         span = None
         if skill.get("source") == "computed" and model is not None and skill.get("name"):
-            span = evidenced_span_years(model, str(skill["name"]), bound="floor")
+            start = starts.get(str(skill["name"]).casefold())
+            if withholds(start):
+                out.append(rendered)
+                continue
+            span = evidenced_span_years(model, str(skill["name"]), bound="floor", start=start)
         if span is not None:
             years, _orgs = span
             hedge = span_hedges(years)

@@ -1327,7 +1327,8 @@
       "confirmation_held": "es wartet auf eine weitere Frage — zu welcher deiner Positionen bei diesem Arbeitgeber es gehört",
       "confirmation_unresolvable": "der genannte Eintrag existiert nicht mehr, deshalb wurde nichts geschrieben",
       "confirmation_already_present": "dieser Eintrag enthielt es bereits",
-      "target_unresolved": "es war einem Eintrag zugeordnet, den dein Profil nicht enthält, deshalb wurde es nicht geschrieben — trag es beim richtigen Eintrag ein"
+      "target_unresolved": "es war einem Eintrag zugeordnet, den dein Profil nicht enthält, deshalb wurde es nicht geschrieben — trag es beim richtigen Eintrag ein",
+      "leadership_kind_unasked": "die Art der Führung wird nur aus deiner Antwort auf ihre eigene Frage übernommen, deshalb wurde nichts geschrieben"
     },
     "notAppliedNoSection": "Ohne festen Abschnitt",
     "notAppliedGroupHeading": "{section} ({count})",
@@ -2026,6 +2027,8 @@
       "not_applied_adopted": "Aus deinem Import übernommen, nachdem du es hinzufügen wolltest.",
       "aspiration_achieved": "Als Ergebnis ergänzt: Du hast gesagt, was aus diesem Ziel geworden ist.",
       "aspiration_goal": "Als Ziel behalten: Du hast gesagt, das ist noch nicht erreicht.",
+      "leadership_kind_recorded": "Führungsart ergänzt: Du hast gesagt, welche Art von Führung diese Teamgröße ist.",
+      "leadership_kind_left_open": "Führungsart offen gelassen: Deine Antwort nannte keine der Optionen, der Lebenslauf nennt nur die Teamgröße.",
       "availability_recorded": "Deine Verfügbarkeit festgehalten.",
       "availability_cleared": "Deine Verfügbarkeit entfernt."
     }
@@ -3033,6 +3036,8 @@
     "tenureStartBeforeVault": "Der genannte Beginn „{claimed}“ liegt vor der frühesten Station in Deinem Profil ({earliest}).",
     "tenureExceedsVault": "Die genannte Dauer „{claimed}“ ist länger als die {years} Jahre, die Deine datierten Stationen ergeben. Schreib höchstens „über {whole} Jahre“.",
     "subjectTenureExceeds": "Die genannte Dauer „{claimed}“ ist länger als die {years} Jahre der Stationen, in denen „{skill}“ vorkommt. Schreib höchstens „über {whole} Jahre“.",
+    "subjectTenureExceedsStart": "Die genannte Dauer „{claimed}“ ist länger als die Zeit seit deinem eigenen Beginn für „{skill}“. Schreib „seit {start}“, wie du es gesagt hast.",
+    "subjectTenureStartUnclear": "Die genannte Dauer „{claimed}“ ist länger als die Zeit seit {start}, das du im selben Satz wie „{skill}“ nennst. Ob dieser Beginn für „{skill}“ gilt, lässt sich nicht sagen – deshalb bleibt das offen.",
     "misattributed": "Der Beleg dafür stammt aus einer anderen Station — die Aussage steht unter einer Rolle, zu der sie nicht gehört.",
     "skillNoEvidence": "„{skill}“ steht nirgends in Deinem Profil.",
     "figuresNoEvidence": "Für diese Zahl(en) gibt es in Deinem Profil keinen Beleg: {figures}.",

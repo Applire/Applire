@@ -318,8 +318,17 @@ def build_scope_ledger_entries(
     prompt_block: list[dict[str, Any]],
     scope_classifications: list[dict[str, Any]] | None,
     profile_json: dict[str, Any] | None = None,
+    *,
+    denials_taken: Any = (),
+    turn_limits: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Turn the model's scope judgements into ledger entries, floor applied.
+
+    ``turn_limits`` (MD-Q5 (2)): per scope concept (``_id_key``), the recorded
+    denial ids the turn answering that concept's scope question wrote.
+
+    ``denials_taken``: the ``denied_by`` ids the SAME response cited for
+    REQUIREMENTS rows (see :func:`verified_stated_limit`).
 
     Deterministic guarantees (ADR-069 clause 2, ADR-070 clause 1):
       * every prompt-block entry becomes a ledger row — existence is never the
@@ -394,6 +403,18 @@ def build_scope_ledger_entries(
                 status = "partial"
                 cited = ""
 
+        recorded_limit = verified_stated_limit(
+            cls.get("stated_limit"),
+            profile_json,
+            taken=denials_taken,
+            bar={
+                "kind": item.get("kind"),
+                "value": item.get("jd_value"),
+                "value_max": item.get("jd_value_max"),
+                "concept": concept,
+            },
+            asked_for=(turn_limits or {}).get(_id_key(concept), ()),
+        )
         attested_fmt = (
             f"Attested ({attested['unit']}): \"{attested['quote']}\" "
             f"({attested['entry']}). "
@@ -431,10 +452,206 @@ def build_scope_ledger_entries(
                     # row still holding the model's unresolvable citation).
                     "cited_entry": (cited or None) if status == "direct" else None,
                     "attested": attested,
+                    # ADR-070 cl. 2 / ADR-075 amended 2026-11-14 (WP-Q2 e): the
+                    # candidate's OWN recorded statement of falling short of this
+                    # bar, bound by the classifier's id and verified here. Only
+                    # present when bound — a row without it reads as before.
+                    **({"recorded_limit": recorded_limit} if recorded_limit else {}),
                 },
             }
         )
     return entries
+
+
+def _id_key(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+#: MD-Q5 (N5, 2026-11-14) — the unit a figure must carry to be a bar's figure.
+#: A currency written on, or right next to, the figure (shared with the scope
+#: question's unit reader, M5) and, for a team scope, a people word right after it.
+_UNIT_TOKEN = r"(EUR|CHF|USD|GBP|Euro|Eur|Franken|Dollar|Pfund|€|\$|£)"
+_UNIT_IN_RE = re.compile(rf"(?<![A-Za-zÄÖÜäöüß]){_UNIT_TOKEN}(?![A-Za-zÄÖÜäöüß])")
+_UNIT_BEFORE_RE = re.compile(rf"(?<![A-Za-zÄÖÜäöüß]){_UNIT_TOKEN}\s*$")
+_UNIT_AFTER_RE = re.compile(rf"^\s*(?:Schweizer\s+|US-?\s*)?{_UNIT_TOKEN}(?![A-Za-zÄÖÜäöüß])")
+_UNIT_CODE = {
+    "€": "EUR", "EUR": "EUR", "Euro": "EUR", "Eur": "EUR", "CHF": "CHF", "Franken": "CHF",
+    "$": "USD", "USD": "USD", "Dollar": "USD", "£": "GBP", "GBP": "GBP", "Pfund": "GBP",
+}
+_PEOPLE_AFTER_RE = re.compile(
+    r"^\s*(?:mitarbeitende\w*|mitarbeiter\w*|ma\b|personen\b|köpfe\w*|leute\b|"
+    r"beschäftigte\w*|menschen\b|fte\b|people\b|employees\b|staff\b|direct reports\b|"
+    r"reports\b|engineers?\b|ingenieur\w*|entwickler\w*)",
+    re.IGNORECASE,
+)
+
+
+def figure_currencies(text: str, raw: str, start: int) -> set[str]:
+    """The currency codes written on a figure (``raw`` at ``start`` in ``text``)
+    or right next to it — never elsewhere in the text (M5)."""
+    end = start + len(raw)
+    units = {_UNIT_CODE[m.group(1)] for m in _UNIT_IN_RE.finditer(raw)}
+    before = _UNIT_BEFORE_RE.search(text[max(0, start - 6):start])
+    after = _UNIT_AFTER_RE.match(text[end:end + 24])
+    return units | {_UNIT_CODE[m.group(1)] for m in (before, after) if m}
+
+
+def _bar_figures(bar: dict[str, Any]) -> set[str]:
+    """The bar's own figures as the Oracle canonicalises them ("120", "5000000")."""
+    out: set[str] = set()
+    for key in ("value", "value_max"):
+        number = _bar_number(bar.get(key))
+        if number is not None and float(number).is_integer():
+            out.add(str(int(number)))
+    return out
+
+
+def _bar_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _bar_figure_hits(text: str, bar: dict[str, Any] | None):
+    """(figure, start) for each figure in ``text`` equal to one of the bar's own."""
+    if not isinstance(bar, dict) or not isinstance(text, str) or not text.strip():
+        return
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    wanted = _bar_figures(bar)
+    if not wanted:
+        return
+    cursor = 0
+    for f in extract_figures(text):
+        start = text.find(f.raw, cursor)
+        if start < 0:
+            start = text.find(f.raw)
+        if start < 0:
+            continue
+        cursor = start + len(f.raw)
+        if f.kind in ("number", "currency") and f.value in wanted:
+            yield f, start
+
+
+def names_bar_figure(text: str, bar: dict[str, Any] | None) -> bool:
+    """True when ``text`` names one of the bar's own figures (any unit)."""
+    return next(_bar_figure_hits(text, bar), None) is not None
+
+
+def is_about_bar_concept(concept: str, statement: str, bar: dict[str, Any] | None) -> bool:
+    """MD-Q6 R3 — a denial recorded on a scope turn is the BAR's own concept when
+    its concept matches the bar's scope concept by the interview's cross-generator
+    matcher (``sufficiency._concept_matches_ledger_key`` — the same attribution the
+    ADR-064 probe uses for "a denial of the CURRENT cluster's member"), or its
+    concept/statement names the bar's own figure. Another concept denied on the
+    same turn ("SAP MM kenne ich nicht") is neither."""
+    if not isinstance(bar, dict):
+        return False
+    from applire.services.ats_audit import _norm as ats_norm
+    from applire.services.interview.sufficiency import _concept_matches_ledger_key
+
+    own = bar.get("concept")
+    if isinstance(own, str) and own.strip() and _concept_matches_ledger_key(
+        ats_norm(concept), ats_norm(own)
+    ):
+        return True
+    return names_bar_figure(f"{concept} {statement}", bar)
+
+
+def names_bar_figure_with_unit(text: str, bar: dict[str, Any] | None) -> bool:
+    """True when ``text`` names the bar's EXACT figure with a unit of the bar's
+    kind: a people word right after it for a team scope ("120 Mitarbeitende"), a
+    currency on or next to it for a budget ("5 Mio. €"). A structural fact
+    (ADR-062 cl. 1, MD-Q5 (2)): kind words alone never tie a statement to a bar —
+    the MD-Q3 kind-word list bound "Mitarbeitergespräche habe ich noch nie
+    geführt" and "Budgetplanung in SAP" (re-check N5); the bar's number in another
+    unit ("120 Tickets") is no tie either."""
+    kind = bar.get("kind") if isinstance(bar, dict) else None
+    if kind not in ("team_size", "budget"):
+        return False
+    for f, start in _bar_figure_hits(text, bar):
+        if kind == "budget" and (f.kind == "currency" or figure_currencies(text, f.raw, start)):
+            return True
+        if kind == "team_size" and _PEOPLE_AFTER_RE.match(text[start + len(f.raw):]):
+            return True
+    return False
+
+
+def verified_stated_limit(
+    cited: Any,
+    profile_json: dict[str, Any] | None,
+    *,
+    taken: Any = (),
+    bar: dict[str, Any] | None = None,
+    asked_for: Any = (),
+) -> dict[str, str] | None:
+    """The live recorded denial a scope classification's ``stated_limit`` cites, as
+    ``{"id", "statement"}`` — or ``None`` (ADR-070 cl. 2 / ADR-075 amended
+    2026-11-14, WP-Q2 cluster e).
+
+    The ADR-100 M-2 split: WHICH recorded statement is the candidate's own word
+    on falling short of this bar is the classifier's judgement; that the cited id
+    is the ``concept`` of a LIVE ``metadata.denied_concepts`` record (a withdrawn
+    one lives elsewhere and binds nothing) is the fact checked here. An unknown
+    id, a record without a statement, or no profile → no binding.
+
+    Third fact (MD-Q5 (2), structural; was a kind-word list in MD-Q3): with ``bar``
+    given, the record binds only when (a) it was recorded on the turn that asked
+    THIS bar's scope question (``asked_for``: the ids the scope cluster's turn
+    recorded, ``scope_question.turn_bound_limits``) AND is the bar's own concept
+    (:func:`is_about_bar_concept`, MD-Q6 R3), or (b) it names the bar's
+    exact figure with a unit of its kind (:func:`names_bar_figure_with_unit`).
+    The id test alone bound "Mit SAP habe ich noch nie gearbeitet" (p6.py); the
+    kind-word list then bound "Mitarbeitergespräche …" (re-check N5).
+
+    Second fact (earned, category C): an id the same response already cited as
+    ``denied_by`` for a REQUIREMENTS row (``taken``) is that requirement's
+    denial and binds no scope bar. The prompt says "never cite a denial that is
+    about something else"; on the 2026-11-14 Luna after-run (Stefan, rep 1, the
+    person had stated no span shortfall) the classifier bound the 120-span bar to
+    "eigene Investitionsplanung mit Investitionsfreigaben" while citing the same
+    id as ``denied_by`` for Investitionsplanung and Investitionsverantwortung. Pure."""
+    if not isinstance(cited, str) or not cited.strip():
+        return None
+    if _id_key(cited) in {_id_key(t) for t in taken if isinstance(t, str)}:
+        logger.info(
+            "scope_requirements: stated_limit %r is already a REQUIREMENTS row's "
+            "denied_by — binds no scope bar",
+            cited,
+        )
+        return None
+    meta = (profile_json or {}).get("metadata") if isinstance(profile_json, dict) else None
+    records = meta.get("denied_concepts") if isinstance(meta, dict) else None
+    key = _id_key(cited)
+    for record in records if isinstance(records, list) else []:
+        if not isinstance(record, dict):
+            continue
+        concept = record.get("concept")
+        statement = record.get("statement")
+        if (
+            isinstance(concept, str)
+            and _id_key(concept) == key
+            and isinstance(statement, str)
+            and statement.strip()
+        ):
+            asked = {_id_key(a) for a in asked_for or () if isinstance(a, str)}
+            turn_bound = key in asked and is_about_bar_concept(concept, statement, bar)
+            if (
+                bar is not None
+                and not turn_bound
+                and not names_bar_figure_with_unit(f"{concept} {statement}", bar)
+            ):
+                logger.info(
+                    "scope_requirements: stated_limit %r is neither the %r bar's own "
+                    "concept recorded on its scope question nor names its figure "
+                    "with a unit — binds nothing",
+                    cited,
+                    bar.get("kind"),
+                )
+                return None
+            return {"id": concept.strip(), "statement": statement.strip()}
+    logger.info("scope_requirements: stated_limit %r binds no live recorded denial", cited)
+    return None
 
 
 def render_scope_positioning_block(

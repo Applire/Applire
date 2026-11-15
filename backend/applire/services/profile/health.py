@@ -416,6 +416,12 @@ _NOT_APPLIED_REASON = {
         "it was aimed at an entry your profile does not hold, so it was not "
         "written — add it to the right entry"
     ),
+    # MD-Q5 — a write of a role's leadership kind by anything but the person's
+    # answer to its own question was refused (not a loss: nothing they said).
+    "leadership_kind_unasked": (
+        "the kind of leadership is taken only from your answer to its own "
+        "question, so it was not written"
+    ),
 }
 
 

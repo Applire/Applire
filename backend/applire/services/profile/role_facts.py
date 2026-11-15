@@ -235,3 +235,145 @@ def project_profile_role_facts(profile: Any) -> None:
     for entry in getattr(profile, "work_experience", None) or []:
         if isinstance(entry, WorkEntry):
             project_role_facts(entry)
+
+
+# ── Sorbet WP-Q1 (b), ruling Q-2, narrowed by MD-Q5 — the KIND of leadership ──
+#
+# "Führungsverantwortung für 3 Personen" was printed for a person who wrote
+# "Fachliche Anleitung von zwei Werkstudierenden" (#832, platform-1 delivery run):
+# the furniture line said more than the person did. Q-2: the line names the kind
+# of leadership the PERSON states, and says only "N Personen im
+# Verantwortungsbereich" otherwise.
+#
+# MD-Q5 (2026-11-14): the kind is no longer read from bullet prose. Two
+# adversarial rounds showed every reading of the prose either promoted a mention
+# to a fact ("Disziplinarische Führung … wurde von meinem Nachfolger übernommen",
+# "Aspiring to line management of 8 engineers") or demoted a true form
+# ("Disziplinarischer Vorgesetzter von 12 Mitarbeitenden"). The kind is a STORED
+# fact on the work entry (``WorkEntry.leadership_kind``), written only from the
+# person's answer to the dedicated question (``services/profile/leadership_kind``).
+# The bullet text is only SHOWN in that question (``"said"``), never interpreted.
+
+LEADERSHIP_KINDS = ("disciplinary", "functional")
+
+# A bullet that says the person LEADS PEOPLE — shown to them in the kind question
+# so they see what they wrote. Display only: it never sets, and never withholds,
+# a kind. Delivery re-run (Stefan): a bare ``\w*leitung`` quoted "Begleitung der
+# jährlichen ISO-9001-Audits …" as his leadership; "Einleitung", "Umleitung",
+# "Weiterleitung von Tickets" read the same. So a bullet qualifies only with a
+# disciplinary kind word, or a leading word with a PEOPLE word near it.
+_KIND_WORD = re.compile(
+    r"\b(?:disziplinarisch\w*|personalverantwortung|disciplinar(?:y|ily)"
+    r"|line[- ]manag\w*|direct reports?|dotted[- ]line)\b",
+    re.I,
+)
+# Leading words, whole words only: no free prefix before "leitung" (Begleitung,
+# Einleitung, Umleitung, Weiterleitung), only the unit nouns that name a team.
+_LEAD_WORD = (
+    r"(?:f(?:ü|ue)hr(?:ung|e|te|ten|t|en)|geführt|gefuehrt|leite(?:te|t|n)?|geleitet"
+    r"|(?:team|gruppen|abteilungs|bereichs|schicht|projekt|standort|werks|fach|produktions)?leitung"
+    r"|anleitung|angeleitet|leitete\s+\S+\s+an|betreu\w*|verantwort\w*"
+    r"|lead(?:s|ing)?|led|manag(?:e|ed|es|ing)|supervis\w*|guid(?:e|ed|ing|ance)"
+    r"|mentor\w*|coach\w*)"
+)
+_PEOPLE_WORD = (
+    r"(?:mitarbeite\w*|ma|personen|person|leute|team\w*|werkstudierende\w*|studierende\w*"
+    r"|auszubildende\w*|azubis?|praktikant\w*|entwickler\w*|ingenieur\w*|kolleg\w*"
+    r"|schichtleiter\w*|meister\w*|controller\w*|analyst\w*|berater\w*|techniker\w*"
+    r"|fachkr(?:ä|ae)fte\w*|people|employees?|engineers?|developers?|staff|reports|members?"
+    r"|juniors?|analysts?|consultants?|colleagues|students?|interns?|apprentices?)"
+)
+_NEAR = r"(?:\W+\w+){0,6}?\W+"
+_LEADS_PEOPLE = re.compile(
+    rf"\b{_LEAD_WORD}\b{_NEAR}{_PEOPLE_WORD}\b|\b{_PEOPLE_WORD}\b{_NEAR}{_LEAD_WORD}\b",
+    re.I,
+)
+_NUMBER_WORDS = {
+    "ein": 1, "eine": 1, "einen": 1, "zwei": 2, "drei": 3, "vier": 4, "fünf": 5, "sechs": 6,
+    "sieben": 7, "acht": 8, "neun": 9, "zehn": 10, "elf": 11, "zwölf": 12, "one": 1, "two": 2,
+    "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12,
+}
+_COUNT_PEOPLE = re.compile(rf"\b(\d{{1,4}}|{'|'.join(_NUMBER_WORDS)})\b(?:\W+\w+){{0,2}}?\W+{_PEOPLE_WORD}\b", re.I)
+
+
+def _says_leads_people(bullet: str) -> bool:
+    return bool(_KIND_WORD.search(bullet) or _LEADS_PEOPLE.search(bullet))
+
+
+def _people_counts(bullet: str) -> set[int]:
+    out: set[int] = set()
+    for m in _COUNT_PEOPLE.finditer(bullet):
+        raw = m.group(1).lower()
+        out.add(int(raw) if raw.isdigit() else _NUMBER_WORDS[raw])
+    return out
+
+
+def _get(e: Any, key: str) -> Any:
+    return e.get(key) if isinstance(e, dict) else getattr(e, key, None)
+
+
+def leadership_kind(entry: WorkEntry | dict) -> str | None:
+    """THE kind of leadership of a work entry: the STORED value the person's
+    answer to the kind question wrote (``"disciplinary"`` / ``"functional"``), or
+    ``None`` — never read from the bullets, the title or a model (MD-Q5)."""
+    kind = _get(entry, "leadership_kind")
+    return kind if kind in LEADERSHIP_KINDS else None
+
+
+def leadership_said(entry: WorkEntry | dict) -> str:
+    """The entry's own bullet that says the person leads PEOPLE, verbatim, or
+    ``""`` — for display in the question only. Preferred: the bullet counting the
+    entry's ``team_size`` in people, then one with any people count, then the
+    first that qualifies."""
+    bullets = [
+        b.strip() for f in _PROSE_FIELDS for b in (_get(entry, f) or [])
+        if isinstance(b, str) and b.strip()
+    ]
+    qualifying = [b for b in bullets if _says_leads_people(b)]
+    if not qualifying:
+        return ""
+    size = _get(entry, "team_size")
+    for b in qualifying:
+        if isinstance(size, int) and size in _people_counts(b):
+            return b
+    for b in qualifying:
+        if _people_counts(b):
+            return b
+    return qualifying[0]
+
+
+def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, Any]]:
+    """The work entries whose line would print a headcount with no kind: a
+    positive ``team_size``, no stored kind, and never asked (no
+    ``leadership_kind_record``). The interview planner asks each ONCE as its own
+    short question with fixed options (ruling Q-2, MD-Q1, MD-Q5); unanswered,
+    skipped or answered in own words, the line stays neutral. A person who
+    already wrote the kind in a bullet is asked too, and sees that bullet.
+
+    STABLE CONTRACT (MD-Q1, built against by WP-Q2): a list, in entry order, of
+    ``{"entry_id": str, "company": str, "role": str, "team_size": int}`` plus,
+    since MD-Q5, ``"said": str`` (:func:`leadership_said`, ``""`` when none)."""
+    entries = (
+        profile_json.get("work_experience") if isinstance(profile_json, dict)
+        else getattr(profile_json, "work_experience", None)
+    ) or []
+
+    out: list[dict[str, Any]] = []
+    for e in entries:
+        size, eid = _get(e, "team_size"), _get(e, "id")
+        if (
+            isinstance(size, int) and not isinstance(size, bool) and size > 0
+            and leadership_kind(e) is None
+            and not _get(e, "leadership_kind_record")
+        ):
+            # An entry stored without an id (older profile JSON) is still asked
+            # about: skipping it would print the neutral line unasked.
+            out.append({
+                "entry_id": str(eid or ""),
+                "company": str(_get(e, "company") or ""),
+                "role": str(_get(e, "role") or ""),
+                "team_size": int(size),
+                "said": leadership_said(e),
+            })
+    return out

@@ -54,6 +54,7 @@ from applire.services.profile.reconcile.ops import (
     ADAPTER_ONLY_CONFIRMATION_FIELDS,
     CODE_ONLY_CONTEXT_KEYS,
     CODE_ONLY_CONTEXT_KINDS,
+    LEADERSHIP_KIND_FIELDS,
     EmptyReason,
     ReconcileOp,
     ReconcileResult,
@@ -414,6 +415,15 @@ def _structured_output_schema() -> dict[str, Any] | None:
         return None
 
 
+def _forges_leadership_kind(item: Any) -> bool:
+    """A raw ``set_field`` / ``flag_conflict`` naming a leadership-kind field."""
+    return (
+        isinstance(item, dict)
+        and item.get("op") in ("set_field", "flag_conflict")
+        and str(item.get("field") or "").strip() in LEADERSHIP_KIND_FIELDS
+    )
+
+
 def _strip_adapter_only(item: Any) -> Any:
     """Remove the confirmation fields only deterministic code may fill (#669).
 
@@ -498,6 +508,16 @@ def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[Reconcile
         return []
     ops: list[ReconcileOp] = []
     for item in raw:
+        if _forges_leadership_kind(item):
+            # MD-Q5 — a role's leadership kind is the person's answer to its own
+            # question, never the model's to set or dispute. Dropped here; the
+            # committer's class guard (`apply._restore_leadership_kind`) is the
+            # backstop for every other door.
+            logger.warning(
+                "reconcile: dropped a model-emitted %s naming %r (MD-Q5: written "
+                "only from the person's answer)", item.get("op"), item.get("field"),
+            )
+            continue
         try:
             ops.append(_OP_ADAPTER.validate_python(_strip_adapter_only(item)))
         except ValidationError:

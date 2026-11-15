@@ -276,6 +276,11 @@ class TailoredWorkEntry(BaseModel):
     team_size: int | None = None
     budget_managed: str | None = None
     industry_context: str | None = None
+    # Ruling Q-2 (Sorbet WP-Q1): the kind of leadership the team_size counts, as
+    # the vault entry's OWN text names it (services.profile.role_facts.
+    # leadership_kind) — "disciplinary" / "functional" / None (neither or both:
+    # the line prints the neutral count). Written by _apply_role_facts only.
+    leadership_kind: Literal["disciplinary", "functional"] | None = None
     # D-14 (Hazelnut build 5, ADR-062 clause 1 — a date fact): the vault's
     # is_current, carried by assemble_tailored_cv. None = unstated (legacy
     # tailored_data); False with no end_date renders the start date alone,

@@ -8,7 +8,7 @@ A blind panel read ``Teamgröße: 12 · Budget: … · Branche: …`` under a jo
 1. the industry ("Branche: …" / "Industry: …") is never rendered;
 2. the fact line stays only where it holds a figure (team size and/or budget),
    rendered WITHOUT colon labels; ruling P-2 (build 8) phrases the team size —
-   ``Führungsverantwortung für 12 Personen · ca. 2 Mio. EUR``;
+   ``12 Personen im Verantwortungsbereich · ca. 2 Mio. EUR``;
 3. no figure -> no line (never the industry alone).
 
 The templates and the .docx share ONE producer (``templates.filters.role_facts``).
@@ -46,12 +46,12 @@ _ROLES = [
 #: and singular pinned in both languages; the budget part is unchanged.
 EXPECTED = {
     "de": [
-        "Führungsverantwortung für 12 Personen · ca. 2 Mio. EUR", "bis zu 500 TEUR",
-        "Führungsverantwortung für 1 Person",
+        "12 Personen im Verantwortungsbereich · ca. 2 Mio. EUR", "bis zu 500 TEUR",
+        "1 Person im Verantwortungsbereich",
     ],
     "en": [
-        "Responsible for a team of 12 · ca. 2 Mio. EUR", "bis zu 500 TEUR",
-        "Responsible for a team of 1",
+        "12 people in area of responsibility · ca. 2 Mio. EUR", "bis zu 500 TEUR",
+        "1 person in area of responsibility",
     ],
 }
 

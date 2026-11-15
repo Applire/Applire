@@ -99,7 +99,7 @@ _UNITS_EN = (
     "operations", "sales", "procurement", "purchasing", "hr", "people", "marketing",
     "logistics", "quality", "engineering", "it", "ward", "nursing", "maintenance",
     "warehouse", "customer service", "support", "treasury", "tax", "research",
-    "development", "legal", "compliance",
+    "development", "legal", "compliance", "dept",
 )
 _UNIT = "(?:" + "|".join(
     re.escape(u) for u in sorted(set(_UNITS_DE + _UNITS_EN), key=len, reverse=True)
@@ -120,7 +120,12 @@ _UNIT_HEAD = re.compile(
     rf"|\bhead\s+of\s+(?:the\s+)?{_UNIT_W}"
     rf"|\b(?:lead|director|manager)\s+of\s+(?:the\s+)?{_UNIT_W}"
     rf"|\b{_UNIT_W}\s+(?:lead|leader|manager|director|supervisor)\b"
-    r"|\bteam\s?lead(?:er)?\b",
+    rf"|\b{_UNIT_W}\s+head\b(?![\s-]*(?:count|to\b))"
+    r"|\bteam\s?lead(?:er)?\b"
+    # Q1 (d): "Team Leiterin" as two words, "Abt.-Leiter", "Abteilungsltr.".
+    r"|\bteam[\s-]leiter(?:in)?\b"
+    r"|\babt\.?[\s-]*(?:leiter(?:in)?|leitung|ltr)\b"
+    rf"|\b{_UNIT_W}\w*?-?ltr\b",
     re.IGNORECASE,
 )
 #: A deputy title: a deputy marker before a head word in the same clause
@@ -139,9 +144,40 @@ _UNIT_HEAD_VERB = re.compile(
     rf"[^.;:]{{0,40}}?\b{_UNIT}",
     re.IGNORECASE,
 )
+#: Q1 (d): titles that are a position on their own, with no unit noun needed — a
+#: shift/group lead, a senior physician, a managing director, a procuration
+#: holder. Family ``office:<stem>``: held per title, never per word class.
+_OFFICE = re.compile(
+    r"\b(?P<stem>schichtf(?:ü|ue)hrer|gruppenf(?:ü|ue)hrer|oberarzt|oberärzt|oberaerzt"
+    r"|chefarzt|chefärzt|chefaerzt|gesch(?:ä|ae)ftsf(?:ü|ue)hrer|prokurist)(?:in)?\b"
+    r"(?!-(?:assist|büro|sekret|referent|schulung|ausbildung|lehrgang|kurs))",
+)
+_OFFICE_STEMS = (
+    ("schicht", "schichtfuehrer"), ("gruppen", "gruppenfuehrer"), ("ober", "oberarzt"),
+    ("chef", "chefarzt"), ("gesch", "geschaeftsfuehrer"), ("prokur", "prokurist"),
+)
+#: Q1 (d): an acting / interim marker directly before a head title is a position
+#: of its own even with no unit noun ("kommissarischer Leiter", "Interim Head",
+#: "Acting Manager", "i.V. Abteilungsleiter" is already a unit head). The marker
+#: may be followed by ONE modifier word that is not an article.
+_ACTING = re.compile(
+    r"\b(?:kommissarisch\w*|interimistisch\w*|interim|acting|i\.\s?v\.)\s+"
+    r"(?!(?:der|des|die|den|dem|the)\b)(?:[\w-]+\s+)?"
+    r"(?:leiter|leiterin|leitung|chef|chefin|head|manager|managerin|director|direktor"
+    r"|direktorin|gesch(?:ä|ae)ftsf(?:ü|ue)hrer(?:in)?)\b",
+)
+#: "Kommissarische Leitung des Projekts", "Interim Head of the migration": a task.
+_ACTING_TASK_AFTER = re.compile(
+    r"^\s*(?:des|der|von|vom|of|for|für|fuer|im|in|on|auf|bei)\b[^.;:]{0,40}?"
+    r"(?:projekt|project|programm|program|migration|rollout|einführung|einfuehrung)",
+    re.IGNORECASE,
+)
 _DASHES = re.compile(r"[‐-―−]")
 #: Clause boundaries a bullet is cut at: ";", a spaced dash, a sentence end.
-_CLAUSE_SPLIT = re.compile(r"(\s*;\s*|\s+[—–-]\s+|(?<=[.!?])\s+)")
+#: A title abbreviation's dot ("i.V.", "Abt.", "Stellv.") is no sentence end.
+_CLAUSE_SPLIT = re.compile(
+    r"(\s*;\s*|\s+[—–-]\s+|(?<=[.!?])(?<![iI]\.[vV]\.)(?<![aA]bt\.)(?<![sS]tellv\.)(?<![sS]tv\.)\s+)"
+)
 
 # ── whose title is it (MD-8, adversarial F1/F3) ──────────────────────────────
 #
@@ -165,9 +201,57 @@ _ARTICLE = (
 _THIRD_PARTY_BEFORE = re.compile(
     rf"(?:^|\s)(?P<pre>\S+\s+)?{_ARTICLE}\s+(?:[\w-]+\s+){{0,2}}$", re.IGNORECASE,
 )
+#: Q1 (d): a title right after "mit / an / unter / gegenüber / with / under /
+#: reported to" and no article ("Abstimmung mit Geschäftsführer") is someone else's.
+_PREP_THIRD_PARTY = re.compile(
+    r"(?:^|\s)(?:mit|an|unter|gegenüber|gegenueber|with|under"
+    # Adversarial M7 (MD-Q3): "Vorstellung BEIM Geschäftsführer", "Eingearbeitet
+    # VOM Schichtführer", "Betreut VON Oberarzt Müller", "DURCH", "BY". "zum/zur"
+    # stays the person's own ("Beförderung zum Teamleiter").
+    r"|beim|vom|von|durch|by"
+    # Delivery run 731e6454 (Stefan): "Disziplinarische Führung von 38
+    # Mitarbeitenden ÜBER drei Schichtleiter" held "Schichtleiter" — his reports'
+    # title — and the position check asked him right after he had answered the
+    # leadership-kind question. "über/over" a title leads it; a count before a
+    # title (below) names a group of people, never the person's position.
+    r"|über|ueber|over"
+    r"|(?:reported|reports|reporting|report|berichtete|berichtet)\s+(?:\w+\s+)?(?:to|an))"
+    r"\s+(?:[\w-]+\s+)?$", re.IGNORECASE,
+)
+#: A count right before a title ("drei Schichtleiter", "4 team leads", "mehrere
+#: erfahrene Teamleiterinnen") is a group of people, not the person's position.
+_COUNT_BEFORE = re.compile(
+    r"(?:^|\s)(?<![./])(?:\d{1,3}|zwei|drei|vier|f(?:ü|ue)nf|sechs|sieben|acht|neun|zehn|elf|zw(?:ö|oe)lf"
+    r"|mehrere\w*|einige\w*|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve"
+    r"|several|multiple)\s+(?!(?:jahr\w*|monat\w*|years?|months?|wochen|weeks?)\b)(?:[\w-]+\s+)?$",
+    re.IGNORECASE,
+)
+#: M7: a reporting line before the title ("Berichtslinie zum Geschäftsführer").
+_REPORT_LINE_BEFORE = re.compile(
+    r"\b(?:berichtslinie|berichtsweg|reporting\s+line|report\s+line)\b", re.IGNORECASE,
+)
+#: M7 / L1: what comes right AFTER a title that makes it no position of the
+#: person — a topic noun ("Teamleiter-Schulung", "Schichtführer-Qualifikation",
+#: "Department head meetings"), another holder ("Teamleiter war Frau X"), or the
+#: title as the object of a participle ("Gruppenführerin unterstützt",
+#: "Schichtführer eingearbeitet", "Team Leiter geschult").
+_NOT_A_POSITION_AFTER = re.compile(
+    r"^(?:[\s-]*(?:meetings?|runden?|treffen|konferenz\w*|schulung\w*|trainings?|seminar\w*"
+    r"|workshops?|qualifikation\w*|lehrg(?:a|ä)ng\w*|kurs\w*|pr(?:ü|ue)fung\w*"
+    r"|ausbildung\w*|kreis\w*|runde\w*)\b"
+    r"|\s+(?:war|ist|was|is|wurde|became)\s+(?:frau|herr|dr\b|der|die|das|mein\w*|unser\w*"
+    r"|ein\w*|the|my|our|a|an)\b"
+    r"|\s+(?:unterstützt|unterstuetzt|eingearbeitet|geschult|betreut|begleitet|beraten"
+    r"|gecoacht|informiert|vertreten|entlastet|trainiert|eingewiesen|supported|trained"
+    r"|coached|onboarded|assisted)\b)",
+    re.IGNORECASE,
+)
 _SELF_BEFORE_ARTICLE = re.compile(
     r"^(?:als|as|bin|war|wurde|bist|is|was|am|became|become)\s+$", re.IGNORECASE,
 )
+#: "ALS Schichtführer eingearbeitet": the person in the title — the after-rule
+#: above does not apply.
+_SELF_PREFIX = re.compile(r"\b(?:als|as|ich\s+war|ich\s+bin|i\s+was|i\s+am)\s+(?:[\w-]+\s+)?$", re.IGNORECASE)
 _NEGATION_BEFORE = re.compile(
     r"\b(?:nie|niemals|nicht|kein\w*|never|not|no\s+longer)\b", re.IGNORECASE,
 )
@@ -183,6 +267,7 @@ _GENERIC_UNITS = frozenset({
     "abteilung", "bereich", "team", "gruppe", "department", "division", "unit", "group",
 })
 _UNIT_FIND = re.compile(rf"\b({_UNIT}){_NOT_PROJECT}", re.IGNORECASE)
+_UNIT_ALIAS = {"dept": "department"}
 _FIRST_PERSON = re.compile(
     r"\b(?:ich|mich|mir|mein\w*|i|i'm|i've|i'd|me|my)\b", re.IGNORECASE,
 )
@@ -202,9 +287,14 @@ def _is_persons(folded: str, start: int, end: int) -> bool:
         pre = third.group("pre") or ""
         if not _SELF_BEFORE_ARTICLE.match(pre):
             return False
+    if _PREP_THIRD_PARTY.search(prefix) or _REPORT_LINE_BEFORE.search(prefix) or _COUNT_BEFORE.search(prefix):
+        return False
     if _NEGATION_BEFORE.search(prefix):
         return False
-    return not _TASK_SCOPE_AFTER.match(folded[end:])
+    after = folded[end:]
+    if _NOT_A_POSITION_AFTER.match(after) and not _SELF_PREFIX.search(prefix):
+        return False
+    return not _TASK_SCOPE_AFTER.match(after)
 
 
 def _units(folded: str, start: int, end: int) -> frozenset[str]:
@@ -213,7 +303,8 @@ def _units(folded: str, start: int, end: int) -> frozenset[str]:
     tail = folded[end:end + 40]
     stop = _TAIL_STOP.search(tail)
     span = folded[start:end] + (tail[:stop.start()] if stop else tail)
-    return frozenset(m.group(1).lower() for m in _UNIT_FIND.finditer(span))
+    return frozenset(_UNIT_ALIAS.get(u, u) for u in (
+        m.group(1).lower() for m in _UNIT_FIND.finditer(span)))
 
 
 #: MD-8 sweep (Addendum 4): a German title written as the SUBJECT of a plural
@@ -228,7 +319,7 @@ _SUBJECT_OF_PLURAL_VERB = re.compile(
     r"|zwischen|neben|gegen|wegen|binnen|oben|unten|eben)\b)"
     r"([a-zäöüß][a-zäöüß]*(?:en|ern|eln))\b",
 )
-_HEAD_DE_RE = re.compile(_HEAD_DE)
+_HEAD_DE_RE = re.compile(rf"{_HEAD_DE}|f(?:ü|ue)hrer|arzt|ärztin|aerztin|prokurist")
 _NEXT_WORD = re.compile(r"\s+([\w-]+)")
 
 
@@ -244,6 +335,10 @@ def _is_plural_subject(folded: str, start: int, end: int, subjects: set[tuple[st
     return bool(words and nxt) and (words[-1], nxt.group(1)) in subjects
 
 
+def _office_family(stem: str) -> str:
+    return "office:" + next(name for pre, name in _OFFICE_STEMS if stem.startswith(pre))
+
+
 def _claim_spans(folded: str, raw: str = "") -> list[tuple[str, int, int]]:
     """``(family, start, end)`` of every title FOR THE PERSON in ``folded``
     (``raw``: the same text as written, for the case-sensitive subject check).
@@ -251,11 +346,22 @@ def _claim_spans(folded: str, raw: str = "") -> list[tuple[str, int, int]]:
     subjects = _plural_subjects(raw)
     deputy = [("deputy", m.start(), m.end()) for m in _DEPUTY_TITLE.finditer(folded)
               if _is_persons(folded, m.start(), m.end())]
+    heads = [("unit_head", m.start(), m.end()) for m in _UNIT_HEAD.finditer(folded)
+             if _is_persons(folded, m.start(), m.end())
+             and not _is_plural_subject(folded, m.start(), m.end(), subjects)]
+    # Q1 (d): titles with no unit noun of their own.
+    extra = [(_office_family(m.group("stem")), m.start(), m.end())
+             for m in _OFFICE.finditer(folded)
+             if _is_persons(folded, m.start(), m.end())
+             and not _is_plural_subject(folded, m.start(), m.end(), subjects)]
+    extra += [("acting", m.start(), m.end()) for m in _ACTING.finditer(folded)
+              if _is_persons(folded, m.start(), m.end())
+              and not _ACTING_TASK_AFTER.match(folded[m.end():])]
     if deputy:
-        return deputy
-    return [("unit_head", m.start(), m.end()) for m in _UNIT_HEAD.finditer(folded)
-            if _is_persons(folded, m.start(), m.end())
-            and not _is_plural_subject(folded, m.start(), m.end(), subjects)]
+        # A deputy title wins over the head title it contains (an office or acting
+        # title elsewhere in the text still counts).
+        return deputy + [c for c in extra if not any(c[1] < d[2] and d[1] < c[2] for d in deputy)]
+    return heads + extra
 
 
 def position_claims(text: str) -> list[tuple[str, str]]:
@@ -598,3 +704,47 @@ def plan_position_resolution(
         text = str(item.get("text") or "") if confirmed else str(item.get("task_text") or "")
         plan.append((item, text.strip()))
     return plan
+
+
+# ── Sorbet WP-Q1 (c): a JD title term is not the person's word ────────────────
+#
+# Platform-1 rerun (Stefan, luna): the posting's "Bereichsleiter" was graded
+# ``partial`` against "Verantwortung für zwei Fertigungsbereiche", became a
+# CLAIMABLE ledger row, the terminal reviewer's VERIFIED COVERAGE demanded it
+# twice (rec 158, 172) and the corrector wrote "Verantwortung als Bereichsleiter"
+# (rec 173) — a title the person never held. The same vocabulary that asks the
+# person before a title enters the vault (T-1) answers, as a fact, whether the
+# vault's own text holds the title a ledger term names (ADR-062 cl. 1).
+
+
+def _vault_own_texts(profile_json: dict[str, Any] | None) -> list[str]:
+    if not isinstance(profile_json, dict):
+        return []
+    texts: list[str] = []
+    for w in profile_json.get("work_experience") or []:
+        if isinstance(w, dict):
+            texts += _strings({k: w.get(k) for k in (
+                "role", "role_aliases", "responsibilities", "achievements", "description",
+            )})
+    texts += _strings(profile_json.get("professional_summary"))
+    return [t for t in texts if t.strip()]
+
+
+def unheld_title_term(term: str, profile_json: dict[str, Any] | None) -> str | None:
+    """The title ``term`` names, when ``term`` IS a position title for the person
+    (the whole term, not a duty phrase that contains one — "Führung von
+    Bereichsleitern" is not) and the vault's own text — role titles, aliases,
+    bullets, professional summary — holds no such title; else ``None``."""
+    folded = _fold(term).strip()
+    if not folded:
+        return None
+    keys = _claim_keys(term)
+    if not keys or any(phrase.strip() != folded for _k, phrase in keys):
+        return None
+    held: set[TitleKey] = set()
+    for text in _vault_own_texts(profile_json):
+        held |= _held_titles(text, first_person=False)
+    for key, phrase in keys:
+        if not _key_held(key, held):
+            return phrase
+    return None

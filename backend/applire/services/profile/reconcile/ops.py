@@ -1313,6 +1313,35 @@ class AnswerAspiration(BaseModel):
 
 _ADAPTER_ONLY = _ADAPTER_ONLY + (RecordAspirationVerdicts, AnswerAspiration)
 
+
+class RecordLeadershipKind(BaseModel):
+    """MD-Q5 (Sorbet quality-1) — the person's answer to the dedicated
+    leadership-kind question for ONE role — ADAPTER-ONLY, never model-emittable.
+
+    ``option`` is the fixed option they picked: ``disciplinary`` and ``both``
+    store ``leadership_kind = "disciplinary"``, ``functional`` stores
+    ``"functional"``, ``own_words`` / ``skipped`` store none (the neutral line).
+    Either way ``leadership_kind_record`` is written, so the role is not asked
+    again. Applied by ``services/profile/leadership_kind.apply_leadership_kind_op``."""
+
+    op: Literal["record_leadership_kind"] = "record_leadership_kind"
+    #: The role: its entry id, or — for an entry stored without one — its
+    #: company and role (exactly one entry must carry them).
+    entry_id: str = ""
+    company: str = ""
+    role: str = ""
+    option: Literal["disciplinary", "functional", "both", "own_words", "skipped"]
+    answer: str = ""
+    source: str = "interview"
+
+
+_ADAPTER_ONLY = _ADAPTER_ONLY + (RecordLeadershipKind,)
+
+#: MD-Q5 — the work-entry fields only ``RecordLeadershipKind`` writes. Read by
+#: the engine's raw-op refusal and the committer's class guard
+#: (``apply._restore_leadership_kind``) — one constant.
+LEADERSHIP_KIND_FIELDS = ("leadership_kind", "leadership_kind_record")
+
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
 
 DecisionOp = Annotated[Union[_ADAPTER_ONLY], Field(discriminator="op")]

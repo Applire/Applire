@@ -585,7 +585,16 @@ def derive_coverage(cluster: dict[str, Any], keyword_ledger: list[dict[str, Any]
 
 
 def remaining_budget(cluster: dict[str, Any], per_gap: int = INTERVIEW_MAX_QUESTIONS_PER_GAP) -> int:
-    """``per_gap - outcome.asked``, floored at 0 (ADR-089 clause 1)."""
+    """``per_gap - outcome.asked``, floored at 0 (ADR-089 clause 1). A scope
+    cluster's budget is 1 (ADR-089 amended 2026-11-14, WP-Q2): its one
+    fact-built question already names the posting's figure."""
+    from applire.services.interview.scope_question import (
+        SCOPE_QUESTIONS_PER_GAP,
+        is_scope_cluster,
+    )
+
+    if is_scope_cluster(cluster):
+        per_gap = min(int(per_gap), SCOPE_QUESTIONS_PER_GAP)
     return max(0, int(per_gap) - _outcome_of(cluster)["asked"])
 
 
@@ -901,8 +910,13 @@ async def record_turn_outcome(
     session_id: str,
     charge: bool = True,
     user_id: uuid.UUID | None = None,
+    recorded_limits: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Persist one answered turn's outcome (ADR-089 clause 3).
+
+    ``recorded_limits`` (MD-Q5 (2)): on a SCOPE cluster, the denial ids this
+    turn's reconcile recorded — kept on the cluster (``recorded_limits``) so the
+    next analysis can bind them to that bar structurally.
 
     ADR-092 (Strawberry W2, 3c catch-all): the posting is shared, the gap
     analyses are per user — the target is the OWNER's row only (explicit
@@ -967,6 +981,11 @@ async def record_turn_outcome(
                 keyword_ledger=target.keyword_ledger,
                 charge=charge,
             )
+            limits = [str(x).strip() for x in recorded_limits or [] if str(x or "").strip()]
+            if limits and c.get("kind") == "scope":
+                updated["recorded_limits"] = list(dict.fromkeys(
+                    [*(c.get("recorded_limits") or []), *limits]
+                ))
             new_clusters.append(updated)
         else:
             new_clusters.append(c)
