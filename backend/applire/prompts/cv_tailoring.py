@@ -557,8 +557,16 @@ V2_NOT_YET_REACHED_RULE = (
     "yet: write each as an aim, target or mandate, never as a result."
 )
 
+#: Sorbet WP-Q3 (2026-11-15): rule 7's product-and-modules shape — "SAP" beside "SAP PP"
+#: and "SAP MM" from round 1 in 4 of 4 marcus bench runs (base 956bad2f, luna). v2 only,
+#: for the same reason as above (test_545).
+_V2_RULE7_ANCHOR = '"MES (Maschinen- und Betriebsdatenerfassung)".'
+V2_PRODUCT_MODULES_RULE = 'A product and its modules are one entry too: "SAP (PP, MM)", never "SAP", "SAP PP" and "SAP MM".'
+assert SYSTEM_PROMPT.count(_V2_RULE7_ANCHOR) == 1, "rule 7 moved — re-derive V2_SYSTEM_PROMPT"
+
 V2_SYSTEM_PROMPT = (
     SYSTEM_PROMPT.replace(_V2_RULE3_ANCHOR, _V2_RULE3_ANCHOR + " " + V2_NOT_YET_REACHED_RULE)
+    .replace(_V2_RULE7_ANCHOR, _V2_RULE7_ANCHOR + " " + V2_PRODUCT_MODULES_RULE)
     .replace(_V1_FACTS_PARAGRAPH, _V2_FACTS_PARAGRAPH)
     .replace(_V1_SCHEMA, _V2_SCHEMA)
     .replace(_V2_BUDGET_SENTENCE, _V2_BUDGET_REPLACEMENT)
@@ -684,6 +692,11 @@ def build_v2_fields_block(
     return "\n".join(lines)
 
 
+# Sorbet WP-Q3 (2026-11-15, bench base 956bad2f, luna): the terminal corrector added
+# "Budget responsibility" beside "Budget planning" and "Continuous improvement" beside
+# "KVP/Kaizen" on coverage demands (marcus cross_de2en run 0, rounds 1 and 2) — the
+# ONE ENTRY PER COMPETENCE line below; rule 7 gains the product-and-modules shape
+# ("SAP" beside "SAP PP"/"SAP MM" in 4 of 4 marcus runs, from round 1).
 V2_REFINEMENT_ADDENDUM = """
 - CV PIPELINE v2: your JSON also carries `role`, `company` and `industry_context` per work
   entry and the `education` and `languages` rows (see the VAULT FIELDS block in the
@@ -695,6 +708,10 @@ V2_REFINEMENT_ADDENDUM = """
   trims or re-adds content after you: a project you omit is not re-joined, and a bullet over
   a role's budget is yours to cut or merge. A CODE CHECKS finding in the feedback is a fact
   about the draft — fix it.
+- ONE ENTRY PER COMPETENCE (rule 7) holds in every correction: a finding that asks for a
+  competence the skills list already carries under another name (a translation, an
+  acronym, a synonym — "KVP/Kaizen" is continuous improvement) is met by that entry; show
+  it in a bullet, never add a second entry for it.
 - LISTED-ONLY TERMS (ruling V-1): a KEYWORD LEDGER row marked
   [listed only — no role bullet or story states it] may be named in the skills list or a
   list of tools, never written into a bullet or the summary as a responsibility, ownership

@@ -263,6 +263,31 @@ def _by_id(rows: Any) -> dict[str, dict]:
     }
 
 
+def unique_skill_entries(skills: Sequence[str] | None) -> list[str]:
+    """The skills list with every entry that is IDENTICAL to an earlier one dropped
+    (NFKC, case and whitespace folded) — the first occurrence keeps its position.
+
+    Sorbet WP-Q3 (bench 2026-11-15, base 956bad2f, luna): "Work preparation" shipped
+    twice (marcus cross_de2en run 1) and "Budgetierung & Forecast" twice reached the
+    terminal review (emma mixed_de run 1). Both were made by the CV language pass,
+    which is told to translate a bilingual twin into the EXACT wording of its sibling
+    because "the document's own dedup removes it" (prompts/review_cv_language.py) — a
+    consumer v1's ``_dedup_skills`` provided and v2 dropped (ADR-094: that pass became
+    a finding). The last language recheck runs after the terminal review, so no round
+    sees its output. Two identical strings are one entry: an identity FACT (ADR-062
+    cl. 1), not a sameness judgement — near and semantic duplicates stay the writer's
+    and the corrector's (``cv.skill_duplicate``)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for s in skills or []:
+        key = " ".join(unicodedata.normalize("NFKC", str(s)).casefold().split())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
 def compose_v2(
     prose: dict,
     profile_json: dict,
@@ -300,6 +325,7 @@ def compose_v2(
     tailored = TailoredCVData.model_validate(assemble_tailored_cv(prose, profile_json))
     tailored = _apply_certifications(tailored, profile_json)
     tailored = _apply_role_facts(tailored, profile_json, preseed=None)
+    tailored = tailored.model_copy(update={"skills": unique_skill_entries(tailored.skills)})
 
     vault_work = _by_id(profile_json.get("work_experience"))
     prose_work = _by_id(prose.get("work"))
@@ -1160,13 +1186,24 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
         ))
     dupes = removed(s0, s1)
     if dupes:
+        # Sorbet WP-Q3: the finding named only the dropped side ("“SAP”"), so the
+        # corrector could not see which entry it repeats and left both through four
+        # rounds (bench 2026-11-15, marcus cross_de2en run 0). The pair is the fact.
+        from applire.services.ats_audit import skills_page_dupe
+
+        def _pair(d: str) -> str:
+            others = [k for k in s0.skills if k != d and skills_page_dupe(k, d)]
+            return f"“{d}” beside {_fmt(others[:3])}" if others else f"“{d}”"
+
         out.append(CheckFinding(
             check="cv.skill_duplicate",
             subjects=tuple(dupes),
             blocking=False,
             text=(
-                f"These skills entries repeat another entry on the page (one is contained "
-                f"in the other): {_fmt(dupes)}. If they name one competence, keep one form."
+                "These skills entries repeat another entry on the page (one is contained "
+                f"in the other): {'; '.join(_pair(d) for d in dupes[:_MAX_ITEMS_PER_FINDING])}. "
+                "If they name one competence, keep one form or join them into one entry "
+                "(“SAP (PP, MM)”); two distinct skills both stay."
             ),
         ))
     narrated = added(s4, s5)
