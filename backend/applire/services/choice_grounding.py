@@ -1320,8 +1320,20 @@ def strip_offered_opening(answer: Any, offered: Any) -> tuple[str, bool]:
     inserted, colon included. Anywhere else the same words are the person's
     own and stay (a generic "Zu X bei Y" can be their phrase). The opening is
     system-authored, so only ``rest`` is the person's words."""
+    rest, cut = _cut_prefix_opening(answer, offered)
+    return rest, cut is not None
+
+
+def cut_opening_text(answer: Any, offered: Any) -> str | None:
+    """MD-Q13 N5 — the offered opening this answer STARTS with (the text
+    :func:`strip_offered_opening` cuts), or ``None``. Only this opening frames
+    the answer: the same opening found anywhere else is the person's phrase."""
+    return _cut_prefix_opening(answer, offered)[1]
+
+
+def _cut_prefix_opening(answer: Any, offered: Any) -> tuple[str, str | None]:
     if not isinstance(answer, str) or not isinstance(offered, dict):
-        return (answer if isinstance(answer, str) else ""), False
+        return (answer if isinstance(answer, str) else ""), None
     lead = answer.lstrip()
     for text, meta in offered.items():
         if not isinstance(meta, dict) or meta.get("level") != "partial":
@@ -1329,8 +1341,8 @@ def strip_offered_opening(answer: Any, offered: Any) -> tuple[str, bool]:
         raw = str(text).strip()
         if not raw.endswith(":") or not lead.startswith(raw):
             continue
-        return lead[len(raw):].strip(), True
-    return answer, False
+        return lead[len(raw):].strip(), raw
+    return answer, None
 
 
 def is_bare_completion(rest: str) -> bool:
