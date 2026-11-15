@@ -646,13 +646,14 @@ def build_v2_fields_block(
     for w in profile.get("work_experience") or []:
         if not isinstance(w, dict) or not w.get("id"):
             continue
-        # RULING Q3-1 / MD-Q7 (delivery 1b, Cross): the FACT that none of this role's
-        # recorded names is in the OUTPUT LANGUAGE (``cv_v2.translated_role_ids``) is
-        # stated on the role, so no round reads the recorded list as "use one exactly".
-        # The translation itself stays the model's (never upgraded).
+        # RULING R-2 / Q3-1, MD-Q9 R2 (delivery 1b, Cross): in a document whose
+        # language is not the vault's own, a title recorded in ONE form says so
+        # (``cv_v2.translated_role_ids``), so no round reads "use one exactly" as
+        # "keep the recorded wording". The translation stays the model's.
         role_note = (
-            " — none is in the OUTPUT LANGUAGE: write the title's established equivalent "
-            "in the OUTPUT LANGUAGE (never upgraded), in every round"
+            " — recorded in one form only, so not a name to copy: write this title's "
+            "established equivalent in the OUTPUT LANGUAGE (never upgraded), in every round; "
+            "a title already spelled the same in the OUTPUT LANGUAGE stays as it is"
             if str(w["id"]) in translated_roles else ""
         )
         line = (

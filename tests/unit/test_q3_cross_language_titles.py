@@ -1,16 +1,15 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Sorbet WP-Q3 (founder question Q3-1, recommendation A): a role title in a
-document whose language is not the vault's own is the writer's translation, also
-when the vault records German aliases for it.
+"""Sorbet WP-Q3, RULING R-2 / Q3-1 as amended by MD-Q9 R2: a role title recorded
+in ONE form is the writer's translation; a role with several recorded names
+prints one of them, in every document (no language is read from a title or from
+prose). The VAULT FIELDS block states the one-form fact in a cross-language
+document. Employer, degree and institution keep the check.
 
-Bench 2026-11-15 (base 956bad2f, luna, operations_marcus_de.cross_de2en runs 0+1):
-the writer translated every title in round 1; compose rejected "Production
-Leader" and "Industrial Mechanic" (their aliases "Projektleiter" and
-"Industriemechaniker / Vorarbeiter" are German), and the cv.recorded_name finding
-("never translate or invent a name") had the terminal corrector revert every
-title — the EN CV shipped "Produktionsleiter", "Fertigungsmeister / Schichtleiter",
-"Industriemechaniker". Employer, degree and institution keep the check."""
+Bench 2026-11-15 (base 956bad2f, luna, operations_marcus_de.cross_de2en): the
+writer translated every title in round 1, and the recorded-name finding had the
+terminal corrector revert them all. Delivery 1b (Cross): the writer translated,
+later rounds re-picked the German recorded names."""
 from __future__ import annotations
 
 from applire.services.cv_v2 import ComposeNotes, V2CheckContext, V2Terminal, compose_v2
@@ -43,8 +42,19 @@ def _compose(language):
     return out, notes
 
 
-def test_a_cross_language_title_with_aliases_is_the_writers_translation():
+def test_a_title_with_several_recorded_names_prints_one_of_them_md_q9_r2():
+    """MD-Q9 R2: "Produktionsleiter" + alias "Projektleiter" — the EN document's
+    "Production Manager" is neither recorded name: the stored name and the finding,
+    exactly as in a same-language document."""
     out, notes = _compose("en")
+    assert out.work_history[0].role == "Produktionsleiter"
+    assert [n[0] for n in notes.names_not_recorded if n[0] == "work w1 role"] == ["work w1 role"]
+
+
+def test_a_title_recorded_in_one_form_is_the_writers_translation():
+    vault = {**_VAULT, "work_experience": [{**_VAULT["work_experience"][0], "role_aliases": []}]}
+    notes = ComposeNotes()
+    out = compose_v2(_PROSE, vault, notes=notes, document_language="en")
     assert out.work_history[0].role == "Production Manager"
     assert not [n for n in notes.names_not_recorded if n[0] == "work w1 role"]
 
@@ -65,8 +75,9 @@ def test_employer_and_degree_keep_the_check_across_languages():
 
 def test_the_terminal_compose_passes_the_document_language():
     """Seam: V2Terminal.compose (every terminal round) hands ctx.language on."""
-    t = V2Terminal(ctx=V2CheckContext(profile_json=_VAULT, keyword_ledger=[], job_dict={}, language="en"))
-    out = t.compose(_PROSE, _VAULT, None)
+    vault = {**_VAULT, "work_experience": [{**_VAULT["work_experience"][0], "role_aliases": []}]}
+    t = V2Terminal(ctx=V2CheckContext(profile_json=vault, keyword_ledger=[], job_dict={}, language="en"))
+    out = t.compose(_PROSE, vault, None)
     assert out.work_history[0].role == "Production Manager"
 
 
@@ -79,30 +90,29 @@ def test_the_language_round_compose_passes_the_document_language():
     assert "document_language=document_language" in src[i:i + 600]
 
 
-# ── MD-Q7 F1 (adversarial 1b, probe p3.py): the waiver is per role ───────────
-_DE = ["Verantwortlich für die Fertigungsplanung und Schichtleitung.",
-       "Einführung von SAP PP in der Fertigung, Leitung des Teams und Abstimmung mit der Qualität."]
+# ── MD-Q7 F1 / MD-Q9 R2 (adversarial 1b, probes p3.py and r1.py) ─────────────
+_DE = ["Verantwortlich für die Fertigungsplanung und die Leitung der Schichtteams im gesamten Werk.",
+       "Einführung des neuen MES gemeinsam mit der Qualität und der IT."]
+_EN = ["Responsible for the production planning and the management of the shift teams across the plant.",
+       "Introduced the new MES together with the quality department and the IT team."]
 
 
-def _probe(role, aliases, writer_role, lang):
+def _probe(role, aliases, writer_role, lang, prose=_DE):
     vault = {"personal_info": {"name": "M"}, "work_experience": [{
         "id": "w1", "company": "Weberit", "role": role, "role_aliases": aliases,
-        "start_date": "2019-01", "responsibilities": _DE}], "skills": [], "education": []}
-    prose = {"summary": "x", "work": [{"id": "w1", "role": writer_role, "bullets": ["Led shift planning."],
+        "start_date": "2019-01", "responsibilities": prose}], "skills": [], "education": []}
+    draft = {"summary": "x", "work": [{"id": "w1", "role": writer_role, "bullets": ["Led shift planning."],
                                        "projects": []}], "skills": []}
     notes = ComposeNotes()
-    out = compose_v2(prose, vault, notes=notes, document_language=lang)
+    out = compose_v2(draft, vault, notes=notes, document_language=lang)
     return out.work_history[0].role, [n[0] for n in notes.names_not_recorded]
 
 
-def test_a_recorded_alias_whose_language_is_unknown_keeps_the_check_md_q7_f1():
-    """p3.py: "Production Manager" is recorded; the writer's "Head of Production" is
-    neither recorded name — compose keeps the stored name and raises the finding,
-    exactly as in a same-language document."""
-    assert _probe("Produktionsleiter", ["Production Manager"], "Head of Production", "en") == (
-        "Produktionsleiter", ["work w1 role"])
-    assert _probe("Produktionsleiter", ["Production Manager"], "Head of Production", "de") == (
-        "Produktionsleiter", ["work w1 role"])
+def test_a_recorded_alias_keeps_the_check_md_q7_f1():
+    """p3.py: "Production Manager" is recorded; "Head of Production" is neither name."""
+    for lang in ("en", "de"):
+        assert _probe("Produktionsleiter", ["Production Manager"], "Head of Production", lang) == (
+            "Produktionsleiter", ["work w1 role"])
 
 
 def test_the_recorded_document_language_form_is_accepted_md_q7_f1():
@@ -110,24 +120,38 @@ def test_the_recorded_document_language_form_is_accepted_md_q7_f1():
         "Production Manager", [])
 
 
-def test_a_name_in_the_document_language_blocks_the_waiver_md_q7_f1():
-    """Own evidence: "Head of Operations" carries an English function word, so an EN
-    document must pick a recorded form."""
-    assert _probe("Produktionsleiter", ["Head of Operations"], "Production Leader", "en") == (
-        "Produktionsleiter", ["work w1 role"])
+# r1.py, the reviewer's inputs: the outcome follows the number of recorded names,
+# never the language of the title or of the entry's prose.
+_R1 = [
+    ("Head of Controlling / Leiter Controlling", [], True),   # one stored form = one name
+    ("Teamleader", [], True),
+    ("Projektleiter", [], True),
+    ("Controller", [], True),
+    ("Marketing Manager", [], True),
+    ("Sachbearbeiter", ["Clerk"], False),
+    ("Leiter Controlling", ["Head of Controlling"], False),
+    ("Teamleiter", ["Team Lead"], False),
+]
 
 
-def test_recorded_name_language_reads_the_record():
-    from applire.services.cv_v2 import recorded_name_language
+def test_the_rule_reads_no_language_md_q9_r2():
+    from applire.services.cv_v2 import role_title_is_translated
 
-    sentences = ["2023 als Projektleiter die Einführung eines MES-Systems verantwortet.",
-                 "Facharbeiter in der Instandhaltung, später Vorarbeiter."]
-    assert recorded_name_language("Head of Production", []) == "en"
-    assert recorded_name_language("Projektleiter", sentences) == "de"
-    assert recorded_name_language("Production Manager", sentences) is None
-    assert recorded_name_language("Industriemechaniker / Vorarbeiter", sentences,
-                                  {"industriemechaniker": "de"}) == "de"
-    assert recorded_name_language("Industriemechaniker / Vorarbeiter", sentences) is None
+    for role, aliases, one_form in _R1:
+        e = {"id": "w1", "role": role, "role_aliases": aliases}
+        for prose in (_DE, _EN):
+            for doc in ("de", "en"):
+                v = {"work_experience": [{**e, "responsibilities": prose}]}
+                assert role_title_is_translated(e, v, doc) is one_form, (role, aliases, doc)
+
+
+def test_several_recorded_names_enforce_in_either_prose_language_md_q9_r2():
+    """r1.py: "Leiter Controlling" + "Head of Controlling" in English prose, German
+    document — the old reader judged both English and waived the check."""
+    for prose in (_DE, _EN):
+        for doc in ("de", "en"):
+            assert _probe("Leiter Controlling", ["Head of Controlling"], "Head of Finance", doc, prose) == (
+                "Leiter Controlling", ["work w1 role"])
 
 
 # ── Delivery 1b (Cross, rec 241/256): every round is told the translation fact ──
@@ -146,18 +170,21 @@ def test_the_vault_fields_block_states_the_translation_fact_cross_language_only(
     vault = vault.get("profile") or vault
     en = build_v2_fields_block_for(vault, {}, [], "en")
     de = build_v2_fields_block_for(vault, {}, [], "de")
+    note = "recorded in one form only"
     roles_en = [line for line in en.splitlines() if "  - work [" in line]
-    assert roles_en and all("none is in the OUTPUT LANGUAGE" in line for line in roles_en)
-    assert "none is in the OUTPUT LANGUAGE" not in de  # a same-language prompt is unchanged
+    # MD-Q9 R2: only the one-form title is marked (w2 "Fertigungsmeister /
+    # Schichtleiter"); w1 and w3 have an alias and print a recorded name
+    assert [note in line for line in roles_en] == [False, True, False]
+    assert note not in de  # a same-language prompt is unchanged
     assert de == build_v2_fields_block_for(vault, {}, [])
 
 
-def test_an_alias_of_unknown_language_is_not_marked_for_translation():
+def test_a_role_with_an_alias_is_not_marked_for_translation():
     from applire.services.cv_v2 import build_v2_fields_block_for
 
     vault = {"work_experience": [{"id": "w1", "role": "Produktionsleiter", "role_aliases": ["Production Manager"],
                                   "company": "W", "responsibilities": _DE}], "skills": []}
-    assert "none is in the OUTPUT LANGUAGE" not in build_v2_fields_block_for(vault, {}, [], "en")
+    assert "recorded in one form only" not in build_v2_fields_block_for(vault, {}, [], "en")
 
 
 def test_the_generation_seam_passes_the_document_language_to_the_block():

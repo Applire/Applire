@@ -671,6 +671,31 @@ def late_unbacked_chips(
     ]
 
 
+def denied_unbacked_chips(
+    skills: list[str], *, profile_json: Any, keyword_ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """MD-Q8 widened (delivery-1b re-run, Katrin "Projektcontrolling"): a shipped
+    chip that a recorded denial covers (the Oracle's own cover, ``backing._denied``
+    over ``denials_covering`` — ADR-064's scope reader) AND the Oracle's
+    deterministic skill producer does not back. Audited or not, tied or not: the
+    person said no, and nothing in the profile says yes. A chip the person added or
+    confirmed is a vault skill the producer backs, so it is never taken. Never
+    raises: a failure takes nothing."""
+    try:
+        from applire.services.oracle.audit import _claimable_index
+        from applire.services.oracle.backing import _denied
+
+        index = _claimable_index(profile_json)
+        return [
+            s for s in skills
+            if isinstance(s, str) and _denied([s], index)
+            and not skill_backed_on_profile(s, profile_json, keyword_ledger)
+        ]
+    except Exception:  # noqa: BLE001
+        logger.exception("denied-chip check failed — nothing taken")
+        return []
+
+
 def late_chip_findings(chips: list[str], skills: list[str]) -> list[TruthFinding]:
     """The removal records of ``late_unbacked_chips`` — a truth-round finding each."""
     return [

@@ -5114,8 +5114,9 @@ async def _render_cv_background(
                 # report calls in ``_update_ats_report``, with the same provider,
                 # document language and keyword ledger (it used to pass neither).
                 truth_round = None
-                # MD-Q8: the chips the truth round's audit saw — a chip added after
-                # it is the delivery-side removal's population.
+                # MD-Q8 / MD-Q9 R10: the chips the truth round audited AND left in
+                # the draft — a chip added (or re-added) after it is the
+                # delivery-side removal's population.
                 truth_audit_skills: list | None = None
                 try:
                     from applire.services.attribution_round import run_truth_round
@@ -5146,6 +5147,9 @@ async def _render_cv_background(
                     prose_draft = truth_round.draft
                     if pipeline == PIPELINE_V2:
                         prose_draft = carry_v2_fields(prose_draft, pre_round_draft)
+                    # MD-Q9 R10: the baseline is the draft AFTER the round — a chip
+                    # the round removed and a later round re-adds is not "audited".
+                    truth_audit_skills = list(prose_draft.get("skills") or [])
                 except Exception:
                     logger.exception(
                         "The ADR-071 clause 3 attribution round failed for CV %s — "
@@ -7264,12 +7268,17 @@ def _drop_late_unbacked_chips(
     keyword_ledger: list[dict] | None,
 ) -> tuple[dict, "TailoredCVData | None", list]:
     """MD-Q8 (ruling Q3-5 A): the shipped skills chips that
-    ``attribution_round.late_unbacked_chips`` names are taken out of the prose
+    ``attribution_round.late_unbacked_chips`` or ``denied_unbacked_chips`` name
+    are taken out of the prose
     draft, the delivered data and the raw compose alike; the removal records go
     back to the caller (the truth round's ``late_removed``). Runs before the
     subject hash is taken, so the delivered subject is the reported one. No model
     call; never raises — a failure keeps the draft as it is."""
-    from applire.services.attribution_round import late_chip_findings, late_unbacked_chips
+    from applire.services.attribution_round import (
+        denied_unbacked_chips,
+        late_chip_findings,
+        late_unbacked_chips,
+    )
     from applire.services.cv_section_editor import build_content_snapshot
     from applire.services.cv_v2 import canonical
 
@@ -7279,10 +7288,15 @@ def _drop_late_unbacked_chips(
             s for f in v2.delivered_findings(prose_draft, record.tailored_data)
             if f.check == "cv.skill_untied" for s in f.subjects
         ]
-        chips = late_unbacked_chips(
+        late = set(late_unbacked_chips(
             shipped, audited_skills=audited_skills, untied=untied,
             profile_json=profile_json, keyword_ledger=keyword_ledger,
-        )
+        ))
+        # widened (delivery-1b re-run): a chip a recorded denial covers and nothing backs
+        late |= set(denied_unbacked_chips(
+            shipped, profile_json=profile_json, keyword_ledger=keyword_ledger,
+        ))
+        chips = [s for s in shipped if s in late]
         if not chips:
             return prose_draft, final_raw, []
         drop = {c.casefold() for c in chips}
