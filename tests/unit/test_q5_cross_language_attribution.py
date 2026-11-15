@@ -59,6 +59,9 @@ async def test_the_captured_bullet_is_grounded_on_its_own_roles_unit(bullet):
     assert [e.ref for e in v.evidence][0] == "work_experience[2].responsibilities[0]"
     # the judge saw the role's own units only — never the foreign unit that fired the flag
     assert OWN in judge.prompts[0] and FOREIGN not in judge.prompts[0]
+    # only the anchored position and its same-employer siblings: no sentence of another employer
+    w1 = next(w for w in PROF["work_experience"] if w["id"] == W1)
+    assert not [r for r in w1.get("responsibilities") or [] if r in judge.prompts[0]]
 
 
 @pytest.mark.asyncio
