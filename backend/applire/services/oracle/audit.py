@@ -1915,6 +1915,29 @@ def _words(text: str) -> list[str]:
     return re.findall(r"\w+", text.casefold())
 
 
+def _figure_in_persons_phrase(claim_text: str, fig: Any, persons_text: str) -> bool:
+    """True when the figure, with the word before it and the word after it, occurs
+    verbatim in the person's recorded limit (id + statement): the letter writes
+    the figure in the person's OWN phrase ("Spanne von 120 wäre"), so whatever
+    unit — or none — follows it is theirs. "von 120 Kunden" against "von 120
+    Mitarbeitenden" is not their phrase. A structural fact, no judgement."""
+    figure = _words(str(getattr(fig, "raw", "") or ""))
+    if not figure:
+        return False
+    claim, persons = _words(claim_text), _words(persons_text)
+    n = len(figure)
+    for i in range(len(claim) - n + 1):
+        if claim[i:i + n] != figure:
+            continue
+        window = claim[max(0, i - 1):i + n + 1]
+        if len(window) < n + 1:
+            continue
+        for j in range(len(persons) - len(window) + 1):
+            if persons[j:j + len(window)] == window:
+                return True
+    return False
+
+
 def _step_sentence_clauses(text: str) -> list[tuple[str, str]]:
     """(separator before it, clause) for every non-empty clause of the claim."""
     out: list[tuple[str, str]] = []
@@ -1944,6 +1967,19 @@ def _scope_step_sentence_ok(claim_text: str, limit_words: set[str], limit_plain:
         if sep == "," and words and words[0] in _STEP_RELATIVE_STARTS:
             return False
     return True
+
+
+def _scope_step_rest(claim_text: str, scope_steps: list[ScopeStep] | None) -> str:
+    """The clauses of a scope-step sentence that restate no bound limit — judged
+    as a claim of their own (wave 1b); ``""`` when every clause is the person's
+    own recorded wording (the step, or "gerade deshalb reizt mich die Stelle"
+    from the same statement)."""
+    limits = [_denial_content_tokens(f"{s.limit_id} {s.statement}") for s in scope_steps or ()]
+    rest = [
+        clause for _, clause in _step_sentence_clauses(claim_text)
+        if not any(_restates(clause, w) for w in limits)
+    ]
+    return "; ".join(rest)
 
 
 def _restates(clause: str, limit_words: set[str]) -> bool:
@@ -2011,9 +2047,15 @@ def _scope_step_backing(
             if not all(_scope_step_framed(c) and _restates(c, words) for c in clauses):
                 continue
             # MD-Q6 R2: the figure carries a unit of the bar's kind right at it
-            # ("120 Kunden" is no span), and the rest of the sentence agrees.
+            # ("120 Kunden" is no span) — unless it is written exactly as the
+            # person wrote it (wave 1b delivery: Stefan's own "Die dauerhafte
+            # Spanne von 120 wäre für mich der nächste Schritt" has no people
+            # word at 120 and was graded unbacked). The rest of the sentence agrees.
             bar = {"kind": step.kind, "value": float(fig.value)}
-            if not names_bar_figure_with_unit(claim_text, bar):
+            if not (
+                names_bar_figure_with_unit(claim_text, bar)
+                or _figure_in_persons_phrase(claim_text, fig, f"{step.limit_id} {step.statement}")
+            ):
                 continue
             plain = set(_words(f"{step.limit_id} {step.statement}"))
             if not _scope_step_sentence_ok(claim_text, words, plain):
@@ -2883,10 +2925,12 @@ async def _verify_claim_unchecked(
             absorbed = None
         else:
             absorbed = _denial_statement_backing(claim.text, fig_match.unmatched, idx)
+        scope_absorbed = False
         if absorbed is None:
             # MD-Q3 / H2: the posting's own figure named as the step ahead,
             # backed by the person's recorded limit bound to that scope bar.
             absorbed = _scope_step_backing(claim.text, fig_match.unmatched, idx, scope_steps)
+            scope_absorbed = absorbed is not None
         if absorbed is None:
             missing = ", ".join(f.raw for f in fig_match.unmatched)
             return ClaimVerdict(
@@ -2898,6 +2942,20 @@ async def _verify_claim_unchecked(
                 figures=[f.raw for f in fig_match.unmatched],
             )
         denial_backing = absorbed
+        if scope_absorbed:
+            # Wave 1b: the step backs ITS clause only. Every other clause of the
+            # sentence ("…; die Senkung der Unfallquote … zeigt, wie ich …") is
+            # judged as a claim of its own — before this, any clause glued to a
+            # step rode on it as grounded ("…; ich bringe Blockchain-Erfahrung mit").
+            rest = _scope_step_rest(claim.text, scope_steps)
+            if rest:
+                sub = await _verify_claim_unchecked(
+                    rest, profile, provider, index=idx, budget=budget,
+                    letter_named_ids=letter_named_ids, document_language=document_language,
+                    ledger_forms=ledger_forms, ledger_backings=ledger_backings,
+                )
+                if isinstance(sub, ClaimVerdict) and sub.verdict != "grounded":
+                    return sub
         if not fig_match.matched:
             return ClaimVerdict(
                 verdict="grounded",

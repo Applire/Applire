@@ -2952,6 +2952,44 @@ async def _kind_asked_keys(db: AsyncSession, user_id: uuid.UUID) -> set[str]:
     return keys
 
 
+#: Wave-1b: a full targeted interview re-plans the leadership-kind ask after
+#: each answered cluster (set at creation; a session without it never re-plans).
+KIND_REPLAN_STATE_KEY = "kind_replan"
+
+
+async def _replan_leadership_kind(
+    state: dict, profile_json: dict | None, db: AsyncSession, user_id: uuid.UUID,
+    current_idx: int,
+) -> None:
+    """Wave-1b delivery run: Katrin's import stored no ``team_size`` (her CV says
+    "zwei Werkstudierende"), so the kind ask planned at session creation had no
+    role to ask about; her leadership answer (the last cluster) then recorded the
+    headcount and the interview completed without asking its kind. After every
+    answered cluster of a full targeted interview, the plan is re-run against the
+    profile as it NOW stands: a role that has newly become sized gets its ask,
+    queued right after the current cluster (never at an index already passed),
+    with one question added to the budget. Same planner, same once-per-person-and-role
+    bound (``plan_leadership_kind`` + the asked keys of this and earlier sessions)."""
+    if not state.get(KIND_REPLAN_STATE_KEY):
+        return
+    ids = list(state.get("critical_gaps") or [])
+    by_id = dict(state.get("gap_clusters_by_id") or {})
+    cats = dict(state.get("gap_categories") or {})
+    asked = {*(state.get(KIND_ASKED_STATE_KEY) or []), *await _kind_asked_keys(db, user_id)}
+    new_ids, new_cats, new_by_id = plan_leadership_kind(
+        ids, cats, by_id, profile_json, already_asked=asked
+    )
+    added = [cid for cid in new_ids if cid not in ids]
+    if not added:
+        return
+    kept = [cid for cid in new_ids if cid not in added]
+    at = max(current_idx + 1, min(new_ids.index(cid) for cid in added))
+    state["critical_gaps"] = [*kept[:at], *added, *kept[at:]]
+    state["gap_categories"] = new_cats
+    state["gap_clusters_by_id"] = new_by_id
+    state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + len(added)
+
+
 async def _create_targeted_session(
     job_id: uuid.UUID,
     job: JobAnalysis,
@@ -3161,6 +3199,7 @@ async def _create_targeted_session(
         hard_ceiling=hard_ceiling,
     )
     state["gate_clusters"] = gate_by_id
+    state[KIND_REPLAN_STATE_KEY] = True
     # ADR-089 clause 1 — each planned cluster starts from the budget the
     # cross-session record leaves it.
     state["questions_per_gap"] = _seed_questions_per_gap(clusters_by_id)
@@ -4669,6 +4708,7 @@ async def _send_message_turn(
     ):
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+        await _replan_leadership_kind(state, updated_profile, db, record.user_id, current_idx)
         skipped_set_updated = set(state.get("skipped_gaps", []))
         next_index = _next_valid_index(
             state["critical_gaps"], current_idx + 1, skipped_set_updated
