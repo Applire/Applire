@@ -2121,15 +2121,25 @@ def _step_sentence_clauses(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _scope_step_sentence_ok(claim_text: str, limit_words: set[str], limit_plain: set[str]) -> bool:
+def _scope_step_sentence_ok(
+    claim_text: str, limit_words: set[str], limit_plain: set[str],
+    *, persons: str | None = None, kind: str = "",
+) -> bool:
     """MD-Q6 R2: the WHOLE sentence, not only the figure's clause. A clause that
     restates the limit adds no negation/past/attainment of its own; every other
-    clause points nothing back at the step."""
+    clause points nothing back at the step.
+
+    MD-Q13 N1: for a step bound to the person's stored answer (``persons``), a
+    clause made only of that answer's own words (:func:`_step_words_are_persons`)
+    is theirs, whatever it starts with — "…, which is exactly why this role
+    appeals to me" is the person's sentence (delivery-2a, English answer)."""
     for sep, clause in _step_sentence_clauses(claim_text):
         if _restates(clause, limit_words) and _scope_step_framed(clause):
             added = set(_words(_STEP_FRAME_NEGATION_RE.sub(" ", clause.casefold()))) - limit_plain
             if added & _STEP_ADDED_MARKERS:
                 return False
+            continue
+        if persons is not None and _step_words_are_persons(clause, persons, kind):
             continue
         words = _words(clause)
         if set(words) & _STEP_BACKREF_TOKENS:
@@ -2150,6 +2160,89 @@ def _scope_step_rest(claim_text: str, scope_steps: list[ScopeStep] | None) -> st
         if not any(_restates(clause, w) for w in limits)
     ]
     return "; ".join(rest)
+
+
+# MD-Q13 N1 (re-check at c2d4427f): for a step bound to the person's stored
+# ANSWER the 0.6 overlap of (2) and the frame words of (3) were lexical — "120
+# Mitarbeitende zu führen wäre für mich nichts Neues." grounded "… wäre für mich
+# der nächste Schritt.", "… wäre kein Problem" grounded "… wäre ein Problem".
+# Ruling Q2-2 ("own recorded words") applied strictly: EVERY content word of the
+# step clause is a word of the person's bound sentence (function words,
+# inflection and word order may differ; the figure may be completed by its unit,
+# "120" → "120 Mitarbeitenden"), and every negation of that sentence is kept.
+# The frame check (3) stays as a second condition. A recorded DENIAL is the
+# person's "not yet" by construction and keeps the overlap measure.
+_STEP_FUNCTION_WORDS = frozenset({
+    # DE articles, pronouns, prepositions, conjunctions, auxiliaries, particles
+    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer",
+    "eines", "ich", "mich", "mir", "mein", "meine", "meinen", "meinem", "meiner",
+    "meines", "wir", "uns", "unser", "unsere", "sie", "es", "er", "ihr", "ihre", "dies",
+    "diese", "dieser", "dieses", "diesen", "diesem", "von", "vom", "zu", "zum", "zur",
+    "mit", "für", "bei", "beim", "auf", "an", "am", "in", "im", "aus", "nach", "über",
+    "um", "als", "wie", "und", "oder", "aber", "sowie", "dass", "da", "so", "auch",
+    "wäre", "wären", "würde", "würden", "ist", "sind", "war", "waren", "sein", "habe",
+    "hat", "hatte", "hätte", "werde", "wird", "werden", "kann", "könnte",
+    # EN
+    "the", "a", "an", "i", "me", "my", "mine", "we", "us", "our", "it", "its", "this",
+    "that", "these", "those", "of", "to", "for", "with", "at", "on", "in", "by", "from",
+    "as", "and", "or", "but", "so", "also", "would", "will", "be", "is", "are", "was",
+    "were", "been", "have", "has", "had", "could", "can",
+})
+_STEP_NEGATION_RE = re.compile(r"^(?:nicht|nichts|kein\w*|nie|niemals|not|no|never|none|nothing)$")
+_STEP_SUFFIXES = ("innen", "enden", "ende", "ern", "en", "em", "er", "es", "e", "n", "s")
+_STEP_MAGNITUDE_WORDS = frozenset({
+    "mio", "millionen", "million", "millions", "mrd", "milliarden", "tsd", "tausend",
+    "thousand", "k", "m", "eur", "euro", "chf", "franken", "usd", "dollar", "gbp", "pfund",
+})
+
+
+def _step_stem(word: str) -> str:
+    """A crude inflection fold, applied to both sides alike: "Mitarbeitenden" ~
+    "Mitarbeitende", "nächsten" ~ "nächste", "geführt" ~ "führen". It never
+    joins a compound to its head ("Führungsspanne" stays apart from "Spanne")."""
+    w = word.casefold()
+    if w.startswith("ge") and len(w) > 6:  # participle: "geführt" ~ "führen"
+        w = w[2:]
+    for suf in _STEP_SUFFIXES:
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            w = w[: -len(suf)]
+            break
+    if w.endswith("t") and len(w) > 4:
+        w = w[:-1]
+    return w
+
+
+def _step_negations(words: list[str]) -> set[str]:
+    return {"kein" if w.startswith("kein") else w for w in words if _STEP_NEGATION_RE.match(w)}
+
+
+def _step_words_are_persons(clause: str, persons: str, kind: str) -> bool:
+    """MD-Q13 N1: every content word of ``clause`` is one of the person's own
+    (inflection aside), the figure's unit excepted, and no negation of the
+    person's sentence is dropped. Frame negations ("noch/bisher nicht",
+    "not yet") are the step frame itself and are read by (3), not here."""
+    person_words = _words(_STEP_FRAME_NEGATION_RE.sub(" ", persons.casefold()))
+    person_stems = {_step_stem(w) for w in person_words}
+    words = _words(_STEP_FRAME_NEGATION_RE.sub(" ", clause.casefold()))
+    for i, w in enumerate(words):
+        if w in _STEP_FUNCTION_WORDS or _STEP_NEGATION_RE.match(w):
+            continue
+        prev = words[i - 1] if i else ""
+        if prev.isdigit() and (
+            (kind == "team_size" and _people_unit(w)) or (kind == "budget" and w in _STEP_MAGNITUDE_WORDS)
+        ):
+            continue  # the figure completed by its unit: "120" → "120 Mitarbeitenden"
+        if kind == "budget" and w in _STEP_MAGNITUDE_WORDS and prev in _STEP_MAGNITUDE_WORDS:
+            continue  # "5 Mio. Euro"
+        if w not in person_words and _step_stem(w) not in person_stems:
+            return False
+    return _step_negations(person_words) <= _step_negations(words)
+
+
+def _people_unit(word: str) -> bool:
+    from applire.services.scope_requirements import _PEOPLE_AFTER_RE
+
+    return bool(_PEOPLE_AFTER_RE.match(word))
 
 
 def _restates(clause: str, limit_words: set[str]) -> bool:
@@ -2239,6 +2332,10 @@ def _scope_step_backing(
             words = _denial_content_tokens(persons)
             if not all(_scope_step_framed(c) and _restates(c, words) for c in clauses):
                 continue
+            if from_answer and not all(
+                _step_words_are_persons(c, persons, step.kind) for c in clauses
+            ):
+                continue  # MD-Q13 N1: the step's words are the person's, never the writer's
             # MD-Q6 R2: the figure carries a unit of the bar's kind right at it
             # ("120 Kunden" is no span) — unless it is written exactly as the
             # person wrote it (wave 1b delivery: Stefan's own "Die dauerhafte
@@ -2251,7 +2348,10 @@ def _scope_step_backing(
             ):
                 continue
             plain = set(_words(persons))
-            if not _scope_step_sentence_ok(claim_text, words, plain):
+            if not _scope_step_sentence_ok(
+                claim_text, words, plain,
+                persons=persons if from_answer else None, kind=step.kind,
+            ):
                 continue
             unit = (
                 EvidenceUnit(

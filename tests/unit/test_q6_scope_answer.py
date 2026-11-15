@@ -443,3 +443,64 @@ def test_md_q11_a_met_bar_sentence_the_classifier_quotes_binds_nothing():
 
     assert scope_answer_limit(ANSWER_ID, MET, _SCOPE, _answers(MET), bar=_BAR) is None
     assert scope_answer_limit(ANSWER_ID, QUOTE, _SCOPE, _answers(), bar=_BAR) is not None
+
+
+# MD-Q13 N1 (re-check at c2d4427f): on a step bound to the person's stored ANSWER the
+# rail accepts a letter sentence only when every content word of its step clause is
+# the person's (inflection, grammar words and word order aside; the figure may be
+# completed by its unit), and no negation of the person's sentence is dropped. The
+# reviewer's probe_j pairs, then the captured letter sentences.
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("statement, letter, verdict", [
+    # a met bar presented as a step: the step words are the writer's
+    ("120 Mitarbeitende zu führen wäre für mich nichts Neues.",
+     "120 Mitarbeitende zu führen wäre für mich der nächste Schritt.", "unbacked"),
+    # a dropped negation
+    ("120 Mitarbeitende zu führen wäre kein Problem für mich.",
+     "120 Mitarbeitende zu führen wäre für mich ein Problem.", "unbacked"),
+    # every word the person's, inflection aside: the rail accepts it (whether this
+    # sentence should have been bound is the binding's question, F4)
+    ("Ich habe 120 Mitarbeitende geführt, das wäre jetzt der nächste Schritt weiter.",
+     "120 Mitarbeitende zu führen wäre jetzt der nächste Schritt.", "grounded"),
+    # the frame negation "noch nicht" is the step frame, not a negation to keep
+    ("Die dauerhafte Spanne von 120 hatte ich noch nicht, sie wäre der nächste Schritt.",
+     "Die dauerhafte Spanne von 120 Mitarbeitenden wäre der nächste Schritt.", "grounded"),
+])
+async def test_md_q13_n1_the_step_words_are_the_persons(statement, letter, verdict):
+    assert await _verdicts(letter, ledger=_answer_ledger(statement)) == [verdict]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("letter, verdict", [
+    # the figure completed by its unit, an inflected word: still the person's words
+    ("Die dauerhafte Spanne von 120 Mitarbeitenden wäre für mich der nächste Schritt.", "grounded"),
+    ("Eine dauerhafte Spanne von 120 wäre für mich ein nächster Schritt.", "grounded"),
+    # the captured letters (Q6 run 2 delivered; delivery-2a rerun rec 347): the writer's
+    # compound "Führungsspanne" is not the person's "Spanne" — red by the ruling
+    ("Die dauerhafte Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt, "
+     "genau deshalb reizt mich die Stelle.", "unbacked"),
+    ("Die dauerhafte Führung von 120 Mitarbeitenden wäre für mich der nächste Schritt.", "unbacked"),
+])
+async def test_md_q13_n1_the_captured_german_letters(letter, verdict):
+    assert await _verdicts(letter) == [verdict]
+
+
+_EN_ANSWER = "The permanent span of 120 would be my next step, which is exactly why this role appeals to me."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("letter, verdict", [
+    # delivery-2a rerun recs 376/378/386/388: the person's own English sentence, its
+    # "…, which …" clause included — red before (a relative clause after a comma)
+    (_EN_ANSWER, "grounded"),
+    # a translation / paraphrase of the step is never the person's words (known limit:
+    # an English letter cannot carry a step bound to a German answer)
+    ("Permanent responsibility for 120 employees would be my next step.", "unbacked"),
+])
+async def test_md_q13_n1_the_english_answer(letter, verdict):
+    from applire.services.oracle import audit_document
+
+    report = await audit_document("cover_letter", _miss_profile(), text=letter,
+                                  keyword_ledger=_answer_ledger(_EN_ANSWER), document_language="en")
+    assert [c.verdict.verdict for c in report.claims if "120" in c.claim.text] == [verdict]
