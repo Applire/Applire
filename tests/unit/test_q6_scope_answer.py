@@ -434,3 +434,12 @@ def test_f5_a_figure_inside_a_grouped_or_decimal_number_is_not_the_bars(text):
     from applire.services.scope_requirements import names_bar_figure_with_unit
 
     assert not names_bar_figure_with_unit(text, _BAR), text
+
+
+def test_md_q11_a_met_bar_sentence_the_classifier_quotes_binds_nothing():
+    """The re-run replay's met-bar arm (2/5): a whole figure-bearing sentence that
+    states the bar MET. The Oracle's frame test, applied at binding."""
+    from applire.services.scope_requirements import scope_answer_limit
+
+    assert scope_answer_limit(ANSWER_ID, MET, _SCOPE, _answers(MET), bar=_BAR) is None
+    assert scope_answer_limit(ANSWER_ID, QUOTE, _SCOPE, _answers(), bar=_BAR) is not None

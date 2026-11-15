@@ -715,6 +715,20 @@ def scope_answer_limit(
             cited,
         )
         return None
+    # MD-Q11 (replay after F4, met-bar arm 2/5): the classifier still quoted
+    # "Dauerhaft verantwortet habe ich … rund 120 Mitarbeitende …" as a shortfall.
+    # The Oracle's scope-step rail never lets such a sentence back a step (MD-Q10
+    # cond. 1: the step frame must be in the person's own sentence), so binding it
+    # would only hand the writer a step it cannot ground. The SAME frame test, one
+    # implementation, applied where the limit is bound — fail-closed only.
+    from applire.services.oracle.audit import _scope_step_framed
+
+    if not _scope_step_framed(sentence):
+        logger.info(
+            "scope_requirements: stated_limit %r quotes a sentence that frames no step — binds nothing",
+            cited,
+        )
+        return None
     return {"id": concept.strip(), "statement": sentence, "source": SCOPE_ANSWER_SOURCE}
 
 
