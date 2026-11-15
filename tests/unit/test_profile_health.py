@@ -161,6 +161,22 @@ class TestAccuracyThread:
         assert len(issues) == 1
         assert issues[0].profile_mismatch_severity == "review"
 
+    def test_accuracy_issue_carries_its_pieces_for_the_reader(self):
+        """#838 line 23 (WP-Q4 e) — the reader composes the sentence in the
+        candidate's language; the English summary is only the fallback."""
+        low = [i for i in assess_health(_profile(enrichments=[_merge(confidence=0.4)])).issues
+               if i.thread == "accuracy"][0]
+        assert (low.accuracy_kind, low.accuracy_percent, low.accuracy_count) == ("low_confidence", 40, None)
+        assert low.accuracy_source == "cv_upload"
+        lost_rec = EnrichmentRecord(
+            timestamp=datetime.now(timezone.utc), source="cv_upload",
+            reconciliation={"skills": {"extracted": 8, "stored": 0, "delta": 8}},
+        )
+        lost = [i for i in assess_health(_profile(enrichments=[lost_rec])).issues
+                if i.thread == "accuracy"][0]
+        assert (lost.accuracy_kind, lost.accuracy_count, lost.accuracy_source) == ("lost", 8, "cv_upload")
+        assert lost.field_ref == "skills"
+
     def test_manual_edit_without_reconciliation_is_clean(self):
         rec = EnrichmentRecord(
             timestamp=datetime.now(timezone.utc), source="manual_edit"

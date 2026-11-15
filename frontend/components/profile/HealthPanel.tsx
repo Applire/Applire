@@ -91,6 +91,11 @@ export interface HealthIssue {
   // server's English `summary`. Null on every other thread.
   not_applied_count?: number | null;
   not_applied_source?: string | null;
+  // #838 line 23 (WP-Q4 e) — the accuracy thread's pieces (V-7 shape).
+  accuracy_kind?: "lost" | "low_confidence" | null;
+  accuracy_count?: number | null;
+  accuracy_percent?: number | null;
+  accuracy_source?: string | null;
   not_applied_reasons?: string[] | null;
   not_applied_labels?: string[] | null;
   // #705 (founder UAT, 2026-09-15) — the FULL per-item receipt (never
@@ -214,6 +219,33 @@ export function describeNotApplied(
     items: labels.join(", "),
     reasons,
   });
+}
+
+
+/**
+ * #838 line 23 (WP-Q4 e) — the `accuracy` thread composed in the reader's
+ * language from the backend's pieces, never its English `summary` (which stays
+ * the fallback for a backend that predates the pieces).
+ */
+export function describeAccuracy(
+  issue: HealthIssue,
+  t: ReturnType<typeof useTranslations>,
+  tProfile: ReturnType<typeof useTranslations>,
+): string {
+  const source = conflictSourceLabel(tProfile, issue.accuracy_source);
+  if (issue.accuracy_kind === "lost" && issue.accuracy_count) {
+    const sections = (issue.field_ref ?? "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean)
+      .map((k) => notAppliedSectionLabel(k, t, tProfile))
+      .join(", ");
+    return t("accuracyLost", { count: issue.accuracy_count, source, sections });
+  }
+  if (issue.accuracy_kind === "low_confidence" && issue.accuracy_percent != null) {
+    return t("accuracyLowConfidence", { source, percent: issue.accuracy_percent });
+  }
+  return issue.summary;
 }
 
 
@@ -813,6 +845,8 @@ function IssueCard({
             ? t("unitBudgetIssue", { entry: issue.source_record_ref ?? "" })
             : issue.thread === "not_applied"
               ? describeNotApplied(issue, t, tProfile)
+              : issue.thread === "accuracy"
+                ? describeAccuracy(issue, t, tProfile)
               : issue.thread === "confirmation" && issue.question_i18n?.[locale]
                 ? issue.question_i18n[locale]
                 : issue.summary}

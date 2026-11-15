@@ -1316,6 +1316,8 @@
     },
     "conflictSourceUnknown": "einer späteren Änderung",
     "threadNotApplied": "Etwas aus deiner Eingabe kam nicht an — und warum",
+    "accuracyLost": "{count, plural, one {# Angabe aus} other {# Angaben aus}} {source} kam beim Zusammenführen nicht in deinem Profil an ({sections}).",
+    "accuracyLowConfidence": "Unsichere Zusammenführung aus {source} ({percent} % Sicherheit) — bitte prüfe die übernommenen Angaben.",
     "notAppliedSummary": "{count, plural, one {# Angabe aus} other {# Angaben aus}} {source} kam nicht in deinem Profil an ({items}) — {reasons}.",
     "notAppliedReason": {
       "no_op_carried_entry": "keine Änderung hat sie übernommen",

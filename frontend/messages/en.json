@@ -1316,6 +1316,8 @@
     },
     "conflictSourceUnknown": "a later change",
     "threadNotApplied": "Something you said did not land — and why",
+    "accuracyLost": "{count, plural, one {# item from} other {# items from}} {source} did not reach your profile in the merge ({sections}).",
+    "accuracyLowConfidence": "Uncertain merge from {source} ({percent}% confidence) — please check what was taken over.",
     "notAppliedSummary": "{count, plural, one {# thing you told us} other {# things you told us}} in {source} did not reach your profile ({items}) — {reasons}.",
     "notAppliedReason": {
       "no_op_carried_entry": "no change carried it",
