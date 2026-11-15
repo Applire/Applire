@@ -29,3 +29,17 @@ def test_every_cv_template_renders_education_with_the_education_kind():
         src = t.read_text()
         if "edu | period(" in src:
             assert 'edu | period(labels.present, "education")' in src, t.name
+
+
+def test_a_range_that_starts_and_ends_in_the_same_period_renders_once_q3():
+    """Sorbet platform-1 delivery run 1 (#835:277): the education block printed
+    "2013 – 2013", "2010 – 2010", "2004 – 2004" — the extraction stored one
+    completion year as both start and end. One period, one date."""
+    assert period({"start_date": "2013", "end_date": "2013"}, "heute", "education") == {
+        "start": "2013", "end": "", "dash": False,
+    }
+    assert period({"start_date": "2019-03", "end_date": "2019-03"}, "heute") == {
+        "start": "03/2019", "end": "", "dash": False,
+    }
+    # Different months of one year are a real range.
+    assert period({"start_date": "2019-03", "end_date": "2019-09"}, "heute")["dash"] is True

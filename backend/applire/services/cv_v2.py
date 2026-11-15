@@ -288,7 +288,12 @@ def compose_v2(
     )
     from applire.services.profile.language_names import LANGUAGE_NAME_DE_EN
 
+    from applire.utils.stray_glyphs import strip_stray_glyphs
+
     notes = notes if notes is not None else ComposeNotes()
+    # Sorbet WP-Q3 (#835:277): a tokenizer artefact (U+FFFC) the writer emitted
+    # printed as a box glyph; the composed document never carries one.
+    prose = strip_stray_glyphs(prose)
     # D-31: the container of a vault-linked project is a fact, not the prose's slot.
     prose = place_linked_projects(prose, profile_json)
     tailored = TailoredCVData.model_validate(assemble_tailored_cv(prose, profile_json))
