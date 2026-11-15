@@ -189,10 +189,24 @@ async def reconcile_interview_turn(
                 "names_without_claiming": list(c.get("names_without_claiming") or []),
                 # UAT-2 (ADR-064 amended 2026-11-08): a sent honest bridge's no.
                 "states_no_to": list(c.get("states_no_to") or []),
+                # MD-Q11 F8: a clicked opening's concept, structurally — the
+                # answer after "Zu OEE:" is about OEE, whatever the question named.
+                **({"answers_concept": c["answers_concept"]}
+                   if isinstance(c.get("answers_concept"), str) and c["answers_concept"].strip() else {}),
             }
             for c in offered_choices
             if isinstance(c, dict) and isinstance(c.get("text"), str)
         ]
+    # MD-Q11 F8: the clicked opening's ONE concept, next to the answer it frames.
+    about = {
+        c["answers_concept"].strip()
+        for c in offered_choices or []
+        if isinstance(c, dict)
+        and isinstance(c.get("answers_concept"), str)
+        and c["answers_concept"].strip()
+    }
+    if len(about) == 1:
+        new_info["answer_about"] = next(iter(about))
     result = await reconcile(before, new_info, _SOURCE, provider, lang)
     # D-17 (Hazelnut build 5, ADR-046 + ADR-063 amended) — the import's
     # restatement check on this door too: an answer that retells a held fact

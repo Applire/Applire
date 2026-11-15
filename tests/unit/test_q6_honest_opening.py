@@ -23,7 +23,7 @@ Synthetic data only.
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -150,7 +150,8 @@ def _offered_from_build():
 
 
 def test_the_recorded_offer_is_a_partial_opening_naming_nothing():
-    assert _offered_from_build() == {"Zu OEE:": {"level": "partial", "names_without_claiming": [], "ask": ASK}}
+    assert _offered_from_build() == {"Zu OEE:": {"level": "partial", "names_without_claiming": [], "ask": ASK,
+                                                "concept": "OEE"}}
 
 
 def test_the_unchanged_opening_is_refused_and_a_finished_one_is_cut():
@@ -209,3 +210,57 @@ async def test_both_generator_paths_deliver_the_honest_opening(probe):
     assert all(m["level"] == "partial" and m["names_without_claiming"] == []
                for m in state["offered_choice_terms"].values())
     assert CAPTURED_NO not in state["offered_choice_terms"]
+
+
+# 5. MD-Q11 F8: a clicked opening carries its concept to the reconcile -------------
+#
+# Luna replay of the captured multi-concept question (E2E run 3, record 189; the
+# question names Maschinendatenerfassung, MES, OEE, Industrie 4.0) with "Zu OEE:"
+# cut: "nein" → 1/3 denied all FIVE concepts, 2/3 recorded nothing; "nein, aber …"
+# → 3/3 denied all five; "ja, intensiv, seit 2022 im MES-Projekt" → 3/3 OEE never
+# named. With ``answers_concept`` + the reconcile rule: 9/9 exactly OEE (denial or
+# named fact).
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["Zu OEE: nein", "Zu OEE: ja, intensiv, seit 2022 im MES-Projekt",
+                                    "Zu OEE: nein, aber Ausschussquote und Termintreue"])
+async def test_f8_the_reconcile_hears_which_concept_the_clicked_opening_asked(db, answer):  # noqa: F811
+    kw = await _send(db, answer, _offered_from_build(), full=True)
+    assert kw["answer"] == answer.split(": ", 1)[1]
+    assert [c.get("answers_concept") for c in kw["offered_choices"]] == ["OEE"]
+
+
+@pytest.mark.asyncio
+async def test_f8_the_bridge_puts_the_concept_into_new_information():
+    from applire.services.profile.reconcile import interview_bridge as ib
+
+    captured = {}
+
+    async def _stop(before, new_info, *_a, **_k):
+        captured.update(new_info)
+        raise RuntimeError("stop")
+
+    record = MagicMock()
+    record.profile_json = {}
+    with patch.object(ib, "reconcile", new=_stop), pytest.raises(RuntimeError):
+        await ib.reconcile_interview_turn(
+            MagicMock(), profile_record=record, gap="Digitale Produktion",
+            question="… Maschinendatenerfassung, MES-Systemen, OEE oder Industrie 4.0?", answer="nein",
+            provider=MagicMock(), session_id="s",
+            offered_choices=[{"text": "Zu OEE:", "names_without_claiming": [], "states_no_to": [],
+                              "answers_concept": "OEE"}],
+        )
+    assert captured["offered_choices"] == [{"text": "Zu OEE:", "names_without_claiming": [],
+                                            "states_no_to": [], "answers_concept": "OEE"}]
+    # next to the answer it frames (held-out replay: the yes named OEE 0/3 → 3/3)
+    assert captured["answer_about"] == "OEE"
+
+
+def test_f8_the_reconcile_rule_scopes_a_bare_no_to_that_concept():
+    from applire.prompts import reconcile as r
+
+    src = " ".join(open(r.__file__, encoding="utf-8").read().split())
+    assert 'When the NEW INFORMATION carries "answer_about", the person clicked an opening' in src
+    assert 'denies exactly that concept — "denials": ["Kanban"] — and nothing else' in src
+    rule9 = src[src.index("A DENIAL NAMES AN ITEM"):src.index("A DENIAL WITH AN EXCEPTION")].lower()
+    assert "oee" not in rule9, "the example concept is held out of the measured case"

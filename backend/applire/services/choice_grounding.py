@@ -1182,10 +1182,17 @@ def record_offered_choices(
     if not isinstance(state, dict) or not isinstance(delivered, list) or not delivered:
         return
     by_text: dict[str, tuple[str | None, list[str], str | None]] = {}
+    concept_of: dict[str, str] = {}
     for choice in drafted if isinstance(drafted, list) else []:
         text, level = _level_of(choice)
         if text:
             by_text[text] = (level, _denied_terms_of(choice), _ask_of(choice))
+            # MD-Q11 F8: an OPENING ("Zu OEE:", "Zu MES bei …:") knows the one
+            # concept the person's words after it answer — code built it from
+            # that concept (``build_bridge_openings``).
+            concept = choice.get("concept") if isinstance(choice, dict) else None
+            if text.endswith(":") and isinstance(concept, str) and concept.strip():
+                concept_of[text] = concept.strip()
     previous = state.get("offered_choice_terms")
     offered: dict[str, dict] = dict(previous) if isinstance(previous, dict) else {}
     texts: list[str] = []
@@ -1197,6 +1204,8 @@ def record_offered_choices(
         level, terms, ask = by_text.get(text, (None, [], None))
         offered.pop(text, None)  # re-insert so the newest offer sorts last
         offered[text] = {"level": level, "names_without_claiming": terms, "ask": ask}
+        if text in concept_of:
+            offered[text]["concept"] = concept_of[text]
     while len(offered) > OFFERED_CHOICE_KEEP:
         offered.pop(next(iter(offered)))
     state["offered_choice_terms"] = offered
@@ -1368,9 +1377,13 @@ def offered_choices_in_answer(answer: Any, offered: Any) -> list[dict]:
             if isinstance(t, str) and str(t).strip()
         ]
         is_no = eligible[text].get("level") == "denial"
-        out.append({
+        entry = {
             "text": text,
             "names_without_claiming": [] if is_no else terms,
             "states_no_to": terms if is_no else [],
-        })
+        }
+        concept = eligible[text].get("concept")
+        if isinstance(concept, str) and concept.strip():
+            entry["answers_concept"] = concept.strip()  # MD-Q11 F8
+        out.append(entry)
     return out
