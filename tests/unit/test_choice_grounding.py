@@ -630,10 +630,10 @@ async def test_mode_a_generator_returns_flat_string_list_for_tagged_choices():
     # Every kept element is a bare str (no leaked {"text", "level"} dicts) —
     # the frontend TS types (choices: string[] | null) and
     # schemas/session.py (choices: list[str] | None) are untouched.
-    assert out["choices"] == [
-        "My AWS work included migrating our eQMS.",
-        "I have no experience with Azure.",
-    ]
+    # Q6-1 (ADR-064 amended 2026-11-15): no answer idea states a no. A
+    # denial-level draft naming no cluster concept is dropped; one that names
+    # its concept becomes the opening "On <concept>:" (test_q6_honest_opening.py).
+    assert out["choices"] == ["My AWS work included migrating our eQMS."]
     assert all(isinstance(c, str) for c in out["choices"])
 
 

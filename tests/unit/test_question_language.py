@@ -386,7 +386,8 @@ async def test_mode_a_denial_survives_and_fabrication_is_dropped_when_reviewer_r
                 return {
                     "question": "Have you worked with Kubernetes?",
                     "choices": [
-                        {"text": "No, I have never worked with Kubernetes.", "level": "denial"},
+                        {"text": "No, I have never worked with Kubernetes.", "level": "denial",
+                         "concept": "Kubernetes"},
                         {"text": "Yes, hands-on Kubernetes experience.", "level": "direct"},
                     ],
                 }
@@ -394,7 +395,9 @@ async def test_mode_a_denial_survives_and_fabrication_is_dropped_when_reviewer_r
                 "question": "Have you worked with Kubernetes?",
                 "choices": [
                     {"text": "Yes, hands-on Kubernetes experience.", "level": "direct"},
-                    {"text": "No, I have never worked with Kubernetes.", "level": "denial"},
+                    # Q6-1: the honest question names its concept; code writes the opening.
+                    {"text": "No, I have never worked with Kubernetes.", "level": "denial",
+                     "concept": "Kubernetes"},
                 ],
             }
 
@@ -403,7 +406,9 @@ async def test_mode_a_denial_survives_and_fabrication_is_dropped_when_reviewer_r
     )
 
     assert out["choices"] is not None
-    assert "No, I have never worked with Kubernetes." in out["choices"]
+    # Q6-1 (ADR-064 amended 2026-11-15): the honest slot survives as its opening,
+    # never as the drafted no.
+    assert out["choices"] == ["On Kubernetes:"]
     assert "Yes, hands-on Kubernetes experience." not in out["choices"]
 
 
@@ -436,7 +441,9 @@ async def test_mode_a_denial_choice_survives_a_reviewer_that_drops_the_level_fie
                 "question": "Have you worked with Kubernetes?",
                 "choices": [
                     {"text": "Yes, hands-on Kubernetes experience.", "level": "direct"},
-                    {"text": "No, I have never worked with Kubernetes.", "level": "denial"},
+                    # Q6-1: the honest question names its concept; code writes the opening.
+                    {"text": "No, I have never worked with Kubernetes.", "level": "denial",
+                     "concept": "Kubernetes"},
                 ],
             }
 
@@ -445,7 +452,9 @@ async def test_mode_a_denial_choice_survives_a_reviewer_that_drops_the_level_fie
     )
 
     assert out["choices"] is not None
-    assert "I have never worked with Kubernetes." in out["choices"]
+    # Q6-1: the carried "denial" level (and concept) still mark the honest slot,
+    # which is delivered as its opening.
+    assert out["choices"] == ["On Kubernetes:"]
     # The DIRECT choice is correctly dropped regardless (profile={} has zero
     # Kubernetes evidence) — proving the surviving denial choice isn't just
     # "everything kept", but specifically the level-exempt one.

@@ -33,11 +33,11 @@ def test_the_hint_states_a_literal_check_never_a_verdict():
     # concept with no evidence in ANY words gets the one honest bridge.
     flat = " ".join(c.split())
     assert "A concept the profile states in other words is evidenced: a DIRECT choice" in flat
-    assert "Only a concept it shows no evidence for in any words gets bridges and the one honest bridge" in flat
+    assert "Only a concept it shows no evidence for in any words gets bridges and the one honest question" in flat  # Q6-1
     # MD-UAT-1: a B question is a confirmation — no honest bridge, no no.
     b = " ".join(_prompt("B").split())
     assert "CONFIRMATION question" in b
-    assert "NO honest bridge and no other no on this question." in b
+    assert "NO honest question and no no on this question." in b  # Q6-1
 
 
 def test_the_coverage_rule_counts_evidence_in_any_wording():

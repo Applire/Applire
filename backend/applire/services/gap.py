@@ -45,7 +45,7 @@ from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire.services.owner_resolution import owned_row, resolve_user_id
 from applire.models.session import InterviewSession
-from applire.prompts.gap_analysis import SYSTEM_PROMPT, build_user_prompt
+from applire.prompts.gap_analysis import SYSTEM_PROMPT, build_user_prompt, scope_answers_view
 from applire.prompts.gap_clustering import CLUSTERING_SYSTEM_PROMPT, build_clustering_prompt
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.gap import GapAnalysisResponse
@@ -78,7 +78,11 @@ from applire.services.keyword_ledger import (
 )
 from applire.services.profile.reconcile.stance import denial_release_corpus, exclude_unconfirmed
 from applire.services.match_score import compute_match_score_from_ledger
-from applire.services.interview.scope_question import carve_scope_clusters, turn_bound_limits
+from applire.services.interview.scope_question import (
+    carve_scope_clusters,
+    turn_bound_limits,
+    turn_scope_answers,
+)
 from applire.services.scope_requirements import (
     build_scope_ledger_entries,
     build_scope_prompt_block,
@@ -1409,7 +1413,14 @@ async def _run_analysis(
     # Pass 2: LLM refinement
     # ADR-100 cl. 2 — the classifier sees the CLAIMABLE vault only (ADR-061
     # cl. 3), so the space it quotes from is the space the floor verifies in.
-    user_prompt = build_user_prompt(job_dict, exclude_unconfirmed(profile.profile_json), pre, scope_block)
+    # WP-Q6 (b) (ADR-075 amended 2026-11-15): the person's stored answers to the
+    # scope questions (written by the turn onto the previous row's scope
+    # clusters, like the recorded limits) — citable only as that bar's limit.
+    scope_answers = turn_scope_answers(previous.gap_clusters if previous is not None else None)
+    user_prompt = build_user_prompt(
+        job_dict, exclude_unconfirmed(profile.profile_json), pre, scope_block,
+        scope_answers=scope_answers_view(scope_block, scope_answers),
+    )
     data: dict = await _prompt_context.aparse_json(
         provider, "gap_analysis:writer", user_prompt,
         system=SYSTEM_PROMPT,
@@ -1483,6 +1494,7 @@ async def _run_analysis(
         # question binds to that bar structurally (read off the previous row's
         # scope clusters, where the turn wrote it).
         turn_limits=turn_bound_limits(previous.gap_clusters if previous is not None else None),
+        scope_answers=scope_answers,
     )
 
     # #318 / ADR-061 — THE affirmative invariant, on the row that is actually

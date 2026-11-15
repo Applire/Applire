@@ -1950,6 +1950,25 @@ class ScopeStep:
     statement: str
     limit_id: str = ""
     kind: str = ""
+    #: WP-Q6 (b) (ADR-075 amended 2026-11-15, COORD MD-Q10): ``"scope_answer"``
+    #: when the bound limit is the person's stored answer to the bar's scope
+    #: question (no recorded denial behind it); ``""`` for a recorded denial.
+    source: str = ""
+
+    @property
+    def persons_text(self) -> str:
+        """The words a restating clause is measured against: the denial's id +
+        statement; a stored answer's statement ONLY (its id is the posting's bar
+        concept, never the person's words)."""
+        if self.source == SCOPE_ANSWER_STEP_SOURCE:
+            return self.statement
+        return f"{self.limit_id} {self.statement}"
+
+
+#: ``bar.recorded_limit["source"]`` of a limit bound to a stored scope answer
+#: (``scope_question.SCOPE_ANSWER_SOURCE``; a literal here keeps the Oracle free
+#: of an interview import).
+SCOPE_ANSWER_STEP_SOURCE = "scope_answer"
 
 
 _SCOPE_STEP_TOKENS = frozenset({"wäre", "wären", "würde", "würden", "would"})
@@ -2054,7 +2073,7 @@ def _scope_step_rest(claim_text: str, scope_steps: list[ScopeStep] | None) -> st
     as a claim of their own (wave 1b); ``""`` when every clause is the person's
     own recorded wording (the step, or "gerade deshalb reizt mich die Stelle"
     from the same statement)."""
-    limits = [_denial_content_tokens(f"{s.limit_id} {s.statement}") for s in scope_steps or ()]
+    limits = [_denial_content_tokens(s.persons_text) for s in scope_steps or ()]
     rest = [
         clause for _, clause in _step_sentence_clauses(claim_text)
         if not any(_restates(clause, w) for w in limits)
@@ -2094,8 +2113,10 @@ def scope_steps_from_ledger(
             continue
         figures = frozenset(_bar_figures(bar))
         if figures:
+            source = SCOPE_ANSWER_STEP_SOURCE if limit.get("source") == SCOPE_ANSWER_STEP_SOURCE else ""
             steps.append(ScopeStep(figures=figures, statement=statement.strip(),
-                                   limit_id=lid.strip(), kind=str(bar.get("kind") or "")))
+                                   limit_id=lid.strip(), kind=str(bar.get("kind") or ""),
+                                   source=source))
     return steps
 
 
@@ -2106,8 +2127,17 @@ def _scope_step_backing(
     scope_steps: list[ScopeStep] | None,
 ) -> list[EvidenceUnit] | None:
     """The live limit units backing EVERY unmatched figure as a scope step, else
-    ``None`` (fail-safe exactly like :func:`_denial_statement_backing`)."""
-    if not scope_steps or not idx.denial_units:
+    ``None`` (fail-safe exactly like :func:`_denial_statement_backing`).
+
+    WP-Q6 (b) (COORD MD-Q10): a step bound to the person's stored scope ANSWER
+    has no denial unit behind it; under the same rules it is backed by a unit
+    built from that answer (path ``scope_answer:<kind>``). The unit exists only
+    here — never in the vault index — so it backs nothing but this bar's figure
+    in a step-framed restatement of the answer."""
+    if not scope_steps:
+        return None
+    answer_steps = any(s.source == SCOPE_ANSWER_STEP_SOURCE for s in scope_steps)
+    if not idx.denial_units and not answer_steps:
         return None
     from applire.services.scope_requirements import names_bar_figure_with_unit
 
@@ -2121,9 +2151,21 @@ def _scope_step_backing(
             return None
         unit = None
         for step in scope_steps:
-            if fig.value not in step.figures or _norm(step.statement) not in live:
+            from_answer = step.source == SCOPE_ANSWER_STEP_SOURCE
+            if fig.value not in step.figures or (not from_answer and _norm(step.statement) not in live):
                 continue
-            words = _denial_content_tokens(f"{step.limit_id} {step.statement}")
+            if from_answer and not _scope_step_framed(step.statement):
+                # MD-Q10 condition 1: a recorded denial IS the person's "not yet"; a
+                # stored answer is not. The step frame the letter writes must be in
+                # the person's own sentence (the same frame words the claim side is
+                # held to) — "Dauerhaft verantwortet habe ich rund 120" never backs
+                # "… zu verantworten wäre der nächste Schritt" nor "… noch nicht"
+                # (Luna replay, met-bar arm: the classifier bound it 1/5). A
+                # separate "no added negation" rule for answers was mutation-shown
+                # redundant with this one and red on true sentences: removed.
+                continue
+            persons = step.persons_text
+            words = _denial_content_tokens(persons)
             if not all(_scope_step_framed(c) and _restates(c, words) for c in clauses):
                 continue
             # MD-Q6 R2: the figure carries a unit of the bar's kind right at it
@@ -2134,13 +2176,21 @@ def _scope_step_backing(
             bar = {"kind": step.kind, "value": float(fig.value)}
             if not (
                 names_bar_figure_with_unit(claim_text, bar)
-                or _figure_in_persons_phrase(claim_text, fig, f"{step.limit_id} {step.statement}")
+                or _figure_in_persons_phrase(claim_text, fig, persons)
             ):
                 continue
-            plain = set(_words(f"{step.limit_id} {step.statement}"))
+            plain = set(_words(persons))
             if not _scope_step_sentence_ok(claim_text, words, plain):
                 continue
-            unit = live[_norm(step.statement)]
+            unit = (
+                EvidenceUnit(
+                    path=f"scope_answer:{step.kind or 'bar'}",
+                    text=step.statement,
+                    text_norm=_norm(step.statement),
+                )
+                if from_answer
+                else live[_norm(step.statement)]
+            )
             break
         if unit is None:
             logger.info(

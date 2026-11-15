@@ -715,6 +715,9 @@ def _asked_unmentioned_terms(
 #: model names the anchor and the asked concept as fields; code writes the
 #: words, so no model free text is ever the inserted text of a bridge.
 BRIDGE_OPENING_TEMPLATE = {"de": "Zu {concept} bei {anchor}:", "en": "On {concept} in {anchor}:"}
+#: Q6-1 (WP-Q6 a, ADR-064 amended 2026-11-15, founder ruling Q6-1 = A) — the honest
+#: question's opening: the asked concept only, so a click states neither a yes nor a no.
+HONEST_OPENING_TEMPLATE = {"de": "Zu {concept}:", "en": "On {concept}:"}
 #: A longer "anchor" is a sentence, not a role, project or activity.
 BRIDGE_ANCHOR_MAX_CHARS = 80
 
@@ -754,6 +757,26 @@ def _bridge_anchor(choice: dict, profile: dict[str, Any]) -> str | None:
     return anchor
 
 
+def _honest_concept(choice: dict, cluster: dict[str, Any]) -> str | None:
+    """Q6-1 — the cluster's own spelling of the concept a ``denial``-level draft
+    (the honest question) names: its ``concept``, else its single declared
+    ``denied_terms`` entry (the pre-Q6 field). A concept the cluster's record
+    shows as already covered or declined is not asked again (ADR-089 cl. 3), so
+    it yields ``None``, as does a name that is no cluster term."""
+    named = choice.get("concept")
+    if not (isinstance(named, str) and named.strip()):
+        declared = _denied_terms_of(choice)
+        named = declared[0] if len(declared) == 1 else None
+    if not isinstance(named, str):
+        return None
+    concept = _bridge_concept({"concept": named}, cluster)
+    if concept is None:
+        return None
+    outcome = cluster.get("outcome") if isinstance(cluster.get("outcome"), dict) else {}
+    answered = {_norm(str(m)) for m in [*(outcome.get("covered") or []), *(outcome.get("declined") or [])]}
+    return None if _norm(concept) in answered else concept
+
+
 def build_bridge_openings(
     choices: "list[str | dict[str, Any]] | None",
     cluster: dict[str, Any],
@@ -764,15 +787,40 @@ def build_bridge_openings(
     :data:`BRIDGE_OPENING_TEMPLATE`, built from the ``concept`` and ``anchor``
     the model named; a bridge whose concept is not an asked concept of this
     cluster or whose anchor is not the profile's own words is DROPPED (a
-    structural tie, never a reading of the model's text). Other levels pass
-    unchanged. Returns ``None`` when nothing is left.
+    structural tie, never a reading of the model's text).
+
+    Q6-1 (founder ruling Q6-1 = A, ADR-064 amended 2026-11-15) — a ``denial``
+    choice (the honest question) never reaches the candidate as a no: it becomes
+    ``partial`` with the text :data:`HONEST_OPENING_TEMPLATE` built from its
+    concept (:func:`_honest_concept`), its ``ask`` kept and ``denied_terms``
+    emptied, so the opening guards (``answer_is_offered_opening``,
+    ``strip_offered_opening``) apply to it exactly as to a bridge. At most one
+    per question; one without a valid concept is DROPPED. A built text equal to
+    one already kept is not offered twice. ``direct`` passes unchanged. Returns
+    ``None`` when nothing is left.
     """
     if not isinstance(choices, list):
         return choices
-    template = BRIDGE_OPENING_TEMPLATE.get((lang or "en")[:2].lower(), BRIDGE_OPENING_TEMPLATE["en"])
+    code = (lang or "en")[:2].lower()
+    template = BRIDGE_OPENING_TEMPLATE.get(code, BRIDGE_OPENING_TEMPLATE["en"])
+    honest_template = HONEST_OPENING_TEMPLATE.get(code, HONEST_OPENING_TEMPLATE["en"])
     out: list = []
     dropped = 0
+    honest_built = False
+    texts: set[str] = set()
     for choice in choices:
+        if isinstance(choice, dict) and choice.get("level") == "denial":
+            concept = None if honest_built else _honest_concept(choice, cluster)
+            text = honest_template.format(concept=concept) if concept else None
+            if text is None or text in texts:
+                dropped += 1
+                continue
+            built = {**choice, "text": text, "level": "partial", "denied_terms": [], "concept": concept}
+            built.pop("anchor", None)
+            honest_built = True
+            texts.add(text)
+            out.append(built)
+            continue
         if isinstance(choice, dict) and choice.get("level") == "partial":
             concept = _bridge_concept(choice, cluster)
             anchor = _bridge_anchor(choice, profile)
@@ -781,6 +829,10 @@ def build_bridge_openings(
                 continue
             built = dict(choice)
             built["text"] = template.format(concept=concept, anchor=anchor)
+            if built["text"] in texts:
+                dropped += 1
+                continue
+            texts.add(built["text"])
             out.append(built)
         else:
             out.append(choice)
