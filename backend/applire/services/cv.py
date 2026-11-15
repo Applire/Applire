@@ -5212,7 +5212,8 @@ async def _render_cv_background(
                         from applire.services.cv_v2 import compose_v2
 
                         return compose_v2(carry_v2_fields(d, prose_draft), profile_json,
-                                          raw_profile_json=raw_profile_json)
+                                          raw_profile_json=raw_profile_json,
+                                          document_language=document_language)
                     return _compose_document(
                         d, profile_json, raw_profile_json=raw_profile_json,
                         keyword_ledger=keyword_ledger, budget=budget, job_dict=job_dict,

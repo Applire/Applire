@@ -269,6 +269,7 @@ def compose_v2(
     *,
     raw_profile_json: dict | None = None,
     notes: ComposeNotes | None = None,
+    document_language: str | None = None,
 ) -> "TailoredCVData":
     """The v2 compose: join the writer's draft onto the vault BY ID (ADR-094 cl. 2).
 
@@ -302,6 +303,19 @@ def compose_v2(
 
     vault_work = _by_id(profile_json.get("work_experience"))
     prose_work = _by_id(prose.get("work"))
+    # Sorbet WP-Q3 (founder question Q3-1, recommendation A, built meanwhile): a
+    # document in the OTHER language than the vault's own has no recorded title in
+    # its language, so a recorded-name check can only force the vault's language
+    # onto the page (bench 2026-11-15, marcus cross_de2en: the writer's "Production
+    # Leader" was rejected and the finding then had the corrector revert every
+    # title to German). Such a title is translated by the writer exactly as R-2
+    # rules for a single-form title; its faithfulness is the reviewers' judgement.
+    # Employer, degree and institution keep the check.
+    from applire.services.cv import _vault_dominant_language
+
+    cross_language = bool(
+        document_language and document_language != _vault_dominant_language(profile_json)
+    )
     work = []
     for i, entry in enumerate(tailored.work_history):
         v = vault_work.get(entry.id) or {}
@@ -309,7 +323,9 @@ def compose_v2(
         update: dict[str, Any] = {}
         for fld, alias_key in (("role", "role_aliases"), ("company", "company_aliases")):
             picked, member = pick_recorded(p.get(fld), v.get(fld), v.get(alias_key))
-            if not member and fld == "role" and len(recorded_names(v.get(fld), v.get(alias_key))) == 1:
+            if not member and fld == "role" and (
+                len(recorded_names(v.get(fld), v.get(alias_key))) == 1 or cross_language
+            ):
                 # Ruling R-2 (WP3, ADR-094 cl. 5 amended 2026-11-04): a role title the
                 # vault records in ONE form only is TRANSLATED by the writer when the
                 # document is in another language ("Leiterin Labor-IT" -> "Head of
@@ -1370,7 +1386,8 @@ class V2Terminal:
 
     def compose(self, prose: dict, profile_json: dict, raw_profile_json: dict | None) -> "TailoredCVData":
         notes = ComposeNotes()
-        composed = compose_v2(prose, profile_json, raw_profile_json=raw_profile_json, notes=notes)
+        composed = compose_v2(prose, profile_json, raw_profile_json=raw_profile_json, notes=notes,
+                              document_language=self.ctx.language)
         self.notes_by_draft[canonical(prose)] = notes
         return composed
 
