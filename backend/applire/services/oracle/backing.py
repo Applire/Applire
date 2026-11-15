@@ -35,6 +35,7 @@ predicate (memory: a new YES arm drops the old arm's implicit NOs):
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -92,6 +93,105 @@ def with_ledger_denials(index: VaultIndex, keyword_ledger: list[dict[str, Any]] 
     return dataclasses.replace(index, ledger_denials=forms)
 
 
+# ── MD-Q11 F6: the shorter name and the denial sentence ─────────────────────
+#
+# The one containment the stored-scope reader keeps, on WHOLE tokens of the
+# record (a hyphen-part is never split off: "Projektcontrolling" is not a token
+# of "Projektcontrolling-Projekte geleitet"), in two closed shapes. Closed lists,
+# the FS-7 precedent (ADR-059 amended 2026-10-24): a new word is a code change
+# with a test, never a runtime list.
+
+#: Words a denial SENTENCE may carry around the one term it names: FS-7's head
+#: nouns, quantity/ownership qualifiers and prepositions, plus the pronouns,
+#: auxiliaries and negations of a first-person "I have no X" frame. A word
+#: outside this list ("weitere", "praktische", "Projekte", "geleitet") narrows the
+#: denial to an aspect, and an aspect denial never covers the bare term.
+_DENIAL_FRAME_WORDS = frozenset(
+    "erfahrung erfahrungen kenntnisse kenntnis wissen know how expertise experience "
+    "experiences knowledge background skills skill "
+    "eigene eigenen keine kein keinen keinerlei own no any none "
+    "mit in im von zu zum zur with of on "
+    "ich habe hab hatte i have had has do dont don't did didn't "
+    "nicht nie never not ohne without bisher bislang noch leider damit dazu gar je jemals yet ever".split()
+)
+#: Trailing words a product NAME may carry beyond its short name ("Google Cloud
+#: Platform" -> "Google Cloud", "Adobe Premiere Pro" -> "Premiere"). Any other
+#: trailing word is a specialisation, level or role ("SAP S/4HANA" is not "SAP";
+#: "Scrum Master" is not "Scrum", ADR-064 / ADR-052: the role is not the method;
+#: "Lean Six Sigma Black Belt" is not "Six Sigma"), so it does not cover.
+_NAME_EDITION_WORDS = frozenset("platform pro suite services service software edition".split())
+#: Leading words that NARROW a name rather than brand it ("Advanced Excel" is not
+#: a denial of Excel, "weitere eigene X" is an aspect): never dropped.
+_NAME_NARROWING_WORDS = frozenset(
+    "weitere weiteren weiterer eigene eigenen keine no own any advanced senior junior lead basic "
+    "certified zertifizierte zertifizierter fortgeschrittene fortgeschrittenes fortgeschrittener "
+    "erweiterte erweiterter praktische hands-on formal formale direkte direct".split()
+)
+#: A leading German adjective narrows too, capitalised only because it opens the
+#: record ("Disziplinarische Führung" is not a denial of Führung; "Fachliche",
+#: "Operative", "Strategische"). Inflected adjective endings, six letters or more.
+_NAME_ADJECTIVE_RE = re.compile(r"^\w{3,}(?:isch|lich|iv|al|ig|iert)(?:e|en|er|es|em)$", re.IGNORECASE)
+_NAME_MAX_TOKENS = 5
+
+
+def _record_tokens(text: str) -> list[str]:
+    """Whitespace tokens of a record, edge punctuation stripped, casefolded."""
+    return [t for t in (w.strip(".,;:!?()\"'„“”‚‘’").casefold() for w in (text or "").split()) if t]
+
+
+def _shorter_name_or_sentence_cover(token: str, denials: list[str]) -> list[str]:
+    """The denials that name ``token`` as a shorter form of the denied NAME, or as
+    the one term a denial SENTENCE names (MD-Q11 F6). ``token`` must be a run of
+    WHOLE tokens of the record. Then, either:
+
+    - **sentence**: every other token of the record is a frame word
+      (``_DENIAL_FRAME_WORDS``) — "Mit US-GAAP habe ich keine Erfahrung" names
+      US-GAAP; "keine weitere Erfahrung mit SAP" does not cover SAP;
+    - **name**: the record is a name (at most five tokens, no function word of
+      either language), the dropped leading tokens brand it (capitalised, an
+      acronym or a version, never a narrowing word) and the dropped trailing
+      tokens are edition words — "Microsoft Power BI" covers "Power BI", "SAP
+      S/4HANA" covers "S/4HANA", "Google Cloud Platform" covers "Google Cloud".
+
+    Pure; longest record first."""
+    from applire.utils.language_detection import _ENGLISH_STOPWORDS, _GERMAN_STOPWORDS
+
+    chip = _record_tokens(token)
+    if not chip:
+        return []
+    out: list[str] = []
+    for denial in denials:
+        raw = [w.strip(".,;:!?()\"'„“”‚‘’") for w in (denial or "").split()]
+        raw = [w for w in raw if w]
+        toks = [w.casefold() for w in raw]
+        n = len(chip)
+        for i in range(len(toks) - n + 1):
+            if toks[i : i + n] != chip:
+                continue
+            lead, trail = raw[:i], toks[i + n :]
+            rest = [w.casefold() for w in lead] + trail
+            if rest and all(w in _DENIAL_FRAME_WORDS for w in rest):
+                out.append(denial)
+                break
+            is_name = len(toks) <= _NAME_MAX_TOKENS and not any(
+                w in _GERMAN_STOPWORDS or w in _ENGLISH_STOPWORDS or w in _DENIAL_FRAME_WORDS for w in toks
+            )
+            if (
+                rest
+                and is_name
+                and all(
+                    (w[:1].isupper() or any(c.isdigit() for c in w))
+                    and w.casefold() not in _NAME_NARROWING_WORDS
+                    and not _NAME_ADJECTIVE_RE.match(w)
+                    for w in lead
+                )
+                and all(w in _NAME_EDITION_WORDS for w in trail)
+            ):
+                out.append(denial)
+                break
+    return out
+
+
 def stored_denial_cover(texts: list[str], index: VaultIndex) -> list[str]:
     """The recorded denials whose STORED scope covers one of ``texts`` — the one
     scope reader of the Oracle, the delivery chip drop and the ledger-backing arm
@@ -126,6 +226,7 @@ def stored_denial_cover(texts: list[str], index: VaultIndex) -> list[str]:
                 continue
             if denials:
                 out.extend(declared_denial_matches(t, denials))
+                out.extend(_shorter_name_or_sentence_cover(t, denials))
             key = _norm(t)
             out.extend(record for form, record in decided if form == key)
         return sorted(dict.fromkeys(out), key=len, reverse=True)

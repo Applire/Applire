@@ -93,6 +93,26 @@ async def test_a_held_project_of_that_name_is_never_asked_again():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("held,spoken", [
+    ("POC Bewertung", "POC-Bewertung"),          # the reviewer's probe (adv-2a F7)
+    (POC, POC.replace("-", " ").upper()),
+    (POC, f"{POC}."),
+])
+async def test_a_spelling_variant_of_a_held_project_is_not_asked(held, spoken):
+    """MD-Q11 F7: the compose lift's own name key decides "the same project"."""
+    profile = _profile()
+    profile.projects = [ProjectEntry(id="p-held", name=held, associated_experience=None)]
+    assert (await _run(profile=profile, name=spoken)).ambiguities == []
+
+
+@pytest.mark.asyncio
+async def test_a_different_project_is_still_asked():
+    profile = _profile()
+    profile.projects = [ProjectEntry(id="p-held", name="POC Bewertung", associated_experience=None)]
+    assert len((await _run(profile=profile, name="POC Bewertung Anlagenbau")).ambiguities) == 1
+
+
+@pytest.mark.asyncio
 async def test_the_models_own_ask_is_not_doubled():
     result = await _run(ask=True)
     assert len(result.ambiguities) == 1
