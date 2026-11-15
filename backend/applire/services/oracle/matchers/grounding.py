@@ -408,21 +408,18 @@ def ground_skill_claim(
     for unit in index.units:
         if surface_present_whole_token(name, unit.text_norm):
             return unit
-    # MD-Q7 F3: a merged chip "X (A, B)" is backed only when EVERY module is — as
-    # "X A", or as "A" beside a backed "X". It never falls through to the near-dupe
-    # arm, where "SAP (PP, MM)" grounded on "SAP MM" alone with PP invented.
+    # MD-Q7 F3 / MD-Q9 R5: a merged chip "X (A, B)" is backed only when EVERY
+    # module is a skill the vault holds under ITS OWN base ("X A",
+    # ``module_backing``). It never falls through to the near-dupe arm, where
+    # "SAP (PP, MM)" grounded on "SAP MM" alone with PP invented. A chip with a
+    # parenthesis that is not a merged chip (nested, unreadable) grounds only on
+    # its whole string above — never on a part.
     modules = module_chip_parts(name)
     if modules:
-        backing = []
-        for base, mod in modules:
-            unit = ground_skill_claim(f"{base} {mod}", index, ledger_forms) or (
-                ground_skill_claim(mod, index, ledger_forms)
-                if ground_skill_claim(base, index, ledger_forms) is not None else None
-            )
-            if unit is None:
-                return None
-            backing.append(unit)
-        return backing[0]
+        backing = [module_backing(base, mod, index) for base, mod in modules]
+        return backing[0] if all(u is not None for u in backing) else None
+    if "(" in name or ")" in name:
+        return None
     for i, vault_skill in enumerate(index.skill_names):
         if skills_near_dupe(name, vault_skill):
             for unit in index.units:
@@ -577,6 +574,32 @@ def module_chip_parts(name: str) -> list[tuple[str, str]] | None:
         if not mod or len(mod.split()) != 1 or len(mod) > _MODULE_MAX_CHARS or not re.search(r"\w", mod):
             return None
     return [(base, mod) for mod in mods]
+
+
+def _initials(words: str) -> str:
+    return "".join(w[0] for w in re.findall(r"\w+", words)).casefold()
+
+
+def module_backing(base: str, mod: str, index: VaultIndex) -> EvidenceUnit | None:
+    """MD-Q9 R5: the vault unit that holds module ``mod`` of a merged chip under its
+    own base — "X A" as a whole token (or inside a vault slash enumeration, "SAP
+    PP/MM" holds "SAP PP") — or ``None``. A module held under ANOTHER base never
+    counts ("SAP (Lambda)" over "AWS Lambda", "Oracle (PP)" over "SAP PP").
+    One exception, a fact about the chip's own characters: a "module" that is the
+    base's initials ("Key Performance Indicator (KPI)") is the base's own
+    abbreviation, backed as the base is."""
+    form = f"{base} {mod}"
+    for unit in index.units:
+        if surface_present_whole_token(form, unit.text_norm):
+            return unit
+        expanded = _expand_slash_enumerations(unit.text_norm)
+        if expanded is not None and surface_present_whole_token(form, expanded):
+            return unit
+    if len(re.findall(r"\w+", base)) > 1 and _initials(base) == mod.casefold():
+        for unit in index.units:
+            if surface_present_whole_token(base, unit.text_norm):
+                return unit
+    return None
 
 
 def module_chip_forms(name: str) -> list[str]:

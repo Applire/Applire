@@ -130,3 +130,21 @@ def test_the_generation_tail_wires_the_drop(needle):
         # after the first terminal review AND after a re-entry round, before the hash
         assert src.count(needle) == 2
         assert src.index(needle) < src.index("verdict_hash = _subject_hash(record.tailored_data)")
+
+
+# ── MD-Q9 R10: the baseline is the draft AFTER the truth round ────────────────
+def test_a_chip_the_truth_round_removed_and_a_later_round_re_added_is_dropped_md_q9_r10():
+    """Re-check R10: the truth round removes "Gruppenebene" (skillNoEvidence), a
+    terminal corrector re-adds it. Against the PRE-round skills it read as audited
+    and shipped; against the post-round draft it is late and dropped."""
+    pre_round = FIX["audited"]["skills"] + ["Gruppenebene"]
+    post_round = FIX["audited"]["skills"]
+    assert _late(audited_skills=pre_round) == []  # the leak the re-check found
+    assert _late(audited_skills=post_round) == ["Gruppenebene"]
+
+
+def test_the_generation_tail_takes_the_baseline_after_the_round_md_q9_r10():
+    src = (Path(__file__).resolve().parents[2] / "backend/applire/services/cv.py").read_text()
+    after_round = src.index("prose_draft = truth_round.draft")
+    baseline = src.rindex('truth_audit_skills = list(prose_draft.get("skills") or [])')
+    assert after_round < baseline < src.index("await _late_chips()")

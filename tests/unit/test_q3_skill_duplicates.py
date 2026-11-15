@@ -131,3 +131,41 @@ def test_the_cv_audit_seam_reads_the_modules_md_q7_f3():
     report = _audit_cv_text("Marcus\nSkills: SAP (PP, MM)", composed, ["SAP PP", "SAP SD"])
     assert "SAP PP" in report.keywords.present
     assert "SAP SD" in report.keywords.missing
+
+
+# ── MD-Q9 R5 (re-check at 7017f7ab): a module counts only under its own base ──
+_R5 = [(["SAP", "AWS Lambda"], "SAP (Lambda)"), (["Oracle", "SAP PP"], "Oracle (PP)"),
+       (["Excel", "SQL Server"], "Excel (Server)")]
+
+
+def test_a_module_held_under_another_base_does_not_count_md_q9_r5():
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+    from applire.services.oracle.matchers.vault import build_vault_index
+
+    for vault_skills, chip in _R5:
+        f = _module_findings(vault_skills, [chip]).get("cv.skill_module_unbacked")
+        assert f is not None and f.blocking is True and chip in f.subjects, chip
+        idx = build_vault_index({"skills": [{"name": s} for s in vault_skills], "work_experience": []})
+        assert ground_skill_claim(chip, idx) is None, chip
+
+
+def test_a_chip_with_nested_parentheses_never_grounds_on_a_part_md_q9_r5():
+    """Re-check probe: "SAP (PP (MM))" is not a merged chip and grounded on the
+    near-dupe arm over a vault holding "SAP" and "SAP MM" (PP invented)."""
+    from applire.services.oracle.matchers.grounding import ground_skill_claim, module_chip_parts
+    from applire.services.oracle.matchers.vault import build_vault_index
+
+    assert module_chip_parts("SAP (PP (MM))") is None
+    idx = build_vault_index({"skills": [{"name": "SAP"}, {"name": "SAP MM"}], "work_experience": []})
+    assert ground_skill_claim("SAP (PP (MM))", idx) is None
+    assert ground_skill_claim("SAP", idx) is not None  # the bare product still grounds
+
+
+def test_the_base_s_own_initials_are_its_abbreviation_not_a_module_md_q9_r5():
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+    from applire.services.oracle.matchers.vault import build_vault_index
+
+    idx = build_vault_index({"skills": [{"name": "Key Performance Indicator"}], "work_experience": []})
+    assert ground_skill_claim("Key Performance Indicator (KPI)", idx) is not None
+    assert "cv.skill_module_unbacked" not in _module_findings(
+        ["Key Performance Indicator"], ["Key Performance Indicator (KPI)"])

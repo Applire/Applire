@@ -5114,8 +5114,9 @@ async def _render_cv_background(
                 # report calls in ``_update_ats_report``, with the same provider,
                 # document language and keyword ledger (it used to pass neither).
                 truth_round = None
-                # MD-Q8: the chips the truth round's audit saw — a chip added after
-                # it is the delivery-side removal's population.
+                # MD-Q8 / MD-Q9 R10: the chips the truth round audited AND left in
+                # the draft — a chip added (or re-added) after it is the
+                # delivery-side removal's population.
                 truth_audit_skills: list | None = None
                 try:
                     from applire.services.attribution_round import run_truth_round
@@ -5146,6 +5147,9 @@ async def _render_cv_background(
                     prose_draft = truth_round.draft
                     if pipeline == PIPELINE_V2:
                         prose_draft = carry_v2_fields(prose_draft, pre_round_draft)
+                    # MD-Q9 R10: the baseline is the draft AFTER the round — a chip
+                    # the round removed and a later round re-adds is not "audited".
+                    truth_audit_skills = list(prose_draft.get("skills") or [])
                 except Exception:
                     logger.exception(
                         "The ADR-071 clause 3 attribution round failed for CV %s — "

@@ -112,118 +112,6 @@ def pick_recorded(model_value: object, stored: object, aliases: object) -> tuple
 
 
 # --------------------------------------------------------------------------- #
-# MD-Q7 F1: the language of a recorded name, for the cross-language title waiver
-# --------------------------------------------------------------------------- #
-def _record_sentences(profile_json: dict) -> list[str]:
-    """The candidate's own recorded sentences (work and project prose) — the same
-    text ``cv._vault_dominant_language`` reads."""
-    out: list[str] = []
-    for section, keys in (
-        ("work_experience", ("responsibilities", "achievements")),
-        ("projects", ("description", "responsibilities", "achievements")),
-    ):
-        for e in profile_json.get(section) or []:
-            if not isinstance(e, dict):
-                continue
-            for k in keys:
-                val = e.get(k)
-                if isinstance(val, str):
-                    out.append(val)
-                elif isinstance(val, list):
-                    out.extend(x for x in val if isinstance(x, str))
-    return out
-
-
-def _evidence_language(text: str) -> str | None:
-    """'de' / 'en' when the per-item instrument (ADR-066, ``item_language_scores``)
-    sees STRICTLY more evidence for one language; ``None`` on a tie (no evidence)."""
-    from applire.utils.language_detection import item_language_scores
-
-    de, en = item_language_scores(text)
-    if de > en:
-        return "de"
-    if en > de:
-        return "en"
-    return None
-
-
-def recorded_name_language(
-    name: str, sentences: list[str], known: dict[str, str] | None = None
-) -> str | None:
-    """The language a recorded name is written in, or ``None`` when the record does
-    not say.
-
-    The vault carries no language tag on a title or an alias, so the language is
-    read from the record itself, in this order:
-    1. a name already resolved for the same role (``known``, by ``norm_name``);
-    2. the name's own evidence under the per-item instrument (ADR-066:
-       "Head of Production" carries "of"; an umlaut counts as German);
-    3. a name joined by " / " is two recorded titles: known when every part is
-       known and all parts agree;
-    4. the candidate's own recorded sentences that USE the name as a whole word
-       ("2023 als Projektleiter die Einführung … verantwortet"): their joint
-       evidence under the same instrument.
-    Otherwise ``None``."""
-    n = norm_name(name)
-    if not n:
-        return None
-    if known and n in known:
-        return known[n]
-    own = _evidence_language(name)
-    if own:
-        return own
-    if "/" in name:
-        parts = [p.strip() for p in name.split("/") if p.strip()]
-        if len(parts) > 1:
-            langs = {recorded_name_language(p, sentences, known) for p in parts}
-            return langs.pop() if len(langs) == 1 and None not in langs else None
-    pat = re.compile(r"(?<!\w)" + re.escape(n) + r"(?!\w)")
-    using = [s for s in sentences if pat.search(norm_name(s))]
-    return _evidence_language(" ".join(using)) if using else None
-
-
-def title_translation_allowed(
-    entry: dict, profile_json: dict, document_language: str
-) -> bool:
-    """RULING Q3-1 / MD-Q7 F1: the writer may translate a role title only when
-    EVERY recorded name of that role (title and aliases) is known to be in another
-    language than the document's. A name in the document language, or an ALIAS
-    whose language the record does not reveal, keeps the recorded-name check.
-
-    The stored title was recorded with its entry, so when it carries no evidence
-    of its own it takes the language of the entry's own sentences, then the vault's
-    dominant language. Limit: a stored title recorded in the other language than
-    its own entry's prose, with no evidence of its own (an English-written entry
-    titled "Produktionsleiter"), is read as the entry's language; an alias with no
-    evidence and no use in the candidate's sentences ("Production Manager" as a
-    bare alias) is unknown and keeps the check — the instrument under-reports, so
-    the waiver errs toward enforcing."""
-    from applire.services.cv import _vault_dominant_language
-
-    names = recorded_names(entry.get("role"), entry.get("role_aliases"))
-    if not names or not document_language:
-        return False
-    sentences = _record_sentences(profile_json)
-    own = [
-        x for k in ("responsibilities", "achievements")
-        for x in (entry.get(k) or []) if isinstance(x, str)
-    ]
-    known: dict[str, str] = {}
-    main = names[0]
-    main_lang = (
-        recorded_name_language(main, sentences)
-        or _evidence_language(" ".join(own))
-        or _vault_dominant_language(profile_json)
-    )
-    known[norm_name(main)] = main_lang
-    for name in names:
-        lang = recorded_name_language(name, sentences, known)
-        if lang is None or lang == document_language:
-            return False
-        known[norm_name(name)] = lang
-    return True
-
-# --------------------------------------------------------------------------- #
 # carry: a later model pass must not silently drop a v2 field
 # --------------------------------------------------------------------------- #
 _V2_WORK_FIELDS = ("role", "company", "industry_context", "budget_managed")
@@ -467,12 +355,10 @@ def compose_v2(
 
     vault_work = _by_id(profile_json.get("work_experience"))
     prose_work = _by_id(prose.get("work"))
-    # Sorbet WP-Q3, RULING Q3-1 (A + D1) and MD-Q7 F1: a role title in a document
-    # whose language is not the vault's own is the writer's translation ONLY when
-    # none of that role's recorded names is in the document's language
+    # RULING R-2 / Q3-1 and MD-Q9 R2: a role title recorded in ONE form is the
+    # writer's translation; a role with several recorded names prints one of them
     # (``role_title_is_translated``, the predicate the writer's VAULT FIELDS block
-    # states too). A recorded name in the document language is enforced as before.
-    # Employer, degree and institution always keep the check.
+    # states too). Employer, degree and institution always keep the check.
     work = []
     for i, entry in enumerate(tailored.work_history):
         v = vault_work.get(entry.id) or {}
@@ -989,15 +875,15 @@ def _scope_evidence_findings(
 
 
 def _module_chip_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
-    """MD-Q7 F3 (Sorbet quality-1): every module inside a merged skills chip
-    "X (A, B)" (``module_chip_parts``) is a skill the vault records — as "X A", or as
-    "A" beside a recorded "X" — by the Oracle's own instrument (``ground_skill_claim``,
-    with the job ledger's claimable sibling forms, as the CV truth check reads it).
+    """MD-Q7 F3 / MD-Q9 R5 (Sorbet quality-1): every module inside a merged skills
+    chip "X (A, B)" (``module_chip_parts``) is a skill the vault records under its
+    own base, "X A" — the Oracle's own reader (``module_backing``, the arm
+    ``ground_skill_claim`` uses for the chip).
     A module that is not is an invented skill on page one ("SAP (PP, MM)" over a vault
     holding only "SAP" and "SAP MM"): a blocking FACT (ADR-062 cl. 1). The corrector
     can always meet it — list only the recorded modules, or the product alone."""
     from applire.services.keyword_ledger import claimable_surface_form_groups
-    from applire.services.oracle.matchers.grounding import ground_skill_claim, module_chip_parts
+    from applire.services.oracle.matchers.grounding import ground_skill_claim, module_backing, module_chip_parts
     from applire.services.oracle.matchers.vault import build_vault_index
 
     chips = [(s, module_chip_parts(s)) for s in composed.skills if isinstance(s, str)]
@@ -1018,10 +904,8 @@ def _module_chip_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> li
     for chip, parts in chips:
         if backed(chip):
             continue
-        missing = [
-            m for b, m in parts
-            if not (backed(f"{b} {m}") or (backed(b) and backed(m)))
-        ]
+        # MD-Q9 R5: a module counts only under its own base ("X A" in the vault)
+        missing = [m for b, m in parts if module_backing(b, m, index) is None]
         if missing:
             bad.append((chip, missing))
     if not bad:
@@ -1686,26 +1570,22 @@ def build_v2_fields_block_for(
     )
 
 
-def role_title_is_translated(entry: dict, profile_json: dict, document_language: str | None) -> bool:
-    """RULING R-2 + Q3-1 / MD-Q7 F1, ONE predicate for compose and the writer's block:
-    a role title the writer translates rather than picks — a title recorded in ONE
-    form only (R-2), or, in a document whose language is not the vault's own, a role
-    none of whose recorded names is in the document language
-    (``title_translation_allowed``)."""
-    from applire.services.cv import _vault_dominant_language
-
-    if len(recorded_names(entry.get("role"), entry.get("role_aliases"))) == 1:
-        return True
-    return bool(
-        document_language
-        and document_language != _vault_dominant_language(profile_json)
-        and title_translation_allowed(entry, profile_json, document_language)
-    )
+def role_title_is_translated(entry: dict, profile_json: dict | None = None,
+                             document_language: str | None = None) -> bool:
+    """RULING R-2 / Q3-1, MD-Q9 R2 — ONE predicate for compose's waiver and the
+    writer's VAULT FIELDS block: a role title recorded in exactly ONE form (a
+    " / " title stored as one string is one form) is the writer's to translate; a
+    role with several recorded names prints one of them, in every document. No
+    language is read from a title or from prose (MD-Q9 R2 removed that reader:
+    a German title in English prose read as English, "Head of Controlling /
+    Leiter Controlling" as one English string)."""
+    return len(recorded_names(entry.get("role"), entry.get("role_aliases"))) == 1
 
 
 def translated_role_ids(profile_json: dict, document_language: str | None) -> frozenset[str]:
     """The work ids whose title the block marks for translation: only in a document
-    whose language is not the vault's own (a same-language prompt stays unchanged)."""
+    whose language is not the vault's own (the pipeline's cross-language predicate;
+    a same-language prompt stays unchanged)."""
     from applire.services.cv import _vault_dominant_language
 
     if not document_language or document_language == _vault_dominant_language(profile_json):
