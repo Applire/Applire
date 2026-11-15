@@ -258,7 +258,7 @@ async def db():
     await engine.dispose()
 
 
-async def _seed(db, clusters, ledger, *, work_id=None):
+async def _seed(db, clusters, ledger, *, work_id=None, team_size=38):
     from applire.models.gap import GapAnalysis
     from applire.models.job import JobAnalysis
 
@@ -275,7 +275,7 @@ async def _seed(db, clusters, ledger, *, work_id=None):
         "skills": [], "work_experience": [
             {**({"id": work_id} if work_id else {}),
              "company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
-             "start_date": "2018-01", "team_size": 38}],
+             "start_date": "2018-01", "team_size": team_size}],
     })
     db.add_all([job, profile])
     await db.flush()
@@ -726,13 +726,17 @@ async def test_r2_the_whole_sentence_and_the_unit_are_checked():
         "A larger leadership span of 120 employees would be my next step, which I reached in 2019.",
     ):
         assert await _verdicts(text, profile, ledger) == ["unbacked"], text
-    # Another clause with a claim of its own (checked as usual) is no claim about the step.
-    for text in (
-        _R2_STMT[:-1] + "; gerade deshalb reizt mich die Stelle.",
-        _R2_STMT[:-1] + "; die Einführung des MES-Systems zeigt, dass ich Veränderungen umsetze.",
-        _R2_STMT[:-1] + "; heute führe ich bereits 38 Mitarbeitende.",
+    # Another clause with a claim of its own is no claim about the step — and
+    # (wave 1b) it IS checked as its own claim: the sentence gets that clause's
+    # verdict, the step's backing never carries it.
+    for clause in (
+        "gerade deshalb reizt mich die Stelle.",
+        "die Einführung des MES-Systems zeigt, dass ich Veränderungen umsetze.",
+        "heute führe ich bereits 38 Mitarbeitende.",
     ):
-        assert await _verdicts(text, profile, ledger) == ["grounded"], text
+        alone = await _verdicts(clause[0].upper() + clause[1:], profile, ledger)
+        assert alone != ["unbacked"], clause
+        assert await _verdicts(_R2_STMT[:-1] + "; " + clause, profile, ledger) == alone, clause
 
 
 @pytest.mark.asyncio
@@ -1250,3 +1254,217 @@ async def test_katrin_a_full_interview_plans_the_kind_ask_whatever_the_posting(d
         job_id=job.id, mode="targeted", target_gap="cluster-mes"), db, provider)
     micro_row = await db.get(InterviewSession, micro.session_id)
     assert LEADERSHIP_KIND_ID not in micro_row.state["critical_gaps"], "never in a micro-session"
+
+
+@pytest.mark.asyncio
+async def test_wave1b_the_mcp_door_plans_the_kind_ask_like_create_session(db):
+    """Seam (wave-1b delivery run): the delivery runs start the interview over MCP
+    (`run_interview(job_id)`, no mode, no target). That door reaches the same
+    targeted planner: a full interview on a posting with no team-size scope
+    cluster and no leadership emphasis plans the kind ask for the sized role, last."""
+    from contextlib import asynccontextmanager
+
+    from applire.mcp.server import run_interview
+    from applire.models.profile import MasterProfile
+    from applire.models.session import InterviewSession
+    from applire.services.interview.scope_question import LEADERSHIP_KIND_ID
+    from sqlalchemy import select
+
+    job = await _seed(db, [_llm_cluster("cluster-mes", ["MES"])], [])
+    owner = (await db.execute(select(MasterProfile.user_id))).scalars().first()
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(return_value={"question": "Wie setzen Sie MES ein?", "choices": []})
+    provider.acomplete = AsyncMock(return_value="Wie setzen Sie MES ein?")
+
+    @asynccontextmanager
+    async def _db():
+        yield db
+
+    with (
+        patch("applire.mcp.server.get_db", new=_db),
+        patch("applire.mcp.server.get_provider", return_value=provider),
+        patch("applire.mcp.server._current_user_id", new=AsyncMock(return_value=owner)),
+        patch("applire.mcp.server._owned_job", new=AsyncMock(return_value=job)),
+        # The run's profiles were complete enough for MODE A (both sessions
+        # `mode: targeted`); the seeded test profile is thin, so pin the auto-detect.
+        patch("applire.services.session._auto_detect_mode", return_value="targeted"),
+    ):
+        out = await run_interview(job_id=str(job.id))
+    row = await db.get(InterviewSession, uuid.UUID(str(out["session_id"])))
+    assert row.mode == "targeted"
+    assert row.state["critical_gaps"][-1] == LEADERSHIP_KIND_ID
+
+
+_KATRIN_QUOTE = ("Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit "
+                 "Entwicklungsperspektive zur Teamleitung.")
+
+
+def test_wave1b_katrin_a_single_digit_bar_is_asked():
+    """Wave-1b delivery run (captured ledger row): the Oracle's figure reader skips
+    bare single digits, so the M5 "quote states the value" check read Katrin's
+    "(2 Personen)" as unverified and her scope cluster was never carved."""
+    from applire.services.interview.scope_question import (
+        _askable_scope_rows,
+        _figure_facts,
+        carve_scope_clusters,
+        is_scope_cluster,
+        scope_question,
+    )
+    from applire.services.scope_requirements import names_bar_figure_with_unit
+
+    assert _figure_facts("team_size", 2.0, _KATRIN_QUOTE)["verified"] is True
+    assert _figure_facts("team_size", 3.0, _KATRIN_QUOTE)["verified"] is False, "never invented"
+    row = {"concept": "Führungsspanne 2 MA", "status": "partial", "claimable": True, "fit_weight": 1.0,
+           "sources": ["required"],
+           "bar": {"kind": "team_size", "level": "required", "quote": _KATRIN_QUOTE, "value": 2.0,
+                   "value_max": None, "comparator": "approx",
+                   "candidate_values": [{"value": 2, "entry": "Financial Controller @ Schwarzwald Präzision GmbH"}]}}
+    assert [r["concept"] for r in _askable_scope_rows([row])] == ["Führungsspanne 2 MA"]
+    llm = {**_llm_cluster("cluster-fuehrung", ["Führungsspanne 2 MA"])}
+    scope = [c for c in carve_scope_clusters([llm], [row], []) if is_scope_cluster(c)]
+    assert len(scope) == 1
+    q = scope_question(scope[0], "de")["question"]
+    assert q.startswith("Die Stelle nennt eine Führungsspanne von 2 Mitarbeitenden.")
+    bar = {"kind": "team_size", "value": 2.0}
+    assert names_bar_figure_with_unit("Ein Team von 2 Personen hatte ich noch nicht.", bar)
+    assert not names_bar_figure_with_unit("Ich habe 2 Tickets nie gesehen.", bar)
+    assert not names_bar_figure_with_unit("Version 2.5 kenne ich nicht.", bar)
+    from applire.services.scope_requirements import small_figures
+
+    assert [f.value for f in small_figures("Team (2 Personen), 2,5 Stellen, Version 2.5, 5 Mio. €")] == ["2"]
+    assert _figure_facts("budget", 3.0, "Budgetverantwortung für 3 Standorte")["verified"] is False, (
+        "a single digit is a team-size figure only"
+    )
+
+
+_W1B_ID = "dauerhafte Spanne von 120"
+_W1B_STMT = ("Direkt geführt habe ich 38 Mitarbeitende über drei Schichtleiter. In Urlaubs- und "
+             "Krankheitsvertretung des Betriebsleiters habe ich mehrfach den Gesamtstandort mit rund "
+             "90 Mitarbeitenden geführt, jeweils 2 bis 4 Wochen am Stück. Die dauerhafte Spanne von "
+             "120 wäre für mich der nächste Schritt, genau deshalb reizt mich die Stelle.")
+_W1B_SENTENCE = ("Die dauerhafte Spanne von 120 wäre für mich der nächste Schritt; die Senkung der "
+                 "Unfallquote in meinem Bereich durch überarbeitete Gefährdungsbeurteilungen und ein neu "
+                 "aufgesetztes Unterweisungssystem zeigt, wie ich Verantwortung für Sicherheit und "
+                 "Führung weiterentwickle.")
+
+
+@pytest.mark.asyncio
+async def test_wave1b_stefans_own_phrase_without_a_unit_is_grounded():
+    """Wave-1b delivery run, captured letter sentence + bound limit: the person
+    wrote "Spanne von 120 wäre" with no people word at 120. Written exactly as
+    they wrote it, the figure needs no unit; anyone else's phrase still does. A
+    clause glued to the step never rides on it."""
+    profile = _h2_profile(_W1B_STMT, _W1B_ID)
+    ledger = _h2_ledger((_W1B_ID, _W1B_STMT))
+    step = _W1B_SENTENCE.split(";")[0] + "."
+    assert await _verdicts(step, profile, ledger) == ["grounded"]
+    # The captured sentence: the step is backed; the clause glued to it is judged
+    # on its own (a flourish, unverifiable) — no longer an unbacked 120.
+    assert await _verdicts(_W1B_SENTENCE, profile, ledger) == ["unverifiable"]
+    # A further clause from the SAME statement is the person's wording too.
+    assert await _verdicts(step[:-1] + ", genau deshalb reizt mich die Stelle.", profile, ledger) == ["grounded"]
+    for glued in (
+        step[:-1] + "; ich bringe zudem langjährige Blockchain-Erfahrung mit.",
+        "Die dauerhafte Spanne von 120 Mitarbeitenden wäre für mich der nächste Schritt; "
+        "ich bringe zudem langjährige Blockchain-Erfahrung mit.",
+    ):
+        assert await _verdicts(glued, profile, ledger) != ["grounded"], glued
+    for text in (
+        "Eine dauerhafte Spanne von 120 Kunden wäre für mich der nächste Schritt.",
+        "Die dauerhafte Spanne von 120 Projekten wäre für mich der nächste Schritt.",
+        "Die dauerhafte Spanne von 120 wäre für mich nicht der nächste Schritt, ich hatte sie schon.",
+        "Die dauerhafte Spanne von 120 wäre für mich der nächste Schritt gewesen, und ich habe sie erreicht.",
+        "Ich verantwortete die dauerhafte Spanne von 120.",
+        "Die dauerhafte Spanne über 120 wäre für mich der nächste Schritt.",
+    ):
+        assert await _verdicts(text, profile, ledger) == ["unbacked"], text
+
+
+def _sizing_bridge(size):
+    """A reconcile double that records ``team_size`` on the seeded role — what the
+    Luna reconciler did on Katrin's answer to the scope question (replay 2 of 3)."""
+    from applire.schemas.profile import FieldChange
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    async def _run(db, *, profile_record, **_kwargs):
+        pj = copy.deepcopy(profile_record.profile_json)
+        if size is not None:
+            pj["work_experience"][0]["team_size"] = size
+        return InterviewTurnResult(
+            profile_dict=pj,
+            changes=[FieldChange(section="work_experience", field="team_size", action="added",
+                                 new_value=str(size))] if size is not None else [],
+            addressed=size is not None, denial_recorded=False, denied_concepts=[],
+        )
+
+    return AsyncMock(side_effect=_run)
+
+
+@pytest.mark.parametrize("size", [3, None], ids=["sized-mid-interview", "never-sized"])
+@pytest.mark.asyncio
+async def test_wave1b_a_role_sized_mid_interview_gets_the_kind_ask_next(db, size):
+    """Wave-1b delivery run: Katrin's import stored no team_size, so the plan made
+    at session creation held no kind ask; the headcount was recorded by an answer
+    (earlier run: the last cluster) and the interview ended unasked. The plan is
+    re-run after each answered cluster: a newly sized role is asked right after it,
+    with one question added to the budget. Never sized → no ask, the interview ends."""
+    from applire.models.session import InterviewSession
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.interview.scope_question import LEADERSHIP_KIND_ID
+    from applire.services.session import create_session, send_message
+
+    job = await _seed(db, [_scope_cluster()], [_scope_row()], work_id=str(uuid.uuid4()), team_size=None)
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    provider.aparse_json = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    created = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, provider)
+    row = await db.get(InterviewSession, created.session_id)
+    assert LEADERSHIP_KIND_ID not in row.state["critical_gaps"], "no sized role at creation"
+    ceiling = row.state["hard_ceiling"]
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=_sizing_bridge(size)),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        resp = await send_message(created.session_id, "Fachlich zwei Werkstudierende und eine Junior.", db, provider)
+    await db.refresh(row)
+    if size is None:
+        assert resp.complete is True
+        assert LEADERSHIP_KIND_ID not in row.state["critical_gaps"]
+        return
+    assert resp.complete is False
+    assert resp.choices == ["Disziplinarisch (Personalverantwortung)", "Fachliche Anleitung", "Beides"]
+    assert row.state["critical_gaps"][row.state["current_gap_index"]] == LEADERSHIP_KIND_ID
+    assert row.state["hard_ceiling"] == ceiling + 1
+
+
+@pytest.mark.asyncio
+async def test_wave1b_the_late_kind_ask_never_lands_behind_the_current_cluster():
+    """The planner anchors the ask right after the team-size scope cluster; when
+    the role is sized on a LATER cluster that anchor is already passed — the ask
+    is queued right after the current cluster instead, never at a passed index;
+    a session created without the re-plan flag never re-plans."""
+    from applire.services.interview.scope_question import LEADERSHIP_KIND_ID
+    from applire.services.session import KIND_REPLAN_STATE_KEY, _replan_leadership_kind
+
+    scope = {**_scope_cluster(), "scope": {"kind": "team_size"}}
+    ids = [scope["id"], "cluster-mes", "cluster-sap"]
+    by_id = {scope["id"]: scope, "cluster-mes": _llm_cluster("cluster-mes", ["MES"]),
+             "cluster-sap": _llm_cluster("cluster-sap", ["SAP"])}
+    profile = {"work_experience": [{"id": "w1", "company": "Schwarzwald Präzision GmbH",
+                                    "role": "Financial Controller", "team_size": 3}]}
+
+    def _state(flag):
+        return {"critical_gaps": list(ids), "gap_clusters_by_id": dict(by_id),
+                "gap_categories": {c: "B" for c in ids}, "hard_ceiling": 9,
+                **({KIND_REPLAN_STATE_KEY: True} if flag else {})}
+
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=MagicMock(scalars=lambda: MagicMock(all=lambda: [])))
+    state = _state(True)
+    await _replan_leadership_kind(state, profile, db, uuid.uuid4(), 1)
+    assert state["critical_gaps"] == [scope["id"], "cluster-mes", LEADERSHIP_KIND_ID, "cluster-sap"]
+    assert state["hard_ceiling"] == 10
+    assert state["gap_clusters_by_id"][LEADERSHIP_KIND_ID]["entry"]["entry_id"] == "w1"
+    unflagged = _state(False)
+    await _replan_leadership_kind(unflagged, profile, db, uuid.uuid4(), 1)
+    assert unflagged["critical_gaps"] == ids

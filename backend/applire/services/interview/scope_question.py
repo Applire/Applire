@@ -136,7 +136,11 @@ def _figure_facts(kind: Any, value: Any, quote: Any) -> dict[str, Any]:
     )
 
     wanted = str(int(number)) if number.is_integer() else None
-    figures = extract_figures(text) + extract_spelled_figures(text) + extract_range_bare_numbers(text)
+    from applire.services.scope_requirements import small_figures
+
+    figures = (extract_figures(text) + extract_spelled_figures(text)
+               + extract_range_bare_numbers(text)
+               + (small_figures(text) if kind == "team_size" else []))
     hit = next(
         (f for f in figures if f.kind in ("number", "currency") and wanted and f.value == wanted),
         None,

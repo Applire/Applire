@@ -512,6 +512,27 @@ def _bar_number(value: Any) -> float | None:
     return float(value)
 
 
+_SMALL_FIGURE_RE = re.compile(
+    r"(?<![\w.,])([1-9])(?![\w]|[.,]\d|\s*(?:mio|mrd|million|milliard|tsd|tausend|k\b|m\b|bn|%))",
+    re.IGNORECASE,
+)
+
+
+def small_figures(text: str) -> list[Any]:
+    """The single-digit whole numbers of ``text`` ("(2 Personen)"). The Oracle's
+    figure reader skips bare single digits on purpose (they are rarely claims), but
+    a team-size bar CAN be 2 people — wave-1b delivery: Katrin's "Führungsspanne 2
+    MA" read as unverified and was never asked. Used only beside ``extract_figures``
+    for a TEAM-SIZE bar's own figure, never by the Oracle's claim check; a digit
+    with a magnitude ("5 Mio.") is never a small figure."""
+    from types import SimpleNamespace
+
+    return [
+        SimpleNamespace(raw=m.group(1), kind="number", value=m.group(1))
+        for m in _SMALL_FIGURE_RE.finditer(text or "")
+    ]
+
+
 def _bar_figure_hits(text: str, bar: dict[str, Any] | None):
     """(figure, start) for each figure in ``text`` equal to one of the bar's own."""
     if not isinstance(bar, dict) or not isinstance(text, str) or not text.strip():
@@ -522,7 +543,8 @@ def _bar_figure_hits(text: str, bar: dict[str, Any] | None):
     if not wanted:
         return
     cursor = 0
-    for f in extract_figures(text):
+    extra = small_figures(text) if bar.get("kind") == "team_size" else []
+    for f in [*extract_figures(text), *extra]:
         start = text.find(f.raw, cursor)
         if start < 0:
             start = text.find(f.raw)
