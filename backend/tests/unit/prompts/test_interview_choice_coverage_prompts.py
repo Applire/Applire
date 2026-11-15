@@ -121,8 +121,9 @@ def test_prompt_bridge_joins_a_real_anchor_to_the_asked_concept():
     # opening ending in a colon, never a first-person claim.
     assert 'BRIDGE (level "partial", one or two): a QUESTION, never an answer' in flat
     assert "joins ONE real anchor from the profile" in flat
-    assert "it ends with a colon" in flat
-    assert "never by the employer's name" in flat
+    # MD-Q7 F5: the model names concept + anchor; code builds the opening.
+    assert 'Do NOT write its "text" (leave it ""): Applire writes the opening' in flat
+    assert "never the employer's name" in flat
     assert "never a forced analogy" in flat
     assert 'A bridge is never "direct".' in flat
     # the R2-2 / G-3 A "leave the concept out" rule is withdrawn

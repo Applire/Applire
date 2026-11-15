@@ -528,7 +528,7 @@ def _session_state(job_id, profile_id, offered):
     }
 
 
-async def _send(db, answer, offered):
+async def _send(db, answer, offered, *, full=False):
     from applire.models.job import JobAnalysis
     from applire.models.session import InterviewSession
     from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
@@ -567,7 +567,7 @@ async def _send(db, answer, offered):
         patch("applire.services.session.analyze_gaps", new=AsyncMock()),
     ):
         await send_message(record.id, answer, db, provider)
-    return bridge.await_args.kwargs["offered_choices"]
+    return dict(bridge.await_args.kwargs) if full else bridge.await_args.kwargs["offered_choices"]
 
 
 @pytest.mark.asyncio
@@ -597,8 +597,10 @@ _GEN_PROFILE = {
 }
 _GEN_CLUSTER = {"id": "c-int", "label": "Integrationsplattform", "gaps": ["Boomi"],
                 "jd_skills": ["Boomi"], "jd_context": ""}
-_GEN_CHIP = ("Ich habe die Anbindung der Labor-LIMS an SAP S/4HANA verantwortet, "
-             "aber zu Boomi steht in meinem Profil noch nichts.")
+# MD-Q7 F5 (2026-11-15): a partial-level (bridge) chip's text is BUILT by code
+# from its named concept + anchor; the model's own bridge text is never
+# delivered (the R2-2 sentence this fixture used to carry would now be dropped).
+_GEN_CHIP = "Zu Boomi bei Leiterin Labor-IT:"
 
 
 def _gen_state():
@@ -612,7 +614,8 @@ def _gen_provider():
     provider = AsyncMock()
     provider.aparse_json.return_value = {
         "question": "Welche Integrationsplattform hast du betrieben?",
-        "choices": [{"text": _GEN_CHIP, "level": "partial", "denied_terms": ["Boomi"]}],
+        "choices": [{"text": "", "level": "partial", "denied_terms": ["Boomi"],
+                     "concept": "Boomi", "anchor": "Leiterin Labor-IT"}],
     }
     return provider
 

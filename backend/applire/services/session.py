@@ -89,7 +89,9 @@ from applire.services.profile.reconcile.stance import (
 from applire.services.choice_grounding import (
     answer_is_offered_opening,
     choice_presentation,
+    is_bare_completion,
     offered_choices_in_answer,
+    strip_offered_opening,
 )
 from applire.services.interview.sufficiency import (
     _concept_matches_ledger_key,
@@ -4168,7 +4170,15 @@ async def _send_message_turn(
     # WP-Q4 (g), ADR-064 amended 2026-11-15 — an offered BRIDGE opening sent
     # unchanged states nothing the candidate said: refuse it before anything is
     # appended, reconciled or committed (a fact: equality with an offered text).
-    if answer_is_offered_opening(message, (record.state or {}).get("offered_choice_terms")):
+    # MD-Q7 F9 — an offered opening is Applire's text, never the person's
+    # (this question's or a kept earlier one's): it is cut before reconcile,
+    # and an opening followed by nothing substantial (empty, a bare
+    # "ja"/"yes"/"ok") is asked to be completed, never saved.
+    offers = (record.state or {}).get("offered_choice_terms")
+    reconcile_answer, had_opening = strip_offered_opening(message, offers)
+    if answer_is_offered_opening(message, offers) or (
+        had_opening and is_bare_completion(reconcile_answer)
+    ):
         raise AnswerIsOfferedOpening()
 
     state: InterviewState = dict(record.state)
@@ -4274,7 +4284,10 @@ async def _send_message_turn(
             profile_record=profile_record,
             gap=cluster_label,
             question=current_question,
-            answer=message,
+            # MD-Q7 F9 — the offered opening is Applire's text, not the
+            # person's: the reconciler reads only what they wrote after it
+            # (the opening still reaches it as an offered choice, below).
+            answer=reconcile_answer,
             provider=provider,
             session_id=str(record.id),
             lang=lang,
