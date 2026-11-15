@@ -173,7 +173,8 @@ async def test_denial_probe_follow_up_produces_choices_via_aparse_json():
             "question": "Have you worked with other enterprise architecture frameworks?",
             "choices": [
                 {"text": "Yes, I've used Zachman.", "level": "direct"},
-                {"text": "I've read about them but never applied one.", "level": "partial"},
+                # MD-Q7 F5: a bridge names concept + anchor; code writes its text.
+                {"text": "", "level": "partial", "concept": "TOGAF", "anchor": "Zachman"},
                 {"text": "No, I haven't used any EA framework.", "level": "denial"},
             ],
         },
@@ -203,7 +204,7 @@ async def test_denial_probe_follow_up_produces_choices_via_aparse_json():
     assert result["question"] == "Have you worked with other enterprise architecture frameworks?"
     assert result["choices"] == [
         "Yes, I've used Zachman.",
-        "I've read about them but never applied one.",
+        "On TOGAF in Zachman:",
         "No, I haven't used any EA framework.",
     ]
     draft_call_kwargs = provider.aparse_json.call_args_list[0].kwargs
