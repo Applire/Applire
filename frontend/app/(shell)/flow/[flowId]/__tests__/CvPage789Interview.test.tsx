@@ -4,12 +4,14 @@
 // This file is part of Applire (AGPL-3.0-or-later). See LICENSE.
 
 /**
- * Hazelnut build 7, WP-F — 789:254 (ADR-016 amended 2026-11-07, F-4 = A built):
- * after the interview, "Lebenslauf erstellen" lands on the CV page with a CV that
- * predates facts the interview added. The page starts the new version (same
- * template + page target), through the #737 dialog when the CV carries own edits,
- * and shows the "älter als dein Interview" strip while that CV is on screen.
- * 789:252: the phone's document switch is mounted above the preview.
+ * Hazelnut build 7, WP-F — 789:254 (ADR-016 amended 2026-11-07), and founder
+ * ruling B8-13 (2026-11-13, Sorbet quality-1 WP-Q4): after the interview,
+ * "Lebenslauf erstellen" lands on the CV page with a CV that predates facts the
+ * interview added. The page no longer starts a new version on arrival: it shows
+ * the CV on screen with a strip that names the interview and offers the new
+ * version; no provider call without that click (the #737 dialog first when the
+ * CV carries own edits). 789:252: the phone's document switch is mounted above
+ * the preview.
  */
 import { Suspense, forwardRef, useImperativeHandle } from "react";
 import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
@@ -146,30 +148,39 @@ describe("CVPage — 789:254 the post-interview version", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it("at cv_generation with a CV that predates the interview, the new version starts in the old CV's template and page target", async () => {
+  it("B8-13: at cv_generation with a CV that predates the interview, nothing is generated on arrival", async () => {
     const calls = mockFetch({ step: "cv_generation", predates: true });
     await mount();
+    const strip = (await screen.findAllByTestId("cv-profile-updated"))[0];
+    expect(strip.textContent).toContain(
+      "Deine Antworten aus dem Interview stehen in deinem Profil, aber noch nicht in diesem Lebenslauf.",
+    );
+    // The flow is finished on the CV on screen; no generation without a click.
+    await waitFor(() => expect(advanceBodies(calls)).toContainEqual({ step: "complete", artifact_id: "cv-old" }));
+    // Give any stray effect a chance to fire before asserting the absence.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(generateCalls(calls)).toHaveLength(0);
+    expect(screen.queryByTestId("edit-new-version-dialog")).toBeNull();
+  });
+
+  it("B8-13: the strip's click starts the new version, named as the interview's", async () => {
+    const calls = mockFetch({ step: "cv_generation", predates: true });
+    await mount();
+    fireEvent.click((await screen.findAllByTestId("cv-profile-updated-action"))[0]);
+    fireEvent.click(await screen.findByTestId("edit-new-version-confirm"));
     await waitFor(() => expect(generateCalls(calls)).toHaveLength(1));
     const body = JSON.parse(String(generateCalls(calls)[0].init?.body));
-    expect(body).toEqual({ job_id: "job-123", template: "modern_swiss", target_pages: 3 });
-    // The generating view names why this version is written.
+    expect(body.template).toBe("modern_swiss"); // the shown CV's template
     expect(await screen.findByText("Neue Fassung mit deinen Antworten aus dem Interview")).toBeInTheDocument();
   });
 
-  it("a CV with own section edits asks the #737 question first — nothing is generated until confirmed", async () => {
+  it("B8-13: a CV with own section edits still gets the #737 question before the clicked version", async () => {
     const calls = mockFetch({ step: "cv_generation", predates: true, edited: true });
     await mount();
-    // The dialog is open and names the edited section; no generation yet.
+    fireEvent.click((await screen.findAllByTestId("cv-profile-updated-action"))[0]);
     expect(await screen.findByText(/Nicht übernommen wird Deine Bearbeitung/)).toBeInTheDocument();
-    expect(generateCalls(calls)).toHaveLength(0);
-    fireEvent.click(screen.getByTestId("edit-new-version-confirm"));
-    await waitFor(() => expect(generateCalls(calls)).toHaveLength(1));
-  });
-
-  it("A-9: when the CV's sections cannot be read, the auto-start asks first — never a silent overwrite", async () => {
-    const calls = mockFetch({ step: "cv_generation", predates: true, sectionsFail: true });
-    await mount();
-    expect(await screen.findByTestId("edit-new-version-dialog")).toBeInTheDocument();
     expect(generateCalls(calls)).toHaveLength(0);
     fireEvent.click(screen.getByTestId("edit-new-version-confirm"));
     await waitFor(() => expect(generateCalls(calls)).toHaveLength(1));
@@ -179,7 +190,7 @@ describe("CVPage — 789:254 the post-interview version", () => {
     const calls = mockFetch({ step: "complete", predates: true });
     await mount();
     const strip = (await screen.findAllByTestId("cv-profile-updated"))[0];
-    expect(strip.textContent).toContain("Dein Profil wurde seit der Erstellung dieses Lebenslaufs aktualisiert");
+    expect(strip.textContent).toContain("Deine Antworten aus dem Interview stehen in deinem Profil");
     expect(generateCalls(calls)).toHaveLength(0);
     fireEvent.click(screen.getAllByTestId("cv-profile-updated-action")[0]);
     // The one action is the existing new-version path (#737 dialog first).
@@ -208,8 +219,9 @@ describe("CVPage — 789:254 the post-interview version", () => {
   it("F-2 (2): a profile change from another door (import, manual edit) shows the strip and starts nothing", async () => {
     const calls = mockFetch({ step: "cv_generation", predates: false, updated: true });
     await mount();
-    expect((await screen.findAllByTestId("cv-profile-updated"))[0]).toBeInTheDocument();
-    // The auto-start stays interview-only (F-4): the flow is finished, no generation.
+    const strip = (await screen.findAllByTestId("cv-profile-updated"))[0];
+    expect(strip.textContent).toContain("Dein Profil wurde seit der Erstellung dieses Lebenslaufs aktualisiert");
+    // The flow is finished, no generation.
     await waitFor(() => expect(advanceBodies(calls)).toContainEqual({ step: "complete", artifact_id: "cv-old" }));
     expect(generateCalls(calls)).toHaveLength(0);
   });

@@ -62,11 +62,12 @@ class CVSummary(BaseModel):
     # 789:254 (ADR-016 amended 2026-11-07, WP-F): an interview door added
     # profile content AFTER this CV was generated —
     # `profile_freshness.profile_updated_since(…, sources=INTERVIEW_SOURCES)`,
-    # a fact, never a judgement (ADR-062 cl. 1). Drives the F-4 auto-start.
+    # a fact, never a judgement (ADR-062 cl. 1). Names the interview in the CV
+    # page's strip; founder B8-13 (2026-11-13) dropped the auto-start it used
+    # to drive, so no generation runs without a click.
     # A-9: measured against the newest generation STARTED for this job when
-    # that is newer than the CV, so a failed post-interview attempt does not
-    # re-arm the auto-start (at most once per stale CV). Additive; False when
-    # unreadable.
+    # that is newer than the CV, so an attempt after the interview facts stops
+    # the strip naming them. Additive; False when unreadable.
     predates_interview: bool = False
     # F-2 (2) (founder 2026-11-07): the profile's CONTENT changed after this CV
     # was generated, from ANY door (interview, import, manual edit, agent) —
