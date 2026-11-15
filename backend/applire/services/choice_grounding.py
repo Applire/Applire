@@ -1253,28 +1253,22 @@ _BARE_COMPLETION = frozenset({"ja", "yes", "ok"})
 
 
 def strip_offered_opening(answer: Any, offered: Any) -> tuple[str, bool]:
-    """MD-Q7 F9 — ``(rest, had_opening)``: the answer with an offered BRIDGE
-    opening (level ``partial``, raw text ending in ":") cut out of the
-    person's own text, case- and whitespace-insensitively. The opening is
-    system-authored, so only ``rest`` is the person's words. ``rest`` keeps the
-    person's casing; leading punctuation left by the cut is dropped."""
+    """MD-Q7 F9, MD-Q9 R8 — ``(rest, had_opening)``: an offered BRIDGE opening
+    (level ``partial``, raw text ending in ":") is cut only when the answer
+    STARTS with it (after leading whitespace) in the exact form the chip
+    inserted, colon included. Anywhere else the same words are the person's
+    own and stay (a generic "Zu X bei Y" can be their phrase). The opening is
+    system-authored, so only ``rest`` is the person's words."""
     if not isinstance(answer, str) or not isinstance(offered, dict):
         return (answer if isinstance(answer, str) else ""), False
+    lead = answer.lstrip()
     for text, meta in offered.items():
         if not isinstance(meta, dict) or meta.get("level") != "partial":
             continue
         raw = str(text).strip()
-        if not raw.endswith(":"):
+        if not raw.endswith(":") or not lead.startswith(raw):
             continue
-        words = raw.rstrip(":").split()
-        if not words:
-            continue
-        pattern = r"\s*".join([r"\s+".join(re.escape(w) for w in words), r":?"])
-        m = re.search(pattern, answer, flags=re.IGNORECASE)
-        if m is None:
-            continue
-        rest = (answer[: m.start()] + " " + answer[m.end():]).strip()
-        return rest.lstrip(" :;,.-–—").strip(), True
+        return lead[len(raw):].strip(), True
     return answer, False
 
 
