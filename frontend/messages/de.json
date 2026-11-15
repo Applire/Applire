@@ -1777,6 +1777,7 @@
         "cv-skill_named_in_bullet": "„{term}“ steht in einem Stichpunkt, aber nicht in der Skill-Liste.",
         "cv-skill_without_bullet": "„{term}“ steht in der Skill-Liste oder im Kurzprofil und Dein Profil belegt es in einer Stelle – kein Stichpunkt im Lebenslauf zeigt es.",
         "cv-scope_evidence_missing": "Dein Profil sagt „{term}“ – die Stelle fragt nach dieser Größenordnung, und der Lebenslauf zeigt es nicht.",
+        "cv-skill_module_unbacked": "„{term}“ fasst ein Modul zusammen, das Dein Profil nicht enthält.",
         "cv-role_budget": "Bei {term} stehen mehr Stichpunkte als vorgesehen.",
         "cv-page_length": "Der Lebenslauf ist länger als die Zielseitenzahl.",
         "cv-recorded_name": "„{term}“ ist nicht der Name, den Dein Profil dafür führt.",

@@ -62,3 +62,72 @@ def test_the_prompts_carry_the_one_entry_shapes():
     assert "SAP (PP, MM)" not in SYSTEM_PROMPT  # v1 sits under its reviewer (test_545)
     flat = " ".join(V2_REFINEMENT_ADDENDUM.split())
     assert "is met by that entry; show it in a bullet, never add a second entry for it" in flat
+
+
+# ── MD-Q7 F3 (adversarial 1b, probe p1.py): merged chips are read as modules ──
+def _module_findings(vault_skills, chips, bullets=("Arbeit in der Fertigung.",)):
+    vault = {"personal_info": {"name": "M"}, "work_experience": [{
+        "id": "w1", "company": "W", "role": "R", "start_date": "2019-01", "responsibilities": list(bullets)}],
+        "skills": [{"name": s, "status": "confirmed"} for s in vault_skills], "education": []}
+    prose = {"summary": "x", "work": [{"id": "w1", "bullets": ["Did it."], "projects": []}], "skills": chips}
+    notes = ComposeNotes()
+    composed = compose_v2(prose, vault, notes=notes)
+    ctx = V2CheckContext(profile_json=vault, keyword_ledger=[], job_dict={}, language="en")
+    return {f.check: f for f in v2_checks(prose, composed, notes, ctx)}
+
+
+def test_a_merged_chip_with_an_invented_module_is_a_blocking_finding_md_q7_f3():
+    for vault_skills, chip in ((["SAP", "SAP MM"], "SAP (PP, MM)"), (["Excel"], "Excel (VBA)"),
+                               (["Java", "JavaScript"], "Java (Script)"), (["AWS"], "AWS (Lambda)"),
+                               (["SQL"], "SQL (NoSQL)")):
+        f = _module_findings(vault_skills, [chip]).get("cv.skill_module_unbacked")
+        assert f is not None and f.blocking is True and chip in f.subjects, chip
+
+
+def test_a_merged_chip_of_recorded_modules_passes_md_q7_f3():
+    assert "cv.skill_module_unbacked" not in _module_findings(["SAP", "SAP MM", "SAP PP"], ["SAP (PP, MM)"])
+    assert "cv.skill_module_unbacked" not in _module_findings(["SAP PP/MM"], ["SAP (PP, MM)"])
+
+
+def test_the_oracle_reads_a_merged_chip_as_its_modules_md_q7_f3():
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+    from applire.services.oracle.matchers.vault import build_vault_index
+
+    idx = build_vault_index({"skills": [{"name": "SAP"}, {"name": "SAP MM"}], "work_experience": []})
+    assert ground_skill_claim("SAP (PP, MM)", idx) is None  # was: grounded on "SAP MM"
+    idx = build_vault_index({"skills": [{"name": "SAP"}, {"name": "SAP MM"}, {"name": "SAP PP"}],
+                             "work_experience": []})
+    assert ground_skill_claim("SAP (PP, MM)", idx) is not None
+
+
+def test_the_ats_keyword_check_reads_the_modules_md_q7_f3():
+    from applire.services.ats_audit import _norm, _with_module_chip_forms, keyword_present
+
+    t = _with_module_chip_forms(_norm("Skills: SAP (PP, MM), Excel (VBA)"), ["SAP (PP, MM)", "Excel (VBA)"])
+    assert all(keyword_present(k, t) for k in ("SAP PP", "SAP MM", "SAP PP/MM", "Excel VBA"))
+    assert not keyword_present("SAP SD", t)
+
+
+def test_distinct_skills_are_not_offered_for_joining_md_q7_f3():
+    from applire.services.cv_v2 import product_module_joins
+
+    assert product_module_joins(["SAP", "SAP PP", "SAP MM"]) == ["SAP (PP, MM)"]
+    for pair in (["Scrum", "Scrum Master"], ["Lean", "Lean Six Sigma"], ["Python", "Python 3"],
+                 ["Java", "Java EE"], ["React", "React Native"], ["AWS", "AWS Lambda"]):
+        assert product_module_joins(pair) == [], pair
+    f = _module_findings(["Scrum", "Scrum Master"], ["Scrum", "Scrum Master"],
+                         bullets=("Scrum Master im Team, Scrum eingeführt.",)).get("cv.skill_duplicate")
+    if f is not None:
+        assert "(" not in f.text.split("two distinct skills both stay.")[-1]
+
+
+def test_the_cv_audit_seam_reads_the_modules_md_q7_f3():
+    """Seam: ``_audit_cv_text`` hands the module forms to the keyword coverage."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    prose = {"summary": "x", "work": [{"id": "w1", "bullets": ["Did it."], "projects": []}],
+             "skills": ["SAP (PP, MM)"]}
+    composed = compose_v2(prose, _VAULT)
+    report = _audit_cv_text("Marcus\nSkills: SAP (PP, MM)", composed, ["SAP PP", "SAP SD"])
+    assert "SAP PP" in report.keywords.present
+    assert "SAP SD" in report.keywords.missing

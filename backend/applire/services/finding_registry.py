@@ -232,6 +232,8 @@ _DOC: dict[str, Entry] = {
     "terminal:cv.skill_without_bullet": _e(_F, None, "S"),
     # Sorbet WP-Q3: the attested scale line (ADR-070) its role does not carry
     "terminal:cv.scope_evidence_missing": _e(_F, None, "S"),
+    # MD-Q7 F3 (Sorbet quality-1): a merged chip joins a module the vault lacks.
+    "terminal:cv.skill_module_unbacked": _e(_F, None, "S"),
     # one condition, one place (cl. 10): these codes restate a row rendered elsewhere
     "terminal:cv.page_length": _e("S"),                   # → the page-length card
     "terminal:letter.page_length": _e("S"),               # → the page-length card

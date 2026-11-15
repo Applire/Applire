@@ -14,7 +14,7 @@ def test_the_instrument_removes_only_stray_characters():
     assert strip_stray_glyphs(_BULLET) == "Als Key-User die Einführung von SAP in der Fertigung begleitet."
     kept = "Größe – „Zitat“ · 6 Mio. € · C# · CI/CD\nzweite Zeile\tTab"
     assert strip_stray_glyphs(kept) == kept
-    assert strip_stray_glyphs({"a": ["x​y", 3, None]}) == {"a": ["xy", 3, None]}
+    assert strip_stray_glyphs({"a": ["x\x07y", 3, None]}) == {"a": ["xy", 3, None]}
 
 
 def test_cv_v2_compose_strips_the_glyph():
@@ -27,7 +27,7 @@ def test_cv_v2_compose_strips_the_glyph():
         "skills": [], "education": [],
     }
     prose = {"summary": "Leiter.￼", "work": [{"id": "w1", "bullets": [_BULLET], "projects": []}],
-             "skills": ["SAP PP﻿"]}
+             "skills": ["SA\x07P PP"]}
     out = compose_v2(prose, profile)
     assert out.summary == "Leiter."
     assert out.work_history[0].bullets == ["Als Key-User die Einführung von SAP in der Fertigung begleitet."]
@@ -42,3 +42,27 @@ def test_letter_compose_strips_the_glyph():
     out = _compose_letter(data, profile_json={}, cv_data={}, profile=None, pre_gen={}, language="de", pipeline="v2")
     text = str(out)
     assert "￼" not in text
+
+
+def test_joiners_in_persian_devanagari_and_emoji_survive_md_q7_f4():
+    """MD-Q7 F4 (adversarial 1b probe): ZWNJ/ZWJ carry meaning; only U+FFFC and
+    control characters are stray."""
+    for kept in ("شرکت می\u200cخواهم", "क्\u200dष", "👨\u200d👩\u200d👧"):
+        assert strip_stray_glyphs(kept) == kept
+
+
+def test_a_recorded_name_with_a_joiner_is_still_recorded_md_q7_f4():
+    """The probe's consequence: a vault employer written with a ZWNJ, returned exactly
+    by the writer, must compose as a recorded name (no unsatisfiable finding)."""
+    from applire.services.cv_v2 import ComposeNotes, compose_v2
+
+    name = "شرکت می\u200cخواهم"
+    profile = {"personal_info": {"name": "S"}, "work_experience": [
+        {"id": "w1", "company": name, "role": "Engineer", "start_date": "2020-01"}],
+        "skills": [], "education": []}
+    prose = {"summary": "x", "work": [{"id": "w1", "company": name, "role": "Engineer",
+                                        "bullets": ["Built it."], "projects": []}], "skills": []}
+    notes = ComposeNotes()
+    out = compose_v2(prose, profile, notes=notes, document_language="en")
+    assert out.work_history[0].company == name
+    assert not notes.names_not_recorded

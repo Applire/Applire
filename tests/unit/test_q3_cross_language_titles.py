@@ -21,7 +21,10 @@ _VAULT = {
         "id": "w1", "company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
         "role_aliases": ["Projektleiter"], "start_date": "2019-01", "end_date": None,
         "responsibilities": ["Leitung der Serienfertigung mit drei Schichten und 60 Mitarbeitenden.",
-                             "Begleitung der jährlichen ISO-9001-Audits als Bereichsverantwortlicher."],
+                             "Begleitung der jährlichen ISO-9001-Audits als Bereichsverantwortlicher.",
+                             # MD-Q7 F1: the alias is used in the candidate's own German
+                             # sentence — the record says it is German (marcus shape).
+                             "2023 als Projektleiter die Einführung eines MES-Systems verantwortet."],
     }],
     "education": [{"id": "e1", "degree": "Industriemeister Metall (IHK)", "institution": "IHK"}],
     "skills": [],
@@ -74,3 +77,54 @@ def test_the_language_round_compose_passes_the_document_language():
     src = (Path(__file__).resolve().parents[2] / "backend/applire/services/cv.py").read_text()
     i = src.index("def _compose_for_language")
     assert "document_language=document_language" in src[i:i + 600]
+
+
+# ── MD-Q7 F1 (adversarial 1b, probe p3.py): the waiver is per role ───────────
+_DE = ["Verantwortlich für die Fertigungsplanung und Schichtleitung.",
+       "Einführung von SAP PP in der Fertigung, Leitung des Teams und Abstimmung mit der Qualität."]
+
+
+def _probe(role, aliases, writer_role, lang):
+    vault = {"personal_info": {"name": "M"}, "work_experience": [{
+        "id": "w1", "company": "Weberit", "role": role, "role_aliases": aliases,
+        "start_date": "2019-01", "responsibilities": _DE}], "skills": [], "education": []}
+    prose = {"summary": "x", "work": [{"id": "w1", "role": writer_role, "bullets": ["Led shift planning."],
+                                       "projects": []}], "skills": []}
+    notes = ComposeNotes()
+    out = compose_v2(prose, vault, notes=notes, document_language=lang)
+    return out.work_history[0].role, [n[0] for n in notes.names_not_recorded]
+
+
+def test_a_recorded_alias_whose_language_is_unknown_keeps_the_check_md_q7_f1():
+    """p3.py: "Production Manager" is recorded; the writer's "Head of Production" is
+    neither recorded name — compose keeps the stored name and raises the finding,
+    exactly as in a same-language document."""
+    assert _probe("Produktionsleiter", ["Production Manager"], "Head of Production", "en") == (
+        "Produktionsleiter", ["work w1 role"])
+    assert _probe("Produktionsleiter", ["Production Manager"], "Head of Production", "de") == (
+        "Produktionsleiter", ["work w1 role"])
+
+
+def test_the_recorded_document_language_form_is_accepted_md_q7_f1():
+    assert _probe("Produktionsleiter", ["Production Manager"], "Production Manager", "en") == (
+        "Production Manager", [])
+
+
+def test_a_name_in_the_document_language_blocks_the_waiver_md_q7_f1():
+    """Own evidence: "Head of Operations" carries an English function word, so an EN
+    document must pick a recorded form."""
+    assert _probe("Produktionsleiter", ["Head of Operations"], "Production Leader", "en") == (
+        "Produktionsleiter", ["work w1 role"])
+
+
+def test_recorded_name_language_reads_the_record():
+    from applire.services.cv_v2 import recorded_name_language
+
+    sentences = ["2023 als Projektleiter die Einführung eines MES-Systems verantwortet.",
+                 "Facharbeiter in der Instandhaltung, später Vorarbeiter."]
+    assert recorded_name_language("Head of Production", []) == "en"
+    assert recorded_name_language("Projektleiter", sentences) == "de"
+    assert recorded_name_language("Production Manager", sentences) is None
+    assert recorded_name_language("Industriemechaniker / Vorarbeiter", sentences,
+                                  {"industriemechaniker": "de"}) == "de"
+    assert recorded_name_language("Industriemechaniker / Vorarbeiter", sentences) is None
