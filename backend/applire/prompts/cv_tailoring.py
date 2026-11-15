@@ -629,6 +629,7 @@ def build_v2_fields_block(
     *,
     required_vault_skills: list[str] | None = None,
     skills_cap: int | None = None,
+    translated_roles: set[str] | frozenset[str] = frozenset(),
 ) -> str:
     """The VAULT FIELDS block (ADR-094 cl. 2/5, US364): every vault-sourced field the
     v2 writer returns, by id, with each name's RECORDED NAMES (ruling W1-2). Facts
@@ -645,8 +646,17 @@ def build_v2_fields_block(
     for w in profile.get("work_experience") or []:
         if not isinstance(w, dict) or not w.get("id"):
             continue
+        # RULING Q3-1 / MD-Q7 (delivery 1b, Cross): the FACT that none of this role's
+        # recorded names is in the OUTPUT LANGUAGE (``cv_v2.translated_role_ids``) is
+        # stated on the role, so no round reads the recorded list as "use one exactly".
+        # The translation itself stays the model's (never upgraded).
+        role_note = (
+            " — none is in the OUTPUT LANGUAGE: write the title's established equivalent "
+            "in the OUTPUT LANGUAGE (never upgraded), in every round"
+            if str(w["id"]) in translated_roles else ""
+        )
         line = (
-            f"  - work [{w['id']}]: role — recorded names {_names(w.get('role'), w.get('role_aliases'))}; "
+            f"  - work [{w['id']}]: role — recorded names {_names(w.get('role'), w.get('role_aliases'))}{role_note}; "
             f"company — recorded names {_names(w.get('company'), w.get('company_aliases'))}"
         )
         if w.get("industry_context"):

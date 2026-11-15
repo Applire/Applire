@@ -9,21 +9,20 @@ box glyph on page 2. No prompt rule can ask a model not to emit a tokenizer
 artefact, and the character carries no content in any language: removing it is
 a character fact (ADR-062 clause 1), not a judgement about the text.
 
-The set is closed and small on purpose: the object-replacement and replacement
-characters, the byte-order mark, zero-width spaces/joiners, the word joiner and
-the soft hyphen's invisible siblings, plus C0/C1 control characters other than
-newline and tab. Everything else — every letter, digit, symbol, dash and
-typographic quote of either language — passes untouched.
+The set is closed and small on purpose (MD-Q7 F4): the object-replacement
+character and the C0/C1 control characters other than newline, tab and carriage
+return. Nothing else: the zero-width joiner and non-joiner carry meaning in
+Persian, Devanagari and emoji sequences ("می‌خواهم", "👨‍👩‍👧"), and stripping
+them made a recorded employer name unequal to itself (adversarial 1b, F4: an
+unsatisfiable ``cv.recorded_name`` finding). Every letter, digit, symbol, dash
+and typographic quote of any language passes untouched.
 """
 from __future__ import annotations
 
 import re
 from typing import Any
 
-_STRAY = re.compile(
-    "[￼�﻿​‌‍⁠᠎"
-    "\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]"
-)
+_STRAY = re.compile("[\ufffc\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
 
 def strip_stray_glyphs(value: Any) -> Any:

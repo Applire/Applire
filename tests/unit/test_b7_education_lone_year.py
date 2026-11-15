@@ -43,3 +43,12 @@ def test_a_range_that_starts_and_ends_in_the_same_period_renders_once_q3():
     }
     # Different months of one year are a real range.
     assert period({"start_date": "2019-03", "end_date": "2019-09"}, "heute")["dash"] is True
+
+
+def test_a_current_role_whose_end_equals_its_start_keeps_present_md_q7_f7():
+    """MD-Q7 F7 (adversarial 1b probe): a current role stored with end == start
+    printed a closed "2013"; it continues."""
+    assert period({"start_date": "2013", "end_date": "2013", "is_current": True}, "heute") == {
+        "start": "2013", "end": "heute", "dash": True,
+    }
+    assert period({"start_date": "2013", "end_date": "2013", "is_current": False}, "heute")["dash"] is False

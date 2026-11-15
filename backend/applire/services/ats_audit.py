@@ -2738,6 +2738,26 @@ def decide_kept_page_length(report: dict | None, pages_kept_at: int | None) -> d
     return out
 
 
+def _with_module_chip_forms(text_norm: str, skills: Sequence[str] | None) -> str:
+    """MD-Q7 F3: the keyword text plus the module forms of every merged skills chip
+    ("SAP (PP, MM)" also reads as "SAP PP", "SAP MM", "SAP PP/MM"), so a posting's exact term
+    still matches the chip the writer joined (``module_chip_parts``, the Oracle's
+    reader — ADR-066). Unchanged when no chip is merged."""
+    from applire.services.oracle.matchers.grounding import module_chip_parts
+
+    forms: list[str] = []
+    for s in skills or []:
+        parts = module_chip_parts(s) if isinstance(s, str) else None
+        if not parts:
+            continue
+        forms.extend(f"{b} {m}" for b, m in parts)
+        if len(parts) > 1:  # the posting's own slash spelling ("SAP PP/MM")
+            forms.append(f"{parts[0][0]} " + "/".join(m for _b, m in parts))
+    if not forms:
+        return text_norm
+    return text_norm + " \n " + " \n ".join(_norm(f) for f in forms)
+
+
 def _audit_cv_text(
     text: str,
     tailored: TailoredCVData,
@@ -3094,8 +3114,8 @@ def _audit_cv_text(
     checks.append(_narrative_evidence_check(tailored, ledger, vault_index))
 
     coverage = _keyword_coverage(
-        t, keywords, ledger, vault_text_norm, vault_index, non_claim,
-        document_language=document_language,
+        _with_module_chip_forms(t, tailored.skills), keywords, ledger, vault_text_norm,
+        vault_index, non_claim, document_language=document_language,
     )
     _other_language_check(checks, coverage)
     report = _finish("cv", checks, coverage)
