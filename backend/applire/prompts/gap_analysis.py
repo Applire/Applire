@@ -15,6 +15,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v14 (Sorbet quality-1 / WP-Q6 (b), ADR-075 amended 2026-11-15): SCOPE ANSWERS —
+#   the person's own answer to a bar's scope question, stored against that bar by the turn
+#   (gap_clusters[].scope_answers), is shown with an id ("answer: <concept>") the classifier may
+#   cite in "stated_limit" when it states a shortfall of THAT bar. Before: only a DENIAL the
+#   reconciler recorded could be cited, and on the wave-1a delivery re-run the reconciler recorded
+#   none for "Die dauerhafte Spanne von 120 wäre für mich der nächste Schritt" — the letter named
+#   one gap fewer. Whether an answer is a shortfall stays the classifier's judgement; code checks
+#   only that the cited answer was given to THIS bar's question.
 # Prompt version: v13 (Sorbet quality-1 / WP-Q2, ADR-070 cl. 2 / ADR-075 amended 2026-11-14): a
 #   scope classification may cite, in "stated_limit", the RECORDED DENIALS entry that is the
 #   candidate's own statement of falling short of THAT bar. It never moves the status (the span
@@ -182,6 +190,8 @@ You will receive:
      interviews; these may CONFIRM or DENY experience
   3b. RECORDED DENIALS — (only when present) limits the candidate stated and the system recorded,
      each with an "id"
+  3c. SCOPE ANSWERS — (only when present) the candidate's own answer to the question about one
+     SCOPE REQUIREMENTS bar, each with an "id" and the "concept" of the bar it answers
   4. PRE-CLASSIFICATION — a rule-based pre-pass with: matched (direct), inferred_b (likely, confirm
      or reject), unresolved (no rule signal — you decide)
   5. REQUIREMENTS — the exact list you must classify: required + nice-to-have + ATS keywords
@@ -299,6 +309,15 @@ quantified scope bar — team size, budget). These are judged, never keyword-mat
     who led 38 and calls 120 their next step is still "partial"). Omit it otherwise; never cite
     a denial that is about something else — a statement about a qualifier the bar does not ask
     for (another kind of leadership, another kind of budget) is not a shortfall of this bar.
+    A SCOPE ANSWERS entry whose "concept" is THIS entry's concept is the candidate's own answer
+    to the question about this bar. Look in it for ONE sentence in which the candidate says
+    they have NOT reached the bar — they have not yet held a span or budget of this size, or
+    call the bar's size their next step. Only when such a sentence exists: copy it VERBATIM
+    into "stated_limit_quote" and set "stated_limit" to the entry's "id". Most answers have
+    none — an answer that names figures (even figures below the bar), claims the bar is met,
+    or says nothing about the size states no limit: omit BOTH fields. A SCOPE ANSWERS entry is
+    never evidence: never "cited_entry", never "attested_evidence", and it never moves
+    "status".
   - NEVER classify a scope requirement from the presence of related words anywhere in the
     profile — only from the typed candidate values handed to you in its own entry, plus a
     verbatim "attested_evidence" quote per the rule above (reporting a quote is not
@@ -328,7 +347,8 @@ Schema:
       "reason": "which quantities you compared and why the status follows",
       "cited_entry": "REQUIRED when status is direct: the exact 'entry' string of the candidate value that meets the bar. Omit otherwise.",
       "attested_evidence": {"entry": "Role @ Company of the work entry whose prose states the fact", "quote": "that entry's own responsibility/achievement sentence, VERBATIM, stating a quantity bearing on the bar", "unit": "the quantity the quote itself measures, in a few words"},
-      "stated_limit": "ONLY when an entry of RECORDED DENIALS is the candidate's own statement of falling short of THIS bar: that entry's id, copied exactly. Omit otherwise."
+      "stated_limit": "ONLY when an entry of RECORDED DENIALS, or a sentence of THIS bar's SCOPE ANSWERS entry, is the candidate's own statement of falling short of THIS bar: that entry's id, copied exactly. Omit otherwise.",
+      "stated_limit_quote": "ONLY with a SCOPE ANSWERS id in stated_limit: the one sentence of that answer stating the shortfall, verbatim. Omit otherwise."
     }
   ],
   "strengths": ["requirements where the candidate clearly meets or exceeds the bar"],
@@ -379,6 +399,31 @@ _STATEMENTS_LABEL = (
     "CONFIRM or DENY experience; a denial or negative statement about a skill is evidence "
     'AGAINST it: classify that requirement "gap", never "direct"/"partial"):'
 )
+
+
+# WP-Q6 (b): the label names the one use of an answer id.
+_SCOPE_ANSWERS_LABEL = (
+    "SCOPE ANSWERS (the candidate's own answer to the question about one SCOPE REQUIREMENTS bar, "
+    "keyed by that bar's \"concept\"). Context, never evidence; an id is cited only per the "
+    "STATED LIMIT rule — most answers state no limit:"
+)
+
+
+def scope_answers_view(
+    scope_requirements: list[dict] | None, answers: dict[str, str] | None
+) -> list[dict[str, str]]:
+    """One ``{"id", "concept", "statement"}`` per SCOPE REQUIREMENTS entry the
+    person answered (``answers``: ``scope_question.turn_scope_answers``), in
+    block order. Pure."""
+    from applire.services.interview.scope_question import scope_answer_id
+
+    out: list[dict[str, str]] = []
+    for item in scope_requirements or []:
+        concept = str((item or {}).get("concept") or "").strip()
+        statement = (answers or {}).get(" ".join(concept.casefold().split()))
+        if concept and statement:
+            out.append({"id": scope_answer_id(concept), "concept": concept, "statement": statement})
+    return out
 
 
 # ADR-100 amended 2026-11-04 (M-2): the label names what an id is for, and that the
@@ -461,6 +506,7 @@ def build_user_prompt(
     profile: dict,
     pre: PreClassification,
     scope_requirements: list[dict] | None = None,
+    scope_answers: list[dict[str, str]] | None = None,
 ) -> str:
     pre_dict = {
         "matched": pre.matched,
@@ -510,6 +556,14 @@ def build_user_prompt(
         if denials
         else ""
     )
+    # WP-Q6 (b) (ADR-075 amended 2026-11-15): the person's stored answers to the
+    # scope questions, one per answered bar (``scope_answers_view``). Their own
+    # words, unfenced like the denials; citable only as THAT bar's stated limit.
+    answers_block = (
+        f"{_SCOPE_ANSWERS_LABEL}\n{json.dumps(scope_answers, ensure_ascii=False, indent=2)}\n\n"
+        if scope_answers and scope_requirements
+        else ""
+    )
     # ADR-069 clause 2: the scope block is assembled by services/gap.py — the JD's
     # stated bar verbatim plus the candidate's typed vault values WITH their field
     # semantics. Only the sufficiency JUDGEMENT is the model's; the facts, the
@@ -544,5 +598,6 @@ def build_user_prompt(
         f"{scope_block}"
         f"PRE-CLASSIFICATION:\n{json.dumps(pre_dict, ensure_ascii=False, indent=2)}\n\n"
         f"{denials_block}"
+        f"{answers_block}"
         f"{fence(json.dumps(requirements, ensure_ascii=False, indent=2), header='REQUIREMENTS')}"
     )

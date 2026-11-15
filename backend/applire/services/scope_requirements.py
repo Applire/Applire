@@ -321,8 +321,13 @@ def build_scope_ledger_entries(
     *,
     denials_taken: Any = (),
     turn_limits: dict[str, Any] | None = None,
+    scope_answers: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Turn the model's scope judgements into ledger entries, floor applied.
+
+    ``scope_answers`` (WP-Q6 (b)): per scope concept (``_id_key``), the person's
+    stored answer to that bar's scope question (``turn_scope_answers``); a
+    ``stated_limit`` citing it binds via :func:`scope_answer_limit`.
 
     ``turn_limits`` (MD-Q5 (2)): per scope concept (``_id_key``), the recorded
     denial ids the turn answering that concept's scope question wrote.
@@ -403,7 +408,9 @@ def build_scope_ledger_entries(
                 status = "partial"
                 cited = ""
 
-        recorded_limit = verified_stated_limit(
+        recorded_limit = scope_answer_limit(
+            cls.get("stated_limit"), cls.get("stated_limit_quote"), concept, scope_answers
+        ) or verified_stated_limit(
             cls.get("stated_limit"),
             profile_json,
             taken=denials_taken,
@@ -597,6 +604,47 @@ def names_bar_figure_with_unit(text: str, bar: dict[str, Any] | None) -> bool:
         if kind == "team_size" and _PEOPLE_AFTER_RE.match(text[start + len(f.raw):]):
             return True
     return False
+
+
+def scope_answer_limit(
+    cited: Any, quote: Any, concept: Any, scope_answers: dict[str, str] | None
+) -> dict[str, str] | None:
+    """WP-Q6 (b) (ADR-075 amended 2026-11-15): the shortfall sentence of the
+    person's stored answer to THIS bar's scope question, as ``{"id": <bar
+    concept>, "statement": <that sentence, verbatim>, "source": "scope_answer"}``,
+    when the classifier cites the answer's id (``answer: <concept>``) in this
+    bar's ``stated_limit`` AND quotes the sentence in ``stated_limit_quote`` —
+    else ``None``.
+
+    The ADR-100 M-2 split again: WHICH sentence states a shortfall is the
+    classifier's judgement (no word list reads it — lesson 1); that the id is the
+    answer given to THIS bar's question and that the quote stands verbatim in that
+    answer are the facts checked here. Another bar's answer binds nothing; a quote
+    the answer does not contain binds nothing.
+
+    Earned (prompt-first, category C): with the id alone the Luna replay of the
+    captured post-interview call cited the answer 5/5 also when it said the bar was
+    MET or said nothing about the size (WP-Q6 report (b)); the quote makes the
+    model name the sentence and gives the letter and the Oracle only that sentence.
+    Pure."""
+    from applire.services.interview.scope_question import SCOPE_ANSWER_SOURCE, scope_answer_id
+
+    if not isinstance(cited, str) or not cited.strip() or not isinstance(concept, str):
+        return None
+    if _id_key(cited) != _id_key(scope_answer_id(concept)):
+        return None
+    answer = (scope_answers or {}).get(_id_key(concept))
+    if not isinstance(answer, str) or not answer.strip():
+        logger.info("scope_requirements: stated_limit %r cites no stored answer of this bar", cited)
+        return None
+    sentence = " ".join(str(quote or "").split()).strip()
+    if not sentence or _id_key(sentence) not in _id_key(answer):
+        logger.info(
+            "scope_requirements: stated_limit %r quotes no sentence of the stored answer — binds nothing",
+            cited,
+        )
+        return None
+    return {"id": concept.strip(), "statement": sentence, "source": SCOPE_ANSWER_SOURCE}
 
 
 def verified_stated_limit(

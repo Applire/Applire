@@ -2551,6 +2551,7 @@ async def _record_cluster_turn(
     answer: str,
     updated_profile: dict,
     recorded_limits: list[str] | None = None,
+    scope_answer: str | None = None,
 ) -> tuple[dict | None, list[str]]:
     """ADR-089 clauses 2 and 3 — after this turn's #188 seam: classify the
     cluster's open members against the session row's ledger and write the
@@ -2624,6 +2625,7 @@ async def _record_cluster_turn(
         charge=True,
         user_id=record.user_id,
         recorded_limits=recorded_limits,
+        scope_answer=scope_answer,
     )
     # The follow-up's focus (ruling B-4, ADR-089 clause 2 amended 2026-09-23):
     # the OPEN members this answer does NOT name. The #188 seam never moves an
@@ -4531,6 +4533,16 @@ async def _send_message_turn(
         # bar it answers — the scope cluster keeps the ids this turn recorded.
         recorded_limits=(
             list(turn.denied_concepts or [])
+            if is_scope_cluster((state.get("gap_clusters_by_id") or {}).get(current_gap))
+            else None
+        ),
+        # WP-Q6 (b) (ADR-075 amended 2026-11-15): the answer to a scope question
+        # is the person's statement on THAT bar — stored against it whatever the
+        # reconcile extracted (wave-1a delivery: "Die dauerhafte Spanne von 120
+        # wäre für mich der nächste Schritt" → ``"denials": []``). The text the
+        # reconciler read: the offered opening cut, never Applire's words.
+        scope_answer=(
+            reconcile_answer
             if is_scope_cluster((state.get("gap_clusters_by_id") or {}).get(current_gap))
             else None
         ),
