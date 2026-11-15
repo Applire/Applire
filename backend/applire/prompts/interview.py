@@ -272,6 +272,14 @@ def language_name(lang: str) -> str:
 # (`choice_grounding.answer_is_offered_opening`). MD-Q7 F5 (adversarial adv-1b):
 # the opening is now BUILT by code (`build_bridge_openings`) from the model's
 # "concept" + "anchor"; the model writes no bridge text at all.
+# Q6-1 (WP-Q6 a, ADR-064 amended 2026-11-15, founder ruling Q6-1 = A): the honest
+# bridge ("X habe ich bisher nicht …, aber durch Y …") is an opening too. Replay of the
+# same 136 calls on the current code: all 91 drafted honest nos were delivered, 62 of
+# them false by CV + dossier; only 5 of those 62 had evidence in the call's own input
+# (blind judge), so 49 were facts the profile did not hold yet — no input rule can see
+# them. The slot keeps its "ask"; the model names the "concept"; code writes
+# "Zu <Konzept>:" (`HONEST_OPENING_TEMPLATE`) and delivers it at level partial. "NO
+# LIMIT": no choice states a no, not even a restated earlier one.
 _CHOICE_COVERAGE_RULES = """\
 Answer ideas (ADR-064 amended 2026-11-08, founder ruling UAT-2 — the choices help the candidate \
 find a BRIDGE from what they did to the asked concept that the profile does not hold yet; they \
@@ -291,41 +299,34 @@ to", "in the spirit of"); when no anchor touches it, offer no bridge for it. Gen
 asked "Prognosen", profile role "Schichtleiter": ask "Hast du als Schichtleiter die \
 Personaleinsatzplanung auch an Prognosen ausgerichtet?", concept "Prognosen", anchor \
 "Schichtleiter". A bridge is never "direct".
-- HONEST BRIDGE (level "denial", ONE per question at most — even when several concepts are \
-unevidenced — and only for an asked concept the profile shows no evidence for in ANY words): \
-"X habe ich bisher nicht …, aber durch Y …" / "I haven't … X so far, but through Y …". X is \
-the asked concept exactly as the GAP CLUSTER block spells it, with NOTHING added — no adjective, \
-adverb or limiting phrase ("eigenständig", "formal", "explizit", "im eigentlichen Sinn", \
-"direkt", "independently", "formally", "as such"). Sending this choice records "no X" as the \
-candidate's own statement; a no that is only true with a qualifier ("not independently", \
-"not formally") is not a no — offer it as a BRIDGE instead. It is joined with ", aber" / \
-", but", and Y is a bridge from a real anchor as above. Its "denied_terms" lists X exactly as the GAP CLUSTER block names it. Generic \
-example: "Mit Prognosen habe ich bisher nicht gearbeitet, aber durch die Schichtplanung kenne \
-ich die wöchentlichen Mengenvorgaben."
+- HONEST QUESTION (level "denial", ONE per question at most, and only for an asked concept \
+the profile shows no evidence for in ANY words): a QUESTION too, never an answer — whether the \
+candidate lacks the concept or simply has not told us yet, the profile cannot say, so a click \
+must state neither. Its "ask" is a soft question whether they know the concept perhaps from a \
+real anchor, with no qualifier and no stated no: "Kennst du Mengenvorgaben vielleicht aus der \
+Schichtplanung?". Do NOT write its "text" (leave it ""): Applire writes the opening the \
+candidate finishes with their own yes or no. Give instead "concept": the asked concept exactly \
+as the GAP CLUSTER block spells it, NOTHING added.
 - DIRECT (level "direct"): only for a concept the profile summary itself evidences, in any \
 words (a "Teamleiter" role evidences team leadership, a "Scrum Master" skill agile methods). It \
 confirms the asked concept with the specifics the profile holds. For a concept the profile \
 shows no evidence for, DIRECT is not available.
 - THE MIX, at most 3 choices: a concept the profile does not evidence gets one or two bridges \
-and the one honest bridge; a concept it evidences gets one direct choice and at most one bridge \
+and the one honest question; a concept it evidences gets one direct choice and at most one bridge \
 to an angle the profile does not state yet.
-- NO OTHER LIMIT: apart from the honest bridge's no on the asked concept, no choice says the \
-candidate lacks, has not done or has no experience with something, and no choice says what the \
-profile does not document ("my profile does not yet document X" is the system speaking). The \
-one exception: the candidate's own earlier no in the Recent conversation or the earlier \
-exchanges may be restated as a "denial" choice in their words.
+- NO LIMIT: no choice says the candidate lacks, has not done or has no experience with \
+something, not even an earlier no of theirs, and no choice says what the profile does not \
+document ("my profile does not yet document X" is the system speaking). A no is the \
+candidate's to write.
 - TWO TEXTS per choice. "text" is the candidate's own first-person sentence, the one a click \
-copies into the answer box — a statement they could send unchanged if it is true; a BRIDGE \
-has no "text" of its own (see BRIDGE). It never \
+copies into the answer box — a statement they could send unchanged if it is true; a BRIDGE and \
+the HONEST QUESTION have no "text" of their own (see above). It never \
 instructs or asks the candidate and never promises detail ("das kann ich genauer beschreiben", \
 "I can share how ..."). "ask" is the button label: a short question TO the candidate \
 (German: du-form) naming the SAME anchor and the SAME concept as its "text" — e.g. "Hast du \
-als Schichtleiter die Personalplanung auch an Mengenprognosen ausgerichtet?"; for the honest \
-bridge a soft question about its Y, with no qualifier and no stated no (the no is in its \
-"text"): "Kennst du Mengenvorgaben vielleicht aus der Schichtplanung?".
-- "denied_terms": [] on every choice except the honest bridge (its asked concept) and a \
-restated earlier no. "level": declare each choice's level truthfully — "direct", "partial" (a \
-bridge) or "denial" (the honest bridge, or a restated earlier no). Both are statements of fact \
+als Schichtleiter die Personalplanung auch an Mengenprognosen ausgerichtet?".
+- "denied_terms": [] on every choice. "level": declare each choice's level truthfully — \
+"direct", "partial" (a bridge) or "denial" (the honest question). Both are statements of fact \
 about the choice you just drafted, not extra rules."""
 
 
@@ -383,8 +384,8 @@ Schema:
 {
   "question": "The question text",
   "choices": [
-    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge only", "anchor": "bridge only"},
-    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge only", "anchor": "bridge only"}
+    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge and honest question only", "anchor": "bridge only"},
+    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge and honest question only", "anchor": "bridge only"}
   ] or null
 }"""
 
@@ -737,7 +738,7 @@ def build_question_prompt(
                 " CONFIRMATION question: the system inferred the profile evidences "
                 "this concept in other words — one DIRECT choice that confirms it "
                 "with the profile's specifics, plus bridges to angles the profile "
-                "does not state yet. NO honest bridge and no other no on this question."
+                "does not state yet. NO honest question and no no on this question."
             )
         elif unevidenced:
             denial_fact = (
@@ -747,12 +748,12 @@ def build_question_prompt(
                 "role title, a skill, a bullet. A concept the profile states in "
                 "other words is evidenced: a DIRECT choice, plus at most one bridge. "
                 "Only a concept it shows no evidence for in any words gets bridges "
-                "and the one honest bridge, whose no names exactly that concept."
+                "and the one honest question on exactly that concept."
             )
         elif signal:
             denial_fact = (
                 " Every constituent concept is evidenced in the profile summary "
-                "below — one DIRECT choice plus at most one bridge; no honest bridge."
+                "below — one DIRECT choice plus at most one bridge; no honest question."
             )
         else:
             denial_fact = ""
@@ -1075,8 +1076,8 @@ Schema:
 {
   "question": "The question text",
   "choices": [
-    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge only", "anchor": "bridge only"},
-    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge only", "anchor": "bridge only"}
+    {"ask": "Question A to the candidate", "text": "First-person sentence A", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge and honest question only", "anchor": "bridge only"},
+    {"ask": "Question B to the candidate", "text": "First-person sentence B", "level": "direct" | "partial" | "denial", "denied_terms": [string], "concept": "bridge and honest question only", "anchor": "bridge only"}
   ] or null
 }""")
 

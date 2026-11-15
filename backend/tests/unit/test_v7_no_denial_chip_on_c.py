@@ -38,6 +38,6 @@ def test_the_c_prompt_asks_for_no_denial_choice():
     # denial (the filter's structural rule, test_uat2_bridge_grounding.py).
     prompt = " ".join(build_question_prompt(CLUSTER, PROFILE, [], gap_category="C").split())
     assert "only valid scope for a denial" not in prompt
-    assert "gets bridges and the one honest bridge, whose no names exactly that concept" in prompt
+    assert "gets bridges and the one honest question on exactly that concept" in prompt  # Q6-1
 
 

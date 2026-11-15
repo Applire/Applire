@@ -202,10 +202,11 @@ async def test_denial_probe_follow_up_produces_choices_via_aparse_json():
     )
 
     assert result["question"] == "Have you worked with other enterprise architecture frameworks?"
+    # Q6-1 (ADR-064 amended 2026-11-15): a denial-level draft naming no asked
+    # concept is dropped; no answer idea states a no.
     assert result["choices"] == [
         "Yes, I've used Zachman.",
         "On TOGAF in Zachman:",
-        "No, I haven't used any EA framework.",
     ]
     draft_call_kwargs = provider.aparse_json.call_args_list[0].kwargs
     assert "denial" in draft_call_kwargs.get("system", "").lower()

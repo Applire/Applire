@@ -71,7 +71,8 @@ def test_the_bridge_rule_asks_for_an_opening_never_a_claim():
     assert '"concept": the asked concept exactly as the GAP CLUSTER block' in rules
     assert '"anchor": the anchor in the profile\'s own words' in rules
     assert "modest first-person hypothesis" not in rules
-    assert 'a BRIDGE has no "text" of its own' in " ".join(rules.split())
+    # Q6-1: the honest question has no text of its own either.
+    assert 'a BRIDGE and the HONEST QUESTION have no "text" of their own' in " ".join(rules.split())
     for prompt in (QUESTION_SYSTEM_PROMPT, DENIAL_PROBE_QUESTION_SYSTEM_PROMPT):
         assert rules in prompt
 
@@ -222,8 +223,13 @@ def test_f5_an_anchor_from_a_bullet_that_ends_in_a_full_stop_is_kept():
 
 def test_f5_other_levels_pass_unchanged_and_a_dropped_bridge_leaves_them():
     direct = {"text": "Ich habe Computersystemvalidierung verantwortet.", "level": "direct"}
-    denial = {"text": "Azure habe ich bisher nicht genutzt, aber …", "level": "denial"}
-    assert _build([direct, {"text": F5_PROBE, "level": "partial"}, denial]) == [direct, denial]
+    # Q6-1 (ADR-064 amended 2026-11-15): the denial level is the honest question,
+    # delivered as its opening (test_q6_honest_opening.py).
+    denial = {"text": "Azure habe ich bisher nicht genutzt, aber …", "level": "denial", "concept": "Azure"}
+    out = _build([direct, {"text": F5_PROBE, "level": "partial"}, denial])
+    assert out[0] == direct
+    assert out[1]["text"] == "Zu Azure:" and out[1]["level"] == "partial"
+    assert len(out) == 2
 
 
 def test_f5_the_named_concept_and_anchor_survive_a_language_review_that_drops_them():
