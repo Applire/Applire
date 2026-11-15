@@ -384,11 +384,67 @@ def test_the_planner_helper_contract_shape_is_pinned():
         assert all(type(g["team_size"]) is int for g in got)
 
 
-def test_said_prefers_a_kind_word_and_reads_achievements_too():
-    entry = _e("Leitung der Monatsberichte.", achievements=["Personalverantwortung für 4 MA übernommen."])
+def test_said_reads_achievements_too():
+    entry = _e("Monatsabschluss.", achievements=["Personalverantwortung für 4 MA übernommen."])
     assert leadership_said(entry) == "Personalverantwortung für 4 MA übernommen."
-    assert leadership_said(_e("Leitung der Monatsberichte.")) == "Leitung der Monatsberichte."
     assert leadership_said(_e("Monatsabschluss.")) == ""
+
+
+# ── delivery re-run (Stefan): "said" quotes only a bullet about leading PEOPLE ──
+
+STEFAN_AUDIT = "Begleitung der jährlichen ISO-9001-Audits als Bereichsverantwortlicher."
+
+
+@pytest.mark.parametrize("bullet", [
+    STEFAN_AUDIT,
+    "Einleitung von Korrekturmaßnahmen nach Audits.",
+    "Weiterleitung von Tickets an den 2nd Level.",
+    # a people word near a "-leitung" that leads nobody
+    "Weiterleitung von Tickets an das Team.",
+    "Begleitung des Teams bei der ISO-Zertifizierung.",
+    "Einleitung der Schulung für 12 Mitarbeitende.",
+    "Umleitung der Materialflüsse während des Umbaus.",
+    "Anleitung zur Bedienung der Anlage erstellt.",
+    "Leitung der Monatsberichte.",
+    "Projektleitung SAP-Einführung.",
+    "Fachliche Verantwortung für das Reporting.",
+    "Managed the migration to FastAPI.",
+])
+def test_said_never_quotes_a_bullet_that_leads_no_people(bullet):
+    assert leadership_said(_e(bullet, team_size=38)) == ""
+
+
+@pytest.mark.parametrize("bullet", [
+    "Fachliche Anleitung von 3 Werkstudierenden",
+    "Direkte Führung von 38 Mitarbeitenden über drei Schichtleiter",
+    "Leitete 3 Werkstudierende fachlich an.",
+    "Technical lead for a team of 3 engineers.",
+    "Personalverantwortung (12 MA).",
+    "Verantwortung für zwei Fertigungsbereiche mit 38 Mitarbeitenden.",
+])
+def test_said_quotes_a_bullet_that_leads_people(bullet):
+    assert leadership_said(_e(STEFAN_AUDIT, bullet, team_size=38)) == bullet
+
+
+def test_said_prefers_the_bullet_that_counts_the_team_size():
+    entry = _e(
+        STEFAN_AUDIT,
+        "Betreuung von zwei Werkstudierenden.",
+        "Verantwortung für zwei Fertigungsbereiche mit 38 Mitarbeitenden.",
+        team_size=38,
+    )
+    assert leadership_said(entry) == "Verantwortung für zwei Fertigungsbereiche mit 38 Mitarbeitenden."
+    # No bullet counts the team size: the first with a people count.
+    assert leadership_said(_e("Coaching des Teams.", "Betreuung von zwei Werkstudierenden.", team_size=5)) == (
+        "Betreuung von zwei Werkstudierenden."
+    )
+    # No count at all: the first that qualifies.
+    assert leadership_said(_e("Projektleitung SAP.", "Coaching des Teams.", team_size=5)) == "Coaching des Teams."
+
+
+def test_stefans_role_is_asked_without_the_audit_quote():
+    (asked,) = entries_needing_leadership_kind({"work_experience": [_e(STEFAN_AUDIT, team_size=38)]})
+    assert asked["said"] == ""
 
 
 @pytest.mark.parametrize("raw", ["both", "Disziplinarisch", "own_words", "", 1, True])
