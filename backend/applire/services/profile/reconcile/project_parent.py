@@ -253,6 +253,12 @@ STANDALONE_LABEL = {
 STATEMENT_SOURCES = frozenset({"interview", "agent_interview", "testimony"})
 
 
+def _project_name_key(name: str) -> str:
+    from applire.services.ats_audit import _norm
+
+    return _norm(name).strip(" .;:,")
+
+
 def ask_unparented_projects(
     ops: list[Any], profile: MasterProfileData, source: str, asked: frozenset[str] = frozenset()
 ) -> list[RequestConfirmation]:
@@ -285,10 +291,15 @@ def ask_unparented_projects(
         if not isinstance(op, UpsertProject) or op.parent or op.target or not (op.name or "").strip():
             continue
         name = op.name.strip()
-        if name.casefold() in seen or any(
-            (p.name or "").strip().casefold() == name.casefold() for p in profile.projects
+        # MD-Q11 F7: a spelling variant of a held project ("POC-Bewertung" beside a
+        # held "POC Bewertung") is that project, not a new one — the compose lift's
+        # own name key (``ats_audit._norm``: hyphens/dashes, width, case, spacing).
+        key = _project_name_key(name)
+        if name.casefold() in seen or key in seen or any(
+            _project_name_key(p.name or "") == key for p in profile.projects
         ):
             continue
+        seen.add(key)
         span = _span(op.start_date, op.end_date)
         fits = [
             (pid, e) for pid, e in positions.items()
