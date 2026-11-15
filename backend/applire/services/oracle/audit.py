@@ -1869,6 +1869,7 @@ class ScopeStep:
     figures: frozenset[str]
     statement: str
     limit_id: str = ""
+    kind: str = ""
 
 
 _SCOPE_STEP_TOKENS = frozenset({"wäre", "wären", "würde", "würden", "would"})
@@ -1884,6 +1885,65 @@ def _scope_step_framed(clause: str) -> bool:
     if any(phrase in normalized for phrase in _SCOPE_STEP_PHRASES):
         return True
     return bool(set(normalized.split()) & _SCOPE_STEP_TOKENS)
+
+
+#: MD-Q6 R2 — words a restating clause may carry only when the person's own
+#: statement carries them: a negation ("nicht der nächste Schritt"), a
+#: counterfactual past ("wäre … gewesen") or an attainment ("schon", "erreicht").
+#: The frame phrases "noch/bisher nicht|kein…" and "not yet" are removed first.
+_STEP_ADDED_MARKERS = frozenset({
+    "nicht", "kein", "keine", "keinen", "keiner", "keinem", "keines", "nie", "niemals",
+    "not", "no", "never", "gewesen", "had", "been", "schon", "bereits", "already",
+    "erreicht", "reached", "achieved", "innehatte", "held",
+})
+_STEP_FRAME_NEGATION_RE = re.compile(r"\b(?:noch|bisher)\s+(?:nicht|kein\w*)\b|\bnot\s+yet\b")
+#: A clause of the sentence that does not restate the limit may make claims of
+#: its own (the audit checks those as usual) but none ABOUT the step: no pronoun
+#: pointing back at it, and — after a comma — no relative clause hanging off it.
+_STEP_BACKREF_TOKENS = frozenset({
+    "sie", "ihn", "es", "diese", "dieses", "diesen", "dieser", "dies",
+    "it", "them", "this", "which",
+})
+_STEP_RELATIVE_STARTS = frozenset({
+    "die", "den", "das", "der", "dem", "welche", "welchen", "welches", "welcher",
+    "which", "that", "who", "wobei", "womit",
+})
+_STEP_CLAUSE_SPLIT_RE = re.compile(r"([.!?;:,]|\s[-‒–—―−]\s)")
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"\w+", text.casefold())
+
+
+def _step_sentence_clauses(text: str) -> list[tuple[str, str]]:
+    """(separator before it, clause) for every non-empty clause of the claim."""
+    out: list[tuple[str, str]] = []
+    before = ""
+    for part in _STEP_CLAUSE_SPLIT_RE.split(text):
+        if _STEP_CLAUSE_SPLIT_RE.fullmatch(part or ""):
+            before = part.strip()
+            continue
+        if part and part.strip():
+            out.append((before, part.strip()))
+    return out
+
+
+def _scope_step_sentence_ok(claim_text: str, limit_words: set[str], limit_plain: set[str]) -> bool:
+    """MD-Q6 R2: the WHOLE sentence, not only the figure's clause. A clause that
+    restates the limit adds no negation/past/attainment of its own; every other
+    clause points nothing back at the step."""
+    for sep, clause in _step_sentence_clauses(claim_text):
+        if _restates(clause, limit_words) and _scope_step_framed(clause):
+            added = set(_words(_STEP_FRAME_NEGATION_RE.sub(" ", clause.casefold()))) - limit_plain
+            if added & _STEP_ADDED_MARKERS:
+                return False
+            continue
+        words = _words(clause)
+        if set(words) & _STEP_BACKREF_TOKENS:
+            return False
+        if sep == "," and words and words[0] in _STEP_RELATIVE_STARTS:
+            return False
+    return True
 
 
 def _restates(clause: str, limit_words: set[str]) -> bool:
@@ -1918,7 +1978,8 @@ def scope_steps_from_ledger(
             continue
         figures = frozenset(_bar_figures(bar))
         if figures:
-            steps.append(ScopeStep(figures=figures, statement=statement.strip(), limit_id=lid.strip()))
+            steps.append(ScopeStep(figures=figures, statement=statement.strip(),
+                                   limit_id=lid.strip(), kind=str(bar.get("kind") or "")))
     return steps
 
 
@@ -1932,6 +1993,8 @@ def _scope_step_backing(
     ``None`` (fail-safe exactly like :func:`_denial_statement_backing`)."""
     if not scope_steps or not idx.denial_units:
         return None
+    from applire.services.scope_requirements import names_bar_figure_with_unit
+
     live = {_norm(u.text): u for u in idx.denial_units}
     backing: list[EvidenceUnit] = []
     for fig in unmatched:
@@ -1945,11 +2008,18 @@ def _scope_step_backing(
             if fig.value not in step.figures or _norm(step.statement) not in live:
                 continue
             words = _denial_content_tokens(f"{step.limit_id} {step.statement}")
-            if all(
-                _scope_step_framed(c) and _restates(c, words) for c in clauses
-            ):
-                unit = live[_norm(step.statement)]
-                break
+            if not all(_scope_step_framed(c) and _restates(c, words) for c in clauses):
+                continue
+            # MD-Q6 R2: the figure carries a unit of the bar's kind right at it
+            # ("120 Kunden" is no span), and the rest of the sentence agrees.
+            bar = {"kind": step.kind, "value": float(fig.value)}
+            if not names_bar_figure_with_unit(claim_text, bar):
+                continue
+            plain = set(_words(f"{step.limit_id} {step.statement}"))
+            if not _scope_step_sentence_ok(claim_text, words, plain):
+                continue
+            unit = live[_norm(step.statement)]
+            break
         if unit is None:
             logger.info(
                 "oracle scope step: figure %r is the posting's bar, but no clause "
@@ -2804,7 +2874,15 @@ async def _verify_claim_unchecked(
         # legitimately re-appear in honest restatements. Guarded absorption
         # only (see ``_denial_statement_backing``); a miss falls through to
         # the accusation exactly as before.
-        absorbed = _denial_statement_backing(claim.text, fig_match.unmatched, idx)
+        # MD-Q6 R2: a figure that IS a bound scope bar's own figure is judged by the
+        # scope-step rail alone (whole sentence + unit). The #422 rail checks only
+        # the figure's clause, so before this a bound limit that itself names the
+        # figure let "…nicht der nächste Schritt, ich führte sie schon" through it.
+        bar_figures = {f for step in scope_steps or () for f in step.figures}
+        if any(f.value in bar_figures for f in fig_match.unmatched):
+            absorbed = None
+        else:
+            absorbed = _denial_statement_backing(claim.text, fig_match.unmatched, idx)
         if absorbed is None:
             # MD-Q3 / H2: the posting's own figure named as the step ahead,
             # backed by the person's recorded limit bound to that scope bar.

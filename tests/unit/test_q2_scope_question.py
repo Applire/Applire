@@ -706,6 +706,53 @@ async def test_h2_n4_the_step_in_the_persons_own_words_is_grounded_by_the_bound_
     ) == ["grounded"]
 
 
+_R2_STMT = "Eine größere Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt."
+
+
+@pytest.mark.asyncio
+async def test_r2_the_whole_sentence_and_the_unit_are_checked():
+    """MD-Q6 R2 (third pass, r2.py): a limit that itself names the figure, so the
+    #422 rail can no longer carry a bar figure past the sentence check."""
+    profile = _h2_profile(_R2_STMT, "größere Führungsspanne")
+    ledger = _h2_ledger(("größere Führungsspanne", _R2_STMT))
+    assert await _verdicts(_R2_STMT, profile, ledger) == ["grounded"], "control"
+    for text in (
+        "Eine größere Führungsspanne von 120 Mitarbeitenden wäre für mich nicht der nächste Schritt, ich führte sie schon.",
+        "Eine größere Führungsspanne von 120 Mitarbeitenden wäre für mich kein nächster Schritt, ich hatte sie schon.",
+        "Die größere Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt gewesen, und ich habe sie erreicht.",
+        "Der nächste Schritt wäre für mich die Führungsspanne von 120 Mitarbeitenden, die ich bereits innehatte.",
+        "Eine größere Führungsspanne von 120 Mitarbeitenden ist für mich der nächste Schritt, nachdem ich sie erreicht habe.",
+        "Eine größere Führungsspanne von 120 Mitarbeitenden wäre für mich nicht der nächste Schritt.",
+        "Eine größere Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt gewesen.",
+        "Eine größere Führungsspanne von 120 Kunden wäre für mich der nächste Schritt.",
+        "A larger leadership span of 120 employees would be my next step, which I reached in 2019.",
+    ):
+        assert await _verdicts(text, profile, ledger) == ["unbacked"], text
+    # Another clause with a claim of its own (checked as usual) is no claim about the step.
+    for text in (
+        _R2_STMT[:-1] + "; gerade deshalb reizt mich die Stelle.",
+        _R2_STMT[:-1] + "; die Einführung des MES-Systems zeigt, dass ich Veränderungen umsetze.",
+        _R2_STMT[:-1] + "; heute führe ich bereits 38 Mitarbeitende.",
+    ):
+        assert await _verdicts(text, profile, ledger) == ["grounded"], text
+
+
+@pytest.mark.asyncio
+async def test_r2_a_negation_the_person_wrote_is_their_wording():
+    stmt = "Eine Führungsspanne von 120 Mitarbeitenden hatte ich bisher nicht und wäre der nächste Schritt."
+    profile = _h2_profile(stmt, "Führungsspanne 120")
+    ledger = _h2_ledger(("Führungsspanne 120", stmt))
+    assert await _verdicts(
+        "Eine Führungsspanne von 120 Mitarbeitenden hatte ich bisher nicht, inzwischen habe ich sie.",
+        profile, ledger) == ["unbacked"], "the back-pointing 'sie' clause"
+    assert await _verdicts(
+        "Eine Führungsspanne von 120 Mitarbeitenden hatte ich bisher nicht und wäre der nächste Schritt.",
+        profile, ledger) == ["grounded"]
+    own = "Eine Spanne von 120 Mitarbeitenden würde ich nicht scheuen, sie wäre der nächste Schritt."
+    assert await _verdicts(own, _h2_profile(own, "Spanne 120"), _h2_ledger(("Spanne 120", own))) == [
+        "grounded"], "a 'nicht' the person wrote is their wording, not an added negation"
+
+
 @pytest.mark.asyncio
 async def test_n4_a_frame_word_without_the_persons_words_stays_red():
     """Re-check N4 (q2.py), with the reviewer's live bound limit."""
@@ -764,7 +811,7 @@ def test_m1_n5_a_limit_binds_only_structurally():
         verified_stated_limit,
     )
 
-    span = {"kind": "team_size", "value": 120.0, "value_max": None}
+    span = {"kind": "team_size", "value": 120.0, "value_max": None, "concept": _SCOPE}
     budget = {"kind": "budget", "value": 5_000_000.0, "value_max": None}
     texts = {
         "SAP-Erfahrung": "Mit SAP habe ich noch nie gearbeitet.",
@@ -802,6 +849,40 @@ def test_m1_n5_a_limit_binds_only_structurally():
     assert "recorded_limit" not in build_scope_ledger_entries(block, cls, profile)[0]["bar"]
     row = build_scope_ledger_entries(block, cls, profile, turn_limits={_SCOPE.casefold(): {"Spanne"}})[0]
     assert row["bar"]["recorded_limit"]["id"] == "Spanne"
+
+
+def test_r3_a_turn_bound_denial_binds_only_as_the_bars_own_concept():
+    """MD-Q6 R3 (third pass): binding (a) needs the turn AND the bar's own concept
+    — the ADR-064 cross-generator match against the bar's scope concept, or the
+    denial naming the bar's own figure. Another concept denied on the same scope
+    turn ("SAP MM kenne ich nicht") binds nothing."""
+    from applire.services.scope_requirements import (
+        build_scope_ledger_entries,
+        verified_stated_limit,
+    )
+
+    span = {"kind": "team_size", "value": 120.0, "value_max": None, "concept": _SCOPE}
+    profile = {"metadata": {"denied_concepts": [
+        {"concept": "SAP MM", "statement": "SAP MM kenne ich nicht."},
+        {"concept": "Führungsspanne", "statement": "Eine größere wäre der nächste Schritt."},
+        {"concept": "dauerhafte Führung", "statement": "Die Spanne von 120 wäre für mich neu."},
+        {"concept": "Budget", "statement": "Auf die Frage antworte ich später."},
+    ]}}
+    assert verified_stated_limit("SAP MM", profile, bar=span, asked_for={"SAP MM"}) is None
+    assert verified_stated_limit("Budget", profile, bar=span, asked_for={"Budget"}) is None
+    assert verified_stated_limit("Führungsspanne", profile, bar=span,
+                                 asked_for={"Führungsspanne"})["id"] == "Führungsspanne", (
+        "the bar's own concept (cross-generator match)")
+    assert verified_stated_limit("dauerhafte Führung", profile, bar=span,
+                                 asked_for={"dauerhafte Führung"})["id"] == "dauerhafte Führung", (
+        "names the bar's own figure")
+    assert verified_stated_limit("Führungsspanne", profile, bar=span) is None, "not on the turn"
+    block = [{"concept": _SCOPE, "kind": "team_size", "jd_value": 120.0, "jd_value_max": None,
+              "comparator": "approx", "jd_quote": "ca. 120 Mitarbeitende", "level": "required",
+              "candidate_values": [{"value": 38, "entry": "PL @ W", "semantics": "team"}]}]
+    cls = [{"concept": _SCOPE, "status": "partial", "reason": "38 < 120", "stated_limit": "SAP MM"}]
+    turn = {_SCOPE.casefold(): {"SAP MM", "Führungsspanne"}}
+    assert "recorded_limit" not in build_scope_ledger_entries(block, cls, profile, turn_limits=turn)[0]["bar"]
 
 
 def test_n5_seam_the_analysis_binds_with_the_previous_rows_turn_limits():

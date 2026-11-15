@@ -411,6 +411,7 @@ def build_scope_ledger_entries(
                 "kind": item.get("kind"),
                 "value": item.get("jd_value"),
                 "value_max": item.get("jd_value_max"),
+                "concept": concept,
             },
             asked_for=(turn_limits or {}).get(_id_key(concept), ()),
         )
@@ -511,6 +512,52 @@ def _bar_number(value: Any) -> float | None:
     return float(value)
 
 
+def _bar_figure_hits(text: str, bar: dict[str, Any] | None):
+    """(figure, start) for each figure in ``text`` equal to one of the bar's own."""
+    if not isinstance(bar, dict) or not isinstance(text, str) or not text.strip():
+        return
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    wanted = _bar_figures(bar)
+    if not wanted:
+        return
+    cursor = 0
+    for f in extract_figures(text):
+        start = text.find(f.raw, cursor)
+        if start < 0:
+            start = text.find(f.raw)
+        if start < 0:
+            continue
+        cursor = start + len(f.raw)
+        if f.kind in ("number", "currency") and f.value in wanted:
+            yield f, start
+
+
+def names_bar_figure(text: str, bar: dict[str, Any] | None) -> bool:
+    """True when ``text`` names one of the bar's own figures (any unit)."""
+    return next(_bar_figure_hits(text, bar), None) is not None
+
+
+def is_about_bar_concept(concept: str, statement: str, bar: dict[str, Any] | None) -> bool:
+    """MD-Q6 R3 — a denial recorded on a scope turn is the BAR's own concept when
+    its concept matches the bar's scope concept by the interview's cross-generator
+    matcher (``sufficiency._concept_matches_ledger_key`` — the same attribution the
+    ADR-064 probe uses for "a denial of the CURRENT cluster's member"), or its
+    concept/statement names the bar's own figure. Another concept denied on the
+    same turn ("SAP MM kenne ich nicht") is neither."""
+    if not isinstance(bar, dict):
+        return False
+    from applire.services.ats_audit import _norm as ats_norm
+    from applire.services.interview.sufficiency import _concept_matches_ledger_key
+
+    own = bar.get("concept")
+    if isinstance(own, str) and own.strip() and _concept_matches_ledger_key(
+        ats_norm(concept), ats_norm(own)
+    ):
+        return True
+    return names_bar_figure(f"{concept} {statement}", bar)
+
+
 def names_bar_figure_with_unit(text: str, bar: dict[str, Any] | None) -> bool:
     """True when ``text`` names the bar's EXACT figure with a unit of the bar's
     kind: a people word right after it for a team scope ("120 Mitarbeitende"), a
@@ -519,23 +566,10 @@ def names_bar_figure_with_unit(text: str, bar: dict[str, Any] | None) -> bool:
     the MD-Q3 kind-word list bound "Mitarbeitergespräche habe ich noch nie
     geführt" and "Budgetplanung in SAP" (re-check N5); the bar's number in another
     unit ("120 Tickets") is no tie either."""
-    if not isinstance(bar, dict) or not isinstance(text, str) or not text.strip():
+    kind = bar.get("kind") if isinstance(bar, dict) else None
+    if kind not in ("team_size", "budget"):
         return False
-    from applire.services.oracle.matchers.figures import extract_figures
-
-    wanted = _bar_figures(bar)
-    kind = bar.get("kind")
-    if not wanted or kind not in ("team_size", "budget"):
-        return False
-    cursor = 0
-    for f in extract_figures(text):
-        if f.kind not in ("number", "currency") or f.value not in wanted:
-            continue
-        start = text.find(f.raw, cursor)
-        if start < 0:
-            start = text.find(f.raw)
-        if start < 0:
-            continue
+    for f, start in _bar_figure_hits(text, bar):
         if kind == "budget" and (f.kind == "currency" or figure_currencies(text, f.raw, start)):
             return True
         if kind == "team_size" and _PEOPLE_AFTER_RE.match(text[start + len(f.raw):]):
@@ -564,7 +598,8 @@ def verified_stated_limit(
     Third fact (MD-Q5 (2), structural; was a kind-word list in MD-Q3): with ``bar``
     given, the record binds only when (a) it was recorded on the turn that asked
     THIS bar's scope question (``asked_for``: the ids the scope cluster's turn
-    recorded, ``scope_question.turn_bound_limits``), or (b) it names the bar's
+    recorded, ``scope_question.turn_bound_limits``) AND is the bar's own concept
+    (:func:`is_about_bar_concept`, MD-Q6 R3), or (b) it names the bar's
     exact figure with a unit of its kind (:func:`names_bar_figure_with_unit`).
     The id test alone bound "Mit SAP habe ich noch nie gearbeitet" (p6.py); the
     kind-word list then bound "Mitarbeitergespräche …" (re-check N5).
@@ -600,15 +635,16 @@ def verified_stated_limit(
             and statement.strip()
         ):
             asked = {_id_key(a) for a in asked_for or () if isinstance(a, str)}
+            turn_bound = key in asked and is_about_bar_concept(concept, statement, bar)
             if (
                 bar is not None
-                and key not in asked
+                and not turn_bound
                 and not names_bar_figure_with_unit(f"{concept} {statement}", bar)
             ):
                 logger.info(
-                    "scope_requirements: stated_limit %r was not recorded on the %r "
-                    "bar's scope question and names not its figure with a unit — "
-                    "binds nothing",
+                    "scope_requirements: stated_limit %r is neither the %r bar's own "
+                    "concept recorded on its scope question nor names its figure "
+                    "with a unit — binds nothing",
                     cited,
                     bar.get("kind"),
                 )
