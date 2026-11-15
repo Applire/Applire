@@ -128,7 +128,7 @@ def test_the_prompt_shows_the_answer_and_asks_for_the_shortfall_sentence():
     from applire.services.gap_inference import PreClassification
 
     rules = " ".join(SYSTEM_PROMPT.split())
-    assert "copy it VERBATIM into \"stated_limit_quote\"" in rules
+    assert "copy that WHOLE sentence VERBATIM, first word to final punctuation, never a part of it and never two sentences, into \"stated_limit_quote\"" in rules
     assert "Most answers have none" in rules and "never moves \"status\"" in rules
     assert '"stated_limit_quote":' in SYSTEM_PROMPT
     block = [{"concept": _SCOPE, "kind": "team_size"}]
