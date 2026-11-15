@@ -188,3 +188,75 @@ def test_a_shared_leading_token_in_the_bullets_own_words_names_no_foreign_employ
     out = enforce_attribution([AddBullets(target="w-wlog", responsibilities=[bullet])],
                               profile=prof, new_info=_ni("Ja, " + bullet), source="interview")
     assert _held(out) == [] and _applied(out, "w-wlog") == [bullet]
+
+
+# MD-Q13 N3 (re-check at c2d4427f) — the reviewer's probe_k inputs. The short form
+# is matched as written, on the turn read with its case kept, and not when a
+# capitalised word outside the employer's name follows it.
+_PROBE_BULLET = "Gefährdungsbeurteilungen überarbeitet."
+
+
+def _probe(companies: list[tuple[str, str]], answer: str, target: str, bullet: str = _PROBE_BULLET):
+    prof = MasterProfileData(work_experience=[
+        WorkEntry(id=i, company=c, role="R", start_date="2010-01") for i, c in companies
+    ])
+    return enforce_attribution([AddBullets(target=target, responsibilities=[bullet])],
+                               profile=prof, new_info={"gap": "g", "question": "Was?", "answer": answer},
+                               source="interview")
+
+
+def test_md_q13_n3_a_common_word_that_starts_an_employers_name_names_nobody():
+    db = [("a", "Deutsche Bahn AG"), ("b", "Rasselstein Umformtechnik GmbH")]
+    out = _probe(db, "Ich habe deutsche Kunden und neue Mitarbeiter bei der Schichtplanung betreut.", "b",
+                 "Deutsche Kunden und neue Mitarbeiter bei der Schichtplanung betreut.")
+    assert _held(out) == []
+    neue = [("a", "Neue Energie GmbH"), ("b", "Rasselstein Umformtechnik GmbH")]
+    assert _held(_probe(neue, "Ich habe neue Mitarbeiter eingearbeitet.", "b",
+                        "Neue Mitarbeiter eingearbeitet.")) == []
+    # sentence-initial, followed by a capitalised word that is not the employer's
+    assert _held(_probe(neue, "Neue Mitarbeiter habe ich eingearbeitet.", "b",
+                        "Neue Mitarbeiter eingearbeitet.")) == []
+
+
+def test_md_q13_n3_a_customer_sharing_the_first_word_is_not_the_employer():
+    pair = [("a", "Weberit Kunststofftechnik GmbH"), ("b", "Rasselstein Umformtechnik GmbH")]
+    out = _probe(pair, "Für Kunden wie Weberit Automotive habe ich die Gefährdungsbeurteilungen "
+                       "überarbeitet.", "b")
+    assert _held(out) == []
+
+
+def test_md_q13_n3_the_employers_own_next_word_or_legal_form_still_names_it():
+    pair = [("a", "Weberit Kunststofftechnik GmbH"), ("b", "Rasselstein Umformtechnik GmbH")]
+    for answer in ("Bei Weberit GmbH habe ich die Gefährdungsbeurteilungen überarbeitet.",
+                   "Bei Weberit habe ich die Gefährdungsbeurteilungen überarbeitet.",
+                   "Die Gefährdungsbeurteilungen habe ich überarbeitet, bei Weberit."):
+        assert _held(_probe(pair, answer, "b")) == [_PROBE_BULLET], answer
+
+
+def test_md_q13_n3_a_shared_first_word_still_names_only_the_full_name():
+    pair = [("a", "Siemens Energy AG"), ("b", "Siemens Healthineers AG")]
+    assert _held(_probe(pair, "Bei Siemens habe ich die Linie optimiert.", "b", "Linie optimiert.")) == []
+    assert _held(_probe(pair, "Bei Siemens Energy habe ich die Linie optimiert.", "b",
+                        "Linie optimiert.")) == ["Linie optimiert."]
+    assert _held(_probe(pair, "Bei Siemens Energy habe ich die Linie optimiert.", "a",
+                        "Linie optimiert.")) == []
+
+
+def test_md_q13_n3_a_lower_case_common_word_is_not_the_name_even_before_a_lower_case_word():
+    neue = [("a", "Neue Energie GmbH"), ("b", "Rasselstein Umformtechnik GmbH")]
+    assert _held(_probe(neue, "Ich habe neue und erfahrene Mitarbeiter eingearbeitet.", "b",
+                        "Erfahrene und neue Mitarbeiter eingearbeitet.")) == []
+    # Known residual (MD-Q13, collector): a text that STARTS with the word, followed
+    # by a lower-case word ("Neue und erfahrene …"), still reads as the name.
+
+
+def test_md_q13_n3_the_owning_sentence_channel_reads_the_short_form_as_written():
+    # the batch writes to BOTH employers, so the whole-answer channel is silent;
+    # only the owning sentence ("Bei Weberit …") can hold the first bullet
+    answer = ("Bei Weberit habe ich die Gefährdungsbeurteilungen überarbeitet. "
+              "Außerdem habe ich Schichtpläne für 38 Mitarbeitende erstellt.")
+    ops = [AddBullets(target=_RAS, responsibilities=["Gefährdungsbeurteilungen überarbeitet."]),
+           AddBullets(target=_WEB, responsibilities=["Schichtpläne für 38 Mitarbeitende erstellt."])]
+    out = enforce_attribution(ops, profile=_profile(), new_info=_ni(answer), source="interview")
+    assert _held(out) == ["Gefährdungsbeurteilungen überarbeitet."]
+    assert _applied(out, _WEB) == ["Schichtpläne für 38 Mitarbeitende erstellt."]

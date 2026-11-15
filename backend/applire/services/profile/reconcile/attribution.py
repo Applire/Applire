@@ -247,12 +247,19 @@ def _company_candidates(profile: MasterProfileData) -> dict[str, str]:
 # reason this module's docstring gives, the vocabulary pinned equal by
 # ``test_q6_attribution_short_form``): the core's FIRST token, at least four
 # characters, not a generic company word or a legal form, occurring in NO other
-# candidate's name. One deviation from the Oracle: matched case-INsensitively,
-# because this guard reads the turn through ``stance._norm`` (lower-cased), and
-# a case-sensitive match there fired 0/1 on rec 215 — the same reason the
-# full-name pass here was always case-insensitive (a one-token core like
-# "Apple" already matches "apple"). A FACT about the text (ADR-062 cl. 1). A
-# shared or generic token names nobody, so ambiguity still fails open as before.
+# candidate's name.
+#
+# MD-Q13 N3 (re-check at c2d4427f): it is matched AS WRITTEN, like the Oracle's,
+# on the turn read with its case kept (``stance._grounding_corpus(cased=True)``;
+# the first build read the lower-cased turn, which is why a case-sensitive match
+# fired 0 times on rec 215 and the match was made case-blind — and then "deutsche
+# Kunden" named "Deutsche Bahn AG"). And not when the next word is a capitalised
+# word that is not part of that employer's name: "Weberit Automotive" is another
+# company, "Neue Mitarbeiter" at a sentence start is a phrase. A FACT about the
+# text (ADR-062 cl. 1). A shared or generic token names nobody, so ambiguity
+# still fails open as before. Known residual false holds (one confirmation
+# question each, collector): a contrast naming the employer ("anders als bei
+# Weberit"), and a sentence-initial common word followed by a lower-case word.
 _GENERIC_COMPANY_TOKENS = frozenset(
     t.lower()
     for t in (
@@ -290,8 +297,9 @@ def _distinctive_short_forms(candidates: dict[str, str]) -> dict[str, str]:
 
 def _named_cores(text: str, candidates: dict[str, str]) -> set[str]:
     """Every candidate core ``text`` names: the legal-form-stripped core name
-    or its distinctive leading token (word-bounded, case-insensitive). The ONE
-    matcher every anchoring channel reads."""
+    (word-bounded, case-insensitive) or its distinctive leading token (as
+    written, and not followed by a capitalised word outside that employer's
+    name). The ONE matcher every anchoring channel reads."""
     if not text or not candidates:
         return set()
     normalized = _normalize_punct(text)
@@ -301,11 +309,30 @@ def _named_cores(text: str, candidates: dict[str, str]) -> set[str]:
         if re.search(r"\b" + re.escape(core) + r"\b", normalized, re.IGNORECASE)
     }
     for core, lead in _distinctive_short_forms(candidates).items():
-        if core not in found and re.search(
-            r"\b" + re.escape(lead) + r"\b", normalized, re.IGNORECASE
-        ):
+        if core not in found and _short_form_names(normalized, lead, core):
             found.add(core)
     return found
+
+
+_NEXT_WORD_RE = re.compile(r"\s+([^\s]+)")
+_WORD_EDGE_PUNCT = ".,;:!?()[]\"'„“”»«‚‘’"
+
+
+def _short_form_names(text: str, lead: str, core: str) -> bool:
+    """``lead`` occurs in ``text`` as written, and at least once not followed
+    by a capitalised word outside the employer's own name (MD-Q13 N3)."""
+    name_words = {t.lower() for t in core.split()}
+    for m in re.finditer(r"\b" + re.escape(lead) + r"\b", text):
+        nxt = _NEXT_WORD_RE.match(text, m.end())
+        word = nxt.group(1).strip(_WORD_EDGE_PUNCT) if nxt else ""
+        if (
+            word[:1].isupper()
+            and word.lower() not in name_words
+            and not _LEGAL_FORM_RE.match(" " + word)
+        ):
+            continue  # "Weberit Automotive": another name, not this employer
+        return True
+    return False
 
 
 def _anchor_company(text: str, candidates: dict[str, str]) -> tuple[str, str] | None:
@@ -707,7 +734,9 @@ def enforce_attribution(
     returned unchanged — over-drop discipline: legitimate enrichment must
     keep working.
     """
-    corpus = _grounding_corpus(new_info, source)
+    # MD-Q13 N3: the turn as written (case kept) — a short employer name is
+    # matched as the person wrote it.
+    corpus = _grounding_corpus(new_info, source, cased=True)
     if corpus is None:
         return ops
     corpus = _normalize_punct(corpus)
@@ -727,7 +756,7 @@ def enforce_attribution(
     # contradicts (rule b, #723's unflagged sibling).
     content_ops = _guarded_content_ops(ops, profile)
     muted = _muted_sentences(content_ops, sentences)
-    answer = _normalize_punct(_answer_corpus(new_info, source) or "")
+    answer = _normalize_punct(_answer_corpus(new_info, source, cased=True) or "")
     batch_anchor = _batch_anchor(content_ops, answer, _split_sentences(answer), candidates)
 
     result: list[ReconcileOp] = []
