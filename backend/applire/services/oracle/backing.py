@@ -82,15 +82,37 @@ def ledger_denial_forms(keyword_ledger: list[dict[str, Any]] | None) -> tuple[tu
         return ()
 
 
+def ledger_claimable_forms(keyword_ledger: list[dict[str, Any]] | None) -> frozenset[str]:
+    """MD-Q13 N2: every form (concept + surface forms) of a CLAIMABLE ledger row,
+    folded by ``ats_audit._norm``. Never raises."""
+    if not keyword_ledger:
+        return frozenset()
+    try:
+        from applire.services.ats_audit import _norm as _fold
+
+        return frozenset(
+            k
+            for row in keyword_ledger
+            if isinstance(row, dict) and row.get("claimable") is True
+            for form in [row.get("concept"), *(row.get("surface_forms") or [])]
+            if isinstance(form, str) and (k := _fold(form))
+        )
+    except Exception:  # pragma: no cover — defensive: no claimable forms
+        logger.exception("oracle: ledger claimable forms unreadable")
+        return frozenset()
+
+
 def with_ledger_denials(index: VaultIndex, keyword_ledger: list[dict[str, Any]] | None) -> VaultIndex:
     """``index`` carrying the ledger's stored scope decisions (a new index; the
-    given one is not changed). The identity when there is no ledger."""
+    given one is not changed): its ``denied`` rows' forms, and (MD-Q13 N2) its
+    claimable rows' forms. The identity when there is no ledger."""
     forms = ledger_denial_forms(keyword_ledger)
-    if not forms:
+    claimable = ledger_claimable_forms(keyword_ledger)
+    if not forms and not claimable:
         return index
     import dataclasses
 
-    return dataclasses.replace(index, ledger_denials=forms)
+    return dataclasses.replace(index, ledger_denials=forms, ledger_claimable=claimable)
 
 
 # ── MD-Q11 F6: the shorter name and the denial sentence ─────────────────────
@@ -114,23 +136,20 @@ _DENIAL_FRAME_WORDS = frozenset(
     "ich habe hab hatte i have had has do dont don't did didn't "
     "nicht nie never not ohne without bisher bislang noch leider damit dazu gar je jemals yet ever".split()
 )
-#: Trailing words a product NAME may carry beyond its short name ("Google Cloud
-#: Platform" -> "Google Cloud", "Adobe Premiere Pro" -> "Premiere"). Any other
-#: trailing word is a specialisation, level or role ("SAP S/4HANA" is not "SAP";
-#: "Scrum Master" is not "Scrum", ADR-064 / ADR-052: the role is not the method;
-#: "Lean Six Sigma Black Belt" is not "Six Sigma"), so it does not cover.
-_NAME_EDITION_WORDS = frozenset("platform pro suite services service software edition".split())
-#: Leading words that NARROW a name rather than brand it ("Advanced Excel" is not
-#: a denial of Excel, "weitere eigene X" is an aspect): never dropped.
-_NAME_NARROWING_WORDS = frozenset(
-    "weitere weiteren weiterer eigene eigenen keine no own any advanced senior junior lead basic "
-    "certified zertifizierte zertifizierter fortgeschrittene fortgeschrittenes fortgeschrittener "
-    "erweiterte erweiterter praktische hands-on formal formale direkte direct".split()
+#: MD-Q13 N2 — the ONE trailing word a product NAME may carry beyond its shorter
+#: name ("Google Cloud Platform" -> "Google Cloud", "Adobe Premiere Pro" -> "Adobe
+#: Premiere"). Any other trailing word is a specialisation, level or role ("SAP
+#: S/4HANA" is not "SAP"; "Scrum Master" is not "Scrum", ADR-064 / ADR-052: the
+#: role is not the method; "Lean Six Sigma Black Belt" is not "Six Sigma").
+_NAME_EDITION_WORDS = frozenset("platform pro suite edition software".split())
+#: MD-Q13 N2 — the ONE leading vendor word a product NAME may carry beyond its
+#: shorter name ("Microsoft Power BI" -> "Power BI", "SAP S/4HANA" -> "S/4HANA").
+#: Closed: a product family ("Azure", "Power") is not a vendor, so "Azure DevOps"
+#: never covers "DevOps" and "Microsoft Power BI" never covers "BI".
+_NAME_BRAND_WORDS = frozenset(
+    "microsoft sap google adobe amazon oracle ibm atlassian salesforce apple autodesk cisco "
+    "siemens apache".split()
 )
-#: A leading German adjective narrows too, capitalised only because it opens the
-#: record ("Disziplinarische Führung" is not a denial of Führung; "Fachliche",
-#: "Operative", "Strategische"). Inflected adjective endings, six letters or more.
-_NAME_ADJECTIVE_RE = re.compile(r"^\w{3,}(?:isch|lich|iv|al|ig|iert)(?:e|en|er|es|em)$", re.IGNORECASE)
 _NAME_MAX_TOKENS = 5
 
 
@@ -139,21 +158,28 @@ def _record_tokens(text: str) -> list[str]:
     return [t for t in (w.strip(".,;:!?()\"'„“”‚‘’").casefold() for w in (text or "").split()) if t]
 
 
-def _shorter_name_or_sentence_cover(token: str, denials: list[str]) -> list[str]:
+def _shorter_name_or_sentence_cover(
+    token: str, denials: list[str], held: frozenset[str] = frozenset()
+) -> list[str]:
     """The denials that name ``token`` as a shorter form of the denied NAME, or as
-    the one term a denial SENTENCE names (MD-Q11 F6). ``token`` must be a run of
-    WHOLE tokens of the record. Then, either:
+    the one term a denial SENTENCE names (MD-Q11 F6, narrowed by MD-Q13 N2).
+    ``token`` must be a run of WHOLE tokens of the record. Then, either:
 
     - **sentence**: every other token of the record is a frame word
       (``_DENIAL_FRAME_WORDS``) — "Mit US-GAAP habe ich keine Erfahrung" names
       US-GAAP; "keine weitere Erfahrung mit SAP" does not cover SAP;
-    - **name**: the record is a name (at most five tokens, no function word of
-      either language), the dropped leading tokens brand it (capitalised, an
-      acronym or a version, never a narrowing word) and the dropped trailing
-      tokens are edition words — "Microsoft Power BI" covers "Power BI", "SAP
-      S/4HANA" covers "S/4HANA", "Google Cloud Platform" covers "Google Cloud".
+    - **shorter name**: the record is a name (at most five tokens, no function
+      word of either language) and exactly ONE word is dropped: a leading vendor
+      word (``_NAME_BRAND_WORDS``) or a trailing edition word
+      (``_NAME_EDITION_WORDS``) — "Microsoft Power BI" covers "Power BI", "SAP
+      S/4HANA" covers "S/4HANA", "Google Cloud Platform" covers "Google Cloud" —
+      and the person does not hold that shorter name themselves: ``held`` (their
+      own skills and the job's claimable ledger forms, ``ats_audit._norm``) wins,
+      so a held "DevOps" or "Power BI" is the person's own skill, not the denied
+      product's.
 
     Pure; longest record first."""
+    from applire.services.ats_audit import _norm as _fold
     from applire.utils.language_detection import _ENGLISH_STOPWORDS, _GERMAN_STOPWORDS
 
     chip = _record_tokens(token)
@@ -162,34 +188,38 @@ def _shorter_name_or_sentence_cover(token: str, denials: list[str]) -> list[str]
     out: list[str] = []
     for denial in denials:
         raw = [w.strip(".,;:!?()\"'„“”‚‘’") for w in (denial or "").split()]
-        raw = [w for w in raw if w]
-        toks = [w.casefold() for w in raw]
+        toks = [w.casefold() for w in raw if w]
         n = len(chip)
         for i in range(len(toks) - n + 1):
             if toks[i : i + n] != chip:
                 continue
-            lead, trail = raw[:i], toks[i + n :]
-            rest = [w.casefold() for w in lead] + trail
+            lead, trail = toks[:i], toks[i + n :]
+            rest = lead + trail
             if rest and all(w in _DENIAL_FRAME_WORDS for w in rest):
                 out.append(denial)
                 break
             is_name = len(toks) <= _NAME_MAX_TOKENS and not any(
                 w in _GERMAN_STOPWORDS or w in _ENGLISH_STOPWORDS or w in _DENIAL_FRAME_WORDS for w in toks
             )
-            if (
-                rest
-                and is_name
-                and all(
-                    (w[:1].isupper() or any(c.isdigit() for c in w))
-                    and w.casefold() not in _NAME_NARROWING_WORDS
-                    and not _NAME_ADJECTIVE_RE.match(w)
-                    for w in lead
-                )
-                and all(w in _NAME_EDITION_WORDS for w in trail)
-            ):
+            one_dropped = (lead and not trail and len(lead) == 1 and lead[0] in _NAME_BRAND_WORDS) or (
+                trail and not lead and len(trail) == 1 and trail[0] in _NAME_EDITION_WORDS
+            )
+            if is_name and one_dropped and _fold(token) not in held:
                 out.append(denial)
                 break
     return out
+
+
+def _held_names(index: VaultIndex) -> frozenset[str]:
+    """MD-Q13 N2: the names the person holds as their own — the claimable vault's
+    skill units and the job's claimable ledger forms, ``ats_audit._norm``-ed."""
+    from applire.services.ats_audit import _norm as _fold
+
+    skills = {_fold(u.text) for u in getattr(index, "units", ()) or () if _SKILL_PATH_RE.match(u.path)}
+    return frozenset(skills | set(getattr(index, "ledger_claimable", ()) or ()))
+
+
+_SKILL_PATH_RE = re.compile(r"^skills\[\d+\]$")
 
 
 def stored_denial_cover(texts: list[str], index: VaultIndex) -> list[str]:
@@ -221,12 +251,13 @@ def stored_denial_cover(texts: list[str], index: VaultIndex) -> list[str]:
         from applire.services.profile.reconcile.stance import declared_denial_matches
 
         out: list[str] = []
+        held = _held_names(index) if denials else frozenset()
         for t in texts:
             if not isinstance(t, str) or not t.strip():
                 continue
             if denials:
                 out.extend(declared_denial_matches(t, denials))
-                out.extend(_shorter_name_or_sentence_cover(t, denials))
+                out.extend(_shorter_name_or_sentence_cover(t, denials, held))
             key = _norm(t)
             out.extend(record for form, record in decided if form == key)
         return sorted(dict.fromkeys(out), key=len, reverse=True)
