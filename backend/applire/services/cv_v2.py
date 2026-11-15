@@ -148,6 +148,73 @@ def carry_v2_fields(new: Any, previous: Any) -> Any:
 # --------------------------------------------------------------------------- #
 # place: a project's container is a vault fact (D-31, Hazelnut build 5 round 9)
 # --------------------------------------------------------------------------- #
+def lift_standalone_projects(prose: Any, profile_json: dict | None) -> Any:
+    """Sorbet WP-Q5 (b), SF-ORACLE.35 — the inverse container move of D-31: a project
+    the prose nests under a role while the vault ties it to NO position goes to the
+    top-level projects list. Returns a new draft; never mutates.
+
+    Captured (delivery 1b run 3, Katrin, rec 191): the interview created "Einführung
+    der Percentage-of-Completion-Bewertung" with ``associated_experience`` null; the
+    corrector nested it under w1; the delivered CV stated an employer the profile
+    never recorded and the Oracle graded its bullet ``misattributed`` (stop_and_fix).
+    The home is the vault's fact, so compose renders it there. Matching is by the
+    project's normalised NAME against a vault project whose link is empty — and only
+    when no vault project of that name is tied to a position (two same-named projects
+    are never guessed apart); a name the vault does not hold stays where the model
+    put it (ADR-072 cl. 5). No text authored; a byte-identical (normalised) repeat
+    of a bullet already in a top-level copy is the only bullet not carried."""
+    if not isinstance(prose, dict) or not isinstance(prose.get("work"), list):
+        return prose
+    from applire.services.ats_audit import _norm
+
+    standalone: set[str] = set()
+    tied: set[str] = set()
+    for vp in (profile_json or {}).get("projects") or []:
+        if not isinstance(vp, dict):
+            continue
+        name = _norm(str(vp.get("name") or ""))
+        if not name:
+            continue
+        (tied if str(vp.get("associated_experience") or "").strip() else standalone).add(name)
+    standalone -= tied
+    if not standalone:
+        return prose
+    hits = [
+        (wi, pi)
+        for wi, w in enumerate(prose["work"]) if isinstance(w, dict)
+        for pi, p in enumerate(w.get("projects") or []) if isinstance(p, dict)
+        and _norm(str(p.get("name") or "")) in standalone
+    ]
+    if not hits:
+        return prose
+    out = copy.deepcopy(prose)
+    top = out.get("projects") if isinstance(out.get("projects"), list) else []
+    for wi, pi in hits:
+        entry = out["work"][wi]
+        proj = entry["projects"][pi]
+        key = _norm(str(proj.get("name") or ""))
+        same = next((q for q in top if isinstance(q, dict)
+                     and _norm(str(q.get("name") or "")) == key), None)
+        if same is None:
+            top.append(proj)
+        else:
+            have = {_norm(b) for b in same.get("bullets") or [] if isinstance(b, str)}
+            same["bullets"] = list(same.get("bullets") or []) + [
+                b for b in proj.get("bullets") or [] if isinstance(b, str) and _norm(b) not in have
+            ]
+        logger.info(
+            "TAIL_RELOCATE (WP-Q5 b) pass=lift_standalone_projects predicate=role-nested copy "
+            "of a project the vault ties to no position role_id=%r project=%r merged=%s",
+            entry.get("id"), proj.get("name"), same is not None,
+        )
+    lifted = {(wi, pi) for wi, pi in hits}
+    for wi, w in enumerate(out["work"]):
+        if isinstance(w, dict) and isinstance(w.get("projects"), list):
+            w["projects"] = [p for pi, p in enumerate(w["projects"]) if (wi, pi) not in lifted]
+    out["projects"] = top
+    return out
+
+
 def place_linked_projects(prose: Any, profile_json: dict | None) -> Any:
     """Put every top-level prose project the vault ties to a work entry under that
     entry — whatever slot the model used. Returns a new draft; never mutates.
@@ -168,6 +235,7 @@ def place_linked_projects(prose: Any, profile_json: dict | None) -> Any:
     ``associated_experience`` id against the draft's work ids; a name the vault does not
     hold (a translated heading) or a link to no work entry of the draft stays where the
     model put it — never a guessed owner (ADR-072 cl. 5)."""
+    prose = lift_standalone_projects(prose, profile_json)
     if not isinstance(prose, dict) or not isinstance(prose.get("projects"), list):
         return prose
     work = prose.get("work")
