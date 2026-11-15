@@ -620,14 +620,14 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
           {flowId && !loading && !uploadSuccess && !flowError && !error && history.some(reachedProfile) && (
             <div
               data-testid="flow-resume"
-              className="mt-3 flex items-center gap-2.5 bg-surface-container border border-outline-variant rounded-[10px] px-4 py-3"
+              className="mt-3 flex flex-col items-start gap-2.5 sm:flex-row sm:items-center bg-surface-container border border-outline-variant rounded-[10px] px-4 py-3"
             >
               <span className="text-[13px] text-on-surface">{t("resumeWithProfile")}</span>
               <button
                 type="button"
                 data-testid="flow-resume-button"
                 onClick={() => void advanceFlow(flowId)}
-                className="ml-auto shrink-0 text-[12px] font-bold text-primary px-3 py-1.5 rounded-full border border-primary/40 hover:bg-primary/5 transition-colors"
+                className="sm:ml-auto shrink-0 text-[12px] font-bold text-primary px-3 py-1.5 rounded-full border border-primary/40 hover:bg-primary/5 transition-colors"
               >
                 {t("resumeWithProfileAction")}
               </button>
