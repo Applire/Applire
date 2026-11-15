@@ -1970,24 +1970,13 @@ def _step_sentence_clauses(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _scope_step_sentence_ok(
-    claim_text: str, limit_words: set[str], limit_plain: set[str], *, frame_implied: bool = True
-) -> bool:
+def _scope_step_sentence_ok(claim_text: str, limit_words: set[str], limit_plain: set[str]) -> bool:
     """MD-Q6 R2: the WHOLE sentence, not only the figure's clause. A clause that
     restates the limit adds no negation/past/attainment of its own; every other
-    clause points nothing back at the step.
-
-    ``frame_implied=False`` (WP-Q6 (b), a stored scope ANSWER): the "noch/bisher
-    nicht · not yet" frame is not removed first — a recorded denial implies the
-    "not yet", a stored answer does not, so a negation the letter adds must be
-    in the person's own words ("Ich habe 120 geführt" never grounds "120 habe
-    ich noch nicht geführt")."""
+    clause points nothing back at the step."""
     for sep, clause in _step_sentence_clauses(claim_text):
         if _restates(clause, limit_words) and _scope_step_framed(clause):
-            lowered = clause.casefold()
-            if frame_implied:
-                lowered = _STEP_FRAME_NEGATION_RE.sub(" ", lowered)
-            added = set(_words(lowered)) - limit_plain
+            added = set(_words(_STEP_FRAME_NEGATION_RE.sub(" ", clause.casefold()))) - limit_plain
             if added & _STEP_ADDED_MARKERS:
                 return False
             continue
@@ -2085,6 +2074,16 @@ def _scope_step_backing(
             from_answer = step.source == SCOPE_ANSWER_STEP_SOURCE
             if fig.value not in step.figures or (not from_answer and _norm(step.statement) not in live):
                 continue
+            if from_answer and not _scope_step_framed(step.statement):
+                # MD-Q10 condition 1: a recorded denial IS the person's "not yet"; a
+                # stored answer is not. The step frame the letter writes must be in
+                # the person's own sentence (the same frame words the claim side is
+                # held to) — "Dauerhaft verantwortet habe ich rund 120" never backs
+                # "… zu verantworten wäre der nächste Schritt" nor "… noch nicht"
+                # (Luna replay, met-bar arm: the classifier bound it 1/5). A
+                # separate "no added negation" rule for answers was mutation-shown
+                # redundant with this one and red on true sentences: removed.
+                continue
             persons = step.persons_text
             words = _denial_content_tokens(persons)
             if not all(_scope_step_framed(c) and _restates(c, words) for c in clauses):
@@ -2101,7 +2100,7 @@ def _scope_step_backing(
             ):
                 continue
             plain = set(_words(persons))
-            if not _scope_step_sentence_ok(claim_text, words, plain, frame_implied=not from_answer):
+            if not _scope_step_sentence_ok(claim_text, words, plain):
                 continue
             unit = (
                 EvidenceUnit(
