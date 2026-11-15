@@ -97,6 +97,7 @@ from applire.services.oracle.extract import (
     extract_claims_from_text,
     letter_named_experience_ids,
     named_in_denial_segment,
+    split_sentences,
 )
 from applire.services.oracle.matchers import (
     EvidenceUnit,
@@ -263,6 +264,12 @@ class _SeamCandidate:
     # cite a unit this group OWNS — a role-agnostic unit (a bare skill) is
     # context for the judge, never the sole proof of an employer-bound claim.
     anchor_ids: frozenset[str] | None = None
+    # cross_language only (Sorbet WP-Q5 (a), MD-Q11): the owner-language
+    # attribution check. Grant-only — the citation must be a whole offered unit
+    # or a whole sentence of one, and every non-grant (including an unavailable
+    # judgement) keeps ``deny_verdict``, the misattribution flag; such a fallback
+    # degrades nothing and is not counted as an unavailable judgement.
+    owner_attribution: bool = False
 
 
 def _find_citing_unit(quote: str | None, units: list[EvidenceUnit]) -> EvidenceUnit | None:
@@ -280,25 +287,6 @@ def _cross_language_trigger(document_language: str | None, index: VaultIndex) ->
     return document_language is not None and document_language != index.dominant_language
 
 
-def _cross_language_unavailable(units: list[EvidenceUnit], detail: str | None = None) -> ClaimVerdict:
-    """Seam A's one ``unavailable`` verdict (ADR-068 cl. 3, ADR-099 class U: a
-    recheck can clear it) — minted here only, for the vault-language seam and the
-    owner-language attribution seam (WP-Q5 (a)) alike."""
-    unavailable = ClaimVerdict(
-        verdict="unverifiable",
-        checker="cross_language_judgement",
-        evidence=_evidence_refs(units),
-        detail=detail or (
-            "This claim's language differs from the vault's own — an "
-            "equivalence judgement could not confirm whether it restates the "
-            "candidate's vault evidence, so this is left as an honest gap "
-            "rather than an accusation (ADR-068)."
-        ),
-        detail_key="crossLanguageUnconfirmed",
-    )
-    return unavailable
-
-
 def _cross_language_candidate(
     claim_text: str,
     index: VaultIndex,
@@ -313,7 +301,18 @@ def _cross_language_candidate(
     deferred :class:`_SeamCandidate` (sink wired — resolved later, batched)."""
     if not _cross_language_trigger(document_language, index) or not units:
         return None
-    unavailable = _cross_language_unavailable(units)
+    unavailable = ClaimVerdict(
+        verdict="unverifiable",
+        checker="cross_language_judgement",
+        evidence=_evidence_refs(units),
+        detail=(
+            "This claim's language differs from the vault's own — an "
+            "equivalence judgement could not confirm whether it restates the "
+            "candidate's vault evidence, so this is left as an honest gap "
+            "rather than an accusation (ADR-068)."
+        ),
+        detail_key="crossLanguageUnconfirmed",
+    )
     candidate = _SeamCandidate(
         seam="cross_language",
         claim_text=claim_text,
@@ -336,6 +335,50 @@ def _cross_language_candidate(
 #: recorded ones, before interview additions).
 _OWNER_LANGUAGE_MAX_UNITS = 12
 
+#: WP-Q5 (a), MD-Q11 F1: the units that can carry a position's CONTENT — its
+#: responsibilities, achievements and the bullets/description of a project tied to
+#: it. A role title, a company name, a technology label or a date says nothing a
+#: bullet could restate, so it is never offered and never cited.
+_OWNER_CONTENT_PATH_RE = re.compile(r"\.(?:responsibilities|achievements)\[\d+\]$|\.description$")
+
+
+def _decided_language(text: str) -> str | None:
+    """MD-Q11 F3 / RULING Q5-3: ONE text's language, decided by the per-item
+    instrument (``item_language_scores``, ADR-066) — ``None`` when the text is
+    shorter than ``ITEM_LANGUAGE_MIN_WORDS`` or the evidence ties (a tie is no
+    evidence; the detector's 'de' default is not used here)."""
+    from applire.utils.language_detection import ITEM_LANGUAGE_MIN_WORDS, item_language_scores
+
+    if len(re.findall(r"[^\W\d_]+", text or "")) < ITEM_LANGUAGE_MIN_WORDS:
+        return None
+    de_score, en_score = item_language_scores(text)
+    if de_score > en_score:
+        return "de"
+    if en_score > de_score:
+        return "en"
+    return None
+
+
+def _whole_unit_or_sentence(quote: str | None, units: list[EvidenceUnit]) -> EvidenceUnit | None:
+    """MD-Q11 F1: the owner judge's citation is a WHOLE unit, or a WHOLE sentence of
+    one, of the offered units — under the shared ``normalize_citation`` fold, with
+    a trailing full stop/semicolon ignored on both sides. A fragment ("in der", "a",
+    a role title) is no citation: it shows no restatement of anything."""
+    from applire.services.citation import normalize_citation
+
+    def _fold(text: str) -> str:
+        return normalize_citation(text).rstrip(" .;:!?")
+
+    if not isinstance(quote, str):
+        return None
+    q = _fold(quote)
+    if not q:
+        return None
+    for unit in units:
+        if q == _fold(unit.text) or any(q == _fold(sent) for sent in split_sentences(unit.text)):
+            return unit
+    return None
+
 
 def _owner_language_candidate(
     claim_text: str,
@@ -345,8 +388,9 @@ def _owner_language_candidate(
     flag: ClaimVerdict,
     judgement_sink: "list[_SeamCandidate] | None",
 ) -> "ClaimVerdict | _SeamCandidate | None":
-    """Sorbet WP-Q5 (a), ADR-068 amended 2026-11-15 — a misattribution red flag in
-    a cross-language pair is not raised on lexical evidence alone.
+    """Sorbet WP-Q5 (a), ADR-068 amended 2026-11-15 (MD-Q11, MD-Q12) — a
+    misattribution red flag is checked once against the anchored position's own
+    evidence when that evidence is in ANOTHER language than the claim.
 
     The flag says "backed ONLY by evidence of a different position". Lexically,
     that is decidable only when the claim could have matched its own position's
@@ -356,54 +400,61 @@ def _owner_language_candidate(
     became the claim's only evidence and the flag fired on a correctly placed
     bullet (delivery 1b runs 1 and 2, Cross CV, ``stop_and_fix``).
 
-    What ties a bullet to its role across languages is never a translation code
-    guesses: it is a verbatim span of a unit the ROLE OWNS (an id fact), cited by
-    Seam A's equivalence judge. So when the pair may hold evidence in another
-    language (``holds_other_language``, the D2-1 pair fact), the judge compares the
-    claim with the anchored position's own units (same-employer siblings
-    included) and nothing else:
+    The path is taken only on a per-pair language FACT (RULING Q5-3): the claim
+    and at least one CONTENT unit the anchored role owns (an id fact; title,
+    company, technologies and dates excluded) are each decided in a language by
+    the per-item instrument, and the two differ. Only those other-language owned
+    content units go to Seam A's equivalence judge; a vault-wide language share
+    never opens it, and an undecided text never does.
 
-    - grant with a verified citation → grounded on that owned unit;
-    - "no" / "uncertain" → the red flag stands (``deny_verdict``) — a bullet
-      really moved from another role keeps ``misattributed``;
-    - unavailable / uncited → ``unverifiable`` (ADR-068 cl. 3: never an accusation
-      on a judgement that did not land).
+    The loosening never turns the blocking verdict non-blocking without positive
+    evidence (MD-Q11): a grant whose citation is a whole owned content unit or a
+    whole sentence of one grounds the claim on it; EVERY other outcome — "no",
+    "uncertain", no provider, an exception, a malformed or empty answer, a
+    fragment or foreign citation — keeps the flag (``misattributed``).
 
-    ``None`` (the caller keeps the flag) when there is no anchor, the pair is
-    single-language, or the position owns no unit. Figures never come here: a
-    digit is language-free, the per-figure flag stays deterministic."""
-    if owner_id is None or not holds_other_language(idx, document_language):
+    Residual, stated: a moved bullet whose TARGET role holds content in the other
+    language reaches the judge, and then only the judge's "no" keeps the flag —
+    the model's judgement, as on every equivalence seam (FMEA delta, WP-Q5).
+
+    ``None`` (the caller keeps the flag) when there is no anchor, the caller opted
+    out of cross-language checking (``document_language is None``), the claim's
+    language is undecided, or the role owns no decided other-language content
+    unit. Figures never come here: a digit is language-free, the per-figure flag
+    stays deterministic."""
+    if owner_id is None or document_language is None:
         return None
-    group = frozenset({owner_id}) | idx.same_employer_ids.get(owner_id, frozenset())
-    # The anchored position's own units first, then its same-employer siblings'; a
-    # date span is no content to restate.
-    owned = sorted(
-        (u for u in idx.units if u.owner_ids & group and not u.path.endswith(".dates")),
-        key=lambda u: owner_id not in u.owner_ids,
-    )[:_OWNER_LANGUAGE_MAX_UNITS]
+    claim_language = _decided_language(claim_text)
+    if claim_language is None:
+        return None
+    owned = [
+        u
+        for u in idx.units
+        if owner_id in u.owner_ids
+        and _OWNER_CONTENT_PATH_RE.search(u.path)
+        and _decided_language(u.text) not in (None, claim_language)
+    ][:_OWNER_LANGUAGE_MAX_UNITS]
     if not owned:
         return None
-    unavailable = _cross_language_unavailable(
-        owned,
-        "This claim's language differs from its position's own vault evidence, and an "
-        "equivalence judgement could not confirm whether it restates that evidence, so it "
-        "is left open rather than accused of belonging to another position (ADR-068).",
-    )
+    other_language = _decided_language(owned[0].text) or idx.dominant_language
     candidate = _SeamCandidate(
         seam="cross_language",
         claim_text=claim_text,
         units=owned,
         deny_verdict=flag,
-        unavailable_verdict=unavailable,
-        vault_language_label=_LANGUAGE_LABELS.get(idx.dominant_language, idx.dominant_language),
+        # MD-Q11 F2: no ``unverifiable`` exit — a judgement that does not land
+        # leaves the deterministic flag exactly where it was.
+        unavailable_verdict=flag,
+        vault_language_label=_LANGUAGE_LABELS.get(other_language, other_language),
+        owner_attribution=True,
     )
     logger.info(
-        "ORACLE_ATTRIBUTION_OWNER_JUDGEMENT owner=%s units=%d flagged=%s",
-        owner_id, len(owned), flag.evidence[0].ref if flag.evidence else None,
+        "ORACLE_ATTRIBUTION_OWNER_JUDGEMENT owner=%s units=%d claim_lang=%s flagged=%s",
+        owner_id, len(owned), claim_language, flag.evidence[0].ref if flag.evidence else None,
     )
     if judgement_sink is None:
-        logger.info("ORACLE_JUDGEMENT_UNAVAILABLE reason=no_sink seam=cross_language")
-        return unavailable
+        logger.info("ORACLE_JUDGEMENT_UNAVAILABLE reason=no_sink seam=cross_language owner_attribution=1")
+        return flag
     judgement_sink.append(candidate)
     return candidate
 
@@ -685,6 +736,23 @@ def _resolve_seam_candidate(
         assert candidate.deny_verdict is not None
         return candidate.deny_verdict, False, None
 
+    if candidate.seam == "cross_language" and candidate.owner_attribution:
+        assert candidate.deny_verdict is not None
+        matched_unit = _whole_unit_or_sentence(quote, candidate.units) if corresponds is True else None
+        if matched_unit is None:
+            reason = "citation_drop" if corresponds is True else None
+            return candidate.deny_verdict, False, reason
+        return ClaimVerdict(
+            verdict="grounded",
+            checker="cross_language_judgement",
+            evidence=_evidence_refs([matched_unit]),
+            detail=(
+                "Equivalent restatement across languages of this position's own "
+                f'vault evidence ({candidate.vault_language_label}): "{quote}".'
+            ),
+            detail_key="crossLanguageEquivalent",
+        ), False, None
+
     if candidate.seam == "cross_language":
         if corresponds is True:
             if not citation_ok:
@@ -819,7 +887,8 @@ async def _run_judgement_batches(
     # 790:90: the skill-equivalence seam's fallback IS today's verdict — its
     # unavailability degrades nothing and is not counted.
     results: list[tuple[ClaimVerdict, bool]] = [
-        (c.unavailable_verdict, c.seam != "skill_equivalence") for c in candidates
+        (c.unavailable_verdict, c.seam != "skill_equivalence" and not c.owner_attribution)
+        for c in candidates
     ]
     if provider is None:
         for c in candidates:
