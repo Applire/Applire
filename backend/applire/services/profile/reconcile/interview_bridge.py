@@ -197,6 +197,16 @@ async def reconcile_interview_turn(
             for c in offered_choices
             if isinstance(c, dict) and isinstance(c.get("text"), str)
         ]
+    # MD-Q11 F8: the clicked opening's ONE concept, next to the answer it frames.
+    about = {
+        c["answers_concept"].strip()
+        for c in offered_choices or []
+        if isinstance(c, dict)
+        and isinstance(c.get("answers_concept"), str)
+        and c["answers_concept"].strip()
+    }
+    if len(about) == 1:
+        new_info["answer_about"] = next(iter(about))
     result = await reconcile(before, new_info, _SOURCE, provider, lang)
     # D-17 (Hazelnut build 5, ADR-046 + ADR-063 amended) — the import's
     # restatement check on this door too: an answer that retells a held fact

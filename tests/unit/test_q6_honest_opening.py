@@ -252,11 +252,15 @@ async def test_f8_the_bridge_puts_the_concept_into_new_information():
         )
     assert captured["offered_choices"] == [{"text": "Zu OEE:", "names_without_claiming": [],
                                             "states_no_to": [], "answers_concept": "OEE"}]
+    # next to the answer it frames (held-out replay: the yes named OEE 0/3 → 3/3)
+    assert captured["answer_about"] == "OEE"
 
 
 def test_f8_the_reconcile_rule_scopes_a_bare_no_to_that_concept():
     from applire.prompts import reconcile as r
 
     src = " ".join(open(r.__file__, encoding="utf-8").read().split())
-    assert 'An offered choice with "answers_concept" is an OPENING the person clicked' in src
-    assert 'denies exactly that concept — "denials": ["OEE"] — and nothing else' in src
+    assert 'When the NEW INFORMATION carries "answer_about", the person clicked an opening' in src
+    assert 'denies exactly that concept — "denials": ["Kanban"] — and nothing else' in src
+    rule9 = src[src.index("A DENIAL NAMES AN ITEM"):src.index("A DENIAL WITH AN EXCEPTION")].lower()
+    assert "oee" not in rule9, "the example concept is held out of the measured case"

@@ -463,16 +463,20 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   errors). The deterministic backstop is ``reconcile/position_terms`` (hold +
   ask once, confirmation family 7). Records:
   ``Documents/Runs/Sorbet/platform-1/T/``.
-* **29,711 (Sorbet quality-1 WP-Q6, 2026-11-15, MD-Q11 F8).** Rule 9: an
-  offered choice carrying ``answers_concept`` is a clicked OPENING ("Zu OEE:");
-  a bare no denies exactly that concept, and a yes is recorded with it named
-  (+533 chars). Category A, not C: the concept did not reach the reconciler at
-  all after the opening was cut (only the multi-concept question did). Measured
-  on the E2E run-3 question (Maschinendatenerfassung, MES, OEE, Industrie 4.0),
-  luna, reasoning off, n=3 per answer: before, "nein" denied all five concepts
-  1/3 and nothing 2/3, "nein, aber …" denied all five 3/3, and "ja, … im
-  MES-Projekt" never named OEE 3/3. After: 9/9 exactly OEE (denial or named
-  fact). Records: ``Documents/Runs/Sorbet/quality-1/q6/report.md`` Addendum 1.
+* **29,778 (Sorbet quality-1 WP-Q6, 2026-11-15, MD-Q11 F8).** Rule 9: when the
+  NEW INFORMATION carries ``answer_about`` (a clicked OPENING's concept, "Zu
+  OEE:", passed structurally), a bare no denies exactly that concept and a yes
+  is recorded with it named (+600 chars). Category A first: after the
+  opening was cut the concept did not reach the reconciler at all (only the
+  multi-concept question did). Measured on the E2E run-3 question
+  (Maschinendatenerfassung, MES, OEE, Industrie 4.0), luna, reasoning off, n=3
+  per answer. Before: "nein" denied all five concepts 1/3 and nothing 2/3;
+  "nein, aber …" denied all five 3/3; "ja, … im MES-Projekt" never named OEE
+  3/3. With the concept inside ``offered_choices`` only, and examples on a
+  held-out concept (Kanban): denials 6/6 exactly OEE, but the yes still lost
+  OEE 3/3. A first measure that read 3/3 had used OEE as its own example
+  (leak). With the top-level ``answer_about``: 9/9 exactly OEE. Records:
+  ``Documents/Runs/Sorbet/quality-1/q6/report.md`` Addendum 1.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -836,13 +840,14 @@ Operations:
    "names_without_claiming" are named in exactly such a clause and are never
    denials (nor facts) — only the person's own words elsewhere in the answer
    can deny or claim them.
-   An offered choice with "answers_concept" is an OPENING the person clicked
-   ("Zu OEE:"): their words after it answer about THAT concept only, whatever
-   else the question named. A bare no ("nein", "no", "nein, aber …") denies
-   exactly that concept — "denials": ["OEE"] — and nothing else; a yes or a
-   description is a fact about that concept: every fact you record from it
-   names the concept itself ("ja, im MES-Projekt seit 2022" → a bullet naming
-   OEE in the MES project, and the skill "OEE"), never only the context.
+   When the NEW INFORMATION carries "answer_about", the person clicked an
+   opening on that concept ("Zu Kanban:") and the "answer" is what they wrote
+   after it: it is about THAT concept only, whatever else the question named.
+   A bare no ("nein", "no", "nein, aber …") denies exactly that concept —
+   "denials": ["Kanban"] — and nothing else. A yes or a description is
+   experience WITH that concept: every fact you record from it names the
+   concept itself, e.g. "ja, im Werkzeugbau seit 2021" → the skill "Kanban" and
+   a bullet "Kanban im Werkzeugbau seit 2021" — never only the context.
    A DENIAL WITH AN EXCEPTION KEEPS THE EXCEPTION (783:L101). "Beyond X I
    have no experience in Y" / "no other Y than X" affirms X, which is part of
    Y: name the denied item WITH the exception, never bare Y — bare Y would deny
