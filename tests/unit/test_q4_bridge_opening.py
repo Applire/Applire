@@ -266,7 +266,7 @@ async def test_f9_the_probe_an_opening_with_a_bare_yes_is_asked_to_be_completed(
 @pytest.mark.asyncio
 async def test_f9_the_reconciler_reads_only_what_the_person_wrote_after_the_opening(db):  # noqa: F811
     kw = await _send(
-        db, "mengenprognosen  in der Personaleinsatzplanung als Schichtleiter: Ja, wöchentlich nach der Vertriebsprognose.",
+        db, OPENING + " Ja, wöchentlich nach der Vertriebsprognose.",
         _offered(), full=True,
     )
     assert kw["answer"] == "Ja, wöchentlich nach der Vertriebsprognose."
@@ -276,9 +276,7 @@ async def test_f9_the_reconciler_reads_only_what_the_person_wrote_after_the_open
 def test_f9_strip_cuts_the_opening_from_the_persons_own_text():
     from applire.services.choice_grounding import is_bare_completion, strip_offered_opening
 
-    rest, had = strip_offered_opening(
-        "mengenprognosen in der  Personaleinsatzplanung als Schichtleiter : Ja, wöchentlich.", _offered()
-    )
+    rest, had = strip_offered_opening(f"  {OPENING} Ja, wöchentlich.", _offered())
     assert had and rest == "Ja, wöchentlich."
     assert not is_bare_completion(rest)
     assert strip_offered_opening("Ich plane wöchentlich.", _offered()) == ("Ich plane wöchentlich.", False)
@@ -308,3 +306,40 @@ async def test_f9_an_earlier_questions_opening_is_cut_too(db):  # noqa: F811
             await b6._send(db, OPENING + " ja", _offered())
         kw = await b6._send(db, OPENING + " Ja, seit 2021.", _offered(), full=True)
     assert kw["answer"] == "Ja, seit 2021."
+
+
+# 7. MD-Q9 R8 — only a LEADING opening in the chip's exact form is cut ---------
+
+R8_OPENING = "Zu MES bei Fertigungsmeister:"
+R8_OFFERED = {R8_OPENING: {"level": "partial", "names_without_claiming": [], "ask": "Hast du …?"}}
+
+
+@pytest.mark.parametrize("answer", [
+    # the reviewer's probes (adv-1b re-check at 7017f7ab, R8)
+    "Ja. Zu MES bei Fertigungsmeister habe ich Schulungen gehalten.",
+    "Ich habe zu MES bei Fertigungsmeister: Schulungen gehalten und 12 Leute geführt.",
+    "Mein Zu MES bei Fertigungsmeister ist gut",
+    # a leading phrase without the colon is the person's own sentence
+    "Zu MES bei Fertigungsmeister habe ich Schulungen gehalten.",
+    # not the exact form the chip inserted
+    "zu mes bei fertigungsmeister: Schulungen gehalten.",
+])
+def test_r8_the_persons_own_words_are_never_cut(answer):
+    from applire.services.choice_grounding import strip_offered_opening
+
+    assert strip_offered_opening(answer, R8_OFFERED) == (answer, False)
+
+
+def test_r8_a_leading_opening_in_the_chips_form_is_cut():
+    from applire.services.choice_grounding import strip_offered_opening
+
+    assert strip_offered_opening(
+        "  Zu MES bei Fertigungsmeister: Schulungen für 12 Leute gehalten.", R8_OFFERED
+    ) == ("Schulungen für 12 Leute gehalten.", True)
+
+
+@pytest.mark.asyncio
+async def test_r8_the_reconciler_reads_the_middle_phrase_whole(db):  # noqa: F811
+    answer = "Ja. " + OPENING + " habe ich wöchentlich geplant."
+    kw = await _send(db, answer, _offered(), full=True)
+    assert kw["answer"] == answer
