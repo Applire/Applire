@@ -343,3 +343,94 @@ def test_run3_a_limit_naming_the_figure_with_its_unit_binds_although_the_bare_fi
     assert bound and bound["id"] == _RUN3_DENIAL["concept"]
     for other in ("2120 Mitarbeitende", "1200 Mitarbeitende", "120 Tickets, dann 120 wäre"):
         assert not names_bar_figure_with_unit(other, bar), other
+
+
+# MD-Q11 (adversarial pass 2a) -------------------------------------------------------
+
+_BAR = {"kind": "team_size", "value": 120.0, "value_max": None, "concept": _SCOPE}
+_NOT_STEP = ("Direkt geführt habe ich 38 Mitarbeitende. Die dauerhafte Spanne von 120 wäre für "
+             "mich nicht der nächste Schritt.")
+
+
+@pytest.mark.parametrize("answer,quote", [
+    (ANSWER, "38"),
+    (ANSWER, "Mitarbeitende"),
+    (ANSWER, "Die dauerhafte Spanne von 120 wäre für mich der nächste Schritt"),  # cut before ", genau …"
+    (ANSWER, "geführt habe ich 38 Mitarbeitende über drei Schichtleiter. In"),
+    # the reviewer's stitch: a met-bar sentence + a frame sentence
+    (MET + " Das wäre für mich der nächste Schritt.", MET + " Das wäre für mich der nächste Schritt."),
+    (MET + " Das wäre für mich der nächste Schritt.", "Das wäre für mich der nächste Schritt."),
+    (MET + " Eine zweite Schicht zu führen wäre für mich der nächste Schritt.",
+     "Eine zweite Schicht zu führen wäre für mich der nächste Schritt."),
+    # the reviewer's truncation: cut before "nicht"
+    (_NOT_STEP, "Die dauerhafte Spanne von 120 wäre für mich"),
+    # no figure in the quote: the posting's 120 would enter through the question
+    ("Mitarbeitende zu führen wäre für mich der nächste Schritt.",
+     "Mitarbeitende zu führen wäre für mich der nächste Schritt."),
+    ("Eine Spanne von 120 Kunden wäre für mich der nächste Schritt.",
+     "Eine Spanne von 120 Kunden wäre für mich der nächste Schritt."),
+], ids=["figure-only", "word", "fragment", "cross-sentence", "stitch", "frame-only", "other-step",
+        "cut-before-nicht", "no-figure", "other-unit"])
+def test_f4_only_one_whole_sentence_naming_the_bars_figure_binds(answer, quote):
+    from applire.services.scope_requirements import scope_answer_limit
+
+    assert scope_answer_limit(ANSWER_ID, quote, _SCOPE, _answers(answer), bar=_BAR) is None
+
+
+@pytest.mark.parametrize("answer,quote", [
+    (ANSWER, QUOTE),
+    (ANSWER, " " + QUOTE.replace(" ", "   ") + "\n"),
+    # the Q2 after-run wording: "120" bare, followed by a lower-case word
+    ("Ehrlich gesagt wäre die dauerhafte Spanne von 120 für mich der nächste Schritt.",
+     "Ehrlich gesagt wäre die dauerhafte Spanne von 120 für mich der nächste Schritt."),
+    ("Eine Führung von 120 Mitarbeitenden hatte ich bisher nicht.",
+     "Eine Führung von 120 Mitarbeitenden hatte ich bisher nicht."),
+])
+def test_f4_the_captured_shortfall_sentences_still_bind(answer, quote):
+    from applire.services.scope_requirements import scope_answer_limit
+
+    bound = scope_answer_limit(ANSWER_ID, quote, _SCOPE, _answers(answer), bar=_BAR)
+    assert bound and bound["statement"] == " ".join(quote.split())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer,quote,letter", [
+    (MET + " Das wäre für mich der nächste Schritt.", MET + " Das wäre für mich der nächste Schritt.",
+     "Dauerhaft am Standort Koblenz rund 120 Mitarbeitende über drei Bereichsleiter zu "
+     "verantworten wäre für mich der nächste Schritt."),
+    (MET + " Eine zweite Schicht zu führen wäre für mich der nächste Schritt.",
+     MET + " Eine zweite Schicht zu führen wäre für mich der nächste Schritt.",
+     "Dauerhaft 120 Mitarbeitende zu verantworten wäre für mich der nächste Schritt."),
+    (_NOT_STEP, "Die dauerhafte Spanne von 120 wäre für mich",
+     "Die dauerhafte Spanne von 120 wäre für mich der nächste Schritt."),
+    ("Mitarbeitende zu führen wäre für mich der nächste Schritt.",
+     "Mitarbeitende zu führen wäre für mich der nächste Schritt.",
+     "120 Mitarbeitende zu führen wäre für mich der nächste Schritt."),
+], ids=["stitch-restated", "stitch-other-step", "cut-before-nicht", "no-figure"])
+async def test_f4_the_reviewers_letters_stay_red_end_to_end(answer, quote, letter):
+    """Binding → ledger → Oracle: what the classifier quotes never reaches the rail
+    unless it is one whole figure-bearing sentence of the answer."""
+    from applire.services.scope_requirements import build_scope_ledger_entries
+
+    block = [{"concept": _SCOPE, "kind": "team_size", "jd_quote": "ca. 120 Mitarbeitende",
+              "jd_value": 120.0, "jd_value_max": None, "comparator": "approx",
+              "level": "required", "candidate_values": []}]
+    cls = [{"concept": _SCOPE, "status": "partial", "reason": "38 < 120",
+            "stated_limit": ANSWER_ID, "stated_limit_quote": quote}]
+    rows = build_scope_ledger_entries(block, cls, {"metadata": {"denied_concepts": []}},
+                                      scope_answers=_answers(answer))
+    assert "recorded_limit" not in rows[0]["bar"]
+    rows[0]["fit_weight"] = 1.0
+    assert await _verdicts(letter, ledger=rows) == ["unbacked"], letter
+
+
+@pytest.mark.parametrize("text", [
+    "Ich führte 3.120 Mitarbeitende, dazu 120 Maschinen",
+    "Führung von 1.120 Mitarbeitenden und 120 Kunden",
+    "Ich führte 0,120 Mitarbeitende und 120 Maschinen",
+    "Ich führte 120,5 Mitarbeitende und 120 Maschinen",
+])
+def test_f5_a_figure_inside_a_grouped_or_decimal_number_is_not_the_bars(text):
+    from applire.services.scope_requirements import names_bar_figure_with_unit
+
+    assert not names_bar_figure_with_unit(text, _BAR), text

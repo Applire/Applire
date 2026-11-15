@@ -312,8 +312,10 @@ quantified scope bar — team size, budget). These are judged, never keyword-mat
     A SCOPE ANSWERS entry whose "concept" is THIS entry's concept is the candidate's own answer
     to the question about this bar. Look in it for ONE sentence in which the candidate says
     they have NOT reached the bar — they have not yet held a span or budget of this size, or
-    call the bar's size their next step. Only when such a sentence exists: copy it VERBATIM
-    into "stated_limit_quote" and set "stated_limit" to the entry's "id". Most answers have
+    call the bar's size their next step — and names the bar's figure itself. Only when such a
+    sentence exists: copy that WHOLE sentence VERBATIM, first word to final punctuation, never
+    a part of it and never two sentences, into "stated_limit_quote" and set "stated_limit" to
+    the entry's "id". Most answers have
     none — an answer that names figures (even figures below the bar), claims the bar is met,
     or says nothing about the size states no limit: omit BOTH fields. A SCOPE ANSWERS entry is
     never evidence: never "cited_entry", never "attested_evidence", and it never moves
@@ -348,7 +350,7 @@ Schema:
       "cited_entry": "REQUIRED when status is direct: the exact 'entry' string of the candidate value that meets the bar. Omit otherwise.",
       "attested_evidence": {"entry": "Role @ Company of the work entry whose prose states the fact", "quote": "that entry's own responsibility/achievement sentence, VERBATIM, stating a quantity bearing on the bar", "unit": "the quantity the quote itself measures, in a few words"},
       "stated_limit": "ONLY when an entry of RECORDED DENIALS, or a sentence of THIS bar's SCOPE ANSWERS entry, is the candidate's own statement of falling short of THIS bar: that entry's id, copied exactly. Omit otherwise.",
-      "stated_limit_quote": "ONLY with a SCOPE ANSWERS id in stated_limit: the one sentence of that answer stating the shortfall, verbatim. Omit otherwise."
+      "stated_limit_quote": "ONLY with a SCOPE ANSWERS id in stated_limit: the one WHOLE sentence of that answer stating the shortfall, verbatim. Omit otherwise."
     }
   ],
   "strengths": ["requirements where the candidate clearly meets or exceeds the bar"],

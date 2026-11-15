@@ -408,18 +408,20 @@ def build_scope_ledger_entries(
                 status = "partial"
                 cited = ""
 
+        bar_facts = {
+            "kind": item.get("kind"),
+            "value": item.get("jd_value"),
+            "value_max": item.get("jd_value_max"),
+            "concept": concept,
+        }
         recorded_limit = scope_answer_limit(
-            cls.get("stated_limit"), cls.get("stated_limit_quote"), concept, scope_answers
+            cls.get("stated_limit"), cls.get("stated_limit_quote"), concept, scope_answers,
+            bar=bar_facts,
         ) or verified_stated_limit(
             cls.get("stated_limit"),
             profile_json,
             taken=denials_taken,
-            bar={
-                "kind": item.get("kind"),
-                "value": item.get("jd_value"),
-                "value_max": item.get("jd_value_max"),
-                "concept": concept,
-            },
+            bar=bar_facts,
             asked_for=(turn_limits or {}).get(_id_key(concept), ()),
         )
         attested_fmt = (
@@ -540,6 +542,10 @@ def small_figures(text: str) -> list[Any]:
     ]
 
 
+_GROUPED_BEFORE_RE = re.compile(r"\d[.,]$")
+_GROUPED_AFTER_RE = re.compile(r"[.,]\d")
+
+
 def _bar_figure_hits(text: str, bar: dict[str, Any] | None):
     """(figure, start) for each figure in ``text`` equal to one of the bar's own."""
     if not isinstance(bar, dict) or not isinstance(text, str) or not text.strip():
@@ -563,9 +569,11 @@ def _bar_figure_hits(text: str, bar: dict[str, Any] | None):
         start = text.find(f.raw)
         while start >= 0:
             end = start + len(f.raw)
+            # MD-Q11 F5: nor inside a grouped or decimal number ("3.120",
+            # "1.120", "0,120", "120,5") — a separator plus digit on either side.
             standalone = not (start > 0 and text[start - 1].isdigit()) and not (
                 end < len(text) and text[end].isdigit()
-            )
+            ) and not _GROUPED_BEFORE_RE.search(text[:start]) and not _GROUPED_AFTER_RE.match(text[end:])
             if standalone and start not in seen:
                 seen.add(start)
                 yield f, start
@@ -616,8 +624,47 @@ def names_bar_figure_with_unit(text: str, bar: dict[str, Any] | None) -> bool:
     return False
 
 
+#: A sentence end inside the person's own answer: terminal punctuation, then
+#: whitespace, then a capital / opening quote / digit-free start. "ca. 120" and
+#: "Mio. €" never end a sentence (a digit or symbol follows).
+_ANSWER_SENTENCE_END_RE = re.compile(r"(?<=[.!?…])\s+(?=[A-ZÄÖÜ\"„»(])")
+
+
+def answer_sentences(answer: str) -> list[str]:
+    """The person's answer cut into its own sentences, whitespace-normalised
+    (WP-Q6 (b) / MD-Q11 F4). Pure."""
+    text = " ".join(str(answer or "").split())
+    return [s.strip() for s in _ANSWER_SENTENCE_END_RE.split(text) if s.strip()]
+
+
+def names_bar_figure_as_scope(sentence: str, bar: dict[str, Any] | None) -> bool:
+    """The sentence names the bar's exact figure AS the bar's quantity: with a
+    unit of the bar's kind (:func:`names_bar_figure_with_unit`), or — team size
+    only — bare, the next word being no counted noun: no word follows, or a
+    lower-case one ("Spanne von 120 wäre …", "von 120 für mich …"). A capitalised
+    word after it is a noun of its own ("120 Kunden") and no tie. Every captured
+    shortfall sentence wrote the figure bare (wave-1a miss, delivery-1b, Q2
+    after-runs: "Spanne von 120 wäre/für"), so a unit-only rule would bind none
+    of them. Structural (orthography), no kind-word list."""
+    if names_bar_figure_with_unit(sentence, bar):
+        return True
+    if not isinstance(bar, dict) or bar.get("kind") != "team_size":
+        return False
+    for f, start in _bar_figure_hits(sentence, bar):
+        rest = sentence[start + len(f.raw):]
+        nxt = re.match(r"\s*(\S)", rest)
+        if nxt is None or not nxt.group(1).isalpha() or nxt.group(1).islower():
+            return True
+    return False
+
+
 def scope_answer_limit(
-    cited: Any, quote: Any, concept: Any, scope_answers: dict[str, str] | None
+    cited: Any,
+    quote: Any,
+    concept: Any,
+    scope_answers: dict[str, str] | None,
+    *,
+    bar: dict[str, Any] | None = None,
 ) -> dict[str, str] | None:
     """WP-Q6 (b) (ADR-075 amended 2026-11-15): the shortfall sentence of the
     person's stored answer to THIS bar's scope question, as ``{"id": <bar
@@ -647,10 +694,24 @@ def scope_answer_limit(
     if not isinstance(answer, str) or not answer.strip():
         logger.info("scope_requirements: stated_limit %r cites no stored answer of this bar", cited)
         return None
+    # MD-Q11 F4 (adversarial pass 2a): the quote is ONE WHOLE sentence of this
+    # bar's answer (its own sentence boundaries, whitespace-normalised equality)
+    # and names the bar's figure as the bar's quantity. A substring bound before:
+    # "38", a fragment cut before "nicht", a stitch of a met-bar sentence and
+    # "Das wäre für mich der nächste Schritt." A continuation sentence that only
+    # refers back to the figure ("… rund 120. Das wäre …") is NOT accepted: no
+    # captured shortfall sentence needed it (all name the figure themselves),
+    # and it is exactly the stitch shape of the probe.
     sentence = " ".join(str(quote or "").split()).strip()
-    if not sentence or _id_key(sentence) not in _id_key(answer):
+    if not sentence or sentence not in answer_sentences(answer):
         logger.info(
-            "scope_requirements: stated_limit %r quotes no sentence of the stored answer — binds nothing",
+            "scope_requirements: stated_limit %r quotes no whole sentence of the stored answer — binds nothing",
+            cited,
+        )
+        return None
+    if bar is not None and not names_bar_figure_as_scope(sentence, bar):
+        logger.info(
+            "scope_requirements: stated_limit %r quotes a sentence without the bar's figure — binds nothing",
             cited,
         )
         return None
