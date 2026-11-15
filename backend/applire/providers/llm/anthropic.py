@@ -28,10 +28,12 @@ adapter logic" Negative in ADR-009 made concrete):
     object; every later model rejects a prefill with HTTP 400. On those, a caller's
     `json_schema` goes out as structured output (`output_config.format`, see
     `_output_format`); a call without one gets a fixed JSON-only text block after
-    the prompt (`JSON_ONLY_INSTRUCTION`) and, when the reply still opens with prose,
-    ONE corrective turn (`CORRECTIVE_TURN`). Measured on Claude Sonnet 5.5 against
-    the UX-audit-4 log (2026-11-07): without either, 28 of 38 replays of the failed
-    calls answered "Item 0: … Supported." prose before the JSON (4 more truncated).
+    the prompt (`JSON_ONLY_INSTRUCTION`). Measured on Claude Sonnet 5.5 against the
+    UX-audit-4 log (2026-11-07): without it, 28 of 38 replays of the failed calls
+    answered "Item 0: … Supported." prose before the JSON (4 more truncated). A reply
+    that still opens with prose is read by the shared parse, which skips the prose
+    and reads the one JSON value after it (founder ruling B8-15, 2026-11-13; it
+    replaced the one corrective turn, so no second call is made).
   - `max_tokens` bounds thinking AND answer. A model that thinks by default gets
     `THINKING_HEADROOM` on top of the caller's budget, which sizes the answer
     (the terminal CV review truncated 3/3 at 2560, mostly thinking), and every
@@ -68,7 +70,6 @@ from applire.exceptions import (
     LLMProviderUnavailableError,
     LLMRateLimitError,
     LLMRefusalError,
-    LLMResponseParseError,
     LLMTimeoutError,
 )
 from applire.providers.llm.base import (
@@ -189,8 +190,6 @@ JSON_ONLY_INSTRUCTION = (
     "Reply with only the JSON object the instructions above describe: no prose, "
     "no explanation and no code fence before or after it."
 )
-# The one follow-up turn after a reply that holds no JSON value at its start.
-CORRECTIVE_TURN = "Your reply was not valid JSON. Reply with only the JSON object."
 
 
 def _is_open_object(node: dict[str, Any]) -> bool:
@@ -263,17 +262,6 @@ def _output_format(json_schema: dict[str, Any] | None) -> dict[str, Any] | None:
     except Exception:  # noqa: BLE001 — a schema is an optimisation, never a failure
         logger.debug("anthropic: response schema not convertible; sending none")
         return None
-
-
-def _assistant_turn(blocks: list[Any], text: str) -> list[dict[str, Any]] | str:
-    """The previous reply as an assistant turn — every block, unchanged.
-
-    Thinking blocks go back as received (they are bound to the conversation that
-    produced them); a reply without captured blocks goes back as its text.
-    """
-    if not blocks:
-        return text
-    return [b.model_dump(exclude_none=True) if hasattr(b, "model_dump") else b for b in blocks]
 
 
 _retry = retry(
@@ -395,58 +383,37 @@ class AnthropicProvider(LLMProvider):
     ) -> dict[str, Any]:
         fmt = None if self._json_schema_rejected else _output_format(json_schema)
 
-        async def send(messages: list, budget: int, fmt: dict | None) -> tuple[str, list]:
-            blocks: list[Any] = []
-            text = await asyncio.wait_for(
+        async def send(messages: list, budget: int, fmt: dict | None) -> str:
+            return await asyncio.wait_for(
                 self._create(
                     messages, system, temperature, budget, disable_thinking,
-                    output_format=fmt, blocks_out=blocks,
+                    output_format=fmt,
                 ),
                 timeout=self._timeout,
             )
-            return text, blocks
 
-        async def first(budget: int) -> tuple[list, str, list, dict | None, bool]:
+        async def first(budget: int) -> tuple[str, bool]:
             nonlocal fmt
             plain = self._json_messages(prompt, None)
             if fmt is not None:
                 msgs = self._json_messages(prompt, fmt)
                 try:
-                    return (msgs, *await send(msgs, budget, fmt), fmt, False)
+                    return await send(msgs, budget, fmt), False
                 except anthropic.BadRequestError as exc:
                     fmt = None
-                    text, blocks = await self._without_schema(exc, lambda: send(plain, budget, None))
-                    return (plain, text, blocks, None, self._shape.prefill)
-            return (plain, *await send(plain, budget, None), None, self._shape.prefill)
+                    text = await self._without_schema(exc, lambda: send(plain, budget, None))
+                    return text, self._shape.prefill
+            return await send(plain, budget, None), self._shape.prefill
 
         try:
-            messages, text, blocks, used_fmt, prefilled = await retry_on_truncation(
+            text, prefilled = await retry_on_truncation(
                 first, max_tokens=max_tokens, model=self._model
             )
-            # R2-13: one tolerant parse for every provider (first JSON value; a
-            # non-JSON tail is discarded, a second JSON value raises).
+            # R2-13 + B8-15: one tolerant parse for every provider (leading prose
+            # skipped, the one JSON value read; a non-JSON tail is discarded, a
+            # second JSON value raises). One call, never a corrective re-ask.
             reply = "{" + text if prefilled else text
-            try:
-                return parse_json_reply(reply, provider="Anthropic", model=self._model)
-            except LLMResponseParseError as exc:
-                # A second JSON value is half an answer, never re-asked (R2-13);
-                # the prefill path keeps its old single-shot contract.
-                if prefilled or exc.second_value:
-                    raise
-            # The reply opened with prose (Sonnet 5.5: "Item 0: The claim says …"):
-            # ONE corrective turn on the same conversation, never a loop.
-            logger.info("LLM_JSON_CORRECTIVE_TURN provider=Anthropic model=%s", self._model)
-            follow = [
-                *messages,
-                {"role": "assistant", "content": _assistant_turn(blocks, text)},
-                {"role": "user", "content": CORRECTIVE_TURN},
-            ]
-
-            async def again(budget: int) -> str:
-                return (await send(follow, budget, used_fmt))[0]
-
-            text = await retry_on_truncation(again, max_tokens=max_tokens, model=self._model)
-            return parse_json_reply(text, provider="Anthropic", model=self._model)
+            return parse_json_reply(reply, provider="Anthropic", model=self._model)
         except Exception as exc:
             self._raise_mapped(exc)
 
@@ -510,7 +477,6 @@ class AnthropicProvider(LLMProvider):
         disable_thinking: bool | None = None,
         *,
         output_format: dict[str, Any] | None = None,
-        blocks_out: list | None = None,
     ) -> str:
         if _thinks(self._model, disable_thinking):
             # Thinking spends max_tokens too; the caller's budget sizes the answer.
@@ -559,8 +525,6 @@ class AnthropicProvider(LLMProvider):
             )
             raise LLMRefusalError("Anthropic", category=category, model=self._model)
         raise_if_truncated(stop_reason, model=self._model)
-        if blocks_out is not None:
-            blocks_out.extend(getattr(response, "content", None) or [])
         return _text(response)
 
 

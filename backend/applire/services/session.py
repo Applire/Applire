@@ -49,7 +49,7 @@ from applire.constants import (
     INTERVIEW_TARGET_MIN_TARGETED,
     MODE_B_COMPLETENESS_THRESHOLD,
 )
-from applire.exceptions import ReconcileFailedError
+from applire.exceptions import AnswerIsOfferedOpening, ReconcileFailedError
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.utils.language_detection import resolve_jd_language
@@ -86,7 +86,11 @@ from applire.services.profile.reconcile.stance import (
     denial_release_corpus,
     is_denied_concept,
 )
-from applire.services.choice_grounding import choice_presentation, offered_choices_in_answer
+from applire.services.choice_grounding import (
+    answer_is_offered_opening,
+    choice_presentation,
+    offered_choices_in_answer,
+)
 from applire.services.interview.sufficiency import (
     _concept_matches_ledger_key,
     concept_is_required,
@@ -4160,6 +4164,12 @@ async def _send_message_turn(
     lang = await get_conversation_language(
         db, job_id=record.job_analysis_id, user_id=record.user_id
     )
+
+    # WP-Q4 (g), ADR-064 amended 2026-11-15 — an offered BRIDGE opening sent
+    # unchanged states nothing the candidate said: refuse it before anything is
+    # appended, reconciled or committed (a fact: equality with an offered text).
+    if answer_is_offered_opening(message, (record.state or {}).get("offered_choice_terms")):
+        raise AnswerIsOfferedOpening()
 
     state: InterviewState = dict(record.state)
     # ADR-099 cl. 11 — a button answer carries no text; the transcript keeps

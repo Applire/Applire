@@ -507,6 +507,7 @@
     "generationElapsed": "Running for {time}",
     "generationSlow": "This is taking longer than usual. You can leave this page – your CV will still be finished and will be waiting here and in your application.",
     "profileUpdatedSince": "Your profile was updated after this CV was created – the changes are not in it yet.",
+    "profileUpdatedByInterview": "Your interview answers are in your profile, but not yet in this CV.",
     "profileUpdatedAction": "Create it again",
     "regeneratingFromInterview": "A new version with your interview answers",
     "regeneratingFromProfile": "A new version with your current profile",
@@ -862,7 +863,7 @@
     "relativeJustNow": "just now",
     "relativeHoursAgo": "{h}h ago",
     "relativeDaysAgo": "{d}d ago",
-    "profileStrengthTitle": "Profile Strength",
+    "profileStrengthTitle": "Profile completeness",
     "profileStrengthHint": "Add missing sections to improve gap matching.",
     "profileStrengthOptional": "Optional: add {section}",
     "profileCheckWorkExp": "Work Experience",
@@ -1315,6 +1316,8 @@
     },
     "conflictSourceUnknown": "a later change",
     "threadNotApplied": "Something you said did not land — and why",
+    "accuracyLost": "{count, plural, one {# item from} other {# items from}} {source} did not reach your profile in the merge ({sections}).",
+    "accuracyLowConfidence": "Uncertain merge from {source} ({percent}% confidence) — please check what was taken over.",
     "notAppliedSummary": "{count, plural, one {# thing you told us} other {# things you told us}} in {source} did not reach your profile ({items}) — {reasons}.",
     "notAppliedReason": {
       "no_op_carried_entry": "no change carried it",
@@ -1542,6 +1545,7 @@
   },
   "errors": {
     "answerNotSaved": "Your answer could not be saved — please send it again.",
+    "answerIsOpening": "That is only the opening from the suggestion. Finish it in your own words, or answer differently.",
     "uploadAtLeastOne": "Please upload at least one CV to continue.",
     "exportFailed": "Export failed. Please try again.",
     "deletionFailed": "Deletion failed. Please try again.",
@@ -1609,6 +1613,8 @@
     "analysing": "Analyzing…"
   },
   "profileImport": {
+    "resumeWithProfile": "Your profile already holds a CV that was read. Continue with this profile, or upload another one.",
+    "resumeWithProfileAction": "Continue with my profile",
     "title": "Add a CV or role",
     "subtitle": "Upload your CV as PDF, DOCX, TXT, MD or an image — or a LinkedIn export as ZIP. The format is detected automatically.",
     "subtitleNoImage": "Upload your CV as PDF, DOCX, TXT or MD — or a LinkedIn export as ZIP. The format is detected automatically.",

@@ -403,6 +403,60 @@ describe("ProfileImportView", () => {
     expect(screen.queryByText("gapAnalysisFailed")).not.toBeInTheDocument();
   });
 
+  // #838 lines 84/111 (WP-Q4 d): a flow left at cv_import (page closed while the
+  // dashboard overlay ran) redirects /flow, /gaps and /processing here, and a
+  // read CV is already in the profile. The page offers the hand-off without a
+  // second upload — the same proceedToGaps path the #677 retry uses.
+  function strandedFlowMock(uploads: object[]) {
+    return importJobsMock(READY({}), (u) => {
+      if (u.includes("/api/profile/uploads")) return { ok: true, body: uploads };
+      if (u.includes("/api/flow/flow-abc/state")) return { ok: true, body: { job_id: "job-123" } };
+      if (u.includes("/api/job/job-123/gap-jobs/gj-1"))
+        return { ok: true, body: { status: "ready", error_code: null, result: { id: "gap-9" } } };
+      if (u.includes("/api/job/job-123/gap-jobs"))
+        return { ok: true, status: 202, body: { gap_job_id: "gj-1", status: "pending" } };
+      if (u.includes("/api/flow/flow-abc/advance"))
+        return { ok: true, body: { current_step: "gap_analysis" } };
+      return null;
+    });
+  }
+  const READ_UPLOAD = {
+    id: "u1", original_filename: "cv.pdf", mime_type: "application/pdf", byte_size: 10,
+    created_at: "2026-11-15T08:00:00Z", completeness_score: 0.8, gate_status: null, status: "read",
+  };
+
+  it("offers a stranded flow the hand-off with the profile it already holds (#838:84/111)", async () => {
+    global.fetch = strandedFlowMock([READ_UPLOAD]);
+    render(<ProfileImportView flowId="flow-abc" />);
+    const resume = await screen.findByTestId("flow-resume");
+    expect(resume).toHaveTextContent("resumeWithProfile");
+    fireEvent.click(screen.getByTestId("flow-resume-button"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-abc/gaps"));
+    const calls = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit | undefined][];
+    expect(calls.some(([u]) => u.includes("/api/profile/import-jobs"))).toBe(false);
+    const adv = calls.find(([u]) => u.includes("/api/flow/flow-abc/advance"));
+    expect(JSON.parse(adv?.[1]?.body as string)).toEqual({ step: "gap_analysis", artifact_id: "gap-9" });
+  });
+
+  it("offers no hand-off when no CV was read yet: a failed, parked or discarded upload is not a profile (#838:84)", async () => {
+    global.fetch = strandedFlowMock([
+      { ...READ_UPLOAD, id: "u2", status: "failed", error_code: "unreadable" },
+      { ...READ_UPLOAD, id: "u3", gate_status: "name_divergence" },
+      { ...READ_UPLOAD, id: "u4", gate_status: "resolved_discarded" },
+    ]);
+    render(<ProfileImportView flowId="flow-abc" />);
+    await screen.findByTestId("upload-history-panel");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("flow-resume")).not.toBeInTheDocument();
+  });
+
+  it("offers no hand-off outside a flow (#838:84)", async () => {
+    global.fetch = strandedFlowMock([READ_UPLOAD]);
+    render(<ProfileImportView />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("flow-resume")).not.toBeInTheDocument();
+  });
+
   it("names the gap step in the progress widget while the gap job runs (#677)", async () => {
     global.fetch = inFlowWithJobMock({ status: "processing", error_code: null, result: null });
 

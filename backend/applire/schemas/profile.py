@@ -2460,6 +2460,16 @@ class HealthIssue(BaseModel):
     #: which the frontend already localises through ``profile.sources.*``
     #: (``lib/enrichment-sources.ts``) — never a rendered word.
     not_applied_source: str | None = None
+    #: #838 line 23 (WP-Q4 e) — the ``accuracy`` thread's pieces, so the reader
+    #: composes the sentence in the candidate's language (the V-7 shape above):
+    #: ``lost`` (a pre-#615 merge that kept fewer items; ``accuracy_count`` items,
+    #: sections in ``field_ref``) or ``low_confidence`` (``accuracy_percent``).
+    #: ``accuracy_source`` is the ``EnrichmentRecord.source`` KEY. ``summary``
+    #: stays the English fallback. ``None`` on every other thread.
+    accuracy_kind: Literal["lost", "low_confidence"] | None = None
+    accuracy_count: int | None = None
+    accuracy_percent: int | None = None
+    accuracy_source: str | None = None
     #: The raw ``ImportNotApplied.reason`` keys, localised by the reader through
     #: ``health.notAppliedReason.*``. Never a sentence.
     not_applied_reasons: list[str] | None = None

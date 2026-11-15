@@ -105,7 +105,8 @@ interface FlowState {
   // D-1: the backend's CVSummary is {cv_id, pdf_url, expires_at} — no sections.
   // Section labels come from GET /api/cv/{id}/sections (`cvSections`).
   // 789:254 (ADR-016 amended 2026-11-07): `predates_interview` — an interview
-  // door added a fact after this CV was generated (drives the F-4 auto-start);
+  // door added a fact after this CV was generated (names the interview in the
+  // strip; founder B8-13 dropped the auto-start it used to drive);
   // `profile_updated_since` (F-2 (2)) — the profile's CONTENT changed after it,
   // from any door (drives the strip). Both facts, ADR-062 cl. 1.
   cv_summary?: {
@@ -136,12 +137,10 @@ export default function CVPage({
   const [template, setTemplate] = useState<CVTemplate>("classic_german");
   const [flowState, setFlowState] = useState<FlowState | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  // 789:254: the flow came back from the interview (cv_generation) with a CV
-  // that predates it — start the new version once on arrival (F-4 = A).
-  const [interviewRegenPending, setInterviewRegenPending] = useState(false);
-  // Why the generation running now is written (its subtitle): the F-4
-  // post-interview auto-start says "interview"; the F-2 strip's [Neu erstellen]
-  // is source-neutral (the change may be an import or a manual edit — A-12).
+  // Why the generation running now is written (its subtitle): the strip's
+  // [Neu erstellen] says "interview" when the CV predates interview answers,
+  // and is source-neutral otherwise (an import or a manual edit — A-12).
+  // Founder B8-13 (2026-11-13): no generation starts without that click.
   const [regenReason, setRegenReason] = useState<"interview" | "profile" | null>(null);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
@@ -373,16 +372,12 @@ export default function CVPage({
           setCvId(fs.cv_summary.cv_id);
           setPhase("preview");
           if (fs.current_step === "cv_generation") {
-            if (fs.cv_summary.predates_interview) {
-              // 789:254: "Lebenslauf erstellen" after the interview really
-              // writes a new version (same template + page target; the #737
-              // confirmation first when the CV carries own edits).
-              setInterviewRegenPending(true);
-            } else {
-              // The CV is current and the flow never reached `complete` (the
-              // page was left before the browser advanced it) — finish it.
-              void advanceFlow(fs.cv_summary.cv_id);
-            }
+            // The flow never reached `complete` (the page was left before the
+            // browser advanced it, or the person came back from the interview).
+            // Finish it on the CV on screen. A CV older than interview answers
+            // is NOT rewritten on arrival (founder B8-13, 2026-11-13): the strip
+            // says so and offers the new version; no provider call without a click.
+            void advanceFlow(fs.cv_summary.cv_id);
           }
           return;
         }
@@ -575,48 +570,6 @@ export default function CVPage({
       cancelled = true;
     };
   }, [cvId, phase]);
-
-  // 789:254 (F-4): the post-interview new version, once per stale CV — the
-  // server stops offering it (`predates_interview`) once a generation for this
-  // job was started after the interview facts, failed or not (A-9). Reads the
-  // shown CV's own template + page target and its edited sections first, so
-  // the new version is "the same CV, with the interview" and a section edit
-  // that would not carry over is named in the #737 dialog before anything runs.
-  // One shot: clearing the pending flag re-runs this effect, so a cleanup-based
-  // cancel would drop the reads in flight; the ref keeps it to one run instead.
-  const interviewRegenStarted = useRef(false);
-  useEffect(() => {
-    if (!interviewRegenPending || !cvId || !flowState || interviewRegenStarted.current) return;
-    interviewRegenStarted.current = true;
-    setInterviewRegenPending(false);
-    Promise.all([
-      fetch(`${API_BASE}/api/cv/${cvId}/status`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch(`${API_BASE}/api/cv/${cvId}/sections`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    ]).then(([status, sections]: [
-      { template?: string | null; target_pages?: number | null } | null,
-      { sections?: SectionItem[] } | null,
-    ]) => {
-      const tpl =
-        status?.template && (CV_TEMPLATES as readonly string[]).includes(status.template)
-          ? (status.template as CVTemplate)
-          : template;
-      const pages = status?.target_pages ?? targetPages;
-      const start = () => {
-        setRegenReason("interview");
-        void handleGenerate(tpl, pages);
-      };
-      const list = sections?.sections ?? [];
-      if (list.length > 0) setCvSections(list);
-      // A-9: an unreadable section state fails CLOSED — the #737 question is
-      // asked (never a silent overwrite of edits nobody could check for).
-      if (sections === null || !Array.isArray(sections.sections) || list.some((sec) => sec.has_override)) {
-        setNewVersionAction(() => start);
-      } else {
-        start();
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one shot per arrival
-  }, [interviewRegenPending, cvId, flowState]);
 
   async function handleGenerate(tpl: CVTemplate, pages: number = targetPages) {
     if (!flowState) return;
@@ -1161,7 +1114,9 @@ export default function CVPage({
               <MobileDocumentSwitch flowId={flowId} activeDoc="cv" documentLanguage={docLanguage} />
               {/* 789:254 + F-2 (2) — the profile changed after the CV on screen
                   (any door: interview, import, manual edit, agent). Not
-                  dismissible: it goes once a newer CV is recorded. */}
+                  dismissible: it goes once a newer CV is recorded. B8-13: it
+                  names the interview when interview answers are what is new,
+                  and its button is the only way a new version starts. */}
               {flowState?.cv_summary?.profile_updated_since && flowState.cv_summary.cv_id === cvId && (
                 <div
                   className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-outline-variant bg-surface-container px-3 py-2"
@@ -1169,13 +1124,17 @@ export default function CVPage({
                   role="status"
                 >
                   <Info className="w-4 h-4 shrink-0 text-primary" aria-hidden="true" />
-                  <p className="flex-1 min-w-[12rem] text-sm text-on-surface">{t("profileUpdatedSince")}</p>
+                  <p className="flex-1 min-w-[12rem] text-sm text-on-surface">
+                    {flowState.cv_summary.predates_interview
+                      ? t("profileUpdatedByInterview")
+                      : t("profileUpdatedSince")}
+                  </p>
                   <button
                     type="button"
                     data-testid="cv-profile-updated-action"
                     onClick={() =>
                       requestNewVersion(() => {
-                        setRegenReason("profile");
+                        setRegenReason(flowState.cv_summary?.predates_interview ? "interview" : "profile");
                         void handleGenerate(template);
                       })
                     }
