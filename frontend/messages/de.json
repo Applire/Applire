@@ -2097,11 +2097,9 @@
   "documentReview": {
     "title": "Prüfung",
     "verdictFindings": "{count, plural, one {# Stelle im Dokument ist nicht durch Dein Profil gedeckt.} other {# Stellen im Dokument sind nicht durch Dein Profil gedeckt.}}",
-    "verdictClear": "Jede Aussage im Dokument ist durch Dein Profil gedeckt.",
     "verdictDecisions": "{count, plural, one {# Punkt braucht Deine Entscheidung, bevor Du sendest.} other {# Punkte brauchen Deine Entscheidung, bevor Du sendest.}}",
     "verdictNotesOnly": "{count, plural, one {Weiter unten steht # Hinweis, den Du vor dem Versand kennen solltest.} other {Weiter unten stehen # Hinweise, die Du vor dem Versand kennen solltest.}}",
     "verdictUncheckedHead": "Nicht geprüft: {producers} — sieh Dir diesen Teil selbst an, bevor Du sendest.",
-    "verdictTruthLine": "Erfunden ist nichts: Jede Aussage im Dokument ist durch Dein Profil gedeckt.{decisions, plural, =0 {} one { # Punkt braucht Deine Entscheidung.} other { # Punkte brauchen Deine Entscheidung.}}{notes, plural, =0 {} one { Dazu kommt # Hinweis.} other { Dazu kommen # Hinweise.}}",
     "verdictClearWithSendCheck": "{count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
     "verdictUnknown": "Ob jede Aussage gedeckt ist, wurde für dieses Dokument nicht geprüft.",
     "group1Title": "Im Dokument, aber nicht in Deinem Profil",
@@ -2936,8 +2934,6 @@
     "since": "seit {date}"
   },
   "reviewSignals": {
-    "verdictClearCrossReadUnknown": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Ob Anschreiben und Lebenslauf zusammenpassen, wurde nicht geprüft — lies beide nebeneinander, bevor Du sendest.",
-    "verdictClearCrossRead": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. {open, plural, one {Neben Deinem Lebenslauf gelesen fällt aber eine Stelle auf — entscheide sie, bevor Du sendest.} other {Neben Deinem Lebenslauf gelesen fallen aber # Stellen auf — entscheide sie, bevor Du sendest.}}",
     "sectionTitle": "Gegengelesen: Anschreiben und Lebenslauf",
     "sectionSub": "Wer beide Dokumente nebeneinander liest, sieht das hier zuerst. {decided} von {total} entschieden.",
     "unknown": "Nicht geprüft: Der Kohärenz-Hinweis lief für dieses Anschreiben nicht. Das ist keine Entwarnung — Anschreiben und Lebenslauf wurden nicht gegengelesen.",

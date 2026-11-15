@@ -23,7 +23,6 @@ import {
   buildReviewGroups,
   buildSendChecks,
   SEND_CHECK_IDS,
-  verdictState,
   decisionCount,
   type ReviewInputs,
 } from "../review-groups";
@@ -273,43 +272,8 @@ describe("SF-REVIEW.4 / ADR-081 clause 9 — a producer that did not run is UNKN
   });
 });
 
-describe("verdictState — ADR-081 clause 4 and JF-F-K.1", () => {
-  it("reports UNKNOWN rather than a clean verdict when group 1's producers did not run", () => {
-    const groups = buildReviewGroups(inputs({ atsReport: null, truthReport: null }));
-    expect(verdictState(groups, 0)).toEqual({ kind: "unknown" });
-  });
-
-  it("counts the rows the caller actually rendered, not a recomputed population", () => {
-    const groups = buildReviewGroups(
-      inputs({ atsReport: ats({ present_unsupported: ["A", "B", "C"] }) }),
-    );
-    // The caller renders the array it built; the sentence takes its length.
-    expect(verdictState(groups, byId(groups, 1).items.length)).toEqual({ kind: "findings", count: 3 });
-  });
-
-  it("qualifies the all-clear when group 1 is clean but groups 2-4 are not (JF-F-K.1)", () => {
-    const groups = buildReviewGroups(
-      inputs({ atsReport: ats({ missing_honest_gap: ["Kubernetes", "Terraform"] }) }),
-    );
-    expect(verdictState(groups, 0)).toEqual({ kind: "clear_with_others", others: 2, decisions: 0, notes: 2 });
-  });
-
-  it("qualifies the all-clear when another group is UNKNOWN, even with nothing else found", () => {
-    const groups = buildReviewGroups(inputs({ criticReport: null }));
-    // #789 line L60: names the blind producer — never "findings below" with none below.
-    expect(verdictState(groups, 0)).toEqual({ kind: "clear_unchecked", others: 0, decisions: 0, notes: 0, unchecked: ["critic"] });
-  });
-
-  it("keeps the real count next to a blind producer, each producer named once", () => {
-    const groups = buildReviewGroups(
-      inputs({ criticReport: null, gapClusters: null, atsReport: ats({ missing_honest_gap: ["Terraform"] }) }),
-    );
-    expect(verdictState(groups, 0)).toEqual({
-      kind: "clear_unchecked", others: 1, decisions: 0, notes: 1, unchecked: ["clusters", "critic"],
-    });
-  });
-
-  it("T-1: counts group-2 rows and FAILED craft checks as decisions, the rest as notes", () => {
+describe("decisionCount — T-1 (ADR-081 cl. 4)", () => {
+  it("counts group-2 rows and FAILED craft checks as decisions, the rest as notes", () => {
     const groups = buildReviewGroups(
       inputs({
         atsReport: ats(
@@ -323,33 +287,13 @@ describe("verdictState — ADR-081 clause 4 and JF-F-K.1", () => {
       }),
     );
     expect(decisionCount(groups)).toBe(3);
-    const v = verdictState(groups, 0);
-    expect(v).toMatchObject({ kind: "clear_with_others", decisions: 3 });
-    if (v.kind === "clear_with_others") expect(v.notes).toBe(v.others - 3);
   });
 
-  it("T-1: an unknown group contributes no decision", () => {
+  it("an unknown group contributes no decision", () => {
     const groups = buildReviewGroups(
       inputs({ atsReport: null, truthReport: truth([]) }),
     );
     expect(decisionCount(groups)).toBe(0);
-  });
-
-  it("renders a plain all-clear only when every group ran and every group is empty", () => {
-    expect(verdictState(buildReviewGroups(inputs()), 0)).toEqual({ kind: "clear" });
-  });
-
-  it("never lets groups 2-4 enter the headline's number", () => {
-    const groups = buildReviewGroups(
-      inputs({
-        atsReport: ats({
-          present_unsupported: ["Kubernetes"],
-          missing_claimable: ["SAP PP", "Six Sigma"],
-          missing_honest_gap: ["Terraform"],
-        }),
-      }),
-    );
-    expect(verdictState(groups, byId(groups, 1).items.length)).toEqual({ kind: "findings", count: 1 });
   });
 });
 
@@ -504,21 +448,6 @@ describe("#759 — a failed document-language check stands in the way of sending
     expect(byId(buildReviewGroups(inputs({ atsReport: na })), 4).items.map((i) => i.checkId)).toEqual([
       "document-language",
     ]);
-  });
-
-  it("the verdict names the send check instead of calling the rest harmless", () => {
-    const report = ats({}, [mixed]);
-    const groups = buildReviewGroups(inputs({ atsReport: report }));
-    expect(verdictState(groups, 0, buildSendChecks(report).length)).toEqual({
-      kind: "clear_with_send_checks",
-      count: 1,
-    });
-  });
-
-  it("group-1 findings still lead the verdict", () => {
-    const report = ats({ present_unsupported: ["Kubernetes"] }, [mixed]);
-    const groups = buildReviewGroups(inputs({ atsReport: report }));
-    expect(verdictState(groups, 1, 1)).toEqual({ kind: "findings", count: 1 });
   });
 });
 

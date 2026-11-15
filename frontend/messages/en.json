@@ -2097,11 +2097,9 @@
   "documentReview": {
     "title": "Review",
     "verdictFindings": "{count, plural, one {# place in the document is not covered by your profile.} other {# places in the document are not covered by your profile.}}",
-    "verdictClear": "Every statement in the document is covered by your profile.",
     "verdictDecisions": "{count, plural, one {# point needs your decision before you send it.} other {# points need your decision before you send it.}}",
     "verdictNotesOnly": "{count, plural, one {There is # note below you should know before you send it.} other {There are # notes below you should know before you send it.}}",
     "verdictUncheckedHead": "Not checked: {producers} — look over that part yourself before you send it.",
-    "verdictTruthLine": "Nothing is made up: every statement in the document is covered by your profile.{decisions, plural, =0 {} one { # point needs your decision.} other { # points need your decision.}}{notes, plural, =0 {} one { Plus # note.} other { Plus # notes.}}",
     "verdictClearWithSendCheck": "{count, plural, one {# finding needs} other {# findings need}} a look before you send it.",
     "verdictUnknown": "Whether every statement is covered was not checked for this document.",
     "group1Title": "In the document, but not in your profile",
@@ -2936,8 +2934,6 @@
     "since": "since {date}"
   },
   "reviewSignals": {
-    "verdictClearCrossReadUnknown": "Every statement in the document is covered by your profile. Whether the cover letter and the CV agree was not checked — read them side by side before you send.",
-    "verdictClearCrossRead": "Every statement in the document is covered by your profile. {open, plural, one {Read next to your CV, though, one passage stands out — decide on it before you send.} other {Read next to your CV, though, # passages stand out — decide on them before you send.}}",
     "sectionTitle": "Cross-read: cover letter and CV",
     "sectionSub": "Someone who reads both documents side by side notices these first. {decided} of {total} decided.",
     "unknown": "Not checked: the coherence check did not run for this cover letter. That is not an all-clear — the letter and the CV were not cross-read.",
