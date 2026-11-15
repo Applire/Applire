@@ -5114,10 +5114,14 @@ async def _render_cv_background(
                 # report calls in ``_update_ats_report``, with the same provider,
                 # document language and keyword ledger (it used to pass neither).
                 truth_round = None
+                # MD-Q8: the chips the truth round's audit saw — a chip added after
+                # it is the delivery-side removal's population.
+                truth_audit_skills: list | None = None
                 try:
                     from applire.services.attribution_round import run_truth_round
 
                     audit_view = assemble_tailored_cv(prose_draft, profile_json)
+                    truth_audit_skills = list(prose_draft.get("skills") or [])
                     attribution_report = await _truth_audit(
                         profile_json, audit_view,
                         document_language=document_language,
@@ -5339,6 +5343,30 @@ async def _render_cv_background(
                     terminal_outcome = tr.outcome
                     final_raw = tr.final_raw
 
+                async def _late_chips() -> None:
+                    """MD-Q8: drop the chips the truth round never saw and nothing backs."""
+                    nonlocal prose_draft, final_raw, truth_round, measured
+                    if v2_terminal is None:
+                        return
+                    prose_draft, final_raw, late = _drop_late_unbacked_chips(
+                        record, prose_draft, final_raw, v2_terminal,
+                        audited_skills=truth_audit_skills,
+                        profile_json=profile_json, keyword_ledger=keyword_ledger,
+                    )
+                    if not late:
+                        return
+                    if truth_round is None:
+                        from applire.services.attribution_round import TruthRoundResult
+
+                        truth_round = TruthRoundResult(prose_draft, [], [])
+                    truth_round.late_removed.extend(late)
+                    try:
+                        measured = await _measure_and_condense(record, db, condense_ctx)
+                    except Exception:
+                        logger.exception("re-measure after the MD-Q8 chip drop failed for CV %s", record.id)
+
+                await _late_chips()
+
                 # SUBJECT-IDENTITY gate (#538 evidence layer 1): the content the
                 # terminal verdict covered must BE the delivered content. The audits
                 # below are measurement-only by contract; a mismatch here means a
@@ -5410,6 +5438,7 @@ async def _render_cv_background(
                         terminal_rounds += tr.rounds
                         reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
                         final_raw = tr.final_raw
+                        await _late_chips()
                         # Fold, never replace: a clean re-entry round must not erase an
                         # earlier exhaustion that already shipped content.
                         terminal_outcome = (
@@ -7222,6 +7251,59 @@ async def _in_loop_critic(record: GeneratedCV, db: AsyncSession, v2_terminal) ->
         record.critic_report = None
     finally:
         _set_llm_log_stage(prior_stage)
+
+
+def _drop_late_unbacked_chips(
+    record: GeneratedCV,
+    prose_draft: dict,
+    final_raw: "TailoredCVData | None",
+    v2,
+    *,
+    audited_skills: list | None,
+    profile_json: dict,
+    keyword_ledger: list[dict] | None,
+) -> tuple[dict, "TailoredCVData | None", list]:
+    """MD-Q8 (ruling Q3-5 A): the shipped skills chips that
+    ``attribution_round.late_unbacked_chips`` names are taken out of the prose
+    draft, the delivered data and the raw compose alike; the removal records go
+    back to the caller (the truth round's ``late_removed``). Runs before the
+    subject hash is taken, so the delivered subject is the reported one. No model
+    call; never raises — a failure keeps the draft as it is."""
+    from applire.services.attribution_round import late_chip_findings, late_unbacked_chips
+    from applire.services.cv_section_editor import build_content_snapshot
+    from applire.services.cv_v2 import canonical
+
+    try:
+        shipped = [s for s in (record.tailored_data or {}).get("skills") or [] if isinstance(s, str)]
+        untied = [
+            s for f in v2.delivered_findings(prose_draft, record.tailored_data)
+            if f.check == "cv.skill_untied" for s in f.subjects
+        ]
+        chips = late_unbacked_chips(
+            shipped, audited_skills=audited_skills, untied=untied,
+            profile_json=profile_json, keyword_ledger=keyword_ledger,
+        )
+        if not chips:
+            return prose_draft, final_raw, []
+        drop = {c.casefold() for c in chips}
+
+        def keep(items):
+            return [s for s in items or [] if not (isinstance(s, str) and s.casefold() in drop)]
+
+        new_prose = {**prose_draft, "skills": keep(prose_draft.get("skills"))}
+        notes = v2.notes_by_draft.get(canonical(prose_draft))
+        if notes is not None:
+            v2.notes_by_draft[canonical(new_prose)] = notes
+        tailored = TailoredCVData.model_validate({**record.tailored_data, "skills": keep(shipped)})
+        record.tailored_data = tailored.model_dump()
+        record.content_snapshot = build_content_snapshot(tailored)
+        if final_raw is not None:
+            final_raw = final_raw.model_copy(update={"skills": keep(final_raw.skills)})
+        logger.info("MD-Q8: CV %s — late unbacked skills chips dropped at delivery: %s", record.id, chips)
+        return new_prose, final_raw, late_chip_findings(chips, shipped)
+    except Exception:  # noqa: BLE001
+        logger.exception("MD-Q8 late-chip drop failed for CV %s — draft kept", record.id)
+        return prose_draft, final_raw, []
 
 
 def _cv_delivery_report(record: GeneratedCV, truth_round, pins) -> dict | None:

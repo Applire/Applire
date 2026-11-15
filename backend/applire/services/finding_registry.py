@@ -608,6 +608,7 @@ def delivered_report(
     removals: list[dict] = []
     fixed: list[str] = []
     try:
+        late = list(getattr(truth_round, "late_removed", None) or [])
         if truth_round is not None and truth_round.findings:
             claims = [
                 (str((c.get("claim") or {}).get("text") or ""),
@@ -636,6 +637,14 @@ def delivered_report(
                     if f.text.casefold() not in flagged
                     and not any(is_flag for _t, is_flag in _narrowed_forms(f.text, claims))
                 })
+        if late:
+            # MD-Q8: a chip dropped at delivery is gone from the skills list; its
+            # word may live on in a sentence the Oracle backs (Katrin's summary
+            # "LucaNet auf Gruppenebene …"), so presence is read in the list only.
+            shipped = {str(x).casefold() for x in (delivered_data or {}).get("skills") or []}
+            removals = removals + removal_rows(
+                [f for f in late if f.text.casefold() not in shipped], pins=pins,
+            )
     except Exception:  # noqa: BLE001
         logger.exception("delivered_report: delivery state failed — none recorded")
     return apply_delivery(report, review_degradation=review_degradation, removals=removals, fixed=fixed)
