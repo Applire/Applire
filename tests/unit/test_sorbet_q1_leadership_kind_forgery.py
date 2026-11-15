@@ -196,3 +196,44 @@ def test_an_editor_that_does_not_round_trip_the_kind_is_not_a_refused_write():
     result = apply_ops(before, [ReplaceSection(section="work_experience", value=payload)], "manual_edit")
     assert _kinds(result.profile) == _kinds(before)
     assert "leadership_kind_unasked" not in [i.reason for i in result.not_applied]
+
+
+# ── MD-Q6 R1: the exemption is the exact value the answer wrote ──────────────
+
+def _merge_installing(before: MasterProfileData, kind: str) -> ApplyImportMerge:
+    merged = before.model_dump(mode="json")
+    merged["work_experience"][0]["leadership_kind"] = kind
+    merged["work_experience"][0].pop("leadership_kind_record", None)
+    return ApplyImportMerge(merged=MasterProfileData.model_validate(merged))
+
+
+def test_R1_a_later_import_merge_in_the_same_batch_cannot_replace_the_answer():
+    """adv/findings.md "Third pass" R1, probe r1.py: [RecordLeadershipKind(w1,
+    functional), ApplyImportMerge(w1 disciplinary)] left w1 disciplinary with no
+    record. The person's answer is what stands."""
+    from applire.services.profile.leadership_kind import leadership_kind_op
+
+    before = _profile()
+    result = apply_ops(before, [
+        leadership_kind_op("w1", "functional", answer="Fachliche Anleitung"),
+        _merge_installing(before, "disciplinary"),
+    ], "interview")
+    assert _kinds(result.profile)[0] == ("w1", "functional", "functional")
+    assert result.profile.work_experience[0].leadership_kind_record.answer == "Fachliche Anleitung"
+    assert "leadership_kind_unasked" in [i.reason for i in result.not_applied]
+    # The answer's own receipt survives; nothing else about the kind does.
+    assert [(c.entity_id, c.rationale_key) for c in result.changes if c.field == "leadership_kind"] == [
+        ("w1", "leadership_kind_recorded"),
+    ]
+
+
+def test_R1_a_later_set_field_on_the_answered_entry_is_put_back():
+    from applire.services.profile.leadership_kind import leadership_kind_op
+
+    before = _profile()
+    result = apply_ops(before, [
+        leadership_kind_op("w1", "own_words", answer="eher beides"),
+        SetField(target="w1", field="leadership_kind", value="disciplinary"),
+    ], "interview")
+    assert _kinds(result.profile)[0] == ("w1", None, "own_words")
+    assert "leadership_kind_unasked" in [i.reason for i in result.not_applied]

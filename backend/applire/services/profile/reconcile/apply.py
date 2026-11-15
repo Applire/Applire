@@ -578,7 +578,9 @@ def apply_ops(
     denials: list[FieldChange] = []  # #480 PR 7 — see ApplyResult.denials
     reconciliation: dict[str, dict[str, int]] | None = None
     not_applied: list[ImportNotApplied] = []  # #615 — see ApplyResult.not_applied
-    kind_answered: set[str] = set()  # MD-Q5 — entries a RecordLeadershipKind op wrote
+    # MD-Q5 — entry id → the exact (kind, record) its RecordLeadershipKind op wrote
+    # (the last such op for an entry wins).
+    kind_answered: dict[str, tuple[Any, Any]] = {}
     extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
     restated: list[RestatedReceipt] = []  # D-B3V6 — see ApplyResult.restated
@@ -822,7 +824,10 @@ def apply_ops(
             # MD-Q5 — the single writer of a role's leadership kind.
             from applire.services.profile.leadership_kind import apply_leadership_kind_op
 
-            kind_answered.add(apply_leadership_kind_op(op, new_profile, changes).id)
+            written = apply_leadership_kind_op(op, new_profile, changes)
+            kind_answered[written.id] = (
+                written.leadership_kind, written.leadership_kind_record.model_copy(deep=True),
+            )
         elif getattr(op, "op", None) in ("record_aspiration_verdicts", "answer_aspiration"):
             # RULING B-1 — "Ist das erreicht?" bookkeeping and the answer.
             from applire.services.profile.aspiration import apply_aspiration_op
@@ -4100,21 +4105,25 @@ def _restore_user_managed_fields(before, after, changes):
     return after, kept
 
 
+#: The receipts ``leadership_kind.apply_leadership_kind_op`` writes.
+_ANSWER_RATIONALE_KEYS = frozenset({"leadership_kind_recorded", "leadership_kind_left_open"})
+
+
 def _restore_leadership_kind(before, after, changes, not_applied, answered):
-    """MD-Q5 — carry ``leadership_kind`` / ``leadership_kind_record`` over from
-    ``before`` (by entry id; a new entry holds none) for every work entry the
-    batch's ``RecordLeadershipKind`` ops did not write. A refused write drops its
-    receipts and leaves one ``not_applied`` item (``leadership_kind_unasked``).
-    Returns ``(after, changes)``."""
+    """MD-Q5 — at the end of the batch, every work entry holds exactly what the
+    one legitimate writer left: for an entry a ``RecordLeadershipKind`` op wrote,
+    the exact ``(kind, record)`` that op wrote (``answered``, MD-Q6 R1 — a later op
+    in the same batch cannot install another value); for every other entry, what
+    ``before`` held (by entry id; a new entry holds none). Any other value for
+    either field is put back, its receipts dropped, and one ``not_applied`` item
+    (``leadership_kind_unasked``) left. Returns ``(after, changes)``."""
     held = {
         e.id: (e.leadership_kind, e.leadership_kind_record)
         for e in getattr(before, "work_experience", None) or []
     }
     restored: set[str] = set()
     for entry in after.work_experience:
-        if entry.id in answered:
-            continue
-        kind, record = held.get(entry.id, (None, None))
+        kind, record = answered.get(entry.id) or held.get(entry.id, (None, None))
         if (entry.leadership_kind, entry.leadership_kind_record) != (kind, record):
             entry.leadership_kind = kind
             entry.leadership_kind_record = record
@@ -4137,6 +4146,11 @@ def _restore_leadership_kind(before, after, changes, not_applied, answered):
             getattr(c, "section", None) == "work_experience"
             and getattr(c, "field", None) in _LEADERSHIP_KIND_FIELDS
             and getattr(c, "entity_id", None) in restored
+            # The answer's own receipt stays (MD-Q6 R1); any other op's goes.
+            and not (
+                getattr(c, "entity_id", None) in answered
+                and getattr(c, "rationale_key", None) in _ANSWER_RATIONALE_KEYS
+            )
         )
     ]
     return after, kept
