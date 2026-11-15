@@ -675,17 +675,20 @@ def denied_unbacked_chips(
     skills: list[str], *, profile_json: Any, keyword_ledger: list[dict[str, Any]] | None,
 ) -> list[str]:
     """MD-Q8 widened (delivery-1b re-run, Katrin "Projektcontrolling"): a shipped
-    chip that a recorded denial covers (the Oracle's own cover, ``backing._denied``
-    over ``denials_covering`` — ADR-064's scope reader) AND the Oracle's
+    chip that a recorded denial covers at its STORED scope (the Oracle's own cover,
+    ``backing.stored_denial_cover``: the record's words declare the chip, or the
+    job's ledger holds the chip's row as denied — never a compound part; WP-Q5 (c),
+    ADR-064 amended 2026-11-15) AND the Oracle's
     deterministic skill producer does not back. Audited or not, tied or not: the
     person said no, and nothing in the profile says yes. A chip the person added or
     confirmed is a vault skill the producer backs, so it is never taken. Never
     raises: a failure takes nothing."""
     try:
         from applire.services.oracle.audit import _claimable_index
-        from applire.services.oracle.backing import _denied
+        from applire.services.oracle.backing import _denied, with_ledger_denials
 
-        index = _claimable_index(profile_json)
+        # WP-Q5 (c): the denial's STORED scope (declared, or the ledger's row).
+        index = with_ledger_denials(_claimable_index(profile_json), keyword_ledger)
         return [
             s for s in skills
             if isinstance(s, str) and _denied([s], index)

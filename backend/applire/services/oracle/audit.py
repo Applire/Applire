@@ -138,6 +138,8 @@ from applire.services.oracle.backing import (
     backing_for_skill,
     backings_named_in,
     ledger_backings as _ledger_backings,
+    stored_denial_cover,
+    with_ledger_denials,
 )
 
 logger = logging.getLogger(__name__)
@@ -180,20 +182,13 @@ def _profile_aims(profile: Any) -> list[str]:
 
 
 def _denial_covers(text: str, idx: VaultIndex) -> bool:
-    """Does one of the candidate's recorded denials cover ``text``? The ledger
-    floor's own predicate (``stance.denials_covering``) over the denials the
-    vault index carries — the same fact the ATS keyword check reads, so the
-    D2-1 "other language" softening never reaches a term the candidate denied
-    (build-2 adversarial F-D, ruling R3-a). Never raises."""
-    denials = list(getattr(idx, "denied_concepts", ()) or ())
-    if not denials:
-        return False
-    try:
-        from applire.services.profile.reconcile.stance import denials_covering
-
-        return bool(denials_covering(text, [], denials, getattr(idx, "denial_release_text", "") or ""))
-    except Exception:  # pragma: no cover — defensive: fall back to D2-1's verdict
-        return False
+    """Does one of the candidate's recorded denials cover ``text`` at its STORED
+    scope? ``backing.stored_denial_cover`` — the record's own words declare the
+    term, or the job's ledger holds the term's row as denied (Sorbet WP-Q5 (c),
+    ADR-064 amended 2026-11-15). Before, this read ``stance.denials_covering``,
+    whose compound-containment arm the ledger had withdrawn (G-1): one denial was
+    read at two scopes. Never raises."""
+    return bool(stored_denial_cover([text], idx))
 
 
 def _evidence_refs(units: list[EvidenceUnit]) -> list[EvidenceRef]:
@@ -3370,7 +3365,8 @@ async def audit_document(
             )
             triage_exemptions, triage_unavailable = {}, len(claims)
 
-    index = _claimable_index(profile)
+    # WP-Q5 (c): the ledger's stored denial scope rides on the index.
+    index = with_ledger_denials(_claimable_index(profile), keyword_ledger)
     budget = _EntailmentBudget(limit=ORACLE_MAX_ENTAILMENT_CALLS if entailment else 0)
     # ADR-068 clause 6 — every claim that defers to the judgement layer lands
     # here; ``pending`` remembers, in the SAME order, which ``results`` slot

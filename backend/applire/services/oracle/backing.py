@@ -54,14 +54,88 @@ class LedgerBacking:
     keyword_only: bool
 
 
-def _denied(texts: list[str], index: VaultIndex) -> bool:
-    denials = list(getattr(index, "denied_concepts", ()) or ())
-    if not denials:
-        return False
-    from applire.services.profile.reconcile.stance import denials_covering
+def ledger_denial_forms(keyword_ledger: list[dict[str, Any]] | None) -> tuple[tuple[str, str], ...]:
+    """The ledger's stored scope decisions as ``(normalised form, recorded denial)``:
+    every form (concept + surface forms) of a row the ledger holds as ``denied``.
+    The record is the row's ``denied_by`` (the gap classifier bound it, ADR-100 M-2)
+    or, for a row the record's own words declare, the row's concept. Never raises:
+    a malformed ledger is no decisions."""
+    if not keyword_ledger:
+        return ()
+    try:
+        from applire.services.keyword_ledger import DENIED_BY_KEY, _norm
 
-    release = getattr(index, "denial_release_text", "") or ""
-    return any(denials_covering(t, [], denials, release) for t in texts if t)
+        out: list[tuple[str, str]] = []
+        for row in keyword_ledger:
+            if not isinstance(row, dict) or row.get("status") != "denied":
+                continue
+            concept = row.get("concept") if isinstance(row.get("concept"), str) else ""
+            record = row.get(DENIED_BY_KEY) if isinstance(row.get(DENIED_BY_KEY), str) else ""
+            for form in [concept, *(row.get("surface_forms") or [])]:
+                key = _norm(form) if isinstance(form, str) else ""
+                if key:
+                    out.append((key, record.strip() or concept))
+        return tuple(dict.fromkeys(out))
+    except Exception:  # pragma: no cover — defensive: no ledger decisions
+        logger.exception("oracle: ledger denials unreadable — reading declared denials only")
+        return ()
+
+
+def with_ledger_denials(index: VaultIndex, keyword_ledger: list[dict[str, Any]] | None) -> VaultIndex:
+    """``index`` carrying the ledger's stored scope decisions (a new index; the
+    given one is not changed). The identity when there is no ledger."""
+    forms = ledger_denial_forms(keyword_ledger)
+    if not forms:
+        return index
+    import dataclasses
+
+    return dataclasses.replace(index, ledger_denials=forms)
+
+
+def stored_denial_cover(texts: list[str], index: VaultIndex) -> list[str]:
+    """The recorded denials whose STORED scope covers one of ``texts`` — the one
+    scope reader of the Oracle, the delivery chip drop and the ledger-backing arm
+    (Sorbet WP-Q5 (c), ADR-064 amended 2026-11-15: a denial is scoped to the level
+    it denies, and that scope is decided once).
+
+    Two arms, both the keyword ledger's own decisions, never a second matcher:
+
+    - **declared**: the record's own words name the term
+      (``stance.declared_denial_matches`` — the predicate the ledger floor's
+      declared arm reads, ``keyword_ledger._declared_denial_record``);
+    - **bound**: the job's ledger holds the term's row as ``denied``
+      (``VaultIndex.ledger_denials``; the gap classifier's ``denied_by``
+      Judgment, or the declared arm on that row).
+
+    The compound-containment reading (a term that is only a PART of the record's
+    words: "Projektcontrolling" inside "Weitere eigene Projektcontrolling-Projekte
+    geleitet") is not a cover: the ledger withdrew it in G-1 (#821), and the
+    Oracle reading it alone graded a claimable chip ``unbacked`` and let the
+    delivery drop remove it (delivery 1b re-run). Longest first. Never raises."""
+    denials = [d for d in (getattr(index, "denied_concepts", ()) or ()) if isinstance(d, str) and d.strip()]
+    decided = tuple(getattr(index, "ledger_denials", ()) or ())
+    if not denials and not decided:
+        return []
+    try:
+        from applire.services.keyword_ledger import _norm
+        from applire.services.profile.reconcile.stance import declared_denial_matches
+
+        out: list[str] = []
+        for t in texts:
+            if not isinstance(t, str) or not t.strip():
+                continue
+            if denials:
+                out.extend(declared_denial_matches(t, denials))
+            key = _norm(t)
+            out.extend(record for form, record in decided if form == key)
+        return sorted(dict.fromkeys(out), key=len, reverse=True)
+    except Exception:  # pragma: no cover — defensive: no cover (today's grading)
+        logger.exception("oracle: stored denial cover unreadable")
+        return []
+
+
+def _denied(texts: list[str], index: VaultIndex) -> bool:
+    return bool(stored_denial_cover(texts, index))
 
 
 def ledger_backings(
@@ -172,6 +246,7 @@ def skill_backed_by_ledger(
     """The unit a backed ledger row puts behind skill *name*, or ``None`` — the
     chip arm of :func:`applire.services.oracle.audit._verify_claim_unchecked`
     for callers holding a raw ledger (``review_actions.skill_backed_now``)."""
+    index = with_ledger_denials(index, keyword_ledger)
     if _denied([name], index):
         return None
     hit = backing_for_skill(name, ledger_backings(keyword_ledger, profile, index))
