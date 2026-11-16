@@ -883,7 +883,7 @@ def apply_ops(
         restore_replaced_bullets,
     )
 
-    changes = restore_replaced_bullets(profile, new_profile, changes, replace_touched)
+    changes = restore_replaced_bullets(profile, new_profile, changes, replace_touched, kind_merged)
     prune_replaced_bullets(new_profile)
 
     # #328 (option 4) / #382 — the quantified role facts are DERIVED

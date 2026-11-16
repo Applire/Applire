@@ -125,11 +125,22 @@ def apply_dismiss(op: Any, profile: MasterProfileData, changes: list[FieldChange
 
 def restore_replaced_bullets(
     before: MasterProfileData, after: MasterProfileData, changes: list[FieldChange], touched: set[str],
+    merged: dict[str, list[str]] | None = None,
 ) -> list[FieldChange]:
     """Class guard: an entry no ``ReplaceBullet`` / undo / dismiss op of this
     batch touched keeps the records it held before the batch (none for a new
-    entry); a receipt another op wrote on the field is dropped."""
+    entry); a receipt another op wrote on the field is dropped. The target of
+    an entry merge (``merged``: target id -> source ids) also takes the
+    sources' records — their bullets moved with them; the committer's prune
+    then ends any record whose bullet the merge did not keep."""
     held = {str(e.id): [r.model_copy() for r in e.replaced_bullets] for e in before.work_experience}
+    for target, sources in (merged or {}).items():
+        texts = {r.text for r in held.get(str(target), [])}
+        for sid in sources:
+            for r in held.get(str(sid), []):
+                if r.text not in texts:
+                    held.setdefault(str(target), []).append(r)
+                    texts.add(r.text)
     restored: set[str] = set()
     for entry in after.work_experience:
         eid = str(entry.id)

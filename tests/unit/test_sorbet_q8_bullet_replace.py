@@ -370,3 +370,23 @@ async def test_a_blocked_replace_logs_no_bullet_text(caplog):
     assert "blocked by the words check" in text and W1 in text
     for words in (OTHER, lost, "Mitarbeitenden", "Mio"):
         assert words not in text
+
+
+def test_an_entry_merge_moves_the_records_to_the_surviving_entry():
+    """Q3-4 x Q8-1: the source's bullets move to the target, so do its
+    "Ersetzt" records; a record whose bullet the merge dropped ends."""
+    from applire.services.profile.reconcile.ops import MergeEntries
+
+    src = "aaaaaaaa-0000-4000-8000-000000000002"
+    p = MasterProfileData.model_validate({"work_experience": [
+        {"id": W1, "company": "Weberit GmbH", "role": "Produktionsleiter", "responsibilities": [OTHER]},
+        {"id": src, "company": "Weberit GmbH", "role": "Produktionsleiter",
+         "responsibilities": [DETAIL, "Weg damit"],
+         "replaced_bullets": [{"text": DETAIL, "replaced": HELD},
+                              {"text": "Weg damit", "replaced": "Alt"}]},
+    ]})
+    res = _apply(p, MergeEntries(section="work_experience", target_id=W1, source_id=src,
+                                 bullets={"responsibilities": [OTHER, DETAIL]}), source="manual_edit")
+    [w] = res.profile.work_experience
+    assert w.responsibilities == [OTHER, DETAIL]
+    assert [(r.text, r.replaced) for r in w.replaced_bullets] == [(DETAIL, HELD)]
