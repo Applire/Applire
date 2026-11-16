@@ -159,6 +159,10 @@ class VaultIndex:
     # Empty when the audit has no ledger. Read only by
     # :func:`applire.services.oracle.backing.stored_denial_cover`; never evidence.
     ledger_denials: tuple[tuple[str, str], ...] = ()
+    # Sorbet WP-Q5, MD-Q13 N2: the normalised forms (concept + surface forms) of
+    # the job's CLAIMABLE ledger rows. A shorter name the person's own ledger row
+    # claims is not covered by a denial of a longer product name.
+    ledger_claimable: frozenset[str] = frozenset()
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:

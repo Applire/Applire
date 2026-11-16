@@ -133,9 +133,10 @@ def test_ledger_backing_rows_and_the_review_regrounding_read_the_stored_scope():
 # role ("SAP S/4HANA" is not "SAP"; "Scrum Master" is not "Scrum", ADR-064/052).
 
 
-def _denied_index(*concepts: str):
+def _denied_index(*concepts: str, skills: tuple[str, ...] = ()):
     return _claimable_index({
-        "personal_info": {"name": "X"}, "skills": [], "work_experience": [],
+        "personal_info": {"name": "X"}, "skills": [{"name": n, "category": "technical"} for n in skills],
+        "work_experience": [],
         "metadata": {"denied_concepts": [
             {"concept": c, "statement": c, "source": "interview", "date": "2026-11-15"} for c in concepts]},
     })
@@ -146,7 +147,8 @@ def _denied_index(*concepts: str):
     ("SAP S/4HANA", "S/4HANA"),
     ("Google Cloud Platform", "Google Cloud"),
     ("Google Cloud Platform", "GCP"),
-    ("Adobe Premiere Pro", "Premiere"),
+    ("Adobe Premiere Pro", "Premiere Pro"),
+    ("Adobe Premiere Pro", "Adobe Premiere"),
     ("Mit US-GAAP habe ich keine Erfahrung", "US-GAAP"),
     ("Mit US-GAAP habe ich leider noch keine Erfahrung.", "US-GAAP"),
     ("I have no experience with Kubernetes", "Kubernetes"),
@@ -190,3 +192,50 @@ def test_a_leading_german_adjective_narrows(denial, chip):
 ])
 def test_only_a_name_shaped_record_drops_words(denial, chip):
     assert stored_denial_cover([chip], _denied_index(denial)) == []
+
+
+
+# ── MD-Q13 N2: exactly one closed-list word dropped, and never a name the person holds ──
+
+#: The reviewer's probe (adv-2a re-check N2): before, any single leading or
+#: trailing word of a denied name was covered.
+@pytest.mark.parametrize("denial,chip", [
+    ("Microsoft Power BI", "BI"),
+    ("Microsoft Azure DevOps", "DevOps"),
+    ("Azure DevOps", "DevOps"),
+    ("Google Cloud Platform", "Cloud"),
+    ("Google Cloud Platform", "Platform"),
+    ("Microsoft Power Automate", "Automate"),
+    ("Adobe Premiere Pro", "Pro"),
+    ("Adobe Premiere Pro", "Premiere"),          # two words dropped (deviation, Addendum 2)
+    ("Python Programmierung", "Programmierung"),
+    ("Java Enterprise Edition", "Enterprise"),
+    ("Projekt Management Professional", "Professional"),
+    ("Atlassian Jira Software", "Software"),
+    ("Amazon Web Services", "Services"),
+    ("Oracle Cloud Infrastructure", "Infrastructure"),
+    ("Microsoft Power BI", "Microsoft"),
+    ("Senior Microsoft Excel", "Excel"),          # two words dropped, one a vendor
+])
+def test_a_generic_part_of_a_denied_product_is_not_covered(denial, chip):
+    assert stored_denial_cover([chip], _denied_index(denial)) == []
+
+
+@pytest.mark.parametrize("denial,chip", [
+    ("Azure DevOps", "DevOps"),
+    ("Microsoft Power BI", "Power BI"),
+    ("Google Cloud Platform", "Google Cloud"),
+])
+def test_a_shorter_name_the_person_holds_is_their_own(denial, chip):
+    assert stored_denial_cover([chip], _denied_index(denial, skills=(chip,))) == []
+    idx = with_ledger_denials(_denied_index(denial), [
+        {"concept": chip, "surface_forms": [chip], "status": "direct", "claimable": True}])
+    assert stored_denial_cover([chip], idx) == []
+    # the full denied name itself stays covered whatever the person holds
+    assert stored_denial_cover([denial], _denied_index(denial, skills=(chip,))) == [denial]
+
+
+def test_a_held_name_does_not_lift_a_denial_sentence():
+    """The sentence arm names the term itself: a held skill does not lift it."""
+    denial = "Mit US-GAAP habe ich keine Erfahrung"
+    assert stored_denial_cover(["US-GAAP"], _denied_index(denial, skills=("US-GAAP",))) == [denial]
