@@ -90,6 +90,7 @@ from applire.services.choice_grounding import (
     answer_is_offered_opening,
     choice_presentation,
     is_bare_completion,
+    cut_opening_text,
     offered_choices_in_answer,
     strip_offered_opening,
 )
@@ -4340,6 +4341,8 @@ async def _send_message_turn(
             offered_choices=offered_choices_in_answer(
                 message, state.get("offered_choice_terms")
             ),
+            # MD-Q13 N5: only the opening cut as the answer's PREFIX frames it.
+            cut_opening=cut_opening_text(message, offers),
         )
     except ReconcileFailedError:
         # R2-13 (P-1, Hazelnut build 4) — the reconcile call failed after its

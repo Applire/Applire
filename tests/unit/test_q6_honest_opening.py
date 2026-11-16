@@ -228,6 +228,15 @@ async def test_f8_the_reconcile_hears_which_concept_the_clicked_opening_asked(db
     kw = await _send(db, answer, _offered_from_build(), full=True)
     assert kw["answer"] == answer.split(": ", 1)[1]
     assert [c.get("answers_concept") for c in kw["offered_choices"]] == ["OEE"]
+    assert kw["cut_opening"] == "Zu OEE:"
+
+
+@pytest.mark.asyncio
+async def test_md_q13_n5_an_opening_inside_the_answer_is_not_its_frame(db):  # noqa: F811
+    # the reviewer's probe: the opening is contained, not the cut prefix
+    kw = await _send(db, "Bei MES nein. Zu OEE: ja, seit 2022.", _offered_from_build(), full=True)
+    assert kw["answer"] == "Bei MES nein. Zu OEE: ja, seit 2022."
+    assert kw["cut_opening"] is None
 
 
 @pytest.mark.asyncio
@@ -249,11 +258,38 @@ async def test_f8_the_bridge_puts_the_concept_into_new_information():
             provider=MagicMock(), session_id="s",
             offered_choices=[{"text": "Zu OEE:", "names_without_claiming": [], "states_no_to": [],
                               "answers_concept": "OEE"}],
+            cut_opening="Zu OEE:",
         )
     assert captured["offered_choices"] == [{"text": "Zu OEE:", "names_without_claiming": [],
                                             "states_no_to": [], "answers_concept": "OEE"}]
     # next to the answer it frames (held-out replay: the yes named OEE 0/3 → 3/3)
     assert captured["answer_about"] == "OEE"
+
+
+@pytest.mark.asyncio
+async def test_md_q13_n5_the_bridge_frames_nothing_without_a_cut_prefix():
+    from applire.services.profile.reconcile import interview_bridge as ib
+
+    captured = {}
+
+    async def _stop(before, new_info, *_a, **_k):
+        captured.update(new_info)
+        raise RuntimeError("stop")
+
+    record = MagicMock()
+    record.profile_json = {}
+    with patch.object(ib, "reconcile", new=_stop), pytest.raises(RuntimeError):
+        await ib.reconcile_interview_turn(
+            MagicMock(), profile_record=record, gap="Digitale Produktion",
+            question="… MES-Systemen, OEE …?", answer="Bei MES nein. Zu OEE: ja, seit 2022.",
+            provider=MagicMock(), session_id="s",
+            offered_choices=[{"text": "Zu OEE:", "names_without_claiming": [], "states_no_to": [],
+                              "answers_concept": "OEE"}],
+            cut_opening=None,
+        )
+    assert "answer_about" not in captured
+    assert captured["offered_choices"] == [{"text": "Zu OEE:", "names_without_claiming": [],
+                                            "states_no_to": []}]
 
 
 def test_f8_the_reconcile_rule_scopes_a_bare_no_to_that_concept():

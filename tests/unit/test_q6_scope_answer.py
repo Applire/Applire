@@ -443,3 +443,129 @@ def test_md_q11_a_met_bar_sentence_the_classifier_quotes_binds_nothing():
 
     assert scope_answer_limit(ANSWER_ID, MET, _SCOPE, _answers(MET), bar=_BAR) is None
     assert scope_answer_limit(ANSWER_ID, QUOTE, _SCOPE, _answers(), bar=_BAR) is not None
+
+
+# MD-Q13 N1 (re-check at c2d4427f): on a step bound to the person's stored ANSWER the
+# rail accepts a letter sentence only when every content word of its step clause is
+# the person's (inflection, grammar words and word order aside; the figure may be
+# completed by its unit), and no negation of the person's sentence is dropped. The
+# reviewer's probe_j pairs, then the captured letter sentences.
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("statement, letter, verdict", [
+    # a met bar presented as a step: the step words are the writer's
+    ("120 Mitarbeitende zu führen wäre für mich nichts Neues.",
+     "120 Mitarbeitende zu führen wäre für mich der nächste Schritt.", "unbacked"),
+    # a dropped negation
+    ("120 Mitarbeitende zu führen wäre kein Problem für mich.",
+     "120 Mitarbeitende zu führen wäre für mich ein Problem.", "unbacked"),
+    # every word the person's, inflection aside: the rail accepts it (whether this
+    # sentence should have been bound is the binding's question, F4)
+    ("Ich habe 120 Mitarbeitende geführt, das wäre jetzt der nächste Schritt weiter.",
+     "120 Mitarbeitende zu führen wäre jetzt der nächste Schritt.", "grounded"),
+    # the frame negation "noch nicht" is the step frame, not a negation to keep
+    ("Die dauerhafte Spanne von 120 hatte ich noch nicht, sie wäre der nächste Schritt.",
+     "Die dauerhafte Spanne von 120 Mitarbeitenden wäre der nächste Schritt.", "grounded"),
+])
+async def test_md_q13_n1_the_step_words_are_the_persons(statement, letter, verdict):
+    assert await _verdicts(letter, ledger=_answer_ledger(statement)) == [verdict]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("letter, verdict", [
+    # the figure completed by its unit, an inflected word: still the person's words
+    ("Die dauerhafte Spanne von 120 Mitarbeitenden wäre für mich der nächste Schritt.", "grounded"),
+    ("Eine dauerhafte Spanne von 120 wäre für mich ein nächster Schritt.", "grounded"),
+    # the captured letters (Q6 run 2 delivered; delivery-2a rerun rec 347): "Führungsspanne"
+    # is the bar's own stored concept name — MD-Q14: it names WHAT the step refers to
+    ("Die dauerhafte Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt, "
+     "genau deshalb reizt mich die Stelle.", "grounded"),
+    ("Die dauerhafte Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt.",
+     "grounded"),
+    # "Führung" is neither the person's word nor the label's ("Führungsspanne")
+    ("Die dauerhafte Führung von 120 Mitarbeitenden wäre für mich der nächste Schritt.", "unbacked"),
+])
+async def test_md_q13_n1_the_captured_german_letters(letter, verdict):
+    assert await _verdicts(letter) == [verdict]
+
+
+_EN_ANSWER = "The permanent span of 120 would be my next step, which is exactly why this role appeals to me."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("letter, verdict", [
+    # delivery-2a rerun recs 376/378/386/388: the person's own English sentence, its
+    # "…, which …" clause included — red before (a relative clause after a comma)
+    (_EN_ANSWER, "grounded"),
+    # a translation / paraphrase of the step is never the person's words (known limit:
+    # an English letter cannot carry a step bound to a German answer)
+    ("Permanent responsibility for 120 employees would be my next step.", "unbacked"),
+])
+async def test_md_q13_n1_the_english_answer(letter, verdict):
+    from applire.services.oracle import audit_document
+
+    report = await audit_document("cover_letter", _miss_profile(), text=letter,
+                                  keyword_ledger=_answer_ledger(_EN_ANSWER), document_language="en")
+    assert [c.verdict.verdict for c in report.claims if "120" in c.claim.text] == [verdict]
+
+
+# MD-Q14: the bar's stored label (concept name + unit) is the only other source ----------
+
+def _labelled_ledger(concept, *, statement=QUOTE, extra=()):
+    row = _scope_row(limit={"id": concept, "statement": statement, "source": "scope_answer"})
+    return [{**row, "concept": concept}, *extra]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("letter", [
+    # the step clause adds a claim word the person never said: never the label's
+    "Die dauerhafte Führungsspanne von 120 Mitarbeitenden wäre für mich erfolgreich der nächste Schritt.",
+    "Die bereits dauerhafte Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt.",
+    "Die dauerhafte verantwortete Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt.",
+    # a word of the posting at large (the bar's own quote beyond its unit) is not the label
+    "Die dauerhafte Gesamtverantwortung von 120 Mitarbeitenden wäre für mich der nächste Schritt.",
+    "Die dauerhafte Führungsspanne von 120 Mitarbeitenden im Mehrschichtbetrieb wäre für mich "
+    "der nächste Schritt.",
+])
+async def test_md_q14_the_label_adds_no_claim_and_no_posting_word(letter):
+    assert await _verdicts(letter) == ["unbacked"]
+
+
+@pytest.mark.asyncio
+async def test_md_q14_a_label_does_not_smuggle_a_claim():
+    """A bar label carrying assertion-like words lends only its naming words."""
+    concept = "Erfolgreich verantwortete Führungsspanne ~120 MA"
+    ledger = _labelled_ledger(concept)
+    named = "Die dauerhafte Führungsspanne von 120 Mitarbeitenden wäre für mich der nächste Schritt."
+    smuggled = ("Die dauerhafte erfolgreich verantwortete Führungsspanne von 120 Mitarbeitenden "
+                "wäre für mich der nächste Schritt.")
+    assert await _verdicts(named, ledger=ledger) == ["grounded"]
+    assert await _verdicts(smuggled, ledger=ledger) == ["unbacked"]
+
+
+@pytest.mark.asyncio
+async def test_md_q14_no_words_from_another_requirement():
+    # another bar with its own bound answer: its label lends nothing to the 120 step
+    other = {**_scope_row(limit={"id": "Werksleitung", "source": "scope_answer",
+                                 "statement": "Eine Werksleitung über 300 wäre der nächste Schritt."}),
+             "concept": "Werksleitung Mehrschichtbetrieb"}
+    other["bar"] = {**other["bar"], "value": 300.0, "quote": "Werksleitung (ca. 300 Mitarbeitende)."}
+    ledger = _labelled_ledger(_SCOPE, extra=[other])
+    letter = "Die dauerhafte Werksleitung von 120 Mitarbeitenden wäre für mich der nächste Schritt."
+    assert await _verdicts(letter, ledger=ledger) == ["unbacked"]
+
+
+def test_md_q14_label_words_and_the_unit_at_the_figure():
+    from applire.services.oracle.audit import _bar_unit_at_figure, _step_label_words, _step_stem
+
+    assert _bar_unit_at_figure({"kind": "team_size", "value": 120.0,
+                                "quote": "Gesamtverantwortung (ca. 120 Mitarbeitende, Mehrschichtbetrieb)."}
+                               ) == "Mitarbeitende"
+    # a non-unit word after the figure is not the label's
+    assert _bar_unit_at_figure({"kind": "team_size", "value": 120.0, "quote": "ca. 120 Standorte"}) == ""
+    assert _bar_unit_at_figure({"kind": "budget", "value": 5.0, "quote": "Budget von 5 Mio. EUR"}) == "Mio"
+    # a budget bar lends its noun and currency; a claim word never
+    assert _step_label_words("Budgetverantwortung ~5 Mio EUR") == {
+        _step_stem("budgetverantwortung"), _step_stem("mio"), _step_stem("eur")}
+    assert _step_label_words("Nachgewiesene erfolgreiche Führungsspanne bereits 120") == {
+        _step_stem("führungsspanne")}

@@ -130,6 +130,19 @@ def _to_summary(conflict: Conflict, profile: MasterProfileData | None) -> Confli
     )
 
 
+def _frames_answer(choice: dict, cut_opening: str | None) -> bool:
+    """MD-Q13 N5: ``choice`` is the opening cut as the answer's prefix and
+    carries the concept it asked about."""
+    concept = choice.get("answers_concept")
+    return (
+        isinstance(cut_opening, str)
+        and isinstance(choice.get("text"), str)
+        and choice["text"].strip() == cut_opening.strip()
+        and isinstance(concept, str)
+        and bool(concept.strip())
+    )
+
+
 async def reconcile_interview_turn(
     db: AsyncSession,
     *,
@@ -143,6 +156,7 @@ async def reconcile_interview_turn(
     record_source: str = _SOURCE,
     intake: str = "interview",
     offered_choices: list[dict] | None = None,
+    cut_opening: str | None = None,
     document_kind: str | None = None,
     document_id: str | None = None,
 ) -> InterviewTurnResult:
@@ -190,9 +204,11 @@ async def reconcile_interview_turn(
                 # UAT-2 (ADR-064 amended 2026-11-08): a sent honest bridge's no.
                 "states_no_to": list(c.get("states_no_to") or []),
                 # MD-Q11 F8: a clicked opening's concept, structurally — the
-                # answer after "Zu OEE:" is about OEE, whatever the question named.
+                # answer after "Zu OEE:" is about OEE, whatever the question
+                # named. MD-Q13 N5: only for the opening cut as the answer's
+                # PREFIX ("Bei MES nein. Zu OEE: ja" is not about OEE only).
                 **({"answers_concept": c["answers_concept"]}
-                   if isinstance(c.get("answers_concept"), str) and c["answers_concept"].strip() else {}),
+                   if _frames_answer(c, cut_opening) else {}),
             }
             for c in offered_choices
             if isinstance(c, dict) and isinstance(c.get("text"), str)
@@ -201,9 +217,7 @@ async def reconcile_interview_turn(
     about = {
         c["answers_concept"].strip()
         for c in offered_choices or []
-        if isinstance(c, dict)
-        and isinstance(c.get("answers_concept"), str)
-        and c["answers_concept"].strip()
+        if isinstance(c, dict) and _frames_answer(c, cut_opening)
     }
     if len(about) == 1:
         new_info["answer_about"] = next(iter(about))

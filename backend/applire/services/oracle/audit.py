@@ -2025,6 +2025,11 @@ class ScopeStep:
     #: when the bound limit is the person's stored answer to the bar's scope
     #: question (no recorded denial behind it); ``""`` for a recorded denial.
     source: str = ""
+    #: MD-Q14: the bar's own stored label — the scope requirement's concept name
+    #: and the unit the ledger holds at its figure ("Führungsspanne ~120 MA",
+    #: "Mitarbeitende"). It names WHAT the step refers to; see
+    #: :func:`_step_label_words` for what of it a step clause may use.
+    label: str = ""
 
     @property
     def persons_text(self) -> str:
@@ -2121,15 +2126,25 @@ def _step_sentence_clauses(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _scope_step_sentence_ok(claim_text: str, limit_words: set[str], limit_plain: set[str]) -> bool:
+def _scope_step_sentence_ok(
+    claim_text: str, limit_words: set[str], limit_plain: set[str],
+    *, persons: str | None = None, kind: str = "",
+) -> bool:
     """MD-Q6 R2: the WHOLE sentence, not only the figure's clause. A clause that
     restates the limit adds no negation/past/attainment of its own; every other
-    clause points nothing back at the step."""
+    clause points nothing back at the step.
+
+    MD-Q13 N1: for a step bound to the person's stored answer (``persons``), a
+    clause made only of that answer's own words (:func:`_step_words_are_persons`)
+    is theirs, whatever it starts with — "…, which is exactly why this role
+    appeals to me" is the person's sentence (delivery-2a, English answer)."""
     for sep, clause in _step_sentence_clauses(claim_text):
         if _restates(clause, limit_words) and _scope_step_framed(clause):
             added = set(_words(_STEP_FRAME_NEGATION_RE.sub(" ", clause.casefold()))) - limit_plain
             if added & _STEP_ADDED_MARKERS:
                 return False
+            continue
+        if persons is not None and _step_words_are_persons(clause, persons, kind):
             continue
         words = _words(clause)
         if set(words) & _STEP_BACKREF_TOKENS:
@@ -2150,6 +2165,136 @@ def _scope_step_rest(claim_text: str, scope_steps: list[ScopeStep] | None) -> st
         if not any(_restates(clause, w) for w in limits)
     ]
     return "; ".join(rest)
+
+
+# MD-Q13 N1 (re-check at c2d4427f): for a step bound to the person's stored
+# ANSWER the 0.6 overlap of (2) and the frame words of (3) were lexical — "120
+# Mitarbeitende zu führen wäre für mich nichts Neues." grounded "… wäre für mich
+# der nächste Schritt.", "… wäre kein Problem" grounded "… wäre ein Problem".
+# Ruling Q2-2 ("own recorded words") applied strictly: EVERY content word of the
+# step clause is a word of the person's bound sentence (function words,
+# inflection and word order may differ; the figure may be completed by its unit,
+# "120" → "120 Mitarbeitenden"), and every negation of that sentence is kept.
+# The frame check (3) stays as a second condition. A recorded DENIAL is the
+# person's "not yet" by construction and keeps the overlap measure.
+_STEP_FUNCTION_WORDS = frozenset({
+    # DE articles, pronouns, prepositions, conjunctions, auxiliaries, particles
+    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer",
+    "eines", "ich", "mich", "mir", "mein", "meine", "meinen", "meinem", "meiner",
+    "meines", "wir", "uns", "unser", "unsere", "sie", "es", "er", "ihr", "ihre", "dies",
+    "diese", "dieser", "dieses", "diesen", "diesem", "von", "vom", "zu", "zum", "zur",
+    "mit", "für", "bei", "beim", "auf", "an", "am", "in", "im", "aus", "nach", "über",
+    "um", "als", "wie", "und", "oder", "aber", "sowie", "dass", "da", "so", "auch",
+    "wäre", "wären", "würde", "würden", "ist", "sind", "war", "waren", "sein", "habe",
+    "hat", "hatte", "hätte", "werde", "wird", "werden", "kann", "könnte",
+    # EN
+    "the", "a", "an", "i", "me", "my", "mine", "we", "us", "our", "it", "its", "this",
+    "that", "these", "those", "of", "to", "for", "with", "at", "on", "in", "by", "from",
+    "as", "and", "or", "but", "so", "also", "would", "will", "be", "is", "are", "was",
+    "were", "been", "have", "has", "had", "could", "can",
+})
+_STEP_NEGATION_RE = re.compile(r"^(?:nicht|nichts|kein\w*|nie|niemals|not|no|never|none|nothing)$")
+_STEP_SUFFIXES = ("innen", "enden", "ende", "ern", "en", "em", "er", "es", "e", "n", "s")
+_STEP_MAGNITUDE_WORDS = frozenset({
+    "mio", "millionen", "million", "millions", "mrd", "milliarden", "tsd", "tausend",
+    "thousand", "k", "m", "eur", "euro", "chf", "franken", "usd", "dollar", "gbp", "pfund",
+})
+
+
+def _step_stem(word: str) -> str:
+    """A crude inflection fold, applied to both sides alike: "Mitarbeitenden" ~
+    "Mitarbeitende", "nächsten" ~ "nächste", "geführt" ~ "führen". It never
+    joins a compound to its head ("Führungsspanne" stays apart from "Spanne")."""
+    w = word.casefold()
+    if w.startswith("ge") and len(w) > 6:  # participle: "geführt" ~ "führen"
+        w = w[2:]
+    for suf in _STEP_SUFFIXES:
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            w = w[: -len(suf)]
+            break
+    if w.endswith("t") and len(w) > 4:
+        w = w[:-1]
+    return w
+
+
+def _step_negations(words: list[str]) -> set[str]:
+    return {"kein" if w.startswith("kein") else w for w in words if _STEP_NEGATION_RE.match(w)}
+
+
+#: MD-Q14: words a bar's label may carry that would make a CLAIM about the person
+#: rather than name the requirement ("Erfolgreich verantwortete Führungsspanne",
+#: "proven leadership"). A label word on this list never counts as the label's —
+#: the step clause may then use it only where the person's own sentence has it.
+#: Closed list; a miss fails toward accepting a posting word, so it is kept wide.
+_STEP_LABEL_CLAIM_RE = re.compile(
+    r"^(?:erfolgreich\w*|nachgewiesen\w*|langjährig\w*|mehrjährig\w*|umfangreich\w*|"
+    r"fundiert\w*|ausgewiesen\w*|bewährt\w*|verantwort\w*|geführt\w*|geleitet\w*|"
+    r"geleistet\w*|erreicht\w*|bereits|schon|bisher|erfahren\w*|sicher\w*|stark\w*|"
+    r"successful\w*|proven|demonstrated|extensive|experienced|seasoned|track|record|"
+    r"led|managed|owned|responsible|responsibility|already|achieved|reached|held|strong)$"
+)
+
+
+def _bar_unit_at_figure(bar: dict[str, Any]) -> str:
+    """The unit word the bar's own quote writes right after its figure
+    ("ca. 120 Mitarbeitende" → "Mitarbeitende"), or ``""``."""
+    quote = str(bar.get("quote") or "")
+    value = bar.get("value")
+    if not quote or not isinstance(value, (int, float)):
+        return ""
+    figure = str(int(value)) if float(value).is_integer() else str(value)
+    m = re.search(r"(?<![\d.,])" + re.escape(figure) + r"(?![\d])\s*([^\W\d_]+)", quote)
+    word = m.group(1) if m else ""
+    kind = bar.get("kind")
+    if kind == "team_size" and word and _people_unit(word):
+        return word
+    if kind == "budget" and word.casefold() in _STEP_MAGNITUDE_WORDS:
+        return word
+    return ""
+
+
+def _step_label_words(label: str) -> set[str]:
+    """MD-Q14: the stems of the bar label's naming words — its content words,
+    never a figure, a grammar word or a claim word (``_STEP_LABEL_CLAIM_RE``)."""
+    return {
+        _step_stem(w)
+        for w in _words(label)
+        if not w.isdigit() and w not in _STEP_FUNCTION_WORDS and not _STEP_LABEL_CLAIM_RE.match(w)
+    }
+
+
+def _step_words_are_persons(clause: str, persons: str, kind: str, label: str = "") -> bool:
+    """MD-Q13 N1: every content word of ``clause`` is one of the person's own
+    (inflection aside), the figure's unit excepted, and no negation of the
+    person's sentence is dropped. Frame negations ("noch/bisher nicht",
+    "not yet") are the step frame itself and are read by (3), not here.
+
+    MD-Q14: OR a naming word of the bar's own stored ``label`` (the scope
+    requirement's concept name and unit) — "Führungsspanne von 120
+    Mitarbeitenden" names WHAT the step refers to and claims nothing about the
+    person. Nothing else of the posting counts."""
+    person_words = _words(_STEP_FRAME_NEGATION_RE.sub(" ", persons.casefold()))
+    person_stems = {_step_stem(w) for w in person_words} | _step_label_words(label)
+    words = _words(_STEP_FRAME_NEGATION_RE.sub(" ", clause.casefold()))
+    for i, w in enumerate(words):
+        if w in _STEP_FUNCTION_WORDS or _STEP_NEGATION_RE.match(w):
+            continue
+        prev = words[i - 1] if i else ""
+        if prev.isdigit() and (
+            (kind == "team_size" and _people_unit(w)) or (kind == "budget" and w in _STEP_MAGNITUDE_WORDS)
+        ):
+            continue  # the figure completed by its unit: "120" → "120 Mitarbeitenden"
+        if kind == "budget" and w in _STEP_MAGNITUDE_WORDS and prev in _STEP_MAGNITUDE_WORDS:
+            continue  # "5 Mio. Euro"
+        if w not in person_words and _step_stem(w) not in person_stems:
+            return False
+    return _step_negations(person_words) <= _step_negations(words)
+
+
+def _people_unit(word: str) -> bool:
+    from applire.services.scope_requirements import _PEOPLE_AFTER_RE
+
+    return bool(_PEOPLE_AFTER_RE.match(word))
 
 
 def _restates(clause: str, limit_words: set[str]) -> bool:
@@ -2185,9 +2330,12 @@ def scope_steps_from_ledger(
         figures = frozenset(_bar_figures(bar))
         if figures:
             source = SCOPE_ANSWER_STEP_SOURCE if limit.get("source") == SCOPE_ANSWER_STEP_SOURCE else ""
+            label = " ".join(
+                str(x) for x in (entry.get("concept"), _bar_unit_at_figure(bar)) if x
+            )
             steps.append(ScopeStep(figures=figures, statement=statement.strip(),
                                    limit_id=lid.strip(), kind=str(bar.get("kind") or ""),
-                                   source=source))
+                                   source=source, label=label))
     return steps
 
 
@@ -2239,6 +2387,10 @@ def _scope_step_backing(
             words = _denial_content_tokens(persons)
             if not all(_scope_step_framed(c) and _restates(c, words) for c in clauses):
                 continue
+            if from_answer and not all(
+                _step_words_are_persons(c, persons, step.kind, step.label) for c in clauses
+            ):
+                continue  # MD-Q13 N1: the step's words are the person's, never the writer's
             # MD-Q6 R2: the figure carries a unit of the bar's kind right at it
             # ("120 Kunden" is no span) — unless it is written exactly as the
             # person wrote it (wave 1b delivery: Stefan's own "Die dauerhafte
@@ -2251,7 +2403,10 @@ def _scope_step_backing(
             ):
                 continue
             plain = set(_words(persons))
-            if not _scope_step_sentence_ok(claim_text, words, plain):
+            if not _scope_step_sentence_ok(
+                claim_text, words, plain,
+                persons=persons if from_answer else None, kind=step.kind,
+            ):
                 continue
             unit = (
                 EvidenceUnit(

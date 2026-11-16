@@ -91,6 +91,7 @@ from applire.services.ats_audit import (
     _CORPUS_FRAGMENT_BOUNDARY,
     _fold_variants,
     _norm,
+    _norm_cased,
     surface_present,
 )
 from applire.services.profile.reconcile.ops import (
@@ -807,17 +808,22 @@ def _testimony_texts(new_info: Any, source: str) -> tuple[str, str] | None:
     return answer, turn
 
 
-def _grounding_corpus(new_info: Any, source: str) -> str | None:
+def _grounding_corpus(new_info: Any, source: str, *, cased: bool = False) -> str | None:
     """Normalised grounding text for interview turns; None otherwise.
 
     Thin wrapper over :func:`_raw_grounding_text` — the raw text is the single
     source, normalised here ONLY, so the two can never drift apart.
+    ``cased=True`` skips only the case fold (``ats_audit._norm_cased``): the
+    employer guard tells the name "Neue Energie" from the word "neue" by case
+    (MD-Q13 N3).
     """
     raw = _raw_grounding_text(new_info, source)
-    return _norm(raw) if raw is not None else None
+    if raw is None:
+        return None
+    return _norm_cased(raw) if cased else _norm(raw)
 
 
-def _answer_corpus(new_info: Any, source: str) -> str | None:
+def _answer_corpus(new_info: Any, source: str, *, cased: bool = False) -> str | None:
     """Normalised ANSWER half of an interview turn; None outside the doors.
 
     The same normalisation as :func:`_grounding_corpus`, over the half
@@ -825,7 +831,9 @@ def _answer_corpus(new_info: Any, source: str) -> str | None:
     PERSON named, where the question's words must not count as theirs.
     """
     texts = _testimony_texts(new_info, source)
-    return _norm(texts[0]) if texts is not None else None
+    if texts is None:
+        return None
+    return _norm_cased(texts[0]) if cased else _norm(texts[0])
 
 
 _FIGURE_RE = re.compile(r"\d+(?:[.,]\d+)*")
