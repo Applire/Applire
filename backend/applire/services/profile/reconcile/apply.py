@@ -583,7 +583,10 @@ def apply_ops(
     kind_answered: dict[str, tuple[Any, Any]] = {}
     # Q8-1 (Sorbet wave 2b) — work-entry merges of this batch, target id → the
     # source ids merged into it; the class guard carries the stored kind.
-    kind_merged: dict[str, list[str]] = {}
+    # Q8-1 / F6 (adv-2b) — the batch's work-entry merges IN ORDER, (target,
+    # source): a chain (w3 into w2, then w2 into w1) is replayed, never read
+    # per target from ``before``.
+    kind_merged: list[tuple[str, str]] = []
     # Q3-4 — work entries whose "Ersetzt" records an op of this batch changed.
     replace_touched: set[str] = set()
     extraction_review: ExtractionReview | None = None  # 783:L41
@@ -760,7 +763,7 @@ def apply_ops(
             # the two entry-identity bookkeeping writes.
             _apply_entry_ops(op, new_profile, changes)
             if isinstance(op, MergeEntries) and op.section == "work_experience":
-                kind_merged.setdefault(op.target_id, []).append(op.source_id)
+                kind_merged.append((op.target_id, op.source_id))
         elif isinstance(op, WithdrawDenial):
             # G-5 (ADR-059 amended 2026-10-24) — the explicit un-denial act.
             # Receipts on the denial channel, never `changes`.
@@ -4194,10 +4197,18 @@ def _restore_leadership_kind(before, after, changes, not_applied, answered, merg
         e.id: (e.leadership_kind, e.leadership_kind_record)
         for e in getattr(before, "work_experience", None) or []
     }
-    carried = {
-        target: _merged_kind(held, target, sources)
-        for target, sources in (merged or {}).items()
-    }
+    # F6 (adv-2b) — the merges replayed in batch order on the stored values: a
+    # source that is itself the target of an earlier merge in the batch carries
+    # its MERGED state (a kind conflict survives the chain, never a silent kind).
+    state = dict(held)
+    targets: list[str] = []
+    for target, source in merged or []:
+        state[target] = _merged_kind(state, target, [source])
+        state.pop(source, None)
+        targets = [t for t in targets if t != source]
+        if target not in targets:
+            targets.append(target)
+    carried = {target: state.get(target, (None, None)) for target in targets}
     restored: set[str] = set()
     silent: set[str] = set()  # Q8-1 carried targets: no not_applied, no other op's receipt
     for entry in after.work_experience:
@@ -4219,7 +4230,7 @@ def _restore_leadership_kind(before, after, changes, not_applied, answered, merg
             ))
     # A merged-away source no longer exists in ``after``; a receipt another op
     # wrote on its kind fields in this batch is no write that landed either.
-    silent |= {sid for sources in (merged or {}).values() for sid in sources}
+    silent |= {source for _target, source in merged or []}
     if not restored and not silent:
         return after, changes
     if restored:

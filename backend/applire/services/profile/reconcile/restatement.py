@@ -106,67 +106,151 @@ def _parse_pairs(data: Any) -> list[tuple[int, int, int]]:
     return pairs
 
 
-_DIGITS = re.compile(r"\d+")
-_TOKEN = re.compile(r"[^\W_][\w\-/.+#]*")
+#: A bullet's tokens: a word, a number, or a name with its ``+``/``#`` tail
+#: ("C++", "C#"); hyphens and slashes split ("SAP-Modul" -> "SAP", "Modul").
+_TOK = re.compile(r"\w+[+#]*")
+#: The new bullet's clause marks: a clause is the text between two of them.
+_CLAUSE_MARK = re.compile(r"[.;:!?,()\[\]\u2013\u2014]|\s-\s")
+#: Negation words (German, English) of ANY length. Lexical on purpose: it can
+#: only BLOCK a replace (MD-Q17 — a lexical blocker is acceptable because the
+#: failing side keeps both bullets).
+_NEGATORS = frozenset({
+    "nie", "niemals", "nicht", "nichts", "kein", "keine", "keinen", "keinem", "keiner",
+    "keines", "ohne", "weder", "niemand", "nirgends",
+    "no", "not", "never", "none", "nor", "neither", "without", "nothing", "nobody",
+    "cannot", "didn", "doesn", "don", "isn", "wasn", "aren", "weren", "hasn", "haven",
+    "hadn", "couldn", "wouldn", "shouldn",
+})
+#: Number words that bind to the word after them like a figure does.
+_NUMBER_WORDS = frozenset({
+    "ein", "eine", "einen", "einem", "einer", "zwei", "drei", "vier", "fünf", "sechs",
+    "sieben", "acht", "neun", "zehn", "elf", "zwölf", "dutzend", "hundert", "tausend",
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "eleven", "twelve", "dozen", "hundred", "thousand",
+})
 
 
-_PART = re.compile(r"[-/]")
+def _tokens(text: str) -> list[tuple[str, bool, int, int]]:
+    """``(folded token, exact, start, end)``: ``exact`` for a token whose spelling
+    is the fact itself — a number, a name (two capitals: "SAP", "KVP", "4HANA"),
+    a negation or a number word — which never matches another ending."""
+    out = []
+    for m in _TOK.finditer(text or ""):
+        tok = m.group()
+        folded = tok.casefold()
+        exact = (
+            any(c.isdigit() for c in tok) or sum(c.isupper() for c in tok) >= 2
+            or folded in _NEGATORS or folded in _NUMBER_WORDS
+        )
+        out.append((folded, exact, m.start(), m.end()))
+    return out
 
 
-def _parts(text: str) -> list[str]:
-    """The text's tokens split at hyphens and slashes, trailing dots stripped."""
-    return [p.rstrip(".") for tok in _TOKEN.findall(text or "") for p in _PART.split(tok) if p.rstrip(".")]
-
-
-def _name_like(text: str) -> set[str]:
-    """Parts that name something: a part carrying a digit or two capitals
-    (ISO, 45001, SAP, KVP, HGB, S/4HANA's 4HANA), casefolded."""
-    return {
-        p.casefold() for p in _parts(text)
-        if any(c.isdigit() for c in p) or sum(c.isupper() for c in p) >= 2
-    }
-
-
-_WORD = re.compile(r"\w+")
-#: A word of the old bullet shorter than this need not reappear (articles,
-#: "und", "von", "for"); every longer one must.
-MIN_KEPT_WORD = 4
+#: The inflection endings two spellings of one word may differ by ("Werk" /
+#: "Werke", "fachliche" / "fachlichen", "reduziert" / "reduzierte").
+_ENDINGS = frozenset({"", "e", "n", "en", "er", "es", "s", "em", "ern", "ed", "d"})
 
 
 def _same_word(a: str, b: str) -> bool:
-    """Equal, or the same word with another ending (both at least four letters,
-    lengths within two, differing only after the common stem)."""
+    """Equal, or one word with another inflection ending: a common stem of at
+    least four letters and both rests in ``_ENDINGS`` ("Hand" is not "Handel")."""
     if a == b:
         return True
-    short = min(len(a), len(b))
-    if short < 4 or abs(len(a) - len(b)) > 2:
-        return False
-    common = 0
-    for x, y in zip(a, b):
-        if x != y:
+    for cut in range(4, min(len(a), len(b)) + 1):
+        if a[:cut] != b[:cut]:
             break
-        common += 1
-    return common >= short - 1
+        if a[cut:] in _ENDINGS and b[cut:] in _ENDINGS:
+            return True
+    return False
+
+
+def _in_order(old: list, new: list) -> list[int] | None:
+    """The positions in ``new`` where EVERY token of ``old`` reappears, in
+    order (the leftmost such placement), or ``None``. An exact token matches
+    only itself; another token may differ in its ending. A number or number
+    word stays bound to the token after it: the two are adjacent in ``new``
+    too ("14 Mitarbeitende" is not "14 Projekte mit Mitarbeitende")."""
+    n, m = len(old), len(new)
+
+    def same(i: int, k: int) -> bool:
+        o, n_ = old[i], new[k]
+        return o[0] == n_[0] if (o[1] or n_[1]) else _same_word(o[0], n_[0])
+
+    def bound(i: int) -> bool:
+        tok = old[i][0]
+        return i + 1 < n and (any(c.isdigit() for c in tok) or tok in _NUMBER_WORDS)
+
+    memo: dict[tuple[int, int], bool] = {}
+
+    def at(i: int, k: int) -> bool:
+        """``old[i]`` placed at ``new[k]`` and the rest placeable after it."""
+        key = (i, k)
+        if key not in memo:
+            ok = same(i, k)
+            if ok and i + 1 < n:
+                if bound(i):
+                    ok = k + 1 < m and at(i + 1, k + 1)
+                else:
+                    ok = any(at(i + 1, k2) for k2 in range(k + 1, m))
+            memo[key] = ok
+        return memo[key]
+
+    placed: list[int] = []
+    k = 0
+    for i in range(n):
+        if placed and bound(i - 1):
+            k = placed[-1] + 1
+            if not (k < m and at(i, k)):
+                return None
+            placed.append(k)
+            continue
+        while k < m and not at(i, k):
+            k += 1
+        if k >= m:
+            return None
+        placed.append(k)
+        k += 1
+    return placed
+
+
+def _adds_negation(new_text: str, new: list, placed: list[int]) -> bool:
+    """A negation word of ``new`` that no old token placed, in a clause of
+    ``new`` that holds an old token."""
+    marks = [m.start() for m in _CLAUSE_MARK.finditer(new_text)]
+
+    def clause(pos: int) -> int:
+        return sum(1 for x in marks if x < pos)
+
+    held = {clause(new[k][2]) for k in placed}
+    used = set(placed)
+    return any(
+        tok[0] in _NEGATORS and k not in used and clause(tok[2]) in held
+        for k, tok in enumerate(new)
+    )
 
 
 def blocking_check(old: str, new: str) -> str | None:
-    """Q3-4's structural test that the new bullet KEEPS the old one: the name of
-    the first check it fails, or ``None``. Every word of the old bullet with at
-    least ``MIN_KEPT_WORD`` letters reappears in the new one (another ending is
-    the same word; a split or joined compound is not), and so do every figure
-    (``extract_figures``, kind + value), every digit run and every name-like
-    part. It only ever BLOCKS a replace — the failing side keeps both bullets."""
-    new_words = [w.casefold() for w in _WORD.findall(new or "")]
-    for w in (x.casefold() for x in _WORD.findall(old or "")):
-        if len(w) >= MIN_KEPT_WORD and not any(_same_word(w, v) for v in new_words):
-            return "words"
+    """Q3-4's structural test that the new bullet KEEPS the old one (MD-Q17,
+    adversarial finding F5): the name of the first check it fails, or ``None``.
+
+    * ``order`` — EVERY token of the old bullet (short words, negations and
+      number words included) reappears in the new one as an in-order
+      subsequence (:func:`_in_order`; a figure stays next to its word);
+    * ``negation`` — the new bullet adds no negation word to a clause that
+      holds an old token;
+    * ``figure`` — every figure of the old bullet (``extract_figures``: kind and
+      value, so "30 %" is not "30 Tonnen") is a figure of the new one.
+
+    It only ever BLOCKS a replace: any doubt keeps both bullets."""
+    old_toks, new_toks = _tokens(old), _tokens(new)
+    placed = _in_order(old_toks, new_toks) if old_toks else None
+    if placed is None:
+        return "order"
+    if _adds_negation(new or "", new_toks, placed):
+        return "negation"
     figs_new = {(f.kind, f.value) for f in extract_figures(new)}
     if any((f.kind, f.value) not in figs_new for f in extract_figures(old)):
         return "figure"
-    if not set(_DIGITS.findall(old)) <= set(_DIGITS.findall(new)):
-        return "digits"
-    if not _name_like(old) <= {p.casefold() for p in _parts(new)}:
-        return "name"
     return None
 
 
