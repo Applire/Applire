@@ -37,9 +37,13 @@ evidence (ADR-061 / ADR-048 as amended).
 
 **MD-Q17 (adversarial finding F7): the words must be a CLAIM, not just present.**
 Every kept window — the name, the own words of a composition, the ``said``
-phrase — lies inside ONE sentence of the answer, and that sentence is
-affirmative: it holds no negation ("I never did penetration testing") and no
-wish or hypothetical ("Ich würde gern Kubernetes lernen"). The stored name
+phrase — lies inside ONE sentence of the answer, no negation or wish word
+precedes it in that sentence ("I never did penetration testing and security
+audits"), and none stands in its own clause ("Mit Kubernetes habe ich nie
+gearbeitet", "Ich würde gern Kubernetes lernen"). MD-Q18: a negation only in a
+LATER clause (split at punctuation and and/und/but/aber/sondern/or/oder) does
+not block ("familiar with least-privilege IAM … and have no formal
+certification"). The stored name
 holds at least one content word ("habe das nie" holds none). A composition with
 a held skill's words ("SAP" + "MM") needs the op's ``said`` phrase in an
 affirmative sentence and the own words inside that same sentence. The word
@@ -120,33 +124,63 @@ def _same_word(a: str, b: str) -> bool:
     return common >= short - 1
 
 
-def _sentences(answer: str) -> list[tuple[int, int, bool]]:
-    """``(start, end, affirmative)`` per sentence of the answer: a sentence is
-    affirmative when it holds no negation and no wish word."""
+#: Clause marks inside a sentence: punctuation and a coordinating conjunction.
+#: Never a colon: what follows it speaks ABOUT what precedes ("Zu OEE: da war
+#: ich nicht beteiligt").
+_CLAUSE_MARK = re.compile(
+    r"[,()\[\]\u2013\u2014]|\b(?:and|und|but|aber|sondern|or|oder)\b", re.IGNORECASE,
+)
+
+
+def _sentences(answer: str) -> list[tuple[int, int, list[int], list[tuple[int, int]]]]:
+    """``(start, end, blockers, clauses)`` per sentence of the answer:
+    ``blockers`` are the offsets of its negation and wish words, ``clauses``
+    the spans between its clause marks."""
     raw = unicodedata.normalize("NFC", answer)
     out, start = [], 0
     for m in [*_SENTENCE_END.finditer(raw), None]:
         end = m.end() if m else len(raw)
-        words = {w.casefold() for w in _WORD.findall(raw[start:end])}
         if raw[start:end].strip():
-            out.append((start, end, not (words & _NEGATORS or words & _WISH)))
+            blockers = [
+                start + w.start() for w in _WORD.finditer(raw[start:end])
+                if w.group().casefold() in _NEGATORS or w.group().casefold() in _WISH
+            ]
+            cuts = [start, *(start + c.start() for c in _CLAUSE_MARK.finditer(raw[start:end])), end]
+            out.append((start, end, blockers, list(zip(cuts, cuts[1:]))))
         start = end
     return out
 
 
+def _claimed(a: int, b: int, sentences) -> bool:
+    """MD-Q18 — the window ``[a, b)`` is a claim: it lies inside ONE sentence,
+    no negation or wish word PRECEDES it in that sentence ("I never did X and
+    Y" blocks both), and none stands in a clause the window touches, wherever
+    in that clause ("Mit Kubernetes habe ich nie gearbeitet"). A negation only
+    in a LATER clause leaves it ("I used IAM daily and have no formal
+    certification" keeps IAM)."""
+    for start, end, blockers, clauses in sentences:
+        if not (start <= a and b <= end):
+            continue
+        if any(x < a for x in blockers):
+            return False
+        touched = [(cs, ce) for cs, ce in clauses if cs < b and a < ce]
+        return not any(cs <= x < ce for x in blockers for cs, ce in touched)
+    return False
+
+
 def _claimed_phrase(
-    hay: list[tuple[str, int, int]], needle: list[str], sentences: list[tuple[int, int, bool]],
+    hay: list[tuple[str, int, int]], needle: list[str], sentences,
 ) -> tuple[int, int] | None:
     """The character span of the first contiguous window of ``hay`` whose words
-    are ``needle`` (word by word, :func:`_same_word`) and which lies inside ONE
-    affirmative sentence (MD-Q17), or ``None``."""
+    are ``needle`` (word by word, :func:`_same_word`) and which is a claim
+    (:func:`_claimed`, MD-Q17/MD-Q18), or ``None``."""
     k = len(needle)
     if not k or k > len(hay):
         return None
     for i in range(len(hay) - k + 1):
         if all(_same_word(hay[i + j][0], needle[j]) for j in range(k)):
             a, b = hay[i][1], hay[i + k - 1][2]
-            if any(s <= a and b <= e and ok for s, e, ok in sentences):
+            if _claimed(a, b, sentences):
                 return a, b
     return None
 

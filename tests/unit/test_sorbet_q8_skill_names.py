@@ -62,12 +62,35 @@ def test_a_name_that_is_a_phrase_of_the_answer_is_kept(name):
 
 
 @pytest.mark.parametrize("name", ["least-privilege IAM", "Financial data modelling"])
-def test_a_phrase_in_a_sentence_that_also_denies_is_not_stored(name):
-    """MD-Q17 cost, measured (3 of 95 replay turns): Daniel's real sentence
-    "I am familiar with least-privilege IAM on AWS and have no formal security
-    certification" holds a negation, so the whole sentence is doubt — no skill;
-    the bullets keep it."""
-    assert _run(DANIEL, _skill(name, said=name)) == []
+def test_a_negation_in_a_later_clause_does_not_block(name):
+    """MD-Q18: Daniel's "I am familiar with least-privilege IAM on AWS and have
+    no formal security certification" — the negation stands only in a later
+    clause, so the skill is stored (MD-Q17 dropped it: 4 of 95 replay turns)."""
+    assert [o.name for o in _run(DANIEL, _skill(name, said=name))] == [name]
+
+
+@pytest.mark.parametrize(("answer", "name", "said", "held"), [
+    ("Mit Kubernetes habe ich nie gearbeitet.", "Kubernetes", "Kubernetes", ()),          # same clause, after
+    ("I never did penetration testing and security audits.", "security audits", "security audits", ()),  # precedes
+    ("I never did penetration testing and security audits.", "penetration testing", None, ()),
+    ("Ich würde gern Kubernetes lernen und nutze Docker täglich.", "Kubernetes", None, ()),
+    ("Kein SAP MM, aber SAP PP seit 2019.", "SAP MM", "SAP MM", ("SAP",)),
+    # PP: "Kein" PRECEDES it in the sentence — blocked by the precede arm
+    ("Kein SAP MM, aber SAP PP seit 2019.", "SAP PP", "SAP PP", ("SAP",)),
+    # Docker: "würde gern" PRECEDES it in the sentence — the precede arm blocks it
+    # too (MD-Q18 rule (b); a second finite verb is not read)
+    ("Ich würde gern Kubernetes lernen und nutze Docker täglich.", "Docker", None, ()),
+])
+def test_md_q18_must_block(answer, name, said, held):
+    profile = MasterProfileData.model_validate(
+        {"skills": [{"id": f"h{i}", "name": n, "category": "technical"} for i, n in enumerate(held)]})
+    assert enforce_skill_names([_skill(name, said=said)], profile=profile,
+                               new_info={"answer": answer}, source="interview") == []
+
+
+def test_md_q18_a_later_clause_negation_keeps_the_skill():
+    out = _run("I used IAM daily and have no formal certification.", _skill("IAM"))
+    assert [o.name for o in out] == ["IAM"]
 
 
 @pytest.mark.parametrize("name", ["SAP MM", "SAP PP"])
