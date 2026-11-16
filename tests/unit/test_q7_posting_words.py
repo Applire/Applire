@@ -126,10 +126,13 @@ def test_a_stale_stamp_is_dropped_and_rows_are_not_mutated():
     assert rows == before
 
 
-def test_the_persons_own_denial_statement_counts_as_their_word():
-    """Delivery 2a (Daniel): "That is the infrastructure as code I did there; I did
-    not write the cluster provisioning itself" — filed under a denial. The coverage
-    corpus strips it; this predicate must not."""
+def test_denial_wording_is_the_persons_for_the_oracle_never_for_the_stamp():
+    """MD-Q17 F2. Delivery 2a (Daniel): "That is the infrastructure as code I did
+    there; I did not write the cluster provisioning itself" — filed under a
+    denial. The Oracle reads it as the person's own wording (his bullets stay
+    grounded); the stamp does not, because a word that occurs only inside a
+    denial is not held (2a run 2 cross: "I have no concrete assertive-leadership
+    example" left "Assertive leadership" unstamped and demanded)."""
     vault = copy.deepcopy(VAULT)
     vault["metadata"] = {"denied_concepts": [{
         "concept": "cluster provisioning",
@@ -138,8 +141,57 @@ def test_the_persons_own_denial_statement_counts_as_their_word():
     }]}
     row = {"concept": "Infrastructure as code", "surface_forms": [], "status": "partial",
            "claimable": True, "evidence": "Helm/ArgoCD"}
-    assert kl.posting_word_partial_rows([row], vault) == []
-    assert kl.posting_word_partial_rows([row], VAULT) == [row]
+    assert kl.posting_word_partial_rows([row], vault, with_denial_wording=True) == []
+    assert kl.posting_word_partial_rows([row], VAULT, with_denial_wording=True) == [row]
+    assert kl.posting_word_partial_rows([row], vault) == [row]
+    assert kl.stamp_posting_word_only([row], vault)[0].get(kl.POSTING_WORD_ONLY_KEY) is True
+
+    denial = copy.deepcopy(VAULT)
+    denial["metadata"] = {"denied_concepts": [{
+        "concept": "concrete assertive-leadership example",
+        "statement": "I have no concrete assertive-leadership example beyond leading the "
+                     "three shift leaders; I do not want to invent one.",
+    }]}
+    assertive = {"concept": "Assertive leadership", "surface_forms": ["Assertive leadership"],
+                 "status": "partial", "claimable": True, "evidence": "x"}
+    assert kl.stamp_posting_word_only([assertive], denial)[0].get(kl.POSTING_WORD_ONLY_KEY) is True
+
+
+def test_the_oracle_keeps_the_persons_denial_wording_as_theirs():
+    """The audit end of MD-Q17 F2: a bullet in the person's own denial wording
+    stays grounded, while the stamp (writer, reviewer, coverage) treats the
+    word as not held."""
+    vault = copy.deepcopy(VAULT)
+    vault["metadata"] = {"denied_concepts": [{
+        "concept": "Disziplinarische Budgetplanung",
+        "statement": "Die Instandhaltungsplanung habe ich verantwortet; disziplinarische "
+                     "Budgetplanung hatte ich nicht.",
+        "source": "interview", "date": "2026-11-01",
+    }]}
+    row = {"concept": "Instandhaltungsplanung", "surface_forms": ["Instandhaltungsplanung"],
+           "status": "partial", "claimable": True, "evidence": "x"}
+    bullet = "Verantwortete die Instandhaltungsplanung für zwei Fertigungsbereiche mit 38 Mitarbeitenden."
+    report = asyncio.run(build_self_audit_report(
+        vault, tailored_data=_tailored(HELD_HEADLINE, [bullet]), document_language="de",
+        keyword_ledger=[row]))
+    assert _row(report, bullet).verdict.detail_key != "postingTermNotHeld"
+    bare = asyncio.run(build_self_audit_report(
+        VAULT, tailored_data=_tailored(HELD_HEADLINE, [bullet]), document_language="de",
+        keyword_ledger=[row]))
+    assert _row(bare, bullet).verdict.detail_key == "postingTermNotHeld"
+
+
+def test_a_fragment_of_another_word_is_not_the_persons_word():
+    """MD-Q17 F1: the stamp reads whole tokens, like the Oracle's check."""
+    vault = copy.deepcopy(VAULT)
+    vault["work_experience"][0]["responsibilities"].append("Betriebssteuerung mit der Datenanalyseabteilung.")
+    for concept in ("Steuerung", "Analyse"):
+        row = {"concept": concept, "surface_forms": [concept], "status": "partial",
+               "claimable": True, "evidence": "x"}
+        assert kl.posting_word_partial_rows([row], vault) == [row], concept
+    held = {"concept": "Betriebssteuerung", "surface_forms": [], "status": "partial",
+            "claimable": True, "evidence": "x"}
+    assert kl.posting_word_partial_rows([held], vault) == []
 
 
 def test_an_acronym_spelling_of_the_persons_word_is_their_word():
@@ -201,6 +253,8 @@ def test_the_writer_block_marks_the_row_and_shows_the_profiles_own_words():
     block = kl.render_ledger_prompt_block(kl.stamp_posting_word_only(_ledger(), VAULT))
     line = next(ln for ln in block.splitlines() if ln.startswith("  - Führung und Entwicklung"))
     assert "PARTLY MET" in line and "never write" in line and QUOTE in line
+    # MD-Q17 F4: across languages the person's own word may be the translation
+    assert "unless it is the faithful translation of words the profile itself uses" in line
     assert "[forms:" not in line.split("—")[0]          # not rendered like a direct row
     direct = next(ln for ln in block.splitlines() if ln.startswith("  - Lean Management"))
     assert "PARTLY MET" not in direct
@@ -212,6 +266,7 @@ def test_the_reviewer_is_not_told_the_posting_word_is_truthfully_supported():
     block = kl.render_ledger_reviewer_block(kl.stamp_posting_word_only(_ledger(), VAULT))
     line = next(ln for ln in block.splitlines() if ln.startswith("  - Führung und Entwicklung"))
     assert "PARTLY MET" in line and "overstates" in line and "[forms:" not in line
+    assert "unless it faithfully translates words the profile itself uses" in line
     direct = next(ln for ln in block.splitlines() if ln.startswith("  - Lean Management"))
     assert "PARTLY MET" not in direct
 
@@ -296,6 +351,91 @@ def test_across_languages_the_posting_word_is_left_open_with_its_own_key():
         keys[same] = (out[0].verdict.verdict, out[0].verdict.detail_key)
     assert keys == {True: ("unverifiable", "postingTermNotHeld"),
                     False: ("unverifiable", "postingTermOtherLanguage")}
+
+
+# ── MD-Q17 F3: a headline carrying the posting's title needs a held title EQUAL to it
+
+def _with_role(role):
+    v = copy.deepcopy(VAULT)
+    v["work_experience"][0]["role"] = role
+    return v
+
+
+def test_the_posting_title_is_the_persons_only_when_a_held_title_equals_it():
+    from applire.services.oracle.posting_words import posting_title_unheld as unheld
+
+    # flagged: a seniority the person never held; a title held only in Vertretung
+    assert unheld("Senior Backend Engineer mit 10 Jahren Erfahrung", _with_role("Backend Engineer"),
+                  ("Senior Backend Engineer (m/w/d)",)) == "senior backend engineer"
+    assert unheld("Teamleiter Logistik mit 5 Jahren", _with_role("Teamleiter (in Vertretung)"),
+                  ("Teamleiter (m/w/d)",)) == "teamleiter"
+    # accepted: equal modulo case and gender markers; a posting title's context
+    # suffix; one alternative of a held role; inside a held title's occurrence
+    assert unheld("Senior Backend Engineer with 8 years", _with_role("Senior Backend Engineer"),
+                  ("Senior Backend Engineer — Payments Platform",)) is None
+    assert unheld("Controllerin mit 9 Jahren", _with_role("Controller"), ("Controller (w/m/d)",)) is None
+    assert unheld("Leiterin Operations mit 9 Jahren", _with_role("Leiter Operations"),
+                  ("Leiter*in Operations",)) is None
+    assert unheld("Schichtleiter mit 7 Jahren", _with_role("Fertigungsmeister / Schichtleiter"),
+                  ("Schichtleiter (m/w/d)",)) is None
+    assert unheld("Financial Controller mit 9 Jahren", _with_role("Financial Controller"),
+                  ("Controller (m/w/d)",)) is None
+    # the folds read the posting's title in more of its spellings (stricter only)
+    assert unheld("Controllerin mit 9 Jahren", _with_role("Junior Controller"),
+                  ("Controller (m/w/d)",)) == "controller"
+    assert unheld("Leiterin Operations mit 9 Jahren", _with_role("Produktionsleiter"),
+                  ("Leiter*in Operations",)) == "leiter operations"
+    assert unheld("Senior Backend Engineer with 8 years", _with_role("Backend Engineer"),
+                  ("Senior Backend Engineer — Payments Platform",)) == "senior backend engineer"
+    # no posting title, no posting title in the text: nothing to read
+    assert unheld("Senior Backend Engineer", _with_role("Backend Engineer"), ()) is None
+    assert unheld("Backend Engineer with 8 years", _with_role("Backend Engineer"),
+                  ("Senior Backend Engineer",)) is None
+
+
+def test_the_headline_check_reads_the_posting_title_threaded_to_the_audit():
+    vault = _with_role("Backend Engineer")
+    cv = {"contact": {"name": "Jan Muster", "email": "jan@example.com"},
+          "summary": "Senior Backend Engineer mit 10 Jahren Erfahrung in der diskreten Fertigung.",
+          "work_history": [{"id": WID, "company": "Muster Kunststoff GmbH", "role": "Backend Engineer",
+                            "start_date": "2010-01", "end_date": None, "bullets": [OWN_BULLET]}],
+          "skills": ["Lean Management"]}
+
+    def verdict(titles):
+        report = asyncio.run(build_self_audit_report(
+            vault, tailored_data=cv, document_language="de", keyword_ledger=_ledger(),
+            posting_titles=titles))
+        return _row(report, cv["summary"]).verdict
+
+    flagged = verdict(("Senior Backend Engineer (m/w/d)",))
+    assert (flagged.verdict, flagged.detail_key) == ("unbacked", "titleNotHeld")
+    assert flagged.detail_params == {"title": "senior backend engineer"}
+    assert verdict(()).detail_key != "titleNotHeld"
+
+
+def test_a_flag_already_raised_is_never_rewritten():
+    """MD-Q17 F8: the open-verdict guard. A claim another arm already flagged keeps
+    its own verdict and reason, even when it also states an unheld title or a
+    posting word."""
+    from applire.schemas.oracle import Claim, ClaimResult, ClaimVerdict
+    from applire.services.oracle.posting_words import apply_posting_word_checks
+
+    results = [
+        ClaimResult(claim=Claim(text=HEADLINE, location="summary[0]", kind="sentence"),
+                    verdict=ClaimVerdict(verdict=v, checker="grounding", detail="own reason",
+                                         detail_key="ownKey"))
+        for v in ("misattributed", "inflated", "unbacked")
+    ] + [
+        ClaimResult(claim=Claim(text="Führung und Entwicklung von 38 Mitarbeitenden", location="work_history[0].bullets[0]",
+                                kind="bullet"),
+                    verdict=ClaimVerdict(verdict="misattributed", checker="attribution", detail="own reason",
+                                         detail_key="ownKey")),
+    ]
+    out = apply_posting_word_checks(results, profile=VAULT, keyword_ledger=_ledger(), is_cv=True,
+                                    same_language=True, posting_titles=("Leiter Operations (m/w/d)",))
+    assert [(r.verdict.verdict, r.verdict.detail_key) for r in out] == [
+        ("misattributed", "ownKey"), ("inflated", "ownKey"), ("unbacked", "ownKey"), ("misattributed", "ownKey")]
+    assert all(a is b for a, b in zip(out, results))
 
 
 def test_without_a_ledger_nothing_changes():

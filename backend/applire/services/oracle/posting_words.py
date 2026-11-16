@@ -28,6 +28,13 @@ has spoken. Each can only make a verdict stricter (MD-Q11):
    würde ich …" speaks of the job applied for. A cross-language pair is not read:
    a translated title ("Head of Production" for "Produktionsleiter") is ruled
    behaviour (R-2 / Q3-1) the vocabulary cannot match across languages.
+   MD-Q17 F3 adds the posting's own title to the CV's headline (the summary):
+   a summary that carries the posting's role title is the person's only when a
+   title they hold or held EQUALS it, modulo case and gender markers
+   (:func:`posting_title_unheld`) — "Senior Backend Engineer" over a held
+   "Backend Engineer", "Teamleiter" over a held "Teamleiter (in Vertretung)".
+   The titles are threaded from the CV service (``posting_titles``); without
+   them (letters, the external audit) the T-1 vocabulary alone reads.
 2. **posting word for a partly met requirement** (CV and letter): the sentence
    names, as a whole token, a form of a posting-word-only partial row
    (``keyword_ledger.posting_word_partial_rows`` — a below-the-bar ``partial``
@@ -38,6 +45,8 @@ has spoken. Each can only make a verdict stricter (MD-Q11):
    On a pair whose vault holds another language the literal fact "a word your
    profile never uses" cannot be established (the faithful translation misses
    it), so the same verdict carries ``postingTermOtherLanguage`` (ADR-068).
+   The rows are computed with the person's denial wording counted as theirs
+   (MD-Q17 F2); the ledger stamp does not count it.
 
 A skill chip that IS such a form and was graded ``grounded`` (the ledger arm,
 ``backing.backing_for_skill``, grounds a chip on the partial row's quote — the
@@ -52,6 +61,7 @@ is ``grounded → unverifiable``.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from applire.schemas.oracle import ClaimResult, ClaimVerdict
@@ -90,6 +100,98 @@ def unheld_titles(text: str, profile_json: dict[str, Any] | None) -> list[str]:
         return []
 
 
+#: Gender markers a German posting title carries — "(m/w/d)", "(w/m/d)", "(m/f/d)",
+#: "(all genders)", "(gn*)" — and the in-word forms "Leiter*in", "Leiter:in",
+#: "Leiter/in", "Leiter/-in", "LeiterIn". Removed on BOTH sides of the equality, so
+#: they are never a difference (MD-Q17 F3: "modulo case and gender markers").
+_GENDER_BRACKET = re.compile(
+    r"\(\s*(?:(?:[mwfdxi]|div)\s*[/|,]\s*)+(?:[mwfdxi]|div)\s*\)|\(\s*all\s+genders\s*\)|\(\s*gn\*?\s*\)",
+    re.IGNORECASE,
+)
+_GENDER_INWORD = re.compile(r"(?<=\w)(?:[*:_]in(?:nen)?|/-?in(?:nen)?|In(?:nen)?)\b")
+#: The feminine "-in"/"-innen" of a German agent noun ("Leiterin", "Controllerin",
+#: "Ingenieurin") — closed to the agent endings -er/-or/-eur, so "Berlin",
+#: "Admin" or "Origin" are never touched.
+_GENDER_SUFFIX = re.compile(r"(?<=er|or|ur)in(?:nen)?\b")
+#: Where a posting title's own label ends and its context begins:
+#: "Senior Backend Engineer — Payments Platform", "Controller, Werk Nord".
+_TITLE_CONTEXT = re.compile(r"\s+[—–|]\s+|\s+-\s+|,\s+|\s*\(")
+
+
+def _title_norm(title: str) -> str:
+    """Case- and gender-marker-free form of a title; everything else kept —
+    "Teamleiter (in Vertretung)" keeps its qualifier and never equals
+    "Teamleiter"."""
+    t = _GENDER_BRACKET.sub(" ", title)
+    t = _GENDER_INWORD.sub("", t)
+    t = t.casefold()
+    t = _GENDER_SUFFIX.sub("", t)
+    return " ".join(re.findall(r"[\w/&+.#-]+|[()]", t)).replace("( ", "(").replace(" )", ")")
+
+
+def _posting_title_forms(posting_titles: tuple[str, ...] | list[str]) -> list[str]:
+    """Each posting title, and its own label when context follows it."""
+    out: list[str] = []
+    for raw in posting_titles or ():
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        clean = _GENDER_BRACKET.sub(" ", raw)
+        for cand in (clean, _TITLE_CONTEXT.split(clean.strip(), maxsplit=1)[0]):
+            n = _title_norm(cand)
+            if len(n) >= 3 and n not in out:
+                out.append(n)
+    return out
+
+
+def _held_titles(profile_json: dict[str, Any]) -> list[str]:
+    """The titles the person holds or held: each ``work_experience[].role``, and
+    each part of a role written as alternatives ("Fertigungsmeister /
+    Schichtleiter")."""
+    out: list[str] = []
+    for w in profile_json.get("work_experience") or []:
+        role = w.get("role") if isinstance(w, dict) else None
+        if not isinstance(role, str) or not role.strip():
+            continue
+        for cand in [role, *re.split(r"\s+/\s+|\s*;\s*|\s+\|\s+", role)]:
+            n = _title_norm(cand)
+            if n and n not in out:
+                out.append(n)
+    return out
+
+
+def _spans(needle: str, hay: str) -> list[tuple[int, int]]:
+    return [m.span() for m in re.finditer(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", hay)]
+
+
+def posting_title_unheld(
+    text: str, profile_json: dict[str, Any] | None, posting_titles: tuple[str, ...] | list[str]
+) -> str | None:
+    """MD-Q17 F3: the posting's role title as *text* carries it, when no title the
+    person holds or held EQUALS it (modulo case and gender markers) — else None.
+
+    The T-1 vocabulary reads leader and deputy titles only; this reads the one
+    title the writer was handed. "Senior Backend Engineer" over a held "Backend
+    Engineer" and "Teamleiter" over a held "Teamleiter (in Vertretung)" are not
+    the person's. An occurrence that lies inside a held title's own occurrence in
+    *text* is that held title ("Financial Controller" for a posting's
+    "Controller")."""
+    if not text or not profile_json:
+        return None
+    forms = _posting_title_forms(posting_titles)
+    if not forms:
+        return None
+    held = _held_titles(profile_json)
+    hay = _title_norm(text)
+    held_spans = [sp for h in held for sp in _spans(h, hay)]
+    for form in forms:
+        # A held title EQUAL to the form occupies the form's own span, so the
+        # containment below accepts it; no separate equality branch is needed.
+        for a, b in _spans(form, hay):
+            if not any(ha <= a and b <= hb for ha, hb in held_spans):
+                return form
+    return None
+
+
 def posting_terms_named(text: str, rows: list[dict[str, Any]]) -> list[str]:
     """The forms of *rows* that *text* names as a whole token."""
     if not text or not rows:
@@ -113,6 +215,7 @@ def apply_posting_word_checks(
     keyword_ledger: list[dict[str, Any]] | None,
     is_cv: bool,
     same_language: bool,
+    posting_titles: tuple[str, ...] | list[str] = (),
 ) -> list[ClaimResult]:
     """*results* with the two facts applied (see the module docstring). Pure;
     a result neither fact touches is returned as the same object."""
@@ -124,7 +227,8 @@ def apply_posting_word_checks(
         try:
             from applire.services.keyword_ledger import posting_word_partial_rows
 
-            rows = posting_word_partial_rows(keyword_ledger, profile_json)
+            # MD-Q17 F2: the person's own denial wording counts as theirs here.
+            rows = posting_word_partial_rows(keyword_ledger, profile_json, with_denial_wording=True)
         except Exception:  # pragma: no cover — defensive
             logger.exception("oracle: posting-word rows unreadable — no posting-word finding")
             rows = []
@@ -141,6 +245,9 @@ def apply_posting_word_checks(
             out.append(res)
             continue
         titles = unheld_titles(claim.text, profile_json) if (is_cv and same_language) else []
+        if not titles and is_cv and same_language and _is_headline(claim):
+            hit = posting_title_unheld(claim.text, profile_json, posting_titles)
+            titles = [hit] if hit else []
         if titles:
             title = titles[0]
             out.append(ClaimResult(claim=claim, verdict=ClaimVerdict(
@@ -160,6 +267,12 @@ def apply_posting_word_checks(
             continue
         out.append(res)
     return out
+
+
+def _is_headline(claim: Any) -> bool:
+    """The CV's opening: the summary (its first sentence carries the title phrase)."""
+    loc = getattr(claim, "location", "") or ""
+    return loc.startswith("summary")
 
 
 def _norm_eq(a: str, b: str) -> bool:

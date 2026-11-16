@@ -3643,6 +3643,7 @@ async def audit_document(
     entailment: bool = False,
     keyword_ledger: list[dict[str, Any]] | None = None,
     form_inputs: dict[str, Any] | None = None,
+    posting_titles: tuple[str, ...] = (),
 ) -> TruthfulnessReport:
     """Full-document audit → :class:`TruthfulnessReport` (ADR-052 §1).
 
@@ -3834,6 +3835,9 @@ async def audit_document(
         is_cv=tailored_data is not None,
         same_language=document_language is not None
         and not holds_other_language(index, document_language),
+        # MD-Q17 F3: a headline carrying the posting's role title needs a held
+        # title EQUAL to it. ``()`` (letters, the external audit) keeps it off.
+        posting_titles=posting_titles,
     )
 
     from applire.services.finding_registry import stamp_truthfulness_model
