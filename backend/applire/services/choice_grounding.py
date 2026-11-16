@@ -715,6 +715,9 @@ def _asked_unmentioned_terms(
 #: model names the anchor and the asked concept as fields; code writes the
 #: words, so no model free text is ever the inserted text of a bridge.
 BRIDGE_OPENING_TEMPLATE = {"de": "Zu {concept} bei {anchor}:", "en": "On {concept} in {anchor}:"}
+#: Q6-1 (WP-Q6 a, ADR-064 amended 2026-11-15, founder ruling Q6-1 = A) — the honest
+#: question's opening: the asked concept only, so a click states neither a yes nor a no.
+HONEST_OPENING_TEMPLATE = {"de": "Zu {concept}:", "en": "On {concept}:"}
 #: A longer "anchor" is a sentence, not a role, project or activity.
 BRIDGE_ANCHOR_MAX_CHARS = 80
 
@@ -754,6 +757,26 @@ def _bridge_anchor(choice: dict, profile: dict[str, Any]) -> str | None:
     return anchor
 
 
+def _honest_concept(choice: dict, cluster: dict[str, Any]) -> str | None:
+    """Q6-1 — the cluster's own spelling of the concept a ``denial``-level draft
+    (the honest question) names: its ``concept``, else its single declared
+    ``denied_terms`` entry (the pre-Q6 field). A concept the cluster's record
+    shows as already covered or declined is not asked again (ADR-089 cl. 3), so
+    it yields ``None``, as does a name that is no cluster term."""
+    named = choice.get("concept")
+    if not (isinstance(named, str) and named.strip()):
+        declared = _denied_terms_of(choice)
+        named = declared[0] if len(declared) == 1 else None
+    if not isinstance(named, str):
+        return None
+    concept = _bridge_concept({"concept": named}, cluster)
+    if concept is None:
+        return None
+    outcome = cluster.get("outcome") if isinstance(cluster.get("outcome"), dict) else {}
+    answered = {_norm(str(m)) for m in [*(outcome.get("covered") or []), *(outcome.get("declined") or [])]}
+    return None if _norm(concept) in answered else concept
+
+
 def build_bridge_openings(
     choices: "list[str | dict[str, Any]] | None",
     cluster: dict[str, Any],
@@ -764,15 +787,40 @@ def build_bridge_openings(
     :data:`BRIDGE_OPENING_TEMPLATE`, built from the ``concept`` and ``anchor``
     the model named; a bridge whose concept is not an asked concept of this
     cluster or whose anchor is not the profile's own words is DROPPED (a
-    structural tie, never a reading of the model's text). Other levels pass
-    unchanged. Returns ``None`` when nothing is left.
+    structural tie, never a reading of the model's text).
+
+    Q6-1 (founder ruling Q6-1 = A, ADR-064 amended 2026-11-15) — a ``denial``
+    choice (the honest question) never reaches the candidate as a no: it becomes
+    ``partial`` with the text :data:`HONEST_OPENING_TEMPLATE` built from its
+    concept (:func:`_honest_concept`), its ``ask`` kept and ``denied_terms``
+    emptied, so the opening guards (``answer_is_offered_opening``,
+    ``strip_offered_opening``) apply to it exactly as to a bridge. At most one
+    per question; one without a valid concept is DROPPED. A built text equal to
+    one already kept is not offered twice. ``direct`` passes unchanged. Returns
+    ``None`` when nothing is left.
     """
     if not isinstance(choices, list):
         return choices
-    template = BRIDGE_OPENING_TEMPLATE.get((lang or "en")[:2].lower(), BRIDGE_OPENING_TEMPLATE["en"])
+    code = (lang or "en")[:2].lower()
+    template = BRIDGE_OPENING_TEMPLATE.get(code, BRIDGE_OPENING_TEMPLATE["en"])
+    honest_template = HONEST_OPENING_TEMPLATE.get(code, HONEST_OPENING_TEMPLATE["en"])
     out: list = []
     dropped = 0
+    honest_built = False
+    texts: set[str] = set()
     for choice in choices:
+        if isinstance(choice, dict) and choice.get("level") == "denial":
+            concept = None if honest_built else _honest_concept(choice, cluster)
+            text = honest_template.format(concept=concept) if concept else None
+            if text is None or text in texts:
+                dropped += 1
+                continue
+            built = {**choice, "text": text, "level": "partial", "denied_terms": [], "concept": concept}
+            built.pop("anchor", None)
+            honest_built = True
+            texts.add(text)
+            out.append(built)
+            continue
         if isinstance(choice, dict) and choice.get("level") == "partial":
             concept = _bridge_concept(choice, cluster)
             anchor = _bridge_anchor(choice, profile)
@@ -781,6 +829,10 @@ def build_bridge_openings(
                 continue
             built = dict(choice)
             built["text"] = template.format(concept=concept, anchor=anchor)
+            if built["text"] in texts:
+                dropped += 1
+                continue
+            texts.add(built["text"])
             out.append(built)
         else:
             out.append(choice)
@@ -1130,10 +1182,17 @@ def record_offered_choices(
     if not isinstance(state, dict) or not isinstance(delivered, list) or not delivered:
         return
     by_text: dict[str, tuple[str | None, list[str], str | None]] = {}
+    concept_of: dict[str, str] = {}
     for choice in drafted if isinstance(drafted, list) else []:
         text, level = _level_of(choice)
         if text:
             by_text[text] = (level, _denied_terms_of(choice), _ask_of(choice))
+            # MD-Q11 F8: an OPENING ("Zu OEE:", "Zu MES bei …:") knows the one
+            # concept the person's words after it answer — code built it from
+            # that concept (``build_bridge_openings``).
+            concept = choice.get("concept") if isinstance(choice, dict) else None
+            if text.endswith(":") and isinstance(concept, str) and concept.strip():
+                concept_of[text] = concept.strip()
     previous = state.get("offered_choice_terms")
     offered: dict[str, dict] = dict(previous) if isinstance(previous, dict) else {}
     texts: list[str] = []
@@ -1145,6 +1204,8 @@ def record_offered_choices(
         level, terms, ask = by_text.get(text, (None, [], None))
         offered.pop(text, None)  # re-insert so the newest offer sorts last
         offered[text] = {"level": level, "names_without_claiming": terms, "ask": ask}
+        if text in concept_of:
+            offered[text]["concept"] = concept_of[text]
     while len(offered) > OFFERED_CHOICE_KEEP:
         offered.pop(next(iter(offered)))
     state["offered_choice_terms"] = offered
@@ -1259,8 +1320,20 @@ def strip_offered_opening(answer: Any, offered: Any) -> tuple[str, bool]:
     inserted, colon included. Anywhere else the same words are the person's
     own and stay (a generic "Zu X bei Y" can be their phrase). The opening is
     system-authored, so only ``rest`` is the person's words."""
+    rest, cut = _cut_prefix_opening(answer, offered)
+    return rest, cut is not None
+
+
+def cut_opening_text(answer: Any, offered: Any) -> str | None:
+    """MD-Q13 N5 — the offered opening this answer STARTS with (the text
+    :func:`strip_offered_opening` cuts), or ``None``. Only this opening frames
+    the answer: the same opening found anywhere else is the person's phrase."""
+    return _cut_prefix_opening(answer, offered)[1]
+
+
+def _cut_prefix_opening(answer: Any, offered: Any) -> tuple[str, str | None]:
     if not isinstance(answer, str) or not isinstance(offered, dict):
-        return (answer if isinstance(answer, str) else ""), False
+        return (answer if isinstance(answer, str) else ""), None
     lead = answer.lstrip()
     for text, meta in offered.items():
         if not isinstance(meta, dict) or meta.get("level") != "partial":
@@ -1268,8 +1341,8 @@ def strip_offered_opening(answer: Any, offered: Any) -> tuple[str, bool]:
         raw = str(text).strip()
         if not raw.endswith(":") or not lead.startswith(raw):
             continue
-        return lead[len(raw):].strip(), True
-    return answer, False
+        return lead[len(raw):].strip(), raw
+    return answer, None
 
 
 def is_bare_completion(rest: str) -> bool:
@@ -1316,9 +1389,13 @@ def offered_choices_in_answer(answer: Any, offered: Any) -> list[dict]:
             if isinstance(t, str) and str(t).strip()
         ]
         is_no = eligible[text].get("level") == "denial"
-        out.append({
+        entry = {
             "text": text,
             "names_without_claiming": [] if is_no else terms,
             "states_no_to": terms if is_no else [],
-        })
+        }
+        concept = eligible[text].get("concept")
+        if isinstance(concept, str) and concept.strip():
+            entry["answers_concept"] = concept.strip()  # MD-Q11 F8
+        out.append(entry)
     return out

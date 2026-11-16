@@ -1981,9 +1981,16 @@ def _apply_resolve_confirmation(
     if context.get("kind") == "project_parent":
         from applire.services.profile.reconcile.project_parent import plan_project_parent
 
-        placed = plan_project_parent(
-            context, resolve_option_key(entry.model_dump(), op.chosen_option), profile
-        )
+        chosen_key = resolve_option_key(entry.model_dump(), op.chosen_option)
+        if chosen_key == "standalone":
+            # RULING Q5-1: the person keeps the project standalone — nothing to write.
+            not_applied.append(ImportNotApplied(
+                section="projects",
+                label=str(context.get("project") or ""),
+                reason="confirmation_already_present",
+            ))
+            return
+        placed = plan_project_parent(context, chosen_key, profile)
         if placed is None:
             not_applied.append(ImportNotApplied(
                 section="projects",

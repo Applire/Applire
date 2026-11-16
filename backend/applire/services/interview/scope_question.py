@@ -193,6 +193,49 @@ def scope_facts(row: dict[str, Any]) -> dict[str, Any]:
 #: question wrote (``gap_coverage.record_turn_outcome(recorded_limits=…)``).
 RECORDED_LIMITS_KEY = "recorded_limits"
 
+#: WP-Q6 (b) (ADR-075 amended 2026-11-15): the person's own answers to a scope
+#: cluster's question, verbatim (``record_turn_outcome(scope_answer=…)``) — their
+#: statement on THAT bar, whatever the reconciler extracted from it. Lives on the
+#: gap-analysis row, never in ``profile_json``: it is testimony about one
+#: requirement, not a vault fact.
+SCOPE_ANSWERS_KEY = "scope_answers"
+#: The id a scope answer carries in the gap prompt's SCOPE ANSWERS block, and the
+#: one the classifier copies into ``stated_limit``.
+SCOPE_ANSWER_ID_PREFIX = "answer: "
+#: The ``bar.recorded_limit["source"]`` of a limit bound to a stored answer.
+SCOPE_ANSWER_SOURCE = "scope_answer"
+#: One bar's stored answers are joined up to this many characters (a scope
+#: question is asked once; a follow-up adds one more answer at most).
+_SCOPE_ANSWER_MAX_CHARS = 800
+
+
+def scope_answer_id(concept: Any) -> str:
+    return f"{SCOPE_ANSWER_ID_PREFIX}{' '.join(str(concept or '').split())}"
+
+
+def turn_scope_answers(clusters: list[Any] | None) -> dict[str, str]:
+    """Per scope concept (casefolded, whitespace-joined), the person's stored
+    answer(s) to that bar's scope question, joined — the structural half of the
+    answer binding (``scope_requirements.verified_stated_limit(answers=…)``).
+    Keyed like :func:`turn_bound_limits` (every member, the label)."""
+    out: dict[str, str] = {}
+    for cluster in clusters or []:
+        if not is_scope_cluster(cluster):
+            continue
+        answers = [
+            " ".join(a.split()) for a in cluster.get(SCOPE_ANSWERS_KEY) or []
+            if isinstance(a, str) and a.strip()
+        ]
+        if not answers:
+            continue
+        statement = " ".join(dict.fromkeys(answers))[:_SCOPE_ANSWER_MAX_CHARS].strip()
+        outcome = cluster.get("outcome") if isinstance(cluster.get("outcome"), dict) else {}
+        for m in [*(cluster.get("gaps") or []), *(outcome.get("covered") or []),
+                  *(outcome.get("declined") or []), cluster.get("label")]:
+            if isinstance(m, str) and m.strip():
+                out.setdefault(_norm(m), statement)
+    return out
+
 
 def turn_bound_limits(clusters: list[Any] | None) -> dict[str, set[str]]:
     """Per scope concept (casefolded, whitespace-joined), the denial ids recorded

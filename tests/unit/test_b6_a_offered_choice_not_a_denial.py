@@ -631,7 +631,8 @@ async def test_mode_a_records_the_delivered_choice_and_its_declaration():
         )
     assert out["choices"] == [_GEN_CHIP], "the API contract stays list[str]"
     assert state["offered_choice_terms"] == {
-        _GEN_CHIP: {"level": "partial", "names_without_claiming": ["Boomi"], "ask": None}
+        _GEN_CHIP: {"level": "partial", "names_without_claiming": ["Boomi"], "ask": None,
+                    "concept": "Boomi"}  # MD-Q11 F8: an opening keeps its concept
     }
 
 

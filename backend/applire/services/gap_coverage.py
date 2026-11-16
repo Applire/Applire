@@ -911,8 +911,14 @@ async def record_turn_outcome(
     charge: bool = True,
     user_id: uuid.UUID | None = None,
     recorded_limits: list[str] | None = None,
+    scope_answer: str | None = None,
 ) -> dict[str, Any] | None:
     """Persist one answered turn's outcome (ADR-089 clause 3).
+
+    ``scope_answer`` (WP-Q6 (b), ADR-075 amended 2026-11-15): on a SCOPE
+    cluster, the person's answer verbatim — kept on the cluster
+    (``scope_answers``) as their statement on that bar, whatever the reconcile
+    extracted; the next analysis may bind it (``turn_scope_answers``).
 
     ``recorded_limits`` (MD-Q5 (2)): on a SCOPE cluster, the denial ids this
     turn's reconcile recorded — kept on the cluster (``recorded_limits``) so the
@@ -985,6 +991,11 @@ async def record_turn_outcome(
             if limits and c.get("kind") == "scope":
                 updated["recorded_limits"] = list(dict.fromkeys(
                     [*(c.get("recorded_limits") or []), *limits]
+                ))
+            answer = " ".join(str(scope_answer or "").split())
+            if answer and c.get("kind") == "scope":
+                updated["scope_answers"] = list(dict.fromkeys(
+                    [*(c.get("scope_answers") or []), answer]
                 ))
             new_clusters.append(updated)
         else:

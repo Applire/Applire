@@ -97,6 +97,7 @@ from applire.services.oracle.extract import (
     extract_claims_from_text,
     letter_named_experience_ids,
     named_in_denial_segment,
+    split_sentences,
 )
 from applire.services.oracle.matchers import (
     EvidenceUnit,
@@ -138,6 +139,8 @@ from applire.services.oracle.backing import (
     backing_for_skill,
     backings_named_in,
     ledger_backings as _ledger_backings,
+    stored_denial_cover,
+    with_ledger_denials,
 )
 
 logger = logging.getLogger(__name__)
@@ -180,20 +183,13 @@ def _profile_aims(profile: Any) -> list[str]:
 
 
 def _denial_covers(text: str, idx: VaultIndex) -> bool:
-    """Does one of the candidate's recorded denials cover ``text``? The ledger
-    floor's own predicate (``stance.denials_covering``) over the denials the
-    vault index carries — the same fact the ATS keyword check reads, so the
-    D2-1 "other language" softening never reaches a term the candidate denied
-    (build-2 adversarial F-D, ruling R3-a). Never raises."""
-    denials = list(getattr(idx, "denied_concepts", ()) or ())
-    if not denials:
-        return False
-    try:
-        from applire.services.profile.reconcile.stance import denials_covering
-
-        return bool(denials_covering(text, [], denials, getattr(idx, "denial_release_text", "") or ""))
-    except Exception:  # pragma: no cover — defensive: fall back to D2-1's verdict
-        return False
+    """Does one of the candidate's recorded denials cover ``text`` at its STORED
+    scope? ``backing.stored_denial_cover`` — the record's own words declare the
+    term, or the job's ledger holds the term's row as denied (Sorbet WP-Q5 (c),
+    ADR-064 amended 2026-11-15). Before, this read ``stance.denials_covering``,
+    whose compound-containment arm the ledger had withdrawn (G-1): one denial was
+    read at two scopes. Never raises."""
+    return bool(stored_denial_cover([text], idx))
 
 
 def _evidence_refs(units: list[EvidenceUnit]) -> list[EvidenceRef]:
@@ -253,8 +249,10 @@ class _SeamCandidate:
     # polarity is symmetric — see _resolve_seam_candidate).
     deny_verdict: ClaimVerdict | None
     # What the claim verdicts as if the judgement never resolves cleanly
-    # (unavailable/malformed/citation-dropped) — always non-accusatory
-    # (ADR-068 clause 3).
+    # (unavailable/malformed/citation-dropped) — non-accusatory (ADR-068
+    # clause 3), except on the owner-language attribution check, where it IS
+    # the pre-existing misattribution flag (MD-Q11: no loosening without
+    # positive evidence).
     unavailable_verdict: ClaimVerdict
     vault_language_label: str | None = None
     # letter_form only (B3-10 follow-up): the neutral form mark a clean
@@ -268,6 +266,12 @@ class _SeamCandidate:
     # cite a unit this group OWNS — a role-agnostic unit (a bare skill) is
     # context for the judge, never the sole proof of an employer-bound claim.
     anchor_ids: frozenset[str] | None = None
+    # cross_language only (Sorbet WP-Q5 (a), MD-Q11): the owner-language
+    # attribution check. Grant-only — the citation must be a whole offered unit
+    # or a whole sentence of one, and every non-grant (including an unavailable
+    # judgement) keeps ``deny_verdict``, the misattribution flag; such a fallback
+    # degrades nothing and is not counted as an unavailable judgement.
+    owner_attribution: bool = False
 
 
 def _find_citing_unit(quote: str | None, units: list[EvidenceUnit]) -> EvidenceUnit | None:
@@ -324,6 +328,135 @@ def _cross_language_candidate(
             "ORACLE_JUDGEMENT_UNAVAILABLE reason=no_sink seam=cross_language"
         )
         return unavailable
+    judgement_sink.append(candidate)
+    return candidate
+
+
+#: WP-Q5 (a): the owner units one attribution item may carry (ADR-068 cl. 6, the
+#: per-item token share; a role rarely holds more, and the first units are its
+#: recorded ones, before interview additions).
+_OWNER_LANGUAGE_MAX_UNITS = 12
+
+#: WP-Q5 (a), MD-Q11 F1: the units that can carry a position's CONTENT — its
+#: responsibilities, achievements and the bullets/description of a project tied to
+#: it. A role title, a company name, a technology label or a date says nothing a
+#: bullet could restate, so it is never offered and never cited.
+_OWNER_CONTENT_PATH_RE = re.compile(r"\.(?:responsibilities|achievements)\[\d+\]$|\.description$")
+
+
+def _decided_language(text: str) -> str | None:
+    """MD-Q11 F3 / RULING Q5-3: ONE text's language, decided by the per-item
+    instrument (``item_language_scores``, ADR-066) — ``None`` when the text is
+    shorter than ``ITEM_LANGUAGE_MIN_WORDS`` or the evidence ties (a tie is no
+    evidence; the detector's 'de' default is not used here)."""
+    from applire.utils.language_detection import ITEM_LANGUAGE_MIN_WORDS, item_language_scores
+
+    if len(re.findall(r"[^\W\d_]+", text or "")) < ITEM_LANGUAGE_MIN_WORDS:
+        return None
+    de_score, en_score = item_language_scores(text)
+    if de_score > en_score:
+        return "de"
+    if en_score > de_score:
+        return "en"
+    return None
+
+
+def _whole_unit_or_sentence(quote: str | None, units: list[EvidenceUnit]) -> EvidenceUnit | None:
+    """MD-Q11 F1: the owner judge's citation is a WHOLE unit, or a WHOLE sentence of
+    one, of the offered units — under the shared ``normalize_citation`` fold, with
+    a trailing full stop/semicolon ignored on both sides. A fragment ("in der", "a",
+    a role title) is no citation: it shows no restatement of anything."""
+    from applire.services.citation import normalize_citation
+
+    def _fold(text: str) -> str:
+        return normalize_citation(text).rstrip(" .;:!?")
+
+    if not isinstance(quote, str):
+        return None
+    q = _fold(quote)
+    if not q:
+        return None
+    for unit in units:
+        if q == _fold(unit.text) or any(q == _fold(sent) for sent in split_sentences(unit.text)):
+            return unit
+    return None
+
+
+def _owner_language_candidate(
+    claim_text: str,
+    idx: VaultIndex,
+    owner_id: str | None,
+    document_language: str | None,
+    flag: ClaimVerdict,
+    judgement_sink: "list[_SeamCandidate] | None",
+) -> "ClaimVerdict | _SeamCandidate | None":
+    """Sorbet WP-Q5 (a), ADR-068 amended 2026-11-15 (MD-Q11, MD-Q12) — a
+    misattribution red flag is checked once against the anchored position's own
+    evidence when that evidence is in ANOTHER language than the claim.
+
+    The flag says "backed ONLY by evidence of a different position". Lexically,
+    that is decidable only when the claim could have matched its own position's
+    evidence: an English bullet under a role whose vault sentence is German
+    ("Facharbeiter in der Instandhaltung, später Vorarbeiter.") shares no word
+    with it, so the one English unit of another role that shares "maintenance"
+    became the claim's only evidence and the flag fired on a correctly placed
+    bullet (delivery 1b runs 1 and 2, Cross CV, ``stop_and_fix``).
+
+    The path is taken only on a per-pair language FACT (RULING Q5-3): the claim
+    and at least one CONTENT unit the anchored role owns (an id fact; title,
+    company, technologies and dates excluded) are each decided in a language by
+    the per-item instrument, and the two differ. Only those other-language owned
+    content units go to Seam A's equivalence judge; a vault-wide language share
+    never opens it, and an undecided text never does.
+
+    The loosening never turns the blocking verdict non-blocking without positive
+    evidence (MD-Q11): a grant whose citation is a whole owned content unit or a
+    whole sentence of one grounds the claim on it; EVERY other outcome — "no",
+    "uncertain", no provider, an exception, a malformed or empty answer, a
+    fragment or foreign citation — keeps the flag (``misattributed``).
+
+    Residual, stated: a moved bullet whose TARGET role holds content in the other
+    language reaches the judge, and then only the judge's "no" keeps the flag —
+    the model's judgement, as on every equivalence seam (FMEA delta, WP-Q5).
+
+    ``None`` (the caller keeps the flag) when there is no anchor, the caller opted
+    out of cross-language checking (``document_language is None``), the claim's
+    language is undecided, or the role owns no decided other-language content
+    unit. Figures never come here: a digit is language-free, the per-figure flag
+    stays deterministic."""
+    if owner_id is None or document_language is None:
+        return None
+    claim_language = _decided_language(claim_text)
+    if claim_language is None:
+        return None
+    owned = [
+        u
+        for u in idx.units
+        if owner_id in u.owner_ids
+        and _OWNER_CONTENT_PATH_RE.search(u.path)
+        and _decided_language(u.text) not in (None, claim_language)
+    ][:_OWNER_LANGUAGE_MAX_UNITS]
+    if not owned:
+        return None
+    other_language = _decided_language(owned[0].text) or idx.dominant_language
+    candidate = _SeamCandidate(
+        seam="cross_language",
+        claim_text=claim_text,
+        units=owned,
+        deny_verdict=flag,
+        # MD-Q11 F2: no ``unverifiable`` exit — a judgement that does not land
+        # leaves the deterministic flag exactly where it was.
+        unavailable_verdict=flag,
+        vault_language_label=_LANGUAGE_LABELS.get(other_language, other_language),
+        owner_attribution=True,
+    )
+    logger.info(
+        "ORACLE_ATTRIBUTION_OWNER_JUDGEMENT owner=%s units=%d claim_lang=%s flagged=%s",
+        owner_id, len(owned), claim_language, flag.evidence[0].ref if flag.evidence else None,
+    )
+    if judgement_sink is None:
+        logger.info("ORACLE_JUDGEMENT_UNAVAILABLE reason=no_sink seam=cross_language owner_attribution=1")
+        return flag
     judgement_sink.append(candidate)
     return candidate
 
@@ -605,6 +738,23 @@ def _resolve_seam_candidate(
         assert candidate.deny_verdict is not None
         return candidate.deny_verdict, False, None
 
+    if candidate.seam == "cross_language" and candidate.owner_attribution:
+        assert candidate.deny_verdict is not None
+        matched_unit = _whole_unit_or_sentence(quote, candidate.units) if corresponds is True else None
+        if matched_unit is None:
+            reason = "citation_drop" if corresponds is True else None
+            return candidate.deny_verdict, False, reason
+        return ClaimVerdict(
+            verdict="grounded",
+            checker="cross_language_judgement",
+            evidence=_evidence_refs([matched_unit]),
+            detail=(
+                "Equivalent restatement across languages of this position's own "
+                f'vault evidence ({candidate.vault_language_label}): "{quote}".'
+            ),
+            detail_key="crossLanguageEquivalent",
+        ), False, None
+
     if candidate.seam == "cross_language":
         if corresponds is True:
             if not citation_ok:
@@ -739,7 +889,8 @@ async def _run_judgement_batches(
     # 790:90: the skill-equivalence seam's fallback IS today's verdict — its
     # unavailability degrades nothing and is not counted.
     results: list[tuple[ClaimVerdict, bool]] = [
-        (c.unavailable_verdict, c.seam != "skill_equivalence") for c in candidates
+        (c.unavailable_verdict, c.seam != "skill_equivalence" and not c.owner_attribution)
+        for c in candidates
     ]
     if provider is None:
         for c in candidates:
@@ -1870,6 +2021,30 @@ class ScopeStep:
     statement: str
     limit_id: str = ""
     kind: str = ""
+    #: WP-Q6 (b) (ADR-075 amended 2026-11-15, COORD MD-Q10): ``"scope_answer"``
+    #: when the bound limit is the person's stored answer to the bar's scope
+    #: question (no recorded denial behind it); ``""`` for a recorded denial.
+    source: str = ""
+    #: MD-Q14: the bar's own stored label — the scope requirement's concept name
+    #: and the unit the ledger holds at its figure ("Führungsspanne ~120 MA",
+    #: "Mitarbeitende"). It names WHAT the step refers to; see
+    #: :func:`_step_label_words` for what of it a step clause may use.
+    label: str = ""
+
+    @property
+    def persons_text(self) -> str:
+        """The words a restating clause is measured against: the denial's id +
+        statement; a stored answer's statement ONLY (its id is the posting's bar
+        concept, never the person's words)."""
+        if self.source == SCOPE_ANSWER_STEP_SOURCE:
+            return self.statement
+        return f"{self.limit_id} {self.statement}"
+
+
+#: ``bar.recorded_limit["source"]`` of a limit bound to a stored scope answer
+#: (``scope_question.SCOPE_ANSWER_SOURCE``; a literal here keeps the Oracle free
+#: of an interview import).
+SCOPE_ANSWER_STEP_SOURCE = "scope_answer"
 
 
 _SCOPE_STEP_TOKENS = frozenset({"wäre", "wären", "würde", "würden", "would"})
@@ -1951,15 +2126,25 @@ def _step_sentence_clauses(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _scope_step_sentence_ok(claim_text: str, limit_words: set[str], limit_plain: set[str]) -> bool:
+def _scope_step_sentence_ok(
+    claim_text: str, limit_words: set[str], limit_plain: set[str],
+    *, persons: str | None = None, kind: str = "",
+) -> bool:
     """MD-Q6 R2: the WHOLE sentence, not only the figure's clause. A clause that
     restates the limit adds no negation/past/attainment of its own; every other
-    clause points nothing back at the step."""
+    clause points nothing back at the step.
+
+    MD-Q13 N1: for a step bound to the person's stored answer (``persons``), a
+    clause made only of that answer's own words (:func:`_step_words_are_persons`)
+    is theirs, whatever it starts with — "…, which is exactly why this role
+    appeals to me" is the person's sentence (delivery-2a, English answer)."""
     for sep, clause in _step_sentence_clauses(claim_text):
         if _restates(clause, limit_words) and _scope_step_framed(clause):
             added = set(_words(_STEP_FRAME_NEGATION_RE.sub(" ", clause.casefold()))) - limit_plain
             if added & _STEP_ADDED_MARKERS:
                 return False
+            continue
+        if persons is not None and _step_words_are_persons(clause, persons, kind):
             continue
         words = _words(clause)
         if set(words) & _STEP_BACKREF_TOKENS:
@@ -1974,12 +2159,142 @@ def _scope_step_rest(claim_text: str, scope_steps: list[ScopeStep] | None) -> st
     as a claim of their own (wave 1b); ``""`` when every clause is the person's
     own recorded wording (the step, or "gerade deshalb reizt mich die Stelle"
     from the same statement)."""
-    limits = [_denial_content_tokens(f"{s.limit_id} {s.statement}") for s in scope_steps or ()]
+    limits = [_denial_content_tokens(s.persons_text) for s in scope_steps or ()]
     rest = [
         clause for _, clause in _step_sentence_clauses(claim_text)
         if not any(_restates(clause, w) for w in limits)
     ]
     return "; ".join(rest)
+
+
+# MD-Q13 N1 (re-check at c2d4427f): for a step bound to the person's stored
+# ANSWER the 0.6 overlap of (2) and the frame words of (3) were lexical — "120
+# Mitarbeitende zu führen wäre für mich nichts Neues." grounded "… wäre für mich
+# der nächste Schritt.", "… wäre kein Problem" grounded "… wäre ein Problem".
+# Ruling Q2-2 ("own recorded words") applied strictly: EVERY content word of the
+# step clause is a word of the person's bound sentence (function words,
+# inflection and word order may differ; the figure may be completed by its unit,
+# "120" → "120 Mitarbeitenden"), and every negation of that sentence is kept.
+# The frame check (3) stays as a second condition. A recorded DENIAL is the
+# person's "not yet" by construction and keeps the overlap measure.
+_STEP_FUNCTION_WORDS = frozenset({
+    # DE articles, pronouns, prepositions, conjunctions, auxiliaries, particles
+    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer",
+    "eines", "ich", "mich", "mir", "mein", "meine", "meinen", "meinem", "meiner",
+    "meines", "wir", "uns", "unser", "unsere", "sie", "es", "er", "ihr", "ihre", "dies",
+    "diese", "dieser", "dieses", "diesen", "diesem", "von", "vom", "zu", "zum", "zur",
+    "mit", "für", "bei", "beim", "auf", "an", "am", "in", "im", "aus", "nach", "über",
+    "um", "als", "wie", "und", "oder", "aber", "sowie", "dass", "da", "so", "auch",
+    "wäre", "wären", "würde", "würden", "ist", "sind", "war", "waren", "sein", "habe",
+    "hat", "hatte", "hätte", "werde", "wird", "werden", "kann", "könnte",
+    # EN
+    "the", "a", "an", "i", "me", "my", "mine", "we", "us", "our", "it", "its", "this",
+    "that", "these", "those", "of", "to", "for", "with", "at", "on", "in", "by", "from",
+    "as", "and", "or", "but", "so", "also", "would", "will", "be", "is", "are", "was",
+    "were", "been", "have", "has", "had", "could", "can",
+})
+_STEP_NEGATION_RE = re.compile(r"^(?:nicht|nichts|kein\w*|nie|niemals|not|no|never|none|nothing)$")
+_STEP_SUFFIXES = ("innen", "enden", "ende", "ern", "en", "em", "er", "es", "e", "n", "s")
+_STEP_MAGNITUDE_WORDS = frozenset({
+    "mio", "millionen", "million", "millions", "mrd", "milliarden", "tsd", "tausend",
+    "thousand", "k", "m", "eur", "euro", "chf", "franken", "usd", "dollar", "gbp", "pfund",
+})
+
+
+def _step_stem(word: str) -> str:
+    """A crude inflection fold, applied to both sides alike: "Mitarbeitenden" ~
+    "Mitarbeitende", "nächsten" ~ "nächste", "geführt" ~ "führen". It never
+    joins a compound to its head ("Führungsspanne" stays apart from "Spanne")."""
+    w = word.casefold()
+    if w.startswith("ge") and len(w) > 6:  # participle: "geführt" ~ "führen"
+        w = w[2:]
+    for suf in _STEP_SUFFIXES:
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            w = w[: -len(suf)]
+            break
+    if w.endswith("t") and len(w) > 4:
+        w = w[:-1]
+    return w
+
+
+def _step_negations(words: list[str]) -> set[str]:
+    return {"kein" if w.startswith("kein") else w for w in words if _STEP_NEGATION_RE.match(w)}
+
+
+#: MD-Q14: words a bar's label may carry that would make a CLAIM about the person
+#: rather than name the requirement ("Erfolgreich verantwortete Führungsspanne",
+#: "proven leadership"). A label word on this list never counts as the label's —
+#: the step clause may then use it only where the person's own sentence has it.
+#: Closed list; a miss fails toward accepting a posting word, so it is kept wide.
+_STEP_LABEL_CLAIM_RE = re.compile(
+    r"^(?:erfolgreich\w*|nachgewiesen\w*|langjährig\w*|mehrjährig\w*|umfangreich\w*|"
+    r"fundiert\w*|ausgewiesen\w*|bewährt\w*|verantwort\w*|geführt\w*|geleitet\w*|"
+    r"geleistet\w*|erreicht\w*|bereits|schon|bisher|erfahren\w*|sicher\w*|stark\w*|"
+    r"successful\w*|proven|demonstrated|extensive|experienced|seasoned|track|record|"
+    r"led|managed|owned|responsible|responsibility|already|achieved|reached|held|strong)$"
+)
+
+
+def _bar_unit_at_figure(bar: dict[str, Any]) -> str:
+    """The unit word the bar's own quote writes right after its figure
+    ("ca. 120 Mitarbeitende" → "Mitarbeitende"), or ``""``."""
+    quote = str(bar.get("quote") or "")
+    value = bar.get("value")
+    if not quote or not isinstance(value, (int, float)):
+        return ""
+    figure = str(int(value)) if float(value).is_integer() else str(value)
+    m = re.search(r"(?<![\d.,])" + re.escape(figure) + r"(?![\d])\s*([^\W\d_]+)", quote)
+    word = m.group(1) if m else ""
+    kind = bar.get("kind")
+    if kind == "team_size" and word and _people_unit(word):
+        return word
+    if kind == "budget" and word.casefold() in _STEP_MAGNITUDE_WORDS:
+        return word
+    return ""
+
+
+def _step_label_words(label: str) -> set[str]:
+    """MD-Q14: the stems of the bar label's naming words — its content words,
+    never a figure, a grammar word or a claim word (``_STEP_LABEL_CLAIM_RE``)."""
+    return {
+        _step_stem(w)
+        for w in _words(label)
+        if not w.isdigit() and w not in _STEP_FUNCTION_WORDS and not _STEP_LABEL_CLAIM_RE.match(w)
+    }
+
+
+def _step_words_are_persons(clause: str, persons: str, kind: str, label: str = "") -> bool:
+    """MD-Q13 N1: every content word of ``clause`` is one of the person's own
+    (inflection aside), the figure's unit excepted, and no negation of the
+    person's sentence is dropped. Frame negations ("noch/bisher nicht",
+    "not yet") are the step frame itself and are read by (3), not here.
+
+    MD-Q14: OR a naming word of the bar's own stored ``label`` (the scope
+    requirement's concept name and unit) — "Führungsspanne von 120
+    Mitarbeitenden" names WHAT the step refers to and claims nothing about the
+    person. Nothing else of the posting counts."""
+    person_words = _words(_STEP_FRAME_NEGATION_RE.sub(" ", persons.casefold()))
+    person_stems = {_step_stem(w) for w in person_words} | _step_label_words(label)
+    words = _words(_STEP_FRAME_NEGATION_RE.sub(" ", clause.casefold()))
+    for i, w in enumerate(words):
+        if w in _STEP_FUNCTION_WORDS or _STEP_NEGATION_RE.match(w):
+            continue
+        prev = words[i - 1] if i else ""
+        if prev.isdigit() and (
+            (kind == "team_size" and _people_unit(w)) or (kind == "budget" and w in _STEP_MAGNITUDE_WORDS)
+        ):
+            continue  # the figure completed by its unit: "120" → "120 Mitarbeitenden"
+        if kind == "budget" and w in _STEP_MAGNITUDE_WORDS and prev in _STEP_MAGNITUDE_WORDS:
+            continue  # "5 Mio. Euro"
+        if w not in person_words and _step_stem(w) not in person_stems:
+            return False
+    return _step_negations(person_words) <= _step_negations(words)
+
+
+def _people_unit(word: str) -> bool:
+    from applire.services.scope_requirements import _PEOPLE_AFTER_RE
+
+    return bool(_PEOPLE_AFTER_RE.match(word))
 
 
 def _restates(clause: str, limit_words: set[str]) -> bool:
@@ -2014,8 +2329,13 @@ def scope_steps_from_ledger(
             continue
         figures = frozenset(_bar_figures(bar))
         if figures:
+            source = SCOPE_ANSWER_STEP_SOURCE if limit.get("source") == SCOPE_ANSWER_STEP_SOURCE else ""
+            label = " ".join(
+                str(x) for x in (entry.get("concept"), _bar_unit_at_figure(bar)) if x
+            )
             steps.append(ScopeStep(figures=figures, statement=statement.strip(),
-                                   limit_id=lid.strip(), kind=str(bar.get("kind") or "")))
+                                   limit_id=lid.strip(), kind=str(bar.get("kind") or ""),
+                                   source=source, label=label))
     return steps
 
 
@@ -2026,8 +2346,17 @@ def _scope_step_backing(
     scope_steps: list[ScopeStep] | None,
 ) -> list[EvidenceUnit] | None:
     """The live limit units backing EVERY unmatched figure as a scope step, else
-    ``None`` (fail-safe exactly like :func:`_denial_statement_backing`)."""
-    if not scope_steps or not idx.denial_units:
+    ``None`` (fail-safe exactly like :func:`_denial_statement_backing`).
+
+    WP-Q6 (b) (COORD MD-Q10): a step bound to the person's stored scope ANSWER
+    has no denial unit behind it; under the same rules it is backed by a unit
+    built from that answer (path ``scope_answer:<kind>``). The unit exists only
+    here — never in the vault index — so it backs nothing but this bar's figure
+    in a step-framed restatement of the answer."""
+    if not scope_steps:
+        return None
+    answer_steps = any(s.source == SCOPE_ANSWER_STEP_SOURCE for s in scope_steps)
+    if not idx.denial_units and not answer_steps:
         return None
     from applire.services.scope_requirements import names_bar_figure_with_unit
 
@@ -2041,11 +2370,27 @@ def _scope_step_backing(
             return None
         unit = None
         for step in scope_steps:
-            if fig.value not in step.figures or _norm(step.statement) not in live:
+            from_answer = step.source == SCOPE_ANSWER_STEP_SOURCE
+            if fig.value not in step.figures or (not from_answer and _norm(step.statement) not in live):
                 continue
-            words = _denial_content_tokens(f"{step.limit_id} {step.statement}")
+            if from_answer and not _scope_step_framed(step.statement):
+                # MD-Q10 condition 1: a recorded denial IS the person's "not yet"; a
+                # stored answer is not. The step frame the letter writes must be in
+                # the person's own sentence (the same frame words the claim side is
+                # held to) — "Dauerhaft verantwortet habe ich rund 120" never backs
+                # "… zu verantworten wäre der nächste Schritt" nor "… noch nicht"
+                # (Luna replay, met-bar arm: the classifier bound it 1/5). A
+                # separate "no added negation" rule for answers was mutation-shown
+                # redundant with this one and red on true sentences: removed.
+                continue
+            persons = step.persons_text
+            words = _denial_content_tokens(persons)
             if not all(_scope_step_framed(c) and _restates(c, words) for c in clauses):
                 continue
+            if from_answer and not all(
+                _step_words_are_persons(c, persons, step.kind, step.label) for c in clauses
+            ):
+                continue  # MD-Q13 N1: the step's words are the person's, never the writer's
             # MD-Q6 R2: the figure carries a unit of the bar's kind right at it
             # ("120 Kunden" is no span) — unless it is written exactly as the
             # person wrote it (wave 1b delivery: Stefan's own "Die dauerhafte
@@ -2054,13 +2399,24 @@ def _scope_step_backing(
             bar = {"kind": step.kind, "value": float(fig.value)}
             if not (
                 names_bar_figure_with_unit(claim_text, bar)
-                or _figure_in_persons_phrase(claim_text, fig, f"{step.limit_id} {step.statement}")
+                or _figure_in_persons_phrase(claim_text, fig, persons)
             ):
                 continue
-            plain = set(_words(f"{step.limit_id} {step.statement}"))
-            if not _scope_step_sentence_ok(claim_text, words, plain):
+            plain = set(_words(persons))
+            if not _scope_step_sentence_ok(
+                claim_text, words, plain,
+                persons=persons if from_answer else None, kind=step.kind,
+            ):
                 continue
-            unit = live[_norm(step.statement)]
+            unit = (
+                EvidenceUnit(
+                    path=f"scope_answer:{step.kind or 'bar'}",
+                    text=step.statement,
+                    text_norm=_norm(step.statement),
+                )
+                if from_answer
+                else live[_norm(step.statement)]
+            )
             break
         if unit is None:
             logger.info(
@@ -3105,7 +3461,10 @@ async def _verify_claim_unchecked(
         # claim misattributed (same-role or role-agnostic backing clears it).
         flag = _attribution_red_flag(attribution_id, grounding.qualifying_units, idx)
         if flag is not None:
-            return flag
+            # WP-Q5 (a): in a cross-language pair the owner's own units are judged first.
+            return _owner_language_candidate(
+                claim.text, idx, attribution_id, document_language, flag, judgement_sink
+            ) or flag
         # ── unattributable figure-free claim (unanchored letter claim, #248) ─
         # The non-figure counterpart of §2c: an unanchored letter claim whose
         # entire grounding backing is owned is the SAME genuine-unattributable
@@ -3139,7 +3498,9 @@ async def _verify_claim_unchecked(
     if source_id is not None:
         pre_union_flag = _attribution_red_flag(attribution_id, grounding.top_units, idx)
         if pre_union_flag is not None:
-            return pre_union_flag
+            return _owner_language_candidate(
+                claim.text, idx, attribution_id, document_language, pre_union_flag, judgement_sink
+            ) or pre_union_flag
         # ── 3a2. role-union fallback (#237 run-4 residual) ───────────────────
         # An ANCHORED claim narrating several facts about ONE role — no single
         # bullet clears the floor, but the role's OWN evidence collectively
@@ -3179,7 +3540,9 @@ async def _verify_claim_unchecked(
         (soft_id,) = claim.sentence_named_ids
         pre_union_flag = _attribution_red_flag(soft_id, grounding.top_units, idx)
         if pre_union_flag is not None:
-            return pre_union_flag
+            return _owner_language_candidate(
+                claim.text, idx, soft_id, document_language, pre_union_flag, judgement_sink
+            ) or pre_union_flag
         role_grounding = ground_via_role_union(
             claim.text, idx, soft_id, idx.same_employer_ids.get(soft_id, frozenset())
         )
@@ -3370,7 +3733,8 @@ async def audit_document(
             )
             triage_exemptions, triage_unavailable = {}, len(claims)
 
-    index = _claimable_index(profile)
+    # WP-Q5 (c): the ledger's stored denial scope rides on the index.
+    index = with_ledger_denials(_claimable_index(profile), keyword_ledger)
     budget = _EntailmentBudget(limit=ORACLE_MAX_ENTAILMENT_CALLS if entailment else 0)
     # ADR-068 clause 6 — every claim that defers to the judgement layer lands
     # here; ``pending`` remembers, in the SAME order, which ``results`` slot

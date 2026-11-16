@@ -1418,6 +1418,51 @@ def test_project_missing_states_the_role_budget_when_the_role_is_full():
     assert "If the role is at its bullet budget, replace its weakest bullet." in room.text
 
 
+def test_project_missing_asks_for_a_standalone_project_as_standalone_wp_q5_b():
+    """Sorbet WP-Q5 (b), SF-ORACLE.35 (delivery 1b run 3, Katrin, rec 189 -> 191): the
+    finding named the project "(p3, as a standalone project)" and then asked to write
+    it "as a project of its role"; the corrector nested it under w1 and the Oracle
+    graded the correct bullet misattributed. The instruction now follows the link."""
+    prose = _prose()
+    prose["skills"] = ["SPS", "MES", "FastAPI"]
+    vault = _project_vault()
+    vault["projects"][0]["associated_experience"] = None
+    f = _by_check(_checks(prose, vault, keyword_ledger=_fastapi_ledger()))["cv.project_missing"]
+    assert "as a standalone project" in f.text and "never under a role" in f.text
+    assert "as a project of its role" not in f.text and "bullet of that role" not in f.text
+    assert "bullet budget" not in f.text
+    tied = _by_check(_checks(prose, _project_vault(), keyword_ledger=_fastapi_ledger()))["cv.project_missing"]
+    assert "as a project of its role" in tied.text and "never under a role" not in tied.text
+
+
+def test_compose_lifts_a_role_nested_project_the_vault_ties_to_no_position_wp_q5_b():
+    """Sorbet WP-Q5 (b) (delivery 1b run 3, Katrin, rec 191): the corrector nested the
+    interview-created standalone project under w1; the delivered CV stated an employer
+    the profile never recorded and the Oracle graded it misattributed. Compose renders
+    the vault's home: top level."""
+    vault = _project_vault()
+    vault["projects"][0]["associated_experience"] = None
+    prose = _prose()
+    prose["work"][0]["projects"] = [{"name": "Umstellung auf FastAPI", "bullets": ["Migrierte zwei Dienste."]}]
+    tailored, _notes = _compose(prose, vault)
+    assert [p.name for p in tailored.projects] == ["Umstellung auf FastAPI"]
+    assert all(not w.projects for w in tailored.work_history)
+    # a name the vault ties to a role, or does not hold, stays where the writer put it
+    for v in (_project_vault(), _vault()):
+        tailored, _notes = _compose(prose, v)
+        assert tailored.projects == []
+        assert [p.name for w in tailored.work_history for p in w.projects] == ["Umstellung auf FastAPI"]
+    # two same-named vault projects, one tied: never guessed apart
+    both = _project_vault()
+    both["projects"].append(dict(both["projects"][0], id="pppppppp-0000-4000-8000-000000000002",
+                                 associated_experience=None))
+    tailored, _notes = _compose(prose, both)
+    assert tailored.projects == []
+    from applire.services.cv_v2 import lift_standalone_projects
+
+    assert lift_standalone_projects(prose, both) is prose
+
+
 def test_compose_nests_a_top_level_project_the_vault_ties_to_a_role():
     """D-31: the v2 compose renders a vault-linked project under its role, whatever
     slot the prose used — the reviewers and the corrector see one container."""

@@ -237,3 +237,87 @@ def check_parent_dates(ops: list[Any], profile: MasterProfileData) -> tuple[list
                 context={"section": "projects", "kind": KIND, "project": op.name},
             ))
     return out, asks
+
+
+# ── Sorbet WP-Q5 (b), RULING Q5-1 (2026-11-15): a new project with no position ──
+
+#: The family-6 option that keeps the project standalone (writes nothing).
+STANDALONE_KEY = "standalone"
+STANDALONE_LABEL = {
+    "de": "Eigenständiges Projekt (keiner Position zugeordnet)",
+    "en": "Standalone project (not tied to a position)",
+}
+#: The doors whose new project comes from the person's own words in a turn — the
+#: interview, the agent interview and testimony. An import carries its own
+#: structure (a CV lists a project where it lists it) and is not asked.
+STATEMENT_SOURCES = frozenset({"interview", "agent_interview", "testimony"})
+
+
+def _project_name_key(name: str) -> str:
+    from applire.services.ats_audit import _norm
+
+    return _norm(name).strip(" .;:,")
+
+
+def ask_unparented_projects(
+    ops: list[Any], profile: MasterProfileData, source: str, asked: frozenset[str] = frozenset()
+) -> list[RequestConfirmation]:
+    """RULING Q5-1 — ask once for the position of a project the person's own
+    words create without one.
+
+    Captured (Sorbet delivery 1b run 3, Katrin): "Das habe ich 2022 im
+    Sondermaschinenbereich eingeführt …" named no employer; the reconcile wrote
+    ``upsert_project`` with ``parent: null``; the writer and the corrector then
+    disagreed on the project's home, and the Oracle graded a correct bullet
+    ``misattributed``. The employer is a fact only the person holds, so the code
+    does not guess it from the year: it ASKS, with closed answers — the held
+    positions whose dates overlap the project's (every held position when the
+    project is undated) and "standalone". The answer writes
+    ``associated_experience`` through family 6 (``plan_project_parent``);
+    "standalone" writes nothing and the project prints as standalone.
+
+    Raised only for a NEW project (no ``target``, no held project of that name)
+    from a statement door, without a parent, not already asked in this batch,
+    with at least one candidate position."""
+    from applire.services.profile.reconcile.confirmations import project_parent_confirmation
+    from applire.services.profile.reconcile.ops import UpsertProject
+
+    if source not in STATEMENT_SOURCES:
+        return []
+    positions = _positions(profile)
+    out: list[RequestConfirmation] = []
+    seen = set(asked)
+    for op in ops:
+        if not isinstance(op, UpsertProject) or op.parent or op.target or not (op.name or "").strip():
+            continue
+        name = op.name.strip()
+        # MD-Q11 F7: a spelling variant of a held project ("POC-Bewertung" beside a
+        # held "POC Bewertung") is that project, not a new one — the compose lift's
+        # own name key (``ats_audit._norm``: hyphens/dashes, width, case, spacing).
+        key = _project_name_key(name)
+        if name.casefold() in seen or key in seen or any(
+            _project_name_key(p.name or "") == key for p in profile.projects
+        ):
+            continue
+        seen.add(key)
+        span = _span(op.start_date, op.end_date)
+        fits = [
+            (pid, e) for pid, e in positions.items()
+            if span is None
+            or (s := _span(e.start_date, e.end_date, current=bool(getattr(e, "is_current", False)))) is None
+            or _overlaps(span, s)
+        ]
+        if not fits:
+            continue
+        seen.add(name.casefold())
+        rc = project_parent_confirmation(
+            project=name,
+            candidates=[(pid, position_label(e)) for pid, e in fits],
+            context={"section": "projects", "kind": KIND, "project": name},
+        )
+        out.append(rc.model_copy(update={
+            "options": [*rc.options, STANDALONE_LABEL["en"]],
+            "options_i18n": [*(rc.options_i18n or []), dict(STANDALONE_LABEL)],
+            "option_keys": [*(rc.option_keys or []), STANDALONE_KEY],
+        }))
+    return out

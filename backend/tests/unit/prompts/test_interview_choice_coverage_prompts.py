@@ -81,33 +81,31 @@ def test_prompt_names_the_three_levels():
     assert "denial" in low
 
 
-def test_prompt_offers_one_honest_bridge_scoped_to_the_asked_concept():
-    # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
-    # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
-    # restatement; the R2-2 "no denial level" / "leave the concept out" rules
-    # it replaces are gone (the founder ruled them an over-correction).
+def test_prompt_offers_one_honest_question_scoped_to_the_asked_concept():
+    # UAT-2 (founder UAT 2026-11-08) offered one honest bridge ("X habe ich
+    # bisher nicht …, aber durch Y …"); Q6-1 (ADR-064 amended 2026-11-15) makes
+    # it a question plus an opening: the model gives the ask and the concept,
+    # code writes "Zu <Konzept>:", and no choice states a no.
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert 'HONEST BRIDGE (level "denial", ONE per question at most' in flat
-    assert '"X habe ich bisher nicht …, aber durch Y …"' in flat
-    # UAT-2d (MD-UAT-5): X exactly as the cluster spells it, nothing added; a
-    # qualified no is a bridge; the honest bridge's ask is a soft question.
-    assert "X is the asked concept exactly as the GAP CLUSTER block spells it, with NOTHING added" in flat
-    assert "a no that is only true with a qualifier (\"not independently\", \"not formally\") is not a no — offer it as a BRIDGE instead" in flat
+    assert 'HONEST QUESTION (level "denial", ONE per question at most' in flat
+    assert "X habe ich bisher nicht" not in flat
+    assert '"concept": the asked concept exactly as the GAP CLUSTER block spells it, NOTHING added' in flat
     assert '"Kennst du Mengenvorgaben vielleicht aus der Schichtplanung?"' in flat
     assert "Nicht direkt" not in flat
-    assert 'Its "denied_terms" lists X exactly as the GAP CLUSTER block names it' in flat
     assert "never offer a choice at the denial level" not in flat.lower()
 
 
-def test_prompt_no_other_limit_than_the_honest_bridge():
+def test_prompt_no_limit_at_all():
     # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
     # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
     # restatement; the R2-2 "no denial level" / "leave the concept out" rules
     # it replaces are gone (the founder ruled them an over-correction).
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert "NO OTHER LIMIT: apart from the honest bridge's no on the asked concept" in flat
+    # Q6-1: no choice states a no, not even a restated earlier one.
+    assert "NO LIMIT: no choice says the candidate lacks" in flat
+    assert "not even an earlier no of theirs" in flat
     assert '"my profile does not yet document X" is the system speaking' in flat
-    assert "The one exception: the candidate's own earlier no" in flat
+    assert "The one exception: the candidate's own earlier no" not in flat
     assert "NO INVENTED LIMIT" not in flat
 
 
@@ -130,13 +128,14 @@ def test_prompt_bridge_joins_a_real_anchor_to_the_asked_concept():
     assert "never mentions a concept it does not cover" not in flat
 
 
-def test_denied_terms_lists_the_honest_bridges_concept():
+def test_denied_terms_is_empty_on_every_choice():
     # UAT-2 (founder UAT 2026-11-08, ADR-064 amended): the coverage block was
     # rebuilt as the "Answer ideas" block — bridges, one honest bridge, no
     # restatement; the R2-2 "no denial level" / "leave the concept out" rules
     # it replaces are gone (the founder ruled them an over-correction).
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert '"denied_terms": [] on every choice except the honest bridge (its asked concept) and a restated earlier no' in flat
+    # Q6-1: no choice denies anything.
+    assert '"denied_terms": [] on every choice.' in flat
     assert "names WITHOUT claiming them" not in flat
 
 
@@ -257,7 +256,7 @@ def test_direct_is_bound_to_evidence_in_its_own_bullet():
 
 def test_the_mix_caps_the_set_and_names_both_arms():
     flat = _collapsed(QUESTION_SYSTEM_PROMPT)
-    assert "THE MIX, at most 3 choices: a concept the profile does not evidence gets one or two bridges and the one honest bridge" in flat
+    assert "THE MIX, at most 3 choices: a concept the profile does not evidence gets one or two bridges and the one honest question" in flat
     assert "a concept it evidences gets one direct choice and at most one bridge" in flat
 
 

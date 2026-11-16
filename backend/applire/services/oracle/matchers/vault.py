@@ -152,6 +152,17 @@ class VaultIndex:
     #: for every certification ``name``, education ``degree`` and ``degree_aliases``
     #: item (ADR-046 #716). Read only by ``audit._verify_entry_claim``.
     credential_entries: tuple[tuple[str, str], ...] = ()
+    # Sorbet WP-Q5 (c), ADR-064 amended 2026-11-15 — the keyword ledger's STORED
+    # scope decision for this job: ``(normalised form, recorded denial)`` for every
+    # form of a ledger row the ledger itself holds as ``denied`` (declared by the
+    # record's own words, or bound to it by the gap classifier's ``denied_by``).
+    # Empty when the audit has no ledger. Read only by
+    # :func:`applire.services.oracle.backing.stored_denial_cover`; never evidence.
+    ledger_denials: tuple[tuple[str, str], ...] = ()
+    # Sorbet WP-Q5, MD-Q13 N2: the normalised forms (concept + surface forms) of
+    # the job's CLAIMABLE ledger rows. A shorter name the person's own ledger row
+    # claims is not covered by a denial of a longer product name.
+    ledger_claimable: frozenset[str] = frozenset()
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:

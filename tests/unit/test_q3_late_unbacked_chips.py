@@ -90,13 +90,14 @@ def test_the_drop_reaches_the_delivered_data_the_prose_and_the_raw_compose():
     assert "Erste Führungserfahrung" in record.tailored_data["skills"]
     # the summary sentence the delivered Oracle grounds stays as written
     assert "auf Gruppenebene" in record.tailored_data["summary"]
-    # run 1's profile already recorded the denial "eigene Projektcontrolling-Projekte"
-    # (A4), so the widened arm takes that chip too (the run-1 delivered Oracle had
-    # grounded it through a model seam; the denial now decides)
+    # run 1's profile recorded the denial "eigene Projektcontrolling-Projekte" (A4):
+    # an aspect (no further OWN projects), not the skill. At its stored scope it does
+    # not cover the chip (WP-Q5 (c), ADR-064 am. 2026-11-15) — the widened arm took it
+    # under the containment reading; the run-1 delivered Oracle had grounded it.
     assert [(f.kind, f.text, f.family) for f in late] == [
-        ("oracle:skillNoEvidence", "Projektcontrolling", "unbacked"),
         ("oracle:skillNoEvidence", "Gruppenebene", "unbacked"),
     ]
+    assert "Projektcontrolling" in record.tailored_data["skills"]
 
 
 def test_the_removal_row_is_the_receipt_even_when_the_word_lives_on_in_a_sentence():
@@ -160,33 +161,61 @@ RERUN = json.loads(
 )
 
 
-def test_a_chip_a_recorded_denial_covers_and_nothing_backs_is_dropped():
-    """Re-run: "Projektcontrolling" was in the reviewed draft (so not late) and the
-    tie check did not name it; the interview recorded "Weitere eigene
-    Projektcontrolling-Projekte geleitet" (A4) and the delivered Oracle graded the
-    chip unbacked. "Kostenrechnung" is deterministic-unbacked too but no denial
-    covers it (the delivered Oracle grounded it) — it stays."""
+def test_an_aspect_denial_does_not_cover_the_bare_chip_wp_q5_c():
+    """Re-run (7017f7ab): "Projektcontrolling" was in the reviewed draft and the tie
+    check did not name it; the interview recorded "Weitere eigene
+    Projektcontrolling-Projekte geleitet" (A4) — an aspect: no FURTHER own projects
+    (she introduced the POC valuation for six projects). Before WP-Q5 the Oracle's
+    containment cover read it as covering the bare chip and this arm dropped it;
+    the ledger kept the chip claimable. At the stored scope (WP-Q5 (c), ADR-064
+    amended 2026-11-15) the denial does not cover it, so nothing is taken."""
     from applire.services.attribution_round import denied_unbacked_chips
 
     assert "Projektcontrolling" in RERUN["reviewed_skills"]
     assert denied_unbacked_chips(RERUN["shipped_skills"], profile_json=RERUN["profile"],
-                                 keyword_ledger=None) == ["Projektcontrolling"]
+                                 keyword_ledger=None) == []
+
+
+def test_a_chip_the_denial_names_and_nothing_backs_is_dropped_wp_q5_c():
+    """The true positive at the stored scope: the record's own words name the chip
+    ("Make-or-buy-Entscheidungen", "US-GAAP"), nothing backs it — dropped."""
+    from applire.services.attribution_round import denied_unbacked_chips
+
+    shipped = RERUN["shipped_skills"] + ["US-GAAP", "Make-or-buy-Entscheidungen"]
+    assert denied_unbacked_chips(shipped, profile_json=RERUN["profile"],
+                                 keyword_ledger=None) == ["US-GAAP", "Make-or-buy-Entscheidungen"]
+
+
+def test_a_chip_the_ledger_binds_to_a_denial_is_dropped_wp_q5_c():
+    """The bound arm: the gap classifier bound the requirement's row to the record
+    (``denied_by``), the ledger holds it ``denied`` — the stored decision covers the
+    chip although the record's words do not name it."""
+    from applire.services.attribution_round import denied_unbacked_chips
+
+    ledger = [{"concept": "Investitionscontrolling", "surface_forms": ["Investitionscontrolling"],
+               "claimable": False, "status": "denied", "denial_level": "direct",
+               "denied_by": "Make-or-buy-Entscheidungen", "sources": ["required"]}]
+    shipped = RERUN["shipped_skills"] + ["Investitionscontrolling"]
+    assert denied_unbacked_chips(shipped, profile_json=RERUN["profile"], keyword_ledger=None) == []
+    assert denied_unbacked_chips(shipped, profile_json=RERUN["profile"],
+                                 keyword_ledger=ledger) == ["Investitionscontrolling"]
 
 
 def test_a_chip_the_person_recorded_is_never_taken_even_under_a_denial():
     from applire.services.attribution_round import denied_unbacked_chips
 
     prof = json.loads(json.dumps(RERUN["profile"]))
-    prof["skills"].append({"name": "Projektcontrolling", "status": "confirmed"})
-    assert denied_unbacked_chips(RERUN["shipped_skills"], profile_json=prof, keyword_ledger=None) == []
+    prof["skills"].append({"name": "US-GAAP", "status": "confirmed"})
+    assert denied_unbacked_chips(["US-GAAP"], profile_json=prof, keyword_ledger=None) == []
 
 
-def test_the_delivery_drop_takes_the_denied_chip_although_it_was_audited():
+def test_the_delivery_drop_takes_a_declared_chip_although_it_was_audited():
     from applire.services.cv import _drop_late_unbacked_chips
 
+    shipped = list(RERUN["shipped_skills"]) + ["US-GAAP"]
     record, prose, _composed, _v2 = _record_and_v2()
-    record.tailored_data = {**record.tailored_data, "skills": list(RERUN["shipped_skills"])}
-    prose = {**prose, "skills": list(RERUN["shipped_skills"])}
+    record.tailored_data = {**record.tailored_data, "skills": list(shipped)}
+    prose = {**prose, "skills": list(shipped)}
 
     class _NoUntied:
         notes_by_draft: dict = {}
@@ -196,24 +225,26 @@ def test_the_delivery_drop_takes_the_denied_chip_although_it_was_audited():
 
     _p, _raw, late = _drop_late_unbacked_chips(
         record, prose, None, _NoUntied(),
-        audited_skills=RERUN["reviewed_skills"],  # audited: the late arm takes nothing
+        audited_skills=shipped,  # audited: the late arm takes nothing
         profile_json=RERUN["profile"], keyword_ledger=None,
     )
-    assert [f.text for f in late] == ["Projektcontrolling"]
-    assert "Projektcontrolling" not in record.tailored_data["skills"]
+    assert [f.text for f in late] == ["US-GAAP"]
+    assert "US-GAAP" not in record.tailored_data["skills"]
+    # the aspect denial's chip and an undenied deterministic-unbacked chip stay
+    assert "Projektcontrolling" in record.tailored_data["skills"]
     assert "Kostenrechnung" in record.tailored_data["skills"]
 
 
-def test_a_chip_the_ledger_backs_is_kept_under_a_denial_cover():
-    """The producer decides with the denial: a claimable ledger row that names the
-    chip beside a form the vault holds backs it (the job's recorded statement that
-    they are one competence), so the chip stays although the denial text covers it."""
+def test_a_chip_the_ledger_holds_claimable_is_not_covered():
+    """The ledger's stored decision on the chip's own row is "claimable": no denial
+    covers it, whatever compound of the record's words contains it."""
     from applire.services.attribution_round import denied_unbacked_chips
     from applire.services.oracle.audit import _claimable_index
-    from applire.services.oracle.backing import _denied
+    from applire.services.oracle.backing import _denied, with_ledger_denials
 
     ledger = [{"concept": "Projektcontrolling", "surface_forms": ["Projektcontrolling", "Percentage of Completion"],
                "claimable": True, "status": "direct", "sources": ["required"]}]
-    assert _denied(["Projektcontrolling"], _claimable_index(RERUN["profile"]))
+    idx = with_ledger_denials(_claimable_index(RERUN["profile"]), ledger)
+    assert not _denied(["Projektcontrolling"], idx)
     assert denied_unbacked_chips(["Projektcontrolling"], profile_json=RERUN["profile"],
                                  keyword_ledger=ledger) == []

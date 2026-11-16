@@ -93,7 +93,7 @@ class TestChoicesHintDenialScope:
             _cluster(["Industrie 4.0", "SMED"]), _PROFILE, [], gap_category="C"
         )
         assert "Every constituent concept is evidenced" in prompt
-        assert "no honest bridge" in prompt
+        assert "no honest question" in prompt  # Q6-1 wording
         assert "haven't worked with" not in prompt
 
     def test_single_gap_cluster_still_sets_choices_null(self):
