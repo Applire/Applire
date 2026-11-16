@@ -34,6 +34,17 @@ the doors whose NEW INFORMATION carries the person's ``answer``):
 A doubtful case therefore stores the person's own phrase or nothing — never a
 name the person did not say. The question's and the posting's words are never
 evidence (ADR-061 / ADR-048 as amended).
+
+**MD-Q17 (adversarial finding F7): the words must be a CLAIM, not just present.**
+Every kept window — the name, the own words of a composition, the ``said``
+phrase — lies inside ONE sentence of the answer, and that sentence is
+affirmative: it holds no negation ("I never did penetration testing") and no
+wish or hypothetical ("Ich würde gern Kubernetes lernen"). The stored name
+holds at least one content word ("habe das nie" holds none). A composition with
+a held skill's words ("SAP" + "MM") needs the op's ``said`` phrase in an
+affirmative sentence and the own words inside that same sentence. The word
+lists are lexical on purpose: they can only BLOCK (no skill is stored; the
+bullets keep what the answer said), never let a name through.
 """
 from __future__ import annotations
 
@@ -51,6 +62,39 @@ ANSWER_SOURCES = frozenset({"interview", "agent_interview", "testimony"})
 #: The longest ``said`` phrase stored as a skill name (a noun phrase, not a clause).
 MAX_SAID_WORDS = 6
 _WORD = re.compile(r"\w+")
+#: A sentence ends at ".", "!", "?", ";" or a line break followed by space or
+#: the end ("4.0" and "z.B." do not end one: no space after the dot).
+_SENTENCE_END = re.compile(r"[.!?;](?=\s|$)|\n")
+#: Negation words (German, English): a sentence holding one is a denial.
+_NEGATORS = frozenset({
+    "nie", "niemals", "nicht", "nichts", "kein", "keine", "keinen", "keinem", "keiner",
+    "keines", "ohne", "weder", "niemand", "nirgends",
+    "no", "not", "never", "none", "nor", "neither", "without", "nothing", "nobody",
+    "cannot", "didn", "doesn", "don", "isn", "wasn", "aren", "weren", "hasn", "haven",
+    "hadn", "couldn", "wouldn", "shouldn",
+})
+#: Wish / hypothetical / plan words: a sentence holding one claims nothing yet.
+_WISH = frozenset({
+    "würde", "würden", "möchte", "möchten", "gern", "gerne", "hätte", "hätten", "wäre",
+    "wären", "könnte", "könnten", "wünsche", "hoffe", "will", "wollen", "vielleicht", "lernen",
+    # never "plan"/"planning"/"planen": a noun in "materials planning" (replay)
+    "would", "wish", "hope", "want", "wants", "wanted", "could", "might", "maybe", "someday",
+    "learn",
+})
+#: Words that name no capability: a stored name needs one word outside this set.
+_FUNCTION_WORDS = _NEGATORS | _WISH | frozenset({
+    "ich", "du", "er", "sie", "es", "wir", "ihr", "mich", "mir", "mein", "meine", "meinen",
+    "meinem", "meiner", "uns", "unser", "unsere", "das", "der", "die", "den", "dem", "des",
+    "ein", "eine", "einen", "einem", "einer", "und", "oder", "aber", "auch", "mit", "von",
+    "für", "bei", "im", "in", "an", "am", "auf", "aus", "zu", "zum", "zur", "da", "dort",
+    "so", "wie", "was", "habe", "hat", "haben", "hatte", "hatten", "bin", "ist", "sind",
+    "war", "waren", "wurde", "wurden", "werde", "wird", "dabei", "dann", "noch", "schon",
+    "sehr", "gemacht", "getan",
+    "i", "me", "my", "we", "our", "you", "he", "she", "it", "they", "the", "a", "an", "and",
+    "or", "but", "also", "with", "of", "for", "at", "in", "on", "to", "from", "by", "as",
+    "that", "this", "there", "have", "has", "had", "do", "did", "does", "done", "is", "are",
+    "was", "were", "be", "been", "very", "so",
+})
 
 
 def _words(text: Any) -> list[tuple[str, int, int]]:
@@ -76,16 +120,39 @@ def _same_word(a: str, b: str) -> bool:
     return common >= short - 1
 
 
-def _find_phrase(hay: list[tuple[str, int, int]], needle: list[str]) -> tuple[int, int] | None:
+def _sentences(answer: str) -> list[tuple[int, int, bool]]:
+    """``(start, end, affirmative)`` per sentence of the answer: a sentence is
+    affirmative when it holds no negation and no wish word."""
+    raw = unicodedata.normalize("NFC", answer)
+    out, start = [], 0
+    for m in [*_SENTENCE_END.finditer(raw), None]:
+        end = m.end() if m else len(raw)
+        words = {w.casefold() for w in _WORD.findall(raw[start:end])}
+        if raw[start:end].strip():
+            out.append((start, end, not (words & _NEGATORS or words & _WISH)))
+        start = end
+    return out
+
+
+def _claimed_phrase(
+    hay: list[tuple[str, int, int]], needle: list[str], sentences: list[tuple[int, int, bool]],
+) -> tuple[int, int] | None:
     """The character span of the first contiguous window of ``hay`` whose words
-    are ``needle`` (word by word, :func:`_same_word`), or ``None``."""
+    are ``needle`` (word by word, :func:`_same_word`) and which lies inside ONE
+    affirmative sentence (MD-Q17), or ``None``."""
     k = len(needle)
     if not k or k > len(hay):
         return None
     for i in range(len(hay) - k + 1):
         if all(_same_word(hay[i + j][0], needle[j]) for j in range(k)):
-            return hay[i][1], hay[i + k - 1][2]
+            a, b = hay[i][1], hay[i + k - 1][2]
+            if any(s <= a and b <= e and ok for s, e, ok in sentences):
+                return a, b
     return None
+
+
+def _has_content_word(words: list[str]) -> bool:
+    return any(w not in _FUNCTION_WORDS for w in words)
 
 
 def _answer_of(new_info: Any) -> str:
@@ -102,6 +169,7 @@ def enforce_skill_names(ops: Sequence[Any], *, profile: Any, new_info: Any, sour
     if source not in ANSWER_SOURCES or not answer.strip():
         return ops
     hay = _words(answer)
+    sentences = _sentences(answer)
     skills = list(getattr(profile, "skills", None) or [])
     held_ids = {str(getattr(s, "id", "") or "") for s in skills} - {""}
     held_words = [w for s in skills for w, _a, _b in _words(getattr(s, "name", ""))]
@@ -112,15 +180,24 @@ def enforce_skill_names(ops: Sequence[Any], *, profile: Any, new_info: Any, sour
             out.append(op)
             continue
         name = [w for w, _a, _b in _words(op.name)]
-        if _find_phrase(hay, name) is not None:
-            out.append(op)
-            continue
-        own = [w for w in name if not any(_same_word(w, h) for h in held_words)]
-        if own and len(own) < len(name) and _find_phrase(hay, own) is not None:
+        if _has_content_word(name) and _claimed_phrase(hay, name, sentences) is not None:
             out.append(op)
             continue
         said = [w for w, _a, _b in _words(op.said)]
-        span = _find_phrase(hay, said) if 0 < len(said) <= MAX_SAID_WORDS else None
+        span = (
+            _claimed_phrase(hay, said, sentences)
+            if 0 < len(said) <= MAX_SAID_WORDS and _has_content_word(said) else None
+        )
+        own = [w for w in name if not any(_same_word(w, h) for h in held_words)]
+        # A composition (held words + the answer's own words) needs the
+        # person's affirmative ``said`` and the own words in ITS sentence.
+        said_sentence = [x for x in sentences if span is not None and x[0] <= span[0] and span[1] <= x[1]]
+        if (
+            span is not None and own and len(own) < len(name) and _has_content_word(own)
+            and _claimed_phrase(hay, own, said_sentence) is not None
+        ):
+            out.append(op)
+            continue
         if span is not None:
             phrase = unicodedata.normalize("NFC", answer)[span[0]:span[1]]
             # Never the skill name or the answer's words in the application
