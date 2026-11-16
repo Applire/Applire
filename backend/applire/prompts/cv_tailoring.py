@@ -564,8 +564,21 @@ _V2_RULE7_ANCHOR = '"MES (Maschinen- und Betriebsdatenerfassung)".'
 V2_PRODUCT_MODULES_RULE = 'A product and its modules are one entry too: "SAP (PP, MM)", never "SAP", "SAP PP" and "SAP MM".'
 assert SYSTEM_PROMPT.count(_V2_RULE7_ANCHOR) == 1, "rule 7 moved — re-derive V2_SYSTEM_PROMPT"
 
+#: Sorbet WP-Q7, founder ruling Q7-1 (2026-11-16): the title phrase rule 5 opens with
+#: is the CANDIDATE's. Delivery 2a run 3 rec 296: the summary opened "Leiter Operations
+#: mit 14 Jahren …" — the posting's role_title — for a Produktionsleiter; replayed as
+#: captured on Luna 6/6 (and 1/6, 0/6 on the run-2 and run-1 Stefan calls). v2 only
+#: (the v1 writer must stay under its reviewer, test_545).
+_V2_RULE5_ANCHOR = "open with the title phrase."
+V2_TITLE_PHRASE_RULE = (
+    "open with the title phrase: a job title the candidate holds or has held (a role name in "
+    "VAULT FIELDS), or a profession line in the profile's own words \u2014 never the posting's "
+    "role_title, which names the job applied for, not the candidate."
+)
+assert SYSTEM_PROMPT.count(_V2_RULE5_ANCHOR) == 1, "rule 5 moved \u2014 re-anchor _V2_RULE5_ANCHOR"
+
 V2_SYSTEM_PROMPT = (
-    SYSTEM_PROMPT.replace(_V2_RULE3_ANCHOR, _V2_RULE3_ANCHOR + " " + V2_NOT_YET_REACHED_RULE)
+    SYSTEM_PROMPT.replace(_V2_RULE5_ANCHOR, V2_TITLE_PHRASE_RULE).replace(_V2_RULE3_ANCHOR, _V2_RULE3_ANCHOR + " " + V2_NOT_YET_REACHED_RULE)
     .replace(_V2_RULE7_ANCHOR, _V2_RULE7_ANCHOR + " " + V2_PRODUCT_MODULES_RULE)
     .replace(_V1_FACTS_PARAGRAPH, _V2_FACTS_PARAGRAPH)
     .replace(_V1_SCHEMA, _V2_SCHEMA)

@@ -34,7 +34,11 @@ def test_the_v2_boundary_still_forbids_affirming_the_denied_concept():
 
 
 def test_v2_differs_from_v1_only_in_the_boundary():
-    assert r._CHECKS.replace(r._V1_DENIAL_BOUNDARY, r._V2_DENIAL_BOUNDARY) == r._V2_CHECKS
-    assert r.V2_REVIEW_SYSTEM_PROMPT.replace(r._V2_DENIAL_BOUNDARY, r._V1_DENIAL_BOUNDARY).count(
-        r._CHECKS
-    ) == 1
+    # Sorbet WP-Q7 (ruling Q7-1): v2 also widens check 5's title clause — the
+    # second and only other named difference.
+    assert r._CHECKS.replace(r._V1_DENIAL_BOUNDARY, r._V2_DENIAL_BOUNDARY).replace(
+        r._V1_TITLE_CLAUSE, r._V2_TITLE_CLAUSE
+    ) == r._V2_CHECKS
+    assert r.V2_REVIEW_SYSTEM_PROMPT.replace(r._V2_DENIAL_BOUNDARY, r._V1_DENIAL_BOUNDARY).replace(
+        r._V2_TITLE_CLAUSE, r._V1_TITLE_CLAUSE
+    ).count(r._CHECKS) == 1

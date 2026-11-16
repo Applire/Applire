@@ -618,7 +618,19 @@ _V2_DENIAL_BOUNDARY = (
     "AWS\") is the candidate's own answer and grounds that capability like any profile statement —"
 )
 assert _CHECKS.count(_V1_DENIAL_BOUNDARY) == 1, "the SKILLS-LIST SCOPE boundary moved — re-anchor"
-_V2_CHECKS = _CHECKS.replace(_V1_DENIAL_BOUNDARY, _V2_DENIAL_BOUNDARY)
+#: Sorbet WP-Q7 (ruling Q7-1, 2026-11-16): check 5's title clause names the case the
+#: delivery-2a run 3 reviewer passed four rounds running — the posting's role title as
+#: the summary's opening ("Leiter Operations mit 14 Jahren …" for a Produktionsleiter).
+#: v2 only: the v1 prose door sits 77 characters under its ratchet.
+_V1_TITLE_CLAUSE = "or a more senior title than the\n   profile's."
+_V2_TITLE_CLAUSE = (
+    "or a more senior title than the\n   profile's, or a job title the profile does not hold \u2014 "
+    "the posting's role title is the employer's, never the candidate's headline."
+)
+assert _CHECKS.count(_V1_TITLE_CLAUSE) == 1, "check 5's title clause moved \u2014 re-anchor"
+_V2_CHECKS = _CHECKS.replace(_V1_DENIAL_BOUNDARY, _V2_DENIAL_BOUNDARY).replace(
+    _V1_TITLE_CLAUSE, _V2_TITLE_CLAUSE
+)
 
 V2_REVIEW_SYSTEM_PROMPT = (
     _AUDITOR_INTRO

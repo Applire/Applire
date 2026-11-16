@@ -40,6 +40,10 @@
     "resolver": "ask_true"
   },
   {
+    "kind": "oracle:titleNotHeld",
+    "resolver": "ask_true"
+  },
+  {
     "kind": "oracle@inflated",
     "resolver": "ask_achieved"
   },

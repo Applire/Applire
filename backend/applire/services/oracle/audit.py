@@ -3822,6 +3822,20 @@ async def audit_document(
         if unavailable:
             judgement_unavailable += 1
 
+    # Sorbet WP-Q7 (ruling Q7-1, MD-Q15): the posting's words are not the person's
+    # claim — a title the vault never holds (CV, same-language pair) and a posting
+    # word for a partly met requirement. Stricter only; read after every arm.
+    from applire.services.oracle.posting_words import apply_posting_word_checks
+
+    results = apply_posting_word_checks(
+        results,
+        profile=profile,
+        keyword_ledger=keyword_ledger,
+        is_cv=tailored_data is not None,
+        same_language=document_language is not None
+        and not holds_other_language(index, document_language),
+    )
+
     from applire.services.finding_registry import stamp_truthfulness_model
 
     # ADR-099 cl. 2 (WP-B): every verdict row carries its delivery class + resolver.
