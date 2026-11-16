@@ -143,6 +143,11 @@ class AddBullets(BaseModel):
 class UpsertSkill(BaseModel):
     op: Literal["upsert_skill"] = "upsert_skill"
     name: str
+    # MD-Q15 (Sorbet wave 2b) — the NEW INFORMATION's own words for the
+    # capability, copied verbatim (a short noun phrase). On an answer turn
+    # ``reconcile.skill_names.enforce_skill_names`` stores it, cut from the
+    # answer, when ``name`` is not the person's word. Never written to the vault.
+    said: str | None = None
     # RULING V-6 = A (ADR-046 amended 2026-10-08) — the `id` of the EXISTING
     # skill this op is, when the new information names it differently (a
     # translation, synonym, abbreviation) and adds evidence / a level / a span.
