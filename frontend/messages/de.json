@@ -2046,6 +2046,8 @@
       "team_size_recorded": "Teamgröße ergänzt: Du hast die Zahl der Personen in deiner Antwort genannt.",
       "bullet_replaced": "Stichpunkt ersetzt: Deine Antwort sagt dasselbe genauer; den alten Wortlaut kannst du zurückholen.",
       "bullet_replace_undone": "Stichpunkt zurückgeholt: Er steht wieder neben dem Stichpunkt, der ihn ersetzt hatte.",
+      "team_size_bullet_changed": "Zahl im Stichpunkt geändert: Du hast die korrigierte Teamgröße in diesen Stichpunkt übernommen.",
+      "team_size_bullet_kept": "Stichpunkt gelassen: Der Lebenslauf zeigt für diese Rolle keine Teamgrößen-Zeile, damit nicht zwei Zahlen nebeneinander stehen.",
       "availability_recorded": "Deine Verfügbarkeit festgehalten.",
       "availability_cleared": "Deine Verfügbarkeit entfernt."
     }

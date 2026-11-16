@@ -587,7 +587,10 @@ def test_a_merge_loses_no_list_field_of_the_source(section):
     # Q3-4 (Sorbet wave 2b): "Ersetzt" records move to the surviving entry
     # (bullet_replace.restore_replaced_bullets, merge arm) — pinned in
     # test_sorbet_q8_bullet_replace.py.
-    assert non_str <= {"dated_role_aliases", "replaced_bullets"}, f"decide how a merge treats {non_str}"
+    # Q8-6: size-correction records move to the surviving entry the same way
+    # (size_correction.restore_size_corrections, merge arm).
+    assert non_str <= {"dated_role_aliases", "replaced_bullets", "size_corrections"}, \
+        f"decide how a merge treats {non_str}"
     required = {n: f"{n} value" for n, f in model.model_fields.items() if f.is_required()}
     target = model.model_validate({**required, "id": "ta", **_filled(model, "A")})
     source = model.model_validate({**required, "id": "tb", **_filled(model, "B")})

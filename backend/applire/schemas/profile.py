@@ -323,6 +323,26 @@ class ReplacedBullet(BaseModel):
     source: str = "interview"
 
 
+class SizeCorrection(BaseModel):
+    """Q8-6 (founder ruling, Sorbet wave 2b) — a bullet of a role that still
+    names the team size the person has just CORRECTED (``old`` → ``new``) as a
+    people count. Written only by the kind answer that corrected the size
+    (``RecordLeadershipKind``); ``open`` until the person answers the one
+    follow-up: "Auf N ändern" changes the number in the bullet and ends the
+    record, "So lassen" keeps the bullet and the record (``kept``). While a
+    record's ``text`` is a bullet of the entry, the CV prints no leadership line
+    for the role (the two numbers never appear together). Bookkeeping, never
+    evidence: stripped from every prompt view; pruned once ``text`` is no longer
+    a bullet of the entry."""
+
+    text: str
+    field: Literal["responsibilities", "achievements"] = "responsibilities"
+    old: int
+    new: int
+    status: Literal["open", "kept"] = "open"
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class WorkEntry(ExperienceBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company: str = ""
@@ -404,6 +424,8 @@ class WorkEntry(ExperienceBase):
                 "leadership_kind", "leadership_kind_record",
                 # Q3-4: omitted while empty, so an unreplaced profile dumps identically.
                 "replaced_bullets",
+                # Q8-6: likewise.
+                "size_corrections",
             )
         )
 
@@ -419,6 +441,8 @@ class WorkEntry(ExperienceBase):
     leadership_kind_record: LeadershipKindRecord | None = None
     #: Q3-4 — bullets an interview answer replaced (see :class:`ReplacedBullet`).
     replaced_bullets: list[ReplacedBullet] = Field(default_factory=list)
+    #: Q8-6 — bullets that still name a corrected team size (see :class:`SizeCorrection`).
+    size_corrections: list[SizeCorrection] = Field(default_factory=list)
     # #328 option 4 — provenance for the three typed fields above, keyed by
     # field name. Recomputed from this entry's OWN bullets on every write
     # (``services/profile/role_facts.py``, called from the single committer),

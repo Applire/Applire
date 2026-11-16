@@ -1476,3 +1476,88 @@ async def test_wave1b_the_late_kind_ask_never_lands_behind_the_current_cluster()
     unflagged = _state(False)
     await _replan_leadership_kind(unflagged, profile, db, uuid.uuid4(), 1)
     assert unflagged["critical_gaps"] == ids
+
+
+# ===========================================================================
+# Q8-6 (founder ruling, Sorbet wave 2b) — seam: a corrected size is followed up
+# right away (create_session → send_message); unit tests in
+# test_sorbet_q8_size_correction.py.
+# ===========================================================================
+
+_Q86_OTHER = "Moderation von 5S- und Kaizen-Workshops."
+BULLET_38 = "Führung von zwei Fertigungsbereichen mit 38 Mitarbeitenden im Dreischichtbetrieb."
+
+
+async def _seed_with_bullet(db):
+    import uuid as _uuid
+
+    from applire.models.gap import GapAnalysis
+    from applire.models.job import JobAnalysis
+    
+    job = JobAnalysis(
+        raw_text_hash=_uuid.uuid4().hex,
+        raw_text="Leiter Operations. Ihr Profil: ca. 120 Mitarbeitende, MES.",
+        role_title="Leiter Operations", required_skills=["MES"], nice_to_have_skills=[],
+        keywords=[], seniority_level="Senior", company_culture_signals=[],
+        language_requirement="Deutsch", jd_language="de",
+    )
+    await retire_live_profiles(db)
+    profile = make_master_profile(profile_json={
+        "personal_info": {"name": "Stefan Test", "email": "stefan@example.de"},
+        "skills": [], "work_experience": [
+            {"id": "w1", "company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
+             "start_date": "2018-01", "team_size": 38, "responsibilities": [BULLET_38, _Q86_OTHER]}],
+    })
+    db.add_all([job, profile])
+    await db.flush()
+    db.add(GapAnalysis(
+        job_analysis_id=job.id, profile_id=profile.id, match_score=0.5, critical_gaps=[],
+        minor_gaps=[], strengths=[], keyword_gaps=[], category_a=[], category_b=[_SCOPE],
+        category_c=["MES"], keyword_ledger=[_scope_row()], gap_clusters=[_scope_cluster()],
+    ))
+    await db.commit()
+    return job
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("answer", "bullet", "withheld"), [
+    ("Auf 30 ändern", "Führung von zwei Fertigungsbereichen mit 30 Mitarbeitenden im Dreischichtbetrieb.", False),
+    ("So lassen", BULLET_38, True),
+    ("eigentlich beides", BULLET_38, True),   # own words: never interpreted, the record stays open
+])
+async def test_seam_a_corrected_size_is_followed_up_right_away(db, answer, bullet, withheld):
+    from applire.models.profile import MasterProfile
+    from applire.models.session import InterviewSession
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.session import create_session, send_message
+
+    job = await _seed_with_bullet(db)
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    provider.aparse_json = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    created = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, provider)
+    spy = _bridge(False)
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=spy),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        await send_message(created.session_id, "Direkt 38.", db, provider)
+        r2 = await send_message(created.session_id, "Disziplinarisch (Personalverantwortung) – 30 Personen",
+                                db, provider)
+        assert r2.complete is False
+        assert r2.question == ("Du hast die Teamgröße auf 30 korrigiert. Dein Punkt nennt noch 38: "
+                               f"»{BULLET_38}«")
+        assert r2.choices == ["Auf 30 ändern", "So lassen"]
+        calls = spy.await_count
+        r3 = await send_message(created.session_id, answer, db, provider)
+    assert r3.complete is True
+    assert spy.await_count == calls + (0 if answer in ("Auf 30 ändern", "So lassen") else 1)
+    row = await db.get(InterviewSession, created.session_id)
+    prof = await db.get(MasterProfile, row.profile_id)
+    await db.refresh(prof)
+    w = prof.profile_json["work_experience"][0]
+    assert w["team_size"] == 30
+    assert w["responsibilities"] == [bullet, _Q86_OTHER]
+    from applire.services.profile.size_correction import size_line_withheld
+
+    assert size_line_withheld(w) is withheld

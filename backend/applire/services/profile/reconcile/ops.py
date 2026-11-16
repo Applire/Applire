@@ -1382,7 +1382,23 @@ class DismissBulletReplace(BaseModel):
     text: str
 
 
-_ADAPTER_ONLY = _ADAPTER_ONLY + (ReplaceBullet, UndoBulletReplace, DismissBulletReplace)
+class ResolveSizeCorrection(BaseModel):
+    """Q8-6 (founder ruling) — the person's answer to "Du hast die Teamgröße auf
+    N korrigiert. Dein Punkt nennt noch M: »…«": ``change`` puts the corrected
+    number into that bullet (only the number token), ``keep`` leaves the bullet
+    and marks the record ``kept``. Built only from the exact closed answer —
+    ADAPTER-ONLY, never model-emittable."""
+
+    op: Literal["resolve_size_correction"] = "resolve_size_correction"
+    entry_id: str
+    text: str
+    decision: Literal["change", "keep"]
+    source: str = "interview"
+
+
+_ADAPTER_ONLY = _ADAPTER_ONLY + (
+    ReplaceBullet, UndoBulletReplace, DismissBulletReplace, ResolveSizeCorrection,
+)
 
 #: MD-Q5 — the work-entry fields only ``RecordLeadershipKind`` writes. Read by
 #: the engine's raw-op refusal and the committer's class guard

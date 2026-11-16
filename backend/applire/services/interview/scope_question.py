@@ -606,8 +606,98 @@ def is_leadership_kind_cluster(cluster: Any) -> bool:
 
 def is_fact_built_cluster(cluster: Any) -> bool:
     """A cluster whose one question is built from facts and asked once — the turn
-    always advances (scope cluster, leadership-kind ask)."""
-    return is_scope_cluster(cluster) or is_leadership_kind_cluster(cluster)
+    always advances (scope cluster, leadership-kind ask, Q8-6 size follow-up)."""
+    return is_scope_cluster(cluster) or is_leadership_kind_cluster(cluster) or is_size_bullet_cluster(cluster)
+
+
+# ---------------------------------------------------------------------------
+# Q8-6 (founder ruling, Sorbet wave 2b) — after a corrected team size, one
+# follow-up per bullet of the role that still names the old number
+# (``services/profile/size_correction.py``). Queued right after the kind ask,
+# fixed closed answers, never drafted.
+# ---------------------------------------------------------------------------
+
+SIZE_BULLET = "size_bullet"
+SIZE_BULLET_ID = "size-bullet"
+#: Session-state key: the follow-ups already queued (``size_bullet_key``).
+SIZE_BULLET_ASKED_STATE_KEY = "size_bullet_asked"
+
+
+def is_size_bullet_cluster(cluster: Any) -> bool:
+    return isinstance(cluster, dict) and cluster.get("kind") == SIZE_BULLET
+
+
+def size_bullet_key(item: dict[str, Any]) -> str:
+    return f"{item.get('entry_id')}|{item.get('new')}|{item.get('text')}"
+
+
+def size_bullet_choices(lang: str, new: Any) -> list[str]:
+    """The two closed answers, in this order: change, keep."""
+    if _lang(lang) == "de":
+        return [f"Auf {new} ändern", "So lassen"]
+    return [f"Change to {new}", "Leave as is"]
+
+
+def size_bullet_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+    """"Du hast die Teamgröße auf 12 korrigiert. Dein Punkt nennt noch 14: »…«"."""
+    item = cluster.get("entry") or {}
+    text = " ".join(str(item.get("text") or "").split())
+    if _lang(lang) == "de":
+        question = (f"Du hast die Teamgröße auf {item.get('new')} korrigiert. "
+                    f"Dein Punkt nennt noch {item.get('old')}: »{text}«")
+    else:
+        question = (f"You corrected the team size to {item.get('new')}. "
+                    f"Your bullet still says {item.get('old')}: “{text}”")
+    return {"question": question, "choices": size_bullet_choices(lang, item.get("new"))}
+
+
+def size_bullet_decision(cluster: Any, message: str) -> str | None:
+    """``change`` / ``keep`` for the EXACT closed answer (either language, case,
+    spacing and a closing full stop ignored); ``None`` for anything else —
+    never interpreted (the record stays open; the CV keeps the line withheld)."""
+    if not is_size_bullet_cluster(cluster):
+        return None
+    new = (cluster.get("entry") or {}).get("new")
+    norm = " ".join(str(message or "").split()).rstrip(".").casefold()
+    for lang in ("de", "en"):
+        change, keep = (c.casefold() for c in size_bullet_choices(lang, new))
+        if norm == change:
+            return "change"
+        if norm == keep:
+            return "keep"
+    return None
+
+
+def queue_size_bullet_asks(state: dict[str, Any], profile_json: Any, current_idx: int) -> int:
+    """Insert one follow-up per open size-correction record right after the
+    current cluster (never at an index already passed), each once per session;
+    one question added to the budget per ask. Returns how many were queued."""
+    from applire.services.profile.size_correction import open_corrections
+
+    asked = set(state.get(SIZE_BULLET_ASKED_STATE_KEY) or [])
+    items = [i for i in open_corrections(profile_json) if size_bullet_key(i) not in asked]
+    if not items:
+        return 0
+    ids = list(state.get("critical_gaps") or [])
+    by_id = dict(state.get("gap_clusters_by_id") or {})
+    cats = dict(state.get("gap_categories") or {})
+    new_ids = []
+    for item in items:
+        n = 1
+        while f"{SIZE_BULLET_ID}-{n}" in by_id:
+            n += 1
+        cid = f"{SIZE_BULLET_ID}-{n}"
+        by_id[cid] = {"id": cid, "kind": SIZE_BULLET, "label": cid, "category": "B",
+                      "gaps": [], "jd_skills": [], "jd_context": "", "entries": [item], "entry": item}
+        cats[cid] = "B"
+        new_ids.append(cid)
+    at = min(max(current_idx + 1, 0), len(ids))
+    state["critical_gaps"] = [*ids[:at], *new_ids, *ids[at:]]
+    state["gap_clusters_by_id"] = by_id
+    state["gap_categories"] = cats
+    state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + len(new_ids)
+    state[SIZE_BULLET_ASKED_STATE_KEY] = [*asked, *(size_bullet_key(i) for i in items)]
+    return len(new_ids)
 
 
 #: L5 (MD-Q3): the session-state key that records, per answered kind ask, the
@@ -716,7 +806,22 @@ def _people(n: int, lang: str) -> str:
     return f"{n} person" if n == 1 else f"{n} people"
 
 
-def leadership_kind_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+def _current_size(entry: dict[str, Any], profile_json: Any) -> Any:
+    """The role's team size as the profile holds it NOW (Katrin, delivery run
+    on 82154267: the ask was planned unsized at session start, her scope answer
+    stored 3 before the ask was shown; the shape follows the stored size)."""
+    if not isinstance(profile_json, dict):
+        return entry.get("team_size")
+    eid = str(entry.get("entry_id") or "")
+    for e in profile_json.get("work_experience") or []:
+        if isinstance(e, dict) and eid and str(e.get("id") or "") == eid:
+            return e.get("team_size")
+    return entry.get("team_size")
+
+
+def leadership_kind_question(
+    cluster: dict[str, Any], lang: str = "en", profile_json: Any = None,
+) -> dict[str, Any]:
     """The ask for ONE role (MD-Q5 (1)), with the fixed options as chips. When the
     role's entry carries the person's own bullet about leading (``said``), the
     question quotes it; otherwise it names the role.
@@ -730,7 +835,7 @@ def leadership_kind_question(cluster: dict[str, Any], lang: str = "en") -> dict[
     entry = kind_cluster_entry(cluster)
     said = " ".join(str(entry.get("said") or "").split())
     where = str(entry.get("company") or entry.get("role") or "").strip() or "—"
-    size = entry.get("team_size")
+    size = _current_size(entry, profile_json)
     sized = isinstance(size, int) and not isinstance(size, bool) and size > 0
     if lang == "de":
         kind = "War das disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?"

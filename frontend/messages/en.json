@@ -2046,6 +2046,8 @@
       "team_size_recorded": "Team size added: you gave the number of people in your answer.",
       "bullet_replaced": "Bullet replaced: your answer says the same in more detail; you can bring the old wording back.",
       "bullet_replace_undone": "Bullet brought back: it stands again beside the bullet that had replaced it.",
+      "team_size_bullet_changed": "Number in the bullet changed: you put the corrected team size into this bullet.",
+      "team_size_bullet_kept": "Bullet left as is: the CV shows no team-size line for this role, so two numbers never stand side by side.",
       "availability_recorded": "Recorded your availability.",
       "availability_cleared": "Removed your availability."
     }

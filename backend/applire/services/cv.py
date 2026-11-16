@@ -2118,6 +2118,12 @@ def _apply_role_facts(
         # reports"), and the vault is authoritative without being trusted to be
         # well-typed. ``bool`` is an int subclass and is not a headcount.
         team_size = team_size if isinstance(team_size, int) and not isinstance(team_size, bool) else None
+        # Q8-6 (founder ruling, WP-Q8): a role whose bullet still names a size
+        # the person corrected prints no leadership line (never both numbers).
+        from applire.services.profile.size_correction import size_line_withheld
+
+        if vault_entry and size_line_withheld(vault_entry):
+            team_size = None
         # #382 (PO decision 2026-08-08, Option A): a budget wording that states
         # no unit does not reach the document at all. "6000000" is six million of
         # *something*, and this line is furniture — read as authoritative
