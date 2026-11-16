@@ -173,10 +173,13 @@ def test_the_underclaim_demand_never_names_the_posting_word():
     assert "Führung und Entwicklung" not in names and "Lean Management" in names
 
 
-def test_the_ats_panel_does_not_call_the_posting_word_a_surfacing_miss():
+def test_the_ats_panel_keeps_a_missing_posting_word_report_only():
+    """Out of this list its absence would become a class-A "open gap analysis" card
+    (missing_honest_gap) — a visible change no ruling covers; here it stays the
+    class-S missing_claimable line it was."""
     ledger = kl.stamp_posting_word_only(_ledger(), VAULT)
     forms = {f.casefold() for f in kl.claimable_surface_forms(ledger)}
-    assert "führung und entwicklung" not in forms and "lean management" in forms
+    assert "führung und entwicklung" in forms and "lean management" in forms
 
 
 # ── the writers' block ──────────────────────────────────────────────────────────

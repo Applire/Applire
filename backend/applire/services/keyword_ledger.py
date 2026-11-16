@@ -1590,14 +1590,12 @@ def claimable_surface_forms(
     forms: list[str] = []
     seen: set[str] = set()
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
-    # Sorbet WP-Q7: a posting-word-only partial is not a surfacing miss either —
-    # the coverage scan does not demand it (:func:`_coverage_split`), so the ATS
-    # panel must not call its absence "supported, should have been surfaced"
-    # (one presence definition, ADR-066); its absence reads as an honest gap.
+    # Sorbet WP-Q7: a posting-word-only partial deliberately STAYS here. Moving it
+    # out sends its absence to `missing_honest_gap` (class A, "open gap analysis")
+    # instead of `missing_claimable` (class S, report only) — a new visible card
+    # (fresh run, Daniel: "Exactly-once settlement events") no ruling covers.
     for entry in [
-        e for e in claimable
-        if not is_positioning_only(e) and not is_scope_entry(e)
-        and not is_posting_word_partial(e)
+        e for e in claimable if not is_positioning_only(e) and not is_scope_entry(e)
     ]:
         for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
             key = _norm(sf)
