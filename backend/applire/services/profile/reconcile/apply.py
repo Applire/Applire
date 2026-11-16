@@ -584,6 +584,8 @@ def apply_ops(
     # Q8-1 (Sorbet wave 2b) — work-entry merges of this batch, target id → the
     # source ids merged into it; the class guard carries the stored kind.
     kind_merged: dict[str, list[str]] = {}
+    # Q3-4 — work entries whose "Ersetzt" records an op of this batch changed.
+    replace_touched: set[str] = set()
     extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
     restated: list[RestatedReceipt] = []  # D-B3V6 — see ApplyResult.restated
@@ -833,6 +835,17 @@ def apply_ops(
             kind_answered[written.id] = (
                 written.leadership_kind, written.leadership_kind_record.model_copy(deep=True),
             )
+        elif getattr(op, "op", None) in ("replace_bullet", "undo_bullet_replace", "dismiss_bullet_replace"):
+            # Q3-4 / Q8-3 — an answer that only adds detail replaces the held
+            # bullet; "Rückgängig" / "Ausblenden" on the profile.
+            from applire.services.profile import bullet_replace
+
+            {
+                "replace_bullet": bullet_replace.apply_replace,
+                "undo_bullet_replace": bullet_replace.apply_undo,
+                "dismiss_bullet_replace": bullet_replace.apply_dismiss,
+            }[op.op](op, new_profile, changes)
+            replace_touched.add(str(op.entry_id))
         elif getattr(op, "op", None) in ("record_aspiration_verdicts", "answer_aspiration"):
             # RULING B-1 — "Ist das erreicht?" bookkeeping and the answer.
             from applire.services.profile.aspiration import apply_aspiration_op
@@ -859,6 +872,19 @@ def apply_ops(
     new_profile, changes = _restore_leadership_kind(
         profile, new_profile, changes, not_applied, kind_answered, kind_merged,
     )
+
+    # Q3-4 — an "Ersetzt" record ends once its new bullet is no longer a bullet
+    # of the entry (an edit or a delete of it, on any door).
+    # Only the three adapter-only ops write the records (a model `set_field`,
+    # an import merge or any other op that changed them is undone, receipt and
+    # all) — the class-guard shape of `_restore_leadership_kind`.
+    from applire.services.profile.bullet_replace import (
+        prune_replaced_bullets,
+        restore_replaced_bullets,
+    )
+
+    changes = restore_replaced_bullets(profile, new_profile, changes, replace_touched)
+    prune_replaced_bullets(new_profile)
 
     # #328 (option 4) / #382 — the quantified role facts are DERIVED
     # PROJECTIONS of the entry's own bullets, so they are recomputed HERE, on
@@ -1488,6 +1514,10 @@ def _apply_replace_section(
         )
         dumped[op.section] = _keep_alias_subset(op.section, before, dumped[op.section])
         dumped[op.section] = _keep_leadership_kind(op.section, before, dumped[op.section])
+        # Q3-4 — the same carry for the "Ersetzt" records (bullet_replace.py).
+        from applire.services.profile.bullet_replace import keep_replaced_bullets
+
+        dumped[op.section] = keep_replaced_bullets(op.section, before, dumped[op.section])
 
     # The same round-trip the PATCH intake always performed — a payload the
     # schema rejects raises here (pydantic's ValidationError IS a ValueError,

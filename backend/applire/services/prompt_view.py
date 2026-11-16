@@ -327,12 +327,15 @@ def prompt_profile_view(
     # MD-Q5 — a role's ``leadership_kind`` (the person's answered kind) is a fact
     # every prompt may read; its ``leadership_kind_record`` (the option key, the
     # answer, when, which door) is bookkeeping no model reads. Copied, never mutated.
+    # Q3-4 — ``replaced_bullets`` (the "Ersetzt" records: the old wording of a
+    # bullet an answer replaced) is history, never evidence; no model reads it.
+    _bookkeeping = ("leadership_kind_record", "replaced_bullets")
     work = view.get("work_experience")
     if isinstance(work, list) and any(
-        isinstance(e, dict) and "leadership_kind_record" in e for e in work
+        isinstance(e, dict) and any(k in e for k in _bookkeeping) for e in work
     ):
         view["work_experience"] = [
-            {k: v for k, v in e.items() if k != "leadership_kind_record"}
+            {k: v for k, v in e.items() if k not in _bookkeeping}
             if isinstance(e, dict) else e
             for e in work
         ]

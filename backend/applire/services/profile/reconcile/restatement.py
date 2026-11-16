@@ -28,12 +28,17 @@ import logging
 import re
 from typing import Any, Sequence
 
-from applire.prompts.restatement import RESTATEMENT_SYSTEM_PROMPT, build_restatement_prompt
+from applire.prompts.restatement import (
+    RESTATEMENT_REPLACE_ADDENDUM,
+    RESTATEMENT_SYSTEM_PROMPT,
+    build_restatement_prompt,
+)
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import llm_log_stage
 from applire.schemas.profile import MasterProfileData, RestatedReceipt
 from applire.services.profile.entity_label import label_for
-from applire.services.profile.reconcile.ops import AddBullets
+from applire.services.oracle.matchers.figures import extract_figures
+from applire.services.profile.reconcile.ops import AddBullets, ReplaceBullet
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +110,89 @@ def _parse_pairs(data: Any) -> list[tuple[int, int, int]]:
     return pairs
 
 
+_DIGITS = re.compile(r"\d+")
+_TOKEN = re.compile(r"[^\W_][\w\-/.+#]*")
+
+
+_PART = re.compile(r"[-/]")
+
+
+def _parts(text: str) -> list[str]:
+    """The text's tokens split at hyphens and slashes, trailing dots stripped."""
+    return [p.rstrip(".") for tok in _TOKEN.findall(text or "") for p in _PART.split(tok) if p.rstrip(".")]
+
+
+def _name_like(text: str) -> set[str]:
+    """Parts that name something: a part carrying a digit or two capitals
+    (ISO, 45001, SAP, KVP, HGB, S/4HANA's 4HANA), casefolded."""
+    return {
+        p.casefold() for p in _parts(text)
+        if any(c.isdigit() for c in p) or sum(c.isupper() for c in p) >= 2
+    }
+
+
+def keeps_every_fact_marker(old: str, new: str) -> bool:
+    """Q3-4's deterministic blockers (they only ever BLOCK a replace): every
+    figure (``extract_figures``, kind + value), every digit run and every
+    name-like part of the old bullet reappears in the new one."""
+    figs_new = {(f.kind, f.value) for f in extract_figures(new)}
+    if any((f.kind, f.value) not in figs_new for f in extract_figures(old)):
+        return False
+    if not set(_DIGITS.findall(old)) <= set(_DIGITS.findall(new)):
+        return False
+    return _name_like(old) <= {p.casefold() for p in _parts(new)}
+
+
+def _parse_replacements(data: Any) -> list[tuple[int, int, int]]:
+    """``(entry, new, held)`` 1-based triples the model says may replace: a NEW
+    bullet that adds facts (``added`` non-empty), names the ONE held bullet all
+    of whose facts it states (``covers``) and drops none of them (``dropped``
+    present and empty). Anything else — a missing key, a null, a cross-entry id
+    — is no replacement (never guessed)."""
+    out: list[tuple[int, int, int]] = []
+    items = data.get("items") if isinstance(data, dict) else None
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        added, dropped = item.get("added"), item.get("dropped")
+        if not isinstance(added, str) or not added.strip():
+            continue
+        if not isinstance(dropped, str) or dropped.strip():
+            continue
+        new = _ID.match(str(item.get("new") or "").strip())
+        held = _ID.match(str(item.get("covers") or "").strip())
+        if not new or not held or new.group(2) != "n" or held.group(2) != "h":
+            continue
+        if new.group(1) != held.group(1):
+            continue
+        out.append((int(new.group(1)), int(new.group(3)), int(held.group(3))))
+    return out
+
+
+def _own_bullets(entity: Any) -> list[tuple[str, str]]:
+    """The entry's own bullets as ``(field, text)``, deduplicated in the order
+    ``_held_for`` lists them first (so HELD id j <= len is an own bullet)."""
+    seen: dict[str, str] = {}
+    for f in _BULLET_FIELDS:
+        for b in getattr(entity, f, None) or []:
+            if isinstance(b, str) and b.strip() and b not in seen:
+                seen[b] = f
+    return [(f, b) for b, f in seen.items()]
+
+
 async def hold_back_restatements(
     existing: MasterProfileData,
     ops: Sequence[Any],
     provider: LLMProvider | None,
+    *,
+    replace: bool = False,
 ) -> tuple[list[Any], list[RestatedReceipt]]:
-    """The ops with model-named restatements removed, and their receipts."""
+    """The ops with model-named restatements removed, and their receipts.
+
+    ``replace`` (Q3-4, the interview door only): the call also asks, per NEW
+    bullet, which held bullet it fully covers; a qualifying NEW bullet leaves
+    its ``add_bullets`` op and becomes a ``ReplaceBullet`` op for a WORK entry's
+    OWN held bullet (module ``bullet_replace``). Every other path is unchanged."""
     ops = list(ops)
     if provider is None:
         return ops, []
@@ -133,6 +215,7 @@ async def hold_back_restatements(
             "new": [t for _, t in new],
             "entity_id": op.target,
             "section": section,
+            "own": _own_bullets(entity) if section == "work_experience" else [],
         })
         slots.append((idx, new))
     if not entries:
@@ -142,7 +225,7 @@ async def hold_back_restatements(
         with llm_log_stage("restatement_check"):
             data = await provider.aparse_json(
                 build_restatement_prompt(entries),
-                system=RESTATEMENT_SYSTEM_PROMPT,
+                system=RESTATEMENT_SYSTEM_PROMPT + (RESTATEMENT_REPLACE_ADDENDUM if replace else ""),
                 temperature=0.0,
                 max_tokens=RESTATEMENT_MAX_TOKENS,
             )
@@ -159,17 +242,26 @@ async def hold_back_restatements(
             continue
         drop.setdefault(e - 1, set()).add(n - 1)
         restates[(e - 1, n - 1)] = h - 1
-    if not drop:
+    replacements = _replacements(entries, data, drop) if replace else {}
+    if not drop and not replacements:
         return ops, []
 
     receipts: list[RestatedReceipt] = []
-    for entry_idx, removed in drop.items():
+    added_ops: list[Any] = []
+    for entry_idx in sorted(set(drop) | set(replacements)):
+        removed = drop.get(entry_idx, set())
+        replaced = replacements.get(entry_idx, {})
         op_idx, new = slots[entry_idx]
         op = ops[op_idx]
         entry = entries[entry_idx]
         keep: dict[str, list[str]] = {f: [] for f in _BULLET_FIELDS}
         for k, (field, text) in enumerate(new):
-            if k in removed:
+            if k in replaced:
+                held_field, held_text = entry["own"][replaced[k]]
+                added_ops.append(ReplaceBullet(
+                    entry_id=entry["entity_id"], field=held_field, old=held_text, new=text,
+                ))
+            elif k in removed:
                 receipts.append(RestatedReceipt(
                     entity_id=entry["entity_id"],
                     entity_label=entry["label"],
@@ -181,9 +273,42 @@ async def hold_back_restatements(
             else:
                 keep[field].append(text)
         ops[op_idx] = op.model_copy(update=keep)
+    ops = ops + added_ops
     # An op left with nothing to add is no op.
     ops = [
         o for o in ops
         if not (isinstance(o, AddBullets) and not o.responsibilities and not o.achievements and not o.technologies)
     ]
     return ops, receipts
+
+
+def _replacements(entries: list[dict], data: Any, drop: dict[int, set[int]]) -> dict[int, dict[int, int]]:
+    """Entry index -> {new index -> own-bullet index} for the NEW bullets that
+    replace a held one (Q3-4). Safe side only: a work entry's OWN bullet, a NEW
+    bullet not held back as a restatement, one NEW per held bullet and one held
+    per NEW bullet, and :func:`keeps_every_fact_marker`."""
+    claims: dict[tuple[int, int], list[int]] = {}
+    per_new: dict[tuple[int, int], list[int]] = {}
+    for e, n, h in _parse_replacements(data):
+        if not (1 <= e <= len(entries)):
+            continue
+        entry = entries[e - 1]
+        if not (1 <= n <= len(entry["new"])) or not (1 <= h <= len(entry["own"])):
+            continue
+        if (n - 1) in drop.get(e - 1, set()):
+            continue
+        claims.setdefault((e - 1, h - 1), []).append(n - 1)
+        per_new.setdefault((e - 1, n - 1), []).append(h - 1)
+    out: dict[int, dict[int, int]] = {}
+    for (e, h), news in claims.items():
+        if len(set(news)) != 1:
+            continue  # two NEW bullets claim one held bullet: keep all
+        n = news[0]
+        if len(set(per_new[(e, n)])) != 1:
+            continue
+        old_text = entries[e]["own"][h][1]
+        if not keeps_every_fact_marker(old_text, entries[e]["new"][n]):
+            logger.info("restatement_check: replace of %r blocked by a figure/name check (Q3-4)", old_text)
+            continue
+        out.setdefault(e, {})[n] = h
+    return out

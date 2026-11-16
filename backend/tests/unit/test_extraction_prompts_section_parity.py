@@ -295,6 +295,9 @@ _INTERNAL_FIELDS: dict[str, frozenset[str] | None] = {
     # never sets it, and the committer restores it if one tries.
     "leadership_kind": frozenset({"work_experience"}),
     "leadership_kind_record": frozenset({"work_experience"}),
+    # Q3-4 (Sorbet wave 2b) — the "Ersetzt" records an interview answer's
+    # replace writes (services/profile/bullet_replace.py); never extracted.
+    "replaced_bullets": frozenset({"work_experience"}),
 }
 
 

@@ -306,6 +306,23 @@ class LeadershipKindRecord(BaseModel):
         return data
 
 
+class ReplacedBullet(BaseModel):
+    """Q3-4 (Sorbet wave 2b, founder rulings Q3-4 / Q8-3) — one bullet an
+    interview answer replaced because the answer only ADDED detail to it.
+    ``text`` is the bullet now in the entry, ``replaced`` the old wording (also
+    kept in the edit history). Bookkeeping, never evidence: stripped from every
+    prompt view, never indexed by the Oracle. Written only by the adapter-only
+    ``ReplaceBullet`` op; removed by "Rückgängig" (the old bullet goes back
+    beside the new one) or "Ausblenden"; pruned once ``text`` is no longer a
+    bullet of the entry."""
+
+    text: str
+    replaced: str
+    field: Literal["responsibilities", "achievements"] = "responsibilities"
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    source: str = "interview"
+
+
 class WorkEntry(ExperienceBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company: str = ""
@@ -385,6 +402,8 @@ class WorkEntry(ExperienceBase):
                 "company_aliases", "dated_role_aliases", "not_yet_reached",
                 # MD-Q5: omitted while unset, so an unasked profile dumps identically.
                 "leadership_kind", "leadership_kind_record",
+                # Q3-4: omitted while empty, so an unreplaced profile dumps identically.
+                "replaced_bullets",
             )
         )
 
@@ -398,6 +417,8 @@ class WorkEntry(ExperienceBase):
     #: bullet prose; the section door and the reconciler cannot write it.
     leadership_kind: Literal["disciplinary", "functional"] | None = None
     leadership_kind_record: LeadershipKindRecord | None = None
+    #: Q3-4 — bullets an interview answer replaced (see :class:`ReplacedBullet`).
+    replaced_bullets: list[ReplacedBullet] = Field(default_factory=list)
     # #328 option 4 — provenance for the three typed fields above, keyed by
     # field name. Recomputed from this entry's OWN bullets on every write
     # (``services/profile/role_facts.py``, called from the single committer),
@@ -2376,6 +2397,16 @@ class AspirationAnswerRequest(BaseModel):
     issue_id: str = Field(min_length=1, max_length=300)
     achieved: bool
     outcome: str | None = Field(default=None, max_length=500)
+
+
+class BulletReplaceRequest(BaseModel):
+    """Q8-3 — ``POST /api/profile/replaced-bullets/undo`` and ``…/dismiss``: one
+    "Ersetzt" record, named by its work entry and the bullet now in its place."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entry_id: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=5000)
 
 
 class AdoptNotAppliedRequest(BaseModel):

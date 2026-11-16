@@ -84,6 +84,28 @@ added "GitLab").
 """
 
 
+#: Q3-4 (Sorbet wave 2b) — appended on the INTERVIEW door only (the import's
+#: call is unchanged): the answer may restate one held bullet with more detail,
+#: and the model says so explicitly; code replaces only on that statement and
+#: only on the safe side (``reconcile/restatement.replacement_ops``).
+RESTATEMENT_REPLACE_ADDENDUM = """
+These NEW bullets come from the person's answer to a question, which may tell one HELD
+bullet again with more detail. Add two keys to EVERY item:
+- "covers": the id of the ONE HELD bullet whose EVERY fact this NEW bullet states too (its
+  figures, names, scope, action and result), so the NEW bullet could stand in its place and
+  nothing would be lost; null when there is none, when it would take two held bullets, or
+  when you are not sure.
+- "dropped": with a "covers" id, the facts of that HELD bullet the NEW bullet does NOT state,
+  as short phrases; an empty string only when it states all of them. With "covers": null,
+  "dropped" is null.
+Example: HELD e1.h1 "Einführung von KVP-Routinen" / NEW e1.n1 "KVP-Routinen in drei Werken
+eingeführt, Ausschuss um 12 % gesenkt" - added "drei Werke; Ausschuss um 12 % gesenkt",
+covers "e1.h1", dropped "".
+Example: HELD e1.h1 "Leitung von 38 Mitarbeitenden und Budget von 6 Mio. €" / NEW e1.n1
+"Leitung von 38 Mitarbeitenden im Zweischichtbetrieb" - added "Zweischichtbetrieb", covers
+null, dropped null (the budget is not stated).
+"""
+
 def build_restatement_prompt(entries: list[dict]) -> str:
     """``entries``: ``[{"label": str, "held": [str], "new": [str]}]`` in order;
     ids are ``e<i>.h<j>`` / ``e<i>.n<k>`` (1-based)."""
