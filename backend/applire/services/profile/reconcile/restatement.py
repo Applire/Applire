@@ -131,16 +131,23 @@ def _name_like(text: str) -> set[str]:
     }
 
 
-def keeps_every_fact_marker(old: str, new: str) -> bool:
-    """Q3-4's deterministic blockers (they only ever BLOCK a replace): every
-    figure (``extract_figures``, kind + value), every digit run and every
-    name-like part of the old bullet reappears in the new one."""
+def blocking_check(old: str, new: str) -> str | None:
+    """Q3-4's deterministic blockers (they only ever BLOCK a replace): the name
+    of the first check the new bullet fails — every figure (``extract_figures``,
+    kind + value), every digit run, every name-like part of the old bullet must
+    reappear in the new one — or ``None`` when it keeps them all."""
     figs_new = {(f.kind, f.value) for f in extract_figures(new)}
     if any((f.kind, f.value) not in figs_new for f in extract_figures(old)):
-        return False
+        return "figure"
     if not set(_DIGITS.findall(old)) <= set(_DIGITS.findall(new)):
-        return False
-    return _name_like(old) <= {p.casefold() for p in _parts(new)}
+        return "digits"
+    if not _name_like(old) <= {p.casefold() for p in _parts(new)}:
+        return "name"
+    return None
+
+
+def keeps_every_fact_marker(old: str, new: str) -> bool:
+    return blocking_check(old, new) is None
 
 
 def _parse_replacements(data: Any) -> list[tuple[int, int, int]]:
@@ -307,8 +314,14 @@ def _replacements(entries: list[dict], data: Any, drop: dict[int, set[int]]) -> 
         if len(set(per_new[(e, n)])) != 1:
             continue
         old_text = entries[e]["own"][h][1]
-        if not keeps_every_fact_marker(old_text, entries[e]["new"][n]):
-            logger.info("restatement_check: replace of %r blocked by a figure/name check (Q3-4)", old_text)
+        blocked = blocking_check(old_text, entries[e]["new"][n])
+        if blocked:
+            # Never the bullet text in the application log (personal data):
+            # the entry id, the bullet's position and length, the check.
+            logger.info(
+                "restatement_check: replace blocked by the %s check (Q3-4) — entry %s, "
+                "held bullet %d (%d chars)", blocked, entries[e]["entity_id"], h + 1, len(old_text),
+            )
             continue
         out.setdefault(e, {})[n] = h
     return out

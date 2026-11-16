@@ -334,3 +334,18 @@ async def test_seam_dismiss_door_and_unknown_record(db):
     resp = await dismiss_bullet_replace(db, entry_id=W1, text=DETAIL)
     w = resp.profile.work_experience[0]
     assert w.responsibilities == [DETAIL, OTHER] and w.replaced_bullets == []
+
+
+@pytest.mark.asyncio
+async def test_a_blocked_replace_logs_no_bullet_text(caplog):
+    """Coordinator (log hygiene): the application log never carries the
+    person's bullet — only the entry id, the position, the length, the check."""
+    import logging
+
+    lost = "Leitung von 38 Mitarbeitenden im Zweischichtbetrieb"
+    with caplog.at_level(logging.INFO, logger="applire.services.profile.reconcile.restatement"):
+        await _check([_item(covers="e1.h2")], _add(lost))
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "blocked by the figure check" in text and W1 in text
+    for words in (OTHER, lost, "Mitarbeitenden", "Mio"):
+        assert words not in text

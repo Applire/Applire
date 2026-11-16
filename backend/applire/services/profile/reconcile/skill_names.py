@@ -107,7 +107,7 @@ def enforce_skill_names(ops: Sequence[Any], *, profile: Any, new_info: Any, sour
     held_words = [w for s in skills for w, _a, _b in _words(getattr(s, "name", ""))]
 
     out: list[Any] = []
-    for op in ops:
+    for index, op in enumerate(ops):
         if not isinstance(op, UpsertSkill) or (op.target and op.target in held_ids):
             out.append(op)
             continue
@@ -123,14 +123,16 @@ def enforce_skill_names(ops: Sequence[Any], *, profile: Any, new_info: Any, sour
         span = _find_phrase(hay, said) if 0 < len(said) <= MAX_SAID_WORDS else None
         if span is not None:
             phrase = unicodedata.normalize("NFC", answer)[span[0]:span[1]]
+            # Never the skill name or the answer's words in the application
+            # log (personal data): only the op position and word counts.
             logger.info(
-                "skill_names: %r is not the person's word — stored as their own phrase %r (MD-Q15)",
-                op.name, phrase,
+                "skill_names: op %d's name is not the person's word — stored as their own "
+                "%d-word phrase (MD-Q15)", index, len(said),
             )
             out.append(op.model_copy(update={"name": phrase}))
             continue
         logger.info(
-            "skill_names: %r is not the person's word and no own phrase was given — "
-            "no skill written (MD-Q15)", op.name,
+            "skill_names: op %d's name (%d words) is not the person's word and no own phrase "
+            "was given — no skill written (MD-Q15)", index, len(name),
         )
     return out

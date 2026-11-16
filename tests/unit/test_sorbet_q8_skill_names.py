@@ -140,3 +140,16 @@ async def test_seam_the_reconcile_engine_applies_the_gate():
                                        "answer": DANIEL}, "interview", provider)
     names = [o.name for o in result.ops if isinstance(o, UpsertSkill)]
     assert names == ["dependency-audit rotation"]
+
+
+def test_the_gate_logs_no_skill_name_and_no_answer_words(caplog):
+    """Coordinator (log hygiene): neither the model's name nor the person's
+    phrase reaches the application log."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="applire.services.profile.reconcile.skill_names"):
+        _run(DANIEL, _skill("Security auditing", said="dependency-audit rotation"), _skill("Observability practices"))
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "own 3-word phrase" in text and "no skill written" in text
+    for words in ("Security", "auditing", "dependency", "rotation", "Observability"):
+        assert words not in text
