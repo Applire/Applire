@@ -190,6 +190,16 @@ def test_the_writer_block_marks_the_row_and_shows_the_profiles_own_words():
     assert "PARTLY MET" not in direct
 
 
+def test_the_reviewer_is_not_told_the_posting_word_is_truthfully_supported():
+    """Re-run rec 289: listed under "the candidate truthfully supports these" with
+    the label as its form, the row told the reviewer the label was grounded."""
+    block = kl.render_ledger_reviewer_block(kl.stamp_posting_word_only(_ledger(), VAULT))
+    line = next(ln for ln in block.splitlines() if ln.startswith("  - Führung und Entwicklung"))
+    assert "PARTLY MET" in line and "overstates" in line and "[forms:" not in line
+    direct = next(ln for ln in block.splitlines() if ln.startswith("  - Lean Management"))
+    assert "PARTLY MET" not in direct
+
+
 # ── the writer's and reviewer's title rule (ruling Q7-1, v2 only) ───────────────
 
 def test_the_v2_writer_and_reviewer_name_the_candidates_own_title():

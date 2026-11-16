@@ -1799,6 +1799,17 @@ def render_ledger_reviewer_block(
             quote = backing.get("quote") if backing.get("unit_path") else None
             quoted = quoted or bool(quote)
             cited = f' — profile quote: "{quote}"' if quote else ""
+            if is_posting_word_partial(entry):
+                # Sorbet WP-Q7: listed above as "truthfully supports" with the
+                # posting's label as its form, the row told the reviewer the label
+                # was grounded (delivery 2a re-run rec 289 passed "wertschätzende
+                # Führung" and demanded it). The quote shows the part the person holds.
+                lines.append(
+                    f"  - {entry.get('concept', '')} [PARTLY MET — the posting's word, "
+                    f"never the candidate's: a draft stating {forms} as the candidate's "
+                    f"skill, quality or responsibility overstates]{cited}"
+                )
+                continue
             lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]{cited}")
     else:
         lines.append("  (none)")
