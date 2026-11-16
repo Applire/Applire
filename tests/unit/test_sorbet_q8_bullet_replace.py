@@ -131,10 +131,14 @@ async def test_two_new_bullets_claiming_one_held_bullet_replace_nothing():
      "Planung & rollierender Forecast für 78 Mio. € Umsatz", False),
     ("Containerised the remaining services and introduced Helm charts and ArgoCD GitOps.",
      "Defined workloads as Helm charts for all 12 services and rolled them out through ArgoCD GitOps.", False),
-    # the replay's correct replace (Katrin): every word kept, "fachliche" -> "fachliche"
+    # the replay's Katrin replace, which the bag-of-words check let through: in
+    # order, the Werkstudierenden get "Führung" (old: "Anleitung") — a changed
+    # fact, so both bullets stay (MD-Q17 / F5)
     ("Fachliche Anleitung von zwei Werkstudierenden.",
      "Seit zwei Jahren fachliche Führung von zwei Werkstudierenden und zusätzlich fachliche "
-     "Anleitung einer Junior-Controllerin.", True),
+     "Anleitung einer Junior-Controllerin.", False),
+    ("Fachliche Anleitung von zwei Werkstudierenden.",
+     "Seit 2023 fachliche Anleitung von zwei Werkstudierenden im Monatsabschluss.", True),
     (OTHER, "Leitung von 38 Mitarbeitenden im Zweischichtbetrieb", False),            # budget figure lost
     (OTHER, "Leitung von 38 Mitarbeitenden und Budget von 6 Mio. € in zwei Schichten", True),
     ("ISO-45001-Zertifizierung vorbereitet", "Zertifizierung für die Produktion vorbereitet", False),  # name lost
@@ -367,7 +371,7 @@ async def test_a_blocked_replace_logs_no_bullet_text(caplog):
     with caplog.at_level(logging.INFO, logger="applire.services.profile.reconcile.restatement"):
         await _check([_item(held="e1.h2")], _add(lost))
     text = " ".join(r.getMessage() for r in caplog.records)
-    assert "blocked by the words check" in text and W1 in text
+    assert "blocked by the order check" in text and W1 in text
     for words in (OTHER, lost, "Mitarbeitenden", "Mio"):
         assert words not in text
 
@@ -390,3 +394,81 @@ def test_an_entry_merge_moves_the_records_to_the_surviving_entry():
     [w] = res.profile.work_experience
     assert w.responsibilities == [OTHER, DETAIL]
     assert [(r.text, r.replaced) for r in w.replaced_bullets] == [(DETAIL, HELD)]
+
+
+
+@pytest.mark.parametrize("old,new,check", [
+    # MD-Q17 / adversarial F5 — the reviewer's probes, each a fact change the
+    # bag-of-words check let through
+    ("Führte 14 Mitarbeitende und 3 Projekte",
+     "Führte 3 Mitarbeitende und 14 Projekte im Bereich Fertigung", "order"),        # figures swapped
+    ("Ich leitete das Team, Kollege Meier das Budget",
+     "Ich leitete das Budget, Kollege Meier das Team", "order"),                     # subjects reassigned
+    ("Nie Lieferverzug im Werk", "Lieferverzug im Werk reduziert", "order"),           # "Nie" dropped
+    ("Did not miss a release", "Did miss a release in 2024", "order"),                 # "not" dropped
+    ("Led two teams in Kassel", "Led teams across the Kassel plants, 5 sites", "order"),  # "two" dropped
+    ("Reduzierte Ausschuss um 30 %",
+     "Erhöhte Ausschuss und reduzierte Reklamationen um 30 %", "order"),             # verb flipped
+    ("Führte 14 Mitarbeitende", "Führte 14 Projekte mit Mitarbeitende aus Kassel", "order"),  # figure re-bound
+    ("Hand in Hand", "Handel in Handel", "order"),                                    # not an ending
+    ("C++ eingeführt", "C# eingeführt", "order"),                                     # a name's tail
+    ("Budgetverantwortung von 2 Mio EUR",
+     "Keine Budgetverantwortung von 2 Mio EUR, nur Beratung", "negation"),            # negation added
+    ("Budget of 2 M EUR", "Budget of 2 M EUR was not approved", "negation"),
+    # F8 — the figure check is the only blocker here (the tokens are kept in
+    # order; "30 %" became "30 Tonnen")
+    ("Senkte Kosten um 30 %", "Senkte Kosten um 30 Tonnen und den Ausschuss um 5 %", "figure"),
+    # controls: the old bullet intact, detail added
+    ("Budgetverantwortung von 2 Mio EUR",
+     "Budgetverantwortung von 2 Mio EUR, keine Personalverantwortung", None),          # negation in its own clause
+    ("Ausschuss um 30 Prozent gesenkt", "Ausschuss um 30 Prozent gesenkt, Ziel 3 Prozent", None),
+    ("Led two teams in Kassel", "Led two teams in Kassel and Erfurt, 40 people in total", None),
+])
+def test_the_in_order_rule_blocks_a_changed_fact(old, new, check):
+    assert blocking_check(old, new) == check
+
+
+def test_a_record_not_found_carries_no_bullet_text():
+    """Suspected S1 (adv-2b): the error a missing record raises names no text."""
+    from applire.services.profile.bullet_replace import ReplaceRecordNotFound, apply_undo
+
+    p = _profile()
+    try:
+        apply_undo(UndoBulletReplace(entry_id=W1, text="Leitung von 38 Mitarbeitenden – geheim"), p, [])
+    except ReplaceRecordNotFound as exc:
+        assert "geheim" not in str(exc) and "Mitarbeitenden" not in repr(exc)
+    else:  # pragma: no cover
+        raise AssertionError("no error raised")
+
+
+def test_a_merge_chain_moves_the_records_along_the_chain():
+    """F6 (adv-2b): w3 into w2, then w2 into w1 in one batch — w3's records
+    reach w1 with its bullets."""
+    from applire.services.profile.reconcile.ops import MergeEntries
+
+    w2 = "aaaaaaaa-0000-4000-8000-000000000002"
+    w3 = "aaaaaaaa-0000-4000-8000-000000000003"
+    p = MasterProfileData.model_validate({"work_experience": [
+        {"id": W1, "company": "Weberit GmbH", "role": "Produktionsleiter", "responsibilities": [OTHER]},
+        {"id": w2, "company": "Weberit GmbH", "role": "Produktionsleiter", "responsibilities": []},
+        {"id": w3, "company": "Weberit GmbH", "role": "Produktionsleiter", "responsibilities": [DETAIL],
+         "replaced_bullets": [{"text": DETAIL, "replaced": HELD}]},
+    ]})
+    res = apply_ops(p, [
+        MergeEntries(section="work_experience", target_id=w2, source_id=w3,
+                     bullets={"responsibilities": [DETAIL]}),
+        MergeEntries(section="work_experience", target_id=W1, source_id=w2,
+                     bullets={"responsibilities": [OTHER, DETAIL]}),
+    ], "manual_edit")
+    [w] = res.profile.work_experience
+    assert [(r.text, r.replaced) for r in w.replaced_bullets] == [(DETAIL, HELD)]
+
+
+def test_a_fact_token_matches_only_itself():
+    """F8: a number, a name, a negation and a number word never match another
+    ending ("Keine" is not "Keiner", "IFRS" is not "IFRSs")."""
+    from applire.services.profile.reconcile.restatement import _tokens
+
+    assert [t[1] for t in _tokens("IFRS 16 keine zwei Abschlüsse")] == [True, True, True, True, False]
+    assert blocking_check("Keine Mängel im Audit", "Keiner Mängel im Audit 2024") == "order"
+    assert blocking_check("IFRS-Abschluss erstellt", "IFRSs-Abschluss erstellt, 2 Werke") == "order"

@@ -471,3 +471,36 @@ async def test_seam_a_role_without_leadership_text_or_size_is_not_asked(db):
     ):
         first = await send_message(created.session_id, "Direkt 3.", db, provider)
     assert first.complete is True, "no kind ask: the role neither holds a size nor says it leads people"
+
+
+@pytest.mark.parametrize("order", ["w3-into-w2-then-w2-into-w1", "w2-into-w1-then-w3-into-w1"])
+def test_a_merge_chain_keeps_the_conflict(order):
+    """F6 (adv-2b, MD-Q17): w2 answered functional, w3 disciplinary; two merges
+    in one batch end on w1 — the conflict survives the chain (never a silent
+    "functional"), and the person is asked once more."""
+    p = MasterProfileData.model_validate({"work_experience": [
+        {"id": "w1", "company": "Weberit", "role": "Leiter"},
+        {"id": "w2", "company": "Weberit", "role": "Leiter",
+         "leadership_kind": "functional", "leadership_kind_record": ANSWERED},
+        {"id": "w3", "company": "Weberit", "role": "Leiter",
+         "leadership_kind": "disciplinary", "leadership_kind_record": BOTH},
+    ]})
+    if order.startswith("w3"):
+        ops = [MergeEntries(section="work_experience", target_id="w2", source_id="w3"),
+               MergeEntries(section="work_experience", target_id="w1", source_id="w2")]
+    else:
+        ops = [MergeEntries(section="work_experience", target_id="w1", source_id="w2"),
+               MergeEntries(section="work_experience", target_id="w1", source_id="w3")]
+    res = apply_ops(p, ops, "manual_edit")
+    assert _state(res.profile) == [("w1", None, "merge_conflict")]
+    assert sorted(res.profile.work_experience[0].leadership_kind_record.merged_kinds) == [
+        "disciplinary", "functional"]
+
+
+
+@pytest.mark.parametrize("answer", ["Beides14", "Fachliche Anleitung – ٣ Personen", "Fachliche Anleitung – １４ Personen"])
+def test_a_glued_or_non_ascii_number_is_own_words(answer):
+    """Suspected S2 (adv-2b): one ASCII whole number after a separator, nothing else."""
+    from applire.services.profile.leadership_kind import parse_kind_answer
+
+    assert parse_kind_answer(answer) == ("own_words", None)

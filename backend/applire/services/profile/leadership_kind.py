@@ -108,6 +108,8 @@ def _size_rest(rest: str) -> tuple[bool, int | None]:
     else → not this form (``False``)."""
     import re
 
+    if rest[:1].isdigit():
+        return False, None  # S2 (adv-2b): "Beides14" is no label plus a number
     rest = rest.strip()
     rest = re.sub(r"^[-–—,;:]\s*", "", rest)
     for slot in _SIZE_SLOT.values():
@@ -120,7 +122,8 @@ def _size_rest(rest: str) -> tuple[bool, int | None]:
     rest = rest.rstrip(".").strip()
     if not rest:
         return True, None
-    m = re.fullmatch(r"(\d{1,4})(?:\s+(" + "|".join(_PEOPLE_NOUNS) + r"))?", rest)
+    # S2 (adv-2b): ASCII digits only — "٣" or a fullwidth "１４" is no whole number here.
+    m = re.fullmatch(r"([0-9]{1,4})(?:\s+(" + "|".join(_PEOPLE_NOUNS) + r"))?", rest)
     if not m:
         return False, None
     n = int(m.group(1))

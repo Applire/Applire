@@ -45,14 +45,52 @@ def _skill(name, said=None, **kw):
     return UpsertSkill(name=name, said=said, category="technical", **kw)
 
 
+DANIEL_PLAIN = (
+    "At Finleap I ran our quarterly dependency-audit rotation. I am familiar with least-privilege "
+    "IAM on AWS. Correctness-critical financial data modelling is my daily work."
+)
+
+
 @pytest.mark.parametrize("name", [
     "least-privilege IAM",            # the answer's phrase
     "Financial data modelling",       # case differs
     "MES-Systeme",                    # another ending of the answer's "MES-Systems"
 ])
 def test_a_name_that_is_a_phrase_of_the_answer_is_kept(name):
-    answer = DANIEL if "MES" not in name else MES
+    answer = DANIEL_PLAIN if "MES" not in name else MES
     assert [o.name for o in _run(answer, _skill(name))] == [name]
+
+
+@pytest.mark.parametrize("name", ["least-privilege IAM", "Financial data modelling"])
+def test_a_negation_in_a_later_clause_does_not_block(name):
+    """MD-Q18: Daniel's "I am familiar with least-privilege IAM on AWS and have
+    no formal security certification" — the negation stands only in a later
+    clause, so the skill is stored (MD-Q17 dropped it: 4 of 95 replay turns)."""
+    assert [o.name for o in _run(DANIEL, _skill(name, said=name))] == [name]
+
+
+@pytest.mark.parametrize(("answer", "name", "said", "held"), [
+    ("Mit Kubernetes habe ich nie gearbeitet.", "Kubernetes", "Kubernetes", ()),          # same clause, after
+    ("I never did penetration testing and security audits.", "security audits", "security audits", ()),  # precedes
+    ("I never did penetration testing and security audits.", "penetration testing", None, ()),
+    ("Ich würde gern Kubernetes lernen und nutze Docker täglich.", "Kubernetes", None, ()),
+    ("Kein SAP MM, aber SAP PP seit 2019.", "SAP MM", "SAP MM", ("SAP",)),
+    # PP: "Kein" PRECEDES it in the sentence — blocked by the precede arm
+    ("Kein SAP MM, aber SAP PP seit 2019.", "SAP PP", "SAP PP", ("SAP",)),
+    # Docker: "würde gern" PRECEDES it in the sentence — the precede arm blocks it
+    # too (MD-Q18 rule (b); a second finite verb is not read)
+    ("Ich würde gern Kubernetes lernen und nutze Docker täglich.", "Docker", None, ()),
+])
+def test_md_q18_must_block(answer, name, said, held):
+    profile = MasterProfileData.model_validate(
+        {"skills": [{"id": f"h{i}", "name": n, "category": "technical"} for i, n in enumerate(held)]})
+    assert enforce_skill_names([_skill(name, said=said)], profile=profile,
+                               new_info={"answer": answer}, source="interview") == []
+
+
+def test_md_q18_a_later_clause_negation_keeps_the_skill():
+    out = _run("I used IAM daily and have no formal certification.", _skill("IAM"))
+    assert [o.name for o in out] == ["IAM"]
 
 
 @pytest.mark.parametrize("name", ["SAP MM", "SAP PP"])
@@ -153,3 +191,42 @@ def test_the_gate_logs_no_skill_name_and_no_answer_words(caplog):
     assert "own 3-word phrase" in text and "no skill written" in text
     for words in ("Security", "auditing", "dependency", "rotation", "Observability"):
         assert words not in text
+
+
+
+# ── MD-Q17 / adversarial F7: the words must be a claim ──────────────────────
+
+@pytest.mark.parametrize(("answer", "name", "said", "held"), [
+    ("I never did penetration testing, that was the red team.", "penetration testing", None, ()),
+    ("Penetrationstests habe ich nie gemacht.", "Penetrationstests", None, ()),
+    ("Ich würde gern Kubernetes lernen.", "Kubernetes", None, ()),
+    ("I would like to learn Terraform.", "Terraform", "Terraform", ()),
+    ("Ich habe Lean eingeführt. Python macht mein Kollege.", "Lean-Management",
+     "eingeführt Python macht", ()),                                        # said spans two sentences
+    ("Mein Kollege macht MM, ich nicht.", "Python MM", None, ("Python",)),
+    ("Ich habe nie mit MM gearbeitet.", "SAP MM", "MM", ("SAP",)),         # composed from a denial
+    ("Ich habe auch MM betreut.", "SAP MM", None, ("SAP",)),               # composition without said
+    ("Ich habe das nie gemacht.", "habe das nie", None, ()),               # no content word
+    ("Ich habe das gemacht.", "Programmierung", "habe das", ()),           # said without content word
+    ("Ich habe nicht Python gelernt.", "Programmierung", "nicht Python", ()),
+    ("Zu OEE: da war ich nicht beteiligt.", "OEE", None, ()),
+])
+def test_a_denial_a_wish_or_a_non_phrase_stores_no_skill(answer, name, said, held):
+    profile = MasterProfileData.model_validate(
+        {"skills": [{"id": f"h{i}", "name": n, "category": "technical"} for i, n in enumerate(held)]})
+    out = enforce_skill_names([_skill(name, said=said)], profile=profile,
+                              new_info={"answer": answer}, source="interview")
+    assert out == []
+
+
+@pytest.mark.parametrize(("answer", "name", "said", "expected"), [
+    ("Ich habe die SPS-Programmierung für Linie 3 übernommen.", "SPS-Programmierung", None,
+     "SPS-Programmierung"),
+    ("Ich habe nie Java genutzt. Python nutze ich täglich.", "Python", None, "Python"),  # other sentence
+    ("Ich habe auch MM betreut.", "SAP MM", "MM betreut", "SAP MM"),                    # affirmative said
+    ("Version 4.0 von Odoo eingeführt.", "Odoo", None, "Odoo"),                         # "4.0" ends no sentence
+])
+def test_an_affirmative_phrase_is_still_stored(answer, name, said, expected):
+    out = enforce_skill_names([_skill(name, said=said)], profile=PROFILE,
+                              new_info={"answer": answer}, source="interview")
+    assert [o.name for o in out] == [expected]

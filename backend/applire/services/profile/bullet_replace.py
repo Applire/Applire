@@ -97,7 +97,9 @@ def _record(entry: Any, text: str) -> ReplacedBullet:
     for r in entry.replaced_bullets if entry is not None else []:
         if r.text == text:
             return r
-    raise ReplaceRecordNotFound(text)
+    # Suspected S1 (adv-2b) — never the bullet text: an unhandled raise would
+    # carry it into a log.
+    raise ReplaceRecordNotFound("no replaced-bullet record with that text on the entry")
 
 
 def apply_undo(op: Any, profile: MasterProfileData, changes: list[FieldChange]) -> None:
@@ -125,22 +127,23 @@ def apply_dismiss(op: Any, profile: MasterProfileData, changes: list[FieldChange
 
 def restore_replaced_bullets(
     before: MasterProfileData, after: MasterProfileData, changes: list[FieldChange], touched: set[str],
-    merged: dict[str, list[str]] | None = None,
+    merged: list[tuple[str, str]] | None = None,
 ) -> list[FieldChange]:
     """Class guard: an entry no ``ReplaceBullet`` / undo / dismiss op of this
     batch touched keeps the records it held before the batch (none for a new
     entry); a receipt another op wrote on the field is dropped. The target of
-    an entry merge (``merged``: target id -> source ids) also takes the
-    sources' records — their bullets moved with them; the committer's prune
-    then ends any record whose bullet the merge did not keep."""
+    an entry merge (``merged``: the batch's ``(target, source)`` merges in
+    order, a chain replayed) also takes the source's records — its bullets
+    moved with them; the committer's prune then ends any record whose bullet
+    the merge did not keep."""
     held = {str(e.id): [r.model_copy() for r in e.replaced_bullets] for e in before.work_experience}
-    for target, sources in (merged or {}).items():
-        texts = {r.text for r in held.get(str(target), [])}
-        for sid in sources:
-            for r in held.get(str(sid), []):
-                if r.text not in texts:
-                    held.setdefault(str(target), []).append(r)
-                    texts.add(r.text)
+    for target, source in merged or []:
+        into = held.setdefault(str(target), [])
+        texts = {r.text for r in into}
+        for r in held.pop(str(source), []):
+            if r.text not in texts:
+                into.append(r)
+                texts.add(r.text)
     restored: set[str] = set()
     for entry in after.work_experience:
         eid = str(entry.id)
