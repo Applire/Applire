@@ -170,6 +170,7 @@ _DOC: dict[str, Entry] = {
         "credentialUnbacked", "identifierAbsent", "skillNoEvidence", "figuresNoEvidence",
         "tenureStartBeforeVault", "tenureExceedsVault", "subjectTenureExceeds",
         "subjectTenureExceedsStart",
+        "titleNotHeld",  # Sorbet WP-Q7 (Q7-1): a title no position holds
     )},
     "oracle@unbacked": _e(_F, "ask_true", "A"),          # unsupported term / bare unbacked
     "oracle:inflatedAspirational": _e("A", "ask_achieved"),
@@ -199,6 +200,7 @@ _DOC: dict[str, Entry] = {
         "crossLanguageEquivalent", "entailmentNarrow", "figuresFromStatedLimit", "figuresTrace",
         "fromLetterForm", "groundedUnion", "honestDenial", "noCheckableContent",
         "noCloseEvidence", "qualificationNamed", "triageEmployerFact",
+        "postingTermNotHeld", "postingTermOtherLanguage",  # Sorbet WP-Q7 (MD-Q15)
     )},
 
     # ── keyword buckets ──────────────────────────────────────────────────────────
