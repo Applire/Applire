@@ -982,8 +982,25 @@ def posting_word_partial_rows(
             continue
         forms = [f for f in [e.get("concept"), *(e.get("surface_forms") or [])]
                  if isinstance(f, str) and f.strip()]
-        if forms and not any(surface_present(f, corpus) for f in forms):
+        if forms and not any(surface_present(f, corpus) for f in _with_acronym_equivalents(forms)):
             out.append(e)
+    return out
+
+
+def _with_acronym_equivalents(forms: list[str]) -> list[str]:
+    """*forms* plus their spellings from the Oracle's closed acronym table
+    (``oracle.matchers.acronyms``, U-13): "Continuous integration and delivery"
+    is the person's own word when the vault says "CI/CD" — the Oracle grounds the
+    chip on that table, so the posting-word fact must read the same name. Without
+    it a ledger row that happened to list no bare "CI/CD" sibling was stamped and
+    its chip went grounded → unverifiable (WP-Q7 final gate,
+    ``test_u13_acronym_expansion_is_one_skill``). More forms can only remove a
+    stamp, never add one."""
+    from applire.services.oracle.matchers.acronyms import acronym_equivalents
+
+    out = list(forms)
+    for f in forms:
+        out.extend(acronym_equivalents(f))
     return out
 
 

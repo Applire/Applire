@@ -142,6 +142,19 @@ def test_the_persons_own_denial_statement_counts_as_their_word():
     assert kl.posting_word_partial_rows([row], VAULT) == [row]
 
 
+def test_an_acronym_spelling_of_the_persons_word_is_their_word():
+    """The Oracle's closed acronym table (U-13) makes "CI/CD" and "Continuous
+    integration and delivery" one name; a row listing no bare "CI/CD" sibling is
+    still the person's word when the vault says "CI/CD"."""
+    vault = copy.deepcopy(VAULT)
+    vault["work_experience"][0]["responsibilities"].append("CI/CD mit GitHub Actions eingeführt.")
+    row = {"concept": "Continuous integration and delivery",
+           "surface_forms": ["Continuous integration and delivery", "CI/CD pipelines"],
+           "status": "partial", "claimable": True, "evidence": "GitHub Actions"}
+    assert kl.posting_word_partial_rows([row], vault) == []
+    assert kl.posting_word_partial_rows([row], VAULT) == [row]
+
+
 def test_the_build_and_the_read_seam_both_stamp():
     ledger, changed = kl.refresh_ledger_against_vault(
         [copy.deepcopy(PARTIAL), copy.deepcopy(DIRECT)], VAULT, seam="test")
