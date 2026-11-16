@@ -343,6 +343,88 @@ def leadership_said(entry: WorkEntry | dict) -> str:
     return qualifying[0]
 
 
+def _record_option(e: Any) -> str | None:
+    record = _get(e, "leadership_kind_record")
+    if record is None:
+        return None
+    return str(_get(record, "option") or "") or None
+
+
+def _ask_extras(e: Any) -> dict[str, Any]:
+    """Q8-1 — an entry merge that joined two different answers left a
+    ``merge_conflict`` record: the role is asked once more. ``reask`` makes the
+    once-per-person-and-role key of that new ask distinct from the old one
+    (``scope_question.kind_entry_key``)."""
+    if _record_option(e) != "merge_conflict":
+        return {}
+    record = _get(e, "leadership_kind_record")
+    stamp = _get(record, "recorded_at")
+    return {"reask": str(stamp.isoformat() if hasattr(stamp, "isoformat") else stamp or "merge")}
+
+
+def _needs_kind_ask(e: Any) -> bool:
+    """No stored kind and never asked — or asked, and an entry merge since
+    joined two different answers (Q8-1)."""
+    option = _record_option(e)
+    return option == "merge_conflict" or (leadership_kind(e) is None and option is None)
+
+
+def _work_entries(profile_json: dict | Any) -> list[Any]:
+    return (
+        profile_json.get("work_experience") if isinstance(profile_json, dict)
+        else getattr(profile_json, "work_experience", None)
+    ) or []
+
+
+def _positive_size(size: Any) -> bool:
+    return isinstance(size, int) and not isinstance(size, bool) and size > 0
+
+
+def entries_needing_leadership_size(profile_json: dict | Any) -> list[dict[str, Any]]:
+    """Q8-2 (founder, Sorbet wave 2b) — the work entries whose OWN text says the
+    person leads people (:func:`leadership_said`, the display reader the kind
+    question already quotes) but which hold no team size, no stored kind and
+    were never asked. The text only TRIGGERS the question; the kind and the
+    number are stored only from the person's answer to it. A false trigger costs
+    one question (the person answers in own words or skips; nothing is stored);
+    a missed one is the behaviour before Q8-2. An entry an entry merge left in
+    conflict (Q8-1) is listed without a size too, quote or not.
+
+    Same item shape as :func:`entries_needing_leadership_kind`, with
+    ``"team_size": None``."""
+    out: list[dict[str, Any]] = []
+    for e in _work_entries(profile_json):
+        if _positive_size(_get(e, "team_size")) or not _needs_kind_ask(e):
+            continue
+        said = leadership_said(e)
+        if not said and _record_option(e) != "merge_conflict":
+            continue
+        out.append({
+            "entry_id": str(_get(e, "id") or ""),
+            "company": str(_get(e, "company") or ""),
+            "role": str(_get(e, "role") or ""),
+            "team_size": None,
+            "said": said,
+            **_ask_extras(e),
+        })
+    return out
+
+
+def entries_to_ask_leadership(profile_json: dict | Any) -> list[dict[str, Any]]:
+    """The interview's kind ask, in entry order: every role
+    :func:`entries_needing_leadership_kind` lists (a stored size to confirm,
+    Q3-2) and every role :func:`entries_needing_leadership_size` lists (a size
+    to ask, Q8-2)."""
+    sized = entries_needing_leadership_kind(profile_json)
+    unsized = entries_needing_leadership_size(profile_json)
+    order = {
+        str(_get(e, "id") or "") + "|" + str(_get(e, "company") or "") + "|" + str(_get(e, "role") or ""): i
+        for i, e in enumerate(_work_entries(profile_json))
+    }
+    both = [*sized, *unsized]
+    return sorted(both, key=lambda d: order.get(f"{d['entry_id']}|{d['company']}|{d['role']}", len(order)))
+
+
 def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, Any]]:
     """The work entries whose line would print a headcount with no kind: a
     positive ``team_size``, no stored kind, and never asked (no
@@ -354,19 +436,12 @@ def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, 
     STABLE CONTRACT (MD-Q1, built against by WP-Q2): a list, in entry order, of
     ``{"entry_id": str, "company": str, "role": str, "team_size": int}`` plus,
     since MD-Q5, ``"said": str`` (:func:`leadership_said`, ``""`` when none)."""
-    entries = (
-        profile_json.get("work_experience") if isinstance(profile_json, dict)
-        else getattr(profile_json, "work_experience", None)
-    ) or []
-
     out: list[dict[str, Any]] = []
-    for e in entries:
+    for e in _work_entries(profile_json):
         size, eid = _get(e, "team_size"), _get(e, "id")
-        if (
-            isinstance(size, int) and not isinstance(size, bool) and size > 0
-            and leadership_kind(e) is None
-            and not _get(e, "leadership_kind_record")
-        ):
+        # Q8-1: a ``merge_conflict`` record (an entry merge joined two
+        # different answers) is asked once more, like a role never asked.
+        if _positive_size(size) and _needs_kind_ask(e):
             # An entry stored without an id (older profile JSON) is still asked
             # about: skipping it would print the neutral line unasked.
             out.append({
@@ -375,5 +450,6 @@ def entries_needing_leadership_kind(profile_json: dict | Any) -> list[dict[str, 
                 "role": str(_get(e, "role") or ""),
                 "team_size": int(size),
                 "said": leadership_said(e),
+                **_ask_extras(e),
             })
     return out

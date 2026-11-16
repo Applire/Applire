@@ -59,6 +59,11 @@ const BACKEND_RATIONALE_KEYS = [
   // MD-Q5 (Sorbet quality-1) — services/profile/leadership_kind.py
   "leadership_kind_recorded",
   "leadership_kind_left_open",
+  // Q3-2 / Q8-2 (Sorbet wave 2b) — services/profile/leadership_kind.py
+  "team_size_recorded",
+  // Q3-4 / Q8-3 — services/profile/bullet_replace.py
+  "bullet_replaced",
+  "bullet_replace_undone",
   // D-B3V7 — reconcile/apply.py::_apply_set_availability
   "availability_recorded",
   "availability_cleared",

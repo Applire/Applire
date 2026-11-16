@@ -143,6 +143,11 @@ class AddBullets(BaseModel):
 class UpsertSkill(BaseModel):
     op: Literal["upsert_skill"] = "upsert_skill"
     name: str
+    # MD-Q15 (Sorbet wave 2b) — the NEW INFORMATION's own words for the
+    # capability, copied verbatim (a short noun phrase). On an answer turn
+    # ``reconcile.skill_names.enforce_skill_names`` stores it, cut from the
+    # answer, when ``name`` is not the person's word. Never written to the vault.
+    said: str | None = None
     # RULING V-6 = A (ADR-046 amended 2026-10-08) — the `id` of the EXISTING
     # skill this op is, when the new information names it differently (a
     # translation, synonym, abbreviation) and adds evidence / a level / a span.
@@ -1333,9 +1338,51 @@ class RecordLeadershipKind(BaseModel):
     option: Literal["disciplinary", "functional", "both", "own_words", "skipped"]
     answer: str = ""
     source: str = "interview"
+    #: Q3-2 / Q8-2 (Sorbet wave 2b) — the number of people the same answer
+    #: confirmed or gave (an exact option label + one whole number); it is
+    #: written to ``team_size``. ``None``: the answer named no number.
+    team_size: int | None = Field(default=None, ge=1, le=9999)
 
 
 _ADAPTER_ONLY = _ADAPTER_ONLY + (RecordLeadershipKind,)
+
+
+class ReplaceBullet(BaseModel):
+    """Q3-4 (Sorbet wave 2b) — an interview answer's new bullet replaces ONE held
+    bullet of the same work entry, in place, because the restatement check's
+    model said the new bullet states every fact of the old one and adds detail
+    (``restatement.hold_back_restatements(replace=True)``) — ADAPTER-ONLY, never
+    model-emittable. ``old`` is the held text the check saw; when the entry no
+    longer holds it at apply time, ``new`` is appended as a bullet instead (a
+    fact is never lost). Records ``replaced_bullets`` on the entry."""
+
+    op: Literal["replace_bullet"] = "replace_bullet"
+    entry_id: str
+    field: Literal["responsibilities", "achievements"]
+    old: str
+    new: str
+    source: str = "interview"
+
+
+class UndoBulletReplace(BaseModel):
+    """Q8-3 = A — "Rückgängig": the replaced bullet goes back BESIDE the new one
+    (right after it, same field) and the record is removed — ADAPTER-ONLY."""
+
+    op: Literal["undo_bullet_replace"] = "undo_bullet_replace"
+    entry_id: str
+    text: str
+
+
+class DismissBulletReplace(BaseModel):
+    """Q8-3 — "Ausblenden": the record is removed; the new bullet stays, the old
+    wording stays in the edit history — ADAPTER-ONLY."""
+
+    op: Literal["dismiss_bullet_replace"] = "dismiss_bullet_replace"
+    entry_id: str
+    text: str
+
+
+_ADAPTER_ONLY = _ADAPTER_ONLY + (ReplaceBullet, UndoBulletReplace, DismissBulletReplace)
 
 #: MD-Q5 — the work-entry fields only ``RecordLeadershipKind`` writes. Read by
 #: the engine's raw-op refusal and the committer's class guard

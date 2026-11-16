@@ -28,6 +28,16 @@
 
 import { formatDisplayDate, type DisplayLocale } from "./profileDisplay";
 
+/** Q3-4 — one "Ersetzt" record: `text` is the bullet now in the entry,
+ * `replaced` the wording it replaced. */
+export interface ReplacedBullet {
+  text: string;
+  replaced: string;
+  field?: "responsibilities" | "achievements";
+  recorded_at?: string;
+  source?: string;
+}
+
 export interface WorkEntry {
   /** Absent on a NEW entry — the backend mints the id (H1.1). */
   id?: string;
@@ -51,6 +61,9 @@ export interface WorkEntry {
   industry_context?: string | null;
   team_size?: number | null;
   budget_managed?: string | null;
+  /** Q3-4 (Sorbet wave 2b) — bullets an interview answer replaced; written
+   * only by the backend, carried by it on a save; absent while empty. */
+  replaced_bullets?: ReplacedBullet[];
   /** Derived by the backend — never recomputed on this door. */
   expected_fields?: string[] | null;
   /** Derived by the backend — echoed back untouched. */

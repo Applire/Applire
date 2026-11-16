@@ -1248,6 +1248,12 @@
       "undone": "Rückgängig gemacht – beide Einträge sind wieder getrennt.",
       "dismiss": "Schließen",
       "undoStale": "Inzwischen hat sich dein Profil geändert – Rückgängig ist nicht mehr möglich."
+    },
+    "replacedBullet": {
+      "label": "Ersetzt: „{old}“",
+      "undo": "Rückgängig",
+      "dismiss": "Ausblenden",
+      "failed": "Das hat nicht geklappt. Bitte versuche es erneut."
     }
   },
   "health": {
@@ -2037,6 +2043,9 @@
       "aspiration_goal": "Als Ziel behalten: Du hast gesagt, das ist noch nicht erreicht.",
       "leadership_kind_recorded": "Führungsart ergänzt: Du hast gesagt, welche Art von Führung diese Teamgröße ist.",
       "leadership_kind_left_open": "Führungsart offen gelassen: Deine Antwort nannte keine der Optionen, der Lebenslauf nennt nur die Teamgröße.",
+      "team_size_recorded": "Teamgröße ergänzt: Du hast die Zahl der Personen in deiner Antwort genannt.",
+      "bullet_replaced": "Stichpunkt ersetzt: Deine Antwort sagt dasselbe genauer; den alten Wortlaut kannst du zurückholen.",
+      "bullet_replace_undone": "Stichpunkt zurückgeholt: Er steht wieder neben dem Stichpunkt, der ihn ersetzt hatte.",
       "availability_recorded": "Deine Verfügbarkeit festgehalten.",
       "availability_cleared": "Deine Verfügbarkeit entfernt."
     }

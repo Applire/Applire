@@ -228,7 +228,11 @@ async def reconcile_interview_turn(
     # prompt's "not a SECOND TIME" rule does not stop it (delivery run 3: 4 of
     # 5 write-back turns). One small call, only when a turn adds bullets to an
     # entry that already holds some; fail-open; nothing held is touched.
-    ops, restated = await hold_back_restatements(before, result.ops, provider)
+    # Q3-4 (Sorbet wave 2b, rulings Q3-4 / Q8-3): on this door only, a new
+    # bullet the model says states EVERY fact of one held bullet of the entry
+    # and adds detail replaces that bullet (with an undo on the profile); any
+    # doubt keeps both bullets.
+    ops, restated = await hold_back_restatements(before, result.ops, provider, replace=True)
 
     committed = await commit_ops(
         db,

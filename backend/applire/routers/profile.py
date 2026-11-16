@@ -1031,6 +1031,53 @@ async def answer_aspiration_endpoint(
         raise HTTPException(status_code=422, detail="outcome_required")
 
 
+from applire.schemas.profile import BulletReplaceRequest  # noqa: E402 — Q3-4 / Q8-3
+from applire.services.profile.bullet_replace import (  # noqa: E402
+    dismiss_bullet_replace,
+    undo_bullet_replace,
+)
+
+
+@router.post(
+    "/replaced-bullets/undo",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def undo_bullet_replace_endpoint(
+    body: BulletReplaceRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """Q8-3 — "Rückgängig": the bullet an interview answer replaced goes back
+    beside the new one. 404 unknown record (or no profile)."""
+    try:
+        return await undo_bullet_replace(
+            db, entry_id=body.entry_id, text=body.text, user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Record not found")
+
+
+@router.post(
+    "/replaced-bullets/dismiss",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def dismiss_bullet_replace_endpoint(
+    body: BulletReplaceRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """Q8-3 — "Ausblenden": the "Ersetzt" line goes; the new bullet stays and
+    the old wording stays in the edit history. 404 unknown record."""
+    try:
+        return await dismiss_bullet_replace(
+            db, entry_id=body.entry_id, text=body.text, user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Record not found")
+
+
 @router.post(
     "/not-applied/adopt",
     response_model=MasterProfileResponse,

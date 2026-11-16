@@ -2900,6 +2900,7 @@ async def _record_kind_answer(
         LeadershipKindEntryNotFound,
         find_entry,
         leadership_kind_op,
+        parse_kind_answer,
     )
 
     entry = kind_cluster_entry(cluster)
@@ -2919,7 +2920,9 @@ async def _record_kind_answer(
     await commit_ops(
         db,
         [leadership_kind_op(args["entry_id"], option, answer=message,
-                            company=args["company"], role=args["role"], source="interview")],
+                            company=args["company"], role=args["role"], source="interview",
+                            # Q3-2 / Q8-2: the number the same answer confirmed or gave.
+                            team_size=parse_kind_answer(message)[1] if option != "own_words" else None)],
         CommitProvenance(source="interview", intake=ANSWER_INTAKE,
                          session_id=str(record.id), actor="candidate"),
         record=profile_record,
