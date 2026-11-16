@@ -3643,6 +3643,7 @@ async def audit_document(
     entailment: bool = False,
     keyword_ledger: list[dict[str, Any]] | None = None,
     form_inputs: dict[str, Any] | None = None,
+    posting_titles: tuple[str, ...] = (),
 ) -> TruthfulnessReport:
     """Full-document audit → :class:`TruthfulnessReport` (ADR-052 §1).
 
@@ -3821,6 +3822,23 @@ async def audit_document(
         results[result_idx] = ClaimResult(claim=claim, verdict=verdict)
         if unavailable:
             judgement_unavailable += 1
+
+    # Sorbet WP-Q7 (ruling Q7-1, MD-Q15): the posting's words are not the person's
+    # claim — a title the vault never holds (CV, same-language pair) and a posting
+    # word for a partly met requirement. Stricter only; read after every arm.
+    from applire.services.oracle.posting_words import apply_posting_word_checks
+
+    results = apply_posting_word_checks(
+        results,
+        profile=profile,
+        keyword_ledger=keyword_ledger,
+        is_cv=tailored_data is not None,
+        same_language=document_language is not None
+        and not holds_other_language(index, document_language),
+        # MD-Q17 F3: a headline carrying the posting's role title needs a held
+        # title EQUAL to it. ``()`` (letters, the external audit) keeps it off.
+        posting_titles=posting_titles,
+    )
 
     from applire.services.finding_registry import stamp_truthfulness_model
 

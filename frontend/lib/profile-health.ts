@@ -65,6 +65,16 @@ export function adoptNotApplied(issueId: string, itemKey: string) {
   return postJson("/api/profile/not-applied/adopt", { issue_id: issueId, item_key: itemKey });
 }
 
+/** Q8-3 — "Rückgängig" on an "Ersetzt" line: the old bullet goes back beside the new one. */
+export function undoBulletReplace(entryId: string, text: string) {
+  return postJson("/api/profile/replaced-bullets/undo", { entry_id: entryId, text });
+}
+
+/** Q8-3 — "Ausblenden" on an "Ersetzt" line: the line goes, the new bullet stays. */
+export function dismissBulletReplace(entryId: string, text: string) {
+  return postJson("/api/profile/replaced-bullets/dismiss", { entry_id: entryId, text });
+}
+
 /** UAT-3d — the unit for a budget figure, accepted in place. */
 export function saveBudgetUnit(entryId: string, unit: BudgetUnit) {
   return postJson("/api/profile/health/unit", { entry_id: entryId, unit });

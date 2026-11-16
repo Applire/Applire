@@ -2118,6 +2118,12 @@ def _apply_role_facts(
         # reports"), and the vault is authoritative without being trusted to be
         # well-typed. ``bool`` is an int subclass and is not a headcount.
         team_size = team_size if isinstance(team_size, int) and not isinstance(team_size, bool) else None
+        # Q8-6 (founder ruling, WP-Q8): a role whose bullet still names a size
+        # the person corrected prints no leadership line (never both numbers).
+        from applire.services.profile.size_correction import size_line_withheld
+
+        if vault_entry and size_line_withheld(vault_entry):
+            team_size = None
         # #382 (PO decision 2026-08-08, Option A): a budget wording that states
         # no unit does not reach the document at all. "6000000" is six million of
         # *something*, and this line is furniture — read as authoritative
@@ -4201,6 +4207,21 @@ async def _posting_labels_for(
     return effective_posting_labels(job, application)
 
 
+def _audit_posting_titles(job: Any, writer_role_title: str | None) -> tuple[str, ...]:
+    """The posting's role titles the Oracle's headline check reads (MD-Q17 F3):
+    the posting's own and the one THIS user's link carries (the title the writer
+    was handed, ADR-092 cl. 5(f)). Empty without a job — the check is then off."""
+    titles = [getattr(job, "role_title", None) if job is not None else None, writer_role_title]
+    return tuple(dict.fromkeys(t for t in titles if isinstance(t, str) and t.strip()))
+
+
+async def _posting_titles_for(record: GeneratedCV, db: AsyncSession, owner: uuid.UUID) -> tuple[str, ...]:
+    """:func:`_audit_posting_titles` for a stored CV (the delivered report's door)."""
+    job = await db.get(JobAnalysis, record.job_analysis_id)
+    writer_role_title = (await _posting_labels_for(record, db, owner))[0]
+    return _audit_posting_titles(job, writer_role_title)
+
+
 # ---------------------------------------------------------------------------
 # Render-context guard (#312)
 # ---------------------------------------------------------------------------
@@ -5127,6 +5148,7 @@ async def _render_cv_background(
                         profile_json, audit_view,
                         document_language=document_language,
                         keyword_ledger=keyword_ledger,
+                        posting_titles=_audit_posting_titles(job, writer_role_title),
                     )
                     # Inside the try deliberately. ``run_truth_round`` is
                     # written never to raise, but "never raises" asserted only by
@@ -7341,6 +7363,7 @@ async def _truth_audit(
     *,
     document_language: str | None,
     keyword_ledger: list[dict] | None,
+    posting_titles: tuple[str, ...] = (),
 ) -> dict | None:
     """ADR-099 cl. 4(b) — the ONE truthfulness instrument of a CV: the generation
     loop's truth round and the delivered report (``_update_ats_report``) both call
@@ -7355,6 +7378,7 @@ async def _truth_audit(
         provider=get_provider(),
         document_language=document_language,
         keyword_ledger=keyword_ledger,
+        posting_titles=posting_titles,
     )
 
 
@@ -7575,6 +7599,8 @@ async def _update_ats_report(
             # the evidence. Loaded above for the ATS audit; `None` when that
             # load did not happen, which is the vault-only behaviour.
             keyword_ledger=ledger,
+            # MD-Q17 F3: the same titles the generation loop's truth round read.
+            posting_titles=await _posting_titles_for(record, db, owner),
         )
     except Exception:
         logger.exception(

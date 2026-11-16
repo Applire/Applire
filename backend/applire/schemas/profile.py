@@ -276,10 +276,71 @@ class LeadershipKindRecord(BaseModel):
     ``record_leadership_kind`` op); its presence means "asked", so the question
     is never put again for that role."""
 
-    option: Literal["disciplinary", "functional", "both", "own_words", "skipped"]
+    #: ``merge_conflict`` (Q8-1, Sorbet wave 2b) is no option a person picks: an
+    #: entry merge joined two roles whose answers named different kinds, so the
+    #: kind is unknown again and the person is asked once more (``merged_kinds``
+    #: holds what the two answers said; the record is written by the committer's
+    #: class guard, ``apply._restore_leadership_kind``, never by a model).
+    option: Literal["disciplinary", "functional", "both", "own_words", "skipped", "merge_conflict"]
     answer: str = ""
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: str = "interview"
+    #: Q3-2 / Q8-2 (Sorbet wave 2b) — the number of people the person confirmed
+    #: or gave in the same answer (an exact option label followed by one whole
+    #: number); ``None`` when the answer named no number. The committed
+    #: ``WorkEntry.team_size`` is set to it by the same op.
+    team_size: int | None = None
+    #: Q8-1 — on a ``merge_conflict`` record: the two answered kinds (``None``
+    #: for an answer that named no kind), target first.
+    merged_kinds: list[str | None] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_wave2b(self, handler: Any) -> Any:
+        # Omitted while unset, so a record written before wave 2b dumps identically.
+        data = handler(self)
+        if isinstance(data, dict):
+            if data.get("team_size") is None:
+                data.pop("team_size", None)
+            if not data.get("merged_kinds"):
+                data.pop("merged_kinds", None)
+        return data
+
+
+class ReplacedBullet(BaseModel):
+    """Q3-4 (Sorbet wave 2b, founder rulings Q3-4 / Q8-3) — one bullet an
+    interview answer replaced because the answer only ADDED detail to it.
+    ``text`` is the bullet now in the entry, ``replaced`` the old wording (also
+    kept in the edit history). Bookkeeping, never evidence: stripped from every
+    prompt view, never indexed by the Oracle. Written only by the adapter-only
+    ``ReplaceBullet`` op; removed by "Rückgängig" (the old bullet goes back
+    beside the new one) or "Ausblenden"; pruned once ``text`` is no longer a
+    bullet of the entry."""
+
+    text: str
+    replaced: str
+    field: Literal["responsibilities", "achievements"] = "responsibilities"
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    source: str = "interview"
+
+
+class SizeCorrection(BaseModel):
+    """Q8-6 (founder ruling, Sorbet wave 2b) — a bullet of a role that still
+    names the team size the person has just CORRECTED (``old`` → ``new``) as a
+    people count. Written only by the kind answer that corrected the size
+    (``RecordLeadershipKind``); ``open`` until the person answers the one
+    follow-up: "Auf N ändern" changes the number in the bullet and ends the
+    record, "So lassen" keeps the bullet and the record (``kept``). While a
+    record's ``text`` is a bullet of the entry, the CV prints no leadership line
+    for the role (the two numbers never appear together). Bookkeeping, never
+    evidence: stripped from every prompt view; pruned once ``text`` is no longer
+    a bullet of the entry."""
+
+    text: str
+    field: Literal["responsibilities", "achievements"] = "responsibilities"
+    old: int
+    new: int
+    status: Literal["open", "kept"] = "open"
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class WorkEntry(ExperienceBase):
@@ -361,6 +422,10 @@ class WorkEntry(ExperienceBase):
                 "company_aliases", "dated_role_aliases", "not_yet_reached",
                 # MD-Q5: omitted while unset, so an unasked profile dumps identically.
                 "leadership_kind", "leadership_kind_record",
+                # Q3-4: omitted while empty, so an unreplaced profile dumps identically.
+                "replaced_bullets",
+                # Q8-6: likewise.
+                "size_corrections",
             )
         )
 
@@ -374,6 +439,10 @@ class WorkEntry(ExperienceBase):
     #: bullet prose; the section door and the reconciler cannot write it.
     leadership_kind: Literal["disciplinary", "functional"] | None = None
     leadership_kind_record: LeadershipKindRecord | None = None
+    #: Q3-4 — bullets an interview answer replaced (see :class:`ReplacedBullet`).
+    replaced_bullets: list[ReplacedBullet] = Field(default_factory=list)
+    #: Q8-6 — bullets that still name a corrected team size (see :class:`SizeCorrection`).
+    size_corrections: list[SizeCorrection] = Field(default_factory=list)
     # #328 option 4 — provenance for the three typed fields above, keyed by
     # field name. Recomputed from this entry's OWN bullets on every write
     # (``services/profile/role_facts.py``, called from the single committer),
@@ -2352,6 +2421,16 @@ class AspirationAnswerRequest(BaseModel):
     issue_id: str = Field(min_length=1, max_length=300)
     achieved: bool
     outcome: str | None = Field(default=None, max_length=500)
+
+
+class BulletReplaceRequest(BaseModel):
+    """Q8-3 — ``POST /api/profile/replaced-bullets/undo`` and ``…/dismiss``: one
+    "Ersetzt" record, named by its work entry and the bullet now in its place."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entry_id: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=5000)
 
 
 class AdoptNotAppliedRequest(BaseModel):

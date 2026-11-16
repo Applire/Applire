@@ -934,6 +934,150 @@ def is_aim_only(entry: dict[str, Any] | None) -> bool:
     return isinstance(entry, dict) and entry.get("aim_only") is True
 
 
+#: Sorbet WP-Q7 (RULINGS Q7-1 / MD-Q15, ADR-048 amended 2026-11-16): the row key
+#: :func:`stamp_posting_word_only` writes. Absent = no marker.
+POSTING_WORD_ONLY_KEY = "posting_word_only"
+
+
+def is_posting_word_partial(entry: dict[str, Any] | None) -> bool:
+    """A claimable BELOW-THE-BAR ``partial`` whose words are the posting's only:
+    no form of the row (concept or surface form) occurs anywhere in the person's
+    own vault text (stamped by :func:`stamp_posting_word_only`).
+
+    The classifier graded the requirement only partly met and gave no adjacent
+    capability, so the row's label is the posting's word for something the person
+    holds only part of ("Wertschätzende Führung", "Führung und Entwicklung",
+    "Exactly-once processing" — delivery 2a). Printed as the person's own, it is a
+    claim they never made. Readers that act on it: the writers' ledger block (the
+    word is never written; the evidence is, in the profile's own words), the
+    coverage demand (never demanded literally — :func:`_coverage_split`,
+    :func:`underclaim_candidate_entries`), and the Oracle (its quote backs no chip;
+    a sentence naming the word is not grounded). The predicate is a fact (ADR-062
+    cl. 1): whole-token presence, ``ats_audit.surface_present_whole_token``, the
+    predicate the Oracle's posting-term check uses (MD-Q17 F1)."""
+    return isinstance(entry, dict) and entry.get(POSTING_WORD_ONLY_KEY) is True
+
+
+def posting_word_partial_rows(
+    ledger: list[dict[str, Any]] | None,
+    profile_json: dict[str, Any] | None,
+    *,
+    with_denial_wording: bool = False,
+) -> list[dict[str, Any]]:
+    """The rows of *ledger* that are posting-word-only partials against
+    *profile_json* — computed, never read from a stamp (the Oracle's reader: it
+    holds the profile and must not trust a persisted row). ``[]`` without a
+    profile (no vault text → nothing is known to be absent, fail open).
+
+    Presence is WHOLE-TOKEN (``ats_audit.surface_present_whole_token``, the
+    predicate the Oracle's posting-term check and its skill grounding use) —
+    MD-Q17 F1: "Führung" inside "Betriebsführung" is not the person's word, and
+    the two ends of one fact may not disagree on it.
+
+    ``with_denial_wording`` (MD-Q17 F2): the Oracle's reader passes True and
+    reads the person's denial statements as their own wording (Daniel's "That is
+    the infrastructure as code I did there", filed under a denial of cluster
+    provisioning). The stamp passes False: a word that occurs only inside a
+    denial is not held. Real ledgers reach this — delivery 2a run 2 cross,
+    "Assertive leadership" over the denial "I have no concrete assertive-
+    leadership example …", and Katrin's "Projektcontrolling" over "keine eigenen
+    Projektcontrolling-Projekte geleitet" (6 ledgers) — and an unstamped row is
+    demanded by the coverage scan and written as the person's."""
+    if not ledger or not isinstance(profile_json, dict):
+        return []
+    from applire.services.ats_audit import surface_present_whole_token as surface_present
+
+    corpus = (
+        _posting_word_corpus(profile_json)
+        if with_denial_wording
+        else profile_literal_corpus(profile_json)
+    )
+    if not corpus:
+        return []
+    out: list[dict[str, Any]] = []
+    for e in ledger:
+        if (
+            not isinstance(e, dict) or e.get("claimable") is not True
+            or e.get("status") != "partial"
+            or is_positioning_only(e) or is_scope_entry(e) or is_aim_only(e)
+        ):
+            continue
+        forms = [f for f in [e.get("concept"), *(e.get("surface_forms") or [])]
+                 if isinstance(f, str) and f.strip()]
+        if forms and not any(surface_present(f, corpus) for f in _with_acronym_equivalents(forms)):
+            out.append(e)
+    return out
+
+
+def _with_acronym_equivalents(forms: list[str]) -> list[str]:
+    """*forms* plus their spellings from the Oracle's closed acronym table
+    (``oracle.matchers.acronyms``, U-13): "Continuous integration and delivery"
+    is the person's own word when the vault says "CI/CD" — the Oracle grounds the
+    chip on that table, so the posting-word fact must read the same name. Without
+    it a ledger row that happened to list no bare "CI/CD" sibling was stamped and
+    its chip went grounded → unverifiable (WP-Q7 final gate,
+    ``test_u13_acronym_expansion_is_one_skill``). More forms can only remove a
+    stamp, never add one."""
+    from applire.services.oracle.matchers.acronyms import acronym_equivalents
+
+    out = list(forms)
+    for f in forms:
+        out.extend(acronym_equivalents(f))
+    return out
+
+
+def _posting_word_corpus(profile_json: dict[str, Any]) -> str:
+    """The text the posting-word predicate searches: the coverage corpus
+    (:func:`profile_literal_corpus`) plus the person's own denial statements.
+
+    The coverage corpus strips a denial's statement so a denied word never counts
+    as grounding. This predicate asks a different question — has the person ever
+    used the word? — and a denial statement is their own sentence: "Helm charts
+    for all 12 services in Git, rolled out by ArgoCD GitOps … That is the
+    infrastructure as code I did there; I did not write the cluster provisioning
+    itself" (delivery 2a, Daniel, filed under the denial "cluster provisioning").
+    Without it the row "Infrastructure as code" was stamped and three bullets
+    that use the person's own phrase went grounded → unverifiable (WP-Q7 re-audit,
+    the one false red of 33 changed verdicts). Adding text can only remove a
+    stamp, never add one. Read by the Oracle only (``with_denial_wording``);
+    the stamp reads the coverage corpus alone (MD-Q17 F2)."""
+    from applire.services.ats_audit import _norm as ats_norm
+
+    base = profile_literal_corpus(profile_json)
+    meta = profile_json.get("metadata")
+    denials = meta.get("denied_concepts") if isinstance(meta, dict) else None
+    said = [
+        d.get("statement") for d in denials or []
+        if isinstance(d, dict) and isinstance(d.get("statement"), str)
+    ]
+    return f"{base} {ats_norm(' '.join(said))}".strip() if said else base
+
+
+def stamp_posting_word_only(
+    ledger: list[dict[str, Any]], profile_json: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """Stamp ``posting_word_only: True`` on every posting-word-only partial
+    (:func:`posting_word_partial_rows`) and drop a stale stamp from every other
+    row. Run at the ledger's build and at its read seam
+    (:func:`refresh_ledger_against_vault`), so the writers, the coverage demand
+    and the Oracle read the stamp against today's vault. ``profile_json`` None →
+    the ledger unchanged. Pure."""
+    if not ledger or not isinstance(profile_json, dict):
+        return list(ledger or [])
+    hits = {id(e) for e in posting_word_partial_rows(ledger, profile_json)}
+    out: list[dict[str, Any]] = []
+    for e in ledger:
+        if not isinstance(e, dict):
+            out.append(e)
+        elif id(e) in hits:
+            out.append(e if e.get(POSTING_WORD_ONLY_KEY) is True else {**e, POSTING_WORD_ONLY_KEY: True})
+        elif POSTING_WORD_ONLY_KEY in e:
+            out.append({k: v for k, v in e.items() if k != POSTING_WORD_ONLY_KEY})
+        else:
+            out.append(e)
+    return out
+
+
 TITLE_UNHELD_EVIDENCE = (
     "Not claimable: a position title the candidate's profile does not hold — "
     "never write it as the candidate's title or role."
@@ -1203,6 +1347,7 @@ def underclaim_candidate_entries(
         if e.get("claimable")
         and not is_positioning_only(e)
         and not is_scope_entry(e)
+        and not is_posting_word_partial(e)  # Sorbet WP-Q7, as _coverage_split
         and (e.get("concept") or "").strip()
     ]
 
@@ -1331,6 +1476,32 @@ def render_ledger_prompt_block(
                     f"the summary or in the bullet that states it, never in the "
                     f"skills list. "
                     f"evidence: {evidence}"
+                )
+            elif is_posting_word_partial(entry):
+                # Sorbet WP-Q7 (MD-Q15): the posting's word for a requirement the
+                # person meets only in part, and a word their profile never uses.
+                # Before this the row read exactly like a `direct` one ("surface
+                # these", forms = the posting's label), and the writer printed the
+                # label as the person's ("übernahm Führung und Entwicklung der
+                # Mitarbeitenden", "Exactly-once processing" — delivery 2a). The
+                # evidence shown is the verified profile quote when the row has one.
+                # MD-Q17 F4: "the profile never uses it" is a same-language fact.
+                # Across languages the person's own word ("über drei Schichtleiter")
+                # may be exactly what the posting's word translates ("shift
+                # managers", 2a re-run cross and the WP-Q7 fresh cross run, where
+                # both documents dropped the three shift leaders the DE ones kept).
+                # The translation exception is the model's judgement; the coverage
+                # demand stays off either way (no literal demand of the label).
+                backing = entry.get("backing")
+                quote = backing.get("quote") if isinstance(backing, dict) else None
+                shown = (f'the profile\'s own words: "{quote}"' if isinstance(quote, str)
+                         and quote.strip() else f"evidence: {evidence}")
+                lines.append(
+                    f"  - {concept} [PARTLY MET — the posting's word, not the profile's] — "
+                    f"write what the profile shows in the profile's own words, under the "
+                    f"position that owns it; never write {forms} as the candidate's skill, "
+                    f"quality or responsibility, unless it is the faithful translation of "
+                    f"words the profile itself uses. {shown}"
                 )
             else:
                 # #415 (ruling W-4): the posting's OWN sentence, verbatim, so the writer
@@ -1467,6 +1638,10 @@ def claimable_surface_forms(
     forms: list[str] = []
     seen: set[str] = set()
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
+    # Sorbet WP-Q7: a posting-word-only partial deliberately STAYS here. Moving it
+    # out sends its absence to `missing_honest_gap` (class A, "open gap analysis")
+    # instead of `missing_claimable` (class S, report only) — a new visible card
+    # (fresh run, Daniel: "Exactly-once settlement events") no ruling covers.
     for entry in [
         e for e in claimable if not is_positioning_only(e) and not is_scope_entry(e)
     ]:
@@ -1670,6 +1845,18 @@ def render_ledger_reviewer_block(
             quote = backing.get("quote") if backing.get("unit_path") else None
             quoted = quoted or bool(quote)
             cited = f' — profile quote: "{quote}"' if quote else ""
+            if is_posting_word_partial(entry):
+                # Sorbet WP-Q7: listed above as "truthfully supports" with the
+                # posting's label as its form, the row told the reviewer the label
+                # was grounded (delivery 2a re-run rec 289 passed "wertschätzende
+                # Führung" and demanded it). The quote shows the part the person holds.
+                lines.append(
+                    f"  - {entry.get('concept', '')} [PARTLY MET — the posting's word, "
+                    f"never the candidate's: a draft stating {forms} as the candidate's "
+                    f"skill, quality or responsibility overstates, unless it faithfully "
+                    f"translates words the profile itself uses]{cited}"
+                )
+                continue
             lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]{cited}")
     else:
         lines.append("  (none)")
@@ -1767,8 +1954,13 @@ def _coverage_split(
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
     # ADR-069: a scope entry's concept embeds the JD's own figure — demanding
     # it verbatim would force the number into the document (see is_scope_entry).
+    # Sorbet WP-Q7 (MD-Q15): a posting-word-only partial is never demanded
+    # literally — its word is the posting's, and demanding it is a demand to print
+    # a claim the person never made (delivery 2a re-run, recs 289/311 → 293/336).
     claimable = [
-        e for e in claimable if not is_positioning_only(e) and not is_scope_entry(e)
+        e for e in claimable
+        if not is_positioning_only(e) and not is_scope_entry(e)
+        and not is_posting_word_partial(e)
     ]
     if not claimable:
         return [], []
@@ -3250,6 +3442,11 @@ def refresh_ledger_against_vault(
     aimed = enforce_title_stance(enforce_aim_only_stance(ledger, profile_json), profile_json)
     if any(a is not b for a, b in zip(aimed, ledger)):
         ledger, changed = aimed, True
+    # Sorbet WP-Q7: the posting-word-only stamp, re-derived against today's vault
+    # on every read — a word the person has since used in their own text is theirs.
+    stamped = stamp_posting_word_only(ledger, profile_json)
+    if any(a is not b for a, b in zip(stamped, ledger)):
+        ledger, changed = stamped, True
     if changed:
         after = [(e.get("concept"), e.get("status")) for e in ledger if isinstance(e, dict)]
         moved = [
@@ -4735,6 +4932,7 @@ def build_keyword_ledger(
     # out a claimable-but-unstoried hard requirement without re-deriving it.
     # #525 site 1 — beside #260's narrative_backed stamp, in the same final
     # pass over the same vault: which position's evidence carries this term.
-    return annotate_evidence_owners(
+    # Sorbet WP-Q7: a below-the-bar partial whose words are the posting's only.
+    return stamp_posting_word_only(annotate_evidence_owners(
         _annotate_narrative_backed(ledger, profile_json), profile_json
-    )
+    ), profile_json)

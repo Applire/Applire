@@ -477,6 +477,19 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   OEE 3/3. A first measure that read 3/3 had used OEE as its own example
   (leak). With the top-level ``answer_about``: 9/9 exactly OEE. Records:
   ``Documents/Runs/Sorbet/quality-1/q6/report.md`` Addendum 1.
+* **30,105 (Sorbet quality-1 WP-Q8, 2026-11-16, MD-Q15).** upsert_skill: the
+  example that named "Arbeitssicherheitsmanagement" as a capability to record
+  is replaced by one where the answer names it ("OEE-Analysen erstellt" ->
+  "OEE-Analyse"), and the op carries ``said``: the answer's own words for the
+  capability, verbatim, a noun phrase of at most five words (+327 chars).
+  Category D: the own-word rule was present and violated. On the captured
+  answer turns of the three delivery-2a runs (95 calls, luna, reasoning off),
+  26 of 97 new skills carried a name that is no phrase of the answer before;
+  replayed with this text, 30 of 95 still did (the wording alone does not
+  hold), while ``said`` was a verbatim phrase of the answer in 82 of 95. The
+  name is therefore gated in code (``reconcile.skill_names``): kept 77, the
+  person's own phrase stored 8, no skill 10. Records:
+  ``Documents/Runs/Sorbet/quality-1/q8/report.md``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -592,10 +605,14 @@ Operations:
   name or a duty the answer describes ("ich setze die Prioritäten") a skill:
   those are the project and its bullets. The NAME of a measured figure on its own (LTIF,
   OEE, Ausschussquote, Termintreue, a KPI) is not a skill (783:L100): the
-  figure belongs in the bullet that states it; record a skill only for the
-  capability the new information says the person has ("OEE-Analyse",
-  "Arbeitssicherheitsmanagement").
-  REQUIRED: name. The name is the new information's own word for the
+  figure belongs in the bullet that states it; record a skill only for a
+  capability the new information itself names ("OEE-Analysen erstellt" ->
+  "OEE-Analyse").
+  REQUIRED: name and said. said: the words of the NEW INFORMATION that name the
+  capability, copied exactly as they stand there: a short noun phrase of at most
+  five words, never a clause. name is said (a plural or case ending may change),
+  or said plus the name of a skill the profile already holds ("PP und MM" beside
+  the profile's "SAP" -> "SAP MM"). The name is the new information's own word for the
   capability, as written there: never a term
   only the question or the gap label uses (an answer's "event pipeline" does not make the gap label "Event-driven
   architecture" its word), never its expansion, translation or wider category

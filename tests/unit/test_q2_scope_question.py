@@ -514,14 +514,19 @@ def test_md_q5_the_kind_question_is_per_role_with_the_fixed_options():
 
     _ids, _c, by_id = plan_leadership_kind(["a"], {"a": "B"}, {"a": {}}, _KIND_PROFILE)
     q = leadership_kind_question(by_id[LEADERSHIP_KIND_ID], "de")
-    assert q == {"question": "Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38. War das "
-                             "disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?",
-                 "choices": ["Disziplinarisch (Personalverantwortung)", "Fachliche Anleitung", "Beides"]}
+    # Q3-2 (Sorbet wave 2b): the stored size is confirmed in the same question,
+    # and every chip carries it.
+    assert q == {"question": "Bei Weberit Kunststofftechnik GmbH stehen im Profil 38 Personen – stimmt das? "
+                             "War das disziplinarische Führung (Personalverantwortung) oder fachliche "
+                             "Anleitung? Wenn die Zahl nicht stimmt, ändere sie in deiner Antwort.",
+                 "choices": ["Disziplinarisch (Personalverantwortung) – 38 Personen",
+                             "Fachliche Anleitung – 38 Personen", "Beides – 38 Personen"]}
     assert leadership_kind_question(by_id[f"{LEADERSHIP_KIND_ID}-2"], "de")["question"].startswith(
-        "Bei Rasselstein Umformtechnik GmbH steht eine Teamgröße von 14.")
+        "Bei Rasselstein Umformtechnik GmbH stehen im Profil 14 Personen – stimmt das?")
     en = leadership_kind_question(by_id[LEADERSHIP_KIND_ID], "en")
-    assert en["choices"] == [OPTION_LABELS["en"][o] for o in ("disciplinary", "functional", "both")]
-    assert en["choices"] == ["Disciplinary (line management)", "Functional guidance", "Both"]
+    assert en["choices"] == [OPTION_LABELS["en"][o] + " – 38 people" for o in ("disciplinary", "functional", "both")]
+    assert en["choices"] == ["Disciplinary (line management) – 38 people", "Functional guidance – 38 people",
+                             "Both – 38 people"]
     assert "120" not in q["question"], "never folded into the scope question (RULING Q2-1)"
 
 
@@ -532,8 +537,9 @@ def test_md_q5_the_kind_question_quotes_the_persons_bullet():
     cluster = {"id": "leadership-kind", "kind": "leadership_kind",
                "entry": {"entry_id": "w1", "company": "Weberit", "team_size": 38, "said": f" {said} "}}
     assert leadership_kind_question(cluster, "de")["question"] == (
-        f"Du schreibst: »{said}«. War das disziplinarische Führung (Personalverantwortung) "
-        "oder fachliche Anleitung?")
+        f"Du schreibst: »{said}«. Im Profil stehen 38 Personen – stimmt das? War das disziplinarische "
+        "Führung (Personalverantwortung) oder fachliche Anleitung? Wenn die Zahl nicht stimmt, "
+        "ändere sie in deiner Antwort.")
     assert leadership_kind_question(cluster, "en")["question"].startswith(f"You write: “{said}”.")
 
 
@@ -557,7 +563,7 @@ async def test_a_full_interview_asks_scope_then_kind_and_each_turn_advances(db):
     ):
         r1 = await send_message(created.session_id, "Direkt 38, vertretungsweise 90.", db, provider)
         assert r1.complete is False
-        assert r1.question.startswith("Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38.")
+        assert r1.question.startswith("Bei Weberit Kunststofftechnik GmbH stehen im Profil 38 Personen – stimmt das?")
         r2 = await send_message(created.session_id, "Disziplinarisch, über drei Schichtleiter.", db, provider)
     assert r2.complete is True
 
@@ -578,7 +584,8 @@ async def _kind_turn(db, answer, *, reconcile, work_id=None):
         patch("applire.services.session.analyze_gaps", new=AsyncMock()),
     ):
         first = await send_message(created.session_id, "Direkt 38.", db, provider)
-    assert first.choices == ["Disziplinarisch (Personalverantwortung)", "Fachliche Anleitung", "Beides"]
+    assert first.choices == ["Disziplinarisch (Personalverantwortung) – 38 Personen",
+                             "Fachliche Anleitung – 38 Personen", "Beides – 38 Personen"]
     with (
         patch("applire.services.session.reconcile_interview_turn", new=reconcile),
         patch("applire.services.session.analyze_gaps", new=AsyncMock()),
@@ -1432,7 +1439,8 @@ async def test_wave1b_a_role_sized_mid_interview_gets_the_kind_ask_next(db, size
         assert LEADERSHIP_KIND_ID not in row.state["critical_gaps"]
         return
     assert resp.complete is False
-    assert resp.choices == ["Disziplinarisch (Personalverantwortung)", "Fachliche Anleitung", "Beides"]
+    assert resp.choices == ["Disziplinarisch (Personalverantwortung) – 3 Personen",
+                            "Fachliche Anleitung – 3 Personen", "Beides – 3 Personen"]
     assert row.state["critical_gaps"][row.state["current_gap_index"]] == LEADERSHIP_KIND_ID
     assert row.state["hard_ceiling"] == ceiling + 1
 
@@ -1468,3 +1476,88 @@ async def test_wave1b_the_late_kind_ask_never_lands_behind_the_current_cluster()
     unflagged = _state(False)
     await _replan_leadership_kind(unflagged, profile, db, uuid.uuid4(), 1)
     assert unflagged["critical_gaps"] == ids
+
+
+# ===========================================================================
+# Q8-6 (founder ruling, Sorbet wave 2b) — seam: a corrected size is followed up
+# right away (create_session → send_message); unit tests in
+# test_sorbet_q8_size_correction.py.
+# ===========================================================================
+
+_Q86_OTHER = "Moderation von 5S- und Kaizen-Workshops."
+BULLET_38 = "Führung von zwei Fertigungsbereichen mit 38 Mitarbeitenden im Dreischichtbetrieb."
+
+
+async def _seed_with_bullet(db):
+    import uuid as _uuid
+
+    from applire.models.gap import GapAnalysis
+    from applire.models.job import JobAnalysis
+    
+    job = JobAnalysis(
+        raw_text_hash=_uuid.uuid4().hex,
+        raw_text="Leiter Operations. Ihr Profil: ca. 120 Mitarbeitende, MES.",
+        role_title="Leiter Operations", required_skills=["MES"], nice_to_have_skills=[],
+        keywords=[], seniority_level="Senior", company_culture_signals=[],
+        language_requirement="Deutsch", jd_language="de",
+    )
+    await retire_live_profiles(db)
+    profile = make_master_profile(profile_json={
+        "personal_info": {"name": "Stefan Test", "email": "stefan@example.de"},
+        "skills": [], "work_experience": [
+            {"id": "w1", "company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
+             "start_date": "2018-01", "team_size": 38, "responsibilities": [BULLET_38, _Q86_OTHER]}],
+    })
+    db.add_all([job, profile])
+    await db.flush()
+    db.add(GapAnalysis(
+        job_analysis_id=job.id, profile_id=profile.id, match_score=0.5, critical_gaps=[],
+        minor_gaps=[], strengths=[], keyword_gaps=[], category_a=[], category_b=[_SCOPE],
+        category_c=["MES"], keyword_ledger=[_scope_row()], gap_clusters=[_scope_cluster()],
+    ))
+    await db.commit()
+    return job
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("answer", "bullet", "withheld"), [
+    ("Auf 30 ändern", "Führung von zwei Fertigungsbereichen mit 30 Mitarbeitenden im Dreischichtbetrieb.", False),
+    ("So lassen", BULLET_38, True),
+    ("eigentlich beides", BULLET_38, True),   # own words: never interpreted, the record stays open
+])
+async def test_seam_a_corrected_size_is_followed_up_right_away(db, answer, bullet, withheld):
+    from applire.models.profile import MasterProfile
+    from applire.models.session import InterviewSession
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.session import create_session, send_message
+
+    job = await _seed_with_bullet(db)
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    provider.aparse_json = AsyncMock(side_effect=AssertionError("no LLM question call"))
+    created = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, provider)
+    spy = _bridge(False)
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=spy),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        await send_message(created.session_id, "Direkt 38.", db, provider)
+        r2 = await send_message(created.session_id, "Disziplinarisch (Personalverantwortung) – 30 Personen",
+                                db, provider)
+        assert r2.complete is False
+        assert r2.question == ("Du hast die Teamgröße auf 30 korrigiert. Dein Punkt nennt noch 38: "
+                               f"»{BULLET_38}«")
+        assert r2.choices == ["Auf 30 ändern", "So lassen"]
+        calls = spy.await_count
+        r3 = await send_message(created.session_id, answer, db, provider)
+    assert r3.complete is True
+    assert spy.await_count == calls + (0 if answer in ("Auf 30 ändern", "So lassen") else 1)
+    row = await db.get(InterviewSession, created.session_id)
+    prof = await db.get(MasterProfile, row.profile_id)
+    await db.refresh(prof)
+    w = prof.profile_json["work_experience"][0]
+    assert w["team_size"] == 30
+    assert w["responsibilities"] == [bullet, _Q86_OTHER]
+    from applire.services.profile.size_correction import size_line_withheld
+
+    assert size_line_withheld(w) is withheld

@@ -45,6 +45,7 @@ import { EntryDropZone, EntryMergeControls } from "./EntryMerge";
 import { toEntryRef } from "@/lib/profile-merge";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
+import { ReplacedBulletLine } from "./ReplacedBulletLine";
 
 interface DialogState {
   /** null = adding a new entry; otherwise the index being edited. */
@@ -288,6 +289,9 @@ export function WorkExperienceEditor({
             const dated = datedRoleAliasesOf(e);
             const sinceOf = new Map<string, string>();
             for (const d of dated) for (const b of d.bullets ?? []) sinceOf.set(b, d.since);
+            // Q3-4 / Q8-3 — a bullet an interview answer replaced shows its
+            // "Ersetzt: „…“ [Rückgängig] [Ausblenden]" line.
+            const replacedOf = new Map((e.replaced_bullets ?? []).map((r) => [r.text, r]));
             const allBullets = [...(e.achievements ?? []), ...(e.responsibilities ?? [])].filter(nonEmptyText);
             const bullets = [
               ...allBullets.filter((b) => sinceOf.has(b)),
@@ -355,6 +359,13 @@ export function WorkExperienceEditor({
                             </span>
                           )}
                           {b}
+                          {replacedOf.has(b) && typeof e.id === "string" && e.id !== "" && (
+                            <ReplacedBulletLine
+                              entryId={e.id}
+                              record={replacedOf.get(b)!}
+                              onProfileUpdated={onProfileUpdated}
+                            />
+                          )}
                         </li>
                       );
                     })}

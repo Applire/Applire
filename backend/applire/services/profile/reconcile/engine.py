@@ -251,6 +251,13 @@ async def reconcile(
     # (deterministic accept + LLM adjudication of the uncertain band, citation
     # verified in code). `provider` carries the adjudication call — same
     # provider the reconcile call itself just used.
+    # MD-Q15 (Sorbet wave 2b) — a skill an answer creates is named in the
+    # person's own words (the answer's phrase, or a held skill's words plus
+    # it); otherwise their verbatim `said` phrase, otherwise no skill. Before
+    # the stance guard, so the testimony check reads the name that lands.
+    from applire.services.profile.reconcile.skill_names import enforce_skill_names
+
+    ops = enforce_skill_names(ops, profile=profile, new_info=new_info, source=source)
     ops = await enforce_stance(
         ops, denials=denials + [u for u in unclaimed if u not in denials],
         new_info=new_info, source=source, provider=provider,

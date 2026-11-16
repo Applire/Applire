@@ -55,6 +55,7 @@ async def build_self_audit_report(
     document_language: str | None = None,
     keyword_ledger: list[dict[str, Any]] | None = None,
     form_inputs: dict[str, Any] | None = None,
+    posting_titles: tuple[str, ...] = (),
 ) -> dict[str, Any] | None:
     """Truthfulness report as a JSONB-safe dict, or None on any failure.
 
@@ -73,6 +74,9 @@ async def build_self_audit_report(
 
     ``form_inputs`` (ruling B3-10) is a letter's own ``pre_gen_inputs`` — see
     :func:`applire.services.oracle.audit.audit_document`. Ignored for a CV.
+
+    ``posting_titles`` (MD-Q17 F3): the posting's role titles, read by a CV's
+    headline check only. ``()`` keeps it off.
     """
     try:
         if tailored_data is not None:
@@ -83,6 +87,7 @@ async def build_self_audit_report(
                 provider=provider,
                 document_language=document_language,
                 keyword_ledger=keyword_ledger,
+                posting_titles=posting_titles,
                 # ADR-068 clause 7 scoping (flagged deviation, see
                 # audit_document's own docstring): keep the OLDER, broader
                 # entailment mechanism off during generation — ``provider``

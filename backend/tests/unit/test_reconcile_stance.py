@@ -887,8 +887,20 @@ async def test_engine_drops_ungrounded_interview_claims() -> None:
         }
     )
     result = await reconcile(MasterProfileData(), _CHURN_TURN, "interview", provider)
-    assert len(result.ops) == 1
-    assert result.ops[0].status == "unconfirmed"
+    # MD-Q15 (Sorbet wave 2b): "Python" is no phrase of this answer and the op
+    # carries no own phrase of the person's, so no skill is written at all —
+    # before the stance guard could store it as `unconfirmed`.
+    assert result.ops == []
+
+
+@pytest.mark.asyncio
+async def test_engine_keeps_a_skill_the_answer_names() -> None:
+    # MD-Q15's gate passes a name that is a phrase of the answer; the stance
+    # guard then grounds it literally.
+    provider = _StubProvider({"ops": [{"op": "upsert_skill", "name": "business reviews",
+                                       "category": "soft", "evidence": []}], "ambiguities": []})
+    result = await reconcile(MasterProfileData(), _CHURN_TURN, "interview", provider)
+    assert [(o.name, o.status) for o in result.ops] == [("business reviews", "confirmed")]
 
 
 # ── #231 — durable denial persistence + the public ledger-reuse predicate ───

@@ -1248,6 +1248,12 @@
       "undone": "Undone – both entries are separate again.",
       "dismiss": "Close",
       "undoStale": "Your profile has changed since then – undo is no longer possible."
+    },
+    "replacedBullet": {
+      "label": "Replaced: “{old}”",
+      "undo": "Undo",
+      "dismiss": "Dismiss",
+      "failed": "That did not work. Please try again."
     }
   },
   "health": {
@@ -2037,6 +2043,11 @@
       "aspiration_goal": "Kept as a goal: you said this is not reached yet.",
       "leadership_kind_recorded": "Kind of leadership added: you said what kind of leadership this team size is.",
       "leadership_kind_left_open": "Kind of leadership left open: your answer named none of the options, so the CV states the team size only.",
+      "team_size_recorded": "Team size added: you gave the number of people in your answer.",
+      "bullet_replaced": "Bullet replaced: your answer says the same in more detail; you can bring the old wording back.",
+      "bullet_replace_undone": "Bullet brought back: it stands again beside the bullet that had replaced it.",
+      "team_size_bullet_changed": "Number in the bullet changed: you put the corrected team size into this bullet.",
+      "team_size_bullet_kept": "Bullet left as is: the CV shows no team-size line for this role, so two numbers never stand side by side.",
       "availability_recorded": "Recorded your availability.",
       "availability_cleared": "Removed your availability."
     }
@@ -3055,6 +3066,9 @@
     "entailmentNarrow": "The automatic checks could not decide this; the result comes from a narrow content check.",
     "figuresTrace": "Every figure is backed by your profile.",
     "noCheckableContent": "Nothing to check — a general or formulaic statement.",
+    "titleNotHeld": "States the title “{title}”, which no position in your profile holds — a title is yours only when you hold or held it.",
+    "postingTermNotHeld": "Names “{term}” — the job posting’s word for a requirement your profile meets only in part, and a word your profile never uses. Write what you did in your own words.",
+    "postingTermOtherLanguage": "Names “{term}” — the job posting’s word for a requirement your profile meets only in part. Your profile is in another language, so whether this is your own word could not be checked.",
     "noCloseEvidence": "Nothing in your profile is close enough to check this reliably.",
     "attributionUnresolved": "The only evidence in your profile belongs to one position, but the sentence names no employer — which position it belongs to cannot be checked reliably.",
     "crossLanguageEquivalent": "Restates an entry of your profile in another language.",

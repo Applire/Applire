@@ -1248,6 +1248,12 @@
       "undone": "Rückgängig gemacht – beide Einträge sind wieder getrennt.",
       "dismiss": "Schließen",
       "undoStale": "Inzwischen hat sich dein Profil geändert – Rückgängig ist nicht mehr möglich."
+    },
+    "replacedBullet": {
+      "label": "Ersetzt: „{old}“",
+      "undo": "Rückgängig",
+      "dismiss": "Ausblenden",
+      "failed": "Das hat nicht geklappt. Bitte versuche es erneut."
     }
   },
   "health": {
@@ -2037,6 +2043,11 @@
       "aspiration_goal": "Als Ziel behalten: Du hast gesagt, das ist noch nicht erreicht.",
       "leadership_kind_recorded": "Führungsart ergänzt: Du hast gesagt, welche Art von Führung diese Teamgröße ist.",
       "leadership_kind_left_open": "Führungsart offen gelassen: Deine Antwort nannte keine der Optionen, der Lebenslauf nennt nur die Teamgröße.",
+      "team_size_recorded": "Teamgröße ergänzt: Du hast die Zahl der Personen in deiner Antwort genannt.",
+      "bullet_replaced": "Stichpunkt ersetzt: Deine Antwort sagt dasselbe genauer; den alten Wortlaut kannst du zurückholen.",
+      "bullet_replace_undone": "Stichpunkt zurückgeholt: Er steht wieder neben dem Stichpunkt, der ihn ersetzt hatte.",
+      "team_size_bullet_changed": "Zahl im Stichpunkt geändert: Du hast die korrigierte Teamgröße in diesen Stichpunkt übernommen.",
+      "team_size_bullet_kept": "Stichpunkt gelassen: Der Lebenslauf zeigt für diese Rolle keine Teamgrößen-Zeile, damit nicht zwei Zahlen nebeneinander stehen.",
       "availability_recorded": "Deine Verfügbarkeit festgehalten.",
       "availability_cleared": "Deine Verfügbarkeit entfernt."
     }
@@ -3055,6 +3066,9 @@
     "entailmentNarrow": "Die automatischen Prüfungen konnten das nicht eindeutig entscheiden; das Ergebnis stammt aus einer engen Inhaltsprüfung.",
     "figuresTrace": "Alle Zahlen sind in Deinem Profil belegt.",
     "noCheckableContent": "Nichts Prüfbares — eine allgemeine oder formelhafte Aussage.",
+    "titleNotHeld": "Nennt den Titel „{title}“, den keine Position in Deinem Profil trägt – ein Titel ist Deiner nur, wenn Du ihn trägst oder getragen hast.",
+    "postingTermNotHeld": "Nennt „{term}“ – das Wort der Stellenanzeige für eine Anforderung, die Dein Profil nur zum Teil erfüllt, und ein Wort, das Dein Profil nie verwendet. Schreib, was Du getan hast, in Deinen eigenen Worten.",
+    "postingTermOtherLanguage": "Nennt „{term}“ – das Wort der Stellenanzeige für eine Anforderung, die Dein Profil nur zum Teil erfüllt. Dein Profil ist in einer anderen Sprache verfasst, daher ließ sich nicht prüfen, ob es Dein eigenes Wort ist.",
     "noCloseEvidence": "In Deinem Profil steht nichts, das nah genug daran ist, um es sicher zu prüfen.",
     "attributionUnresolved": "Der einzige Beleg in Deinem Profil gehört zu einer bestimmten Station, aber der Satz nennt keinen Arbeitgeber — welcher Station er gehört, lässt sich nicht sicher prüfen.",
     "crossLanguageEquivalent": "Gibt einen Eintrag Deines Profils gleichwertig in einer anderen Sprache wieder.",

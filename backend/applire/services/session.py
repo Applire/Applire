@@ -111,6 +111,8 @@ from applire.services.interview.scope_question import (
     is_scope_cluster,
     kind_entry_key,
     plan_leadership_kind,
+    queue_size_bullet_asks,
+    size_bullet_decision,
 )
 from applire.services.interview_graph import (
     build_confirmation_clusters,
@@ -2900,6 +2902,7 @@ async def _record_kind_answer(
         LeadershipKindEntryNotFound,
         find_entry,
         leadership_kind_op,
+        parse_kind_answer,
     )
 
     entry = kind_cluster_entry(cluster)
@@ -2919,13 +2922,48 @@ async def _record_kind_answer(
     await commit_ops(
         db,
         [leadership_kind_op(args["entry_id"], option, answer=message,
-                            company=args["company"], role=args["role"], source="interview")],
+                            company=args["company"], role=args["role"], source="interview",
+                            # Q3-2 / Q8-2: the number the same answer confirmed or gave.
+                            team_size=parse_kind_answer(message)[1] if option != "own_words" else None)],
         CommitProvenance(source="interview", intake=ANSWER_INTAKE,
                          session_id=str(record.id), actor="candidate"),
         record=profile_record,
         grounding=None,
         snapshot=None,
     )
+    return True
+
+
+async def _record_size_decision(
+    db: AsyncSession,
+    record: InterviewSession,
+    profile_record: MasterProfile,
+    cluster: dict | None,
+    decision: str,
+) -> bool:
+    """Q8-6 — write the person's exact closed answer to a size follow-up
+    ("Auf N ändern" / "So lassen") through the committer, in THIS turn's
+    transaction. False when the record is gone (the bullet was edited or the
+    role merged meanwhile): nothing is written."""
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.ops import ResolveSizeCorrection
+    from applire.services.profile.size_correction import SizeCorrectionNotFound
+
+    item = (cluster or {}).get("entry") or {}
+    try:
+        await commit_ops(
+            db,
+            [ResolveSizeCorrection(entry_id=str(item.get("entry_id") or ""),
+                                   text=str(item.get("text") or ""), decision=decision)],
+            CommitProvenance(source="interview", intake="size_correction_answer",
+                             session_id=str(record.id), actor="candidate"),
+            record=profile_record,
+            grounding=None,
+            snapshot=None,
+        )
+    except SizeCorrectionNotFound:
+        logger.info("size follow-up: the record is gone — nothing recorded (session=%s)", record.id)
+        return False
     return True
 
 
@@ -4310,6 +4348,9 @@ async def _send_message_turn(
     # and needs no reconcile; an own-words answer marks the role asked and is
     # ALSO reconciled like any answer; nothing is ever read from the text. ---
     kind_option = _kind_option(current_cluster, message)
+    # Q8-6 — the size follow-up's exact closed answer; anything else is
+    # reconciled like any answer and the record stays open.
+    size_decision = size_bullet_decision(current_cluster, message)
 
     # --- Reconcile this answer into the profile (US182a / ADR-046) ---
     profile_record = await _load_profile(state["profile_id"], db)
@@ -4320,7 +4361,10 @@ async def _send_message_turn(
     # stay ONE unit — and this function's own `db.commit()` is load-bearing:
     # dropping it is a silent no-write.
     try:
-        turn = _kind_option_turn(profile_record) if kind_option not in (None, "own_words") else None
+        turn = (
+            _kind_option_turn(profile_record)
+            if kind_option not in (None, "own_words") or size_decision is not None else None
+        )
         turn = turn or await reconcile_interview_turn(
             db,
             profile_record=profile_record,
@@ -4380,6 +4424,10 @@ async def _send_message_turn(
     updated_profile = turn.profile_dict
     if kind_option is not None and await _record_kind_answer(
         db, record, profile_record, current_cluster, kind_option, message
+    ):
+        updated_profile = profile_record.profile_json
+    if size_decision is not None and await _record_size_decision(
+        db, record, profile_record, current_cluster, size_decision
     ):
         updated_profile = profile_record.profile_json
 
@@ -4724,6 +4772,9 @@ async def _send_message_turn(
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
         await _replan_leadership_kind(state, updated_profile, db, record.user_id, current_idx)
+        # Q8-6 — a corrected size left bullets naming the old number: ask
+        # about each right away (queued right after this cluster).
+        queue_size_bullet_asks(state, updated_profile, current_idx)
         skipped_set_updated = set(state.get("skipped_gaps", []))
         next_index = _next_valid_index(
             state["critical_gaps"], current_idx + 1, skipped_set_updated
