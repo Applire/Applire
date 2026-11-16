@@ -953,23 +953,45 @@ def is_posting_word_partial(entry: dict[str, Any] | None) -> bool:
     coverage demand (never demanded literally — :func:`_coverage_split`,
     :func:`underclaim_candidate_entries`), and the Oracle (its quote backs no chip;
     a sentence naming the word is not grounded). The predicate is a fact (ADR-062
-    cl. 1): literal presence, ``ats_audit.surface_present``, the coverage
-    instrument."""
+    cl. 1): whole-token presence, ``ats_audit.surface_present_whole_token``, the
+    predicate the Oracle's posting-term check uses (MD-Q17 F1)."""
     return isinstance(entry, dict) and entry.get(POSTING_WORD_ONLY_KEY) is True
 
 
 def posting_word_partial_rows(
-    ledger: list[dict[str, Any]] | None, profile_json: dict[str, Any] | None
+    ledger: list[dict[str, Any]] | None,
+    profile_json: dict[str, Any] | None,
+    *,
+    with_denial_wording: bool = False,
 ) -> list[dict[str, Any]]:
     """The rows of *ledger* that are posting-word-only partials against
     *profile_json* — computed, never read from a stamp (the Oracle's reader: it
     holds the profile and must not trust a persisted row). ``[]`` without a
-    profile (no vault text → nothing is known to be absent, fail open)."""
+    profile (no vault text → nothing is known to be absent, fail open).
+
+    Presence is WHOLE-TOKEN (``ats_audit.surface_present_whole_token``, the
+    predicate the Oracle's posting-term check and its skill grounding use) —
+    MD-Q17 F1: "Führung" inside "Betriebsführung" is not the person's word, and
+    the two ends of one fact may not disagree on it.
+
+    ``with_denial_wording`` (MD-Q17 F2): the Oracle's reader passes True and
+    reads the person's denial statements as their own wording (Daniel's "That is
+    the infrastructure as code I did there", filed under a denial of cluster
+    provisioning). The stamp passes False: a word that occurs only inside a
+    denial is not held. Real ledgers reach this — delivery 2a run 2 cross,
+    "Assertive leadership" over the denial "I have no concrete assertive-
+    leadership example …", and Katrin's "Projektcontrolling" over "keine eigenen
+    Projektcontrolling-Projekte geleitet" (6 ledgers) — and an unstamped row is
+    demanded by the coverage scan and written as the person's."""
     if not ledger or not isinstance(profile_json, dict):
         return []
-    from applire.services.ats_audit import surface_present
+    from applire.services.ats_audit import surface_present_whole_token as surface_present
 
-    corpus = _posting_word_corpus(profile_json)
+    corpus = (
+        _posting_word_corpus(profile_json)
+        if with_denial_wording
+        else profile_literal_corpus(profile_json)
+    )
     if not corpus:
         return []
     out: list[dict[str, Any]] = []
@@ -1017,7 +1039,8 @@ def _posting_word_corpus(profile_json: dict[str, Any]) -> str:
     Without it the row "Infrastructure as code" was stamped and three bullets
     that use the person's own phrase went grounded → unverifiable (WP-Q7 re-audit,
     the one false red of 33 changed verdicts). Adding text can only remove a
-    stamp, never add one."""
+    stamp, never add one. Read by the Oracle only (``with_denial_wording``);
+    the stamp reads the coverage corpus alone (MD-Q17 F2)."""
     from applire.services.ats_audit import _norm as ats_norm
 
     base = profile_literal_corpus(profile_json)
@@ -1462,15 +1485,23 @@ def render_ledger_prompt_block(
                 # label as the person's ("übernahm Führung und Entwicklung der
                 # Mitarbeitenden", "Exactly-once processing" — delivery 2a). The
                 # evidence shown is the verified profile quote when the row has one.
+                # MD-Q17 F4: "the profile never uses it" is a same-language fact.
+                # Across languages the person's own word ("über drei Schichtleiter")
+                # may be exactly what the posting's word translates ("shift
+                # managers", 2a re-run cross and the WP-Q7 fresh cross run, where
+                # both documents dropped the three shift leaders the DE ones kept).
+                # The translation exception is the model's judgement; the coverage
+                # demand stays off either way (no literal demand of the label).
                 backing = entry.get("backing")
                 quote = backing.get("quote") if isinstance(backing, dict) else None
                 shown = (f'the profile\'s own words: "{quote}"' if isinstance(quote, str)
                          and quote.strip() else f"evidence: {evidence}")
                 lines.append(
-                    f"  - {concept} [PARTLY MET — the posting's word; the profile never uses "
-                    f"it] — write what the profile shows in the profile's own words, under "
-                    f"the position that owns it; never write {forms} as the candidate's "
-                    f"skill, quality or responsibility. {shown}"
+                    f"  - {concept} [PARTLY MET — the posting's word, not the profile's] — "
+                    f"write what the profile shows in the profile's own words, under the "
+                    f"position that owns it; never write {forms} as the candidate's skill, "
+                    f"quality or responsibility, unless it is the faithful translation of "
+                    f"words the profile itself uses. {shown}"
                 )
             else:
                 # #415 (ruling W-4): the posting's OWN sentence, verbatim, so the writer
@@ -1822,7 +1853,8 @@ def render_ledger_reviewer_block(
                 lines.append(
                     f"  - {entry.get('concept', '')} [PARTLY MET — the posting's word, "
                     f"never the candidate's: a draft stating {forms} as the candidate's "
-                    f"skill, quality or responsibility overstates]{cited}"
+                    f"skill, quality or responsibility overstates, unless it faithfully "
+                    f"translates words the profile itself uses]{cited}"
                 )
                 continue
             lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]{cited}")
