@@ -514,14 +514,19 @@ def test_md_q5_the_kind_question_is_per_role_with_the_fixed_options():
 
     _ids, _c, by_id = plan_leadership_kind(["a"], {"a": "B"}, {"a": {}}, _KIND_PROFILE)
     q = leadership_kind_question(by_id[LEADERSHIP_KIND_ID], "de")
-    assert q == {"question": "Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38. War das "
-                             "disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?",
-                 "choices": ["Disziplinarisch (Personalverantwortung)", "Fachliche Anleitung", "Beides"]}
+    # Q3-2 (Sorbet wave 2b): the stored size is confirmed in the same question,
+    # and every chip carries it.
+    assert q == {"question": "Bei Weberit Kunststofftechnik GmbH stehen im Profil 38 Personen – stimmt das? "
+                             "War das disziplinarische Führung (Personalverantwortung) oder fachliche "
+                             "Anleitung? Wenn die Zahl nicht stimmt, ändere sie in deiner Antwort.",
+                 "choices": ["Disziplinarisch (Personalverantwortung) – 38 Personen",
+                             "Fachliche Anleitung – 38 Personen", "Beides – 38 Personen"]}
     assert leadership_kind_question(by_id[f"{LEADERSHIP_KIND_ID}-2"], "de")["question"].startswith(
-        "Bei Rasselstein Umformtechnik GmbH steht eine Teamgröße von 14.")
+        "Bei Rasselstein Umformtechnik GmbH stehen im Profil 14 Personen – stimmt das?")
     en = leadership_kind_question(by_id[LEADERSHIP_KIND_ID], "en")
-    assert en["choices"] == [OPTION_LABELS["en"][o] for o in ("disciplinary", "functional", "both")]
-    assert en["choices"] == ["Disciplinary (line management)", "Functional guidance", "Both"]
+    assert en["choices"] == [OPTION_LABELS["en"][o] + " – 38 people" for o in ("disciplinary", "functional", "both")]
+    assert en["choices"] == ["Disciplinary (line management) – 38 people", "Functional guidance – 38 people",
+                             "Both – 38 people"]
     assert "120" not in q["question"], "never folded into the scope question (RULING Q2-1)"
 
 
@@ -532,8 +537,9 @@ def test_md_q5_the_kind_question_quotes_the_persons_bullet():
     cluster = {"id": "leadership-kind", "kind": "leadership_kind",
                "entry": {"entry_id": "w1", "company": "Weberit", "team_size": 38, "said": f" {said} "}}
     assert leadership_kind_question(cluster, "de")["question"] == (
-        f"Du schreibst: »{said}«. War das disziplinarische Führung (Personalverantwortung) "
-        "oder fachliche Anleitung?")
+        f"Du schreibst: »{said}«. Im Profil stehen 38 Personen – stimmt das? War das disziplinarische "
+        "Führung (Personalverantwortung) oder fachliche Anleitung? Wenn die Zahl nicht stimmt, "
+        "ändere sie in deiner Antwort.")
     assert leadership_kind_question(cluster, "en")["question"].startswith(f"You write: “{said}”.")
 
 
@@ -557,7 +563,7 @@ async def test_a_full_interview_asks_scope_then_kind_and_each_turn_advances(db):
     ):
         r1 = await send_message(created.session_id, "Direkt 38, vertretungsweise 90.", db, provider)
         assert r1.complete is False
-        assert r1.question.startswith("Bei Weberit Kunststofftechnik GmbH steht eine Teamgröße von 38.")
+        assert r1.question.startswith("Bei Weberit Kunststofftechnik GmbH stehen im Profil 38 Personen – stimmt das?")
         r2 = await send_message(created.session_id, "Disziplinarisch, über drei Schichtleiter.", db, provider)
     assert r2.complete is True
 
@@ -578,7 +584,8 @@ async def _kind_turn(db, answer, *, reconcile, work_id=None):
         patch("applire.services.session.analyze_gaps", new=AsyncMock()),
     ):
         first = await send_message(created.session_id, "Direkt 38.", db, provider)
-    assert first.choices == ["Disziplinarisch (Personalverantwortung)", "Fachliche Anleitung", "Beides"]
+    assert first.choices == ["Disziplinarisch (Personalverantwortung) – 38 Personen",
+                             "Fachliche Anleitung – 38 Personen", "Beides – 38 Personen"]
     with (
         patch("applire.services.session.reconcile_interview_turn", new=reconcile),
         patch("applire.services.session.analyze_gaps", new=AsyncMock()),
@@ -1432,7 +1439,8 @@ async def test_wave1b_a_role_sized_mid_interview_gets_the_kind_ask_next(db, size
         assert LEADERSHIP_KIND_ID not in row.state["critical_gaps"]
         return
     assert resp.complete is False
-    assert resp.choices == ["Disziplinarisch (Personalverantwortung)", "Fachliche Anleitung", "Beides"]
+    assert resp.choices == ["Disziplinarisch (Personalverantwortung) – 3 Personen",
+                            "Fachliche Anleitung – 3 Personen", "Beides – 3 Personen"]
     assert row.state["critical_gaps"][row.state["current_gap_index"]] == LEADERSHIP_KIND_ID
     assert row.state["hard_ceiling"] == ceiling + 1
 

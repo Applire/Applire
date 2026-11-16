@@ -16,7 +16,10 @@ Two controls, pinned here per door:
 * the committer's class guard (``apply._restore_leadership_kind``) restores
   both fields from the stored profile for every entry no
   ``RecordLeadershipKind`` op in the batch wrote, drops the receipt and leaves
-  a ``not_applied`` item ``leadership_kind_unasked`` — whatever op did it.
+  a ``not_applied`` item ``leadership_kind_unasked`` — whatever op did it. The
+  one exception (RULING Q8-1, Sorbet wave 2b): the target of an entry merge
+  carries the STORED answer of the merged roles, computed from the profile
+  before the batch.
 """
 from __future__ import annotations
 
@@ -114,9 +117,12 @@ def test_the_section_door_can_neither_set_nor_wipe_the_kind(intake):
     assert _kinds(result.profile) == _kinds(before)
 
 
-def test_an_entry_merge_does_not_move_an_answer_to_another_role():
-    # The answer was given for w2; w2 is merged into w1. w1 keeps its own (none)
-    # and is asked — the safe side, not a carried kind.
+def test_an_entry_merge_carries_the_stored_answer_to_the_surviving_role():
+    # RULING Q8-1 (founder, Sorbet wave 2b) reverses the MD-Q5 pin "an entry
+    # merge does not move an answer": the answer was given for w2; w2 is merged
+    # into w1 (the same role), so w1 carries it. It is the STORED value — the
+    # guard computes it from the profile before the batch (see
+    # test_sorbet_q8_kind_and_size.py for the forged-carry cases).
     before = MasterProfileData.model_validate({"work_experience": [
         {"id": "w1", "company": "Weberit", "role": "Leiter", "team_size": 38},
         {"id": "w2", "company": "Weberit GmbH", "role": "Leiter", "team_size": 38,
@@ -124,7 +130,9 @@ def test_an_entry_merge_does_not_move_an_answer_to_another_role():
     ]})
     op = MergeEntries(section="work_experience", target_id="w1", source_id="w2")
     result = apply_ops(before, [op], "manual_edit")
-    assert [(e.id, e.leadership_kind) for e in result.profile.work_experience] == [("w1", None)]
+    assert [(e.id, e.leadership_kind, e.leadership_kind_record.option)
+            for e in result.profile.work_experience] == [("w1", "disciplinary", "both")]
+    assert "leadership_kind_unasked" not in [i.reason for i in result.not_applied]
 
 
 def test_the_persons_answer_in_the_same_batch_still_lands():

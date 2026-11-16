@@ -593,9 +593,11 @@ _KIND_MAX_ROLES = 3
 def leadership_kind_entries(profile_json: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Q1's predicate (``services/profile/role_facts.py``) — imported directly, so a
     broken contract after the merge fails loudly; its shape is pinned by a test."""
-    from applire.services.profile.role_facts import entries_needing_leadership_kind
+    from applire.services.profile.role_facts import entries_to_ask_leadership
 
-    return list(entries_needing_leadership_kind(profile_json) or [])
+    # Q3-2 + Q8-2 (Sorbet wave 2b): the sized roles (confirm the stored size)
+    # and the roles whose own text says they lead people but hold no size (ask it).
+    return list(entries_to_ask_leadership(profile_json) or [])
 
 
 def is_leadership_kind_cluster(cluster: Any) -> bool:
@@ -617,9 +619,12 @@ def kind_entry_key(entry: dict[str, Any]) -> str:
     """A role's identity for "already asked": its entry id, or — for an entry
     stored without one — its company and role."""
     eid = str(entry.get("entry_id") or entry.get("id") or "").strip()
+    # Q8-1: the ask an entry merge's conflict re-opens has a key of its own.
+    reask = str(entry.get("reask") or "").strip()
+    suffix = f"@{reask}" if reask else ""
     if eid:
-        return f"id:{eid}"
-    return "cr:" + _norm(entry.get("company")) + "|" + _norm(entry.get("role"))
+        return f"id:{eid}{suffix}"
+    return "cr:" + _norm(entry.get("company")) + "|" + _norm(entry.get("role")) + suffix
 
 
 def plan_leadership_kind(
@@ -680,11 +685,21 @@ def plan_leadership_kind(
 KIND_CHOICE_OPTIONS = ("disciplinary", "functional", "both")
 
 
-def kind_choices(lang: str) -> list[str]:
-    from applire.services.profile.leadership_kind import OPTION_LABELS
+def _lang(lang: str) -> str:
+    return "de" if str(lang or "").lower().startswith("de") else "en"
 
-    labels = OPTION_LABELS["de" if str(lang or "").lower().startswith("de") else "en"]
-    return [labels[o] for o in KIND_CHOICE_OPTIONS]
+
+def kind_choices(lang: str, team_size: Any = "unset") -> list[str]:
+    """The chips. Q3-2 / Q8-2 (Sorbet wave 2b): each option label carries the
+    size part (``leadership_kind.size_suffix``) — the stored size to confirm,
+    editable before sending, or an open "Anzahl Personen:" the person completes.
+    Without a ``team_size`` argument: the bare labels (an older caller)."""
+    from applire.services.profile.leadership_kind import OPTION_LABELS, size_suffix
+
+    labels = OPTION_LABELS[_lang(lang)]
+    if team_size == "unset":
+        return [labels[o] for o in KIND_CHOICE_OPTIONS]
+    return [labels[o] + size_suffix(_lang(lang), team_size) for o in KIND_CHOICE_OPTIONS]
 
 
 def kind_cluster_entry(cluster: dict[str, Any]) -> dict[str, Any]:
@@ -695,20 +710,55 @@ def kind_cluster_entry(cluster: dict[str, Any]) -> dict[str, Any]:
     return entries[0] if entries else {}
 
 
+def _people(n: int, lang: str) -> str:
+    if lang == "de":
+        return f"{n} Person" if n == 1 else f"{n} Personen"
+    return f"{n} person" if n == 1 else f"{n} people"
+
+
 def leadership_kind_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
     """The ask for ONE role (MD-Q5 (1)), with the fixed options as chips. When the
     role's entry carries the person's own bullet about leading (``said``), the
-    question quotes it; otherwise it names the role and its team size."""
-    lang = "de" if str(lang or "").lower().startswith("de") else "en"
+    question quotes it; otherwise it names the role.
+
+    Q3-2 (founder, wave 2b): a stored team size is confirmed in the same
+    question ("Im Profil stehen N Personen – stimmt das?"); each chip carries
+    the number, which the person may change before sending. Q8-2: a role whose
+    text says it leads people but holds no size is asked the number too; the
+    chips end in "Anzahl Personen:" and the person types it."""
+    lang = _lang(lang)
     entry = kind_cluster_entry(cluster)
     said = " ".join(str(entry.get("said") or "").split())
     where = str(entry.get("company") or entry.get("role") or "").strip() or "—"
+    size = entry.get("team_size")
+    sized = isinstance(size, int) and not isinstance(size, bool) and size > 0
     if lang == "de":
-        ask = "War das disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?"
-        lead = (f"Du schreibst: »{said}«." if said
-                else f"Bei {where} steht eine Teamgröße von {entry.get('team_size')}.")
+        kind = "War das disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?"
+        quote = f"Du schreibst: »{said}«" if said else ""
+        stop = "" if said.endswith((".", "!", "?")) else "."
+        if sized:
+            confirm = f"Im Profil stehen {_people(size, lang)} – stimmt das?"
+            lead = f"{quote}{stop} {confirm}" if said else f"Bei {where} stehen im Profil {_people(size, lang)} – stimmt das?"
+            question = f"{lead} {kind} Wenn die Zahl nicht stimmt, ändere sie in deiner Antwort."
+        else:
+            # RULING Q8-4 (founder wording correction).
+            ask = ("Wie viele Personen waren das, und war es disziplinarische Führung "
+                   "(Personalverantwortung) oder fachliche Anleitung?")
+            question = (f"{quote}{stop} {ask}" if said else
+                        f"Bei {where}: Wie viele Personen hast du geführt oder angeleitet, und war das "
+                        "disziplinarische Führung (Personalverantwortung) oder fachliche Anleitung?")
     else:
-        ask = "Was that line management (disciplinary) or functional guidance?"
-        lead = (f"You write: “{said}”." if said
-                else f"At {where} your profile shows a team size of {entry.get('team_size')}.")
-    return {"question": f"{lead} {ask}", "choices": kind_choices(lang)}
+        kind = "Was that line management (disciplinary) or functional guidance?"
+        quote = f"You write: “{said}”" if said else ""
+        stop = "" if said.endswith((".", "!", "?")) else "."
+        if sized:
+            confirm = f"Your profile shows {_people(size, lang)} – is that right?"
+            lead = f"{quote}{stop} {confirm}" if said else f"At {where} your profile shows {_people(size, lang)} – is that right?"
+            question = f"{lead} {kind} If the number is wrong, change it in your answer."
+        else:
+            ask = ("How many people was that, and was it line management (disciplinary) "
+                   "or functional guidance?")
+            question = (f"{quote}{stop} {ask}" if said else
+                        f"At {where}: how many people did you lead or guide, and was that line "
+                        "management (disciplinary) or functional guidance?")
+    return {"question": question, "choices": kind_choices(lang, size if sized else None)}

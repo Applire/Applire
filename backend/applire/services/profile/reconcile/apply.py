@@ -581,6 +581,9 @@ def apply_ops(
     # MD-Q5 — entry id → the exact (kind, record) its RecordLeadershipKind op wrote
     # (the last such op for an entry wins).
     kind_answered: dict[str, tuple[Any, Any]] = {}
+    # Q8-1 (Sorbet wave 2b) — work-entry merges of this batch, target id → the
+    # source ids merged into it; the class guard carries the stored kind.
+    kind_merged: dict[str, list[str]] = {}
     extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
     restated: list[RestatedReceipt] = []  # D-B3V6 — see ApplyResult.restated
@@ -754,6 +757,8 @@ def apply_ops(
             # Hazelnut build 5 (U-11 / U-9) — the candidate's entry-merge act and
             # the two entry-identity bookkeeping writes.
             _apply_entry_ops(op, new_profile, changes)
+            if isinstance(op, MergeEntries) and op.section == "work_experience":
+                kind_merged.setdefault(op.target_id, []).append(op.source_id)
         elif isinstance(op, WithdrawDenial):
             # G-5 (ADR-059 amended 2026-10-24) — the explicit un-denial act.
             # Receipts on the denial channel, never `changes`.
@@ -852,7 +857,7 @@ def apply_ops(
     # model-emitted `set_field`, an `upsert_work`, a dispute resolution, an
     # import merge, a section replace — is undone here, whatever the door.
     new_profile, changes = _restore_leadership_kind(
-        profile, new_profile, changes, not_applied, kind_answered,
+        profile, new_profile, changes, not_applied, kind_answered, kind_merged,
     )
 
     # #328 (option 4) / #382 — the quantified role facts are DERIVED
@@ -4116,20 +4121,62 @@ def _restore_user_managed_fields(before, after, changes):
 _ANSWER_RATIONALE_KEYS = frozenset({"leadership_kind_recorded", "leadership_kind_left_open"})
 
 
-def _restore_leadership_kind(before, after, changes, not_applied, answered):
+def _merged_kind(held: dict, target_id: str, source_ids: list[str]) -> tuple[Any, Any]:
+    """Q8-1 (founder, Sorbet wave 2b) — the stored ``(kind, record)`` an entry
+    merge leaves on its target, computed from what ``before`` held, never from
+    the batch: the person's answer for the role carries over. Target unasked →
+    the source's answer; both answered with the same kind → the target's; two
+    answers naming different kinds (an answer that named none counts as
+    different from one that named one) → kind unknown and a ``merge_conflict``
+    record, so the person is asked once more (``entries_needing_leadership_kind``)."""
+    from applire.schemas.profile import LeadershipKindRecord
+
+    kind, record = held.get(target_id, (None, None))
+    for source_id in source_ids:
+        s_kind, s_record = held.get(source_id, (None, None))
+        if s_record is None:
+            continue
+        if record is None:
+            kind, record = s_kind, s_record
+            continue
+        conflicted = record.option == "merge_conflict" or s_record.option == "merge_conflict"
+        if kind == s_kind and not conflicted:
+            continue
+        kind, record = None, LeadershipKindRecord(
+            option="merge_conflict", source="entry_merge",
+            merged_kinds=[*([kind] if record.option != "merge_conflict" else record.merged_kinds),
+                          *([s_kind] if s_record.option != "merge_conflict" else s_record.merged_kinds)],
+        )
+    return kind, record
+
+
+def _restore_leadership_kind(before, after, changes, not_applied, answered, merged=None):
     """MD-Q5 — at the end of the batch, every work entry holds exactly what the
     one legitimate writer left: for an entry a ``RecordLeadershipKind`` op wrote,
     the exact ``(kind, record)`` that op wrote (``answered``, MD-Q6 R1 — a later op
-    in the same batch cannot install another value); for every other entry, what
-    ``before`` held (by entry id; a new entry holds none). Any other value for
-    either field is put back, its receipts dropped, and one ``not_applied`` item
-    (``leadership_kind_unasked``) left. Returns ``(after, changes)``."""
+    in the same batch cannot install another value); for the target of an entry
+    merge in this batch, the stored answer the merge carries (``merged``, Q8-1,
+    :func:`_merged_kind` — from ``before``, never from the batch); for every other
+    entry, what ``before`` held (by entry id; a new entry holds none). Any other
+    value for either field is put back, its receipts dropped, and one
+    ``not_applied`` item (``leadership_kind_unasked``) left. Returns ``(after, changes)``."""
     held = {
         e.id: (e.leadership_kind, e.leadership_kind_record)
         for e in getattr(before, "work_experience", None) or []
     }
+    carried = {
+        target: _merged_kind(held, target, sources)
+        for target, sources in (merged or {}).items()
+    }
     restored: set[str] = set()
+    silent: set[str] = set()  # Q8-1 carried targets: no not_applied, no other op's receipt
     for entry in after.work_experience:
+        if entry.id in carried and entry.id not in answered:
+            # Q8-1 — the merge's own carry (computed from the stored values):
+            # set silently, it is no refused write.
+            entry.leadership_kind, entry.leadership_kind_record = carried[entry.id]
+            silent.add(entry.id)
+            continue
         kind, record = answered.get(entry.id) or held.get(entry.id, (None, None))
         if (entry.leadership_kind, entry.leadership_kind_record) != (kind, record):
             entry.leadership_kind = kind
@@ -4140,19 +4187,23 @@ def _restore_leadership_kind(before, after, changes, not_applied, answered):
                 label=" / ".join(x for x in (entry.company, entry.role) if x) or entry.id,
                 reason="leadership_kind_unasked",
             ))
-    if not restored:
+    # A merged-away source no longer exists in ``after``; a receipt another op
+    # wrote on its kind fields in this batch is no write that landed either.
+    silent |= {sid for sources in (merged or {}).values() for sid in sources}
+    if not restored and not silent:
         return after, changes
-    logger.warning(
-        "apply_ops: refused a write to leadership_kind on %d work entr(y/ies) — "
-        "only the person's answer to the kind question writes it (MD-Q5)",
-        len(restored),
-    )
+    if restored:
+        logger.warning(
+            "apply_ops: refused a write to leadership_kind on %d work entr(y/ies) — "
+            "only the person's answer to the kind question writes it (MD-Q5)",
+            len(restored),
+        )
     kept = [
         c for c in changes
         if not (
             getattr(c, "section", None) == "work_experience"
             and getattr(c, "field", None) in _LEADERSHIP_KIND_FIELDS
-            and getattr(c, "entity_id", None) in restored
+            and getattr(c, "entity_id", None) in restored | silent
             # The answer's own receipt stays (MD-Q6 R1); any other op's goes.
             and not (
                 getattr(c, "entity_id", None) in answered

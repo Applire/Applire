@@ -1333,6 +1333,10 @@ class RecordLeadershipKind(BaseModel):
     option: Literal["disciplinary", "functional", "both", "own_words", "skipped"]
     answer: str = ""
     source: str = "interview"
+    #: Q3-2 / Q8-2 (Sorbet wave 2b) — the number of people the same answer
+    #: confirmed or gave (an exact option label + one whole number); it is
+    #: written to ``team_size``. ``None``: the answer named no number.
+    team_size: int | None = Field(default=None, ge=1, le=9999)
 
 
 _ADAPTER_ONLY = _ADAPTER_ONLY + (RecordLeadershipKind,)

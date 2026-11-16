@@ -276,10 +276,34 @@ class LeadershipKindRecord(BaseModel):
     ``record_leadership_kind`` op); its presence means "asked", so the question
     is never put again for that role."""
 
-    option: Literal["disciplinary", "functional", "both", "own_words", "skipped"]
+    #: ``merge_conflict`` (Q8-1, Sorbet wave 2b) is no option a person picks: an
+    #: entry merge joined two roles whose answers named different kinds, so the
+    #: kind is unknown again and the person is asked once more (``merged_kinds``
+    #: holds what the two answers said; the record is written by the committer's
+    #: class guard, ``apply._restore_leadership_kind``, never by a model).
+    option: Literal["disciplinary", "functional", "both", "own_words", "skipped", "merge_conflict"]
     answer: str = ""
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: str = "interview"
+    #: Q3-2 / Q8-2 (Sorbet wave 2b) — the number of people the person confirmed
+    #: or gave in the same answer (an exact option label followed by one whole
+    #: number); ``None`` when the answer named no number. The committed
+    #: ``WorkEntry.team_size`` is set to it by the same op.
+    team_size: int | None = None
+    #: Q8-1 — on a ``merge_conflict`` record: the two answered kinds (``None``
+    #: for an answer that named no kind), target first.
+    merged_kinds: list[str | None] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_wave2b(self, handler: Any) -> Any:
+        # Omitted while unset, so a record written before wave 2b dumps identically.
+        data = handler(self)
+        if isinstance(data, dict):
+            if data.get("team_size") is None:
+                data.pop("team_size", None)
+            if not data.get("merged_kinds"):
+                data.pop("merged_kinds", None)
+        return data
 
 
 class WorkEntry(ExperienceBase):
