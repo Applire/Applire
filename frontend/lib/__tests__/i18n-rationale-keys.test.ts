@@ -64,6 +64,8 @@ const BACKEND_RATIONALE_KEYS = [
   // Q3-4 / Q8-3 — services/profile/bullet_replace.py
   "bullet_replaced",
   "bullet_replace_undone",
+  "team_size_bullet_changed",
+  "team_size_bullet_kept",
   // D-B3V7 — reconcile/apply.py::_apply_set_availability
   "availability_recorded",
   "availability_cleared",

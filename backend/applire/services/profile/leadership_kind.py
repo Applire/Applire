@@ -226,6 +226,12 @@ def apply_leadership_kind_op(op, profile: MasterProfileData, changes: list):
         # nothing and is kept only on the record (``team_size``).
         size_before = entry.team_size
         entry.team_size = size
+        # Q8-6 (founder ruling) — every bullet of the role that still names the
+        # old number as a people count is asked about right away; until then
+        # the CV prints no leadership line for the role.
+        from applire.services.profile.size_correction import corrections_for
+
+        entry.size_corrections = corrections_for(entry, size_before, size)
         changes.append(FieldChange(
             section="work_experience", field="team_size",
             action="updated" if size_before else "added",

@@ -589,6 +589,9 @@ def apply_ops(
     kind_merged: list[tuple[str, str]] = []
     # Q3-4 — work entries whose "Ersetzt" records an op of this batch changed.
     replace_touched: set[str] = set()
+    # Q8-6 — entries whose size-correction records this batch may write: the
+    # kind answer that corrected the size, and the person's resolve answer.
+    size_touched: set[str] = set()
     extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
     restated: list[RestatedReceipt] = []  # D-B3V6 — see ApplyResult.restated
@@ -835,9 +838,16 @@ def apply_ops(
             from applire.services.profile.leadership_kind import apply_leadership_kind_op
 
             written = apply_leadership_kind_op(op, new_profile, changes)
+            size_touched.add(str(written.id))
             kind_answered[written.id] = (
                 written.leadership_kind, written.leadership_kind_record.model_copy(deep=True),
             )
+        elif getattr(op, "op", None) == "resolve_size_correction":
+            # Q8-6 — the person's exact answer to the size-correction follow-up.
+            from applire.services.profile.size_correction import apply_resolve
+
+            apply_resolve(op, new_profile, changes)
+            size_touched.add(str(op.entry_id))
         elif getattr(op, "op", None) in ("replace_bullet", "undo_bullet_replace", "dismiss_bullet_replace"):
             # Q3-4 / Q8-3 — an answer that only adds detail replaces the held
             # bullet; "Rückgängig" / "Ausblenden" on the profile.
@@ -888,6 +898,13 @@ def apply_ops(
 
     changes = restore_replaced_bullets(profile, new_profile, changes, replace_touched, kind_merged)
     prune_replaced_bullets(new_profile)
+    from applire.services.profile.size_correction import (
+        prune_size_corrections,
+        restore_size_corrections,
+    )
+
+    changes = restore_size_corrections(profile, new_profile, changes, size_touched, kind_merged)
+    prune_size_corrections(new_profile)
 
     # #328 (option 4) / #382 — the quantified role facts are DERIVED
     # PROJECTIONS of the entry's own bullets, so they are recomputed HERE, on
@@ -1521,6 +1538,9 @@ def _apply_replace_section(
         from applire.services.profile.bullet_replace import keep_replaced_bullets
 
         dumped[op.section] = keep_replaced_bullets(op.section, before, dumped[op.section])
+        from applire.services.profile.size_correction import keep_size_corrections
+
+        dumped[op.section] = keep_size_corrections(op.section, before, dumped[op.section])
 
     # The same round-trip the PATCH intake always performed — a payload the
     # schema rejects raises here (pydantic's ValidationError IS a ValueError,

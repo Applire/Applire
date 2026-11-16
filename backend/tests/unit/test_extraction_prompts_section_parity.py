@@ -298,6 +298,7 @@ _INTERNAL_FIELDS: dict[str, frozenset[str] | None] = {
     # Q3-4 (Sorbet wave 2b) — the "Ersetzt" records an interview answer's
     # replace writes (services/profile/bullet_replace.py); never extracted.
     "replaced_bullets": frozenset({"work_experience"}),
+    "size_corrections": frozenset({"work_experience"}),  # Q8-6 — services/profile/size_correction.py
 }
 
 
