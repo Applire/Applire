@@ -28,11 +28,7 @@ import logging
 import re
 from typing import Any, Sequence
 
-from applire.prompts.restatement import (
-    RESTATEMENT_REPLACE_ADDENDUM,
-    RESTATEMENT_SYSTEM_PROMPT,
-    build_restatement_prompt,
-)
+from applire.prompts.restatement import RESTATEMENT_SYSTEM_PROMPT, build_restatement_prompt
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import llm_log_stage
 from applire.schemas.profile import MasterProfileData, RestatedReceipt
@@ -131,11 +127,39 @@ def _name_like(text: str) -> set[str]:
     }
 
 
+_WORD = re.compile(r"\w+")
+#: A word of the old bullet shorter than this need not reappear (articles,
+#: "und", "von", "for"); every longer one must.
+MIN_KEPT_WORD = 4
+
+
+def _same_word(a: str, b: str) -> bool:
+    """Equal, or the same word with another ending (both at least four letters,
+    lengths within two, differing only after the common stem)."""
+    if a == b:
+        return True
+    short = min(len(a), len(b))
+    if short < 4 or abs(len(a) - len(b)) > 2:
+        return False
+    common = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        common += 1
+    return common >= short - 1
+
+
 def blocking_check(old: str, new: str) -> str | None:
-    """Q3-4's deterministic blockers (they only ever BLOCK a replace): the name
-    of the first check the new bullet fails — every figure (``extract_figures``,
-    kind + value), every digit run, every name-like part of the old bullet must
-    reappear in the new one — or ``None`` when it keeps them all."""
+    """Q3-4's structural test that the new bullet KEEPS the old one: the name of
+    the first check it fails, or ``None``. Every word of the old bullet with at
+    least ``MIN_KEPT_WORD`` letters reappears in the new one (another ending is
+    the same word; a split or joined compound is not), and so do every figure
+    (``extract_figures``, kind + value), every digit run and every name-like
+    part. It only ever BLOCKS a replace — the failing side keeps both bullets."""
+    new_words = [w.casefold() for w in _WORD.findall(new or "")]
+    for w in (x.casefold() for x in _WORD.findall(old or "")):
+        if len(w) >= MIN_KEPT_WORD and not any(_same_word(w, v) for v in new_words):
+            return "words"
     figs_new = {(f.kind, f.value) for f in extract_figures(new)}
     if any((f.kind, f.value) not in figs_new for f in extract_figures(old)):
         return "figure"
@@ -151,23 +175,21 @@ def keeps_every_fact_marker(old: str, new: str) -> bool:
 
 
 def _parse_replacements(data: Any) -> list[tuple[int, int, int]]:
-    """``(entry, new, held)`` 1-based triples the model says may replace: a NEW
-    bullet that adds facts (``added`` non-empty), names the ONE held bullet all
-    of whose facts it states (``covers``) and drops none of them (``dropped``
-    present and empty). Anything else — a missing key, a null, a cross-entry id
-    — is no replacement (never guessed)."""
+    """``(entry, new, held)`` 1-based triples that MAY replace (Q3-4): a NEW
+    bullet the model says adds facts (``added`` present and non-empty) and whose
+    ``held`` names the held bullet that states it most completely. Whether it
+    keeps every part of that bullet is code's structural test
+    (:func:`blocking_check`). Anything malformed is no replacement."""
     out: list[tuple[int, int, int]] = []
     items = data.get("items") if isinstance(data, dict) else None
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
-        added, dropped = item.get("added"), item.get("dropped")
+        added = item.get("added")
         if not isinstance(added, str) or not added.strip():
             continue
-        if not isinstance(dropped, str) or dropped.strip():
-            continue
         new = _ID.match(str(item.get("new") or "").strip())
-        held = _ID.match(str(item.get("covers") or "").strip())
+        held = _ID.match(str(item.get("held") or "").strip())
         if not new or not held or new.group(2) != "n" or held.group(2) != "h":
             continue
         if new.group(1) != held.group(1):
@@ -196,10 +218,11 @@ async def hold_back_restatements(
 ) -> tuple[list[Any], list[RestatedReceipt]]:
     """The ops with model-named restatements removed, and their receipts.
 
-    ``replace`` (Q3-4, the interview door only): the call also asks, per NEW
-    bullet, which held bullet it fully covers; a qualifying NEW bullet leaves
-    its ``add_bullets`` op and becomes a ``ReplaceBullet`` op for a WORK entry's
-    OWN held bullet (module ``bullet_replace``). Every other path is unchanged."""
+    ``replace`` (Q3-4, the interview door only; same call, same prompt): a NEW
+    bullet the model says adds facts to the held bullet that states it most
+    completely, and that keeps every word, figure and name of that bullet (a
+    WORK entry's OWN bullet), leaves its ``add_bullets`` op and becomes a
+    ``ReplaceBullet`` op (module ``bullet_replace``). Any doubt keeps both."""
     ops = list(ops)
     if provider is None:
         return ops, []
@@ -232,7 +255,7 @@ async def hold_back_restatements(
         with llm_log_stage("restatement_check"):
             data = await provider.aparse_json(
                 build_restatement_prompt(entries),
-                system=RESTATEMENT_SYSTEM_PROMPT + (RESTATEMENT_REPLACE_ADDENDUM if replace else ""),
+                system=RESTATEMENT_SYSTEM_PROMPT,
                 temperature=0.0,
                 max_tokens=RESTATEMENT_MAX_TOKENS,
             )
@@ -293,7 +316,7 @@ def _replacements(entries: list[dict], data: Any, drop: dict[int, set[int]]) -> 
     """Entry index -> {new index -> own-bullet index} for the NEW bullets that
     replace a held one (Q3-4). Safe side only: a work entry's OWN bullet, a NEW
     bullet not held back as a restatement, one NEW per held bullet and one held
-    per NEW bullet, and :func:`keeps_every_fact_marker`."""
+    per NEW bullet, and :func:`blocking_check` passes."""
     claims: dict[tuple[int, int], list[int]] = {}
     per_new: dict[tuple[int, int], list[int]] = {}
     for e, n, h in _parse_replacements(data):

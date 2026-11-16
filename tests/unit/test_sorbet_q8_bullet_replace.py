@@ -2,10 +2,18 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Q3-4 (Sorbet wave 2b; founder rulings Q3-4 and Q8-3 = A + dismiss) — an
 interview answer that only ADDS detail to a held bullet replaces it, with an
-undo. Code replaces only on the restatement model's explicit statement
-(``covers`` + ``dropped: ""`` + non-empty ``added``) and only on the safe side
-(the entry's own bullet, one-to-one, every figure / digit run / name-like token
-of the old bullet kept). Any doubt keeps both bullets."""
+undo. The interview door's restatement call is UNCHANGED (same prompt as the
+import door). Code replaces only when the model says a NEW bullet adds facts
+(``added`` non-empty) to the held bullet that states it most completely
+(``held``), that bullet is the work entry's OWN, the pairing is one-to-one, and
+the new bullet keeps every word (>= 4 letters), figure, digit run and name-like
+part of the old one. Any doubt keeps both bullets.
+
+Why no model "covers / dropped" statement: a replay of the 70 captured
+delivery-2a calls showed the model said "drops nothing" for bullets that lost a
+part ("for a subscription billing feature", "Abweichungsanalysen je Werk und
+Produktlinie") — 3 of 4 — and the extra keys loosened the restatement verdicts
+(3 of 90 held-back bullets written). Containment is structural, not a reading."""
 from __future__ import annotations
 
 import pytest
@@ -13,7 +21,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from applire.models.profile import MasterProfile, authorized_profile_write
-from applire.prompts.restatement import RESTATEMENT_REPLACE_ADDENDUM, RESTATEMENT_SYSTEM_PROMPT
+from applire.prompts.restatement import RESTATEMENT_SYSTEM_PROMPT
 from applire.schemas.profile import MasterProfileData
 from applire.services.profile.bullet_replace import keep_replaced_bullets
 from applire.services.profile.reconcile.apply import apply_ops
@@ -27,7 +35,7 @@ from applire.services.profile.reconcile.ops import (
 )
 from applire.services.profile.reconcile.restatement import (
     hold_back_restatements,
-    keeps_every_fact_marker,
+    blocking_check,
 )
 from applire.services.prompt_view import prompt_profile_view
 
@@ -35,7 +43,7 @@ W1 = "7d1c4e2a-5b6f-4a3e-9c8d-0e1f2a3b4c5d"
 P1 = "4b3a2c1d-0000-4000-8000-00000000p001"
 HELD = "Einführung von KVP-Routinen"
 OTHER = "Leitung von 38 Mitarbeitenden und Budget von 6 Mio. €"
-DETAIL = "KVP-Routinen in drei Werken eingeführt, Ausschuss um 12 % gesenkt"
+DETAIL = "Einführung von KVP-Routinen in drei Werken, Ausschuss um 12 % gesenkt"
 FRESH = "Zwei Auszubildende bis zur Kammerprüfung betreut"
 
 
@@ -66,8 +74,8 @@ def _add(*bullets, target=W1):
     return AddBullets(target=target, responsibilities=list(bullets))
 
 
-def _item(new="e1.n1", added="drei Werke; 12 %", held=None, covers="e1.h1", dropped=""):
-    return {"new": new, "added": added, "held": held, "covers": covers, "dropped": dropped}
+def _item(new="e1.n1", added="drei Werke; 12 %", held="e1.h1"):
+    return {"new": new, "added": added, "held": held}
 
 
 async def _check(items, *ops, profile=None, replace=True):
@@ -83,7 +91,7 @@ async def test_a_bullet_that_states_every_held_fact_and_adds_detail_replaces_it(
     out, receipts, provider = await _check([_item()], _add(DETAIL))
     assert out == [ReplaceBullet(entry_id=W1, field="responsibilities", old=HELD, new=DETAIL)]
     assert receipts == []
-    assert provider.systems == [RESTATEMENT_SYSTEM_PROMPT + RESTATEMENT_REPLACE_ADDENDUM]
+    assert provider.systems == [RESTATEMENT_SYSTEM_PROMPT]  # the D-17 call, unchanged
 
 
 @pytest.mark.asyncio
@@ -94,14 +102,12 @@ async def test_the_import_door_is_unchanged():
 
 
 @pytest.mark.parametrize("item", [
-    _item(dropped="drei Werke"),          # the model names a lost fact
-    _item(dropped=None),                  # no statement
-    {"new": "e1.n1", "added": "x", "held": None, "covers": "e1.h1"},  # key missing
-    _item(covers=None, dropped=None),     # covers nothing
+    _item(held=None),                     # no held bullet named
+    {"new": "e1.n1", "held": "e1.h1"},    # "added" missing
     _item(added=""),                      # adds nothing: a restatement, not a replace
-    _item(covers="e2.h1"),                # another entry's bullet
-    _item(covers="e1.h3"),                # a kin (project) bullet, not the entry's own
-    _item(covers="e1.h9"),                # out of range
+    _item(held="e2.h1"),                  # another entry's bullet
+    _item(held="e1.h3"),                  # a kin (project) bullet, not the entry's own
+    _item(held="e1.h9"),                  # out of range
     _item(new="e1.h1"),                   # malformed new id
 ])
 @pytest.mark.asyncio
@@ -118,21 +124,35 @@ async def test_two_new_bullets_claiming_one_held_bullet_replace_nothing():
 
 
 @pytest.mark.parametrize("old,new,ok", [
+    # the three replay cases the model called "drops nothing" — each loses a part
+    ("Integrated a Stripe-based checkout for a subscription billing feature.",
+     "Integrated Stripe as a payment service provider, including checkout and webhooks.", False),
+    ("Jahresplanung und rollierender Forecast; Abweichungsanalysen je Werk und Produktlinie.",
+     "Planung & rollierender Forecast für 78 Mio. € Umsatz", False),
+    ("Containerised the remaining services and introduced Helm charts and ArgoCD GitOps.",
+     "Defined workloads as Helm charts for all 12 services and rolled them out through ArgoCD GitOps.", False),
+    # the replay's correct replace (Katrin): every word kept, "fachliche" -> "fachliche"
+    ("Fachliche Anleitung von zwei Werkstudierenden.",
+     "Seit zwei Jahren fachliche Führung von zwei Werkstudierenden und zusätzlich fachliche "
+     "Anleitung einer Junior-Controllerin.", True),
     (OTHER, "Leitung von 38 Mitarbeitenden im Zweischichtbetrieb", False),            # budget figure lost
-    (OTHER, "Leitung von 38 Mitarbeitenden, 6 Mio. € Budget, zwei Schichten", True),
+    (OTHER, "Leitung von 38 Mitarbeitenden und Budget von 6 Mio. € in zwei Schichten", True),
     ("ISO-45001-Zertifizierung vorbereitet", "Zertifizierung für die Produktion vorbereitet", False),  # name lost
     ("SAP PP eingeführt", "SAP-Modul PP in zwei Werken eingeführt", True),
+    ("Kosmetik-Verpackungen gefertigt", "Kunststoff-Kosmetikverpackungen gefertigt", False),   # compound joined
     ("ISO 45001 vorbereitet", "ISO-Zertifizierung vorbereitet, Audit bestanden", False),            # digit run lost
     (HELD, DETAIL, True),
+    # a reworded bullet (noun -> verb) keeps both: the accepted cost of the safe side
+    (HELD, "KVP-Routinen in drei Werken eingeführt, Ausschuss um 12 % gesenkt", False),
 ])
 def test_the_figure_and_name_blockers(old, new, ok):
-    assert keeps_every_fact_marker(old, new) is ok
+    assert (blocking_check(old, new) is None) is ok
 
 
 @pytest.mark.asyncio
 async def test_a_blocker_keeps_both_bullets_even_when_the_model_says_replace():
     lost = "Leitung von 38 Mitarbeitenden im Zweischichtbetrieb"
-    out, _, _ = await _check([_item(covers="e1.h2")], _add(lost))
+    out, _, _ = await _check([_item(held="e1.h2")], _add(lost))
     assert out == [_add(lost)]
 
 
@@ -145,8 +165,8 @@ async def test_only_work_entries_are_replaced():
 @pytest.mark.asyncio
 async def test_a_restated_bullet_is_still_held_back_beside_a_replace():
     restated = "KVP eingeführt."
-    items = [_item("e1.n1"), {"new": "e1.n2", "added": "", "held": "e1.h1", "covers": None, "dropped": None},
-             {"new": "e1.n3", "added": "Kammerprüfung", "held": None, "covers": None, "dropped": None}]
+    items = [_item("e1.n1"), {"new": "e1.n2", "added": "", "held": "e1.h1"},
+             {"new": "e1.n3", "added": "Kammerprüfung", "held": None}]
     out, receipts, _ = await _check(items, _add(DETAIL, restated, FRESH))
     assert out == [_add(FRESH), ReplaceBullet(entry_id=W1, field="responsibilities", old=HELD, new=DETAIL)]
     assert [r.text for r in receipts] == [restated]
@@ -238,7 +258,8 @@ def test_the_record_never_reaches_a_prompt():
     p = _replaced()
     view = prompt_profile_view(p.model_dump(mode="json"))
     assert "replaced_bullets" not in view["work_experience"][0]
-    assert HELD not in str(view)
+    assert view["work_experience"][0]["responsibilities"] == [DETAIL, OTHER]
+    assert "'replaced'" not in str(view)
 
 
 def test_an_unreplaced_profile_dumps_without_the_field():
@@ -280,7 +301,7 @@ async def _turn(db, items):
     await db.commit()
     out = await reconcile_interview_turn(
         db, profile_record=record, gap="KVP", question="Wie lief die KVP-Einführung?",
-        answer="Ich habe die KVP-Routinen in drei Werken eingeführt, der Ausschuss sank um 12 %.",
+        answer="Die Einführung von KVP-Routinen lief in drei Werken, der Ausschuss sank um 12 %.",
         provider=_TurnProvider(items), session_id="s1", lang="de",
     )
     await db.commit()
@@ -298,7 +319,7 @@ async def test_seam_an_interview_answer_that_adds_detail_replaces_the_bullet(db)
 
 @pytest.mark.asyncio
 async def test_seam_an_answer_with_a_different_fact_keeps_both_bullets(db):
-    out = await _turn(db, [_item(covers=None, dropped=None)])
+    out = await _turn(db, [_item(held=None)])
     w = out.profile_dict["work_experience"][0]
     assert w["responsibilities"] == [HELD, OTHER, DETAIL]
     assert "replaced_bullets" not in w
@@ -344,8 +365,8 @@ async def test_a_blocked_replace_logs_no_bullet_text(caplog):
 
     lost = "Leitung von 38 Mitarbeitenden im Zweischichtbetrieb"
     with caplog.at_level(logging.INFO, logger="applire.services.profile.reconcile.restatement"):
-        await _check([_item(covers="e1.h2")], _add(lost))
+        await _check([_item(held="e1.h2")], _add(lost))
     text = " ".join(r.getMessage() for r in caplog.records)
-    assert "blocked by the figure check" in text and W1 in text
+    assert "blocked by the words check" in text and W1 in text
     for words in (OTHER, lost, "Mitarbeitenden", "Mio"):
         assert words not in text

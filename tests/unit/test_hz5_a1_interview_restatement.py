@@ -46,8 +46,7 @@ class _Provider:
         self.restatement_calls = 0
 
     async def aparse_json(self, prompt, system=None, **kw):
-        # Q3-4: the interview door appends the replace addendum.
-        if (system or "").startswith(RESTATEMENT_SYSTEM_PROMPT):
+        if system == RESTATEMENT_SYSTEM_PROMPT:
             self.restatement_calls += 1
             if self.fail:
                 raise RuntimeError("provider down")
