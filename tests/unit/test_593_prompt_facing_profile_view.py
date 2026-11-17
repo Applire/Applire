@@ -98,7 +98,13 @@ def _profile_json(history: int = 3) -> dict:
             },
         ],
         "projects": [],
-        "skills": [],
+        # Sorbet WP-Q10: a confirmation's `posting` label is job-posting text
+        # (ADR-084) and bookkeeping — it must reach no prompt; carrying the
+        # receipt marker puts it under every seam assertion below.
+        "skills": [{"name": "Observability", "category": "technical", "status": "confirmed",
+                    "confirmations": [{"name": "Observability", "via": "person",
+                                       "on": "2026-11-17",
+                                       "posting": f"{RECEIPT_MARKER} NovaPay posting"}]}],
         "education": [],
         "languages": [],
         "certifications": [],

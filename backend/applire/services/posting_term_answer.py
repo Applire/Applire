@@ -252,3 +252,59 @@ async def answer_posting_terms(
         job_id, via, added, leave_open,
     )
     return await posting_terms_state(db, job_id, user_id)
+
+
+# ── the confirmation record on the agent door (ADR-084, Sorbet WP-Q10) ─────
+
+
+def posting_label_paths(payload: Any) -> list[str]:
+    """The field paths at which *payload* carries a confirmation's ``posting``
+    label — the job posting's company or role name, i.e. untrusted posting text
+    (ADR-084). Paths use the ``untrusted_content`` notation (``a.b[].c``), so any
+    agent-door payload that echoes a skill (``get_profile``, ``update_profile``,
+    a testimony change's old/new value, ``profile://current``) can be marked
+    without each door knowing where the skill sits."""
+    found: list[str] = []
+
+    def walk(node: Any, path: str, under_confirmations: bool) -> None:
+        if isinstance(node, dict):
+            if under_confirmations and node.get("posting"):
+                p = f"{path}.posting" if path else "posting"
+                if p not in found:
+                    found.append(p)
+            for k, v in node.items():
+                if isinstance(v, (dict, list)):
+                    walk(v, f"{path}.{k}" if path else str(k), k == "confirmations")
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, f"{path}[]", under_confirmations)
+
+    walk(payload, "", False)
+    return found
+
+
+def keep_stored_confirmations(incoming: Any, stored_skills: Any) -> Any:
+    """The agent door's ``update_profile('skills', …)``: the confirmation record
+    is not agent-writable. Every incoming skill carries exactly the confirmations
+    stored for a skill of the same name (none for a new name) — an agent can
+    neither forge "confirmed by you" nor erase a confirmation by round-tripping a
+    read that dropped it. ``confirm_posting_terms`` is the agent's only way in."""
+    if not isinstance(incoming, list):
+        return incoming
+    stored: dict[str, list] = {}
+    for s in stored_skills or []:
+        if isinstance(s, dict) and s.get("confirmations"):
+            stored.setdefault(_key(str(s.get("name") or "")), []).extend(s["confirmations"])
+    out = []
+    for s in incoming:
+        if isinstance(s, str) and stored.get(_key(s)):
+            s = {"name": s}  # the bare-name shape the schema coerces anyway
+        if not isinstance(s, dict):
+            out.append(s)
+            continue
+        kept = {k: v for k, v in s.items() if k != "confirmations"}
+        held = stored.get(_key(str(s.get("name") or "")))
+        if held:
+            kept["confirmations"] = list(held)
+        out.append(kept)
+    return out

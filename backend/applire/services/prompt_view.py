@@ -233,6 +233,18 @@ def drop_skill_confirmations(profile_json: Any) -> Any:
     ]}
 
 
+def drop_confirmations_everywhere(value: Any) -> Any:
+    """A COPY of *value* with every ``confirmations`` key removed at any depth
+    (Sorbet WP-Q10). For the coverage corpus, which keeps the enrichment trail:
+    a write's receipt restates the confirmed skill — posting label included —
+    so dropping the key from ``skills`` alone leaves the label in the trail."""
+    if isinstance(value, dict):
+        return {k: drop_confirmations_everywhere(v) for k, v in value.items() if k != "confirmations"}
+    if isinstance(value, list):
+        return [drop_confirmations_everywhere(v) for v in value]
+    return value
+
+
 def prompt_profile_view(
     profile_json: Any,
     *,

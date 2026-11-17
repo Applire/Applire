@@ -264,3 +264,97 @@ async def test_the_agent_cannot_confirm_a_term_off_the_list(db):
     with pytest.raises(ToolError, match="not on the list: Kubernetes"):
         await _call("confirm_posting_terms", {"job_id": str(job.id), "confirmed": ["Kubernetes"]}, db)
     assert _skill(await _profile(db), "Kubernetes") is None
+
+
+# ── the confirmation record on the agent door (ADR-084) ──────────────────────
+# A confirmation's `posting` label is the posting's company or role name —
+# untrusted job-posting text. Every agent read that echoes a skill marks it; the
+# record is not agent-writable through update_profile.
+
+_LABEL = "profile.skills[].confirmations[].posting"
+#: the write's own receipt echoes the confirmed skill, label included
+_TRAIL = "profile.metadata.enrichment_history[].changes[].new_value.confirmations[].posting"
+
+
+async def _confirmed_by_person(db):
+    from applire.services.posting_term_answer import answer_posting_terms
+
+    job = await _seed(db)
+    await answer_posting_terms(db, job.id, HARNESS_USER_ID, confirmed=["Observability"], via="person")
+    return job
+
+
+@pytest.mark.asyncio
+async def test_get_profile_marks_the_posting_label_as_job_posting_text(db):
+    await _confirmed_by_person(db)
+    out = await _call("get_profile", {}, db)
+    (conf,) = _skill(out["profile"], "Observability")["confirmations"]
+    assert conf["posting"] == "Lieferkette GmbH"
+    assert out["untrusted_content"]["kind"] == "job_posting"
+    assert out["untrusted_content"]["fields"] == [_LABEL, _TRAIL]
+
+
+@pytest.mark.asyncio
+async def test_a_profile_without_a_confirmation_is_not_marked(db):
+    await _seed(db)
+    assert "untrusted_content" not in await _call("get_profile", {}, db)
+
+
+@pytest.mark.asyncio
+async def test_the_profile_resource_marks_the_posting_label_too(db):
+    from applire.mcp.server import mcp
+
+    await _confirmed_by_person(db)
+    with patch("applire.mcp.server.get_db", return_value=_db_cm(db)), \
+         patch("applire.mcp.server._current_user_id", AsyncMock(return_value=HARNESS_USER_ID)):
+        contents = await mcp.read_resource("profile://current")
+    out = json.loads(list(contents)[0].content)
+    assert out["untrusted_content"]["fields"] == [_LABEL, _TRAIL]
+
+
+@pytest.mark.asyncio
+async def test_update_profile_neither_forges_nor_erases_a_confirmation(db):
+    await _confirmed_by_person(db)
+    read = await _call("get_profile", {}, db)
+    skills = [{k: v for k, v in s.items() if k != "confirmations"} for s in read["profile"]["skills"]]
+    forged = {"name": "Event-driven architecture", "category": "technical", "status": "confirmed",
+              "confirmations": [{"name": "Event-driven architecture", "via": "person",
+                                 "on": "2026-11-17", "posting": "Lieferkette GmbH"}]}
+    with patch("applire.mcp.server.get_provider", return_value=None):
+        out = await _call("update_profile", {"section": "skills", "data": skills + [forged]}, db)
+    profile = await _profile(db)
+    assert "confirmations" not in _skill(profile, "Event-driven architecture")   # not forged
+    (kept,) = _skill(profile, "Observability")["confirmations"]                 # not erased
+    assert kept["via"] == "person"
+    assert _LABEL in out["untrusted_content"]["fields"]
+
+
+def test_the_interview_follow_up_prompt_never_carries_the_posting_label():
+    from applire.prompts.interview import build_follow_up_question_prompt
+
+    profile = {"skills": [{"name": "Observability", "confirmations": [
+        {"name": "Observability", "via": "person", "on": "2026-11-17", "posting": "LABEL-CANARY-77"}]}],
+        "work_experience": []}
+    prompt = build_follow_up_question_prompt("Observability", "hint", profile, [])
+    assert "Observability" in prompt and "LABEL-CANARY-77" not in prompt
+
+
+def test_a_bare_skill_name_keeps_its_stored_confirmation():
+    from applire.services.posting_term_answer import keep_stored_confirmations
+
+    conf = {"name": "Observability", "via": "person", "on": "2026-11-17", "posting": "Lieferkette GmbH"}
+    stored = [{"name": "Observability", "confirmations": [conf]}]
+    assert keep_stored_confirmations(["observability", "Kafka"], stored) == [
+        {"name": "observability", "confirmations": [conf]}, "Kafka"]
+
+
+@pytest.mark.asyncio
+async def test_the_posting_label_is_never_the_persons_word(db):
+    """The label rides the skill AND the write's own receipt; neither may count
+    as vault text for the reading (or a posting's name could ground its terms)."""
+    from applire.services.keyword_ledger import profile_literal_corpus
+
+    await _confirmed_by_person(db)
+    profile = await _profile(db)
+    assert "Lieferkette GmbH" in json.dumps(profile, ensure_ascii=False)
+    assert "lieferkette" not in profile_literal_corpus(profile)

@@ -4158,12 +4158,13 @@ def _strip_system_metadata(profile_json: dict[str, Any]) -> dict[str, Any]:
     the vault" either. The enrichment trail is the exception: it is filtered
     receipt by receipt (:func:`_strip_denial_text`, :func:`_strip_unclaimable`),
     because an accepted write's receipt restates content the vault carries."""
-    from applire.services.prompt_view import PROMPT_EXCLUDED_METADATA_KEYS, drop_skill_confirmations
+    from applire.services.prompt_view import PROMPT_EXCLUDED_METADATA_KEYS, drop_confirmations_everywhere
 
     if not isinstance(profile_json, dict):
         return profile_json
-    # Sorbet WP-Q10: a confirmation's posting label is not the person's text.
-    profile_json = drop_skill_confirmations(profile_json)
+    # Sorbet WP-Q10: a confirmation's posting label is not the person's text —
+    # neither on the skill nor in the receipt of the write that added it.
+    profile_json = drop_confirmations_everywhere(profile_json)
     metadata = profile_json.get("metadata")
     if not isinstance(metadata, dict):
         return profile_json

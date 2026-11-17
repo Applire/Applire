@@ -325,7 +325,39 @@ async def _agent_call_body(fn, args, kwargs):
     finally:
         mcp_identity.reset_call_user(user_token)
         ownership.reset_owner(owner_token)
-    return _sign_document_urls(result, user)
+    return _mark_posting_labels(_sign_document_urls(result, user))
+
+
+def _mark_posting_labels(payload):
+    """Sorbet WP-Q10 (ADR-084): a skill's ``confirmations[].posting`` is the job
+    posting's company or role name — untrusted posting text — wherever a tool or
+    resource echoes a skill (get_profile, update_profile, a testimony change, …).
+    One seam for every door, like the URL signing above: the paths are found in
+    the payload itself, so a door that starts returning skills is covered without
+    an edit. Added to the door's own ``job_posting`` marking when it has one;
+    a payload with no posting label is returned untouched (the marker names only
+    what is there). A ``generated_document`` payload never carries a skill
+    record, so a different existing kind is left as it is."""
+    from applire.services.posting_term_answer import posting_label_paths
+    from applire.services.untrusted_text import untrusted_content
+
+    if not isinstance(payload, dict):
+        return payload
+    try:
+        paths = posting_label_paths(payload)
+    except Exception:  # a marking helper must never become a way for a door to fail
+        logger.exception("posting-label marking failed")
+        return payload
+    if not paths:
+        return payload
+    current = payload.get("untrusted_content")
+    if current is None:
+        payload["untrusted_content"] = untrusted_content(paths)
+    elif isinstance(current, dict) and current.get("kind") == "job_posting":
+        current["fields"] = list(current.get("fields") or []) + [
+            f for f in paths if f not in (current.get("fields") or [])
+        ]
+    return payload
 
 
 def agent_resource(*args, **kwargs):
@@ -572,6 +604,10 @@ def _held_import_summary(gated) -> dict:
 # (get_guide, get_profile, update_profile, import_cv, submit_testimony, add_role,
 # generate_cv, generate_cover_letter, get_cv_status, get_cover_letter_status,
 # audit_document). Marking everything would make the marker mean nothing.
+# Sorbet WP-Q10: a skill's `confirmations[].posting` label (the posting's company
+# or role name) is marked on EVERY door that echoes it, by `_mark_posting_labels`
+# in `_agent_call` — found in the payload, not listed here, so get_profile,
+# update_profile, a testimony receipt and profile://current are all covered.
 # (The two status doors DO mark the generated document's own text, with the
 # separate `generated_document` kind — `_GENERATED_DOCUMENT_FIELDS` below.)
 _JD_DERIVED_FIELDS: dict[str, list[str]] = {
@@ -908,8 +944,11 @@ async def update_profile(
     uid = await _current_user_id()
     async with get_db() as db:
         try:
+            # Sorbet WP-Q10: the confirmation record is not agent-writable here —
+            # confirm_posting_terms is the agent's door to it.
             result = await profile_svc.patch_profile_section(
                 section, data, db, provider=provider, basis_updated_at=basis,
+                keep_stored_confirmations=True,
                 user_id=uid,
             )
         except StaleEditError as exc:
@@ -2385,7 +2424,9 @@ async def resource_profile() -> str:
         result = await profile_svc.get_profile(db, user_id=uid)
     if result is None:
         raise not_found("No profile found")
-    return json.dumps(result.model_dump(mode="json"))
+    # Sorbet WP-Q10: the resource is a string by the time `_agent_call` sees it,
+    # so the posting-label marking is applied here, on the dict.
+    return json.dumps(_mark_posting_labels(result.model_dump(mode="json")))
 
 
 @mcp.resource(

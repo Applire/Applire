@@ -649,8 +649,14 @@ async def patch_profile_section(
     user_id: uuid.UUID | None = None,
     document_kind: str | None = None,
     document_id: str | None = None,
+    keep_stored_confirmations: bool = False,
 ) -> MasterProfileResponse:
     """The manual section edit — the `FieldEdit` intake, on `commit_ops`.
+
+    ``keep_stored_confirmations`` (Sorbet WP-Q10, the agent door): a skills
+    payload carries exactly the ``confirmations`` stored for each skill name —
+    the record of who confirmed a posting term is not writable through a
+    wholesale section edit (``posting_term_answer.keep_stored_confirmations``).
 
     ``document_kind`` / ``document_id`` (A-5, MD7-10): set by the CV section
     editor's "also save to profile" — the edit is already in that CV, so the
@@ -696,6 +702,11 @@ async def patch_profile_section(
     record = await _get_latest(db, user_id)
     if not record:
         raise LookupError("No profile found")
+    if keep_stored_confirmations and section == "skills":
+        from applire.services.posting_term_answer import keep_stored_confirmations as _keep
+
+        value = _keep(value, (record.profile_json or {}).get("skills"))
+        op = build_replace_section_op(section, value, basis_updated_at=basis_updated_at)
 
     result = await commit_ops(
         db,
