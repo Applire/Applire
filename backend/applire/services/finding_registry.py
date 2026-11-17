@@ -171,6 +171,10 @@ _DOC: dict[str, Entry] = {
         "tenureStartBeforeVault", "tenureExceedsVault", "subjectTenureExceeds",
         "subjectTenureExceedsStart",
         "titleNotHeld",  # Sorbet WP-Q7 (Q7-1): a title no position holds
+        # Sorbet WP-Q10 (Q7-2): a skill chip in the posting's word the person never
+        # ticked. The loop removes it (cv.skill_posting_term); a residue asks
+        # "Stimmt das?" — Ja leads to the profile, where the term becomes theirs.
+        "postingSkillNotHeld",
     )},
     "oracle@unbacked": _e(_F, "ask_true", "A"),          # unsupported term / bare unbacked
     "oracle:inflatedAspirational": _e("A", "ask_achieved"),
@@ -225,6 +229,7 @@ _DOC: dict[str, Entry] = {
         "cv.role_budget", "cv.recorded_name", "cv.level_code_changed", "cv.vault_field_missing",
         "cv.empty_project", "cv.claim_missing", "cv.project_missing", "cv.project_not_mentioned",
         "cv.skill_spelling", "cv.skills_cap", "cv.skill_duplicate", "cv.skill_named_in_bullet",
+        "cv.skill_posting_term",  # Sorbet WP-Q10 (Q7-2): a posting term never ticked
         "letter.salutation", "letter.signoff", "letter.closing", "letter.names",
         "letter.availability",
         "letter.new_figure",  # 784:134/784:82 (build 8 WP-L): blocking in the loop
@@ -245,6 +250,8 @@ _DOC: dict[str, Entry] = {
     "terminal:cv.identifier_not_in_profile": _e("S"),     # → oracle:identifierAbsent
     "terminal:letter.identifier": _e("S"),                # → oracle:identifierAbsent
     "terminal:cv.skill_untied": _e("S"),                  # → oracle:skillNoEvidence
+    # Sorbet WP-Q10: the reviewer-facing cap-precedence fact, advisory, never delivered
+    "terminal:cv.skills_cap_held": _e("S"),
     "terminal:letter.figure": _e("S"),                    # → oracle:figuresNoEvidence
     "terminal:letter.limit": _e("S"),
     "terminal:note:letter.limit_cut": _e("S"),

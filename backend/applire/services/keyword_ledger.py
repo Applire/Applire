@@ -939,6 +939,12 @@ def is_aim_only(entry: dict[str, Any] | None) -> bool:
 POSTING_WORD_ONLY_KEY = "posting_word_only"
 
 
+from applire.services.posting_terms import (  # noqa: E402 — Sorbet WP-Q10 readers
+    is_posting_term_open,
+    stamped_unheld_forms,
+)
+
+
 def is_posting_word_partial(entry: dict[str, Any] | None) -> bool:
     """A claimable BELOW-THE-BAR ``partial`` whose words are the posting's only:
     no form of the row (concept or surface form) occurs anywhere in the person's
@@ -1348,6 +1354,7 @@ def underclaim_candidate_entries(
         and not is_positioning_only(e)
         and not is_scope_entry(e)
         and not is_posting_word_partial(e)  # Sorbet WP-Q7, as _coverage_split
+        and not is_posting_term_open(e)  # Sorbet WP-Q10, as _coverage_split
         and (e.get("concept") or "").strip()
     ]
 
@@ -1502,6 +1509,26 @@ def render_ledger_prompt_block(
                     f"position that owns it; never write {forms} as the candidate's skill, "
                     f"quality or responsibility, unless it is the faithful translation of "
                     f"words the profile itself uses. {shown}"
+                )
+            elif is_posting_term_open(entry):
+                # Sorbet WP-Q10 (ruling Q7-2, ADR-048 am. 2026-11-17): met, but the
+                # posting's word is one the person never used and has not ticked.
+                # Rendered as "[forms: <label>] — evidence" it read as an
+                # invitation to print the label (delivery 2b, writer rec 390: five
+                # posting-label chips, 5 of Daniel's 24 skill slots).
+                unheld = stamped_unheld_forms(entry)
+                held = [f for f in entry.get("surface_forms") or []
+                        if isinstance(f, str) and f.strip() and f not in unheld]
+                backing = entry.get("backing")
+                quote = backing.get("quote") if isinstance(backing, dict) else None
+                own = [*held, *([quote] if isinstance(quote, str) and quote.strip() else [])]
+                shown = ("; ".join(f'"{w}"' for w in own) if own else f"evidence: {evidence}")
+                lines.append(
+                    f"  - {concept} [MET IN THE PROFILE'S WORDS — the posting's word, not the "
+                    f"candidate's: they have not confirmed it as theirs] — write the work in "
+                    f"the profile's own words, under the position that owns it; never write "
+                    f"{', '.join(unheld)} as a skills-list entry or as a skill the candidate "
+                    f"names. The profile's own words: {shown}"
                 )
             else:
                 # #415 (ruling W-4): the posting's OWN sentence, verbatim, so the writer
@@ -1857,6 +1884,18 @@ def render_ledger_reviewer_block(
                     f"translates words the profile itself uses]{cited}"
                 )
                 continue
+            if is_posting_term_open(entry):
+                # Sorbet WP-Q10: the reviewer defended posting-label chips as
+                # blocking keeps (delivery 2b rec 423: Event-driven architecture,
+                # Observability, Security engineering …). It is told the chip
+                # is an overstatement until the person confirms the word.
+                unheld = ", ".join(stamped_unheld_forms(entry))
+                lines.append(
+                    f"  - {entry.get('concept', '')} [MET IN THE PROFILE'S WORDS — the "
+                    f"posting's word, not confirmed by the candidate: a skills-list entry "
+                    f"reading {unheld} overstates; never ask to keep or add it]{cited}"
+                )
+                continue
             lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]{cited}")
     else:
         lines.append("  (none)")
@@ -1961,6 +2000,10 @@ def _coverage_split(
         e for e in claimable
         if not is_positioning_only(e) and not is_scope_entry(e)
         and not is_posting_word_partial(e)
+        # Sorbet WP-Q10 (Q7-2): a posting term the person has not confirmed is
+        # never demanded — demanding it is a demand to print the posting's label
+        # as theirs (delivery 2b recs 393/407 → corrector chips and summary).
+        and not is_posting_term_open(e)
     ]
     if not claimable:
         return [], []

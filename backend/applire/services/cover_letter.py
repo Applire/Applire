@@ -1584,6 +1584,12 @@ async def _render_cover_letter_body(
                     if gap is not None
                     else []
                 )
+                # Sorbet WP-Q10 (ruling Q7-2): the same stamp as the CV seam.
+                from applire.services.posting_terms import stamp_for_generation
+
+                keyword_ledger = stamp_for_generation(
+                    keyword_ledger, profile.profile_json if profile else None, detected_language
+                )
 
                 # E048/US264 (ADR-057 amended 2026-07-24 / ADR-058 exception (a)): deterministic,
                 # no-LLM positioning inputs — a blind hiring panel rejected an otherwise-honest

@@ -20,6 +20,10 @@
     "resolver": "ask_achieved"
   },
   {
+    "kind": "oracle:postingSkillNotHeld",
+    "resolver": "ask_true"
+  },
+  {
     "kind": "oracle:skillNoEvidence",
     "resolver": "ask_true"
   },

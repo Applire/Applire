@@ -311,3 +311,30 @@ def chip_posting_term(chip: str, ledger: list[dict[str, Any]] | None) -> str | N
         if any(_norm(f) == key for f in stamped_unheld_forms(e)):
             return e.get("concept")
     return None
+
+
+def same_language_pair(profile_json: dict[str, Any] | None, document_language: str | None) -> bool:
+    """The Oracle's own fact about the pair (``holds_other_language``, ADR-068):
+    True when the vault states its evidence in *document_language*. An unknown
+    language fails CLOSED here (no list), unlike the Oracle's open default: a
+    list built on an unknown pair could suppress a faithful translation."""
+    if not isinstance(profile_json, dict) or document_language not in ("de", "en"):
+        return False
+    from applire.services.oracle.matchers.vault import build_vault_index, holds_other_language
+
+    try:
+        return not holds_other_language(build_vault_index(profile_json), document_language)
+    except Exception:  # pragma: no cover — defensive: no list, today's behaviour
+        return False
+
+
+def stamp_for_generation(
+    ledger: list[dict[str, Any]] | None,
+    profile_json: dict[str, Any] | None,
+    document_language: str | None,
+) -> list[dict[str, Any]]:
+    """THE generation-seam call (CV and letter): :func:`stamp_posting_terms_open`
+    with the pair's language fact."""
+    return stamp_posting_terms_open(
+        ledger, profile_json, same_language=same_language_pair(profile_json, document_language)
+    )

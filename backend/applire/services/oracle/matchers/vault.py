@@ -517,6 +517,13 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     for i, s in enumerate(p.skills):
         _add(f"skills[{i}]", s.name)
         skill_names.append(s.name)
+        # Sorbet WP-Q10 (ADR-046 am. 2026-11-17): a second name is a name the
+        # person's own document or answer gave this skill (a ticked posting term,
+        # an import alias) — it grounds a chip like the name does.
+        for j, alias in enumerate(s.aliases or []):
+            if isinstance(alias, str) and alias.strip():
+                _add(f"skills[{i}].aliases[{j}]", alias)
+                skill_names.append(alias)
 
     for i, e in enumerate(p.education):
         _add(f"education[{i}]", " ".join(x for x in (e.degree, e.field, e.institution) if x))

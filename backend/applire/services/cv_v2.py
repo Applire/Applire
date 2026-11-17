@@ -1423,6 +1423,24 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
 
     out: list[CheckFinding] = []
     untied = removed(s1, s2)
+    # Sorbet WP-Q10 (ruling Q7-2): a chip in a posting term the person has not
+    # ticked gets its own finding, so the corrector is told WHY it goes and what
+    # stays (the person's own words), and the reviewer cannot defend it as a keep.
+    from applire.services.posting_terms import chip_posting_term
+
+    posting = [x for x in untied if chip_posting_term(x, ctx.keyword_ledger) is not None]
+    untied = [x for x in untied if x not in posting]
+    if posting:
+        out.append(CheckFinding(
+            check="cv.skill_posting_term",
+            subjects=tuple(posting),
+            text=(
+                f"Skills entries in the job posting's words that the candidate never used "
+                f"and has not confirmed as theirs: {_fmt(posting)}. Remove them from the "
+                "skills list. The work behind them stays in the bullets, in the profile's "
+                "own words; do not replace them with another posting term."
+            ),
+        ))
     if untied:
         out.append(CheckFinding(
             check="cv.skill_untied",
@@ -1725,6 +1743,12 @@ def critic_findings(advisories: list, composed: Any) -> list[CheckFinding]:
     return out
 
 
+def _cv_max_skills() -> int:
+    from applire.services import cv as cv_mod
+
+    return cv_mod.CV_MAX_SKILLS
+
+
 def _strings(node: Any) -> list[str]:
     if isinstance(node, str):
         return [node]
@@ -1746,6 +1770,9 @@ class V2Terminal:
     #: ADR-099 cl. 8 (WP-B): the in-loop critic's internal / numeric
     #: inconsistencies (``CriticAdvisory``), set once before the terminal review.
     critic_advisories: list = field(default_factory=list)
+    #: Sorbet WP-Q10 (precedence, ADR-094 am. 2026-11-17): skills the
+    #: ``cv.skills_cap`` finding named in an EARLIER round of this loop.
+    cap_removed: list = field(default_factory=list)
 
     def compose(self, prose: dict, profile_json: dict, raw_profile_json: dict | None) -> "TailoredCVData":
         notes = ComposeNotes()
@@ -1765,6 +1792,7 @@ class V2Terminal:
             composed = subject_for(draft)
             notes = self.notes_by_draft.get(canonical(draft)) or ComposeNotes()
             own = v2_checks(draft, composed, notes, self.ctx)
+            own = self._cap_precedence(own, composed)
             critic = critic_findings(self.critic_advisories, composed)
             if not critic:
                 return own
@@ -1773,6 +1801,36 @@ class V2Terminal:
             ranked = [f for f in own if f.blocking] + critic + [f for f in own if not f.blocking]
             return ranked[:MAX_FINDINGS_PER_ROUND]
         return _fn
+
+    def _cap_precedence(self, own: list[CheckFinding], composed: "TailoredCVData") -> list[CheckFinding]:
+        """Sorbet WP-Q10 — a code-check cap finding outranks a reviewer coverage keep.
+
+        Delivery 2b (Daniel): the cap named S3 to drop; the corrector dropped it; the
+        next reviewer, which sees only the CURRENT round's code findings, demanded S3
+        back as "a verified skill"; the loop oscillated until it ran out and the
+        terminal review failed. The skills the cap removed in an earlier round are
+        carried forward as an advisory fact, so the reviewer is told they went for
+        the cap and must not be asked back (GARH step 2: the check's finding reaches
+        the reviewer)."""
+        for f in own:
+            if f.check == "cv.skills_cap":
+                for subject in f.subjects:
+                    if subject not in self.cap_removed:
+                        self.cap_removed.append(subject)
+        on_page = {x for x in (composed.skills or []) if isinstance(x, str)}
+        held = [x for x in self.cap_removed if x not in on_page]
+        if not held or any(f.check == "cv.skills_cap" for f in own):
+            return own
+        return [*own, CheckFinding(
+            check="cv.skills_cap_held",
+            subjects=tuple(held),
+            blocking=False,
+            text=(
+                f"Removed from the skills list for its cap of {_cv_max_skills()} entries in an "
+                f"earlier round: {_fmt(held)}. The cap outranks coverage: do not ask for "
+                "them to be added back; their evidence stays in the bullets."
+            ),
+        )]
 
     def delivered_findings(self, prose: dict, tailored_data: dict) -> list[CheckFinding]:
         """The checks evaluated ONCE on the SHIPPED draft (adversarial finding 6,

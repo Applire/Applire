@@ -3248,6 +3248,14 @@ def _drop_ungrounded_jd_echo_skills(
     # no "vault tie" either, and a `denied` one grants less than none — a tag
     # that only matches such an entry is not backed. THE shared predicate.
     vault_forms: list[str] = claimable_skill_names(profile_json)
+    # Sorbet WP-Q10 (ADR-046 am. 2026-11-17): a skill's second name — a ticked
+    # posting term — is an attested name of a held skill; a chip in it is tied.
+    from applire.services.profile.reconcile.stance import entry_is_claimable
+
+    for sk in profile_json.get("skills") or []:
+        if isinstance(sk, dict) and entry_is_claimable(sk):
+            vault_forms.extend(a.strip() for a in sk.get("aliases") or []
+                               if isinstance(a, str) and a.strip())
     # #386: WorkEntry.technologies are attested vault data too — transcribed at
     # import, carried through reconciliation. A tag they back is not an echo.
     for w in profile_json.get("work_experience") or []:
@@ -3270,7 +3278,15 @@ def _drop_ungrounded_jd_echo_skills(
     # vault records is a bridge, and a tag naming that concept is tied.
     bridged_forms = _ledger_bridged_forms(keyword_ledger, vault_forms)
 
+    # Sorbet WP-Q10 (ruling Q7-2): a chip in a posting term's unheld word is the
+    # posting's label for work the profile describes in its own words; the person
+    # has not ticked it. The ledger bridge below would tie it through a sibling
+    # form the person does use ("monitoring" for "Observability", delivery 2b).
+    from applire.services.posting_terms import chip_posting_term
+
     def _vault_tied(skill: str) -> bool:
+        if chip_posting_term(skill, keyword_ledger) is not None:
+            return False
         return any(skills_page_dupe(skill, p) for p in vault_forms) or any(
             skills_page_dupe(skill, f) for f in bridged_forms
         )
@@ -3635,8 +3651,14 @@ def _restore_narrative_named_skills(
     # by it. ``is_jd_keyword_only`` is the shared predicate the Oracle's own
     # skill grounding reads too (ADR-066 clause 2), so generator and audit
     # cannot disagree about which names the job authorises.
+    # Sorbet WP-Q10 (ruling Q7-2): a posting term's unheld words never enter the
+    # pool — a bullet that narrates the work must not put the posting's label back
+    # on the list the echo-drop took it off.
+    from applire.services.posting_terms import chip_posting_term
+
     for group in claimable_surface_form_groups(keyword_ledger, exclude_keyword_only=True):
-        fresh = [f.strip() for f in group if isinstance(f, str) and f.strip()]
+        fresh = [f.strip() for f in group if isinstance(f, str) and f.strip()
+                 and chip_posting_term(f, keyword_ledger) is None]
         if fresh:
             groups.append(fresh)
 
@@ -4684,6 +4706,13 @@ async def _render_cv_background(
                     )
                     if gap is not None
                     else []
+                )
+                # Sorbet WP-Q10 (ruling Q7-2): posting terms the person has not
+                # ticked are stamped for every reader of this run's ledger.
+                from applire.services.posting_terms import stamp_for_generation
+
+                keyword_ledger = stamp_for_generation(
+                    keyword_ledger, profile.profile_json if profile else None, document_language
                 )
 
                 # ADR-092 cl. 5(f): the title the writer targets is the one THIS

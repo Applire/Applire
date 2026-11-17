@@ -232,9 +232,30 @@ def apply_posting_word_checks(
         except Exception:  # pragma: no cover — defensive
             logger.exception("oracle: posting-word rows unreadable — no posting-word finding")
             rows = []
+    # Sorbet WP-Q10 (ruling Q7-2, ADR-052 am. 2026-11-17): the unheld forms of the
+    # posting terms the person has not ticked — computed, never read from a stamp;
+    # same language only (a translation of a held word is the person's).
+    unticked: dict[str, str] = {}
+    if keyword_ledger and same_language:
+        try:
+            from applire.services.ats_audit import _norm as _ats_norm
+            from applire.services.posting_terms import posting_term_rows, unheld_forms
+
+            for row in posting_term_rows(keyword_ledger, profile_json):
+                for form in unheld_forms(row, profile_json):
+                    unticked.setdefault(_ats_norm(form), row.get("concept") or form)
+        except Exception:  # pragma: no cover — defensive
+            logger.exception("oracle: posting-term rows unreadable — no posting-skill finding")
+            unticked = {}
     out: list[ClaimResult] = []
     for res in results:
         claim, verdict = res.claim, res.verdict
+        if claim.kind == "skill" and verdict.verdict == "grounded" and unticked:
+            from applire.services.ats_audit import _norm as _ats_norm
+
+            if _ats_norm(claim.text or "") in unticked:
+                out.append(_posting_skill_result(claim, verdict))
+                continue
         if claim.kind == "skill" and verdict.verdict == "grounded":
             # A chip that IS a posting-word-only form (see the module docstring).
             terms = posting_terms_named(claim.text, rows)
@@ -267,6 +288,24 @@ def apply_posting_word_checks(
             continue
         out.append(res)
     return out
+
+
+def _posting_skill_result(claim: Any, verdict: ClaimVerdict) -> ClaimResult:
+    """Sorbet WP-Q10: a skill chip in the posting's word for work the profile
+    describes in its own words, never ticked by the person → ``unverifiable``
+    (never blocking; MD-Q11 — a word choice is not a false statement)."""
+    return ClaimResult(claim=claim, verdict=ClaimVerdict(
+        verdict="unverifiable",
+        checker="grounding",
+        evidence=verdict.evidence,
+        detail=(
+            f'Names the skill "{claim.text}" in the job posting\'s words — your profile '
+            "shows related work but never names this skill, and you have not confirmed "
+            "it as yours."
+        ),
+        detail_key="postingSkillNotHeld",
+        detail_params={"term": claim.text},
+    ))
 
 
 def _is_headline(claim: Any) -> bool:
