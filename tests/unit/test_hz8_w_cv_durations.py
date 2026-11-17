@@ -212,8 +212,12 @@ def test_W2_a_role_lines_figure_is_no_career_ceiling():
 
 # ── 786:247 (WP-W): the CV terminal corrector gets the coverage RETENTION half ──
 
+# Sorbet WP-Q10: the concept is a word the vault itself uses ("Engineering leader
+# shipping production systems."). "Engineering leadership" is the posting's word
+# the person never wrote — a posting term (ruling Q7-2), which by design leaves
+# the coverage lists until the person ticks it.
 _LEDGER = [{
-    "concept": "Engineering leadership", "surface_forms": ["Engineering leader"], "claimable": True,
+    "concept": "Engineering leader", "surface_forms": ["Engineering leader"], "claimable": True,
     "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "Engineering leader.",
 }]
 
@@ -259,7 +263,7 @@ async def test_SEAM_terminal_corrector_is_told_which_claimable_terms_the_draft_a
     assert prompts, "the terminal review's corrector prompt was never built"
     block = prompts[0].split("COVERAGE ALREADY ACHIEVED", 1)
     assert len(block) == 2, "the retention block never reached the CV terminal corrector"
-    assert "Engineering leadership" in block[1]
+    assert "Engineering leader" in block[1]
 
 
 @pytest.mark.asyncio

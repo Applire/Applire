@@ -1461,7 +1461,7 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
         # used are put to the person before the CV — through their agent.
         envelope = await _posting_terms_envelope(db, jid, uid)
         if envelope is not None:
-            return envelope
+            return _marked(envelope, "posting_terms")
         try:
             result = await cv_svc.generate_cv(
                 jid,
@@ -1491,18 +1491,25 @@ async def _posting_terms_envelope(db, jid, uid) -> dict | None:
     left open by the agent; ``None`` when generation may proceed."""
     from applire.services.posting_term_answer import posting_terms_state
 
-    state = await posting_terms_state(db, jid, uid)
+    try:
+        state = await posting_terms_state(db, jid, uid)
+    except Exception:  # noqa: BLE001
+        # Fail OPEN to today's generation: the generation seam stamps every
+        # unanswered term on its own (stamp_for_generation), so no unticked term
+        # can be printed as a skill whether or not this question was asked.
+        logger.exception("agent door: posting-terms read failed for job %s — generating", jid)
+        return None
     ask = state.agent_must_ask
     if not ask:
         return None
-    return _marked({
+    return {
         "status": "needs_confirmation",
         "kind": "posting_terms",
         "job_id": str(jid),
         "ask_the_person": _POSTING_TERMS_ASK,
         "terms": ask,
         "next": "confirm_posting_terms",
-    }, "posting_terms")
+    }
 
 
 @agent_tool(

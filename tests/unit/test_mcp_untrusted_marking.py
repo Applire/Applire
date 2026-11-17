@@ -73,6 +73,10 @@ EXPECTED_MARKED = {
     "update_application",
     "get_application",
     "list_applications",
+    # Sorbet WP-Q10: the posting's terms put to the person (generate_cv's
+    # `needs_confirmation` result; its `ready` result carries no posting text).
+    "generate_cv",
+    "confirm_posting_terms",
     "resource_job",
 }
 
@@ -86,7 +90,6 @@ EXPECTED_UNMARKED = {
     "import_cv",
     "submit_testimony",
     "add_role",
-    "generate_cv",
     "generate_cover_letter",
     # 788:L22 (ADR-084 cl. 4 amended): these two carry the document's own text
     # and mark it with kind `generated_document`, never `job_posting` — see
