@@ -427,7 +427,15 @@
     "turnSlow": "Das dauert länger als sonst ({seconds} s). Lass diese Seite offen — falls es nicht klappt, bleibt deine Antwort stehen und du kannst sie noch einmal senden.",
     "completionOpenNames": "Noch offen: {names}{more, plural, =0 {} other { und # weitere}}",
     "completionOpenRequirements": "{count, plural, one {# Anforderung ist noch offen} other {# Anforderungen sind noch offen}}. Deine Antworten sind in deinem Profil gespeichert.",
-    "openRequirementsStat": "{count, plural, one {Anforderung noch offen} other {Anforderungen noch offen}}"
+    "openRequirementsStat": "{count, plural, one {Anforderung noch offen} other {Anforderungen noch offen}}",
+    "postingTerms": {
+      "title": "Noch eine Frage, bevor dein Lebenslauf entsteht",
+      "intro": "Die Stellenanzeige verwendet diese Begriffe. Du hast sie selbst nie benutzt, aber nach deinem Profil treffen sie auf dich zu. Kreuze an, was du als deine Kenntnis nennen würdest.",
+      "yourWords": "Bisher in deinen Worten",
+      "footnote": "Angekreuzte Begriffe kommen als Kenntnisse in dein Profil und dürfen im Lebenslauf stehen. Was du nicht ankreuzt, steht dort nie als deine Kenntnis; deine eigenen Worte bleiben.",
+      "receipt": "{count, plural, one {# Begriff aus der Stellenanzeige als deine Kenntnis übernommen: {terms}.} other {# Begriffe aus der Stellenanzeige als deine Kenntnisse übernommen: {terms}.}}",
+      "saveFailed": "Deine Antwort konnte nicht gespeichert werden. Bitte versuche es noch einmal."
+    }
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",
@@ -1254,6 +1262,12 @@
       "undo": "Rückgängig",
       "dismiss": "Ausblenden",
       "failed": "Das hat nicht geklappt. Bitte versuche es erneut."
+    },
+    "skillConfirmation": {
+      "byYou": "Von dir bestätigt am {date} · Wortlaut aus der Stellenanzeige {posting}",
+      "byAgent": "Über deinen Agenten bestätigt am {date} · Wortlaut aus der Stellenanzeige {posting}",
+      "aliasByYou": "„{name}“ von dir bestätigt · Wortlaut aus der Stellenanzeige {posting}",
+      "aliasByAgent": "„{name}“ über deinen Agenten bestätigt · Wortlaut aus der Stellenanzeige {posting}"
     }
   },
   "health": {

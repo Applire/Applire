@@ -427,7 +427,15 @@
     "turnSlow": "This is taking longer than usual ({seconds} s). Keep this page open — if it does not work, your answer stays here and you can send it again.",
     "completionOpenNames": "Still open: {names}{more, plural, =0 {} other { and # more}}",
     "completionOpenRequirements": "{count, plural, one {# requirement is still open} other {# requirements are still open}}. Your answers are saved to your profile.",
-    "openRequirementsStat": "{count, plural, one {requirement still open} other {requirements still open}}"
+    "openRequirementsStat": "{count, plural, one {requirement still open} other {requirements still open}}",
+    "postingTerms": {
+      "title": "One more question before your CV is written",
+      "intro": "The job posting uses these terms. You have never used them yourself, but going by your profile they apply to you. Tick the ones you would name as your own skill.",
+      "yourWords": "In your words so far",
+      "footnote": "Ticked terms are added to your profile as skills and may appear in your CV. Anything you leave unticked never appears there as your skill; your own words stay.",
+      "receipt": "{count, plural, one {# term from the job posting added as your skill: {terms}.} other {# terms from the job posting added as your skills: {terms}.}}",
+      "saveFailed": "Your answer could not be saved. Please try again."
+    }
   },
   "cv": {
     "generating": "Generating CV…",
@@ -1254,6 +1262,12 @@
       "undo": "Undo",
       "dismiss": "Dismiss",
       "failed": "That did not work. Please try again."
+    },
+    "skillConfirmation": {
+      "byYou": "Confirmed by you on {date} · worded as in the job posting {posting}",
+      "byAgent": "Confirmed via your agent on {date} · worded as in the job posting {posting}",
+      "aliasByYou": "“{name}” confirmed by you · worded as in the job posting {posting}",
+      "aliasByAgent": "“{name}” confirmed via your agent · worded as in the job posting {posting}"
     }
   },
   "health": {

@@ -37,6 +37,7 @@ import {
 } from "@/lib/profile-entries";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { AliasChips } from "@/components/profile/AliasChips";
+import { SkillConfirmationLines } from "@/components/profile/SkillConfirmationLines";
 import { StatusBadge } from "./StatusBadge";
 
 const PROFICIENCY_VALUES = ["basic", "intermediate", "advanced", "expert"] as const;
@@ -319,6 +320,10 @@ export function SkillsEditor({ entries, apiBase, profileUpdatedAt, onProfileUpda
           prefix={s.name}
           apiBase={apiBase} profileUpdatedAt={profileUpdatedAt} onProfileUpdated={onProfileUpdated}
         />
+      ))}
+      {/* Sorbet WP-Q10 — a posting term the person confirmed says where it came from. */}
+      {entries.map((s, i) => (
+        <SkillConfirmationLines key={`conf-${i}`} skill={s} />
       ))}
 
       <button
