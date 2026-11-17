@@ -615,6 +615,9 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
         "cluster_coverage.open_concepts",
     ],
     "resolve_gap": ["gap_id", "question_asked", "open_concepts", "follow_up_question"],
+    # Sorbet WP-Q10: the terms are the posting's words; `their_words` is the
+    # person's own vault text and is not marked.
+    "posting_terms": ["terms[].term", "left_open", "confirmed"],
     "submit_claims": ["ledger_upgraded", "results[].detail"],
     "flow": ["job_summary.role_title"],
     "application": ["company_name", "role_title"],
@@ -1436,6 +1439,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
     admits="model_work",
     description=(
         "Generate a tailored CV for the given job; blocks until done. "
+        "'needs_confirmation': ask the person, then confirm_posting_terms. "
         "'ready' is not 'verified': "
         "read get_cv_ats_report. Optional target_pages pins the page count "
         f"for this generation ({DEFAULT_REGION}: "
@@ -1453,6 +1457,11 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
     async with get_db() as db:
         # MD-23: posting access is the door's check (ADR-092 cl. 5c).
         await _owned_job(db, jid)
+        # Sorbet WP-Q10 (ruling Q10-6): the posting's terms the person never
+        # used are put to the person before the CV — through their agent.
+        envelope = await _posting_terms_envelope(db, jid, uid)
+        if envelope is not None:
+            return envelope
         try:
             result = await cv_svc.generate_cv(
                 jid,
@@ -1469,6 +1478,62 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
         except Exception as exc:
             raise internal_unexpected(exc, where="generate_cv")
     return result.model_dump(mode="json")
+
+
+_POSTING_TERMS_ASK = (
+    "The job posting uses these terms. They never used them, but their profile "
+    "covers them. Which would they name as their own skill?"
+)
+
+
+async def _posting_terms_envelope(db, jid, uid) -> dict | None:
+    """The `needs_confirmation` result while posting terms are unanswered and not
+    left open by the agent; ``None`` when generation may proceed."""
+    from applire.services.posting_term_answer import posting_terms_state
+
+    state = await posting_terms_state(db, jid, uid)
+    ask = state.agent_must_ask
+    if not ask:
+        return None
+    return _marked({
+        "status": "needs_confirmation",
+        "kind": "posting_terms",
+        "job_id": str(jid),
+        "ask_the_person": _POSTING_TERMS_ASK,
+        "terms": ask,
+        "next": "confirm_posting_terms",
+    }, "posting_terms")
+
+
+@agent_tool(
+    description=(
+        "Answer generate_cv's posting_terms question. confirmed: only terms "
+        "the PERSON said are theirs (become profile skills, origin agent). "
+        "leave_open=true: you could not ask; generation proceeds, the web app "
+        "still asks."
+    )
+)
+async def confirm_posting_terms(
+    job_id: str, confirmed: list[str] | None = None, leave_open: bool = False
+) -> dict:
+    from applire.services.posting_term_answer import UnknownTerms, answer_posting_terms
+
+    jid = _parse_uuid(job_id, "job_id")
+    uid = await _current_user_id()
+    async with get_db() as db:
+        await _owned_job(db, jid)
+        try:
+            state = await answer_posting_terms(
+                db, jid, uid, confirmed=list(confirmed or []), via="agent",
+                leave_open=leave_open,
+            )
+        except UnknownTerms as exc:
+            raise invalid_input(str(exc))
+        except LookupError as exc:
+            raise not_found(str(exc))
+    out = state.as_dict()
+    out["may_generate"] = not state.agent_must_ask
+    return _marked(out, "posting_terms")
 
 
 @agent_tool(

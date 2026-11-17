@@ -649,6 +649,20 @@ _PROFICIENCY_ALIASES: dict[str, str] = {
 }
 
 
+class SkillConfirmation(BaseModel):
+    """Sorbet WP-Q10 (ruling Q10-4/Q10-6, ADR-046 amended 2026-11-17): the person
+    confirmed a job posting's term as their own skill — on the card before the CV
+    (``via="person"``) or through their agent (``via="agent"``). ``name`` is the
+    wording confirmed (the skill's own name, or the second name it added);
+    ``posting`` is the application's company/role label at the time."""
+
+    name: str
+    via: Literal["person", "agent"]
+    on: date
+    posting: str | None = None
+    job_id: str | None = None
+
+
 class Skill(BaseModel):
     # ADR-077 clause 1 — a fact pin addresses a vault entry by id, so every
     # pinnable type carries the WorkEntry persisted-id pattern. The factory
@@ -721,15 +735,23 @@ class Skill(BaseModel):
     # ADR-046 amended 2026-10-07 (#709) — "Machine Learning" for
     # "Maschinelles Lernen", as an import wrote it.
     aliases: list[str] = Field(default_factory=list)
+    # Sorbet WP-Q10 (ADR-046 am. 2026-11-17): where a confirmed posting term came
+    # from. Absent while empty, so a profile without one dumps byte-identically.
+    confirmations: list[SkillConfirmation] = Field(default_factory=list)
 
     @field_validator("aliases", mode="before")
     @classmethod
     def _coerce_aliases(cls, v: object) -> list:
         return _coerce_alias_list(v)
 
+    @field_validator("confirmations", mode="before")
+    @classmethod
+    def _coerce_confirmations(cls, v: object) -> list:
+        return v if isinstance(v, list) else []
+
     @model_serializer(mode="wrap")
     def _omit_empty_aliases(self, handler: Any) -> Any:
-        return _omit_empty_alias_lists(handler(self), ("aliases",))
+        return _omit_empty_alias_lists(handler(self), ("aliases", "confirmations"))
 
     @model_validator(mode="before")
     @classmethod

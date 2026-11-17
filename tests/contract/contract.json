@@ -124,6 +124,33 @@
         ]
       }
     },
+    "confirm_posting_terms": {
+      "confirmed": {
+        "required": false,
+        "types": [
+          "array",
+          "null"
+        ]
+      },
+      "confirmed[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "job_id": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "leave_open": {
+        "required": false,
+        "types": [
+          "boolean"
+        ]
+      }
+    },
     "create_application": {
       "company_name": {
         "required": false,
@@ -753,6 +780,7 @@
     "0087",
     "0088",
     "0089",
-    "0090"
+    "0090",
+    "0091"
   ]
 }
