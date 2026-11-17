@@ -119,7 +119,11 @@ def test_the_echo_drop_unties_a_term_the_ledger_bridge_would_tie():
 
 
 def test_the_narrative_restore_never_puts_the_term_back_from_a_bullet():
-    cv = _cv(["Kafka"], bullets=("Owned application observability for all services.", QUOTE))
+    cv = _cv(["Kafka"], bullets=("Owned observability for all tracking services.",))
+    # unstamped (the person ticked it), the bullet's word goes on the list — the
+    # restore grounds it through the row's held sibling form "Prometheus"
+    before = cv_mod._restore_narrative_named_skills(cv, VAULT, _ledger(stamped=False), document_language="en")
+    assert "Observability" in before.skills
     out = cv_mod._restore_narrative_named_skills(cv, VAULT, _ledger(), document_language="en")
     assert not any("bservability" in s for s in out.skills)
 
@@ -196,6 +200,14 @@ def test_a_second_name_grounds_its_chip():
     vault["skills"][0]["aliases"] = ["Observability"]
     v = _chip(_audit(["Observability"], vault=vault), "Observability")
     assert v["verdict"] == "grounded" and v.get("detail_key") != "postingSkillNotHeld"
+
+
+def test_a_second_name_is_vault_evidence_on_its_own():
+    """No ledger row ties it: only the alias itself can ground the chip."""
+    vault = copy.deepcopy(VAULT)
+    vault["skills"][0]["aliases"] = ["Monitoring stack"]
+    assert _chip(_audit(["Monitoring stack"], ledger=[]), "Monitoring stack")["verdict"] != "grounded"
+    assert _chip(_audit(["Monitoring stack"], vault=vault, ledger=[]), "Monitoring stack")["verdict"] == "grounded"
 
 
 def test_across_languages_the_chip_is_not_read():
