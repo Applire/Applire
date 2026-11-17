@@ -37,9 +37,12 @@ term asks the person one extra line. Every clause is closed and needle-directed.
 """
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 #: The row keys :func:`stamp_posting_terms_open` writes. Absent = no marker.
 POSTING_TERM_OPEN_KEY = "posting_term_open"
@@ -61,8 +64,42 @@ _DEFINES = (
 #: "Percentage of Completion (POC)": the initials of the words before the
 #: bracket must spell the acronym.
 _BRACKETED = re.compile(r"((?:[\wÄÖÜäöüß][\w-]*\s+){0,7}[\wÄÖÜäöüß][\w-]*)\s*\(\s*([A-ZÄÖÜ]{2,6})\s*\)")
-#: A coordination inside one concept: "FastAPI / Django", "SAP & Excel", "A und B".
-_COORDINATION = re.compile(r"\s+/\s+|\s*&\s*|\s+(?:und|and)\s+", re.IGNORECASE)
+#: A coordination inside one concept: "FastAPI / Django", "SAP & Excel", "A und B",
+#: "Kafka, RabbitMQ", "Python oder Go", "FastAPI/Django". Names that carry the
+#: same characters stay whole: an unspaced "&" ("R&D") and an unspaced "/"
+#: between short or upper-case sides ("CI/CD", "SAP CO/FI", "TCP/IP", "UI/UX").
+_COORDINATION = re.compile(r"\s+/\s+|\s*,\s+|\s+&\s+|\s+(?:und|and|oder|or)\s+", re.IGNORECASE)
+#: An unspaced slash coordinates two NAMES only: each adjacent word has ≥ 4
+#: letters and a lower-case letter ("FastAPI/Django", "Kafka/RabbitMQ").
+_UNSPACED_SLASH = re.compile(r"(?<=\S)/(?=\S)")
+_NAME_SIDE = re.compile(r"^(?=.*[a-zäöüß])[\wÄÖÜäöüß.+#-]{4,}$")
+
+
+def _split_unspaced_slash(chunk: str) -> list[str]:
+    pieces = _UNSPACED_SLASH.split(chunk)
+    if len(pieces) < 2:
+        return [chunk]
+    left_words = [p.split()[-1] if p.split() else "" for p in pieces[:-1]]
+    right_words = [p.split()[0] if p.split() else "" for p in pieces[1:]]
+    if all(_NAME_SIDE.match(w) for w in left_words + right_words) and not any(
+        w.endswith("-") for w in left_words
+    ):
+        return pieces
+    return [chunk]
+
+
+def coordination_parts(term: str) -> list[str]:
+    """The parts of a coordinated concept (≥ 2), or ``[]`` when *term* is one
+    name. The unspaced slash splits only between two word-like sides ("FastAPI/
+    Django"), never inside an acronym pair ("CI/CD", "CO/FI", "TCP/IP")."""
+    text = _nfc(term).strip()
+    if not text or _SUSPENDED.search(text):
+        return []  # "Monats- und Jahresabschluss": one word, read by clause (d)
+    parts: list[str] = []
+    for chunk in _COORDINATION.split(text):
+        parts.extend(_split_unspaced_slash(chunk))
+    parts = [p.strip() for p in parts if p and p.strip()]
+    return parts if len(parts) >= 2 else []
 
 
 def _nfc(text: Any) -> str:
@@ -179,8 +216,8 @@ class _Reader:
             return True
         if self._suspended_term_held(word):
             return True
-        parts = [p for p in _COORDINATION.split(word) if p.strip()]
-        return len(parts) >= 2 and all(self.held(p) for p in parts)
+        parts = coordination_parts(word)
+        return bool(parts) and all(self.held(p) for p in parts)
 
     def _suspended_term_held(self, word: str) -> bool:
         """A term written with a suspended hyphen ("Monats- und Jahresabschluss-
@@ -230,6 +267,33 @@ def posting_term_rows(
     if not reader.corpus:
         return []
     return [e for e in ledger if _reads_row(e) and not reader.held(e["concept"])]
+
+
+def is_offerable(row: dict[str, Any], profile_json: dict[str, Any] | None, reader: Any = None) -> bool:
+    """May the card (and the agent) offer *row*'s concept as ONE tick? Not a
+    coordination that mixes a held part with an unheld one ("FastAPI / Django"
+    for a person who wrote only Django): the person's own word covers one part,
+    so the profile does not show the other, and a tick would write a skill that
+    attests it. Such a row stays stamped open — never a chip — and is simply not
+    asked. A one-name term, or a coordination of parts none of which is held, is
+    offered like any term."""
+    parts = coordination_parts(row.get("concept") or "")
+    if not parts:
+        return True
+    reader = reader or _Reader(profile_json or {})
+    return not any(reader.held(p) for p in parts)
+
+
+def offered_posting_term_rows(
+    ledger: list[dict[str, Any]] | None, profile_json: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """The posting-term rows the card and the agent put to the person:
+    :func:`posting_term_rows` minus the mixed coordinations (:func:`is_offerable`)."""
+    rows = posting_term_rows(ledger, profile_json)
+    if not rows:
+        return []
+    reader = _Reader(profile_json or {})
+    return [r for r in rows if is_offerable(r, profile_json, reader)]
 
 
 def unheld_forms(row: dict[str, Any], profile_json: dict[str, Any] | None) -> list[str]:
@@ -313,28 +377,94 @@ def chip_posting_term(chip: str, ledger: list[dict[str, Any]] | None) -> str | N
     return None
 
 
-def same_language_pair(profile_json: dict[str, Any] | None, document_language: str | None) -> bool:
-    """The Oracle's own fact about the pair (``holds_other_language``, ADR-068):
-    True when the vault states its evidence in *document_language*. An unknown
-    language fails CLOSED here (no list), unlike the Oracle's open default: a
-    list built on an unknown pair could suppress a faithful translation."""
+def language_pair_reading(
+    profile_json: dict[str, Any] | None, document_language: str | None
+) -> dict[str, Any]:
+    """The pair fact the list is gated on, with its counts (no profile text).
+
+    Same as the Oracle's ``holds_other_language`` (ADR-068: the vault's dominant
+    language, then the share of its long units in the other language, threshold
+    ``OTHER_LANGUAGE_MIN_SHARE``) with ONE difference, measured on every captured
+    vault (WP-Q10 fix round): a long unit casts a language vote only on positive
+    evidence. ``detect_language`` breaks a tie toward German, so an English noun
+    phrase with no function word ("AWS Certified Solutions Architect –
+    Associate", "Keeping approximately 40k logistics users' shipments flowing")
+    counted as German and took an English vault to 0.214 — the list vanished. A
+    unit whose scores tie votes for neither language here.
+
+    ``same`` is False on an unknown language or a missing vault: fail CLOSED (no
+    list), since a list on an unknown pair could suppress a faithful translation.
+    """
+    reading: dict[str, Any] = {
+        "same": False, "reason": "unknown_language", "document_language": document_language,
+        "dominant_language": None, "long_units": 0, "decided_units": 0, "other_share": None,
+    }
     if not isinstance(profile_json, dict) or document_language not in ("de", "en"):
-        return False
-    from applire.services.oracle.matchers.vault import build_vault_index, holds_other_language
+        return reading
+    from applire.services.oracle.matchers.vault import (
+        OTHER_LANGUAGE_MIN_SHARE,
+        OTHER_LANGUAGE_MIN_WORDS,
+        build_vault_index,
+    )
+    from applire.utils.language_detection import language_scores
 
     try:
-        return not holds_other_language(build_vault_index(profile_json), document_language)
+        index = build_vault_index(profile_json)
     except Exception:  # pragma: no cover — defensive: no list, today's behaviour
-        return False
+        reading["reason"] = "index_failed"
+        return reading
+    reading["dominant_language"] = index.dominant_language
+    if index.dominant_language != document_language:
+        reading["reason"] = "dominant_language_differs"
+        return reading
+    other = "en" if document_language == "de" else "de"
+    long_units = [u.text for u in index.units if len(u.text.split()) >= OTHER_LANGUAGE_MIN_WORDS]
+    votes = []
+    for text in long_units:
+        de, en = language_scores(text)
+        if de != en:
+            votes.append("de" if de > en else "en")
+    share = votes.count(other) / len(votes) if votes else 0.0
+    reading.update(long_units=len(long_units), decided_units=len(votes), other_share=round(share, 3))
+    if share >= OTHER_LANGUAGE_MIN_SHARE:
+        reading["reason"] = "mixed_vault"
+        return reading
+    reading.update(same=True, reason="same_language")
+    return reading
+
+
+def same_language_pair(
+    profile_json: dict[str, Any] | None,
+    document_language: str | None,
+    *,
+    seam: str | None = None,
+    job_id: Any = None,
+) -> bool:
+    """True when the vault states its evidence in *document_language*
+    (:func:`language_pair_reading`). When the gate withholds the list, one INFO
+    line says so — ids, languages and counts only, never profile text — so a
+    suppression is countable in the log instead of silent."""
+    reading = language_pair_reading(profile_json, document_language)
+    if not reading["same"] and seam is not None:
+        logger.info(
+            "posting terms: list withheld seam=%s job=%s reason=%s doc=%s dominant=%s "
+            "long_units=%s decided=%s other_share=%s",
+            seam, job_id, reading["reason"], reading["document_language"],
+            reading["dominant_language"], reading["long_units"], reading["decided_units"],
+            reading["other_share"],
+        )
+    return reading["same"]
 
 
 def stamp_for_generation(
     ledger: list[dict[str, Any]] | None,
     profile_json: dict[str, Any] | None,
     document_language: str | None,
+    *,
+    seam: str = "generation",
+    job_id: Any = None,
 ) -> list[dict[str, Any]]:
     """THE generation-seam call (CV and letter): :func:`stamp_posting_terms_open`
     with the pair's language fact."""
-    return stamp_posting_terms_open(
-        ledger, profile_json, same_language=same_language_pair(profile_json, document_language)
-    )
+    same = same_language_pair(profile_json, document_language, seam=seam, job_id=job_id)
+    return stamp_posting_terms_open(ledger, profile_json, same_language=same)

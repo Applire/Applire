@@ -4712,7 +4712,8 @@ async def _render_cv_background(
                 from applire.services.posting_terms import stamp_for_generation
 
                 keyword_ledger = stamp_for_generation(
-                    keyword_ledger, profile.profile_json if profile else None, document_language
+                    keyword_ledger, profile.profile_json if profile else None, document_language,
+                    seam="cv generation", job_id=job_id,
                 )
 
                 # ADR-092 cl. 5(f): the title the writer targets is the one THIS

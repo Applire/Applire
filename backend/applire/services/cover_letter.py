@@ -1588,7 +1588,8 @@ async def _render_cover_letter_body(
                 from applire.services.posting_terms import stamp_for_generation
 
                 keyword_ledger = stamp_for_generation(
-                    keyword_ledger, profile.profile_json if profile else None, detected_language
+                    keyword_ledger, profile.profile_json if profile else None, detected_language,
+                    seam="letter generation", job_id=job_id,
                 )
 
                 # E048/US264 (ADR-057 amended 2026-07-24 / ADR-058 exception (a)): deterministic,

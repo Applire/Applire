@@ -29,7 +29,7 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.services.posting_terms import posting_term_rows, same_language_pair, their_words
+from applire.services.posting_terms import offered_posting_term_rows, same_language_pair, their_words
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,8 @@ def compute_state(
     profile_json: dict[str, Any] | None,
     document_language: str | None,
     record: dict[str, Any] | None,
+    *,
+    job_id: Any = None,
 ) -> PostingTermsState:
     """Pure: the list the card shows, from the LAST full classification read
     against the CURRENT vault, minus what this application already declined.
@@ -113,10 +115,10 @@ def compute_state(
         confirmed=[t for t in record.get("confirmed") or [] if isinstance(t, str)],
         answered_at=record.get("answered_at"), language=document_language,
     )
-    if not same_language_pair(profile_json, document_language):
+    if not same_language_pair(profile_json, document_language, seam="posting terms", job_id=job_id):
         return state
     gone = {_key(t) for t in declined}
-    for row in posting_term_rows(ledger, profile_json):
+    for row in offered_posting_term_rows(ledger, profile_json):
         term = row["concept"].strip()
         if _key(term) in gone or any(_key(t["term"]) == _key(term) for t in state.terms):
             continue
@@ -139,7 +141,8 @@ async def posting_terms_state(
             gap.keyword_ledger, profile_json, seam="posting terms"
         )
     return compute_state(
-        ledger, profile_json, resolve_document_language(application, job), _record(application)
+        ledger, profile_json, resolve_document_language(application, job), _record(application),
+        job_id=job_id,
     )
 
 
