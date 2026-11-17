@@ -166,7 +166,13 @@ def add_confirmed_skills(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Pure: the skills section with each confirmed term as a NEW confirmed skill
     carrying its confirmation. A term already a skill name (case-blind) gets the
-    confirmation only — never a second entry."""
+    confirmation only — never a second entry. A term the existing near-duplicate
+    check calls close to a held skill becomes that skill's second name (ruling
+    Q10-1 = A: "close" is ``ats_audit.skills_near_dupe``, unchanged). In practice
+    this branch is rare: a near-dupe of a held skill is already the person's word
+    and is not asked, so it fires only when the skills changed in between."""
+    from applire.services.ats_audit import skills_near_dupe
+
     out = [dict(s) if isinstance(s, dict) else s for s in skills]
     added: list[str] = []
     for term in terms:
@@ -174,7 +180,17 @@ def add_confirmed_skills(
         existing = next(
             (s for s in out if isinstance(s, dict) and _key(s.get("name") or "") == _key(term)), None
         )
-        if existing is not None:
+        close = None if existing is not None else next(
+            (s for s in out if isinstance(s, dict) and s.get("name")
+             and skills_near_dupe(term, str(s["name"]))), None
+        )
+        if close is not None:
+            aliases = list(close.get("aliases") or [])
+            if _key(term) not in {_key(a) for a in aliases}:
+                aliases.append(term)
+            close["aliases"] = aliases
+            close["confirmations"] = [*(close.get("confirmations") or []), conf]
+        elif existing is not None:
             existing["confirmations"] = [*(existing.get("confirmations") or []), conf]
             if existing.get("status") != "confirmed":
                 existing["status"] = "confirmed"

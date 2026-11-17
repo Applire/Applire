@@ -358,3 +358,18 @@ async def test_the_posting_label_is_never_the_persons_word(db):
     profile = await _profile(db)
     assert "Lieferkette GmbH" in json.dumps(profile, ensure_ascii=False)
     assert "lieferkette" not in profile_literal_corpus(profile)
+
+
+def test_a_term_close_to_a_held_skill_becomes_its_second_name():
+    """Ruling Q10-1 = A: "close" is the existing near-duplicate check, unchanged."""
+    from applire.services.posting_term_answer import add_confirmed_skills
+
+    skills = [{"name": "Infrastructure as Code (IaC)", "status": "confirmed"}, {"name": "Kafka"}]
+    out, added = add_confirmed_skills(
+        skills, ["Infrastructure as code", "Observability"], via="person",
+        posting="Lieferkette GmbH", job_id="j", today=date(2026, 11, 17))
+    iac = out[0]
+    assert iac["aliases"] == ["Infrastructure as code"]
+    assert [c["name"] for c in iac["confirmations"]] == ["Infrastructure as code"]
+    assert [s["name"] for s in out] == ["Infrastructure as Code (IaC)", "Kafka", "Observability"]
+    assert added == ["Infrastructure as code", "Observability"]
