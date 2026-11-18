@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import importlib.util
+import json
 import logging
 import socket
 import uuid
@@ -187,6 +188,20 @@ async def _posting_term_answer(db):
 #: page address sign-in returns to, typed search text, link and API tokens.
 #: Named here, not read from ``auth/logfilter.py``, so a parameter dropped from
 #: the redaction lists fails this test.
+#: Text in the path: a route that does not exist, path parameters that are
+#: not ids, a mounted app; and one id that is shown.
+SHOWN_ID = "6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71"
+PATH_TARGETS = (
+    f"/api/nonexistent/{CANARY}",
+    f"/api/applications/{CANARY}%EF%BF%BD",
+    f"/api/applications/{SHOWN_ID}{CANARY}",
+    f"/api/profile/{CANARY}",
+    f"/api/cv/{SHOWN_ID}/sections/{CANARY}/x",
+    f"/static/{CANARY}.css",
+    f"/{CANARY}",
+    f"/api/applications/{SHOWN_ID}",
+)
+
 REQUEST_PARAMS = (
     "q", "next", "code", "state", "sig", "token", "access_token", "setup_token",
     # a name the application decodes to ``q``/``code``, names it never reads
@@ -212,7 +227,7 @@ async def _access_log_requests():
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(FastAPI(), log_config=None, lifespan="off"))
+    server = uvicorn.Server(uvicorn.Config(applire.main.app, log_config=None, lifespan="off"))
     task = asyncio.create_task(server.serve(sockets=[sock]))
     try:
         while not server.started:
@@ -222,6 +237,8 @@ async def _access_log_requests():
                 await client.get(f"/api/auth/oidc/callback?{name}={CANARY}&exp=1")
             await client.get(f"/api/auth/oidc/start?next=%2Fdashboard%3Fjd_text%3D{CANARY}")
             await client.get(SMUGGLING_TARGET)
+            for path in PATH_TARGETS:
+                await client.get(path)
     finally:
         server.should_exit = True
         await task
@@ -310,13 +327,20 @@ MCP_LINES = (
     '"arguments":{"text":"%s \\ud800 Ende"}}}' % CANARY,
     '{"jsonrpc":"2.0","id":42,"method":"ping"}',
     "kein JSON %s" % CANARY,
+    # an id the parser never reaches: a byte that is not JSON after it
+    '{"jsonrpc":"2.0","id":43,"method":"tools/call","params":\xff %s}' % CANARY,
+    '[{"jsonrpc":"2.0","id":44,"method":"ping"}, "%s"]' % CANARY,
+    # a notification and a reply from the agent: never answered
+    '{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"%s \ud800"}}' % CANARY,
+    '{"jsonrpc":"2.0","id":99,"result":{"x":"%s \ud800"}}' % CANARY,
 )
 MCP_REPLIES: list[dict] = []
 
 
 async def _mcp_unreadable_line():
-    """The agent channel's stdio transport, fed an unreadable request, a ping and
-    a line that is not JSON, in front of the real tool server."""
+    """The agent channel's stdio transport, fed an unreadable request, a ping,
+    lines that are not JSON or not a request, a notification and a reply, in
+    front of the real tool server."""
     import io
     import json
 
@@ -426,8 +450,20 @@ async def test_at_info_no_record_and_no_file_holds_the_canary(db, monkeypatch, t
     await _all_paths(db)
 
     assert stream, "the paths logged nothing at INFO — the test would be blind"
-    access = [line for line in stream if line.startswith("INFO uvicorn.access") and "/api/auth/oidc/" in line]
+    all_access = [line for line in stream if line.startswith("INFO uvicorn.access")]
+    access = [line for line in all_access if "/api/auth/oidc/" in line]
     assert len(access) == len(REQUEST_PARAMS) + 2, "the request arm wrote no access lines"
+    paths = [line.split('"')[1] for line in all_access if "/api/auth/oidc/" not in line and '"GET ' in line]
+    assert paths == [
+        "GET [no route] HTTP/1.1",
+        "GET /api/applications/{application_id} HTTP/1.1",
+        "GET /api/applications/{application_id} HTTP/1.1",
+        "GET /api/profile/{section} HTTP/1.1",
+        f"GET /api/cv/{SHOWN_ID}/sections/{{section_id}} HTTP/1.1",
+        "GET /static/{path} HTTP/1.1",
+        "GET [no route] HTTP/1.1",
+        f"GET /api/applications/{SHOWN_ID} HTTP/1.1",
+    ], paths
     assert all("[redacted]" in line for line in access)
     smuggled = [line for line in access if "cursor=" in line]
     assert len(smuggled) == 1 and all(
@@ -445,11 +481,14 @@ async def test_at_info_no_record_and_no_file_holds_the_canary(db, monkeypatch, t
     assert len(UNHANDLED_IDS) == 1 and f"[error_id={UNHANDLED_IDS[0]}]" in asgi[0]
     assert [line for line in SERVER_LINES if CANARY in line] == []
     # The agent gets an error reply for the unreadable request and its ping answered.
-    by_id = {r.get("id"): r for r in MCP_REPLIES}
+    by_id = {r.get("id"): r for r in MCP_REPLIES if r.get("id") is not None}
     assert by_id[41]["error"]["code"] == -32602 and by_id[42]["result"] == {}
-    assert len(MCP_REPLIES) == 2
+    nulls = sorted(r["error"]["code"] for r in MCP_REPLIES if r.get("id", "absent") is None)
+    assert nulls == [-32700, -32700, -32600]  # two lines not JSON, one batch
+    assert len(MCP_REPLIES) == 5  # the notification and the agent's reply get none
+    assert all(CANARY not in json.dumps(r) for r in MCP_REPLIES)
     refused = [line for line in stream if "MCP message refused" in line]
-    assert len(set(refused)) == 2  # the fixture sees an applire record on both loggers
+    assert len(set(refused)) == 6  # one per unreadable line, each with its own id
     foreign = [line for line in stream if not line.startswith("INFO") and line.split(" ", 2)[1] in ("mcp.server.lowlevel.server", "root", "asyncio")]
     assert len(foreign) == 3 and all("[error_id=" in line for line in foreign)
     assert not content_dir.exists() and not llm_dir.exists()

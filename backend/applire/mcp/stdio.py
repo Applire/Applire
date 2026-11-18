@@ -4,10 +4,18 @@
 
 The same transport as the MCP SDK's ``stdio_server`` (one JSON-RPC message per
 line on stdin, one per line on stdout), with one difference: a line that is not
-a readable JSON-RPC message is answered here. A request whose id can be read
-gets a JSON-RPC error reply (``-32602``) at once, so the agent is never left
-waiting; the log line names the refusal and the error id, and the line itself
-is a content line at DEBUG (ADR-087 cl. 9 amended 2026-11-18).
+a readable JSON-RPC message is answered here, as JSON-RPC 2.0 prescribes, so
+the agent is never left waiting:
+
+* not JSON at all → parse error ``-32700`` with ``id: null``;
+* JSON that is not a request object (no ``method``, not an object, a batch) and
+  carries no id → invalid request ``-32600`` with ``id: null``;
+* a request whose id can be read but whose content cannot → ``-32602`` with
+  that id;
+* a notification (``method``, no id) or a reply from the agent → no answer.
+
+No answer echoes the line. The log line names the refusal and the error id;
+the line itself is a content line at DEBUG (ADR-087 cl. 9 amended 2026-11-18).
 """
 
 from __future__ import annotations
@@ -36,29 +44,59 @@ UNREADABLE_MESSAGE = (
 )
 
 
-def _request_id(line: str) -> int | str | None:
+PARSE_ERROR = -32700
+INVALID_REQUEST = -32600
+
+
+class RawLine:
+    """A reply written as it is (an error whose id is ``null``, which the SDK's
+    message types cannot carry)."""
+
+    __slots__ = ("text",)
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+def _null_id_error(code: int, message: str, error_id: str) -> RawLine:
+    return RawLine(json.dumps({
+        "jsonrpc": "2.0", "id": None,
+        "error": {"code": code, "message": message, "data": {"error_id": error_id}},
+    }))
+
+
+def _classify(line: str) -> tuple[str, int | str | None]:
+    """``("parse", None)`` | ``("invalid", None)`` | ``("request", id)`` | ``("silent", None)``."""
     try:
         raw = json.loads(line)
-    except Exception:  # noqa: BLE001 — not JSON at all: no id to answer
-        return None
-    if not isinstance(raw, dict) or "method" not in raw:
-        return None
+    except Exception:  # noqa: BLE001 — not JSON at all
+        return "parse", None
+    if not isinstance(raw, dict):
+        return "invalid", None
     rid = raw.get("id")
-    if isinstance(rid, bool) or not isinstance(rid, (int, str)):
-        return None
-    return rid
+    readable = not isinstance(rid, bool) and isinstance(rid, (int, str))
+    if "method" in raw:
+        if readable:
+            return "request", rid
+        return ("silent", None) if "id" not in raw else ("invalid", None)
+    # no method: a reply from the agent (answered never) or nothing at all
+    return ("silent", None) if "id" in raw else ("invalid", None)
 
 
-def refusal_for(line: str, exc: Exception) -> SessionMessage | None:
-    """Log the refusal; return the error reply when the line names a request id."""
+def refusal_for(line: str, exc: Exception) -> SessionMessage | RawLine | None:
+    """Log the refusal; return the JSON-RPC error reply the line calls for."""
     error_id = new_error_id()
-    rid = _request_id(line)
+    kind, rid = _classify(line)
     logger.warning(
         "MCP message refused: not a readable JSON-RPC message [%s] [error_id=%s] [reply=%s]",
-        type(exc).__name__, error_id, "sent" if rid is not None else "none (no request id)",
+        type(exc).__name__, error_id, "none (notification or reply)" if kind == "silent" else "sent",
     )
     _clog.debug("MCP message refused [error_id=%s]: %s", error_id, scrub_secrets(f"{exc}\n{line}"))
-    if rid is None:
+    if kind == "parse":
+        return _null_id_error(PARSE_ERROR, "Parse error: the line is not JSON.", error_id)
+    if kind == "invalid":
+        return _null_id_error(INVALID_REQUEST, "Invalid request: not a JSON-RPC request object.", error_id)
+    if kind == "silent":
         return None
     error = types.JSONRPCError(
         jsonrpc="2.0",
@@ -98,7 +136,10 @@ async def stdio_server(stdin=None, stdout=None):
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    data = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                    if isinstance(session_message, RawLine):
+                        data = session_message.text
+                    else:
+                        data = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
                     await stdout.write(data + "\n")
                     await stdout.flush()
         except anyio.ClosedResourceError:  # pragma: no cover

@@ -88,18 +88,6 @@ def _provider_unavailable_detail() -> dict:
     }
 
 
-def _internal_error_detail() -> dict:
-    """#256 — the catch-all 500 body. Full detail is always logged server-side
-    via ``logger.exception`` immediately before this is raised; the response
-    itself must never carry raw exception text (a provider crash's str(exc)
-    can embed the raw provider JSON payload, or — pre-fix — a bare Python
-    TypeError like "'NoneType' object is not subscriptable")."""
-    return {
-        "error_code": "internal_error",
-        "message": "An unexpected error occurred. Please try again.",
-    }
-
-
 @router.post("", response_model=SessionCreateResponse, status_code=status.HTTP_201_CREATED)
 async def start_session(
     body: SessionCreateRequest,
@@ -143,12 +131,7 @@ async def start_session(
             detail="LLM returned invalid JSON",
         )
     except Exception as exc:
-        logger.error("create_session failed for job %s: %s", body.job_id, type(exc).__name__)
-        clog.debug("create_session failed for job %s", body.job_id, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_internal_error_detail(),
-        )
+        raise internal_server_error(exc, where="session.create_session", logger=logger)
 
 
 @router.post(
@@ -180,12 +163,7 @@ async def start_profile_review_session(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
-        logger.error("create_profile_review_session failed: %s", type(exc).__name__)
-        clog.debug("create_profile_review_session failed", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_internal_error_detail(),
-        )
+        raise internal_server_error(exc, where="session.create_profile_review_session", logger=logger)
 
 
 @router.get(
@@ -236,12 +214,7 @@ async def analyze_session_gaps(
             detail="LLM returned invalid JSON",
         )
     except Exception as exc:
-        logger.error("analyze_session_gaps failed for session %s: %s", session_id, type(exc).__name__)
-        clog.debug("analyze_session_gaps failed for session %s", session_id, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_internal_error_detail(),
-        )
+        raise internal_server_error(exc, where="session.analyze_session_gaps", logger=logger)
 
 
 @router.post(
@@ -269,12 +242,7 @@ async def post_merge_proposal(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:
-        logger.error("merge proposal failed for session %s: %s", session_id, type(exc).__name__)
-        clog.debug("merge proposal failed for session %s", session_id, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_internal_error_detail(),
-        )
+        raise internal_server_error(exc, where="session.merge_proposal", logger=logger)
     return MergeProposalResponse.from_proposal(p)
 
 
@@ -352,9 +320,4 @@ async def post_message(
             detail="LLM returned invalid JSON",
         )
     except Exception as exc:
-        logger.error("post_message failed for session %s: %s", session_id, type(exc).__name__)
-        clog.debug("post_message failed for session %s", session_id, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_internal_error_detail(),
-        )
+        raise internal_server_error(exc, where="session.post_message", logger=logger)

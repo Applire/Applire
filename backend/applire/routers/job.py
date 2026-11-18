@@ -215,19 +215,7 @@ async def downgrade_gap_keyword_liability(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
-        # #265: never format str(exc) into the response — a provider crash's
-        # message can embed a raw provider payload. Full detail is logged
-        # server-side; the client gets a stable machine-readable code (the
-        # #256 convention, applied here so new code adds no new leak).
-        logger.error("keyword-liability downgrade failed for job %s: %s", job_id, type(exc).__name__)
-        clog.debug("keyword-liability downgrade failed for job %s", job_id, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error_code": "internal_error",
-                "message": "An unexpected error occurred. Please try again.",
-            },
-        )
+        raise internal_server_error(exc, where="job.keyword_liability_downgrade", logger=logger)
 
 
 @router.post(

@@ -18,15 +18,24 @@ After a withdrawal no further content line or model-call line is written for
 the person, and no further model call is started for them: running work ends
 at its next model call with ``log_consent_required``; what it stored before
 stays. A database that cannot be read keeps the last known state.
+
+A request or tool call that IS model work (its door admitted it strictly) is
+*watched* (:func:`watching`, :func:`arm`): a refusal at the call seam is noted
+there, so the request boundary answers it as the refusal whatever the code in
+between did with the exception (a broad ``except``, a fallback). A write that
+only layers model work on top is not armed: its write stands, its model step
+is left out.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
-from typing import Iterable
+from contextvars import ContextVar
+from typing import Iterable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +48,48 @@ ACTIVE_WINDOW = 3600.0
 _state: dict[uuid.UUID, tuple[bool, float]] = {}
 #: user id → monotonic time a door last admitted them with a consent
 _active: dict[uuid.UUID, float] = {}
+
+
+class Watch:
+    """One request's or tool call's record of a refusal at the call seam."""
+
+    __slots__ = ("strict", "refusal")
+
+    def __init__(self) -> None:
+        self.strict = False
+        self.refusal = None
+
+    @property
+    def refused(self):
+        """The refusal to answer with, when the work was strict model work."""
+        return self.refusal if self.strict else None
+
+
+_watch: ContextVar[Watch | None] = ContextVar("applire_consent_watch", default=None)
+
+
+@contextlib.contextmanager
+def watching() -> Iterator[Watch]:
+    watch = Watch()
+    token = _watch.set(watch)
+    try:
+        yield watch
+    finally:
+        _watch.reset(token)
+
+
+def arm() -> None:
+    """The current request or tool call is model work (a strict door admitted it)."""
+    watch = _watch.get()
+    if watch is not None:
+        watch.strict = True
+
+
+def note_refused(exc) -> None:
+    """The call seam refused a model call after a withdrawal."""
+    watch = _watch.get()
+    if watch is not None and watch.refusal is None:
+        watch.refusal = exc
 
 
 def _now() -> float:
@@ -136,3 +187,61 @@ async def run_refresher(stop: asyncio.Event | None = None, *, session_factory=No
 def reset_for_tests() -> None:
     _state.clear()
     _active.clear()
+
+
+class RefusalBoundary:
+    """Pure ASGI middleware: an HTTP request that is model work answers a
+    refusal at the call seam as the refusal (``409 log_consent_required``),
+    whatever the code in between made of it: an error answer, a fallback that
+    went on without the model, or an exception. Pure ASGI so the watch set here
+    is the context the route and its dependencies run in."""
+
+    def __init__(self, app) -> None:  # noqa: ANN001 — ASGI app
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:  # noqa: ANN001
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        with watching() as watch:
+            state = {"started": False, "replaced": False}
+
+            async def guarded(message) -> None:  # noqa: ANN001
+                if state["replaced"]:
+                    return  # the original answer's body
+                if message["type"] == "http.response.start":
+                    state["started"] = True
+                    refusal = watch.refused
+                    if refusal is not None and message.get("status") != refusal.status_code:
+                        state["replaced"] = True
+                        await _answer_refusal(send, refusal, scope)
+                        return
+                await send(message)
+
+            try:
+                await self.app(scope, receive, guarded)
+            except Exception:
+                refusal = watch.refused
+                if refusal is None or state["started"]:
+                    raise
+                await _answer_refusal(send, refusal, scope)
+
+
+async def _answer_refusal(send, refusal, scope) -> None:  # noqa: ANN001
+    import json
+
+    route = getattr(scope.get("route"), "path_format", None) or "[no route]"
+    logger.info(
+        "model work refused after a consent withdrawal [route=%s %s] [code=%s]",
+        scope.get("method", "?"), route, refusal.code,
+    )
+    body = json.dumps({"detail": refusal.detail}).encode("utf-8")
+    await send({
+        "type": "http.response.start",
+        "status": refusal.status_code,
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode("ascii")),
+        ],
+    })
+    await send({"type": "http.response.body", "body": body})

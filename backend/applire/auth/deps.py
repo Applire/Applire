@@ -152,9 +152,12 @@ async def admit_model_work(
     user is known and before the provider is built. A refusal answers 409
     ``provider_key_required`` / ``provider_key_unreadable`` (``main.py`` handler).
     The decision it sets is inherited by the request's background tasks."""
+    from applire.services import log_consent_live
     from applire.services.allowance import admit
 
-    return await admit(db, user, "model_work")
+    decision = await admit(db, user, "model_work")
+    log_consent_live.arm()  # a refusal at the call seam answers this request
+    return decision
 
 
 class ModelWorkDoor:
@@ -179,8 +182,13 @@ class ModelWorkDoor:
         return self.refusal is None
 
     def require(self) -> None:
+        """The branch that runs now IS model work: refused → raise; admitted →
+        a refusal at the call seam answers the request (log_consent_live.arm)."""
         if self.refusal is not None:
             raise self.refusal
+        from applire.services import log_consent_live
+
+        log_consent_live.arm()
 
 
 async def try_admit_model_work(

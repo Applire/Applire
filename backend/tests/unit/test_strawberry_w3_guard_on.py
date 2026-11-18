@@ -269,7 +269,10 @@ async def test_a_profile_500_never_echoes_the_exception(async_client, monkeypatc
     )
     assert resp.status_code == 500
     assert secret not in resp.text
-    assert resp.json()["detail"] == "An unexpected error occurred. Please try again."
+    detail = resp.json()["detail"]
+    assert detail["error_code"] == "internal_error"
+    assert detail["message"] == "An unexpected error occurred. Please try again."
+    assert detail["error_id"]  # the id the server log names
 
 
 def test_no_profile_route_echoes_str_exc_in_a_500():

@@ -419,6 +419,12 @@ async def _scrubbed_http_exception_handler(request, exc: StarletteHTTPException)
 # any body a client can send; an error no route caught answers 500 with an id.
 install_request_boundary(app)
 
+# A request that is model work answers a refusal at the call seam (a consent
+# withdrawn while it ran) as the refusal, never as an error or a half result.
+from applire.services.log_consent_live import RefusalBoundary  # noqa: E402
+
+app.add_middleware(RefusalBoundary)
+
 
 @app.get("/openapi.json", include_in_schema=False)
 async def openapi_json(_user=Depends(require_user)) -> JSONResponse:
@@ -448,6 +454,11 @@ app.add_middleware(DocumentResponseHeaders)
 # ADR-093 cl. 5/6: refresh the admin overrides (<= every 2 s) and pin them per
 # request, so a generation's background work keeps the provider it started with.
 app.add_middleware(InstanceSettingsPin)
+
+# The access log shows the matched route's template, not the typed path.
+from applire.auth.logfilter import AccessPathScope  # noqa: E402
+
+app.add_middleware(AccessPathScope)
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

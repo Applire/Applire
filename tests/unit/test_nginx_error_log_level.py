@@ -61,3 +61,79 @@ def test_the_access_log_writes_the_path_without_its_query_string():
         for variable in ("$request ", '$request"', "$request_uri", "$args", "$query_string",
                          "$arg_", "$http_referer"):
             assert variable not in fmt, (name, variable)
+
+
+def _log_map(conf: str) -> tuple[dict[str, str], list[tuple[re.Pattern, str]], str]:
+    block = conf.split("map $uri $applire_log_uri {", 1)[1].split("\n}", 1)[0]
+    exact, regexes, default = {}, [], None
+    for line in _directives(block):
+        if line.startswith("default"):
+            default = line.split(None, 1)[1].rstrip(";").strip().strip('"')
+            continue
+        source, value = re.fullmatch(r'"([^"]+)"\s+"([^"]*)";', line).groups()
+        if source.startswith("~"):
+            # PCRE's (?<name>…) is Python's (?P<name>…)
+            regexes.append((re.compile(source[1:].replace("(?<", "(?P<")), value))
+        else:
+            exact[source] = value
+    return exact, regexes, default
+
+
+def _logged(conf: str, uri: str) -> str:
+    """What nginx writes for ``uri`` (a map: exact strings first, then the
+    regular expressions in order, then the default)."""
+    exact, regexes, default = _log_map(conf)
+    if uri in exact:
+        return exact[uri]
+    for pattern, value in regexes:
+        m = pattern.search(uri)
+        if m:
+            return re.sub(r"\$(\w+)", lambda v: m.group(v.group(1)), value)
+    return default
+
+
+def test_the_access_log_writes_the_area_or_page_never_the_rest_of_the_path():
+    for name in ("self-hosted.conf", "dev.conf"):
+        conf = (_NGINX / name).read_text()
+        seen = {
+            "/": "/",
+            "/api/cv": "/api/cv",
+            "/api/cv/6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71/pdf": "/api/cv/[...]",
+            "/api/auth/links/Lime9333": "/api/auth/[...]",
+            "/api/nonexistent/Lime9333": "[other]",
+            "/api/applications/Kiwi9222�": "/api/applications/[...]",
+            "/flow/6f1c2a9e/cover-letter": "/flow/[...]",
+            "/Lime9333": "[other]",
+            "/login": "/login",
+            "/sw.js": "/sw.js",
+            "/_next/static/chunks/a.js": "/_next/[...]",
+            "/api/cv\nLime9333": "[other]",
+            "/loginLime9333": "[other]",
+        }
+        for uri, expected in seen.items():
+            assert _logged(conf, uri) == expected, (name, uri)
+
+
+def test_the_logged_areas_are_the_backend_s_and_the_pages_are_the_frontend_s():
+    import os
+
+    os.environ.setdefault("LLM_PROVIDER", "mistral")
+    from applire.main import app
+
+    api = {r.path.split("/")[2] for r in app.routes if r.path.startswith("/api/")}
+    roots = {r.path.split("/")[1] for r in app.routes if not r.path.startswith("/api/")}
+    app_dir = _ROOT / "frontend" / "app"
+    pages = set()
+    for entry in app_dir.iterdir():
+        if entry.is_dir() and entry.name.startswith("("):
+            pages |= {p.name for p in entry.iterdir() if p.is_dir() and not p.name.startswith(("_", "["))}
+        elif entry.is_dir() and not entry.name.startswith("_"):
+            pages.add(entry.name)
+    pages.discard("__tests__")
+    for name in ("self-hosted.conf", "dev.conf"):
+        conf = (_NGINX / name).read_text()
+        for area in api:
+            assert _logged(conf, f"/api/{area}") == f"/api/{area}", (name, area)
+            assert _logged(conf, f"/api/{area}/x") == f"/api/{area}/[...]", (name, area)
+        for page in pages | roots:
+            assert _logged(conf, f"/{page}") == f"/{page}", (name, page)

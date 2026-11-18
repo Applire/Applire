@@ -545,14 +545,16 @@ async def _refuse_after_withdrawal() -> None:
     """No model call starts for a person whose consent is gone, also when the
     work began before the withdrawal (services/log_consent_live.py)."""
     from applire.ownership import current_owner
-    from applire.services.log_consent_live import allowed_to_call
+    from applire.services.log_consent_live import allowed_to_call, note_refused
 
     owner = current_owner()
     user_id = getattr(owner, "user_id", None) if owner is not None else None
     if user_id is not None and not await allowed_to_call(user_id):
         from applire.services.allowance import AdmissionRefused
 
-        raise AdmissionRefused("log_consent_required")
+        refusal = AdmissionRefused("log_consent_required")
+        note_refused(refusal)  # the request boundary answers it, whatever catches it
+        raise refusal
 
 
 class _LoggingProvider(LLMProvider):

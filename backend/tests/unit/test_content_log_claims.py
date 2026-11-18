@@ -51,7 +51,7 @@ def test_the_startup_line_promises_deletion_only_with_both_rules_in_the_sweep(mo
 def test_the_guide_and_the_consent_text_promise_what_the_sweep_does():
     guide = (ROOT / "docs" / "SELF-HOSTING.md").read_text("utf-8")
     assert "the nightly cleanup removes that person's text from both logs" in guide
-    assert "The daily cleanup removes every line before it is older than that" in guide
+    assert "The daily cleanup removes every line that is older than that and keeps every younger one" in guide
     de = json.loads((ROOT / "frontend" / "messages" / "de.json").read_text("utf-8"))
     assert "Danach werden die Einträge automatisch gelöscht" in de["logConsent"]["text"]["durationBody"]
     assert "Wir löschen dann innerhalb von 48 Stunden" in de["logConsent"]["text"]["withdrawBody"]

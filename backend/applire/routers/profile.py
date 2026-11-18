@@ -27,12 +27,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from applire.content_log import content_logger
+from applire.internal_errors import internal_server_error, log_unexpected, new_error_id
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
-
-#: The catch-all 500 text (same wording as routers/session.py's #256 body).
-_INTERNAL_ERROR_MESSAGE = "An unexpected error occurred. Please try again."
 
 from applire.auth.deps import require_user
 from applire.auth.deps import ModelWorkDoor, admit_model_work, try_admit_model_work
@@ -1145,11 +1143,7 @@ async def resolve_profile_conflict(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:
-        logger.error("profile route failed: %s", type(exc).__name__)  # never echo str(exc) (MD-24 (6))
-        clog.debug("profile route failed", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
-        )
+        raise internal_server_error(exc, where="profile.route", logger=logger)
 
 
 @router.post(
@@ -1176,11 +1170,7 @@ async def conflict_merge_proposal(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:
-        logger.error("profile route failed: %s", type(exc).__name__)  # never echo str(exc) (MD-24 (6))
-        clog.debug("profile route failed", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
-        )
+        raise internal_server_error(exc, where="profile.route", logger=logger)
     return MergeProposalResponse.from_proposal(p)
 
 
@@ -1247,14 +1237,16 @@ async def patch_section(
     except VaultWriteRevertedError as exc:
         # The same structured body the upload doors give (#597): before W3 this
         # door surfaced it only through the catch-all's str(exc), which no
-        # longer echoes exception text (MD-24 (6)).
+        # longer echoes exception text (MD-24 (6)). Every 500 carries its id.
+        error_id = new_error_id()
         logger.error(
-            "patch_section: vault write reverted at stage=%s (source=%s)", exc.stage, exc.source
+            "patch_section: vault write reverted at stage=%s (source=%s) [error_id=%s]",
+            exc.stage, exc.source, error_id,
         )
-        clog.debug("patch_section: vault write reverted (%s)", exc.detail)
+        clog.debug("patch_section: vault write reverted [error_id=%s] (%s)", error_id, exc.detail)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE},
+            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE, "error_id": error_id},
         )
     except ValueError as exc:
         raise HTTPException(
@@ -1267,14 +1259,7 @@ async def patch_section(
             detail=str(exc),
         )
     except Exception as exc:
-        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
-        # name (an owner-guard refusal) or provider payload. Logged in full here.
-        logger.error("profile route failed: %s", type(exc).__name__)
-        clog.debug("profile route failed", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_INTERNAL_ERROR_MESSAGE,
-        )
+        raise internal_server_error(exc, where="profile.route", logger=logger)
 
 
 @router.delete("", status_code=status.HTTP_202_ACCEPTED)
@@ -1299,10 +1284,15 @@ async def erase_profile(
         from applire.services.profile.owner import resolve_owner
 
         counts = await erase(db, resolve_owner(_uid(current_user)), "vault", storage=storage)
-    except ErasureFailed:
+    except ErasureFailed as exc:
+        error_id = log_unexpected(exc, where="profile.erase_profile", logger=logger)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erasure failed — no data was deleted. Please retry.",
+            detail={
+                "error_code": "erasure_failed",
+                "message": "Erasure failed — no data was deleted. Please retry.",
+                "error_id": error_id,
+            },
         )
     return {"message": "Erasure accepted", "records_deleted": counts}
 

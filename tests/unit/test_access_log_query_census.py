@@ -248,3 +248,30 @@ def test_structured_values_stay_readable():
         f"&cursor={CURSOR}&exp=1763460000&uid=6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71&action=user.deleted"
     )
     assert logfilter.REDACTED not in out
+
+
+def test_the_path_is_the_route_template_or_the_marker():
+    import logging
+
+    from applire.auth.logfilter import NO_ROUTE, AccessLogRedactionFilter, route_path
+
+    class _Route:
+        path_format = "/api/cv/{cv_id}/sections/{section_id}"
+
+    uid = "6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71"
+    scope = {"route": _Route(), "path_params": {"cv_id": uid, "section_id": "Lime9333"}}
+    assert route_path(scope) == f"/api/cv/{uid}/sections/{{section_id}}"
+    scope["path_params"] = {"cv_id": uid + "\nLime", "section_id": "12"}
+    assert route_path(scope) == "/api/cv/{cv_id}/sections/12"
+    mounted = {"endpoint": object(), "app_root_path": "", "root_path": "/static", "path": "/Lime.css"}
+    assert route_path(mounted) == "/static/{path}"
+    assert route_path({"path": "/api/nonexistent/Lime9333"}) == NO_ROUTE
+    assert route_path(None) == NO_ROUTE
+
+    # A line written without a request scope shows the marker, never the path.
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+        ("10.0.0.1:5", "GET", "/api/nonexistent/Lime9333?page=2&q=Lime", "1.1", 404), None,
+    )
+    assert AccessLogRedactionFilter().filter(record) is True
+    assert record.getMessage() == f'10.0.0.1:5 - "GET {NO_ROUTE}?page=2&q=[redacted] HTTP/1.1" 404'

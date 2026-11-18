@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """The retention worker's content-log rules (ADR-017 amended 2026-11-18).
 
-``content_log_age`` removes every line before it is older than
-CONTENT_LOG_RETENTION_DAYS (a run a day: a daily file whose lines are all
-older than N - 1 days is deleted by the date in its name, the file that
-straddles the limit loses its old lines), and deletes every regular file that
+``content_log_age`` removes every line older than CONTENT_LOG_RETENTION_DAYS
+and no younger one (a daily file whose lines are all that old is deleted by
+the date in its name, the file that straddles the limit loses its old lines),
+and deletes every regular file that
 is not a daily file once it is a day old. ``content_log_withdrawn`` reduces every line of a
 withdrawn or deleted person to technical figures without the user id, keeps
 everyone else's lines, and is idempotent.
@@ -66,8 +66,9 @@ def test_age_rule_deletes_by_the_date_in_the_name_in_both_directories(tmp_path):
     content, llm = tmp_path / "content", tmp_path / "llm"
     now = datetime(2026, 12, 31, 3, 0, tzinfo=timezone.utc)
     today = now.date()
-    old_c = _write(content, today - timedelta(days=30), [{"ts": _ts(now - timedelta(days=30))}])
-    edge = today - timedelta(days=29)  # straddles the limit (now - 29 days)
+    old_c = _write(content, today - timedelta(days=31), [{"ts": _ts(now - timedelta(days=31))}])
+    young = _write(content, today - timedelta(days=29), [{"ts": _ts(now - timedelta(days=29, hours=3))}])
+    edge = today - timedelta(days=30)  # straddles the limit (now - 30 days, 03:00)
     edge_c = _write(content, edge, [
         {"ts": _ts(datetime(edge.year, edge.month, edge.day, 1, tzinfo=timezone.utc))},
         {"ts": _ts(datetime(edge.year, edge.month, edge.day, 5, tzinfo=timezone.utc))},
@@ -78,31 +79,56 @@ def test_age_rule_deletes_by_the_date_in_the_name_in_both_directories(tmp_path):
     os.utime(old_l, (time.time(), time.time()))
     removed = content_logs.purge_by_age(30, now=now, directories=[content, llm])
     assert removed == 3  # two files, one line
-    assert not old_c.exists() and not old_l.exists() and new_l.exists()
+    assert not old_c.exists() and not old_l.exists() and new_l.exists() and young.exists()
     assert [r["ts"] for r in _read(edge_c)] == [_ts(datetime(edge.year, edge.month, edge.day, 5, tzinfo=timezone.utc))]
 
 
 @pytest.mark.parametrize("days", [1, 2, 30])
-def test_with_a_run_a_day_no_line_is_ever_older_than_the_limit(tmp_path, days):
-    """Lines every six hours for 70 days, a run every day at 03:00: just before
-    each run, the oldest line left is at most ``days`` old."""
+def test_a_run_removes_every_line_older_than_the_limit_and_no_younger_one(tmp_path, days):
+    """Lines every 2 h 07 min for 75 days, a run every day at 03:17: after each
+    run no line is older than ``days``, and every line the run removed was
+    older than ``days`` when it ran. A line exactly ``days`` old stays."""
     start = datetime(2026, 9, 1, tzinfo=timezone.utc)
     directory = tmp_path / "llm"
-    worst = timedelta(0)
-    for d in range(70):
-        run_at = start + timedelta(days=d, hours=3)
-        # the six-hourly lines written since the last run
-        for h in range(4):
-            at = run_at - timedelta(hours=6 * (h + 1))
-            if at >= start:
-                directory.mkdir(parents=True, exist_ok=True)
-                with open(directory / f"{at.date().isoformat()}.jsonl", "a", encoding="utf-8") as fh:
-                    fh.write(json.dumps({"ts": _ts(at)}) + "\n")
-        remaining = [datetime.fromisoformat(r["ts"]) for f in directory.glob("*.jsonl") for r in _read(f)]
-        if remaining:
-            worst = max(worst, run_at - min(remaining))
+    directory.mkdir(parents=True)
+    limit = timedelta(days=days)
+    written: set[str] = set()
+    at = start
+    for d in range(75):
+        run_at = start + timedelta(days=d, hours=3, minutes=17)
+        while at <= run_at:
+            with open(directory / f"{at.date().isoformat()}.jsonl", "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"ts": _ts(at)}) + "\n")
+            written.add(_ts(at))
+            at += timedelta(hours=2, minutes=7)
+        # one line exactly at the limit
+        exact = run_at - limit
+        if exact >= start:
+            with open(directory / f"{exact.date().isoformat()}.jsonl", "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"ts": _ts(exact)}) + "\n")
+            written.add(_ts(exact))
+        before = {r["ts"] for f in directory.glob("*.jsonl") for r in _read(f)}
         content_logs.purge_by_age(days, now=run_at, directories=[directory])
-    assert worst <= timedelta(days=days)
+        after = {r["ts"] for f in directory.glob("*.jsonl") for r in _read(f)}
+        removed = before - after
+        assert all(run_at - datetime.fromisoformat(ts) > limit for ts in removed), (d, sorted(removed)[:3])
+        assert all(run_at - datetime.fromisoformat(ts) <= limit for ts in after), (d, sorted(after)[:3])
+        if exact >= start:
+            assert _ts(exact) in after
+        assert after, "the run removed a line younger than the limit"
+
+
+def test_at_one_day_today_s_lines_and_yesterday_s_young_lines_stay(tmp_path):
+    now = datetime(2026, 11, 18, 3, 0, tzinfo=timezone.utc)
+    today = _write(tmp_path, now.date(), [{"ts": _ts(now - timedelta(hours=2))}])
+    yesterday = now.date() - timedelta(days=1)
+    y = _write(tmp_path, yesterday, [
+        {"ts": _ts(datetime(yesterday.year, yesterday.month, yesterday.day, 2, tzinfo=timezone.utc))},
+        {"ts": _ts(datetime(yesterday.year, yesterday.month, yesterday.day, 4, tzinfo=timezone.utc))},
+    ])
+    content_logs.purge_by_age(1, now=now, directories=[tmp_path])
+    assert today.exists() and len(_read(today)) == 1
+    assert [r["ts"] for r in _read(y)] == [_ts(datetime(yesterday.year, yesterday.month, yesterday.day, 4, tzinfo=timezone.utc))]
 
 
 def test_files_that_are_not_daily_files_go_after_a_day_whatever_the_limit(tmp_path):

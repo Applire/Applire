@@ -20,6 +20,8 @@ server log, where the catch site's ``logger.exception`` already put it).
 
 from __future__ import annotations
 
+from applire.services.allowance import REFUSAL_MESSAGES
+
 #: The stable codes, shared with the CV path (``services.cv.classify_generation_error``).
 RETRYABLE_CODES = frozenset({"llm_timeout", "provider_unavailable", "llm_truncated"})
 
@@ -45,6 +47,8 @@ _LETTER_MESSAGES: dict[str, str] = {
     "settings_unavailable": (
         "This instance's settings could not be read just now. Generate the cover letter again in a moment."
     ),
+    # The consent to this test instance's logs is gone: the refusal's own sentence.
+    "log_consent_required": REFUSAL_MESSAGES["log_consent_required"],
 }
 _CODE_BY_MESSAGE = {message: code for code, message in _LETTER_MESSAGES.items()}
 

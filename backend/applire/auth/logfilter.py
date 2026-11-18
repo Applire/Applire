@@ -6,6 +6,13 @@ amended 2026-11-18).
 The access log is written at INFO and carries ids only. Its request line is
 rewritten before it is formatted:
 
+* **path:** the matched route's template (``/api/cv/{cv_id}/sections/{section_id}``),
+  each path parameter shown with its value only when the value fully matches
+  the id or number grammar of the query allow-list, otherwise as its
+  ``{name}``; a path under a mounted app shows the mount and ``{path}``; a path
+  no route matches is shown as :data:`NO_ROUTE`. Method and status stay. The
+  route comes from the request scope that :class:`AccessPathScope` hands to
+  this filter; a line without one shows :data:`NO_ROUTE` too;
 * **query parameters:** each name is read the way the application reads it
   (percent-decoded). A value is shown only when the name is on the allow-list
   :data:`STRUCTURED_QUERY_PARAMS` (ids, numbers, dates, enum codes; taken from
@@ -21,7 +28,8 @@ rewritten before it is formatted:
   belt to that pair of braces: a client that puts one in the path is not logged);
 * anything that looks like a personal token (``apl_<8>_<43>``) anywhere in the line.
 
-nginx writes ``$request_method $uri`` without the query string. Install once per
+nginx writes the method, the API area or page (a closed list, ``nginx/*.conf``)
+and the status; never the rest of the path or the query string. Install once per
 process with ``install_access_log_redaction()`` (``main.py``); idempotent.
 """
 
@@ -29,9 +37,13 @@ from __future__ import annotations
 
 import logging
 import re
+from contextvars import ContextVar
 from urllib.parse import unquote_plus
 
 REDACTED = "[redacted]"
+
+#: The path of a request no route matches.
+NO_ROUTE = "[no route]"
 #: A longer value is never shown (the longest structured value, an audit
 #: cursor, is about 95 characters).
 MAX_SHOWN_VALUE = 128
@@ -177,11 +189,82 @@ def redact(text: str) -> str:
     return _TOKEN_RE.sub(REDACTED, text)
 
 
+_PARAM_RE = re.compile(r"\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}")
+
+#: The request scope of the request this task serves (set by AccessPathScope).
+_request_scope: ContextVar[dict | None] = ContextVar("applire_access_scope", default=None)
+
+
+def _shown_param(value) -> str | None:
+    text = str(value)
+    if len(text) <= MAX_SHOWN_VALUE and (_UUID(text) or _INT(text)):
+        return text
+    return None
+
+
+def route_path(scope: dict | None) -> str:
+    """The request's path as the access log shows it (see the module text)."""
+    if not scope:
+        return NO_ROUTE
+    route = scope.get("route")
+    template = getattr(route, "path_format", None)
+    if isinstance(template, str):
+        params = scope.get("path_params") or {}
+
+        def one(match: re.Match) -> str:
+            name = match.group("name")
+            shown = _shown_param(params[name]) if name in params else None
+            return shown if shown is not None else "{" + name + "}"
+
+        return _PARAM_RE.sub(one, template)
+    app_root, root = scope.get("app_root_path"), scope.get("root_path")
+    if "endpoint" in scope and isinstance(app_root, str) and isinstance(root, str) and root.startswith(app_root):
+        mount = root[len(app_root):]
+        if re.fullmatch(r"(/[a-z0-9_-]+)+", mount):
+            return mount + "/{path}"
+    return NO_ROUTE
+
+
+class AccessPathScope:
+    """Pure ASGI middleware: hands the request scope to the access-log filter.
+
+    The routing fills ``route`` and ``path_params`` into this same scope, and
+    uvicorn writes the access line inside the request's own task, so the
+    filter reads the matched route from here. The value is not reset when the
+    app raises: the 500 line of an unhandled error is written after this
+    middleware has returned, and every request runs in a task of its own."""
+
+    def __init__(self, app) -> None:  # noqa: ANN001 — ASGI app
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:  # noqa: ANN001
+        if scope.get("type") == "http":
+            _request_scope.set(scope)
+        await self.app(scope, receive, send)
+
+
+def _access_target(target: str) -> str:
+    """``<route path>[?<redacted query>]`` for uvicorn's request target."""
+    _, sep, query = target.partition("?")
+    shown = route_path(_request_scope.get())
+    return shown + (redact("?" + query) if sep else "")
+
+
 class AccessLogRedactionFilter(logging.Filter):
     """Rewrites ``record.args`` (uvicorn: client, method, full_path, version, status)
     and ``record.msg``; never drops a record."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if (
+            record.name == ACCESS_LOGGER
+            and isinstance(record.args, tuple)
+            and len(record.args) == 5
+            and isinstance(record.args[2], str)
+        ):
+            # uvicorn: (client, method, target, http version, status)
+            args = list(record.args)
+            args[2] = _access_target(args[2])
+            record.args = tuple(args)
         if isinstance(record.args, tuple) and record.args:
             record.args = tuple(redact(a) if isinstance(a, str) else a for a in record.args)
         elif isinstance(record.args, dict):

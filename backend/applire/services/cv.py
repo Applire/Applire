@@ -201,8 +201,16 @@ _GENERATION_ERROR_MESSAGES = {
 }
 
 
+def _refusal_sentence(code: str) -> str:
+    from applire.services.allowance import REFUSAL_MESSAGES
+
+    return REFUSAL_MESSAGES[code]
+
+
 def generation_error_message(error_code: str | None, *, user_id: uuid.UUID | None = None) -> str:
     """The status door's ``error_message`` for a failed CV (never ``None``)."""
+    if error_code == "log_consent_required":
+        return _refusal_sentence(error_code)
     return _GENERATION_ERROR_MESSAGES.get(
         error_code or "generation_failed", _GENERATION_ERROR_MESSAGES["generation_failed"]
     )

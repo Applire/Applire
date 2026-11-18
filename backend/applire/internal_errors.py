@@ -81,9 +81,14 @@ def internal_server_error(
     """Log ``exc`` and return the ``HTTPException(500)`` to raise in its place.
 
     Usage: ``except Exception as exc: raise internal_server_error(exc, where="…")``.
+    An admission refusal is returned as it is, so it answers as the refusal.
     """
     from fastapi import HTTPException, status
 
+    from applire.services.allowance import AdmissionRefused
+
+    if isinstance(exc, AdmissionRefused):
+        return exc  # a refusal keeps its own answer (ADR-096 cl. 11)
     error_id = log_unexpected(exc, where=where, logger=logger)
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

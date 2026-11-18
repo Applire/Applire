@@ -8,12 +8,12 @@ Both content logs are daily JSON-lines files, ``<YYYY-MM-DD>.jsonl``, in
 LLM call log). Every line carries ``user_id`` (``null`` for ownerless work).
 
 ``content_log_age``
-    With ``CONTENT_LOG_RETENTION_DAYS = N > 0``, remove every line that is
-    older than ``N - 1`` days when the daily run comes by, so that with one run
-    a day no line is ever older than ``N`` days: a daily file all of whose lines
-    are that old is deleted (its date comes from the file NAME: a copy or
-    restore resets the mtime), the file that straddles the limit is rewritten
-    without its old lines. In both directories, every regular file that is not
+    With ``CONTENT_LOG_RETENTION_DAYS = N > 0``, the daily run removes every
+    line older than ``N`` days and no line younger than that: a daily file all
+    of whose lines are that old is deleted (its date comes from the file NAME:
+    a copy or restore resets the mtime), the file that straddles the limit is
+    rewritten without its old lines. A line is gone at the first daily run
+    after it turns ``N`` days old. In both directories, every regular file that is not
     a daily file (a rotated or renamed copy, a leftover temporary file) cannot
     be read line by line, so neither rule could reach a withdrawn person's lines
     in it: it is deleted once it is a day old (by mtime), whatever ``N`` is.
@@ -137,7 +137,7 @@ def purge_by_age(days: int, *, now: datetime | None = None, directories: list[Pa
             removed += _purge_unknown_files(directory, now)
             if days <= 0:
                 continue
-            horizon = now - timedelta(days=days - 1)
+            horizon = now - timedelta(days=days)
             for path, day in _daily_files(directory):
                 day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
                 try:

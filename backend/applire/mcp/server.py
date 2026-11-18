@@ -125,7 +125,7 @@ from applire.models.uploads import UploadRecord
 from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
-from applire.services import allowance, instance_settings
+from applire.services import allowance, instance_settings, log_consent_live
 from applire.storage import get_storage
 from applire.schemas.application import (
     AddFactPinRequest,
@@ -312,7 +312,10 @@ async def _agent_call_body(fn, args, kwargs):
         # ADR-096 cl. 4: the payer facts for this call, and — for a tool that
         # starts model work — the admission, BEFORE the body runs. A refusal is
         # the tool's answer (`provider_key_required`), never a half-done write.
-        with allowance.call_scope():
+        # A tool that IS model work answers a refusal at the call seam (a
+        # consent withdrawn while it ran) as the refusal, whatever its body
+        # made of it (log_consent_live.watching).
+        with allowance.call_scope(), log_consent_live.watching() as watch:
             async with get_db() as db:
                 await allowance.load_facts(db, user)
             action = getattr(fn, "__applire_admits__", None)
@@ -321,7 +324,15 @@ async def _agent_call_body(fn, args, kwargs):
                     allowance.admit_from_facts(action)
                 except allowance.AdmissionRefused as exc:
                     raise admission_refused(exc)
-            result = await fn(*args, **kwargs)
+                log_consent_live.arm()
+            try:
+                result = await fn(*args, **kwargs)
+            except Exception:
+                if watch.refused is not None:
+                    raise admission_refused(watch.refused) from None
+                raise
+            if watch.refused is not None:
+                raise admission_refused(watch.refused)
     except ownership.OwnedNotFound as exc:
         raise not_found(str(exc.detail))
     finally:
@@ -1077,6 +1088,7 @@ async def resolve_held_merge(staged_id: str, decision: str) -> dict:
             allowance.admit_from_facts("model_work")
         except allowance.AdmissionRefused as exc:
             raise admission_refused(exc)
+        log_consent_live.arm()
         provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
