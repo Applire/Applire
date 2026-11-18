@@ -358,3 +358,26 @@ async def test_mcp_refusal_code_and_message(debug):
             await server.analyze_jd(text="Backend Engineer at Example GmbH")
     assert exc.value.error.code == -32004
     assert exc.value.error.message.startswith("log_consent_required: ")
+
+
+# ── the operator-tooling seam stays out of production ─────────────────────────
+
+
+def test_no_production_code_acts_through_the_tooling_owner():
+    """`tooling_owner` marks a synthetic person as consented; only the bench,
+    the model matrix and replays may use it, never a request path."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "applire"
+    hits = []
+    for path in root.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text("utf-8"))):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "tooling_owner":
+                hits.append(f"{path.relative_to(root)}:{node.lineno}")
+    assert hits == []
+
+
+def test_the_tooling_owner_admits_model_work_at_debug(debug):
+    with allowance.tooling_owner(uuid.uuid4()):
+        assert allowance.resolve_for_factory().payer == "instance"

@@ -915,7 +915,7 @@ def configure_env(
             )
         os.environ[env_var] = "false" if reasoning == "on" else "true"
     if llm_log_dir:
-        os.environ["LLM_DEBUG_LOG"] = "true"
+        os.environ["LOG_LEVEL"] = "DEBUG"  # the LLM call log is written at DEBUG only
         os.environ["LLM_DEBUG_LOG_DIR"] = str(Path(llm_log_dir).resolve())
     backend = str(REPO_ROOT / "backend")
     if backend not in sys.path:
@@ -955,7 +955,7 @@ def force_settings(
     if llm_log_dir:
         # The call count a budget is read from — it must not depend on whether
         # the singleton was built before configure_env ran.
-        settings.llm_debug_log = True
+        settings.log_level = "DEBUG"
         settings.llm_debug_log_dir = str(Path(llm_log_dir).resolve())
 
     if reasoning != "default":
@@ -1542,7 +1542,7 @@ async def run_analysis_one(
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     import applire.models  # noqa: F401 — registers every table on Base.metadata
-    from applire import ownership
+    from applire.services.allowance import tooling_owner
     from applire.db.session import Base
     from quality_bench.fixture import load_fixture as load_bench_fixture
     from quality_bench.seed import seed_fixture, seed_user
@@ -1571,7 +1571,7 @@ async def run_analysis_one(
                     from applire.services.job import analyze_jd
 
                     uid = await seed_user(factory)
-                    with ownership.owner_context(uid):
+                    with tooling_owner(uid):
                         async with factory() as db:
                             resp = await analyze_jd(fx.posting, db, provider, user_id=uid)
                             await db.commit()
@@ -1584,7 +1584,7 @@ async def run_analysis_one(
                     from applire.services.gap import analyze_gaps
 
                     seeded = await seed_fixture(factory, fx, with_gap=False)
-                    with ownership.owner_context(seeded.user_id):
+                    with tooling_owner(seeded.user_id):
                         async with factory() as db:
                             resp = await analyze_gaps(seeded.job_id, db, provider, user_id=seeded.user_id)
                     result = resp.model_dump(mode="json")
@@ -1722,7 +1722,7 @@ def analysis_main(args: argparse.Namespace) -> int:
         return 0
     from applire.config import settings as _settings
 
-    saved_log = (_settings.llm_debug_log, _settings.llm_debug_log_dir)
+    saved_log = (_settings.log_level, _settings.llm_debug_log_dir)
     try:
         force_settings(args.provider, args.model, args.timeout, args.reasoning, args.llm_log_dir)
         if args.max_calls is not None and not args.llm_log_dir:
@@ -1758,7 +1758,7 @@ def analysis_main(args: argparse.Namespace) -> int:
             print(f"records: {args.out}\nsummary: {path}")
         return 0
     finally:
-        _settings.llm_debug_log, _settings.llm_debug_log_dir = saved_log
+        _settings.log_level, _settings.llm_debug_log_dir = saved_log
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1808,11 +1808,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # The debug-log switch is process-wide; an in-process caller (the smoke test)
     # must get it back as it was, or every later test writes prompts to disk.
-    saved_log = (_settings.llm_debug_log, _settings.llm_debug_log_dir)
+    saved_log = (_settings.log_level, _settings.llm_debug_log_dir)
     try:
         return _run_arm(args, fixtures, shapes)
     finally:
-        _settings.llm_debug_log, _settings.llm_debug_log_dir = saved_log
+        _settings.log_level, _settings.llm_debug_log_dir = saved_log
 
 
 def _run_arm(args: argparse.Namespace, fixtures: Fixtures, shapes: list[str]) -> int:
