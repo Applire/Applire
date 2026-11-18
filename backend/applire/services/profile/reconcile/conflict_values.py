@@ -37,6 +37,7 @@ from typing import Any
 
 from applire.services.profile.reconcile.ops import AddBullets, FlagConflict
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -80,7 +81,7 @@ def route_unchecked_conflicts(ops: list) -> list:
             if reason is not None:
                 logger.warning(
                     "reconcile: bullet conflict on field %s not raised (%s); the incoming "
-                    "bullet goes the add_bullets way (U-1r)", op.field, reason,
+                    "bullet goes the add_bullets way (U-1r)", label(op.field), label(reason),
                 )
                 clog.debug(
                     "reconcile: bullet conflict on %s.%s not raised (%s); the incoming "

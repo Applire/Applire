@@ -100,6 +100,7 @@ from applire.services.keyword_ledger import _draft_strings, is_positioning_only,
 from applire.services.letter_figure_guard import _TENURE_RE
 from applire.services.oracle.extract import split_sentences
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -409,6 +410,10 @@ def _advisories_from_judgement(
         if kind not in _PASS_KINDS[mount]:
             dropped += 1
             logger.warning(
+                "outcome critic (%s mount): a finding kind outside this pass — dropped",
+                mount,
+            )
+            clog.debug(
                 "outcome critic (%s mount): finding kind %r not valid on this "
                 "pass — dropped",
                 mount, kind,
@@ -436,7 +441,7 @@ def _advisories_from_judgement(
             dropped += 1
             logger.warning("outcome critic (%s mount): citation verification FAILED for "
                 "%r finding — dropped, not surfaced",
-                mount, kind,
+                mount, label(kind),
             )
             clog.debug(
                 "outcome critic (%s mount): citation verification FAILED for "
@@ -467,7 +472,7 @@ def _advisories_from_judgement(
         if dedup_key in seen:
             logger.info("outcome critic (%s mount): duplicate %r finding — "
                 "deduped, not double-surfaced",
-                mount, kind,
+                mount, label(kind),
             )
             clog.debug(
                 "outcome critic (%s mount): duplicate %r finding for concept "

@@ -140,6 +140,7 @@ from applire.services.profile.reconcile.ops import (
     UpsertWork,
 )
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -1823,12 +1824,12 @@ def _apply_resolve_both_or_merge(
     section_data = dumped.get(op.section)
     if not isinstance(section_data, list):
         logger.info("apply_ops: refused resolve_field %s for %s — not an entry section",
-                    op.resolution, op.conflict_id)
+                    label(op.resolution), label(op.conflict_id))
         return profile
     entry = _entry_for_conflict(section_data, conflict)
     if entry is None:
         logger.info("apply_ops: refused resolve_field %s for %s — entry not found",
-                    op.resolution, op.conflict_id)
+                    label(op.resolution), label(op.conflict_id))
         return profile
     current = entry.get(conflict.field)
 
@@ -1881,7 +1882,7 @@ def _apply_resolve_both_or_merge(
         or conflict.field not in _ENTRY_SPLIT_FIELDS
     ):
         logger.info("apply_ops: refused resolve_field %s for %s — not offered on %s.%s",
-                    op.resolution, op.conflict_id, op.section, conflict.field)
+                    label(op.resolution), label(op.conflict_id), label(op.section), label(conflict.field))
         return profile
     import uuid as _uuid
 
@@ -4146,7 +4147,7 @@ def _apply_set_field(op, resolve, changes, not_applied=None):
         # receipted, never silent.
         logger.warning(
             "reconcile: set_field targeted an unresolvable ref (field %r) — "
-            "receipted as not_applied/target_unresolved", op.field,
+            "receipted as not_applied/target_unresolved", label(op.field),
         )
         clog.debug(
             "reconcile: set_field targeted an unresolvable ref %r (field %r) — "
@@ -4489,7 +4490,7 @@ def _apply_flag_conflict(op, resolve, source, conflicts, changes=None):
         if existing_value is UNREADABLE or incoming_value is UNREADABLE:
             logger.warning(
                 "apply_ops: flag_conflict on field %s not admitted — a value is not a %s",
-                op.field,
+                label(op.field),
                 "boolean" if op.field in BOOL_CONFLICT_FIELDS else "date",
             )
             clog.debug(

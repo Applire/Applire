@@ -97,6 +97,7 @@ from applire.services.keyword_ledger import (
 )
 from applire.services.profile.reconcile.stance import declared_denial_matches
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -735,7 +736,7 @@ def _split_against_ledger(
         for dropped in [m for m in members if m not in surviving]:
             logger.info("gap_coverage: dropped a carried member from cluster %r — it "
                 "matches no row of the new ledger (ADR-089 clause 4)",
-                cluster.get("id"),
+                label(cluster.get("id")),
             )
             clog.debug(
                 "gap_coverage: dropped carried member %r from cluster %r — it "
@@ -748,7 +749,7 @@ def _split_against_ledger(
         logger.info(
             "gap_coverage: dropped carried cluster %r — no member survives the "
             "new ledger (ADR-089 clause 4)",
-            cluster.get("id"),
+            label(cluster.get("id")),
         )
         return None
     facts = classify_members(members, keyword_ledger, denied_concepts)

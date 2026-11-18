@@ -66,6 +66,7 @@ from applire.services.profile.reconcile.stance import (
     offered_choice_gate,
 )
 from applire.content_log import content_logger
+from applire.content_log import label as content_label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -530,7 +531,7 @@ def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[Reconcile
             # backstop for every other door.
             logger.warning(
                 "reconcile: dropped a model-emitted %s naming a leadership field (MD-Q5: written "
-                "only from the person's answer)", item.get("op"),
+                "only from the person's answer)", content_label(item.get("op")),
             )
             clog.debug(
                 "reconcile: dropped a model-emitted %s naming %r (MD-Q5: written "
@@ -548,7 +549,7 @@ def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[Reconcile
             # re-running under DEBUG to even notice it happened.
             label = item.get("op") if isinstance(item, dict) else None
             label = label if isinstance(label, str) and label else "<unknown>"
-            logger.warning("reconcile: dropped malformed op (op=%s)", label)
+            logger.warning("reconcile: dropped malformed op (op=%s)", content_label(label) if label != "<unknown>" else label)
             clog.debug("reconcile: dropped malformed op (op=%s): %r", label, item)
             if rejected is not None:
                 rejected.append(label)

@@ -42,6 +42,7 @@ import re
 import unicodedata
 from typing import Any
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -406,8 +407,8 @@ def build_scope_ledger_entries(
                 logger.warning("scope_requirements: floor forced a concept from %r to 'gap' — no typed "
                     "vault value of kind %r exists and no verified attestation "
                     "(ADR-069 clause 2 fail-closed).",
-                    status,
-                    item.get("kind"),
+                    label(status),
+                    label(item.get("kind")),
                 )
                 clog.debug(
                     "scope_requirements: floor forced %r from %r to 'gap' — no typed "
@@ -832,7 +833,7 @@ def verified_stated_limit(
                 logger.info("scope_requirements: stated_limit is neither the %r bar's own "
                     "concept recorded on its scope question nor names its figure "
                     "with a unit — binds nothing",
-                    bar.get("kind"),
+                    label(bar.get("kind")),
                 )
                 clog.debug(
                     "scope_requirements: stated_limit %r is neither the %r bar's own "

@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Iterator
 
 from applire.exceptions import LLMRefusalError
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 
@@ -383,7 +384,7 @@ async def aparse_json(provider: Any, site: str, prompt: str, **kwargs: Any) -> A
         # request for hidden reasoning (Claude Sonnet 5.5, `reasoning_extraction`,
         # 20/20 gap calls with the earlier "work out, before you write" wording).
         # The call the site made before arm c is the fallback here too.
-        logger.warning("PROMPT_CONTEXT_ANALYSIS_REFUSED site=%s category=%s", site, exc.category)
+        logger.warning("PROMPT_CONTEXT_ANALYSIS_REFUSED site=%s category=%s", site, label(exc.category))
         return await provider.aparse_json(plain_prompt, **plain_kwargs)
     except json.JSONDecodeError as exc:
         # A reply broken by the analysis field never ends a run (ruling W3-6 (2)): repair

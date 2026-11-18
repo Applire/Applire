@@ -64,6 +64,7 @@ from applire.services.profile.reconcile.ops import (
     UpsertWork,
 )
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -531,7 +532,7 @@ def _claim_clause(text: str, held: set[TitleKey]) -> str:
 def _log(op: ReconcileOp, field: str, hits: list[tuple[str, str]]) -> None:
     logger.info(
         "RECONCILE_POSITION_CLAIM_HELD op=%s field=%s claims=%d",
-        getattr(op, "op", "?"), field, len({p for _f, p in hits}),
+        label(getattr(op, "op", None)), label(field), len({p for _f, p in hits}),
     )
     clog.debug(
         "RECONCILE_POSITION_CLAIM_HELD op=%s target=%s field=%s claims=%s",

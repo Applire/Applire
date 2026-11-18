@@ -51,6 +51,7 @@ from typing import Any, Sequence
 from applire.services.profile.reconcile import aliases as _aliases
 from applire.services.profile.reconcile.ops import MatchExisting, UpsertSkill
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -151,7 +152,7 @@ def refuse_false_skill_bindings(
                         "target_name": target.name, "reason": reason})
         logger.warning(
             "reconcile: refused %s binding (%s); the entry is kept as its own skill (#801)",
-            op.op, reason,
+            label(op.op), label(reason),
         )
         clog.debug(
             "reconcile: refused %s binding %r -> %r (%s); the entry is kept as its own skill (#801)",

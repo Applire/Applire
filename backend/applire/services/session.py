@@ -133,6 +133,7 @@ from applire.services.profile.reconcile.interview_bridge import (
     reconcile_interview_turn,
 )
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -803,7 +804,7 @@ async def _apply_engagement_confirmation(
     except Exception:  # noqa: BLE001 — a parked op from an older release
         logger.warning(
             "interview: could not rebuild the parked %s op from a confirmation "
-            "context; the answer cannot be applied deterministically", section,
+            "context; the answer cannot be applied deterministically", label(section),
         )
         return False
 
@@ -950,8 +951,8 @@ async def _apply_interview_confirmation(
         logger.warning("interview confirmation: the answer names none of the options for "
             "the incoming skill — refusing the write and re-asking (#730). "
             "option_key=%r keyed=%s",
-            option_key,
-            keyed,
+            label(option_key),
+            label(keyed),
         )
         clog.debug(
             "interview confirmation: the answer names none of the options for "
@@ -3140,7 +3141,7 @@ async def _create_targeted_session(
             "(ADR-089 clause 6, ruling K-1): %s",
             job_id,
             len(cluster_ids) - len(askable_ids),
-            [cid for cid in cluster_ids if cid not in askable_ids],
+            [label(cid) for cid in cluster_ids if cid not in askable_ids],
         )
     skipped_by_record = len(cluster_ids) - len(askable_ids)
     cluster_ids = askable_ids

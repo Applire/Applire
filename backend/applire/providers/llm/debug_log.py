@@ -83,7 +83,9 @@ _review_attempt: ContextVar[int | None] = ContextVar("llm_review_attempt", defau
 
 # Standard, always-on logger for review-loop observability (#264) — distinct from the
 # dev-only PII-bearing JSONL: these records carry only counts/booleans/chain-ids.
+from applire.content_log import content_logger  # noqa: E402
 _review_logger = logging.getLogger("applire.llm.review")
+_review_clog = content_logger("applire.llm.review")
 
 # Serialises the (rare, dev-only) file appends so large prompt lines never interleave.
 _write_lock = threading.Lock()
@@ -387,6 +389,10 @@ def log_review_substitution_diff(
     canonical kind:value tokens, never surrounding prose) signal. Stable
     ``REVIEW_SUBSTITUTION_DIFF`` prefix."""
     _review_logger.warning(
+        "REVIEW_SUBSTITUTION_DIFF chain=%s retained=%d lost=%d gained=%d",
+        chain_id, len(retained), len(lost), len(gained),
+    )
+    _review_clog.debug(
         "REVIEW_SUBSTITUTION_DIFF chain=%s retained=%r lost=%r gained=%r",
         chain_id, sorted(retained), sorted(lost), sorted(gained),
     )
@@ -399,9 +405,13 @@ def log_review_substitution_refused(chain_id: str, tier: str, would_lose: list[s
     structural shape (the settled draft's cosmetic complaint ships instead).
     Stable ``REVIEW_SUBSTITUTION_REFUSED`` prefix."""
     _review_logger.warning(
-        "REVIEW_SUBSTITUTION_REFUSED chain=%s tier=%s would_lose=%r — candidate draft "
+        "REVIEW_SUBSTITUTION_REFUSED chain=%s tier=%s would_lose=%d — candidate draft "
         "satisfied the structural predicate(s) but is evidence-poorer than the settled "
         "draft; refusing this substitution (#306 — evidence beats a clean predicate match)",
+        chain_id, tier, len(would_lose),
+    )
+    _review_clog.debug(
+        "REVIEW_SUBSTITUTION_REFUSED chain=%s tier=%s would_lose=%r",
         chain_id, tier, sorted(would_lose),
     )
 

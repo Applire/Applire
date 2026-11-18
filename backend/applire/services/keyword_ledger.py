@@ -43,6 +43,7 @@ from applire.services.profile.reconcile.stance import (
     is_denied_concept,
 )
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -861,7 +862,7 @@ def _enforce_denial_stance(
             logger.warning("_enforce_denial_stance: floored a concept without asserting a denial — "
                 "the classifier cited the recorded denial but graded it %r "
                 "(ADR-100 M-2)",
-                entry.get("status"),
+                label(entry.get("status")),
             )
             clog.debug(
                 "_enforce_denial_stance: floored %r without asserting a denial — "
@@ -882,8 +883,8 @@ def _enforce_denial_stance(
                 level = "partial"
             logger.info("_enforce_denial_stance: recorded a concept as denied (was %r/claimable=%r) — "
                 "the classifier bound it to the recorded denial (ADR-100 M-2)",
-                entry.get("status"),
-                entry.get("claimable"),
+                label(entry.get("status")),
+                label(entry.get("claimable")),
             )
             clog.debug(
                 "_enforce_denial_stance: recorded %r as denied (was %r/claimable=%r) — "
@@ -3096,8 +3097,8 @@ def upgrade_ledger_for_concepts(
             logger.info("upgrade_ledger_for_concepts: recorded a concept as denied (was %r/"
                 "claimable=%r) — the turn ADDRESSED this requirement by denying "
                 "it (ADR-059 clause 2)",
-                e.get("status"),
-                e.get("claimable"),
+                label(e.get("status")),
+                label(e.get("claimable")),
             )
             clog.debug(
                 "upgrade_ledger_for_concepts: recorded %r as denied (was %r/"
@@ -3124,7 +3125,7 @@ def upgrade_ledger_for_concepts(
             # classifier's `denied_by` Judgment (rebuild, coverage re-judge).
             logger.info("upgrade_ledger_for_concepts: left a concept as it stands (%r/claimable=%r) "
                 "— it is only contained in a denied compound (#351; G-1, #821)",
-                e.get("status"), e.get("claimable"),
+                label(e.get("status")), label(e.get("claimable")),
             )
             clog.debug(
                 "upgrade_ledger_for_concepts: left %r as it stands (%r/claimable=%r) "
@@ -4657,7 +4658,7 @@ def assert_claimable_backed(
             "ADR-061/#318: a claimable ledger row with no vault evidence is a "
             "truthfulness violation the pipeline would generate against itself.",
             seam or "unnamed-seam",
-            was,
+            label(was),
         )
         clog.debug(
             "assert_claimable_backed[%s]: healed claimable concept %r (was %r) — %s. "
@@ -4987,9 +4988,7 @@ def build_keyword_ledger(
 
         status = item.get("status", "gap")
         if status not in _VALID_STATUS:
-            logger.warning("build_keyword_ledger: unknown status %r, treating as gap",
-                status,
-            )
+            logger.warning("build_keyword_ledger: a status outside the known set, treating as gap")
             clog.debug(
                 "build_keyword_ledger: unknown status %r for %r, treating as gap",
                 status,

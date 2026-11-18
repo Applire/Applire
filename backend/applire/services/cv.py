@@ -360,6 +360,7 @@ from applire.services.profile.language_names import (  # noqa: E402
     LANGUAGE_NAME_DE_EN as _LANGUAGE_NAME_CANON,
 )
 from applire.content_log import content_logger
+from applire.content_log import label
 
 
 def _dedup_languages(languages: list[dict]) -> list[dict]:
@@ -6538,7 +6539,7 @@ async def set_page_overflow_choice(
                 po.update(before_pick)
         po["choice"] = choice
         record.page_overflow = po
-        logger.info("PAGE_OVERFLOW_CHOICE cv_id=%s choice=%s", record.id, choice)
+        logger.info("PAGE_OVERFLOW_CHOICE cv_id=%s choice=%s", record.id, label(choice))
         if new_data is None:
             # 786:237 (WP-T hunk): no new data, no re-audit — the stored report's
             # page-length row says the decision.

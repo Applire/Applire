@@ -59,6 +59,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -537,7 +538,7 @@ class AnthropicProvider(LLMProvider):
             details = getattr(response, "stop_details", None)
             category = getattr(details, "category", None)
             logger.warning(
-                "LLM refusal [anthropic] model=%s category=%s", self._model, category
+                "LLM refusal [anthropic] model=%s category=%s", self._model, label(category)
             )
             raise LLMRefusalError("Anthropic", category=category, model=self._model)
         raise_if_truncated(stop_reason, model=self._model)

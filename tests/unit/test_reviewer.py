@@ -1650,7 +1650,9 @@ async def test_load_bearing_fn_refuses_evidence_poorer_substitution(mock_provide
         {"approved": True, "issues": [], "feedback": ""},
     ]
 
-    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+    from applire import content_log
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"), content_log.capturing() as content:
         result = await review_and_refine(
             source="src",
             draft=round0,
@@ -1671,8 +1673,11 @@ async def test_load_bearing_fn_refuses_evidence_poorer_substitution(mock_provide
     assert result == round1
     refused = [r for r in caplog.records if "REVIEW_SUBSTITUTION_REFUSED" in r.getMessage()]
     assert len(refused) == 1
-    assert "percent:61" in refused[0].getMessage()
-    assert "percent:73" in refused[0].getMessage()
+    # The application log counts; the figures themselves are content (DEBUG only).
+    assert "would_lose=2" in refused[0].getMessage()
+    assert "percent:61" not in refused[0].getMessage()
+    detail = [r.getMessage() for r in content if "REVIEW_SUBSTITUTION_REFUSED" in r.getMessage()]
+    assert len(detail) == 1 and "percent:61" in detail[0] and "percent:73" in detail[0]
     # No substitution actually happened, so no substitution DIFF log either.
     assert not any("REVIEW_SUBSTITUTION_DIFF" in r.getMessage() for r in caplog.records)
 
@@ -1691,7 +1696,9 @@ async def test_load_bearing_fn_allows_substitution_when_not_poorer(mock_provider
         {"approved": True, "issues": [], "feedback": ""},
     ]
 
-    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+    from applire import content_log
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"), content_log.capturing() as content:
         result = await review_and_refine(
             source="src",
             draft=round0,
@@ -1709,8 +1716,10 @@ async def test_load_bearing_fn_allows_substitution_when_not_poorer(mock_provider
     assert result == round0
     diffs = [r for r in caplog.records if "REVIEW_SUBSTITUTION_DIFF" in r.getMessage()]
     assert len(diffs) == 1
-    assert "retained=['percent:61']" in diffs[0].getMessage()
-    assert "lost=[]" in diffs[0].getMessage()
+    assert "retained=1 lost=0 gained=0" in diffs[0].getMessage()
+    detail = [r.getMessage() for r in content if "REVIEW_SUBSTITUTION_DIFF" in r.getMessage()]
+    assert len(detail) == 1
+    assert "retained=['percent:61']" in detail[0] and "lost=[]" in detail[0]
 
 
 @pytest.mark.asyncio

@@ -88,6 +88,7 @@ from applire.services.scope_requirements import (
     build_scope_prompt_block,
 )
 from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
 clog = content_logger(__name__)
@@ -537,7 +538,7 @@ async def set_cluster_left_open(
     await db.refresh(gap_analysis)
     logger.info(
         "gap %r of job %s %s by the candidate (ruling K-1)",
-        cluster_id,
+        label(cluster_id),
         job_id,
         "left open" if left_open else "picked up again",
     )
@@ -671,7 +672,7 @@ def _reconcile_cluster_categories(
         for dropped in [g for g in members if _norm_gap(g) in strengths]:
             logger.info("cluster_gaps: dropped a member from cluster %r — this analysis "
                 "publishes it under category_a (a strength is not a gap)",
-                cluster.get("id"),
+                label(cluster.get("id")),
             )
             clog.debug(
                 "cluster_gaps: dropped %r from cluster %r — this analysis "
@@ -683,7 +684,7 @@ def _reconcile_cluster_categories(
             logger.info(
                 "cluster_gaps: dropped cluster %r — every member is a "
                 "category_a strength",
-                cluster.get("id"),
+                label(cluster.get("id")),
             )
             continue
         derived = _derived_category(surviving, c_members)
@@ -691,9 +692,9 @@ def _reconcile_cluster_categories(
             logger.info(
                 "cluster_gaps: cluster %r category %r → %r (derived from its "
                 "members, #675 line 60)",
-                cluster.get("id"),
-                cluster.get("category"),
-                derived,
+                label(cluster.get("id")),
+                label(cluster.get("category"), known=("B", "C")),
+                label(derived, known=("B", "C")),
             )
         kept.append({**cluster, "gaps": surviving, "category": derived})
     return kept
@@ -1104,8 +1105,8 @@ def merge_ledger_per_requirement(
         carried.append(i)
         logger.info("gap analysis merge: kept a row at %r (fresh run said %r) — outside the "
             "requirements this session touched (ADR-089 clause 5)",
-            p.get("status"),
-            f_status,
+            label(p.get("status")),
+            label(f_status),
         )
         clog.debug(
             "gap analysis merge: kept %r at %r (fresh run said %r) — outside the "
@@ -1192,7 +1193,7 @@ def _unique_cluster_ids(clusters: list[dict], taken: set[str]) -> list[dict]:
             n = 2
             while f"{cid}-{n}" in used:
                 n += 1
-            logger.info("cluster_gaps: appended cluster id %r renamed to %r (taken)", cid, f"{cid}-{n}")
+            logger.info("cluster_gaps: appended cluster id %r renamed to %r (taken)", label(cid), label(f"{cid}-{n}"))
             cid = f"{cid}-{n}"
             c = {**c, "id": cid}
         used.add(cid)
@@ -1263,7 +1264,7 @@ async def _carry_forward_clusters(
                 continue
             i = carried.index(target)
             carried[i] = fold_into(target, g, ledger, denied_concepts)
-            logger.info("carry_forward: a member folded into carried cluster %r (787:95 rule a)", target.get("id"))
+            logger.info("carry_forward: a member folded into carried cluster %r (787:95 rule a)", label(target.get("id")))
             clog.debug("carry_forward: %r folded into carried cluster %r (787:95 rule a)", g, target.get("id"))
         return rest
 
@@ -1290,7 +1291,7 @@ async def _carry_forward_clusters(
                 i = carried_ids[cid]
                 for g in _str_list_safe(c.get("gaps")):
                     carried[i] = fold_into(carried[i], g, ledger, denied_concepts)
-                logger.info("carry_forward: fresh cluster filed under carried id %r (787:95 rule b)", cid)
+                logger.info("carry_forward: fresh cluster filed under carried id %r (787:95 rule b)", label(cid))
             else:
                 new_clusters.append(c)
         appended = [

@@ -43,6 +43,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Any, Iterator
@@ -56,6 +57,57 @@ CONTENT_ROOT = "applire.content"
 _DISABLED = logging.CRITICAL + 10
 
 _write_lock = threading.Lock()
+
+
+#: The shape of a label the default log may carry: a snake_case identifier.
+_LABEL_SHAPE = re.compile(r"[a-z][a-z0-9_]{0,39}")
+#: What :func:`label` prints in place of anything else.
+OTHER = "<other>"
+_QUOTED = re.compile(r"""(["'])([a-z][a-z0-9_]{0,39})\1""")
+_vocabulary: frozenset[str] | None = None
+_vocabulary_lock = threading.Lock()
+
+
+def code_labels() -> frozenset[str]:
+    """Every quoted snake_case word in the ``applire`` package's source: the
+    words the code itself uses as statuses, kinds, ops, fields and check
+    names. Built once per process (a text scan, well under a second)."""
+    global _vocabulary
+    if _vocabulary is None:
+        with _vocabulary_lock:
+            if _vocabulary is None:
+                from pathlib import Path
+
+                words: set[str] = set()
+                for path in Path(__file__).resolve().parent.rglob("*.py"):
+                    try:
+                        source = path.read_text("utf-8")
+                    except (OSError, UnicodeDecodeError):
+                        continue
+                    words.update(m.group(2) for m in _QUOTED.finditer(source))
+                _vocabulary = frozenset(words)
+    return _vocabulary
+
+
+def label(value: Any, known: Any = None) -> Any:
+    """``value`` when the default log may carry it, else ``"<other>"``.
+
+    For a value that comes from a model reply, a request body or a parsed
+    document and is EXPECTED to be a label (status, kind, op, field): with
+    ``known`` it must be a member; without, it must be a snake_case word the
+    code itself spells as a literal (:func:`code_labels`). Numbers, booleans
+    and ``None`` pass. The raw value belongs on the content logger.
+    """
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if known is not None:
+        try:
+            return value if value in known else OTHER
+        except TypeError:
+            return OTHER
+    if isinstance(value, str) and _LABEL_SHAPE.fullmatch(value) and value in code_labels():
+        return value
+    return OTHER
 
 
 def content_logger(name: str) -> logging.Logger:
@@ -180,6 +232,7 @@ def configure_content_logging() -> bool:
     Called once per process (web: ``main.py``; MCP stdio: ``mcp/__main__.py``).
     Idempotent: at most one :class:`ContentFileHandler` is attached.
     """
+    code_labels()  # built here, not on the first request that logs a label
     root = _content_root()
     for handler in [h for h in root.handlers if isinstance(h, ContentFileHandler)]:
         root.removeHandler(handler)
