@@ -242,13 +242,14 @@ def test_one_instrument_cv_and_letter():
 
     src = inspect.getsource(cv)
     assert "attribution_report = await _truth_audit(" in src
-    assert "record.truthfulness_report = await _truth_audit(" in src
+    # the delivered audit, kept on a failed re-check of unchanged content
+    assert "_new_truth = await _truth_audit(" in src
     assert src.count("build_self_audit_report(") == 1   # only inside _truth_audit
     tsrc = inspect.getsource(cv._truth_audit)
     assert "provider=get_provider()" in tsrc and "document_language=document_language" in tsrc
     lsrc = inspect.getsource(cl)
     assert "report=await _letter_truth_audit(" in lsrc
-    assert "cl.truthfulness_report = await _letter_truth_audit(" in lsrc
+    assert "_new_truth = await _letter_truth_audit(" in lsrc
     assert lsrc.count("build_self_audit_report(") == 1
 
 

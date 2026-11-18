@@ -63,6 +63,8 @@ def test_content_files_are_private_whatever_the_umask(tmp_path):
         content_log.append_jsonl(str(directory), {"n": 1})
     finally:
         os.umask(old)
-    (path,) = list(directory.iterdir())
+    files = sorted(directory.iterdir())
+    assert [p.name for p in files] == sorted([content_log.DIRECTORY_LOCK, f"{content_log._today()}.jsonl"])
     assert stat.S_IMODE(os.stat(directory).st_mode) == 0o700
-    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    for path in files:  # the day's file and the writers' lock file
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600, path.name

@@ -19,6 +19,10 @@ def consent_facts_for_current_owner():
     owner = current_owner()
     if owner is None or owner.user_id is None:
         return None
+    from applire.services import log_consent_live
+
+    # What the door does when it reads a consent: the facts and the live state.
+    log_consent_live.note_door(owner.user_id, True)
     return allowance._facts.set(
         allowance.PayerFacts(owner_id=owner.user_id, mode="instance", log_consent_ok=True)
     )

@@ -229,13 +229,28 @@ def _calls_get_provider(name: str) -> bool:
     )
 
 
+#: Tools whose write runs without admission and whose model step asks the door
+#: itself (ruling C-1, ADR-096 amended 2026-11-18): the profile edit's skill
+#: estimate, the merge of a held import (discarding it needs no admission).
+LAYERED_TOOLS = {"update_profile": "admitted_or_none", "resolve_held_merge": "admit_from_facts"}
+
+
+def _calls_attr(name: str, attr: str) -> bool:
+    tree = ast.parse((APPLIRE / "mcp" / "server.py").read_text("utf-8"))
+    fn = next(n for n in tree.body if getattr(n, "name", None) == name)
+    return any(isinstance(n, ast.Attribute) and n.attr == attr for n in ast.walk(fn))
+
+
 def test_every_mcp_tool_that_builds_a_provider_is_admitted():
     tools = _admitting_tools()
     assert tools, "no agent tools found"
     for name, admits in tools.items():
         if _calls_get_provider(name):
-            assert admits == "model_work", name
-    assert sum(1 for a in tools.values() if a) == 13
+            if name in LAYERED_TOOLS:
+                assert admits is None and _calls_attr(name, LAYERED_TOOLS[name]), name
+            else:
+                assert admits == "model_work", name
+    assert sum(1 for a in tools.values() if a) == 11
 
 
 @pytest.mark.asyncio
@@ -544,7 +559,6 @@ def _dependency_calls(dependant) -> set:
     [
         ("POST", "/api/profile/import-jobs"),
         ("POST", "/api/job/{job_id}/gap-jobs"),
-        ("POST", "/api/profile/staged/{staged_id}/resolve"),
     ],
 )
 def test_job_start_routes_admit_before_the_202(method, path):
@@ -557,6 +571,23 @@ def test_job_start_routes_admit_before_the_202(method, path):
         r for r in app.routes if isinstance(r, APIRoute) and r.path == path and method in r.methods
     )
     assert admit_model_work in _dependency_calls(route.dependant), path
+
+
+def test_merging_a_held_import_asks_the_door_and_discarding_it_does_not():
+    """Ruling C-1: the resolve route tries the door; its merge branch (model
+    work) requires it before anything runs (behaviour: test_log_consent_edits)."""
+    import inspect
+
+    from fastapi.routing import APIRoute
+
+    from applire.auth.deps import admit_model_work, try_admit_model_work
+    from applire.main import app
+
+    path = "/api/profile/staged/{staged_id}/resolve"
+    route = next(r for r in app.routes if isinstance(r, APIRoute) and r.path == path and "POST" in r.methods)
+    calls = _dependency_calls(route.dependant)
+    assert try_admit_model_work in calls and admit_model_work not in calls
+    assert "door.require()" in inspect.getsource(route.endpoint)
 
 
 @pytest.mark.asyncio

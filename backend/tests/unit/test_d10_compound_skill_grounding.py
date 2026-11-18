@@ -134,7 +134,7 @@ async def test_yes_where_clears_the_card_on_recompute(db):
     key = rs.finding_key("oracle", SKILL)
     assert rs.find_listed(ra.findings_of(record), key) is not None, "the card is listed before the answer"
 
-    async def real_truth_reaudit(kind, rec, session):
+    async def real_truth_reaudit(kind, rec, session, keep_reports_on_failure=False):
         from applire.models.profile import MasterProfile
 
         profile = await session.get(MasterProfile, rec.profile_id)

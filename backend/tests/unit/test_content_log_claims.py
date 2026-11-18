@@ -51,7 +51,7 @@ def test_the_startup_line_promises_deletion_only_with_both_rules_in_the_sweep(mo
 def test_the_guide_and_the_consent_text_promise_what_the_sweep_does():
     guide = (ROOT / "docs" / "SELF-HOSTING.md").read_text("utf-8")
     assert "the nightly cleanup removes that person's text from both logs" in guide
-    assert "`CONTENT_LOG_RETENTION_DAYS` deletes both logs' daily files" in guide
+    assert "The daily cleanup removes every line before it is older than that" in guide
     de = json.loads((ROOT / "frontend" / "messages" / "de.json").read_text("utf-8"))
     assert "Danach werden die Einträge automatisch gelöscht" in de["logConsent"]["text"]["durationBody"]
     assert "Wir löschen dann innerhalb von 48 Stunden" in de["logConsent"]["text"]["withdrawBody"]
@@ -59,9 +59,9 @@ def test_the_guide_and_the_consent_text_promise_what_the_sweep_does():
 
 
 def test_the_rewrite_waits_for_a_writer_holding_the_lock(tmp_path):
-    """The worker takes the same exclusive flock as ``append_jsonl``: while a
+    """The worker takes the directory lock ``append_jsonl`` takes: while a
     writer holds it, the rewrite does not replace the file."""
-    import fcntl
+    from applire.content_log import directory_lock
 
     path = tmp_path / "2026-11-18.jsonl"
     path.write_text(json.dumps({"user_id": "u-gone", "ts": "2026-11-18T08:00:00+00:00",
@@ -72,13 +72,11 @@ def test_the_rewrite_waits_for_a_writer_holding_the_lock(tmp_path):
         content_logs.rewrite_file(path, {"u-gone": "all"})
         done.set()
 
-    with open(path, "a", encoding="utf-8") as writer:
-        fcntl.flock(writer.fileno(), fcntl.LOCK_EX)
+    with directory_lock(str(tmp_path)):
         t = threading.Thread(target=rewrite)
         t.start()
         time.sleep(0.3)
         assert not done.is_set(), "the rewrite ran while a writer held the lock"
-        fcntl.flock(writer.fileno(), fcntl.LOCK_UN)
     t.join(5)
     assert done.is_set()
     assert "Weberit" not in path.read_text("utf-8")
