@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.internal_errors import internal_server_error
 from applire.auth.deps import require_user, user_or_signed_link
-from applire.auth.deps import admit_model_work
+from applire.auth.deps import ModelWorkDoor, admit_model_work, try_admit_model_work
 from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
@@ -244,6 +244,7 @@ async def patch_section(
     body: SectionOverridePatch,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _door: ModelWorkDoor = Depends(try_admit_model_work),
     user: User = Depends(require_user),
 ) -> SectionOverridePatchResponse:
     try:

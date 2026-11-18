@@ -297,6 +297,9 @@ async def delete_account(
     await seams.revoke_all_tokens(db, user.id)
     await revoke_open_links(db, user.id)
     await db.commit()
+    from applire.services import log_consent_live
+
+    log_consent_live.note_withdrawn(user.id)  # running work stops logging at once
 
     # Step 2 — the one erasure implementation (ADR-092 cl. 11, filled by 3b).
     counts = await erasure.erase(db, user.id, "account")

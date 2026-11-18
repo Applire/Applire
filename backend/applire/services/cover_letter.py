@@ -5149,6 +5149,13 @@ async def _run_letter_critic(cl, db: AsyncSession, letter_for_critic: dict, *, r
     return critic_report
 
 
+def _not_admitted(exc: BaseException) -> bool:
+    """See services/cv.py:_not_admitted."""
+    from applire.services.allowance import AdmissionRefused
+
+    return isinstance(exc, AdmissionRefused)
+
+
 async def _update_ats_report_letter(
     cl: GeneratedCoverLetter,
     db: AsyncSession,
@@ -5157,6 +5164,7 @@ async def _update_ats_report_letter(
     truth_floor_hits: set | frozenset = frozenset(),
     terminal_review=None,
     critic: bool = True,
+    keep_reports_on_failure: bool = False,
 ) -> None:
     """ADR-039 — letter twin of services/cv.py:_update_ats_report.
 
@@ -5191,6 +5199,9 @@ async def _update_ats_report_letter(
     generation status, and any previous `docx_ats_report` is wiped on
     error for the same ADR-039 reason.
     """
+    # Re-check of unchanged content: see services/cv.py:_update_ats_report.
+    _previous_truth = cl.truthfulness_report if keep_reports_on_failure else None
+    _previous_critic = cl.critic_report if keep_reports_on_failure else None
     # Stage relabel (#539 evidence-run refuter observation, letter mount of the
     # #538 finding): without this, the audit tail's own LLM calls (Oracle
     # sentence triage, outcome critic Pass B) inherit the LAST chain's stage
@@ -5302,7 +5313,7 @@ async def _update_ats_report_letter(
             except Exception as _exc:
                 logger.error("letter truth audit: keyword ledger unavailable for %s (%s)", cl.id, type(_exc).__name__)
                 clog.debug("letter truth audit: keyword ledger unavailable for %s", cl.id, exc_info=True)
-        cl.truthfulness_report = await _letter_truth_audit(
+        _new_truth = await _letter_truth_audit(
             profile_row.profile_json if profile_row else {},
             audited,
             # B3-10 (WP-FO): what the candidate typed into THIS letter's form is
@@ -5316,6 +5327,8 @@ async def _update_ats_report_letter(
             ),
             keyword_ledger=ledger,
         )
+        # None = the self-audit could not run (it never raises).
+        cl.truthfulness_report = _new_truth if _new_truth is not None else _previous_truth
         # #803 reopened (WP-T build 7, MD7-2): a letter term the Oracle's sentence
         # triage placed in a sentence about the employer joins the neutral
         # employer-sentence row (ats_audit owns the rule; never raises).
@@ -5323,13 +5336,16 @@ async def _update_ats_report_letter(
 
         cl.ats_report = apply_letter_employer_facts(cl.ats_report, cl.truthfulness_report)
     except Exception as _exc:
-        logger.error(
-            "Truthfulness self-audit failed for cover letter %s — report left NULL (%s)", cl.id, type(_exc).__name__
-        )
-        clog.debug(
-            "Truthfulness self-audit failed for cover letter %s — report left NULL", cl.id, exc_info=True
-        )
-        cl.truthfulness_report = None
+        if _not_admitted(_exc):
+            logger.info("Truthfulness self-audit for cover letter %s not run: model work not admitted (%s)", cl.id, _exc.code)
+        else:
+            logger.error(
+                "Truthfulness self-audit failed for cover letter %s — report left NULL (%s)", cl.id, type(_exc).__name__
+            )
+            clog.debug(
+                "Truthfulness self-audit failed for cover letter %s — report left NULL", cl.id, exc_info=True
+            )
+        cl.truthfulness_report = _previous_truth
     # ADR-060 Pass B (amended 2026-07-30, #322): the outcome critic's
     # cross-document coherence advisory rides the same commit as the
     # artifact + the two reports above. A SEPARATE try block, deliberately
@@ -5347,19 +5363,26 @@ async def _update_ats_report_letter(
             cl, db, _apply_section_overrides(cl.letter_data, cl.section_overrides or {}),
             restore_stage="letter_audit",
         )
-        cl.critic_report = critic_report.model_dump(mode="json")
+        if _previous_critic is not None and critic_report.reason == "judgement_error":
+            # The re-check's judgement call failed: the stored verdict stands.
+            pass
+        else:
+            cl.critic_report = critic_report.model_dump(mode="json")
     except _SkipLetterCritic:
         pass
     except Exception as _exc:
-        logger.error(
-            "Outcome critic Pass B failed for cover letter %s — critic_report left NULL (%s)",
-            cl.id, type(_exc).__name__,
-        )
-        clog.debug(
-            "Outcome critic Pass B failed for cover letter %s — critic_report left NULL",
-            cl.id, exc_info=True,
-        )
-        cl.critic_report = None
+        if _not_admitted(_exc):
+            logger.info("Outcome critic Pass B for cover letter %s not run: model work not admitted (%s)", cl.id, _exc.code)
+        else:
+            logger.error(
+                "Outcome critic Pass B failed for cover letter %s — critic_report left NULL (%s)",
+                cl.id, type(_exc).__name__,
+            )
+            clog.debug(
+                "Outcome critic Pass B failed for cover letter %s — critic_report left NULL",
+                cl.id, exc_info=True,
+            )
+        cl.critic_report = _previous_critic
     # ADR-079 clause 8 (E057 adversarial review Finding 3): the .docx
     # export's OWN ATS audit — NEVER writes ats_report (the PDF's column);
     # the two artefacts can legitimately diverge (ADR-079 clause 2: a

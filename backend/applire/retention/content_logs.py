@@ -8,9 +8,15 @@ Both content logs are daily JSON-lines files, ``<YYYY-MM-DD>.jsonl``, in
 LLM call log). Every line carries ``user_id`` (``null`` for ownerless work).
 
 ``content_log_age``
-    With ``CONTENT_LOG_RETENTION_DAYS > 0``, delete every daily file older than
-    the limit. The date comes from the file NAME (a copy or restore resets the
-    mtime). Other files are left alone.
+    With ``CONTENT_LOG_RETENTION_DAYS = N > 0``, remove every line that is
+    older than ``N - 1`` days when the daily run comes by, so that with one run
+    a day no line is ever older than ``N`` days: a daily file all of whose lines
+    are that old is deleted (its date comes from the file NAME: a copy or
+    restore resets the mtime), the file that straddles the limit is rewritten
+    without its old lines. In both directories, every regular file that is not
+    a daily file (a rotated or renamed copy, a leftover temporary file) cannot
+    be read line by line, so neither rule could reach a withdrawn person's lines
+    in it: it is deleted once it is a day old (by mtime), whatever ``N`` is.
 
 ``content_log_withdrawn``
     For a person whose account is gone, or who withdrew their logging consent,
@@ -18,8 +24,8 @@ LLM call log). Every line carries ``user_id`` (``null`` for ownerless work).
     (:func:`applire.services.log_consent.purge_horizon`) to technical figures
     only, without the user id. Stateless and idempotent: a line written by work
     that was admitted before the withdrawal and finished after it is caught on
-    the next run. A file is rewritten atomically under the same ``flock`` the
-    writers take (``content_log.append_jsonl``).
+    the next run. A file is rewritten or deleted atomically under the directory
+    lock the writers take (``content_log.directory_lock``), so no line is lost.
 
 Neither rule is suspended by ``RETENTION_ENABLED``: the consent text promises
 both to the person.
@@ -39,11 +45,6 @@ from typing import Any, Iterable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -84,21 +85,92 @@ def _daily_files(directory: Path) -> Iterable[tuple[Path, date]]:
     return out
 
 
-def purge_by_age(days: int, *, today: date | None = None, directories: list[Path] | None = None) -> int:
-    """Delete daily files older than ``days`` (0 = unlimited: nothing). Returns the count."""
-    if days <= 0:
-        return 0
-    today = today or datetime.now(timezone.utc).date()
-    cutoff = today - timedelta(days=days)
-    deleted = 0
+def _is_ours(child: Path) -> bool:
+    from applire.content_log import DIRECTORY_LOCK
+
+    return child.name == DIRECTORY_LOCK
+
+
+def _older_than(ts: Any, horizon: datetime) -> bool:
+    parsed = _parse_ts(ts)
+    return parsed is None or parsed < horizon
+
+
+def _drop_old_lines(path: Path, horizon: datetime) -> int:
+    """Rewrite ``path`` without the lines older than ``horizon`` (or with no
+    readable time); the caller holds the directory lock. Returns how many."""
+    kept: list[str] = []
+    dropped = 0
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            stripped = raw.strip()
+            if not stripped:
+                continue
+            try:
+                record = json.loads(stripped)
+                ts = record.get("ts") if isinstance(record, dict) else None
+            except ValueError:
+                ts = None
+            if _older_than(ts, horizon):
+                dropped += 1
+            else:
+                kept.append(stripped)
+    if dropped:
+        if kept:
+            _replace(path, kept)
+        else:
+            path.unlink()
+    return dropped
+
+
+def purge_by_age(days: int, *, now: datetime | None = None, directories: list[Path] | None = None) -> int:
+    """Rule ``content_log_age`` (see the module docstring). Returns the number of
+    files deleted plus lines removed from a file that straddles the limit."""
+    from applire.content_log import directory_lock
+
+    now = now or datetime.now(timezone.utc)
+    removed = 0
     for directory in directories if directories is not None else log_directories():
-        for path, day in _daily_files(directory):
-            if day < cutoff:
+        if not directory.is_dir():
+            continue
+        with directory_lock(str(directory)):
+            removed += _purge_unknown_files(directory, now)
+            if days <= 0:
+                continue
+            horizon = now - timedelta(days=days - 1)
+            for path, day in _daily_files(directory):
+                day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
                 try:
-                    path.unlink()
-                    deleted += 1
+                    if day_start + timedelta(days=1) <= horizon:
+                        path.unlink()
+                        removed += 1
+                    elif day_start < horizon:
+                        removed += _drop_old_lines(path, horizon)
                 except FileNotFoundError:
-                    pass
+                    continue
+    return removed
+
+
+def _purge_unknown_files(directory: Path, now: datetime) -> int:
+    """Delete regular files that are not daily files once they are a day old."""
+    deleted = 0
+    cutoff = (now - timedelta(days=1)).timestamp()
+    for child in sorted(directory.iterdir()):
+        if child.is_symlink() or not child.is_file() or _is_ours(child):
+            continue
+        m = _DAILY.match(child.name)
+        if m:
+            try:
+                date.fromisoformat(m.group(1))
+                continue  # a daily file: the line rules apply
+            except ValueError:
+                pass
+        try:
+            if child.stat().st_mtime < cutoff:
+                child.unlink()
+                deleted += 1
+        except FileNotFoundError:
+            continue
     return deleted
 
 
@@ -156,51 +228,55 @@ def user_ids_in(directories: list[Path]) -> set[str]:
     return ids
 
 
+def _replace(path: Path, lines: list[str]) -> None:
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write("\n".join(lines) + "\n")
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def rewrite_file(path: Path, horizons: dict[str, Any]) -> int:
     """Rewrite ``path`` with every line of a purged person reduced; returns how many.
 
-    Holds an exclusive ``flock`` on the file for the whole read-and-replace, so a
-    writer waiting for it reopens the replaced file (``append_jsonl``). A line
-    that is not JSON cannot be attributed and may hold text: it becomes
-    ``{"unparsed": true}``.
+    Holds the directory lock (``content_log.directory_lock``) for the whole
+    read-and-replace, the lock every writer takes before it opens the file, so
+    no line is appended to the file being replaced. A line that is not JSON
+    cannot be attributed and may hold text: it becomes ``{"unparsed": true}``.
     """
-    changed = 0
-    with open(path, "r+", encoding="utf-8") as fh:
-        if fcntl is not None:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    from applire.content_log import directory_lock
+
+    with directory_lock(str(path.parent)):
+        changed = 0
         out_lines: list[str] = []
-        for raw in fh:
-            stripped = raw.strip()
-            if not stripped:
-                continue
-            try:
-                record = json.loads(stripped)
-                if not isinstance(record, dict):
-                    raise ValueError("not an object")
-            except ValueError:
-                out_lines.append(json.dumps({"unparsed": True}))
-                changed += 1
-                continue
-            if _must_scrub(record, horizons):
-                out_lines.append(json.dumps(technical_figures(record), ensure_ascii=False))
-                changed += 1
-            else:
-                out_lines.append(stripped)
-        if not changed:
-            return 0
-        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as out:
-                out.write("\n".join(out_lines) + "\n")
-                out.flush()
-                os.fsync(out.fileno())
-            os.replace(tmp, path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except FileNotFoundError:
-                pass
-            raise
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                stripped = raw.strip()
+                if not stripped:
+                    continue
+                try:
+                    record = json.loads(stripped)
+                    if not isinstance(record, dict):
+                        raise ValueError("not an object")
+                except ValueError:
+                    out_lines.append(json.dumps({"unparsed": True}))
+                    changed += 1
+                    continue
+                if _must_scrub(record, horizons):
+                    out_lines.append(json.dumps(technical_figures(record), ensure_ascii=False))
+                    changed += 1
+                else:
+                    out_lines.append(stripped)
+        if changed:
+            _replace(path, out_lines)
     return changed
 
 

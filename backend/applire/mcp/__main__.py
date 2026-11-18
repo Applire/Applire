@@ -115,7 +115,12 @@ def main() -> None:
     from applire.mcp.server import mcp, warn_if_base_url_unset
 
     warn_if_base_url_unset()
-    mcp.run(transport="stdio")
+    # The SDK's stdio transport, with an unreadable line answered (mcp/stdio.py).
+    import anyio
+
+    from applire.mcp.stdio import serve
+
+    anyio.run(serve, mcp)
 
 
 if __name__ == "__main__":

@@ -920,7 +920,6 @@ async def get_profile() -> dict:
 
 
 @agent_tool(
-    admits="model_work",
     description=(
         "Update one MasterProfile section. "
         f"section: one of {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
@@ -935,7 +934,9 @@ async def update_profile(
     # did not, so `patch_profile_section`'s `if provider is not None` gate meant
     # a skills edit was enriched through the UI and silently not through the
     # agent door. Same intake, different vault state, decided by entry path.
-    provider = get_provider()
+    # Ruling C-1: the edit itself needs no admission; the estimate layered on it
+    # runs only for an admitted person (the REST door's ``_get_optional_provider``).
+    provider = get_provider() if allowance.admitted_or_none() is not None else None
     # ADR-063 amended 2026-08-25 (ADR-058 parity): the same OPTIONAL basis the
     # REST door takes; omitted = last-write-wins exactly as before.
     basis: datetime | None = None
@@ -1051,7 +1052,6 @@ async def undo_last_merge() -> dict:
 
 
 @agent_tool(
-    admits="model_work",
     description=(
         "Resolve an import the pre-merge integrity gate held (staged_id from "
         "get_profile_health.held_merges). decision: 'merge' or 'discard'. "
@@ -1070,7 +1070,14 @@ async def resolve_held_merge(staged_id: str, decision: str) -> dict:
         raise invalid_input(
             f"decision must be 'merge' or 'discard', got: {decision!r}"
         )
-    provider = get_provider()
+    # 'merge' is model work (the reconcile merge); 'discard' is not (ruling C-1).
+    provider = None
+    if decision == "merge":
+        try:
+            allowance.admit_from_facts("model_work")
+        except allowance.AdmissionRefused as exc:
+            raise admission_refused(exc)
+        provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
         try:

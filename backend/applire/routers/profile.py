@@ -35,7 +35,7 @@ clog = content_logger(__name__)
 _INTERNAL_ERROR_MESSAGE = "An unexpected error occurred. Please try again."
 
 from applire.auth.deps import require_user
-from applire.auth.deps import admit_model_work
+from applire.auth.deps import ModelWorkDoor, admit_model_work, try_admit_model_work
 from applire.constants import MAX_CV_UPLOAD_BYTES
 from applire.models.user import User
 from applire.db.session import get_db
@@ -165,6 +165,15 @@ async def _get_provider(_payer=Depends(admit_model_work)) -> LLMProvider:
     """ADR-096 cl. 4: admitted (``model_work``) before the provider is built;
     the payer decision travels with the request and its background tasks."""
     return get_provider()
+
+
+async def _get_optional_provider(
+    door: ModelWorkDoor = Depends(try_admit_model_work),
+) -> LLMProvider | None:
+    """Ruling C-1: an edit never needs model admission. The model step a write
+    layers on (the skill estimate) runs only for an admitted person; otherwise
+    the write runs without it (``None``)."""
+    return get_provider() if door.admitted else None
 
 
 def _get_storage() -> StorageProvider:
@@ -377,7 +386,7 @@ async def resolve_staged_extraction_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
-    provider: LLMProvider = Depends(_get_provider),
+    door: ModelWorkDoor = Depends(try_admit_model_work),
 ) -> StagedResolveResponse:
     """Resolve a CV upload that the pre-merge integrity gate held (US167).
 
@@ -386,8 +395,14 @@ async def resolve_staged_extraction_endpoint(
     drops it, leaving the profile untouched. Resolving is idempotent: a second
     attempt on an already-resolved item returns HTTP 409. The lookup is scoped to
     the authenticated user, so a foreign upload returns 404 (IDOR guard).
+    ``merge`` is model work (the reconcile merge) and needs admission;
+    ``discard`` is not and does not (ruling C-1).
     """
     user = current_user
+    provider = None
+    if body.action == "merge":
+        door.require()
+        provider = get_provider()
     try:
         return await resolve_staged_extraction(
             db, staged_id, action=body.action, user_id=user.id, provider=provider
@@ -498,14 +513,19 @@ async def merge_entries_endpoint(
     body: EntryMergeRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
-    provider: LLMProvider = Depends(_get_provider),
+    door: ModelWorkDoor = Depends(try_admit_model_work),
 ):
     """Hazelnut build 5 (U-11) — merge two entries of one section. ``preview``
     writes nothing and returns the merged entry, the aliases, a date conflict
     and the duplicate bullets; ``commit`` re-validates the candidate's choices
     and writes one history record with a pre-write snapshot (undo-last-merge).
     404 unknown entry / no profile; 409 ``stale_preview``; 422
-    ``dates_choice_required`` / same entry."""
+    ``dates_choice_required`` / same entry. The preview reads duplicates with
+    the model and needs admission; the commit does not (ruling C-1)."""
+    provider = None
+    if body.mode == "preview":
+        door.require()
+        provider = get_provider()
     try:
         return await entry_merge(db, body, provider, user_id=_uid(current_user))
     except LookupError:
@@ -1195,7 +1215,7 @@ async def patch_section(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
-    provider: LLMProvider = Depends(_get_provider),
+    provider: LLMProvider | None = Depends(_get_optional_provider),
     basis_updated_at: Annotated[
         datetime | None,
         Query(

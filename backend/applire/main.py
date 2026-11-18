@@ -78,6 +78,12 @@ install_access_log_redaction()
 from applire.redaction import install_secret_redaction, scrub_detail  # noqa: E402
 
 install_secret_redaction(*_applire_logger.handlers, logging.getLogger("uvicorn.error"))
+# ADR-087 cl. 9: an error that reaches the server's own logger (or Python's
+# last-resort handler) is shown as its type, route and error id; the detail is
+# a content line at DEBUG.
+from applire.log_boundary import install_for_web, install_request_boundary  # noqa: E402
+
+install_for_web()
 from applire.services.thumbnails import ensure_thumbnails
 
 STATIC_DIR = resolve_static_dir()
@@ -370,7 +376,17 @@ async def lifespan(app: FastAPI):
     # computed on a timer, because after hand-over the operator is not watching.
     from applire.services.ops.aggregate import start_ops_refresh, stop_ops_refresh
     start_ops_refresh()
+    # A withdrawal recorded by another process reaches this one's running work
+    # within seconds (services/log_consent_live.py).
+    import asyncio
+
+    from applire.services.log_consent_live import run_refresher
+
+    consent_stop = asyncio.Event()
+    consent_task = asyncio.create_task(run_refresher(consent_stop))
     yield
+    consent_stop.set()
+    await consent_task
     await stop_ops_refresh()
 
 
@@ -397,6 +413,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa
 async def _scrubbed_http_exception_handler(request, exc: StarletteHTTPException):
     exc.detail = scrub_detail(exc.detail)
     return await http_exception_handler(request, exc)
+
+
+# A request the validator refuses answers 422 with the field and the rule, for
+# any body a client can send; an error no route caught answers 500 with an id.
+install_request_boundary(app)
 
 
 @app.get("/openapi.json", include_in_schema=False)

@@ -7563,6 +7563,14 @@ def _pages_kept_at(page_overflow: dict | None) -> int | None:
     return n if isinstance(n, int) and n > 0 else None
 
 
+def _not_admitted(exc: BaseException) -> bool:
+    """A re-audit step refused at the provider seam (no consent, no key, no
+    allowance): the edit stands, the step is left out (ruling C-1)."""
+    from applire.services.allowance import AdmissionRefused
+
+    return isinstance(exc, AdmissionRefused)
+
+
 async def _update_ats_report(
     record: GeneratedCV,
     db: AsyncSession,
@@ -7571,6 +7579,7 @@ async def _update_ats_report(
     commit: bool = True,
     terminal_review: "TerminalReviewOutcome | None" = None,
     critic: bool = True,
+    keep_reports_on_failure: bool = False,
 ) -> None:
     """ADR-039: render (unless already measured) → audit → persist. Audit-only —
     the measure-and-condense loop lives in ``_measure_and_condense`` since #538
@@ -7609,6 +7618,11 @@ async def _update_ats_report(
     generation status, and any previous ``docx_ats_report`` is wiped on
     error for the same ADR-039 reason.
     """
+    # A re-check of unchanged content (``keep_reports_on_failure``) keeps the
+    # stored truthfulness and critic reports when their model work cannot run
+    # or fails: they still describe this content, and nothing replaces them.
+    _previous_truth = record.truthfulness_report if keep_reports_on_failure else None
+    _previous_critic = record.critic_report if keep_reports_on_failure else None
     # Stage relabel (#538 refuter observation, fixed in #539): the audit tail's
     # own LLM calls (Oracle sentence triage, outcome critic Pass A) otherwise
     # inherit the last chain's stage label (`cv_terminal_review`) from the
@@ -7755,7 +7769,7 @@ async def _update_ats_report(
         # missing/deleted) leaves it ``None`` — the seam then stays off,
         # fail-open, exactly like the pre-ADR-068 report.
         judgement_job = await db.get(JobAnalysis, record.job_analysis_id)
-        record.truthfulness_report = await _truth_audit(
+        _new_truth = await _truth_audit(
             profile.profile_json if profile else {},
             audited.model_dump(mode="json"),
             document_language=(
@@ -7772,14 +7786,19 @@ async def _update_ats_report(
             # MD-Q17 F3: the same titles the generation loop's truth round read.
             posting_titles=await _posting_titles_for(record, db, owner),
         )
+        # None = the self-audit could not run (it never raises).
+        record.truthfulness_report = _new_truth if _new_truth is not None else _previous_truth
     except Exception as _exc:
-        logger.error(
-            "Truthfulness self-audit failed for CV %s — report left NULL (%s)", record.id, type(_exc).__name__
-        )
-        clog.debug(
-            "Truthfulness self-audit failed for CV %s — report left NULL", record.id, exc_info=True
-        )
-        record.truthfulness_report = None
+        if _not_admitted(_exc):
+            logger.info("Truthfulness self-audit for CV %s not run: model work not admitted (%s)", record.id, _exc.code)
+        else:
+            logger.error(
+                "Truthfulness self-audit failed for CV %s — report left NULL (%s)", record.id, type(_exc).__name__
+            )
+            clog.debug(
+                "Truthfulness self-audit failed for CV %s — report left NULL", record.id, exc_info=True
+            )
+        record.truthfulness_report = _previous_truth
     # ADR-060 Pass A (third amendment, 2026-07-31 / ADR-067 clause 5): the
     # outcome critic reads the ASSEMBLED CV — post-join, post-every-pass,
     # overrides applied — and rides the same commit as the two reports above,
@@ -7820,19 +7839,26 @@ async def _update_ats_report(
             provider=get_provider(),
         )
         _set_llm_log_stage("cv_audit")
-        record.critic_report = critic_report.model_dump(mode="json")
+        if _previous_critic is not None and critic_report.reason == "judgement_error":
+            # The re-check's judgement call failed: the stored verdict stands.
+            pass
+        else:
+            record.critic_report = critic_report.model_dump(mode="json")
     except _SkipCritic:
         pass  # the generation's in-loop critic report stands
     except Exception as _exc:
-        logger.error(
-            "Outcome critic Pass A failed for CV %s — critic_report left NULL (%s)",
-            record.id, type(_exc).__name__,
-        )
-        clog.debug(
-            "Outcome critic Pass A failed for CV %s — critic_report left NULL",
-            record.id, exc_info=True,
-        )
-        record.critic_report = None
+        if _not_admitted(_exc):
+            logger.info("Outcome critic Pass A for CV %s not run: model work not admitted (%s)", record.id, _exc.code)
+        else:
+            logger.error(
+                "Outcome critic Pass A failed for CV %s — critic_report left NULL (%s)",
+                record.id, type(_exc).__name__,
+            )
+            clog.debug(
+                "Outcome critic Pass A failed for CV %s — critic_report left NULL",
+                record.id, exc_info=True,
+            )
+        record.critic_report = _previous_critic
     # ADR-079 clause 8 (E057/US296, #637): the .docx export's OWN ATS audit —
     # NEVER writes ats_report (the PDF's column); the two artefacts can
     # legitimately diverge (ADR-079 clause 2: a second artefact, not a

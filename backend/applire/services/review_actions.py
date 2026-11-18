@@ -186,17 +186,22 @@ async def load_document(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user
     return cl
 
 
-async def reaudit(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> None:
+async def reaudit(
+    kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None,
+    keep_reports_on_failure: bool = False,
+) -> None:
     """The document re-audit, AWAITED (ADR-090 cl. 3/4) — the exact function the
-    section editor's background task runs. It commits."""
+    section editor's background task runs. It commits. ``keep_reports_on_failure``
+    (the re-check of unchanged content) keeps the stored truthfulness and critic
+    reports when their model work fails."""
     if kind == "cv":
         from applire.services.cv import _update_ats_report
 
-        await _update_ats_report(record, db)
+        await _update_ats_report(record, db, keep_reports_on_failure=keep_reports_on_failure)
     else:
         from applire.services.cover_letter import _update_ats_report_letter
 
-        await _update_ats_report_letter(record, db)
+        await _update_ats_report_letter(record, db, keep_reports_on_failure=keep_reports_on_failure)
     await db.refresh(record)
     note_audited(kind, record)
 
@@ -516,7 +521,7 @@ async def confirm_supported(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSe
                 "skills", skills, db, source="manual_edit",
                 source_session_id=str(doc_id), user_id=owner,
             )
-        await reaudit(kind, record, db)
+        await reaudit(kind, record, db, keep_reports_on_failure=True)
         state = rs.with_decision(
             rs.load_state(record.review_state), key, finding.label, "supported", receipt=receipt,
         )
@@ -561,7 +566,7 @@ async def _reaudit_sibling(kind: Kind, record, key: str, label: str, db: AsyncSe
         async with rs.document_lock(sib_kind, sib_id):
             sibling = await load_document(sib_kind, sib_id, db, user_id=record.user_id)
             listed_before = rs.find_listed(findings_of(sibling), key)
-            await reaudit(sib_kind, sibling, db)
+            await reaudit(sib_kind, sibling, db, keep_reports_on_failure=True)
             if listed_before is not None and rs.find_listed(findings_of(sibling), key) is None:
                 state = rs.with_decision(
                     rs.load_state(sibling.review_state), key, listed_before.label or label, "added",
@@ -981,7 +986,7 @@ async def recheck(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: u
     owner = resolve_owner(user_id, site="review_actions.recheck")
     async with rs.document_lock(kind, doc_id):
         record = await load_document(kind, doc_id, db, user_id=owner)
-        await reaudit(kind, record, db)
+        await reaudit(kind, record, db, keep_reports_on_failure=True)
         return ActionOutcome(record=record)
 
 
@@ -1050,7 +1055,7 @@ async def keep_length(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_i
             raise ResolverNotApplicable("the letter is not over its page target")
         state = rs.with_decision(rs.load_state(record.review_state), PAGE_LENGTH_KEY, "page-length", "kept")
         await _save_state(record, state, db)
-        await reaudit(kind, record, db)
+        await reaudit(kind, record, db, keep_reports_on_failure=True)
         return ActionOutcome(record=record, still_listed=_letter_page_check(record) is not None)
 
 

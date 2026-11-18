@@ -270,6 +270,9 @@ def reset_context_for_tests() -> None:
     """Test seam: drop any decision/facts the running context carries."""
     _decision.set(None)
     _facts.set(None)
+    from applire.services import log_consent_live
+
+    log_consent_live.reset_for_tests()
 
 
 def _remember_key(key: str) -> None:
@@ -318,6 +321,9 @@ async def load_facts(db: AsyncSession, user: User) -> PayerFacts:
             log_consent_ok=consent,
         )
     _facts.set(facts)
+    from applire.services import log_consent_live
+
+    log_consent_live.note_door(user.id, consent)
     return facts
 
 
@@ -367,6 +373,15 @@ def admit_from_facts(action: str, ref: str | None = None) -> PayerDecision:
     decision = decide(facts, action, ref)
     _decision.set(decision)
     return decision
+
+
+def admitted_or_none(action: str = "model_work") -> PayerDecision | None:
+    """:func:`admit_from_facts` for model work a write does not depend on
+    (ruling C-1): the decision when admitted, ``None`` when refused."""
+    try:
+        return admit_from_facts(action)
+    except AdmissionRefused:
+        return None
 
 
 async def admit(db: AsyncSession, user: User, action: str, ref: str | None = None) -> PayerDecision:

@@ -837,8 +837,10 @@ _register_all(
             introduced_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
             description=(
                 "Age limit for both content logs (CONTENT_LOG_DIR and LLM_DEBUG_LOG_DIR), in\n"
-                "days: the retention worker deletes older daily files. 0 = unlimited. Set it\n"
-                "on any instance that holds other people's data; the consent text names it."
+                "days: the daily retention run deletes every line before it is older than\n"
+                "this. 0 = unlimited. A whole number, 0 or more; any other value stops the\n"
+                "start. Set it on any instance that holds other people's data; the consent\n"
+                "text names it."
             ),
         ),
         SettingEntry(

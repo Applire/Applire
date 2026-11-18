@@ -139,8 +139,13 @@ def owner_may_be_logged() -> tuple[bool, str | None]:
         return True, None
     from applire.services.allowance import current_facts
 
+    from applire.services.log_consent_live import revoked
+
     facts = current_facts()
     if facts is None or facts.owner_id != owner.user_id or not facts.log_consent_ok:
+        return False, str(owner.user_id)
+    # A withdrawal after the door read the facts (work still running).
+    if revoked(owner.user_id):
         return False, str(owner.user_id)
     return True, str(owner.user_id)
 
@@ -149,34 +154,42 @@ def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+#: The lock file every writer and the retention worker take, one per log
+#: directory. It is never renamed or deleted, so the lock cannot move away from
+#: under a waiting writer (the daily file itself is replaced by a rewrite).
+DIRECTORY_LOCK = ".write.lock"
+
+
+@contextlib.contextmanager
+def directory_lock(directory: str) -> Iterator[None]:
+    """Exclusive ``flock`` on ``<directory>/.write.lock`` (created 0600)."""
+    fd = os.open(os.path.join(directory, DIRECTORY_LOCK), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        if fcntl is not None:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # releases the lock
+
+
 def append_jsonl(directory: str, record: dict[str, Any]) -> None:
     """Append one JSON line to ``<directory>/<today>.jsonl``.
 
-    Holds an exclusive ``flock`` while appending and re-opens when the retention
-    worker replaced the file meanwhile (the worker takes the same lock on the
-    file it rewrites), so a line is never appended to a file that was just
-    unlinked. The folder is created 0700 and the file 0600, whatever the
-    process umask. Never raises: logging must not break a request.
+    Under the directory lock the retention worker takes for every rewrite and
+    deletion, so a line is always appended to the file that is there, never to
+    one that was just replaced or unlinked. The folder is created 0700 and the
+    file 0600, whatever the process umask. Never raises: logging must not break
+    a request.
     """
     try:
         os.makedirs(directory, mode=0o700, exist_ok=True)
         path = os.path.join(directory, _today() + ".jsonl")
         line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
-        with _write_lock:
-            for _ in range(3):
-                fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-                with os.fdopen(fd, "a", encoding="utf-8") as fh:
-                    if fcntl is not None:
-                        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-                    try:
-                        same = os.fstat(fh.fileno()).st_ino == os.stat(path).st_ino
-                    except FileNotFoundError:
-                        same = False
-                    if not same:
-                        continue  # replaced while we waited: open the new file
-                    fh.write(line)
-                    fh.flush()
-                    return
+        with _write_lock, directory_lock(directory):
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as fh:
+                fh.write(line)
+                fh.flush()
     except Exception:  # noqa: BLE001 — a log line must never break a request
         pass
 
@@ -272,9 +285,15 @@ def configure_content_logging(*stream_handlers: logging.Handler) -> bool:
     ``applire.*`` DEBUG record go to the content file. Idempotent.
     """
     code_labels()  # built here, not on the first request that logs a label
+    from applire.log_boundary import RECORD_REDUCER
+
     for handler in stream_handlers:
         if STREAM_FILTER not in handler.filters:
             handler.addFilter(STREAM_FILTER)
+        # After the level rule: a record that reaches the stream carries an
+        # exception as its type and an error id, the detail goes to DEBUG.
+        if RECORD_REDUCER not in handler.filters:
+            handler.addFilter(RECORD_REDUCER)
     root = _content_root()
     app = logging.getLogger("applire")
     for handler in [h for h in root.handlers if isinstance(h, ContentFileHandler)]:

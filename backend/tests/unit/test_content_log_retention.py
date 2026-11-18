@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """The retention worker's content-log rules (ADR-017 amended 2026-11-18).
 
-``content_log_age`` deletes daily files older than CONTENT_LOG_RETENTION_DAYS
-(by the date in the name). ``content_log_withdrawn`` reduces every line of a
+``content_log_age`` removes every line before it is older than
+CONTENT_LOG_RETENTION_DAYS (a run a day: a daily file whose lines are all
+older than N - 1 days is deleted by the date in its name, the file that
+straddles the limit loses its old lines), and deletes every regular file that
+is not a daily file once it is a day old. ``content_log_withdrawn`` reduces every line of a
 withdrawn or deleted person to technical figures without the user id, keeps
 everyone else's lines, and is idempotent.
 """
@@ -55,21 +58,111 @@ def _llm_line(uid, ts):
 # ── age ────────────────────────────────────────────────────────────────────────
 
 
+def _ts(at: datetime) -> str:
+    return at.isoformat()
+
+
 def test_age_rule_deletes_by_the_date_in_the_name_in_both_directories(tmp_path):
     content, llm = tmp_path / "content", tmp_path / "llm"
-    today = date(2026, 12, 31)
-    old_c = _write(content, today - timedelta(days=31), [{"x": 1}])
-    edge_c = _write(content, today - timedelta(days=30), [{"x": 1}])
-    old_l = _write(llm, today - timedelta(days=45), [{"x": 1}])
-    new_l = _write(llm, today, [{"x": 1}])
-    other = llm / "notes.txt"
-    other.write_text("keep", "utf-8")
+    now = datetime(2026, 12, 31, 3, 0, tzinfo=timezone.utc)
+    today = now.date()
+    old_c = _write(content, today - timedelta(days=30), [{"ts": _ts(now - timedelta(days=30))}])
+    edge = today - timedelta(days=29)  # straddles the limit (now - 29 days)
+    edge_c = _write(content, edge, [
+        {"ts": _ts(datetime(edge.year, edge.month, edge.day, 1, tzinfo=timezone.utc))},
+        {"ts": _ts(datetime(edge.year, edge.month, edge.day, 5, tzinfo=timezone.utc))},
+    ])
+    old_l = _write(llm, today - timedelta(days=45), [{"ts": _ts(now - timedelta(days=45))}])
+    new_l = _write(llm, today, [{"ts": _ts(now)}])
     # A fresh mtime on an old file must not save it (a copy or restore resets mtime).
     os.utime(old_l, (time.time(), time.time()))
-    deleted = content_logs.purge_by_age(30, today=today, directories=[content, llm])
-    assert deleted == 2
-    assert not old_c.exists() and not old_l.exists()
-    assert edge_c.exists() and new_l.exists() and other.exists()
+    removed = content_logs.purge_by_age(30, now=now, directories=[content, llm])
+    assert removed == 3  # two files, one line
+    assert not old_c.exists() and not old_l.exists() and new_l.exists()
+    assert [r["ts"] for r in _read(edge_c)] == [_ts(datetime(edge.year, edge.month, edge.day, 5, tzinfo=timezone.utc))]
+
+
+@pytest.mark.parametrize("days", [1, 2, 30])
+def test_with_a_run_a_day_no_line_is_ever_older_than_the_limit(tmp_path, days):
+    """Lines every six hours for 70 days, a run every day at 03:00: just before
+    each run, the oldest line left is at most ``days`` old."""
+    start = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    directory = tmp_path / "llm"
+    worst = timedelta(0)
+    for d in range(70):
+        run_at = start + timedelta(days=d, hours=3)
+        # the six-hourly lines written since the last run
+        for h in range(4):
+            at = run_at - timedelta(hours=6 * (h + 1))
+            if at >= start:
+                directory.mkdir(parents=True, exist_ok=True)
+                with open(directory / f"{at.date().isoformat()}.jsonl", "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({"ts": _ts(at)}) + "\n")
+        remaining = [datetime.fromisoformat(r["ts"]) for f in directory.glob("*.jsonl") for r in _read(f)]
+        if remaining:
+            worst = max(worst, run_at - min(remaining))
+        content_logs.purge_by_age(days, now=run_at, directories=[directory])
+    assert worst <= timedelta(days=days)
+
+
+def test_files_that_are_not_daily_files_go_after_a_day_whatever_the_limit(tmp_path):
+    from applire.content_log import DIRECTORY_LOCK
+
+    now = datetime(2026, 11, 18, 3, 0, tzinfo=timezone.utc)
+    old = (now - timedelta(days=2)).timestamp()
+    fresh = (now - timedelta(hours=2)).timestamp()
+    tmp_path.mkdir(exist_ok=True)
+    names = ["2026-11-01.jsonl.1", "2026-11-01.jsonl.bak", "old-notes.jsonl", "2026-13-45.jsonl",
+             ".2026-11-01.jsonl.abc.tmp"]
+    for name in names:
+        (tmp_path / name).write_text(json.dumps({"user_id": "u", "prompt": TEXT}) + "\n", "utf-8")
+        os.utime(tmp_path / name, (old, old))
+    (tmp_path / "recent.bak").write_text("x", "utf-8")
+    os.utime(tmp_path / "recent.bak", (fresh, fresh))
+    (tmp_path / DIRECTORY_LOCK).write_text("", "utf-8")
+    os.utime(tmp_path / DIRECTORY_LOCK, (old, old))
+    (tmp_path / "2026-11-02.jsonl").mkdir()  # a directory named like a daily file
+    (tmp_path / "link.jsonl").symlink_to(tmp_path / "recent.bak")
+    for days in (0, 30):
+        content_logs.purge_by_age(days, now=now, directories=[tmp_path])
+    left = sorted(p.name for p in tmp_path.iterdir())
+    assert left == sorted([DIRECTORY_LOCK, "recent.bak", "2026-11-02.jsonl", "link.jsonl"])
+
+
+def test_appends_survive_concurrent_rewrites_from_other_processes(tmp_path):
+    """Two writer processes append while this process rewrites the same file in
+    a loop (the withdrawal rule): no line is lost."""
+    import multiprocessing as mp
+
+    from applire import content_log
+
+    directory = tmp_path / "llm"
+    gone = str(uuid.uuid4())
+    content_log.append_jsonl(str(directory), {"user_id": gone, "ts": _ts(datetime.now(timezone.utc)), "prompt": TEXT})
+    path = directory / f"{content_log._today()}.jsonl"
+    per_writer = 1500
+    ctx = mp.get_context("fork")
+    writers = [ctx.Process(target=_append_many, args=(str(directory), w, per_writer)) for w in range(2)]
+    for p in writers:
+        p.start()
+    rewrites = 0
+    while any(p.is_alive() for p in writers):
+        content_logs.rewrite_file(path, {gone: "all"})
+        content_log.append_jsonl(str(directory), {"user_id": gone, "ts": _ts(datetime.now(timezone.utc)), "prompt": TEXT})
+        rewrites += 1
+    for p in writers:
+        p.join()
+    rows = _read(path)
+    written = [r for r in rows if r.get("writer") is not None]
+    assert len(written) == 2 * per_writer
+    assert rewrites > 20, "the test did not contend"
+
+
+def _append_many(directory: str, writer: int, count: int) -> None:
+    from applire import content_log
+
+    for i in range(count):
+        content_log.append_jsonl(directory, {"user_id": None, "writer": writer, "i": i})
 
 
 def test_age_zero_is_unlimited(tmp_path):
@@ -191,3 +284,23 @@ async def test_the_sweep_runs_both_rules_and_reports_them(async_db, tmp_path, mo
     assert report["content_log_lines_removed"] == 1
     assert "content_log_age" not in report["failed_rules"]
     assert not old.exists() and TEXT not in cur.read_text("utf-8")
+
+
+# ── the setting ────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("raw", ["-5", "abc", "3.5", "30 days"])
+def test_a_limit_that_is_not_a_count_of_days_stops_the_start(raw, monkeypatch):
+    from applire.config import InvalidSettingError, Settings
+
+    monkeypatch.setenv("CONTENT_LOG_RETENTION_DAYS", raw)
+    with pytest.raises(InvalidSettingError, match="CONTENT_LOG_RETENTION_DAYS must be a whole number"):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("raw,days", [("", 0), ("0", 0), (" 30 ", 30)])
+def test_a_count_of_days_is_read(raw, days, monkeypatch):
+    from applire.config import Settings
+
+    monkeypatch.setenv("CONTENT_LOG_RETENTION_DAYS", raw)
+    assert Settings(_env_file=None).content_log_retention_days == days

@@ -18,7 +18,7 @@ from applire.auth.deps import require_session_user
 from applire.db.session import get_db
 from applire.models.user import User
 from applire.schemas.auth import LogConsentRequest, LogConsentState
-from applire.services import audit, log_consent
+from applire.services import audit, log_consent, log_consent_live
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -56,6 +56,7 @@ async def agree_log_consent(
     await audit.record(db, actor_id=row.id, action="log_consent.given", target_type="user",
                        target_id=row.id, details={"version": body.version})
     await db.commit()
+    log_consent_live.note_consented(row.id)
     return LogConsentState(**log_consent.summary(row))
 
 
@@ -70,6 +71,9 @@ async def withdraw_log_consent(
     await audit.record(db, actor_id=row.id, action="log_consent.withdrawn", target_type="user",
                        target_id=row.id, details={})
     await db.commit()
+    # Running work of this person writes no further line and starts no further
+    # model call (services/log_consent_live.py).
+    log_consent_live.note_withdrawn(row.id)
     return LogConsentState(**log_consent.summary(row))
 
 

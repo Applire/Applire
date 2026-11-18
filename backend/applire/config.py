@@ -384,6 +384,22 @@ class Settings(BaseSettings):
             "environment and restart."
         )
 
+    @field_validator("content_log_retention_days", mode="before")
+    @classmethod
+    def _content_log_days_is_a_count(cls, value: object) -> int:
+        """A whole number of days, 0 or more (empty = 0 = unlimited). Anything
+        else stops the start: a negative or misspelt limit read as "unlimited"
+        would keep the logs longer than the consent text says."""
+        text = str(value if value is not None else "").strip()
+        if text == "":
+            return 0
+        if text.isdigit():
+            return int(text)
+        raise InvalidSettingError(
+            "CONTENT_LOG_RETENTION_DAYS must be a whole number of days, 0 or more "
+            "(0 = unlimited). Fix it in your .env / environment and restart."
+        )
+
     @field_validator("ops_provider_probe", mode="before")
     @classmethod
     def _probe_mode_is_one_of_four(cls, value: object) -> str:

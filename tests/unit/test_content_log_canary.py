@@ -6,9 +6,11 @@
 A synthetic person's text (the canary) is pushed through real service paths —
 the REST catch-all, the MCP catch-all, the posting analysis with its floors and
 its embedding step, the CV writer's skill-spelling guard, a ticked posting term,
-and real HTTP requests through uvicorn's access log with the canary in every
-query parameter that can carry a sign-in value, a page address or typed text —
-and through the
+real HTTP requests through uvicorn's access log with the canary in every
+query parameter that can carry a sign-in value, a page address or typed text,
+malformed request bodies and an uncaught error through uvicorn, unreadable lines
+on the agent channel's stdio transport, and records written by code that is
+not ours — and through the
 MODEL-REPLY side: replies carrying the canary in every free field and in every
 enum position (status, kind, op, cluster id, category) handed to the code that
 parses them — once with the
@@ -32,6 +34,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
+from pydantic import BaseModel, Field
 import uvicorn
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -184,7 +187,11 @@ async def _posting_term_answer(db):
 #: page address sign-in returns to, typed search text, link and API tokens.
 #: Named here, not read from ``auth/logfilter.py``, so a parameter dropped from
 #: the redaction lists fails this test.
-REQUEST_PARAMS = ("q", "next", "code", "state", "sig", "token", "access_token", "setup_token")
+REQUEST_PARAMS = (
+    "q", "next", "code", "state", "sig", "token", "access_token", "setup_token",
+    # a name the application decodes to ``q``/``code``, names it never reads
+    "%71", "%63ode", "jd_text", "text", "status",
+)
 
 
 async def _access_log_requests():
@@ -212,6 +219,123 @@ async def _access_log_requests():
         sock.close()
 
 
+#: Bodies a client can send that the validator refuses or the parser cannot
+#: read, each holding the canary: a lone surrogate escape, a NUL, bytes that are
+#: not UTF-8, the wrong content type, broken JSON, a value over its limit.
+MALFORMED_BODIES = (
+    (b'{"text":"%s \\ud800"}', "application/json", 422),
+    (b'{"text":"%s \\u0000"}', "application/json", 200),
+    (b'{"text":"%s \xff"}', "application/json", 400),
+    (b"%s \xff", "text/plain", 422),
+    (b'{"text":"%s', "application/json", 422),
+    (b'{"text":"%s' + b"x" * 200 + b'"}', "application/json", 422),
+)
+MALFORMED_STATUSES: list[int] = []
+SERVER_LINES: list[str] = []
+UNHANDLED_IDS: list[str] = []
+
+
+class _EchoBody(BaseModel):
+    text: str = Field(max_length=120)
+
+
+async def _malformed_requests():
+    """Real requests through a real uvicorn server: malformed bodies against the
+    app (a login with a lone surrogate) and against a route set up the way
+    ``main.py`` sets up the app, and one route whose error nobody catches."""
+    import applire.main
+    from applire.log_boundary import install_request_boundary
+
+    probe = FastAPI()
+    install_request_boundary(probe)
+
+    @probe.post("/echo")
+    async def echo(body: _EchoBody):
+        return {"ok": True}
+
+    @probe.post("/unhandled")
+    async def unhandled():
+        raise ValueError(JD_TEXT)
+
+    MALFORMED_STATUSES.clear()
+    SERVER_LINES.clear()
+    UNHANDLED_IDS.clear()
+    fmt = logging.Formatter("%(levelname)s %(name)s %(message)s")
+
+    class _ServerHandler(logging.Handler):
+        """uvicorn's own stream handler: none of our handler filters on it."""
+
+        def emit(self, record):
+            SERVER_LINES.append(fmt.format(record))
+
+    server_handler = _ServerHandler()
+    logging.getLogger("uvicorn").addHandler(server_handler)
+    for app, requests in (
+        (probe, [("/echo", b % CANARY.encode(), ct) for b, ct, _ in MALFORMED_BODIES] + [("/unhandled", b"", "application/json")]),
+        (applire.main.app, [("/api/auth/login", b'{"email":"a@b.de","password":"%s \\ud800"}' % CANARY.encode(), "application/json")]),
+    ):
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(app, log_config=None, lifespan="off"))
+        task = asyncio.create_task(server.serve(sockets=[sock]))
+        try:
+            while not server.started:
+                await asyncio.sleep(0.01)
+            async with AsyncClient(base_url=f"http://127.0.0.1:{port}") as client:
+                for path, body, ctype in requests:
+                    headers = {"content-type": ctype, "origin": f"http://127.0.0.1:{port}"}
+                    r = await client.post(path, content=body, headers=headers)
+                    MALFORMED_STATUSES.append(r.status_code)
+                    if r.status_code == 500:
+                        UNHANDLED_IDS.append(r.json()["detail"]["error_id"])
+        finally:
+            server.should_exit = True
+            await task
+            sock.close()
+    logging.getLogger("uvicorn").removeHandler(server_handler)
+
+
+MCP_LINES = (
+    '{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"submit_testimony",'
+    '"arguments":{"text":"%s \\ud800 Ende"}}}' % CANARY,
+    '{"jsonrpc":"2.0","id":42,"method":"ping"}',
+    "kein JSON %s" % CANARY,
+)
+MCP_REPLIES: list[dict] = []
+
+
+async def _mcp_unreadable_line():
+    """The agent channel's stdio transport, fed an unreadable request, a ping and
+    a line that is not JSON, in front of the real tool server."""
+    import io
+    import json
+
+    import anyio
+
+    from applire.mcp.server import mcp
+    from applire.mcp.stdio import stdio_server
+
+    stdin = anyio.wrap_file(io.StringIO("".join(line + "\n" for line in MCP_LINES)))
+    out = io.StringIO()
+    server = mcp._mcp_server
+    async with stdio_server(stdin, anyio.wrap_file(out)) as (read, write):
+        with anyio.fail_after(10):
+            await server.run(read, write, server.create_initialization_options())
+    MCP_REPLIES[:] = [json.loads(line) for line in out.getvalue().splitlines() if line.strip()]
+
+
+def _foreign_records():
+    """Records written by code that is not ours, in the shapes the MCP SDK and
+    asyncio write them: text formatted in before the record is made."""
+    logging.getLogger("mcp.server.lowlevel.server").error(f"Received exception from stream: input_value='{CANARY}'")
+    logging.getLogger().warning(f"Failed to validate request: {CANARY}")
+    try:
+        raise RuntimeError(CANARY)
+    except RuntimeError:
+        logging.getLogger("asyncio").error(f"Task exception was never retrieved: {CANARY}", exc_info=True)
+
+
 async def _all_paths(db):
     await _posting_analysis(db)
     await _rest_catch_all(db)
@@ -220,6 +344,9 @@ async def _all_paths(db):
     _model_replies()
     await _posting_term_answer(db)
     await _access_log_requests()
+    await _malformed_requests()
+    await _mcp_unreadable_line()
+    _foreign_records()
 
 
 PATHS = {
@@ -227,6 +354,8 @@ PATHS = {
     "REST catch-all": lambda db: _rest_catch_all(db),
     "MCP catch-all": lambda db: _mcp_catch_all(),
     "posting term answer": lambda db: _posting_term_answer(db),
+    "malformed request": lambda db: _malformed_requests(),
+    "MCP unreadable line": lambda db: _mcp_unreadable_line(),
 }
 
 
@@ -264,8 +393,11 @@ def stream():
 @pytest.mark.asyncio
 async def test_every_path_reaches_a_content_line(db, monkeypatch):
     """Positive control: without it the INFO test below could pass vacuously."""
+    import applire.main  # noqa: F401 — configures the switch on import; done before capture starts
+
     reached = {}
-    for name, run in {**PATHS, "skill guard": _skill_guard, "model replies": _model_replies}.items():
+    others = {"skill guard": _skill_guard, "model replies": _model_replies}
+    for name, run in {**PATHS, **others}.items():
         with content_log.capturing() as records:
             out = run(db) if name in PATHS else run()
             if out is not None:
@@ -285,11 +417,27 @@ async def test_at_info_no_record_and_no_file_holds_the_canary(db, monkeypatch, t
     await _all_paths(db)
 
     assert stream, "the paths logged nothing at INFO — the test would be blind"
-    access = [line for line in stream if line.startswith("INFO uvicorn.access")]
+    access = [line for line in stream if line.startswith("INFO uvicorn.access") and "/api/auth/oidc/" in line]
     assert len(access) == len(REQUEST_PARAMS) + 1, "the request arm wrote no access lines"
     assert all("[redacted]" in line for line in access)
     holding = [line for line in stream if CANARY in line or WORD in line]
     assert holding == []
+    # Every malformed body is answered (never a failed answer), the uncaught
+    # error with a 500 that carries its id, and the server's own error line is
+    # the type, the route and the id.
+    assert MALFORMED_STATUSES == [s for _, _, s in MALFORMED_BODIES] + [500, 422]
+    asgi = [line for line in SERVER_LINES if "Exception in ASGI application" in line]
+    assert len(asgi) == 1 and "[ValueError] [route=POST /unhandled] [error_id=" in asgi[0]
+    assert len(UNHANDLED_IDS) == 1 and f"[error_id={UNHANDLED_IDS[0]}]" in asgi[0]
+    assert [line for line in SERVER_LINES if CANARY in line] == []
+    # The agent gets an error reply for the unreadable request and its ping answered.
+    by_id = {r.get("id"): r for r in MCP_REPLIES}
+    assert by_id[41]["error"]["code"] == -32602 and by_id[42]["result"] == {}
+    assert len(MCP_REPLIES) == 2
+    refused = [line for line in stream if "MCP message refused" in line]
+    assert len(set(refused)) == 2  # the fixture sees an applire record on both loggers
+    foreign = [line for line in stream if not line.startswith("INFO") and line.split(" ", 2)[1] in ("mcp.server.lowlevel.server", "root", "asyncio")]
+    assert len(foreign) == 3 and all("[error_id=" in line for line in foreign)
     assert not content_dir.exists() and not llm_dir.exists()
 
 
@@ -302,3 +450,19 @@ def test_a_label_passes_only_as_a_known_value_or_a_word_of_the_code():
     assert label("B", known=("B", "C")) == "B"
     assert label("direct", known=("B", "C")) == content_log.OTHER
     assert label(["B"], known=("B", "C")) == content_log.OTHER
+
+
+def test_a_reduced_record_leaves_its_detail_on_the_content_log(stream):
+    """The stream shows a foreign record as its head and an id; the text is a
+    content line (positive control for the foreign-records arm)."""
+    from applire.log_boundary import RECORD_REDUCER
+
+    stream.handler.addFilter(RECORD_REDUCER)
+    try:
+        with content_log.capturing() as records:
+            _foreign_records()
+    finally:
+        stream.handler.removeFilter(RECORD_REDUCER)
+    assert sum(CANARY in logging.Formatter().format(r) for r in records) == 3
+    assert [line for line in stream if CANARY in line] == []
+    assert len([line for line in stream if "[error_id=" in line]) == 3

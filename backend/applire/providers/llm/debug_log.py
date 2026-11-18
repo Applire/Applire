@@ -541,6 +541,20 @@ def _reported_tokens() -> dict | None:
     }
 
 
+async def _refuse_after_withdrawal() -> None:
+    """No model call starts for a person whose consent is gone, also when the
+    work began before the withdrawal (services/log_consent_live.py)."""
+    from applire.ownership import current_owner
+    from applire.services.log_consent_live import allowed_to_call
+
+    owner = current_owner()
+    user_id = getattr(owner, "user_id", None) if owner is not None else None
+    if user_id is not None and not await allowed_to_call(user_id):
+        from applire.services.allowance import AdmissionRefused
+
+        raise AdmissionRefused("log_consent_required")
+
+
 class _LoggingProvider(LLMProvider):
     """Transparent provider wrapper that records each call's full input and output."""
 
@@ -562,6 +576,7 @@ class _LoggingProvider(LLMProvider):
         # attributed to this one.
         take_discarded_tail()
         take_discarded_prose()
+        await _refuse_after_withdrawal()
         try:
             result = await fn(prompt, **kwargs)
             return result
