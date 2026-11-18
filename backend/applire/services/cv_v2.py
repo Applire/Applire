@@ -303,6 +303,8 @@ class ComposeNotes:
     # (location, what the writer should return)
     levels_code_added: list[tuple[str, str, str, list[str]]] = field(default_factory=list)
     # (location, model level, stored level, codes the vault level does not state)
+    twins_settled: list[tuple[str, str, str]] = field(default_factory=list)
+    # Ruling Q10-8: (skill left out, ticked term printed, "dropped" | "replaced")
 
 
 #: CEFR level codes (Council of Europe). A code is a CLAIM about a tested level.
@@ -1778,6 +1780,19 @@ class V2Terminal:
         notes = ComposeNotes()
         composed = compose_v2(prose, profile_json, raw_profile_json=raw_profile_json, notes=notes,
                               document_language=self.ctx.language)
+        # Ruling Q10-8 (Sorbet WP-Q10): a deterministic composition rule on a fact
+        # the person saw on the card — the skill a ticked term stands in for on
+        # THIS posting's CV leaves the list (or yields its slot to the term). Every
+        # draft the loop, the reviewer and the delivery read is composed here, so
+        # none of them ever sees the left-out skill on the list.
+        from applire.services.posting_terms import settle_twin_skills, twin_pairs
+
+        pairs = twin_pairs(self.ctx.keyword_ledger)
+        if pairs:
+            skills, applied = settle_twin_skills(list(composed.skills or []), pairs)
+            if applied:
+                composed = composed.model_copy(update={"skills": skills})
+                notes.twins_settled.extend(applied)
         self.notes_by_draft[canonical(prose)] = notes
         return composed
 
@@ -1854,7 +1869,8 @@ class V2Terminal:
 
         open_ = self.delivered_findings(prose, tailored_data)
         logger.info("CV_V2_DELIVERED_CHECKS open=%s", [f.check for f in open_])
-        if not open_:
+        twin_note = self.twin_note(tailored_data)
+        if not open_ and twin_note is None:
             return outcome
         # R2-5 (build 4, WP-T hunk): one structured note per open check, so the
         # review card says each in the UI language; ``details`` folds them into the
@@ -1864,7 +1880,7 @@ class V2Terminal:
         new_notes = tuple(
             TerminalNote(kind="code", key=f.check, text=f.text, subjects=tuple(f.subjects))
             for f in open_
-        )
+        ) + ((twin_note,) if twin_note is not None else ())
         if outcome is None:
             # No terminal verdict ran (review layer off, or a stubbed loop): the row stays
             # "unknown" (path None → not_applicable) and still names the open facts.
@@ -1876,6 +1892,38 @@ class V2Terminal:
         if not fresh:
             return outcome
         return dataclasses.replace(outcome, notes=outcome.notes + fresh)
+
+    def twin_note(self, tailored_data: dict):
+        """Ruling Q10-8 (GARH: never a silent drop) — the delivered CV's left-out
+        skills, as a structured note on the terminal-review row (class S: the
+        report, the agent door and the operator log; ``terminal:note:
+        cv.skill_twin_left_out``). One pair is recorded when its term is on the
+        delivered list and the skill is not. ``None`` when no pair applies."""
+        from applire.services.posting_terms import name_key, twin_pairs
+
+        pairs = twin_pairs(self.ctx.keyword_ledger)
+        if not pairs:
+            return None
+        on_page = {name_key(c) for c in (tailored_data or {}).get("skills") or [] if isinstance(c, str)}
+        done = [p for p in pairs
+                if name_key(p["skill"]) not in on_page
+                and ({name_key(p["term"]), name_key(p.get("holder") or p["term"])} & on_page)]
+        logger.info("CV_TWIN_SKILLS delivered left_out=%d of pairs=%d", len(done), len(pairs))
+        if not done:
+            return None
+        from applire.services.terminal_review_outcome import TerminalNote
+
+        return TerminalNote(
+            kind="note",
+            key="cv.skill_twin_left_out",
+            text=(
+                "Left out of this CV's skills list because a job-posting term the "
+                "candidate confirmed for this posting stands in for it (shown to them "
+                "as their own words on the card; the profile keeps both): "
+                + "; ".join(f'"{p["skill"]}" for "{p["term"]}"' for p in done) + "."
+            ),
+            subjects=tuple(p["skill"] for p in done),
+        )
 
     def on_checks_settle(self, report) -> None:
         self.open_findings = list(report.open_findings)

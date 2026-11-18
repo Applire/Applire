@@ -257,6 +257,10 @@ _DOC: dict[str, Entry] = {
     "terminal:note:letter.limit_cut": _e("S"),
     "terminal:note:letter.limit_kept": _e("S"),
     "terminal:note:letter.missing_terms": _e("S"),
+    # Ruling Q10-8 (Sorbet WP-Q10): a skill a ticked posting term stands in for on
+    # this posting's CV — a composition rule on the person's own answer; report,
+    # agent door (``details``) and operator log.
+    "terminal:note:cv.skill_twin_left_out": _e("S"),
     "terminal:letter.post_condense": _e("S"),
     # the in-loop critic's advisory findings (cl. 8): never a delivered note, residue S
     "terminal:letter.critic_numeric": _e(_F, None, "S"),

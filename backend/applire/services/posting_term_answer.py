@@ -166,6 +166,7 @@ def add_confirmed_skills(
     posting: str | None,
     job_id: str,
     today: date,
+    shown: dict[str, list[str]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Pure: the skills section with each confirmed term as a NEW confirmed skill
     carrying its confirmation. A term already a skill name (case-blind) gets the
@@ -173,8 +174,14 @@ def add_confirmed_skills(
     check calls close to a held skill becomes that skill's second name (ruling
     Q10-1 = A: "close" is ``ats_audit.skills_near_dupe``, unchanged). In practice
     this branch is rare: a near-dupe of a held skill is already the person's word
-    and is not asked, so it fires only when the skills changed in between."""
+    and is not asked, so it fires only when the skills changed in between.
+
+    Ruling Q10-8: *shown* maps a term to the words the card showed beside it; the
+    confirmation records which of them are EXACTLY a profile skill name
+    (``shown_skills``, minus the skill the confirmation lands on) — that posting's
+    CV prints the term in place of them."""
     from applire.services.ats_audit import skills_near_dupe
+    from applire.services.posting_terms import card_skill_names
 
     out = [dict(s) if isinstance(s, dict) else s for s in skills]
     added: list[str] = []
@@ -187,6 +194,10 @@ def add_confirmed_skills(
             (s for s in out if isinstance(s, dict) and s.get("name")
              and skills_near_dupe(term, str(s["name"]))), None
         )
+        holder = (existing or close or {}).get("name") or term
+        card = card_skill_names((shown or {}).get(term), skills, holder=holder)
+        if card:
+            conf["shown_skills"] = card
         if close is not None:
             aliases = list(close.get("aliases") or [])
             if _key(term) not in {_key(a) for a in aliases}:
@@ -246,6 +257,8 @@ async def answer_posting_terms(
         new_skills, added = add_confirmed_skills(
             skills, chosen, via=via, posting=_posting_label(job, application),
             job_id=str(job.id), today=datetime.now(timezone.utc).date(),
+            # Ruling Q10-8: the words THIS answer's list showed beside each term.
+            shown={t["term"]: list(t.get("their_words") or []) for t in state.terms},
         )
         await patch_profile_section(
             "skills", new_skills, db,

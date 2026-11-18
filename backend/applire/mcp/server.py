@@ -1521,7 +1521,11 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
 
 _POSTING_TERMS_ASK = (
     "The job posting uses these terms. They never used them, but their profile "
-    "covers them. Which would they name as their own skill?"
+    "covers them. Which would they name as their own skill? "
+    # Ruling Q10-3 = C (founder 2026-11-18): the card footnote's sentence, for the
+    # agent to tell the person before confirming (ruling Q10-8).
+    "If one of their skills is shown beside a term (in their_words), the CV for "
+    "this job names the term in its place."
 )
 
 

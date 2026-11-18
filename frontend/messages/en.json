@@ -432,7 +432,7 @@
       "title": "One more question before your CV is written",
       "intro": "The job posting uses these terms. You have never used them yourself, but going by your profile they apply to you. Tick the ones you would name as your own skill.",
       "yourWords": "In your words so far",
-      "footnote": "Ticked terms are added to your profile as skills and may appear in your CV. Anything you leave unticked never appears there as your skill; your own words stay.",
+      "footnote": "Ticked terms are added to your profile as skills and may appear in your CV. Anything you leave unticked never appears there as your skill; your own words stay. If one of your skills is shown beside a term, the CV for this job names the term in its place.",
       "receipt": "{count, plural, one {# term from the job posting added as your skill: {terms}.} other {# terms from the job posting added as your skills: {terms}.}}",
       "saveFailed": "Your answer could not be saved. Please try again."
     }
