@@ -44,7 +44,8 @@ class PostingTermsState:
     declined: list[str] = field(default_factory=list)
     #: the terms the agent left open (generation proceeds; nothing answered)
     left_open: list[str] = field(default_factory=list)
-    #: the terms the last answer added to the profile (the receipt)
+    #: the terms this application's answers added to the profile, as STORED
+    #: (the receipt; accumulates — an answer adding nothing never empties it)
     confirmed: list[str] = field(default_factory=list)
     answered_at: str | None = None
     language: str | None = None
@@ -140,10 +141,15 @@ async def posting_terms_state(
         ledger, _ = refresh_ledger_against_vault(
             gap.keyword_ledger, profile_json, seam="posting terms"
         )
-    return compute_state(
+    state = compute_state(
         ledger, profile_json, resolve_document_language(application, job), _record(application),
         job_id=job_id,
     )
+    # The receipt names only what the profile still holds for this posting
+    # (adversarial pass F1): a skill the person deleted since is not "added".
+    held = confirmed_for_posting(profile_json, job.id)
+    state.confirmed = [t for t in state.confirmed if _key(t) in held]
+    return state
 
 
 def _posting_label(job: Any, application: Any) -> str | None:
@@ -179,7 +185,8 @@ def add_confirmed_skills(
     Ruling Q10-8: *shown* maps a term to the words the card showed beside it; the
     confirmation records which of them are EXACTLY a profile skill name
     (``shown_skills``, minus the skill the confirmation lands on) — that posting's
-    CV prints the term in place of them."""
+    CV prints the term in place of them. A NEW skill takes its category from
+    the first of those skills (F6), else the schema default."""
     from applire.services.ats_audit import skills_near_dupe
     from applire.services.posting_terms import card_skill_names
 
@@ -209,8 +216,18 @@ def add_confirmed_skills(
             if existing.get("status") != "confirmed":
                 existing["status"] = "confirmed"
         else:
-            out.append({"name": term, "category": "technical", "status": "confirmed",
-                        "confirmations": [conf]})
+            # Adversarial pass F6: the category is the one of the profile skill
+            # the card showed beside the term (the same competence in the
+            # person's word — "Werkscontrolling" domain → "Produktionscontrolling"
+            # domain); with none shown, the model's own default.
+            new = {"name": term, "status": "confirmed", "confirmations": [conf]}
+            category = next(
+                (s.get("category") for s in skills if isinstance(s, dict)
+                 and s.get("name") in card and s.get("category")), None
+            )
+            if category:
+                new["category"] = category
+            out.append(new)
         added.append(term)
     return out, added
 
@@ -221,6 +238,49 @@ class UnknownTerms(ValueError):
     def __init__(self, terms: list[str]) -> None:
         super().__init__(f"not on the list: {', '.join(terms)}")
         self.terms = terms
+
+
+class ConflictingAnswer(ValueError):
+    """Adversarial pass F6: ``leave_open`` together with ``confirmed`` terms —
+    one answer cannot both confirm a term and leave it open."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "leave_open=true cannot be combined with confirmed terms: confirm what "
+            "the person said in one call, or leave the list open in another"
+        )
+
+
+def confirmed_for_posting(profile_json: dict[str, Any] | None, job_id: Any) -> set[str]:
+    """The (keyed) terms the STORED profile holds a confirmation for, for this
+    posting — the truth an answer reports (F1) and the idempotent retry checks (F6)."""
+    out: set[str] = set()
+    for s in (profile_json or {}).get("skills") or []:
+        if not isinstance(s, dict):
+            continue
+        for c in s.get("confirmations") or []:
+            if isinstance(c, dict) and str(c.get("job_id")) == str(job_id) and c.get("name"):
+                out.add(_key(str(c["name"])))
+    return out
+
+
+async def _lock_answer_rows(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Adversarial pass F1: answers by one person are serialised. The person's
+    live profile row is taken ``FOR UPDATE`` (Postgres; SQLite has no row locks
+    and runs one writer at a time anyway) BEFORE anything is read, and the lock
+    is held until the answer's single commit — the skills write and the
+    application record commit together (``patch_profile_section(commit=False)``).
+    ``populate_existing``: a row this session read earlier is re-read under the
+    lock, never answered from the identity map's older copy. Same pattern as
+    the admin-count and erasure locks (``with_for_update``)."""
+    from applire.models.profile import MasterProfile
+
+    await db.execute(
+        select(MasterProfile)
+        .where(MasterProfile.user_id == user_id, MasterProfile.deleted_at.is_(None))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
 
 async def answer_posting_terms(
@@ -238,18 +298,31 @@ async def answer_posting_terms(
     term on the list is declined for this application. Nothing ticked is a valid
     answer. ``via="agent"``: ``confirmed`` = what the person told the agent;
     ``leave_open=True`` records the rest as left open by the agent (generation
-    may proceed, the card still asks) — and records NO answer."""
-    from applire.services.profile import patch_profile_section
+    may proceed, the card still asks) — and records NO answer.
 
+    Adversarial pass (2026-11-18): answers are serialised per person (F1) and
+    the response reports what the STORED profile holds, never what was asked
+    for; a term already confirmed for this posting is an idempotent success
+    (F6); ``leave_open`` with ``confirmed`` is refused (F6); an answer that
+    changes nothing leaves the record — and its receipt — as it was (F5)."""
+    from applire.services.profile import get_profile_for_user, patch_profile_section
+
+    if leave_open and confirmed:
+        raise ConflictingAnswer()
+    await _lock_answer_rows(db, user_id)
     job, application, profile, _gap = await _load(db, job_id, user_id)
+    if application is not None:
+        await db.refresh(application, with_for_update=True)
     state = await posting_terms_state(db, job_id, user_id)
+    record = _record(application)
+    already = confirmed_for_posting(profile.profile_json if profile is not None else None, job.id)
     by_key = {_key(t["term"]): t["term"] for t in state.terms}
-    unknown = [t for t in confirmed if _key(t) not in by_key]
+    unknown = [t for t in confirmed if _key(t) not in by_key and _key(t) not in already]
     if unknown:
         raise UnknownTerms(unknown)
-    chosen = list(dict.fromkeys(by_key[_key(t)] for t in confirmed))
+    chosen = list(dict.fromkeys(by_key[_key(t)] for t in confirmed if _key(t) in by_key))
 
-    added: list[str] = []
+    stored: list[str] = []
     if chosen:
         if profile is None:
             raise LookupError("No profile found")
@@ -264,24 +337,37 @@ async def answer_posting_terms(
             "skills", new_skills, db,
             source="agent_interview" if via == "agent" else "manual_edit",
             user_id=user_id,
+            # the one writer of a confirmation; flush only — one commit below
+            keep_stored_confirmations=False, commit=False,
         )
+        after = await get_profile_for_user(db, user_id)
+        held = confirmed_for_posting(after.profile_json if after is not None else None, job.id)
+        stored = [t for t in added if _key(t) in held]
 
     if application is not None:
-        record = _record(application)
+        before = dict(record)
         rest = [t["term"] for t in state.terms if t["term"] not in chosen]
+        if stored:
+            prior = [t for t in record.get("confirmed") or [] if isinstance(t, str)]
+            record["confirmed"] = list(dict.fromkeys([*prior, *stored]))
+        if stored and record.get("left_open"):
+            done = {_key(t) for t in stored}
+            record["left_open"] = [t for t in record["left_open"] if _key(t) not in done]
         if via == "person":
-            record["declined"] = list(dict.fromkeys([*(record.get("declined") or []), *rest]))
-            record["left_open"] = []
-            record["answered_at"] = datetime.now(timezone.utc).isoformat()
-            record["via"] = via
+            declined = list(dict.fromkeys([*(record.get("declined") or []), *rest]))
+            if stored or declined != list(record.get("declined") or []) or not record.get("answered_at"):
+                record["declined"] = declined
+                record["left_open"] = []
+                record["answered_at"] = datetime.now(timezone.utc).isoformat()
+                record["via"] = via
         elif leave_open:
             record["left_open"] = list(dict.fromkeys([*(record.get("left_open") or []), *rest]))
-        record["confirmed"] = added
-        application.posting_terms = record
-        await db.commit()
+        if record != before:
+            application.posting_terms = record
+    await db.commit()
     logger.info(
-        "POSTING_TERMS_ANSWER job=%s via=%s confirmed=%s leave_open=%s",
-        job_id, via, added, leave_open,
+        "POSTING_TERMS_ANSWER job=%s via=%s confirmed=%s stored=%d leave_open=%s",
+        job_id, via, chosen, len(stored), leave_open,
     )
     return await posting_terms_state(db, job_id, user_id)
 
