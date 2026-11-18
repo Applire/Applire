@@ -218,8 +218,8 @@ async def test_at_info_no_record_and_no_file_holds_the_canary(db, monkeypatch, t
     await _all_paths(db)
 
     assert stream, "the paths logged nothing at INFO — the test would be blind"
-    leaking = [line for line in stream if CANARY in line or WORD in line]
-    assert leaking == []
+    holding = [line for line in stream if CANARY in line or WORD in line]
+    assert holding == []
     assert not content_dir.exists() and not llm_dir.exists()
 
 
