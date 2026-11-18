@@ -39,8 +39,10 @@ from applire.schemas.profile import (
     ProjectEntry,
     WorkEntry,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 ANSWER_INTAKE = "aspiration_answer"
 ISSUE_PREFIX = "aspiration:"
@@ -218,8 +220,9 @@ async def aspiration_verdict_ops(profile: MasterProfileData, provider) -> list:
             for i, (sec, eid, k, t) in enumerate(candidates)
         ]
         return [RecordAspirationVerdicts(verdicts=items)]
-    except Exception:  # noqa: BLE001 — a judge failure must never fail the import
-        logger.warning("aspiration verdicts skipped", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — a judge failure must never fail the import
+        logger.warning("aspiration verdicts skipped: %s", type(exc).__name__)
+        clog.debug("aspiration verdicts skipped", exc_info=True)
         return []
 
 

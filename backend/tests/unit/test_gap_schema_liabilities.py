@@ -23,6 +23,8 @@ endpoint/tool needed for agent-door parity)."""
 import uuid
 from datetime import datetime, timezone
 
+from applire import content_log
+
 from applire.schemas.gap import GapAnalysisResponse, KeywordLedgerEntry
 
 
@@ -79,15 +81,17 @@ def test_keyword_ledger_entry_drops_denial_level_when_not_denied(caplog):
     inconsistent field, log a warning) rather than 500 every GET of that gap
     analysis — matching every other back-compat concern in this schema
     (narrative_backed defaults instead of raising)."""
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("WARNING"), content_log.capturing() as records:
         e = KeywordLedgerEntry(
             concept="Python", fit_weight=1.0, status="direct", claimable=True,
             denial_level="direct",
         )
     assert e.denial_level is None
     assert e.status == "direct"  # the rest of the row survives untouched
+    assert any("denial_level" in r.getMessage() for r in caplog.records)
+    assert not any("Python" in r.getMessage() for r in caplog.records)
     assert any(
-        "denial_level" in r.message and "Python" in r.message for r in caplog.records
+        "denial_level" in r.getMessage() and "Python" in r.getMessage() for r in records
     )
 
 

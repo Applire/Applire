@@ -26,8 +26,10 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: The catch-all 500 text (same wording as routers/session.py's #256 body).
 _INTERNAL_ERROR_MESSAGE = "An unexpected error occurred. Please try again."
@@ -1122,8 +1124,9 @@ async def resolve_profile_conflict(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    except Exception:
-        logger.exception("profile route failed")  # never echo str(exc) (MD-24 (6))
+    except Exception as exc:
+        logger.error("profile route failed: %s", type(exc).__name__)  # never echo str(exc) (MD-24 (6))
+        clog.debug("profile route failed", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
         )
@@ -1152,8 +1155,9 @@ async def conflict_merge_proposal(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    except Exception:
-        logger.exception("profile route failed")  # never echo str(exc) (MD-24 (6))
+    except Exception as exc:
+        logger.error("profile route failed: %s", type(exc).__name__)  # never echo str(exc) (MD-24 (6))
+        clog.debug("profile route failed", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
         )
@@ -1224,7 +1228,10 @@ async def patch_section(
         # The same structured body the upload doors give (#597): before W3 this
         # door surfaced it only through the catch-all's str(exc), which no
         # longer echoes exception text (MD-24 (6)).
-        logger.error("patch_section: vault write reverted (%s)", exc)
+        logger.error(
+            "patch_section: vault write reverted at stage=%s (source=%s)", exc.stage, exc.source
+        )
+        clog.debug("patch_section: vault write reverted (%s)", exc.detail)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE},
@@ -1239,10 +1246,11 @@ async def patch_section(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         )
-    except Exception:
+    except Exception as exc:
         # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
         # name (an owner-guard refusal) or provider payload. Logged in full here.
-        logger.exception("profile route failed")
+        logger.error("profile route failed: %s", type(exc).__name__)
+        clog.debug("profile route failed", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_INTERNAL_ERROR_MESSAGE,

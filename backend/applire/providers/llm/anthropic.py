@@ -58,8 +58,10 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Any
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 import anthropic
 from anthropic import AsyncAnthropic
@@ -449,6 +451,10 @@ class AnthropicProvider(LLMProvider):
             self._json_schema_rejected = True
             logger.warning(
                 "model=%s rejected the response schema; sending none for this process (%s)",
+                self._model, type(exc).__name__,
+            )
+            clog.debug(
+                "model=%s rejected the response schema; sending none for this process (%s)",
                 self._model, exc,
             )
         try:
@@ -458,12 +464,20 @@ class AnthropicProvider(LLMProvider):
                 raise
             logger.warning(
                 "model=%s: a 400 on a schema call persisted without the schema; "
+                "surfacing the original error, schema stays on (%s)", self._model, type(exc).__name__,
+            )
+            clog.debug(
+                "model=%s: a 400 on a schema call persisted without the schema; "
                 "surfacing the original error, schema stays on (%s)", self._model, exc,
             )
             raise exc from None
         if not worded:
             self._json_schema_rejected = True
             logger.warning(
+                "model=%s rejected the response schema (the call succeeded without it); "
+                "sending none for this process (%s)", self._model, type(exc).__name__,
+            )
+            clog.debug(
                 "model=%s rejected the response schema (the call succeeded without it); "
                 "sending none for this process (%s)", self._model, exc,
             )

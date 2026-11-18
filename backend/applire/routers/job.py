@@ -46,8 +46,10 @@ from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_b
 from applire.services.job import analyze_jd, caller_link, get_job_for_user
 from applire.services.posting_labels import posting_response
 from applire.services.scraper import ScraperError, scrape_job_url
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 router = APIRouter(prefix="/api/job", tags=["job"])
 
@@ -212,12 +214,13 @@ async def downgrade_gap_keyword_liability(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except Exception:
+    except Exception as exc:
         # #265: never format str(exc) into the response — a provider crash's
         # message can embed a raw provider payload. Full detail is logged
         # server-side; the client gets a stable machine-readable code (the
         # #256 convention, applied here so new code adds no new leak).
-        logger.exception("keyword-liability downgrade failed for job %s", job_id)
+        logger.error("keyword-liability downgrade failed for job %s: %s", job_id, type(exc).__name__)
+        clog.debug("keyword-liability downgrade failed for job %s", job_id, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={

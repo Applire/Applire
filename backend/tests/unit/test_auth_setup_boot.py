@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 from sqlalchemy import func, select
+from applire import content_log
 
 from applire.auth.harness import STUB_USER_ID
 from applire.auth.setup import (
@@ -83,11 +84,14 @@ async def test_after_the_claim_the_next_boot_logs_once_and_mints_no_code(async_d
     assert await claim_stub(async_db, email="op@example.org", password_hash="scrypt$x")
     await async_db.commit()
     assert await read_state(async_db, KEY_AUTH_SETUP_TOKEN_HASH) is None
-    with caplog.at_level(logging.WARNING, logger="applire.auth.setup"):
+    with caplog.at_level(logging.WARNING, logger="applire.auth.setup"), \
+            content_log.capturing() as records:
         assert await prepare_boot(async_db) is None
         assert await prepare_boot(async_db) is None
     claimed = [r for r in caplog.records if "was claimed at" in r.getMessage()]
-    assert len(claimed) == 1 and "op@example.org" in claimed[0].getMessage()
+    assert len(claimed) == 1 and "op@example.org" not in claimed[0].getMessage()
+    by_whom = [r for r in records if "was claimed at" in r.getMessage()]
+    assert len(by_whom) == 1 and "op@example.org" in by_whom[0].getMessage()
     assert await read_state(async_db, KEY_AUTH_CLAIM_NOTICE) is None
 
 

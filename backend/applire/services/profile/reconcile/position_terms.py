@@ -63,8 +63,10 @@ from applire.services.profile.reconcile.ops import (
     UpsertVolunteer,
     UpsertWork,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: The doors whose new_info["answer"] is the person's own words.
 GUARDED_SOURCES = frozenset({"interview", "agent_interview", "testimony"})
@@ -528,6 +530,10 @@ def _claim_clause(text: str, held: set[TitleKey]) -> str:
 
 def _log(op: ReconcileOp, field: str, hits: list[tuple[str, str]]) -> None:
     logger.info(
+        "RECONCILE_POSITION_CLAIM_HELD op=%s field=%s claims=%d",
+        getattr(op, "op", "?"), field, len({p for _f, p in hits}),
+    )
+    clog.debug(
         "RECONCILE_POSITION_CLAIM_HELD op=%s target=%s field=%s claims=%s",
         getattr(op, "op", "?"), getattr(op, "target", None), field,
         sorted({p for _f, p in hits}),

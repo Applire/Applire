@@ -38,8 +38,10 @@ import logging
 import re
 import time
 from typing import Any
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 import openai
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -210,6 +212,11 @@ class RequestyProvider(LLMProvider):
             logger.warning(
                 "model=%s rejected the response json_schema; falling back to "
                 "plain JSON mode for this process (%s)",
+                self._model, type(exc).__name__,
+            )
+            clog.debug(
+                "model=%s rejected the response json_schema; falling back to "
+                "plain JSON mode for this process (%s)",
                 self._model, exc,
             )
             return True
@@ -249,12 +256,22 @@ class RequestyProvider(LLMProvider):
             logger.warning(
                 "model=%s: a 400 on a json_schema call persisted without the "
                 "schema; surfacing the original error, schema stays on (%s)",
+                self._model, type(retry_exc).__name__,
+            )
+            clog.debug(
+                "model=%s: a 400 on a json_schema call persisted without the "
+                "schema; surfacing the original error, schema stays on (%s)",
                 self._model, retry_exc,
             )
             return None
         if not worded:
             self._json_schema_rejected = True
             logger.warning(
+                "model=%s rejected the response json_schema (the call succeeded "
+                "without it); falling back to plain JSON mode for this process (%s)",
+                self._model, type(exc).__name__,
+            )
+            clog.debug(
                 "model=%s rejected the response json_schema (the call succeeded "
                 "without it); falling back to plain JSON mode for this process (%s)",
                 self._model, exc,
@@ -410,6 +427,12 @@ class RequestyProvider(LLMProvider):
                 self._refuse_effort(sent)
             fallback = self._effort_after_refusal(sent) if about_reasoning else None
             logger.warning(
+                "model=%s rejected reasoning_effort=%s; retrying with %s, "
+                "max_tokens>=%d (%s)",
+                self._model, sent, fallback or "no reasoning_effort",
+                _REASONING_FALLBACK_MIN_TOKENS, type(exc).__name__,
+            )
+            clog.debug(
                 "model=%s rejected reasoning_effort=%s; retrying with %s, "
                 "max_tokens>=%d (%s)",
                 self._model, sent, fallback or "no reasoning_effort",

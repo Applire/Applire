@@ -103,11 +103,13 @@ from applire.services.profile.reconcile.ops import (
     UpsertSkill,
     UpsertStory,
 )
+from applire.content_log import content_logger
 
 if TYPE_CHECKING:
     from applire.providers.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # ADR-061 clause 8 — every drop/downgrade logs the turn text, bounded so one
 # oversized testimony (a pasted dossier) can't blow out a log line.
@@ -964,6 +966,9 @@ def _story_keeps(
     )
     if denials and _text_claims_denied(prose, denials):
         logger.warning(
+            "reconcile stance: dropped a story restating a denied token (US261/#127)"
+        )
+        clog.debug(
             "reconcile stance: dropped story %r restating a denied token "
             "(US261/#127) — turn: %r", op.title, _log_turn(raw_turn),
         )
@@ -979,6 +984,11 @@ def _story_keeps(
         )
         if ungrounded:
             logger.warning(
+                "reconcile stance: dropped a story — %d outcome/benchmark "
+                "figure(s) absent from the turn (Oracle number provenance, "
+                "US261/ADR-052)", len(ungrounded),
+            )
+            clog.debug(
                 "reconcile stance: dropped story %r — outcome/benchmark "
                 "figure(s) %s absent from the turn (Oracle number provenance, "
                 "US261/ADR-052) — turn: %r", op.title, sorted(ungrounded),
@@ -1035,6 +1045,10 @@ async def _adjudicate_testimony(
             )
     except Exception:  # noqa: BLE001 — provider/transport/parse noise, never confirmed
         logger.warning(
+            "reconcile stance: testimony adjudication call failed for a %s "
+            "— unconfirmed (ADR-061)", kind,
+        )
+        clog.debug(
             "reconcile stance: testimony adjudication call failed for %s %r "
             "— unconfirmed (ADR-061)", kind, token,
         )
@@ -1045,6 +1059,10 @@ async def _adjudicate_testimony(
     quote = data.get("quote")
     if answer not in ("yes", "no", "unclear") or not isinstance(quote, str):
         logger.warning(
+            "reconcile stance: malformed testimony adjudication response for "
+            "a %s — unconfirmed (ADR-061)", kind,
+        )
+        clog.debug(
             "reconcile stance: malformed testimony adjudication response for "
             "%s %r: %r — unconfirmed (ADR-061)", kind, token, data,
         )
@@ -1218,6 +1236,12 @@ def offered_choice_gate(
             "reconcile stance: %d denial(s) dropped — the answer is only offered "
             "choice text, no word of the candidate's own (G-3, ADR-064 amended "
             "2026-11-04, MD6-7); a sent honest bridge keeps only its declared "
+            "no (UAT-2)", len(dropped),
+        )
+        clog.debug(
+            "reconcile stance: %d denial(s) dropped — the answer is only offered "
+            "choice text, no word of the candidate's own (G-3, ADR-064 amended "
+            "2026-11-04, MD6-7); a sent honest bridge keeps only its declared "
             "no (UAT-2): %r", len(dropped), dropped,
         )
     return stated, dropped, unclaimed
@@ -1268,6 +1292,10 @@ async def enforce_stance(
         )
         if verdict == "denied":
             logger.warning(
+                "reconcile stance: dropped a DENIED %s (the model's own denial "
+                "verdict outranks its ops, ADR-040/#127)", kind,
+            )
+            clog.debug(
                 "reconcile stance: dropped DENIED %s %r (the model's own denial "
                 "verdict outranks its ops, ADR-040/#127) — turn: %r",
                 kind, token, _log_turn(raw_turn),
@@ -1275,6 +1303,11 @@ async def enforce_stance(
             return False
         if verdict == "unconfirmed":
             logger.warning(
+                "reconcile stance: dropped an unconfirmed %s — the testimony "
+                "predicate could not confirm the token, and free-text tags "
+                "have no unconfirmed slot to carry it on (ADR-061)", kind,
+            )
+            clog.debug(
                 "reconcile stance: dropped unconfirmed %s %r — the testimony "
                 "predicate could not confirm the token, and free-text tags "
                 "have no unconfirmed slot to carry it on (ADR-061) — turn: %r",
@@ -1293,6 +1326,10 @@ async def enforce_stance(
         )
         if verdict == "denied":
             logger.warning(
+                "reconcile stance: dropped a DENIED %s (the model's own denial "
+                "verdict outranks its ops, ADR-040/#127)", kind,
+            )
+            clog.debug(
                 "reconcile stance: dropped DENIED %s %r (the model's own denial "
                 "verdict outranks its ops, ADR-040/#127) — turn: %r",
                 kind, token, _log_turn(raw_turn),
@@ -1300,6 +1337,12 @@ async def enforce_stance(
             return False, "confirmed"
         if verdict == "unconfirmed":
             logger.warning(
+                "reconcile stance: a %s written unconfirmed — the testimony "
+                "predicate could not confirm the token; visible and "
+                "candidate-confirmable, never claimable (ADR-061 clauses 2/3)",
+                kind,
+            )
+            clog.debug(
                 "reconcile stance: %s %r written unconfirmed — the testimony "
                 "predicate could not confirm the token; visible and "
                 "candidate-confirmable, never claimable (ADR-061 clauses 2/3) "
@@ -1346,6 +1389,9 @@ async def enforce_stance(
                 ]
                 for b in dropped:
                     logger.warning(
+                        "reconcile stance: dropped a bullet restating a denied token (#127)"
+                    )
+                    clog.debug(
                         "reconcile stance: dropped bullet restating a denied "
                         "token: %r (#127) — turn: %r", b, _log_turn(raw_turn),
                     )
@@ -2370,6 +2416,10 @@ def demote_ops_for_denials(
         if not matches:
             continue
         logger.info(
+            "reconcile stance: demoting a vault skill to denied — the "
+            "candidate declared it (#485, ADR-061 amended 2026-08-08)"
+        )
+        clog.debug(
             "reconcile stance: demoting vault skill %r to denied — the "
             "candidate declared %r (#485, ADR-061 amended 2026-08-08)",
             skill.name, matches[0],

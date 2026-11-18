@@ -50,8 +50,10 @@ from typing import Any, Sequence
 
 from applire.services.profile.reconcile import aliases as _aliases
 from applire.services.profile.reconcile.ops import MatchExisting, UpsertSkill
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: The one category pair a skill binding may not cross (see the module docstring).
 _EXCLUSIVE_CATEGORIES = frozenset({"technical", "soft"})
@@ -148,6 +150,10 @@ def refuse_false_skill_bindings(
         refused.append({"op": op.op, "incoming": incoming_name, "target": op.target,
                         "target_name": target.name, "reason": reason})
         logger.warning(
+            "reconcile: refused %s binding (%s); the entry is kept as its own skill (#801)",
+            op.op, reason,
+        )
+        clog.debug(
             "reconcile: refused %s binding %r -> %r (%s); the entry is kept as its own skill (#801)",
             op.op, incoming_name, target.name, reason,
         )

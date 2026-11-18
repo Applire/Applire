@@ -157,6 +157,7 @@ from applire.services.flow.orchestrator import (
     ArtifactRequiredError,
     InvalidTransitionError,
 )
+from applire.content_log import content_logger
 
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
@@ -169,6 +170,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 GUIDE_VERSION = "2026-11-04"
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 @functools.lru_cache(maxsize=1)
@@ -345,8 +347,9 @@ def _mark_posting_labels(payload):
         return payload
     try:
         paths = posting_label_paths(payload)
-    except Exception:  # a marking helper must never become a way for a door to fail
-        logger.exception("posting-label marking failed")
+    except Exception as exc:  # a marking helper must never become a way for a door to fail
+        logger.error("posting-label marking failed: %s", type(exc).__name__)
+        clog.debug("posting-label marking failed", exc_info=True)
         return payload
     if not paths:
         return payload
@@ -1532,11 +1535,15 @@ async def _posting_terms_envelope(db, jid, uid) -> dict | None:
 
     try:
         state = await posting_terms_state(db, jid, uid)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         # Fail OPEN to today's generation: the generation seam stamps every
         # unanswered term on its own (stamp_for_generation), so no unticked term
         # can be printed as a skill whether or not this question was asked.
-        logger.exception("agent door: posting-terms read failed for job %s — generating", jid)
+        logger.error(
+            "agent door: posting-terms read failed for job %s — generating: %s",
+            jid, type(exc).__name__,
+        )
+        clog.debug("agent door: posting-terms read failed for job %s — generating", jid, exc_info=True)
         return None
     ask = state.agent_must_ask
     if not ask:
@@ -1632,9 +1639,14 @@ def _cv_readback(record: GeneratedCV) -> dict | None:
             tailored, record.content_snapshot, record.section_overrides
         )
         tailored = cv_svc.strip_empty_projects(tailored)
-    except Exception:
-        logger.exception(
-            "agent door: CV %s readback failed — returning no text", getattr(record, "id", None)
+    except Exception as exc:
+        logger.error(
+            "agent door: CV %s readback failed — returning no text: %s",
+            getattr(record, "id", None), type(exc).__name__,
+        )
+        clog.debug(
+            "agent door: CV %s readback failed — returning no text",
+            getattr(record, "id", None), exc_info=True,
         )
         return None
     data = tailored.model_dump(mode="json")
@@ -1708,11 +1720,16 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
             keyword_ledger = await cover_letter_svc._latest_keyword_ledger(
                 db, record.job_analysis_id, user_id=record.user_id,
             )
-    except Exception:
-        logger.exception(
+    except Exception as exc:
+        logger.error(
+            "agent door: keyword ledger unavailable for %s %s — auditing "
+            "against the vault alone: %s",
+            kind, record.id, type(exc).__name__,
+        )
+        clog.debug(
             "agent door: keyword ledger unavailable for %s %s — auditing "
             "against the vault alone",
-            kind, record.id,
+            kind, record.id, exc_info=True,
         )
     # 788:106: the self-audit's own derivation (record's pinned language, else
     # the JD's; job-less -> None keeps the seam off, fail-open).

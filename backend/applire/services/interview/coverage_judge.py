@@ -54,8 +54,10 @@ import logging
 from typing import Any
 
 from applire.services import gap_coverage
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: The prompt-context site — the gap analysis's own (same prompt, same arm).
 SITE = "gap_analysis:writer"
@@ -230,7 +232,8 @@ async def rejudge_open_members(
             units=[u for u in full_index.units if answered.intersection(getattr(u, "receipt_ids", None) or ())]
         )
     except Exception as exc:  # noqa: BLE001 — fail closed on claimability: nothing moves
-        logger.warning("interview coverage re-judge failed (%s: %s) — no row lifted", type(exc).__name__, exc)
+        logger.warning("interview coverage re-judge failed (%s) — no row lifted", type(exc).__name__)
+        clog.debug("interview coverage re-judge failed (%s: %s) — no row lifted", type(exc).__name__, exc)
         return list(ledger or []), []
 
     denials = [c for c, _lvl in _denied_concept_entries(denied_records)]
@@ -271,5 +274,6 @@ async def rejudge_open_members(
         out[pos] = _annotate_narrative_backed([_lifted_row(existing, fresh, unit_path)], profile_json)[0]
         lifted.append(existing.get("concept", ""))
     if lifted:
-        logger.info("interview coverage re-judge moved %s", lifted)
+        logger.info("interview coverage re-judge moved %d row(s)", len(lifted))
+        clog.debug("interview coverage re-judge moved %s", lifted)
     return out, lifted

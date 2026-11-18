@@ -36,8 +36,10 @@ import asyncio
 import logging
 import time
 from typing import Any
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 import openai
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -181,6 +183,11 @@ class OpenRouterProvider(LLMProvider):
             logger.warning(
                 "model=%s rejected the response json_schema; falling back to "
                 "plain JSON mode for this process (%s)",
+                self._model, type(exc).__name__,
+            )
+            clog.debug(
+                "model=%s rejected the response json_schema; falling back to "
+                "plain JSON mode for this process (%s)",
                 self._model, exc,
             )
             return True
@@ -220,12 +227,22 @@ class OpenRouterProvider(LLMProvider):
             logger.warning(
                 "model=%s: a 400 on a json_schema call persisted without the "
                 "schema; surfacing the original error, schema stays on (%s)",
+                self._model, type(retry_exc).__name__,
+            )
+            clog.debug(
+                "model=%s: a 400 on a json_schema call persisted without the "
+                "schema; surfacing the original error, schema stays on (%s)",
                 self._model, retry_exc,
             )
             return None
         if not worded:
             self._json_schema_rejected = True
             logger.warning(
+                "model=%s rejected the response json_schema (the call succeeded "
+                "without it); falling back to plain JSON mode for this process (%s)",
+                self._model, type(exc).__name__,
+            )
+            clog.debug(
                 "model=%s rejected the response json_schema (the call succeeded "
                 "without it); falling back to plain JSON mode for this process (%s)",
                 self._model, exc,
@@ -401,6 +418,12 @@ class OpenRouterProvider(LLMProvider):
                 "model=%s refused reasoning:{enabled:false}; retrying with thinking on "
                 "(effort=%s), max_tokens>=%d (%s)",
                 self._model, self._reasoning_effort or "model-default",
+                _REASONING_FALLBACK_MIN_TOKENS, type(exc).__name__,
+            )
+            clog.debug(
+                "model=%s refused reasoning:{enabled:false}; retrying with thinking on "
+                "(effort=%s), max_tokens>=%d (%s)",
+                self._model, self._reasoning_effort or "model-default",
                 _REASONING_FALLBACK_MIN_TOKENS, exc,
             )
             try:
@@ -447,7 +470,7 @@ class OpenRouterProvider(LLMProvider):
             usage.completion_tokens if usage else "?",
             finish,
         )
-        logger.debug("LLM response content (first 500 chars): %.500s", content or "")
+        clog.debug("LLM response content (first 500 chars): %.500s", content or "")
         raise_if_truncated(finish, model=self._model)
         return finalise_completion(
             response, content, model=self._model, method="acomplete"
@@ -489,7 +512,7 @@ class OpenRouterProvider(LLMProvider):
             usage.completion_tokens if usage else "?",
             finish,
         )
-        logger.debug("LLM response content (first 500 chars): %.500s", content or "")
+        clog.debug("LLM response content (first 500 chars): %.500s", content or "")
         raise_if_truncated(finish, model=self._model)
         return finalise_completion(
             response, content, model=self._model, method="aparse_json"

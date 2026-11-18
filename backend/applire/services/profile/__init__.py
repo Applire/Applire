@@ -21,7 +21,10 @@ import json
 import logging
 import uuid
 
+from applire.content_log import content_logger
+
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
@@ -147,8 +150,9 @@ async def _compute_embedding(
         return None
     try:
         vector = await embedding_provider.embed(text)
-    except Exception:
-        logger.warning("Profile embedding generation failed; storing NULL.", exc_info=True)
+    except Exception as exc:
+        logger.warning("Profile embedding generation failed; storing NULL: %s", type(exc).__name__)
+        clog.debug("Profile embedding generation failed; storing NULL.", exc_info=True)
         return None
     # Don't persist zero-vectors (noop provider) — NULL signals "not computed".
     if all(v == 0.0 for v in vector):
@@ -1601,6 +1605,11 @@ async def ingest_cv(
         if cut == -1:
             cut = _MAX_CV_TEXT_CHARS
         logger.warning(
+            "CV text truncated for LLM extraction: %d → %d chars",
+            len(raw_text),
+            cut,
+        )
+        clog.debug(
             "CV text truncated for LLM extraction: %d → %d chars (file: %s)",
             len(raw_text),
             cut,
@@ -1952,8 +1961,9 @@ async def _identity_verdict_ops(merged: MasterProfileData, provider: LLMProvider
             if f"{sec}:{a}:{b}" in verdicts
         ]
         return [RecordEntryIdentityVerdicts(verdicts=items)] if items else []
-    except Exception:  # noqa: BLE001 — a judge failure must never fail the import
-        logger.warning("entry identity verdicts skipped", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — a judge failure must never fail the import
+        logger.warning("entry identity verdicts skipped: %s", type(exc).__name__)
+        clog.debug("entry identity verdicts skipped", exc_info=True)
         return []
 
 

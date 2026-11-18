@@ -65,8 +65,10 @@ from applire.services.session import (
     review_merge_proposal,
     send_message,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 router = APIRouter(prefix="/api/session", tags=["session"])
 
@@ -140,8 +142,9 @@ async def start_session(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM returned invalid JSON",
         )
-    except Exception:
-        logger.exception("create_session failed for job %s", body.job_id)
+    except Exception as exc:
+        logger.error("create_session failed for job %s: %s", body.job_id, type(exc).__name__)
+        clog.debug("create_session failed for job %s", body.job_id, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_internal_error_detail(),
@@ -176,8 +179,9 @@ async def start_profile_review_session(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except Exception:
-        logger.exception("create_profile_review_session failed")
+    except Exception as exc:
+        logger.error("create_profile_review_session failed: %s", type(exc).__name__)
+        clog.debug("create_profile_review_session failed", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_internal_error_detail(),
@@ -231,8 +235,9 @@ async def analyze_session_gaps(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM returned invalid JSON",
         )
-    except Exception:
-        logger.exception("analyze_session_gaps failed for session %s", session_id)
+    except Exception as exc:
+        logger.error("analyze_session_gaps failed for session %s: %s", session_id, type(exc).__name__)
+        clog.debug("analyze_session_gaps failed for session %s", session_id, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_internal_error_detail(),
@@ -263,8 +268,9 @@ async def post_merge_proposal(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    except Exception:
-        logger.exception("merge proposal failed for session %s", session_id)
+    except Exception as exc:
+        logger.error("merge proposal failed for session %s: %s", session_id, type(exc).__name__)
+        clog.debug("merge proposal failed for session %s", session_id, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_internal_error_detail(),
@@ -345,8 +351,9 @@ async def post_message(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM returned invalid JSON",
         )
-    except Exception:
-        logger.exception("post_message failed for session %s", session_id)
+    except Exception as exc:
+        logger.error("post_message failed for session %s: %s", session_id, type(exc).__name__)
+        clog.debug("post_message failed for session %s", session_id, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_internal_error_detail(),

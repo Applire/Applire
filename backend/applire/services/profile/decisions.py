@@ -33,8 +33,10 @@ from applire.prompts.profile_decisions import (
     build_reply_prompt,
 )
 from applire.services.profile.merge_values import value_in, values_differ
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 Outcome = Literal["keep_current", "take_new", "keep_both", "merge"]
 
@@ -113,8 +115,9 @@ async def _merge_call(
                 temperature=0.1,
                 max_tokens=600,
             )
-    except Exception:  # noqa: BLE001 — a failed call is a failed proposal, never a 500
-        logger.warning("propose_merge: model call failed; offering no merge", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — a failed call is a failed proposal, never a 500
+        logger.warning("propose_merge: model call failed; offering no merge: %s", type(exc).__name__)
+        clog.debug("propose_merge: model call failed; offering no merge", exc_info=True)
         return None, None
     if not isinstance(data, dict):
         return None, None
@@ -215,8 +218,9 @@ async def interpret_reply(
                 temperature=0.1,
                 max_tokens=400,
             )
-    except Exception:  # noqa: BLE001
-        logger.warning("interpret_reply: model call failed; asking the follow-up", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("interpret_reply: model call failed; asking the follow-up: %s", type(exc).__name__)
+        clog.debug("interpret_reply: model call failed; asking the follow-up", exc_info=True)
         data = {}
     if not isinstance(data, dict):
         data = {}
@@ -255,8 +259,9 @@ async def judge_identity(provider, pairs: list[dict[str, Any]]) -> dict[str, Ver
                 temperature=0.0,
                 max_tokens=200 + 40 * len(pairs),
             )
-    except Exception:  # noqa: BLE001
-        logger.warning("judge_identity: model call failed; pairs stay unjudged", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("judge_identity: model call failed; pairs stay unjudged: %s", type(exc).__name__)
+        clog.debug("judge_identity: model call failed; pairs stay unjudged", exc_info=True)
         return {}
     wanted = {str(p.get("pair_id")) for p in pairs}
     out: dict[str, Verdict] = {}
@@ -294,8 +299,9 @@ async def find_duplicate_pairs(
                 temperature=0.1,
                 max_tokens=400 + 200 * min(len(target_bullets), len(source_bullets)),
             )
-    except Exception:  # noqa: BLE001
-        logger.warning("find_duplicate_pairs: model call failed; no pairs offered", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("find_duplicate_pairs: model call failed; no pairs offered: %s", type(exc).__name__)
+        clog.debug("find_duplicate_pairs: model call failed; no pairs offered", exc_info=True)
         return []
     pairs: list[DuplicatePair] = []
     used_t: set[int] = set()
@@ -337,8 +343,9 @@ async def judge_aspirations(provider, bullets: list[str]) -> set[int] | None:
                 temperature=0.0,
                 max_tokens=200 + 8 * len(bullets),
             )
-    except Exception:  # noqa: BLE001
-        logger.warning("judge_aspirations: model call failed; nothing asked", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("judge_aspirations: model call failed; nothing asked: %s", type(exc).__name__)
+        clog.debug("judge_aspirations: model call failed; nothing asked", exc_info=True)
         return None
     out: set[int] = set()
     for n in (data.get("items") if isinstance(data, dict) else None) or []:
@@ -382,8 +389,9 @@ async def judge_already_present(
                 temperature=0.0,
                 max_tokens=200 + 40 * len(items),
             )
-    except Exception:  # noqa: BLE001
-        logger.warning("judge_already_present: model call failed; items stay asked", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("judge_already_present: model call failed; items stay asked: %s", type(exc).__name__)
+        clog.debug("judge_already_present: model call failed; items stay asked", exc_info=True)
         return None
     section_of = {str(i["item"]): i["section"] for i in items}
     offered = {sec: {str(e["id"]) for e in rows} for sec, rows in existing.items()}
