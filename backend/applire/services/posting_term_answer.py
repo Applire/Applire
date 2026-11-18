@@ -241,14 +241,17 @@ class UnknownTerms(ValueError):
 
 
 class ConflictingAnswer(ValueError):
-    """Adversarial pass F6: ``leave_open`` together with ``confirmed`` terms —
-    one answer cannot both confirm a term and leave it open."""
+    """Adversarial pass F6 / delivery F-D1: an answer that says two things about
+    one term — ``leave_open`` together with an explicit answer, a term both
+    confirmed and declined, or a decline of a term already confirmed."""
 
-    def __init__(self) -> None:
-        super().__init__(
-            "leave_open=true cannot be combined with confirmed terms: confirm what "
-            "the person said in one call, or leave the list open in another"
-        )
+    DEFAULT = (
+        "leave_open=true cannot be combined with confirmed or declined terms: "
+        "answer what the person said in one call, leave the rest open in another"
+    )
+
+    def __init__(self, message: str | None = None) -> None:
+        super().__init__(message or self.DEFAULT)
 
 
 def confirmed_for_posting(profile_json: dict[str, Any] | None, job_id: Any) -> set[str]:
@@ -291,6 +294,7 @@ async def answer_posting_terms(
     confirmed: list[str],
     via: Via,
     leave_open: bool = False,
+    declined: list[str] | None = None,
 ) -> PostingTermsState:
     """THE write for both doors.
 
@@ -304,11 +308,22 @@ async def answer_posting_terms(
     the response reports what the STORED profile holds, never what was asked
     for; a term already confirmed for this posting is an idempotent success
     (F6); ``leave_open`` with ``confirmed`` is refused (F6); an answer that
-    changes nothing leaves the record — and its receipt — as it was (F5)."""
+    changes nothing leaves the record — and its receipt — as it was (F5).
+
+    Delivery tier F-D1 (2026-11-18): the agent passes on the person's "no" with
+    ``declined`` (``confirmed`` + ``declined`` + still open partition the list;
+    the card's door declines every unticked term instead). A declined term is
+    not asked again for this posting, on either door. Every explicit answer —
+    either door — records ``answered_at`` and ``via`` (the door of the latest
+    answer) on the application, beside ``confirmed`` and ``declined``."""
     from applire.services.profile import get_profile_for_user, patch_profile_section
 
-    if leave_open and confirmed:
+    declined = list(declined or [])
+    if leave_open and (confirmed or declined):
         raise ConflictingAnswer()
+    both = sorted({_key(t) for t in confirmed} & {_key(t) for t in declined})
+    if both:
+        raise ConflictingAnswer(f"both confirmed and declined: {', '.join(both)}")
     await _lock_answer_rows(db, user_id)
     job, application, profile, _gap = await _load(db, job_id, user_id)
     if application is not None:
@@ -317,9 +332,18 @@ async def answer_posting_terms(
     record = _record(application)
     already = confirmed_for_posting(profile.profile_json if profile is not None else None, job.id)
     by_key = {_key(t["term"]): t["term"] for t in state.terms}
+    was_declined = {_key(t) for t in record.get("declined") or [] if isinstance(t, str)}
+    undo = [t for t in declined if _key(t) in already]
+    if undo:
+        raise ConflictingAnswer(
+            f"already confirmed for this posting: {', '.join(undo)} "
+            "(the person removes the skill from their profile to take it back)"
+        )
     unknown = [t for t in confirmed if _key(t) not in by_key and _key(t) not in already]
+    unknown += [t for t in declined if _key(t) not in by_key and _key(t) not in was_declined]
     if unknown:
         raise UnknownTerms(unknown)
+    refused = list(dict.fromkeys(by_key[_key(t)] for t in declined if _key(t) in by_key))
     chosen = list(dict.fromkeys(by_key[_key(t)] for t in confirmed if _key(t) in by_key))
 
     stored: list[str] = []
@@ -360,14 +384,22 @@ async def answer_posting_terms(
                 record["left_open"] = []
                 record["answered_at"] = datetime.now(timezone.utc).isoformat()
                 record["via"] = via
-        elif leave_open:
-            record["left_open"] = list(dict.fromkeys([*(record.get("left_open") or []), *rest]))
+        else:
+            if refused:
+                record["declined"] = list(dict.fromkeys([*(record.get("declined") or []), *refused]))
+                gone = {_key(t) for t in refused}
+                record["left_open"] = [t for t in record.get("left_open") or [] if _key(t) not in gone]
+            if stored or refused:
+                record["answered_at"] = datetime.now(timezone.utc).isoformat()
+                record["via"] = via
+            if leave_open:
+                record["left_open"] = list(dict.fromkeys([*(record.get("left_open") or []), *rest]))
         if record != before:
             application.posting_terms = record
     await db.commit()
     logger.info(
-        "POSTING_TERMS_ANSWER job=%s via=%s confirmed=%s stored=%d leave_open=%s",
-        job_id, via, chosen, len(stored), leave_open,
+        "POSTING_TERMS_ANSWER job=%s via=%s confirmed=%s stored=%d declined=%d leave_open=%s",
+        job_id, via, chosen, len(stored), len(refused), leave_open,
     )
     return await posting_terms_state(db, job_id, user_id)
 

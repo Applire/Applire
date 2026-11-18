@@ -1558,13 +1558,16 @@ async def _posting_terms_envelope(db, jid, uid) -> dict | None:
 @agent_tool(
     description=(
         "Answer generate_cv's posting_terms question. confirmed: only terms "
-        "the PERSON said are theirs (become profile skills, origin agent). "
-        "leave_open=true (without confirmed): you could not ask; generation "
-        "proceeds, the web app still asks. Repeating a confirmed term is fine."
+        "the PERSON said are theirs (profile skills, origin agent). declined: "
+        "only terms the PERSON said are not theirs (not asked again). "
+        "leave_open=true, alone: you could not ask; the web app still asks."
     )
 )
 async def confirm_posting_terms(
-    job_id: str, confirmed: list[str] | None = None, leave_open: bool = False
+    job_id: str,
+    confirmed: list[str] | None = None,
+    leave_open: bool = False,
+    declined: list[str] | None = None,
 ) -> dict:
     from applire.services.posting_term_answer import (
         ConflictingAnswer,
@@ -1579,7 +1582,7 @@ async def confirm_posting_terms(
         try:
             state = await answer_posting_terms(
                 db, jid, uid, confirmed=list(confirmed or []), via="agent",
-                leave_open=leave_open,
+                leave_open=leave_open, declined=list(declined or []),
             )
         except (UnknownTerms, ConflictingAnswer) as exc:
             raise invalid_input(str(exc))

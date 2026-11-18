@@ -77,10 +77,14 @@ This is the product's core guarantee. It has two halves.
   word. Put `ask_the_person` to the human, then call
   `confirm_posting_terms(job_id, confirmed=[...])` with **only the terms they
   said are theirs** — each becomes a profile skill recorded as confirmed via
-  their agent. If you cannot ask, call
-  `confirm_posting_terms(job_id, leave_open=true)`: the CV is generated without
-  those terms as skills, the question stays unanswered and the web app asks the
-  person. Never confirm a term because the profile "covers" it.
+  their agent — and `declined=[...]` with **only the terms they told you they
+  do not claim**: those are not asked again for this posting, here or in the web
+  app. A term the person did not answer is neither: leave it out of both. If you
+  cannot ask, call `confirm_posting_terms(job_id, leave_open=true)` on its own:
+  the CV is generated without the open terms as skills, the question stays
+  unanswered and the web app asks the person. Never confirm a term because the
+  profile "covers" it, and never decline one because you doubt it — that is the
+  person's "no", not yours. Repeating an answer is harmless.
 
 ## Positioning — let the right facets shine
 
