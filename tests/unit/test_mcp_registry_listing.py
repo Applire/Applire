@@ -142,4 +142,9 @@ def test_the_glama_image_has_no_token_and_starts_the_real_server():
     assert "APPLIRE_AGENT_TOKEN" not in dockerfile and "apl_" not in dockerfile
     assert "apl_" not in entry
     assert entry.rstrip().endswith("exec python -m applire.mcp")
-    assert 'APPLIRE_AGENT_TOKEN="$(python /app/glama_seed.py)"' in entry
+    # The token is minted by the seed at start, in both layouts: the
+    # FROM-applire-backend image (/app/glama_seed.py) and Glama's form-generated
+    # image (the repository cloned as is, seed.py beside the script).
+    assert 'APPLIRE_AGENT_TOKEN="$(python "${SEED_PY}")"' in entry
+    assert "SEED_PY=/app/glama_seed.py" in entry
+    assert 'SEED_PY="${SCRIPT_DIR}/seed.py"' in entry
