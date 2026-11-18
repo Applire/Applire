@@ -93,3 +93,21 @@ async def test_the_recheck_action_asks_for_kept_reports(seeded):
     with patch.object(ra, "reaudit", new=AsyncMock()) as reaudit:
         await ra.recheck("cv", seeded["cv_id"], seeded["db"], user_id=None)
     assert reaudit.await_args.kwargs == {"keep_reports_on_failure": True}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,target", [
+    ("cv", "applire.services.cv._update_ats_report"),
+    ("cover_letter", "applire.services.cover_letter._update_ats_report_letter"),
+])
+@pytest.mark.parametrize("keep", [True, False])
+async def test_the_reaudit_hands_the_keep_flag_to_the_audit(kind, target, keep):
+    from unittest.mock import MagicMock
+
+    from applire.services import review_actions as ra
+
+    db = MagicMock()
+    db.refresh = AsyncMock()
+    with patch(target, new=AsyncMock()) as audit, patch.object(ra, "note_audited"):
+        await ra.reaudit(kind, MagicMock(), db, keep_reports_on_failure=keep)
+    assert audit.await_args.kwargs == {"keep_reports_on_failure": keep}
