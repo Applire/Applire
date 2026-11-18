@@ -226,19 +226,54 @@ def _content_root() -> logging.Logger:
     return root
 
 
-def configure_content_logging() -> bool:
-    """Apply the switch to the content tree; returns whether it is on.
+class _InfoAndAbove(logging.Filter):
+    """A stream handler carries INFO and above only: any DEBUG record, ours or
+    a library's (an SDK's request dump), may hold what a person wrote."""
 
-    Called once per process (web: ``main.py``; MCP stdio: ``mcp/__main__.py``).
-    Idempotent: at most one :class:`ContentFileHandler` is attached.
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno >= logging.INFO
+
+
+STREAM_FILTER = _InfoAndAbove()
+
+
+class _DebugToContent(logging.Handler):
+    """At DEBUG, an ``applire.*`` DEBUG record outside the content tree is
+    written to the content file like a content line: with the user id, only
+    for a person who consented."""
+
+    def __init__(self, target: ContentFileHandler) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.target = target
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.INFO and not record.name.startswith(CONTENT_ROOT):
+            self.target.handle(record)
+
+
+def configure_content_logging(*stream_handlers: logging.Handler) -> bool:
+    """Apply the switch; returns whether content logs are on.
+
+    Called once per process (web: ``main.py``; MCP stdio: ``mcp/__main__.py``)
+    with the process's stream handlers, which then carry INFO and above at
+    every level. At DEBUG the ``applire.content`` tree and every other
+    ``applire.*`` DEBUG record go to the content file. Idempotent.
     """
     code_labels()  # built here, not on the first request that logs a label
+    for handler in stream_handlers:
+        if STREAM_FILTER not in handler.filters:
+            handler.addFilter(STREAM_FILTER)
     root = _content_root()
+    app = logging.getLogger("applire")
     for handler in [h for h in root.handlers if isinstance(h, ContentFileHandler)]:
         root.removeHandler(handler)
+    for handler in [h for h in app.handlers if isinstance(h, _DebugToContent)]:
+        app.removeHandler(handler)
     if content_logging_on():
+        file_handler = ContentFileHandler()
         root.setLevel(logging.DEBUG)
-        root.addHandler(ContentFileHandler())
+        root.addHandler(file_handler)
+        app.addHandler(_DebugToContent(file_handler))
         return True
     root.setLevel(_DISABLED)
     return False

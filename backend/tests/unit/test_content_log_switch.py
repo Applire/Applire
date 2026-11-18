@@ -208,3 +208,58 @@ def test_a_content_line_scrubs_configured_secrets(dirs, monkeypatch):
         clog.debug("reply %s", f"echo {secret}")
     rows = _lines(content)
     assert rows and secret not in rows[0]["message"]
+
+
+@pytest.fixture
+def process_stream():
+    """A stream handler set up the way main.py / mcp/__main__.py set theirs up:
+    on the root logger at the process level, handed to configure_content_logging."""
+    import io
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(logging.Formatter("%(levelname)s [%(name)s] %(message)s"))
+    root, app = logging.getLogger(), logging.getLogger("applire")
+    old = root.level, app.level
+    root.addHandler(handler)
+    root.setLevel(logging.DEBUG)  # mcp/__main__.py: the root at LOG_LEVEL
+    app.setLevel(logging.DEBUG)  # main.py: the applire logger at LOG_LEVEL
+    yield handler, buf
+    root.removeHandler(handler)
+    root.setLevel(old[0])
+    app.setLevel(old[1])
+
+
+@pytest.mark.parametrize("level", ["DEBUG", "INFO"])
+def test_the_stream_carries_info_and_above_only_at_every_level(dirs, monkeypatch, process_stream, level):
+    handler, buf = process_stream
+    monkeypatch.setattr(settings, "log_level", level)
+    content_log.configure_content_logging(handler)
+    with unscoped("ops-aggregate"):
+        logging.getLogger("openai._base_client").debug("Request options: %s", CANARY)
+        logging.getLogger("applire.services.cv").debug("draft: %s", CANARY)
+        logging.getLogger("applire.services.cv").info("CV_PIPELINE=v2 for CV %s", "id-1")
+    out = buf.getvalue()
+    assert CANARY not in out
+    assert "CV_PIPELINE=v2" in out
+
+
+def test_at_debug_an_applire_debug_line_goes_to_the_content_file_with_the_user_id(
+    dirs, monkeypatch, process_stream
+):
+    content, _ = dirs
+    handler, buf = process_stream
+    monkeypatch.setattr(settings, "log_level", "DEBUG")
+    content_log.configure_content_logging(handler)
+    person = uuid.uuid4()
+    with owner_context(person):
+        token = _consent(person)
+        try:
+            logging.getLogger("applire.services.session").debug("answer: %s", CANARY)
+            logging.getLogger("openai._base_client").debug("Request options: %s", CANARY)
+        finally:
+            allowance._facts.reset(token)
+        logging.getLogger("applire.services.session").debug("no consent here: %s", CANARY)
+    rows = _lines(content)
+    assert [(r["logger"], r["user_id"]) for r in rows] == [("applire.services.session", str(person))]
+    assert CANARY not in buf.getvalue()

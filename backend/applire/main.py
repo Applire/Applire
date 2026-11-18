@@ -46,7 +46,7 @@ if not _applire_logger.handlers:
 # file at LOG_LEVEL=DEBUG and never to this stream handler.
 from applire.content_log import configure_content_logging  # noqa: E402
 
-configure_content_logging()
+configure_content_logging(*_applire_logger.handlers)
 from applire.db.session import AsyncSessionLocal
 from applire.routers import application, cover_letter, cv, cv_color, documents as documents_router, flow, health, job, jobs, ops, profile, profile_enrich, profile_roles, session, signature
 from applire.routers import settings as settings_router

@@ -84,7 +84,7 @@ def _install_stderr_logging() -> None:
     # lines go to their own file, never to stderr.
     from applire.content_log import configure_content_logging
 
-    configure_content_logging()
+    configure_content_logging(*root.handlers)
 
 
 def main() -> None:
