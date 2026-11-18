@@ -3104,6 +3104,9 @@ def _tailor_skills_to_jd(
     # tag already on the page ('Lean Management' next to the writer's 'Lean') is
     # already covered, not missing (charter run 10 shipped six such clusters).
     pool = list(tailored_skills)
+    from applire.services.posting_terms import name_key, twin_left_out_keys
+
+    twin_out = twin_left_out_keys(keyword_ledger)
     excluded_by_preseed = (
         preseed.excluded_skill_names() if preseed is not None else frozenset()
     )
@@ -3123,6 +3126,11 @@ def _tailor_skills_to_jd(
         # never had to place is exactly as protected as one it did place, once
         # this recompute is blind to what language it is now rendered in).
         if p in excluded_by_preseed:
+            continue
+        # Ruling Q10-8: a skill a ticked term stands in for on THIS posting's CV
+        # is never guaranteed back — the cap would make room for a chip the
+        # compose then removes (the cap and the composition rule must agree).
+        if name_key(p) in twin_out:
             continue
         pool.append(p)
 
@@ -3574,6 +3582,24 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
     return tailored.model_copy(update={"skills": restored})
 
 
+def _settle_twin_skills(tailored: TailoredCVData, keyword_ledger: list[dict] | None) -> TailoredCVData:
+    """Ruling Q10-8 — :func:`posting_terms.settle_twin_skills` on the composed CV,
+    each settle logged (ADR-072 cl. 4: a deletion leaves a line). Pure."""
+    from applire.services.posting_terms import settle_twin_skills, twin_pairs
+
+    pairs = twin_pairs(keyword_ledger)
+    if not pairs:
+        return tailored
+    skills, applied = settle_twin_skills(list(tailored.skills or []), pairs)
+    if not applied:
+        return tailored
+    logger.info(
+        "CV_TWIN_SKILLS settled=%d dropped=%d replaced=%d", len(applied),
+        sum(1 for a in applied if a[2] == "dropped"), sum(1 for a in applied if a[2] == "replaced"),
+    )
+    return tailored.model_copy(update={"skills": skills})
+
+
 def _restore_narrative_named_skills(
     tailored: TailoredCVData,
     profile_json: dict | None,
@@ -3676,9 +3702,14 @@ def _restore_narrative_named_skills(
     # ADR-061 clause 3 + the 2026-08-08 amendment: an `unconfirmed` skill cannot
     # back a CV line, and a `denied` one was retracted outright. THE shared
     # predicate.
+    # Ruling Q10-8: a skill a ticked term stands in for on this posting's CV is
+    # never a candidate — narrated in a bullet or not, it stays off the list.
+    from applire.services.posting_terms import name_key, twin_left_out_keys
+
+    twin_out = twin_left_out_keys(keyword_ledger)
     for name in claimable_skill_names(profile_json):
         n = _norm(name)
-        if n and n not in seen_norm:
+        if n and n not in seen_norm and name_key(name) not in twin_out:
             seen_norm.add(n)
             groups.append([name])
 
@@ -3700,7 +3731,8 @@ def _restore_narrative_named_skills(
 
     for group in claimable_surface_form_groups(keyword_ledger, exclude_keyword_only=True):
         fresh = [f.strip() for f in group if isinstance(f, str) and f.strip()
-                 and chip_posting_term(f, keyword_ledger) is None]
+                 and chip_posting_term(f, keyword_ledger) is None
+                 and name_key(f) not in twin_out]
         if fresh:
             groups.append(fresh)
 
@@ -4925,6 +4957,18 @@ async def _render_cv_background(
                     pinned_facts_block = None
                     pinned_facts_loop_block = None
 
+                # Ruling Q10-8 (Sorbet WP-Q10, founder 2026-11-17): a term the person
+                # ticked for THIS posting stands in for the skill its card showed as
+                # their words — the pairs ride on the term's ledger row, so the
+                # writer's and reviewer's blocks, the skills checks and the compose
+                # read one record. After the pins: a pinned skill is never left out.
+                from applire.services.posting_terms import stamp_twin_skills
+
+                keyword_ledger = stamp_twin_skills(
+                    keyword_ledger, profile.profile_json if profile else None, job_id,
+                    job_dict=job_dict, pins=cv_pins, seam="cv generation",
+                )
+
                 # #303 (#271's CV half): the strongest-vault-evidence digest — for
                 # each claimable ledger concept, the vault's OWN sentence that
                 # answers it, verbatim, with the entry that owns it. The letter
@@ -5745,6 +5789,11 @@ def _compose_document(
     tailored = _restore_narrative_named_skills(
         tailored, profile_json, keyword_ledger, document_language=language
     )
+
+    # Ruling Q10-8: the skill a ticked term stands in for on THIS posting's CV
+    # leaves the list (or yields its slot to the term). After every pass that
+    # could add it back; the v2 compose settles the same pairs.
+    tailored = _settle_twin_skills(tailored, keyword_ledger)
 
     # Populate photo_url from master profile's personal_info.
     # Stored path; resolved to base64 at render time in get_cv_html.

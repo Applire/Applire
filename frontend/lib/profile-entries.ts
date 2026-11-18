@@ -131,6 +131,8 @@ export interface SkillConfirmation {
   /** The posting the wording came from — its company (the role when none is known). */
   posting?: string | null;
   job_id?: string | null;
+  /** Ruling Q10-8 — the person's own skill names the card showed beside the term; that posting's CV prints the term in their place. */
+  shown_skills?: string[];
 }
 
 export interface Language {

@@ -432,7 +432,7 @@
       "title": "Noch eine Frage, bevor dein Lebenslauf entsteht",
       "intro": "Die Stellenanzeige verwendet diese Begriffe. Du hast sie selbst nie benutzt, aber nach deinem Profil treffen sie auf dich zu. Kreuze an, was du als deine Kenntnis nennen würdest.",
       "yourWords": "Bisher in deinen Worten",
-      "footnote": "Angekreuzte Begriffe kommen als Kenntnisse in dein Profil und dürfen im Lebenslauf stehen. Was du nicht ankreuzt, steht dort nie als deine Kenntnis; deine eigenen Worte bleiben.",
+      "footnote": "Angekreuzte Begriffe kommen als Kenntnisse in dein Profil und dürfen im Lebenslauf stehen. Was du nicht ankreuzt, steht dort nie als deine Kenntnis; deine eigenen Worte bleiben. Steht neben einem Begriff eine deiner Fähigkeiten, nennt der Lebenslauf für diese Stelle den Begriff an ihrer Stelle.",
       "receipt": "{count, plural, one {# Begriff aus der Stellenanzeige als deine Kenntnis übernommen: {terms}.} other {# Begriffe aus der Stellenanzeige als deine Kenntnisse übernommen: {terms}.}}",
       "saveFailed": "Deine Antwort konnte nicht gespeichert werden. Bitte versuche es noch einmal."
     }

@@ -45,6 +45,24 @@ describe("PostingTermsCard", () => {
     expect(screen.getAllByTestId("posting-term-words")[0].textContent).toBe("„Prometheus“");
   });
 
+  it("says before the tick that a ticked term stands in for a skill shown beside it (ruling Q10-3 = C)", () => {
+    render(withIntl(<PostingTermsCard terms={TERMS} selected={[]} onChange={() => {}} language="en" />, "en"));
+    expect(
+      screen.getByText(
+        "Ticked terms are added to your profile as skills and may appear in your CV. Anything you leave unticked never appears there as your skill; your own words stay. If one of your skills is shown beside a term, the CV for this job names the term in its place.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says the same on a German card", () => {
+    render(withIntl(<PostingTermsCard terms={TERMS} selected={[]} onChange={() => {}} language="de" />, "de"));
+    expect(
+      screen.getByText(
+        "Angekreuzte Begriffe kommen als Kenntnisse in dein Profil und dürfen im Lebenslauf stehen. Was du nicht ankreuzt, steht dort nie als deine Kenntnis; deine eigenen Worte bleiben. Steht neben einem Begriff eine deiner Fähigkeiten, nennt der Lebenslauf für diese Stelle den Begriff an ihrer Stelle.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("ticks and unticks a term", () => {
     const onChange = vi.fn();
     const { rerender } = render(withIntl(<PostingTermsCard terms={TERMS} selected={[]} onChange={onChange} />, "en"));

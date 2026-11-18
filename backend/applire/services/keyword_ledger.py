@@ -1454,6 +1454,28 @@ def retention_forms(entry: dict[str, Any]) -> list[str]:
 LISTED_ONLY_MARKER = "[listed only — no role bullet or story states it]"
 
 
+def _in_place_of_line(entry: dict[str, Any], audience: str) -> str:
+    """Ruling Q10-8 (Sorbet WP-Q10): the term the candidate ticked for THIS posting
+    stands in for the skill its card showed as their words — the writer lists the
+    term, the reviewer never asks for the skill back (the compose settles it either
+    way). "" for a row without the stamp."""
+    from applire.services.posting_terms import twin_pairs
+
+    pairs = twin_pairs([entry])
+    if not pairs:
+        return ""
+    said = "; ".join(f'"{p["term"]}" in place of their skill "{p["skill"]}"' for p in pairs)
+    if audience == "reviewer":
+        return (
+            f" [the candidate confirmed {said} for this posting: a skills list without "
+            f"the skill is correct — never ask to add it]"
+        )
+    return (
+        f" — the candidate confirmed {said} for this posting: the skills list names the "
+        f"term, never that skill"
+    )
+
+
 def render_ledger_prompt_block(
     keyword_ledger: list[dict[str, Any]] | None, *, audience: str = "cv"
 ) -> str:
@@ -1586,6 +1608,7 @@ def render_ledger_prompt_block(
                 listed = f" {LISTED_ONLY_MARKER}" if entry.get("listed_only") is True else ""
                 lines.append(
                     f"  - {concept} [forms: {forms}]{listed}{qualifier} — evidence: {evidence}"
+                    f"{_in_place_of_line(entry, 'writer')}"
                 )
     else:
         lines.append("  (none)")
@@ -1930,7 +1953,10 @@ def render_ledger_reviewer_block(
                     f"reading {unheld} overstates; never ask to keep or add it]{cited}"
                 )
                 continue
-            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]{cited}")
+            lines.append(
+                f"  - {entry.get('concept', '')} [forms: {forms}]{cited}"
+                f"{_in_place_of_line(entry, 'reviewer')}"
+            )
     else:
         lines.append("  (none)")
     if quoted:

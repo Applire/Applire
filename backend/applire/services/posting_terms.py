@@ -468,3 +468,211 @@ def stamp_for_generation(
     with the pair's language fact."""
     same = same_language_pair(profile_json, document_language, seam=seam, job_id=job_id)
     return stamp_posting_terms_open(ledger, profile_json, same_language=same)
+
+
+# ── twin skills on the CV (ruling Q10-8, founder 2026-11-17) ────────────────
+#
+# A ticked term whose card showed one of the person's own skill NAMES as "their
+# words" stands in for that skill on THIS posting's CV: the CV prints the ticked
+# term and leaves that one skill out. The profile keeps both; other postings'
+# CVs are untouched. Bound structurally: the confirmation records, at answer
+# time, the exact skill names the card showed (``shown_skills``); composition
+# reads that record through the ledger stamp below — no matching of words at
+# composition time beyond the closed name key.
+
+#: The row key :func:`stamp_twin_skills` writes on the ticked term's ledger row:
+#: ``[{"skill": <left out>, "term": <printed>, "holder": <skill carrying the term>}]``.
+IN_PLACE_OF_KEY = "posting_term_in_place_of"
+
+
+def name_key(value: Any) -> str:
+    """The closed name key (unicode NFKC, whitespace, case) — nothing semantic."""
+    return " ".join(unicodedata.normalize("NFKC", str(value or "")).split()).casefold()
+
+
+def card_skill_names(
+    words: list[str] | None, skills: list[Any] | None, *, holder: str | None = None
+) -> list[str]:
+    """The profile skill names *words* (a term's "their words" on the card) show
+    EXACTLY (name key), in the skill's stored spelling, minus *holder* — the skill
+    the confirmation itself lands on (a term already a skill name, or the skill it
+    became a second name of)."""
+    by_key: dict[str, str] = {}
+    for s in skills or []:
+        name = s.get("name") if isinstance(s, dict) else None
+        if isinstance(name, str) and name.strip():
+            by_key.setdefault(name_key(name), name.strip())
+    out: list[str] = []
+    for w in words or []:
+        hit = by_key.get(name_key(w)) if isinstance(w, str) else None
+        if hit and name_key(hit) != name_key(holder) and hit not in out:
+            out.append(hit)
+    return out
+
+
+def _job_named(job_dict: dict[str, Any] | None) -> set[str]:
+    out: set[str] = set()
+    for fld in ("required_skills", "nice_to_have_skills", "keywords"):
+        for v in (job_dict or {}).get(fld) or []:
+            if isinstance(v, str) and v.strip():
+                out.add(name_key(v))
+    return out
+
+
+def twin_pairs_for_posting(
+    profile_json: dict[str, Any] | None,
+    job_id: Any,
+    ledger: list[dict[str, Any]] | None,
+    *,
+    job_dict: dict[str, Any] | None = None,
+    pins: Any = (),
+) -> tuple[list[dict[str, str]], dict[str, int]]:
+    """The (skill left out, term printed) pairs for THIS posting's CV, and the
+    count of shown skills KEPT per reason. Read from the confirmation record:
+    only a confirmation for *job_id* that recorded ``shown_skills``.
+
+    A shown skill is kept (no pair) when:
+    - ``posting_names`` — the posting names it itself: a ledger row's concept or
+      an entry of the posting's skill/keyword lists equals it;
+    - ``pinned`` — the person pinned it for the CV (ADR-077);
+    - ``ticked`` — it is itself a term confirmed for this posting (a ticked term
+      is always printed; this also breaks any chain or cycle of stand-ins);
+    - ``gone`` — the profile no longer holds it as a claimable skill.
+    A skill shown for two ticked terms is left out ONCE (the first term)."""
+    from applire.services.profile.reconcile.stance import claimable_skill_names
+
+    kept = {"posting_names": 0, "pinned": 0, "ticked": 0, "gone": 0}
+    if not isinstance(profile_json, dict) or job_id is None:
+        return [], kept
+    job = str(job_id)
+    skills = [s for s in profile_json.get("skills") or [] if isinstance(s, dict)]
+    confs: list[tuple[dict[str, Any], dict[str, Any]]] = [
+        (s, c) for s in skills for c in s.get("confirmations") or []
+        if isinstance(c, dict) and str(c.get("job_id") or "") == job
+    ]
+    if not confs:
+        return [], kept
+    ticked = {name_key(c.get("name")) for _s, c in confs} | {name_key(s.get("name")) for s, _c in confs}
+    claimable = {name_key(n) for n in claimable_skill_names(profile_json)}
+    named = _job_named(job_dict)
+    for e in ledger or []:
+        if isinstance(e, dict) and isinstance(e.get("concept"), str):
+            named.add(name_key(e["concept"]))
+    pinned: frozenset[str] = frozenset()
+    if pins:
+        try:
+            from applire.services.pin_reach import pinned_skill_quote_norms, skill_tag_is_pinned
+
+            pinned = pinned_skill_quote_norms(pins)
+        except Exception:  # pragma: no cover — defensive: no pin set, no pin exception
+            logger.exception("posting terms: twin rule could not read pins")
+    pairs: list[dict[str, str]] = []
+    left: set[str] = set()
+    for holder, conf in confs:
+        term = str(conf.get("name") or "").strip()
+        if not term:
+            continue
+        for skill in conf.get("shown_skills") or []:
+            if not isinstance(skill, str) or not skill.strip():
+                continue
+            k = name_key(skill)
+            if k in left:
+                continue
+            if k in ticked:
+                kept["ticked"] += 1
+            elif k not in claimable:
+                kept["gone"] += 1
+            elif k in named:
+                kept["posting_names"] += 1
+            elif pinned and skill_tag_is_pinned(skill, pinned):
+                kept["pinned"] += 1
+            else:
+                left.add(k)
+                pairs.append({"skill": skill.strip(), "term": term,
+                              "holder": str(holder.get("name") or term).strip()})
+    return pairs, kept
+
+
+def stamp_twin_skills(
+    ledger: list[dict[str, Any]] | None,
+    profile_json: dict[str, Any] | None,
+    job_id: Any,
+    *,
+    job_dict: dict[str, Any] | None = None,
+    pins: Any = (),
+    seam: str = "cv generation",
+) -> list[dict[str, Any]]:
+    """THE CV-seam stamp: each pair rides on the ledger row of its term (concept,
+    else a surface form, by name key), so the writer's and reviewer's blocks, the
+    skills checks and the compose all read one record. A stale stamp is dropped.
+    A pair with no row of its term is not applied (counted in the INFO line)."""
+    pairs, kept = twin_pairs_for_posting(profile_json, job_id, ledger, job_dict=job_dict, pins=pins)
+    out: list[dict[str, Any]] = []
+    for e in ledger or []:
+        if isinstance(e, dict) and IN_PLACE_OF_KEY in e:
+            e = {k: v for k, v in e.items() if k != IN_PLACE_OF_KEY}
+        out.append(e)
+    placed = 0
+    for pair in pairs:
+        t = name_key(pair["term"])
+        at = next((i for i, e in enumerate(out)
+                   if isinstance(e, dict) and name_key(e.get("concept")) == t), None)
+        if at is None:
+            at = next((i for i, e in enumerate(out) if isinstance(e, dict) and any(
+                name_key(f) == t for f in e.get("surface_forms") or [] if isinstance(f, str))), None)
+        if at is None:
+            continue
+        row = out[at]
+        out[at] = {**row, IN_PLACE_OF_KEY: [*(row.get(IN_PLACE_OF_KEY) or []), dict(pair)]}
+        placed += 1
+    if pairs or any(kept.values()):
+        logger.info(
+            "posting terms: twin skills seam=%s job=%s left_out=%d unplaced=%d kept_posting_names=%d "
+            "kept_pinned=%d kept_ticked=%d kept_gone=%d",
+            seam, job_id, placed, len(pairs) - placed, kept["posting_names"], kept["pinned"],
+            kept["ticked"], kept["gone"],
+        )
+    return out
+
+
+def twin_pairs(ledger: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    """The pairs :func:`stamp_twin_skills` put on *ledger* (generation order)."""
+    out: list[dict[str, str]] = []
+    for e in ledger or []:
+        for p in (e.get(IN_PLACE_OF_KEY) if isinstance(e, dict) else None) or []:
+            if isinstance(p, dict) and isinstance(p.get("skill"), str) and isinstance(p.get("term"), str):
+                out.append(p)
+    return out
+
+
+def twin_left_out_keys(ledger: list[dict[str, Any]] | None) -> set[str]:
+    """Name keys of the skills this posting's CV leaves out."""
+    return {name_key(p["skill"]) for p in twin_pairs(ledger)}
+
+
+def settle_twin_skills(
+    skills: list[Any] | None, pairs: list[dict[str, str]]
+) -> tuple[list[Any], list[tuple[str, str, str]]]:
+    """Pure: the skills list with each left-out skill settled — dropped when its
+    term (or the skill carrying it) is on the list, else REPLACED by the term in
+    its slot, so the competence is never printed by neither. Returns the list and
+    ``(skill, term, "dropped" | "replaced")`` per settle."""
+    out = list(skills or [])
+    applied: list[tuple[str, str, str]] = []
+    for pair in pairs:
+        x = name_key(pair["skill"])
+        present = {name_key(pair["term"]), name_key(pair.get("holder") or pair["term"])}
+        idx = [i for i, c in enumerate(out) if isinstance(c, str) and name_key(c) == x]
+        if not idx:
+            continue
+        on_page = any(isinstance(c, str) and name_key(c) in present for c in out)
+        first = idx[0]
+        if not on_page:
+            out[first] = pair["term"]
+            applied.append((pair["skill"], pair["term"], "replaced"))
+            idx = idx[1:]
+        else:
+            applied.append((pair["skill"], pair["term"], "dropped"))
+        for i in reversed(idx):
+            del out[i]
+    return out, applied

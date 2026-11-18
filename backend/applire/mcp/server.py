@@ -1524,7 +1524,11 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
 
 _POSTING_TERMS_ASK = (
     "The job posting uses these terms. They never used them, but their profile "
-    "covers them. Which would they name as their own skill?"
+    "covers them. Which would they name as their own skill? "
+    # Ruling Q10-3 = C (founder 2026-11-18): the card footnote's sentence, for the
+    # agent to tell the person before confirming (ruling Q10-8).
+    "If one of their skills is shown beside a term (in their_words), the CV for "
+    "this job names the term in its place."
 )
 
 
@@ -1562,14 +1566,18 @@ async def _posting_terms_envelope(db, jid, uid) -> dict | None:
     description=(
         "Answer generate_cv's posting_terms question. confirmed: only terms "
         "the PERSON said are theirs (become profile skills, origin agent). "
-        "leave_open=true: you could not ask; generation proceeds, the web app "
-        "still asks."
+        "leave_open=true (without confirmed): you could not ask; generation "
+        "proceeds, the web app still asks. Repeating a confirmed term is fine."
     )
 )
 async def confirm_posting_terms(
     job_id: str, confirmed: list[str] | None = None, leave_open: bool = False
 ) -> dict:
-    from applire.services.posting_term_answer import UnknownTerms, answer_posting_terms
+    from applire.services.posting_term_answer import (
+        ConflictingAnswer,
+        UnknownTerms,
+        answer_posting_terms,
+    )
 
     jid = _parse_uuid(job_id, "job_id")
     uid = await _current_user_id()
@@ -1580,7 +1588,7 @@ async def confirm_posting_terms(
                 db, jid, uid, confirmed=list(confirmed or []), via="agent",
                 leave_open=leave_open,
             )
-        except UnknownTerms as exc:
+        except (UnknownTerms, ConflictingAnswer) as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))

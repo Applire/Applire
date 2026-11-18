@@ -653,14 +653,22 @@ async def patch_profile_section(
     user_id: uuid.UUID | None = None,
     document_kind: str | None = None,
     document_id: str | None = None,
-    keep_stored_confirmations: bool = False,
+    keep_stored_confirmations: bool = True,
+    commit: bool = True,
 ) -> MasterProfileResponse:
     """The manual section edit — the `FieldEdit` intake, on `commit_ops`.
 
-    ``keep_stored_confirmations`` (Sorbet WP-Q10, the agent door): a skills
-    payload carries exactly the ``confirmations`` stored for each skill name —
-    the record of who confirmed a posting term is not writable through a
-    wholesale section edit (``posting_term_answer.keep_stored_confirmations``).
+    ``keep_stored_confirmations`` (Sorbet WP-Q10; on for EVERY door since the
+    adversarial pass F8): a skills payload carries exactly the
+    ``confirmations`` stored for each skill name — the record of who confirmed a
+    posting term is server-owned, never accepted from a client and never erased
+    by a body that omits it; deleting the skill still removes it
+    (``posting_term_answer.keep_stored_confirmations``). Only the answer service
+    (``answer_posting_terms``) — the one writer of a confirmation — passes
+    ``False``.
+
+    ``commit=False`` (the answer service, F1): flush only, so the caller's row
+    lock and its own write commit together.
 
     ``document_kind`` / ``document_id`` (A-5, MD7-10): set by the CV section
     editor's "also save to profile" — the edit is already in that CV, so the
@@ -741,6 +749,9 @@ async def patch_profile_section(
     # TODO US179: edited/added roles here get the lean-floor expectation set until a provider is threaded in (fast-follow). Floor fallback is safe (under-asks).
     # Flush-not-commit (ADR-063 amended clause 6): the door owns its
     # transaction — dropping this line is a silent no-write.
+    if not commit:
+        await db.flush()
+        return _to_response(result.record)
     await db.commit()
     await db.refresh(result.record)
     return _to_response(result.record)

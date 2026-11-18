@@ -661,6 +661,19 @@ class SkillConfirmation(BaseModel):
     on: date
     posting: str | None = None
     job_id: str | None = None
+    # Ruling Q10-8 (founder 2026-11-17): the person's own skill names the card
+    # showed beside the term as "their words" — exactly, at answer time. That
+    # posting's CV prints the term in place of them. Absent while empty.
+    shown_skills: list[str] = Field(default_factory=list)
+
+    @field_validator("shown_skills", mode="before")
+    @classmethod
+    def _coerce_shown_skills(cls, v: object) -> list:
+        return [x for x in v if isinstance(x, str) and x.strip()] if isinstance(v, list) else []
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_shown(self, handler: Any) -> Any:
+        return _omit_empty_alias_lists(handler(self), ("shown_skills",))
 
 
 class Skill(BaseModel):
