@@ -33,6 +33,8 @@ from typing import Literal
 
 from applire.content_log import content_logging_on
 
+__all__ = ["content_logging_on"]  # re-exported for the auth routes
+
 logger = logging.getLogger(__name__)
 
 #: Bumped when the consent copy (catalog ``logConsent.text*``) changes meaning.

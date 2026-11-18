@@ -1154,6 +1154,12 @@ async def _sweep_unscoped() -> dict:
         )
         auth_housekeeping = await rule("auth_housekeeping", _purge_auth_housekeeping, {})
         audit_events_deleted = await rule("audit_events", _purge_audit_events)
+        # ADR-017 amended 2026-11-18: the content logs (LOG_LEVEL=DEBUG). Not
+        # suspendable — the logging consent text promises both to the person.
+        from applire.retention import content_logs
+
+        content_log_files_deleted = await rule("content_log_age", content_logs.rule_age)
+        content_log_lines_removed = await rule("content_log_withdrawn", content_logs.rule_withdrawn)
 
     report = {
         "run_at": datetime.now(timezone.utc).isoformat(),
@@ -1178,6 +1184,8 @@ async def _sweep_unscoped() -> dict:
         "orphan_postings_deleted": orphan_postings_deleted,
         **auth_housekeeping,
         "audit_events_deleted": audit_events_deleted,
+        "content_log_files_deleted": content_log_files_deleted,
+        "content_log_lines_removed": content_log_lines_removed,
         # 785:L69 — the rules that raised (each logged by name); empty on a clean run.
         "failed_rules": failed,
     }

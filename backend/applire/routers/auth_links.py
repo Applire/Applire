@@ -135,6 +135,15 @@ async def redeem(body: LinkRedeemRequest, db: AsyncSession = Depends(get_db)) ->
         raise _err(422, "password_policy",
                    "Use 12 to 256 characters, and not your email address.") from exc
 
+    # ADR-091 amended 2026-11-18: at LOG_LEVEL=DEBUG an invite needs the consent
+    # box ticked for today's text. Checked before the link is consumed.
+    from applire.services import log_consent
+
+    if found.link.purpose == "invite" and log_consent.content_logging_on():
+        if body.log_consent_version != log_consent.current_version():
+            raise _err(422, "log_consent_required",
+                       "Agree to the logging on this test system to create your account.")
+
     password_hash = await seams.hash_password(body.password)
 
     consumed = await links.consume_link(db, body.token)
@@ -157,6 +166,11 @@ async def redeem(body: LinkRedeemRequest, db: AsyncSession = Depends(get_db)) ->
     if purpose == "invite":
         await audit.record(db, actor_id=user.id, action="invite.redeemed", target_type="user",
                            target_id=user.id, details={"link_id": link_id})
+        if log_consent.content_logging_on():
+            log_consent.record_consent(user, body.log_consent_version)
+            await audit.record(db, actor_id=user.id, action="log_consent.given",
+                               target_type="user", target_id=user.id,
+                               details={"version": body.log_consent_version})
     else:
         await audit.record(db, actor_id=user.id, action="password.reset", target_type="user",
                            target_id=user.id, details={"via": "link", "link_id": link_id})

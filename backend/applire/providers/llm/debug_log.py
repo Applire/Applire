@@ -515,6 +515,22 @@ def _record(**fields: Any) -> None:
         pass
 
 
+def _reported_tokens() -> dict | None:
+    try:
+        from applire.providers.llm.usage import _last_usage
+
+        usage = _last_usage.get()
+    except Exception:  # noqa: BLE001
+        return None
+    if usage is None:
+        return None
+    return {
+        "prompt": usage.prompt_tokens,
+        "completion": usage.completion_tokens,
+        "reasoning": usage.reasoning_tokens,
+    }
+
+
 class _LoggingProvider(LLMProvider):
     """Transparent provider wrapper that records each call's full input and output."""
 
@@ -564,6 +580,9 @@ class _LoggingProvider(LLMProvider):
                     if k in kwargs
                 },
                 latency_ms=round((time.monotonic() - start) * 1000),
+                # Token counts the provider reported (kept when a person's text
+                # is removed from this log, like the step, model and duration).
+                tokens=_reported_tokens(),
                 ok=error is None,
                 error=error,
                 response=_truncate(_scrubbed(result) if error is not None else result),

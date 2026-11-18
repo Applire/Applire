@@ -42,6 +42,7 @@ from applire.db.session import get_db
 from applire.services.admin.links import revoke_open_links
 from applire.models.user import User
 from applire.models.user_settings import UserSettings
+from applire.services.log_consent import summary as log_consent_summary
 from applire.schemas.auth import (
     AuthStateResponse,
     LoginRequest,
@@ -87,7 +88,12 @@ async def _installed_fresh(db: AsyncSession) -> bool:
 async def auth_state(db: AsyncSession = Depends(get_db)) -> AuthStateResponse:
     """What the sign-in and setup pages need before anyone is signed in (public)."""
     needs_setup = await setup_required(db)
+    from applire.services import log_consent
+
+    consent_required = log_consent.content_logging_on()
     return AuthStateResponse(
+        log_consent_required=consent_required,
+        log_consent_text=log_consent.public_text() if consent_required else None,
         setup_required=needs_setup,
         upgraded_install=needs_setup and not await _installed_fresh(db),
         oidc_enabled=bool(settings.oidc_issuer.strip()),
@@ -200,6 +206,7 @@ async def me(
         has_password=user.password_hash is not None,
         oidc_linked=user.oidc_subject is not None,
         ui_language=ui_language,
+        log_consent=log_consent_summary(user),
     )
 
 

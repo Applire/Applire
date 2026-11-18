@@ -43,7 +43,10 @@ CREATE TABLE IF NOT EXISTS users (
     link_epoch INTEGER NOT NULL DEFAULT 0,
     -- ADR-096 (migration 0090): the admin grant and the allowance subject
     instance_key_granted_at TEXT,
-    allowance_subject VARCHAR(64)
+    allowance_subject VARCHAR(64),
+    log_consent_at TEXT,
+    log_consent_version VARCHAR(32),
+    log_consent_withdrawn_at TEXT
 );
 -- ...and revokes the account's sessions, tokens and open links
 CREATE TABLE IF NOT EXISTS auth_sessions (

@@ -57,6 +57,7 @@ from applire.routers import color_schemes as user_color_schemes
 from applire.routers import auth as auth_router
 from applire.routers import setup as setup_router
 from applire.routers import auth_links, me_account, me_provider_key, me_tokens  # Strawberry W1 (1b, 1c); ADR-096
+from applire.routers import me_log_consent  # ADR-091 amended 2026-11-18
 from applire.routers import auth_oidc, me_oidc, me_reauth  # Strawberry W3 (1d, US323)
 from applire.routers.admin import probe_tokens as admin_probe_tokens  # 1c
 from applire.routers.admin import users as admin_users  # 1b
@@ -454,6 +455,7 @@ app.include_router(user_color_schemes.router)
 app.include_router(auth_links.router)
 app.include_router(me_account.router)
 app.include_router(me_provider_key.router)  # ADR-096 cl. 2
+app.include_router(me_log_consent.router)  # ADR-091 amended 2026-11-18 (content-log consent)
 app.include_router(me_tokens.router)
 app.include_router(admin_users.router)
 app.include_router(admin_probe_tokens.router)
