@@ -80,6 +80,11 @@ def _install_stderr_logging() -> None:
         root.addHandler(handler)
         root.setLevel(settings.log_level.upper())
     install_secret_redaction(*root.handlers)
+    # One switch (ADR-087 cl. 9 amended 2026-11-18): at LOG_LEVEL=DEBUG content
+    # lines go to their own file, never to stderr.
+    from applire.content_log import configure_content_logging
+
+    configure_content_logging()
 
 
 def main() -> None:

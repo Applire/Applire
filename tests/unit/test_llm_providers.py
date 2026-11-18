@@ -25,7 +25,7 @@ def test_factory_returns_mistral_provider(monkeypatch):
     from applire.providers.llm.mistral import MistralProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "mistral")
-    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
+    monkeypatch.setattr(cfg.settings, "log_level", "INFO")  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "mistral_api_key", "test-key")
     monkeypatch.setattr(cfg.settings, "mistral_model", "mistral-small-latest")
     with patch("applire.providers.llm.mistral.Mistral"):
@@ -40,7 +40,7 @@ def test_factory_returns_openai_provider(monkeypatch):
     from applire.providers.llm.openai import OpenAIProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "openai")
-    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
+    monkeypatch.setattr(cfg.settings, "log_level", "INFO")  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "openai_api_key", "test-key")
     monkeypatch.setattr(cfg.settings, "openai_base_url", "")
     monkeypatch.setattr(cfg.settings, "openai_model", "gpt-4o")
@@ -56,7 +56,7 @@ def test_factory_returns_ollama_provider(monkeypatch):
     from applire.providers.llm.ollama import OllamaProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "ollama")
-    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
+    monkeypatch.setattr(cfg.settings, "log_level", "INFO")  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "ollama_base_url", "http://localhost:11434")
     monkeypatch.setattr(cfg.settings, "ollama_model", "llama3.2")
     provider = get_provider()
@@ -80,7 +80,7 @@ def test_factory_is_case_insensitive(monkeypatch):
     from applire.providers.llm.mistral import MistralProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "Mistral")
-    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
+    monkeypatch.setattr(cfg.settings, "log_level", "INFO")  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "mistral_api_key", "test-key")
     monkeypatch.setattr(cfg.settings, "mistral_model", "mistral-small-latest")
     with patch("applire.providers.llm.mistral.Mistral"):

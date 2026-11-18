@@ -107,6 +107,17 @@ class User(Base):
     #: stamped the first time the ledger needs it, cleared by the tombstone.
     allowance_subject: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # --- Logging consent (ADR-091 amended 2026-11-18, migration 0092) --------
+    #: Asked only while the instance writes content logs (LOG_LEVEL=DEBUG).
+    #: ``services/log_consent.py`` derives the state from these three.
+    log_consent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    log_consent_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    log_consent_withdrawn_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     def __init__(self, **kwargs: object) -> None:
         kwargs.setdefault("photo_consent", False)
         kwargs.setdefault("role", ROLE_USER)

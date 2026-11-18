@@ -15,9 +15,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""Developer-only full-fidelity logging of every LLM interaction.
+"""Full-fidelity logging of every LLM interaction — only at ``LOG_LEVEL=DEBUG``.
 
-Gated by ``settings.llm_debug_log`` (default ``False`` → OFF in production). When
+One switch (ADR-087 cl. 9 amended 2026-11-18): the log exists exactly when the
+instance writes content logs (:func:`applire.content_log.content_logging_on`);
+``LLM_DEBUG_LOG`` is no longer read here. Each record carries ``user_id`` (the
+ADR-092 owner, ``null`` for ownerless work) and is written only for a person
+who consented (:func:`applire.content_log.owner_may_be_logged`). When
 enabled, the provider factory wraps the chosen provider in :class:`_LoggingProvider`
 so that every ``acomplete`` / ``aparse_json`` call appends ONE JSON line to
 ``<llm_debug_log_dir>/<YYYY-MM-DD>.jsonl`` capturing the system prompt, user prompt,
@@ -44,7 +48,7 @@ labels the next call(s) with their ``role`` ("reviewer"/"generator") and 1-based
 ``attempt`` number as extra structured fields on the debug-log record. Separately,
 :func:`log_review_verdict` / :func:`log_review_exhausted` / :func:`log_review_call_failed`
 emit stable, PII-free, always-on structured lines via the standard ``applire.llm.review``
-logger — unlike the full-fidelity JSONL (dev-only, gated behind ``settings.llm_debug_log``
+logger — unlike the full-fidelity JSONL (written only at ``LOG_LEVEL=DEBUG``
 because it carries prompt/response content), these carry only counts/booleans/chain-ids,
 so they stay on in production and are the durable signal an exhausted review can be
 counted from after the fact.
@@ -499,16 +503,14 @@ def _scrubbed(value: Any) -> Any:
 
 
 def _record(**fields: Any) -> None:
-    directory = settings.llm_debug_log_dir or "logs/llm"
+    from applire.content_log import append_jsonl, owner_may_be_logged
+
     try:
-        os.makedirs(directory, exist_ok=True)
-        path = os.path.join(
-            directory, datetime.now(timezone.utc).strftime("%Y-%m-%d") + ".jsonl"
-        )
-        line = json.dumps(fields, ensure_ascii=False, default=str)
-        with _write_lock:
-            with open(path, "a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
+        allowed, user_id = owner_may_be_logged()
+        if not allowed:
+            return
+        directory = settings.llm_debug_log_dir or "logs/llm"
+        append_jsonl(directory, {"user_id": user_id, **fields})
     except Exception:  # noqa: BLE001 — debug logging must never break a request
         pass
 
@@ -578,7 +580,9 @@ class _LoggingProvider(LLMProvider):
 
 
 def wrap_provider(provider: LLMProvider) -> LLMProvider:
-    """Wrap *provider* with debug logging when enabled; otherwise return it unchanged."""
-    if not settings.llm_debug_log:
+    """Wrap *provider* with the LLM call log at LOG_LEVEL=DEBUG; otherwise unchanged."""
+    from applire.content_log import content_logging_on
+
+    if not content_logging_on():
         return provider
     return _LoggingProvider(provider)

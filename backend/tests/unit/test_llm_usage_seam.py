@@ -19,6 +19,8 @@ import uuid
 
 import pytest
 
+from tests.support.log_consent import consented_owner  # noqa: F401 — fixture
+
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.usage import (
     Usage,
@@ -277,6 +279,7 @@ async def test_the_wrapper_is_transparent_to_the_debug_logger():
     assert getattr(provider, "_timeout") == 1
 
 
+@pytest.mark.usefixtures("consented_owner")
 def test_the_factory_installs_the_recorder_under_the_debug_logger(monkeypatch):
     import applire.config as cfg
     from applire.providers.llm import get_provider, unwrap_provider
@@ -284,7 +287,7 @@ def test_the_factory_installs_the_recorder_under_the_debug_logger(monkeypatch):
     from applire.providers.llm.ollama import OllamaProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "ollama")
-    monkeypatch.setattr(cfg.settings, "llm_debug_log", True)
+    monkeypatch.setattr(cfg.settings, "log_level", "DEBUG")  # one switch (ADR-087 cl. 9 amended)
     provider = get_provider()
     assert isinstance(provider, _LoggingProvider)
     assert isinstance(provider._inner, UsageRecordingProvider)

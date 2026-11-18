@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # route imports it from its home module so both branches stay green alone.
 from applire.auth.deps_links import admin_or_probe
 from applire.config import settings
+from applire.content_log import content_logging_on
 from applire.db.session import get_db
 from applire.models.instance_state import KEY_UPGRADE_RETIRED_PROFILES
 from applire.models.user import User
@@ -70,7 +71,8 @@ async def ops_health(
     return {
         **report,
         "upgrade_notice": get_upgrade_notice(),
-        "debug_log_on": bool(settings.llm_debug_log),
+        # ADR-087 cl. 9 amended 2026-11-18: the level is the one switch.
+        "debug_log_on": content_logging_on(),
         "topology": settings.applire_topology,
         "ops": cached_summary(),
         # RD-9 / MD-27: how many older duplicate profiles migration 0074 set aside —

@@ -19,6 +19,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.support.log_consent import consented_owner  # noqa: F401 — fixture
+
 from applire.config import settings
 from applire.exceptions import LLMResponseParseError
 from applire.models.user import User
@@ -45,13 +47,14 @@ def _fresh_test_throttle():
 # ── F1: the LLM debug log ──────────────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("consented_owner")
 @pytest.mark.asyncio
 async def test_f1_debug_log_scrubs_the_provider_error(tmp_path, monkeypatch):
     """Probe ``test_debug_log_unscrubbed_error``: a provider error echoing the
     person's key reached ``logs/llm/<day>.jsonl`` in plaintext."""
     from applire.providers.llm import debug_log
 
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")  # one switch (ADR-087 cl. 9 amended)
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
 
     class Inner:
@@ -70,12 +73,13 @@ async def test_f1_debug_log_scrubs_the_provider_error(tmp_path, monkeypatch):
     assert "Incorrect API key provided" in text  # the record is still written
 
 
+@pytest.mark.usefixtures("consented_owner")
 @pytest.mark.asyncio
 async def test_f1_debug_log_scrubs_a_failed_reply(tmp_path, monkeypatch):
     """The failed call's raw reply (R2-13 keeps it) is scrubbed the same way."""
     from applire.providers.llm import debug_log
 
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")  # one switch (ADR-087 cl. 9 amended)
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
 
     class Inner:

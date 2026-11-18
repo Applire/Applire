@@ -42,6 +42,11 @@ if not _applire_logger.handlers:
         logging.Formatter("%(levelname)s [%(name)s] %(message)s")
     )
     _applire_logger.addHandler(_applire_handler)
+# One switch (ADR-087 cl. 9 amended 2026-11-18): content lines go to their own
+# file at LOG_LEVEL=DEBUG and never to this stream handler.
+from applire.content_log import configure_content_logging  # noqa: E402
+
+configure_content_logging()
 from applire.db.session import AsyncSessionLocal
 from applire.routers import application, cover_letter, cv, cv_color, documents as documents_router, flow, health, job, jobs, ops, profile, profile_enrich, profile_roles, session, signature
 from applire.routers import settings as settings_router
@@ -78,6 +83,43 @@ STATIC_DIR = resolve_static_dir()
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def startup_posture_lines() -> list[str]:
+    """The content-logging posture, said at every start (ADR-087 cl. 9 amended
+    2026-11-18: LOG_LEVEL is the one switch). Shared with the MCP stdio process."""
+    from applire.content_log import content_logging_on
+    from applire.services.log_consent import missing_settings, retention_days
+
+    lines: list[str] = []
+    if content_logging_on():
+        days = retention_days()
+        lines.append(
+            "LOG_LEVEL=DEBUG: content is logged. What people enter and every AI request "
+            f"and reply are written to {settings.content_log_dir}/<date>.jsonl and "
+            f"{settings.llm_debug_log_dir}/<date>.jsonl, each line with the user id. "
+            + (
+                f"Files older than {days} days are deleted by the retention worker "
+                "(CONTENT_LOG_RETENTION_DAYS). "
+                if days
+                else "They are kept until you delete them (CONTENT_LOG_RETENTION_DAYS=0). "
+            )
+            + "Every person is asked for consent first. Set LOG_LEVEL=INFO to stop."
+        )
+        missing = missing_settings()
+        if missing:
+            lines.append(
+                "LOG_LEVEL=DEBUG asks people to consent to content logs, and the consent "
+                "text names values that are not set: " + ", ".join(missing) + ". "
+                "The text shows 'not set by the operator' in their place until you set them."
+            )
+    elif settings.llm_debug_log:
+        lines.append(
+            "LLM_DEBUG_LOG=true is no longer a switch and logs nothing: content (the "
+            "LLM call log included) is written only at LOG_LEVEL=DEBUG. You can delete "
+            "the line LLM_DEBUG_LOG from your .env."
+        )
+    return lines
+
+
 def _log_startup_posture() -> None:
     """Say out loud what this instance's configuration means (ADR-087 cl. 9).
 
@@ -86,14 +128,8 @@ def _log_startup_posture() -> None:
     (JF-O-4.1) and the dev topology publishes an unauthenticated API on :8001 and
     Postgres on :5433 with the default credentials (JF-O-1.2).
     """
-    if settings.llm_debug_log:
-        _applire_logger.warning(
-            "LLM_DEBUG_LOG is ON. Every prompt and completion — including CV and "
-            "interview PII — is written to %s/<date>.jsonl and kept until you "
-            "delete it. There is no size or age cap by design. Turn this off in "
-            "production (LLM_DEBUG_LOG=false) and remove the files.",
-            settings.llm_debug_log_dir,
-        )
+    for line in startup_posture_lines():
+        _applire_logger.warning(line)
     from applire.auth import auth_provider_is_re_meant, provider_name
 
     provider_name()  # an unknown AUTH_PROVIDER raises here, before serving (ADR-091 cl. 2)

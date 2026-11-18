@@ -107,6 +107,13 @@ REFUSAL_MESSAGES: dict[str, str] = {
         "Your stored AI provider key cannot be read on this server right now. "
         "Ask your admin (PROVIDER_KEY_SECRET is not set)."
     ),
+    # ADR-096 amended 2026-11-18 (WP-L): checked before the payer table, only
+    # while the instance writes content logs (LOG_LEVEL=DEBUG).
+    "log_consent_required": (
+        "This test instance keeps content logs, and you have not agreed to them "
+        "(or you withdrew). Agree in Settings under 'Logs during the test phase' "
+        "to start AI work again. Reading, downloading and deleting still work."
+    ),
 }
 
 
@@ -168,6 +175,9 @@ class PayerFacts:
     family: str | None = None
     model: str | None = None
     ciphertext: str | None = field(default=None, repr=False, compare=False)
+    #: ADR-096 amended 2026-11-18: the person may be processed (and logged) —
+    #: always True while the instance writes no content logs.
+    log_consent_ok: bool = True
 
 
 _decision: ContextVar[PayerDecision | None] = ContextVar("applire_payer_decision", default=None)
@@ -203,6 +213,20 @@ def _refuse_unknown_mode() -> None:
     raise AdmissionRefused("settings_unavailable", status=503)
 
 
+def _refuse_without_consent_facts() -> None:
+    """At DEBUG an owner without facts has an unknown consent: refused, never
+    run (ADR-096 amended 2026-11-18). Above DEBUG this is a no-op."""
+    from applire.content_log import content_logging_on
+
+    if content_logging_on():
+        logger.warning(
+            "model work for an owner without payer facts while content logging is on "
+            "— refused until the person's consent is known (ADR-096 amended)",
+            stack_info=True,
+        )
+        raise AdmissionRefused("log_consent_required")
+
+
 def current_decision() -> PayerDecision | None:
     return _decision.get()
 
@@ -223,6 +247,23 @@ def call_scope() -> Iterator[None]:
     finally:
         _decision.reset(decision_token)
         _facts.reset(facts_token)
+
+
+@contextlib.contextmanager
+def tooling_owner(user_id: uuid.UUID) -> Iterator[None]:
+    """Operator tooling only (bench, model matrix, replays — never a request):
+    act for a seeded synthetic person whose payer facts say "instance pays,
+    consented to content logs", so a run at ``LOG_LEVEL=DEBUG`` writes the LLM
+    call log under that person's id. No production code path calls this
+    (pinned by a test, like ``unscoped("tooling")``)."""
+    from applire.ownership import owner_context
+
+    with owner_context(user_id):
+        token = _facts.set(PayerFacts(owner_id=user_id, mode="instance", log_consent_ok=True))
+        try:
+            yield
+        finally:
+            _facts.reset(token)
 
 
 def reset_context_for_tests() -> None:
@@ -257,9 +298,12 @@ async def load_facts(db: AsyncSession, user: User) -> PayerFacts:
     ``instance`` mode issues no query (nothing on the default path changes).
     The owner context must already be set (the key table is owned).
     """
+    from applire.services.log_consent import consent_ok
+
     mode = decision_mode()
+    consent = consent_ok(user)
     if mode in ("instance", "unknown"):
-        facts = PayerFacts(owner_id=user.id, mode=mode)
+        facts = PayerFacts(owner_id=user.id, mode=mode, log_consent_ok=consent)
     else:
         row = (
             await db.execute(select(UserProviderKey).where(UserProviderKey.user_id == user.id))
@@ -271,6 +315,7 @@ async def load_facts(db: AsyncSession, user: User) -> PayerFacts:
             family=row.family if row is not None else None,
             model=row.model if row is not None else None,
             ciphertext=row.secret_ciphertext if row is not None else None,
+            log_consent_ok=consent,
         )
     _facts.set(facts)
     return facts
@@ -280,6 +325,8 @@ def decide(facts: PayerFacts, action: str, ref: str | None = None) -> PayerDecis
     """The truth table (cl. 5), policy ``none``. Pure apart from decrypting."""
     if action not in ACTIONS:
         raise ValueError(f"unknown action {action!r}")
+    if not facts.log_consent_ok:  # step 0 (WP-L): before any payer row
+        raise AdmissionRefused("log_consent_required")
     if facts.mode == "unknown":  # the panel could not be read: never instance
         _refuse_unknown_mode()
     if facts.mode == "instance":  # row 1
@@ -311,6 +358,7 @@ def admit_from_facts(action: str, ref: str | None = None) -> PayerDecision:
     if owner is None or owner.user_id is None or facts is None or facts.owner_id != owner.user_id:
         if decision_mode() == "unknown":
             _refuse_unknown_mode()
+        _refuse_without_consent_facts()
         if key_mode() == "instance" and owner is not None and owner.user_id is not None:
             decision = PayerDecision("instance", action, owner.user_id, ref=ref)
             _decision.set(decision)
@@ -360,6 +408,7 @@ def resolve_for_factory() -> PayerDecision:
         return decide(facts, "model_work")
     if decision_mode() == "unknown":
         _refuse_unknown_mode()
+    _refuse_without_consent_facts()
     if key_mode() == "instance":
         return PayerDecision("instance", "model_work", owner.user_id)
     logger.warning(
@@ -422,9 +471,12 @@ async def key_mode_summary(db: AsyncSession) -> dict:
 
 async def who_pays(db: AsyncSession, user: User) -> Literal["instance", "user", "none"]:
     """What would pay for this person's ``model_work`` now (the settings card)."""
+    from dataclasses import replace
+
     facts = await load_facts(db, user)
     try:
-        return decide(facts, "model_work").payer  # type: ignore[return-value]
+        # Who WOULD pay: the logging consent is its own notice, not a payer.
+        return decide(replace(facts, log_consent_ok=True), "model_work").payer  # type: ignore[return-value]
     except AdmissionRefused:
         return "none"
 
