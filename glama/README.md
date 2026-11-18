@@ -22,6 +22,28 @@ Build and run locally (build context = repository root):
 
 A cold start takes about 20-25 s (initdb plus the migrations).
 
-This directory is the source of truth for the Dockerfile pasted into Glama's
-admin page. Keep that paste in sync with `glama/Dockerfile`. The image holds no
+## Glama's admin form
+
+Glama's admin page does not take a Dockerfile. It generates one from a form:
+a Debian base image, a Python version, build steps and CMD arguments, with the
+repository cloned as the working directory. `entrypoint.sh` finds the backend
+and `seed.py` relative to its own location, so the same script serves both
+layouts. The form values, tested on 2026-11-18 against a debian:trixie-slim
+image with uv-installed Python and the repository at /app:
+
+- Base image: `debian:trixie-slim` · Python version: `3.12`
+- Build steps:
+
+      ["apt-get update && apt-get install -y --no-install-recommends postgresql postgresql-17-pgvector && rm -rf /var/lib/apt/lists/*", "uv venv /opt/applire --python 3.12", "uv pip install --no-cache --python /opt/applire/bin/python -r backend/requirements.txt", "uv pip install --no-cache --python /opt/applire/bin/python -e backend"]
+
+- CMD arguments:
+
+      ["env", "PATH=/opt/applire/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "bash", "glama/entrypoint.sh"]
+
+- Placeholder parameters: `{"APPLIRE_AGENT_TOKEN": "apl_placeholder"}`. The
+  form requires a value for the schema's required variable. The entrypoint
+  replaces it with the token it mints, so the placeholder never reaches the
+  server.
+
+Keep these values in sync with this directory. The image holds no
 user data and no secrets and is not meant to be used as an Applire instance.
