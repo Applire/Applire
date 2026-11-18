@@ -135,7 +135,101 @@ CURSOR = "MjAyNi0xMS0xOFQxMDowMDowMCswMDowMHw2ZjFjMmE5ZS0wYjdkLTRjNTUtOWE4ZS0yZj
 )
 def test_text_never_survives_in_a_request_target(target):
     out = logfilter.redact(f'GET {target} HTTP/1.1')
-    assert CANARY not in out and logfilter.REDACTED in out
+    assert CANARY not in out and CANARY_SHAPED not in out and logfilter.REDACTED in out
+
+
+#: One valid value per allow-listed parameter, as a client sends it.
+VALID = {
+    "action": "user.deleted",
+    "active": "true",
+    "actor_id": "6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71",
+    "basis_updated_at": "2026-11-18T10:00:00Z",
+    "berufsbild_code": "26112",
+    "consent": "false",
+    "cursor": CURSOR,
+    "cx": "0.5",
+    "cy": "0.25",
+    "days": "30",
+    "error": "access_denied",
+    "exp": "1763460000",
+    "job_id": "6f1c2a9e0b7d4c559a8e2f3d4c5b6a71",
+    "limit": "50",
+    "page": "2",
+    "page_size": "25",
+    "session_id": "6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71",
+    "since": "2026-11-18",
+    "source": "linkedin",
+    "status": "ready",
+    "target_user_id": "6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71",
+    "top_n": "5",
+    "uid": "6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71",
+    "until": "2026-11-18T10:00:00.123+01:00",
+    "user_status": "applied",
+    "workflow_status": "completed",
+    "zoom": "1.5",
+}
+SMUGGLED = "Rübe-Weberit"  # typed text; its letters lie in the base64url alphabet except ü
+
+
+def _smuggling(valid: str) -> dict[str, str]:
+    from urllib.parse import quote
+
+    enc = quote(SMUGGLED)
+    half = len(valid) // 2
+    return {
+        "appended": valid + SMUGGLED,
+        "appended-in-alphabet": valid + "Weberit",
+        "appended-encoded": valid + enc,
+        "prefixed": SMUGGLED + valid,
+        "space": valid + "+" + enc,
+        "encoded-space": valid + "%20" + enc,
+        "newline": valid + "%0A" + enc,
+        "nul": valid + "%00" + enc,
+        "inside": valid[:half] + enc + valid[half:],
+        # characters a lenient decoder skips: non-alphabet bytes between valid ones
+        "mixed-alphabet": valid[:half] + quote("äöü~.!") + valid[half:],
+        "mixed-alphabet-ascii": valid[:half] + "~.!*(),;:@$" + valid[half:],
+        "mixed-alphabet-ascii-encoded": valid[:half] + quote("~.!*(),;:@$ ", safe="") + valid[half:],
+        "other-script-digits": quote("١٢٣٤"),
+        "invalid-utf8": valid + "%FF%FE",
+        "overlong": valid + "0" * 200,
+    }
+
+
+@pytest.mark.parametrize("name", sorted(VALID))
+def test_a_valid_value_is_shown_and_nothing_rides_along(name):
+    from urllib.parse import quote
+
+    assert set(VALID) == set(logfilter.STRUCTURED_QUERY_PARAMS)
+    shown = logfilter.redact(f"GET /x?{name}={quote(VALID[name], safe='')} HTTP/1.1")
+    assert shown == f"GET /x?{name}={VALID[name]} HTTP/1.1"
+    for how, value in _smuggling(VALID[name]).items():
+        out = logfilter.redact(f"GET /x?{name}={value}&limit=5 HTTP/1.1")
+        assert out == f"GET /x?{name}={logfilter.REDACTED}&limit=5 HTTP/1.1", (how, out)
+
+
+def test_a_cursor_decodes_strictly_and_encodes_back_to_itself():
+    import base64
+
+    good = base64.urlsafe_b64decode(CURSOR + "=" * (-len(CURSOR) % 4))
+    shape = logfilter.STRUCTURED_QUERY_PARAMS["cursor"]
+    assert shape(CURSOR) and shape(CURSOR + "=")
+    # the same bytes with a non-canonical last character (unused bits set)
+    last = CURSOR[-1]
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    twin = CURSOR[:-1] + alphabet[alphabet.index(last) + 1]
+    assert base64.urlsafe_b64decode(twin + "=" * (-len(twin) % 4)) == good
+    assert not shape(twin)
+    assert not shape(CURSOR[:10] + "." + CURSOR[10:])
+    assert not shape(base64.urlsafe_b64encode(b"2026-11-18|Rotkohl").decode())
+
+
+def test_an_action_is_one_the_audit_log_writes():
+    from applire.services.audit import ACTIONS
+
+    shape = logfilter.STRUCTURED_QUERY_PARAMS["action"]
+    assert all(shape(a) for a in ACTIONS)
+    assert not shape("rotkohl.weberit_schicht") and not shape("user.deleted.rotkohl")
 
 
 def test_the_enum_shapes_are_the_application_enums():

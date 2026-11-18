@@ -7,13 +7,15 @@ The access log is written at INFO and carries ids only. Its request line is
 rewritten before it is formatted:
 
 * **query parameters:** each name is read the way the application reads it
-  (percent-decoded). A value is kept only when the name is on the allow-list
+  (percent-decoded). A value is shown only when the name is on the allow-list
   :data:`STRUCTURED_QUERY_PARAMS` (ids, numbers, dates, enum codes; taken from
   the route table by ``tests/unit/test_access_log_query_census.py``) and the
-  value itself has the shape of such a value; every other value becomes
-  ``[redacted]``, on every path, a route that does not exist included. A name
-  the application does not read is shown as ``[redacted]`` too (it can itself
-  be typed text);
+  whole decoded value, at most :data:`MAX_SHOWN_VALUE` characters, fully
+  matches that parameter's strict ASCII grammar or closed set. What is shown is
+  that checked value, never the raw form, so nothing the check did not read
+  reaches the line. Every other value becomes ``[redacted]``, on every path, a
+  route that does not exist included. A name the application does not read is
+  shown as ``[redacted]`` too (it can itself be typed text);
 * any path segment after ``/api/auth/links/`` → ``[redacted]`` (invite/reset tokens
   travel in the URL fragment and POST bodies by design — cl. 22 — so this is the
   belt to that pair of braces: a client that puts one in the path is not logged);
@@ -30,8 +32,14 @@ import re
 from urllib.parse import unquote_plus
 
 REDACTED = "[redacted]"
+#: A longer value is never shown (the longest structured value, an audit
+#: cursor, is about 95 characters).
+MAX_SHOWN_VALUE = 128
+
+
 def _re(pattern: str):
-    rx = re.compile(pattern)
+    # ASCII: ``\d`` must not match other scripts' digits.
+    rx = re.compile(pattern, re.ASCII)
     return lambda value: rx.fullmatch(value) is not None
 
 
@@ -40,22 +48,42 @@ def _one_of(*values: str):
     return lambda value: value in allowed
 
 
+_BASE64URL = re.compile(r"[A-Za-z0-9_-]+={0,2}", re.ASCII)
+
+
 def _audit_cursor(value: str) -> bool:
-    """``base64url("<ISO time>|<uuid>")`` — the audit page cursor."""
+    """``base64url("<ISO time>|<uuid>")`` — the audit page cursor
+    (``services/admin/audit_view.encode_cursor``). Strict: only the base64url
+    alphabet, a strict decode, and the decoded text encodes back to exactly the
+    value, so no character can ride along that the decode skipped."""
     import base64
+    import binascii
 
-    try:
-        decoded = base64.urlsafe_b64decode((value + "=" * (-len(value) % 4)).encode()).decode()
-    except Exception:  # noqa: BLE001 — not a cursor
+    if not _BASE64URL.fullmatch(value):
         return False
-    return _DATETIME(decoded.split("|", 1)[0]) and _UUID(decoded.split("|", 1)[-1])
+    bare = value.rstrip("=")
+    try:
+        raw = base64.b64decode(bare + "=" * (-len(bare) % 4), altchars=b"-_", validate=True)
+        decoded = raw.decode("ascii")
+    except (binascii.Error, ValueError):
+        return False
+    if base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=") != bare:
+        return False
+    at, sep, row_id = decoded.partition("|")
+    return bool(sep) and _DATETIME(at) and _UUID(row_id)
 
 
-_UUID = _re(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}")
+def _audit_action(value: str) -> bool:
+    from applire.services.audit import ACTIONS
+
+    return value in ACTIONS
+
+
+_UUID = _re(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32}")
 _INT = _re(r"-?\d{1,12}")
 _FLOAT = _re(r"-?\d{1,6}(\.\d{1,8})?")
 _BOOL = _re(r"(?i:true|false|1|0|yes|no|on|off)")
-_DATETIME = _re(r"\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?)?(Z|[+-]\d{2}:?\d{2})?")
+_DATETIME = _re(r"\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:?\d{2})?)?")
 _DOCUMENT_STATUS = _one_of("pending", "generating", "ready", "failed", "expired")
 _OAUTH_ERROR = _one_of(
     "invalid_request", "unauthorized_client", "access_denied", "unsupported_response_type",
@@ -65,12 +93,12 @@ _OAUTH_ERROR = _one_of(
     "registration_not_supported",
 )
 
-#: Query parameters whose values are logged, each with the shape its value must
-#: have (after decoding) to be shown: an id, a number, a date, a flag, a code the
-#: application defines. Anything else is redacted. The census test keeps the
+#: Query parameters whose values are logged, each with the strict grammar or
+#: closed set its whole decoded value must match to be shown: an id, a number, a
+#: date, a flag, a code the application defines. Anything else is redacted. The census test keeps the
 #: names equal to the route table's structured parameters plus the signed link's.
 STRUCTURED_QUERY_PARAMS = {
-    "action": _re(r"[a-z_]{1,40}(\.[a-z_]{1,40}){1,3}"),  # audit action names
+    "action": _audit_action,  # the audit action names (services/audit.ACTIONS)
     "active": _BOOL,
     "actor_id": _UUID,
     "basis_updated_at": _DATETIME,
@@ -122,8 +150,14 @@ def _redact_pair(pair: str) -> str:
     if not sep:
         return name
     shape = STRUCTURED_QUERY_PARAMS.get(name)
-    if shape is not None and shape(unquote_plus(raw_value)):
-        return f"{name}={raw_value}"
+    if shape is None or len(raw_value) > 3 * MAX_SHOWN_VALUE:
+        return f"{name}={REDACTED}"
+    try:
+        value = unquote_plus(raw_value, errors="strict")
+    except UnicodeDecodeError:
+        return f"{name}={REDACTED}"
+    if len(value) <= MAX_SHOWN_VALUE and shape(value):
+        return f"{name}={value}"  # the checked value, not the raw form
     return f"{name}={REDACTED}"
 
 

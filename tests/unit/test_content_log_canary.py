@@ -192,6 +192,14 @@ REQUEST_PARAMS = (
     # a name the application decodes to ``q``/``code``, names it never reads
     "%71", "%63ode", "jd_text", "text", "status",
 )
+#: Allow-listed parameters with something riding along: characters a lenient
+#: base64 decoder skips inside a cursor, the canary after a number, an id and an
+#: action. Each value is redacted whole.
+_CURSOR = "MjAyNi0xMS0xOFQxMDowMDowMCswMDowMHw2ZjFjMmE5ZS0wYjdkLTRjNTUtOWE4ZS0yZjNkNGM1YjZhNzE"
+SMUGGLING_TARGET = (
+    f"/api/auth/oidc/callback?cursor={_CURSOR[:40]}~.!*(),;{_CURSOR[40:]}&limit=5{CANARY}"
+    f"&uid=6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71%0A{CANARY}&action=user.deleted%20{CANARY}"
+)
 
 
 async def _access_log_requests():
@@ -213,6 +221,7 @@ async def _access_log_requests():
             for name in REQUEST_PARAMS:
                 await client.get(f"/api/auth/oidc/callback?{name}={CANARY}&exp=1")
             await client.get(f"/api/auth/oidc/start?next=%2Fdashboard%3Fjd_text%3D{CANARY}")
+            await client.get(SMUGGLING_TARGET)
     finally:
         server.should_exit = True
         await task
@@ -418,8 +427,13 @@ async def test_at_info_no_record_and_no_file_holds_the_canary(db, monkeypatch, t
 
     assert stream, "the paths logged nothing at INFO — the test would be blind"
     access = [line for line in stream if line.startswith("INFO uvicorn.access") and "/api/auth/oidc/" in line]
-    assert len(access) == len(REQUEST_PARAMS) + 1, "the request arm wrote no access lines"
+    assert len(access) == len(REQUEST_PARAMS) + 2, "the request arm wrote no access lines"
     assert all("[redacted]" in line for line in access)
+    smuggled = [line for line in access if "cursor=" in line]
+    assert len(smuggled) == 1 and all(
+        f"{n}=[redacted]" in smuggled[0] for n in ("cursor", "limit", "uid", "action")
+    ), smuggled
+    assert "~.!" not in smuggled[0]
     holding = [line for line in stream if CANARY in line or WORD in line]
     assert holding == []
     # Every malformed body is answered (never a failed answer), the uncaught
