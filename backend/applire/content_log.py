@@ -155,15 +155,17 @@ def append_jsonl(directory: str, record: dict[str, Any]) -> None:
     Holds an exclusive ``flock`` while appending and re-opens when the retention
     worker replaced the file meanwhile (the worker takes the same lock on the
     file it rewrites), so a line is never appended to a file that was just
-    unlinked. Never raises: logging must not break a request.
+    unlinked. The folder is created 0700 and the file 0600, whatever the
+    process umask. Never raises: logging must not break a request.
     """
     try:
-        os.makedirs(directory, exist_ok=True)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
         path = os.path.join(directory, _today() + ".jsonl")
         line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
         with _write_lock:
             for _ in range(3):
-                with open(path, "a", encoding="utf-8") as fh:
+                fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+                with os.fdopen(fd, "a", encoding="utf-8") as fh:
                     if fcntl is not None:
                         fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
                     try:
@@ -212,7 +214,9 @@ class ContentFileHandler(logging.Handler):
                     "level": record.levelname,
                     "logger": record.name,
                     "user_id": user_id,
-                    "template": str(record.msg),
+                    # A code literal (pinned by test_content_log_templates):
+                    # the one text a reduced line keeps.
+                    "template": record.msg if isinstance(record.msg, str) else None,
                     "message": message,
                 },
             )
