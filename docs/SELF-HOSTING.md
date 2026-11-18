@@ -324,7 +324,7 @@ curl -X POST -H "Authorization: Bearer apl_…" http://localhost/api/settings/up
 
 ### A page shows "502 Bad Gateway" and nginx's log says nothing
 
-By default nginx logs only critical errors. Its full upstream error lines also print the request's query string, which can hold a 60-minute download link or a one-time sign-in code. To diagnose a 502/504, set `LOG_LEVEL=DEBUG` in `.env`, run `docker compose up -d`, reproduce the error and read `docker compose logs nginx backend` (the backend's debug lines are in `logs/content`, Section 7). Set it back afterwards: the links in those lines stay valid until they expire. `DEBUG` also switches on the content logs and the consent question for everyone on the instance (Section 7), so keep the window short and delete the content log files afterwards.
+nginx logs only critical errors, on every instance and at every `LOG_LEVEL`: its full upstream error lines print the request's address, query string included, which can hold a 60-minute download link or a one-time sign-in code. Diagnose a 502/504 from the other side instead: `docker compose ps` shows whether `backend` and `frontend` are running and healthy, `docker compose logs backend frontend` shows a crash or a restart, and `docker compose logs nginx` shows the failing request's status and path in the access log (without its query string). `LOG_LEVEL=DEBUG` changes what the backend writes (Section 7), never what nginx writes.
 
 ### Generations hang for minutes and then fail
 
