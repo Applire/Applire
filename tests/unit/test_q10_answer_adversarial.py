@@ -249,3 +249,85 @@ async def test_a_new_skill_takes_the_category_of_the_skill_the_card_showed_besid
     assert _answer._skill(profile, "Observability")["category"] == "domain"
     # nothing shown beside it → the schema's default, not a stamp of our own
     assert _answer._skill(profile, "Event-driven architecture")["category"] == "technical"
+
+
+# ── delivery tier F-D1: the agent's answer is a full answer, "no" included ───
+
+@pytest.mark.asyncio
+async def test_SEAM_an_agent_answer_records_when_via_which_door_and_what_was_confirmed(db):
+    job = await _answer._seed(db)
+    out = await _answer._call("confirm_posting_terms", {"job_id": str(job.id), "confirmed": ["Observability"]}, db)
+    record = (await _application(db, job)).posting_terms
+    assert record["via"] == "agent" and record["answered_at"]
+    assert record["confirmed"] == ["Observability"] and out["answered_at"] == record["answered_at"]
+
+
+@pytest.mark.asyncio
+async def test_SEAM_the_agent_passes_on_the_persons_no_and_the_card_never_asks_it_again(db):
+    from applire.services.posting_term_answer import posting_terms_state
+
+    job = await _answer._seed(db)
+    out = await _answer._call("confirm_posting_terms", {
+        "job_id": str(job.id), "confirmed": ["Observability"], "declined": ["Event-driven architecture"]}, db)
+    assert out["declined"] == ["Event-driven architecture"] and out["may_generate"] is True
+    assert _answer._skill(await _answer._profile(db), "Event-driven architecture") is None
+    record = (await _application(db, job)).posting_terms
+    assert record["declined"] == ["Event-driven architecture"] and record["via"] == "agent"
+    web = await posting_terms_state(db, job.id, HARNESS)              # the card's own read
+    assert web.terms == []
+
+
+@pytest.mark.asyncio
+async def test_a_term_the_agent_names_neither_way_stays_open(db):
+    job = await _answer._seed(db)
+    out = await _answer._call("confirm_posting_terms",
+                              {"job_id": str(job.id), "declined": ["Event-driven architecture"]}, db)
+    assert [t["term"] for t in out["terms"]] == ["Observability"] and out["may_generate"] is False
+    assert out["confirmed"] == [] and out["left_open"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_decline_after_leave_open_takes_the_term_out_of_left_open(db):
+    job = await _answer._seed(db)
+    await _answer._call("confirm_posting_terms", {"job_id": str(job.id), "leave_open": True}, db)
+    out = await _answer._call("confirm_posting_terms",
+                              {"job_id": str(job.id), "declined": ["Observability"]}, db)
+    assert out["left_open"] == ["Event-driven architecture"] and out["declined"] == ["Observability"]
+
+
+@pytest.mark.asyncio
+async def test_SEAM_repeating_a_decline_is_an_idempotent_success(db):
+    job = await _answer._seed(db)
+    args = {"job_id": str(job.id), "declined": ["Observability"]}
+    first = await _answer._call("confirm_posting_terms", args, db)
+    again = await _answer._call("confirm_posting_terms", args, db)
+    assert again["declined"] == ["Observability"] and again["answered_at"] == first["answered_at"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("args, message", [
+    ({"confirmed": ["Observability"], "declined": ["observability"]}, "both confirmed and declined"),
+    ({"declined": ["Observability"], "leave_open": True}, "cannot be combined"),
+    ({"declined": ["Kubernetes"]}, "not on the list: Kubernetes"),
+])
+async def test_SEAM_a_contradictory_or_off_list_decline_is_refused_and_changes_nothing(db, args, message):
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    job = await _answer._seed(db)
+    before = copy.deepcopy(await _answer._profile(db))
+    with pytest.raises(ToolError, match=message):
+        await _answer._call("confirm_posting_terms", {"job_id": str(job.id), **args}, db)
+    assert (await _answer._profile(db))["skills"] == before["skills"]
+    assert not (await _application(db, job)).posting_terms
+
+
+@pytest.mark.asyncio
+async def test_SEAM_a_confirmed_term_cannot_be_declined_afterwards(db):
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    job = await _answer._seed(db)
+    await _answer._call("confirm_posting_terms", {"job_id": str(job.id), "confirmed": ["Observability"]}, db)
+    with pytest.raises(ToolError, match="already confirmed for this posting: Observability"):
+        await _answer._call("confirm_posting_terms", {"job_id": str(job.id), "declined": ["Observability"]}, db)
+    assert _answer._skill(await _answer._profile(db), "Observability")["confirmations"]
+    assert "Observability" not in (await _application(db, job)).posting_terms.get("declined", [])
