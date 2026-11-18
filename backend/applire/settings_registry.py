@@ -812,9 +812,8 @@ _register_all(
                 "LLM_DEBUG_LOG_DIR (each line with the user id, never to the container\n"
                 "output), asks every person for consent first (LOG_CONSENT_*), and warns\n"
                 "at every startup. Use DEBUG only on a test instance or while debugging.\n"
-                "DEBUG also makes nginx log full upstream error lines (a 502/504 with the\n"
-                "request's query string, which can hold a short-lived download link);\n"
-                "otherwise nginx logs only critical errors."
+                "LOG_LEVEL does not reach nginx: the proxy logs critical errors only, at\n"
+                "every level (SELF-HOSTING §11 for diagnosing a 502/504)."
             ),
         ),
         SettingEntry(
