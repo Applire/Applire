@@ -138,6 +138,19 @@
           "string"
         ]
       },
+      "declined": {
+        "required": false,
+        "types": [
+          "array",
+          "null"
+        ]
+      },
+      "declined[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
       "job_id": {
         "required": true,
         "types": [
