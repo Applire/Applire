@@ -73,6 +73,7 @@ from applire.constants import (
     PROFILE_INACTIVITY_TTL_DAYS as _INACTIVITY_TTL_DAYS,
     UPLOAD_TTL_DAYS as _UPLOADS_TTL_DAYS,
 )
+from applire.content_log import content_logger
 from applire import ownership
 from applire.db.session import AsyncSessionLocal
 from applire.models.application import Application
@@ -83,6 +84,8 @@ from applire.auth.harness import STUB_USER_ID
 from applire.models.user import ROLE_ADMIN, User
 
 logger = logging.getLogger(__name__)
+# A database error's text can quote row values: its full text goes to the content log (DEBUG only).
+clog = content_logger(__name__)
 
 #: pending/generating → failed after this long (789:14, Hazelnut build 4, measured).
 #: Captured LLM debug logs (95 days, 195 CV / 159 letter generations, first-to-last
@@ -382,7 +385,8 @@ async def _tombstone_inactive_profiles(db: AsyncSession) -> int:
         await db.commit()
         return result.rowcount  # type: ignore[return-value]
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("_tombstone_inactive_profiles skipped: %s", exc)
+        logger.warning("_tombstone_inactive_profiles skipped: %s", type(exc).__name__)
+        clog.debug("_tombstone_inactive_profiles skipped: %s", exc)
         await db.rollback()
         return 0
 
@@ -443,7 +447,8 @@ async def _tombstone_inactive_users(db: AsyncSession) -> int:
         await db.commit()
         return len(users)
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("_tombstone_inactive_users skipped: %s", exc)
+        logger.warning("_tombstone_inactive_users skipped: %s", type(exc).__name__)
+        clog.debug("_tombstone_inactive_users skipped: %s", exc)
         await db.rollback()
         return 0
 
@@ -469,11 +474,13 @@ async def _purge_orphan_postings(db: AsyncSession) -> int:
     except IntegrityError as exc:
         # A link landed between the lock and the delete on a backend without
         # row locks; the next run collects whatever is still orphaned.
-        logger.warning("_purge_orphan_postings deferred to the next run: %s", exc)
+        logger.warning("_purge_orphan_postings deferred to the next run: %s", type(exc).__name__)
+        clog.debug("_purge_orphan_postings deferred to the next run: %s", exc)
         await db.rollback()
         return 0
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("_purge_orphan_postings skipped: %s", exc)
+        logger.warning("_purge_orphan_postings skipped: %s", type(exc).__name__)
+        clog.debug("_purge_orphan_postings skipped: %s", exc)
         await db.rollback()
         return 0
 
@@ -517,7 +524,8 @@ async def _purge_auth_housekeeping(db: AsyncSession) -> dict[str, int]:
         out["auth_links_deleted"] = r.rowcount or 0
         await db.commit()
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("_purge_auth_housekeeping skipped: %s", exc)
+        logger.warning("_purge_auth_housekeeping skipped: %s", type(exc).__name__)
+        clog.debug("_purge_auth_housekeeping skipped: %s", exc)
         await db.rollback()
     return out
 
@@ -538,7 +546,8 @@ async def _purge_audit_events(db: AsyncSession) -> int:
         await db.commit()
         return r.rowcount or 0
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("_purge_audit_events skipped: %s", exc)
+        logger.warning("_purge_audit_events skipped: %s", type(exc).__name__)
+        clog.debug("_purge_audit_events skipped: %s", exc)
         await db.rollback()
         return 0
 
@@ -566,7 +575,8 @@ async def _tombstone_inactive_applications(db: AsyncSession, *, cancelled_only: 
         await db.commit()
         return result.rowcount  # type: ignore[return-value]
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("_tombstone_inactive_applications skipped: %s", exc)
+        logger.warning("_tombstone_inactive_applications skipped: %s", type(exc).__name__)
+        clog.debug("_tombstone_inactive_applications skipped: %s", exc)
         await db.rollback()
         return 0
 
@@ -816,7 +826,8 @@ async def _purge_cancelled_documents(db: AsyncSession) -> tuple[int, int, int]:
     except (ProgrammingError, OperationalError, IntegrityError) as exc:
         # IntegrityError included so an unforeseen FK can never abort the whole
         # nightly run — the row survives to the next run, the report shows 0.
-        logger.warning("_purge_cancelled_documents skipped: %s", exc)
+        logger.warning("_purge_cancelled_documents skipped: %s", type(exc).__name__)
+        clog.debug("_purge_cancelled_documents skipped: %s", exc)
         await db.rollback()
         return (0, 0, 0)
 
@@ -869,7 +880,8 @@ async def _release_fact_pins(db: AsyncSession) -> int:
         await db.commit()
         return result.rowcount  # type: ignore[return-value]
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("_release_fact_pins skipped: %s", exc)
+        logger.warning("_release_fact_pins skipped: %s", type(exc).__name__)
+        clog.debug("_release_fact_pins skipped: %s", exc)
         await db.rollback()
         return 0
 
@@ -887,7 +899,8 @@ async def _purge_llm_usage(db: AsyncSession) -> int:
 
         return await purge_old_usage(db, LLM_USAGE_RETENTION_DAYS)
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("_purge_llm_usage skipped: %s", exc)
+        logger.warning("_purge_llm_usage skipped: %s", type(exc).__name__)
+        clog.debug("_purge_llm_usage skipped: %s", exc)
         await db.rollback()
         return 0
 
@@ -909,7 +922,8 @@ async def _trim_retention_runs(db: AsyncSession) -> int:
         await db.commit()
         return result.rowcount or 0  # type: ignore[return-value]
     except (ProgrammingError, OperationalError) as exc:
-        logger.warning("_trim_retention_runs skipped: %s", exc)
+        logger.warning("_trim_retention_runs skipped: %s", type(exc).__name__)
+        clog.debug("_trim_retention_runs skipped: %s", exc)
         await db.rollback()
         return 0
 
@@ -942,10 +956,10 @@ async def record_run(report: dict, *, duration_ms: int, ok: bool, error: str | N
             await _trim_retention_runs(db)
     except Exception as exc:
         logger.warning(
-            "retention run not recorded (%s: %s) — the sweep itself is unaffected",
+            "retention run not recorded (%s) — the sweep itself is unaffected",
             type(exc).__name__,
-            exc,
         )
+        clog.debug("retention run not recorded: %s", exc)
 
 
 async def _retention_toggle() -> tuple[bool, str]:
