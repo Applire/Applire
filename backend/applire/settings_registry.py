@@ -748,18 +748,14 @@ _register_all(
             env_var="LLM_DEBUG_LOG",
             source="config",
             default="false",
-            example="true",
             section="LLM behaviour",
             introduced_in="0.37.0",
+            semantics_changed_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
+            in_env_example=False,
             description=(
-                "Developer-only: log every LLM call's full input/output to\n"
-                "<LLM_DEBUG_LOG_DIR>/<date>.jsonl (one JSON line per call: stage, model,\n"
-                "system, prompt, params, response, latency).\n"
-                "RECORDS CV PII — keep OFF in production; since 0.43 that includes every\n"
-                "person on this instance, not only you. While it is on, the backend logs\n"
-                "a WARNING at every startup and GET /api/ops/health reports debug_log_on: true.\n"
-                "There is deliberately no size or age cap: a cap on a diagnostic tool\n"
-                "truncates evidence silently. Turn it off, and delete the files."
+                "No longer a switch: the LLM call log is written only at LOG_LEVEL=DEBUG.\n"
+                "Still read so that LLM_DEBUG_LOG=true beside a higher level is named\n"
+                "in a startup WARNING (it logs nothing). Delete the line."
             ),
         ),
         SettingEntry(
@@ -768,7 +764,12 @@ _register_all(
             default="logs/llm",
             section="LLM behaviour",
             introduced_in="0.37.0",
-            description="Where those JSONL files land, relative to the backend's workdir.",
+            description=(
+                "Where the LLM call log lands at LOG_LEVEL=DEBUG, relative to the backend's\n"
+                "workdir: <dir>/<date>.jsonl, one JSON line per call (stage, model, system,\n"
+                "prompt, params, response, latency, user_id). In docker-compose.yml it is on\n"
+                "the applire_logs volume, which scripts/backup.sh does not archive."
+            ),
         ),
         SettingEntry(
             env_var="EMBEDDING_PROVIDER",
@@ -802,13 +803,104 @@ _register_all(
             default="INFO",
             section="Operations",
             introduced_in="0.31.0",
-            semantics_changed_in="0.45.0",
+            semantics_changed_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
             description=(
-                "DEBUG | INFO | WARNING | ERROR — applied to every applire.* logger. "
-                "DEBUG is loud; it does not log prompts (that is LLM_DEBUG_LOG).\n"
-                "DEBUG also makes nginx log full upstream error lines (a 502/504 with the\n"
-                "request's query string, which can hold a short-lived download link);\n"
-                "otherwise nginx logs only critical errors."
+                "DEBUG | INFO | WARNING | ERROR — applied to every applire.* logger.\n"
+                "The ONE switch for content: at INFO and above the log carries ids, counts\n"
+                "and check names only. DEBUG also writes what people enter, the generated\n"
+                "texts and every AI request and reply, to CONTENT_LOG_DIR and\n"
+                "LLM_DEBUG_LOG_DIR (each line with the user id, never to the container\n"
+                "output), asks every person for consent first (LOG_CONSENT_*), and warns\n"
+                "at every startup. Use DEBUG only on a test instance or while debugging.\n"
+                "LOG_LEVEL does not reach nginx: the proxy logs critical errors only, at\n"
+                "every level (SELF-HOSTING §11 for diagnosing a 502/504)."
+            ),
+        ),
+        SettingEntry(
+            env_var="CONTENT_LOG_DIR",
+            source="config",
+            default="logs/content",
+            section="Operations",
+            introduced_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
+            description=(
+                "Where the application's content lines land at LOG_LEVEL=DEBUG, relative to\n"
+                "the backend's workdir: <dir>/<date>.jsonl, one JSON line per record with\n"
+                "the user id. On the applire_logs volume, not in backups."
+            ),
+        ),
+        SettingEntry(
+            env_var="CONTENT_LOG_RETENTION_DAYS",
+            source="config",
+            default="0",
+            example="30",
+            section="Operations",
+            introduced_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
+            description=(
+                "Age limit for both content logs (CONTENT_LOG_DIR and LLM_DEBUG_LOG_DIR), in\n"
+                "days: the daily retention run deletes every line before it is older than\n"
+                "this. 0 = unlimited. A whole number, 0 or more; any other value stops the\n"
+                "start. Set it on any instance that holds other people's data; the consent\n"
+                "text names it."
+            ),
+        ),
+        SettingEntry(
+            env_var="LOG_CONSENT_OPERATOR_NAME",
+            source="config",
+            default="",
+            section="Operations",
+            introduced_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
+            description=(
+                "Named in the logging consent text (shown only at LOG_LEVEL=DEBUG):\n"
+                "the person or organisation that runs this instance and reads the logs.\n"
+                "Unset at DEBUG: a startup WARNING, and the text says 'not set by the operator'."
+            ),
+        ),
+        SettingEntry(
+            env_var="LOG_CONSENT_CONTACT_EMAIL",
+            source="config",
+            default="",
+            section="Operations",
+            introduced_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
+            description=(
+                "Named in the logging consent text (shown only at LOG_LEVEL=DEBUG):\n"
+                "the address for questions and for withdrawing by e-mail.\n"
+                "Unset at DEBUG: a startup WARNING, and the text says 'not set by the operator'."
+            ),
+        ),
+        SettingEntry(
+            env_var="LOG_CONSENT_ASSISTANT_PROVIDER",
+            source="config",
+            default="",
+            section="Operations",
+            introduced_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
+            description=(
+                "Named in the logging consent text (shown only at LOG_LEVEL=DEBUG):\n"
+                "the provider of the AI assistants that read log excerpts on the operator's behalf (company and country).\n"
+                "Unset at DEBUG: a startup WARNING, and the text says 'not set by the operator'."
+            ),
+        ),
+        SettingEntry(
+            env_var="LOG_CONSENT_LOG_HOST",
+            source="config",
+            default="",
+            section="Operations",
+            introduced_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
+            description=(
+                "Named in the logging consent text (shown only at LOG_LEVEL=DEBUG):\n"
+                "where the logs are stored (the hosting company and its country).\n"
+                "Unset at DEBUG: a startup WARNING, and the text says 'not set by the operator'."
+            ),
+        ),
+        SettingEntry(
+            env_var="LOG_CONSENT_MODEL_PROVIDER",
+            source="config",
+            default="",
+            section="Operations",
+            introduced_in="0.46.0",  # relabel to the release that ships WP-L (release commit)
+            description=(
+                "Named in the logging consent text (shown only at LOG_LEVEL=DEBUG):\n"
+                "the AI model provider this instance generates with.\n"
+                "Unset at DEBUG: a startup WARNING, and the text says 'not set by the operator'."
             ),
         ),
         SettingEntry(

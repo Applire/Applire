@@ -220,10 +220,11 @@ def configure_environment(provider: str, model: str | None) -> str:
     # Required field with no default — never connected to (every session goes through the
     # per-run engine installed in execute_run), but Settings() raises at import without it.
     os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:////nonexistent-placeholder.db")
-    # The debug log is how the scorers see every LLM exchange; ON for the whole process.
-    os.environ["LLM_DEBUG_LOG"] = "true"
+    # The LLM call log is how the scorers see every LLM exchange; it is written at
+    # LOG_LEVEL=DEBUG only, so the whole process runs at DEBUG.
+    os.environ["LOG_LEVEL"] = "DEBUG"
 
-    overrides: dict[str, Any] = {"llm_debug_log": True}
+    overrides: dict[str, Any] = {"log_level": "DEBUG"}
     if provider == "mock":
         os.environ["LLM_PROVIDER"] = "mock"
         for name in [n for n in os.environ if _KEY_ENV_RE.search(n)]:
@@ -532,7 +533,7 @@ async def _pipeline(spec: RunSpec, run_dir: Path, meta: dict[str, Any], state: _
     log_dir = run_dir / "_llmlog"
     log_dir.mkdir(parents=True, exist_ok=True)
     settings.llm_debug_log_dir = str(log_dir)
-    settings.llm_debug_log = True
+    settings.log_level = "DEBUG"
     meta["settings"] = settings_snapshot()
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
@@ -559,7 +560,11 @@ async def _pipeline(spec: RunSpec, run_dir: Path, meta: dict[str, Any], state: _
         with _unscoped("tooling"):
             provider = get_provider()
 
-        with ownership.owner_context(uid):
+        # At DEBUG model work and its call log need a consented owner: the seeded
+        # synthetic person acts through the operator-tooling seam.
+        from applire.services.allowance import tooling_owner
+
+        with tooling_owner(uid):
             # ---- CV --------------------------------------------------------
             advance("cv")
             async with session_factory() as db:

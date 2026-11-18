@@ -4,9 +4,10 @@
 
 A route or tool that catches an exception it has no specific mapping for
 answers with a static, catalog-friendly message plus a short error id. The
-exception itself — type, message, traceback — goes to the server log only,
-scrubbed by :func:`applire.redaction.scrub_secrets`, under the same id, so an
-operator can match a user's report to the log line.
+exception's type and stack frames go to the application log under the same
+id, so an operator can match a user's report to the log line; its message
+(scrubbed by :func:`applire.redaction.scrub_secrets`) is written on the
+content logger at DEBUG.
 
 Messages we wrote ourselves (a 404's "not found", a 422's validation text, the
 ``jd_url_invalid`` body …) are unaffected: this module is only for the
@@ -19,6 +20,7 @@ import logging
 import traceback
 import uuid
 
+from applire.content_log import content_logger
 from applire.redaction import scrub_secrets
 
 #: The REST catch-all body's ``error_code`` (the #256 convention).
@@ -26,6 +28,7 @@ INTERNAL_ERROR_CODE = "internal_error"
 INTERNAL_ERROR_MESSAGE = "An unexpected error occurred. Please try again."
 
 _log = logging.getLogger("applire.internal_errors")
+_clog = content_logger("applire.internal_errors")
 
 
 def new_error_id() -> str:
@@ -40,16 +43,26 @@ def log_unexpected(
     logger: logging.Logger | None = None,
     error_id: str | None = None,
 ) -> str:
-    """Log ``exc`` (scrubbed, with its traceback) and return the error id."""
+    """Log ``exc`` and return the error id.
+
+    The application log carries the id, the call site, the exception type and
+    the stack frames; the exception's message (which can hold text) is written
+    scrubbed on the content logger at DEBUG.
+    """
     error_id = error_id or new_error_id()
     try:
-        trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        frames = "".join(traceback.format_tb(exc.__traceback__))
     except Exception:  # noqa: BLE001 — never let logging mask the original error
-        trace = f"{type(exc).__name__}: <traceback unavailable>"
+        frames = "<traceback unavailable>"
     (logger or _log).error(
-        "unexpected error [error_id=%s] in %s: %s",
-        error_id, where, scrub_secrets(trace),
+        "unexpected error [error_id=%s] in %s: %s\n%s",
+        error_id, where, type(exc).__name__, scrub_secrets(frames),
     )
+    try:
+        trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    except Exception:  # noqa: BLE001
+        trace = f"{type(exc).__name__}: <traceback unavailable>"
+    _clog.debug("unexpected error [error_id=%s] in %s: %s", error_id, where, scrub_secrets(trace))
     return error_id
 
 
@@ -68,9 +81,14 @@ def internal_server_error(
     """Log ``exc`` and return the ``HTTPException(500)`` to raise in its place.
 
     Usage: ``except Exception as exc: raise internal_server_error(exc, where="…")``.
+    An admission refusal is returned as it is, so it answers as the refusal.
     """
     from fastapi import HTTPException, status
 
+    from applire.services.allowance import AdmissionRefused
+
+    if isinstance(exc, AdmissionRefused):
+        return exc  # a refusal keeps its own answer (ADR-096 cl. 11)
     error_id = log_unexpected(exc, where=where, logger=logger)
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

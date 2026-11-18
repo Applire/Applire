@@ -125,7 +125,7 @@ from applire.models.uploads import UploadRecord
 from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
-from applire.services import allowance, instance_settings
+from applire.services import allowance, instance_settings, log_consent_live
 from applire.storage import get_storage
 from applire.schemas.application import (
     AddFactPinRequest,
@@ -157,6 +157,7 @@ from applire.services.flow.orchestrator import (
     ArtifactRequiredError,
     InvalidTransitionError,
 )
+from applire.content_log import content_logger
 
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
@@ -169,6 +170,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 GUIDE_VERSION = "2026-11-04"
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 @functools.lru_cache(maxsize=1)
@@ -310,7 +312,10 @@ async def _agent_call_body(fn, args, kwargs):
         # ADR-096 cl. 4: the payer facts for this call, and — for a tool that
         # starts model work — the admission, BEFORE the body runs. A refusal is
         # the tool's answer (`provider_key_required`), never a half-done write.
-        with allowance.call_scope():
+        # A tool that IS model work answers a refusal at the call seam (a
+        # consent withdrawn while it ran) as the refusal, whatever its body
+        # made of it (log_consent_live.watching).
+        with allowance.call_scope(), log_consent_live.watching() as watch:
             async with get_db() as db:
                 await allowance.load_facts(db, user)
             action = getattr(fn, "__applire_admits__", None)
@@ -319,13 +324,54 @@ async def _agent_call_body(fn, args, kwargs):
                     allowance.admit_from_facts(action)
                 except allowance.AdmissionRefused as exc:
                     raise admission_refused(exc)
-            result = await fn(*args, **kwargs)
+                log_consent_live.arm()
+            try:
+                result = await fn(*args, **kwargs)
+            except Exception:
+                if watch.refused is not None:
+                    raise admission_refused(watch.refused) from None
+                raise
+            if watch.refused is not None:
+                raise admission_refused(watch.refused)
     except ownership.OwnedNotFound as exc:
         raise not_found(str(exc.detail))
     finally:
         mcp_identity.reset_call_user(user_token)
         ownership.reset_owner(owner_token)
-    return _sign_document_urls(result, user)
+    return _mark_posting_labels(_sign_document_urls(result, user))
+
+
+def _mark_posting_labels(payload):
+    """Sorbet WP-Q10 (ADR-084): a skill's ``confirmations[].posting`` is the job
+    posting's company or role name — untrusted posting text — wherever a tool or
+    resource echoes a skill (get_profile, update_profile, a testimony change, …).
+    One seam for every door, like the URL signing above: the paths are found in
+    the payload itself, so a door that starts returning skills is covered without
+    an edit. Added to the door's own ``job_posting`` marking when it has one;
+    a payload with no posting label is returned untouched (the marker names only
+    what is there). A ``generated_document`` payload never carries a skill
+    record, so a different existing kind is left as it is."""
+    from applire.services.posting_term_answer import posting_label_paths
+    from applire.services.untrusted_text import untrusted_content
+
+    if not isinstance(payload, dict):
+        return payload
+    try:
+        paths = posting_label_paths(payload)
+    except Exception as exc:  # a marking helper must never become a way for a door to fail
+        logger.error("posting-label marking failed: %s", type(exc).__name__)
+        clog.debug("posting-label marking failed", exc_info=True)
+        return payload
+    if not paths:
+        return payload
+    current = payload.get("untrusted_content")
+    if current is None:
+        payload["untrusted_content"] = untrusted_content(paths)
+    elif isinstance(current, dict) and current.get("kind") == "job_posting":
+        current["fields"] = list(current.get("fields") or []) + [
+            f for f in paths if f not in (current.get("fields") or [])
+        ]
+    return payload
 
 
 def agent_resource(*args, **kwargs):
@@ -572,6 +618,10 @@ def _held_import_summary(gated) -> dict:
 # (get_guide, get_profile, update_profile, import_cv, submit_testimony, add_role,
 # generate_cv, generate_cover_letter, get_cv_status, get_cover_letter_status,
 # audit_document). Marking everything would make the marker mean nothing.
+# Sorbet WP-Q10: a skill's `confirmations[].posting` label (the posting's company
+# or role name) is marked on EVERY door that echoes it, by `_mark_posting_labels`
+# in `_agent_call` — found in the payload, not listed here, so get_profile,
+# update_profile, a testimony receipt and profile://current are all covered.
 # (The two status doors DO mark the generated document's own text, with the
 # separate `generated_document` kind — `_GENERATED_DOCUMENT_FIELDS` below.)
 _JD_DERIVED_FIELDS: dict[str, list[str]] = {
@@ -615,6 +665,9 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
         "cluster_coverage.open_concepts",
     ],
     "resolve_gap": ["gap_id", "question_asked", "open_concepts", "follow_up_question"],
+    # Sorbet WP-Q10: the terms are the posting's words; `their_words` is the
+    # person's own vault text and is not marked.
+    "posting_terms": ["terms[].term", "left_open", "confirmed"],
     "submit_claims": ["ledger_upgraded", "results[].detail"],
     "flow": ["job_summary.role_title"],
     "application": ["company_name", "role_title"],
@@ -878,7 +931,6 @@ async def get_profile() -> dict:
 
 
 @agent_tool(
-    admits="model_work",
     description=(
         "Update one MasterProfile section. "
         f"section: one of {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
@@ -893,7 +945,9 @@ async def update_profile(
     # did not, so `patch_profile_section`'s `if provider is not None` gate meant
     # a skills edit was enriched through the UI and silently not through the
     # agent door. Same intake, different vault state, decided by entry path.
-    provider = get_provider()
+    # Ruling C-1: the edit itself needs no admission; the estimate layered on it
+    # runs only for an admitted person (the REST door's ``_get_optional_provider``).
+    provider = get_provider() if allowance.admitted_or_none() is not None else None
     # ADR-063 amended 2026-08-25 (ADR-058 parity): the same OPTIONAL basis the
     # REST door takes; omitted = last-write-wins exactly as before.
     basis: datetime | None = None
@@ -905,8 +959,11 @@ async def update_profile(
     uid = await _current_user_id()
     async with get_db() as db:
         try:
+            # Sorbet WP-Q10: the confirmation record is not agent-writable here —
+            # confirm_posting_terms is the agent's door to it.
             result = await profile_svc.patch_profile_section(
                 section, data, db, provider=provider, basis_updated_at=basis,
+                keep_stored_confirmations=True,
                 user_id=uid,
             )
         except StaleEditError as exc:
@@ -1006,7 +1063,6 @@ async def undo_last_merge() -> dict:
 
 
 @agent_tool(
-    admits="model_work",
     description=(
         "Resolve an import the pre-merge integrity gate held (staged_id from "
         "get_profile_health.held_merges). decision: 'merge' or 'discard'. "
@@ -1025,7 +1081,15 @@ async def resolve_held_merge(staged_id: str, decision: str) -> dict:
         raise invalid_input(
             f"decision must be 'merge' or 'discard', got: {decision!r}"
         )
-    provider = get_provider()
+    # 'merge' is model work (the reconcile merge); 'discard' is not (ruling C-1).
+    provider = None
+    if decision == "merge":
+        try:
+            allowance.admit_from_facts("model_work")
+        except allowance.AdmissionRefused as exc:
+            raise admission_refused(exc)
+        log_consent_live.arm()
+        provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
         try:
@@ -1436,6 +1500,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
     admits="model_work",
     description=(
         "Generate a tailored CV for the given job; blocks until done. "
+        "'needs_confirmation': ask the person, then confirm_posting_terms. "
         "'ready' is not 'verified': "
         "read get_cv_ats_report. Optional target_pages pins the page count "
         f"for this generation ({DEFAULT_REGION}: "
@@ -1453,6 +1518,11 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
     async with get_db() as db:
         # MD-23: posting access is the door's check (ADR-092 cl. 5c).
         await _owned_job(db, jid)
+        # Sorbet WP-Q10 (ruling Q10-6): the posting's terms the person never
+        # used are put to the person before the CV — through their agent.
+        envelope = await _posting_terms_envelope(db, jid, uid)
+        if envelope is not None:
+            return _marked(envelope, "posting_terms")
         try:
             result = await cv_svc.generate_cv(
                 jid,
@@ -1469,6 +1539,84 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
         except Exception as exc:
             raise internal_unexpected(exc, where="generate_cv")
     return result.model_dump(mode="json")
+
+
+_POSTING_TERMS_ASK = (
+    "The job posting uses these terms. They never used them, but their profile "
+    "covers them. Which would they name as their own skill? "
+    # Ruling Q10-3 = C (founder 2026-11-18): the card footnote's sentence, for the
+    # agent to tell the person before confirming (ruling Q10-8).
+    "If one of their skills is shown beside a term (in their_words), the CV for "
+    "this job names the term in its place."
+)
+
+
+async def _posting_terms_envelope(db, jid, uid) -> dict | None:
+    """The `needs_confirmation` result while posting terms are unanswered and not
+    left open by the agent; ``None`` when generation may proceed."""
+    from applire.services.posting_term_answer import posting_terms_state
+
+    try:
+        state = await posting_terms_state(db, jid, uid)
+    except Exception as exc:  # noqa: BLE001
+        # Fail OPEN to today's generation: the generation seam stamps every
+        # unanswered term on its own (stamp_for_generation), so no unticked term
+        # can be printed as a skill whether or not this question was asked.
+        logger.error(
+            "agent door: posting-terms read failed for job %s — generating: %s",
+            jid, type(exc).__name__,
+        )
+        clog.debug("agent door: posting-terms read failed for job %s — generating", jid, exc_info=True)
+        return None
+    ask = state.agent_must_ask
+    if not ask:
+        return None
+    return {
+        "status": "needs_confirmation",
+        "kind": "posting_terms",
+        "job_id": str(jid),
+        "ask_the_person": _POSTING_TERMS_ASK,
+        "terms": ask,
+        "next": "confirm_posting_terms",
+    }
+
+
+@agent_tool(
+    description=(
+        "Answer generate_cv's posting_terms question. confirmed: only terms "
+        "the PERSON said are theirs (profile skills, origin agent). declined: "
+        "only terms the PERSON said are not theirs (not asked again). "
+        "leave_open=true, alone: you could not ask; the web app still asks."
+    )
+)
+async def confirm_posting_terms(
+    job_id: str,
+    confirmed: list[str] | None = None,
+    leave_open: bool = False,
+    declined: list[str] | None = None,
+) -> dict:
+    from applire.services.posting_term_answer import (
+        ConflictingAnswer,
+        UnknownTerms,
+        answer_posting_terms,
+    )
+
+    jid = _parse_uuid(job_id, "job_id")
+    uid = await _current_user_id()
+    async with get_db() as db:
+        await _owned_job(db, jid)
+        try:
+            state = await answer_posting_terms(
+                db, jid, uid, confirmed=list(confirmed or []), via="agent",
+                leave_open=leave_open, declined=list(declined or []),
+            )
+        except (UnknownTerms, ConflictingAnswer) as exc:
+            raise invalid_input(str(exc))
+        except LookupError as exc:
+            raise not_found(str(exc))
+    out = state.as_dict()
+    out["may_generate"] = not state.agent_must_ask
+    return _marked(out, "posting_terms")
 
 
 @agent_tool(
@@ -1521,9 +1669,14 @@ def _cv_readback(record: GeneratedCV) -> dict | None:
             tailored, record.content_snapshot, record.section_overrides
         )
         tailored = cv_svc.strip_empty_projects(tailored)
-    except Exception:
-        logger.exception(
-            "agent door: CV %s readback failed — returning no text", getattr(record, "id", None)
+    except Exception as exc:
+        logger.error(
+            "agent door: CV %s readback failed — returning no text: %s",
+            getattr(record, "id", None), type(exc).__name__,
+        )
+        clog.debug(
+            "agent door: CV %s readback failed — returning no text",
+            getattr(record, "id", None), exc_info=True,
         )
         return None
     data = tailored.model_dump(mode="json")
@@ -1597,11 +1750,16 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
             keyword_ledger = await cover_letter_svc._latest_keyword_ledger(
                 db, record.job_analysis_id, user_id=record.user_id,
             )
-    except Exception:
-        logger.exception(
+    except Exception as exc:
+        logger.error(
+            "agent door: keyword ledger unavailable for %s %s — auditing "
+            "against the vault alone: %s",
+            kind, record.id, type(exc).__name__,
+        )
+        clog.debug(
             "agent door: keyword ledger unavailable for %s %s — auditing "
             "against the vault alone",
-            kind, record.id,
+            kind, record.id, exc_info=True,
         )
     # 788:106: the self-audit's own derivation (record's pinned language, else
     # the JD's; job-less -> None keeps the seam off, fail-open).
@@ -2313,7 +2471,9 @@ async def resource_profile() -> str:
         result = await profile_svc.get_profile(db, user_id=uid)
     if result is None:
         raise not_found("No profile found")
-    return json.dumps(result.model_dump(mode="json"))
+    # Sorbet WP-Q10: the resource is a string by the time `_agent_call` sees it,
+    # so the posting-label marking is applied here, on the dict.
+    return json.dumps(_mark_posting_labels(result.model_dump(mode="json")))
 
 
 @mcp.resource(

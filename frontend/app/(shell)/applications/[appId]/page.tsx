@@ -45,6 +45,8 @@ import {
   type TrackingSavedPatch,
 } from "@/components/applications/DossierTrackingSidebar";
 import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
+import { PostingTermsGate } from "@/components/interview/PostingTermsCard";
+import { fetchPostingTerms, hasOpenTerms, type PostingTermsState } from "@/lib/posting-terms";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -297,7 +299,24 @@ export default function ApplicationDetailPage() {
   // template, landing on the flow CV page which picks up the pending job.
   // The pinned submitted version is never touched. The gained delta rides
   // along as a query param so the new version can explain itself.
+  // Sorbet WP-Q10 (ruling Q7-2): a re-tailor is a CV generation — while the
+  // posting's terms are unanswered the card asks first, then the re-tailor runs.
+  const [termsGate, setTermsGate] = useState<{ state: PostingTermsState; run: () => void } | null>(null);
+  const askPostingTermsFirst = async (run: () => void): Promise<boolean> => {
+    if (!application) return false;
+    const terms = await fetchPostingTerms(application.job_analysis_id);
+    if (!hasOpenTerms(terms)) return false;
+    setTermsGate({ state: terms, run });
+    return true;
+  };
+
   const handleRetailor = async () => {
+    if (!application?.stale_cv || !application.flow_session_id) return;
+    if (await askPostingTermsFirst(() => void runRetailor())) return;
+    await runRetailor();
+  };
+
+  const runRetailor = async () => {
     if (!application?.stale_cv || !application.flow_session_id) return;
     setRetailoring(true);
     setActionError("");
@@ -336,6 +355,12 @@ export default function ApplicationDetailPage() {
   // template comes from the newest ready CV (1.1) and there is no stale_cv
   // precondition — a completed application can always be re-tailored.
   const handleHeaderRetailor = async () => {
+    if (!application?.flow_session_id) return;
+    if (await askPostingTermsFirst(() => void runHeaderRetailor())) return;
+    await runHeaderRetailor();
+  };
+
+  const runHeaderRetailor = async () => {
     if (!application?.flow_session_id) return;
     setHeaderRetailoring(true);
     setActionError("");
@@ -494,6 +519,18 @@ export default function ApplicationDetailPage() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-surface-dim">
+      {termsGate && (
+        <PostingTermsGate
+          jobId={application.job_analysis_id}
+          state={termsGate.state}
+          onCancel={() => setTermsGate(null)}
+          onAnswered={() => {
+            const run = termsGate.run;
+            setTermsGate(null);
+            run();
+          }}
+        />
+      )}
       <AppTopbar
         mode="detail"
         backHref="/dashboard"

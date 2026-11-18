@@ -216,6 +216,35 @@ def _drop_confirmed_status(view: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def drop_skill_confirmations(profile_json: Any) -> Any:
+    """A COPY of ``profile_json`` whose skills carry no ``confirmations`` (Sorbet
+    WP-Q10). The prompt view and the coverage corpus both read it, so the posting
+    label recorded with a confirmation never grounds a term or reaches a prompt."""
+    if not isinstance(profile_json, dict):
+        return profile_json
+    skills = profile_json.get("skills")
+    if not isinstance(skills, list) or not any(
+        isinstance(e, dict) and "confirmations" in e for e in skills
+    ):
+        return profile_json
+    return {**profile_json, "skills": [
+        {k: v for k, v in e.items() if k != "confirmations"} if isinstance(e, dict) else e
+        for e in skills
+    ]}
+
+
+def drop_confirmations_everywhere(value: Any) -> Any:
+    """A COPY of *value* with every ``confirmations`` key removed at any depth
+    (Sorbet WP-Q10). For the coverage corpus, which keeps the enrichment trail:
+    a write's receipt restates the confirmed skill — posting label included —
+    so dropping the key from ``skills`` alone leaves the label in the trail."""
+    if isinstance(value, dict):
+        return {k: drop_confirmations_everywhere(v) for k, v in value.items() if k != "confirmations"}
+    if isinstance(value, list):
+        return [drop_confirmations_everywhere(v) for v in value]
+    return value
+
+
 def prompt_profile_view(
     profile_json: Any,
     *,
@@ -308,6 +337,11 @@ def prompt_profile_view(
         view["personal_info"] = {
             k: v for k, v in personal_info.items() if k not in PROMPT_EXCLUDED_PERSONAL_INFO_KEYS
         }
+
+    # Sorbet WP-Q10 — a skill's ``confirmations`` (who confirmed a posting term,
+    # when, for which posting) is bookkeeping no model reads; the posting label
+    # in it is the EMPLOYER's name, never a fact about the person.
+    view = drop_skill_confirmations(view)
 
     # D-B3V7 (rulings 787:L3 + V-4) — the notice period. Absent from the view
     # while nothing is recorded (no `"availability": null` in every prompt), and

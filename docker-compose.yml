@@ -96,6 +96,11 @@ services:
     # the image and must not be shadowed by stale volume state.
     volumes:
       - applire_uploads:/app/data/uploads
+      # Content logs (written only at LOG_LEVEL=DEBUG): logs/content and logs/llm.
+      # Their own volume, shared with the retention worker (which deletes them by
+      # age and removes a withdrawn person's text) and NOT archived by
+      # scripts/backup.sh — content logs are never backed up.
+      - applire_logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -138,9 +143,6 @@ services:
       # address nginx sees). Behind your own TLS proxy, set it in .env to that
       # proxy's address (SELF-HOSTING §8).
       APPLIRE_TRUSTED_PROXY: ${APPLIRE_TRUSTED_PROXY:-}
-      # 785:L71: LOG_LEVEL=DEBUG also makes nginx log full upstream error lines
-      # (they include the request's query string); otherwise only critical ones.
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       # The host port Applire answers on. Port 80 already taken on this machine?
       # Set APPLIRE_HTTP_PORT in .env (SELF-HOSTING §2).
@@ -173,6 +175,7 @@ services:
         required: false
     volumes:
       - applire_uploads:/app/data/uploads
+      - applire_logs:/app/logs  # the content-log rules (LOG_LEVEL=DEBUG)
     # Waits for the MIGRATED backend, not just postgres: the backend runs the
     # alembic migrations at boot and turns healthy after them, so on a first
     # start the worker's first pass no longer hits an empty schema
@@ -204,6 +207,7 @@ services:
         required: false
     volumes:
       - applire_uploads:/app/data/uploads
+      - applire_logs:/app/logs  # content logs of agent calls (LOG_LEVEL=DEBUG)
     # Wait for the MIGRATED backend, as `retention` does (Infra #605, 785:L46):
     # `docker compose run mcp` against a backend that never finished its alembic
     # upgrade would meet an empty or half-migrated schema. Consequence: `run`
@@ -222,3 +226,4 @@ volumes:
   postgres_data:
   ollama_data:
   applire_uploads:
+  applire_logs:

@@ -55,8 +55,10 @@ from applire.services.signal_disposition import (
     register_signal_disposition,
 )
 from applire.services.scope_requirements import _norm_quote
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: Pin types whose quotes live in role/project bullet lists — the only types
 #: that may partition bullets out of the removable set (clause 4).
@@ -449,8 +451,12 @@ def measure_pins_in_draft(
             from applire.services.cv import assemble_tailored_cv  # lazy — cv.py imports us
 
             tailored = TailoredCVData.model_validate(assemble_tailored_cv(draft, profile_json))
-    except Exception:
+    except Exception as _exc:
         logger.warning(
+            "fact pins: the round's draft is not measurable — no demand this round "
+            "(fail-safe; the report floor measures the delivered document) (%s)", type(_exc).__name__,
+        )
+        clog.debug(
             "fact pins: the round's draft is not measurable — no demand this round "
             "(fail-safe; the report floor measures the delivered document)",
             exc_info=True,

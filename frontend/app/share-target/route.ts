@@ -46,6 +46,11 @@ export function GET(request: Request): NextResponse {
     url: params.get("url"),
   });
   // 303: the share sheet's GET is answered with a redirect the browser follows
-  // as a fresh GET, and the share URL does not stay in the history entry.
-  return NextResponse.redirect(new URL(shareTargetRedirectPath(prefill), request.url), 303);
+  // as a fresh GET, and the share URL does not stay in the history entry. The
+  // Location is a path: the browser resolves it against the address it used
+  // (behind a proxy, Next's own origin is not that address).
+  return new NextResponse(null, {
+    status: 303,
+    headers: { Location: shareTargetRedirectPath(prefill) },
+  });
 }

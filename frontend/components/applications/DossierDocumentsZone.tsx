@@ -17,9 +17,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
+import { announceLogConsentRefusal, isLogConsentRefusalCode } from "@/lib/log-consent";
 import { formatUiDate } from "@/lib/format-date";
 import { Bot, CheckCircle2, FileText, Loader2, AlertTriangle, Send, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -88,6 +89,7 @@ export function DossierDocumentsZone({
   const t = useTranslations("applications");
   const locale = useLocale();
   const tCv = useTranslations("cv");
+  const tLogConsent = useTranslations("logConsent");
   const tDocs = useTranslations("documents");
 
   const [cvs, setCvs] = useState<CvListItem[]>([]);
@@ -115,7 +117,19 @@ export function DossierDocumentsZone({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [application.job_analysis_id]);
 
+  // One announcement per failed document, not per render.
+  const announcedConsent = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const cv of cvs) {
+      if (cv.status === "failed" && isLogConsentRefusalCode(cv.error_code) && !announcedConsent.current.has(cv.cv_id)) {
+        announcedConsent.current.add(cv.cv_id);
+        announceLogConsentRefusal();
+      }
+    }
+  }, [cvs]);
+
   function failedCvMessage(errorCode: string | null | undefined): string {
+    if (isLogConsentRefusalCode(errorCode)) return tLogConsent("cardTitle");
     if (errorCode === "llm_truncated") return tCv("generationFailedTruncated");
     if (errorCode === "llm_timeout") return tCv("generationFailedTimeout");
     // ADR-096: the person has no usable AI key (no key, no grant, or unreadable).

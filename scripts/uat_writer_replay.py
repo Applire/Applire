@@ -131,9 +131,9 @@ def _configure_environment(provider: str) -> None:
         if not os.environ.get("OPENROUTER_MODEL"):
             _die("provider=openrouter but OPENROUTER_MODEL is not set in the environment.")
 
-    # Debug log ON for the whole process — settings.llm_debug_log_dir is
-    # overridden per run below (settings is a plain mutable singleton).
-    os.environ["LLM_DEBUG_LOG"] = "true"
+    # LLM call log ON for the whole process (written at LOG_LEVEL=DEBUG only) —
+    # settings.llm_debug_log_dir is overridden per run below.
+    os.environ["LOG_LEVEL"] = "DEBUG"
 
 
 def _build_profile_json() -> dict[str, Any]:

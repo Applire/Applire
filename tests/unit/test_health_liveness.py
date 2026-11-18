@@ -157,8 +157,34 @@ async def test_ops_endpoint_reflects_the_published_upgrade_notice(ops_client):
 async def test_ops_endpoint_reports_debug_log_and_topology(ops_client, monkeypatch):
     import applire.config as cfg
 
-    monkeypatch.setattr(cfg.settings, "llm_debug_log", True)
+    # One switch (ADR-087 cl. 9 amended 2026-11-18): the level, not LLM_DEBUG_LOG.
+    monkeypatch.setattr(cfg.settings, "log_level", "DEBUG")
     monkeypatch.setattr(cfg.settings, "applire_topology", "dev")
     body = (await ops_client.get("/api/ops/health")).json()
     assert body["debug_log_on"] is True
     assert body["topology"] == "dev"
+
+
+@pytest.mark.asyncio
+async def test_ops_debug_log_on_ignores_the_retired_switch(ops_client, monkeypatch):
+    import applire.config as cfg
+
+    monkeypatch.setattr(cfg.settings, "llm_debug_log", True)
+    monkeypatch.setattr(cfg.settings, "log_level", "INFO")
+    body = (await ops_client.get("/api/ops/health")).json()
+    assert body["debug_log_on"] is False
+
+
+@pytest.mark.asyncio
+async def test_ops_names_unset_consent_settings_only_at_debug(ops_client, monkeypatch):
+    import applire.config as cfg
+
+    monkeypatch.setattr(cfg.settings, "log_consent_operator_name", "")
+    monkeypatch.setattr(cfg.settings, "log_consent_contact_email", "")
+    monkeypatch.setattr(cfg.settings, "log_level", "INFO")
+    assert (await ops_client.get("/api/ops/health")).json()["log_consent_settings_missing"] == []
+    monkeypatch.setattr(cfg.settings, "log_level", "DEBUG")
+    body = (await ops_client.get("/api/ops/health")).json()
+    assert body["log_consent_settings_missing"] == [
+        "LOG_CONSENT_OPERATOR_NAME", "LOG_CONSENT_CONTACT_EMAIL"
+    ]

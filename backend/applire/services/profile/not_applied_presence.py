@@ -23,8 +23,10 @@ import logging
 from typing import Any
 
 from applire.schemas.profile import ImportNotApplied, MasterProfileData
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: D-2b — a skill item may BE a held certificate (an extractor routes
 #: "ITIL Foundation" into skills; the vault holds it under certifications), and
@@ -78,8 +80,9 @@ async def mark_already_present(
             if getattr(merged, sec, None)
         }
         found = await judge_already_present(provider, payload, existing, also_in=_ALSO_IN)
-    except Exception:  # noqa: BLE001 — never fail the import
-        logger.warning("already-present check skipped", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — never fail the import
+        logger.warning("already-present check skipped: %s", type(exc).__name__)
+        clog.debug("already-present check skipped", exc_info=True)
         return 0
     marked = 0
     for n, item in enumerate(asked):

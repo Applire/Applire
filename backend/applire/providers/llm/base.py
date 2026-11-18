@@ -43,8 +43,10 @@ from applire.exceptions import (
     LLMProviderUnavailableError,
     LLMTruncatedError,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # ── Error detail hardening: unclassified SDK / HTTP-client errors ────────────
 #
@@ -98,7 +100,8 @@ def unclassified_provider_error(
         status_code=_status_code_of(exc),
         detail=scrubbed[:1000],
     )
-    logger.warning("%s [detail: %s]", wrapped, wrapped.detail)
+    logger.warning("%s", wrapped)
+    clog.debug("%s [detail: %s]", wrapped, wrapped.detail)
     return wrapped
 
 # ── M-3 structured-output rejection wording (shared by openrouter.py and
@@ -262,6 +265,11 @@ def raise_if_no_completion(response: Any, *, model: str = "") -> None:
         return
     provider_error = getattr(response, "error", None)
     logger.warning(
+        "model=%s returned a completion with no choices (likely an upstream "
+        "provider outage relayed as HTTP 200)",
+        model or "?",
+    )
+    clog.debug(
         "model=%s returned a completion with no choices (likely an upstream "
         "provider outage relayed as HTTP 200); provider-reported error=%r",
         model or "?", provider_error,

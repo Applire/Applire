@@ -23,8 +23,11 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from applire.schemas.gap_cluster import GapClusterSchema
+from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 class RequirementBreakdownItem(BaseModel):
@@ -186,6 +189,12 @@ class KeywordLedgerEntry(BaseModel):
         """
         if self.denial_level is not None and self.status != "denied":
             logger.warning(
+                "KeywordLedgerEntry: dropping inconsistent denial_level=%r — "
+                "status=%r is not 'denied' (denial_level may only "
+                "be set alongside status == 'denied')",
+                label(self.denial_level), label(self.status),
+            )
+            clog.debug(
                 "KeywordLedgerEntry: dropping inconsistent denial_level=%r on "
                 "concept=%r — status=%r is not 'denied' (denial_level may only "
                 "be set alongside status == 'denied')",

@@ -99,8 +99,11 @@ from applire.services.citation import normalize_citation as _normalize_citation
 from applire.services.keyword_ledger import _draft_strings, is_positioning_only, split_ledger_for_prompt
 from applire.services.letter_figure_guard import _TENURE_RE
 from applire.services.oracle.extract import split_sentences
+from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # Not just digits: German tenure prose spells the number out ("zehn Jahre",
 # #322's own founding case) — the "any word immediately before the unit"
@@ -407,6 +410,10 @@ def _advisories_from_judgement(
         if kind not in _PASS_KINDS[mount]:
             dropped += 1
             logger.warning(
+                "outcome critic (%s mount): a finding kind outside this pass — dropped",
+                mount,
+            )
+            clog.debug(
                 "outcome critic (%s mount): finding kind %r not valid on this "
                 "pass — dropped",
                 mount, kind,
@@ -432,7 +439,11 @@ def _advisories_from_judgement(
             letter_quote = None
         if not all(checks):
             dropped += 1
-            logger.warning(
+            logger.warning("outcome critic (%s mount): citation verification FAILED for "
+                "%r finding — dropped, not surfaced",
+                mount, label(kind),
+            )
+            clog.debug(
                 "outcome critic (%s mount): citation verification FAILED for "
                 "%r finding %r — dropped, not surfaced (cv_quote=%r, "
                 "cv_detail_quote=%r, letter_quote=%r)",
@@ -459,7 +470,11 @@ def _advisories_from_judgement(
             letter_quote,
         )
         if dedup_key in seen:
-            logger.info(
+            logger.info("outcome critic (%s mount): duplicate %r finding — "
+                "deduped, not double-surfaced",
+                mount, label(kind),
+            )
+            clog.debug(
                 "outcome critic (%s mount): duplicate %r finding for concept "
                 "%r — deduped, not double-surfaced",
                 mount, kind, concept,
@@ -746,10 +761,19 @@ async def _run_mount(
             last_error = exc
             logger.warning(
                 "outcome critic (%s mount): judgement call failed on attempt %d/%d: %s",
+                mount, attempt, attempts, type(exc).__name__,
+            )
+            clog.debug(
+                "outcome critic (%s mount): judgement call failed on attempt %d/%d: %s",
                 mount, attempt, attempts, exc,
             )
 
-    logger.warning(
+    logger.warning("outcome critic (%s mount): RAN but the judgement call never succeeded "
+        "after %d attempt(s) — advisory omitted, delivery unaffected. Last "
+        "error: %s",
+        mount, attempts, type(last_error).__name__ if last_error else None,
+    )
+    clog.debug(
         "outcome critic (%s mount): RAN but the judgement call never succeeded "
         "after %d attempt(s) — advisory omitted, delivery unaffected. Last "
         "error: %s",

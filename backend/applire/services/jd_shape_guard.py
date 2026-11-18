@@ -69,8 +69,10 @@ capitalisation survives.
 
 import logging
 import re
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # The three JD-analysis fields this guard governs — all three feed
 # build_keyword_ledger() identically (services/keyword_ledger.py).
@@ -222,7 +224,8 @@ def apply_jd_shape_guard(data: dict) -> dict:
 
         normalized, notes = normalize_skill_shape(entries)
         for note in notes:
-            logger.warning("jd_shape_guard[%s]: %s", field, note)
+            logger.warning("jd_shape_guard[%s]: normalized an entry", field)
+            clog.debug("jd_shape_guard[%s]: %s", field, note)
         data[field] = normalized
 
     return data

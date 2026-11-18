@@ -52,8 +52,15 @@ async def recompute_span_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail="This skill duration no longer needs recalculating.",
         )
-    except VaultWriteRevertedError:
+    except VaultWriteRevertedError as exc:
+        from applire.internal_errors import log_unexpected
+
+        error_id = log_unexpected(exc, where="profile_health.recompute_span")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The profile could not be saved; nothing was changed.",
+            detail={
+                "error_code": "vault_write_reverted",
+                "message": "The profile could not be saved; nothing was changed.",
+                "error_id": error_id,
+            },
         )

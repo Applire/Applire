@@ -40,8 +40,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from applire.services.oracle.matchers.vault import EvidenceUnit, VaultIndex
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -77,8 +79,9 @@ def ledger_denial_forms(keyword_ledger: list[dict[str, Any]] | None) -> tuple[tu
                 if key:
                     out.append((key, record.strip() or concept))
         return tuple(dict.fromkeys(out))
-    except Exception:  # pragma: no cover — defensive: no ledger decisions
-        logger.exception("oracle: ledger denials unreadable — reading declared denials only")
+    except Exception as _exc:  # pragma: no cover — defensive: no ledger decisions
+        logger.error("oracle: ledger denials unreadable — reading declared denials only (%s)", type(_exc).__name__)
+        clog.debug("oracle: ledger denials unreadable — reading declared denials only", exc_info=True)
         return ()
 
 
@@ -97,8 +100,9 @@ def ledger_claimable_forms(keyword_ledger: list[dict[str, Any]] | None) -> froze
             for form in [row.get("concept"), *(row.get("surface_forms") or [])]
             if isinstance(form, str) and (k := _fold(form))
         )
-    except Exception:  # pragma: no cover — defensive: no claimable forms
-        logger.exception("oracle: ledger claimable forms unreadable")
+    except Exception as _exc:  # pragma: no cover — defensive: no claimable forms
+        logger.error("oracle: ledger claimable forms unreadable (%s)", type(_exc).__name__)
+        clog.debug("oracle: ledger claimable forms unreadable", exc_info=True)
         return frozenset()
 
 
@@ -261,8 +265,9 @@ def stored_denial_cover(texts: list[str], index: VaultIndex) -> list[str]:
             key = _norm(t)
             out.extend(record for form, record in decided if form == key)
         return sorted(dict.fromkeys(out), key=len, reverse=True)
-    except Exception:  # pragma: no cover — defensive: no cover (today's grading)
-        logger.exception("oracle: stored denial cover unreadable")
+    except Exception as _exc:  # pragma: no cover — defensive: no cover (today's grading)
+        logger.error("oracle: stored denial cover unreadable (%s)", type(_exc).__name__)
+        clog.debug("oracle: stored denial cover unreadable", exc_info=True)
         return []
 
 
@@ -332,8 +337,9 @@ def ledger_backings(
                 )
             )
         return out
-    except Exception:  # pragma: no cover — defensive: no rows is today's behaviour
-        logger.exception("oracle: ledger backing unreadable — grading against the vault alone")
+    except Exception as _exc:  # pragma: no cover — defensive: no rows is today's behaviour
+        logger.error("oracle: ledger backing unreadable — grading against the vault alone (%s)", type(_exc).__name__)
+        clog.debug("oracle: ledger backing unreadable — grading against the vault alone", exc_info=True)
         return []
 
 

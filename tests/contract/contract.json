@@ -124,6 +124,46 @@
         ]
       }
     },
+    "confirm_posting_terms": {
+      "confirmed": {
+        "required": false,
+        "types": [
+          "array",
+          "null"
+        ]
+      },
+      "confirmed[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "declined": {
+        "required": false,
+        "types": [
+          "array",
+          "null"
+        ]
+      },
+      "declined[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "job_id": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "leave_open": {
+        "required": false,
+        "types": [
+          "boolean"
+        ]
+      }
+    },
     "create_application": {
       "company_name": {
         "required": false,
@@ -588,6 +628,8 @@
     "AUDIT_LOG_RETENTION_DAYS",
     "AUTH_PROVIDER",
     "CANCELLED_APPLICATION_TTL_DAYS",
+    "CONTENT_LOG_DIR",
+    "CONTENT_LOG_RETENTION_DAYS",
     "COOKIE_SECURE",
     "CORS_ORIGINS",
     "CRITIC_ENABLED",
@@ -605,6 +647,11 @@
     "LLM_TIMEOUT",
     "LLM_USAGE_RETENTION_DAYS",
     "LLM_USAGE_TRACKING",
+    "LOG_CONSENT_ASSISTANT_PROVIDER",
+    "LOG_CONSENT_CONTACT_EMAIL",
+    "LOG_CONSENT_LOG_HOST",
+    "LOG_CONSENT_MODEL_PROVIDER",
+    "LOG_CONSENT_OPERATOR_NAME",
     "LOG_LEVEL",
     "MCP_TRANSPORT",
     "MISTRAL_API_KEY",
@@ -753,6 +800,8 @@
     "0087",
     "0088",
     "0089",
-    "0090"
+    "0090",
+    "0091",
+    "0092"
   ]
 }

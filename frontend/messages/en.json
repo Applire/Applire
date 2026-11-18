@@ -427,7 +427,15 @@
     "turnSlow": "This is taking longer than usual ({seconds} s). Keep this page open — if it does not work, your answer stays here and you can send it again.",
     "completionOpenNames": "Still open: {names}{more, plural, =0 {} other { and # more}}",
     "completionOpenRequirements": "{count, plural, one {# requirement is still open} other {# requirements are still open}}. Your answers are saved to your profile.",
-    "openRequirementsStat": "{count, plural, one {requirement still open} other {requirements still open}}"
+    "openRequirementsStat": "{count, plural, one {requirement still open} other {requirements still open}}",
+    "postingTerms": {
+      "title": "One more question before your CV is written",
+      "intro": "The job posting uses these terms. You have never used them yourself, but going by your profile they apply to you. Tick the ones you would name as your own skill.",
+      "yourWords": "In your words so far",
+      "footnote": "Ticked terms are added to your profile as skills and may appear in your CV. Anything you leave unticked never appears there as your skill; your own words stay. If one of your skills is shown beside a term, the CV for this job names the term in its place.",
+      "receipt": "{count, plural, one {# term from the job posting added as your skill: {terms}.} other {# terms from the job posting added as your skills: {terms}.}}",
+      "saveFailed": "Your answer could not be saved. Please try again."
+    }
   },
   "cv": {
     "generating": "Generating CV…",
@@ -1254,6 +1262,12 @@
       "undo": "Undo",
       "dismiss": "Dismiss",
       "failed": "That did not work. Please try again."
+    },
+    "skillConfirmation": {
+      "byYou": "Confirmed by you on {date} · worded as in the job posting {posting}",
+      "byAgent": "Confirmed via your agent on {date} · worded as in the job posting {posting}",
+      "aliasByYou": "“{name}” confirmed by you · worded as in the job posting {posting}",
+      "aliasByAgent": "“{name}” confirmed via your agent · worded as in the job posting {posting}"
     }
   },
   "health": {
@@ -1784,6 +1798,7 @@
         "cv-project_not_mentioned": "This project from your profile is not in the CV: “{term}”.",
         "cv-skill_untied": "“{term}” is in the skills list but is not a skill in your profile. If your profile backs it, say it in the bullet with the evidence.",
         "cv-skill_spelling": "“{term}” is spelled differently in the skills list than in your profile.",
+        "cv-skill_posting_term": "“{term}” is the job posting’s word, and you have not confirmed it as your skill – your own words stay in the bullets.",
         "cv-skills_cap": "The skills list is longer than planned – the least relevant entries: {terms}.",
         "cv-skill_duplicate": "The skills list names the same thing twice: {terms}.",
         "cv-skill_named_in_bullet": "“{term}” is in a bullet but not in the skills list.",
@@ -2321,7 +2336,7 @@
     "changedInAhead": "changed as of {version}",
     "emptyDefault": "empty",
     "moreInfo": "What changed is in the CHANGELOG under “Upgrade notes” and in docs/SELF-HOSTING.md.",
-    "debugLogOn": "The LLM debug log is on: every AI request, CV data included, is written to files under LLM_DEBUG_LOG_DIR (default logs/llm inside the backend container; if you mounted that folder, they are on your server), with no size or age limit. To turn it off, set LLM_DEBUG_LOG=false in .env or delete the line, run docker compose up -d, then delete the files.",
+    "debugLogOn": "Content logs are on (LOG_LEVEL=DEBUG): what people enter and what the AI makes of it is written, CV data and user number included, to files under CONTENT_LOG_DIR and LLM_DEBUG_LOG_DIR (default logs/content and logs/llm on the applire_logs volume, not in the backup). CONTENT_LOG_RETENTION_DAYS sets after how many days they are deleted (0 = never). Each person has to agree before the AI works for them. To turn them off, set LOG_LEVEL=INFO in .env, run docker compose up -d, then delete the files.",
     "dismissAria": "Dismiss notice",
     "authReMeant": "Applire now has accounts. You can delete the line AUTH_PROVIDER=none from your .env — it now means the same as local.",
     "nextStepsTitle": "Still to do after the upgrade, if you use them:",
@@ -3068,6 +3083,7 @@
     "noCheckableContent": "Nothing to check — a general or formulaic statement.",
     "titleNotHeld": "States the title “{title}”, which no position in your profile holds — a title is yours only when you hold or held it.",
     "postingTermNotHeld": "Names “{term}” — the job posting’s word for a requirement your profile meets only in part, and a word your profile never uses. Write what you did in your own words.",
+    "postingSkillNotHeld": "Names the skill “{term}” in the job posting’s words — your profile shows related work but never names this skill, and you have not confirmed it as yours.",
     "postingTermOtherLanguage": "Names “{term}” — the job posting’s word for a requirement your profile meets only in part. Your profile is in another language, so whether this is your own word could not be checked.",
     "noCloseEvidence": "Nothing in your profile is close enough to check this reliably.",
     "attributionUnresolved": "The only evidence in your profile belongs to one position, but the sentence names no employer — which position it belongs to cannot be checked reliably.",
@@ -3165,5 +3181,57 @@
     "addKey": "Add key",
     "dialogTitle": "AI key needed",
     "dialogClose": "Close"
+  },
+  "logConsent": {
+    "notSet": "(not set by the operator)",
+    "noticeLead": "This is a test system.",
+    "noticeBody": "To find errors, we record{days, plural, =0 {, until the operator deletes it,} one { for # day} other { for # days}} what you enter and what the AI makes of it. {operator} and AI assistants working for him read these logs.",
+    "whatLink": "What is stored and who reads it",
+    "checkbox": "I agree that what I enter and the generated texts are logged{days, plural, =0 { until the operator deletes them} one { for # day} other { for # days}} and read to find errors. I can withdraw this at any time.",
+    "interTitle": "Before you continue",
+    "interBody": "From now on this system records{days, plural, =0 {, until the operator deletes it,} one { for # day} other { for # days}} what you enter and what the AI makes of it, to find errors. {operator} and AI assistants working for him read these logs.",
+    "agreeContinue": "Agree and continue",
+    "declineSignOut": "I do not agree: sign out",
+    "errorRetry": "That did not work. Please try again.",
+    "errorStale": "The text has just changed. Please read it again, then agree.",
+    "cardTitle": "Logs during the test phase",
+    "cardAgreed": "On {date} you agreed that what you enter and the generated texts are logged{days, plural, =0 { until the operator deletes them} one { for # day} other { for # days}}.",
+    "cardWithdrawn": "You withdrew your consent on {date}. You can generate new documents again once you agree.",
+    "cardOutdated": "The consent text has changed. Please read it and agree again.",
+    "readText": "Read the consent text",
+    "withdraw": "Withdraw consent",
+    "agreeAgain": "Agree again",
+    "withdrawTitle": "Withdraw consent?",
+    "withdrawDelete": "Within 48 hours we then delete all text in the logs that belongs to you.",
+    "withdrawEffect": "The test system only runs with logs. After withdrawing you cannot generate new documents. You can still view, download and delete your profile and your finished applications.",
+    "cancel": "Cancel",
+    "confirmWithdraw": "Withdraw",
+    "close": "Close",
+    "adminSettingsMissing": "LOG_LEVEL is DEBUG, and the logging consent text names values that are not set: {names}. Until you set them in .env, it says \"(not set by the operator)\" in their place.",
+    "text": {
+      "title": "Logs during the test phase: your consent",
+      "intro": "Applire is being tested on this system. You help us find errors. To do that we record more than Applire records in normal operation. That needs your consent.",
+      "storeTitle": "What we store",
+      "store1": "text from your profile: positions, tasks, skills",
+      "store2": "the job postings you paste in",
+      "store3": "your answers in the interview",
+      "store4": "the CVs and cover letters that are generated, drafts included",
+      "store5": "every request to the AI model and its reply, in full",
+      "storeNote": "The entries carry your internal user number. The texts themselves can contain your name, your employers and anything else that is in your CV.",
+      "purposeTitle": "What for",
+      "purposeBody": "Only to find errors: to understand why a document states something untrue, leaves something out, or why a step stops. We do not use the logs for advertising, do not pass them to employers and do not train AI models with them.",
+      "readersTitle": "Who reads them",
+      "readerOperator": "{operator}, who runs Applire",
+      "readerAssistants": "AI assistants that investigate errors on his behalf. Excerpts from the logs go to their provider: {assistantProvider}",
+      "readerHost": "The logs are kept on a server at {logHost}",
+      "modelNote": "Apart from the logs, your texts go to the AI model this system works with in order to write your documents: {modelProvider}. That is part of how Applire works and not part of this consent.",
+      "durationTitle": "How long",
+      "durationBody": "{days, plural, =0 {Until the operator deletes them; no period for automatic deletion is set.} one {# day. After that the entries are deleted automatically.} other {# days. After that the entries are deleted automatically.}} The logs are not included in backups.",
+      "withdrawTitle": "Withdrawing",
+      "withdrawBody": "You can withdraw your consent at any time: in Settings under \"Logs during the test phase\", or by e-mail to {contact}. Within 48 hours we then delete all text in the logs that belongs to you. Only technical figures with no link to you remain: which step ran, with which model and for how long. What happened before that stays lawful. After withdrawing you cannot generate new documents on this system; your profile and your finished applications stay available to you.",
+      "voluntaryTitle": "Voluntary",
+      "voluntaryBody": "Consent is voluntary. Without it we cannot give you an account on this test system. Applire is open source: on your own machine it runs without these logs.",
+      "footer": "Responsible: {operator}, Applire · {contact} · {date}, version {version}"
+    }
   }
 }

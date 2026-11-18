@@ -78,6 +78,9 @@ ACTIONS: dict[str, frozenset[str]] = {
     "user.instance_key_revoked": frozenset(),
     "provider_key.stored": frozenset({"family", "tested"}),
     "provider_key.removed": frozenset(),
+    # ADR-091 amended 2026-11-18 — consent to content logs (LOG_LEVEL=DEBUG only).
+    "log_consent.given": frozenset({"version"}),
+    "log_consent.withdrawn": frozenset(),
 }
 
 #: Detail keys whose string may contain ``@`` unless it is EMAIL-shaped — a

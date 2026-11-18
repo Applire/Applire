@@ -61,8 +61,10 @@ from typing import Any
 
 from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: First-person denial markers in LETTER register, DE + EN. A closed literal
 #: list — presence of a token, never a proximity or attachment judgement
@@ -392,7 +394,10 @@ def cut_ungrounded_limits(
     out = dict(letter_data)
     body["paragraphs"] = rebuilt
     out["body"] = body
-    logger.warning(
+    logger.warning("LETTER_LIMIT_CUT: removed %d sentence(s) carrying an ungrounded limit",
+        len(cut_by_paragraph),
+    )
+    clog.debug(
         "LETTER_LIMIT_CUT: removed %d sentence(s) carrying an ungrounded limit (%s)",
         len(cut_by_paragraph),
         ", ".join(sorted({f.concept for f in findings})),
@@ -424,8 +429,9 @@ def limit_signal_issues_fn(
     def fn(draft: dict[str, Any]):
         try:
             composed = compose_fn(draft)
-        except Exception:  # pragma: no cover - defensive; a signal never breaks the loop
-            logger.warning("limit_grounding: compose failed for the signal", exc_info=True)
+        except Exception as _exc:  # pragma: no cover - defensive; a signal never breaks the loop
+            logger.warning("limit_grounding: compose failed for the signal (%s)", type(_exc).__name__)
+            clog.debug("limit_grounding: compose failed for the signal", exc_info=True)
             return []
         return [
             ReviewIssue(text=f.issue_text(), severity=SEVERITY_BLOCKING)

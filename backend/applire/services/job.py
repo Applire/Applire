@@ -44,8 +44,10 @@ from applire.services.jd_level_guard import apply_jd_level_guard
 from applire.services.jd_shape_guard import apply_jd_shape_guard
 from applire.services.reviewer import review_and_refine
 from applire.utils.language_detection import detect_language
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # KldB 2020 validation helpers
@@ -403,7 +405,11 @@ def _coerce_scope_requirements(raw: object, jd_text: str) -> list[dict]:
             and " ".join(quote.split()).casefold() in folded_jd
         )
         if not ok:
-            logger.warning(
+            logger.warning("analyze_jd: dropping structurally invalid scope_requirements "
+                "entry (ADR-069 floor — closed kinds, numeric value, quote "
+                "present in the posting)."
+            )
+            clog.debug(
                 "analyze_jd: dropping structurally invalid scope_requirements "
                 "entry %r (ADR-069 floor — closed kinds, numeric value, quote "
                 "present in the posting).",
@@ -452,7 +458,10 @@ def _coerce_leadership_emphasis(raw: object, jd_text: str) -> dict | None:
         and " ".join(quote.split()).casefold() in " ".join(jd_text.split()).casefold()
     )
     if not ok:
-        logger.warning(
+        logger.warning("analyze_jd: dropping structurally invalid leadership_emphasis "
+            "(#271 floor — closed emphasis set, quote present in the posting)."
+        )
+        clog.debug(
             "analyze_jd: dropping structurally invalid leadership_emphasis %r "
             "(#271 floor — closed emphasis set, quote present in the posting).",
             raw,
@@ -634,8 +643,9 @@ async def _analyze_jd_once(
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
     try:
         embedding = await emb_provider.embed(text)
-    except Exception:
-        logger.warning("Embedding generation failed for JD; storing NULL.", exc_info=True)
+    except Exception as _exc:
+        logger.warning("Embedding generation failed for JD; storing NULL. (%s)", type(_exc).__name__)
+        clog.debug("Embedding generation failed for JD; storing NULL.", exc_info=True)
         embedding = None
 
     # Don't persist zero-vectors (noop provider) — NULL signals "not computed".
@@ -769,9 +779,10 @@ async def _link_and_respond(
             raw_text=text,
             db=db,
         )
-    except Exception:
+    except Exception as _exc:
         # Best-effort read-model enrichment (E039/US220) — never fails the analysis.
-        logger.warning("duplicate-JD check failed; returning analysis without hint.", exc_info=True)
+        logger.warning("duplicate-JD check failed; returning analysis without hint. (%s)", type(_exc).__name__)
+        clog.debug("duplicate-JD check failed; returning analysis without hint.", exc_info=True)
     app = await ensure_application_link(
         db,
         job,

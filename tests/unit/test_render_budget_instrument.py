@@ -48,6 +48,15 @@ _LINE_RE = re.compile(
 )
 
 
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
+
 def _render_budget_lines(caplog):
     lines = []
     for r in caplog.records:
@@ -206,7 +215,7 @@ async def test_bail_on_existing_overrides_emits_no_line(db, caplog):
 # --- correlation with bullet_cuts.TAIL_DELETE via the shared iteration field -
 
 @pytest.mark.asyncio
-async def test_iteration_field_correlates_with_tail_delete_lines(db, caplog):
+async def test_iteration_field_correlates_with_tail_delete_lines(db, caplog, content_records):
     """#3 of the hard limits: RENDER_BUDGET_ITERATION must dock onto the
     existing bullet_cuts TAIL_DELETE lines via a shared field, not duplicate
     cut detail. The shared field is ``iteration`` — same name, same value,
@@ -221,7 +230,7 @@ async def test_iteration_field_correlates_with_tail_delete_lines(db, caplog):
 
     render_lines = _render_budget_lines(caplog)
     tail_deletes = [
-        r.getMessage() for r in caplog.records if "TAIL_DELETE" in r.getMessage()
+        r.getMessage() for r in content_records if "TAIL_DELETE" in r.getMessage()
     ]
     assert tail_deletes, "condense_to_budget must have cut at least one bullet"
     fired = [l for l in render_lines if l["condense_fired"]]

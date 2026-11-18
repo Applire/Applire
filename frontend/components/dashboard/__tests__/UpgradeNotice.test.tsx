@@ -184,11 +184,24 @@ describe("UpgradeNotice — dismiss and debug log", () => {
   it("debug_log_on alone shows only the debug line, with no dismiss control", async () => {
     mockOps(200, { upgrade_notice: null, debug_log_on: true });
     renderNotice(ADMIN);
-    expect(await screen.findByTestId("upgrade-notice-debug-log")).toHaveTextContent("The LLM debug log is on");
+    expect(await screen.findByTestId("upgrade-notice-debug-log")).toHaveTextContent("Content logs are on (LOG_LEVEL=DEBUG)");
+    expect(screen.queryByTestId("upgrade-notice-log-consent-settings")).toBeNull();
     expect(screen.queryByText("Something about your settings changed since your last start")).toBeNull();
     expect(screen.queryByTestId("upgrade-notice-dismiss")).toBeNull();
     expect(screen.queryByTestId("upgrade-notice-next-steps")).toBeNull();
     expect(screen.queryByTestId("upgrade-notice-retired")).toBeNull();
+  });
+
+  it("at DEBUG, consent-text settings that are unset are named for the admin", async () => {
+    mockOps(200, {
+      upgrade_notice: null,
+      debug_log_on: true,
+      log_consent_settings_missing: ["LOG_CONSENT_OPERATOR_NAME", "LOG_CONSENT_CONTACT_EMAIL"],
+    });
+    renderNotice(ADMIN);
+    expect(await screen.findByTestId("upgrade-notice-log-consent-settings")).toHaveTextContent(
+      "LOG_CONSENT_OPERATOR_NAME, LOG_CONSENT_CONTACT_EMAIL",
+    );
   });
 
   it("dismissing the notice keeps the debug line", async () => {

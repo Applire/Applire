@@ -299,6 +299,9 @@ _INTERNAL_FIELDS: dict[str, frozenset[str] | None] = {
     # replace writes (services/profile/bullet_replace.py); never extracted.
     "replaced_bullets": frozenset({"work_experience"}),
     "size_corrections": frozenset({"work_experience"}),  # Q8-6 — services/profile/size_correction.py
+    # Sorbet WP-Q10 — who confirmed a job posting's term as this skill, when, for
+    # which posting (services/posting_term_answer.py); never read off a document.
+    "confirmations": frozenset({"skills"}),
 }
 
 

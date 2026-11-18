@@ -42,8 +42,11 @@ from applire.services.profile.reconcile.stance import (
     exclude_unconfirmed,
     is_denied_concept,
 )
+from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # fit_weight by the strongest source a concept belongs to.
 REQUIRED_WEIGHT = 1.0
@@ -476,7 +479,10 @@ def _enforce_gap_stance(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for entry in ledger:
         if entry.get("claimable"):
             if _norm(entry.get("concept", "")) in gap_concepts:
-                logger.warning(
+                logger.warning("_enforce_gap_stance: dropped claimable duplicate of honest-gap "
+                    "concept (gap verdict wins)"
+                )
+                clog.debug(
                     "_enforce_gap_stance: dropped claimable duplicate of honest-gap "
                     "concept %r (gap verdict wins)",
                     entry.get("concept"),
@@ -488,7 +494,10 @@ def _enforce_gap_stance(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 if _norm(f) not in gap_concepts
             ]
             if len(forms) != len(entry.get("surface_forms") or []):
-                logger.info(
+                logger.info("_enforce_gap_stance: stripped honest-gap surface forms from "
+                    "claimable concept"
+                )
+                clog.debug(
                     "_enforce_gap_stance: stripped honest-gap surface forms from "
                     "claimable concept %r",
                     entry.get("concept"),
@@ -832,7 +841,10 @@ def _enforce_denial_stance(
             # attests it outside that compound — the record is no "no" on this
             # requirement, whatever the citation says. Same-language only by
             # construction; it keeps the one NO the old arm said there.
-            logger.info(
+            logger.info("_enforce_denial_stance: ignored a binding — the vault "
+                "attests it outside the denied compound (SF-GAP.10, ADR-100 M-2)"
+            )
+            clog.debug(
                 "_enforce_denial_stance: ignored binding of %r to %r — the vault "
                 "attests it outside the denied compound (SF-GAP.10, ADR-100 M-2)",
                 concept,
@@ -847,7 +859,12 @@ def _enforce_denial_stance(
             # NOT asserted — the containment floor's shape, `_floored_row`. (A
             # same-language too-broad citation — "CSS" cited to "no Tailwind
             # CSS" while the vault attests CSS — was already released above.)
-            logger.warning(
+            logger.warning("_enforce_denial_stance: floored a concept without asserting a denial — "
+                "the classifier cited the recorded denial but graded it %r "
+                "(ADR-100 M-2)",
+                label(entry.get("status")),
+            )
+            clog.debug(
                 "_enforce_denial_stance: floored %r without asserting a denial — "
                 "the classifier cited the recorded denial %r but graded it %r "
                 "(ADR-100 M-2)",
@@ -864,7 +881,12 @@ def _enforce_denial_stance(
             declared = _declared_denial_level(concept, forms, entries)
             if declared == "partial":
                 level = "partial"
-            logger.info(
+            logger.info("_enforce_denial_stance: recorded a concept as denied (was %r/claimable=%r) — "
+                "the classifier bound it to the recorded denial (ADR-100 M-2)",
+                label(entry.get("status")),
+                label(entry.get("claimable")),
+            )
+            clog.debug(
                 "_enforce_denial_stance: recorded %r as denied (was %r/claimable=%r) — "
                 "the classifier bound it to the recorded denial %r (ADR-100 M-2)",
                 concept,
@@ -880,7 +902,10 @@ def _enforce_denial_stance(
             # A cited id that names no live record binds nothing — the row takes
             # the string matcher's path exactly as before M-2.
             if entry.get(DENIED_BY_KEY):
-                logger.info(
+                logger.info("_enforce_denial_stance: dropped a binding — no live, "
+                    "unreleased recorded denial has that id (ADR-100 M-2)"
+                )
+                clog.debug(
                     "_enforce_denial_stance: dropped binding %r on %r — no live, "
                     "unreleased recorded denial has that id (ADR-100 M-2)",
                     entry.get(DENIED_BY_KEY),
@@ -901,7 +926,10 @@ def _enforce_denial_stance(
                 # (a carried merge row, a stored ledger): it was never the
                 # candidate's "no", so it goes back to an honest unknown, which
                 # the vault re-evaluation may lift on real evidence.
-                logger.info(
+                logger.info("_enforce_denial_stance: released the containment floor — "
+                    "no recorded denial names it (G-1, #821)"
+                )
+                clog.debug(
                     "_enforce_denial_stance: released the containment floor on %r — "
                     "no recorded denial names it (G-1, #821)",
                     concept,
@@ -911,7 +939,11 @@ def _enforce_denial_stance(
             result.append(entry)
             continue
         if entry.get("claimable"):
-            logger.warning(
+            logger.warning("_enforce_denial_stance: forced a claimable concept to denied — "
+                "the candidate explicitly denied it in testimony (#231, "
+                "ADR-040 never-claim-beats-claim outranks adjacency inference)"
+            )
+            clog.debug(
                 "_enforce_denial_stance: forced claimable concept %r to denied — "
                 "the candidate explicitly denied it in testimony (#231, "
                 "ADR-040 never-claim-beats-claim outranks adjacency inference)",
@@ -937,6 +969,12 @@ def is_aim_only(entry: dict[str, Any] | None) -> bool:
 #: Sorbet WP-Q7 (RULINGS Q7-1 / MD-Q15, ADR-048 amended 2026-11-16): the row key
 #: :func:`stamp_posting_word_only` writes. Absent = no marker.
 POSTING_WORD_ONLY_KEY = "posting_word_only"
+
+
+from applire.services.posting_terms import (  # noqa: E402 — Sorbet WP-Q10 readers
+    is_posting_term_open,
+    stamped_unheld_forms,
+)
 
 
 def is_posting_word_partial(entry: dict[str, Any] | None) -> bool:
@@ -1110,7 +1148,8 @@ def enforce_title_stance(
                if k not in ("jd_phrase", "adjacent_evidence", "backing")}
         row.update(status="gap", claimable=False, evidence=TITLE_UNHELD_EVIDENCE,
                    title_unheld=True)
-        logger.info("enforce_title_stance: %r is a title the vault does not hold — unclaimable",
+        logger.info("enforce_title_stance: a title the vault does not hold — unclaimable")
+        clog.debug("enforce_title_stance: %r is a title the vault does not hold — unclaimable",
                     entry.get("concept"))
         out.append(row)
     return out
@@ -1150,7 +1189,8 @@ def enforce_aim_only_stance(
         if backs_aim and not backs_other:
             row = {k: v for k, v in entry.items() if k not in ("jd_phrase", "adjacent_evidence")}
             row.update(status="gap", claimable=False, evidence=AIM_ONLY_EVIDENCE, aim_only=True)
-            logger.info("enforce_aim_only_stance: %r backed only by a not-yet-reached aim — unclaimable", entry.get("concept"))
+            logger.info("enforce_aim_only_stance: backed only by a not-yet-reached aim — unclaimable")
+            clog.debug("enforce_aim_only_stance: %r backed only by a not-yet-reached aim — unclaimable", entry.get("concept"))
             out.append(row)
         else:
             out.append(entry)
@@ -1348,6 +1388,7 @@ def underclaim_candidate_entries(
         and not is_positioning_only(e)
         and not is_scope_entry(e)
         and not is_posting_word_partial(e)  # Sorbet WP-Q7, as _coverage_split
+        and not is_posting_term_open(e)  # Sorbet WP-Q10, as _coverage_split
         and (e.get("concept") or "").strip()
     ]
 
@@ -1411,6 +1452,28 @@ def retention_forms(entry: dict[str, Any]) -> list[str]:
 #: skill / certification / degree / language name). Writers key their "name it,
 #: never narrate it" rule on this exact string.
 LISTED_ONLY_MARKER = "[listed only — no role bullet or story states it]"
+
+
+def _in_place_of_line(entry: dict[str, Any], audience: str) -> str:
+    """Ruling Q10-8 (Sorbet WP-Q10): the term the candidate ticked for THIS posting
+    stands in for the skill its card showed as their words — the writer lists the
+    term, the reviewer never asks for the skill back (the compose settles it either
+    way). "" for a row without the stamp."""
+    from applire.services.posting_terms import twin_pairs
+
+    pairs = twin_pairs([entry])
+    if not pairs:
+        return ""
+    said = "; ".join(f'"{p["term"]}" in place of their skill "{p["skill"]}"' for p in pairs)
+    if audience == "reviewer":
+        return (
+            f" [the candidate confirmed {said} for this posting: a skills list without "
+            f"the skill is correct — never ask to add it]"
+        )
+    return (
+        f" — the candidate confirmed {said} for this posting: the skills list names the "
+        f"term, never that skill"
+    )
 
 
 def render_ledger_prompt_block(
@@ -1503,6 +1566,26 @@ def render_ledger_prompt_block(
                     f"quality or responsibility, unless it is the faithful translation of "
                     f"words the profile itself uses. {shown}"
                 )
+            elif is_posting_term_open(entry):
+                # Sorbet WP-Q10 (ruling Q7-2, ADR-048 am. 2026-11-17): met, but the
+                # posting's word is one the person never used and has not ticked.
+                # Rendered as "[forms: <label>] — evidence" it read as an
+                # invitation to print the label (delivery 2b, writer rec 390: five
+                # posting-label chips, 5 of Daniel's 24 skill slots).
+                unheld = stamped_unheld_forms(entry)
+                held = [f for f in entry.get("surface_forms") or []
+                        if isinstance(f, str) and f.strip() and f not in unheld]
+                backing = entry.get("backing")
+                quote = backing.get("quote") if isinstance(backing, dict) else None
+                own = [*held, *([quote] if isinstance(quote, str) and quote.strip() else [])]
+                shown = ("; ".join(f'"{w}"' for w in own) if own else f"evidence: {evidence}")
+                lines.append(
+                    f"  - {concept} [MET IN THE PROFILE'S WORDS — the posting's word, not the "
+                    f"candidate's: they have not confirmed it as theirs] — write the work in "
+                    f"the profile's own words, under the position that owns it; never write "
+                    f"{', '.join(unheld)} as a skills-list entry or as a skill the candidate "
+                    f"names. The profile's own words: {shown}"
+                )
             else:
                 # #415 (ruling W-4): the posting's OWN sentence, verbatim, so the writer
                 # knows WHICH evidence answers this requirement. A coarse concept
@@ -1525,6 +1608,7 @@ def render_ledger_prompt_block(
                 listed = f" {LISTED_ONLY_MARKER}" if entry.get("listed_only") is True else ""
                 lines.append(
                     f"  - {concept} [forms: {forms}]{listed}{qualifier} — evidence: {evidence}"
+                    f"{_in_place_of_line(entry, 'writer')}"
                 )
     else:
         lines.append("  (none)")
@@ -1857,7 +1941,22 @@ def render_ledger_reviewer_block(
                     f"translates words the profile itself uses]{cited}"
                 )
                 continue
-            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]{cited}")
+            if is_posting_term_open(entry):
+                # Sorbet WP-Q10: the reviewer defended posting-label chips as
+                # blocking keeps (delivery 2b rec 423: Event-driven architecture,
+                # Observability, Security engineering …). It is told the chip
+                # is an overstatement until the person confirms the word.
+                unheld = ", ".join(stamped_unheld_forms(entry))
+                lines.append(
+                    f"  - {entry.get('concept', '')} [MET IN THE PROFILE'S WORDS — the "
+                    f"posting's word, not confirmed by the candidate: a skills-list entry "
+                    f"reading {unheld} overstates; never ask to keep or add it]{cited}"
+                )
+                continue
+            lines.append(
+                f"  - {entry.get('concept', '')} [forms: {forms}]{cited}"
+                f"{_in_place_of_line(entry, 'reviewer')}"
+            )
     else:
         lines.append("  (none)")
     if quoted:
@@ -1961,6 +2060,10 @@ def _coverage_split(
         e for e in claimable
         if not is_positioning_only(e) and not is_scope_entry(e)
         and not is_posting_word_partial(e)
+        # Sorbet WP-Q10 (Q7-2): a posting term the person has not confirmed is
+        # never demanded — demanding it is a demand to print the posting's label
+        # as theirs (delivery 2b recs 393/407 → corrector chips and summary).
+        and not is_posting_term_open(e)
     ]
     if not claimable:
         return [], []
@@ -2518,7 +2621,14 @@ def coverage_reviewer_prompt_fn(
         if on_demand is not None:
             on_demand(blocking)
         if deferred:
-            logger.info(
+            logger.info("M5.4.2 coverage bound: %d of %d absent claimable term(s) demanded this "
+                "round (cap=%s); %d held back",
+                len(blocking),
+                len(blocking) + len(deferred),
+                max_terms_per_round,
+                len(deferred),
+            )
+            clog.debug(
                 "M5.4.2 coverage bound: %d of %d absent claimable term(s) demanded this "
                 "round (cap=%s); held back: %s",
                 len(blocking),
@@ -2527,14 +2637,21 @@ def coverage_reviewer_prompt_fn(
                 [e.get("concept", "") for e in deferred],
             )
         if below_rank:
-            logger.info(
+            logger.info("ADR-076 clause 6: %d claimable term(s) below rank under the length "
+                "budget — not raised as blocking (cutting by rank is legal)",
+                len(below_rank),
+            )
+            clog.debug(
                 "ADR-076 clause 6: %d claimable term(s) below rank under the length "
                 "budget — not raised as blocking (cutting by rank is legal): %s",
                 len(below_rank),
                 [e.get("concept", "") for e in below_rank],
             )
         if blocking:
-            logger.info(
+            logger.info("verified coverage check: %d claimable term(s) absent from draft",
+                len(blocking),
+            )
+            clog.debug(
                 "verified coverage check: %d claimable term(s) absent from draft: %s",
                 len(blocking),
                 [e.get("concept", "") for e in blocking],
@@ -2662,7 +2779,12 @@ def forbidden_presence_reviewer_prompt_fn(base_fn, keyword_ledger: list[dict[str
         if not forbidden:
             return prompt
         present = forbidden_terms_in_draft(draft, keyword_ledger)
-        logger.info(
+        logger.info("do-not-claim presence check (#531): %d of %d forbidden term(s) "
+            "present in the draft",
+            len(present),
+            len(forbidden),
+        )
+        clog.debug(
             "do-not-claim presence check (#531): %d of %d forbidden term(s) "
             "present in the draft: %s",
             len(present),
@@ -2747,7 +2869,11 @@ def coverage_corrector_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] |
         prompt = base_fn(previous_draft, feedback, source)
         present = claimable_present_entries(previous_draft, keyword_ledger)
         if present:
-            logger.info(
+            logger.info("coverage retention: %d claimable term(s) already surfaced in the "
+                "draft being corrected",
+                len(present),
+            )
+            clog.debug(
                 "coverage retention: %d claimable term(s) already surfaced in the "
                 "draft being corrected: %s",
                 len(present),
@@ -2994,7 +3120,13 @@ def upgrade_ledger_for_concepts(
         # match, so hoisting it changes no verdict, only what may be written).
         declared_level = _declared_denial_level(concept, forms, denial_entries)
         if denials and declared_level is not None:
-            logger.info(
+            logger.info("upgrade_ledger_for_concepts: recorded a concept as denied (was %r/"
+                "claimable=%r) — the turn ADDRESSED this requirement by denying "
+                "it (ADR-059 clause 2)",
+                label(e.get("status")),
+                label(e.get("claimable")),
+            )
+            clog.debug(
                 "upgrade_ledger_for_concepts: recorded %r as denied (was %r/"
                 "claimable=%r) — the turn ADDRESSED this requirement by denying "
                 "it (ADR-059 clause 2)",
@@ -3017,7 +3149,11 @@ def upgrade_ledger_for_concepts(
             # reversed either. The row stays exactly as it stands; whether the
             # narrower denial rules out this broader requirement is the gap
             # classifier's `denied_by` Judgment (rebuild, coverage re-judge).
-            logger.info(
+            logger.info("upgrade_ledger_for_concepts: left a concept as it stands (%r/claimable=%r) "
+                "— it is only contained in a denied compound (#351; G-1, #821)",
+                label(e.get("status")), label(e.get("claimable")),
+            )
+            clog.debug(
                 "upgrade_ledger_for_concepts: left %r as it stands (%r/claimable=%r) "
                 "— it is only contained in a denied compound (#351; G-1, #821)",
                 concept, e.get("status"), e.get("claimable"),
@@ -3353,7 +3489,13 @@ def _keep_whole_token_lifts(
             out.append(was)
             refused.append(str(now.get("concept", "")))
     if refused:
-        logger.info(
+        logger.info("refresh_ledger_against_vault[%s]: %d lift(s) refused — the vault carries "
+            "the term only as a substring, which grounds coverage but not a claim "
+            "(#592)",
+            seam or "unnamed-seam",
+            len(refused),
+        )
+        clog.debug(
             "refresh_ledger_against_vault[%s]: %d lift(s) refused — the vault carries "
             "the term only as a substring, which grounds coverage but not a claim "
             "(#592): %s",
@@ -3454,7 +3596,12 @@ def refresh_ledger_against_vault(
             for (c, s0), (_c1, s1) in zip(before, after, strict=False)
             if s0 != s1
         ]
-        logger.info(
+        logger.info("refresh_ledger_against_vault[%s]: the persisted ledger disagreed with the "
+            "current vault — %d row(s) re-derived (#592)",
+            seam or "unnamed-seam",
+            len(moved),
+        )
+        clog.debug(
             "refresh_ledger_against_vault[%s]: the persisted ledger disagreed with the "
             "current vault — %d row(s) re-derived (#592): %s",
             seam or "unnamed-seam",
@@ -3537,12 +3684,18 @@ async def refresh_persist_and_rescore(
             len(violations),
             scored["match_score"],
         )
-    except Exception:
-        logger.exception(
+    except Exception as _exc:
+        logger.error(
+            "LEDGER_READ_SEAM_PERSIST_FAILED (#670) seam=%s — delivering the corrected "
+            "ledger anyway; the document must reflect the current vault whether or not "
+            "the row could be updated (%s)",
+            seam, type(_exc).__name__,
+        )
+        clog.debug(
             "LEDGER_READ_SEAM_PERSIST_FAILED (#670) seam=%s — delivering the corrected "
             "ledger anyway; the document must reflect the current vault whether or not "
             "the row could be updated",
-            seam,
+            seam, exc_info=True,
         )
     return ledger
 
@@ -3601,7 +3754,11 @@ def annotate_evidence_owners(
     except Exception as exc:  # pragma: no cover - defensive, mirrors clause 5
         # Fail OPEN and loudly: no owner is stated, which is exactly the
         # pre-#525 behaviour. Never fail the ledger over an unindexable vault.
-        logger.warning(
+        logger.warning("annotate_evidence_owners: the vault could not be indexed (%s) — "
+            "no ownership fact is stated for this ledger",
+            type(exc).__name__,
+        )
+        clog.debug(
             "annotate_evidence_owners: the vault could not be indexed (%s: %s) — "
             "no ownership fact is stated for this ledger",
             type(exc).__name__,
@@ -4115,10 +4272,13 @@ def _strip_system_metadata(profile_json: dict[str, Any]) -> dict[str, Any]:
     the vault" either. The enrichment trail is the exception: it is filtered
     receipt by receipt (:func:`_strip_denial_text`, :func:`_strip_unclaimable`),
     because an accepted write's receipt restates content the vault carries."""
-    from applire.services.prompt_view import PROMPT_EXCLUDED_METADATA_KEYS
+    from applire.services.prompt_view import PROMPT_EXCLUDED_METADATA_KEYS, drop_confirmations_everywhere
 
     if not isinstance(profile_json, dict):
         return profile_json
+    # Sorbet WP-Q10: a confirmation's posting label is not the person's text —
+    # neither on the skill nor in the receipt of the write that added it.
+    profile_json = drop_confirmations_everywhere(profile_json)
     metadata = profile_json.get("metadata")
     if not isinstance(metadata, dict):
         return profile_json
@@ -4486,7 +4646,13 @@ def assert_claimable_backed(
         # recoverable from the candidate's side. Clauses 1-4 still run, so a
         # denial can never survive an unparseable vault. Never silent.
         vault_index = None
-        logger.warning(
+        logger.warning("assert_claimable_backed[%s]: the vault could not be indexed (%s) — "
+            "the affirmative floor (clause 5) is UNCHECKED for this write; the "
+            "polarity and evidence clauses still apply",
+            seam or "unnamed-seam",
+            type(exc).__name__,
+        )
+        clog.debug(
             "assert_claimable_backed[%s]: the vault could not be indexed (%s: %s) — "
             "the affirmative floor (clause 5) is UNCHECKED for this write; the "
             "polarity and evidence clauses still apply",
@@ -4514,7 +4680,13 @@ def assert_claimable_backed(
             healed.append(_stamp_backing(entry, vault_index, denials=denials, corpus=vault_corpus, aims=aims))
             continue
         was = entry.get("status")
-        logger.warning(
+        logger.warning("assert_claimable_backed[%s]: healed a claimable concept (was %r). "
+            "ADR-061/#318: a claimable ledger row with no vault evidence is a "
+            "truthfulness violation the pipeline would generate against itself.",
+            seam or "unnamed-seam",
+            label(was),
+        )
+        clog.debug(
             "assert_claimable_backed[%s]: healed claimable concept %r (was %r) — %s. "
             "ADR-061/#318: a claimable ledger row with no vault evidence is a "
             "truthfulness violation the pipeline would generate against itself.",
@@ -4608,7 +4780,11 @@ def assert_claimable_backed(
                     # any) did not resolve, so it is not carried as a backing.
                     g1_row.pop("backing", None)
                     healed.append(g1_row)
-                    logger.info(
+                    logger.info("assert_claimable_backed[%s]: healed to an ADJACENT partial on "
+                        "vault-verified material (ADR-061/074 amended 2026-10-22)",
+                        seam or "unnamed-seam",
+                    )
+                    clog.debug(
                         "assert_claimable_backed[%s]: %r healed to an ADJACENT partial on "
                         "vault-verified material %r (ADR-061/074 amended 2026-10-22)",
                         seam or "unnamed-seam",
@@ -4814,7 +4990,8 @@ def build_keyword_ledger(
             ukey for ukey in union for p in probes if _matches(p, ukey)
         }
         if not matched_keys:
-            logger.warning(
+            logger.warning("build_keyword_ledger: a concept matches no JD expectation — dropped")
+            clog.debug(
                 "build_keyword_ledger: concept %r matches no JD expectation — dropped",
                 concept,
             )
@@ -4837,7 +5014,8 @@ def build_keyword_ledger(
 
         status = item.get("status", "gap")
         if status not in _VALID_STATUS:
-            logger.warning(
+            logger.warning("build_keyword_ledger: a status outside the known set, treating as gap")
+            clog.debug(
                 "build_keyword_ledger: unknown status %r for %r, treating as gap",
                 status,
                 concept,

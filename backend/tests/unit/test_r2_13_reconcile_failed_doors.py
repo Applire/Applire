@@ -298,13 +298,13 @@ async def test_staged_merge_resolve_answers_503_not_saved_and_stays_held(async_c
     await async_db.commit()
     await async_db.refresh(rec)
 
-    app.dependency_overrides[profile_router._get_provider] = lambda: _StrictTrailingTextProvider()
-    try:
+    from unittest.mock import patch
+
+    # The merge branch asks the door, then builds its provider (ruling C-1).
+    with patch.object(profile_router, "get_provider", lambda: _StrictTrailingTextProvider()):
         resp = await async_client.post(
             f"/api/profile/staged/{rec.id}/resolve", json={"action": "merge"}
         )
-    finally:
-        app.dependency_overrides.pop(profile_router._get_provider, None)
     assert resp.status_code == 503, resp.text
     assert resp.json()["detail"]["error"] == "not_saved"
     await async_db.rollback()

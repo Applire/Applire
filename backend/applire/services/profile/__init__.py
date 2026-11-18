@@ -21,7 +21,10 @@ import json
 import logging
 import uuid
 
+from applire.content_log import content_logger
+
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
@@ -147,8 +150,9 @@ async def _compute_embedding(
         return None
     try:
         vector = await embedding_provider.embed(text)
-    except Exception:
-        logger.warning("Profile embedding generation failed; storing NULL.", exc_info=True)
+    except Exception as exc:
+        logger.warning("Profile embedding generation failed; storing NULL: %s", type(exc).__name__)
+        clog.debug("Profile embedding generation failed; storing NULL.", exc_info=True)
         return None
     # Don't persist zero-vectors (noop provider) — NULL signals "not computed".
     if all(v == 0.0 for v in vector):
@@ -649,8 +653,22 @@ async def patch_profile_section(
     user_id: uuid.UUID | None = None,
     document_kind: str | None = None,
     document_id: str | None = None,
+    keep_stored_confirmations: bool = True,
+    commit: bool = True,
 ) -> MasterProfileResponse:
     """The manual section edit — the `FieldEdit` intake, on `commit_ops`.
+
+    ``keep_stored_confirmations`` (Sorbet WP-Q10; on for EVERY door since the
+    adversarial pass F8): a skills payload carries exactly the
+    ``confirmations`` stored for each skill name — the record of who confirmed a
+    posting term is server-owned, never accepted from a client and never erased
+    by a body that omits it; deleting the skill still removes it
+    (``posting_term_answer.keep_stored_confirmations``). Only the answer service
+    (``answer_posting_terms``) — the one writer of a confirmation — passes
+    ``False``.
+
+    ``commit=False`` (the answer service, F1): flush only, so the caller's row
+    lock and its own write commit together.
 
     ``document_kind`` / ``document_id`` (A-5, MD7-10): set by the CV section
     editor's "also save to profile" — the edit is already in that CV, so the
@@ -696,6 +714,11 @@ async def patch_profile_section(
     record = await _get_latest(db, user_id)
     if not record:
         raise LookupError("No profile found")
+    if keep_stored_confirmations and section == "skills":
+        from applire.services.posting_term_answer import keep_stored_confirmations as _keep
+
+        value = _keep(value, (record.profile_json or {}).get("skills"))
+        op = build_replace_section_op(section, value, basis_updated_at=basis_updated_at)
 
     result = await commit_ops(
         db,
@@ -726,6 +749,9 @@ async def patch_profile_section(
     # TODO US179: edited/added roles here get the lean-floor expectation set until a provider is threaded in (fast-follow). Floor fallback is safe (under-asks).
     # Flush-not-commit (ADR-063 amended clause 6): the door owns its
     # transaction — dropping this line is a silent no-write.
+    if not commit:
+        await db.flush()
+        return _to_response(result.record)
     await db.commit()
     await db.refresh(result.record)
     return _to_response(result.record)
@@ -1590,6 +1616,11 @@ async def ingest_cv(
         if cut == -1:
             cut = _MAX_CV_TEXT_CHARS
         logger.warning(
+            "CV text truncated for LLM extraction: %d → %d chars",
+            len(raw_text),
+            cut,
+        )
+        clog.debug(
             "CV text truncated for LLM extraction: %d → %d chars (file: %s)",
             len(raw_text),
             cut,
@@ -1941,8 +1972,9 @@ async def _identity_verdict_ops(merged: MasterProfileData, provider: LLMProvider
             if f"{sec}:{a}:{b}" in verdicts
         ]
         return [RecordEntryIdentityVerdicts(verdicts=items)] if items else []
-    except Exception:  # noqa: BLE001 — a judge failure must never fail the import
-        logger.warning("entry identity verdicts skipped", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — a judge failure must never fail the import
+        logger.warning("entry identity verdicts skipped: %s", type(exc).__name__)
+        clog.debug("entry identity verdicts skipped", exc_info=True)
         return []
 
 

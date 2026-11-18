@@ -139,8 +139,11 @@ from applire.services.profile.reconcile.ops import (
     UpsertVolunteer,
     UpsertWork,
 )
+from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 _PROFICIENCY_ORDER = {"basic": 0, "intermediate": 1, "advanced": 2, "expert": 3}
 
@@ -996,6 +999,7 @@ def apply_ops(
 # THIS SAME function via commit_ops's call one layer up) surface on the one
 # channel regardless of which of the two call sites tripped it.
 _commit_logger = logging.getLogger("applire.services.profile.commit")
+_commit_clog = content_logger("applire.services.profile.commit")
 
 
 class VaultWriteRevertedError(Exception):
@@ -1059,6 +1063,13 @@ def _ensure_loadable(
     except ValidationError as exc:
         detail = str(exc)[:300]
         _commit_logger.error(
+            "vault write reverted at stage=%s: op(s) %s from source=%s failed "
+            "their load round-trip",
+            stage,
+            op_types,
+            source,
+        )
+        _commit_clog.debug(
             "vault write reverted at stage=%s: op(s) %s from source=%s failed "
             "their load round-trip — %s",
             stage,
@@ -1813,12 +1824,12 @@ def _apply_resolve_both_or_merge(
     section_data = dumped.get(op.section)
     if not isinstance(section_data, list):
         logger.info("apply_ops: refused resolve_field %s for %s — not an entry section",
-                    op.resolution, op.conflict_id)
+                    label(op.resolution), label(op.conflict_id))
         return profile
     entry = _entry_for_conflict(section_data, conflict)
     if entry is None:
         logger.info("apply_ops: refused resolve_field %s for %s — entry not found",
-                    op.resolution, op.conflict_id)
+                    label(op.resolution), label(op.conflict_id))
         return profile
     current = entry.get(conflict.field)
 
@@ -1871,7 +1882,7 @@ def _apply_resolve_both_or_merge(
         or conflict.field not in _ENTRY_SPLIT_FIELDS
     ):
         logger.info("apply_ops: refused resolve_field %s for %s — not offered on %s.%s",
-                    op.resolution, op.conflict_id, op.section, conflict.field)
+                    label(op.resolution), label(op.conflict_id), label(op.section), label(conflict.field))
         return profile
     import uuid as _uuid
 
@@ -2331,6 +2342,10 @@ def _apply_close_role(
             target = candidate
     if target is None:
         logger.info(
+            "apply_ops: refused close_role — no such work entry "
+            "(#480 §4.3: a close names one role, and only a role)"
+        )
+        clog.debug(
             "apply_ops: refused close_role for target %s — no such work entry "
             "(#480 §4.3: a close names one role, and only a role)",
             op.target,
@@ -2519,7 +2534,8 @@ def _apply_withdraw_denial(
         return False
     entry = next((d for d in metadata.denied_concepts if ats_norm(d.concept) == key), None)
     if entry is None:
-        logger.info("apply_ops: withdraw_denial found no denial %r — no-op (G-5)", concept_text)
+        logger.info("apply_ops: withdraw_denial found no denial — no-op (G-5)")
+        clog.debug("apply_ops: withdraw_denial found no denial %r — no-op (G-5)", concept_text)
         return False
     today = _date.today().isoformat()
     metadata.denied_concepts = [d for d in metadata.denied_concepts if d is not entry]
@@ -2619,6 +2635,10 @@ def _apply_mark_probe_asked(
     )
     if entry is None:
         logger.info(
+            "apply_ops: mark_probe_asked found no durable denial — "
+            "failing safe rather than minting one (ADR-064 M4 / #480 PR 7)"
+        )
+        clog.debug(
             "apply_ops: mark_probe_asked found no durable denial for %r — "
             "failing safe rather than minting one (ADR-064 M4 / #480 PR 7)",
             op.concept,
@@ -2858,6 +2878,13 @@ def _apply_upsert_work(
             and not op.end_date
         ):
             logger.warning(
+                "reconcile: cleared the role on a NEW dateless work entry "
+                "from a %s intake — a role for a station the candidate mentioned "
+                "without dates is not a stated fact (ADR-061 amended "
+                "2026-09-08 / RULING V-0); the field-gap follow-up asks.",
+                source,
+            )
+            clog.debug(
                 "reconcile: cleared role %r on a NEW dateless work entry (%s) "
                 "from a %s intake — a role for a station the candidate mentioned "
                 "without dates is not a stated fact (ADR-061 amended "
@@ -3218,6 +3245,12 @@ def _apply_add_bullets(op, resolve, changes, pending, not_applied=None, *, dated
                     logger.info(
                         "reconcile: %d bullet field(s) parked on an ambiguous "
                         "%s confirmation; the resolution turn re-emits them "
+                        "(ruling V-5)",
+                        len(carried), conf.context.get("section", "entity"),
+                    )
+                    clog.debug(
+                        "reconcile: %d bullet field(s) parked on an ambiguous "
+                        "%s confirmation; the resolution turn re-emits them "
                         "(ruling V-5): %r",
                         len(carried), conf.context.get("section", "entity"), carried,
                     )
@@ -3231,6 +3264,11 @@ def _apply_add_bullets(op, resolve, changes, pending, not_applied=None, *, dated
             "",
         )
         logger.warning(
+            "reconcile: add_bullets targeted an unresolvable ref with no "
+            "matching confirmation — the bullets are not written; receipted "
+            "as not_applied/target_unresolved"
+        )
+        clog.debug(
             "reconcile: add_bullets targeted an unresolvable ref %r with no "
             "matching confirmation — the bullets are not written; receipted "
             "as not_applied/target_unresolved",
@@ -3826,6 +3864,10 @@ def _apply_match_existing(op, resolve, matched, skills=()):
     entity = resolve(op.target)
     if entity is None:
         logger.warning(
+            "reconcile: match_existing target resolves to no entity — "
+            "binding recorded nowhere (#707)"
+        )
+        clog.debug(
             "reconcile: match_existing target %r resolves to no entity — "
             "binding for %r recorded nowhere (#707)", op.target, op.incoming,
         )
@@ -3841,6 +3883,10 @@ def _apply_match_existing(op, resolve, matched, skills=()):
         reason = skill_binding_refusal(op.incoming, None, getattr(op, "existing", None), entity, skills)
         if reason is not None:
             logger.warning(
+                "reconcile: match_existing binding refused (%s); no receipt (#801)",
+                reason,
+            )
+            clog.debug(
                 "reconcile: match_existing %r -> %r refused (%s); no receipt (#801)",
                 op.incoming, getattr(entity, "name", None), reason,
             )
@@ -4100,6 +4146,10 @@ def _apply_set_field(op, resolve, changes, not_applied=None):
         # 783:L7 (ADR-063 amended 2026-10-20): the value is written nowhere —
         # receipted, never silent.
         logger.warning(
+            "reconcile: set_field targeted an unresolvable ref (field %r) — "
+            "receipted as not_applied/target_unresolved", label(op.field),
+        )
+        clog.debug(
             "reconcile: set_field targeted an unresolvable ref %r (field %r) — "
             "receipted as not_applied/target_unresolved", op.target, op.field,
         )
@@ -4439,6 +4489,11 @@ def _apply_flag_conflict(op, resolve, source, conflicts, changes=None):
         incoming_value = coerce_conflict_value(op.field, op.incoming)
         if existing_value is UNREADABLE or incoming_value is UNREADABLE:
             logger.warning(
+                "apply_ops: flag_conflict on field %s not admitted — a value is not a %s",
+                label(op.field),
+                "boolean" if op.field in BOOL_CONFLICT_FIELDS else "date",
+            )
+            clog.debug(
                 "apply_ops: flag_conflict on %s.%s not admitted — a value is not a %s "
                 "(existing=%r, incoming=%r)",
                 op.target, op.field,

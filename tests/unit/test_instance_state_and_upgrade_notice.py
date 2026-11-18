@@ -251,10 +251,16 @@ def main_module():
     return main, cfg
 
 
-def test_startup_posture_warns_about_debug_log_when_it_is_on(main_module, monkeypatch, caplog):
+def test_startup_posture_warns_about_content_logs_at_debug(main_module, monkeypatch, caplog):
     main, cfg = main_module
-    monkeypatch.setattr(cfg.settings, "llm_debug_log", True)
+    monkeypatch.setattr(cfg.settings, "log_level", "DEBUG")
     monkeypatch.setattr(cfg.settings, "llm_debug_log_dir", "logs/llm")
+    monkeypatch.setattr(cfg.settings, "content_log_dir", "logs/content")
+    monkeypatch.setattr(cfg.settings, "content_log_retention_days", 30)
+    for attr in ("log_consent_operator_name", "log_consent_contact_email",
+                 "log_consent_assistant_provider", "log_consent_log_host",
+                 "log_consent_model_provider"):
+        monkeypatch.setattr(cfg.settings, attr, "x")
     monkeypatch.setattr(cfg.settings, "applire_topology", "production")
 
     with caplog.at_level(logging.WARNING, logger="applire"):
@@ -262,7 +268,39 @@ def test_startup_posture_warns_about_debug_log_when_it_is_on(main_module, monkey
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
-    assert "logs/llm" in warnings[0].getMessage()
+    message = warnings[0].getMessage()
+    assert "logs/llm" in message and "logs/content" in message and "30 days" in message
+
+
+def test_startup_posture_names_unset_consent_settings_at_debug(main_module, monkeypatch, caplog):
+    main, cfg = main_module
+    monkeypatch.setattr(cfg.settings, "log_level", "DEBUG")
+    monkeypatch.setattr(cfg.settings, "log_consent_operator_name", "")
+    monkeypatch.setattr(cfg.settings, "log_consent_contact_email", "kontakt@example.org")
+    monkeypatch.setattr(cfg.settings, "applire_topology", "production")
+
+    with caplog.at_level(logging.WARNING, logger="applire"):
+        main._log_startup_posture()
+
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(messages) == 2
+    assert "LOG_CONSENT_OPERATOR_NAME" in messages[1]
+    assert "LOG_CONSENT_CONTACT_EMAIL" not in messages[1]
+
+
+def test_startup_posture_names_the_retired_switch_above_debug(main_module, monkeypatch, caplog):
+    main, cfg = main_module
+    monkeypatch.setattr(cfg.settings, "log_level", "INFO")
+    monkeypatch.setattr(cfg.settings, "llm_debug_log", True)
+    monkeypatch.setattr(cfg.settings, "applire_topology", "production")
+
+    with caplog.at_level(logging.WARNING, logger="applire"):
+        main._log_startup_posture()
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "LLM_DEBUG_LOG=true is no longer a switch" in warnings[0]
+    assert "LOG_LEVEL=DEBUG" in warnings[0]
 
 
 def test_startup_posture_says_nothing_when_debug_log_is_off(main_module, monkeypatch, caplog):

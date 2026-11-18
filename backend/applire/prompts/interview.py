@@ -971,9 +971,13 @@ def build_follow_up_question_prompt(
         lines = [f"{m['role'].capitalize()}: {m['content']}" for m in recent_messages[-4:]]
         history = "\n\nRecent conversation:\n" + "\n".join(lines)
 
+    from applire.services.prompt_view import drop_skill_confirmations
+
     profile_summary = json.dumps(
         {
-            "skills": profile.get("skills", []),
+            # Sorbet WP-Q10: a skill's `confirmations` carry the job posting's
+            # label (ADR-084 untrusted text) — bookkeeping, never prompt input.
+            "skills": drop_skill_confirmations(profile).get("skills", []),
             "work_experience": [
                 {"company": e.get("company"), "role": e.get("role")}
                 for e in profile.get("work_experience", [])

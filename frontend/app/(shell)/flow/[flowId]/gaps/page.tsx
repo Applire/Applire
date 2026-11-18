@@ -39,7 +39,7 @@ import { NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
 import { LiabilityPanel, type LiabilityEntry } from "@/components/gaps/LiabilityPanel";
 import { ProfileDecisionsCard } from "@/components/gaps/ProfileDecisionsCard";
 import { getProfileChanges, hasMergeReview, type ProfileChanges } from "@/lib/api/review";
-import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
+import { analyzeGapsAsync, gapErrorText, GapAnalysisError } from "@/lib/gap-analysis";
 import {
   canonicalRequirementChips,
   clusterCoverageCounts,
@@ -106,13 +106,6 @@ interface ProfileCounts {
   skills: number;
   certifications: number;
   projects: number;
-}
-
-/** ADR-096: a refused gap job for a person without a usable key says so; every other code stays generic. */
-function gapErrorText(t: (key: string) => string, e: GapAnalysisError): string {
-  if (e.errorCode === "provider_key_required") return t("analysisKeyRequired");
-  if (e.errorCode === "provider_key_unreadable") return t("analysisKeyUnreadable");
-  return t("analysisError");
 }
 
 function profileCountsOf(profileData: unknown): ProfileCounts {
@@ -523,6 +516,7 @@ export default function GapsPage({
   const [decisionsToken, setDecisionsToken] = useState(0);
   const router = useRouter();
   const t = useTranslations("gaps");
+  const tLogConsent = useTranslations("logConsent");
   const tErrors = useTranslations("errors");
 
   const [gaps, setGaps] = useState<GapAnalysis | null>(null);
@@ -715,7 +709,7 @@ export default function GapsPage({
       } catch (e: unknown) {
         setError(
           e instanceof GapAnalysisError
-            ? gapErrorText(t, e)
+            ? gapErrorText(t, e, tLogConsent)
             : e instanceof Error
               ? e.message
               : "Failed to load analysis",
@@ -1101,7 +1095,7 @@ export default function GapsPage({
     } catch (e: unknown) {
       setError(
         e instanceof GapAnalysisError
-          ? gapErrorText(t, e)
+          ? gapErrorText(t, e, tLogConsent)
           : e instanceof Error
             ? e.message
             : "Failed to load analysis",

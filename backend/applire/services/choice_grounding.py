@@ -152,8 +152,10 @@ import re
 from typing import Any
 
 from applire.services.ats_audit import _norm, skill_tokens, surface_present
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # The three levels the generation prompt (ADR-064 + this fix) asks every
 # drafted choice to declare. A FACT read off the model's own output, not a
@@ -986,7 +988,11 @@ def filter_ungrounded_choices(
                 and all(_norm(_fold_quotes(d)) in asked_norms for d in declared)
             )
             if not shape_ok:
-                logger.info(
+                logger.info("choice_grounding: dropped a 'denial'-level choice on a Category C "
+                    "question that is not one honest bridge on an asked concept "
+                    "(ruling V-7 as amended by UAT-2)"
+                )
+                clog.debug(
                     "choice_grounding: dropped a 'denial'-level choice on a Category C "
                     "question that is not one honest bridge on an asked concept "
                     "(ruling V-7 as amended by UAT-2): %r", text,
@@ -1013,14 +1019,21 @@ def filter_ungrounded_choices(
                 if not _match_employers(chip_norm, work_experience):
                     contradicted = [t for t in exempt if surface_present(t, evidence)]
                     if contradicted:
-                        logger.warning(
+                        logger.warning("choice_grounding: dropped a %r-level choice whose declared "
+                            "denied_terms contradict profile evidence (#347 mirror check extended by #451)",
+                            level,
+                        )
+                        clog.debug(
                             "choice_grounding: dropped a %r-level choice whose "
                             "declared denied_terms contradict profile evidence "
                             "(#347 mirror check extended by #451, %s): %r",
                             level, ", ".join(contradicted), text,
                         )
                         continue
-                logger.info(
+                logger.info("choice_grounding: term-evidence exemption via declared "
+                    "denied_terms (#451) on %r-level choice", level,
+                )
+                clog.debug(
                     "choice_grounding: term-evidence exemption via declared "
                     "denied_terms (#451) for %s on %r-level choice: %r",
                     ", ".join(exempt), level, text,
@@ -1031,7 +1044,10 @@ def filter_ungrounded_choices(
             ):
                 kept.append(text)
             else:
-                logger.warning(
+                logger.warning("choice_grounding: dropped a %r-level choice that failed "
+                    "the grounding pipeline", level,
+                )
+                clog.debug(
                     "choice_grounding: dropped a %r-level choice that failed "
                     "the grounding pipeline: %r", level, text,
                 )
@@ -1060,7 +1076,10 @@ def filter_ungrounded_choices(
         if not _match_employers(mirror_norm, work_experience):
             contradicted = _contradicted_denial_terms(mirror_norm, terms, evidence)
             if contradicted:
-                logger.warning(
+                logger.warning("choice_grounding: dropped a 'denial'-tagged choice that "
+                    "denies concept(s) the profile evidences (#347 mirror check)"
+                )
+                clog.debug(
                     "choice_grounding: dropped a 'denial'-tagged choice that "
                     "denies concept(s) the profile evidences (#347 mirror "
                     "check, %s): %r",
@@ -1106,7 +1125,11 @@ def filter_ungrounded_choices(
                 kept.append(text)
                 honest_kept = honest_kept or gap_category == "C"
             else:
-                logger.warning(
+                logger.warning("choice_grounding: dropped a 'denial'-tagged choice whose "
+                    "pre-pivot or affirmative clause failed the grounding "
+                    "pipeline (mislabelled by the model)"
+                )
+                clog.debug(
                     "choice_grounding: dropped a 'denial'-tagged choice whose "
                     "pre-pivot or affirmative clause failed the grounding "
                     "pipeline (mislabelled by the model): %r",
@@ -1122,7 +1145,11 @@ def filter_ungrounded_choices(
             if _passes_employer_scoped_guard(choice_norm, terms, matched_entries, profile):
                 kept.append(text)
             else:
-                logger.warning(
+                logger.warning("choice_grounding: dropped a 'denial'-tagged choice that "
+                    "failed the employer-scoped guard (mislabelled by the "
+                    "model)"
+                )
+                clog.debug(
                     "choice_grounding: dropped a 'denial'-tagged choice that "
                     "failed the employer-scoped guard (mislabelled by the "
                     "model): %r",

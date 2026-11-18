@@ -97,11 +97,11 @@ the old `/health` body — 1c reduces it.
 
 | Method · path | Dep | Request | Response | Errors | Owner |
 |---|---|---|---|---|---|
-| `GET /api/auth/state` | public | — | `auth.AuthStateResponse` `{setup_required, oidc_enabled, oidc_button_label, smtp_enabled, harness}` | — | 1a |
+| `GET /api/auth/state` | public | — | `auth.AuthStateResponse` `{setup_required, oidc_enabled, oidc_button_label, smtp_enabled, harness, log_consent_required, log_consent_text}` (the last two: content-log consent, `false`/`null` unless `LOG_LEVEL=DEBUG`; the text carries instance settings only) | — | 1a |
 | `POST /api/setup` | public | `auth.SetupRequest` `{setup_token, email, password}` | 204 + session cookie | 403 `invalid_setup_token`, 409 `setup_done`, 409 `harness_active`, 422 `password_policy`, 403 `origin_mismatch` | 1a |
 | `POST /api/auth/login` | public | `auth.LoginRequest` `{email, password}` | 204 + session cookie | 401 `invalid_credentials`, 403 `account_disabled` (correct password only, W0B-3), 403 `origin_mismatch` | 1a |
 | `POST /api/auth/logout` | `require_session_user` | — | 204, cookie cleared, session row revoked | 401 | 1a |
-| `GET /api/auth/me` | `require_user` | — | `auth.MeResponse` `{id, email, role, has_password, oidc_linked, ui_language}` | 401 | 1a |
+| `GET /api/auth/me` | `require_user` | — | `auth.MeResponse` `{id, email, role, has_password, oidc_linked, ui_language, log_consent}` (`log_consent` as `GET /api/me/log-consent`) | 401 | 1a |
 | `POST /api/auth/password` | `require_session_user` | `auth.PasswordChangeRequest` `{current, new}` | 204; the person's **other** sessions revoked | 403 `invalid_credentials`, 422 `password_policy` | 1a |
 
 `setup_required` ⇔ no user holds a credential. While `harness` is true the
@@ -113,7 +113,7 @@ frontend shows the red banner on every page.
 |---|---|---|---|---|---|
 | `POST /api/auth/forgot` | public | `auth.ForgotRequest` `{email}` | **202, no body — always** (mail sent in a background task, ≤ 3/h per account; nothing when SMTP is off) | 422 (schema only) | 1b |
 | `POST /api/auth/links/inspect` | public | `auth.LinkInspectRequest` `{token}` | `auth.LinkInspectResponse` `{purpose: invite\|reset, email, state: valid\|expired\|used}` | 404 `link_invalid` | 1b |
-| `POST /api/auth/links/redeem` | public | `auth.LinkRedeemRequest` `{token, password}` | 204 + session cookie (signed in) | 404 `link_invalid`, 409 `link_used`, 410 `link_expired`, 422 `password_policy` | 1b |
+| `POST /api/auth/links/redeem` | public | `auth.LinkRedeemRequest` `{token, password, log_consent_version?}` | 204 + session cookie (signed in); an invite at `LOG_LEVEL=DEBUG` also stores the consent | 404 `link_invalid`, 409 `link_used`, 410 `link_expired`, 422 `password_policy`, 422 `log_consent_required` (invite at DEBUG without today's version; checked before the link is used) | 1b |
 
 Invite links live 7 days, reset links 1 hour; a newer link of the same purpose
 revokes the older one; redemption is one atomic `UPDATE … RETURNING`.
@@ -155,11 +155,17 @@ the 8 characters after `apl_`.
 | `GET /api/me/provider-key` | `require_user` (a bearer may read) | — | `{key_mode: instance\|user, is_set, family, model, updated_at, unreadable, instance_key_granted, payer: instance\|user\|none, families}` — **never the key**, no mask, no last characters | 401 |
 | `PUT /api/me/provider-key` | `require_session_user` | `{family, model, key, test?}` (raw body; `family` ∈ `mistral`, `openrouter`, `requesty`, `anthropic`, `openai`; `model` 1–200 chars, one line; `key` ≤ 512 printable ASCII). `test: true` runs one 16-token completion on the submitted key before storing | the `GET` payload | 403 `forbidden` (bearer), 422 `invalid_body` \| `invalid_provider_family` \| `invalid_model` \| `invalid_provider_key` \| `provider_key_test_failed` (`reason`: `key_rejected`, `out_of_credit`, `model_not_found`, `rate_limited`, `timeout`, `unreachable`), 503 `provider_key_secret_missing` |
 | `DELETE /api/me/provider-key` | `require_session_user` | — | 204 (idempotent) | 403 `forbidden` (bearer) |
+| `GET /api/me/log-consent` | `require_session_user` | — | `auth.LogConsentState` `{required, state: not_required\|missing\|outdated\|withdrawn\|current, version, consented_at, consented_version, withdrawn_at, text}`; above `LOG_LEVEL=DEBUG` `{required: false, state: not_required}` and nulls | 401, 403 (bearer) |
+| `POST /api/me/log-consent` | `require_session_user` | `auth.LogConsentRequest` `{version}` (today's `version`) | the `GET` payload; audit `log_consent.given` | 403 (bearer), 409 `log_consent_version_stale` |
+| `DELETE /api/me/log-consent` | `require_session_user` | — | the `GET` payload (`state: withdrawn`); audit `log_consent.withdrawn`. The account stays; model work is refused with 409 `log_consent_required` (MCP `-32004`, code first in the message) until the person agrees again | 401, 403 (bearer) |
 
 **Refusals on every model-work door** (`LLM_KEY_MODE=user`): `409 {detail:
 {error_code: provider_key_required | provider_key_unreadable, message}}` on REST;
 MCP error code `-32004` with the error code as the first word of the message. A
 background job refused inside carries the same `error_code` in its status payload.
+At `LOG_LEVEL=DEBUG` the same doors also refuse a person without a current
+content-log consent with `409 log_consent_required` (same envelope, same MCP code),
+before any key question.
 Writes are audited as `provider_key.stored {family, tested}` and `provider_key.removed`.
 
 ### 3.6 Admin (metadata only — never content)

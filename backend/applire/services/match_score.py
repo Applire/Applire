@@ -27,8 +27,11 @@ here, never by the LLM.
 
 import logging
 from typing import Any
+from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # Slot weights by JD source
 REQUIRED_SLOT = 1.0
@@ -115,7 +118,8 @@ def compute_match_score(
             for req, _, _ in jd_requirements
         )
         if not matched:
-            logger.warning(
+            logger.warning("compute_match_score: LLM classification matches no JD requirement — dropped")
+            clog.debug(
                 "compute_match_score: LLM classification %r matches no JD requirement — dropped",
                 ckey,
             )
@@ -168,7 +172,8 @@ def compute_match_score(
 
         # Sanitise unknown statuses to "gap".
         if status not in _FACTOR:
-            logger.warning(
+            logger.warning("compute_match_score: a status outside the known set, treating as gap")
+            clog.debug(
                 "compute_match_score: unknown status %r for %r, treating as gap",
                 status,
                 req,
@@ -272,7 +277,8 @@ def compute_match_score_from_ledger(
 
         status = entry.get("status", "gap")
         if status not in _FACTOR:
-            logger.warning(
+            logger.warning("compute_match_score_from_ledger: a status outside the known set, treating as gap")
+            clog.debug(
                 "compute_match_score_from_ledger: unknown status %r for %r, treating as gap",
                 status,
                 concept,

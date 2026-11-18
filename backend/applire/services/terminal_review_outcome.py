@@ -83,8 +83,10 @@ from typing import Any, Iterable, Sequence
 
 from applire.schemas.ats import ATSCheck
 from applire.services.review_issues import ReviewSettle
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: Stable machine id. Frontend labels are keyed by check id (``schemas/ats.py``).
 TERMINAL_REVIEW_CHECK_ID = "terminal-review"
@@ -286,8 +288,9 @@ class DemandRecord:
                 self._rounds,
                 present=_presence_on(delivered_draft, self.forms),
             )
-        except Exception:  # pragma: no cover - fail-safe
-            logger.exception("terminal_review_outcome: repeated-demand detection failed")
+        except Exception as _exc:  # pragma: no cover - fail-safe
+            logger.error("terminal_review_outcome: repeated-demand detection failed (%s)", type(_exc).__name__)
+            clog.debug("terminal_review_outcome: repeated-demand detection failed", exc_info=True)
             return ()
 
 
@@ -676,12 +679,18 @@ def settle_to_outcome(
                 structured_output=structured_output,
                 delivered_draft=delivered_draft,
             )
-        except Exception:  # pragma: no cover - fail-safe, logged by the caller's chain
-            logger.exception(
+        except Exception as _exc:  # pragma: no cover - fail-safe, logged by the caller's chain
+            logger.error(
+                "terminal_review_outcome: correction measurement failed for chain=%s "
+                "path=%s; reporting from the settle path alone (%s)",
+                chain_id,
+                settle.path, type(_exc).__name__,
+            )
+            clog.debug(
                 "terminal_review_outcome: correction measurement failed for chain=%s "
                 "path=%s; reporting from the settle path alone",
                 chain_id,
-                settle.path,
+                settle.path, exc_info=True,
             )
             correction = None
     return TerminalReviewOutcome(

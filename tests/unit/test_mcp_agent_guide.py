@@ -41,7 +41,10 @@ import pytest
 # this — which is why the per-tool ceiling below is asserted alongside the total.
 # L-4 (founder 2026-10-22): raised from 17,500 for the six letter inputs that
 # mirror the web form (788:L1); the overshoot is input schema, not prose.
-TOOL_SURFACE_CHAR_BUDGET = 17_800
+# Sorbet WP-Q10 (2026-11-17): raised from 17,800 for the 32nd tool,
+# `confirm_posting_terms` (ruling Q10-6), and generate_cv's one-sentence
+# `needs_confirmation` contract; the honesty guidance lives in the guide.
+TOOL_SURFACE_CHAR_BUDGET = 18_300
 
 # No single tool may cost more than this. `update_application` (2,053 chars) is
 # the grandfathered exception and the reason the rule exists: the budget went

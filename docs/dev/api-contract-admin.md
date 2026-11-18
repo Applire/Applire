@@ -145,7 +145,8 @@ This is the cheap call behind the admin-only one-line signal on the user dashboa
 | `upgrade_notice` | warning | an undismissed version-jump notice exists |
 | `retention_disabled` | warning | `RETENTION_ENABLED` is effectively false (the banner of ruling C1-3) |
 | `failed_jobs` | warning | ≥ 1 failed job in the last 7 days |
-| `debug_log_on` | warning | `LLM_DEBUG_LOG=true` (records CV PII) |
+| `debug_log_on` | warning | `LOG_LEVEL=DEBUG`: content logs are written (records CV PII; each person's consent is asked) |
+| `log_consent_settings_missing` | warning | at `LOG_LEVEL=DEBUG`, `LOG_CONSENT_OPERATOR_NAME` or `LOG_CONSENT_CONTACT_EMAIL` is unset (the consent text prints a fallback) |
 | `dev_topology` | warning | `APPLIRE_TOPOLOGY=dev` |
 | `provider_not_ready` | critical | the active provider needs a key and none is effective |
 | `ocr_needs_mistral_key` | warning | `OCR_BACKEND=mistral_vision` without a Mistral key |

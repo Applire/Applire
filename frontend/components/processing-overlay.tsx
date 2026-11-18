@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { announceLogConsentRefusal, isLogConsentRefusalCode } from "@/lib/log-consent";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ProgressWidget, ProgressStep } from "@/components/ui/progress-widget";
@@ -65,6 +66,7 @@ type PlannedStep = ProgressStep & { doneLabel: string };
 export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guided = false }: Props) {
   const router = useRouter();
   const t = useTranslations("processing");
+  const tLogConsent = useTranslations("logConsent");
 
   // The step list is the run's actual plan (#114 / blind PQ F10): no JD provided →
   // no "Analyzing job description" step and no "Detecting gaps" step (gap analysis
@@ -125,6 +127,8 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   // F1/F8 (run3): per-file parse failures surfaced inline with a clean message
   // and a Retry, so one bad CV neither strands the overlay nor loses the batch.
   // Keyed by the file's upload-step index; value is the clean backend detail.
+  // The latest failed file ended by a withdrawn consent: the hard stop names that, not unreadable files.
+  const lastFailureConsentRef = useRef(false);
   const [fileErrors, setFileErrors] = useState<Record<number, string>>({});
   const [retrying, setRetrying] = useState<number | null>(null);
   // C9 (UX audit round 3, Emma) — some files were not read: the run stops here,
@@ -180,7 +184,10 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   const markFileFailed = useRef((i: number, e: unknown) => {
     const uploadIdx = jdOffset + i;
     const code = e instanceof CVImportError ? e.errorCode : null;
-    const msg = t(importErrorMessageKey(code));
+    const consentRefused = isLogConsentRefusalCode(code);
+    lastFailureConsentRef.current = consentRefused;
+    if (consentRefused) announceLogConsentRefusal();
+    const msg = consentRefused ? tLogConsent("cardTitle") : t(importErrorMessageKey(code));
     setFileErrors((prev) => ({ ...prev, [uploadIdx]: msg }));
     setStepStatus(uploadIdx, "error");
   }).current;
@@ -404,7 +411,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         if (parsedCount === 0) {
           // Hard stop, but recoverable: the failed-file Retry can resume the
           // pipeline (FMEA JF-M-2.2) — pipelineCtx is already captured.
-          throw new Error(t("allCvsFailed"));
+          throw new Error(lastFailureConsentRef.current ? tLogConsent("cardTitle") : t("allCvsFailed"));
         }
 
         const signals = {

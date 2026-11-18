@@ -152,9 +152,57 @@ async def admit_model_work(
     user is known and before the provider is built. A refusal answers 409
     ``provider_key_required`` / ``provider_key_unreadable`` (``main.py`` handler).
     The decision it sets is inherited by the request's background tasks."""
+    from applire.services import log_consent_live
     from applire.services.allowance import admit
 
-    return await admit(db, user, "model_work")
+    decision = await admit(db, user, "model_work")
+    log_consent_live.arm()  # a refusal at the call seam answers this request
+    return decision
+
+
+class ModelWorkDoor:
+    """The door tried for model work that a write does not depend on.
+
+    Ruling C-1 (ADR-091 amended 2026-11-18): viewing, downloading, editing and
+    deleting work without the log consent, a provider key or allowance. A write
+    that LAYERS model work on top (the skill estimate of a profile edit, the
+    truthfulness and critic re-audit after a document edit) asks the door here:
+    admitted → the decision is set for the request and its background tasks, as
+    with ``admit_model_work``; refused → the write still runs, its model step is
+    left out, and a branch that IS model work (a merge preview) raises the
+    refusal through :meth:`require`."""
+
+    __slots__ = ("refusal",)
+
+    def __init__(self, refusal=None) -> None:
+        self.refusal = refusal
+
+    @property
+    def admitted(self) -> bool:
+        return self.refusal is None
+
+    def require(self) -> None:
+        """The branch that runs now IS model work: refused → raise; admitted →
+        a refusal at the call seam answers the request (log_consent_live.arm)."""
+        if self.refusal is not None:
+            raise self.refusal
+        from applire.services import log_consent_live
+
+        log_consent_live.arm()
+
+
+async def try_admit_model_work(
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+) -> ModelWorkDoor:
+    """``admit_model_work`` without the refusal: see :class:`ModelWorkDoor`."""
+    from applire.services.allowance import AdmissionRefused, admit
+
+    try:
+        await admit(db, user, "model_work")
+    except AdmissionRefused as exc:
+        return ModelWorkDoor(exc)
+    return ModelWorkDoor()
 
 
 # 1c's two dependencies live in ``auth/deps_links.py`` (work-packages §3); re-exported

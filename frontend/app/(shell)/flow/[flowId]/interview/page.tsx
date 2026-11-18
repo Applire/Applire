@@ -33,6 +33,13 @@ import { describeConflict } from "@/lib/conflict-display";
 import { Archive, Check, Clock, Contrast, HelpCircle, Lock, Square } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
+import { PostingTermsCard } from "@/components/interview/PostingTermsCard";
+import {
+  answerPostingTerms,
+  fetchPostingTerms,
+  hasOpenTerms,
+  type PostingTermsState,
+} from "@/lib/posting-terms";
 import { ChoiceLeadIn, choiceButtonLabel } from "@/components/interview/ChoiceLeadIn";
 import { isPastInterview, reopenedSummarySessionId } from "@/components/interview/reopened-summary";
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
@@ -613,6 +620,11 @@ export default function InterviewPage({
   // turn's own score is only the fallback if that read fails.
   const [profileCompleteness, setProfileCompleteness] = useState<number | null>(null);
   const [advancingToCV, setAdvancingToCV] = useState(false);
+  // Sorbet WP-Q10 — the posting-terms tick list on the completion screen:
+  // nothing ticked at the start; the CV button applies the ticks.
+  const [postingTerms, setPostingTerms] = useState<PostingTermsState | null>(null);
+  const [tickedTerms, setTickedTerms] = useState<string[]>([]);
+  const [postingTermsError, setPostingTermsError] = useState<string | null>(null);
 
   const [pendingConflicts, setPendingConflicts] = useState<ConflictSummary[]>([]);
   const [pendingConfirmations, setPendingConfirmations] = useState<PendingConfirmation[]>([]);
@@ -932,6 +944,21 @@ export default function InterviewPage({
 
   async function advanceToCV() {
     setAdvancingToCV(true);
+    // Sorbet WP-Q10: the ticks are the answer — stored before the CV page opens,
+    // so the generation it starts reads them. A failed save stops here.
+    let receipt = false;
+    const jobId = flowState?.job_id;
+    if (jobId && hasOpenTerms(postingTerms)) {
+      try {
+        const answered = await answerPostingTerms(jobId, tickedTerms);
+        receipt = answered.confirmed.length > 0;
+        setPostingTermsError(null);
+      } catch {
+        setPostingTermsError(t("postingTerms.saveFailed"));
+        setAdvancingToCV(false);
+        return;
+      }
+    }
     try {
       await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
         method: "POST",
@@ -941,8 +968,21 @@ export default function InterviewPage({
     } catch {
       // best-effort
     }
-    router.push(`/flow/${flowId}/cv`);
+    router.push(receipt ? `/flow/${flowId}/cv?postingTerms=added` : `/flow/${flowId}/cv`);
   }
+
+  // Sorbet WP-Q10 — read the list once the interview is complete.
+  const completionJobId = completion ? flowState?.job_id : undefined;
+  useEffect(() => {
+    if (!completionJobId) return;
+    let cancelled = false;
+    void fetchPostingTerms(completionJobId).then((state) => {
+      if (!cancelled) setPostingTerms(state);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [completionJobId]);
 
   // #789 (ruling F1-2) — ONE count, the same helper the gaps page reads: the
   // row's open requirements (the ledger, re-read after every turn).
@@ -1127,6 +1167,21 @@ export default function InterviewPage({
           <div className="mb-8" data-testid="interview-summary-section">
             <DecisionTrailReview mode="interview" sessionId={sessionId} onFix={() => router.push("/profile")} />
           </div>
+
+          {/* Sorbet WP-Q10 (ruling Q7-2): between the summary and the CV button,
+              only when the posting uses terms the person never used. */}
+          {hasOpenTerms(postingTerms) && (
+            <div className="mb-8">
+              <PostingTermsCard
+                terms={postingTerms.terms}
+                selected={tickedTerms}
+                onChange={setTickedTerms}
+                language={postingTerms.language}
+                error={postingTermsError}
+                disabled={advancingToCV}
+              />
+            </div>
+          )}
 
           {/* CTAs */}
           <div className="flex flex-col sm:flex-row gap-3 justify-center">

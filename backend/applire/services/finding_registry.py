@@ -37,8 +37,10 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Literal, Optional
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 DeliveryClass = Literal["F", "A", "U", "S"]
 
@@ -171,6 +173,10 @@ _DOC: dict[str, Entry] = {
         "tenureStartBeforeVault", "tenureExceedsVault", "subjectTenureExceeds",
         "subjectTenureExceedsStart",
         "titleNotHeld",  # Sorbet WP-Q7 (Q7-1): a title no position holds
+        # Sorbet WP-Q10 (Q7-2): a skill chip in the posting's word the person never
+        # ticked. The loop removes it (cv.skill_posting_term); a residue asks
+        # "Stimmt das?" — Ja leads to the profile, where the term becomes theirs.
+        "postingSkillNotHeld",
     )},
     "oracle@unbacked": _e(_F, "ask_true", "A"),          # unsupported term / bare unbacked
     "oracle:inflatedAspirational": _e("A", "ask_achieved"),
@@ -225,6 +231,7 @@ _DOC: dict[str, Entry] = {
         "cv.role_budget", "cv.recorded_name", "cv.level_code_changed", "cv.vault_field_missing",
         "cv.empty_project", "cv.claim_missing", "cv.project_missing", "cv.project_not_mentioned",
         "cv.skill_spelling", "cv.skills_cap", "cv.skill_duplicate", "cv.skill_named_in_bullet",
+        "cv.skill_posting_term",  # Sorbet WP-Q10 (Q7-2): a posting term never ticked
         "letter.salutation", "letter.signoff", "letter.closing", "letter.names",
         "letter.availability",
         "letter.new_figure",  # 784:134/784:82 (build 8 WP-L): blocking in the loop
@@ -245,11 +252,17 @@ _DOC: dict[str, Entry] = {
     "terminal:cv.identifier_not_in_profile": _e("S"),     # → oracle:identifierAbsent
     "terminal:letter.identifier": _e("S"),                # → oracle:identifierAbsent
     "terminal:cv.skill_untied": _e("S"),                  # → oracle:skillNoEvidence
+    # Sorbet WP-Q10: the reviewer-facing cap-precedence fact, advisory, never delivered
+    "terminal:cv.skills_cap_held": _e("S"),
     "terminal:letter.figure": _e("S"),                    # → oracle:figuresNoEvidence
     "terminal:letter.limit": _e("S"),
     "terminal:note:letter.limit_cut": _e("S"),
     "terminal:note:letter.limit_kept": _e("S"),
     "terminal:note:letter.missing_terms": _e("S"),
+    # Ruling Q10-8 (Sorbet WP-Q10): a skill a ticked posting term stands in for on
+    # this posting's CV — a composition rule on the person's own answer; report,
+    # agent door (``details``) and operator log.
+    "terminal:note:cv.skill_twin_left_out": _e("S"),
     "terminal:letter.post_condense": _e("S"),
     # the in-loop critic's advisory findings (cl. 8): never a delivered note, residue S
     "terminal:letter.critic_numeric": _e(_F, None, "S"),
@@ -442,8 +455,9 @@ def annotate_report(report: dict | None) -> list[str]:
                 cls, res = rendered_class(REGISTRY[f"keyword:{bucket}"])
                 delivery[bucket] = {"delivery_class": cls, "resolver": res}
             kw["delivery"] = delivery
-    except Exception:  # noqa: BLE001 — a stamp failure must never fail an audit
-        logger.exception("finding_registry.annotate_report failed; report left unstamped")
+    except Exception as _exc:  # noqa: BLE001 — a stamp failure must never fail an audit
+        logger.error("finding_registry.annotate_report failed; report left unstamped (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.annotate_report failed; report left unstamped", exc_info=True)
     return unregistered
 
 
@@ -458,8 +472,9 @@ def annotate_truthfulness(report: dict | None) -> list[str]:
             verdict = cr.get("verdict") if isinstance(cr, dict) else None
             if isinstance(verdict, dict):
                 _stamp(verdict, verdict_kinds(verdict), unregistered)
-    except Exception:  # noqa: BLE001
-        logger.exception("finding_registry.annotate_truthfulness failed; report left unstamped")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("finding_registry.annotate_truthfulness failed; report left unstamped (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.annotate_truthfulness failed; report left unstamped", exc_info=True)
     return unregistered
 
 
@@ -473,8 +488,9 @@ def stamp_ats_model(report):
         if bad:
             logger.warning("FINDING_REGISTRY_UNREGISTERED kinds=%s", sorted(set(bad)))
         return type(report).model_validate(data)
-    except Exception:  # noqa: BLE001
-        logger.exception("finding_registry.stamp_ats_model failed; report left unstamped")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("finding_registry.stamp_ats_model failed; report left unstamped (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.stamp_ats_model failed; report left unstamped", exc_info=True)
         return report
 
 
@@ -488,8 +504,9 @@ def stamp_truthfulness_model(report):
                 logger.warning("FINDING_REGISTRY_UNREGISTERED kinds=%s", [v.verdict, v.detail_key])
                 continue
             v.delivery_class, v.resolver = rendered_class(hit[1])
-    except Exception:  # noqa: BLE001
-        logger.exception("finding_registry.stamp_truthfulness_model failed")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("finding_registry.stamp_truthfulness_model failed (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.stamp_truthfulness_model failed", exc_info=True)
     return report
 
 
@@ -545,8 +562,9 @@ def apply_delivery(
         if bad:
             logger.warning("FINDING_REGISTRY_UNREGISTERED kinds=%s", sorted(set(bad)))
         return out
-    except Exception:  # noqa: BLE001
-        logger.exception("finding_registry.apply_delivery failed; report left as is")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("finding_registry.apply_delivery failed; report left as is (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.apply_delivery failed; report left as is", exc_info=True)
         return report
 
 
@@ -647,8 +665,9 @@ def delivered_report(
             removals = removals + removal_rows(
                 [f for f in late if f.text.casefold() not in shipped], pins=pins,
             )
-    except Exception:  # noqa: BLE001
-        logger.exception("delivered_report: delivery state failed — none recorded")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("delivered_report: delivery state failed — none recorded (%s)", type(_exc).__name__)
+        clog.debug("delivered_report: delivery state failed — none recorded", exc_info=True)
     return apply_delivery(report, review_degradation=review_degradation, removals=removals, fixed=fixed)
 
 # UAT-3d (Hazelnut build 5, WP-A1 hub) — the profile-health hub's kinds.

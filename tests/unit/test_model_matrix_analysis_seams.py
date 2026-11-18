@@ -110,7 +110,7 @@ def test_gap_scoring_against_the_frozen_reference():
 
 @pytest.mark.parametrize("seam", ["jd", "gap"])
 def test_mock_run_end_to_end_through_the_product_entry_point(seam, tmp_path, monkeypatch):
-    for key in ("LLM_PROVIDER", "LLM_DEBUG_LOG", "LLM_DEBUG_LOG_DIR"):
+    for key in ("LLM_PROVIDER", "LOG_LEVEL", "LLM_DEBUG_LOG_DIR"):
         monkeypatch.setenv(key, "")
     out = tmp_path / f"{seam}.jsonl"
     assert mm.main(["--seam", seam, "--provider", "mock", "--n", "1", "--cells", "it_backend_daniel.same_en",

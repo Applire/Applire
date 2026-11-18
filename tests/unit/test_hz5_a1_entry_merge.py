@@ -35,6 +35,7 @@ from applire.services.profile.reconcile.ops import (  # noqa: E402
 )
 
 from tests.support.profile_factory import make_master_profile  # noqa: E402
+from applire.auth.deps import ModelWorkDoor  # noqa: E402
 
 
 class StubProvider:
@@ -194,23 +195,29 @@ async def test_validation_codes(session):
     from applire.routers.profile import merge_entries_endpoint
 
     await _seed(session)
+    from unittest.mock import patch
+
     prov = StubProvider()
-    with pytest.raises(HTTPException) as e:
-        await merge_entries_endpoint(_req(target="wa", source="wa"), session, None, prov)
-    assert e.value.status_code == 422
-    with pytest.raises(HTTPException) as e:
-        await merge_entries_endpoint(_req(target="wa", source="nope"), session, None, prov)
-    assert e.value.status_code == 404
+    with patch("applire.routers.profile.get_provider", return_value=prov):
+        with pytest.raises(HTTPException) as e:
+            await merge_entries_endpoint(_req(target="wa", source="wa"), session, None, ModelWorkDoor())
+        assert e.value.status_code == 422
+        with pytest.raises(HTTPException) as e:
+            await merge_entries_endpoint(_req(target="wa", source="nope"), session, None, ModelWorkDoor())
+        assert e.value.status_code == 404
     with pytest.raises(Exception):  # 422 from the request model itself
         EntryMergeRequest(section="skills", target_id="a", source_id="b", mode="preview")
 
 
 @pytest.mark.asyncio
 async def test_no_profile_is_404(session):
+    from unittest.mock import patch
+
     from applire.routers.profile import merge_entries_endpoint
 
     with pytest.raises(HTTPException) as e:
-        await merge_entries_endpoint(_req(), session, None, StubProvider())
+        with patch("applire.routers.profile.get_provider", return_value=StubProvider()):
+            await merge_entries_endpoint(_req(), session, None, ModelWorkDoor())
     assert e.value.status_code == 404
 
 
@@ -283,12 +290,12 @@ async def test_stale_preview_is_409(session):
     bad = _choice("keep_both")
     bad["target_text"] = "A bullet the entry no longer holds"
     with pytest.raises(HTTPException) as e:
-        await merge_entries_endpoint(_req("commit", duplicates=[bad]), session, None, StubProvider())
+        await merge_entries_endpoint(_req("commit", duplicates=[bad]), session, None, ModelWorkDoor())
     assert (e.value.status_code, e.value.detail) == (409, "stale_preview")
     bad = _choice("keep_both")
     bad["source_text"] = "Not on the source"
     with pytest.raises(HTTPException) as e:
-        await merge_entries_endpoint(_req("commit", duplicates=[bad]), session, None, StubProvider())
+        await merge_entries_endpoint(_req("commit", duplicates=[bad]), session, None, ModelWorkDoor())
     assert e.value.detail == "stale_preview"
 
 
@@ -301,7 +308,7 @@ async def test_dates_choice_required_and_both_sides(session):
     data.work_experience[1].end_date = "2022-12"
     await _seed(session, data)
     with pytest.raises(HTTPException) as e:
-        await merge_entries_endpoint(_req("commit"), session, None, StubProvider())
+        await merge_entries_endpoint(_req("commit"), session, None, ModelWorkDoor())
     assert (e.value.status_code, e.value.detail) == (422, "dates_choice_required")
     resp = await _commit(session, dates="source")
     assert (_wa(resp).start_date, _wa(resp).end_date) == ("2019-05", "2022-12")

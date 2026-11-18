@@ -26,14 +26,14 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from applire.content_log import content_logger
+from applire.internal_errors import internal_server_error, log_unexpected, new_error_id
 
 logger = logging.getLogger(__name__)
-
-#: The catch-all 500 text (same wording as routers/session.py's #256 body).
-_INTERNAL_ERROR_MESSAGE = "An unexpected error occurred. Please try again."
+clog = content_logger(__name__)
 
 from applire.auth.deps import require_user
-from applire.auth.deps import admit_model_work
+from applire.auth.deps import ModelWorkDoor, admit_model_work, try_admit_model_work
 from applire.constants import MAX_CV_UPLOAD_BYTES
 from applire.models.user import User
 from applire.db.session import get_db
@@ -163,6 +163,15 @@ async def _get_provider(_payer=Depends(admit_model_work)) -> LLMProvider:
     """ADR-096 cl. 4: admitted (``model_work``) before the provider is built;
     the payer decision travels with the request and its background tasks."""
     return get_provider()
+
+
+async def _get_optional_provider(
+    door: ModelWorkDoor = Depends(try_admit_model_work),
+) -> LLMProvider | None:
+    """Ruling C-1: an edit never needs model admission. The model step a write
+    layers on (the skill estimate) runs only for an admitted person; otherwise
+    the write runs without it (``None``)."""
+    return get_provider() if door.admitted else None
 
 
 def _get_storage() -> StorageProvider:
@@ -375,7 +384,7 @@ async def resolve_staged_extraction_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
-    provider: LLMProvider = Depends(_get_provider),
+    door: ModelWorkDoor = Depends(try_admit_model_work),
 ) -> StagedResolveResponse:
     """Resolve a CV upload that the pre-merge integrity gate held (US167).
 
@@ -384,8 +393,14 @@ async def resolve_staged_extraction_endpoint(
     drops it, leaving the profile untouched. Resolving is idempotent: a second
     attempt on an already-resolved item returns HTTP 409. The lookup is scoped to
     the authenticated user, so a foreign upload returns 404 (IDOR guard).
+    ``merge`` is model work (the reconcile merge) and needs admission;
+    ``discard`` is not and does not (ruling C-1).
     """
     user = current_user
+    provider = None
+    if body.action == "merge":
+        door.require()
+        provider = get_provider()
     try:
         return await resolve_staged_extraction(
             db, staged_id, action=body.action, user_id=user.id, provider=provider
@@ -496,14 +511,19 @@ async def merge_entries_endpoint(
     body: EntryMergeRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
-    provider: LLMProvider = Depends(_get_provider),
+    door: ModelWorkDoor = Depends(try_admit_model_work),
 ):
     """Hazelnut build 5 (U-11) — merge two entries of one section. ``preview``
     writes nothing and returns the merged entry, the aliases, a date conflict
     and the duplicate bullets; ``commit`` re-validates the candidate's choices
     and writes one history record with a pre-write snapshot (undo-last-merge).
     404 unknown entry / no profile; 409 ``stale_preview``; 422
-    ``dates_choice_required`` / same entry."""
+    ``dates_choice_required`` / same entry. The preview reads duplicates with
+    the model and needs admission; the commit does not (ruling C-1)."""
+    provider = None
+    if body.mode == "preview":
+        door.require()
+        provider = get_provider()
     try:
         return await entry_merge(db, body, provider, user_id=_uid(current_user))
     except LookupError:
@@ -1122,11 +1142,8 @@ async def resolve_profile_conflict(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    except Exception:
-        logger.exception("profile route failed")  # never echo str(exc) (MD-24 (6))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
-        )
+    except Exception as exc:
+        raise internal_server_error(exc, where="profile.route", logger=logger)
 
 
 @router.post(
@@ -1152,11 +1169,8 @@ async def conflict_merge_proposal(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    except Exception:
-        logger.exception("profile route failed")  # never echo str(exc) (MD-24 (6))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
-        )
+    except Exception as exc:
+        raise internal_server_error(exc, where="profile.route", logger=logger)
     return MergeProposalResponse.from_proposal(p)
 
 
@@ -1191,7 +1205,7 @@ async def patch_section(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
-    provider: LLMProvider = Depends(_get_provider),
+    provider: LLMProvider | None = Depends(_get_optional_provider),
     basis_updated_at: Annotated[
         datetime | None,
         Query(
@@ -1223,11 +1237,16 @@ async def patch_section(
     except VaultWriteRevertedError as exc:
         # The same structured body the upload doors give (#597): before W3 this
         # door surfaced it only through the catch-all's str(exc), which no
-        # longer echoes exception text (MD-24 (6)).
-        logger.error("patch_section: vault write reverted (%s)", exc)
+        # longer echoes exception text (MD-24 (6)). Every 500 carries its id.
+        error_id = new_error_id()
+        logger.error(
+            "patch_section: vault write reverted at stage=%s (source=%s) [error_id=%s]",
+            exc.stage, exc.source, error_id,
+        )
+        clog.debug("patch_section: vault write reverted [error_id=%s] (%s)", error_id, exc.detail)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE},
+            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE, "error_id": error_id},
         )
     except ValueError as exc:
         raise HTTPException(
@@ -1239,14 +1258,8 @@ async def patch_section(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         )
-    except Exception:
-        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
-        # name (an owner-guard refusal) or provider payload. Logged in full here.
-        logger.exception("profile route failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_INTERNAL_ERROR_MESSAGE,
-        )
+    except Exception as exc:
+        raise internal_server_error(exc, where="profile.route", logger=logger)
 
 
 @router.delete("", status_code=status.HTTP_202_ACCEPTED)
@@ -1271,10 +1284,15 @@ async def erase_profile(
         from applire.services.profile.owner import resolve_owner
 
         counts = await erase(db, resolve_owner(_uid(current_user)), "vault", storage=storage)
-    except ErasureFailed:
+    except ErasureFailed as exc:
+        error_id = log_unexpected(exc, where="profile.erase_profile", logger=logger)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erasure failed — no data was deleted. Please retry.",
+            detail={
+                "error_code": "erasure_failed",
+                "message": "Erasure failed — no data was deleted. Please retry.",
+                "error_id": error_id,
+            },
         )
     return {"message": "Erasure accepted", "records_deleted": counts}
 

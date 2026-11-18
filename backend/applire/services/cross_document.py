@@ -99,8 +99,10 @@ from typing import Any
 
 from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 # ── punctuation normalisation ────────────────────────────────────────────────
@@ -305,7 +307,11 @@ def find_unaddressed_hard_requirements(
     unaddressed.sort(key=lambda e: e.get("fit_weight") or 0, reverse=True)
     if len(unaddressed) > cap:
         dropped = unaddressed[cap:]
-        logger.info(
+        logger.info("find_unaddressed_hard_requirements: capped at %d, dropped %d "
+            "lower-weight concept(s)",
+            cap, len(dropped),
+        )
+        clog.debug(
             "find_unaddressed_hard_requirements: capped at %d, dropped %d "
             "lower-weight concept(s): %s",
             cap, len(dropped), [e.get("concept", "") for e in dropped],
@@ -555,7 +561,10 @@ def select_jd_relevant_limits(
     kept = ranked[:_MAX_STATED_LIMITS_REPORTED]
     dropped = ranked[_MAX_STATED_LIMITS_REPORTED:]
     if dropped:
-        logger.info(
+        logger.info("LETTER_STATED_LIMITS_TRUNCATED kept=%d dropped=%d",
+            len(kept), len(dropped),
+        )
+        clog.debug(
             "LETTER_STATED_LIMITS_TRUNCATED kept=%d dropped=%d dropped_concepts=%s",
             len(kept), len(dropped), [c for _, _, c, _ in dropped],
         )
@@ -1349,7 +1358,11 @@ def stated_limit_adjudication_reviewer_prompt_fn(
         block = render_stated_limit_adjudication_block(claimed, limits)
         if not block:
             return prompt
-        logger.info(
+        logger.info("stated-limit adjudication (#731): %d claimable concept(s) surfaced in "
+            "the draft against %d stated limit(s)",
+            len(claimed), len(limits),
+        )
+        clog.debug(
             "stated-limit adjudication (#731): %d claimable concept(s) surfaced in "
             "the draft against %d stated limit(s): %s",
             len(claimed), len(limits), claimed,
@@ -1393,7 +1406,11 @@ def unaddressed_requirements_reviewer_prompt_fn(
         unaddressed = find_unaddressed_hard_requirements(keyword_ledger, draft)
         block = render_unaddressed_hard_requirements_block(unaddressed)
         if block:
-            logger.info(
+            logger.info("unaddressed hard requirements: %d concept(s) missing from "
+                "current letter draft",
+                len(unaddressed),
+            )
+            clog.debug(
                 "unaddressed hard requirements: %d concept(s) missing from "
                 "current letter draft: %s",
                 len(unaddressed), [e.get("concept", "") for e in unaddressed],

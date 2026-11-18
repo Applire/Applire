@@ -116,7 +116,23 @@ export interface Skill {
   status?: EntryStatus;
   /** ADR-046 am. 2026-10-07 (#709) — absent while empty; removable only. */
   aliases?: string[];
+  /** Sorbet WP-Q10 — a posting term the person confirmed; read-only, absent while empty. */
+  confirmations?: SkillConfirmation[];
   [key: string]: unknown;
+}
+
+/** Sorbet WP-Q10 (ADR-046 am. 2026-11-17) — mirrors the backend `SkillConfirmation`. */
+export interface SkillConfirmation {
+  /** The wording confirmed — the skill's name, or a second name it added. */
+  name: string;
+  via: "person" | "agent";
+  /** ISO date. */
+  on: string;
+  /** The posting the wording came from — its company (the role when none is known). */
+  posting?: string | null;
+  job_id?: string | null;
+  /** Ruling Q10-8 — the person's own skill names the card showed beside the term; that posting's CV prints the term in their place. */
+  shown_skills?: string[];
 }
 
 export interface Language {

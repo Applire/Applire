@@ -26,6 +26,8 @@
  * the POST→poll so callers await a single promise resolving to the GapAnalysisResponse.
  */
 
+import { announceLogConsentRefusal, isLogConsentRefusalCode } from "@/lib/log-consent";
+
 /** Subset of the backend GapAnalysisResponse callers read; extra fields pass through. */
 export interface GapAnalysisResult {
   id: string;
@@ -39,6 +41,25 @@ export class GapAnalysisError extends Error {
     super(errorCode ?? "gap_failed");
     this.name = "GapAnalysisError";
   }
+}
+
+/**
+ * The line a failed gap job shows. ADR-096: a refused job for a person without a usable
+ * key says so. A job ended by a withdrawn consent opens the consent dialog and names its
+ * topic; every other code stays generic.
+ */
+export function gapErrorText(
+  t: (key: string) => string,
+  e: GapAnalysisError,
+  tLogConsent?: (key: string) => string,
+): string {
+  if (isLogConsentRefusalCode(e.errorCode) && tLogConsent) {
+    announceLogConsentRefusal();
+    return tLogConsent("cardTitle");
+  }
+  if (e.errorCode === "provider_key_required") return t("analysisKeyRequired");
+  if (e.errorCode === "provider_key_unreadable") return t("analysisKeyUnreadable");
+  return t("analysisError");
 }
 
 interface GapAnalysisOptions {

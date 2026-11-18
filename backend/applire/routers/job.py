@@ -20,6 +20,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.internal_errors import internal_server_error
@@ -45,8 +46,10 @@ from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_b
 from applire.services.job import analyze_jd, caller_link, get_job_for_user
 from applire.services.posting_labels import posting_response
 from applire.services.scraper import ScraperError, scrape_job_url
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 router = APIRouter(prefix="/api/job", tags=["job"])
 
@@ -211,19 +214,8 @@ async def downgrade_gap_keyword_liability(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except Exception:
-        # #265: never format str(exc) into the response — a provider crash's
-        # message can embed a raw provider payload. Full detail is logged
-        # server-side; the client gets a stable machine-readable code (the
-        # #256 convention, applied here so new code adds no new leak).
-        logger.exception("keyword-liability downgrade failed for job %s", job_id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error_code": "internal_error",
-                "message": "An unexpected error occurred. Please try again.",
-            },
-        )
+    except Exception as exc:
+        raise internal_server_error(exc, where="job.keyword_liability_downgrade", logger=logger)
 
 
 @router.post(
@@ -380,3 +372,48 @@ async def get_gap_job_status_endpoint(
         error_code=job.error_code,
         result=result,
     )
+
+
+# ── Sorbet WP-Q10: the posting-terms tick list (ADR-046 am. 2026-11-17) ─────────
+
+
+class PostingTermsAnswerRequest(BaseModel):
+    """The card's answer: the ticked terms. Every other term shown is declined
+    for this application; an empty list is a valid answer."""
+
+    confirmed: list[str] = Field(default_factory=list, max_length=50)
+
+
+@router.get("/{job_id}/posting-terms", status_code=status.HTTP_200_OK)
+async def get_posting_terms(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> dict:
+    """The terms the posting uses that the person never used — the card before
+    the CV. ``terms`` empty → no card. Read-only, no model call."""
+    from applire.services.posting_term_answer import posting_terms_state
+
+    return (await posting_terms_state(db, job_id, current_user.id)).as_dict()
+
+
+@router.post("/{job_id}/posting-terms", status_code=status.HTTP_200_OK)
+async def answer_posting_terms_endpoint(
+    job_id: uuid.UUID,
+    body: PostingTermsAnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> dict:
+    """The person's answer from the card (``via="person"``). 422 for a term that
+    is not on the list."""
+    from applire.services.posting_term_answer import UnknownTerms, answer_posting_terms
+
+    try:
+        state = await answer_posting_terms(
+            db, job_id, current_user.id, confirmed=body.confirmed, via="person"
+        )
+    except UnknownTerms as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    return state.as_dict()

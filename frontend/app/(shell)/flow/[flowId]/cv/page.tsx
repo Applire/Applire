@@ -75,6 +75,8 @@ import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
+import { PostingTermsGate, PostingTermsReceipt } from "@/components/interview/PostingTermsCard";
+import { fetchPostingTerms, hasOpenTerms, type PostingTermsState } from "@/lib/posting-terms";
 import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
 // ADR-090 cl. 2 — Show me where searches the preview iframe, looked up at call time.
@@ -165,6 +167,10 @@ export default function CVPage({
   // Read from window.location on mount (useSearchParams would force a
   // Suspense boundary on this page for no gain).
   const [retailoredGained, setRetailoredGained] = useState<StaleCVGained[] | null>(null);
+  // Sorbet WP-Q10 — the posting-terms card before ANY generation started on this
+  // page (first generate, regenerate, template switch), and its receipt.
+  const [termsGate, setTermsGate] = useState<{ state: PostingTermsState; run: () => void } | null>(null);
+  const [termsReceipt, setTermsReceipt] = useState<string[]>([]);
   const [panelOpen, setPanelOpen] = useState(true);
   // #667 (ADR-081 cl. 3 amended 2026-09-11): the review surface's fourth handle
   // moves the user to *Bearbeiten*, so the active tab stops being the panel's
@@ -320,6 +326,21 @@ export default function CVPage({
     const param = new URLSearchParams(window.location.search).get("retailored");
     if (param) setRetailoredGained(decodeGained(param));
   }, []);
+
+  // Sorbet WP-Q10 — arrived from the completion screen's card with terms added:
+  // the receipt names them (the answer's own record, read back).
+  const receiptJobId = flowState?.job_id;
+  useEffect(() => {
+    if (!receiptJobId) return;
+    if (new URLSearchParams(window.location.search).get("postingTerms") !== "added") return;
+    let cancelled = false;
+    void fetchPostingTerms(receiptJobId).then((s) => {
+      if (!cancelled && s) setTermsReceipt(s.confirmed);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [receiptJobId]);
 
   // E042/US239: seed the page-target selector from the user's saved default.
   // A settings failure just keeps the DACH-standard (2) default — never a gate.
@@ -571,7 +592,35 @@ export default function CVPage({
     };
   }, [cvId, phase]);
 
+  // Sorbet WP-Q10 — one dialog element for both render branches of this page.
+  const termsGateDialog =
+    termsGate && flowState ? (
+      <PostingTermsGate
+        jobId={flowState.job_id}
+        state={termsGate.state}
+        onCancel={() => setTermsGate(null)}
+        onAnswered={(answered) => {
+          const run = termsGate.run;
+          setTermsGate(null);
+          setTermsReceipt(answered.confirmed);
+          run();
+        }}
+      />
+    ) : null;
+
   async function handleGenerate(tpl: CVTemplate, pages: number = targetPages) {
+    if (!flowState) return;
+    // Sorbet WP-Q10 (ruling Q7-2): every generation from this page asks the
+    // posting-terms question first while terms are unanswered.
+    const terms = await fetchPostingTerms(flowState.job_id);
+    if (hasOpenTerms(terms)) {
+      setTermsGate({ state: terms, run: () => void startGeneration(tpl, pages) });
+      return;
+    }
+    await startGeneration(tpl, pages);
+  }
+
+  async function startGeneration(tpl: CVTemplate, pages: number) {
     if (!flowState) return;
     setTemplate(tpl);
     setIsGenerating(true);
@@ -1080,6 +1129,12 @@ export default function CVPage({
 
   return (
       <div data-testid="cv-page">
+        {termsGateDialog}
+        {termsReceipt.length > 0 && (
+          <div className="fixed top-16 left-1/2 z-[55] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 shadow-md">
+            <PostingTermsReceipt confirmed={termsReceipt} onDismiss={() => setTermsReceipt([])} />
+          </div>
+        )}
         {/* E039/US221: the freshly re-tailored version explains itself —
             "changed because your profile gained X" (delta from the nudge). */}
         {retailoredGained !== null && (
@@ -1335,6 +1390,12 @@ export default function CVPage({
 
   return (
     <div className="p-6 min-h-screen bg-neutral-light" data-testid="cv-page">
+      {termsReceipt.length > 0 && (
+        <div className="mx-auto mb-4 max-w-3xl">
+          <PostingTermsReceipt confirmed={termsReceipt} onDismiss={() => setTermsReceipt([])} />
+        </div>
+      )}
+      {termsGateDialog}
       {phase === "photo_prompt" && (
         <PhotoPromptStep
           currentPhotoUrl={profilePhotoUrl}

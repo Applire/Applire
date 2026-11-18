@@ -329,7 +329,7 @@ async def test_a_stored_key_appears_in_no_response_log_audit_usage_or_debug_reco
 ):
     db, client, _, _ = env
     caplog.set_level(logging.DEBUG)
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")  # one switch (ADR-087 cl. 9 amended)
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
     r = await _put(client, {"OPENROUTER_API_KEY": SENTINEL, "OPENROUTER_MODEL": "m/x"})
     assert r.status_code == 200
@@ -351,10 +351,16 @@ async def test_a_stored_key_appears_in_no_response_log_audit_usage_or_debug_reco
         recorded.append(row)
 
     usage_mod.set_sink(_sink)
+    from tests.support.log_consent import consent_facts_for_current_owner
+    from applire.services import allowance as _allowance
+
+    consent_token = consent_facts_for_current_owner()  # content logs need a consent
     try:
         await get_provider().acomplete("ping")
     finally:
         usage_mod.restore_sink()
+        if consent_token is not None:
+            _allowance._facts.reset(consent_token)
     assert recorded, "the usage recorder must have run"
     assert list(tmp_path.rglob("*.jsonl")), "the debug log must have written a record"
 

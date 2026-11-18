@@ -35,8 +35,10 @@ from applire.schemas.profile import MasterProfileData, RestatedReceipt
 from applire.services.profile.entity_label import label_for
 from applire.services.oracle.matchers.figures import extract_figures
 from applire.services.profile.reconcile.ops import AddBullets, ReplaceBullet
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 _ENGAGEMENT_SECTIONS = ("work_experience", "projects", "volunteer_activities")
 _BULLET_FIELDS = ("responsibilities", "achievements")
@@ -343,8 +345,9 @@ async def hold_back_restatements(
                 temperature=0.0,
                 max_tokens=RESTATEMENT_MAX_TOKENS,
             )
-    except Exception:  # noqa: BLE001 — fail-open: the merge writes what it wrote before
-        logger.warning("restatement_check: call failed; every bullet is written (fail-open)", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — fail-open: the merge writes what it wrote before
+        logger.warning("restatement_check: call failed; every bullet is written (fail-open): %s", type(exc).__name__)
+        clog.debug("restatement_check: call failed; every bullet is written (fail-open)", exc_info=True)
         return ops, []
 
     drop: dict[int, set[int]] = {}

@@ -59,8 +59,10 @@ from applire.schemas.cv_sections import (
     ContentSnapshot,
     RewriteResponse,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: Verdicts that WITHHOLD a sentence. Deliberately the three ADVERSE ones only:
 #: ``unverifiable`` means the Oracle could not decide, and ADR-068's fail-safe polarity
@@ -524,7 +526,11 @@ async def _ground_suggestion(
         if denied_hit is not None:
             withheld = [c.text for c in claims]
             kept = ""
-            logger.info(
+            logger.info("CV_ASSIST_WITHHELD_DENIAL reason=contradicts_recorded_denial "
+                "count=%d",
+                len(withheld),
+            )
+            clog.debug(
                 "CV_ASSIST_WITHHELD_DENIAL concept=%r reason=contradicts_recorded_denial "
                 "count=%d",
                 denied_hit,
@@ -560,8 +566,12 @@ async def _ground_suggestion(
             len(claims),
         )
         return kept, len(withheld)
-    except Exception:  # noqa: BLE001 — prevention tier, never a gate
+    except Exception as _exc:  # noqa: BLE001 — prevention tier, never a gate
         logger.error(
+            "cv_assist grounding failed; showing the suggestion unchecked "
+            "(the delivery-time truthfulness audit remains the gate) (%s)", type(_exc).__name__,
+        )
+        clog.debug(
             "cv_assist grounding failed; showing the suggestion unchecked "
             "(the delivery-time truthfulness audit remains the gate)",
             exc_info=True,

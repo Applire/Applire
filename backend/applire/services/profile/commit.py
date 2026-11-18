@@ -109,12 +109,14 @@ from applire.services.profile.reconcile.stance import (
     record_denials,
 )
 from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
+from applire.content_log import content_logger
 
 if TYPE_CHECKING:  # pragma: no cover — import cost only
     from applire.providers.embedding.base import EmbeddingProvider
     from applire.providers.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 class SnapshotClass(str, Enum):
@@ -1012,8 +1014,14 @@ async def _sweep_fact_pins(
                         sum(1 for p in refreshed if p.stale),
                         len(refreshed),
                     )
-    except Exception:
-        logger.exception(
+    except Exception as exc:
+        logger.error(
             "fact-pin sweep skipped — query/write failed (ADR-077 fail-safe; "
-            "generation-start re-verify remains the backstop)"
+            "generation-start re-verify remains the backstop): %s",
+            type(exc).__name__,
+        )
+        clog.debug(
+            "fact-pin sweep skipped — query/write failed (ADR-077 fail-safe; "
+            "generation-start re-verify remains the backstop)",
+            exc_info=True,
         )

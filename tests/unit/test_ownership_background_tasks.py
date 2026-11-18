@@ -39,6 +39,9 @@ DECLARED_CREATE_TASK: dict[tuple[str, str], str] = {
     ("services/ops/aggregate.py", "_refresh_loop"): "ops-aggregate",  # 1c sets it
     # fix-admin ADM-5: the dashboard's single-flight provider check, set inside.
     ("services/ops/probes.py", "_kicked_provider_probe"): "ops-aggregate",
+    # The live consent registry re-reads the consent columns of ``users`` (an
+    # identity table, not owned): no owner and no unscoped reason needed.
+    ("main.py", "run_refresher"): "identity-table-only",
 }
 
 

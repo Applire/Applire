@@ -41,12 +41,23 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 SENIOR = "11111111-1111-1111-1111-111111111111"
 JUNIOR = "22222222-2222-2222-2222-222222222222"
+
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
 
 # --- vault text (English) ----------------------------------------------------
 EN_ISO = "Ran the ISO 9001 audit programme for the whole plant."
@@ -346,7 +357,7 @@ def test_the_tail_never_re_adds_a_vault_bullet_the_preseed_placed():
 
 
 def test_the_cross_language_gate_protects_this_shape_even_without_the_exclusion(
-    monkeypatch, caplog
+    monkeypatch, content_records
 ):
     """ADR-072 amended 2026-09-19 (#724 residual, M-27) supersedes the old
     baseline this test used to assert: that without the preseed's by-entry
@@ -376,15 +387,14 @@ def test_the_cross_language_gate_protects_this_shape_even_without_the_exclusion(
     _settle_language_preseed(settled, plan)
     monkeypatch.setattr(PreseedPlan, "excluded_vault_norms", lambda self: {})
 
-    with caplog.at_level(logging.INFO):
-        delivered = _senior_bullets(_compose(settled, profile, budget, preseed=plan))
+    delivered = _senior_bullets(_compose(settled, profile, budget, preseed=plan))
 
     assert EN_ISO not in delivered
     assert "Leitete das Auditprogramm fuer das gesamte Werk." in delivered
     assert len([b for b in delivered if "Auditprogramm" in b]) == 1
     assert any(
         "LANGUAGE_RESTORE_SKIPPED" in r.getMessage() and "ISO 9001" in r.getMessage()
-        for r in caplog.records
+        for r in content_records
     )
 
 
@@ -651,7 +661,7 @@ def test_the_preseed_sees_the_writers_own_draft_already_covers_the_concept():
     assert STRIPE_CONCEPT in plan.bullets_already_covered
 
 
-def test_the_tail_never_re_derives_a_candidate_for_a_concept_covered_pre_pass(caplog):
+def test_the_tail_never_re_derives_a_candidate_for_a_concept_covered_pre_pass(content_records):
     """The delivered shape `Q09-tailored-data.json` reproduced and closed:
     the vault's own English bullet must never join the writer's own
     (translated) sentence about the same fact — and, because the preseed
@@ -675,11 +685,10 @@ def test_the_tail_never_re_derives_a_candidate_for_a_concept_covered_pre_pass(ca
     settled = _fake_translate(new_prose, {**TRANSLATIONS, EN_STRIPE_DRAFT: DE_STRIPE_DRAFT})
     _settle_language_preseed(settled, plan)
 
-    with caplog.at_level(logging.INFO):
-        doc = _compose_document(
-            settled, profile, raw_profile_json=profile, keyword_ledger=ledger,
-            budget=budget, job_dict={}, language="de", preseed=plan,
-        )
+    doc = _compose_document(
+        settled, profile, raw_profile_json=profile, keyword_ledger=ledger,
+        budget=budget, job_dict={}, language="de", preseed=plan,
+    )
     delivered = _senior_bullets(doc)
 
     assert EN_STRIPE_VAULT not in delivered
@@ -687,7 +696,7 @@ def test_the_tail_never_re_derives_a_candidate_for_a_concept_covered_pre_pass(ca
     assert len([b for b in delivered if "stripe" in b.lower()]) == 1
     assert not any(
         "LANGUAGE_RESTORE_SKIPPED" in r.getMessage() and STRIPE_CONCEPT in r.getMessage()
-        for r in caplog.records
+        for r in content_records
     )
 
 

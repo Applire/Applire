@@ -36,6 +36,7 @@ from applire.providers.llm.json_reply import (
     take_discarded_prose,
     take_discarded_tail,
 )
+from tests.support.log_consent import consented_owner  # noqa: F401 — fixture
 
 # The founder's shape, synthetic content: an object, then prose.
 _OBJ = {"ops": [{"op": "add_bullet", "text": "Led the Kafka migration"}], "empty_reason": None}
@@ -356,10 +357,11 @@ def _records(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("consented_owner")
 async def test_the_debug_log_records_the_raw_reply_on_a_parse_failure(monkeypatch, tmp_path):
     from applire.providers.llm.debug_log import llm_log_stage, wrap_provider
 
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
     provider = wrap_provider(_requesty(monkeypatch, _SECOND_OBJECT))
     with llm_log_stage("reconcile"), pytest.raises(LLMResponseParseError):
@@ -371,10 +373,11 @@ async def test_the_debug_log_records_the_raw_reply_on_a_parse_failure(monkeypatc
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("consented_owner")
 async def test_the_debug_log_records_a_discarded_tail_on_success(monkeypatch, tmp_path):
     from applire.providers.llm.debug_log import wrap_provider
 
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
     provider = wrap_provider(_requesty(monkeypatch, _TRAILING))
     assert await provider.aparse_json("reconcile") == _OBJ
@@ -387,10 +390,11 @@ async def test_the_debug_log_records_a_discarded_tail_on_success(monkeypatch, tm
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("consented_owner")
 async def test_the_debug_log_records_the_skipped_prose_on_success(monkeypatch, tmp_path):
     from applire.providers.llm.debug_log import wrap_provider
 
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
     assert await wrap_provider(_requesty(monkeypatch, _LUNA)).aparse_json("x") == {
         "approved": True, "issues": []}
@@ -401,17 +405,18 @@ async def test_the_debug_log_records_the_skipped_prose_on_success(monkeypatch, t
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("consented_owner")
 async def test_a_replayed_failure_record_fails_the_same_way(monkeypatch, tmp_path):
     """The record the debug log writes on a failure replays as that failure."""
     from applire.providers.llm.debug_log import wrap_provider
     from applire.providers.llm.replay import ReplayLLMProvider
 
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
     with pytest.raises(LLMResponseParseError):
         await wrap_provider(_requesty(monkeypatch, _SECOND_OBJECT)).aparse_json("x")
     (rec,) = _records(tmp_path)
-    monkeypatch.setattr(settings, "llm_debug_log", False)
+    monkeypatch.setattr(settings, "log_level", "INFO")
     with pytest.raises(LLMResponseParseError):
         await ReplayLLMProvider([rec]).aparse_json("x")
 

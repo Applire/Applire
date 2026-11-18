@@ -41,8 +41,11 @@ import logging
 import re
 import unicodedata
 from typing import Any
+from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # ADR-070 clause 1 — quote-resolution normalisation: NFKC + apostrophe fold +
 # dash fold + whitespace collapse + lower. Mirrors ats_audit._norm plus the
@@ -242,7 +245,11 @@ def verify_attested_evidence(
     cited = str(attested.get("entry") or "").strip()
     if not quote or not unit:
         if quote or unit or cited:
-            logger.warning(
+            logger.warning("scope_requirements: attested_evidence dropped — quote and unit are "
+                "both required (ADR-070 clause 1 fail-closed). Got quote=%r.",
+                bool(quote),
+            )
+            clog.debug(
                 "scope_requirements: attested_evidence dropped — quote and unit are "
                 "both required (ADR-070 clause 1 fail-closed). Got quote=%r unit=%r.",
                 bool(quote),
@@ -251,7 +258,10 @@ def verify_attested_evidence(
         return None
     quote_norm = _norm_quote(quote)
     if not _quote_states_a_figure(quote_norm):
-        logger.warning(
+        logger.warning("scope_requirements: attested_evidence dropped — the quote states no "
+            "numeric figure, digit or spelled (ADR-070 clause 1, #421)"
+        )
+        clog.debug(
             "scope_requirements: attested_evidence dropped — the quote states no "
             "numeric figure, digit or spelled (ADR-070 clause 1, #421): %r",
             quote[:120],
@@ -272,7 +282,10 @@ def verify_attested_evidence(
                         "quote": quote,
                         "unit": unit,
                     }
-    logger.warning(
+    logger.warning("scope_requirements: attested_evidence dropped — the quote resolves to no "
+        "vault prose node (ADR-070 clause 1 fail-closed)"
+    )
+    clog.debug(
         "scope_requirements: attested_evidence dropped — the quote resolves to no "
         "vault prose node (ADR-070 clause 1 fail-closed): %r (cited entry %r)",
         quote[:120],
@@ -378,7 +391,11 @@ def build_scope_ledger_entries(
         if not values and status != "gap":
             if attested is not None:
                 if status == "direct":
-                    logger.warning(
+                    logger.warning("scope_requirements: 'direct' downgraded to 'partial' "
+                        "— an attestation supports at most 'partial'; 'direct' "
+                        "requires a typed vault value (ADR-070 clause 1)."
+                    )
+                    clog.debug(
                         "scope_requirements: 'direct' on %r downgraded to 'partial' "
                         "— an attestation supports at most 'partial'; 'direct' "
                         "requires a typed vault value (ADR-070 clause 1).",
@@ -387,7 +404,13 @@ def build_scope_ledger_entries(
                 status = "partial"
                 cited = ""
             else:
-                logger.warning(
+                logger.warning("scope_requirements: floor forced a concept from %r to 'gap' — no typed "
+                    "vault value of kind %r exists and no verified attestation "
+                    "(ADR-069 clause 2 fail-closed).",
+                    label(status),
+                    label(item.get("kind")),
+                )
+                clog.debug(
                     "scope_requirements: floor forced %r from %r to 'gap' — no typed "
                     "vault value of kind %r exists and no verified attestation "
                     "(ADR-069 clause 2 fail-closed).",
@@ -398,7 +421,11 @@ def build_scope_ledger_entries(
                 status = "gap"
         elif status == "direct":
             if not any(cited == v.get("entry") for v in values):
-                logger.warning(
+                logger.warning("scope_requirements: 'direct' downgraded to 'partial' — "
+                    "cited_entry resolves to no candidate value (ADR-069 "
+                    "clause 2 citation check)."
+                )
+                clog.debug(
                     "scope_requirements: 'direct' on %r downgraded to 'partial' — "
                     "cited_entry %r resolves to no candidate value (ADR-069 "
                     "clause 2 citation check).",
@@ -692,7 +719,8 @@ def scope_answer_limit(
         return None
     answer = (scope_answers or {}).get(_id_key(concept))
     if not isinstance(answer, str) or not answer.strip():
-        logger.info("scope_requirements: stated_limit %r cites no stored answer of this bar", cited)
+        logger.info("scope_requirements: stated_limit cites no stored answer of this bar")
+        clog.debug("scope_requirements: stated_limit %r cites no stored answer of this bar", cited)
         return None
     # MD-Q11 F4 (adversarial pass 2a): the quote is ONE WHOLE sentence of this
     # bar's answer (its own sentence boundaries, whitespace-normalised equality)
@@ -704,13 +732,15 @@ def scope_answer_limit(
     # and it is exactly the stitch shape of the probe.
     sentence = " ".join(str(quote or "").split()).strip()
     if not sentence or sentence not in answer_sentences(answer):
-        logger.info(
+        logger.info("scope_requirements: stated_limit quotes no whole sentence of the stored answer — binds nothing")
+        clog.debug(
             "scope_requirements: stated_limit %r quotes no whole sentence of the stored answer — binds nothing",
             cited,
         )
         return None
     if bar is not None and not names_bar_figure_as_scope(sentence, bar):
-        logger.info(
+        logger.info("scope_requirements: stated_limit quotes a sentence without the bar's figure — binds nothing")
+        clog.debug(
             "scope_requirements: stated_limit %r quotes a sentence without the bar's figure — binds nothing",
             cited,
         )
@@ -724,7 +754,8 @@ def scope_answer_limit(
     from applire.services.oracle.audit import _scope_step_framed
 
     if not _scope_step_framed(sentence):
-        logger.info(
+        logger.info("scope_requirements: stated_limit quotes a sentence that frames no step — binds nothing")
+        clog.debug(
             "scope_requirements: stated_limit %r quotes a sentence that frames no step — binds nothing",
             cited,
         )
@@ -769,7 +800,10 @@ def verified_stated_limit(
     if not isinstance(cited, str) or not cited.strip():
         return None
     if _id_key(cited) in {_id_key(t) for t in taken if isinstance(t, str)}:
-        logger.info(
+        logger.info("scope_requirements: stated_limit is already a REQUIREMENTS row's "
+            "denied_by — binds no scope bar"
+        )
+        clog.debug(
             "scope_requirements: stated_limit %r is already a REQUIREMENTS row's "
             "denied_by — binds no scope bar",
             cited,
@@ -796,7 +830,12 @@ def verified_stated_limit(
                 and not turn_bound
                 and not names_bar_figure_with_unit(f"{concept} {statement}", bar)
             ):
-                logger.info(
+                logger.info("scope_requirements: stated_limit is neither the %r bar's own "
+                    "concept recorded on its scope question nor names its figure "
+                    "with a unit — binds nothing",
+                    label(bar.get("kind")),
+                )
+                clog.debug(
                     "scope_requirements: stated_limit %r is neither the %r bar's own "
                     "concept recorded on its scope question nor names its figure "
                     "with a unit — binds nothing",
@@ -805,7 +844,8 @@ def verified_stated_limit(
                 )
                 return None
             return {"id": concept.strip(), "statement": statement.strip()}
-    logger.info("scope_requirements: stated_limit %r binds no live recorded denial", cited)
+    logger.info("scope_requirements: stated_limit binds no live recorded denial")
+    clog.debug("scope_requirements: stated_limit %r binds no live recorded denial", cited)
     return None
 
 

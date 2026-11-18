@@ -9,6 +9,15 @@ import pytest
 from applire.schemas.gap_cluster import GapClusterSchema
 
 
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
+
 def test_gap_cluster_schema_validates():
     raw = {
         "id": "cluster-agentic",
@@ -533,12 +542,11 @@ async def test_cluster_gaps_object_envelope_populates_clusters():
 
 
 @pytest.mark.asyncio
-async def test_cluster_gaps_malformed_item_dropped_others_survive(caplog):
+async def test_cluster_gaps_malformed_item_dropped_others_survive(content_records):
     import logging
-    with caplog.at_level(logging.DEBUG, logger="applire.services.gap"):
-        ga = await _run_cluster_gaps({"clusters": [_VALID_CLUSTER, {"garbage": True}]})
+    ga = await _run_cluster_gaps({"clusters": [_VALID_CLUSTER, {"garbage": True}]})
     assert [c["id"] for c in ga.gap_clusters] == ["cluster-agentic"]
-    assert any("dropped" in r.message.lower() for r in caplog.records)
+    assert any("dropped" in r.getMessage().lower() for r in content_records)
 
 
 @pytest.mark.asyncio

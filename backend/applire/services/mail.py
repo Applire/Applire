@@ -29,8 +29,10 @@ from pathlib import Path
 from typing import Literal
 
 from applire.config import settings
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 __all__ = ["MailConfig", "mail_config", "render", "send_link_mail", "send_mail", "smtp_enabled"]
 
@@ -136,7 +138,10 @@ async def send_mail(to: str, subject: str, body: str) -> bool:
     try:
         await asyncio.to_thread(_send_sync, cfg, to, subject, body)
     except Exception as exc:  # noqa: BLE001 — any SMTP/network failure means "hand it over"
-        logger.error("SMTP send failed (%s: %s) — the link must be handed over instead",
+        logger.error("SMTP send failed (%s) — the link must be handed over instead",
+            type(exc).__name__
+        )
+        clog.debug("SMTP send failed (%s: %s) — the link must be handed over instead",
                      type(exc).__name__, str(exc)[:200])
         return False
     return True

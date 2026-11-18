@@ -23,7 +23,9 @@ import { AppSidebar } from "@/components/shell/AppSidebar";
 import { HarnessBanner } from "@/components/shell/HarnessBanner";
 import { ProviderKeyBanner, ProviderKeyDialog } from "@/components/shell/ProviderKeyNotices";
 import { ShellUserProvider } from "@/components/shell/ShellUserContext";
+import { LogConsentDialog } from "@/components/log-consent/LogConsentDialog";
 import { loginPathFor, useCurrentUser } from "@/lib/auth";
+import { needsConsent } from "@/lib/log-consent";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -35,11 +37,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
  * shows its own load errors.
  */
 export default function ShellLayout({ children }: { children: React.ReactNode }) {
-  const { status, authState } = useCurrentUser();
+  const { status, authState, user } = useCurrentUser();
   const router = useRouter();
   const pathname = usePathname();
   const [userName, setUserName] = useState<string | null>(null);
-  const ready = status === "authenticated" || status === "error";
+  // Board B2: at LOG_LEVEL=DEBUG a person without a current consent answers first.
+  const consentFirst = status === "authenticated" && needsConsent(user?.log_consent);
+  const ready = (status === "authenticated" && !consentFirst) || status === "error";
 
   useEffect(() => {
     if (status !== "unauthenticated") return;
@@ -49,6 +53,12 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
     }
     router.replace(loginPathFor({ pathname: pathname ?? "/", search: window.location.search }));
   }, [status, authState?.setup_required, pathname, router]);
+
+  useEffect(() => {
+    if (!consentFirst) return;
+    const here = `${pathname ?? "/"}${window.location.search}`;
+    router.replace(here === "/" ? "/log-consent" : `/log-consent?next=${encodeURIComponent(here)}`);
+  }, [consentFirst, pathname, router]);
 
   useEffect(() => {
     if (!ready) return;
@@ -73,6 +83,7 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
         <HarnessBanner />
         <ProviderKeyBanner />
         <ProviderKeyDialog />
+        <LogConsentDialog />
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <AppSidebar userName={userName} />
           <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">

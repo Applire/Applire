@@ -15,9 +15,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""Developer-only full-fidelity logging of every LLM interaction.
+"""Full-fidelity logging of every LLM interaction — only at ``LOG_LEVEL=DEBUG``.
 
-Gated by ``settings.llm_debug_log`` (default ``False`` → OFF in production). When
+One switch (ADR-087 cl. 9 amended 2026-11-18): the log exists exactly when the
+instance writes content logs (:func:`applire.content_log.content_logging_on`);
+``LLM_DEBUG_LOG`` is no longer read here. Each record carries ``user_id`` (the
+ADR-092 owner, ``null`` for ownerless work) and is written only for a person
+who consented (:func:`applire.content_log.owner_may_be_logged`). When
 enabled, the provider factory wraps the chosen provider in :class:`_LoggingProvider`
 so that every ``acomplete`` / ``aparse_json`` call appends ONE JSON line to
 ``<llm_debug_log_dir>/<YYYY-MM-DD>.jsonl`` capturing the system prompt, user prompt,
@@ -44,7 +48,7 @@ labels the next call(s) with their ``role`` ("reviewer"/"generator") and 1-based
 ``attempt`` number as extra structured fields on the debug-log record. Separately,
 :func:`log_review_verdict` / :func:`log_review_exhausted` / :func:`log_review_call_failed`
 emit stable, PII-free, always-on structured lines via the standard ``applire.llm.review``
-logger — unlike the full-fidelity JSONL (dev-only, gated behind ``settings.llm_debug_log``
+logger — unlike the full-fidelity JSONL (written only at ``LOG_LEVEL=DEBUG``
 because it carries prompt/response content), these carry only counts/booleans/chain-ids,
 so they stay on in production and are the durable signal an exhausted review can be
 counted from after the fact.
@@ -79,7 +83,9 @@ _review_attempt: ContextVar[int | None] = ContextVar("llm_review_attempt", defau
 
 # Standard, always-on logger for review-loop observability (#264) — distinct from the
 # dev-only PII-bearing JSONL: these records carry only counts/booleans/chain-ids.
+from applire.content_log import content_logger  # noqa: E402
 _review_logger = logging.getLogger("applire.llm.review")
+_review_clog = content_logger("applire.llm.review")
 
 # Serialises the (rare, dev-only) file appends so large prompt lines never interleave.
 _write_lock = threading.Lock()
@@ -383,6 +389,10 @@ def log_review_substitution_diff(
     canonical kind:value tokens, never surrounding prose) signal. Stable
     ``REVIEW_SUBSTITUTION_DIFF`` prefix."""
     _review_logger.warning(
+        "REVIEW_SUBSTITUTION_DIFF chain=%s retained=%d lost=%d gained=%d",
+        chain_id, len(retained), len(lost), len(gained),
+    )
+    _review_clog.debug(
         "REVIEW_SUBSTITUTION_DIFF chain=%s retained=%r lost=%r gained=%r",
         chain_id, sorted(retained), sorted(lost), sorted(gained),
     )
@@ -395,9 +405,13 @@ def log_review_substitution_refused(chain_id: str, tier: str, would_lose: list[s
     structural shape (the settled draft's cosmetic complaint ships instead).
     Stable ``REVIEW_SUBSTITUTION_REFUSED`` prefix."""
     _review_logger.warning(
-        "REVIEW_SUBSTITUTION_REFUSED chain=%s tier=%s would_lose=%r — candidate draft "
+        "REVIEW_SUBSTITUTION_REFUSED chain=%s tier=%s would_lose=%d — candidate draft "
         "satisfied the structural predicate(s) but is evidence-poorer than the settled "
         "draft; refusing this substitution (#306 — evidence beats a clean predicate match)",
+        chain_id, tier, len(would_lose),
+    )
+    _review_clog.debug(
+        "REVIEW_SUBSTITUTION_REFUSED chain=%s tier=%s would_lose=%r",
         chain_id, tier, sorted(would_lose),
     )
 
@@ -499,18 +513,48 @@ def _scrubbed(value: Any) -> Any:
 
 
 def _record(**fields: Any) -> None:
-    directory = settings.llm_debug_log_dir or "logs/llm"
+    from applire.content_log import append_jsonl, owner_may_be_logged
+
     try:
-        os.makedirs(directory, exist_ok=True)
-        path = os.path.join(
-            directory, datetime.now(timezone.utc).strftime("%Y-%m-%d") + ".jsonl"
-        )
-        line = json.dumps(fields, ensure_ascii=False, default=str)
-        with _write_lock:
-            with open(path, "a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
+        allowed, user_id = owner_may_be_logged()
+        if not allowed:
+            return
+        directory = settings.llm_debug_log_dir or "logs/llm"
+        append_jsonl(directory, {"user_id": user_id, **fields})
     except Exception:  # noqa: BLE001 — debug logging must never break a request
         pass
+
+
+def _reported_tokens() -> dict | None:
+    try:
+        from applire.providers.llm.usage import _last_usage
+
+        usage = _last_usage.get()
+    except Exception:  # noqa: BLE001
+        return None
+    if usage is None:
+        return None
+    return {
+        "prompt": usage.prompt_tokens,
+        "completion": usage.completion_tokens,
+        "reasoning": usage.reasoning_tokens,
+    }
+
+
+async def _refuse_after_withdrawal() -> None:
+    """No model call starts for a person whose consent is gone, also when the
+    work began before the withdrawal (services/log_consent_live.py)."""
+    from applire.ownership import current_owner
+    from applire.services.log_consent_live import allowed_to_call, note_refused
+
+    owner = current_owner()
+    user_id = getattr(owner, "user_id", None) if owner is not None else None
+    if user_id is not None and not await allowed_to_call(user_id):
+        from applire.services.allowance import AdmissionRefused
+
+        refusal = AdmissionRefused("log_consent_required")
+        note_refused(refusal)  # the request boundary answers it, whatever catches it
+        raise refusal
 
 
 class _LoggingProvider(LLMProvider):
@@ -534,6 +578,7 @@ class _LoggingProvider(LLMProvider):
         # attributed to this one.
         take_discarded_tail()
         take_discarded_prose()
+        await _refuse_after_withdrawal()
         try:
             result = await fn(prompt, **kwargs)
             return result
@@ -562,6 +607,9 @@ class _LoggingProvider(LLMProvider):
                     if k in kwargs
                 },
                 latency_ms=round((time.monotonic() - start) * 1000),
+                # Token counts the provider reported (kept when a person's text
+                # is removed from this log, like the step, model and duration).
+                tokens=_reported_tokens(),
                 ok=error is None,
                 error=error,
                 response=_truncate(_scrubbed(result) if error is not None else result),
@@ -578,7 +626,9 @@ class _LoggingProvider(LLMProvider):
 
 
 def wrap_provider(provider: LLMProvider) -> LLMProvider:
-    """Wrap *provider* with debug logging when enabled; otherwise return it unchanged."""
-    if not settings.llm_debug_log:
+    """Wrap *provider* with the LLM call log at LOG_LEVEL=DEBUG; otherwise unchanged."""
+    from applire.content_log import content_logging_on
+
+    if not content_logging_on():
         return provider
     return _LoggingProvider(provider)

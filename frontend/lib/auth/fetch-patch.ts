@@ -16,6 +16,7 @@
  */
 
 import { PROVIDER_KEY_REQUIRED_EVENT, isProviderKeyErrorCode } from "../provider-key-events";
+import { announceLogConsentRefusal, isLogConsentRefusalCode } from "../log-consent";
 import { API_BASE, isAuthPage, loginPathFor, readErrorCode } from "./api";
 
 type FetchFn = typeof fetch;
@@ -91,6 +92,18 @@ export async function handleProviderKeyRefusal(res: Response, url: string): Prom
   return true;
 }
 
+/**
+ * ADR-096 amended 2026-11-18 — a `409 log_consent_required` (model work without a
+ * current consent to the test system's logs) raises the event the shell turns
+ * into the consent dialog. Same clone-read as above.
+ */
+export async function handleLogConsentRefusal(res: Response, url: string): Promise<boolean> {
+  if (res.status !== 409 || !isApiUrl(url)) return false;
+  if (!isLogConsentRefusalCode(await readErrorCode(res))) return false;
+  announceLogConsentRefusal();
+  return true;
+}
+
 /** Idempotent. Wraps whatever `window.fetch` is at call time. */
 export function installAuthFetch(): void {
   if (typeof window === "undefined" || typeof window.fetch !== "function") return;
@@ -105,6 +118,7 @@ export function installAuthFetch(): void {
     }
     if (res.status === 409) {
       void handleProviderKeyRefusal(res, requestUrl(input)).catch(() => {});
+      void handleLogConsentRefusal(res, requestUrl(input)).catch(() => {});
     }
     return res;
   }) as FetchFn & { [PATCHED]?: boolean };

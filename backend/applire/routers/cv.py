@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.internal_errors import internal_server_error
 from applire.auth.deps import require_user, user_or_signed_link
-from applire.auth.deps import admit_model_work
+from applire.auth.deps import ModelWorkDoor, admit_model_work, try_admit_model_work
 from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
@@ -440,6 +440,7 @@ async def patch_section(
     body: SectionPatchRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _door: ModelWorkDoor = Depends(try_admit_model_work),
     _auth: User = Depends(require_user),
 ) -> SectionPatchResponse:
     """Write section override and re-render CV HTML (23.4).
@@ -494,6 +495,7 @@ async def post_page_overflow_choice(
     cv_id: uuid.UUID,
     body: CVPageOverflowChoiceRequest,
     db: AsyncSession = Depends(get_db),
+    _door: ModelWorkDoor = Depends(try_admit_model_work),
     _auth: User = Depends(require_user),
 ) -> CVPageOverflow:
     """#786 L-3 (founder ruling 2026-10-22): keep the CV's extra page or cut to the

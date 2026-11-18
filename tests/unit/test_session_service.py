@@ -32,6 +32,15 @@ if str(_backend) not in sys.path:
 from tests.support.profile_factory import make_master_profile, set_profile_json  # noqa: E402
 
 
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
+
 # ---------------------------------------------------------------------------
 # SQLite fixture (reuses the same model set as test_sprint13_coverage.py)
 # ---------------------------------------------------------------------------
@@ -4335,7 +4344,7 @@ class TestAddressedGapUpgradesLedger:
 
     @pytest.mark.asyncio
     async def test_an_addressed_turn_the_vault_never_recorded_does_not_upgrade(
-        self, sqlite_session, caplog
+        self, sqlite_session, caplog, content_records
     ):
         """#318 / ADR-061 — the charter run-#7 case-2 divergence, at its seam.
 
@@ -4384,7 +4393,7 @@ class TestAddressedGapUpgradesLedger:
         assert cicd["status"] == "gap"
         assert cicd["evidence"] == ""
         # Never silent — the heal names the concept and the reason.
-        blob = " ".join(r.getMessage() for r in caplog.records)
+        blob = " ".join(r.getMessage() for r in content_records)
         assert "CI/CD" in blob and "no_vault_evidence_unit" in blob
         # The vault-backed sibling is untouched.
         python = next(e for e in ledger if e["concept"] == "Python")

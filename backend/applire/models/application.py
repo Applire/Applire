@@ -152,6 +152,12 @@ class Application(Base):
     # with the profile. NULL = pre-migration row, read as [].
     pinned_facts: Mapped[list | None] = mapped_column(_JSON, nullable=True)
 
+    # --- Posting-terms tick list (Sorbet WP-Q10, ADR-046 am. 2026-11-17) ---
+    # The person's answer for THIS application: {"declined": [term], "answered_at",
+    # "via"}. A ticked term is a profile skill and is not stored here. NULL =
+    # not answered; the card asks. Migration 0091.
+    posting_terms: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+
     # --- Stale-CV nudge dismissal (E039/US221) ---
     # Persisted so "not now" survives reloads; the indicator re-arms when an
     # enrichment lands AFTER this timestamp (the profile grew again).

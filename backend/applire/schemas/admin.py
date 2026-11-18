@@ -189,6 +189,9 @@ class OpsHealthResponse(BaseModel):
     #: RD-9 / MD-27: number of older duplicate master profiles migration 0074 set
     #: aside on upgrade (count only — never ids); 0 when nothing was retired.
     retired_profiles: int = 0
+    #: WPL-1: at LOG_LEVEL=DEBUG, the consent-text settings an admin must set
+    #: (env var names; empty otherwise).
+    log_consent_settings_missing: list[str] = []
 
 
 # ===========================================================================
@@ -388,6 +391,7 @@ AdminNoticeCode = Literal[
     "provider_not_ready",
     "ocr_needs_mistral_key",
     "settings_secret_unreadable",
+    "log_consent_settings_missing",
 ]
 
 

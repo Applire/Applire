@@ -52,8 +52,11 @@ from applire.prompts.review_rewrite import (
 )
 from applire.providers.llm.base import LLMProvider
 from applire.services.ats_audit import _norm, _verb_stem, surface_present
+from applire.content_log import content_logger
+from applire.content_log import label
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: The letter body's paragraph separator as the editor writes it; the split keeps
 #: whatever separator the stored body actually carries.
@@ -184,7 +187,7 @@ async def _rewrite_passage(
             disable_thinking=True,  # a bounded edit, not a generation (chrome tier)
         )
     except LLMTruncatedError:
-        logger.warning("REVIEW_REWRITE_TRUNCATED kind=%s chars=%d", passage_kind, len(passage))
+        logger.warning("REVIEW_REWRITE_TRUNCATED kind=%s chars=%d", label(passage_kind), len(passage))
         return None
     return (out or "").strip()
 
@@ -262,7 +265,10 @@ async def rewrite_for_removal(
     after_check = after.strip()
     still = [f for f in forms if present(f, after_check)]
     if not after_check or still:
-        logger.info(
+        logger.info("REVIEW_REWRITE_REFUSED kind=%s section=%s empty=%s forms_remaining=%d calls=%d",
+            label(kind), label(section_id), not after_check, len(still), calls,
+        )
+        clog.debug(
             "REVIEW_REWRITE_REFUSED kind=%s section=%s empty=%s forms_remaining=%r calls=%d",
             kind, section_id, not after_check, still, calls,
         )

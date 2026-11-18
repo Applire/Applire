@@ -256,10 +256,21 @@ class Settings(BaseSettings):
     # were already qualified. See docs/llm-models.md for the row and for how to
     # turn it off. Only the OpenAI-compatible gateways act on it.
     llm_structured_output: str = "auto"  # "auto" | "off"
-    # Developer-only: when True, every LLM call's full input/output is appended as a
-    # JSON line to <llm_debug_log_dir>/<date>.jsonl (records CV PII — keep OFF in prod).
+    # Retired as a switch (Q-11): content is logged only at LOG_LEVEL=DEBUG. Still
+    # read, so that `LLM_DEBUG_LOG=true` beside a higher level is named at startup.
     llm_debug_log: bool = False
+    # Where the LLM call log lands at LOG_LEVEL=DEBUG (one JSON line per call).
     llm_debug_log_dir: str = "logs/llm"
+    # Where the application's content lines land at LOG_LEVEL=DEBUG (never stdout).
+    content_log_dir: str = "logs/content"
+    # Age limit for both content logs, enforced by the retention worker; 0 = unlimited.
+    content_log_retention_days: int = 0
+    # The values the logging consent text names (shown only at LOG_LEVEL=DEBUG).
+    log_consent_operator_name: str = ""
+    log_consent_contact_email: str = ""
+    log_consent_assistant_provider: str = ""
+    log_consent_log_host: str = ""
+    log_consent_model_provider: str = ""
     embedding_provider: str = "noop"
     embedding_model: str = ""             # empty = use provider default
     # Combined score weights for GET /api/jobs/match (must sum to 1.0)
@@ -371,6 +382,22 @@ class Settings(BaseSettings):
         raise InvalidSettingError(
             "LLM_KEY_MODE must be 'instance' or 'user'. Fix it in your .env / "
             "environment and restart."
+        )
+
+    @field_validator("content_log_retention_days", mode="before")
+    @classmethod
+    def _content_log_days_is_a_count(cls, value: object) -> int:
+        """A whole number of days, 0 or more (empty = 0 = unlimited). Anything
+        else stops the start: a negative or misspelt limit read as "unlimited"
+        would keep the logs longer than the consent text says."""
+        text = str(value if value is not None else "").strip()
+        if text == "":
+            return 0
+        if text.isdigit():
+            return int(text)
+        raise InvalidSettingError(
+            "CONTENT_LOG_RETENTION_DAYS must be a whole number of days, 0 or more "
+            "(0 = unlimited). Fix it in your .env / environment and restart."
         )
 
     @field_validator("ops_provider_probe", mode="before")

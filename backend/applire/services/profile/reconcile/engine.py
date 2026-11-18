@@ -65,8 +65,11 @@ from applire.services.profile.reconcile.stance import (
     enforce_stance,
     offered_choice_gate,
 )
+from applire.content_log import content_logger
+from applire.content_log import label as content_label
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: The `empty_reason` vocabulary as a runtime set, derived from the ONE Literal
 #: in `ops.py` — never a second hand-written list that could drift from it.
@@ -527,6 +530,10 @@ def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[Reconcile
             # committer's class guard (`apply._restore_leadership_kind`) is the
             # backstop for every other door.
             logger.warning(
+                "reconcile: dropped a model-emitted %s naming a leadership field (MD-Q5: written "
+                "only from the person's answer)", content_label(item.get("op")),
+            )
+            clog.debug(
                 "reconcile: dropped a model-emitted %s naming %r (MD-Q5: written "
                 "only from the person's answer)", item.get("op"), item.get("field"),
             )
@@ -542,7 +549,8 @@ def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[Reconcile
             # re-running under DEBUG to even notice it happened.
             label = item.get("op") if isinstance(item, dict) else None
             label = label if isinstance(label, str) and label else "<unknown>"
-            logger.warning("reconcile: dropped malformed op (op=%s): %r", label, item)
+            logger.warning("reconcile: dropped malformed op (op=%s)", content_label(label) if label != "<unknown>" else label)
+            clog.debug("reconcile: dropped malformed op (op=%s): %r", label, item)
             if rejected is not None:
                 rejected.append(label)
     return ops
@@ -574,7 +582,7 @@ def _parse_empty_reason(raw: Any) -> EmptyReason | None:
     if raw in _EMPTY_REASONS:
         return raw  # type: ignore[return-value]
     if raw is not None:
-        logger.debug("reconcile: ignored unrecognised empty_reason %r", raw)
+        clog.debug("reconcile: ignored unrecognised empty_reason %r", raw)
     return None
 
 
@@ -589,5 +597,5 @@ def _parse_ambiguities(raw: Any) -> list[RequestConfirmation]:
                 RequestConfirmation.model_validate(strip_confirmation_extras(item))
             )
         except ValidationError:
-            logger.debug("reconcile: dropped malformed ambiguity %r", item)
+            clog.debug("reconcile: dropped malformed ambiguity %r", item)
     return ambiguities

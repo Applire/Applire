@@ -64,8 +64,10 @@ from typing import Any, Callable, Iterable
 
 from applire.services.ats_audit import join_corpus_fragments
 from applire.services.load_bearing import _figure_key, figures_present
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: Adversarial finding (Nougat UAT-fixes batch, adv pass, 2026-09-20): the shared
 #: ``oracle.matchers.figures.extract_figures``'s ``_PERCENT_RE`` requires a literal
@@ -290,8 +292,9 @@ def story_figures_reviewer_prompt_fn(
     """
     try:
         figures = story_figures(profile_json)
-    except Exception:
-        logger.exception("story_reach: could not read signature stories; no block appended")
+    except Exception as _exc:
+        logger.error("story_reach: could not read signature stories; no block appended (%s)", type(_exc).__name__)
+        clog.debug("story_reach: could not read signature stories; no block appended", exc_info=True)
         figures = []
     demanded: set[str] = set()
 
@@ -319,7 +322,11 @@ def story_figures_reviewer_prompt_fn(
             )
             if not block:
                 return prompt
-            logger.info(
+            logger.info("SIGNATURE STORY FIGURES: %d present, %d demand(s), %d already demanded "
+                "this round",
+                len(present), len(demand), len(already),
+            )
+            clog.debug(
                 "SIGNATURE STORY FIGURES: %d present, %d demand(s), %d already demanded "
                 "this round: %s",
                 len(present), len(demand), len(already), [f.raw for f in demand],
@@ -327,10 +334,14 @@ def story_figures_reviewer_prompt_fn(
             if demand and on_demand is not None:
                 on_demand(demand)
             return f"{prompt}\n\n{block}"
-        except Exception:
-            logger.exception(
+        except Exception as _exc:
+            logger.error(
                 "story_reach: signature-story figure scan failed this round; shipping the "
-                "un-decorated reviewer prompt"
+                "un-decorated reviewer prompt (%s)", type(_exc).__name__
+            )
+            clog.debug(
+                "story_reach: signature-story figure scan failed this round; shipping the "
+                "un-decorated reviewer prompt", exc_info=True
             )
             return prompt
 

@@ -39,12 +39,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Sequence
 
 from applire.services.reviewer import CheckFinding
+from applire.content_log import content_logger
 
 if TYPE_CHECKING:
     from applire.schemas.cv import TailoredCVData
     from applire.services.cv_budget import BudgetResult
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 PIPELINE_V1 = "v1"
 PIPELINE_V2 = "v2"
@@ -202,7 +204,11 @@ def lift_standalone_projects(prose: Any, profile_json: dict | None) -> Any:
             same["bullets"] = list(same.get("bullets") or []) + [
                 b for b in proj.get("bullets") or [] if isinstance(b, str) and _norm(b) not in have
             ]
-        logger.info(
+        logger.info("TAIL_RELOCATE (WP-Q5 b) pass=lift_standalone_projects predicate=role-nested copy "
+            "of a project the vault ties to no position role_id=%r merged=%s",
+            entry.get("id"), same is not None,
+        )
+        clog.debug(
             "TAIL_RELOCATE (WP-Q5 b) pass=lift_standalone_projects predicate=role-nested copy "
             "of a project the vault ties to no position role_id=%r project=%r merged=%s",
             entry.get("id"), proj.get("name"), same is not None,
@@ -281,7 +287,11 @@ def place_linked_projects(prose: Any, profile_json: dict | None) -> Any:
             ]
         entry["projects"] = nested
         moved_idx.add(i)
-        logger.info(
+        logger.info("TAIL_RELOCATE (D-31) pass=place_linked_projects predicate=top-level copy "
+            "of a role-tied project role_id=%r merged=%s",
+            wid, same is not None,
+        )
+        clog.debug(
             "TAIL_RELOCATE (D-31) pass=place_linked_projects predicate=top-level copy "
             "of a role-tied project role_id=%r project=%r merged=%s",
             wid, proj.get("name"), same is not None,
@@ -303,6 +313,8 @@ class ComposeNotes:
     # (location, what the writer should return)
     levels_code_added: list[tuple[str, str, str, list[str]]] = field(default_factory=list)
     # (location, model level, stored level, codes the vault level does not state)
+    twins_settled: list[tuple[str, str, str]] = field(default_factory=list)
+    # Ruling Q10-8: (skill left out, ticked term printed, "dropped" | "replaced")
 
 
 #: CEFR level codes (Council of Europe). A code is a CLAIM about a tested level.
@@ -614,8 +626,9 @@ def unmentioned_identifiers(texts: Sequence[str], profile_json: dict | None) -> 
         # check nor become a remedy candidate. Idempotent for an already-filtered
         # profile (the CV path filters at generation start).
         index = build_vault_index(exclude_unconfirmed(profile_json))
-    except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-        logger.exception("identifier check: vault index failed; finding skipped")
+    except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+        logger.error("identifier check: vault index failed; finding skipped (%s)", type(_exc).__name__)
+        clog.debug("identifier check: vault index failed; finding skipped", exc_info=True)
         return [], []
     named: list[str] = []
     for text in texts:
@@ -961,8 +974,9 @@ def _module_chip_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> li
     try:
         index = build_vault_index(ctx.profile_json)
         forms = claimable_surface_form_groups(ctx.keyword_ledger or [])
-    except Exception:  # noqa: BLE001 — a check must never fail the loop
-        logger.exception("module chip check: vault index failed; no finding")
+    except Exception as _exc:  # noqa: BLE001 — a check must never fail the loop
+        logger.error("module chip check: vault index failed; no finding (%s)", type(_exc).__name__)
+        clog.debug("module chip check: vault index failed; no finding", exc_info=True)
         return []
 
     def backed(name: str) -> bool:
@@ -1000,8 +1014,9 @@ def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> 
         candidates = select_restore_candidates(
             composed.model_dump(mode="json"), ctx.profile_json, ctx.keyword_ledger, ctx.budget,
         )
-    except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-        logger.exception("v2 check detector select_restore_candidates raised; finding skipped")
+    except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+        logger.error("v2 check detector select_restore_candidates raised; finding skipped (%s)", type(_exc).__name__)
+        clog.debug("v2 check detector select_restore_candidates raised; finding skipped", exc_info=True)
         return []
     companies = {w.id: w.company for w in composed.work_history}
 
@@ -1115,8 +1130,9 @@ def _skill_without_bullet_findings(
     narrative = {**doc, "skills": [], "summary": ""}
     try:
         candidates = select_restore_candidates(narrative, ctx.profile_json, ctx.keyword_ledger, ctx.budget)
-    except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-        logger.exception("v2 check detector select_restore_candidates (narrative) raised; finding skipped")
+    except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+        logger.error("v2 check detector select_restore_candidates (narrative) raised; finding skipped (%s)", type(_exc).__name__)
+        clog.debug("v2 check detector select_restore_candidates (narrative) raised; finding skipped", exc_info=True)
         return []
     chips = _norm("\n".join(str(x) for x in composed.skills if isinstance(x, str)))
     summary = _norm(str(composed.summary or ""))
@@ -1279,8 +1295,9 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
     if ctx.keyword_ledger:
         try:
             under = verified_narrative_underclaim(doc, ctx.keyword_ledger, structured_document=doc)
-        except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-            logger.exception("v2 check detector verified_narrative_underclaim raised; finding skipped")
+        except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+            logger.error("v2 check detector verified_narrative_underclaim raised; finding skipped (%s)", type(_exc).__name__)
+            clog.debug("v2 check detector verified_narrative_underclaim raised; finding skipped", exc_info=True)
             under = []
         texts = [(p, _norm(_project_text(p))) for p in vault_projects]
         for c in under:
@@ -1399,8 +1416,9 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
     def step(fn, data, *args, **kwargs):
         try:
             return fn(data.model_copy(deep=True), *args, **kwargs)
-        except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-            logger.exception("v2 check detector %s raised; finding skipped", getattr(fn, "__name__", fn))
+        except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+            logger.error("v2 check detector %s raised; finding skipped (%s)", getattr(fn, "__name__", fn), type(_exc).__name__)
+            clog.debug("v2 check detector %s raised; finding skipped", getattr(fn, "__name__", fn), exc_info=True)
             return data
 
     s0 = composed.model_copy(deep=True)
@@ -1423,6 +1441,24 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
 
     out: list[CheckFinding] = []
     untied = removed(s1, s2)
+    # Sorbet WP-Q10 (ruling Q7-2): a chip in a posting term the person has not
+    # ticked gets its own finding, so the corrector is told WHY it goes and what
+    # stays (the person's own words), and the reviewer cannot defend it as a keep.
+    from applire.services.posting_terms import chip_posting_term
+
+    posting = [x for x in untied if chip_posting_term(x, ctx.keyword_ledger) is not None]
+    untied = [x for x in untied if x not in posting]
+    if posting:
+        out.append(CheckFinding(
+            check="cv.skill_posting_term",
+            subjects=tuple(posting),
+            text=(
+                f"Skills entries in the job posting's words that the candidate never used "
+                f"and has not confirmed as theirs: {_fmt(posting)}. Remove them from the "
+                "skills list. The work behind them stays in the bullets, in the profile's "
+                "own words; do not replace them with another posting term."
+            ),
+        ))
     if untied:
         out.append(CheckFinding(
             check="cv.skill_untied",
@@ -1563,8 +1599,9 @@ def _budget_candidates(composed: "TailoredCVData", ctx: V2CheckContext) -> str:
             " Lowest-ranked by the budget ranking (candidates to merge or drop; your call): "
             + ", ".join(shown) + (f" (+{more} more)" if more > 0 else "")
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("v2 budget-candidate ranking failed; finding without candidates")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("v2 budget-candidate ranking failed; finding without candidates (%s)", type(_exc).__name__)
+        clog.debug("v2 budget-candidate ranking failed; finding without candidates", exc_info=True)
         return ""
 
 
@@ -1725,6 +1762,12 @@ def critic_findings(advisories: list, composed: Any) -> list[CheckFinding]:
     return out
 
 
+def _cv_max_skills() -> int:
+    from applire.services import cv as cv_mod
+
+    return cv_mod.CV_MAX_SKILLS
+
+
 def _strings(node: Any) -> list[str]:
     if isinstance(node, str):
         return [node]
@@ -1746,11 +1789,27 @@ class V2Terminal:
     #: ADR-099 cl. 8 (WP-B): the in-loop critic's internal / numeric
     #: inconsistencies (``CriticAdvisory``), set once before the terminal review.
     critic_advisories: list = field(default_factory=list)
+    #: Sorbet WP-Q10 (precedence, ADR-094 am. 2026-11-17): skills the
+    #: ``cv.skills_cap`` finding named in an EARLIER round of this loop.
+    cap_removed: list = field(default_factory=list)
 
     def compose(self, prose: dict, profile_json: dict, raw_profile_json: dict | None) -> "TailoredCVData":
         notes = ComposeNotes()
         composed = compose_v2(prose, profile_json, raw_profile_json=raw_profile_json, notes=notes,
                               document_language=self.ctx.language)
+        # Ruling Q10-8 (Sorbet WP-Q10): a deterministic composition rule on a fact
+        # the person saw on the card — the skill a ticked term stands in for on
+        # THIS posting's CV leaves the list (or yields its slot to the term). Every
+        # draft the loop, the reviewer and the delivery read is composed here, so
+        # none of them ever sees the left-out skill on the list.
+        from applire.services.posting_terms import settle_twin_skills, twin_pairs
+
+        pairs = twin_pairs(self.ctx.keyword_ledger)
+        if pairs:
+            skills, applied = settle_twin_skills(list(composed.skills or []), pairs)
+            if applied:
+                composed = composed.model_copy(update={"skills": skills})
+                notes.twins_settled.extend(applied)
         self.notes_by_draft[canonical(prose)] = notes
         return composed
 
@@ -1765,6 +1824,7 @@ class V2Terminal:
             composed = subject_for(draft)
             notes = self.notes_by_draft.get(canonical(draft)) or ComposeNotes()
             own = v2_checks(draft, composed, notes, self.ctx)
+            own = self._cap_precedence(own, composed)
             critic = critic_findings(self.critic_advisories, composed)
             if not critic:
                 return own
@@ -1773,6 +1833,36 @@ class V2Terminal:
             ranked = [f for f in own if f.blocking] + critic + [f for f in own if not f.blocking]
             return ranked[:MAX_FINDINGS_PER_ROUND]
         return _fn
+
+    def _cap_precedence(self, own: list[CheckFinding], composed: "TailoredCVData") -> list[CheckFinding]:
+        """Sorbet WP-Q10 — a code-check cap finding outranks a reviewer coverage keep.
+
+        Delivery 2b (Daniel): the cap named S3 to drop; the corrector dropped it; the
+        next reviewer, which sees only the CURRENT round's code findings, demanded S3
+        back as "a verified skill"; the loop oscillated until it ran out and the
+        terminal review failed. The skills the cap removed in an earlier round are
+        carried forward as an advisory fact, so the reviewer is told they went for
+        the cap and must not be asked back (GARH step 2: the check's finding reaches
+        the reviewer)."""
+        for f in own:
+            if f.check == "cv.skills_cap":
+                for subject in f.subjects:
+                    if subject not in self.cap_removed:
+                        self.cap_removed.append(subject)
+        on_page = {x for x in (composed.skills or []) if isinstance(x, str)}
+        held = [x for x in self.cap_removed if x not in on_page]
+        if not held or any(f.check == "cv.skills_cap" for f in own):
+            return own
+        return [*own, CheckFinding(
+            check="cv.skills_cap_held",
+            subjects=tuple(held),
+            blocking=False,
+            text=(
+                f"Removed from the skills list for its cap of {_cv_max_skills()} entries in an "
+                f"earlier round: {_fmt(held)}. The cap outranks coverage: do not ask for "
+                "them to be added back; their evidence stays in the bullets."
+            ),
+        )]
 
     def delivered_findings(self, prose: dict, tailored_data: dict) -> list[CheckFinding]:
         """The checks evaluated ONCE on the SHIPPED draft (adversarial finding 6,
@@ -1784,8 +1874,9 @@ class V2Terminal:
             composed = TailoredCVData.model_validate(tailored_data)
             notes = self.notes_by_draft.get(canonical(prose)) or ComposeNotes()
             return [f for f in v2_checks(prose, composed, notes, self.ctx) if f.blocking]
-        except Exception:  # noqa: BLE001 — a report failure must never fail delivery
-            logger.exception("v2 delivered-draft checks raised; nothing reported")
+        except Exception as _exc:  # noqa: BLE001 — a report failure must never fail delivery
+            logger.error("v2 delivered-draft checks raised; nothing reported (%s)", type(_exc).__name__)
+            clog.debug("v2 delivered-draft checks raised; nothing reported", exc_info=True)
             return []
 
     def report_delivered(self, outcome, prose: dict, tailored_data: dict):
@@ -1796,7 +1887,8 @@ class V2Terminal:
 
         open_ = self.delivered_findings(prose, tailored_data)
         logger.info("CV_V2_DELIVERED_CHECKS open=%s", [f.check for f in open_])
-        if not open_:
+        twin_note = self.twin_note(tailored_data)
+        if not open_ and twin_note is None:
             return outcome
         # R2-5 (build 4, WP-T hunk): one structured note per open check, so the
         # review card says each in the UI language; ``details`` folds them into the
@@ -1806,7 +1898,7 @@ class V2Terminal:
         new_notes = tuple(
             TerminalNote(kind="code", key=f.check, text=f.text, subjects=tuple(f.subjects))
             for f in open_
-        )
+        ) + ((twin_note,) if twin_note is not None else ())
         if outcome is None:
             # No terminal verdict ran (review layer off, or a stubbed loop): the row stays
             # "unknown" (path None → not_applicable) and still names the open facts.
@@ -1818,6 +1910,38 @@ class V2Terminal:
         if not fresh:
             return outcome
         return dataclasses.replace(outcome, notes=outcome.notes + fresh)
+
+    def twin_note(self, tailored_data: dict):
+        """Ruling Q10-8 (GARH: never a silent drop) — the delivered CV's left-out
+        skills, as a structured note on the terminal-review row (class S: the
+        report, the agent door and the operator log; ``terminal:note:
+        cv.skill_twin_left_out``). One pair is recorded when its term is on the
+        delivered list and the skill is not. ``None`` when no pair applies."""
+        from applire.services.posting_terms import name_key, twin_pairs
+
+        pairs = twin_pairs(self.ctx.keyword_ledger)
+        if not pairs:
+            return None
+        on_page = {name_key(c) for c in (tailored_data or {}).get("skills") or [] if isinstance(c, str)}
+        done = [p for p in pairs
+                if name_key(p["skill"]) not in on_page
+                and ({name_key(p["term"]), name_key(p.get("holder") or p["term"])} & on_page)]
+        logger.info("CV_TWIN_SKILLS delivered left_out=%d of pairs=%d", len(done), len(pairs))
+        if not done:
+            return None
+        from applire.services.terminal_review_outcome import TerminalNote
+
+        return TerminalNote(
+            kind="note",
+            key="cv.skill_twin_left_out",
+            text=(
+                "Left out of this CV's skills list because a job-posting term the "
+                "candidate confirmed for this posting stands in for it (shown to them "
+                "as their own words on the card; the profile keeps both): "
+                + "; ".join(f'"{p["skill"]}" for "{p["term"]}"' for p in done) + "."
+            ),
+            subjects=tuple(p["skill"] for p in done),
+        )
 
     def on_checks_settle(self, report) -> None:
         self.open_findings = list(report.open_findings)
@@ -1881,8 +2005,9 @@ def cv_durations_block(
         own = own_duration_statements(profile_json)
         ceiling = own_career_ceiling(profile_json)
         tools = tool_duration_facts(profile_json, None, priority=list(priority or []))
-    except Exception:  # noqa: BLE001 — a prompt input must never fail generation
-        logger.exception("cv_durations_block failed; the writer runs without it")
+    except Exception as _exc:  # noqa: BLE001 — a prompt input must never fail generation
+        logger.error("cv_durations_block failed; the writer runs without it (%s)", type(_exc).__name__)
+        clog.debug("cv_durations_block failed; the writer runs without it", exc_info=True)
         return ""
     de = (language or "").strip().lower() == "de"
     lines: list[str] = []

@@ -149,8 +149,10 @@ from typing import Any
 from applire.services.ats_audit import surface_present
 from applire.services.oracle.matchers.vault import EvidenceUnit, build_vault_index
 from applire.services.outcome_preference import find_paired_outcome, is_target_phrase
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 DEFAULT_DIGEST_CAP = 10
 # Per-anchor / per-trigger sub-caps — bound how much ONE channel can
@@ -255,7 +257,10 @@ def resolve_leadership_emphasis(
         emphasis = leadership_emphasis.get("emphasis")
         if emphasis in _LEADERSHIP_ITEMS_BY_EMPHASIS:
             return emphasis
-        logger.warning(
+        logger.warning("select_vault_evidence: ignoring unrecognised leadership_emphasis "
+            "— falling back to the legacy JD marker check (#271)."
+        )
+        clog.debug(
             "select_vault_evidence: ignoring unrecognised leadership_emphasis %r "
             "— falling back to the legacy JD marker check (#271).",
             leadership_emphasis,
@@ -625,7 +630,11 @@ def select_vault_evidence(
             )
             selected_paths.add(u.path)
         if drop:
-            logger.info(
+            logger.info("select_vault_evidence: dropped %d same-initiative candidate(s) for "
+                "%d owner(s) beyond the per-anchor cap: %s",
+                len(drop), len(anchor_owners), [u.path for u in drop],
+            )
+            clog.debug(
                 "select_vault_evidence: dropped %d same-initiative candidate(s) for "
                 "owner set %s beyond the per-anchor cap: %s",
                 len(drop), sorted(anchor_owners), [u.path for u in drop],

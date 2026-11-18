@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth.deps import require_user
-from applire.auth.deps import admit_model_work
+from applire.auth.deps import ModelWorkDoor, admit_model_work, try_admit_model_work
 from applire.models.user import User
 from applire.db.session import get_db
 from applire.providers import get_provider
@@ -226,6 +226,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         doc_id: uuid.UUID,
         body: FindingKeyBody,
         db: AsyncSession = Depends(get_db),
+        _door: ModelWorkDoor = Depends(try_admit_model_work),
         _auth: User = Depends(require_user),
     ) -> ReviewReportResponse:
         """Restore the text a *take it out* / *edited* decision replaced; re-audit."""
@@ -236,6 +237,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         doc_id: uuid.UUID,
         body: FindingKeyBody,
         db: AsyncSession = Depends(get_db),
+        _door: ModelWorkDoor = Depends(try_admit_model_work),
         _auth: User = Depends(require_user),
     ) -> ReviewReportResponse:
         """ADR-090 cl. 5 — after a section save opened from a finding: await the
@@ -264,6 +266,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         doc_id: uuid.UUID,
         body: FindingKeyBody,
         db: AsyncSession = Depends(get_db),
+        _door: ModelWorkDoor = Depends(try_admit_model_work),
         _auth: User = Depends(require_user),
     ) -> SupportedResponse:
         """Bug #797 / ruling D2-5 = A (ADR-090 cl. 6 amended) — *Stimmt* on a
@@ -347,10 +350,12 @@ def _mount(prefix: str, kind: Kind) -> None:
     async def recheck(
         doc_id: uuid.UUID,
         db: AsyncSession = Depends(get_db),
+        _payer=Depends(admit_model_work),
         _auth: User = Depends(require_user),
     ) -> ReviewReportResponse:
         """ADR-099 cl. 9 / UAT-3h — "Jetzt prüfen": the full report re-run on
-        this version (no new version)."""
+        this version (no new version). Model work: admitted at the door (ADR-096
+        cl. 4); a re-check that cannot complete keeps the stored reports."""
         await _run(ra.recheck(kind, doc_id, db, user_id=_auth.id))
         return ReviewReportResponse(**await _reports(kind, doc_id, db, _auth.id))
 
@@ -388,6 +393,7 @@ def _mount(prefix: str, kind: Kind) -> None:
     async def keep_length(
         doc_id: uuid.UUID,
         db: AsyncSession = Depends(get_db),
+        _door: ModelWorkDoor = Depends(try_admit_model_work),
         _auth: User = Depends(require_user),
     ) -> ReviewReportResponse:
         """ADR-099 cl. 7 (letter) — "{n} Seiten behalten": decision ``kept``; the

@@ -15,6 +15,7 @@ Routes: ``GET /api/auth/state`` · ``POST /api/auth/login`` · ``POST /api/auth/
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -59,6 +60,10 @@ ErrorCode = Literal[
     # RULING W0B-3: only after a CORRECT password on a disabled account (403);
     # a wrong password keeps invalid_credentials with identical body and timing.
     "account_disabled",
+    # ADR-091 amended 2026-11-18: an invite at LOG_LEVEL=DEBUG without the consent
+    # box (422); an agreement to a text that is no longer shown (409).
+    "log_consent_required",
+    "log_consent_version_stale",
 ]
 
 
@@ -111,6 +116,11 @@ class AuthStateResponse(BaseModel):
     #: /setup page's "used Applire without an account before?" box is shown only
     #: then. Instance mode, not user data; always false once setup is done.
     upgraded_install: bool = False
+    #: ADR-091 amended 2026-11-18: the instance writes content logs
+    #: (LOG_LEVEL=DEBUG) and asks for consent on the invite page.
+    log_consent_required: bool = False
+    #: The consent text values (instance settings, no personal data) when required.
+    log_consent_text: "LogConsentText | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +158,38 @@ class PasswordChangeRequest(_Strict):
 # ---------------------------------------------------------------------------
 
 
+class LogConsentText(BaseModel):
+    """The values the logging consent text names (ADR-091 amended 2026-11-18).
+    Instance settings, no personal data; an empty string = not set by the
+    operator (the frontend shows the catalog fallback)."""
+
+    version: str
+    text_version: str
+    text_date: str
+    operator: str
+    contact: str
+    assistant_provider: str
+    log_host: str
+    model_provider: str
+    retention_days: int
+
+
+class LogConsentState(BaseModel):
+    """``GET /api/me/log-consent`` and ``MeResponse.log_consent``."""
+
+    required: bool
+    state: Literal["not_required", "missing", "outdated", "withdrawn", "current"]
+    version: str | None = None
+    consented_at: datetime | None = None
+    consented_version: str | None = None
+    withdrawn_at: datetime | None = None
+    text: LogConsentText | None = None
+
+
+class LogConsentRequest(_Strict):
+    version: str = Field(min_length=1, max_length=32)
+
+
 class MeResponse(BaseModel):
     """The signed-in person (``ShellUserContext`` in the frontend)."""
 
@@ -160,6 +202,8 @@ class MeResponse(BaseModel):
     oidc_linked: bool
     #: ``user_settings.ui_language`` when set (``"de"``/``"en"``), else ``None``.
     ui_language: str | None = None
+    #: Logging consent (only meaningful at LOG_LEVEL=DEBUG; ``required: false`` otherwise).
+    log_consent: LogConsentState | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -192,3 +236,6 @@ class LinkInspectResponse(BaseModel):
 class LinkRedeemRequest(_Strict):
     token: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    #: The consent text version the person ticked on the invite page; required
+    #: for an invite at LOG_LEVEL=DEBUG (ADR-091 amended 2026-11-18).
+    log_consent_version: str | None = Field(default=None, max_length=32)

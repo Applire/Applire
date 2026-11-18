@@ -21,6 +21,7 @@
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { announceLogConsentRefusal, isLogConsentRefusalCode } from "@/lib/log-consent";
 import { formatUiDate } from "@/lib/format-date";
 import { CoverLetterDocument } from "@/components/cover-letter/CoverLetterDocument";
 import { CoverLetterContentTab, type CoverLetterContentTabHandle } from "@/components/cover-letter/CoverLetterContentTab";
@@ -126,6 +127,7 @@ export default function CoverLetterPage({
 }) {
   const { flowId } = use(params);
   const t = useTranslations("coverLetter");
+  const tLogConsent = useTranslations("logConsent");
   const locale = useLocale();
   const tc = useTranslations("common");
   const tDoc = useTranslations("document");
@@ -334,6 +336,7 @@ export default function CoverLetterPage({
         setPhase("ready");
       } else if (statusData.status === "failed") {
         setFailedCode(statusData.error_code ?? null);
+        if (isLogConsentRefusalCode(statusData.error_code)) announceLogConsentRefusal();
         setPhase("failed");
       } else {
         setPhase("generating");
@@ -458,6 +461,7 @@ export default function CoverLetterPage({
         if (data.status === "failed") {
           clearInterval(pollRef.current!);
           setFailedCode(data.error_code ?? null);
+          if (isLogConsentRefusalCode(data.error_code)) announceLogConsentRefusal();
           setPhase("failed");
         }
       } catch { /* ignore poll errors */ }
@@ -717,6 +721,7 @@ export default function CoverLetterPage({
   }
 
   if (phase === "failed") {
+    const consentRefused = isLogConsentRefusalCode(failedCode);
     const reasonKey = (failedCode && FAILED_REASON_KEYS[failedCode]) || "failedHint";
     return (
       <div
@@ -724,8 +729,10 @@ export default function CoverLetterPage({
         data-testid="cl-failed"
       >
         <p className="text-on-surface text-base font-medium">{t("failedTitle")}</p>
-        <p className="text-on-surface-variant text-sm max-w-sm">{t(reasonKey)}</p>
-        {clState?.jobId && (
+        <p className="text-on-surface-variant text-sm max-w-sm">
+          {consentRefused ? tLogConsent("cardTitle") : t(reasonKey)}
+        </p>
+        {clState?.jobId && !consentRefused && (
           <button
             type="button"
             onClick={() => setShowModal(true)}

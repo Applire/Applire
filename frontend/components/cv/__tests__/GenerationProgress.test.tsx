@@ -257,4 +257,22 @@ describe("GenerationProgress — long wait (789:261)", () => {
     render(withIntl(<GenerationProgress {...DEFAULT_PROPS} subtitle="A new version with your interview answers" />));
     expect(screen.getByText("A new version with your interview answers")).toBeInTheDocument();
   });
+
+  it("a CV job ended by a withdrawn consent opens the consent dialog once and offers no retry", async () => {
+    const { LOG_CONSENT_REQUIRED_EVENT } = await import("@/lib/log-consent");
+    const seen = vi.fn();
+    window.addEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ cv_id: "test-cv-id", status: "failed", error_code: "log_consent_required" }),
+    } as Response);
+
+    render(withIntl(<GenerationProgress {...DEFAULT_PROPS} />));
+
+    await waitFor(() => expect(screen.getByText("Logs during the test phase")).toBeInTheDocument());
+    expect(screen.queryByText("Try again →")).not.toBeInTheDocument();
+    expect(seen).toHaveBeenCalledTimes(1);
+    window.removeEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+  });
 });

@@ -22,6 +22,8 @@ import logging
 
 import pytest
 
+from tests.support.log_consent import consented_owner  # noqa: F401 — fixture
+
 from applire.config import settings
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import (
@@ -53,14 +55,15 @@ def _read_records(tmp_path):
 
 
 def test_wrap_is_noop_when_disabled(monkeypatch):
-    monkeypatch.setattr(settings, "llm_debug_log", False)
+    monkeypatch.setattr(settings, "log_level", "INFO")
     inner = _StubProvider()
     assert wrap_provider(inner) is inner
 
 
+@pytest.mark.usefixtures("consented_owner")
 @pytest.mark.asyncio
 async def test_logs_full_input_and_output(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")  # one switch (ADR-087 cl. 9 amended)
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
 
     provider = wrap_provider(_StubProvider())
@@ -82,9 +85,10 @@ async def test_logs_full_input_and_output(monkeypatch, tmp_path):
     assert rec["error"] is None
 
 
+@pytest.mark.usefixtures("consented_owner")
 @pytest.mark.asyncio
 async def test_logs_errors_and_reraises(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")  # one switch (ADR-087 cl. 9 amended)
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
 
     class _Boom(_StubProvider):
@@ -109,9 +113,10 @@ async def test_logs_errors_and_reraises(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("consented_owner")
 @pytest.mark.asyncio
 async def test_review_call_meta_labels_the_debug_log_record(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "log_level", "DEBUG")  # one switch (ADR-087 cl. 9 amended)
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
 
     provider = wrap_provider(_StubProvider())

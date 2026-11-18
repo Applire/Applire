@@ -204,6 +204,12 @@ def ttl_days() -> dict[str, int]:
     }
 
 
+def _content_logging_on() -> bool:
+    from applire.content_log import content_logging_on
+
+    return content_logging_on()
+
+
 def _setting_notices(*, last_run_skipped: bool | None = None) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     enabled, _source = instance_settings.retention_state()
@@ -211,8 +217,14 @@ def _setting_notices(*, last_run_skipped: bool | None = None) -> list[dict[str, 
     # skipped (its own environment, an unobserved flip): the run record is the truth.
     if not HAS_CLOUD and (not enabled or last_run_skipped):
         out.append({"code": "retention_disabled", "severity": _WARNING})
-    if settings.llm_debug_log:
+    from applire.content_log import content_logging_on
+
+    if content_logging_on():  # ADR-087 cl. 9 amended 2026-11-18: one switch
         out.append({"code": "debug_log_on", "severity": _WARNING})
+        from applire.services.log_consent import missing_notice_settings
+
+        if missing_notice_settings():
+            out.append({"code": "log_consent_settings_missing", "severity": _WARNING})
     if (settings.applire_topology or "").strip().lower() == "dev":
         out.append({"code": "dev_topology", "severity": _WARNING})
     active = (settings.llm_provider or "").strip().lower()
@@ -286,7 +298,7 @@ async def dashboard(db: AsyncSession) -> dict[str, Any]:
         "version": report.get("version", ""),
         "edition": report.get("edition", ""),
         "topology": settings.applire_topology,
-        "debug_log_on": bool(settings.llm_debug_log),
+        "debug_log_on": _content_logging_on(),
         "llm_provider": family,
         "llm_model": str(getattr(settings, f"{family}_model", "") or ""),
         "checked_at": datetime.fromisoformat(checked) if isinstance(checked, str) else None,

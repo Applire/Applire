@@ -24,8 +24,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from applire.storage.base import PathOutsideStorageError, StorageProvider
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 class LocalStorageProvider(StorageProvider):
@@ -73,7 +75,8 @@ class LocalStorageProvider(StorageProvider):
     async def delete(self, file_path: str) -> None:
         path = self._confined(file_path)
         if path is None:
-            logger.warning(
+            logger.warning("storage: refused to delete a path outside the upload directory")
+            clog.debug(
                 "storage: refused to delete %r — not inside the upload directory",
                 file_path,
             )
@@ -109,7 +112,8 @@ class LocalStorageProvider(StorageProvider):
     async def read(self, file_path: str) -> bytes:
         path = self._confined(file_path)
         if path is None:
-            logger.warning(
+            logger.warning("storage: refused to read a path outside the upload directory")
+            clog.debug(
                 "storage: refused to read %r — not inside the upload directory",
                 file_path,
             )

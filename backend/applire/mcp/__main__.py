@@ -80,6 +80,11 @@ def _install_stderr_logging() -> None:
         root.addHandler(handler)
         root.setLevel(settings.log_level.upper())
     install_secret_redaction(*root.handlers)
+    # One switch (ADR-087 cl. 9 amended 2026-11-18): at LOG_LEVEL=DEBUG content
+    # lines go to their own file, never to stderr.
+    from applire.content_log import configure_content_logging
+
+    configure_content_logging(*root.handlers)
 
 
 def main() -> None:
@@ -110,7 +115,12 @@ def main() -> None:
     from applire.mcp.server import mcp, warn_if_base_url_unset
 
     warn_if_base_url_unset()
-    mcp.run(transport="stdio")
+    # The SDK's stdio transport, with an unreadable line answered (mcp/stdio.py).
+    import anyio
+
+    from applire.mcp.stdio import serve
+
+    anyio.run(serve, mcp)
 
 
 if __name__ == "__main__":

@@ -63,8 +63,10 @@ from typing import Any
 
 from applire.constants import CV_GENERATION_MAX_TOKENS
 from applire.prompts.cv_tailoring import CV_TAILORING_REFINEMENT_PROMPT, build_retry_prompt
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 _WORK_REF = re.compile(r"^work_experience\[(\d+)\]")
 
@@ -267,8 +269,13 @@ async def run_attribution_round(
             temperature=0.2,
             max_tokens=CV_GENERATION_MAX_TOKENS,
         )
-    except Exception:
+    except Exception as _exc:
         logger.warning(
+            "ATTRIBUTION_ROUND EXHAUSTED (ADR-071 clause 3): the correction call failed; "
+            "shipping the draft as-is — the misattribution stays visible on the review "
+            "screen (ADR-052 §5: never a delivery gate) (%s)", type(_exc).__name__,
+        )
+        clog.debug(
             "ATTRIBUTION_ROUND EXHAUSTED (ADR-071 clause 3): the correction call failed; "
             "shipping the draft as-is — the misattribution stays visible on the review "
             "screen (ADR-052 §5: never a delivery gate)",
@@ -550,8 +557,12 @@ async def run_truth_round(
             # the loop corrector's own structured-output schema (#767), when it has one
             **({"json_schema": json_schema} if json_schema else {}),
         )
-    except Exception:
+    except Exception as _exc:
         logger.warning(
+            "TRUTH_ROUND EXHAUSTED: the correction call failed; the claims stay and "
+            "render as class-A residue (ADR-099 cl. 4(e)) (%s)", type(_exc).__name__,
+        )
+        clog.debug(
             "TRUTH_ROUND EXHAUSTED: the correction call failed; the claims stay and "
             "render as class-A residue (ADR-099 cl. 4(e))", exc_info=True,
         )
@@ -645,8 +656,9 @@ def skill_backed_on_profile(
         if ground_skill_claim(skill, index, forms) is not None:
             return True
         return skill_backed_by_ledger(skill, keyword_ledger, profile_json, index) is not None
-    except Exception:  # noqa: BLE001
-        logger.exception("skill re-grounding failed for %r", skill)
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("skill re-grounding failed (%s)", type(_exc).__name__)
+        clog.debug("skill re-grounding failed for %r", skill, exc_info=True)
         return on_error
 
 
@@ -694,8 +706,9 @@ def denied_unbacked_chips(
             if isinstance(s, str) and _denied([s], index)
             and not skill_backed_on_profile(s, profile_json, keyword_ledger)
         ]
-    except Exception:  # noqa: BLE001
-        logger.exception("denied-chip check failed — nothing taken")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("denied-chip check failed — nothing taken (%s)", type(_exc).__name__)
+        clog.debug("denied-chip check failed — nothing taken", exc_info=True)
         return []
 
 

@@ -55,8 +55,10 @@ import logging
 from typing import Any, Callable, Iterable
 
 from applire.services.ats_audit import _norm, join_corpus_fragments, skills_page_dupe, surface_present
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: How many prose-derived entries the block names before it starts counting. A skills
 #: list is capped at ``CV_MAX_SKILLS`` (24); naming more than six turns the block into a
@@ -239,15 +241,22 @@ def skill_shape_reviewer_prompt_fn(
             block = render_skill_shape_check_block(found)
             if not block:
                 return prompt
-            logger.info(
+            logger.info("SKILLS-LIST SHAPE: %d prose-derived entr(y|ies) this round",
+                len(found),
+            )
+            clog.debug(
                 "SKILLS-LIST SHAPE: %d prose-derived entr(y|ies) this round: %s",
                 len(found), [s for s, _ in found],
             )
             return f"{prompt}\n\n{block}"
-        except Exception:
-            logger.exception(
+        except Exception as _exc:
+            logger.error(
                 "skill_shape: scan failed this round; shipping the un-decorated reviewer "
-                "prompt"
+                "prompt (%s)", type(_exc).__name__
+            )
+            clog.debug(
+                "skill_shape: scan failed this round; shipping the un-decorated reviewer "
+                "prompt", exc_info=True
             )
             return prompt
 

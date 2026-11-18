@@ -420,8 +420,9 @@ def test_redact_removes_secrets(line, secret):
 
 
 def test_redact_keeps_exp_and_uid():
-    out = redact("/api/cv/1/pdf?exp=123&uid=abc&sig=S")
-    assert "exp=123" in out and "uid=abc" in out
+    uid = "6f1c2a9e-0b7d-4c55-9a8e-2f3d4c5b6a71"
+    out = redact(f"/api/cv/1/pdf?exp=123&uid={uid}&sig=S")
+    assert "exp=123" in out and f"uid={uid}" in out
 
 
 def test_uvicorn_access_record_is_redacted_when_formatted():
@@ -445,3 +446,8 @@ def test_install_is_idempotent_and_filters_the_real_logger(caplog):
         assert "LEAKME" not in caplog.text
     finally:
         logger.filters[:] = before
+
+
+def test_redact_removes_the_search_text_a_person_typed():
+    out = redact("/api/applications?q=Weberit%20Schichtleitung&user_status=applied")
+    assert "Weberit" not in out and "q=[redacted]" in out and "user_status=applied" in out

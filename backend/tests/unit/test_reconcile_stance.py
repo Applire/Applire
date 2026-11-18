@@ -38,6 +38,7 @@ from typing import Any
 
 import pytest
 
+from applire import content_log
 from applire.schemas.profile import MasterProfileData
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.ops import (
@@ -1718,19 +1719,23 @@ def test_exclude_unconfirmed_tolerates_none_and_non_dict() -> None:
 async def test_unconfirmed_downgrade_logs_the_turn_text(caplog: Any) -> None:
     turn = {"answer": "We reduced churn by 3% through quarterly reviews.", "question": "CI/CD?"}
     ops = [UpsertSkill(name="Python", category="technical")]
-    with caplog.at_level("WARNING", logger="applire.services.profile.reconcile.stance"):
+    with caplog.at_level("WARNING", logger="applire.services.profile.reconcile.stance"), \
+            content_log.capturing() as records:
         out = await enforce_stance(ops, denials=[], new_info=turn, source="interview")
     assert len(out) == 1
     assert out[0].status == "unconfirmed"
-    assert any("churn by 3%" in rec.message for rec in caplog.records)
+    assert any("churn by 3%" in rec.getMessage() for rec in records)
+    assert not any("churn by 3%" in rec.getMessage() for rec in caplog.records)
 
 
 @pytest.mark.asyncio
 async def test_denial_drop_logs_the_turn_text(caplog: Any) -> None:
     ops = [UpsertSkill(name="RAG", category="technical")]
-    with caplog.at_level("WARNING", logger="applire.services.profile.reconcile.stance"):
+    with caplog.at_level("WARNING", logger="applire.services.profile.reconcile.stance"), \
+            content_log.capturing() as records:
         out = await enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
     assert out == []
     # Near the START of the joined gap+question+answer corpus (the log line
     # is bounded — see _LOG_TURN_MAX — so assert on text that survives it).
-    assert any("AI, LLMs & RAG Systems" in rec.message for rec in caplog.records)
+    assert any("AI, LLMs & RAG Systems" in rec.getMessage() for rec in records)
+    assert not any("AI, LLMs & RAG Systems" in rec.getMessage() for rec in caplog.records)

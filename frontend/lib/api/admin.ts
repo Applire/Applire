@@ -300,7 +300,8 @@ export type AdminNoticeCode =
   | "dev_topology"
   | "provider_not_ready"
   | "ocr_needs_mistral_key"
-  | "settings_secret_unreadable";
+  | "settings_secret_unreadable"
+  | "log_consent_settings_missing";
 
 export interface AdminNotice {
   code: AdminNoticeCode | string;

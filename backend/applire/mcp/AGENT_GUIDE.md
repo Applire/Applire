@@ -70,6 +70,21 @@ This is the product's core guarantee. It has two halves.
   `verdict.figures` (e.g. `["40,000"]`); fix those numbers, not the sentence.
 - When an answer cannot be grounded in the candidate's data, **ask the
   human** — you are their helper, not their ghostwriter.
+- **Posting terms are the person's call, never yours.** `generate_cv` may
+  answer `status: "needs_confirmation"`, `kind: "posting_terms"`: the posting
+  names skills (`terms[].term`) for work the profile describes in the person's
+  own words (`terms[].their_words`), and the person never used the posting's
+  word. Put `ask_the_person` to the human, then call
+  `confirm_posting_terms(job_id, confirmed=[...])` with **only the terms they
+  said are theirs** — each becomes a profile skill recorded as confirmed via
+  their agent — and `declined=[...]` with **only the terms they told you they
+  do not claim**: those are not asked again for this posting, here or in the web
+  app. A term the person did not answer is neither: leave it out of both. If you
+  cannot ask, call `confirm_posting_terms(job_id, leave_open=true)` on its own:
+  the CV is generated without the open terms as skills, the question stays
+  unanswered and the web app asks the person. Never confirm a term because the
+  profile "covers" it, and never decline one because you doubt it — that is the
+  person's "no", not yours. Repeating an answer is harmless.
 
 ## Positioning — let the right facets shine
 
@@ -594,7 +609,8 @@ stays the job-posting kind).
 `get_cover_letter_ats_report`, `render_document`, `start_flow`, `advance_flow`,
 `get_flow_state`, `run_interview`, `send_message`, `resolve_gap`,
 `submit_claims`, `create_application`, `update_application`, `get_application`,
-`list_applications`, and the `job://{job_id}` resource. A tool without the key
+`list_applications`, `generate_cv` (its `needs_confirmation` result),
+`confirm_posting_terms`, and the `job://{job_id}` resource. A tool without the key
 returns no job-posting text at all — the marker is only on results where it
 actually applies, so its absence is informative too.
 

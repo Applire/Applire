@@ -36,7 +36,7 @@ mm = _load_harness()
 
 def _run_mock(tmp_path: Path, monkeypatch, *extra: str) -> dict:
     # configure_env writes os.environ; monkeypatch puts every key back.
-    for key in ("LLM_PROVIDER", "LLM_DEBUG_LOG", "LLM_DEBUG_LOG_DIR"):
+    for key in ("LLM_PROVIDER", "LOG_LEVEL", "LLM_DEBUG_LOG_DIR"):
         monkeypatch.setenv(key, "")
     out = tmp_path / "arm.jsonl"
     argv = ["--provider", "mock", "--n", "1", "--shapes", "S6", "--concurrency", "1",
@@ -116,7 +116,7 @@ def test_the_schema_override_honours_structured_output_off(tmp_path, monkeypatch
 def test_the_call_count_includes_every_logged_call(tmp_path, monkeypatch):
     from applire.config import settings
 
-    before = (settings.llm_debug_log, settings.llm_debug_log_dir)
+    before = (settings.log_level, settings.llm_debug_log_dir)
     log_dir = tmp_path / "llm"
     summary = _run_mock(tmp_path, monkeypatch, "--llm-log-dir", str(log_dir))
     logged = summary["meta"]["llm_log"]
@@ -127,14 +127,14 @@ def test_the_call_count_includes_every_logged_call(tmp_path, monkeypatch):
     assert logged["calls"] == written >= 1
     assert logged["by_stage"].get("reconcile", 0) >= 1
     # The process-wide switch is back as it was.
-    assert (settings.llm_debug_log, settings.llm_debug_log_dir) == before
+    assert (settings.log_level, settings.llm_debug_log_dir) == before
 
 
 def test_a_reused_log_dir_is_refused(tmp_path, monkeypatch):
     log_dir = tmp_path / "llm"
     log_dir.mkdir()
     (log_dir / "2026-10-07.jsonl").write_text('{"stage": "reconcile"}\n', encoding="utf-8")
-    for key in ("LLM_PROVIDER", "LLM_DEBUG_LOG", "LLM_DEBUG_LOG_DIR"):
+    for key in ("LLM_PROVIDER", "LOG_LEVEL", "LLM_DEBUG_LOG_DIR"):
         monkeypatch.setenv(key, "")
     import pytest
 
@@ -253,7 +253,7 @@ def test_max_calls_stops_starting_turns_and_rates_only_what_ran(tmp_path, monkey
 def test_max_calls_needs_the_debug_log(tmp_path, monkeypatch):
     import pytest
 
-    for key in ("LLM_PROVIDER", "LLM_DEBUG_LOG", "LLM_DEBUG_LOG_DIR"):
+    for key in ("LLM_PROVIDER", "LOG_LEVEL", "LLM_DEBUG_LOG_DIR"):
         monkeypatch.setenv(key, "")
     with pytest.raises(SystemExit):
         mm.main(["--provider", "mock", "--n", "1", "--shapes", "S6", "--max-calls", "3"])

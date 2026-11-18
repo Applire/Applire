@@ -53,7 +53,7 @@ def restore_process_state(monkeypatch):
     """Undo everything ``configure_environment`` / ``_repoint_database`` touch in-process."""
     from applire.config import settings
 
-    for name in ("llm_provider", "llm_debug_log", "llm_debug_log_dir", "openrouter_model",
+    for name in ("llm_provider", "log_level", "llm_debug_log_dir", "openrouter_model",
                  "openrouter_disable_thinking", "requesty_model", "requesty_disable_thinking"):
         monkeypatch.setattr(settings, name, getattr(settings, name))
     monkeypatch.setattr(os, "environ", os.environ.copy())
@@ -168,7 +168,7 @@ def test_mock_provider_scrubs_provider_keys_and_needs_no_key(monkeypatch, restor
     assert "OPENROUTER_API_KEY" not in os.environ and "MISTRAL_API_KEY" not in os.environ
     from applire.config import settings
 
-    assert settings.llm_provider == "mock" and settings.llm_debug_log is True
+    assert settings.llm_provider == "mock" and settings.log_level == "DEBUG"
 
 
 def test_openrouter_fails_loudly_without_a_key(monkeypatch, restore_process_state):

@@ -115,7 +115,7 @@ async def _new_vault(db, record, profile_json: dict) -> None:
     await db.commit()
 
 
-async def _ledger_reaudit(kind, rec, session):
+async def _ledger_reaudit(kind, rec, session, keep_reports_on_failure=False):
     """``reaudit`` with the card's own producer: the keyword decision recomputed
     over the unchanged document against the LIVE vault."""
     from applire.models.profile import MasterProfile

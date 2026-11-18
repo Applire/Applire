@@ -37,6 +37,8 @@ import logging
 from applire.schemas.cv import TailoredCVData
 from applire.services.cv import _nest_projects
 
+import pytest
+
 WORK_ID = "22222222-2222-2222-2222-222222222222"
 
 _BASE_PROFILE = {
@@ -56,6 +58,15 @@ _PROSE = {
     "work": [{"id": WORK_ID, "bullets": ["Führte die Fertigung."], "projects": []}],
     "projects": [],
 }
+
+
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
 
 
 def _tailored(profile: dict) -> TailoredCVData:
@@ -92,7 +103,7 @@ def test_a_second_identically_named_NESTED_vault_project_is_dropped_silently_tod
     assert not any("Rüstzeiten" in b for p in nested for b in p.get("bullets", []))
 
 
-def test_the_nested_dedup_skip_is_logged_not_silent(caplog):
+def test_the_nested_dedup_skip_is_logged_not_silent(content_records):
     """The fix: the skip that drops the second same-named project logs a
     ``TAIL_DELETE`` line naming the predicate and the dropped project — the same
     observability standard ``_suppress_duplicate_project_bullets`` already holds
@@ -114,10 +125,9 @@ def test_the_nested_dedup_skip_is_logged_not_silent(caplog):
             "associated_experience": WORK_ID,
         },
     ]
-    with caplog.at_level(logging.INFO):
-        _nest_projects(_tailored(profile), profile)
+    _nest_projects(_tailored(profile), profile)
 
-    records = [r.message for r in caplog.records if "TAIL_DELETE" in r.message]
+    records = [r.getMessage() for r in content_records if "TAIL_DELETE" in r.getMessage()]
     assert records, "the second same-named nested project must log its own drop"
     assert any("_nest_projects" in r for r in records), records
     assert any("Einführung eines MES-Systems bei Weberit" in r for r in records), records

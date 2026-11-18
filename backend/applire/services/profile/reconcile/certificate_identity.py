@@ -34,8 +34,10 @@ from typing import Any
 from applire.schemas.profile import MasterProfileData, MatchReceipt
 from applire.services.profile.reconcile.apply import ApplyResult, _fill_empties, _merged, _norm
 from applire.services.profile.reconcile.ops import MatchExisting
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 _FIELDS = ("name", "issuing_organization", "date_obtained", "expiry_date", "credential_id")
 
@@ -67,8 +69,9 @@ async def bind_translated_certificates(
             system=CERT_SAME_SYSTEM,
             stage="profile_certificate_same",
         )
-    except Exception:  # noqa: BLE001 — never fail the import
-        logger.warning("certificate identity check skipped", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — never fail the import
+        logger.warning("certificate identity check skipped: %s", type(exc).__name__)
+        clog.debug("certificate identity check skipped", exc_info=True)
         return []
     by_id = {c.id: c for c in held}
     bindings: list[MatchExisting] = []

@@ -41,8 +41,10 @@ from applire.services.instance_state import (
     read_state,
     write_state,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger("applire.auth.setup")
+clog = content_logger("applire.auth.setup")
 
 SETUP_CODE_BITS = 120
 INSTANCE_SECRET_BYTES = 32
@@ -125,7 +127,8 @@ async def prepare_boot(db: AsyncSession) -> str | None:
     await delete_state(db, KEY_AUTH_SETUP_TOKEN_HASH)
     notice = await read_state(db, KEY_AUTH_CLAIM_NOTICE)
     if isinstance(notice, dict):
-        logger.warning(
+        logger.warning("This Applire instance was claimed at %s.", notice.get("at", "?"))
+        clog.debug(
             "This Applire instance was claimed at %s by %s.",
             notice.get("at", "?"),
             notice.get("email", "?"),

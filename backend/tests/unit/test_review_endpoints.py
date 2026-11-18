@@ -244,8 +244,9 @@ class FakeReaudit:
         self.calls = 0
         self._sequence = list(sequence or [])
 
-    async def __call__(self, kind, record, db):
+    async def __call__(self, kind, record, db, keep_reports_on_failure=False):
         self.calls += 1
+        self.kept = keep_reports_on_failure
         if self._sequence:
             ats, truth = self._sequence.pop(0)
             record.ats_report = ats
@@ -1029,7 +1030,7 @@ class KindReaudit:
         self.plan = {k: list(v) for k, v in plan.items()}
         self.calls: list[tuple[str, uuid.UUID]] = []
 
-    async def __call__(self, kind, record, db):
+    async def __call__(self, kind, record, db, keep_reports_on_failure=False):
         self.calls.append((kind, record.id))
         seq = self.plan.get(record.id) or []
         if seq:

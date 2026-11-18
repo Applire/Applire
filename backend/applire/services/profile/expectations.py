@@ -41,8 +41,10 @@ from applire.prompts.profile_field_expectations import (
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import llm_log_stage
 from applire.services.profile.completeness import CONDITIONAL_FIELDS
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 async def annotate_expected_fields(profile: dict, provider: LLMProvider) -> dict:
@@ -90,8 +92,12 @@ async def annotate_expected_fields(profile: dict, provider: LLMProvider) -> dict
                 )
             picked = data.get("expected") if isinstance(data, dict) else None
             entry["expected_fields"] = [f for f in (picked or []) if f in _cond_set]
-        except Exception:
+        except Exception as exc:
             logger.warning(
+                "annotate_expected_fields: provider error (%s); leaving expected_fields=None",
+                type(exc).__name__,
+            )
+            clog.debug(
                 "annotate_expected_fields: provider error for role %r; leaving expected_fields=None",
                 entry.get("role"), exc_info=True,
             )

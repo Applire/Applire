@@ -73,8 +73,10 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: One group per claimable ledger entry — ``keyword_ledger.retention_forms``,
 #: never flattened. A group is ONE competence: #386 shipped 'Dreischichtbetrieb'
@@ -385,9 +387,11 @@ def log_cuts(pass_name: str, cuts: Sequence[Cut], **context: Any) -> None:
             if c.sole_carrier
             else ""
         )
-        logger.log(
-            level,
-            "TAIL_DELETE (ADR-072 clause 4) pass=%s %s sole_carrier=%s tier=%r removed=%r%s",
+        logger.log(level,
+            "TAIL_DELETE (ADR-072 clause 4) pass=%s sole_carrier=%s tier=%r%s",
+            pass_name, c.sole_carrier, c.tier, conflict,
+        )
+        clog.debug("TAIL_DELETE (ADR-072 clause 4) pass=%s %s sole_carrier=%s tier=%r removed=%r%s",
             pass_name, ctx, c.sole_carrier, c.tier, c.text, conflict,
         )
 
@@ -400,7 +404,10 @@ def log_deletion(pass_name: str, predicate: str, removed: Any, **context: Any) -
     branch that made the decision.
     """
     ctx = " ".join(f"{k}={v!r}" for k, v in context.items())
-    logger.info(
+    logger.info("TAIL_DELETE (ADR-072 clause 4) pass=%s predicate=%s",
+        pass_name, predicate,
+    )
+    clog.debug(
         "TAIL_DELETE (ADR-072 clause 4) pass=%s predicate=%s %s removed=%r",
         pass_name, predicate, ctx, removed,
     )
