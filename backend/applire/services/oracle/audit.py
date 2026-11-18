@@ -142,8 +142,10 @@ from applire.services.oracle.backing import (
     stored_denial_cover,
     with_ledger_denials,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 _EXCERPT_CHARS = 160
 
@@ -679,7 +681,12 @@ def _backing_candidate(
         unit_labels=labels,
         anchor_ids=allowed,
     )
-    logger.info(
+    logger.info("ORACLE_BACKING_CANDIDATE location=%s rows=%d units=%d",
+        claim.location,
+        len(named),
+        len(units),
+    )
+    clog.debug(
         "ORACLE_BACKING_CANDIDATE location=%s rows=%s units=%d",
         claim.location,
         [b.concept for b in named],
@@ -961,7 +968,10 @@ async def _run_judgement_batches(
             verdict, unavailable, reason = _resolve_seam_candidate(c, entry)
             results[start + j] = (verdict, unavailable)
             if reason == "citation_drop":
-                logger.info(
+                logger.info("ORACLE_JUDGEMENT_CITATION_DROP seam=%s",
+                    c.seam,
+                )
+                clog.debug(
                     "ORACLE_JUDGEMENT_CITATION_DROP seam=%s span=%r",
                     c.seam,
                     (entry or {}).get("vault_quote") if isinstance(entry, dict) else None,
@@ -1128,7 +1138,10 @@ async def _run_sentence_triage(
                 continue
             classification = entry.get("classification")
             if classification not in TRIAGE_CLASSES:
-                logger.info(
+                logger.info("ORACLE_JUDGEMENT_UNAVAILABLE reason=malformed_item "
+                    "seam=sentence_triage"
+                )
+                clog.debug(
                     "ORACLE_JUDGEMENT_UNAVAILABLE reason=malformed_item "
                     "seam=sentence_triage class=%r",
                     classification,
@@ -1139,7 +1152,8 @@ async def _run_sentence_triage(
             # itself, verified against THIS item's own sentence — which is
             # what makes it catch batch-index drift and non-verbatim echo.
             if not citation_present(entry.get("sentence_quote"), [claim.text]):
-                logger.info(
+                logger.info("ORACLE_JUDGEMENT_CITATION_DROP seam=sentence_triage")
+                clog.debug(
                     "ORACLE_JUDGEMENT_CITATION_DROP seam=sentence_triage span=%r",
                     entry.get("sentence_quote"),
                 )
@@ -1963,7 +1977,11 @@ def _denial_statement_backing(
             if overlap < _DENIAL_OVERLAP_THRESHOLD:
                 continue
             if not _denial_stance_consistent(claim_text, unit.text, fig):
-                logger.info(
+                logger.info("oracle #422: denial absorption REFUSED for a figure — "
+                    "the statement hedges it, the claim asserts it (%r)",
+                    unit.path,
+                )
+                clog.debug(
                     "oracle #422: denial absorption REFUSED for figure %r — "
                     "the statement hedges it, the claim asserts it (%r)",
                     fig.raw, unit.path,
@@ -2419,7 +2437,11 @@ def _scope_step_backing(
             )
             break
         if unit is None:
-            logger.info(
+            logger.info("oracle scope step: the posting's bar figure has no clause "
+                "carrying it that restates a bound limit as a step not yet taken — "
+                "stays unbacked"
+            )
+            clog.debug(
                 "oracle scope step: figure %r is the posting's bar, but no clause "
                 "carrying it restates a bound limit as a step not yet taken — "
                 "stays unbacked",
@@ -3021,7 +3043,8 @@ async def _verify_claim_identifiers(
     if verdict.verdict != "grounded":
         return verdict
     names = ", ".join(unmentioned)
-    logger.info("ORACLE_IDENTIFIER_ABSENT identifiers=%r", names)
+    logger.info("ORACLE_IDENTIFIER_ABSENT identifiers=%d", len(names))
+    clog.debug("ORACLE_IDENTIFIER_ABSENT identifiers=%r", names)
     return ClaimVerdict(
         verdict=IDENTIFIER_ABSENT_VERDICT,
         checker="numbers",
@@ -3728,9 +3751,12 @@ async def audit_document(
             triage_exemptions, triage_unavailable = await _run_sentence_triage(
                 claims, provider
             )
-        except Exception:
-            logger.exception(
-                "Oracle sentence triage failed — every sentence is audited"
+        except Exception as _exc:
+            logger.error(
+                "Oracle sentence triage failed — every sentence is audited (%s)", type(_exc).__name__
+            )
+            clog.debug(
+                "Oracle sentence triage failed — every sentence is audited", exc_info=True
             )
             triage_exemptions, triage_unavailable = {}, len(claims)
 
@@ -3755,10 +3781,14 @@ async def audit_document(
                 claimable_surface_form_groups(keyword_ledger, exclude_keyword_only=True)
                 or None
             )
-        except Exception:
-            logger.exception(
+        except Exception as _exc:
+            logger.error(
                 "oracle: keyword-ledger surface forms unavailable — "
-                "auditing skill chips against the vault alone"
+                "auditing skill chips against the vault alone (%s)", type(_exc).__name__
+            )
+            clog.debug(
+                "oracle: keyword-ledger surface forms unavailable — "
+                "auditing skill chips against the vault alone", exc_info=True
             )
             ledger_forms = None
 
@@ -3810,11 +3840,12 @@ async def audit_document(
     judgement_unavailable = triage_unavailable
     try:
         resolved = await _run_judgement_batches(judgement_sink, provider)
-    except Exception:
+    except Exception as _exc:
         # Fail-safe end-to-end (ADR-068): an unexpected error anywhere in the
         # batching layer must never fail the audit — every pending claim
         # simply keeps its already-placed fail-safe placeholder.
-        logger.exception("Oracle judgement batching failed — every pending claim stays fail-safe")
+        logger.error("Oracle judgement batching failed — every pending claim stays fail-safe (%s)", type(_exc).__name__)
+        clog.debug("Oracle judgement batching failed — every pending claim stays fail-safe", exc_info=True)
         resolved = [(c.unavailable_verdict, True) for c in judgement_sink]
     for sink_idx, (verdict, unavailable) in enumerate(resolved):
         result_idx = pending_result_indices[sink_idx]

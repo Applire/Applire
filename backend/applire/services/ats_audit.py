@@ -2455,10 +2455,15 @@ def apply_letter_employer_facts(ats_report: dict | None, truth_report: dict | No
                 if isinstance(okw.get(key), dict):
                     okw[key] = {k: v for k, v in okw[key].items() if k not in to_fi}
         return out
-    except Exception:  # pragma: no cover — defensive: the report stays as audited
+    except Exception as exc:  # pragma: no cover — defensive: the report stays as audited
         import logging
 
-        logging.getLogger(__name__).exception("apply_letter_employer_facts failed — report unchanged")
+        from applire.content_log import content_logger
+
+        logging.getLogger(__name__).error(
+            "apply_letter_employer_facts failed — report unchanged (%s)", type(exc).__name__
+        )
+        content_logger(__name__).debug("apply_letter_employer_facts failed", exc_info=True)
         return ats_report
 
 

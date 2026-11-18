@@ -39,12 +39,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Sequence
 
 from applire.services.reviewer import CheckFinding
+from applire.content_log import content_logger
 
 if TYPE_CHECKING:
     from applire.schemas.cv import TailoredCVData
     from applire.services.cv_budget import BudgetResult
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 PIPELINE_V1 = "v1"
 PIPELINE_V2 = "v2"
@@ -202,7 +204,11 @@ def lift_standalone_projects(prose: Any, profile_json: dict | None) -> Any:
             same["bullets"] = list(same.get("bullets") or []) + [
                 b for b in proj.get("bullets") or [] if isinstance(b, str) and _norm(b) not in have
             ]
-        logger.info(
+        logger.info("TAIL_RELOCATE (WP-Q5 b) pass=lift_standalone_projects predicate=role-nested copy "
+            "of a project the vault ties to no position role_id=%r merged=%s",
+            entry.get("id"), same is not None,
+        )
+        clog.debug(
             "TAIL_RELOCATE (WP-Q5 b) pass=lift_standalone_projects predicate=role-nested copy "
             "of a project the vault ties to no position role_id=%r project=%r merged=%s",
             entry.get("id"), proj.get("name"), same is not None,
@@ -281,7 +287,11 @@ def place_linked_projects(prose: Any, profile_json: dict | None) -> Any:
             ]
         entry["projects"] = nested
         moved_idx.add(i)
-        logger.info(
+        logger.info("TAIL_RELOCATE (D-31) pass=place_linked_projects predicate=top-level copy "
+            "of a role-tied project role_id=%r merged=%s",
+            wid, same is not None,
+        )
+        clog.debug(
             "TAIL_RELOCATE (D-31) pass=place_linked_projects predicate=top-level copy "
             "of a role-tied project role_id=%r project=%r merged=%s",
             wid, proj.get("name"), same is not None,
@@ -614,8 +624,9 @@ def unmentioned_identifiers(texts: Sequence[str], profile_json: dict | None) -> 
         # check nor become a remedy candidate. Idempotent for an already-filtered
         # profile (the CV path filters at generation start).
         index = build_vault_index(exclude_unconfirmed(profile_json))
-    except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-        logger.exception("identifier check: vault index failed; finding skipped")
+    except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+        logger.error("identifier check: vault index failed; finding skipped (%s)", type(_exc).__name__)
+        clog.debug("identifier check: vault index failed; finding skipped", exc_info=True)
         return [], []
     named: list[str] = []
     for text in texts:
@@ -961,8 +972,9 @@ def _module_chip_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> li
     try:
         index = build_vault_index(ctx.profile_json)
         forms = claimable_surface_form_groups(ctx.keyword_ledger or [])
-    except Exception:  # noqa: BLE001 — a check must never fail the loop
-        logger.exception("module chip check: vault index failed; no finding")
+    except Exception as _exc:  # noqa: BLE001 — a check must never fail the loop
+        logger.error("module chip check: vault index failed; no finding (%s)", type(_exc).__name__)
+        clog.debug("module chip check: vault index failed; no finding", exc_info=True)
         return []
 
     def backed(name: str) -> bool:
@@ -1000,8 +1012,9 @@ def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> 
         candidates = select_restore_candidates(
             composed.model_dump(mode="json"), ctx.profile_json, ctx.keyword_ledger, ctx.budget,
         )
-    except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-        logger.exception("v2 check detector select_restore_candidates raised; finding skipped")
+    except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+        logger.error("v2 check detector select_restore_candidates raised; finding skipped (%s)", type(_exc).__name__)
+        clog.debug("v2 check detector select_restore_candidates raised; finding skipped", exc_info=True)
         return []
     companies = {w.id: w.company for w in composed.work_history}
 
@@ -1115,8 +1128,9 @@ def _skill_without_bullet_findings(
     narrative = {**doc, "skills": [], "summary": ""}
     try:
         candidates = select_restore_candidates(narrative, ctx.profile_json, ctx.keyword_ledger, ctx.budget)
-    except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-        logger.exception("v2 check detector select_restore_candidates (narrative) raised; finding skipped")
+    except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+        logger.error("v2 check detector select_restore_candidates (narrative) raised; finding skipped (%s)", type(_exc).__name__)
+        clog.debug("v2 check detector select_restore_candidates (narrative) raised; finding skipped", exc_info=True)
         return []
     chips = _norm("\n".join(str(x) for x in composed.skills if isinstance(x, str)))
     summary = _norm(str(composed.summary or ""))
@@ -1279,8 +1293,9 @@ def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[C
     if ctx.keyword_ledger:
         try:
             under = verified_narrative_underclaim(doc, ctx.keyword_ledger, structured_document=doc)
-        except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-            logger.exception("v2 check detector verified_narrative_underclaim raised; finding skipped")
+        except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+            logger.error("v2 check detector verified_narrative_underclaim raised; finding skipped (%s)", type(_exc).__name__)
+            clog.debug("v2 check detector verified_narrative_underclaim raised; finding skipped", exc_info=True)
             under = []
         texts = [(p, _norm(_project_text(p))) for p in vault_projects]
         for c in under:
@@ -1399,8 +1414,9 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
     def step(fn, data, *args, **kwargs):
         try:
             return fn(data.model_copy(deep=True), *args, **kwargs)
-        except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-            logger.exception("v2 check detector %s raised; finding skipped", getattr(fn, "__name__", fn))
+        except Exception as _exc:  # noqa: BLE001 — a detector failure loses its finding only
+            logger.error("v2 check detector %s raised; finding skipped (%s)", getattr(fn, "__name__", fn), type(_exc).__name__)
+            clog.debug("v2 check detector %s raised; finding skipped", getattr(fn, "__name__", fn), exc_info=True)
             return data
 
     s0 = composed.model_copy(deep=True)
@@ -1581,8 +1597,9 @@ def _budget_candidates(composed: "TailoredCVData", ctx: V2CheckContext) -> str:
             " Lowest-ranked by the budget ranking (candidates to merge or drop; your call): "
             + ", ".join(shown) + (f" (+{more} more)" if more > 0 else "")
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("v2 budget-candidate ranking failed; finding without candidates")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("v2 budget-candidate ranking failed; finding without candidates (%s)", type(_exc).__name__)
+        clog.debug("v2 budget-candidate ranking failed; finding without candidates", exc_info=True)
         return ""
 
 
@@ -1842,8 +1859,9 @@ class V2Terminal:
             composed = TailoredCVData.model_validate(tailored_data)
             notes = self.notes_by_draft.get(canonical(prose)) or ComposeNotes()
             return [f for f in v2_checks(prose, composed, notes, self.ctx) if f.blocking]
-        except Exception:  # noqa: BLE001 — a report failure must never fail delivery
-            logger.exception("v2 delivered-draft checks raised; nothing reported")
+        except Exception as _exc:  # noqa: BLE001 — a report failure must never fail delivery
+            logger.error("v2 delivered-draft checks raised; nothing reported (%s)", type(_exc).__name__)
+            clog.debug("v2 delivered-draft checks raised; nothing reported", exc_info=True)
             return []
 
     def report_delivered(self, outcome, prose: dict, tailored_data: dict):
@@ -1939,8 +1957,9 @@ def cv_durations_block(
         own = own_duration_statements(profile_json)
         ceiling = own_career_ceiling(profile_json)
         tools = tool_duration_facts(profile_json, None, priority=list(priority or []))
-    except Exception:  # noqa: BLE001 — a prompt input must never fail generation
-        logger.exception("cv_durations_block failed; the writer runs without it")
+    except Exception as _exc:  # noqa: BLE001 — a prompt input must never fail generation
+        logger.error("cv_durations_block failed; the writer runs without it (%s)", type(_exc).__name__)
+        clog.debug("cv_durations_block failed; the writer runs without it", exc_info=True)
         return ""
     de = (language or "").strip().lower() == "de"
     lines: list[str] = []

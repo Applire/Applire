@@ -44,8 +44,10 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 Kind = Literal["cv", "cover_letter"]
 NarrowMode = Literal["remove", "narrow", "as_goal"]
@@ -392,8 +394,9 @@ async def _letter_pin_quotes(record, db) -> list[str]:
         if app is None or not app.pinned_facts:
             return []
         return [pn.quote for pn in active_pins(load_pins(app), "letter") if pn.quote]
-    except Exception:  # noqa: BLE001
-        logger.exception("pin load failed for shorten_letter on %s", getattr(record, "id", None))
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("pin load failed for shorten_letter on %s (%s)", getattr(record, "id", None), type(_exc).__name__)
+        clog.debug("pin load failed for shorten_letter on %s", getattr(record, "id", None), exc_info=True)
         return []
 
 

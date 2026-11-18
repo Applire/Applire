@@ -42,8 +42,10 @@ import logging
 from typing import Any
 
 from applire.services.oracle.audit import audit_document
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 async def build_self_audit_report(
@@ -108,6 +110,7 @@ async def build_self_audit_report(
         else:
             return None
         return report.model_dump(mode="json")
-    except Exception:
-        logger.exception("Truthfulness self-audit failed — report left NULL")
+    except Exception as _exc:
+        logger.error("Truthfulness self-audit failed — report left NULL (%s)", type(_exc).__name__)
+        clog.debug("Truthfulness self-audit failed — report left NULL", exc_info=True)
         return None

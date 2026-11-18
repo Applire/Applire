@@ -177,8 +177,10 @@ from applire.services.profile.reconcile.stance import (
     _SCALES,
     _SMALL_WORDS,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -649,7 +651,11 @@ def figure_ownership_reviewer_prompt_fn(base_fn, profile: Any):
         facts = _facts_from_map(draft, vault_fig_map, labels, candidates)
         if not facts:
             return prompt
-        logger.info(
+        logger.info("figure ownership check (#299): %d grounded figure(s) in the draft "
+            "carry vault ownership",
+            len(facts),
+        )
+        clog.debug(
             "figure ownership check (#299): %d grounded figure(s) in the draft "
             "carry vault ownership — %s",
             len(facts),
@@ -960,7 +966,14 @@ def guard_letter_figures(letter_data: dict[str, Any], profile: Any) -> dict[str,
         return letter_data
 
     for d in all_dropped:
-        logger.warning(
+        logger.warning("letter_figure_guard (#254/#296): removed the sentence carrying "
+            "a figure from cover-letter paragraph %d — backed only by evidence "
+            "owned by a different position than the one this sentence names. The "
+            "WHOLE sentence goes: excising the figure alone left ungrammatical "
+            "prose in the delivered PDF.",
+            d["paragraph_index"],
+        )
+        clog.debug(
             "letter_figure_guard (#254/#296): removed the sentence carrying "
             "figure %r from cover-letter paragraph %d — backed only by evidence "
             "owned by %s, which this sentence does not name (%r). The "

@@ -46,6 +46,15 @@ EN_BULLET = "Led creative work on digital campaigns for electronics and fashion 
 DE_BULLET = "Leitete die kreative Arbeit an digitalen Kampagnen für Elektronik- und Modekunden."
 
 
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
+
 def _profile(*, english=True, budget=EN_BUDGET) -> dict:
     return {
         "contact": {"full_name": "Testperson", "email": "kontakt@applire.de"},
@@ -137,25 +146,23 @@ def test_a_figure_preserving_translation_is_accepted():
 
 @pytest.mark.parametrize("bad", ["bis zu 3 Mio. €", "bis zu 2.000.000 €", "bis zu zwei Millionen",
                                  "bis zu 2 Mrd. €"])  # 786:L127: the magnitude word is a figure
-def test_a_translation_that_changes_a_figure_keeps_the_vault_original_receipted(bad, caplog):
+def test_a_translation_that_changes_a_figure_keeps_the_vault_original_receipted(bad, content_records):
     from applire.services.cv import _settle_language_preseed
 
-    caplog.set_level(logging.WARNING, logger="applire.services.cv")
     draft, plan = _plan(_profile())
     _settle_language_preseed(_translated(draft, bad), plan)
     assert plan.budget_managed[WORK] == EN_BUDGET
-    receipts = [r.getMessage() for r in caplog.records if "LANGUAGE_PRESEED_FIGURE_KEPT" in r.getMessage()]
+    receipts = [r.getMessage() for r in content_records if "LANGUAGE_PRESEED_FIGURE_KEPT" in r.getMessage()]
     assert len(receipts) == 1 and EN_BUDGET in receipts[0] and bad in receipts[0]
 
 
-def test_a_translation_that_loses_the_unit_keeps_the_vault_original(caplog):
+def test_a_translation_that_loses_the_unit_keeps_the_vault_original(content_records):
     from applire.services.cv import _settle_language_preseed
 
-    caplog.set_level(logging.WARNING, logger="applire.services.cv")
     draft, plan = _plan(_profile())
     _settle_language_preseed(_translated(draft, "bis zu 2"), plan)
     assert plan.budget_managed[WORK] == EN_BUDGET
-    assert any("LANGUAGE_PRESEED_FIGURE_KEPT" in r.getMessage() for r in caplog.records)
+    assert any("LANGUAGE_PRESEED_FIGURE_KEPT" in r.getMessage() for r in content_records)
 
 
 # --- the delivered document (seam: _apply_role_facts via _compose_document) ---

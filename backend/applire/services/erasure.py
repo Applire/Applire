@@ -66,6 +66,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire import ownership
+from applire.content_log import content_logger
 
 __all__ = [
     "ErasureFailed",
@@ -76,6 +77,7 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 ErasureScope = Literal["vault", "account"]
 
@@ -234,7 +236,8 @@ async def _unreferenced(db: AsyncSession, paths: list[str]) -> list[str]:
     out: list[str] = []
     for path in dict.fromkeys(paths):  # de-duplicated, order kept
         if path in still or _resolved(path) in still_resolved:
-            logger.info("GDPR erasure: kept %s — another row still references it", path)
+            logger.info("GDPR erasure: kept a file — another row still references it")
+            clog.debug("GDPR erasure: kept %s — another row still references it", path)
             continue
         out.append(path)
     return out
@@ -429,7 +432,11 @@ async def erase(
         except Exception as exc:  # noqa: BLE001 — never undo a committed erasure
             # ERROR, not warning: a leftover file is PII outliving an Art. 17
             # request until the retention orphan scan reclaims it (#152).
-            logger.error(
+            logger.error("Failed to delete a file after GDPR erasure: %s "
+                "(retention orphan scan reclaims it within 24h)",
+                type(exc).__name__,
+            )
+            clog.debug(
                 "Failed to delete file %s after GDPR erasure: %s "
                 "(retention orphan scan reclaims it within 24h)",
                 path,

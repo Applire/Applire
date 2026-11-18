@@ -249,8 +249,10 @@ from applire.services.review_issues import (
     normalize_issues,
 )
 from applire.services.signal_disposition import ExhaustionDisposition, get_signal_disposition
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -746,8 +748,18 @@ async def review_and_refine(
                 continue
             try:
                 matched = any(record.issue_matches(text) for text in last_issues)
-            except Exception:
+            except Exception as _exc:
                 logger.error(
+                    "review_and_refine: chain=%s signal_id=%s issue_matches raised "
+                    "on settle path=%s; treating as no-match and shipping without "
+                    "the fallback (fail-safe: a missed fallback ships exactly what "
+                    "the loop would have shipped anyway, while a wrongly-fired one "
+                    "would apply an edit nobody asked for). (%s)",
+                    chain_id,
+                    signal_id,
+                    path, type(_exc).__name__,
+                )
+                clog.debug(
                     "review_and_refine: chain=%s signal_id=%s issue_matches raised "
                     "on settle path=%s; treating as no-match and shipping without "
                     "the fallback (fail-safe: a missed fallback ships exactly what "
@@ -763,8 +775,17 @@ async def review_and_refine(
                 continue  # this signal's issue was resolved before settling
             try:
                 result = record.fallback_fn(result)
-            except Exception:
+            except Exception as _exc:
                 logger.error(
+                    "review_and_refine: chain=%s signal_id=%s fallback_fn raised "
+                    "on settle path=%s; shipping the un-fallbacked draft rather "
+                    "than crash the loop (ADR-076 clause 2 amendment: fail-safe "
+                    "on the sanctioned exception itself). (%s)",
+                    chain_id,
+                    signal_id,
+                    path, type(_exc).__name__,
+                )
+                clog.debug(
                     "review_and_refine: chain=%s signal_id=%s fallback_fn raised "
                     "on settle path=%s; shipping the un-fallbacked draft rather "
                     "than crash the loop (ADR-076 clause 2 amendment: fail-safe "
@@ -802,8 +823,14 @@ async def review_and_refine(
                     plain_notes=tuple(verdict_cell["plain"]),
                 )
             )
-        except Exception:
+        except Exception as _exc:
             logger.error(
+                "review_and_refine: chain=%s on_settle raised on settle path=%s; the "
+                "document ships and the report is lost — never the other way round. (%s)",
+                chain_id,
+                path, type(_exc).__name__,
+            )
+            clog.debug(
                 "review_and_refine: chain=%s on_settle raised on settle path=%s; the "
                 "document ships and the report is lost — never the other way round.",
                 chain_id,
@@ -821,8 +848,14 @@ async def review_and_refine(
             return []
         try:
             return [f for f in checks_fn(d) if isinstance(f, CheckFinding)]
-        except Exception:
+        except Exception as _exc:
             logger.error(
+                "review_and_refine: chain=%s checks_fn raised; continuing without "
+                "deterministic check findings (fail-safe: a lost finding ships what the "
+                "loop would have shipped anyway, never a lost round). (%s)",
+                chain_id, type(_exc).__name__,
+            )
+            clog.debug(
                 "review_and_refine: chain=%s checks_fn raised; continuing without "
                 "deterministic check findings (fail-safe: a lost finding ships what the "
                 "loop would have shipped anyway, never a lost round).",
@@ -853,8 +886,14 @@ async def review_and_refine(
             return
         try:
             on_checks_settle(report)
-        except Exception:
+        except Exception as _exc:
             logger.error(
+                "review_and_refine: chain=%s on_checks_settle raised on settle path=%s; "
+                "the document ships and the report is lost — never the other way round. (%s)",
+                chain_id,
+                path, type(_exc).__name__,
+            )
+            clog.debug(
                 "review_and_refine: chain=%s on_checks_settle raised on settle path=%s; "
                 "the document ships and the report is lost — never the other way round.",
                 chain_id,
@@ -1024,7 +1063,16 @@ async def review_and_refine(
                 # minor-only round — it is an unreadable one, and it retries exactly
                 # as it did before severity existed.
                 log_review_minor_only(chain_id, attempt + 1, minor=len(issues))
-                logger.info(
+                logger.info("review_and_refine: chain=%s attempt=%d/%d — the reviewer "
+                    "rejected the draft but raised no blocking issue (%d minor); "
+                    "shipping it rather than spending a rewrite on polish "
+                    "(ADR-021 severity gate).",
+                    chain_id,
+                    attempt + 1,
+                    max_retries,
+                    len(issues),
+                )
+                clog.debug(
                     "review_and_refine: chain=%s attempt=%d/%d — the reviewer "
                     "rejected the draft but raised no blocking issue (%d minor); "
                     "shipping it rather than spending a rewrite on polish "
@@ -1041,7 +1089,7 @@ async def review_and_refine(
             # check finding is open: the corrector then works from the findings, and
             # the reviewer's prose — which approved the draft — is not handed over.
             feedback = review.get("feedback", "") if (blocking or not issues) and not approved else ""
-            logger.debug(
+            clog.debug(
                 "review_and_refine attempt %d/%d rejected. Issues: %r",
                 attempt + 1,
                 max_retries,
@@ -1073,8 +1121,15 @@ async def review_and_refine(
             if signal_issues_fn is not None:
                 try:
                     signal_issues = [i for i in signal_issues_fn(current_draft) if i.is_blocking]
-                except Exception:
+                except Exception as _exc:
                     logger.error(
+                        "review_and_refine: chain=%s signal_issues_fn raised on attempt "
+                        "%d; continuing without deterministic signal issues (fail-safe: "
+                        "a lost signal ships what the loop would have shipped anyway). (%s)",
+                        chain_id,
+                        attempt + 1, type(_exc).__name__,
+                    )
+                    clog.debug(
                         "review_and_refine: chain=%s signal_issues_fn raised on attempt "
                         "%d; continuing without deterministic signal issues (fail-safe: "
                         "a lost signal ships what the loop would have shipped anyway).",
@@ -1085,7 +1140,12 @@ async def review_and_refine(
                     signal_issues = []
             if signal_issues:
                 corrector_feedback = fold_issues_into_feedback(corrector_feedback, signal_issues)
-                logger.info(
+                logger.info("REVIEW_SIGNAL_ISSUES chain=%s attempt=%d raised=%d",
+                    chain_id,
+                    attempt + 1,
+                    len(signal_issues),
+                )
+                clog.debug(
                     "REVIEW_SIGNAL_ISSUES chain=%s attempt=%d raised=%d texts=%r",
                     chain_id,
                     attempt + 1,
@@ -1143,7 +1203,13 @@ async def review_and_refine(
                 # refinement or a crash (ADR-021 amended / ADR-047 cap-safety).
                 log_review_call_failed(chain_id, "generator", attempt + 1, type(exc).__name__)
                 record_review_degradation(chain_id, "correction", type(exc).__name__, attempt + 1)
-                logger.warning(
+                logger.warning("review_and_refine: chain=%s refiner call truncated/timed out (%s) on "
+                    "attempt %d; keeping last known-good draft.",
+                    chain_id,
+                    type(exc).__name__,
+                    attempt + 1,
+                )
+                clog.debug(
                     "review_and_refine: chain=%s refiner call truncated/timed out (%s) on "
                     "attempt %d; keeping last known-good draft. Last issues: %r",
                     chain_id,
@@ -1159,7 +1225,13 @@ async def review_and_refine(
                 # `review_malformed` settle path rather than `generator_call_failed`.
                 log_review_call_failed(chain_id, "generator", attempt + 1, type(exc).__name__)
                 record_review_degradation(chain_id, "correction", type(exc).__name__, attempt + 1)
-                logger.warning(
+                logger.warning("review_and_refine: chain=%s refiner call returned malformed JSON "
+                    "(%s) on attempt %d; keeping last known-good draft.",
+                    chain_id,
+                    type(exc).__name__,
+                    attempt + 1,
+                )
+                clog.debug(
                     "review_and_refine: chain=%s refiner call returned malformed JSON "
                     "(%s) on attempt %d; keeping last known-good draft. Last issues: %r",
                     chain_id,
@@ -1255,7 +1327,11 @@ async def review_and_refine(
         # (spec: ADR-021; worst-case call count = 2 * max_retries). #264: this is the
         # "ships silently" case — make it loudly, durably visible.
         log_review_exhausted(chain_id, max_retries, len(last_issues))
-        logger.warning(
+        logger.warning("review_and_refine: chain=%s %d retries exhausted.",
+            chain_id,
+            max_retries,
+        )
+        clog.debug(
             "review_and_refine: chain=%s %d retries exhausted. Last known issues: %r",
             chain_id,
             max_retries,

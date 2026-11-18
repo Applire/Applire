@@ -141,6 +141,15 @@ async def _seed(db):
     return job, profile, cl
 
 
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
+
 def _letter(marker: str) -> dict:
     return {
         "header": {"name": "Max Prober"},
@@ -233,13 +242,12 @@ async def _delivered(db, cl):
 
 @pytest.mark.asyncio
 async def test_a_recondense_that_drops_the_added_coverage_is_labelled_honestly(
-    db, caplog
+    db, content_records
 ):
     """The adversarial case: the re-condense is in-norm but has silently
     dropped the corrector's added coverage sentence entirely. The selection
     must not claim `recondensed_repair` — that name asserts the repair
     survived, and it did not."""
-    caplog.set_level(logging.WARNING, logger="applire.services.cover_letter")
     _job, _profile, cl = await _seed(db)
 
     recondensed_but_hollow = _letter("RECONDENSED-BUT-COVERAGE-GONE")
@@ -264,8 +272,8 @@ async def test_a_recondense_that_drops_the_added_coverage_is_labelled_honestly(
     assert "RECONDENSED-BUT-COVERAGE-GONE" in delivered
     assert "Arbeitsvorbereitung" not in delivered
 
-    lines = [r.getMessage() for r in caplog.records if "dropped claimable term" in r.getMessage()]
-    assert lines, caplog.text
+    lines = [r.getMessage() for r in content_records if "dropped claimable term" in r.getMessage()]
+    assert lines, content_records
     for concept in ("Arbeitsvorbereitung", "5S", "Supply Chain"):
         assert concept in lines[0], lines[0]
 
@@ -296,10 +304,9 @@ async def test_a_recondense_that_keeps_the_coverage_still_reports_recondensed_re
 
 
 @pytest.mark.asyncio
-async def test_a_partial_coverage_loss_is_named_precisely(db, caplog):
+async def test_a_partial_coverage_loss_is_named_precisely(db, content_records):
     """Only the terms that actually regressed are named — a re-condense that
     keeps two of three demanded terms is not reported as losing all three."""
-    caplog.set_level(logging.WARNING, logger="applire.services.cover_letter")
     _job, _profile, cl = await _seed(db)
 
     partial = _letter(
@@ -316,7 +323,7 @@ async def test_a_partial_coverage_loss_is_named_precisely(db, caplog):
     )
 
     assert result.final_floor_selection == "recondensed_repair_lost_coverage"
-    lines = [r.getMessage() for r in caplog.records if "dropped claimable term" in r.getMessage()]
+    lines = [r.getMessage() for r in content_records if "dropped claimable term" in r.getMessage()]
     assert lines
     assert "Supply Chain" in lines[0]
     assert "Arbeitsvorbereitung" not in lines[0]

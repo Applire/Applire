@@ -90,8 +90,10 @@ from applire.prompts.skill_estimation import (
     SKILL_ESTIMATION_SYSTEM_PROMPT,
     build_skill_estimation_prompt,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 # Categories phase 1 may compute a duration for from dated evidence. "domain"
 # is here because US176 routes every practice/standard/methodology into it
@@ -786,8 +788,9 @@ def governing_rule(
             if str(n).casefold() in wanted
         }
         return governing_starts_from_index(idx, names, _first_position_year(profile_json)), own
-    except Exception:  # noqa: BLE001 — a derived span must never fail a write
-        logger.warning("skill_enrichment: governing_starts failed; spans stay role-dated", exc_info=True)
+    except Exception as _exc:  # noqa: BLE001 — a derived span must never fail a write
+        logger.warning("skill_enrichment: governing_starts failed; spans stay role-dated (%s)", type(_exc).__name__)
+        clog.debug("skill_enrichment: governing_starts failed; spans stay role-dated", exc_info=True)
         return {}, {}
 
 
@@ -1008,7 +1011,11 @@ async def enrich_skills(
                 # all, and "unknown" must stay representable.
                 years = int(round(raw)) or None
                 if years is not None and years > max_years:
-                    logger.warning(
+                    logger.warning("skill_enrichment: LLM estimated %d years for a skill, exceeding the "
+                        "candidate's %d-year career span; clamping (#264 plausibility guard)",
+                        years, max_years,
+                    )
+                    clog.debug(
                         "skill_enrichment: LLM estimated %d years for %r, exceeding the "
                         "candidate's %d-year career span; clamping (#264 plausibility guard)",
                         years, skill.name, max_years,

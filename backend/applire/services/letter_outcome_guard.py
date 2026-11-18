@@ -64,8 +64,10 @@ from applire.services.outcome_preference import (
     is_target_phrase,
     reframe_with_outcome,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 def _sentence_spans(paragraph: str) -> list[tuple[int, int, str]]:
@@ -171,7 +173,11 @@ def guard_letter_outcome_preference(
         return letter_data
 
     for r in all_reframed:
-        logger.info(
+        logger.info("letter_outcome_guard (#261): surfaced measured outcome over target "
+            "phrasing in paragraph %d",
+            r["paragraph_index"],
+        )
+        clog.debug(
             "letter_outcome_guard (#261): surfaced measured outcome over target "
             "phrasing in paragraph %d, owner %s: %r paired with %r",
             r["paragraph_index"], r["owner"], r["sentence"], r["outcome"],

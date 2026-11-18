@@ -40,8 +40,10 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 _LEVEL_FIELDS: dict[str, str] = {
     "required": "required_skills",
@@ -158,7 +160,12 @@ def apply_jd_level_guard(
         reverted.append(f"{moved_entries[0]!r}: {level} -> {target}")
 
     if reverted:
-        logger.warning(
+        logger.warning("jd_level_guard: reverted %d undeclared level move(s) in the settled "
+            "job analysis (ADR-069 clause 4: a level move the corrector did "
+            "not declare in level_changes keeps its prior level).",
+            len(reverted),
+        )
+        clog.debug(
             "jd_level_guard: reverted %d undeclared level move(s) in the settled "
             "job analysis — %s (ADR-069 clause 4: a level move the corrector did "
             "not declare in level_changes keeps its prior level).",

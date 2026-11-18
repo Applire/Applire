@@ -47,6 +47,15 @@ from applire.services.keyword_ledger import (
     assert_claimable_backed,
 )
 
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
+
 # ── The run-7 case-2 vault: nine real skills, none of them MES or OEE ────────
 MARCUS_VAULT = {
     "skills": [
@@ -304,14 +313,15 @@ class TestTheNamedExemptions:
 
 
 class TestTheInvariantIsNeverSilentAndNeverGratuitous:
-    def test_a_violation_is_logged_at_warning_with_the_concept_and_the_reason(self, caplog):
+    def test_a_violation_is_logged_at_warning_with_the_concept_and_the_reason(self, caplog, content_records):
         ledger = [_entry("MES", evidence="Wir haben 2019 ein MES eingeführt.")]
         with caplog.at_level(logging.WARNING, logger="applire.services.keyword_ledger"):
             assert_claimable_backed(ledger, MARCUS_VAULT, seam="test-seam")
-        blob = " ".join(r.getMessage() for r in caplog.records)
+        warned = " ".join(r.getMessage() for r in caplog.records)
+        assert "test-seam" in warned
+        blob = " ".join(r.getMessage() for r in content_records)
         assert "MES" in blob
         assert "no_vault_evidence_unit" in blob
-        assert "test-seam" in blob
 
     def test_no_profile_on_hand_makes_the_invariant_vacuous(self):
         # Mirrors `_annotate_narrative_backed`: a caller with no vault to check

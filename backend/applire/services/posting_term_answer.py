@@ -30,8 +30,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.services.posting_terms import offered_posting_term_rows, same_language_pair, their_words
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 Via = Literal["person", "agent"]
 
@@ -266,7 +268,10 @@ async def answer_posting_terms(
         record["confirmed"] = added
         application.posting_terms = record
         await db.commit()
-    logger.info(
+    logger.info("POSTING_TERMS_ANSWER job=%s via=%s confirmed=%d leave_open=%s",
+        job_id, via, len(added), leave_open,
+    )
+    clog.debug(
         "POSTING_TERMS_ANSWER job=%s via=%s confirmed=%s leave_open=%s",
         job_id, via, added, leave_open,
     )

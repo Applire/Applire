@@ -52,8 +52,10 @@ from applire.prompts.review_rewrite import (
 )
 from applire.providers.llm.base import LLMProvider
 from applire.services.ats_audit import _norm, _verb_stem, surface_present
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 #: The letter body's paragraph separator as the editor writes it; the split keeps
 #: whatever separator the stored body actually carries.
@@ -262,7 +264,10 @@ async def rewrite_for_removal(
     after_check = after.strip()
     still = [f for f in forms if present(f, after_check)]
     if not after_check or still:
-        logger.info(
+        logger.info("REVIEW_REWRITE_REFUSED kind=%s section=%s empty=%s forms_remaining=%d calls=%d",
+            kind, section_id, not after_check, len(still), calls,
+        )
+        clog.debug(
             "REVIEW_REWRITE_REFUSED kind=%s section=%s empty=%s forms_remaining=%r calls=%d",
             kind, section_id, not after_check, still, calls,
         )

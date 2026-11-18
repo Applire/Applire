@@ -132,8 +132,10 @@ from applire.services.interview_graph import (
 from applire.services.profile.reconcile.interview_bridge import (
     reconcile_interview_turn,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -628,7 +630,10 @@ async def _handle_confirmation_answer(
         # #730 — an answer naming none of the options must not spend the park
         # here, or the candidate's "neither" is swallowed by the bookkeeping
         # resolve below and the ask is gone for good.
-        logger.warning(
+        logger.warning("profile-review confirmation: the answer names none of the options "
+            "for the incoming skill — re-asking, park left open (#730)"
+        )
+        clog.debug(
             "profile-review confirmation: the answer names none of the options "
             "for incoming skill %r — re-asking, park left open (#730)",
             context.get("incoming_skill"),
@@ -942,7 +947,13 @@ async def _apply_interview_confirmation(
         # into my existing Collaboration skill either"* used to resolve to
         # `distinct` (it quotes the option it rejects), and the denied skill
         # reached the vault at `confirmed` and then the delivered CV.
-        logger.warning(
+        logger.warning("interview confirmation: the answer names none of the options for "
+            "the incoming skill — refusing the write and re-asking (#730). "
+            "option_key=%r keyed=%s",
+            option_key,
+            keyed,
+        )
+        clog.debug(
             "interview confirmation: the answer names none of the options for "
             "incoming skill %r — refusing the write and re-asking (#730). "
             "option_key=%r keyed=%s",
@@ -955,7 +966,10 @@ async def _apply_interview_confirmation(
         # "Neither / keep the existing skills" — discard the incoming; the
         # existing skills stand unchanged. Family 3 carries this option since
         # #730 (`skill_containment_confirmation`), family 2 always has.
-        logger.info(
+        logger.info("interview confirmation: candidate declined the incoming skill "
+            "(option key 'keep') — nothing written"
+        )
+        clog.debug(
             "interview confirmation: candidate declined incoming skill %r "
             "(option key 'keep') — nothing written",
             incoming,
@@ -2914,7 +2928,8 @@ async def _record_kind_answer(
     try:
         find_entry(MasterProfileData.model_validate(profile_record.profile_json), **args)
     except (LeadershipKindEntryNotFound, LookupError):
-        logger.info(
+        logger.info("leadership-kind answer: the role is no longer in the vault — nothing recorded")
+        clog.debug(
             "leadership-kind answer: the role %r is no longer in the vault — nothing recorded",
             kind_entry_key(entry),
         )
@@ -4403,7 +4418,10 @@ async def _send_message_turn(
         # door reuses it) must not persist an answer the vault never saw.
         if state["messages"] and state["messages"][-1] == {"role": "user", "content": message}:
             state["messages"].pop()
-        logger.warning(
+        logger.warning("interview turn not saved: reconcile failed (session=%s)",
+            record.id,
+        )
+        clog.debug(
             "interview turn not saved: reconcile failed (session=%s, gap=%s)",
             record.id, current_gap,
         )
@@ -4929,7 +4947,10 @@ async def _judged_draft(
     remaining = list(q_data.get("follow_up_remaining", focus))
     question = str(q_data.get("question") or "").strip()
     if remaining and not question:
-        logger.warning(
+        logger.warning("Follow-up: the draft left %d open but wrote no question — retrying once",
+            len(remaining),
+        )
+        clog.debug(
             "Follow-up on %s: the draft left %s open but wrote no question — retrying once",
             current_gap, remaining,
         )
@@ -4937,13 +4958,15 @@ async def _judged_draft(
         remaining = list(q_data.get("follow_up_remaining", remaining))
         question = str(q_data.get("question") or "").strip()
     if not remaining:
-        logger.info(
+        logger.info("Follow-up not asked: the answer covered the open items in other words")
+        clog.debug(
             "Follow-up on %s not asked: the answer covered %s in other words",
             current_gap, q_data.get("covered_by_answer") or focus,
         )
         return q_data, [], ""
     if not question:
-        logger.warning("Follow-up on %s not asked: no question drafted for %s", current_gap, remaining)
+        logger.warning("Follow-up not asked: no question drafted for %d open item(s)", len(remaining))
+        clog.debug("Follow-up on %s not asked: no question drafted for %s", current_gap, remaining)
     return q_data, remaining, question
 
 
@@ -5067,7 +5090,8 @@ async def _ask_partial_coverage_follow_up(
     same cluster loses its one follow-up.
     """
     if any(str(d).strip() for d in (getattr(turn, "denied_concepts", None) or []) if d):
-        logger.info(
+        logger.info("Follow-up not asked: the answer recorded a no, which closes the topic (A1-R8-1)")
+        clog.debug(
             "Follow-up on %s not asked: the answer recorded a no, which closes the topic (A1-R8-1)",
             current_gap,
         )
@@ -5259,8 +5283,13 @@ async def _complete_session(
         try:
             profile_data = MasterProfileData.model_validate(profile_record.profile_json)
             completeness = profile_data.calculate_completeness()
-        except Exception:
+        except Exception as _exc:
             logger.warning(
+                "Completeness scoring failed on interview completion for session %s; "
+                "reporting 0.0 (recoverable — profile health view recomputes it) (%s)",
+                record.id, type(_exc).__name__,
+            )
+            clog.debug(
                 "Completeness scoring failed on interview completion for session %s; "
                 "reporting 0.0 (recoverable — profile health view recomputes it)",
                 record.id,
@@ -5277,8 +5306,13 @@ async def _complete_session(
     from applire.services.flow.orchestrator import advance_flow_on_interview_complete
     try:
         await advance_flow_on_interview_complete(session_id, db)
-    except Exception:
+    except Exception as _exc:
         logger.warning(
+            "Flow advance after interview completion failed for session %s; "
+            "flow left on 'interview' step (recoverable via Generate CV) (%s)",
+            session_id, type(_exc).__name__,
+        )
+        clog.debug(
             "Flow advance after interview completion failed for session %s; "
             "flow left on 'interview' step (recoverable via Generate CV)",
             session_id,
@@ -5315,8 +5349,15 @@ async def _complete_session(
                 job_analysis_id, db, provider,
                 answer_scope=answer_scope, user_id=record_user_id,
             )
-        except Exception:
+        except Exception as _exc:
             logger.warning(
+                "Post-interview gap recompute failed for session %s (job %s); "
+                "match score left on the pre-interview analysis (recoverable "
+                "via gaps/refresh) (%s)",
+                session_id,
+                job_analysis_id, type(_exc).__name__,
+            )
+            clog.debug(
                 "Post-interview gap recompute failed for session %s (job %s); "
                 "match score left on the pre-interview analysis (recoverable "
                 "via gaps/refresh)",
@@ -5339,8 +5380,13 @@ async def _complete_session(
             )
             if refreshed is not None:
                 cluster_coverage = refreshed
-        except Exception:
+        except Exception as _exc:
             logger.warning(
+                "Reading the recomputed cluster record failed for session %s; "
+                "reporting the turn's own record (%s)",
+                session_id, type(_exc).__name__,
+            )
+            clog.debug(
                 "Reading the recomputed cluster record failed for session %s; "
                 "reporting the turn's own record",
                 session_id,

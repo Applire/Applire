@@ -104,8 +104,10 @@ from applire.schemas.cover_letter import (
 from applire.utils.language_detection import resolve_jd_language
 from applire.utils.letter_date import format_letter_date
 from applire.utils.recipient_extraction import extract_recipient_from_jd
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 def _letter_pipeline_now() -> str:
@@ -159,7 +161,9 @@ async def _condense_call(provider, prompt: str, *, stage: str, system: str = SYS
     # so a wrong-shape reply is raised into it rather than stored.
     if not letter_shape_ok(condensed):
         logger.warning("LETTER_CONDENSE_SHAPE stage=%s keys=%s", stage,
-                       sorted(condensed) if isinstance(condensed, dict) else type(condensed).__name__)
+                       len(condensed) if isinstance(condensed, dict) else type(condensed).__name__)
+        clog.debug("LETTER_CONDENSE_SHAPE stage=%s keys=%s", stage,
+                   sorted(condensed) if isinstance(condensed, dict) else type(condensed).__name__)
         raise ValueError(f"condense reply has the wrong shape ({stage}); keeping the current letter")
     return condensed
 
@@ -1289,7 +1293,7 @@ def _drop_trailing_signoff(letter_data: dict) -> dict:
     if found is None:
         return letter_data
     kept, drop = found
-    logger.info(
+    clog.debug(
         "cover letter: dropped a trailing sign-off paragraph the template prints "
         "itself (ruling K-2): %r",
         kept[-drop:],
@@ -1733,7 +1737,15 @@ async def _render_cover_letter_body(
 
                 _unasked = unasked_hard_requirements(keyword_ledger)
                 if _unasked:
-                    logger.warning(
+                    logger.warning("LETTER_UNASKED_REQUIREMENTS cl=%s count=%d — JD hard "
+                        "requirement(s) with no evidence, no adjacent capability and no "
+                        "stated limit. Never asserted (ADR-074); named only where the G-1 "
+                        "gap ladder names it (ADR-075 amended 2026-11-04). Surfaced to the "
+                        "candidate.",
+                        cl_id,
+                        len(_unasked),
+                    )
+                    clog.debug(
                         "LETTER_UNASKED_REQUIREMENTS cl=%s count=%d concepts=%r — JD hard "
                         "requirement(s) with no evidence, no adjacent capability and no "
                         "stated limit. Never asserted (ADR-074); named only where the G-1 "
@@ -1796,10 +1808,14 @@ async def _render_cover_letter_body(
                             )
                             or None
                         )
-                except Exception:
-                    logger.exception(
+                except Exception as _exc:
+                    logger.error(
                         "fact-pin load failed for cover letter %s — generating "
-                        "without pins (ADR-077 fail-safe)", cl_id,
+                        "without pins (ADR-077 fail-safe) (%s)", cl_id, type(_exc).__name__,
+                    )
+                    clog.debug(
+                        "fact-pin load failed for cover letter %s — generating "
+                        "without pins (ADR-077 fail-safe)", cl_id, exc_info=True,
                     )
                     letter_pins = []
                     pinned_facts_block = None
@@ -2485,10 +2501,14 @@ async def _render_cover_letter_body(
                     elif truth_round.applied:
                         logger.warning("TRUTH_ROUND (letter): corrected draft failed the shape check — kept the settled draft")
                         truth_round.applied, truth_round.removed = False, []
-                except Exception:
-                    logger.exception(
+                except Exception as _exc:
+                    logger.error(
                         "ADR-099 letter truth round failed for %s — skipped; generation "
-                        "continues with the settled draft", cl_id,
+                        "continues with the settled draft (%s)", cl_id, type(_exc).__name__,
+                    )
+                    clog.debug(
+                        "ADR-099 letter truth round failed for %s — skipped; generation "
+                        "continues with the settled draft", cl_id, exc_info=True,
                     )
 
                 # #420 (ADR-021 amended 2026-08-02): with prefer_if gone from this
@@ -2754,7 +2774,8 @@ async def _render_cover_letter_body(
                 await db.commit()
 
             except Exception as exc:
-                logger.exception("Cover letter generation failed for %s: %s", cl_id, exc)
+                logger.error("Cover letter generation failed for %s: %s", cl_id, type(exc).__name__)
+                clog.debug("Cover letter generation failed for %s: %s", cl_id, exc, exc_info=True)
                 async with AsyncSessionLocal() as err_db:
                     err_cl = await owned_row(
                         err_db, GeneratedCoverLetter, cl_id, user_id, live=False
@@ -3180,8 +3201,9 @@ def _letter_v2_findings(
                 f'the rest. Sentence: "{f["sentence"]}"',
                 subjects=(str(f["raw"]),),
             ))
-    except Exception:  # pragma: no cover - a check never breaks generation
-        logger.warning("letter v2: figure findings failed", exc_info=True)
+    except Exception as _exc:  # pragma: no cover - a check never breaks generation
+        logger.warning("letter v2: figure findings failed (%s)", type(_exc).__name__)
+        clog.debug("letter v2: figure findings failed", exc_info=True)
     for limit in ungrounded_limits(
         letter_data, keyword_ledger, denied_concepts, named_gaps=named_gaps
     ):
@@ -3193,8 +3215,9 @@ def _letter_v2_findings(
 
         for m in letter_name_findings(letter_data, profile_json or {}):
             out.append(LetterFinding("names", m.text(), subjects=(m.span,)))
-    except Exception:  # pragma: no cover - a check never breaks generation
-        logger.warning("letter v2: name findings failed", exc_info=True)
+    except Exception as _exc:  # pragma: no cover - a check never breaks generation
+        logger.warning("letter v2: name findings failed (%s)", type(_exc).__name__)
+        clog.debug("letter v2: name findings failed", exc_info=True)
     # 786:L136: a standard/regulation identifier the vault never states — the CV's
     # check, one implementation (cv_v2.unmentioned_identifiers), BLOCKING.
     from applire.services.cv_v2 import identifier_finding_text, unmentioned_identifiers
@@ -3222,8 +3245,9 @@ def _letter_v2_findings(
                 "duration", duration_finding_text(durations, profile_json or {}),
                 subjects=tuple(d["raw"] for d in durations),
             ))
-    except Exception:  # pragma: no cover - a check never breaks generation
-        logger.warning("letter v2: duration findings failed", exc_info=True)
+    except Exception as _exc:  # pragma: no cover - a check never breaks generation
+        logger.warning("letter v2: duration findings failed (%s)", type(_exc).__name__)
+        clog.debug("letter v2: duration findings failed", exc_info=True)
     if not availability_given:
         from applire.services.letter_v2 import availability_finding_text, availability_sentences
 
@@ -3256,8 +3280,9 @@ def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, 
     def fn(draft: dict) -> list:
         try:
             composed = compose_fn(draft)
-        except Exception:  # pragma: no cover - defensive
-            logger.warning("letter v2: compose failed for the checks", exc_info=True)
+        except Exception as _exc:  # pragma: no cover - defensive
+            logger.warning("letter v2: compose failed for the checks (%s)", type(_exc).__name__)
+            clog.debug("letter v2: compose failed for the checks", exc_info=True)
             return []
         out: list = []
         fact = letter_language_fact(composed, language)
@@ -3390,6 +3415,9 @@ def _log_letter_data_deviation(cl_id, composed: dict) -> None:
         )
     except Exception as exc:  # pragma: no cover - defensive, never fails a render
         logger.warning(
+            "LETTER_DATA_DEVIATION cl_id=%s check failed: %s", cl_id, type(exc).__name__
+        )
+        clog.debug(
             "LETTER_DATA_DEVIATION cl_id=%s check failed: %s", cl_id, exc
         )
 
@@ -3421,7 +3449,8 @@ async def _persist_and_measure(
 
         pdf_bytes = await render_pdf(cl.id, allow_unready=True, user_id=cl.user_id)
     except Exception as pdf_err:
-        logger.warning("PDF render failed for CL %s: %s", cl.id, pdf_err)
+        logger.warning("PDF render failed for CL %s: %s", cl.id, type(pdf_err).__name__)
+        clog.debug("PDF render failed for CL %s: %s", cl.id, pdf_err)
     if pdf_bytes is not None:
         try:
             from applire.services.ats_audit import extract_text_and_pages
@@ -3429,6 +3458,9 @@ async def _persist_and_measure(
             _, page_count = extract_text_and_pages(pdf_bytes)
         except Exception as measure_err:
             logger.warning(
+                "Letter page-count measurement failed for CL %s: %s", cl.id, type(measure_err).__name__
+            )
+            clog.debug(
                 "Letter page-count measurement failed for CL %s: %s", cl.id, measure_err
             )
     overflow_words: int | None = None
@@ -3521,8 +3553,9 @@ def _with_unreviewed_delta(outcome, cl: GeneratedCoverLetter):
 
         changes = letter_unreviewed_changes(outcome.reviewed_subject, cl.letter_data or {})
         return dataclasses.replace(outcome, unreviewed_changes=changes or None)
-    except Exception:
-        logger.exception("unreviewed-delta measurement failed for letter %s — not recorded", cl.id)
+    except Exception as _exc:
+        logger.error("unreviewed-delta measurement failed for letter %s — not recorded (%s)", cl.id, type(_exc).__name__)
+        clog.debug("unreviewed-delta measurement failed for letter %s — not recorded", cl.id, exc_info=True)
         return outcome
 
 
@@ -3711,8 +3744,9 @@ async def _terminal_review_letter(
 
         try:
             return introduced_unsourced_figures(reference, composed, [grounding_source])
-        except Exception:  # pragma: no cover - a check never breaks generation
-            logger.warning("letter: new-figure check failed", exc_info=True)
+        except Exception as _exc:  # pragma: no cover - a check never breaks generation
+            logger.warning("letter: new-figure check failed (%s)", type(_exc).__name__)
+            clog.debug("letter: new-figure check failed", exc_info=True)
             return []
     pdf_cell: dict[str, bytes | None] = {"pdf": pdf_bytes}
     measure_cell: dict[str, MeasuredLetter] = {"measured": measured}
@@ -3785,7 +3819,8 @@ async def _terminal_review_letter(
                 max_tokens=REVIEW_VERDICT_MAX_TOKENS,
             )
         except Exception as review_err:
-            logger.warning("LETTER_V2_LENGTH review-only call failed for CL %s: %s", cl.id, review_err)
+            logger.warning("LETTER_V2_LENGTH review-only call failed for CL %s: %s", cl.id, type(review_err).__name__)
+            clog.debug("LETTER_V2_LENGTH review-only call failed for CL %s: %s", cl.id, review_err)
             _record_settle(ReviewSettle(
                 path="reviewer_call_failed", approved=False, blocking_issues=(),
                 minor_issues=(), rounds=1, settled=d,
@@ -3857,8 +3892,9 @@ async def _terminal_review_letter(
                 e.get("concept") for e in claimable_present_entries(_subject_of(d), keyword_ledger)
                 if isinstance(e, dict)
             ]) or None
-        except Exception:  # pragma: no cover - a prompt block never fails a letter
-            logger.warning("letter v2: retained-terms block failed", exc_info=True)
+        except Exception as _exc:  # pragma: no cover - a prompt block never fails a letter
+            logger.warning("letter v2: retained-terms block failed (%s)", type(_exc).__name__)
+            clog.debug("letter v2: retained-terms block failed", exc_info=True)
             return None
 
     if is_v2 and v2_signal_fn is not None:
@@ -4219,6 +4255,10 @@ async def _terminal_review_letter(
             except Exception as condense_err:
                 logger.warning(
                     "Condense pass failed for CL %s — keeping the composed "
+                    "letter: %s", cl.id, type(condense_err).__name__,
+                )
+                clog.debug(
+                    "Condense pass failed for CL %s — keeping the composed "
                     "letter: %s", cl.id, condense_err,
                 )
                 # #181: if the failure was the persist commit itself, the
@@ -4234,6 +4274,10 @@ async def _terminal_review_letter(
                         await db.refresh(profile)
                 except Exception as restore_err:  # pragma: no cover - defensive
                     logger.warning(
+                        "Condense rollback/restore failed for CL %s: %s",
+                        cl.id, type(restore_err).__name__,
+                    )
+                    clog.debug(
                         "Condense rollback/restore failed for CL %s: %s",
                         cl.id, restore_err,
                     )
@@ -4361,6 +4405,10 @@ async def _terminal_review_letter(
             except Exception as floor_err:
                 logger.warning(
                     "LETTER_V2_LENGTH condense failed for CL %s — keeping the terminal "
+                    "composition: %s", cl.id, type(floor_err).__name__,
+                )
+                clog.debug(
+                    "LETTER_V2_LENGTH condense failed for CL %s — keeping the terminal "
                     "composition: %s", cl.id, floor_err,
                 )
                 try:
@@ -4371,7 +4419,8 @@ async def _terminal_review_letter(
                     if profile is not None:
                         await db.refresh(profile)
                 except Exception as restore_err:  # pragma: no cover - defensive
-                    logger.warning("LETTER_V2_LENGTH rollback failed for CL %s: %s", cl.id, restore_err)
+                    logger.warning("LETTER_V2_LENGTH rollback failed for CL %s: %s", cl.id, type(restore_err).__name__)
+                    clog.debug("LETTER_V2_LENGTH rollback failed for CL %s: %s", cl.id, restore_err)
                 current = previous
                 final_floor_selection = "condense_failed"
             else:
@@ -4447,6 +4496,10 @@ async def _terminal_review_letter(
                 # invocation return normally (never fails generation).
                 logger.warning(
                     "Final length floor condense failed for CL %s — keeping "
+                    "the terminal composition: %s", cl.id, type(floor_err).__name__,
+                )
+                clog.debug(
+                    "Final length floor condense failed for CL %s — keeping "
                     "the terminal composition: %s", cl.id, floor_err,
                 )
                 try:
@@ -4458,6 +4511,10 @@ async def _terminal_review_letter(
                         await db.refresh(profile)
                 except Exception as restore_err:  # pragma: no cover - defensive
                     logger.warning(
+                        "Final length floor rollback/restore failed for CL "
+                        "%s: %s", cl.id, type(restore_err).__name__,
+                    )
+                    clog.debug(
                         "Final length floor rollback/restore failed for CL "
                         "%s: %s", cl.id, restore_err,
                     )
@@ -4527,7 +4584,14 @@ async def _terminal_review_letter(
                             _subject_of(condensed_draft)
                         ):
                             final_floor_selection = "kept_corrector_limit_grounding"
-                            logger.warning(
+                            logger.warning("LETTER_FINAL_FLOOR kept the corrector's %s-page draft "
+                                "for CL %s over the %s-page norm: the condensed "
+                                "composition states a limit the candidate never stated "
+                                "and a length preference may not override a truth "
+                                "repair (ADR-076 clause 3 amended 2026-09-11, #664)",
+                                m2.page_count, cl.id, norm.letter_pages,
+                            )
+                            clog.debug(
                                 "LETTER_FINAL_FLOOR kept the corrector's %s-page draft "
                                 "for CL %s over the %s-page norm: the condensed "
                                 "composition states a limit the candidate never stated "
@@ -4615,6 +4679,12 @@ async def _terminal_review_letter(
                                     "LETTER_FINAL_FLOOR re-condense of the corrector's "
                                     "repair failed for CL %s — falling back to the "
                                     "condensed composition: %s",
+                                    cl.id, type(recondense_err).__name__,
+                                )
+                                clog.debug(
+                                    "LETTER_FINAL_FLOOR re-condense of the corrector's "
+                                    "repair failed for CL %s — falling back to the "
+                                    "condensed composition: %s",
                                     cl.id, recondense_err,
                                 )
                                 try:
@@ -4626,6 +4696,10 @@ async def _terminal_review_letter(
                                         await db.refresh(profile)
                                 except Exception as restore_err:  # pragma: no cover
                                     logger.warning(
+                                        "LETTER_FINAL_FLOOR re-condense rollback/restore "
+                                        "failed for CL %s: %s", cl.id, type(restore_err).__name__,
+                                    )
+                                    clog.debug(
                                         "LETTER_FINAL_FLOOR re-condense rollback/restore "
                                         "failed for CL %s: %s", cl.id, restore_err,
                                     )
@@ -4690,7 +4764,15 @@ async def _terminal_review_letter(
                                 )
                                 if lost_coverage:
                                     final_floor_selection = "recondensed_repair_lost_coverage"
-                                    logger.warning(
+                                    logger.warning("LETTER_FINAL_FLOOR re-condense for CL %s "
+                                        "dropped %d claimable term(s) the corrector's "
+                                        "repair had added — shipped anyway "
+                                        "(fail-open, no worse than the pre-repair "
+                                        "fallback) but NOT labelled recondensed_repair "
+                                        "(#547 letter half, adversarial finding)",
+                                        cl.id, len(lost_coverage),
+                                    )
+                                    clog.debug(
                                         "LETTER_FINAL_FLOOR re-condense for CL %s "
                                         "dropped claimable term(s) the corrector's "
                                         "repair had added: %s — shipped anyway "
@@ -4833,8 +4915,9 @@ async def _label_application(db: AsyncSession, cl: GeneratedCoverLetter):
         from applire.services.application import get_application_for_job
 
         return await get_application_for_job(cl.job_analysis_id, cl.user_id, db)
-    except Exception:
-        logger.exception("label application lookup failed for cover letter %s", cl.id)
+    except Exception as _exc:
+        logger.error("label application lookup failed for cover letter %s (%s)", cl.id, type(_exc).__name__)
+        clog.debug("label application lookup failed for cover letter %s", cl.id, exc_info=True)
         return None
 
 
@@ -4874,8 +4957,9 @@ async def _in_loop_letter_critic(cl, db: AsyncSession, letter_data: dict) -> lis
         cl.critic_report = report.model_dump(mode="json")
         return [a for a in report.advisories or []
                 if a.kind == "numeric_inconsistency" and a.letter_state]
-    except Exception:
-        logger.exception("in-loop outcome critic failed for cover letter %s — critic_report left NULL", cl.id)
+    except Exception as _exc:
+        logger.error("in-loop outcome critic failed for cover letter %s — critic_report left NULL (%s)", cl.id, type(_exc).__name__)
+        clog.debug("in-loop outcome critic failed for cover letter %s — critic_report left NULL", cl.id, exc_info=True)
         cl.critic_report = None
         return []
 
@@ -5155,10 +5239,14 @@ async def _update_ats_report_letter(
                 )
                 if _pin_app is not None and _pin_app.pinned_facts:
                     pins = load_pins(_pin_app)
-            except Exception:
-                logger.exception(
+            except Exception as _exc:
+                logger.error(
                     "fact-pin load failed during letter audit for %s — "
-                    "auditing without pins (ADR-077 fail-safe)", cl.id,
+                    "auditing without pins (ADR-077 fail-safe) (%s)", cl.id, type(_exc).__name__,
+                )
+                clog.debug(
+                    "fact-pin load failed during letter audit for %s — "
+                    "auditing without pins (ADR-077 fail-safe)", cl.id, exc_info=True,
                 )
         cl.ats_report = audit_cover_letter(
             pdf,
@@ -5184,8 +5272,9 @@ async def _update_ats_report_letter(
             # 786:47 (WP-T hunk): the employer-name repetition advisory.
             employer_names=profile_employer_names(profile_row.profile_json if profile_row else None),
         ).model_dump()
-    except Exception:
-        logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
+    except Exception as _exc:
+        logger.error("ATS audit failed for cover letter %s — ats_report left NULL (%s)", cl.id, type(_exc).__name__)
+        clog.debug("ATS audit failed for cover letter %s — ats_report left NULL", cl.id, exc_info=True)
         cl.ats_report = None
     # E043/US246 (ADR-052 §4): truthfulness self-audit rides the same commit as
     # the artifact + ATS report (letter twin of services/cv.py). Deterministic-
@@ -5210,8 +5299,9 @@ async def _update_ats_report_letter(
         if ledger is None:
             try:
                 ledger = await _latest_keyword_ledger(db, cl.job_analysis_id, user_id=cl.user_id)
-            except Exception:
-                logger.exception("letter truth audit: keyword ledger unavailable for %s", cl.id)
+            except Exception as _exc:
+                logger.error("letter truth audit: keyword ledger unavailable for %s (%s)", cl.id, type(_exc).__name__)
+                clog.debug("letter truth audit: keyword ledger unavailable for %s", cl.id, exc_info=True)
         cl.truthfulness_report = await _letter_truth_audit(
             profile_row.profile_json if profile_row else {},
             audited,
@@ -5232,9 +5322,12 @@ async def _update_ats_report_letter(
         from applire.services.ats_audit import apply_letter_employer_facts
 
         cl.ats_report = apply_letter_employer_facts(cl.ats_report, cl.truthfulness_report)
-    except Exception:
-        logger.exception(
-            "Truthfulness self-audit failed for cover letter %s — report left NULL", cl.id
+    except Exception as _exc:
+        logger.error(
+            "Truthfulness self-audit failed for cover letter %s — report left NULL (%s)", cl.id, type(_exc).__name__
+        )
+        clog.debug(
+            "Truthfulness self-audit failed for cover letter %s — report left NULL", cl.id, exc_info=True
         )
         cl.truthfulness_report = None
     # ADR-060 Pass B (amended 2026-07-30, #322): the outcome critic's
@@ -5257,10 +5350,14 @@ async def _update_ats_report_letter(
         cl.critic_report = critic_report.model_dump(mode="json")
     except _SkipLetterCritic:
         pass
-    except Exception:
-        logger.exception(
+    except Exception as _exc:
+        logger.error(
+            "Outcome critic Pass B failed for cover letter %s — critic_report left NULL (%s)",
+            cl.id, type(_exc).__name__,
+        )
+        clog.debug(
             "Outcome critic Pass B failed for cover letter %s — critic_report left NULL",
-            cl.id,
+            cl.id, exc_info=True,
         )
         cl.critic_report = None
     # ADR-079 clause 8 (E057 adversarial review Finding 3): the .docx
@@ -5333,10 +5430,14 @@ async def _update_ats_report_letter(
             )
             if docx_pin_app is not None and docx_pin_app.pinned_facts:
                 docx_pins = load_pins(docx_pin_app)
-        except Exception:
-            logger.exception(
+        except Exception as _exc:
+            logger.error(
                 "fact-pin load failed during .docx ATS audit for cover "
-                "letter %s — auditing without pins (ADR-077 fail-safe)", cl.id,
+                "letter %s — auditing without pins (ADR-077 fail-safe) (%s)", cl.id, type(_exc).__name__,
+            )
+            clog.debug(
+                "fact-pin load failed during .docx ATS audit for cover "
+                "letter %s — auditing without pins (ADR-077 fail-safe)", cl.id, exc_info=True,
             )
 
         cl.docx_ats_report = audit_cover_letter_docx(
@@ -5356,10 +5457,14 @@ async def _update_ats_report_letter(
                 docx_job, await _label_application(db, cl)
             ),
         ).model_dump()
-    except Exception:
-        logger.exception(
+    except Exception as _exc:
+        logger.error(
+            "docx ATS audit failed for cover letter %s — docx_ats_report left NULL (%s)",
+            cl.id, type(_exc).__name__,
+        )
+        clog.debug(
             "docx ATS audit failed for cover letter %s — docx_ats_report left NULL",
-            cl.id,
+            cl.id, exc_info=True,
         )
         cl.docx_ats_report = None
     # ADR-099 cl. 4(d)/5 (WP-B): every audit door carries the delivery state;
@@ -5588,7 +5693,8 @@ async def render_agent_letter(
     except Exception as pdf_err:
         # Fail-open like the pipeline: HTML preview still works; the audit
         # below degrades to a NULL ATS report (truthfulness needs no PDF).
-        logger.warning("PDF render failed for agent letter %s: %s", cl.id, pdf_err)
+        logger.warning("PDF render failed for agent letter %s: %s", cl.id, type(pdf_err).__name__)
+        clog.debug("PDF render failed for agent letter %s: %s", cl.id, pdf_err)
 
     await _update_ats_report_letter(cl, db, pdf=pdf_bytes)
 

@@ -35,6 +35,17 @@ import logging
 from applire.schemas.cv import TailoredCVData, TailoredContact
 from applire.services.cv import _restore_skill_spelling
 
+import pytest
+
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
+
 # Ground truth pinned live in Tiramisu wave-6 charter run #6 (2026-07-26).
 _VAULT_SKILLS = [
     "GxP Compliance & Computer System Validation",
@@ -88,18 +99,17 @@ class TestAcronymExpansionRestored:
 
 
 class TestConservativeNonMatching:
-    def test_genuinely_different_skill_is_left_alone_and_logged(self, caplog):
+    def test_genuinely_different_skill_is_left_alone_and_logged(self, content_records):
         """A skill present in the tailored CV but genuinely absent from the vault
         (no unambiguous vault original) must survive untouched -- never deleted,
         never guessed at."""
         writer_output = _tailored(["Kubernetes Administration"])
 
-        with caplog.at_level(logging.INFO):
-            result = _restore_skill_spelling(writer_output, _PROFILE)
+        result = _restore_skill_spelling(writer_output, _PROFILE)
 
         assert result.skills == ["Kubernetes Administration"]
         assert any(
-            "Kubernetes Administration" in r.message for r in caplog.records
+            "Kubernetes Administration" in r.getMessage() for r in content_records
         ), "an unmatched skill must be logged, not silently dropped"
 
     def test_ambiguous_correspondence_is_left_alone(self):

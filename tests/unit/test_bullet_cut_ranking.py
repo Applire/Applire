@@ -54,6 +54,15 @@ from applire.services.cv_budget import (  # noqa: E402
     condense_to_budget,
 )
 
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
+
 # The run-A shapes, verbatim where the wording is what makes the point.
 PACKAGING = (
     "Verantwortung für den Sauberraumbereich "
@@ -337,15 +346,14 @@ def test_condense_with_no_claimable_concepts_is_unchanged():
 # --- clause 4: every deletion in the tail leaves a trace ---------------------
 
 
-def test_every_condensed_bullet_is_logged_with_pass_predicate_and_text(caplog):
+def test_every_condensed_bullet_is_logged_with_pass_predicate_and_text(content_records):
     """ADR-072 clause 4. #423 cost four runs and a full input replay to
     attribute *because the deletion left no trace* — the log line names the
     pass, the removed content and the predicate that fired."""
     data = {"contact": {"name": "X"}, "skills": [], "work_history": [
         {"id": "r1", "bullets": [FIGURE_A, LEAN]}]}
-    with caplog.at_level(logging.INFO, logger="applire.services.bullet_cuts"):
-        condense_to_budget(data, _budget({"r1": 1}), 1)
-    lines = [r.getMessage() for r in caplog.records if "TAIL_DELETE" in r.getMessage()]
+    condense_to_budget(data, _budget({"r1": 1}), 1)
+    lines = [r.getMessage() for r in content_records if "TAIL_DELETE" in r.getMessage()]
     assert len(lines) == 1
     assert "condense_to_budget" in lines[0]
     assert "role_id='r1'" in lines[0] and "ceiling=1" in lines[0]

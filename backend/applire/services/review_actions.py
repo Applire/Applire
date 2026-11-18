@@ -39,8 +39,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.services import review_state as rs
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 Kind = Literal["cv", "cover_letter"]
 
@@ -565,8 +567,9 @@ async def _reaudit_sibling(kind: Kind, record, key: str, label: str, db: AsyncSe
                     rs.load_state(sibling.review_state), key, listed_before.label or label, "added",
                 )
                 await _save_state(sibling, state, db)
-    except Exception:
-        logger.exception("sibling re-audit after add-evidence failed (document %s)", record.id)
+    except Exception as _exc:
+        logger.error("sibling re-audit after add-evidence failed (document %s) (%s)", record.id, type(_exc).__name__)
+        clog.debug("sibling re-audit after add-evidence failed (document %s)", record.id, exc_info=True)
         try:
             await db.rollback()  # the pressed document is already committed
         except Exception:  # pragma: no cover
@@ -1123,8 +1126,9 @@ async def skill_backed_now(record, skill: str, db: AsyncSession, *, user_id: uui
             ledger = gap.keyword_ledger
         # MD-Q8: one producer — the delivery-side chip removal reads the same function.
         return skill_backed_on_profile(skill, profile.profile_json, ledger, on_error=False)
-    except Exception:  # noqa: BLE001
-        logger.exception("removal_evidence: skill re-grounding failed — read as not backed")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("removal_evidence: skill re-grounding failed — read as not backed (%s)", type(_exc).__name__)
+        clog.debug("removal_evidence: skill re-grounding failed — read as not backed", exc_info=True)
         return False
 
 

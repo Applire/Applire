@@ -359,6 +359,7 @@ def assemble_tailored_cv(prose: dict, profile_json: dict, *, user_id: uuid.UUID 
 from applire.services.profile.language_names import (  # noqa: E402
     LANGUAGE_NAME_DE_EN as _LANGUAGE_NAME_CANON,
 )
+from applire.content_log import content_logger
 
 
 def _dedup_languages(languages: list[dict]) -> list[dict]:
@@ -1063,7 +1064,12 @@ def _settle_language_preseed(settled: dict, plan: "PreseedPlan") -> dict:
                     plan.budget_managed[eid] = candidate
                 else:
                     plan.budget_managed[eid] = vault_budget
-                    logger.warning(
+                    logger.warning("LANGUAGE_PRESEED_FIGURE_KEPT (#759, ruling E5-2) entry=%s "
+                        "unit_stated=%s — the translation changed a figure or lost the "
+                        "unit; the vault original is rendered",
+                        eid, not budget_needs_unit(candidate),
+                    )
+                    clog.debug(
                         "LANGUAGE_PRESEED_FIGURE_KEPT (#759, ruling E5-2) entry=%s "
                         "vault=%r translated=%r vault_figures=%s translated_figures=%s "
                         "unit_stated=%s — the translation changed a figure or lost the "
@@ -1247,7 +1253,10 @@ def _settle_posting_term_chips(
         present.add(k)
     if not restored:
         return settled
-    logger.warning(
+    logger.warning("LANGUAGE_PASS_POSTING_TERM_RESTORED (790:90): the language pass changed %d "
+        "skill chip(s) that are POSTING TERMS; kept as handed", len(restored),
+    )
+    clog.debug(
         "LANGUAGE_PASS_POSTING_TERM_RESTORED (790:90): the language pass changed a "
         "skill chip that is a POSTING TERM; kept as handed: %s", "; ".join(restored),
     )
@@ -1461,8 +1470,9 @@ async def _second_language_round(
         return prose_draft
     try:
         items = _foreign_prose(compose(prose_draft), document_language)
-    except Exception:  # noqa: BLE001
-        logger.exception("second language round: check failed for CV %s — skipped", cv_id)
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("second language round: check failed for CV %s — skipped (%s)", cv_id, type(_exc).__name__)
+        clog.debug("second language round: check failed for CV %s — skipped", cv_id, exc_info=True)
         return prose_draft
     logger.info(
         "SECOND_LANGUAGE_ROUND (ADR-099 cl. 9) cv_id=%s document_language=%s foreign=%d fired=%s",
@@ -1508,7 +1518,8 @@ async def _second_language_round(
         )
     except Exception as exc:
         record_review_degradation("cv_language_second", "review", type(exc).__name__, 1)
-        logger.exception("second language round failed for CV %s — shipping the draft", cv_id)
+        logger.error("second language round failed for CV %s — shipping the draft (%s)", cv_id, type(exc).__name__)
+        clog.debug("second language round failed for CV %s — shipping the draft", cv_id, exc_info=True)
         return prose_draft
 
 
@@ -1574,13 +1585,18 @@ async def _terminal_language_recheck(
     except Exception as exc:
         # #786 (WP-T): the whole pass failed — recorded like a failed review step.
         record_review_degradation("cv_language_recheck", "review", type(exc).__name__, 1)
-        logger.exception(
+        logger.error(
             "TERMINAL_LANGUAGE_RECHECK failed for CV %s — shipping the corrector's "
-            "draft; the document-language check reports what it finds", cv_id,
+            "draft; the document-language check reports what it finds (%s)", cv_id, type(exc).__name__,
+        )
+        clog.debug(
+            "TERMINAL_LANGUAGE_RECHECK failed for CV %s — shipping the corrector's "
+            "draft; the document-language check reports what it finds", cv_id, exc_info=True,
         )
         return after
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 def _critic_report_for_door(raw):
@@ -1833,7 +1849,11 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
             )
             if moved_idx is not None:
                 moved = writer_top.pop(moved_idx)
-                logger.info(
+                logger.info("TAIL_RELOCATE (#672 L100) pass=_nest_projects predicate="
+                    "top-level copy of a role-tied project role_id=%r",
+                    str(work_history[target_idx].get("id") or ""),
+                )
+                clog.debug(
                     "TAIL_RELOCATE (#672 L100) pass=_nest_projects predicate="
                     "top-level copy of a role-tied project role_id=%r moved=%r",
                     str(work_history[target_idx].get("id") or ""),
@@ -2372,7 +2392,15 @@ def _restore_ledger_bullets(
                 for cand in cands:
                     if cand.concept in already_covered:
                         continue
-                    logger.info(
+                    logger.info("LANGUAGE_RESTORE_SKIPPED (#724 residual, ADR-072 "
+                        "amended 2026-09-19) entry=%s — this "
+                        "tail's own restore candidate is never injected on a "
+                        "cross-language document (it would land verbatim, "
+                        "past the language pass); left to the "
+                        "document-language / narrative-evidence checks",
+                        eid,
+                    )
+                    clog.debug(
                         "LANGUAGE_RESTORE_SKIPPED (#724 residual, ADR-072 "
                         "amended 2026-09-19) entry=%s concept=%s — this "
                         "tail's own restore candidate is never injected on a "
@@ -2606,7 +2634,13 @@ def _restore_ledger_bullets(
             surviving = set(ordered)
             dropped_load_bearing = [b for b in restored_load_bearing if b not in surviving]
             if dropped_load_bearing:
-                logger.warning(
+                logger.warning("LOAD_BEARING_RESTORE_DROPPED (#315): work entry id=%s ceiling "
+                    "max_bullets=%s could not fit %d load-bearing restored bullet(s) "
+                    "even after ordering them ahead of %d pre-existing hit bullet(s)",
+                    eid, rb.max_bullets if rb is not None else None,
+                    len(dropped_load_bearing), len(existing_hits),
+                )
+                clog.debug(
                     "LOAD_BEARING_RESTORE_DROPPED (#315): work entry id=%s ceiling "
                     "max_bullets=%s could not fit %d load-bearing restored bullet(s) "
                     "even after ordering them ahead of %d pre-existing hit bullet(s) "
@@ -3498,7 +3532,10 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
             # entry collapses into it instead of appearing twice.
             if any(_norm(exact) == _norm(r) for r in restored):
                 changed = True
-                logger.info(
+                logger.info("skill spelling guard: a name restores to one already "
+                    "listed — collapsed (no duplicate introduced)"
+                )
+                clog.debug(
                     "skill spelling guard: %r restores to %r which is already "
                     "listed — collapsed (no duplicate introduced)", skill, exact,
                 )
@@ -3512,7 +3549,10 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
         if match is not None:
             if any(_norm(match) == _norm(r) for r in restored):
                 changed = True
-                logger.info(
+                logger.info("skill spelling guard: a name restores to one already "
+                    "listed — collapsed (no duplicate introduced)"
+                )
+                clog.debug(
                     "skill spelling guard: %r restores to %r which is already "
                     "listed — collapsed (no duplicate introduced)", skill, match,
                 )
@@ -3521,7 +3561,8 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
             restored.append(match)
             continue
 
-        logger.info(
+        logger.info("skill spelling guard: a name has no unambiguous vault original -- left as-is")
+        clog.debug(
             "skill spelling guard: %r has no unambiguous vault original -- left as-is",
             skill,
         )
@@ -3741,7 +3782,11 @@ def _restore_narrative_named_skills(
         if hit is None:
             # Never a silent hold-back: this is the #219 case, and the
             # ledger row that authorised the name is what to look at.
-            logger.info(
+            logger.info("skills-list gap guard (#376): a narrated name has no form that "
+                "grounds against the vault (#219, ground_skill_claim) — "
+                "not added; the Oracle would audit the chip unbacked"
+            )
+            clog.debug(
                 "skills-list gap guard (#376): %r is narrated but no form of "
                 "it grounds against the vault (#219, ground_skill_claim) — "
                 "not added; the Oracle would audit the chip unbacked",
@@ -3755,7 +3800,10 @@ def _restore_narrative_named_skills(
         return tailored
 
     for name in to_add:
-        logger.info(
+        logger.info("skills-list gap guard (#376): a name in a narrative bullet but absent "
+            "from the skills list — added"
+        )
+        clog.debug(
             "skills-list gap guard (#376): %r named in a narrative bullet but absent "
             "from the skills list — added",
             name,
@@ -3842,7 +3890,8 @@ async def _with_resolved_contact_photo(
         return tailored
     data_uri = await _resolve_photo_data_uri(tailored.contact.photo_url, storage, crop)
     if data_uri is None:
-        logger.warning(
+        logger.warning("CV render: stored photo is missing — rendered without a photo")
+        clog.debug(
             "CV render: stored photo %s is missing — rendered without a photo",
             tailored.contact.photo_url,
         )
@@ -4665,7 +4714,7 @@ async def _render_cv_background(
                     from applire.services.color_detection import detect_and_cache_company_color
                     await detect_and_cache_company_color(job, db, user_id=owner)
                 except Exception:
-                    logger.debug("detect_and_cache_company_color failed silently", exc_info=True)
+                    clog.debug("detect_and_cache_company_color failed silently", exc_info=True)
 
                 # ADR-092: the posting is shared, the gap analysis is the
                 # user's — keyed on the owner too (another user's analysis of
@@ -4862,10 +4911,14 @@ async def _render_cv_background(
                             )
                             or None
                         )
-                except Exception:
-                    logger.exception(
+                except Exception as _exc:
+                    logger.error(
                         "fact-pin load failed for CV %s — generating without pins "
-                        "(ADR-077 fail-safe)", cv_id,
+                        "(ADR-077 fail-safe) (%s)", cv_id, type(_exc).__name__,
+                    )
+                    clog.debug(
+                        "fact-pin load failed for CV %s — generating without pins "
+                        "(ADR-077 fail-safe)", cv_id, exc_info=True,
                     )
                     cv_pins = []
                     pinned_facts_block = None
@@ -4928,10 +4981,14 @@ async def _render_cv_background(
                     vault_evidence_block = (
                         render_vault_evidence_block(vault_evidence_items, chain="cv") or None
                     )
-                except Exception:
-                    logger.exception(
+                except Exception as _exc:
+                    logger.error(
                         "strongest-vault-evidence selection failed for CV %s — the writer "
-                        "runs without the digest (#303)", cv_id,
+                        "runs without the digest (#303) (%s)", cv_id, type(_exc).__name__,
+                    )
+                    clog.debug(
+                        "strongest-vault-evidence selection failed for CV %s — the writer "
+                        "runs without the digest (#303)", cv_id, exc_info=True,
                     )
                     vault_evidence_items = []
 
@@ -5202,10 +5259,14 @@ async def _render_cv_background(
                     # MD-Q9 R10: the baseline is the draft AFTER the round — a chip
                     # the round removed and a later round re-adds is not "audited".
                     truth_audit_skills = list(prose_draft.get("skills") or [])
-                except Exception:
-                    logger.exception(
+                except Exception as _exc:
+                    logger.error(
                         "The ADR-071 clause 3 attribution round failed for CV %s — "
-                        "skipped; generation continues with the settled draft", cv_id,
+                        "skipped; generation continues with the settled draft (%s)", cv_id, type(_exc).__name__,
+                    )
+                    clog.debug(
+                        "The ADR-071 clause 3 attribution round failed for CV %s — "
+                        "skipped; generation continues with the settled draft", cv_id, exc_info=True,
                     )
 
                 # ADR-038 enforcement: ensure skill tags + prose (incl. project bullets)
@@ -5348,11 +5409,16 @@ async def _render_cv_background(
                 )
                 try:
                     measured = await _measure_and_condense(record, db, condense_ctx)
-                except Exception:
-                    logger.exception(
+                except Exception as _exc:
+                    logger.error(
+                        "measure-and-condense failed for CV %s — continuing unmeasured; "
+                        "the audit renders on its own and must never fail generation (%s)",
+                        record.id, type(_exc).__name__,
+                    )
+                    clog.debug(
                         "measure-and-condense failed for CV %s — continuing unmeasured; "
                         "the audit renders on its own and must never fail generation",
-                        record.id,
+                        record.id, exc_info=True,
                     )
                     measured = None
 
@@ -5418,8 +5484,9 @@ async def _render_cv_background(
                     truth_round.late_removed.extend(late)
                     try:
                         measured = await _measure_and_condense(record, db, condense_ctx)
-                    except Exception:
-                        logger.exception("re-measure after the MD-Q8 chip drop failed for CV %s", record.id)
+                    except Exception as _exc:
+                        logger.error("re-measure after the MD-Q8 chip drop failed for CV %s (%s)", record.id, type(_exc).__name__)
+                        clog.debug("re-measure after the MD-Q8 chip drop failed for CV %s", record.id, exc_info=True)
 
                 await _late_chips()
 
@@ -5465,10 +5532,14 @@ async def _render_cv_background(
                     # the reviewer sees the CHANGE — it is not silently reverted).
                     try:
                         measured = await _measure_and_condense(record, db, condense_ctx)
-                    except Exception:
-                        logger.exception(
+                    except Exception as _exc:
+                        logger.error(
                             "measure-and-condense failed on subject-identity re-entry "
-                            "for CV %s — re-reviewing unmeasured", record.id,
+                            "for CV %s — re-reviewing unmeasured (%s)", record.id, type(_exc).__name__,
+                        )
+                        clog.debug(
+                            "measure-and-condense failed on subject-identity re-entry "
+                            "for CV %s — re-reviewing unmeasured", record.id, exc_info=True,
                         )
                         measured = None
                     if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
@@ -5512,14 +5583,16 @@ async def _render_cv_background(
                 # decides on the CV page (keep x+1 or cut). Never fails generation.
                 try:
                     await _propose_page_cut(record, db, condense_ctx, measured)
-                except Exception:
-                    logger.exception("page-cut proposal failed for CV %s — no x+1 card", record.id)
+                except Exception as _exc:
+                    logger.error("page-cut proposal failed for CV %s — no x+1 card (%s)", record.id, type(_exc).__name__)
+                    clog.debug("page-cut proposal failed for CV %s — no x+1 card", record.id, exc_info=True)
                     record.page_overflow = None
                 # ADR-039: the single ready-commit — status + reports together.
                 await db.commit()
 
             except Exception as exc:
-                logger.exception("CV generation failed for %s: %s", cv_id, exc)
+                logger.error("CV generation failed for %s: %s", cv_id, type(exc).__name__)
+                clog.debug("CV generation failed for %s: %s", cv_id, exc, exc_info=True)
                 try:
                     _record_generation_failure(record, exc)
                     await db.commit()
@@ -6202,7 +6275,8 @@ async def _cv_pins(record: GeneratedCV, db: AsyncSession) -> list:
             return []
         return active_pins(load_pins(app), "cv")
     except Exception as exc:
-        logger.exception("fact-pin load failed for page-overflow CV %s", record.id)
+        logger.error("fact-pin load failed for page-overflow CV %s (%s)", record.id, type(exc).__name__)
+        clog.debug("fact-pin load failed for page-overflow CV %s", record.id, exc_info=True)
         raise PageOverflowPinsUnavailable("the fact pins could not be loaded; try again") from exc
 
 
@@ -6308,8 +6382,9 @@ async def _measure_current(record: GeneratedCV, db: AsyncSession) -> "MeasuredRe
         html = await get_cv_html(record.id, db, user_id=record.user_id)
         text, count = extract_text_and_pages(await _html_to_pdf(html))
         target = await _resolve_audit_target(record, db)
-    except Exception:
-        logger.exception("PAGE_OVERFLOW_MEASURE failed cv_id=%s", record.id)
+    except Exception as _exc:
+        logger.error("PAGE_OVERFLOW_MEASURE failed cv_id=%s (%s)", record.id, type(_exc).__name__)
+        clog.debug("PAGE_OVERFLOW_MEASURE failed cv_id=%s", record.id, exc_info=True)
         return None
     return MeasuredRender(text, count, False, target, DEFAULT_REGION)
 
@@ -6723,8 +6798,9 @@ def _with_unreviewed_delta(
             final_raw=final_raw,
         )
         return _dc_replace(outcome, unreviewed_changes=changes or None)
-    except Exception:
-        logger.exception("unreviewed-delta measurement failed for CV %s — not recorded", record.id)
+    except Exception as _exc:
+        logger.error("unreviewed-delta measurement failed for CV %s — not recorded (%s)", record.id, type(_exc).__name__)
+        clog.debug("unreviewed-delta measurement failed for CV %s — not recorded", record.id, exc_info=True)
         return outcome
 
 
@@ -7073,8 +7149,9 @@ async def _terminal_review(
         if reviewed_cell["draft"] is not None:
             try:
                 reviewed_subject = _compose(reviewed_cell["draft"])
-            except Exception:
-                logger.exception("raw compose of the reviewed draft failed — no delta")
+            except Exception as _exc:
+                logger.error("raw compose of the reviewed draft failed — no delta (%s)", type(_exc).__name__)
+                clog.debug("raw compose of the reviewed draft failed — no delta", exc_info=True)
         outcome_cell["outcome"] = settle_to_outcome(
             settle,
             chain_id="cv_terminal_review",
@@ -7238,10 +7315,14 @@ async def _terminal_review(
             subject_by_draft[key] = TailoredCVData.model_validate(record.tailored_data)
             if v2 is not None:
                 v2.note_measure(current, measure_cell["measured"])
-        except Exception:
-            logger.exception(
+        except Exception as _exc:
+            logger.error(
                 "measure-and-condense failed on terminal re-entry for CV %s — "
-                "the re-entered round reviews unmeasured", record.id,
+                "the re-entered round reviews unmeasured (%s)", record.id, type(_exc).__name__,
+            )
+            clog.debug(
+                "measure-and-condense failed on terminal re-entry for CV %s — "
+                "the re-entered round reviews unmeasured", record.id, exc_info=True,
             )
             measure_cell["measured"] = None
         if rounds > CV_TERMINAL_REENTRY_MAX:
@@ -7256,8 +7337,9 @@ async def _terminal_review(
     final_raw = None
     try:
         final_raw = _compose(current)
-    except Exception:
-        logger.exception("raw compose of the final draft failed for CV %s — no delta", record.id)
+    except Exception as _exc:
+        logger.error("raw compose of the final draft failed for CV %s — no delta (%s)", record.id, type(_exc).__name__)
+        clog.debug("raw compose of the final draft failed for CV %s — no delta", record.id, exc_info=True)
     return TerminalReviewResult(
         prose_draft=current,
         measured=measure_cell["measured"],
@@ -7302,8 +7384,9 @@ async def _in_loop_critic(record: GeneratedCV, db: AsyncSession, v2_terminal) ->
                 a for a in (report.advisories or [])
                 if a.kind in ("internal_inconsistency", "numeric_inconsistency") and a.cv_state
             ]
-    except Exception:
-        logger.exception("in-loop outcome critic failed for CV %s — critic_report left NULL", record.id)
+    except Exception as _exc:
+        logger.error("in-loop outcome critic failed for CV %s — critic_report left NULL (%s)", record.id, type(_exc).__name__)
+        clog.debug("in-loop outcome critic failed for CV %s — critic_report left NULL", record.id, exc_info=True)
         record.critic_report = None
     finally:
         _set_llm_log_stage(prior_stage)
@@ -7365,10 +7448,12 @@ def _drop_late_unbacked_chips(
         record.content_snapshot = build_content_snapshot(tailored)
         if final_raw is not None:
             final_raw = final_raw.model_copy(update={"skills": keep(final_raw.skills)})
-        logger.info("MD-Q8: CV %s — late unbacked skills chips dropped at delivery: %s", record.id, chips)
+        logger.info("MD-Q8: CV %s — %d late unbacked skills chip(s) dropped at delivery", record.id, len(chips))
+        clog.debug("MD-Q8: CV %s — late unbacked skills chips dropped at delivery: %s", record.id, chips)
         return new_prose, final_raw, late_chip_findings(chips, shipped)
-    except Exception:  # noqa: BLE001
-        logger.exception("MD-Q8 late-chip drop failed for CV %s — draft kept", record.id)
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("MD-Q8 late-chip drop failed for CV %s — draft kept (%s)", record.id, type(_exc).__name__)
+        clog.debug("MD-Q8 late-chip drop failed for CV %s — draft kept", record.id, exc_info=True)
         return prose_draft, final_raw, []
 
 
@@ -7557,10 +7642,14 @@ async def _update_ats_report(
             label_app = pin_app
             if pin_app is not None and pin_app.pinned_facts:
                 audit_pins = load_pins(pin_app)
-        except Exception:
-            logger.exception(
+        except Exception as _exc:
+            logger.error(
                 "fact-pin load failed during ATS audit for CV %s — auditing "
-                "without pins (ADR-077 fail-safe)", record.id,
+                "without pins (ADR-077 fail-safe) (%s)", record.id, type(_exc).__name__,
+            )
+            clog.debug(
+                "fact-pin load failed during ATS audit for CV %s — auditing "
+                "without pins (ADR-077 fail-safe)", record.id, exc_info=True,
             )
         record.ats_report = _audit_cv_text(
             text,
@@ -7587,8 +7676,9 @@ async def _update_ats_report(
             # 786:237 (WP-T hunk): a "keep" on the x+1 card decides the length.
             pages_kept_at=_pages_kept_at(getattr(record, "page_overflow", None)),
         ).model_dump()
-    except Exception:
-        logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
+    except Exception as _exc:
+        logger.error("ATS audit failed for CV %s — ats_report left NULL (%s)", record.id, type(_exc).__name__)
+        clog.debug("ATS audit failed for CV %s — ats_report left NULL", record.id, exc_info=True)
         record.ats_report = None
     # E043/US246 (ADR-052 §4): truthfulness self-audit of the FINAL data (post-
     # condense, overrides applied) rides the same single commit — "ready implies
@@ -7632,9 +7722,12 @@ async def _update_ats_report(
             # MD-Q17 F3: the same titles the generation loop's truth round read.
             posting_titles=await _posting_titles_for(record, db, owner),
         )
-    except Exception:
-        logger.exception(
-            "Truthfulness self-audit failed for CV %s — report left NULL", record.id
+    except Exception as _exc:
+        logger.error(
+            "Truthfulness self-audit failed for CV %s — report left NULL (%s)", record.id, type(_exc).__name__
+        )
+        clog.debug(
+            "Truthfulness self-audit failed for CV %s — report left NULL", record.id, exc_info=True
         )
         record.truthfulness_report = None
     # ADR-060 Pass A (third amendment, 2026-07-31 / ADR-067 clause 5): the
@@ -7680,10 +7773,14 @@ async def _update_ats_report(
         record.critic_report = critic_report.model_dump(mode="json")
     except _SkipCritic:
         pass  # the generation's in-loop critic report stands
-    except Exception:
-        logger.exception(
+    except Exception as _exc:
+        logger.error(
+            "Outcome critic Pass A failed for CV %s — critic_report left NULL (%s)",
+            record.id, type(_exc).__name__,
+        )
+        clog.debug(
             "Outcome critic Pass A failed for CV %s — critic_report left NULL",
-            record.id,
+            record.id, exc_info=True,
         )
         record.critic_report = None
     # ADR-079 clause 8 (E057/US296, #637): the .docx export's OWN ATS audit —
@@ -7764,10 +7861,14 @@ async def _update_ats_report(
             docx_label_app = docx_pin_app
             if docx_pin_app is not None and docx_pin_app.pinned_facts:
                 docx_audit_pins = load_pins(docx_pin_app)
-        except Exception:
-            logger.exception(
+        except Exception as _exc:
+            logger.error(
                 "fact-pin load failed during .docx ATS audit for CV %s — "
-                "auditing without pins (ADR-077 fail-safe)", record.id,
+                "auditing without pins (ADR-077 fail-safe) (%s)", record.id, type(_exc).__name__,
+            )
+            clog.debug(
+                "fact-pin load failed during .docx ATS audit for CV %s — "
+                "auditing without pins (ADR-077 fail-safe)", record.id, exc_info=True,
             )
 
         record.docx_ats_report = audit_cv_docx(
@@ -7783,9 +7884,12 @@ async def _update_ats_report(
             vault_index=grounding_vault_index(docx_profile_json),  # ADR-090 cl. 4
             non_claim=non_claim_names_for_job(docx_job, docx_label_app),  # WP-R, same names as the PDF report
         ).model_dump()
-    except Exception:
-        logger.exception(
-            "docx ATS audit failed for CV %s — docx_ats_report left NULL", record.id
+    except Exception as _exc:
+        logger.error(
+            "docx ATS audit failed for CV %s — docx_ats_report left NULL (%s)", record.id, type(_exc).__name__
+        )
+        clog.debug(
+            "docx ATS audit failed for CV %s — docx_ats_report left NULL", record.id, exc_info=True
         )
         record.docx_ats_report = None
     # ADR-099 cl. 4(d)/5 (WP-B): every audit door carries the delivery state — the

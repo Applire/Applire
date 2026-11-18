@@ -37,8 +37,10 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Literal, Optional
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 DeliveryClass = Literal["F", "A", "U", "S"]
 
@@ -449,8 +451,9 @@ def annotate_report(report: dict | None) -> list[str]:
                 cls, res = rendered_class(REGISTRY[f"keyword:{bucket}"])
                 delivery[bucket] = {"delivery_class": cls, "resolver": res}
             kw["delivery"] = delivery
-    except Exception:  # noqa: BLE001 — a stamp failure must never fail an audit
-        logger.exception("finding_registry.annotate_report failed; report left unstamped")
+    except Exception as _exc:  # noqa: BLE001 — a stamp failure must never fail an audit
+        logger.error("finding_registry.annotate_report failed; report left unstamped (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.annotate_report failed; report left unstamped", exc_info=True)
     return unregistered
 
 
@@ -465,8 +468,9 @@ def annotate_truthfulness(report: dict | None) -> list[str]:
             verdict = cr.get("verdict") if isinstance(cr, dict) else None
             if isinstance(verdict, dict):
                 _stamp(verdict, verdict_kinds(verdict), unregistered)
-    except Exception:  # noqa: BLE001
-        logger.exception("finding_registry.annotate_truthfulness failed; report left unstamped")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("finding_registry.annotate_truthfulness failed; report left unstamped (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.annotate_truthfulness failed; report left unstamped", exc_info=True)
     return unregistered
 
 
@@ -480,8 +484,9 @@ def stamp_ats_model(report):
         if bad:
             logger.warning("FINDING_REGISTRY_UNREGISTERED kinds=%s", sorted(set(bad)))
         return type(report).model_validate(data)
-    except Exception:  # noqa: BLE001
-        logger.exception("finding_registry.stamp_ats_model failed; report left unstamped")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("finding_registry.stamp_ats_model failed; report left unstamped (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.stamp_ats_model failed; report left unstamped", exc_info=True)
         return report
 
 
@@ -495,8 +500,9 @@ def stamp_truthfulness_model(report):
                 logger.warning("FINDING_REGISTRY_UNREGISTERED kinds=%s", [v.verdict, v.detail_key])
                 continue
             v.delivery_class, v.resolver = rendered_class(hit[1])
-    except Exception:  # noqa: BLE001
-        logger.exception("finding_registry.stamp_truthfulness_model failed")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("finding_registry.stamp_truthfulness_model failed (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.stamp_truthfulness_model failed", exc_info=True)
     return report
 
 
@@ -552,8 +558,9 @@ def apply_delivery(
         if bad:
             logger.warning("FINDING_REGISTRY_UNREGISTERED kinds=%s", sorted(set(bad)))
         return out
-    except Exception:  # noqa: BLE001
-        logger.exception("finding_registry.apply_delivery failed; report left as is")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("finding_registry.apply_delivery failed; report left as is (%s)", type(_exc).__name__)
+        clog.debug("finding_registry.apply_delivery failed; report left as is", exc_info=True)
         return report
 
 
@@ -654,8 +661,9 @@ def delivered_report(
             removals = removals + removal_rows(
                 [f for f in late if f.text.casefold() not in shipped], pins=pins,
             )
-    except Exception:  # noqa: BLE001
-        logger.exception("delivered_report: delivery state failed — none recorded")
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("delivered_report: delivery state failed — none recorded (%s)", type(_exc).__name__)
+        clog.debug("delivered_report: delivery state failed — none recorded", exc_info=True)
     return apply_delivery(report, review_degradation=review_degradation, removals=removals, fixed=fixed)
 
 # UAT-3d (Hazelnut build 5, WP-A1 hub) — the profile-health hub's kinds.

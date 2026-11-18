@@ -51,8 +51,10 @@ from applire.models.company import Company
 from applire.models.user_settings import UserSettings
 from applire.services import safe_fetch
 from applire.services.owner_resolution import resolve_user_id
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 DEFAULT_ACCENT = "#2b5fa8"
 _SCRAPE_TTL_DAYS = 30
@@ -193,10 +195,11 @@ async def _fetch_favicon_color(domain: str) -> str | None:
         r, g, b = best.rgb.r, best.rgb.g, best.rgb.b
         return "#{:02x}{:02x}{:02x}".format(r, g, b)
     except safe_fetch.UnsafeFetchRefused as exc:
-        logger.info("Favicon fetch refused for %s (RD-7): %s", domain, exc)
+        logger.info("Favicon fetch refused (RD-7)")
+        clog.debug("Favicon fetch refused for %s (RD-7): %s", domain, exc)
         return None
     except Exception as exc:
-        logger.debug("Favicon fetch failed for %s: %s", domain, exc)
+        clog.debug("Favicon fetch failed for %s: %s", domain, exc)
         return None
 
 
@@ -230,10 +233,11 @@ async def _fetch_meta_color(domain: str) -> str | None:
                 return match.group(1)
         return None
     except safe_fetch.UnsafeFetchRefused as exc:
-        logger.info("Meta-tag scrape refused for %s (RD-7): %s", domain, exc)
+        logger.info("Meta-tag scrape refused (RD-7)")
+        clog.debug("Meta-tag scrape refused for %s (RD-7): %s", domain, exc)
         return None
     except Exception as exc:
-        logger.debug("Meta-tag scrape failed for %s: %s", domain, exc)
+        clog.debug("Meta-tag scrape failed for %s: %s", domain, exc)
         return None
 
 
@@ -258,7 +262,7 @@ async def _llm_color_fallback(company_name: str) -> str | None:
         if re.fullmatch(r"#[0-9a-fA-F]{6}", color):
             return color
     except Exception as exc:
-        logger.debug("LLM color fallback failed: %s", exc)
+        clog.debug("LLM color fallback failed: %s", exc)
     return None
 
 
@@ -311,7 +315,7 @@ async def detect_and_cache_company_color(job: "JobAnalysis", db: AsyncSession, *
         if age < timedelta(days=_SCRAPE_TTL_DAYS) and company.color_profile_id:
             job.company_id = company.id
             await db.flush()
-            logger.debug("Cache hit for domain %s", domain)
+            clog.debug("Cache hit for domain %s", domain)
             return
 
     # Step 2: Favicon
@@ -329,10 +333,11 @@ async def detect_and_cache_company_color(job: "JobAnalysis", db: AsyncSession, *
         source = "llm"
 
     if not hex_color:
-        logger.debug("Color detection yielded no result for domain %s", domain)
+        clog.debug("Color detection yielded no result for domain %s", domain)
         return
 
     company = await _upsert_company_color(domain, job.company_name, hex_color, source, db)
     job.company_id = company.id
     await db.flush()
-    logger.info("Detected %s color for domain %s via %s", hex_color, domain, source)
+    logger.info("Detected %s color via %s", hex_color, source)
+    clog.debug("Detected %s color for domain %s via %s", hex_color, domain, source)

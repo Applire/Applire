@@ -39,6 +39,15 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 
+@pytest.fixture
+def content_records():
+    """The content logger's records (the content tree is written only at DEBUG)."""
+    from applire import content_log
+
+    with content_log.capturing() as records:
+        yield records
+
+
 @pytest.fixture(autouse=True)
 def _v1_pipelines(monkeypatch):
     """These tests pin the v1 pipelines (0.43 behaviour). v2 is the default since
@@ -550,7 +559,7 @@ class TestRestoreLedgerBulletsProtectsLoadBearingClaims:
         # ever dropping the number itself.
         assert five_hit_bullets[-1] not in final_bullets
 
-    def test_logs_loudly_when_a_load_bearing_restore_still_cannot_fit(self, caplog):
+    def test_logs_loudly_when_a_load_bearing_restore_still_cannot_fit(self, caplog, content_records):
         """ADR-061 clause 8 ("every drop is diagnosable from the log alone"):
         if the ceiling is so tight that even front-ordered load-bearing
         restorations do not all fit, the cancellation must be a loud,
@@ -621,10 +630,11 @@ class TestRestoreLedgerBulletsProtectsLoadBearingClaims:
         dropped = {vault_bullet_a, vault_bullet_b} - set(final_bullets)
         assert len(dropped) == 1
 
-        warnings = [r for r in caplog.records if "LOAD_BEARING_RESTORE_DROPPED" in r.message]
+        warnings = [r for r in caplog.records if "LOAD_BEARING_RESTORE_DROPPED" in r.getMessage()]
         assert warnings, "no loud, greppable log line for a cancelled load-bearing restore"
-        assert "#315" in warnings[0].message
-        assert next(iter(dropped)) in warnings[0].message
+        assert "#315" in warnings[0].getMessage()
+        texts = [r.getMessage() for r in content_records if "LOAD_BEARING_RESTORE_DROPPED" in r.getMessage()]
+        assert texts and next(iter(dropped)) in texts[0]
 
     def test_no_new_figure_is_ever_minted(self):
         """Guardrail (#315 acceptance): restoration only ever copies a vault
@@ -977,15 +987,14 @@ class TestCoverageProtectsTheSoleCarrier:
         bullets = result.work_history[0].bullets
         assert bullets == [b for b in self.BULLETS if b in set(bullets)]
 
-    def test_the_deletion_is_logged_with_the_pass_and_the_role(self, caplog):
+    def test_the_deletion_is_logged_with_the_pass_and_the_role(self, content_records):
         import logging
 
         from applire.services.cv import _restore_ledger_bullets
 
         tailored, profile_json, ledger, budget = self._fixture(with_concepts=True)
-        with caplog.at_level(logging.INFO, logger="applire.services.bullet_cuts"):
-            _restore_ledger_bullets(tailored, profile_json, ledger, budget)
-        lines = [r.getMessage() for r in caplog.records if "TAIL_DELETE" in r.getMessage()]
+        _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        lines = [r.getMessage() for r in content_records if "TAIL_DELETE" in r.getMessage()]
         assert len(lines) == 1
         assert "_cap_bullets" in lines[0]
         assert "work_entry_id='w1'" in lines[0]

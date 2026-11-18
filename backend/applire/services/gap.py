@@ -87,8 +87,10 @@ from applire.services.scope_requirements import (
     build_scope_ledger_entries,
     build_scope_prompt_block,
 )
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 
 def _unwrap_clusters(raw: Any) -> list:
@@ -169,7 +171,11 @@ def _strengths_the_ledger_supports(
         if not isinstance(item, str):
             continue
         if claimable_by_name.get(_norm_gap(item)) is False:
-            logger.info(
+            logger.info("gap analysis: dropped a strength — this run's ledger "
+                "marks it unclaimable (E-4: one response may not publish a "
+                "concept as a strength and a critical gap at once)"
+            )
+            clog.debug(
                 "gap analysis: dropped %r from strengths — this run's ledger "
                 "marks it unclaimable (E-4: one response may not publish a "
                 "concept as a strength and a critical gap at once)",
@@ -663,7 +669,11 @@ def _reconcile_cluster_categories(
         members = [g for g in (cluster.get("gaps") or []) if isinstance(g, str)]
         surviving = [g for g in members if _norm_gap(g) not in strengths]
         for dropped in [g for g in members if _norm_gap(g) in strengths]:
-            logger.info(
+            logger.info("cluster_gaps: dropped a member from cluster %r — this analysis "
+                "publishes it under category_a (a strength is not a gap)",
+                cluster.get("id"),
+            )
+            clog.debug(
                 "cluster_gaps: dropped %r from cluster %r — this analysis "
                 "publishes it under category_a (a strength is not a gap)",
                 dropped,
@@ -753,7 +763,7 @@ async def _cluster_concepts(
                 GapClusterSchema.model_validate(item).model_dump(include=LLM_CLUSTER_KEYS)
             )
         except Exception:
-            logger.debug("cluster_gaps: dropped malformed cluster %r", item)
+            clog.debug("cluster_gaps: dropped malformed cluster %r", item)
     # Empty clusters out of non-empty gaps in is almost always a parse failure
     # (JSON-mode envelope not unwrapped, truncation, …) — NOT a genuine "no gaps"
     # outcome. Downstream a false-empty here made the interview tell candidates with
@@ -1092,7 +1102,12 @@ def merge_ledger_per_requirement(
             continue  # a cluster this session worked may move freely
         merged[i] = _carried_row(p, f)
         carried.append(i)
-        logger.info(
+        logger.info("gap analysis merge: kept a row at %r (fresh run said %r) — outside the "
+            "requirements this session touched (ADR-089 clause 5)",
+            p.get("status"),
+            f_status,
+        )
+        clog.debug(
             "gap analysis merge: kept %r at %r (fresh run said %r) — outside the "
             "requirements this session touched (ADR-089 clause 5)",
             p.get("concept"),
@@ -1248,7 +1263,8 @@ async def _carry_forward_clusters(
                 continue
             i = carried.index(target)
             carried[i] = fold_into(target, g, ledger, denied_concepts)
-            logger.info("carry_forward: %r folded into carried cluster %r (787:95 rule a)", g, target.get("id"))
+            logger.info("carry_forward: a member folded into carried cluster %r (787:95 rule a)", target.get("id"))
+            clog.debug("carry_forward: %r folded into carried cluster %r (787:95 rule a)", g, target.get("id"))
         return rest
 
     leftover_c = _fold(leftover_c)
@@ -1346,7 +1362,10 @@ async def _reask_unverified_quotes(
             max_tokens=GAP_ANALYSIS_MAX_TOKENS,
         )
     except Exception as exc:
-        logger.warning("gap analysis: evidence-quote re-ask failed (%s: %s) — first answer kept",
+        logger.warning("gap analysis: evidence-quote re-ask failed (%s) — first answer kept",
+            type(exc).__name__
+        )
+        clog.debug("gap analysis: evidence-quote re-ask failed (%s: %s) — first answer kept",
                        type(exc).__name__, exc)
         return data
     fixed = {

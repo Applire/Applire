@@ -96,8 +96,10 @@ from applire.services.keyword_ledger import (
     keyword_liabilities,
 )
 from applire.services.profile.reconcile.stance import declared_denial_matches
+from applire.content_log import content_logger
 
 logger = logging.getLogger(__name__)
+clog = content_logger(__name__)
 
 MemberFact = Literal["covered", "declined", "open"]
 CoverageStatus = Literal["open", "partly_covered", "covered", "declined"]
@@ -731,7 +733,11 @@ def _split_against_ledger(
         # dropping needs a ledger to be orphaned from.
         surviving = [m for m in members if member_matches_ledger(m, keyword_ledger)]
         for dropped in [m for m in members if m not in surviving]:
-            logger.info(
+            logger.info("gap_coverage: dropped a carried member from cluster %r — it "
+                "matches no row of the new ledger (ADR-089 clause 4)",
+                cluster.get("id"),
+            )
+            clog.debug(
                 "gap_coverage: dropped carried member %r from cluster %r — it "
                 "matches no row of the new ledger (ADR-089 clause 4)",
                 dropped,
