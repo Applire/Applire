@@ -72,18 +72,27 @@ export function footerDate(isoDay: string, locale: string): string {
     : new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(d);
 }
 
-async function call(method: "GET" | "POST" | "DELETE", body?: unknown): Promise<Response> {
+// One literal method per call, so the route tripwire can read each one.
+function readCall(): Promise<Response> {
+  return fetch(`${API_BASE}/api/me/log-consent`, { method: "GET", credentials: "same-origin" });
+}
+
+function agreeCall(version: string): Promise<Response> {
   return fetch(`${API_BASE}/api/me/log-consent`, {
-    method,
+    method: "POST",
     credentials: "same-origin",
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version }),
   });
+}
+
+function withdrawCall(): Promise<Response> {
+  return fetch(`${API_BASE}/api/me/log-consent`, { method: "DELETE", credentials: "same-origin" });
 }
 
 export async function readLogConsent(): Promise<LogConsentState | null> {
   try {
-    const res = await call("GET");
+    const res = await readCall();
     return res.ok ? ((await res.json()) as LogConsentState) : null;
   } catch {
     return null;
@@ -94,7 +103,7 @@ export type ConsentResult = { ok: true; state: LogConsentState } | { ok: false; 
 
 export async function agreeLogConsent(version: string): Promise<ConsentResult> {
   try {
-    const res = await call("POST", { version });
+    const res = await agreeCall(version);
     if (res.ok) return { ok: true, state: (await res.json()) as LogConsentState };
     let code: unknown = null;
     try {
@@ -110,7 +119,7 @@ export async function agreeLogConsent(version: string): Promise<ConsentResult> {
 
 export async function withdrawLogConsent(): Promise<ConsentResult> {
   try {
-    const res = await call("DELETE");
+    const res = await withdrawCall();
     return res.ok ? { ok: true, state: (await res.json()) as LogConsentState } : { ok: false, stale: false };
   } catch {
     return { ok: false, stale: false };
