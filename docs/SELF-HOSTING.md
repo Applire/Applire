@@ -212,7 +212,13 @@ Other secrets to mind:
 - **`PROVIDER_KEY_SECRET`** (only for `LLM_KEY_MODE=user`, where each person enters their own AI provider key under Settings). It encrypts those keys and lives **only in `.env`**: never in the database and never in a backup archive (`scripts/backup.sh` does not pack `.env`), so a stolen database dump decrypts no one's key. Generate it with `openssl rand -hex 32` and keep a second copy in your password manager; restoring a backup needs it too. Lost, every stored key reads as unset and people enter theirs again; nothing else is affected. `LLM_KEY_MODE=user` in `.env` without it stops the start. Be honest with the people on your instance: while a key is stored, the running server can decrypt it, so whoever operates the host can technically use it. The key form says so. In `user` mode a person with neither their own key nor your grant (Admin → People → "Grant instance key", also on your own row) is asked for a key instead of running on yours; there is never a silent fallback to the instance key.
 - **The session secret** (it signs document links for agents) is generated on first start and stored in the database (`instance_state`) — there is nothing to configure, and it travels with your backup. Passwords are stored hashed (scrypt); tokens are stored hashed and shown once.
 - **The setup code** is printed in the backend log until the instance is claimed (Section 13). Treat the log as sensitive until then.
-- **`LLM_DEBUG_LOG=true`** writes every prompt and completion — including CV and interview PII — to JSONL files inside the backend container, with **no size or age cap**. The backend logs a WARNING at every startup while it's on, and `GET /api/ops/health` reports `"debug_log_on": true`. Since 0.43 one instance can serve several people, so the file then holds **other people's** CVs and interview answers as well as yours. Turn it off (`LLM_DEBUG_LOG=false` or delete the line) and delete the accumulated files when you're done debugging. In the shipped `docker-compose.yml` the files live inside the backend container, not on a volume, so recreating the container (for example on an upgrade) also deletes them.
+- **`LOG_LEVEL=DEBUG` writes content logs.** At the default level (`INFO`) and above, Applire's logs carry ids, counts and check names only — never what someone typed, a CV line or an AI reply. At `DEBUG`, and only there, it also writes two content logs, both JSON lines per day with the user id on each line: application lines in `CONTENT_LOG_DIR` (default `logs/content`) and every AI request and reply in full in `LLM_DEBUG_LOG_DIR` (default `logs/llm`). In the shipped `docker-compose.yml` both live on their own volume, `applire_logs`, which `scripts/backup.sh` never archives. While the level is `DEBUG`:
+  - the backend logs a WARNING at every start naming both folders and the age limit, and `GET /api/ops/health` reports `"debug_log_on": true`;
+  - **every person is asked for their consent** before the AI works for them: on the invite page, after sign-in for existing accounts, and again whenever the text changes. Without a current consent, AI work is refused (HTTP 409 `log_consent_required`; over MCP the same code). People can read and withdraw the consent under Settings; after a withdrawal the account stays, reading and downloading still work, and the nightly cleanup removes that person's text from both logs, keeping only technical figures (step, model, duration, token counts) without the user id;
+  - the consent text names who runs the instance and who reads the logs. Set `LOG_CONSENT_OPERATOR_NAME`, `LOG_CONSENT_CONTACT_EMAIL`, `LOG_CONSENT_ASSISTANT_PROVIDER`, `LOG_CONSENT_LOG_HOST` and `LOG_CONSENT_MODEL_PROVIDER` in `.env`; an unset one prints "(not set by the operator)" in the text, and the startup warning (and, for the first two, the admin dashboard) names it. Changing any of them, or the age limit, asks everyone again;
+  - `CONTENT_LOG_RETENTION_DAYS` deletes both logs' daily files after that many days (by the date in the file name). `0`, the default, keeps them until you delete them.
+
+  Turn it off with `LOG_LEVEL=INFO` and `docker compose up -d`, then delete the files (`docker compose run --rm backend sh -c 'rm -rf /app/logs/content /app/logs/llm'`, or `docker volume rm` the `applire_logs` volume once the stack is down). `LLM_DEBUG_LOG` is no longer a switch: set to `true` above `DEBUG` it logs nothing and the backend says so at startup; delete the line.
 
 ## 8. TLS and a reverse proxy in front
 
@@ -284,7 +290,7 @@ Migrations run automatically when the backend container starts — there's no se
 **Upgrading from 0.42 or earlier to 0.43 (accounts):** the first start stops at the setup screen. Read the one-time code from `docker compose logs backend`, open `/setup`, and claim the instance — your existing vault becomes the administrator's account (Section 13). Also: delete `AUTH_PROVIDER=none` from `.env` (it now means `local`), add `APPLIRE_AGENT_TOKEN` to your MCP client configs (Section 16), and move any uptime probe that read more than the status from `/health` to `/api/ops/health` (Section 12). If your database held more than one live Master Profile for a user, the migration keeps the newest and retires the others; the administrator's upgrade notice names how many. Usage recorded before the upgrade is not attributed to a person, so AI usage per person starts at 0. The full list is in the `CHANGELOG.md` *Upgrade notes*. Four checks in an old `.env` that the notes are easy to miss on:
 
 - **The comment above `AUTH_PROVIDER=none` is no longer true.** Older `.env` files carry a comment block that begins `# 'none' disables authentication` (or `# Auth — 'none' disables authentication`). It describes the pre-0.43 behaviour, so delete it together with the line.
-- **`LLM_DEBUG_LOG=true`** now writes other people's CVs and interview answers to the debug log as well as yours, and the backend warns about it at every start (Section 7). Unless you are debugging right now, set it to `false`.
+- **`LLM_DEBUG_LOG=true`** wrote other people's CVs and interview answers to the debug log as well as yours. Since 0.46 that line does nothing; content logs follow `LOG_LEVEL=DEBUG` alone (Section 7). Delete it.
 - **Variables your `.env` does not set.** The upgrade notice (below) names the new and changed ones. To compare by hand, fetch the release's `env.example` next to your `.env` and list the variable names it has and your `.env` lacks:
 
   ```bash
@@ -318,7 +324,7 @@ curl -X POST -H "Authorization: Bearer apl_…" http://localhost/api/settings/up
 
 ### A page shows "502 Bad Gateway" and nginx's log says nothing
 
-By default nginx logs only critical errors. Its full upstream error lines also print the request's query string, which can hold a 60-minute download link or a one-time sign-in code. To diagnose a 502/504, set `LOG_LEVEL=DEBUG` in `.env`, run `docker compose up -d`, reproduce the error and read `docker compose logs nginx backend`. Set it back afterwards: the links in those lines stay valid until they expire.
+By default nginx logs only critical errors. Its full upstream error lines also print the request's query string, which can hold a 60-minute download link or a one-time sign-in code. To diagnose a 502/504, set `LOG_LEVEL=DEBUG` in `.env`, run `docker compose up -d`, reproduce the error and read `docker compose logs nginx backend`. Set it back afterwards: the links in those lines stay valid until they expire. `DEBUG` also switches on the content logs and the consent question for everyone on the instance (Section 7), so keep the window short and delete the content log files afterwards.
 
 ### Generations hang for minutes and then fail
 
@@ -467,8 +473,8 @@ component statuses and the numeric gauges, and a count of profiles the upgrade r
 anything from a candidate's documents.
 
 **Token costs.** Every model call is recorded with its token counts — numbers and ids only, never
-the text of a prompt or an answer. (Full text is only ever written when you switch `LLM_DEBUG_LOG`
-on; that log contains personal data and is off by default.) Records are kept for
+the text of a prompt or an answer. (Full text is only ever written at `LOG_LEVEL=DEBUG`,
+with each person's consent; that log contains personal data and is off by default.) Records are kept for
 `LLM_USAGE_RETENTION_DAYS` days (365 by default; `0` keeps them forever) and are deleted by the same
 nightly cleanup. Where a provider does not report token counts, Applire estimates them and says so
 next to the figure.
